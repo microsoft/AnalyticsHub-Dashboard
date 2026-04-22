@@ -27,7 +27,7 @@ Customers are solely responsible for ensuring that their use of the template too
 **Microsoft disclaims any and all liability** arising from or related to customers' use of the template tool.
 
 **Experimental Template Notice:**
-This is an experimental template with audit logs as the primary source. The audit logs from Microsoft Purview are intended to support security and compliance use cases. While they provide visibility into Copilot and agent interactions, they are not intended to serve as the sole source of truth for licensing or full-fidelity reporting on Copilot activity. For the most accurate and reliable usage insights, users are encouraged to refer to data from the Microsoft 365 Admin Center and Viva Insights. Currently available in English only.
+This is an experimental template with audit logs as the primary source. The audit logs from Microsoft Purview are intended to support security and compliance use cases. While they provide visibility into Copilot and agent interactions, they are not intended to serve as the sole source of truth for licensing or full-fidelity reporting on Copilot activity.
 
 </details>
 
