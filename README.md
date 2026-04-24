@@ -79,19 +79,25 @@ Follow the traditional workflow using browser-based portals to export your data:
 <details>
 <summary>⚡ Option B: Automated PowerShell Scripts (For regular refreshes)</summary>
 
-The [AI-in-One Dashboard](https://github.com/microsoft/AI-in-One-Dashboard/tree/main/scripts) ships PowerShell scripts for the core audit-log export. The same scripts produce CSVs that work with this template — simply re-use them and point the template parameters at the outputs.
+The `scripts/` folder contains PowerShell scripts that automate the audit-log export. They produce CSVs that plug straight into the template parameters. *(Originally from the [Microsoft AI-in-One Dashboard](https://github.com/microsoft/AI-in-One-Dashboard/tree/main/scripts) — MIT licensed.)*
 
-**Quick Start (Local execution)**:
+**Quick Start (Local, interactive):**
 ```powershell
-# 1. Install required modules
+# 1. Install required modules (one-off)
 Install-Module Microsoft.Graph.Beta.Security -Scope CurrentUser
 
-# 2. Run the AI-in-One export scripts
+# 2. Run the export scripts
 cd scripts
-.\create-query.ps1              # Creates audit log query
-.\get-copilot-interactions.ps1  # Exports query results
-.\get-copilot-users.ps1         # Exports licensed users list
+.\create-query.ps1              # Creates a Purview audit-log query
+.\get-copilot-interactions.ps1  # Exports the query results
+.\get-copilot-users.ps1         # Exports the licensed users list
 ```
+
+**Scheduled / unattended:** see `scripts/automation/` for two deployment paths:
+- `scripts/automation/appreg/` — run the export weekly as PowerShell scheduled runbooks against an app registration (SharePoint-backed queue)
+- `scripts/automation/azure/` — deploy an Azure Automation account via Bicep that runs the same runbooks on schedule
+
+Each subfolder has its own README with prerequisites and step-by-step setup.
 
 </details>
 
