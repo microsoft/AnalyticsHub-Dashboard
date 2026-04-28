@@ -70,8 +70,8 @@ Two PBIT variants ship with this repo — pick one based on where your CSVs live
 
 | Template | Use when… | Data source format |
 |---|---|---|
-| **`AI-Business-Value-Dashboard-28-04-csv-path.pbit`** | CSVs sit on a local drive or network share, or you only need a one-off load | Direct file path per CSV |
-| **`AI-Business-Value-Dashboard-28-04-sharepoint-refresh.pbit`** | You want scheduled refresh in Power BI Service from SharePoint / OneDrive | SharePoint **folder URL** per data source |
+| **`AI-Business-Value-Dashboard-29-04-csv-path.pbit`** | CSVs sit on a local drive or network share, or you only need a one-off load | Direct file path per CSV |
+| **`AI-Business-Value-Dashboard-29-04-sharepoint-refresh.pbit`** | You want scheduled refresh in Power BI Service from SharePoint / OneDrive | SharePoint **folder URL** per data source |
 
 > ⚠️ **The SharePoint Refresh template needs four separate folders** — one each for **Interactions**, **Licensed Users**, **Org Data**, and **Agent 365**. The Interactions query unions every CSV in its folder; the others pick the most recently modified CSV. Pointing multiple parameters at the same folder will fail (the wrong file gets picked, or non-audit CSVs get parsed as audit logs).
 
@@ -212,8 +212,8 @@ If you don't have Agent 365 data, leave this parameter blank — the rest of the
 <summary>🧩 Step 5: Connect CSVs to the Template</summary>
 
 1. Open the PBIT for your chosen variant in **Power BI Desktop**:
-   - **CSV Path**: `AI-Business-Value-Dashboard-28-04-csv-path.pbit` — supply a **file path** for each parameter
-   - **SharePoint Refresh**: `AI-Business-Value-Dashboard-28-04-sharepoint-refresh.pbit` — supply a **SharePoint Site URL** (root site / teams URL) plus a **folder URL** for each data source (one folder per source — see warning above)
+   - **CSV Path**: `AI-Business-Value-Dashboard-29-04-csv-path.pbit` — supply a **file path** for each parameter
+   - **SharePoint Refresh**: `AI-Business-Value-Dashboard-29-04-sharepoint-refresh.pbit` — supply a **SharePoint Site URL** (root site / teams URL) plus a **folder URL** for each data source (one folder per source — see warning above)
 2. When prompted for parameters, supply:
    - **Copilot Interactions File** → audit log CSV(s)
    - **Copilot Licensed Users** → licensed users CSV
