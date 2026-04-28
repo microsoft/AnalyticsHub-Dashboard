@@ -16,7 +16,9 @@ This repository contains the <strong>AI Business Value Dashboard</strong> Power 
 
 ## 📸 Dashboard Preview
 
-*(Add your screenshot or animated preview here — e.g. `Images/ABV-Preview.gif`)*
+![AI Business Value Dashboard preview](Images/ABV-Preview.gif)
+
+*Animated walkthrough of all dashboard pages. Static page images are in [`Images/pages/`](Images/pages) and the source PDF is at [`Images/source/AI Business Value Dashboard - Sample.pdf`](Images/source/AI%20Business%20Value%20Dashboard%20-%20Sample.pdf).*
 
 ---
 
