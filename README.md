@@ -64,6 +64,17 @@ This is an experimental template with audit logs as the primary source. The audi
 
 **Quick Overview**: Export 3–4 data sources → Connect them to Power BI → Analyse your AI value
 
+### Choose Your Template
+
+Two PBIT variants ship with this repo — pick one based on where your CSVs live:
+
+| Template | Use when… | Data source format |
+|---|---|---|
+| **`AI-Business-Value-Dashboard-28-04-csv-path.pbit`** | CSVs sit on a local drive or network share, or you only need a one-off load | Direct file path per CSV |
+| **`AI-Business-Value-Dashboard-28-04-sharepoint-refresh.pbit`** | You want scheduled refresh in Power BI Service from SharePoint / OneDrive | SharePoint **folder URL** per data source |
+
+> ⚠️ **The SharePoint Refresh template needs four separate folders** — one each for **Interactions**, **Licensed Users**, **Org Data**, and **Agent 365**. The Interactions query unions every CSV in its folder; the others pick the most recently modified CSV. Pointing multiple parameters at the same folder will fail (the wrong file gets picked, or non-audit CSVs get parsed as audit logs).
+
 ### Choose Your Method
 
 <details>
@@ -200,12 +211,14 @@ If you don't have Agent 365 data, leave this parameter blank — the rest of the
 <details>
 <summary>🧩 Step 5: Connect CSVs to the Template</summary>
 
-1. Open `AI-Business-Value-Dashboard.pbit` in **Power BI Desktop**
+1. Open the PBIT for your chosen variant in **Power BI Desktop**:
+   - **CSV Path**: `AI-Business-Value-Dashboard-28-04-csv-path.pbit` — supply a **file path** for each parameter
+   - **SharePoint Refresh**: `AI-Business-Value-Dashboard-28-04-sharepoint-refresh.pbit` — supply a **SharePoint Site URL** (root site / teams URL) plus a **folder URL** for each data source (one folder per source — see warning above)
 2. When prompted for parameters, supply:
-   - **Copilot Interactions File** → path to your Purview audit log CSV
-   - **Copilot Licensed Users** → path to your licensed users CSV
-   - **Org Data File** → path to your Entra org data CSV
-   - **Agent 365** *(optional)* → path to Agent 365 export
+   - **Copilot Interactions File** → audit log CSV(s)
+   - **Copilot Licensed Users** → licensed users CSV
+   - **Org Data File** → Entra org data CSV
+   - **Agent 365** *(optional)* → Agent 365 export
 3. Click **Load** — the model will refresh against your data
 4. *(Optional)* Adjust slicers on the Overview page:
    - Hourly Salary (default $40 — adjust to your org's average)
