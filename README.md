@@ -46,10 +46,10 @@ Pick the path that matches your environment. Each folder is self-contained — R
 
 | Path | Folder | Best when… | Volume ceiling |
 |---|---|---|---|
-| **Manual** | [`Manual/`](Manual/) | One-off, ad-hoc, or single-user. Customer manually exports audit CSV from Purview UI, drops into the local PBIT | < ~100K events lifetime |
-| **SharePoint — Single File** *(recommended default)* | [`SharePoint/Single File/`](SharePoint/Single%20File/) | Scheduled refresh in PBI Service without a Gateway. Script overwrites one CSV per refresh — no folder iteration, no privacy firewall errors | Rolling 30 days, refreshes weekly or daily |
-| **SharePoint — Folder** *(advanced)* | [`SharePoint/Folder/`](SharePoint/Folder/) | Need > 30 days of accumulated history but no Fabric. Folder iteration auto-unions all daily CSVs | Up to 180 days (Graph cap), heavier PBI memory footprint |
-| **Fabric / Lakehouse** | [`Fabric/`](Fabric/) | Have Fabric capacity. JSON parsing happens upstream in a notebook → best performance, multi-year history, sub-second dashboard | Millions of events, multi-year |
+| **Manual** | [`1. Manual/`](1.%20Manual/) | One-off, ad-hoc, or single-user. Customer manually exports audit CSV from Purview UI, drops into the local PBIT | < ~100K events lifetime |
+| **SharePoint — Single File** *(recommended default)* | [`2. SharePoint/Single File/`](2.%20SharePoint/Single%20File/) | Scheduled refresh in PBI Service without a Gateway. Script overwrites one CSV per refresh — no folder iteration, no privacy firewall errors | Rolling 30 days, refreshes weekly or daily |
+| **SharePoint — Folder** *(advanced)* | [`2. SharePoint/Folder/`](2.%20SharePoint/Folder/) | Need > 30 days of accumulated history but no Fabric. Folder iteration auto-unions all daily CSVs | Up to 180 days (Graph cap), heavier PBI memory footprint |
+| **Fabric / Lakehouse** | [`3. Fabric/`](3.%20Fabric/) | Have Fabric capacity. JSON parsing happens upstream in a notebook → best performance, multi-year history, sub-second dashboard | Millions of events, multi-year |
 
 Inside each path:
 - The PBIT/PBIP for that pattern (and a README explaining what parameters to fill in)

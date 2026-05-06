@@ -17,7 +17,7 @@ The recommended path for tenants with Fabric capacity (or Premium / PPU). All th
 
 | Pick this path if… | Pick another path instead if… |
 |---|---|
-| You have Fabric capacity (F2+ or trial) | Power BI Pro only with no Fabric / Premium → use [`SharePoint Refresh`](../SharePoint%20Refresh/) or the csv-path PBIT at the repo root |
+| You have Fabric capacity (F2+ or trial) | Power BI Pro only with no Fabric / Premium → use [`2. SharePoint/`](../2.%20SharePoint/) or the [`1. Manual/`](../1.%20Manual/) PBIT |
 | Audit volume > 100K events / week | Audit volume is small enough to refresh in Power BI dataset directly |
 | You want scheduled, hands-off ingestion | You're happy running scripts ad-hoc |
 | You hit the 1 GB dataset cap or 2-hour refresh timeout in Service | Refresh has always succeeded for you |
@@ -159,7 +159,7 @@ Three routes depending on what you're willing to stand up:
 
 1. **Easiest — Fabric Lakehouse Shortcut.** Create a Shortcut from your Fabric Lakehouse to the ADL container holding raw CSVs. The Shortcut makes the ADL data appear as a Lakehouse `Files/` reference. Run the notebook unchanged.
 
-2. **No Fabric — use the [`Manual CSV`](../Manual%20CSV/) `sharepoint only` PBIT instead.** Point its `Copilot Interactions File` parameter at `https://<account>.dfs.core.windows.net/<container>/<path>/parsed.csv`. Skips the Spark step; works when you already pre-parse upstream and just need Power BI to consume the result.
+2. **No Fabric — use the [`1. Manual/`](../1.%20Manual/) PBIT instead.** Point its `Copilot Interactions File` parameter at `https://<account>.dfs.core.windows.net/<container>/<path>/parsed.csv`. Skips the Spark step; works when you already pre-parse upstream and just need Power BI to consume the result.
 
 3. **Pure ADL + Databricks.** Mount the ADL container in Databricks (or use Unity Catalog external locations), then run the notebook from there as in the Databricks section above.
 
