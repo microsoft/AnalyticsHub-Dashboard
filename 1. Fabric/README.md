@@ -95,6 +95,66 @@ Credit consumption and product feedback are **export-only** in Microsoft's porta
 `flows/` folder has Power Automate flows that auto-land those exports for you. Full detail in
 [`docs/OPTIONAL-SOURCES.md`](docs/OPTIONAL-SOURCES.md).
 
+<details>
+<summary><b>Manual export instructions</b> — for first-time setups or sources without an API (click to expand)</summary>
+
+The notebooks above are the recommended path. If you'd rather export the underlying data by hand first
+(common for a one-off pilot, or for sources that have no API), use the steps below. Each export
+produces a CSV you can drop into the Lakehouse `Files/` area and ingest with the matching notebook.
+
+### Audit logs — Microsoft Purview
+- **Portal:** [security.microsoft.com](https://security.microsoft.com) → **Audit**
+- **Role:** Audit Reader or Compliance Administrator
+- **Activities:** `Copilot Activities – Interacted with Copilot` (required); optionally `Interacted with a Connected AI App` and `Interacted with an AI App` for third-party agent coverage
+- **Output:** Set a date range, run the search, **Export → Download all results** (CSV, ~50 columns, one row per interaction)
+
+### Licensed users — Microsoft 365 Admin Center
+- **Portal:** [admin.microsoft.com](https://admin.microsoft.com) → **Reports → Usage → Microsoft 365 Copilot → Readiness**
+- **Role:** Global Administrator or Reports Reader
+- **Pre-step:** turn off "Display concealed user/group/site names" under **Settings → Org Settings → Reports** so user names aren't masked
+- **Output:** Scroll to **Copilot Readiness Details**, click `...` → **Export** (CSV with `UserPrincipalName`, `Department`, `Has Copilot license assigned`, `LastActivityDate`)
+
+### Org data — Microsoft Entra
+- **Portal:** [entra.microsoft.com](https://entra.microsoft.com) → **Identity → Users → All users**
+- **Role:** User Administrator or Global Reader
+- **Required columns:** `UserPrincipalName`, `Department`. Recommended: `JobTitle`, `Office`, `City`, `Country`, `Manager`
+- **Output:** **Download users** (CSV)
+
+### Agent 365 — Microsoft Admin Center
+- **Portal:** [admin.microsoft.com](https://admin.microsoft.com) → **Agents**
+- **Role:** Global Administrator or Reports Reader (with AI Admin in a Frontier-enrolled tenant)
+- **Output:** **Export** from the Agents Overview (CSV: agent name, ID, availability status, last activity, template, assigned users)
+
+### Credit consumption — Power Platform Admin Center
+- **Portal:** [admin.powerplatform.microsoft.com](https://admin.powerplatform.microsoft.com) → **Billing → Licensing / Copilot Studio messages**
+- **Role:** Global Administrator or Billing Administrator
+- **Output:** Three CSVs that all start with `EntitlementConsumption…MCSMessages…`:
+  - `…TenantDetailsReport…` — credits per environment, per day
+  - `…TenantPerAgentDetailsReport…` — credits per agent
+  - `…TenantPerUserDetailsReport…` — credits per user
+
+  Drop all three into the Lakehouse `Files/credit_consumption/` folder. See [`CREDIT-CONSUMPTION-SETUP.md`](CREDIT-CONSUMPTION-SETUP.md) for the full walkthrough.
+
+### Product feedback — Microsoft Admin Center (Health)
+- **Portal:** [admin.microsoft.com](https://admin.microsoft.com) → **Health → Product feedback**
+- **Role:** Global Administrator or Reports Reader
+- **Filters:** Product = **Microsoft 365 Copilot** (and optionally Copilot Studio); date range matching your audit export
+- **Privacy:** to see user-level data, ensure "Display concealed user names in all reports" is disabled
+- **Output:** **Export data** (CSV: date, UPN, product, feedback type, rating, verbatim comment)
+
+### Copilot Studio agent transcripts — Power Apps / Power Automate
+- **Portal:** [make.powerapps.com](https://make.powerapps.com) (one-off) or [make.powerautomate.com](https://make.powerautomate.com) (recurring)
+- **Role:** System Administrator, System Customizer, or Environment Maker (Dataverse read on `ConversationTranscript`)
+- **One-off:** open the **ConversationTranscript** table → **Data → Export data to Excel**, save as CSV
+- **Recurring:** scheduled flow → **Dataverse → List rows** (table `ConversationTranscripts`, filter `createdOn ge [yesterday]`) → **Create file** in OneDrive/SharePoint or send via email; the AIBV email-landing flow in [`flows/`](flows/) can pick it up automatically
+
+### Loading the exports
+Drop each CSV into the matching folder under your Lakehouse `Files/` area (e.g. `Files/audit/`,
+`Files/credit_consumption/`, `Files/feedback/`). Then run the matching notebook from the table above —
+each notebook tolerates missing inputs, so partial coverage is fine for a first pass.
+
+</details>
+
 ## Works beyond Fabric
 
 The two core artifacts are deliberately portable:
