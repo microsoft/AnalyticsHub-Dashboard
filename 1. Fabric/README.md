@@ -183,6 +183,7 @@ CSVs upstream? The [`../2. SharePoint/`](../2.%20SharePoint/) path consumes them
 
 ## Reference
 
+- **Roles & permissions (all sources):** [`docs/PERMISSIONS.md`](docs/PERMISSIONS.md)
 - **Table schemas:** [`docs/DATA-DICTIONARY.md`](docs/DATA-DICTIONARY.md)
 - **Optional sources in depth:** [`docs/OPTIONAL-SOURCES.md`](docs/OPTIONAL-SOURCES.md)
 - **Credit consumption, step by step:** [`CREDIT-CONSUMPTION-SETUP.md`](CREDIT-CONSUMPTION-SETUP.md)
