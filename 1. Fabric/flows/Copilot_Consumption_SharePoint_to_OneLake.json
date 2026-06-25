@@ -19,8 +19,8 @@
         "type": "String",
         "metadata": { "description": "Folder watched for new consumption CSVs." }
       },
-      "OneLakeWorkspace": { "defaultValue": "Copilot Analytics Demo", "type": "String" },
-      "OneLakeLakehouse": { "defaultValue": "CopilotAdoptionLake", "type": "String" },
+      "OneLakeWorkspace": { "defaultValue": "<your-workspace>", "type": "String" },
+      "OneLakeLakehouse": { "defaultValue": "<your-lakehouse>", "type": "String" },
       "TargetFolder": {
         "defaultValue": "Files/credit_consumption",
         "type": "String",

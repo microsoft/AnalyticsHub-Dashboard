@@ -6,12 +6,12 @@
     "parameters": {
       "$connections": { "defaultValue": {}, "type": "Object" },
       "OneLakeWorkspace": {
-        "defaultValue": "Copilot Analytics Demo",
+        "defaultValue": "<your-workspace>",
         "type": "String",
         "metadata": { "description": "Fabric workspace name (or GUID) that holds the lakehouse." }
       },
       "OneLakeLakehouse": {
-        "defaultValue": "CopilotAdoptionLake",
+        "defaultValue": "<your-lakehouse>",
         "type": "String",
         "metadata": { "description": "Lakehouse name WITHOUT the .Lakehouse suffix." }
       },

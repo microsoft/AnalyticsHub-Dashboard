@@ -48,7 +48,7 @@ Pick **one** of the two options below.
 
 ### Option A — Manual upload (simplest, recommended to start) ⭐
 
-1. Open your Fabric workspace → open the **`CopilotAdoptionLake`** lakehouse.
+1. Open your Fabric workspace → open the **`<your-lakehouse>`** lakehouse.
 2. In the **Files** area, create a folder called **`credit_consumption`** (lower‑case, exactly that).
    - *Already there from a previous run?* Just open it.
 3. **Drag and drop** the three CSV files into that folder.
@@ -76,7 +76,7 @@ This turns the three CSVs into three tidy tables the dashboard can read.
 
 1. In your Fabric workspace, import **`notebooks/Copilot_Credit_Consumption_Ingester.ipynb`**
    (**+ New → Import notebook**) — *or* open it if it's already there.
-2. Attach it to the **`CopilotAdoptionLake`** lakehouse and **pin it as default** (📌).
+2. Attach it to the **`<your-lakehouse>`** lakehouse and **pin it as default** (📌).
 3. Click **Run all**. It finishes in well under a minute.
 
 When it's done you'll have three new tables in the lakehouse:
@@ -91,7 +91,7 @@ When it's done you'll have three new tables in the lakehouse:
 1. Open the dashboard (`…1905 Extra - Fabric.pbip` / the published `.pbit`) in **Power BI Desktop**.
 2. **Home → Transform data → Edit parameters** and set **`Enable_Consumption`** to **`Include`**.
 3. Make sure the **Fabric SQL Endpoint** and **Lakehouse** parameters point at your
-   `CopilotAdoptionLake` lakehouse.
+   `<your-lakehouse>` lakehouse.
 4. **Home → Refresh.**
 
 The **Credits Consumed** page should now populate — total credits, billed vs non‑billed, a

@@ -27,8 +27,8 @@ Both write to OneLake with the **DFS (ADLS Gen2) three-step pattern**: `PUT ?res
    - Email flow → **Office 365 Outlook** connection.
    - SharePoint flow → **SharePoint** connection.
 3. Set the flow **parameters**:
-   - `OneLakeWorkspace` — Fabric workspace name or GUID (e.g. `Copilot Analytics Demo`).
-   - `OneLakeLakehouse` — lakehouse name **without** the `.Lakehouse` suffix (e.g. `CopilotAdoptionLake`).
+   - `OneLakeWorkspace` — Fabric workspace name or GUID (e.g. `<your-workspace>`).
+   - `OneLakeLakehouse` — lakehouse name **without** the `.Lakehouse` suffix (e.g. `<your-lakehouse>`).
    - `TargetFolder` — keep `Files/credit_consumption` (must match `SOURCE_DIR` in the ingester notebook).
    - `TenantId`, `ClientId`, `ClientSecret` — identity used for the OneLake calls (see below).
    - Email flow only: `SubjectFilter` (default `Copilot Usage Dashboard`).

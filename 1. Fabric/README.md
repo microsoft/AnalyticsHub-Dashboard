@@ -26,7 +26,7 @@ all the heavy JSON parsing happens in Spark and the dataset stays small and fast
 ### 1. Create a Lakehouse
 
 In a Fabric workspace on a capacity (F2+ or trial): **+ New -> Lakehouse**, name it (e.g.
-`CopilotAdoptionLake`). Note its **SQL endpoint** from Lakehouse settings -
+`<your-lakehouse>`). Note its **SQL endpoint** from Lakehouse settings -
 `<workspace-guid>.datawarehouse.fabric.microsoft.com`.
 
 ### 2. Register an Entra app
@@ -65,7 +65,7 @@ Open `AI Business Value Dashboard - Fabric.pbit` in Power BI Desktop and supply 
 | Parameter | Required? | Value |
 |---|---|---|
 | **Fabric SQL Endpoint** | Yes | `<workspace-guid>.datawarehouse.fabric.microsoft.com` |
-| **Lakehouse Name** | Yes | Your Lakehouse name (e.g. `CopilotAdoptionLake`) |
+| **Lakehouse Name** | Yes | Your Lakehouse name (e.g. `<your-lakehouse>`) |
 | `Enable_Dataverse` | Optional | `Include` to load agent tables, else `Exclude` |
 | `Enable_ProductFeedback` | Optional | `Include` to load `user_feedback`, else `Exclude` |
 | `Enable_Agent365` | Optional | `Include` to load `agents_365`, else `Exclude` |
