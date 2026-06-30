@@ -25,3 +25,6 @@ Thumbs.db
 *.parquet
 
 *.xlsx
+
+__pycache__/
+*.pyc

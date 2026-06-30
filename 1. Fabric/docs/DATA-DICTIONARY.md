@@ -58,8 +58,17 @@ AppHost, ThreadId, SensitivityLabelId, Context_Type,
 AISystemPlugin_Id, AISystemPlugin_Name, ModelTransparencyDetails_ModelName,
 AccessedResource_Type, AccessedResource_Action, AccessedResource_SiteUrl, AccessedResource_SensitivityLabelId,
 Message_Id, Message_isPrompt, Resource_Count,
-InteractionDate, WeekStart, MonthStart
+InteractionDate, WeekStart, MonthStart,
+Agent_TitleID, Agent_EntraId
 ```
+
+> **Agent identifiers (two keys, used together).** `Agent_TitleID` is parsed from the legacy
+> `CopilotStudio.Declarative.{title}` / `T_`/`P_` forms. `Agent_EntraId` captures the **Microsoft
+> Entra Agent ID** GUID that **Agent 365** now stamps into the audit `AgentId` instead of the
+> declarative string. When agents are registered/recreated under Entra Agent ID, `Agent_TitleID`
+> would otherwise land NULL and drop out of the Agents join — `Agent_EntraId` keeps them resolvable
+> via the registry crosswalk. The two are populated mutually exclusively per row (legacy → TitleID,
+> Entra → EntraId), so old and new agents both join cleanly during a mixed migration.
 
 ### 2. `copilot_licensed_users` — licensed user list
 ⚠️ **Contract fix required.** The producer sanitizes spaces→underscores, writing
