@@ -6,7 +6,7 @@
 
 [![Built by Microsoft](https://img.shields.io/badge/BUILT_BY-MICROSOFT-4F73B8?style=for-the-badge&labelColor=1C2632)](https://github.com/Keithland89/AI-Business-Value-Dashboard)
 [![Power BI Template](https://img.shields.io/badge/POWER_BI-TEMPLATE-F2C811?style=for-the-badge&logo=powerbi&logoColor=1C2632&labelColor=1C2632)](#-pick-a-deployment-path)
-[![Deploy](https://img.shields.io/badge/DEPLOY-FABRIC_%2B_SHAREPOINT-09B39D?style=for-the-badge&labelColor=1C2632)](#-pick-a-deployment-path)
+[![Deploy](https://img.shields.io/badge/DEPLOY-FABRIC_%2B_SHAREPOINT_%2B_DATAVERSE-09B39D?style=for-the-badge&labelColor=1C2632)](#-pick-a-deployment-path)
 [![Stars](https://img.shields.io/github/stars/Keithland89/AI-Business-Value-Dashboard?style=for-the-badge&color=7F215D&labelColor=1C2632)](https://github.com/Keithland89/AI-Business-Value-Dashboard/stargazers)
 
 **Hours saved · assisted value · adoption &amp; readiness** — a defensible ROI narrative aligned to
@@ -39,17 +39,20 @@ open an issue in this repo.
 
 ## 🚀 Pick a deployment path
 
-There are **two** ways to run the dashboard. Both use the same data; they differ only in *how* the
-data gets in and how it refreshes.
+There are **three** ways to run the dashboard. All use the same data; they differ only in *how* the
+data gets in and how it refreshes. The third — **Dataverse** — lives in its own companion repo.
 
 | Path | Best when… | What it gives you |
 |---|---|---|
 | **[1. Fabric](1.%20Fabric/)** *(recommended)* | You have **Fabric capacity** (or Premium / PPU) — or any Spark + SQL stack. | Notebooks parse the data into a Lakehouse → best performance, sub‑second dashboard, and the optional billing & feedback pages. The same notebooks + template also run on Databricks, Synapse, or Azure SQL. |
 | **[2. SharePoint](2.%20SharePoint/)** | Power BI Pro, **no Fabric** / Premium. | Two ways in: a **manual first-run** (export two CSVs → run one Python processor → connect the Local-CSV template — great for a quick look at the numbers), or **automated** scheduled refresh via [Microsoft PAX](https://github.com/microsoft/PAX) → SharePoint. The simplest core deployment. |
+| **[Dataverse ↗](https://github.com/Keithland89/Copilot-Studio-Agent-Analytics)** | Your **Copilot Studio agents** land transcripts in **Dataverse**. | A companion repo with a Dataverse‑native `.pbit` — point it at your `ConversationTranscript` table + a CSV folder. Smallest footprint, no Fabric or SharePoint needed. |
 
 **Not sure?** **Fabric** is the recommended path — it scales furthest and unlocks the optional
 billing/feedback pages. No Fabric or Premium capacity? **SharePoint** runs the core dashboard on just
-Power BI Pro.
+Power BI Pro. Running **Copilot Studio agents on Dataverse**? The
+[Dataverse companion repo ↗](https://github.com/Keithland89/Copilot-Studio-Agent-Analytics) reads your
+transcripts natively.
 
 > Each path folder has its **own README** with the exact, step‑by‑step setup. This page is just the
 > map.
@@ -62,8 +65,9 @@ README.md  ·  LICENSE  ·  Images/
 1. Fabric/      Fabric.pbit  +  deeper Studio-analysis build (richer agent/topic/CSAT pages)
                 docs/  ·  flows/  ·  notebooks/  ·  pipelines/  ·  CREDIT-CONSUMPTION-SETUP.md
 2. SharePoint/  SharePoint.pbit  ·  SharePoint (Local CSV).pbit  ·  scripts/  ·  azure-container/
-3. Dataverse/   Dataverse.pbit  ·  model_expressions_reference.tmdl
 archive/        superseded versions — kept for reference, not maintained
+
+Dataverse path → companion repo: Keithland89/Copilot-Studio-Agent-Analytics
 ```
 </details>
 
@@ -92,7 +96,7 @@ baseline** → summed to **Hours Saved** → × hourly rate = **Assisted Value**
 | Agents 365 | ⬜ Optional | Agent 365 export (Fabric path) |
 | Credit consumption (billing) | ⬜ Optional | Power Platform Admin Center export → see [`1. Fabric/CREDIT-CONSUMPTION-SETUP.md`](1.%20Fabric/CREDIT-CONSUMPTION-SETUP.md) |
 | Product feedback | ⬜ Optional | M365 Admin Center → Health → Product Feedback export |
-| Copilot Studio agent transcripts | ⬜ Optional | Dataverse `ConversationTranscript` table (Power Apps / Power Automate export, or direct Dataverse connection) |
+| Copilot Studio agent transcripts | ⬜ Optional | Dataverse `ConversationTranscript` table — use the [Dataverse companion repo ↗](https://github.com/Keithland89/Copilot-Studio-Agent-Analytics) |
 
 Optional sources are gated by `Enable_*` toggles — the dashboard works fine without them. The exact
 export + connect steps live in the path README you choose above.
