@@ -16,19 +16,32 @@ all the heavy JSON parsing happens in Spark and the dataset stays small and fast
 |---|---|
 | `AI Business Value Dashboard - Fabric.pbit` | The Power BI template (thin client over a Lakehouse SQL endpoint). |
 | `notebooks/core/` | **Core.** The seven ingesters the base (*No Studio*) template needs. See [`notebooks/README.md`](notebooks/README.md). |
-| `notebooks/optional/m365/` | *Optional (preview).* M365 Unified Audit Log work-behaviour ingester for the *AI vs Manual Work* comparison. |
-| `+ Studio Agent Deepdive/` | *Optional add-on.* The **+ Studio Agent Deepdive** template plus its Copilot Studio notebooks (transcript parser + Agents 365 registry preview). See [`+ Studio Agent Deepdive/README.md`](./+%20Studio%20Agent%20Deepdive/README.md). |
 | `pipelines/`, `flows/`, `docs/` | Optional: a Fabric pipeline to run the core notebooks on a schedule, Power Automate flows for export-only sources, and reference docs. |
+
+> **The base template is *No Studio*.** Copilot Studio agent-transcript analytics and the M365
+> work-behaviour comparison are **separate optional add-ons** — see
+> [Optional sources](#optional-sources). Everything in this Quick start is the core, Studio-free path.
 
 ## Quick start
 
-### 1. Create a Lakehouse
+Three core notebooks land the Delta tables; the template is a thin client over them. At a glance:
+
+1. **Create a Lakehouse** and note its SQL endpoint.
+2. **Register an Entra app** with three Graph permissions.
+3. **Run the three core notebooks** (audit logs, licensed users, org data).
+4. **Connect the template** — set two parameters and **Load**.
+5. **Schedule the refresh** to match your notebook cadence.
+
+<details>
+<summary><b>1. Create a Lakehouse</b></summary>
 
 In a Fabric workspace on a capacity (F2+ or trial): **+ New -> Lakehouse**, name it (e.g.
 `<your-lakehouse>`). Note its **SQL endpoint** from Lakehouse settings -
 `<workspace-guid>.datawarehouse.fabric.microsoft.com`.
+</details>
 
-### 2. Register an Entra app
+<details>
+<summary><b>2. Register an Entra app</b></summary>
 
 Create an app registration with these **Microsoft Graph application** permissions (admin consent
 required), then note the **Tenant ID**, **Client ID**, and a **Client secret value**:
@@ -38,8 +51,11 @@ required), then note the **Tenant ID**, **Client ID**, and a **Client secret val
 | `AuditLogsQuery.Read.All` | Audit log notebook |
 | `Reports.Read.All` | Licensed users notebook |
 | `User.Read.All` | Org data notebook |
+| `CopilotPackages.Read.All`, `Application.Read.All` | *Optional* — Agent 365 catalog notebook (app-registration path, see [Optional sources](#optional-sources)) |
+</details>
 
-### 3. Run the three core notebooks
+<details>
+<summary><b>3. Run the three core notebooks</b></summary>
 
 For each core notebook (audit logs, licensed users, org data): **+ New -> Import notebook**, attach it
 to your Lakehouse and pin it as default, then paste your three values into the `# === CONFIG ===`
@@ -56,8 +72,10 @@ Use each notebook's **Schedule** button, or wire all three into a single Fabric 
 
 > For production, read the secret from Key Vault instead of a literal - each CONFIG cell has a
 > commented `notebookutils.credentials.getSecret(...)` example.
+</details>
 
-### 4. Connect the template
+<details>
+<summary><b>4. Connect the template</b></summary>
 
 Open `AI Business Value Dashboard - Fabric.pbit` in Power BI Desktop and supply the parameters:
 
@@ -65,34 +83,57 @@ Open `AI Business Value Dashboard - Fabric.pbit` in Power BI Desktop and supply 
 |---|---|---|
 | **Fabric SQL Endpoint** | Yes | `<workspace-guid>.datawarehouse.fabric.microsoft.com` |
 | **Lakehouse Name** | Yes | Your Lakehouse name (e.g. `<your-lakehouse>`) |
-| `Enable_Dataverse` | Optional | `Include` to load agent tables, else `Exclude` |
+| `Enable_Dataverse` | Optional | `Include` to load agent tables (Studio deep-dive), else `Exclude` |
 | `Enable_ProductFeedback` | Optional | `Include` to load `user_feedback`, else `Exclude` |
 | `Enable_Agent365` | Optional | `Include` to load `agents_365`, else `Exclude` |
 | `Enable_Consumption` | Optional | `Include` to load the 3 billing tables, else `Exclude` |
 
 Click **Load**, then **Publish** - ideally to a workspace on the **same Fabric capacity** so Direct
 Lake works without cross-capacity overhead.
+</details>
 
-### 5. Schedule the refresh
+<details>
+<summary><b>5. Schedule the refresh</b></summary>
 
 In the Service: dataset **Settings -> Data source credentials** -> sign in to the SQL endpoint, then
 enable **Scheduled refresh** on a cadence that matches your notebook schedule.
+</details>
 
 ## Optional sources
 
 Leave every `Enable_*` toggle on `Exclude` and the core dashboard still works - optional tables simply
 load empty. To switch one on, set its toggle to `Include` and run the matching notebook:
 
-| Page(s) | Toggle | Notebook |
+| Source | Toggle | Notebook |
 |---|---|---|
-| Agent transcripts (Copilot Studio) | `Enable_Dataverse` | `+ Studio Agent Deepdive/notebooks/Copilot_Agent_Transcript_Parser.ipynb` (see [+ Studio Agent Deepdive](./+%20Studio%20Agent%20Deepdive/README.md)) |
 | Credit / billing consumption | `Enable_Consumption` | `core/Copilot_Credit_Consumption_Ingester.ipynb` ([setup guide](CREDIT-CONSUMPTION-SETUP.md)) |
 | Product feedback | `Enable_ProductFeedback` | `core/Copilot_ProductFeedback_Ingester.ipynb` |
-| Agents 365 | `Enable_Agent365` | `core/Copilot_Agent365_Lander.ipynb` (supported export lander) |
+| Agents 365 | `Enable_Agent365` | `notebooks/Copilot_Agent365_Registry_Ingester.ipynb` (app-registration catalog pull — scheduled/unattended) or `core/Copilot_Agent365_Lander.ipynb` (delegated CSV-export fallback) |
 
 Credit consumption and product feedback are **export-only** in Microsoft's portals (no API) - the
 `flows/` folder has Power Automate flows that auto-land those exports for you. Full detail in
 [`docs/OPTIONAL-SOURCES.md`](docs/OPTIONAL-SOURCES.md).
+
+<details>
+<summary><b>Copilot Studio agent deep-dive</b> — separate add-on template (click to expand)</summary>
+
+Agent-transcript analytics and the Agents 365 registry preview are **not** part of the base *No Studio*
+build — they ship as the **[+ Studio Agent Deepdive](./+%20Studio%20Agent%20Deepdive/README.md)**
+template and notebooks. To enable them:
+
+1. Use the **+ Studio Agent Deepdive** `.pbit` instead of the base template.
+2. Set `Enable_Dataverse` = `Include`.
+3. Run `+ Studio Agent Deepdive/notebooks/Copilot_Agent_Transcript_Parser.ipynb`.
+
+Full setup lives in the [+ Studio Agent Deepdive README](./+%20Studio%20Agent%20Deepdive/README.md).
+</details>
+
+<details>
+<summary><b>M365 work-behaviour comparison</b> — preview add-on (click to expand)</summary>
+
+The optional *AI vs Manual Work* comparison uses the M365 Unified Audit Log ingester at
+`notebooks/optional/m365/`. It's a preview and not required for the core dashboard.
+</details>
 
 <details>
 <summary><b>Manual export instructions</b> — for first-time setups or sources without an API (click to expand)</summary>
@@ -120,6 +161,7 @@ produces a CSV you can drop into the Lakehouse `Files/` area and ingest with the
 - **Output:** **Download users** (CSV)
 
 ### Agent 365 — Microsoft Admin Center
+- **Automated path (preferred):** `notebooks/Copilot_Agent365_Registry_Ingester.ipynb` pulls the catalog directly through the Microsoft Graph app registration (app-only — `CopilotPackages.Read.All` + `Application.Read.All`, admin-consented), so no manual export is needed and it can run scheduled/unattended. The manual export below is the delegated, zero-permission fallback (`core/Copilot_Agent365_Lander.ipynb`).
 - **Portal:** [admin.microsoft.com](https://admin.microsoft.com) → **Agents**
 - **Role:** Global Administrator or Reports Reader (with AI Admin in a Frontier-enrolled tenant)
 - **Output:** **Export** from the Agents Overview (CSV: agent name, ID, availability status, last activity, template, assigned users)
@@ -156,6 +198,9 @@ each notebook tolerates missing inputs, so partial coverage is fine for a first 
 
 ## Works beyond Fabric
 
+<details>
+<summary>Portable to Databricks, Synapse, Azure SQL, or a Fabric Warehouse (click to expand)</summary>
+
 The two core artifacts are deliberately portable:
 
 - **The notebooks** are plain Python + PySpark - they call Graph with `requests` and write Delta with
@@ -168,8 +213,12 @@ template's two parameters (**Fabric SQL Endpoint** = your host, **Lakehouse Name
 The template only needs the three tables - `copilot_interactions_parsed`, `copilot_licensed_users`,
 `copilot_org_data` - to exist in that one database with their expected schema. Already producing parsed
 CSVs upstream? The [`../2. SharePoint/`](../2.%20SharePoint/) path consumes them with no Spark step.
+</details>
 
 ## Troubleshooting
+
+<details>
+<summary>Common symptoms and fixes (click to expand)</summary>
 
 | Symptom | Fix |
 |---|---|
@@ -179,6 +228,8 @@ CSVs upstream? The [`../2. SharePoint/`](../2.%20SharePoint/) path consumes them
 | `the key didn't match any rows` | A notebook ran against the wrong Lakehouse - pin your Lakehouse as default and re-run. |
 | All users show "Unlicensed" | The licensed-users notebook hasn't run yet, or its report period is too narrow (`REPORT_PERIOD = 'D30'`). |
 | Refresh slow (over a minute) | Dataset is in Import mode - put the workspace on a Fabric capacity and convert to **Direct Lake**. |
+
+</details>
 
 ## Reference
 
