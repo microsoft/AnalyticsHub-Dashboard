@@ -1,9 +1,15 @@
-# Copilot Credit Consumption — Automated Landing Flows
+# Copilot Credit Consumption — Automated Landing Flows (Studio build)
+
+> **Part of the *Fabric + Copilot Studio* build.** These flows land the **Power Platform Admin
+> Center (PPAC)** message-consumption export that feeds the Studio-exclusive **Credits Consumed**
+> page. The leaner *No Studio* template ([`2. Fabric/`](../../../2.%20Fabric/README.md)) does **not**
+> use them. For the setup walkthrough see [`../CREDIT-CONSUMPTION-SETUP.md`](../CREDIT-CONSUMPTION-SETUP.md).
 
 These two Power Automate flows remove the **manual export → save** step for the Power Platform
 message-consumption reports (`EntitlementConsumption*_MCSMessages_*.csv`). They drop the CSVs
 straight into the Fabric Lakehouse at **`Files/credit_consumption/`**, where
-`../notebooks/Copilot_Credit_Consumption_Ingester.ipynb` picks them up on its next run.
+[`../notebooks/Copilot_Credit_Consumption_Ingester.ipynb`](../notebooks/Copilot_Credit_Consumption_Ingester.ipynb)
+picks them up on its next run.
 
 ```
                        ┌─ Email arrives with CSV ─┐
@@ -15,10 +21,16 @@ Power Platform export ─┤                          ├─▶ OneLake  Files/c
 | --- | --- |
 | `Copilot_Consumption_Email_to_OneLake.json` | The reports arrive by **email** (e.g. the customer mails the export, or a scheduled PPAC export is mailed). |
 | `Copilot_Consumption_SharePoint_to_OneLake.json` | The customer prefers a **governed SharePoint document library** drop folder. |
-| `Copilot_ProductFeedback_Email_to_OneLake.json` | **Same pattern, different source.** Lands the **Microsoft 365 Copilot user product feedback** export (Admin Center → Health → Product Feedback → Export) into `Files/product_feedback/`. See [Generalising to other export-only sources](#generalising-to-other-export-only-sources) below. |
 
 Both write to OneLake with the **DFS (ADLS Gen2) three-step pattern**: `PUT ?resource=file` →
 `PATCH ?action=append` → `PATCH ?action=flush`.
+
+> **PPAC vs MAC — don't confuse the two credit exports.** This is the **per-agent Copilot Studio
+> *message* credit** export from the **Power Platform Admin Center** (`credit_consumption_*` tables →
+> `Enable_Consumption`). The **per-user Cowork / Work IQ *surface* credit** export from the **M365
+> Admin Center** is a *different* source that stays in every build —
+> see [`2. Fabric/flows/COST-CONSUMPTION.md`](../../../2.%20Fabric/flows/COST-CONSUMPTION.md)
+> (`copilot_cost_consumption` → `Enable_CostConsumption`).
 
 ## Import & configure
 
@@ -27,8 +39,8 @@ Both write to OneLake with the **DFS (ADLS Gen2) three-step pattern**: `PUT ?res
    - Email flow → **Office 365 Outlook** connection.
    - SharePoint flow → **SharePoint** connection.
 3. Set the flow **parameters**:
-   - `OneLakeWorkspace` — Fabric workspace name or GUID (e.g. `Copilot Analytics Demo`).
-   - `OneLakeLakehouse` — lakehouse name **without** the `.Lakehouse` suffix (e.g. `CopilotAdoptionLake`).
+   - `OneLakeWorkspace` — Fabric workspace name or GUID (e.g. `<your-workspace>`).
+   - `OneLakeLakehouse` — lakehouse name **without** the `.Lakehouse` suffix (e.g. `<your-lakehouse>`).
    - `TargetFolder` — keep `Files/credit_consumption` (must match `SOURCE_DIR` in the ingester notebook).
    - `TenantId`, `ClientId`, `ClientSecret` — identity used for the OneLake calls (see below).
    - Email flow only: `SubjectFilter` (default `Copilot Usage Dashboard`).
@@ -64,33 +76,9 @@ the transcript-native `Total Cost Units` (displayedCost) view keeps working rega
 > The optional-source toggles are **list parameters** with the values `"Include"` / `"Exclude"`
 > (not `true`/`false`). Set `Enable_Consumption` to `"Include"` once the data is landing.
 
-## Generalising to other export-only sources
+## Reusing this pattern
 
-This flow pattern works for **any Microsoft report that has no API** — i.e. anything you can only
-get by clicking "Export" / "Download" in an admin portal. The OneLake landing mechanism
-(`PUT → append → flush`) is identical; only the **trigger filter** and the **target folder** change.
-
-The clearest example is **Microsoft 365 Copilot user product feedback** (the thumbs up/down +
-verbatim comments users leave on Copilot responses). As of 2026 this is **export-only** — there is
-**no Graph or REST API** for the raw feedback. It lives in the **Microsoft 365 Admin Center →
-Health → Product Feedback**, where an admin can *view / export / delete* it, and nothing else.
-(The only programmatic feedback signal anywhere is an **aggregate** satisfaction % in the Viva
-Insights Copilot Dashboard — no verbatims, no per-user rows.)
-
-So feedback is landed exactly like credit consumption:
-
-| | Credit consumption | Product feedback |
-| --- | --- | --- |
-| Source portal | Power Platform Admin Center | M365 Admin Center → Health → Product Feedback |
-| API available? | ❌ export-only | ❌ export-only |
-| Flow | `Copilot_Consumption_Email_to_OneLake.json` | `Copilot_ProductFeedback_Email_to_OneLake.json` |
-| Lands in | `Files/credit_consumption/` | `Files/product_feedback/` |
-| Model table | `Credit Consumption (Agent/User/Tenant)` | `ProductFeedback` (`user_feedback` Delta) |
-| Toggle | `Enable_Consumption` | `Enable_ProductFeedback` |
-
-**To finish the feedback path** you also need an **ingester notebook** that reads
-`Files/product_feedback/*.csv` and writes the `user_feedback` Delta table (the 23-column contract
-the `ProductFeedback` model table expects). Clone `../notebooks/Copilot_Credit_Consumption_Ingester.ipynb`,
-point `SOURCE_DIR` at `Files/product_feedback`, and map the export's columns to the
-`user_feedback` schema in [`../docs/DATA-DICTIONARY.md`](../docs/DATA-DICTIONARY.md).
-The same case-preserving column sanitiser (`[^0-9A-Za-z]+ → _`) keeps the names matching the model.
+The same `PUT → append → flush` landing mechanism works for **any** export-only Microsoft report —
+only the **trigger filter** and **target folder** change. The *No Studio* template documents the
+generalised pattern (and the product-feedback example that ships in every build) in
+[`2. Fabric/flows/README.md`](../../../2.%20Fabric/flows/README.md#generalising-to-other-export-only-sources).
