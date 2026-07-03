@@ -5,9 +5,9 @@ Scheduled orchestration for the Direct Ingester notebooks. Two ways to use:
 ## Deployment
 
 1. **Import the 3 notebooks** into your Fabric workspace first (one-time):
-   - `1. Fabric/notebooks/Copilot_Audit_Log_Direct_Ingester.ipynb`
-   - `1. Fabric/notebooks/Copilot_Licensed_Users_Direct_Ingester.ipynb`
-   - `1. Fabric/notebooks/Copilot_Org_Data_Direct_Ingester.ipynb`
+   - `2. Fabric/notebooks/Copilot_Audit_Log_Direct_Ingester.ipynb`
+   - `2. Fabric/notebooks/Copilot_Licensed_Users_Direct_Ingester.ipynb`
+   - `2. Fabric/notebooks/Copilot_Org_Data_Direct_Ingester.ipynb`
 
 2. **Find each notebook's ID** — open the notebook in Fabric, look at the URL:
    ```

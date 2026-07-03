@@ -1,7 +1,8 @@
-# + Studio Agent Deepdive (optional add-on)
+# Fabric + Copilot Studio (optional add-on)
 
-An **optional extension** of the base Fabric dashboard for tenants running **Copilot Studio agents**.
-The base [`../AI Business Value Dashboard - Fabric.pbit`](../AI%20Business%20Value%20Dashboard%20-%20Fabric.pbit)
+*(Formerly "Studio Agent Deepdive".)* An **optional extension** of the standard Fabric dashboard for
+tenants running **Copilot Studio agents**. The base
+[`../../2. Fabric/AI Business Value Dashboard - Fabric.pbit`](../../2.%20Fabric/AI%20Business%20Value%20Dashboard%20-%20Fabric.pbit)
 is the recommended starting point for everyone; add this layer only when you want a deeper view of
 **agent transcripts** and the **Agent 365 registry**.
 
@@ -13,7 +14,7 @@ Everything Copilot-Studio-specific lives here so the base path stays clean.
 |---|---|
 | `AI Business Value Dashboard - Fabric (+ Studio Agent Deepdive).pbit` | The base dashboard **plus** the Copilot Studio agent pages (transcript analysis, agent registry detail). |
 | `notebooks/Copilot_Agent_Transcript_Parser.ipynb` | Parses **Copilot Studio agent transcripts** (Dataverse `ConversationTranscript`) into a Lakehouse Delta table for the agent pages. |
-| `notebooks/Copilot_Agent365_Registry_Ingester_PREVIEW.ipynb` | Earlier **delegated/interactive PREVIEW** of the Agent 365 registry ingester. For scheduled, app-only runs prefer the GA notebook in the base path: [`../notebooks/Copilot_Agent365_Registry_Ingester.ipynb`](../notebooks/Copilot_Agent365_Registry_Ingester.ipynb). |
+| `notebooks/Copilot_Agent365_Registry_Ingester_PREVIEW.ipynb` | Earlier **delegated/interactive PREVIEW** of the Agent 365 registry ingester. For scheduled, app-only runs prefer the GA notebook in the base path: [`../../2. Fabric/notebooks/Copilot_Agent365_Registry_Ingester.ipynb`](../../2.%20Fabric/notebooks/Copilot_Agent365_Registry_Ingester.ipynb). |
 
 ## When to use it
 
@@ -26,11 +27,11 @@ agents** and you want:
 
 ## Setup
 
-1. Stand up the base path first — follow [`../README.md`](../README.md) (Lakehouse, Entra app, core
+1. Stand up the base path first — follow [`../../2. Fabric/README.md`](../../2.%20Fabric/README.md) (Lakehouse, Entra app, core
    notebooks, connect the base template).
 2. Run `notebooks/Copilot_Agent_Transcript_Parser.ipynb` to land the agent transcript table. It needs
    Dataverse read on `ConversationTranscript` — see the **Copilot Studio agent transcripts** export
-   steps in [`../README.md`](../README.md).
+   steps in [`../../2. Fabric/README.md`](../../2.%20Fabric/README.md).
 3. Optionally run the Agent 365 registry ingester (prefer the GA notebook in the base path).
 4. Open **`AI Business Value Dashboard - Fabric (+ Studio Agent Deepdive).pbit`** in Power BI Desktop,
    supply the same Lakehouse parameters as the base template, and set `Enable_Dataverse = Include` to

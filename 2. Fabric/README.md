@@ -142,14 +142,14 @@ Credit consumption and product feedback are **export-only** in Microsoft's porta
 <summary><b>Copilot Studio agent deep-dive</b> — separate add-on template (click to expand)</summary>
 
 Agent-transcript analytics and the Agents 365 registry preview are **not** part of the base *No Studio*
-build — they ship as the **[+ Studio Agent Deepdive](./+%20Studio%20Agent%20Deepdive/README.md)**
+build — they ship as the **[Fabric + Copilot Studio](../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/README.md)**
 template and notebooks. To enable them:
 
-1. Use the **+ Studio Agent Deepdive** `.pbit` instead of the base template.
+1. Use the **Fabric + Copilot Studio** `.pbit` instead of the base template.
 2. Set `Enable_Dataverse` = `Include`.
-3. Run `+ Studio Agent Deepdive/notebooks/Copilot_Agent_Transcript_Parser.ipynb`.
+3. Run `3. Fabric Extended/Fabric + Copilot Studio/notebooks/Copilot_Agent_Transcript_Parser.ipynb`.
 
-Full setup lives in the [+ Studio Agent Deepdive README](./+%20Studio%20Agent%20Deepdive/README.md).
+Full setup lives in the [Fabric + Copilot Studio README](../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/README.md).
 </details>
 
 <details>
@@ -236,7 +236,7 @@ To retarget, change just two things: point the notebooks' `OUTPUT_TABLE` at your
 template's two parameters (**Fabric SQL Endpoint** = your host, **Lakehouse Name** = your database).
 The template only needs the three tables - `copilot_interactions_parsed`, `copilot_licensed_users`,
 `copilot_org_data` - to exist in that one database with their expected schema. Already producing parsed
-CSVs upstream? The [`../2. SharePoint/`](../2.%20SharePoint/) path consumes them with no Spark step.
+CSVs upstream? The [`../1. SharePoint/`](../1.%20SharePoint/) path consumes them with no Spark step.
 </details>
 
 ## Troubleshooting

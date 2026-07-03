@@ -25,15 +25,15 @@ ingester — writes `agent365_catalog` with the richer capability/permission det
 template's **Agents 365** page. Runs headless on a schedule. Use this in preference to the older
 PREVIEW notebook in the deepdive add-on.
 
-## `+ Studio Agent Deepdive/` — the **+ Studio Agent Deepdive** add-on
+## `3. Fabric Extended/Fabric + Copilot Studio/` — the **Fabric + Copilot Studio** add-on
 
 The Copilot Studio notebooks now live with the deepdive template in
-[`../+ Studio Agent Deepdive/`](../+%20Studio%20Agent%20Deepdive/README.md). Add them only if you
-deploy the fuller *+ Studio Agent Deepdive* template, which adds the seven Studio pages (Quality &
+[`../../3. Fabric Extended/Fabric + Copilot Studio/`](../../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/README.md). Add them only if you
+deploy the fuller *Fabric + Copilot Studio* template, which adds the seven Studio pages (Quality &
 Performance, Topic Explorer, Conversation Flow, Knowledge Files, Error Analysis, Studio Credit
 Consumption, Studio User Feedback).
 
-| Notebook (in `+ Studio Agent Deepdive/notebooks/`) | Output tables | Feeds |
+| Notebook (in `3. Fabric Extended/Fabric + Copilot Studio/notebooks/`) | Output tables | Feeds |
 |---|---|---|
 | `Copilot_Agent_Transcript_Parser` | `agent_sessions`, `agent_turns`, `agent_performance`, `agent_errors`, `agent_subagents`, `agent_variables`, `agent_catalogue` | All Copilot Studio pages |
 | `Copilot_Agent365_Registry_Ingester_PREVIEW` | `agent365_catalog` | Older delegated/interactive preview of the registry ingester above |

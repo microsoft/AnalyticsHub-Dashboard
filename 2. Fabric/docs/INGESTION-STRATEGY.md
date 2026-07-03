@@ -36,9 +36,10 @@ For "all data since 1 Jan 2026", loop the date window in the **ingester**, not t
 designed so the PBIT reads **already-shaped Delta tables** and does only light typing/measures. If a
 refresh is taking minutes, check:
 
-1. **You're on the Fabric path, not the Dataverse path.** The `3. Dataverse` template parses transcript
-   JSON *inside* Power Query (M) by design — that's fine for small tenants but **not** meant for scale.
-   For large tenants use **`1. Fabric`**, where the Spark notebook does the parsing and PQ stays thin.
+1. **You're on the Fabric path, not the Dataverse path.** The **Dataverse** companion template parses
+   transcript JSON *inside* Power Query (M) by design — that's fine for small tenants but **not** meant
+   for scale. For large tenants use **`2. Fabric`**, where the Spark notebook does the parsing and PQ
+   stays thin.
 2. **Storage mode.** For large models prefer **Direct Lake** (or Import with incremental refresh) over
    re-importing everything each run.
 3. **No per-row M expansion.** Avoid `Table.AddColumn` with record/JSON parsing in the PBIT on the
@@ -75,10 +76,10 @@ repo rather than tracking `main`, so an upstream change can't break a running pi
 
 1. Validate a commit in a non-prod workspace (run all ingesters + refresh the PBIT).
 2. Tag it (e.g. `v2026.07-fabric`) and point production at that tag.
-3. To upgrade: diff the new tag's `1. Fabric/notebooks/` and `CHANGELOG`, test in non-prod, then move
+3. To upgrade: diff the new tag's `2. Fabric/notebooks/` and `CHANGELOG`, test in non-prod, then move
    the tag.
 
-**What's stable now:** the Fabric ingesters + `1. Fabric` PBIT have been validated end-to-end
+**What's stable now:** the Fabric ingesters + `2. Fabric` PBIT have been validated end-to-end
 (transcripts → six `agent_*` Delta tables; audit → `Copilot_Interactions_Parsed`; credit/org CSVs).
 The output **Delta table contracts** (table + column names) are the integration surface — changes to
 them will be called out so you can upgrade without surprises. Config-cell **parameters** are additive

@@ -39,20 +39,21 @@ open an issue in this repo.
 
 ## 🚀 Pick a deployment path
 
-There are **three** ways to run the dashboard. All use the same data; they differ only in *how* the
-data gets in and how it refreshes. The third — **Dataverse** — lives in its own companion repo.
+The dashboard ships as **three folders** — pick the one that matches your setup. They all produce the
+same pages and value model; they differ only in *how the data gets in and refreshes*. Prefer a
+Dataverse‑native build? That lives in a separate companion repo (called out below the table).
 
-| Path | Best when… | What it gives you |
+| Path | Pick this when… | What you need |
 |---|---|---|
-| **[1. Fabric](1.%20Fabric/)** *(recommended)* | You have **Fabric capacity** (or Premium / PPU) — or any Spark + SQL stack. | Notebooks parse the data into a Lakehouse → best performance, sub‑second dashboard, and the optional billing & feedback pages. The same notebooks + template also run on Databricks, Synapse, or Azure SQL. |
-| **[2. SharePoint](2.%20SharePoint/)** | Power BI Pro, **no Fabric** / Premium. | Two ways in: a **manual first-run** (export two CSVs → run one Python processor → connect the Local-CSV template — great for a quick look at the numbers), or **automated** scheduled refresh via [Microsoft PAX](https://github.com/microsoft/PAX) → SharePoint. The simplest core deployment. |
-| **[Dataverse ↗](https://github.com/Keithland89/Copilot-Studio-Agent-Analytics)** | Your **Copilot Studio agents** land transcripts in **Dataverse**. | A companion repo with a Dataverse‑native `.pbit` — point it at your `ConversationTranscript` table + a CSV folder. Smallest footprint, no Fabric or SharePoint needed. |
+| **[1. SharePoint](1.%20SharePoint/)** · *simplest* | You want the fastest start on **Power BI Pro** — no Fabric or Premium. | Export two CSVs → run one Python step → open the template. Optional: automate the refresh via [Microsoft PAX](https://github.com/microsoft/PAX) → SharePoint. The simplest core deployment. |
+| **[2. Fabric](2.%20Fabric/)** · *standard · recommended* | You have **Fabric capacity** (or Premium / PPU), or any Spark + SQL stack. | Notebooks shape the data into a Lakehouse → best performance and sub‑second pages, plus the optional billing & feedback pages. The same notebooks + template also run on Databricks, Synapse, or Azure SQL. |
+| **[3. Fabric Extended](3.%20Fabric%20Extended/)** · *advanced add‑ons* | You run **Copilot Studio agents** and want the deeper agent / topic / CSAT pages. *(An M365 work‑pattern build is coming soon.)* | Everything in path 2, **plus** the Copilot Studio layer. Stand up path 2 first, then add this. |
 
-**Not sure?** **Fabric** is the recommended path — it scales furthest and unlocks the optional
-billing/feedback pages. No Fabric or Premium capacity? **SharePoint** runs the core dashboard on just
-Power BI Pro. Running **Copilot Studio agents on Dataverse**? The
-[Dataverse companion repo ↗](https://github.com/Keithland89/Copilot-Studio-Agent-Analytics) reads your
-transcripts natively.
+**Not sure?** Start with **SharePoint** if you only have Power BI Pro, or **Fabric** if you have
+capacity — both run the full core dashboard. Only reach for **Fabric Extended** once you're running
+Copilot Studio agents. Landing agent transcripts in **Dataverse**? Use the
+[Dataverse companion repo ↗](https://github.com/Keithland89/Copilot-Studio-Agent-Analytics), which reads
+them natively — no Fabric or SharePoint needed.
 
 > Each path folder has its **own README** with the exact, step‑by‑step setup. This page is just the
 > map.
@@ -62,10 +63,12 @@ transcripts natively.
 
 ```
 README.md  ·  LICENSE  ·  Images/
-1. Fabric/      Fabric.pbit  +  deeper Studio-analysis build (richer agent/topic/CSAT pages)
-                docs/  ·  flows/  ·  notebooks/  ·  pipelines/  ·  CREDIT-CONSUMPTION-SETUP.md
-2. SharePoint/  SharePoint.pbit  ·  SharePoint (Local CSV).pbit  ·  scripts/  ·  azure-container/
-archive/        superseded versions — kept for reference, not maintained
+1. SharePoint/     SharePoint.pbit  ·  SharePoint (Local CSV).pbit  ·  scripts/  ·  azure-container/
+2. Fabric/         Fabric.pbit  ·  docs/  ·  flows/  ·  notebooks/  ·  pipelines/  ·  CREDIT-CONSUMPTION-SETUP.md
+3. Fabric Extended/
+     Fabric + Copilot Studio/   deeper agent-transcript & topic/CSAT build (Studio pages)
+     Fabric + M365/             work-pattern build — 🧪 coming soon
+archive/           superseded versions — kept for reference, not maintained
 
 Dataverse path → companion repo: Keithland89/Copilot-Studio-Agent-Analytics
 ```
@@ -94,7 +97,7 @@ baseline** → summed to **Hours Saved** → × hourly rate = **Assisted Value**
 | Licensed users | ✅ Core | Microsoft 365 Admin Center |
 | Org data (department / function) | ✅ Core | Microsoft Entra |
 | Agents 365 | ⬜ Optional | Agent 365 export (Fabric path) |
-| Credit consumption (billing) | ⬜ Optional | Power Platform Admin Center export → see [`1. Fabric/CREDIT-CONSUMPTION-SETUP.md`](1.%20Fabric/CREDIT-CONSUMPTION-SETUP.md) |
+| Credit consumption (billing) | ⬜ Optional | Power Platform Admin Center export → see [`2. Fabric/CREDIT-CONSUMPTION-SETUP.md`](2.%20Fabric/CREDIT-CONSUMPTION-SETUP.md) |
 | Product feedback | ⬜ Optional | M365 Admin Center → Health → Product Feedback export |
 | Copilot Studio agent transcripts | ⬜ Optional | Dataverse `ConversationTranscript` table — use the [Dataverse companion repo ↗](https://github.com/Keithland89/Copilot-Studio-Agent-Analytics) |
 
@@ -119,9 +122,9 @@ export + connect steps live in the path README you choose above.
 | **User Feedback** | Thumbs up/down sentiment and verbatim feedback themes |
 | **License Readiness** | Ranks unlicensed users by upgrade‑priority score |
 | **Heatmap Trend** | Activity heatmap across the reporting period |
-| **Copilot Studio: Credits Consumed** | Agent credit consumption and billing breakdown |
-| **Copilot Studio: Agent Evaluation** | Agent resolution, abandonment, escalation and response time |
-| **Copilot Studio: Topic Analysis** | Most‑asked topics, resolution and abandonment by agent |
+| **Copilot Studio: Credits Consumed** *(Fabric Extended)* | Agent credit consumption and billing breakdown |
+| **Copilot Studio: Agent Evaluation** *(Fabric Extended)* | Agent resolution, abandonment, escalation and response time |
+| **Copilot Studio: Topic Analysis** *(Fabric Extended)* | Most‑asked topics, resolution and abandonment by agent |
 | **Appendix: Key Concepts** | Methodology and key‑concept explainers |
 | **Appendix: Glossary** | Metric definitions and research sources |
 | **Appendix: Signal Table** | Trace raw signals through to value (audit trail) |
