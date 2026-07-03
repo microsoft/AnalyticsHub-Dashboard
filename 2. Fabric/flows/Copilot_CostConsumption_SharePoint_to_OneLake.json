@@ -1,5 +1,5 @@
 {
-  "$comment": "Power Automate / Logic Apps flow definition. SHAREPOINT PATH variant. Many customers prefer to drop the Power Platform consumption exports into a governed SharePoint document library rather than emailing them. This flow fires when a CSV is created/modified in that library and mirrors it into the Fabric Lakehouse Files/credit_consumption folder via the OneLake DFS (ADLS Gen2) API. Import via Power Automate > My flows > Import, then fix up the SharePoint connection + parameter values. See README.md.",
+  "$comment": "Power Automate / Logic Apps flow definition. SHAREPOINT PATH variant. Lands the Microsoft 365 Admin Center > Copilot > Cost management > Consumption per-user CSV export (columns: User Principal Name, Cowork Credits, WorkIQ Credits, Other Credits, Last Activity Date) into the Fabric Lakehouse Files/cost_consumption folder via the OneLake DFS (ADLS Gen2) API. Fires when a CSV is created/modified in a governed SharePoint document library. This is the Cowork/WorkIQ/Other credit surface split that the Power Platform MCSMessages exports do NOT contain. Import via Power Automate > My flows > Import, then fix up the SharePoint connection + parameter values. See COST-CONSUMPTION.md.",
   "definition": {
     "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
     "contentVersion": "1.0.0.0",
@@ -15,16 +15,21 @@
         "type": "String"
       },
       "SharePointFolder": {
-        "defaultValue": "/Copilot Consumption Drop",
+        "defaultValue": "/Copilot Cost Drop",
         "type": "String",
-        "metadata": { "description": "Folder watched for new consumption CSVs." }
+        "metadata": { "description": "Folder watched for new cost-consumption CSVs." }
       },
-      "OneLakeWorkspace": { "defaultValue": "Copilot Analytics Demo", "type": "String" },
-      "OneLakeLakehouse": { "defaultValue": "CopilotAdoptionLake", "type": "String" },
+      "OneLakeWorkspace": { "defaultValue": "<your-workspace>", "type": "String" },
+      "OneLakeLakehouse": { "defaultValue": "<your-lakehouse>", "type": "String" },
       "TargetFolder": {
-        "defaultValue": "Files/credit_consumption",
+        "defaultValue": "Files/cost_consumption",
         "type": "String",
-        "metadata": { "description": "Destination folder inside the lakehouse. Matches SOURCE_DIR in Copilot_Credit_Consumption_Ingester.ipynb." }
+        "metadata": { "description": "Destination folder inside the lakehouse. Matches SOURCE_DIR in Copilot_Cost_Consumption_Ingester.ipynb." }
+      },
+      "FileNamePrefix": {
+        "defaultValue": "",
+        "type": "String",
+        "metadata": { "description": "Optional case-insensitive filename guard. The MAC Cost management export filename is not fixed, so this defaults to empty (accept any .csv in the watched folder). Set it once you know the real export prefix to be stricter." }
       },
       "TenantId":     { "defaultValue": "<tenant-guid>", "type": "String" },
       "ClientId":     { "defaultValue": "<app-reg-client-id>", "type": "String" },
@@ -49,12 +54,17 @@
       }
     },
     "actions": {
-      "Only_consumption_CSVs": {
+      "Only_cost_CSVs": {
         "type": "If",
         "expression": {
           "and": [
             { "endsWith": [ "@toLower(triggerOutputs()?['body/{FilenameWithExtension}'])", ".csv" ] },
-            { "startsWith": [ "@toLower(triggerOutputs()?['body/{FilenameWithExtension}'])", "entitlementconsumption" ] }
+            {
+              "or": [
+                { "equals": [ "@parameters('FileNamePrefix')", "" ] },
+                { "startsWith": [ "@toLower(triggerOutputs()?['body/{FilenameWithExtension}'])", "@toLower(parameters('FileNamePrefix'))" ] }
+              ]
+            }
           ]
         },
         "actions": {

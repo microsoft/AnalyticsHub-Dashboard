@@ -1,34 +1,34 @@
 {
-  "$comment": "Power Automate / Logic Apps flow definition. Lands Microsoft 365 Copilot USER PRODUCT FEEDBACK CSV exports (from the Microsoft 365 Admin Center > Health > Product Feedback > Export) straight into the Fabric Lakehouse Files/product_feedback folder via the OneLake DFS (ADLS Gen2) API. MAC product feedback has NO API (export-only), so this clones the credit-consumption landing pattern. Import via Power Automate > My flows > Import, then fix up the connection + parameters. Pair with a feedback ingester notebook that reads Files/product_feedback and writes the `user_feedback` Delta table. See README.md.",
+  "$comment": "Power Automate / Logic Apps flow definition. Lands the Microsoft 365 Admin Center > Copilot > Cost management > Consumption per-user CSV export (columns: User Principal Name, Cowork Credits, WorkIQ Credits, Other Credits, Last Activity Date) from inbound email straight into the Fabric Lakehouse Files/cost_consumption folder via the OneLake DFS (ADLS Gen2) API. This is the Cowork/WorkIQ/Other credit surface split that the Power Platform MCSMessages exports do NOT contain. Import via Power Automate > My flows > Import, then fix up the Office 365 Outlook connection + the parameter values. See COST-CONSUMPTION.md.",
   "definition": {
     "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
     "contentVersion": "1.0.0.0",
     "parameters": {
       "$connections": { "defaultValue": {}, "type": "Object" },
       "OneLakeWorkspace": {
-        "defaultValue": "Copilot Analytics Demo",
+        "defaultValue": "<your-workspace>",
         "type": "String",
         "metadata": { "description": "Fabric workspace name (or GUID) that holds the lakehouse." }
       },
       "OneLakeLakehouse": {
-        "defaultValue": "CopilotAdoptionLake",
+        "defaultValue": "<your-lakehouse>",
         "type": "String",
         "metadata": { "description": "Lakehouse name WITHOUT the .Lakehouse suffix." }
       },
       "TargetFolder": {
-        "defaultValue": "Files/product_feedback",
+        "defaultValue": "Files/cost_consumption",
         "type": "String",
-        "metadata": { "description": "Destination folder inside the lakehouse. Must match SOURCE_DIR in the feedback ingester notebook." }
+        "metadata": { "description": "Destination folder inside the lakehouse. Matches SOURCE_DIR in Copilot_Cost_Consumption_Ingester.ipynb." }
       },
       "SubjectFilter": {
-        "defaultValue": "Copilot Product Feedback",
+        "defaultValue": "Copilot Cost Management",
         "type": "String",
-        "metadata": { "description": "Only emails whose subject contains this text are processed. Set this to whatever subject the feedback export is mailed under." }
+        "metadata": { "description": "Only emails whose subject contains this string are processed." }
       },
-      "FilePrefix": {
-        "defaultValue": "feedback",
+      "FileNamePrefix": {
+        "defaultValue": "",
         "type": "String",
-        "metadata": { "description": "Only .csv attachments whose file name STARTS WITH this (case-insensitive) are landed. Default 'feedback' matches the MAC export 'feedback.csv' / 'feedback*.csv'. Set blank to accept any .csv on a subject-matched email." }
+        "metadata": { "description": "Optional case-insensitive filename guard. The MAC Cost management export filename is not fixed, so this defaults to empty (accept any .csv attachment on a subject-matched mail). Set it once you know the real export prefix to be stricter." }
       },
       "TenantId":     { "defaultValue": "<tenant-guid>", "type": "String" },
       "ClientId":     { "defaultValue": "<app-reg-client-id>", "type": "String" },
@@ -58,12 +58,17 @@
         "type": "Foreach",
         "foreach": "@triggerOutputs()?['body/attachments']",
         "actions": {
-          "Only_feedback_CSVs": {
+          "Only_cost_CSVs": {
             "type": "If",
             "expression": {
               "and": [
                 { "endsWith": [ "@toLower(items('For_each_attachment')?['name'])", ".csv" ] },
-                { "startsWith": [ "@toLower(items('For_each_attachment')?['name'])", "@toLower(parameters('FilePrefix'))" ] }
+                {
+                  "or": [
+                    { "equals": [ "@parameters('FileNamePrefix')", "" ] },
+                    { "startsWith": [ "@toLower(items('For_each_attachment')?['name'])", "@toLower(parameters('FileNamePrefix'))" ] }
+                  ]
+                }
               ]
             },
             "actions": {

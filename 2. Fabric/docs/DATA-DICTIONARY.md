@@ -37,6 +37,13 @@ template never breaks. See `OPTIONAL-SOURCES.md` for the `EmptyTable` + `try…o
 | 12 | Credit Consumption (Tenant) | `credit_consumption_tenant` | *Optional* (billing) | `Copilot_Credit_Consumption_Ingester` | n/a |
 | 13 | Credit Consumption (Agent) | `credit_consumption_agent` | *Optional* (billing) | `Copilot_Credit_Consumption_Ingester` | n/a |
 | 14 | Credit Consumption (User) | `credit_consumption_user` | *Optional* (billing) | `Copilot_Credit_Consumption_Ingester` | n/a |
+| 15 | Copilot Cost Consumption | `copilot_cost_consumption` | *Optional* (billing) | `Copilot_Cost_Consumption_Ingester` | SharePoint CSV (`Cost Consumption File`) |
+
+> **Rows 12–14 (PPAC credit consumption)** are the **Power Platform Admin Center** per-agent Copilot
+> Studio message-credit build, now a [Fabric + Copilot Studio](../../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/)
+> add-on. The tables remain in the base PBIT transitionally (gated by `Enable_Consumption`); the
+> ingester notebook and setup guide live with the Studio Extended template. Row 15 (`copilot_cost_consumption`)
+> is the **MAC Cowork / Work IQ** consumption build that stays standard across all templates.
 
 All other model tables (Calendar, legends, ranking/summary, glossary, value maps, etc.) are
 **calculated/DAX or static** — they have no external source and are version-independent.
@@ -58,8 +65,17 @@ AppHost, ThreadId, SensitivityLabelId, Context_Type,
 AISystemPlugin_Id, AISystemPlugin_Name, ModelTransparencyDetails_ModelName,
 AccessedResource_Type, AccessedResource_Action, AccessedResource_SiteUrl, AccessedResource_SensitivityLabelId,
 Message_Id, Message_isPrompt, Resource_Count,
-InteractionDate, WeekStart, MonthStart
+InteractionDate, WeekStart, MonthStart,
+Agent_TitleID, Agent_EntraId
 ```
+
+> **Agent identifiers (two keys, used together).** `Agent_TitleID` is parsed from the legacy
+> `CopilotStudio.Declarative.{title}` / `T_`/`P_` forms. `Agent_EntraId` captures the **Microsoft
+> Entra Agent ID** GUID that **Agent 365** now stamps into the audit `AgentId` instead of the
+> declarative string. When agents are registered/recreated under Entra Agent ID, `Agent_TitleID`
+> would otherwise land NULL and drop out of the Agents join — `Agent_EntraId` keeps them resolvable
+> via the registry crosswalk. The two are populated mutually exclusively per row (legacy → TitleID,
+> Entra → EntraId), so old and new agents both join cleanly during a mixed migration.
 
 ### 2. `copilot_licensed_users` — licensed user list
 ⚠️ **Contract fix required.** The producer sanitizes spaces→underscores, writing
@@ -99,6 +115,35 @@ Landed into the Lakehouse by `Copilot_Agent365_Lander` (CSV → `dbo.agents_365`
 preserves spaced header names like `Agent name`) and read via `FabricTable("agents_365")`, wrapped with
 `Enable_Agent365`. The Fabric model is now **100% Lakehouse-sourced**. Columns from the Agents MAC export.
 
+#### Agent identity resolution (3-key bridge: Entra → Title ID → Name)
+
+The interactions fact joins the Agents dimension through a **resolved key** (`Agent_LinkID`) rather
+than the raw `Agent_TitleID`. This is necessary because the **audit log and the MAC Agents export use
+different identifier namespaces** — the audit `AgentId` is an `SPO_…` blob, a built-in name
+(`WordDraftingAgent`), or an **Entra Agent ID GUID** (Agent 365), while the export keys on `T_…`
+Title IDs. On real tenant data the raw `Agent_TitleID → Title ID` join matches **0%**; resolving the
+shared **display name** lifts that to ~**84% of distinct agents** (the unmatched remainder are mostly
+Microsoft first-party agents that legitimately have no registry row).
+
+Resolution is done in Power Query (no DAX circular-dependency risk; mirrors the existing license merge),
+as a **priority chain** that always lands on a real registry `Title ID` or null:
+
+1. **Entra Agent ID** — `Agent_EntraId → agents_365[Entra Agent ID]` (future Agent 365 agents).
+2. **Direct Title ID** — `Agent_TitleID` only when it already *is* a registry Title ID.
+3. **Normalised name** — `lower(trim(AgentName)) → agents_365[Agent name]` (the high-yield fallback).
+
+`Agent_LinkID = COALESCE(EntraTitle, DirectTitle, NameTitle)`. All three lookup maps are deduped and
+null-guarded, so the 1.2M-row fact never fans out. The relationship is
+**`Chat + Agent Interactions[Agent_LinkID] → agents_365[Title ID]`** (replaces the old `Agent_TitleID`
+relationship; cross-filter direction unchanged).
+
+**Zero-touch identity detection.** `agents_365` is given an add-if-missing **`Entra Agent ID`** column
+that **auto-detects** the GUID from whatever the export provides — it picks the first present of
+`Entra Agent ID → EntraAgentId → Agent ID → Bot Id` (and common variants). The customer never has to
+create or populate a column by hand; a non-matching GUID simply does not join (no false links). Until
+an export carries Entra GUIDs, custom agents still resolve by name.
+**Dataverse path:** not applicable — it keys agents on `botSchemaName` (transcript trace), not audit `AgentId`.
+
 ### 5. `user_feedback` — Product Feedback (OCV export)
 **Not** a Dataverse source — it is an OCV/Viva feedback **CSV** dropped at
 `Files/copilot_transcripts/feedback.csv`, parsed by `build_feedback()`. The dashboard's
@@ -122,17 +167,25 @@ Produced by `Copilot_Agent_Transcript_Parser` (`SOURCE_MODE='dataverse'`, `AUTH_
 **app-registration service principal** added as an **Application User** (e.g. *Bot Transcript Viewer*
 role) in each environment. When Dataverse is not configured these six tables load empty.
 
-**`agent_sessions`** (23)
+**`agent_sessions`** (31)
 ```
 conversation_id, session_start_utc, session_duration_ms, user_id_hash,
-primary_agent_schema, connected_agent_schemas, connected_agent_count,
+primary_agent_schema, agent_name, agent_id,
+connected_agent_schemas, connected_agent_count,
 msg_count, user_msg_count, bot_msg_count, plan_step_count,
 total_displayed_cost, total_latency_ms,
-knowledge_searched, knowledge_answered, knowledge_sources_count,
+knowledge_searched, knowledge_answered, knowledge_sources_count, grounding_source,
 error_count, first_error_code,
 feedback_offered_count, feedback_submitted, feedback_verdict, feedback_comment,
-first_user_prompt
+first_user_prompt,
+session_outcome_explicit, session_outcome_reason_explicit,
+is_authenticated, is_returning_user, primary_topic_derived
 ```
+> `primary_agent_schema` is the agent **join key** (→ `agent_catalogue.agent_schema`). It is
+> resolved from the most reliable signal available — Dataverse bot lookup, then bot-message
+> `from.name`/`from.id`, then user-message `recipient`, then orchestration trace, then the
+> transcript `name` — so single-agent transcripts (no orchestration trace) are still attributed.
+> `agent_name` / `agent_id` carry the real resolved bot display name and id for richer binding.
 **`agent_turns`** (17)
 ```
 conversation_id, turn_id, turn_timestamp_utc, turn_role, turn_channel,
@@ -172,6 +225,33 @@ StatusCode, StateCode
 ```
 *When `TAG_ENVIRONMENT=True`, the five fact tables also carry `source_environment` (and
 `agent_catalogue` carries `source_environments`).*
+
+### 15. `copilot_cost_consumption` — Copilot credit usage (MAC Cost management export)
+Produced by `Copilot_Cost_Consumption_Ingester` from the **Microsoft 365 Admin Center → Copilot →
+Cost management** per-user CSV export (export-only; no API). **Auto-detects two export shapes** and maps
+both to one unified contract: the **surface split** (`Cowork`/`WorkIQ`/`Other` credits) and the
+**per-user usage** export (monthly limit / used / % used / sessions). This is the **only**
+customer-pullable place Cowork/WorkIQ credits appear. **Additive**, not a replacement, to the PPAC
+`credit_consumption_*` (MCSMessages) tables. Gated by `Enable_CostConsumption`; both Fabric and
+SharePoint paths produce the identical contract. Header matching is **case-insensitive**.
+
+```
+User_Principal_Name   (text; join key → org PersonId_Normalized / UPN)
+Display_Name          (text; usage export)
+Cowork_Credits        (double; surface export; blank for usage)
+WorkIQ_Credits        (double; surface export; blank for usage)
+Other_Credits         (double; surface export; blank for usage)
+Total_Credits         (double; = Cowork+WorkIQ+Other, or Monthly credits used)
+Monthly_Credit_Limit  (double; usage export — per-user budget)
+Pct_Used              (double 0–1 fraction; usage export)
+Session_Count         (int64; usage export)
+M365_Copilot_Licensed (text; usage export)
+Last_Activity_Date    (date; parses ISO timestamp + en-US M/d/yyyy)
+SourceFile, LoadDate  (lineage)
+```
+Columns absent from a given export load as null. Grain is a **per-user snapshot**. UPN match isn't 100% —
+unmatched users surface under an **"(Unattributed)"** organization bucket. See
+`../flows/COST-CONSUMPTION.md`.
 
 ---
 
