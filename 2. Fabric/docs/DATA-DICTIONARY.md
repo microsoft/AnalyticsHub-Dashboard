@@ -138,6 +138,33 @@ column-mapping preserves spaced header names like `Agent name`). **Pick one, nev
 write the same table. Read via `FabricTable("agents_365")`, wrapped with `Enable_Agent365`. The Fabric
 model is now **100% Lakehouse-sourced**. Columns from the Agents MAC export.
 
+#### ⚠️ Two different Agent 365 exports — registry vs observability
+
+Microsoft exposes Agent 365 data as **two separate exports**, and they do **not** carry the same
+columns. Which one you land decides how much of the **🛡 Agent Health** page populates:
+
+| Export | Source | Carries |
+|---|---|---|
+| **Registry / catalogue** | Graph `/beta/copilot/admin/catalog/packages` — used by `Copilot_Agent365_Registry_Ingester` and by PAX `-IncludeAgent365Info` | A **28-column inventory**: agent name, Title ID, publisher/developer, version, availability, sensitivity, capability and permission flags, created/last-updated metadata |
+| **Observability** | Microsoft Admin Center → **Agents** export ([agent map docs](https://learn.microsoft.com/en-us/microsoft-365/admin/manage/agent-map)) | Usage telemetry: `Users shared`, `Active Users`, `Total sessions`, `Exception rate`, `Last Activity Date` |
+
+The **registry export does not emit the observability columns.** If you land only the registry /
+PAX output — the documented default — those five fields are unavailable.
+
+**The model tolerates this.** The Agents 365 query ends with a *stable superset guard* that adds any
+model-declared column the chosen source did not supply as a **typed null**, so:
+
+- the table always returns the same column set regardless of which export you land,
+- refresh never fails with a missing-column error, and
+- visuals bound to an unavailable field render **blank** rather than breaking the page.
+
+To populate the observability visuals, land the **Admin Center Agents export** instead of (or merged
+with) the registry export. `Agent Activity Status` falls back to audit-log-derived activity when
+`Last Activity Date` is absent, so agent recency still works on the registry-only path.
+
+> Adding a column to the Agents 365 model? Add it to the guard's `__expected` list in the query too,
+> or it will be unstable on any source that doesn't emit it.
+
 #### Agent identity resolution (3-key bridge: Entra → Title ID → Name)
 
 The interactions fact joins the Agents dimension through a **resolved key** (`Agent_LinkID`) rather
