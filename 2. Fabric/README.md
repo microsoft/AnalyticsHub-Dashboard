@@ -1,8 +1,7 @@
 # Fabric / Lakehouse deployment (recommended)
 
-The recommended path. Notebooks pull your Copilot data from Microsoft Graph and write Delta tables
-straight into a Lakehouse. The Power BI template is a thin client over the Lakehouse SQL endpoint, so
-all the heavy JSON parsing happens in Spark and the dataset stays small and fast.
+Notebooks pull your Copilot data from Microsoft Graph and write Delta tables
+straight into a Lakehouse. 
 
 ![Fabric architecture](./ValueLens_Fabric_Architecture.png)
 
@@ -14,12 +13,12 @@ all the heavy JSON parsing happens in Spark and the dataset stays small and fast
 
 | Item | Purpose |
 |---|---|
-| `ValueLens - Fabric.pbit` | The Power BI template (thin client over a Lakehouse SQL endpoint). |
-| `notebooks/` | The base (*No Studio*) ingester notebooks — audit logs, licensed users, org data, plus optional feedback, Agents 365 and Cowork / Work IQ consumption. See [`notebooks/README.md`](notebooks/README.md). |
+| `ValueLens - Fabric.pbit` | The Power BI template. A pure passthrough over the Lakehouse SQL endpoint — no transformations, so it refreshes fast (and can run **Direct Lake**). |
+| `notebooks/` | The base (*No Studio*) ingester notebooks — audit logs, licensed users, org data — **plus `Copilot_Audit_Log_Processor`**, which does the heavy audit-log shaping once in Spark. Optional: feedback, Agents 365, Cowork / Work IQ. See [`notebooks/README.md`](notebooks/README.md). |
 | `pipelines/`, `flows/`, `docs/` | Optional: a Fabric pipeline to run the core notebooks on a schedule, Power Automate flows for export-only sources, and reference docs. |
+| `archive/` | The previous (pre-2307) Power-Query template, kept for reference only. Not needed for a new deployment. |
 
-> **The base template is *No Studio*.** Copilot Studio agent-transcript analytics and the M365
-> work-behaviour comparison are **separate optional add-ons** — see
+> Copilot Studio agent-transcript analytics is a **separate optional add-on** — see
 > [Optional sources](#optional-sources). Everything in this Quick start is the core, Studio-free path.
 
 ## 📚 Dashboard pages
@@ -32,7 +31,7 @@ all the heavy JSON parsing happens in Spark and the dataset stays small and fast
 | **◆ Activation** | Activation across teams — licensed vs unlicensed, active vs inactive |
 | **🎯 Readiness** | Ranks unlicensed / low-adoption users by upgrade‑priority score |
 | **📡 Adoption** | User counts, coverage %, licensed vs unlicensed reach |
-| **🪙 Consumption** | Copilot &amp; agent consumption — credits / messages over time |
+| **🪙 Credit Meter** | Copilot &amp; agent consumption — credits / messages over time |
 | **🔮 Activity** | Copilot and agent usage, tasks and behaviour mix |
 | **🚀 Value** | Hours saved, dollar‑equivalent assisted value, and the business case |
 | **🌱 Maturity** | Progression: Asking → Finding → Consuming → Producing → Delegating |
@@ -48,13 +47,14 @@ all the heavy JSON parsing happens in Spark and the dataset stays small and fast
 
 ## Quick start
 
-Three core notebooks land the Delta tables; the template is a thin client over them. At a glance:
+The notebooks land the Delta tables; the template is a thin client over them. At a glance:
 
 1. **Create a Lakehouse** and note its SQL endpoint.
 2. **Register an Entra app** with three Graph permissions.
-3. **Run the three core notebooks** (audit logs, licensed users, org data).
-4. **Connect the template** — set two parameters and **Load**.
-5. **Schedule the refresh** to match your notebook cadence.
+3. **Run the core ingester notebooks** (audit logs, licensed users, org data).
+4. **Run the curate notebook** — shapes the audit-log fact table once in Spark.
+5. **Connect the template** — set two parameters and **Load**.
+6. **Schedule the refresh** to match your notebook cadence.
 
 <details>
 <summary><b>1. Create a Lakehouse</b></summary>
@@ -79,7 +79,7 @@ required), then note the **Tenant ID**, **Client ID**, and a **Client secret val
 </details>
 
 <details>
-<summary><b>3. Run the three core notebooks</b></summary>
+<summary><b>3. Run the core ingester notebooks</b></summary>
 
 For each core notebook (audit logs, licensed users, org data): **+ New -> Import notebook**, attach it
 to your Lakehouse and pin it as default, then paste your three values into the `# === CONFIG ===`
@@ -99,7 +99,30 @@ Use each notebook's **Schedule** button, or wire all three into a single Fabric 
 </details>
 
 <details>
-<summary><b>4. Connect the template</b></summary>
+<summary><b>4. Run the curate notebook</b> (shapes the audit-log fact table)</summary>
+
+One extra notebook does the heavy audit-log shaping **once in Spark**, so Power BI never has to.
+Import `notebooks/Copilot_Audit_Log_Processor.ipynb`, attach it to the same Lakehouse, and run it
+**after** the audit-log ingester (and after the licensed-users / Agents 365 producers, which it joins).
+
+| Notebook | Reads | Writes |
+|---|---|---|
+| `Copilot_Audit_Log_Processor.ipynb` | `copilot_interactions_parsed` (+ `copilot_licensed_users`, `agents_365`) | `dbo.copilot_interactions_curated` |
+
+It parses the `AccessedResources` / `AISystemPlugin` JSON, explodes accessed resources, derives the
+date columns, normalises the UPN, joins the licence flag and resolves the agent map — the **same
+output** the template's Power Query used to produce, but computed once and V-Ordered on disk. The
+template then reads this one table with **no transformation**, which is what makes refreshes fast and
+Direct Lake possible.
+
+> **It does not ingest, and does not replace the ingester.** Order per run:
+> audit-log ingester → **this curate notebook** → semantic-model refresh. Drop it into the same
+> pipeline immediately before the refresh. Use `WRITE_MODE = "overwrite"` for the first backfill,
+> then `"merge"` for daily runs.
+</details>
+
+<details>
+<summary><b>5. Connect the template</b></summary>
 
 Open `ValueLens - Fabric.pbit` in Power BI Desktop and supply the parameters:
 
@@ -118,7 +141,7 @@ Lake works without cross-capacity overhead.
 </details>
 
 <details>
-<summary><b>5. Schedule the refresh</b></summary>
+<summary><b>6. Schedule the refresh</b></summary>
 
 In the Service: dataset **Settings -> Data source credentials** -> sign in to the SQL endpoint, then
 enable **Scheduled refresh** on a cadence that matches your notebook schedule.
@@ -159,13 +182,6 @@ template and notebooks. To enable them:
 3. Run `3. Fabric Extended/Fabric + Copilot Studio/notebooks/Copilot_Agent_Transcript_Parser.ipynb`.
 
 Full setup lives in the [Fabric + Copilot Studio README](../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/README.md).
-</details>
-
-<details>
-<summary><b>M365 work-behaviour comparison</b> — preview add-on (click to expand)</summary>
-
-The optional *AI vs Manual Work* comparison ships with the preview **[Fabric + M365](../3.%20Fabric%20Extended/Fabric%20+%20M365/README.md)**
-build (`notebooks/Copilot_M365_Work_Behavior_Ingester.ipynb`). It's a preview and not required for the core dashboard.
 </details>
 
 <details>
@@ -265,7 +281,7 @@ CSVs upstream? The [`../1. SharePoint/`](../1.%20SharePoint/) path consumes them
 | `Login failed` / `cannot open database` (Power BI) | The SQL endpoint host or database name is wrong - recheck the Lakehouse settings page. |
 | `the key didn't match any rows` | A notebook ran against the wrong Lakehouse - pin your Lakehouse as default and re-run. |
 | All users show "Unlicensed" | The licensed-users notebook hasn't run yet, or its report period is too narrow (`REPORT_PERIOD = 'D30'`). |
-| Refresh slow (over a minute) | Import mode re-imports everything each run. The template ships with **incremental refresh** pre-configured (first load is full, then only recent days) - it needs a Premium/PPU/Fabric capacity; see [`docs/INCREMENTAL-REFRESH.md`](docs/INCREMENTAL-REFRESH.md). For the fastest option on Fabric, convert to **Direct Lake**. |
+| Refresh slow (minutes to hours) | Almost always the audit-log transforms running inside Power Query. Make sure you've run **`Copilot_Audit_Log_Processor`** and that the fact table points at `copilot_interactions_curated` (the shaping is meant to happen upstream in Spark, not on refresh). The template also ships with **incremental refresh** pre-configured (first load is full, then only recent days) — needs a Premium/PPU/Fabric capacity; see [`docs/INCREMENTAL-REFRESH.md`](docs/INCREMENTAL-REFRESH.md). Fastest option on Fabric: convert to **Direct Lake**. |
 
 </details>
 

@@ -10,9 +10,12 @@ duplicate those notebooks into:
 
   3. Fabric Extended/_shared/notebooks/                       (documentation copy)
   3. Fabric Extended/Fabric + Copilot Studio/notebooks/_core/ (runnable copy)
-  3. Fabric Extended/Fabric + M365/notebooks/_core/           (runnable copy)
 
 Run this after editing any file in `2. Fabric/notebooks/`.
+
+`Copilot_Audit_Log_Processor.ipynb` is deliberately NOT mirrored: it is a
+downstream transform (parsed -> curated), not an ingester, and the add-ons
+inherit it from the base `2. Fabric` build. It is listed in $excluded below.
 
 .PARAMETER Check
 When set, exits 1 if any destination differs from the source. Used by CI.
@@ -32,11 +35,22 @@ $source   = Join-Path $repoRoot '2. Fabric\notebooks'
 
 $destinations = @(
     (Join-Path $repoRoot '3. Fabric Extended\_shared\notebooks'),
-    (Join-Path $repoRoot '3. Fabric Extended\Fabric + Copilot Studio\notebooks\_core'),
-    (Join-Path $repoRoot '3. Fabric Extended\Fabric + M365\notebooks\_core')
+    (Join-Path $repoRoot '3. Fabric Extended\Fabric + Copilot Studio\notebooks\_core')
 )
 
-$notebooks = Get-ChildItem $source -Filter '*.ipynb' -File
+# Notebooks in $source that are NOT mirrored into the add-ons. The processor is
+# a downstream transform, not an ingester, so the add-ons inherit it from the
+# base 2. Fabric build rather than shipping their own copy.
+$excluded = @(
+    'Copilot_Audit_Log_Processor.ipynb'
+)
+
+$notebooks = Get-ChildItem $source -Filter '*.ipynb' -File |
+             Where-Object { $_.Name -notin $excluded }
+
+if (-not $notebooks) {
+    throw "sync-shared: no notebooks found in '$source' after exclusions."
+}
 
 $drift = @()
 
@@ -72,7 +86,8 @@ if ($Check -and $drift.Count -gt 0) {
     exit 1
 }
 
-if (-not $Check) {
-    Write-Host ""
-    Write-Host "sync-shared: OK ($($notebooks.Count) notebook(s) x $($destinations.Count) destinations)"
+Write-Host ""
+Write-Host "sync-shared: OK ($($notebooks.Count) notebook(s) x $($destinations.Count) destinations)"
+if ($excluded) {
+    Write-Host "  not mirrored: $($excluded -join ', ')"
 }
