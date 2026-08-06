@@ -2,14 +2,12 @@
 
 # 🔎 ValueLens
 
-#### by Microsoft Business Value Advisory (BVA)
-
 ### *for Microsoft Copilot* — one Power BI template for every **Copilot &amp; agent** adoption signal.
 
-[![Built by Microsoft BVA](https://img.shields.io/badge/BUILT_BY-MICROSOFT_BVA-4F73B8?style=for-the-badge&labelColor=1C2632)](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot)
+[![Built by Microsoft](https://img.shields.io/badge/BUILT_BY-MICROSOFT-4F73B8?style=for-the-badge&labelColor=1C2632)](https://github.com/Keithland89/ValueLens-for-Microsoft-Copilot)
 [![Power BI Template](https://img.shields.io/badge/POWER_BI-TEMPLATE-F2C811?style=for-the-badge&logo=powerbi&logoColor=1C2632&labelColor=1C2632)](#-pick-a-deployment-path)
 [![Deploy](https://img.shields.io/badge/DEPLOY-FABRIC_%2B_SHAREPOINT_%2B_DATAVERSE-09B39D?style=for-the-badge&labelColor=1C2632)](#-pick-a-deployment-path)
-[![Stars](https://img.shields.io/github/stars/microsoft/ValueLens-for-Microsoft-Copilot?style=for-the-badge&color=7F215D&labelColor=1C2632)](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/stargazers)
+[![Stars](https://img.shields.io/github/stars/Keithland89/ValueLens-for-Microsoft-Copilot?style=for-the-badge&color=7F215D&labelColor=1C2632)](https://github.com/Keithland89/ValueLens-for-Microsoft-Copilot/stargazers)
 
 **Hours saved · assisted value · adoption &amp; readiness** — a defensible ROI narrative aligned to
 Microsoft's **Frontier Firm** framework.
@@ -49,7 +47,7 @@ Dataverse‑native build? That lives in a separate companion repo (called out be
 |---|---|---|
 | **[1. SharePoint](1.%20SharePoint/)** · *simplest* | You want the fastest start on **Power BI Pro** — no Fabric or Premium. | Export two CSVs → run one Python step → open the template. Optional: automate the refresh with a scheduled script → SharePoint. The simplest core deployment. |
 | **[2. Fabric](2.%20Fabric/)** · *standard · recommended* | You have **Fabric capacity** (or Premium / PPU), or any Spark + SQL stack. | Notebooks shape the data into a Lakehouse → best performance and sub‑second pages, plus the optional billing & feedback pages. The same notebooks + template also run on Databricks, Synapse, or Azure SQL. |
-| **[3. Fabric Extended](3.%20Fabric%20Extended/)** · *advanced add‑ons* | You run **Copilot Studio agents** and want the deeper agent / topic / CSAT pages. *(An M365 work‑pattern build is coming soon.)* | Everything in path 2, **plus** the Copilot Studio layer. Stand up path 2 first, then add this. |
+| **[3. Fabric Extended](3.%20Fabric%20Extended/)** · *advanced add‑ons* | You run **Copilot Studio agents** and want the deeper agent / topic / CSAT pages. | Everything in path 2, **plus** the Copilot Studio layer. Stand up path 2 first, then add this. |
 
 **Not sure?** Start with **SharePoint** if you only have Power BI Pro, or **Fabric** if you have
 capacity — both run the full core dashboard. Only reach for **Fabric Extended** once you're running
@@ -69,7 +67,6 @@ README.md  ·  LICENSE  ·  Images/
 2. Fabric/         Fabric.pbit  ·  docs/  ·  flows/  ·  notebooks/  ·  pipelines/
 3. Fabric Extended/
      Fabric + Copilot Studio/   deeper agent-transcript, topic/CSAT & PPAC credit build (Studio pages)
-     Fabric + M365/             work-pattern build — 🧪 coming soon
 archive/           superseded versions — kept for reference, not maintained
 
 Dataverse path → companion repo: Keithland89/Copilot-Studio-Agent-Analytics
@@ -112,25 +109,39 @@ export + connect steps live in the path README you choose above.
 ## 📚 Dashboard pages
 
 <details>
-<summary>15 report pages — adoption, value, maturity, governance, billing & appendices</summary>
+<summary>14 core pages (13 on SharePoint) + 3 Copilot Studio add-on pages</summary>
+
+Page names below match the **actual report tabs**. The ✓ columns show which deployment path ships
+each page — see the path README for that build's own list.
+
+| Page | SharePoint | Fabric | Purpose |
+|---|:--:|:--:|---|
+| **◆ Activation** | ✓ | ✓ | Activation across teams — licensed vs unlicensed, active vs inactive |
+| **🎯 Readiness** | ✓ | ✓ | Ranks unlicensed / low-adoption users by upgrade‑priority score |
+| **📡 Adoption** | ✓ | ✓ | User counts, coverage %, licensed vs unlicensed reach |
+| **🪙 Consumption** ¹ | ✓ | ✓ | Copilot &amp; agent consumption — credits / messages over time |
+| **🔮 Activity** | ✓ | ✓ | Copilot and agent usage, tasks and behaviour mix |
+| **🚀 Value** | ✓ | ✓ | Hours saved, dollar‑equivalent assisted value, and the business case |
+| **🌱 Maturity** | ✓ | ✓ | Progression: Asking → Finding → Consuming → Producing → Delegating |
+| **🛡 Agent Health** | ✓ | ✓ | Agent resolution, abandonment, escalation and response time |
+| **💬 Feedback** | — | ✓ | Thumbs up/down sentiment and verbatim feedback themes |
+| **📈 Heatmap** | ✓ | ✓ | Activity heatmap across the reporting period |
+| **🏅 Leaderboard** | ✓ | ✓ | Top users, agents, and functions |
+| **📘 Appendix: Key Concepts** | ✓ | ✓ | Methodology and key‑concept explainers |
+| **🧬 Appendix: Signal Table** | ✓ | ✓ | Trace raw signals through to value (audit trail) |
+| **📘 Appendix: Glossary** | ✓ | ✓ | Metric definitions and research sources |
+
+¹ Labelled **🪙 Consumption** in the SharePoint template and **🪙 Credit Meter** in the Fabric
+template — same page, different tab name.
+
+**Copilot Studio add-on** — three extra pages in the
+[Fabric + Copilot Studio](3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/) build:
 
 | Page | Purpose |
 |---|---|
-| **User Activation** | Activation across teams — licensed vs unlicensed, active vs inactive |
-| **Adoption & Reach** | User counts, coverage %, licensed vs unlicensed |
-| **Activity & Value** | Copilot and agent usage, tasks, hours saved and assisted value |
-| **Usage Maturity** | Progression: Asking → Finding → Consuming → Producing → Automating |
-| **Leaderboards** | Top users, agents, and functions |
-| **Agent Governance** | Deployment patterns, creator insights, sensitivity exposure |
-| **User Feedback** | Thumbs up/down sentiment and verbatim feedback themes |
-| **License Readiness** | Ranks unlicensed users by upgrade‑priority score |
-| **Heatmap Trend** | Activity heatmap across the reporting period |
-| **Copilot Studio: Credits Consumed** *(Fabric Extended)* | Agent credit consumption and billing breakdown |
-| **Copilot Studio: Agent Evaluation** *(Fabric Extended)* | Agent resolution, abandonment, escalation and response time |
-| **Copilot Studio: Topic Analysis** *(Fabric Extended)* | Most‑asked topics, resolution and abandonment by agent |
-| **Appendix: Key Concepts** | Methodology and key‑concept explainers |
-| **Appendix: Glossary** | Metric definitions and research sources |
-| **Appendix: Signal Table** | Trace raw signals through to value (audit trail) |
+| **Copilot Studio: Credits Consumed** | Agent credit consumption and billing breakdown |
+| **Copilot Studio: Agent Evaluation** | Agent resolution, abandonment, escalation and response time |
+| **Copilot Studio: Topic Analysis** | Most‑asked topics, resolution and abandonment by agent |
 
 </details>
 

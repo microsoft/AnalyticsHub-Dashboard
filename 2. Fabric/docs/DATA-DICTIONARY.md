@@ -28,12 +28,16 @@ template never breaks. See `OPTIONAL-SOURCES.md` for the `EmptyTable` + `try…o
 
 | # | Dashboard table | Lakehouse Delta name | Tier | Fabric producer | SharePoint producer |
 | --- | --- | --- | --- | --- | --- |
-| 1 | Chat + Agent Interactions (Audit Logs) | `Copilot_Interactions_Parsed` | **Core** | `Copilot_Audit_Log_Direct_Ingester` | `GetCopilotInteractions*` |
+| 1 | Chat + Agent Interactions (Audit Logs) | `copilot_interactions_curated` | **Core** | `Copilot_Audit_Log_Direct_Ingester` → `Copilot_Audit_Log_Processor` | `GetCopilotInteractions*` |
 | 2 | Copilot Licensed | `copilot_licensed_users` | **Core** | `Copilot_Licensed_Users_Direct_Ingester` | `GetCopilotUsers*` |
 | 3 | Chat + Agent Org Data | `copilot_org_data` | **Core** | `Copilot_Org_Data_Direct_Ingester` | `Get-EntraOrgData*` |
-| 4 | Agents 365 | `agents_365` | *Optional* | `Copilot_Agent365_Lander` | `Get-Agents365Registry` |
-| 5 | ProductFeedback | `user_feedback` | *Optional* | OCV feedback export (`build_feedback`) | OCV feedback CSV |
+| 4 | Agents 365 | `agents_365` | *Optional* | `Copilot_Agent365_Registry_Ingester` *(default)* · `Copilot_Agent365_Lander` *(CSV fallback)* | `Get-Agents365Registry` |
+| 5 | ProductFeedback | `user_feedback` | *Optional* | `Copilot_ProductFeedback_Ingester` | OCV feedback CSV |
 | 6 | Copilot Cost Consumption | `copilot_cost_consumption` | *Optional* | `Copilot_Cost_Consumption_Ingester` | SharePoint CSV (`Cost Consumption File`) |
+
+> **Delta table names are lower-case** throughout (`copilot_interactions_parsed`,
+> `copilot_interactions_curated`, …). The dashboard table names in column 2 are the *model* names and
+> may contain spaces.
 
 > **Cost consumption (row 6)** is the **Microsoft 365 Admin Center → Copilot → Cost management** export
 > (Cowork / Work IQ credits). It's standard across all templates. The **PPAC** message-credit tables
@@ -46,7 +50,7 @@ All other model tables (Calendar, legends, ranking/summary, glossary, value maps
 
 ## Core tables
 
-### 1. `Copilot_Interactions_Parsed` — audit interactions
+### 1. `copilot_interactions_parsed` — audit interactions (ingester output)
 Producer flattens Purview/Graph `CopilotInteraction` audit JSON **upstream** (the report M is a thin
 pass-through guarded by `Table.HasColumns`, so missing optional columns are tolerated).
 
@@ -71,11 +75,38 @@ Agent_TitleID, Agent_EntraId
 > via the registry crosswalk. The two are populated mutually exclusively per row (legacy → TitleID,
 > Entra → EntraId), so old and new agents both join cleanly during a mixed migration.
 
+### 1b. `copilot_interactions_curated` — the table the Fabric model actually reads
+`Copilot_Audit_Log_Processor` reads `copilot_interactions_parsed` (joining `copilot_licensed_users`
+and `agents_365`) and writes **`copilot_interactions_curated`**. This — not the `_parsed` table — is
+what the Fabric template's `Chat + Agent Interactions (Audit Logs)` partition binds to. It is the
+same shape the template's Power Query used to produce, but computed once in Spark and V-Ordered on
+disk, which is what makes refreshes fast and Direct Lake possible.
+
+**Schema = every column of `copilot_interactions_parsed`, plus these 26 enrichment columns:**
+
+```
+Environment, License Status, Is_Sensitive, AI_Model,
+Behavior_Category, Behavior_Enriched, Behavior_Enriched_Full, Behavior_Source,
+Value_Outcome, Usage_Mode, Expertise_Role, Efficiency_Breakdown,
+Web_Grounded_Signal, Behavior_Plausible, Workflow_Action,
+Is_Agent_Activity, Agent Filter, Grounding Source, Agent_Surface, Execution_Trigger,
+UserMonthKey, Delegation_Event_Key, ActivityDate, Agent Last Used Date,
+User_Stage_Maturity, User_Stage
+```
+
+> **`Behavior_Category` is the join key for the value model.** It relates to the static
+> `Human Time Estimates` table inside the `.pbit`, which holds the per-behaviour
+> `Human Baseline (min)` figures. `Estimated Hours Saved` resolves those at query time via
+> `RELATED` — the baselines are **not** materialised into this Delta table.
+>
+> Use `WRITE_MODE = "overwrite"` for the first backfill, then `"merge"` for daily runs. The notebook
+> asserts all 26 columns are present before writing, so a partial enrichment fails loudly rather than
+> silently shipping an incomplete fact table.
+
 ### 2. `copilot_licensed_users` — licensed user list
-⚠️ **Contract fix required.** The producer sanitizes spaces→underscores, writing
-`User_Principal_Name` and `Has_license`, but the dashboard's variant lists only contain spaced/camel
-forms. Either (B1) add `User_Principal_Name` / `Has_license` to the model's variant lists, or
-(B2) keep the spaced names in the Delta table (column-mapping). Key columns:
+The producer sanitizes spaces→underscores, writing `User_Principal_Name` and `Has_license`; the
+model's variant lists accept both those and the spaced/camel forms (see finding **B** below — resolved).
+Key columns:
 
 ```
 User_Principal_Name  (canonical join key; also accepts: User Principal Name / userPrincipalName / UserPrincipalName)
@@ -101,9 +132,11 @@ officeLocation, city, country, accountEnabled, managerUPN
 ## Optional tables
 
 ### 4. `agents_365`
-Landed into the Lakehouse by `Copilot_Agent365_Lander` (CSV → `dbo.agents_365`; Delta column-mapping
-preserves spaced header names like `Agent name`) and read via `FabricTable("agents_365")`, wrapped with
-`Enable_Agent365`. The Fabric model is now **100% Lakehouse-sourced**. Columns from the Agents MAC export.
+Landed into the Lakehouse by **`Copilot_Agent365_Registry_Ingester`** (the default — Graph app-only,
+runs unattended) or by `Copilot_Agent365_Lander` (CSV fallback → `dbo.agents_365`; Delta
+column-mapping preserves spaced header names like `Agent name`). **Pick one, never run both** — they
+write the same table. Read via `FabricTable("agents_365")`, wrapped with `Enable_Agent365`. The Fabric
+model is now **100% Lakehouse-sourced**. Columns from the Agents MAC export.
 
 #### Agent identity resolution (3-key bridge: Entra → Title ID → Name)
 
@@ -177,7 +210,10 @@ unmatched users surface under an **"(Unattributed)"** organization bucket. See
 
 ---
 
-## Known compatibility findings (tracked)
+## Known compatibility findings (historical — all resolved)
+
+Kept for traceability. None of these are open; if you hit one of these symptoms, you are on an old
+template or an old notebook.
 
 | ID | Table | Finding | Fix |
 | --- | --- | --- | --- |
