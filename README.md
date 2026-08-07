@@ -20,6 +20,10 @@ Found this useful? ⭐ **Star this repo to help others discover it!**
 
 </div>
 
+> **Just want to look around first?** [`sample-data/`](sample-data/) has a fabricated
+> dataset that fills the whole dashboard — open the **(Local CSV)** template, point it at
+> three CSVs, done. No tenant, no exports, no setup.
+
 <details>
 <summary>⚠️ <strong>Usage & compliance disclaimer</strong></summary>
 
@@ -63,6 +67,7 @@ them natively — no Fabric or SharePoint needed.
 
 ```
 README.md  ·  LICENSE  ·  Images/
+sample-data/       fabricated demo dataset — try the dashboard with no tenant setup
 1. SharePoint/     SharePoint.pbit  ·  SharePoint (Local CSV).pbit  ·  scripts/  ·  azure-container/
 2. Fabric/         Fabric.pbit  ·  docs/  ·  flows/  ·  notebooks/  ·  pipelines/
 3. Fabric Extended/
