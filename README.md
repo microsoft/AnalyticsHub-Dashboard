@@ -62,6 +62,12 @@ them natively — no Fabric or SharePoint needed.
 > Each path folder has its **own README** with the exact, step‑by‑step setup. This page is just the
 > map.
 
+### 🎬 Two‑minute walkthrough
+
+A short narrated tour of what the dashboard measures and how the pages fit together.
+
+**[▶ Watch the demo](media/ValueLens-Demo.mp4)** *(1m50s — download to play)*
+
 <details>
 <summary>📁 <strong>Repo layout</strong></summary>
 
