@@ -18,6 +18,15 @@ Found this useful? ⭐ **Star this repo to help others discover it!**
 
 ![ValueLens preview](Images/ValueLens-Preview.gif)
 
+### 🎬 Watch first
+
+| | | |
+|---|---|---|
+| **[▶ Demo](media/ValueLens-Demo.mp4)** | What the dashboard measures, page by page | **1m 49s** |
+| **[▶ Setup guide](media/ValueLens-Setup.mp4)** | Getting your own data in — every source, start to finish | **4m 09s** |
+
+*Click either link, then press **Download** on the GitHub page to play.*
+
 </div>
 
 > **Just want to look around first?** [`sample-data/`](sample-data/) has a fabricated
@@ -62,11 +71,14 @@ them natively — no Fabric or SharePoint needed.
 > Each path folder has its **own README** with the exact, step‑by‑step setup. This page is just the
 > map.
 
-### 🎬 Two‑minute walkthrough
+### 🎬 Narrated walkthroughs
 
-A short narrated tour of what the dashboard measures and how the pages fit together.
+| | What it covers |
+|---|---|
+| **[▶ Demo](media/ValueLens-Demo.mp4)** *(1m 49s)* | A tour of the pages and how the value model fits together |
+| **[▶ Setup guide](media/ValueLens-Setup.mp4)** *(4m 09s)* | Every data source — Purview audit, Entra, M365 usage — the permissions each one needs, and the parameters you fill in |
 
-**[▶ Watch the demo](media/ValueLens-Demo.mp4)** *(1m50s — download to play)*
+Both are narrated. Click through and press **Download** on the GitHub page to play.
 
 <details>
 <summary>📁 <strong>Repo layout</strong></summary>
