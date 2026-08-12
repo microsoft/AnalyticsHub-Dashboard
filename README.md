@@ -18,16 +18,19 @@ Found this useful? ⭐ **Star this repo to help others discover it!**
 
 ![ValueLens preview](Images/ValueLens-Preview.gif)
 
-### 🎬 Watch first
-
-| | | |
-|---|---|---|
-| **[▶ Demo](media/ValueLens-Demo.mp4)** | What the dashboard measures, page by page | **1m 49s** |
-| **[▶ Setup guide](media/ValueLens-Setup.mp4)** | Getting your own data in — every source, start to finish | **5m 37s** |
-
-*Click either link, then press **Download** on the GitHub page to play.*
-
 </div>
+
+## Watch first
+
+Both play here in the page — no download.
+
+**Demo — what the dashboard measures, page by page** *(1m 49s)*
+
+https://github.com/user-attachments/assets/a037e428-f966-4fdf-bf44-7a1d04155a63
+
+**Setup guide — getting your own data in, every source, start to finish** *(5m 37s)*
+
+https://github.com/user-attachments/assets/93ed2b50-957f-43ce-ab83-0f6143e7661f
 
 > **Just want to look around first?** [`sample-data/`](sample-data/) has a fabricated
 > dataset that fills the whole dashboard — open the **(Local CSV)** template, point it at
@@ -73,12 +76,10 @@ them natively — no Fabric or SharePoint needed.
 
 ### 🎬 Narrated walkthroughs
 
-| | What it covers |
-|---|---|
-| **[▶ Demo](media/ValueLens-Demo.mp4)** *(1m 49s)* | A tour of the pages and how the value model fits together |
-| **[▶ Setup guide](media/ValueLens-Setup.mp4)** *(5m 37s)* | Every data source — Purview audit, Entra, M365 usage — the permissions each one needs, the parameters you fill in, and how the **Fabric** path differs: PySpark notebooks instead of scripts, and the same notebooks and template running on Databricks, Synapse or Azure SQL |
+Both are at the [top of this page](#watch-first) and play inline.
 
-Both are narrated. Click through and press **Download** on the GitHub page to play.
+- **Demo** *(1m 49s)* — a tour of the pages and how the value model fits together.
+- **Setup guide** *(5m 37s)* — every data source (Purview audit, Entra, M365 usage), the permissions each needs, the parameters you fill in, and how the **Fabric** path differs: PySpark notebooks instead of scripts, and the same notebooks and template running on Databricks, Synapse or Azure SQL.
 
 <details>
 <summary>📁 <strong>Repo layout</strong></summary>
