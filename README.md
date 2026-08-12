@@ -23,7 +23,7 @@ Found this useful? ⭐ **Star this repo to help others discover it!**
 | | | |
 |---|---|---|
 | **[▶ Demo](media/ValueLens-Demo.mp4)** | What the dashboard measures, page by page | **1m 49s** |
-| **[▶ Setup guide](media/ValueLens-Setup.mp4)** | Getting your own data in — every source, start to finish | **4m 09s** |
+| **[▶ Setup guide](media/ValueLens-Setup.mp4)** | Getting your own data in — every source, start to finish | **5m 37s** |
 
 *Click either link, then press **Download** on the GitHub page to play.*
 
@@ -76,7 +76,7 @@ them natively — no Fabric or SharePoint needed.
 | | What it covers |
 |---|---|
 | **[▶ Demo](media/ValueLens-Demo.mp4)** *(1m 49s)* | A tour of the pages and how the value model fits together |
-| **[▶ Setup guide](media/ValueLens-Setup.mp4)** *(4m 09s)* | Every data source — Purview audit, Entra, M365 usage — the permissions each one needs, and the parameters you fill in |
+| **[▶ Setup guide](media/ValueLens-Setup.mp4)** *(5m 37s)* | Every data source — Purview audit, Entra, M365 usage — the permissions each one needs, the parameters you fill in, and how the **Fabric** path differs: PySpark notebooks instead of scripts, and the same notebooks and template running on Databricks, Synapse or Azure SQL |
 
 Both are narrated. Click through and press **Download** on the GitHub page to play.
 
