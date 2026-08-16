@@ -16,7 +16,7 @@ exact column names below (casing and spaces matter).
 > **Base (No-Studio) build.** This build reads three **core** sources plus a few standard **optional**
 > sources. Copilot Studio agent-transcript analytics (the `agent_*` Dataverse tables) and the PPAC
 > per-agent / per-user message-credit tables are **not** part of this build — they live in the separate
-> [Fabric + Copilot Studio](../../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/) template.
+> [Fabric + Copilot Studio](../extended/Fabric%20+%20Copilot%20Studio/) template.
 
 ---
 

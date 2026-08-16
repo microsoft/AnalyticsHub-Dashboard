@@ -1,8 +1,8 @@
-# _shared — core Fabric notebooks (mirrored from `2. Fabric`)
+# _shared — core Fabric notebooks (mirrored from `3. Fabric`)
 
 These are **byte-identical copies** of the seven core ingesters shipped under
-[`2. Fabric/notebooks/`](../../2.%20Fabric/notebooks/). They live here so every
-`3. Fabric Extended/*` add-on is **self-contained** — you can download or clone a
+[`3. Fabric/notebooks/`](../../notebooks/). They live here so every
+`3. Fabric/extended/*` add-on is **self-contained** — you can download or clone a
 single add-on folder and stand it up without reaching back into the base path.
 
 ## Files
@@ -19,7 +19,7 @@ single add-on folder and stand it up without reaching back into the base path.
 
 ## Do not edit here
 
-The **source of truth is `2. Fabric/notebooks/`**. Edit there, then run:
+The **source of truth is `3. Fabric/notebooks/`**. Edit there, then run:
 
 ```powershell
 .\scripts\sync-shared.ps1

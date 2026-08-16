@@ -3,7 +3,7 @@
 Notebooks pull your Copilot data from Microsoft Graph and write Delta tables
 straight into a Lakehouse. 
 
-![Fabric architecture](./ValueLens_Fabric_Architecture.png)
+![Fabric architecture](ValueLens_Fabric_Architecture.png)
 
 > **Not only Fabric.** The same notebooks and template also run on **Azure Databricks**, **Synapse
 > Spark**, **Azure SQL**, or a **Fabric Warehouse** with no real changes. See
@@ -134,7 +134,7 @@ Open `ValueLens - Fabric.pbit` in Power BI Desktop and supply the parameters:
 | `Enable_ProductFeedback` | Optional | `Include` to load `user_feedback`, else `Exclude` |
 | `Enable_Agent365` | Optional | `Include` to load `agents_365`, else `Exclude` |
 | `Enable_CostConsumption` | Optional | `Include` to load `copilot_cost_consumption` (Cowork / Work IQ credits — MAC export), else `Exclude` |
-| `Enable_Consumption` | Optional | Leave `Exclude`. Transitional PPAC billing toggle — its notebook, flows and setup guide now ship with the **[Fabric + Copilot Studio](../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/README.md)** build |
+| `Enable_Consumption` | Optional | Leave `Exclude`. Transitional PPAC billing toggle — its notebook, flows and setup guide now ship with the **[Fabric + Copilot Studio](extended/Fabric%20+%20Copilot%20Studio/README.md)** build |
 
 Click **Load**, then **Publish** - ideally to a workspace on the **same Fabric capacity** so Direct
 Lake works without cross-capacity overhead.
@@ -168,20 +168,20 @@ Cowork / Work IQ consumption and product feedback are **export-only** in Microso
 the `flows/` folder has Power Automate flows that auto-land those exports for you. Full detail in
 [`docs/OPTIONAL-SOURCES.md`](docs/OPTIONAL-SOURCES.md). The **Power Platform (PPAC) per-agent credit**
 export is a Studio-build source — see the
-[Fabric + Copilot Studio](../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/README.md) build.
+[Fabric + Copilot Studio](extended/Fabric%20+%20Copilot%20Studio/README.md) build.
 
 <details>
 <summary><b>Copilot Studio agent deep-dive</b> — separate add-on template (click to expand)</summary>
 
 Agent-transcript analytics and the Agents 365 registry preview are **not** part of the base *No Studio*
-build — they ship as the **[Fabric + Copilot Studio](../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/README.md)**
+build — they ship as the **[Fabric + Copilot Studio](extended/Fabric%20+%20Copilot%20Studio/README.md)**
 template and notebooks. To enable them:
 
 1. Use the **Fabric + Copilot Studio** `.pbit` instead of the base template.
 2. Set `Enable_Dataverse` = `Include`.
-3. Run `3. Fabric Extended/Fabric + Copilot Studio/notebooks/Copilot_Agent_Transcript_Parser.ipynb`.
+3. Run `3. Fabric/extended/Fabric + Copilot Studio/notebooks/Copilot_Agent_Transcript_Parser.ipynb`.
 
-Full setup lives in the [Fabric + Copilot Studio README](../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/README.md).
+Full setup lives in the [Fabric + Copilot Studio README](extended/Fabric%20+%20Copilot%20Studio/README.md).
 </details>
 
 <details>
@@ -226,9 +226,9 @@ The Cowork / Work IQ per-user credit export is **export-only**. Land it in the L
 schema and model wiring in [`flows/COST-CONSUMPTION.md`](flows/COST-CONSUMPTION.md).
 
 ### Credit consumption — Power Platform Admin Center *(Studio build)*
-The **per-agent Copilot Studio message credit** export now ships with the **[Fabric + Copilot Studio](../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/README.md)**
-build — its notebook, flows and step-by-step guide live in `3. Fabric Extended/Fabric + Copilot Studio/`
-([setup guide](../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/CREDIT-CONSUMPTION-SETUP.md)).
+The **per-agent Copilot Studio message credit** export now ships with the **[Fabric + Copilot Studio](extended/Fabric%20+%20Copilot%20Studio/README.md)**
+build — its notebook, flows and step-by-step guide live in `3. Fabric/extended/Fabric + Copilot Studio/`
+([setup guide](extended/Fabric%20+%20Copilot%20Studio/CREDIT-CONSUMPTION-SETUP.md)).
 
 ### Product feedback — Microsoft Admin Center (Health)
 - **Portal:** [admin.microsoft.com](https://admin.microsoft.com) → **Health → Product feedback**
@@ -266,7 +266,8 @@ To retarget, change just two things: point the notebooks' `OUTPUT_TABLE` at your
 template's two parameters (**Fabric SQL Endpoint** = your host, **Lakehouse Name** = your database).
 The template only needs the three tables - `copilot_interactions_parsed`, `copilot_licensed_users`,
 `copilot_org_data` - to exist in that one database with their expected schema. Already producing parsed
-CSVs upstream? The [`../1. SharePoint/`](../1.%20SharePoint/) path consumes them with no Spark step.
+CSVs upstream? The [`../1. Local CSV/`](../1.%20Local%20CSV/) and [`../2. SharePoint/`](../2.%20SharePoint/)
+paths consume them with no Spark step.
 </details>
 
 ## Troubleshooting
@@ -293,5 +294,5 @@ CSVs upstream? The [`../1. SharePoint/`](../1.%20SharePoint/) path consumes them
 - **Incremental refresh (Import mode):** [`docs/INCREMENTAL-REFRESH.md`](docs/INCREMENTAL-REFRESH.md)
 - **Optional sources in depth:** [`docs/OPTIONAL-SOURCES.md`](docs/OPTIONAL-SOURCES.md)
 - **Cowork / Work IQ consumption, step by step:** [`flows/COST-CONSUMPTION-SETUP.md`](flows/COST-CONSUMPTION-SETUP.md) (start here) · [`flows/COST-CONSUMPTION.md`](flows/COST-CONSUMPTION.md) (schema + model wiring)
-- **PPAC credit consumption (Studio build):** [`Fabric + Copilot Studio/CREDIT-CONSUMPTION-SETUP.md`](../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/CREDIT-CONSUMPTION-SETUP.md)
+- **PPAC credit consumption (Studio build):** [`Fabric + Copilot Studio/CREDIT-CONSUMPTION-SETUP.md`](extended/Fabric%20+%20Copilot%20Studio/CREDIT-CONSUMPTION-SETUP.md)
 - **Audit-log JSON schema:** [Microsoft Learn - CopilotInteraction](https://learn.microsoft.com/en-us/office/office-365-management-api/copilot-schema)

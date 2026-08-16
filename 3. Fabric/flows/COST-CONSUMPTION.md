@@ -1,6 +1,6 @@
 # Copilot Cost Consumption — Cowork / WorkIQ / Other credits
 
-> **New to this source?** Start with the **[setup guide](./COST-CONSUMPTION-SETUP.md)** — it walks
+> **New to this source?** Start with the **[setup guide](COST-CONSUMPTION-SETUP.md)** — it walks
 > through getting the CSV out of the Microsoft 365 Admin Center, dropping it in the Lakehouse, and
 > running the ingester. This file is the **schema + model-wiring reference**; use it after you have
 > the export landing.
@@ -39,7 +39,7 @@ Both write to OneLake with the **DFS (ADLS Gen2) three-step pattern** (`PUT ?res
 **`Files/cost_consumption/`** (must match `SOURCE_DIR` in `../notebooks/Copilot_Cost_Consumption_Ingester.ipynb`).
 The MAC export filename is not fixed, so the `FileNamePrefix` guard defaults to empty (accept any
 `.csv`); set it once you know the real prefix to be stricter. Import & OneLake-permission steps are
-identical to the credit-consumption flows — see [`README.md`](./README.md).
+identical to the credit-consumption flows — see [`README.md`](README.md).
 
 ## Unified column contract (both shapes → one table)
 

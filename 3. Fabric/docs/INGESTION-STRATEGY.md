@@ -6,7 +6,7 @@ append), what to expect at scale, and how to pin a stable build.
 This is the base **No-Studio** build: three core sources — **audit logs**, **licensed users**, and
 **org data**. Optional add-ons (Cowork / Work IQ consumption, product feedback, Agents 365) follow the
 same rules; Copilot Studio agent-transcript analytics and PPAC message-credit tables live in the
-separate [Fabric + Copilot Studio](../../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/) build.
+separate [Fabric + Copilot Studio](../extended/Fabric%20+%20Copilot%20Studio/) build.
 
 ---
 
@@ -67,7 +67,7 @@ repo rather than tracking `main`, so an upstream change can't break a running pi
 
 1. Validate a commit in a non-prod workspace (run the ingesters + refresh the PBIT).
 2. Tag it (e.g. `v2026.07-fabric`) and point production at that tag.
-3. To upgrade: diff the new tag's `2. Fabric/notebooks/`, test in non-prod, then move the tag.
+3. To upgrade: diff the new tag's `3. Fabric/notebooks/`, test in non-prod, then move the tag.
 
 **Compatibility tips:**
 - Drive notebooks via the CONFIG cell (tagged as the pipeline `parameters` cell) — don't fork the
