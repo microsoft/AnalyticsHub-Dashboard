@@ -16,8 +16,8 @@ Admin portal export ───┤                          ├─▶ OneLake  Fil
 
 | File | Source | Lands in | Details |
 | --- | --- | --- | --- |
-| `Copilot_CostConsumption_Email_to_OneLake.json` | **MAC Cowork / Work IQ** credit consumption (mailed export) | `Files/cost_consumption/` | [`COST-CONSUMPTION.md`](./COST-CONSUMPTION.md) |
-| `Copilot_CostConsumption_SharePoint_to_OneLake.json` | **MAC Cowork / Work IQ** credit consumption (SharePoint drop) | `Files/cost_consumption/` | [`COST-CONSUMPTION.md`](./COST-CONSUMPTION.md) |
+| `Copilot_CostConsumption_Email_to_OneLake.json` | **MAC Cowork / Work IQ** credit consumption (mailed export) | `Files/cost_consumption/` | [`COST-CONSUMPTION.md`](COST-CONSUMPTION.md) |
+| `Copilot_CostConsumption_SharePoint_to_OneLake.json` | **MAC Cowork / Work IQ** credit consumption (SharePoint drop) | `Files/cost_consumption/` | [`COST-CONSUMPTION.md`](COST-CONSUMPTION.md) |
 | `Copilot_ProductFeedback_Email_to_OneLake.json` | **M365 Copilot user product feedback** (Admin Center → Health → Product Feedback → Export) | `Files/product_feedback/` | [below](#generalising-to-other-export-only-sources) |
 
 All write to OneLake with the **DFS (ADLS Gen2) three-step pattern**: `PUT ?resource=file` →
@@ -25,7 +25,7 @@ All write to OneLake with the **DFS (ADLS Gen2) three-step pattern**: `PUT ?reso
 
 > **Power Platform Admin Center (PPAC) credit-consumption flows have moved.** The
 > `Copilot_Consumption_*` flows and their setup guide now live with the fuller template in
-> [`../../3. Fabric Extended/Fabric + Copilot Studio/flows/`](../../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/flows/README.md).
+> [`../../3. Fabric/extended/Fabric + Copilot Studio/flows/`](../extended/Fabric%20+%20Copilot%20Studio/flows/README.md).
 > Add them only if you deploy the *Fabric + Copilot Studio* build.
 
 ## Import & configure

@@ -31,7 +31,7 @@ hasn't licensed/exported it, or to speed up refresh.
 
 > **Studio add-ons.** Copilot Studio agent-transcript tables (`Enable_Dataverse`) and PPAC per-agent /
 > per-user message-credit tables (`Enable_Consumption`) belong to the separate
-> [Fabric + Copilot Studio](../../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/) build, not this one.
+> [Fabric + Copilot Studio](../extended/Fabric%20+%20Copilot%20Studio/) build, not this one.
 
 ## 3. The per-table wrapper
 

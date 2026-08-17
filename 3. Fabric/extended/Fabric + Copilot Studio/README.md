@@ -2,7 +2,7 @@
 
 *(Formerly "Studio Agent Deepdive".)* An **optional extension** of the standard Fabric dashboard for
 tenants running **Copilot Studio agents**. The base
-[`../../2. Fabric/ValueLens - Fabric.pbit`](../../2.%20Fabric/ValueLens%20-%20Fabric.pbit)
+[`../../3. Fabric/ValueLens - Fabric.pbit`](../../ValueLens%20-%20Fabric.pbit)
 is the recommended starting point for everyone; add this layer only when you want a deeper view of
 **agent transcripts** and the **Agent 365 registry**.
 
@@ -15,7 +15,7 @@ ingesters — lives here. No cross-folder downloads.
 Fabric + Copilot Studio/
 ├── ValueLens - Fabric (+ Studio Agent Deepdive).pbit   ← the report
 ├── notebooks/
-│   ├── _core/                                          ← core ingesters (mirrored from 2. Fabric — do not edit here)
+│   ├── _core/                                          ← core ingesters (mirrored from 3. Fabric — do not edit here)
 │   │   ├── Copilot_Audit_Log_Direct_Ingester.ipynb
 │   │   ├── Copilot_Licensed_Users_Direct_Ingester.ipynb
 │   │   ├── Copilot_Org_Data_Direct_Ingester.ipynb
@@ -31,7 +31,7 @@ Fabric + Copilot Studio/
 
 | Notebook | Purpose |
 |---|---|
-| **`_core/*`** | Standard M365 Copilot ingesters. Byte-identical to those in `2. Fabric/notebooks/` (kept in sync by [`scripts/sync-shared.ps1`](../../scripts/sync-shared.ps1)). |
+| **`_core/*`** | Standard M365 Copilot ingesters. Byte-identical to those in `3. Fabric/notebooks/` (kept in sync by [`scripts/sync-shared.ps1`](../../../scripts/sync-shared.ps1)). |
 | `Copilot_Agent_Transcript_Parser.ipynb` | Parses **Copilot Studio agent transcripts** (Dataverse `ConversationTranscript`) into a Lakehouse Delta table for the agent pages. |
 | `Copilot_Credit_Consumption_Ingester.ipynb` | Ingests the **Power Platform Admin Center (PPAC) per-agent Copilot Studio message credit** export into the `credit_consumption_*` Lakehouse tables (gated by `Enable_Consumption`). |
 | `flows/` | Power Automate flows that auto-land the PPAC credit export into OneLake (email or SharePoint trigger). See [`flows/README.md`](flows/README.md). |
@@ -50,7 +50,7 @@ agents** and you want:
 ## Setup
 
 1. Provision your **Fabric Lakehouse** and Entra app registration — see
-   [`../../2. Fabric/README.md`](../../2.%20Fabric/README.md) for the parameters, RBAC roles, and Graph
+   [`../../3. Fabric/README.md`](../../README.md) for the parameters, RBAC roles, and Graph
    permissions the core ingesters need. (You only need to *read* that guide; you'll run the notebooks
    from this folder.)
 2. Run the notebooks in **`notebooks/_core/`** in order — audit logs → licensed users → org data →
@@ -70,7 +70,7 @@ agents** and you want:
 ## Editing the core notebooks
 
 The `_core/` copies are **mirrors** — do not edit them directly. Edit the source in
-[`../../2. Fabric/notebooks/`](../../2.%20Fabric/notebooks/), then run:
+[`../../3. Fabric/notebooks/`](../../notebooks/), then run:
 
 ```powershell
 .\scripts\sync-shared.ps1

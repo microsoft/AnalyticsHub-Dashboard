@@ -2,7 +2,7 @@
 
 > **Part of the *Fabric + Copilot Studio* build.** These flows land the **Power Platform Admin
 > Center (PPAC)** message-consumption export that feeds the Studio-exclusive **Credits Consumed**
-> page. The leaner *No Studio* template ([`2. Fabric/`](../../../2.%20Fabric/README.md)) does **not**
+> page. The leaner *No Studio* template ([`3. Fabric/`](../../../README.md)) does **not**
 > use them. For the setup walkthrough see [`../CREDIT-CONSUMPTION-SETUP.md`](../CREDIT-CONSUMPTION-SETUP.md).
 
 These two Power Automate flows remove the **manual export → save** step for the Power Platform
@@ -29,7 +29,7 @@ Both write to OneLake with the **DFS (ADLS Gen2) three-step pattern**: `PUT ?res
 > *message* credit** export from the **Power Platform Admin Center** (`credit_consumption_*` tables →
 > `Enable_Consumption`). The **per-user Cowork / Work IQ *surface* credit** export from the **M365
 > Admin Center** is a *different* source that stays in every build —
-> see [`2. Fabric/flows/COST-CONSUMPTION.md`](../../../2.%20Fabric/flows/COST-CONSUMPTION.md)
+> see [`3. Fabric/flows/COST-CONSUMPTION.md`](../../../flows/COST-CONSUMPTION.md)
 > (`copilot_cost_consumption` → `Enable_CostConsumption`).
 
 ## Import & configure
@@ -81,4 +81,4 @@ the transcript-native `Total Cost Units` (displayedCost) view keeps working rega
 The same `PUT → append → flush` landing mechanism works for **any** export-only Microsoft report —
 only the **trigger filter** and **target folder** change. The *No Studio* template documents the
 generalised pattern (and the product-feedback example that ships in every build) in
-[`2. Fabric/flows/README.md`](../../../2.%20Fabric/flows/README.md#generalising-to-other-export-only-sources).
+[`3. Fabric/flows/README.md`](../../../flows/README.md#generalising-to-other-export-only-sources).

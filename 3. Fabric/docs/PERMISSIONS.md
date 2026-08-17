@@ -40,7 +40,7 @@ right (next section) — the data itself must be exported by an admin (or a sche
 > **Studio add-ons.** Copilot Studio agent-transcript (Dataverse) analytics and PPAC per-agent /
 > per-user message-credit consumption need extra grants (a Dataverse **Application User** with read on
 > the **Conversation Transcript** table; Power Platform admin export). Those are covered in the separate
-> [Fabric + Copilot Studio](../../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/) build.
+> [Fabric + Copilot Studio](../extended/Fabric%20+%20Copilot%20Studio/) build.
 
 ---
 

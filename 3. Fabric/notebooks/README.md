@@ -69,7 +69,7 @@ into `Files/cost_consumption/` — the **standard** consumption view across ever
 
 - **Power Platform Admin Center (PPAC) credit consumption** and the **Copilot Studio**
   transcript / registry notebooks now live with the fuller template in
-  [`../../3. Fabric Extended/Fabric + Copilot Studio/`](../../3.%20Fabric%20Extended/Fabric%20+%20Copilot%20Studio/README.md).
+  [`../../3. Fabric/extended/Fabric + Copilot Studio/`](../extended/Fabric%20+%20Copilot%20Studio/README.md).
   Add them only if you deploy that *Fabric + Copilot Studio* build.
 
 ---
