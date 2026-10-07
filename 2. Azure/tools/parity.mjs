@@ -2,7 +2,7 @@
 // Runs every app DAX query against two semantic models (e.g. the Fabric model and the Azure-hosted one)
 // through the Power BI executeQueries API, then compares the results.
 //
-//   node "5. Azure/tools/parity.mjs" --a <workspaceId>/<datasetId> --b <workspaceId>/<datasetId> [--out report.json] [--only <folder>]
+//   node "2. Azure/tools/parity.mjs" --a <workspaceId>/<datasetId> --b <workspaceId>/<datasetId> [--out report.json] [--only <folder>]
 //
 // Auth: an access token for https://analysis.windows.net/powerbi/api from POWERBI_TOKEN, or `az account get-access-token`.
 // Queries with __PLACEHOLDER__ templates are filled in by app code at runtime, so they are reported as skipped.

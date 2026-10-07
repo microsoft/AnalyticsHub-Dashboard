@@ -1,7 +1,7 @@
 """Synthetic demo data in place of the tenant collectors.
 
 With VALUELENS_SAMPLE_DATA=true the run "collects" the repo's fabricated sample
-(`4. Local CSV/sample-data`: 170 people at contoso-demo.com, three months of Copilot use) into a
+(`5. Local CSV/sample-data`: 170 people at contoso-demo.com, three months of Copilot use) into a
 throwaway local store, then processes, publishes and refreshes as usual. The people go through the
 same `org` and `licensed` builders as Graph data, and the interactions are given in the parsed
 audit shape, so the curated tables come out of the shared processor exactly as real data would.

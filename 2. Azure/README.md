@@ -1,4 +1,4 @@
-# 5. Azure (preview scaffold)
+# 2. Azure (preview scaffold)
 
 Analytics Hub running in **your own Azure subscription**, without Microsoft Fabric. It has the
 same data, the same ValueLens Model and measures, and the same app pages as `1. Fabric`.
@@ -27,7 +27,7 @@ then run `python tests/valuelens_golden.py --regenerate` (this needs pyspark and
 
 ```powershell
 pip install duckdb
-$env:PYTHONPATH = "shared\python;5. Azure\jobs"
+$env:PYTHONPATH = "shared\python;2. Azure\jobs"
 # raw\copilot_interactions_parsed\*.parquet (and optionally copilot_licensed_users, agents_365)
 python -m valuelens_jobs process --data-dir .\data
 # -> data\curated\copilot_interactions_curated\part-0.parquet
@@ -38,8 +38,8 @@ Or run it on single files: `python -m valuelens_core --interactions in.csv --out
 ## Validate the templates
 
 ```powershell
-az bicep build --file "5. Azure/infra/main.bicep" --stdout > $null
-az deployment group what-if -g <rg> --template-file "5. Azure/infra/main.bicep" --parameters "5. Azure/infra/main.bicepparam"
+az bicep build --file "2. Azure/infra/main.bicep" --stdout > $null
+az deployment group what-if -g <rg> --template-file "2. Azure/infra/main.bicep" --parameters "2. Azure/infra/main.bicepparam"
 ```
 
 The installer will run the same what-if for its plan screen, then deploy in incremental mode. It passes the

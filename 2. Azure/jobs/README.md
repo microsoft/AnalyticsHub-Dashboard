@@ -20,7 +20,7 @@ in step with the Fabric notebooks by the golden tests in `tests/`. No Spark or J
 
 The other commands are:
 
-- `migrate` applies `5. Azure/sql/migrations/V*.sql` and grants the app's reader identity `db_datareader`. The installer runs it on every deploy.
+- `migrate` applies `2. Azure/sql/migrations/V*.sql` and grants the app's reader identity `db_datareader`. The installer runs it on every deploy.
 - `process --data-dir <dir>` runs only the processing step, on local files.
 
 Any failure is logged and the job exits with code 1, so Container Apps records the run as failed.
@@ -57,8 +57,8 @@ changes its connection parameters.
 ## Running locally
 
 ```powershell
-pip install -r "5. Azure/jobs/requirements.txt" -e shared/python
-$env:PYTHONPATH = "5. Azure/jobs"
+pip install -r "2. Azure/jobs/requirements.txt" -e shared/python
+$env:PYTHONPATH = "2. Azure/jobs"
 # Offline: a folder holding raw/copilot_interactions_parsed, raw/copilot_licensed_users, raw/agents_365
 python -m valuelens_jobs process --data-dir .\data
 python -m pytest tests/test_azure_jobs.py -q
@@ -67,7 +67,7 @@ python -m pytest tests/test_azure_jobs.py -q
 To build the image, run `docker build` from the repo root, so that the shared core and the migrations are in the build context:
 
 ```powershell
-docker build -f "5. Azure/jobs/Dockerfile" -t valuelens-jobs:dev .
+docker build -f "2. Azure/jobs/Dockerfile" -t valuelens-jobs:dev .
 ```
 
 The `azure-images` workflow builds the image on pull requests. On `installer-v*` tags it publishes `ghcr.io/microsoft/valuelens-jobs:<installer version>`.

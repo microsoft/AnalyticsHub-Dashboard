@@ -1,5 +1,5 @@
 # valuelens-jobs: build from the REPO ROOT so the shared core and SQL migrations are in the context:
-#   docker build -f "5. Azure/jobs/Dockerfile" -t ghcr.io/microsoft/valuelens-jobs:<version> .
+#   docker build -f "2. Azure/jobs/Dockerfile" -t ghcr.io/microsoft/valuelens-jobs:<version> .
 # No JVM / Spark: the processor runs on DuckDB (shared/python/valuelens_core).
 FROM python:3.12-slim-bookworm
 
@@ -18,16 +18,16 @@ RUN apt-get update \
  && apt-get purge -y curl gnupg && apt-get autoremove -y && rm -rf /var/lib/apt/lists/* \
  && ! ldd /opt/microsoft/msodbcsql18/lib64/libmsodbcsql-18.*.so.* | grep "not found"
 
-COPY ["5. Azure/jobs/requirements.txt", "/app/requirements.txt"]
+COPY ["2. Azure/jobs/requirements.txt", "/app/requirements.txt"]
 RUN pip install -r /app/requirements.txt
 
 COPY shared/python /src/shared
 RUN pip install /src/shared && rm -rf /src/shared
 
-COPY ["5. Azure/sql/migrations", "/app/sql/migrations"]
+COPY ["2. Azure/sql/migrations", "/app/sql/migrations"]
 # Synthetic demo data for VALUELENS_SAMPLE_DATA=true (valuelens_jobs/sample.py).
-COPY ["4. Local CSV/sample-data/copilot_interactions_sample.csv", "4. Local CSV/sample-data/copilot_users_sample.csv", "/app/sample-data/"]
-COPY ["5. Azure/jobs/valuelens_jobs", "/app/valuelens_jobs"]
+COPY ["5. Local CSV/sample-data/copilot_interactions_sample.csv", "5. Local CSV/sample-data/copilot_users_sample.csv", "/app/sample-data/"]
+COPY ["2. Azure/jobs/valuelens_jobs", "/app/valuelens_jobs"]
 
 RUN useradd --uid 10001 --create-home valuelens
 USER valuelens
