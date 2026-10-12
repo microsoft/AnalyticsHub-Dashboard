@@ -7,6 +7,9 @@ import { QueryService } from './query.js';
 import { AccessService, httpError } from './access.js';
 import { MemorySettingsStore, TableSettingsStore, validateEntity, validateSettingsRow } from './settings.js';
 import { VersionService } from './version.js';
+import { DelegationService } from './delegations.js';
+import { AccessRefresher, managedIdentityTokens } from './refresh.js';
+import { createScopeStore } from './scope-store.js';
 import { createStaticHandler } from './static.js';
 import { AskService } from './ask.js';
 
@@ -19,6 +22,9 @@ export function createServer(deps = {}) {
   const accessService = new AccessService({ config, tokenAcquirer, fetchImpl: deps.fetchImpl || fetch, now: deps.now });
   const askService = new AskService({ config, queryService, fetchImpl: deps.fetchImpl || fetch, now: deps.now, aiToken: deps.aiToken, loadCatalogue: deps.loadAskCatalogue });
   const auth = (req, write = false) => requireAuth(req, verifyToken, write, config, accessService);
+  const scopeStore = deps.scopeStore !== undefined ? deps.scopeStore : createScopeStore(config);
+  const refresher = deps.refresher || new AccessRefresher({ models: config.semanticModels, getToken: deps.appToken || managedIdentityTokens(config), fetchImpl: deps.fetchImpl || fetch, now: deps.now, ...(deps.setTimer ? { setTimer: deps.setTimer } : {}) });
+  const delegations = new DelegationService({ config, store: scopeStore, accessService, refresher, now: deps.now });
   const versionService = new VersionService({ installed: config.version, releasesUrl: config.releasesUrl, fetchImpl: deps.fetchImpl || fetch, now: deps.now });
   const staticHandler = createStaticHandler(deps.publicDir || config.publicDir);
 
@@ -66,6 +72,14 @@ export function createServer(deps = {}) {
       }
       const memberMatch = /^\/api\/access\/members\/([^/]+)$/.exec(url.pathname);
       if (memberMatch && req.method === 'DELETE') { await accessService.remove(await auth(req), decodeURIComponent(memberMatch[1])); res.statusCode = 204; return res.end(); }
+      if (url.pathname === '/api/delegations' && req.method === 'GET') return sendJson(res, 200, await delegations.describe(await auth(req)));
+      if (url.pathname === '/api/delegations' && req.method === 'POST') {
+        const caller = await auth(req);
+        return sendJson(res, 201, await delegations.add(caller, await readJsonBody(req, 4 * 1024)));
+      }
+      const delegationMatch = /^\/api\/delegations\/([^/]+)(\/approve)?$/.exec(url.pathname);
+      if (delegationMatch && req.method === 'DELETE' && !delegationMatch[2]) return sendJson(res, 200, await delegations.remove(await auth(req), decodeURIComponent(delegationMatch[1])));
+      if (delegationMatch && req.method === 'POST' && delegationMatch[2]) return sendJson(res, 200, await delegations.approve(await auth(req), decodeURIComponent(delegationMatch[1])));
       if (url.pathname.startsWith('/api/')) return sendJson(res, 404, { error: { code: 'NotFound', message: 'API route not found.' } });
       if (await staticHandler(req, res, url.pathname)) return;
       return sendJson(res, 404, { error: { code: 'NotFound', message: 'Not found.' } });

@@ -157,7 +157,7 @@ A model definition deploy drops role members, so after every deploy the installe
 | Azure | The Power BI workspace on a capacity, as above. The notebook runs in that workspace. Installs with private networking aren't supported yet, because the notebook can't reach the storage account |
 | "Below a person" scopes | Manager data in the org data. The installer warns when fewer than half the people have a manager |
 | Who skips it | Workspace **Admins, Members and Contributors** see every row whatever their scope. The installer lists them when you turn it on, and the app shows them "Showing: everyone (your workspace role)" |
-| Who can give scopes | Analytics Hub admins, from the installer's `access` command. Leaders can't yet |
+| Who can give scopes | Analytics Hub admins, from the installer's `access` command. On Azure also from **Share** in the app: see below |
 
 **Upgrades and Repair.**
 
@@ -168,6 +168,22 @@ A model definition deploy drops role members, so after every deploy the installe
 | Upgrade or Repair with it on | Any model redeploy is followed by applying the members again and checking. The scopes are untouched |
 | Someone joins the viewer group later | They see nothing until you give them a scope (or you add a default `*` scope) |
 | You turn it off | The models are redeployed without the roles or access tables. The scopes are kept for if you turn it on again |
+
+**Giving scopes from the Share panel (Azure).** With org-scoped access on, **Share** in the Azure app has a **What people see** section:
+
+| Who | What they can do |
+|---|---|
+| **AnalyticsHub.Admin** | Give anyone **Below a person** or **An org**, optionally with **Can share their org**. See and take back every scope given here, and approve the ones waiting for an admin |
+| A leader: someone with a **can share** scope | Give someone **My org**: the people below themselves. Only when that sits inside a scope they were given with can share (an `all` scope, or a **Below a person** scope for themselves or someone above them). They can't pass on can share, and they take back only what they gave |
+| Everyone else | Sees "Only an Analytics Hub admin can choose what people see", with who to ask |
+
+- Nobody gives **Everyone** (`all`) from the app. That changes the Everyone role's members, so it stays in the installer's `access` command.
+- A delegate also needs to be in the viewer group. The app adds them as the signed-in person, so it only works for owners of the group and directory admins. For anyone else the scope is saved as **Waiting for an admin** and has no effect until an admin approves it in the Share panel, which adds them to the group. No extra Graph permissions are needed.
+- The web app writes scopes to `dbo.access_scope` (marked `share`) as its managed identity. The jobs' scheduled load replaces only the installer's scopes from the CSV, so these stay. Remove them in the app, not the CSV.
+- After a change the app refreshes the models' **Access Scope** table as the managed identity, so it usually applies within a few minutes. Changes close together share a refresh. When Power BI is busy or won't take another refresh, the change applies at the next scheduled refresh. Org-scoped access needs a capacity, so Pro's 8 refreshes a day don't apply, but these refreshes count towards the capacity's load.
+- Taking a scope back doesn't remove the person from the viewer group. Without another scope they fall back to the default (`*`) scopes.
+
+On Fabric, scopes are given only by admins, from the installer. The Share panel says so, and who to ask.
 
 Caveats:
 - Scopes other than `all` change at the next scheduled load. **Apply now** in `access` reloads and refreshes straight away; a new `all` scope needs it, since it changes role members.

@@ -193,6 +193,11 @@ describe("parseAccess", () => {
         })).toEqual({ groupId: "g-1", groupName: "Analytics Hub Viewers", contact: "admin@example.com", requestUrl: "https://example.com/r" });
     });
 
+    it("keeps the org attribute when org-scoped access is on", () => {
+        expect(parseAccess({ access: { groupId: "g-1", rlsOrgAttribute: "department" } })).toEqual({ groupId: "g-1", rlsOrgAttribute: "department" });
+        expect(parseAccess({ access: { groupId: "g-1", rlsOrgAttribute: 7 } })).toEqual({ groupId: "g-1" });
+    });
+
     it("drops a request link that isn't https", () => {
         expect(parseAccess({ access: { groupId: "g-1", requestUrl: "javascript:alert(1)" } })).toEqual({ groupId: "g-1" });
     });
