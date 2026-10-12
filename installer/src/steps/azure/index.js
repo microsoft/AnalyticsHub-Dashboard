@@ -9,6 +9,7 @@ import { POWER_BI_APP_ID, adminConsentUrl, apiPermissionsUrl, resolveAppRoles } 
 import { ROLES } from '../../clients/azure.js';
 import { HttpError } from '../../http.js';
 import { commandLine } from '../../launch.js';
+import { rlsOn, rlsSettings } from '../../transform/access.js';
 import { buildConsumptionModel, buildModel, loadTemplateModel, PBISM } from '../../transform/model.js';
 import { deployModel, modelSignature, REFRESH_POLL_MS } from '../model.js';
 import { addMonths, OPTIONAL_PERMISSION_EFFECTS, OPTIONAL_PERMISSIONS, SECRET_LIFETIME_MONTHS } from '../identity.js';
@@ -22,6 +23,7 @@ import { ensureResourceGraphAccess, planResourceGraph, resourceGraphGrants, reso
 import { DATA_SOURCES } from '../../uploads.js';
 import { normaliseResourceGraph } from '../../config.js';
 import { accessReview, accessSummaryLines, ensureViewerGroup, grantModelAccess, planAccess, publicAccess } from '../access.js';
+import { ensureOrgAccess, verifyOrgAccess } from '../org-access.js';
 import { askAdvanced, asksAdvanced } from '../advanced.js';
 import { askGrants, askLine, askMode, askParameters, ensureAzureAskAccess, planAzureAsk } from './ask.js';
 
@@ -274,9 +276,10 @@ export const BACKFILL_ENV = 'VALUELENS_AUDIT_BACKFILL_DAYS';
  * template instead of the job's, so each container keeps its image, command, resources and settings.
  * @param {any} job  The job resource.
  * @param {{ name: string, value: string }[]} env
+ * @param {{ args?: string[] }} [opts]  Arguments that replace the containers' own, e.g. other steps.
  * @returns {{ containers: any[], initContainers?: any[] } | undefined}  undefined when the job has no containers to copy.
  */
-export function jobTemplateWith(job, env) {
+export function jobTemplateWith(job, env, opts = {}) {
   const template = job?.properties?.template;
   const containers = template?.containers ?? [];
   if (!containers.length) return undefined;
@@ -286,7 +289,7 @@ export function jobTemplateWith(job, env) {
       name: ct.name,
       image: ct.image,
       ...(ct.command ? { command: ct.command } : {}),
-      ...(ct.args ? { args: ct.args } : {}),
+      ...(opts.args ? { args: opts.args } : ct.args ? { args: ct.args } : {}),
       ...(ct.resources ? { resources: ct.resources } : {}),
       env: [...(ct.env ?? []).filter((/** @type {any} */ e) => !names.has(e.name)), ...env],
     })),
@@ -486,22 +489,28 @@ async function grantDropSite(ctx) {
  * Gives the person installing Storage Blob Data Contributor on the storage account, so the Studio
  * flow's storage connection, signed in as them, can write to the landing container.
  * @param {Ctx} ctx
+ * @param {string} [why]  What the role is for, e.g. "for the Studio flow".
+ * @returns {Promise<boolean>} false when you can't assign it.
  */
-async function grantLandingWrite(ctx) {
+export async function grantLandingWrite(ctx, why = 'for the Studio flow') {
   const { ui, api, user } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
   const account = az.outputs?.storageAccountName;
-  if (!account || az.storageRole) return;
+  if (!account) return false;
+  if (az.storageRole) return true;
   const scope = `/subscriptions/${az.subscriptionId}/resourceGroups/${az.resourceGroup}/providers/Microsoft.Storage/storageAccounts/${account}`;
   try {
     await api.arm.assignRole(scope, ROLES.storageBlobDataContributor, user.id, 'User');
     az.storageRole = true;
-    ui.ok(`Gave you Storage Blob Data Contributor on ${account}, for the Studio flow`);
+    ui.ok(`Gave you Storage Blob Data Contributor on ${account}, ${why}`);
   } catch (err) {
     if (!(err instanceof HttpError) || err.status !== 403) throw err;
-    ui.warn(`You can't assign roles on ${account}. Whoever signs the Studio flow in needs Storage Blob Data Contributor on it.`);
+    ui.warn(`You can't assign roles on ${account}. Someone needs Storage Blob Data Contributor on it ${why}.`);
+    return false;
+  } finally {
+    ctx.save();
   }
-  ctx.save();
+  return true;
 }
 
 /** @param {Ctx} ctx */
@@ -790,7 +799,7 @@ export async function installAzure(ctx, opts) {
   const titles = [
     'Resource group', 'Azure resources', 'Entra applications', 'Microsoft Graph permissions', ...(consumption ? ['Credit consumption'] : []), ...(resourceGraph ? ['Resource Graph access'] : []),
     ...(askAccess ? ['Ask model access'] : []),
-    'Power BI model', ...(withAccess ? ['Viewer access'] : []), 'Azure resources (final)', 'Database migration',
+    'Power BI model', ...(withAccess ? ['Viewer access'] : []), 'Azure resources (final)', 'Database migration', ...(rlsOn(config) ? ['Org-scoped access'] : []),
     ...(flows ? ['Power Automate flow'] : []), 'Teams package', ...(ctx.reloadHistoryDays ? ['Reload audit history'] : ctx.runFirstLoad ? ['First load'] : []),
   ];
   let n = 0;
@@ -855,6 +864,13 @@ export async function installAzure(ctx, opts) {
     throw new Error(`The database migration job did not succeed (${migration.status}), so setup stopped before the first load. ` +
       `See its logs with: az containerapp job logs show -g ${az.resourceGroup} -n ${az.outputs?.migrateJobName} --execution ${az.status?.lastMigrate?.name} --container migrate. ` +
       'Re-run install once it is fixed; finished steps are skipped.');
+  }
+
+  if (rlsOn(config)) {
+    step('Org-scoped access');
+    // A first load refreshes the models itself, after loading the scopes into SQL.
+    const refresh = !ctx.runFirstLoad && !ctx.reloadHistoryDays;
+    if ((await ensureOrgAccess(ctx, { refresh })) && refresh) await verifyOrgAccess(ctx);
   }
 
   if (flows) {
@@ -1058,7 +1074,7 @@ async function ensureAzurePowerBi(ctx, sqlReaderSecret) {
   const database = String(az.outputs?.sqlDatabaseName ?? 'valuelens');
   await deployModel(ctx, sm, {
     signature: `azure;${modelSignature(server, database, config.modules)}`,
-    definition: () => semanticModelDefinition(buildModel(loadTemplateModel(/** @type {string} */ (sources.modelFile)), { server, database, modules: config.modules, resourceGraph: azureResourceGraphOn(config), currency: config.reporting?.currency }), PBISM),
+    definition: () => semanticModelDefinition(buildModel(loadTemplateModel(/** @type {string} */ (sources.modelFile)), { server, database, modules: config.modules, resourceGraph: azureResourceGraphOn(config), currency: config.reporting?.currency, access: rlsSettings(config) }), PBISM),
   }).catch((err) => {
     if (err instanceof HttpError && err.status >= 400 && /FeatureNotAvailable|capacity|Premium|Fabric/i.test(JSON.stringify(err.body ?? err.message))) throw new Error('Power BI semantic model definition APIs are not available in this Pro workspace. The .pbix Imports fallback is planned but not implemented yet.');
     throw err;
@@ -1089,7 +1105,7 @@ async function ensureAzureConsumptionModel(ctx, server, database) {
   const m = config.consumption.model;
   await deployModel(ctx, m, {
     signature: `azure;${server};${database}`,
-    definition: () => semanticModelDefinition(buildConsumptionModel(loadTemplateModel(file), { server, database, resourceGraph: azureResourceGraphOn(config) }), PBISM),
+    definition: () => semanticModelDefinition(buildConsumptionModel(loadTemplateModel(file), { server, database, resourceGraph: azureResourceGraphOn(config), access: rlsSettings(config) }), PBISM),
   });
   pbi.consumptionDatasetId = m.id;
   ctx.save();
@@ -1263,8 +1279,13 @@ function refreshScheduleBody(ctx) {
   return { value: { enabled: true, localTimeZoneId: 'UTC', times: [`${String((hour + 1) % 24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`], days: ctx.config.schedule.frequency === 'weekly' ? [ctx.config.schedule.weekday] : undefined } };
 }
 
-/** @param {Ctx} ctx @param {'run' | 'migrate'} kind @param {{ wait: boolean, timeoutMs?: number, backfillDays?: number }} opts */
-async function startAndWaitJob(ctx, kind, opts) {
+/**
+ * Starts the run or migrate job, and waits for it when asked. `steps` runs only those steps of the run
+ * job; such a run isn't recorded as the last run, which tells whether the history was loaded.
+ * @param {Ctx} ctx @param {'run' | 'migrate'} kind
+ * @param {{ wait: boolean, timeoutMs?: number, backfillDays?: number, steps?: string }} opts
+ */
+export async function startAndWaitJob(ctx, kind, opts) {
   const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
   const name = kind === 'run' ? az.outputs?.runJobName : az.outputs?.migrateJobName;
   if (!name) throw new Error(`The ARM deployment did not return ${kind} job name.`);
@@ -1274,15 +1295,20 @@ async function startAndWaitJob(ctx, kind, opts) {
   if (opts.backfillDays) {
     template = jobTemplateWith(await ctx.api.arm.getContainerAppJob(sub, rg, name), [{ name: BACKFILL_ENV, value: String(opts.backfillDays) }]);
     if (!template) throw new Error(`Couldn't read the ${name} job's containers, so it can't be started with ${opts.backfillDays} days of history.`);
+  } else if (opts.steps) {
+    template = jobTemplateWith(await ctx.api.arm.getContainerAppJob(sub, rg, name), [], { args: ['run', '--steps', opts.steps] });
+    if (!template) throw new Error(`Couldn't read the ${name} job's containers, so it can't be started with only ${opts.steps}.`);
   }
+  const label = opts.steps ? `${kind} job (${opts.steps})` : `${kind} job`;
+  const key = opts.steps ? 'lastAccess' : kind === 'run' ? 'lastRun' : 'lastMigrate';
   const started = await ctx.api.arm.startContainerAppJob(sub, rg, name, template);
   const executionName = started?.name ?? started?.properties?.name ?? started?.id?.split('/').pop();
-  ctx.ui.ok(`Started ${kind} job${executionName ? ` (${executionName})` : ''}${opts.backfillDays ? ` with ${opts.backfillDays} days of audit history` : ''}`);
+  ctx.ui.ok(`Started ${label}${executionName ? ` (${executionName})` : ''}${opts.backfillDays ? ` with ${opts.backfillDays} days of audit history` : ''}`);
   if (opts.backfillDays) {
     ctx.ui.note(`${reloadDetail(opts.backfillDays)} Job images older than this installer ignore ${BACKFILL_ENV} and run as usual: run "${commandLine('update')}" first if yours is.`);
   }
   az.status ??= {};
-  az.status[kind === 'run' ? 'lastRun' : 'lastMigrate'] = { name: executionName, status: 'Running', startedAt: ctx.now().toISOString() };
+  az.status[key] = { name: executionName, status: 'Running', startedAt: ctx.now().toISOString() };
   ctx.save();
   if (!opts.wait || !executionName) return { ok: true, status: 'Running' };
   const progress = ctx.ui.progress(kind === 'run' ? 'Run job' : 'Migrate job');
@@ -1301,7 +1327,7 @@ async function startAndWaitJob(ctx, kind, opts) {
     progress.done();
   }
   const state = job?.properties?.status ?? job?.status ?? 'Unknown';
-  az.status[kind === 'run' ? 'lastRun' : 'lastMigrate'] = { name: executionName, status: state, finishedAt: /Succeeded|Completed|Failed|Canceled|Cancelled/i.test(state) ? ctx.now().toISOString() : undefined };
+  az.status[key] = { name: executionName, status: state, finishedAt: /Succeeded|Completed|Failed|Canceled|Cancelled/i.test(state) ? ctx.now().toISOString() : undefined };
   ctx.save();
   if (/Succeeded|Completed/i.test(state)) {
     ctx.ui.ok(`${kind === 'run' ? 'Run' : 'Migration'} job finished`);

@@ -9,6 +9,7 @@ import { ROLES } from '../clients/azure.js';
 import { semanticModelDefinition } from '../clients/fabric.js';
 import { HttpError } from '../http.js';
 import { COWORK_DATAFLOW_TABLE, coworkDataflowDefinition, isVivaId } from '../transform/dataflow.js';
+import { rlsSettings } from '../transform/access.js';
 import { buildConsumptionModel, loadTemplateModel, PBISM } from '../transform/model.js';
 import { c } from '../ui.js';
 import { UPLOAD_DIR } from '../uploads.js';
@@ -415,7 +416,7 @@ export async function ensureConsumptionModel(ctx, opts = {}) {
   await deployModel(ctx, m, {
     signature: `${server.toLowerCase()};${database}`,
     definition: () =>
-      semanticModelDefinition(buildConsumptionModel(loadTemplateModel(file), { server, database, resourceGraph: config.dataSources?.resourceGraph === 'api' }), PBISM),
+      semanticModelDefinition(buildConsumptionModel(loadTemplateModel(file), { server, database, resourceGraph: config.dataSources?.resourceGraph === 'api', access: rlsSettings(config) }), PBISM),
     force: opts.force,
   });
   if (!m.bound && config.semanticModel.connectionId) await bindModel(ctx, m);

@@ -35,6 +35,8 @@ interface ReportHeaderProps {
     actions?: ReactNode;
     /** Offer the downloads and actions; off for a conversation like Ask, which can't be exported. */
     downloadable?: boolean;
+    /** A further line under the freshness, such as whose data is shown. */
+    meta?: ReactNode;
 }
 
 const LABELS: Record<ExportFormat, string> = { pdf: "Download PDF", pptx: "Download PowerPoint" };
@@ -55,6 +57,7 @@ export function ReportHeader({
     contentRef,
     actions,
     downloadable = true,
+    meta,
 }: ReportHeaderProps) {
     const { filters, orgAttribute } = useFilterContext();
     const exporter = useReportExport();
@@ -79,6 +82,7 @@ export function ReportHeader({
                 <h1 className="text-[length:var(--text-hero-700)] leading-hero-700 font-semibold">{title}</h1>
                 {blurb && <span className="text-[length:var(--text-300)] leading-300 text-muted-foreground">{blurb}</span>}
                 <FreshnessLabel sources={sources} dates={dates} />
+                {meta}
             </span>
             {downloadable && (
                 <span className="flex flex-col items-end gap-100" data-print="hide">

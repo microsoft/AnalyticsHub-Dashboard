@@ -127,7 +127,52 @@ The installer creates one Entra security group, **Analytics Hub Viewers**, with 
 | Add and remove viewers in the Azure app | Group **owners** and **AnalyticsHub.Admin**. The web app calls Graph as the signed-in person with the delegated **GroupMember.ReadWrite.All** scope (admin-consented by the installer); Graph still only lets owners and admins change the group |
 | Add and remove viewers on Fabric | Group owners, in My Groups |
 
-> **Keep viewers off workspace roles.** Even a workspace Viewer can query the Lakehouse's SQL endpoint, and Admins, Members and Contributors skip any row-level security the models add later. Share the app and models through the group instead. Organizational apps (preview) can be an optional landing page that bundles the app and the reports.
+> **Keep viewers off workspace roles.** Even a workspace Viewer can query the Lakehouse's SQL endpoint, and Admins, Members and Contributors skip [org-scoped access](#org-scoped-access-row-level-security). Share the app and models through the group instead. Organizational apps (preview) can be an optional landing page that bundles the app and the reports.
+
+---
+
+## Org-scoped access (row-level security)
+
+By default everyone in **Analytics Hub Viewers** sees every org. Org-scoped access is **opt-in**: turn it on from the installer's `access` command (**Org-scoped access: who sees which orgs**). Each viewer then sees only the orgs they've been given a **scope** for:
+
+| Scope | Sees |
+|---|---|
+| **Everyone** (`all`) | Every person, and the tenant-wide pages |
+| **Below a person** (`hierarchy`) | That person and everyone who reports to them, at any depth, from the org data's manager chain |
+| **An org** (`org`) | Everyone whose department (or country, if you switch) is that value |
+
+A person can have several scopes; they see the union. People without a scope of their own get the default (`*`) scopes, if any. With none, they see nothing, and the app says who to ask instead of showing empty pages.
+
+**How it works.** Scopes are kept outside the models, so redeploys never lose them: `Files/analytics_hub_access/access_scope.csv` in the Lakehouse on Fabric, `access/access_scope.csv` in the landing container on Azure (loaded into `dbo.access_scope`). When it's on, each model gets two hidden tables (**Access Scope** and **Access People**) and two roles:
+
+- **Everyone** filters nothing but the scope table. Its members are the people with an `all` scope.
+- **Scoped viewers** has the viewer group as its member and filters the model's org table (and the person-level tables it doesn't reach) to the person's scopes. Tenant-wide tables (Azure and pay-as-you-go spend, agent inventory, Defender, Resource Graph, product feedback) show only to `all`, so those pages drop out of a scoped viewer's sidebar.
+
+A model definition deploy drops role members, so after every deploy the installer runs the **AnalyticsHub_Access_Scope** notebook, which applies the members through the XMLA endpoint, and then checks the result by querying as a seeded viewer.
+
+| What | Role / requirement |
+|---|---|
+| Turn it on, change scopes | A workspace **Admin** or **Member** running the installer. On Azure also **Storage Blob Data Contributor** on the storage account (the installer assigns it if you can) |
+| Apply role members | The tenant setting **Allow XMLA endpoints**, and a Fabric, Premium or Premium Per User capacity with the XMLA endpoint set to **Read Write**. A Pro workspace can't have role members applied, so the installer won't turn it on there |
+| Azure | The Power BI workspace on a capacity, as above. The notebook runs in that workspace. Installs with private networking aren't supported yet, because the notebook can't reach the storage account |
+| "Below a person" scopes | Manager data in the org data. The installer warns when fewer than half the people have a manager |
+| Who skips it | Workspace **Admins, Members and Contributors** see every row whatever their scope. The installer lists them when you turn it on, and the app shows them "Showing: everyone (your workspace role)" |
+| Who can give scopes | Analytics Hub admins, from the installer's `access` command. Leaders can't yet |
+
+**Upgrades and Repair.**
+
+| Situation | What happens |
+|---|---|
+| Upgrade or Repair, org-scoped access off (the default) | Nothing changes. The models deploy exactly as before, with no roles and no access tables. On Azure the database gets an empty `access_scope` table. The org data gains an `OrgPath` column, which models without org-scoped access ignore |
+| You turn it on | Everyone in the viewer group now, and you, get an `all` scope, so nobody loses anything. The models are redeployed with the roles, the members are applied, the models refresh and the installer checks a seeded person sees everyone |
+| Upgrade or Repair with it on | Any model redeploy is followed by applying the members again and checking. The scopes are untouched |
+| Someone joins the viewer group later | They see nothing until you give them a scope (or you add a default `*` scope) |
+| You turn it off | The models are redeployed without the roles or access tables. The scopes are kept for if you turn it on again |
+
+Caveats:
+- Scopes other than `all` change at the next scheduled load. **Apply now** in `access` reloads and refreshes straight away; a new `all` scope needs it, since it changes role members.
+- Totals on a scoped viewer's pages, licence counts included, are for the people they can see.
+- Hiding names from scoped viewers isn't part of this. The app's minimum-group-size rules still apply.
 
 ---
 

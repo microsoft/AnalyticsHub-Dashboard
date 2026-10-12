@@ -311,4 +311,21 @@ describe("ReportHeader", () => {
         expect(screen.queryByRole("button", { name: "Download PDF" })).toBeNull();
         expect(screen.queryByRole("button", { name: "Download PowerPoint" })).toBeNull();
     });
+
+    it("shows a further line, such as whose data is shown, under the freshness", () => {
+        render(
+            <Themed>
+                <ReportHeader
+                    icon={Gauge}
+                    title="Exec pre-read"
+                    sources={[]}
+                    dates={{}}
+                    filterKeys={[]}
+                    contentRef={{ current: null }}
+                    meta={<span>Showing: everyone</span>}
+                />
+            </Themed>,
+        );
+        expect(screen.getByRole("banner")).toHaveTextContent("Showing: everyone");
+    });
 });

@@ -14,6 +14,7 @@ import { paletteClass, usePaletteTheme } from "@/hooks/use-palette-theme";
 import { ThemeContext, useThemeContext } from "@/hooks/theme.context";
 import { AuthContext } from "@/hooks/auth.context";
 import { useSourceAvailability } from "@/hooks/source-availability.context";
+import { useAccessScope } from "@/hooks/use-access-scope";
 import { useIsRefreshing } from "@/lib/refresh-tracker";
 import { PAGE_SOURCES } from "@/lib/freshness";
 import { earliestDate, newPackId, packFilters, packSources, stageLabel, type PackRun, type ReportPack } from "@/lib/report-pack";
@@ -32,6 +33,7 @@ import {
     type DestinationId,
     type StageId,
 } from "./destinations";
+import { AccessScopeChip, NoScopeNotice } from "./access-scope";
 import { FilterBar } from "./filter-bar";
 import { ReportHeader } from "./report-header";
 import { PackActions } from "./report-pack-actions";
@@ -134,6 +136,8 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
     const title = view.kind === "pack" ? view.pack.name : current?.label;
     const [readingStage, setReadingStage] = useState<StageId>();
     const sources = useSourceAvailability();
+    const accessScope = useAccessScope();
+    const noScope = accessScope.kind === "none";
     // Pages whose model the install didn't set up, or whose source has no data, are left out of the sidebar.
     const available = useMemo(() => availableDestinations(runtimeConfig().semanticModels, sources), [sources]);
 
@@ -326,6 +330,8 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                             filterKeys={filterKeys}
                             missing={view.missing.map(stageLabel)}
                             contentRef={contentRef}
+                            meta={<AccessScopeChip state={accessScope} />}
+                            downloadable={!noScope}
                             actions={
                                 <PackActions
                                     pack={view.pack}
@@ -345,23 +351,30 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                                 dates={dates}
                                 filterKeys={filterKeys}
                                 contentRef={contentRef}
-                                downloadable={isPackable(current)}
+                                meta={<AccessScopeChip state={accessScope} />}
+                                downloadable={isPackable(current) && !noScope}
                             />
                         )
                     )}
-                    {title && filterKeys.length > 0 && <FilterBar destinationLabel={title} />}
-                    <ThemeContext.Provider value={{ ...themeContext, theme: paletteTheme }}>
-                        <DataToContext.Provider value={dataTo}>
-                            <div
-                                ref={contentRef}
-                                aria-busy={refreshing || undefined}
-                                data-refreshing={refreshing || undefined}
-                                className="flex flex-col gap-700 transition-opacity duration-200 data-[refreshing]:opacity-55 data-[refreshing]:delay-150"
-                            >
-                                {children}
-                            </div>
-                        </DataToContext.Provider>
-                    </ThemeContext.Provider>
+                    {noScope ? (
+                        <NoScopeNotice />
+                    ) : (
+                        <>
+                            {title && filterKeys.length > 0 && <FilterBar destinationLabel={title} />}
+                            <ThemeContext.Provider value={{ ...themeContext, theme: paletteTheme }}>
+                                <DataToContext.Provider value={dataTo}>
+                                    <div
+                                        ref={contentRef}
+                                        aria-busy={refreshing || undefined}
+                                        data-refreshing={refreshing || undefined}
+                                        className="flex flex-col gap-700 transition-opacity duration-200 data-[refreshing]:opacity-55 data-[refreshing]:delay-150"
+                                    >
+                                        {children}
+                                    </div>
+                                </DataToContext.Provider>
+                            </ThemeContext.Provider>
+                        </>
+                    )}
                 </div>
             </main>
 
