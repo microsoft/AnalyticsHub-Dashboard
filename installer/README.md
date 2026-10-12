@@ -360,7 +360,9 @@ Agent 365 API load doesn't count when the Agent 365 export loaded instead.
 
 **Rerun only what failed.** Choose **Rerun failed loads**, or run `rerun-failed`. It runs the
 failed loads again, then the steps that depend on them, and refreshes the model. Loads that worked
-aren't run again. If the capacity is still busy, it waits five minutes and tries again, twice. It
+aren't run again, unless they read what a rerun step writes: when the Cowork Dataflow reruns, so do
+the Viva load and the consumption model refresh, even if they succeeded on the empty input. A Viva
+load that got no rows from the Dataflow shows as **to do**, not loaded. If the capacity is still busy, it waits five minutes and tries again, twice. It
 won't start while a pipeline run is still going. The data check after a run does the same: the
 pipeline's Spark session can hold the capacity for a few minutes after the run ends.
 
@@ -531,6 +533,7 @@ addresses, the M365 Copilot licence flag and the exact prepaid split.
 | Report the Value page in another currency | `install --currency GBP --exchange-rate 0.79` |
 | Upload exports later, then load them now | `upload feedback.csv agents.csv --run` |
 | Run only the loads that failed last time | `rerun-failed` |
+| After signing in to the Cowork Dataflow, refresh it and load Cowork credits | `load-cowork` |
 | Add viewers or owners to the viewer group, or choose another group | `access` |
 | Show each viewer only the orgs they're given (opt-in) | `access`, then **Turn on org-scoped access**. See [Org-scoped access](../docs/PERMISSIONS.md#org-scoped-access-row-level-security) |
 
@@ -575,11 +578,25 @@ doesn't rewrite those notebooks. For the other two:
   build a query with the Copilot credit metrics and turn on **Auto-refresh**. In **Analysis
   results**, choose the link icon to copy its partition and query IDs, and give them to the
   installer. It creates the Dataflow Gen2 `AnalyticsHub_Cowork_Credits`, which loads the query
-  into `viva_credits_dataflow`, and the pipeline refreshes it before each Viva load. Once, open the
-  Dataflow, choose **Edit dataflow**, and under **Home** > **Manage connections** sign in to Viva
-  Insights and the Lakehouse. Then choose **Save**, wait until it's published, and choose **Refresh
-  now**. Rows in the editor's preview use your own sign-in, so they show even while every refresh
-  still fails for want of saved connections. See the
+  into `viva_credits_dataflow`, and the pipeline refreshes it before each Viva load. Its connections
+  need signing in once, and the installer can't do that for you:
+  1. Open the Dataflow from the link on the **Done** page or at the end of the install.
+  2. It shows **Configure connection** twice, once for each thing it connects to: the Viva Insights
+     source (the VivaInsights query) and the Lakehouse destination.
+  3. On each one, choose **Configure connection**, sign in, then **Connect**.
+  4. Choose **Save**, then wait until the Dataflow shows it has finished publishing.
+  5. Choose **Load Cowork now**, or run `load-cowork`. It waits for publishing to finish, refreshes
+     the Dataflow (trying once more a minute later if the refresh fails straight after the save),
+     then runs the Viva load and the consumption model refresh and says how many rows it loaded.
+
+  If the Dataflow isn't signed in yet when the first load starts, the installer leaves it out of
+  that run (the pipeline's `SkipCowork` parameter), so the other loads aren't marked as failed,
+  and the **Done** page shows an amber **To do: sign in to the Cowork Dataflow** card with these
+  steps. Scheduled runs never skip it: until someone signs in, they fail on
+  `Refresh_Cowork_Credits` with *Needs sign-in*. Fabric also creates
+  `StagingLakehouseForDataflows_…` and `StagingWarehouseForDataflows_…` items for its Dataflows;
+  they're expected, so leave them in place. Rows in the editor's preview use your own sign-in, so
+  they show even while every refresh still fails for want of saved connections. See the
   [Viva Insights guide](https://learn.microsoft.com/viva/insights/advanced/analyst/export-query-data-microsoft-fabric).
   You need the Viva Insights **Insights Analyst** role. Without the IDs, or if the Dataflow can't be
   created, Cowork credits fall back to the Consumption Dashboard's CSV
@@ -743,7 +760,7 @@ the endpoint, someone who manages the vault approves it under **Networking** >
 | `Copilot interactions: 0 rows` after a successful run | Either the audit log had no Copilot activity in the window, or all of it was test or admin activity, such as Copilot Studio test runs (*Maker evaluation*), which the dashboard leaves out. The data check says which, with counts. People's own Copilot use appears after the next run. To keep some of the left-out activity, edit `DROP_EXCLUDE_REASONS` in the Audit Log Processor. |
 | `Fabric couldn't set up the model's connection` | Turn on *Service principals can call Fabric public APIs*, then choose **Repair or change**. |
 | `Couldn't connect Analytics Hub Model to …` | Open the link it shows. Under **Gateway and cloud connections**, pick `Analytics Hub SQL …` (`ValueLens SQL …` on earlier installs). Then choose **I've connected it myself**. |
-| A run notes that `Refresh_Cowork_Credits` failed | Most often the Dataflow has no saved connections. The refresh then fails within seconds with "Job instance failed without detail error", even if the editor's preview shows rows. Open `AnalyticsHub_Cowork_Credits`, choose **Edit dataflow** > **Home** > **Manage connections**, and sign in to Viva Insights and the Lakehouse. Then choose **Save**, wait until it's published, and choose **Refresh now**. Otherwise the Viva Insights query may have stopped refreshing. The rest of the run carries on either way. |
+| A run notes that `Refresh_Cowork_Credits` failed, or *Needs sign-in* | Most often the Dataflow has no saved connections, or it hadn't finished publishing. The refresh then fails within seconds with "Job instance failed without detail error", even if the editor's preview shows rows. Open `AnalyticsHub_Cowork_Credits`. On each **Configure connection** banner (the Viva Insights source and the Lakehouse destination), choose **Configure connection**, sign in, then **Connect**. Then choose **Save**, wait until it has finished publishing, and choose **Load Cowork now** (or run `load-cowork`). Otherwise the Viva Insights query may have stopped refreshing. The rest of the run carries on either way. |
 | A flow doesn't save any files | Check it's turned on and all its connections are signed in. The Power Platform API connection must be a Power Platform, Billing or Global administrator, and the OneLake connection someone with Contributor or higher on the workspace. A 403 from OneLake usually means that person lacks the role, or the Fabric tenant setting for apps outside Fabric is off. |
 | A model refresh fails with `Login failed` | The connection's secret expired. Choose **Create new secrets**. |
 | `The app wasn't deployed` | Fix the cause it shows, then choose **Redeploy the app**. |

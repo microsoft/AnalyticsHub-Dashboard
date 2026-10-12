@@ -9,11 +9,11 @@ import { connect as realConnect, createCtx, runCommand, showPrereqs } from './in
 import { fromExe } from './launch.js';
 import { checkPrereqs } from './prereqs.js';
 import { loadSources } from './sources.js';
-import { describeSchedule, modelDeployed } from './steps/fabric.js';
+import { coworkDataflowOn, describeSchedule, modelDeployed } from './steps/fabric.js';
 import { isResumeLater } from './steps/identity.js';
 import { routerWanted } from './uploads.js';
 
-export const WEB_COMMANDS = ['install', 'update', 'run', 'rerun-failed', 'check', 'refresh', 'deploy-app', 'status', 'rotate-secret', 'access', 'upload', 'uninstall', 'prereqs'];
+export const WEB_COMMANDS = ['install', 'update', 'run', 'rerun-failed', 'load-cowork', 'check', 'refresh', 'deploy-app', 'status', 'rotate-secret', 'access', 'upload', 'uninstall', 'prereqs'];
 /** Commands that work before anything is installed. */
 const NO_RECORD = ['install', 'prereqs'];
 const METHODS = ['browser', 'device-code', 'azure-cli'];
@@ -51,6 +51,7 @@ export function describeRecord(config) {
       update: installed,
       run: installed && (azure || !!f.pipelineId),
       'rerun-failed': !azure && installed && !!f.pipelineId,
+      'load-cowork': !azure && installed && !!f.pipelineId && coworkDataflowOn(config),
       check: !azure && installed && !!f.notebooks.dataCheck,
       refresh: azure ? !!az?.powerBi?.datasetId : !!sm.id,
       'deploy-app': !azure && modelDeployed(config),

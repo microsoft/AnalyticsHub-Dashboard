@@ -51,6 +51,12 @@ const COMMANDS = {
     desc: 'Run again only the loads that failed in the latest pipeline run, and the steps that waited for them, one at a time.',
     off: 'There is no pipeline yet.',
   },
+  'load-cowork': {
+    title: 'Load Cowork now', short: 'Load Cowork', icon: 'database', section: 'Cowork credits',
+    row: 'Load Cowork now', button: 'Load Cowork',
+    desc: 'Once the Cowork Dataflow is signed in and published: refresh it, load the Viva credits and refresh the consumption model.',
+    off: 'There is no Cowork credits Dataflow.',
+  },
   refresh: {
     title: 'Refresh the models', short: 'Refresh', icon: 'refresh', section: 'Model refresh',
     row: 'Refresh the models', button: 'Refresh',
@@ -110,7 +116,7 @@ const COMMANDS = {
     desc: 'See which roles, licences, capacities and Azure access you have and which are missing. Changes nothing.',
   },
 };
-const ROW_ORDER = ['run', 'rerun-failed', 'refresh', 'status', 'upload', 'check', 'update', 'deploy-app', 'access', 'rotate-secret', 'uninstall', 'install'];
+const ROW_ORDER = ['run', 'rerun-failed', 'load-cowork', 'refresh', 'status', 'upload', 'check', 'update', 'deploy-app', 'access', 'rotate-secret', 'uninstall', 'install'];
 
 // The install's stages in the order the installer prints them. Other headings (the target question,
 // Advanced settings, Who can view, Schedule...) slot in as they come.
@@ -582,6 +588,9 @@ function apply(e) {
       add(run, { t: 'loads', cards: e.cards ?? [] });
       run.failedLoads = (e.cards ?? []).some((card) => card.state === 'failed');
       return;
+    case 'todo':
+      run.todo = e.step;
+      return;
     case 'prereqs':
       ensureRoot(run, e.at);
       add(run, { t: 'prereqs', items: e.items ?? [] });
@@ -914,8 +923,8 @@ function renderPrereqs(items) {
         it.status !== 'met' ? h('p', { class: 'prereq-how' }, h('strong', null, 'How to get it: '), it.howTo) : null))));
 }
 
-const LOAD_GLYPH = { ok: 'check', failed: 'x', skipped: 'minus', running: 'clock' };
-const LOAD_STATE = { ok: 'loaded', failed: 'failed', skipped: 'didn\'t run', running: 'still running' };
+const LOAD_GLYPH = { ok: 'check', failed: 'x', skipped: 'minus', running: 'clock', todo: 'warn' };
+const LOAD_STATE = { ok: 'loaded', failed: 'failed', skipped: 'didn\'t run', running: 'still running', todo: 'to do' };
 
 /** One card per source: whether it loaded, why not and what to do. */
 function renderLoads(cards) {
@@ -1228,11 +1237,26 @@ function renderOutcome(run) {
   return h('section', { class: `outcome ${copy[0]}`.trim(), 'aria-labelledby': 'outcome-title' },
     h('h2', { id: 'outcome-title' }, copy[1]),
     copy[2].filter(Boolean).map((p) => h('p', null, p)),
+    run.todo ? renderTodo(run.todo) : null,
     rerun ? h('p', null, 'Some loads failed. Rerun failed runs just those again, and the steps that waited for them.') : null,
     h('div', { class: 'actions' },
       rerun ? h('button', { type: 'button', class: 'btn primary', onclick: () => start('rerun-failed') }, icon('refresh'), 'Rerun failed') : null,
       h('button', { type: 'button', class: rerun ? 'btn' : 'btn primary', onclick: () => saveRecord(run) }, icon('download'), 'Save a record'),
       h('button', { type: 'button', class: 'btn', onclick: () => show('home') }, 'Back to home')));
+}
+
+/**
+ * Something left to finish, such as signing in to the Cowork Dataflow (coworkNextStep in
+ * steps/consumption.js): the steps, a link to the item and, when it can run here, its action.
+ */ renderTodo(step) {
+  const can = step.action && app.state?.record?.can?.[step.action];
+  return h('div', { class: 'todo', role: 'note' },
+    h('h3', null, icon('warn'), step.title),
+    h('ol', null, step.steps.map((s) => h('li', null, s))),
+    step.note ? h('p', { class: 'todo-note' }, step.note) : null,
+    h('div', { class: 'actions' },
+      step.url ? h('a', { class: 'btn', href: step.url, target: '_blank', rel: 'noopener' }, icon('link'), 'Open the Dataflow') : null,
+      can ? h('button', { type: 'button', class: 'btn primary', onclick: () => start(step.action) }, icon(COMMANDS[step.action]?.icon ?? 'play'), COMMANDS[step.action]?.title ?? step.action) : null));
 }
 
 /* ---------- Rendering: home ---------- */
@@ -1681,7 +1705,7 @@ function itemMarkdown(it, depth) {
       return ['', ...reviewMarkdown(it.plan), ''];
     case 'loads':
       return it.cards.flatMap((card) => [
-        `- ${{ ok: '✓', failed: '✗', skipped: '⚠', running: '…' }[card.state] ?? ''} ${card.name}: ${LOAD_STATE[card.state] ?? card.state}${card.attempts ? ` (${card.attempts} attempts)` : ''}`,
+        `- ${{ ok: '✓', failed: '✗', skipped: '⚠', running: '…', todo: '⚠' }[card.state] ?? ''} ${card.name}: ${LOAD_STATE[card.state] ?? card.state}${card.attempts ? ` (${card.attempts} attempts)` : ''}`,
         ...(card.reason ? [`  - ${card.reason}`] : []),
         ...(card.fix ?? []).map((f) => `  - ${f.trim()}`),
       ]);
@@ -1736,6 +1760,7 @@ function runFacts(run) {
 function saveRecord(run) {
   const L = [`# ${headTitle(run)}`, '', ...runFacts(run)];
   if (run.error) L.push('', `**Error:** ${run.error}`);
+  if (run.todo) L.push('', `**${run.todo.title}**`, '', ...run.todo.steps.map((s, i) => `${i + 1}. ${s}`), '', `_${run.todo.note}_`);
   for (const s of run.stages) if (applies(run, s)) L.push(...stageMarkdown(s, 2));
   L.push('', '---', '', '_Written by the Analytics Hub installer. Secrets are masked and sign-in codes left out._');
   download(`valuelens-${run.command}-${stamp(run.startedAt)}.md`, L);

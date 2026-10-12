@@ -347,6 +347,11 @@ export function mirror(write) {
           for (const fix of card.fix) line(`    ${c.dim(fix)}`);
         }
         break;
+      case 'todo':
+        line(`  ${SYMBOL.warn} ${e.step.title}`);
+        e.step.steps.forEach((/** @type {string} */ s, /** @type {number} */ i) => line(`    ${i + 1}. ${s}`));
+        line(`    ${c.dim(e.step.note)}`);
+        break;
     }
   };
 }

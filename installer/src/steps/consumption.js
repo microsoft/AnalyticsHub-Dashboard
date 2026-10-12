@@ -8,7 +8,9 @@ import { STUDIO_LANDING, VIVA_LANDING } from '../catalog.js';
 import { ROLES } from '../clients/azure.js';
 import { semanticModelDefinition } from '../clients/fabric.js';
 import { HttpError } from '../http.js';
+import { commandLine } from '../launch.js';
 import { COWORK_DATAFLOW_TABLE, coworkDataflowDefinition, isVivaId } from '../transform/dataflow.js';
+import { COWORK_DATAFLOW_ACTIVITY } from '../transform/pipeline.js';
 import { rlsSettings } from '../transform/access.js';
 import { buildConsumptionModel, loadTemplateModel, PBISM } from '../transform/model.js';
 import { c } from '../ui.js';
@@ -34,19 +36,97 @@ const DATAFLOW_GUIDE = 'https://learn.microsoft.com/viva/insights/advanced/analy
 export const COWORK_DATAFLOW_NAME = 'AnalyticsHub_Cowork_Credits';
 
 /**
+ * The Cowork Dataflow in Fabric, to open and sign in.
+ * @param {import('../config.js').InstallConfig} config
+ */
+export function coworkDataflowUrl(config) {
+  const ws = config.fabric.workspaceId;
+  const id = config.consumption?.dataflowId;
+  return ws && id ? `https://app.fabric.microsoft.com/groups/${ws}/dataflows-gen2/${id}` : undefined;
+}
+
+/**
  * How to give the Cowork Dataflow its sign-ins. The editor's preview uses the user's own sign-in, so
- * rows can show there while every refresh still fails until the connections are saved with the Dataflow.
+ * rows can show there while every refresh still fails until the connections are saved with the
+ * Dataflow. A refresh started before it has finished publishing fails too.
  * @param {import('../config.js').InstallConfig} config
  * @returns {string[]} One whole step each, to show numbered.
  */
 export function coworkSignInSteps(config) {
   const name = config.consumption?.dataflowName ?? COWORK_DATAFLOW_NAME;
+  const url = coworkDataflowUrl(config);
   return [
-    `Open ${name} in ${config.fabric.workspaceName ?? 'the workspace'} and choose Edit dataflow.`,
-    `Under Home > Manage connections, sign in to Viva Insights and to ${config.fabric.lakehouseName ?? 'the Lakehouse'} (Edit on any without a connection).`,
-    'Choose Save and wait until it says the Dataflow is published.',
-    'Choose Refresh now. Rows in the preview alone are not enough.',
+    `Open ${name} in ${config.fabric.workspaceName ?? 'the workspace'}${url ? `: ${url}` : ''}.`,
+    `It shows "Configure connection" twice, once for each thing it connects to: the Viva Insights source (the VivaInsights query) and the Lakehouse destination (${config.fabric.lakehouseName ?? 'the Lakehouse'}).`,
+    'On each one, choose Configure connection, sign in, then Connect.',
+    'Choose Save, then wait until the Dataflow shows it has finished publishing before you run anything.',
+    `Then choose Load Cowork now, or run "${commandLine('load-cowork')}". It refreshes the Dataflow, loads the Viva credits and refreshes the consumption model.`,
   ];
+}
+
+/** Fabric adds these for Dataflows. Said wherever someone might wonder where they came from. */
+export const STAGING_ITEMS_NOTE = 'Fabric also creates StagingLakehouseForDataflows_… and StagingWarehouseForDataflows_… items in the workspace for its Dataflows. They are expected: leave them in place.';
+
+/** Where the Viva load notebook writes how many rows it read from the Dataflow and the CSVs. */
+export const VIVA_LOAD_FILE = 'Files/valuelens_installer/viva_load.json';
+
+/**
+ * Whether the Cowork Dataflow was saved with its connections. Its definition lists none until
+ * someone signs in to both and the save has finished publishing.
+ * @param {Ctx} ctx
+ * @returns {Promise<'bound' | 'unbound' | 'unknown'>}  unknown when Fabric didn't say.
+ */
+export async function coworkConnections(ctx) {
+  const ws = ctx.config.fabric.workspaceId;
+  const id = ctx.config.consumption?.dataflowId;
+  if (!ws || !id) return 'unknown';
+  try {
+    const parts = await ctx.api.fabric.getDataflowDefinition(ws, id);
+    const meta = JSON.parse(parts['queryMetadata.json'] ?? 'null');
+    if (!meta || typeof meta !== 'object') return 'unknown';
+    const list = Array.isArray(meta.connections) ? meta.connections.map((/** @type {any} */ c) => JSON.stringify(c)) : [];
+    const viva = list.some((/** @type {string} */ c) => /viva/i.test(c));
+    const lakehouse = list.some((/** @type {string} */ c) => /lakehouse/i.test(c));
+    return (viva && lakehouse) || list.length >= 2 ? 'bound' : 'unbound';
+  } catch {
+    return 'unknown';
+  }
+}
+
+/**
+ * @typedef {object} CoworkNextStep
+ * @property {string} title
+ * @property {string} name  The Dataflow's name in Fabric.
+ * @property {string} [url]
+ * @property {string} [workspace]
+ * @property {string[]} steps
+ * @property {string} note
+ * @property {'load-cowork'} action
+ */
+
+/**
+ * The Cowork to-do for the Done page and the terminal: sign in to the Dataflow, then load Cowork
+ * now. Null when there's nothing to do: no Cowork Dataflow, or its last load worked.
+ * @param {import('../config.js').InstallConfig} config
+ * @param {import('../loads.js').LoadCard[] | undefined} [loadResult]  The cards of the run just reported.
+ * @returns {CoworkNextStep | null}
+ */
+export function coworkNextStep(config, loadResult) {
+  if (!coworkDataflowOn(config)) return null;
+  const card = loadResult?.find((c) => c.activity === COWORK_DATAFLOW_ACTIVITY);
+  const needed = card
+    ? card.state === 'todo' || (card.state === 'failed' && (card.kind === 'signIn' || card.kind === 'other'))
+    : !!config.firstRun?.coworkSkipped;
+  if (!needed) return null;
+  return {
+    title: 'To do: sign in to the Cowork Dataflow',
+    name: config.consumption?.dataflowName ?? COWORK_DATAFLOW_NAME,
+    url: coworkDataflowUrl(config),
+    workspace: config.fabric.workspaceName,
+    steps: coworkSignInSteps(config),
+    note: STAGING_ITEMS_NOTE,
+    action: 'load-cowork',
+  };
 }
 
 /**
@@ -463,10 +543,11 @@ export function consumptionSummary(ctx) {
     ui.info(c.bold('Cowork credits') + c.dim(`  (Dataflow ${cc.dataflowName ?? COWORK_DATAFLOW_NAME}, refreshed by the pipeline)`));
     const steps = coworkSignInSteps(config);
     steps.forEach((step, i) => ui.info(`  ${i + 1}. ${step}`));
-    ui.info('     Until then, each pipeline run notes that the refresh failed.');
+    ui.info('     Until then, each scheduled pipeline run notes that the refresh failed.');
     ui.info(`  ${steps.length + 1}. Keep the Viva Insights query on Auto-refresh. The pipeline refreshes the Dataflow before each Viva load.`);
     ui.note(`     Guide: ${DATAFLOW_GUIDE}`);
     ui.note(`     Exports of earlier weeks can still go in ${UPLOAD_DIR}: the Dataflow wins for the weeks it covers.`);
+    ui.note(`     ${STAGING_ITEMS_NOTE}`);
   } else if (ds.coworkCredits === 'csv') {
     ui.info(c.bold('Cowork credits') + c.dim('  (upload the export)'));
     ui.info('  1. Viva Insights > Copilot > Consumption Dashboard: download the CSV export.');
