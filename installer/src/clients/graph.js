@@ -106,8 +106,13 @@ export function graphApi(http) {
       (await http.list('/me/transitiveMemberOf/microsoft.graph.group', { query: { $select: 'id' } })).map((g) => String(g.id)),
     /** @returns {Promise<{ skuPartNumber?: string, servicePlans?: { servicePlanName: string, provisioningStatus: string }[] }[]>} */
     myLicenseDetails: () => http.list('/me/licenseDetails'),
-    /** @returns {Promise<{ skuPartNumber?: string, capabilityStatus?: string, servicePlans?: { servicePlanName: string, provisioningStatus?: string }[] }[]>} */
+    /** @returns {Promise<{ skuPartNumber?: string, capabilityStatus?: string, consumedUnits?: number, prepaidUnits?: { enabled?: number }, servicePlans?: { servicePlanName: string, provisioningStatus?: string }[] }[]>} */
     subscribedSkus: () => http.list('/subscribedSkus'),
+    /** The tenant's verified domain names, lower case. */
+    verifiedDomains: async () =>
+      /** @type {{ name?: string }[]} */ ((await http.get('/organization', { query: { $select: 'verifiedDomains' } })).value?.[0]?.verifiedDomains ?? [])
+        .map((d) => String(d.name ?? '').toLowerCase())
+        .filter(Boolean),
     /**
      * Directory roles the user could activate through PIM. Only rows for this principal are kept,
      * whatever the filter returned.

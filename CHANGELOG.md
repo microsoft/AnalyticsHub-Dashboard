@@ -62,6 +62,107 @@ Cowork Dataflow waiting for its sign-in showed as a red failed load.
 
 ---
 
+## Unreleased — Prerequisites and questions
+
+Findings F8, F12, F13 and F14 from the newcomer self-serve test of installer 0.4.2.
+
+### Changed: the prerequisite check covers more, in plainer words
+
+**Why.** A newcomer couldn't tell from the list whether they had what the flows and the Cowork
+credits need, and "PIM-eligible" meant nothing to them.
+
+- New optional rows: **Microsoft 365 Copilot licences in the tenant**, **Power Automate Premium**
+  (for whoever signs in to the flows) and the **Viva Insights analyst** role, which can't be
+  checked, so it says how to get it.
+- The Fabric administrator row says it's only needed if the tenant settings are off. A role you
+  can activate says so, with a link to Privileged Identity Management.
+- The check now records whether you can assign directory roles (Global Administrator or
+  Privileged Role Administrator), as `canAssignDirectoryRoles`.
+
+### Changed: the questions explain themselves
+
+**Why.** Defaults were picked by name, not by what the tenant uses, and some choices didn't say
+what they cost or need.
+
+- The Power Platform environment defaults to the tenant's default environment, with a note on
+  DLP, Power Automate Premium and who can see the flows.
+- The capacity question recommends F64 or larger for more than 10,000 people, and shows each
+  capacity's SKU and region.
+- A new install names the workspace `Analytics Hub` and the Lakehouse `Analytics_Hub`. Existing
+  installs keep `ValueLens`.
+- The Azure target is described in plain words.
+- Cowork credits ask first whether you have the Viva Insights query IDs. **Not yet** uses the CSV
+  export until you add them. The partition ID is prefilled with the tenant ID.
+- The Copilot Studio, Cowork and Azure AI cards sit under **Credit consumption**, and their hints
+  say what each needs.
+- **Ready to set up** lists the costs that apply, with links to the pricing pages.
+
+### Fixed: an access contact from another tenant
+
+**Why.** A record carried over from another tenant kept an outside address as the person to ask
+for access.
+
+- If the saved contact isn't on one of the tenant's verified domains, it's reset to you, with a
+  note.
+- The request-access link question says what it's for.
+
+---
+
+## Unreleased — Install record and launch
+
+**Why.** In a newcomer self-serve test of installer 0.4.2, an install record for a deleted
+workspace kept showing **Manage Analytics Hub**. Nothing said where the record was or how to start
+again. A closed page couldn't be reopened without the printed link, the PC could sleep mid-setup,
+and some text named internal tools.
+
+- **A record whose workspace has gone.** After sign-in, the installer checks that the record's
+  workspace still exists. If Fabric says it doesn't, or the record is for another tenant, the home
+  page says so and offers **Start fresh** or **Keep this record**. Start fresh renames the record to
+  `valuelens-install.<yyyyMMdd-HHmmss>.json` beside it. A network error or a 403 changes nothing.
+  In the terminal, `install` asks whether to start fresh; other commands stop and say how.
+- **Where the record is.** **Manage Analytics Hub** shows the record's full path, and notes that
+  OneDrive may sync it.
+- **Reopen the page.** The installer's window says to press **Enter** to open the page again. A
+  page opened without the link says to do that.
+- **Keep awake.** The exe stops Windows going to sleep while it runs. The plan says to keep the
+  PC plugged in and awake until setup finishes.
+- **Wording.** The web page says you can close the window while a run carries on, not Ctrl+C. The
+  app deploy says a browser window may open for sign-in, without naming its deploy tool.
+
+---
+
+## Unreleased — Before you start checklist (docs)
+
+Docs only. Nothing in the installer, app or notebooks changes.
+
+### Changed: one checklist for everything you need before you install
+
+**Why.** A newcomer had to piece together what to ask for from three overlapping lists, found out
+about the Viva Insights query, Power Automate Premium and the data policy only part-way through,
+and had no idea how long it would take or what it would cost.
+
+- **[Before you start](docs/PREREQUISITES.md)** is now the one checklist, organised by person: you,
+  the Fabric admin, the Power Platform admin, the Viva Insights analyst, the Entra admin and the
+  Microsoft 365 admin, then each optional extra with what it needs. The root, Fabric and installer
+  READMEs link to it rather than repeat it.
+- **Send this to your Viva Insights analyst first.** A short note to forward, so the Cowork credits
+  query exists before you start. The partition ID defaults to the tenant ID, and you can add the
+  query later.
+- **How long it takes**: about 5 minutes of questions, 15 minutes of setup, and the first data
+  about 25 minutes after **Go ahead** (about 2 hours for 180 days). Keep the PC awake and plugged
+  in.
+- **What it costs**: links to the official pricing pages for Fabric capacity (with a size hint),
+  the Fabric free trial, Power Automate Premium and the optional Azure resources. No prices are
+  written down.
+- **Fabric README.** The installer comes before the manual setup video. Sharing is two steps:
+  share the app with Analytics Hub Viewers once, then add people to the group. The data source
+  cards are named as the installer shows them, and the Dataflow staging items are explained.
+- **Credit consumption** docs use the card names (Copilot Studio credits, Copilot Cowork credits,
+  Azure AI costs). A broken link from the Fabric README to the installer's download check is
+  fixed.
+
+---
+
 ## Unreleased — Org-scoped access (row-level security)
 
 **Nothing changes unless you turn it on.** Upgrading or choosing **Repair or change** deploys the

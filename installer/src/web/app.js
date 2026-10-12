@@ -402,7 +402,7 @@ function setConn(conn) {
     icon('warn'),
     h('span', null, conn === 'lost'
       ? 'Lost the link to the installer. Trying again.'
-      : `This page has lost its link to the installer. If it's still running, open the link it printed in ${installerWindow()}.`),
+      : `This page has lost its link to the installer. If it's still running, go back to ${installerWindow()} and press Enter there to open it again.`),
   );
 }
 
@@ -545,7 +545,7 @@ function onEvent(e) {
   app.replay = Date.now() - e.at > 1500 || app.rewinding || !!e.replayed;
   if (e.type === 'command') return onCommand(e);
   if (e.type === 'rewind') return onRewind(e);
-  if (e.type === 'prereqs-ready' || e.type === 'update-available') {
+  if (e.type === 'prereqs-ready' || e.type === 'update-available' || e.type === 'record-checked') {
     if (!app.replay) refreshState();
     return;
   }
@@ -707,6 +707,8 @@ function onCommand(e) {
   schedule();
   if (!app.replay) {
     announce(`${headTitle(run)}: ${blurb(run)}`);
+    // The record's workspace is gone: the home page says what to do.
+    if (e.stale) show('home');
     refreshState();
   }
 }
@@ -930,7 +932,7 @@ function renderItem(it) {
 }
 
 const PREREQ_GLYPH = { met: 'check', missing: 'x', eligible: 'clock', unknown: 'circle' };
-const PREREQ_STATE = { met: 'You have it', missing: 'Missing', eligible: 'Eligible, activate first', unknown: 'Couldn\'t check' };
+const PREREQ_STATE = { met: 'You have it', missing: 'Missing', eligible: 'Can be activated', unknown: 'Couldn\'t check' };
 
 /** What the signed-in user has and lacks, each with what it's for and how to get it. */
 function renderPrereqs(items) {
@@ -941,14 +943,14 @@ function renderPrereqs(items) {
         h('span', { class: 'prereq-name' }, it.label),
         ' ',
         h('span', { class: 'prereq-state' }, PREREQ_STATE[it.status] ?? it.status, it.optional ? ', optional' : ''),
-        h('p', null, it.detail),
+        h('p', null, linkify(it.detail ?? '')),
         (it.rows ?? []).length
           ? h('ul', { class: 'prereq-rows' }, it.rows.map((r) => h('li', { class: r.status },
             h('span', { class: 'gl' }, icon(PREREQ_GLYPH[r.status] ?? 'circle')),
             h('span', null, h('strong', null, r.name), r.detail ? `: ${r.detail}` : ''))))
           : null,
         h('p', { class: 'prereq-why' }, h('strong', null, 'Needed for: '), it.neededFor),
-        it.status !== 'met' ? h('p', { class: 'prereq-how' }, h('strong', null, 'How to get it: '), it.howTo) : null))));
+        it.status !== 'met' ? h('p', { class: 'prereq-how' }, h('strong', null, 'How to get it: '), linkify(it.howTo ?? '')) : null))));
 }
 
 const LOAD_GLYPH = { ok: 'check', failed: 'x', skipped: 'minus', running: 'clock' };
@@ -1229,7 +1231,7 @@ function renderSources(item) {
     h('div', { class: 'picker' }, input, h('button', { type: 'button', class: 'btn', onclick: () => input.click() }, icon('upload'), 'Choose files')),
     list);
   const cards = item.lockModes ? item.cards.filter((c) => c.export) : item.cards;
-  const body = h('div', { class: 'ask-body' }, h('div', { class: 'srcs' }, cards.map(card)), picker);
+  const body = h('div', { class: 'ask-body' }, h('div', { class: 'srcs' }, groupCards(cards, card)), picker);
   for (const p of paints) p();
   paintList();
   const submit = () => {
@@ -1238,6 +1240,22 @@ function renderSources(item) {
     answer(item, { modes: item.lockModes ? undefined : modes, uploads: ok });
   };
   return { body, submit };
+}
+
+/** Cards in order, with each run of cards that share a group under that group's heading. */
+function groupCards(cards, card) {
+  const out = [];
+  for (let i = 0; i < cards.length;) {
+    const group = cards[i].group;
+    if (!group) {
+      out.push(card(cards[i++]));
+      continue;
+    }
+    const members = [];
+    while (i < cards.length && cards[i].group === group) members.push(card(cards[i++]));
+    out.push(h('section', { class: 'src-group', 'aria-label': group }, h('h3', { class: 'label' }, group), h('div', { class: 'srcs' }, members)));
+  }
+  return out;
 }
 
 function renderDecide(item) {
@@ -1275,7 +1293,12 @@ function renderReview(plan) {
       h('div', { class: 'rv-head' }, h('h2', null, 'Where it runs and bills')),
       table(['What', 'Where'], plan.runsOn.map((r) => h('tr', null,
         h('td', null, h('span', { class: 'name' }, r.what)),
-        h('td', null, r.where, detail(r.detail)))))));
+        h('td', null, r.where, detail(r.detail)))))),
+    plan.costs?.length ? h('section', { class: 'rv' },
+      h('div', { class: 'rv-head' }, h('h2', null, 'Costs')),
+      table(['What', 'Pricing'], plan.costs.map((x) => h('tr', null,
+        h('td', null, h('span', { class: 'name' }, x.what), detail(x.detail)),
+        h('td', null, linkify(x.url)))))) : null);
 }
 
 function renderOutcome(run) {
@@ -1358,6 +1381,35 @@ function startError() {
   return el;
 }
 
+/** The install record points at a workspace that's gone: start fresh, or keep the record. */
+function staleBanner(busy) {
+  const gone = app.state?.stale;
+  if (!gone) return null;
+  const err = h('p', { class: 'err', role: 'alert' });
+  err.hidden = true;
+  const act = async (path) => {
+    const r = await post(path);
+    if (!r.ok) {
+      err.textContent = r.body?.error ?? 'That didn\'t work. Try again.';
+      err.hidden = false;
+      return;
+    }
+    if (r.body?.archived) announce(`The old install record is now ${r.body.archived}.`);
+    refreshState();
+  };
+  const other = gone.reason === 'other-tenant';
+  return h('section', { class: 'outcome fail', role: 'alert' },
+    h('h2', null, other ? 'This workspace isn\'t in the tenant you signed in to' : 'This workspace no longer exists'),
+    h('p', null, other
+      ? `Your install record is for "${gone.workspace}", in another tenant.`
+      : `Fabric can't find "${gone.workspace}", the workspace in your install record. It may have been deleted.`),
+    h('p', null, 'Start fresh to set up Analytics Hub again. The old record is kept beside the new one, renamed with the date and time.'),
+    h('div', { class: 'actions' },
+      h('button', { type: 'button', class: 'btn primary', disabled: busy, onclick: () => act('/api/fresh') }, 'Start fresh'),
+      h('button', { type: 'button', class: 'btn', disabled: busy, onclick: () => act('/api/keep') }, 'Keep this record')),
+    err);
+}
+
 function renderHome() {
   const st = app.state;
   if (!st) return h('div', { class: 'page' }, h('p', { class: 'sub' }, 'Loading.'));
@@ -1376,6 +1428,7 @@ function renderHome() {
   if (!rec?.installed) {
     kids.unshift(head('sliders', 'Set up Analytics Hub', `Fabric installer ${st.version}`));
     kids.push(updateBanner());
+    kids.push(staleBanner(busy));
     if (running) kids.push(runningBanner());
     kids.push(h('p', { class: 'lede' },
       'Answer a few questions and review the plan. Then the installer builds Analytics Hub in your tenant: an app registration with its secret in Key Vault, a Fabric workspace and Lakehouse, the notebooks and pipeline, and the semantic model with the Analytics Hub app on top.'));
@@ -1411,6 +1464,7 @@ function renderHome() {
 
   kids.unshift(head('home', 'Manage Analytics Hub', `Tenant ${rec.tenantId}`));
   kids.push(updateBanner());
+  kids.push(staleBanner(busy));
   if (running) kids.push(runningBanner());
 
   const days = rec.secretExpires ? Math.floor((Date.parse(rec.secretExpires) - Date.now()) / 86_400_000) : null;
@@ -1428,6 +1482,8 @@ function renderHome() {
     ['Client secret expires', rec.secretExpires ? h('span', { class: soon ? 'soon' : null }, `${rec.secretExpires} (${days < 0 ? 'expired' : `in ${days} days`})`) : 'Unknown'],
     ['First load', firstRun],
     ['Audit history', rec.historyDays ? `${rec.historyDays} days` : null],
+    ['Install record', [h('div', null, st.configFile),
+      h('p', { class: 'hint' }, 'If OneDrive syncs your Documents folder, this record follows you to your other PCs.')]],
   ].filter(([, v]) => v != null && v !== '');
   kids.push(h('section', { class: 'panel' },
     h('div', { class: 'panel-head' }, h('h2', null, 'Your installation'),
@@ -1499,7 +1555,7 @@ function prereqsPanel(busy) {
   if (p) {
     const counts = ['met', 'eligible', 'missing', 'unknown'].map((s) => [s, p.items.filter((i) => i.status === s).length]).filter(([, n]) => n);
     body = [
-      h('p', { class: 'hint' }, `Checked as ${p.upn} at ${when}. ${counts.map(([s, n]) => `${n} ${PREREQ_STATE[s].toLowerCase()}`).join(', ')}. Only active roles count; a PIM-eligible role must be activated first.`),
+      h('p', { class: 'hint' }, `Checked as ${p.upn} at ${when}. ${counts.map(([s, n]) => `${n} ${PREREQ_STATE[s].toLowerCase()}`).join(', ')}. Only active roles count. A role you can activate yourself in Entra (Privileged Identity Management) needs activating first.`),
       renderPrereqs(p.items),
     ];
   } else if (st.user) {
@@ -1725,6 +1781,10 @@ function reviewMarkdown(plan) {
   for (const g of plan.grants) L.push(`| ${cell(g.who)} | ${cell(g.what)} | ${cell(g.where)} | ${cell(g.detail)} |`);
   L.push('', '### Where it runs and bills', '', '| What | Where | Details |', '|---|---|---|');
   for (const r of plan.runsOn) L.push(`| ${cell(r.what)} | ${cell(r.where)} | ${cell(r.detail)} |`);
+  if (plan.costs?.length) {
+    L.push('', '### Costs', '', '| What | Details | Pricing |', '|---|---|---|');
+    for (const x of plan.costs) L.push(`| ${cell(x.what)} | ${cell(x.detail)} | ${cell(x.url)} |`);
+  }
   return L;
 }
 

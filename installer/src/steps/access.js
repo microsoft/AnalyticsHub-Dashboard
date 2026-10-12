@@ -22,12 +22,30 @@ const isEmail = (/** @type {string} */ v) => (/^[^\s@]+@[^\s@]+$/.test(v.trim())
 const isLinkOrEmpty = (/** @type {string} */ v) => (!v.trim() || /^https:\/\/\S+$/i.test(v.trim()) ? true : 'Enter an https:// link, or leave it empty');
 
 /**
+ * The saved access contact, or undefined when its domain isn't one of the tenant's verified domains,
+ * e.g. a record carried over from another tenant. Kept when the domains can't be read.
+ * @param {Ctx} ctx
+ * @param {string | undefined} contact
+ */
+export async function contactInTenant(ctx, contact) {
+  if (!contact || contact.toLowerCase() === ctx.user.upn.toLowerCase()) return contact;
+  const domain = contact.split('@').pop()?.trim().toLowerCase() ?? '';
+  const domains = await Promise.resolve()
+    .then(() => ctx.api.graph.verifiedDomains())
+    .catch(() => /** @type {string[]} */ ([]));
+  if (!domains.length || domains.some((d) => domain === d || domain.endsWith(`.${d}`))) return contact;
+  ctx.ui.note(`The saved access contact, ${contact}, isn't on one of this tenant's domains, so it's now ${ctx.user.upn}.`);
+  return undefined;
+}
+
+/**
  * The plan's questions: which group, who to ask for access, and an optional request link.
  * @param {Ctx} ctx
  */
 export async function planAccess(ctx) {
   const { ui, config, user, api } = ctx;
   const access = { ...(config.access ?? {}) };
+  access.contact = await contactInTenant(ctx, access.contact);
   if (!asksAdvanced(ctx)) {
     // The saved group, or a new "Analytics Hub Viewers"; Manage access changes it later.
     if (!access.groupId) access.groupName = access.createdGroup ? access.groupName ?? VIEWER_GROUP_NAME : VIEWER_GROUP_NAME;
@@ -64,7 +82,8 @@ export async function planAccess(ctx) {
     }
   }
   access.contact = (await ui.input('Who should people ask for access? (email)', { default: access.contact ?? user.upn, validate: isEmail })).trim();
-  access.requestUrl = (await ui.input('A link for requesting access, e.g. a My Access package (optional; empty emails the contact)', { default: access.requestUrl ?? '', validate: isLinkOrEmpty })).trim() || undefined;
+  ui.note(`People without access are asked to email ${access.contact}. Add a link, e.g. a request form, to offer that too.`);
+  access.requestUrl = (await ui.input('Link where people can request access (optional)', { default: access.requestUrl ?? '', validate: isLinkOrEmpty })).trim() || undefined;
   config.access = access;
 }
 

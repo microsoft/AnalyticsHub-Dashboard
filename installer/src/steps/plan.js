@@ -349,7 +349,8 @@ export async function plan(ctx, pre) {
   }
 
   ui.heading('Fabric');
-  const capacityChoices = pre.capacities.map((cap) => ({ name: `${cap.displayName} (${cap.sku}, ${cap.region})`, value: cap.id }));
+  ui.note(CAPACITY_HINT);
+  const capacityChoices = pre.capacities.map((cap) => ({ name: capacityLabel(cap), value: cap.id }));
   config.fabric.capacityId = await ui.select(
     'Which capacity should run it?',
     capacityChoices,
@@ -383,7 +384,7 @@ export async function plan(ctx, pre) {
     } else {
       const taken = new Set(workspaces.map((w) => w.displayName.toLowerCase()));
       config.fabric.workspaceName = await ui.input('New workspace name', {
-        default: config.fabric.workspaceName ?? uniqueName('ValueLens', taken),
+        default: config.fabric.workspaceName ?? uniqueName(DEFAULT_WORKSPACE_NAME, taken),
         validate: (v) => (!v.trim() ? 'Required' : taken.has(v.trim().toLowerCase()) ? 'A workspace with that name exists.' : true),
       });
     }
@@ -391,7 +392,7 @@ export async function plan(ctx, pre) {
   if (!config.fabric.lakehouseId) {
     const ws = config.fabric.workspaceId;
     const taken = ws ? displayNames(await api.fabric.listItems(ws, 'Lakehouse')) : [];
-    const suggested = freeName(config.fabric.lakehouseName ?? 'ValueLens', taken);
+    const suggested = freeName(config.fabric.lakehouseName ?? DEFAULT_LAKEHOUSE_NAME, taken);
     const typed = advanced() ? await ui.input('Lakehouse name', { default: suggested, validate: validateNewLakehouseName(taken) }) : suggested;
     config.fabric.lakehouseName = lakehouseNameFrom(typed);
     if (config.fabric.lakehouseName !== typed.trim()) ui.note(`Fabric doesn't allow spaces or hyphens in Lakehouse names, so it'll be called ${config.fabric.lakehouseName}.`);
@@ -742,6 +743,22 @@ export function uniqueName(base, taken) {
   for (let i = 2; ; i++) if (!taken.has(`${base} ${i}`.toLowerCase())) return `${base} ${i}`;
 }
 
+/** Names a new install suggests. Existing installs keep the names in their record. */
+export const DEFAULT_WORKSPACE_NAME = 'Analytics Hub';
+/** Fabric Lakehouse names can't have spaces. */
+export const DEFAULT_LAKEHOUSE_NAME = 'Analytics_Hub';
+
+export const CAPACITY_HINT = 'F64 or larger is recommended for more than 10,000 people; small or trial capacities work but loads are slower.';
+
+/**
+ * A capacity as a choice: its name, then the SKU and region when Fabric gives them.
+ * @param {{ displayName?: string, id: string, sku?: string, region?: string }} cap
+ */
+export function capacityLabel(cap) {
+  const about = [cap.sku, cap.region].filter(Boolean).join(', ');
+  return `${cap.displayName ?? cap.id}${about ? ` (${about})` : ''}`;
+}
+
 /**
  * The name to start from: the default when `name` is the default or a numbered copy of it,
  * otherwise `name`, which someone chose.
@@ -812,8 +829,33 @@ export async function reserveNames(ctx) {
  * @typedef {{ kind: string, name: string, detail?: string, isNew: boolean }} ReviewItem
  * @typedef {{ who: string, what: string, where: string, detail?: string }} ReviewGrant
  * @typedef {{ what: string, where: string, detail?: string }} ReviewRun
- * @typedef {{ creates: ReviewItem[], grants: ReviewGrant[], runsOn: ReviewRun[] }} PlanReview
+ * @typedef {{ what: string, detail?: string, url: string }} ReviewCost
+ * @typedef {{ creates: ReviewItem[], grants: ReviewGrant[], runsOn: ReviewRun[], costs?: ReviewCost[] }} PlanReview
  */
+
+export const PRICING = {
+  fabric: 'https://azure.microsoft.com/pricing/details/microsoft-fabric/',
+  powerAutomate: 'https://www.microsoft.com/power-platform/products/power-automate/pricing',
+  keyVault: 'https://azure.microsoft.com/pricing/details/key-vault/',
+  azure: 'https://azure.microsoft.com/pricing/calculator/',
+};
+
+/**
+ * What the install adds to the bill, each with where its prices are. No prices here: they change
+ * and differ by region and agreement.
+ * @param {import('../config.js').InstallConfig} config
+ * @returns {ReviewCost[]}
+ */
+export function planCosts(config) {
+  const azure = config.target === 'azure';
+  /** @type {ReviewCost[]} */
+  const costs = [];
+  if (!azure) costs.push({ what: 'Fabric capacity', detail: 'Runs the notebooks, pipeline and reports. Billed by capacity size; a trial capacity is free while it lasts.', url: PRICING.fabric });
+  if (flowsWanted(config).length) costs.push({ what: 'Power Automate Premium', detail: 'A licence for whoever signs in to the flows.', url: PRICING.powerAutomate });
+  if (azure) costs.push({ what: 'Azure resources', detail: 'Azure SQL, the Container Apps jobs, the web app and storage, billed to your Azure subscription.', url: PRICING.azure });
+  else if (secretMode(config) !== 'notebook') costs.push({ what: 'Azure Key Vault', detail: 'Holds the app\'s client secret. Billed to your Azure subscription.', url: PRICING.keyVault });
+  return costs;
+}
 
 /**
  * What the plan creates, who it gives access to what, and where it runs: the record a
@@ -873,7 +915,7 @@ export function planReview(ctx, pre) {
             .join(' '),
         },
     { kind: 'Workspace', name: f.workspaceName ?? f.workspaceId ?? 'Not chosen', isNew: !f.workspaceId },
-    { kind: 'Lakehouse', name: f.lakehouseName ?? 'ValueLens', isNew: !f.lakehouseId },
+    { kind: 'Lakehouse', name: f.lakehouseName ?? DEFAULT_LAKEHOUSE_NAME, isNew: !f.lakehouseId },
     {
       kind: 'Notebooks',
       name: `${notebooks.length} notebooks`,
@@ -1002,7 +1044,7 @@ export function planReview(ctx, pre) {
   ];
   if (ctx.runFirstLoad) runsOn.push({ what: 'First load', where: `${config.history.days} days of audit history, straight after setup` });
   if (ctx.reloadHistoryDays) runsOn.push({ what: 'History reload', where: reloadLine(ctx.reloadHistoryDays), detail: reloadDetail(ctx.reloadHistoryDays) });
-  return { creates, grants, runsOn };
+  return { creates, grants, runsOn, costs: planCosts(config) };
 }
 
 /** @param {number} days */
@@ -1063,5 +1105,9 @@ export async function confirmPlan(ctx, pre) {
   if (ctx.runFirstLoad) ui.info(`First load:  ${config.history.days} days of history, straight after setup`);
   if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)} ${c.dim(`(${reloadDetail(ctx.reloadHistoryDays)})`)}`);
   ui.review(planReview(ctx, pre));
+  ui.note(KEEP_AWAKE);
   return ui.confirm('Go ahead?', true);
 }
+
+/** Said before Go ahead: a PC that sleeps stops the setup part way. */
+export const KEEP_AWAKE = 'Keep this PC plugged in and awake until setup finishes.';
