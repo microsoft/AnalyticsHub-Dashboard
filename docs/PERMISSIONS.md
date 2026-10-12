@@ -98,6 +98,21 @@ No per-project agent sweep: Foundry is read at account and project level only.
 
 ---
 
+## Ask (paths 1 and 2)
+
+The app's Ask page always lists suggested questions. What answers them needs:
+
+| What | Role / requirement |
+|---|---|
+| Create, update and publish the **Analytics Hub Ask** data agent (Fabric) | The installing person as **Contributor** or **Member** on the workspace. The workspace on a paid capacity, **F2** or larger or Premium **P1** or larger, not a trial. Tenant settings **Users can create and share data agent items** and **Users can use Copilot and other features powered by Azure OpenAI**, plus **Data sent to Azure OpenAI can be processed outside your capacity's geographic region** for capacities outside the US and EU |
+| Ask the data agent questions (Fabric) | Access to the agent (shared with them, or a workspace role) and **Build** or **Read** on the models it reads. The viewer group already has Build |
+| Publish the agent to Teams or Microsoft 365 Copilot | Done by hand in Fabric; there's no API for it. Whoever publishes needs to be able to publish the agent from the workspace |
+| Create the Ask model (Azure, the default) | **Contributor** on the resource group to create the Azure AI Services account and deployment, and the `Microsoft.CognitiveServices` resource provider registered (the installer registers it). Model quota in the region |
+| Let the web app call the model (Azure) | The web app's managed identity gets **Cognitive Services OpenAI User** on the AI Services or Azure OpenAI account. The installer assigns it for an account it creates, and for an existing account if the person installing can assign roles there; otherwise it prints the `az role assignment create` command for an Owner or User Access Administrator |
+| Ask questions (Azure) | Nothing beyond viewing. Every query runs as the person asking, with their own access to the models |
+
+---
+
 ## Viewing Analytics Hub (paths 1 and 2)
 
 The installer creates one Entra security group, **Analytics Hub Viewers**, with you as its owner (or uses a group you name). Sharing is adding people to it, from the installer's `access` command, **Share** in the app, or [My Groups](https://myaccount.microsoft.com/groups).
