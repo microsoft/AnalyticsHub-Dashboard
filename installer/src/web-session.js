@@ -64,6 +64,19 @@ export function describeRecord(config) {
   };
 }
 
+/**
+ * What the home page keeps of a prerequisites check. canAssignDirectoryRoles: Global Administrator or
+ * Privileged Role Administrator is active, so the user can assign directory roles themselves.
+ * @param {string} upn
+ * @param {import('./prereqs.js').Prereq[]} items
+ */
+export const prereqsSnapshot = (upn, items) => ({
+  at: new Date().toISOString(),
+  upn,
+  items,
+  canAssignDirectoryRoles: items.some((i) => i.id === 'consent-role' && i.status === 'met'),
+});
+
 /** @param {any} err */
 export function describeError(err) {
   if (/device_code_expired|expired_token|code_expired/i.test(String(err?.message ?? err?.errorCode ?? ''))) {
@@ -92,7 +105,7 @@ export function createSession(o) {
   let running = null;
   /** @type {Promise<void>} */
   let current = Promise.resolve();
-  /** The last prerequisites check for this sign-in. @type {{ at: string, upn: string, items: import('./prereqs.js').Prereq[] } | null} */
+  /** The last prerequisites check for this sign-in. @type {ReturnType<typeof prereqsSnapshot> | null} */
   let prereqs = null;
   /** @type {Promise<void>} */
   let checking = Promise.resolve();
@@ -126,7 +139,7 @@ export function createSession(o) {
     checking = checkPrereqs({ api, user, config })
       .then((items) => {
         if (signedIn?.user !== user) return;
-        prereqs = { at: new Date().toISOString(), upn: user.upn, items };
+        prereqs = prereqsSnapshot(user.upn, items);
         o.ui.emit({ type: 'prereqs-ready' });
       })
       .catch((err) => o.debug?.(`Prerequisites check failed: ${describeError(err)}`));
@@ -190,7 +203,7 @@ export function createSession(o) {
       let ok = true;
       if (command === 'prereqs') {
         const items = await showPrereqs(ctx);
-        prereqs = { at: new Date().toISOString(), upn: signedIn.user.upn, items };
+        prereqs = prereqsSnapshot(signedIn.user.upn, items);
       } else ok = await runCommand(ctx, command, { wait: req.wait !== false, backfillDays: req.backfillDays });
       ui.emit({ type: 'command', command, state: ok ? 'done' : 'failed', ...(ok ? {} : { error: 'It didn\'t finish successfully. The details are above.' }) });
     } catch (err) {
