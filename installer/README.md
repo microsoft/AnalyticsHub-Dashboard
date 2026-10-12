@@ -26,9 +26,12 @@ prerequisite on one page, optional data sources included, see [`/docs/PREREQUISI
 list above for you, and says what each one is for and how to get it. It only reads; nothing is
 changed. Each one shows as met, missing, or couldn't check (for example, the Fabric tenant
 settings, which only a Fabric administrator can read). Only roles that are active count. A role
-you're eligible for in Privileged Identity Management shows as **eligible, activate first**:
+you can activate in Entra (Privileged Identity Management) shows as **can be activated**:
 activate it, then choose **Check again**. Azure access is checked for each subscription, and
-Power Platform access for each environment. In the terminal, run `prereqs`.
+Power Platform access for each environment. Optional rows say whether the tenant has Microsoft
+365 Copilot licences, whether you have Power Automate Premium (for the flows) and that the
+Viva Insights Insights Analyst role, which the installer can't check, is needed for the Cowork
+credits query. In the terminal, run `prereqs`.
 
 ### Where the secret goes
 
@@ -199,13 +202,16 @@ Azure commands:
       [Data sources and exports](#data-sources-and-exports).
    2. **Change the advanced settings?** **No** (the default) takes the defaults that suit most
       organisations. See [Advanced settings](#advanced-settings).
-   3. **Capacity and workspace.** The Lakehouse is named `ValueLens`, or the next free name.
+   3. **Capacity and workspace.** A new workspace is named `Analytics Hub` and its Lakehouse
+      `Analytics_Hub`, or the next free name. F64 or larger is recommended for more than 10,000
+      people. An existing install keeps its names.
    4. **App registration:** create one, use your own (it's checked first), or let an admin
       register it. See [If you can't register apps](#if-you-cant-register-apps).
    5. **Key Vault:** create one, or pick one you have. If you can't write to it, a vault admin
       can add the secret. See [Where the secret goes](#where-the-secret-goes).
 6. Check the plan and approve it. Nothing is created until you do. The plan shows every setting,
-   including the defaults.
+   including the defaults, and a **Costs** list of what's billed (the Fabric capacity, Power
+   Automate Premium for the flows, the Azure resources), with links to the pricing pages.
 7. When it finishes, open the link to the app.
 
 **Want to change an answer?** Choose **Back**, on any question or on the plan. It opens the
@@ -246,7 +252,7 @@ then **Yes**.
 | Who can view | A new **Analytics Hub Viewers** group. You're who people ask for access. **Manage access** changes it later. |
 | [Audit history](#load-more-audit-history) for the first load | 30 days. Or 90 or 180. |
 | [How many people are in the tenant](#a-large-tenant) | More than 10,000 on an F64 or larger capacity, otherwise up to 10,000. |
-| Lakehouse name | `ValueLens`, or the next free name. Spaces and hyphens become underscores. |
+| Lakehouse name | `Analytics_Hub`, or the next free name (`ValueLens` on earlier installs, which keep it). Spaces and hyphens become underscores. |
 | A new Key Vault's resource group, region and name, and the secret's name | `rg-valuelens`, the capacity's region, `valuelens-` and six random characters, and the default secret name. If you can't use `rg-valuelens`, it asks. |
 | Schedule | Daily, at the default time. Or weekly, and the time (UTC). |
 | Run the first load as soon as setup finishes | Yes. |
@@ -455,7 +461,9 @@ use the Lakehouse folder.
 
 ### Power Automate flows
 
-The installer creates these flows in the Power Platform environment you pick, **turned off**:
+The installer creates these flows in the Power Platform environment you pick, **turned off**. It
+preselects the tenant's default environment. The environment's DLP policy must allow *HTTP with
+Microsoft Entra ID (preauthorized)*, and people with access to the environment can see the flows.
 
 | Flow | When | What it does | Sign in to |
 |---|---|---|---|

@@ -50,7 +50,9 @@ What you need before you install Analytics Hub, on one page. For the detail behi
   or Global Administrator signs in to the flow. The flow's owner needs
   [Power Automate Premium](https://learn.microsoft.com/power-platform/admin/power-automate-licensing/types).
 - **Cowork credits:** a Viva Insights [Insights Analyst](https://learn.microsoft.com/viva/insights/advanced/setup-maint/assign-user-roles)
-  signs in to the Dataflow. On Azure, drop the Consumption Dashboard's export in instead.
+  signs in to the Dataflow, and creates the Viva Insights query it reads. The installer can't check
+  this role. If there's no query yet, choose **Not yet**: it uses the CSV export until you add the
+  query IDs. On Azure, drop the Consumption Dashboard's export in instead.
 - **Azure credit consumption:** [Owner](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#owner)
   or [User Access Administrator](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#user-access-administrator)
   on the subscription, so the installer can assign the cost roles.
