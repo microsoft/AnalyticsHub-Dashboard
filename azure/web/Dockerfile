@@ -15,12 +15,15 @@ RUN npm ci --omit=dev
 FROM node:22-alpine AS final
 ENV NODE_ENV=production \
     PORT=8080 \
-    VALUELENS_PUBLIC_DIR=/app/public
+    VALUELENS_PUBLIC_DIR=/app/public \
+    VALUELENS_ASK_DIR=/app/ask
 WORKDIR /app
 RUN addgroup -S valuelens && adduser -S valuelens -G valuelens
 COPY --from=web-deps /app/node_modules ./node_modules
 COPY ["azure/web/package.json", "./package.json"]
 COPY ["azure/web/src/", "./src/"]
+COPY ["app/src/ask/catalogue.json", "./ask/catalogue.json"]
+COPY ["app/src/queries/", "./ask/queries/"]
 COPY --from=spa-build /src/fabric-app/dist ./public
 USER valuelens
 EXPOSE 8080
