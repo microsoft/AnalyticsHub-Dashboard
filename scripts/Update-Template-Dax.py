@@ -22,11 +22,11 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 VALUELENS = (
-    Path("1. Fabric") / "Manual setup" / "ValueLens - Fabric.pbit",
-    Path("1. Fabric") / "Manual setup" / "ValueLens - Fabric OneLake.pbit",
+    Path("fabric") / "ValueLens - Fabric.pbit",
+    Path("fabric") / "ValueLens - Fabric OneLake.pbit",
 )
 CONSUMPTION = (
-    Path("1. Fabric") / "Manual setup" / "Add Credit Consumption" / "Consumption Central - Fabric.pbit",
+    Path("fabric") / "Add Credit Consumption" / "Consumption Central - Fabric.pbit",
 )
 ZIP_METADATA = (
     "filename", "orig_filename", "date_time", "compress_type", "comment", "extra",

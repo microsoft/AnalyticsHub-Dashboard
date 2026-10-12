@@ -1,7 +1,7 @@
 # Customer data — never commit
 *.csv
 !samples/**/*.csv
-!1. Fabric/Manual setup/notebooks/workday-org-data/**/*.csv
+!fabric/notebooks/workday-org-data/**/*.csv
 
 # Power BI workspace artefacts
 *.pbip.local

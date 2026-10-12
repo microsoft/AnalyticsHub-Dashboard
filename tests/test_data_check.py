@@ -8,8 +8,7 @@ from pathlib import Path
 
 NOTEBOOK = (
     Path(__file__).resolve().parents[1]
-    / "1. Fabric"
-    / "Manual setup"
+    / "fabric"
     / "notebooks"
     / "ValueLens_Data_Check.ipynb"
 )

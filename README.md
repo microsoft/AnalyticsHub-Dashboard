@@ -38,8 +38,8 @@ steps in its README.
 
 | Path | You need | Setup |
 |---|---|---|
-| **[1. Fabric](1.%20Fabric/)** (recommended) | Fabric capacity (F2 or larger, or a trial) | Double-click an installer. It sets up everything and deploys the dashboard as an app. **[🎥 Watch the setup](1.%20Fabric/README.md#watch-the-setup)** |
-| **[2. Azure](2.%20Azure/)** (preview) | An Azure subscription (Contributor plus User Access Administrator) and Power BI Pro | Run the installer with the Azure target. It deploys Azure SQL, Container Apps jobs and the web app into your subscription, with no Fabric. See [Azure target](1.%20Fabric/installer/README.md#azure-target-preview). |
+| **[1. Fabric](fabric/)** (recommended) | Fabric capacity (F2 or larger, or a trial) | Double-click an installer. It sets up everything and deploys the dashboard as an app. **[🎥 Watch the setup](fabric/README.md#watch-the-setup)** |
+| **[2. Azure](azure/)** (preview) | An Azure subscription (Contributor plus User Access Administrator) and Power BI Pro | Run the installer with the Azure target. It deploys Azure SQL, Container Apps jobs and the web app into your subscription, with no Fabric. See [Azure target](installer/README.md#azure-target-preview). |
 | **[3. Power Automate + Dataverse](3.%20Power%20Automate%20+%20Dataverse/)** (preview) | Power Automate premium and Dataverse | Import a collector solution and run a refresh script. |
 | **[4. SharePoint](4.%20SharePoint/)** | Power BI Pro | App registration, a SharePoint library and a scheduled export. |
 | **[5. Local CSV](5.%20Local%20CSV/)** | Power BI Desktop | Open the template. Sample data is included. |
@@ -60,11 +60,11 @@ A page-by-page guide to reading the ValueLens report — 15 report pages, with t
 - **Credit consumption and cost:** in Fabric, choose it in the installer. Other paths have an
   `Add Credit Consumption` folder.
 - **Copilot Studio agent conversations:** in Fabric, choose *Agent Evaluator* in the installer, or
-  [set it up by hand](1.%20Fabric/Manual%20setup/Add%20Agent%20Evaluator/).
+  [set it up by hand](fabric/Add%20Agent%20Evaluator/).
 - **Shadow AI and agent risk:** in Fabric or Azure, choose *Defender (shadow AI and agent risk)* in
   the installer. It reads Microsoft Defender, needs Defender for Endpoint P2 or Defender for Cloud
   Apps, and fills the Shadow AI section of the app's Governance page
-  ([details](1.%20Fabric/installer/README.md#defender-shadow-ai-and-agent-risk)).
+  ([details](installer/README.md#defender-shadow-ai-and-agent-risk)).
 
 ## Reference
 

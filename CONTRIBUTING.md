@@ -42,7 +42,7 @@ rely on CI or install PowerShell 7.
 
 ## Work on the installer
 
-From `1. Fabric/installer`:
+From `installer`:
 
 ```text
 npm test                       # unit tests with fakes, no sign-in
@@ -51,7 +51,7 @@ npx valuelens-install preview  # writes ./valuelens-preview (ignored by git)
 npm run build:exe              # builds dist-exe/AnalyticsHubInstaller.exe (Windows, about 10 minutes)
 ```
 
-`npm run build:exe` builds the [Analytics Hub app](1.%20Fabric/Fabric%20App/) once, stages it
+`npm run build:exe` builds the [Analytics Hub app](app/) once, stages it
 with the installer and the notebooks, pipeline and templates it deploys, and zips them with a
 portable Node.js into a small C# launcher, compiled with the `csc` that comes with the .NET
 Framework. Run `npm ci` in the installer and in the app first. `--release` fails rather than warns
@@ -59,7 +59,7 @@ when something a published download needs is missing; `--out <dir>` writes the e
 
 The [`installer-exe`](.github/workflows/installer-exe.yml) workflow builds, tests and smoke-tests
 the exe on pull requests that touch `packaging/`. To publish one, set the version in
-`1. Fabric/installer/package.json` and push a tag `installer-v<version>`. The workflow drafts a
+`installer/package.json` and push a tag `installer-v<version>`. The workflow drafts a
 release with the exe and its SHA-256; review it and publish.
 
 ## Repository conventions
@@ -72,7 +72,7 @@ release with the exe and its SHA-256; review it and publish.
 - Use fabricated fixtures only. Never commit tenant exports, user identities,
   prompts, credentials, private solution packages or populated report files.
   Review notebook outputs and screenshots before attaching them.
-- Edit Fabric notebooks in `1. Fabric/Manual setup/notebooks/`. There are no mirrored copies to keep in sync.
+- Edit Fabric notebooks in `fabric/notebooks/`. There are no mirrored copies to keep in sync.
 - Old templates live, flat, in [`archive/`](archive/). They aren't maintained.
 - **`.pbit` templates are binary packages.** Source/helper changes do not update
   shipped templates automatically: rebuild with the relevant repository generator

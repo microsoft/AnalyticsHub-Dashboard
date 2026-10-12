@@ -61,9 +61,9 @@ projects. Used by `Copilot_Resource_Graph_Ingester` (Fabric, as the app registra
 
 No per-project agent sweep: Foundry is read at account and project level only.
 
-> **Add-ons.** [Agent Evaluator](../1.%20Fabric/Manual%20setup/Add%20Agent%20Evaluator/README.md) needs the app
+> **Add-ons.** [Agent Evaluator](../fabric/Add%20Agent%20Evaluator/README.md) needs the app
 > registration as a Dataverse **application user**.
-> [Credit consumption](../1.%20Fabric/Manual%20setup/Add%20Credit%20Consumption/README.md) lists its own roles.
+> [Credit consumption](../fabric/Add%20Credit%20Consumption/README.md) lists its own roles.
 
 ---
 
@@ -123,6 +123,6 @@ The installer creates one Entra security group, **Analytics Hub Viewers**, with 
 - **+ Agents 365:** add `CopilotPackages.Read.All` + `Application.Read.All` (+ `User.Read.All`) to the same app reg, and confirm the tenant has an Agent 365 licence.
 
 See the path README you're following for the step-by-step —
-[1](../1.%20Fabric/README.md) · [2](../2.%20Azure/README.md) ·
+[1](../fabric/README.md) · [2](../azure/README.md) ·
 [3](../3.%20Power%20Automate%20+%20Dataverse/README.md) · [4](../4.%20SharePoint/README.md) ·
 [5](../5.%20Local%20CSV/README.md).

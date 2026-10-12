@@ -5,9 +5,9 @@ is counted, how each interaction is classified, how value is estimated, and the 
 the assumptions.
 
 It applies to the Power BI template, where all four data paths share one model, and to the
-[Fabric App](../1.%20Fabric/Fabric%20App/). The app reads the same model and adds three pages and a Value
+[Fabric App](../app/). The app reads the same model and adds three pages and a Value
 stage of its own ([§8](#8-fabric-app-only-consumption-agent-evaluation-cost-vs-value-and-work-patterns)). Every rule here is taken from
-`1. Fabric/Manual setup/ValueLens - Fabric.pbit` and the `Copilot_Audit_Log_Processor` notebook. If this page
+`fabric/ValueLens - Fabric.pbit` and the `Copilot_Audit_Log_Processor` notebook. If this page
 and the model ever disagree, the model is right. The template's **📖 Metric Glossary** page
 carries the same caveats inside the report.
 
@@ -289,7 +289,7 @@ band. The model reaches it through the `Behavior Value Map`. Every behaviour the
 processors can produce has a row, so no Copilot or agent row is left without a category.
 The `Behavior Value Map` also gives each behaviour a one-line **Description**, shown beside its use
 case on the **🧬 Appendix: Signal → Impact** page and in the Fabric App. All 48 are listed in
-[`task-descriptions.json`](../1.%20Fabric/Fabric%20App/src/queries/appendix/task-descriptions.json),
+[`task-descriptions.json`](../app/src/queries/appendix/task-descriptions.json),
 which the Fabric App reads. A test keeps that file and every template the same. [§3.4](#34-signal--impact-reference)
 lists each description with its signal and time band.
 
@@ -407,7 +407,7 @@ agent name, `AppIdentity`, `PlatformAgentType` and the workload. The first match
 What each Task Breakdown means, the audit signal that produces it, and the time a person would
 otherwise spend on it. This matches the **🧬 Appendix: Signal → Impact** page. The Description is
 taken word for word from
-[`task-descriptions.json`](../1.%20Fabric/Fabric%20App/src/queries/appendix/task-descriptions.json).
+[`task-descriptions.json`](../app/src/queries/appendix/task-descriptions.json).
 The signal summarises the rules in [§3.2](#32-from-signal-to-task-category), where the full order is
 set out. *Typical min* is the default effort scenario. The low and high ends of each band, its grain
 and its research source are in the [appendix](#appendix-time-bands-and-sources).
@@ -927,7 +927,7 @@ reads an optional table the installer adds to the ValueLens model.
 
 ### 8.1 Consumption
 
-Reads a published [Consumption Central](../1.%20Fabric/Manual%20setup/Add%20Credit%20Consumption/) model and
+Reads a published [Consumption Central](../fabric/Add%20Credit%20Consumption/) model and
 rebuilds its consumption and cost pages.
 
 | Section | Source | How cost is worked out |
@@ -1038,7 +1038,7 @@ cost is licences alone, so the return reads high.
 
 ### 8.4 Work patterns
 
-Reads the `M365 Activity` table, which the [installer](../1.%20Fabric/installer/README.md#microsoft-365-activity)
+Reads the `M365 Activity` table, which the [installer](../installer/README.md#microsoft-365-activity)
 adds to the ValueLens model. `Copilot_M365_Activity_Ingester` fills it from the Microsoft 365 usage
 reports in Graph: one row per person per day they were active in Teams, Outlook, SharePoint,
 OneDrive, Viva Engage or the Microsoft 365 apps. Microsoft keeps 28 days of these reports and

@@ -1,4 +1,4 @@
-"""DuckDB port (shared/python/valuelens_core) must match the Fabric Spark notebook row for row.
+"""DuckDB port (core/valuelens_core) must match the Fabric Spark notebook row for row.
 
 Expected outputs in tests/fixtures/valuelens-golden/expected were produced by running the
 notebook's own cells on local Spark (`python tests/valuelens_golden.py --regenerate`).

@@ -7,8 +7,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-NOTEBOOK = ROOT / "1. Fabric" / "Manual setup" / "notebooks" / "AnalyticsHub_Load_Status.ipynb"
-INSTALLER = ROOT / "1. Fabric" / "installer"
+NOTEBOOK = ROOT / "fabric" / "notebooks" / "AnalyticsHub_Load_Status.ipynb"
+INSTALLER = ROOT / "installer"
 RUN_ID = "00000000-0000-0000-0000-000000000001"
 
 

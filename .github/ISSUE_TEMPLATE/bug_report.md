@@ -13,7 +13,7 @@ Use fabricated examples and redact screenshots. -->
 ### Deployment path
 
 - [ ] 1. Fabric (SQL endpoint or OneLake? Specify below.)
-- [ ] 1. Fabric/Fabric App (preview)
+- [ ] app (preview)
 - [ ] 2. Azure (preview)
 - [ ] 3. Power Automate + Dataverse (preview)
 - [ ] 4. SharePoint
