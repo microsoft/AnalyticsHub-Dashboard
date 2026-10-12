@@ -14,7 +14,7 @@ You need:
 - A published ValueLens semantic model from any path, 1 to 4.
 - A workspace on Fabric capacity (F2 or larger, or a trial). *My workspace* won't work.
 - The tenant settings **Fabric Apps (preview)** and **Semantic Model Execute Queries REST API** turned on.
-- [Node.js 22.13 or later](https://nodejs.org/).
+- [Node.js](https://nodejs.org/) 24.15 or later, or 22.22 or later.
 
 From this folder (`app`):
 
