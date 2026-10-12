@@ -11,7 +11,7 @@ export function loadConfig(env = process.env) {
     semanticModels,
     access: parseAccess(env.VALUELENS_ACCESS),
     version: env.VALUELENS_VERSION || '0.0.0',
-    releasesUrl: env.VALUELENS_RELEASES_URL || 'https://api.github.com/repos/microsoft/ValueLens-for-Microsoft-Copilot/releases?per_page=20',
+    releasesUrl: env.VALUELENS_RELEASES_URL || 'https://api.github.com/repos/microsoft/AnalyticsHub-Dashboard/releases?per_page=20',
     settingsWriters: (env.VALUELENS_SETTINGS_WRITERS || 'admin').toLowerCase(),
     reporting: parseReporting(env.VALUELENS_CURRENCY, env.VALUELENS_EXCHANGE_RATE),
     azureClientId: env.AZURE_CLIENT_ID || '',

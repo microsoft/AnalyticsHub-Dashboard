@@ -301,7 +301,7 @@ contract and not written to `agents_365_history`.
 
 **Local CSV, SharePoint and Dataverse templates** read the same contract from a CSV set in the
 `Agent 365` parameter (blank = the page loads empty). Produce it with
-[`Get-Agents365Registry.ps1`](../4.%20SharePoint/scripts/Get-Agents365Registry.ps1), which calls the
+[`Get-Agents365Registry.ps1`](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/blob/main/4.%20SharePoint/scripts/Get-Agents365Registry.ps1), which calls the
 same Graph endpoints as the ingester and writes the same **48 columns in the same order**, with the
 same value rules; a parity test runs one mocked Graph response through both. `Run-PAX-AIBV.ps1
 -IncludeAgent365Info` runs it for you and `Upload-Rollups-SharePoint.ps1` lands it as

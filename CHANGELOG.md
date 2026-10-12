@@ -1,19 +1,49 @@
 # Changelog
 
-Notable, reviewed changes to the ValueLens templates, notebooks and helper scripts.
+Notable, reviewed changes to Analytics Hub: the installer, the app, the Fabric notebooks and
+pipeline, and the Azure target.
 
-This file starts here. Everything before the first entry below lives in `git log` and the
-pull-request history — this repo shipped for a while before anyone thought to write the
-changes down in one place, and back-filling that accurately from commit messages would be a
-worse record than pointing you at the commits themselves.
+Analytics Hub moved here from
+[ValueLens for Microsoft Copilot](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot),
+where it was paths 1 (Fabric) and 2 (Azure), with its history. Entries up to 0.4.2 were written
+there and refer to its folder names: `1. Fabric/installer` is now `installer/`,
+`1. Fabric/Fabric App` is `app/`, `1. Fabric/Manual setup` is `fabric/`, `2. Azure` is `azure/`
+and `shared/python` is `core/`. Some entries also cover the Power BI templates that stayed in
+ValueLens. Releases up to 0.4.2 are on
+[ValueLens's releases page](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/releases?q=installer-v).
 
-Deployment instructions do **not** live here. They live in the path READMEs:
-[1. Fabric](fabric/README.md) ·
-[1. Fabric/Fabric App](app/README.md) ·
-[2. Azure](azure/README.md) ·
-[3. Power Automate + Dataverse](3.%20Power%20Automate%20+%20Dataverse/README.md) ·
-[4. SharePoint](4.%20SharePoint/README.md) ·
-[5. Local CSV](5.%20Local%20CSV/README.md).
+Deployment instructions do **not** live here. They live in the READMEs:
+[Fabric](fabric/README.md) · [app](app/README.md) · [Azure](azure/README.md) ·
+[installer](installer/README.md).
+
+---
+
+## Unreleased — Analytics Hub installer 0.5.0
+
+**Update an existing install:** download installer 0.5.0
+[from this repo](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe),
+open it and choose **Repair or change**. Nothing about your install changes: the install record,
+the Fabric items, the Azure resources and the `valuelens-jobs` and `valuelens-web` images keep
+their names.
+
+### Changed: Analytics Hub has its own repo
+
+- Analytics Hub moved from ValueLens to `microsoft/AnalyticsHub-Dashboard`. Downloads, issues and
+  releases are here from 0.5.0. The old ValueLens download link serves 0.5.0 too, through a
+  one-off release there, so installs that bookmarked it still get the update.
+- The repo has a flat layout: `installer/`, `app/`, `fabric/`, `azure/`, `core/` and `samples/`.
+
+### Added: update notices
+
+- The installer checks this repo's latest release when it starts and says when a newer one is
+  out. It stays quiet when it can't reach GitHub, for example offline or behind a proxy.
+- The Azure web app's update banner reads this repo's releases and recognises `installer-v` tags.
+  Azure installs up to 0.4.2 learn about 0.5.0 from the one-off ValueLens release.
+
+### Changed
+
+- The Teams app's website link points at this repo.
+- The `valuelens-jobs` and `valuelens-web` images carry this repo as their source.
 
 ---
 

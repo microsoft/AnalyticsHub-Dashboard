@@ -180,7 +180,7 @@ Azure commands:
 
 ## Run it
 
-1. [Download the installer](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/releases/latest/download/AnalyticsHubInstaller.exe).
+1. [Download the installer](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe).
    This link always gets the newest version. If Edge says it isn't commonly downloaded, choose
    **…** next to the file, then **Keep**, **Show more** and **Keep anyway**.
 2. Open it. If Windows says it protected your PC, choose **More info**, then **Run anyway**.
@@ -212,6 +212,14 @@ further, you'll be asked for it again.
 
 It keeps your answers in `Documents\Analytics Hub`. Keep that folder. To run the pipeline, check
 status, update, or repair the set-up later, open the exe again.
+
+**Updates.** When it opens, the installer checks
+[the latest release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest). If
+there's a newer one, its window and the page say so. Download it, open it, and choose **Repair or
+change** to update your install. The check sends nothing about you or your tenant, and it's
+skipped if GitHub can't be reached. To turn it off, set the environment variable
+`ANALYTICS_HUB_NO_UPDATE_CHECK=1`. Installers up to 0.4.2 were released from
+[ValueLens](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/releases?q=installer-v).
 
 **Using a workspace that already has things in it?** The installer never changes anything it
 didn't create. If one of its names is taken, its own item gets the next free name, such as

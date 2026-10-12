@@ -1,70 +1,66 @@
-# ValueLens for Microsoft Copilot
+# Analytics Hub for Microsoft Copilot
 
-A Power BI dashboard that shows how your organisation uses Microsoft 365 Copilot and agents, and
-the hours and value they deliver.
+An app that shows how your organisation uses Microsoft 365 Copilot and agents, and the hours and
+value they deliver. One installer sets it up in your tenant, on **Microsoft Fabric** or in **your
+own Azure subscription**.
 
-![ValueLens preview](Images/ValueLens-Preview.gif)
+[![Download the Analytics Hub installer](https://img.shields.io/badge/Download-Analytics%20Hub%20installer-0078D4?style=for-the-badge)](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
 
-## Watch first
-
-**Demo: what the dashboard measures, page by page** *(2m 4s)*
-
-https://github.com/user-attachments/assets/2aa65c5d-2a20-4d51-9f1d-072c712fb4f3
-
-> Prefer to download it? [Get the demo video](media/ValueLens-Demo.mp4).
-
-**Have Fabric?** [Download the Analytics Hub installer](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/releases/latest/download/AnalyticsHubInstaller.exe),
-open it and follow the steps in your browser. Check
+For Windows 10 or 11. Open it and follow the steps in your browser. Check
 [what you need](docs/PREREQUISITES.md) first.
 
-**New here?** Read the [📖 Report Interpretation Guide (PDF)](docs/ValueLens-Report-Interpretation-Guide.pdf) — a page-by-page walkthrough of every report page.
+> **Moved from ValueLens.** Analytics Hub used to live in
+> [ValueLens for Microsoft Copilot](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot)
+> as paths 1 (Fabric) and 2 (Azure). Installs from there keep working: download the installer from
+> here, open it and choose **Repair or change**. ValueLens still has the Power BI templates for
+> Power Automate + Dataverse, SharePoint and local CSV files.
 
 ## Disclaimer
 
 - **This isn't the official Copilot report.** The official sources are the
   [Microsoft 365 admin center Copilot usage reports](https://learn.microsoft.com/en-us/microsoft-365/admin/activity-reports/microsoft-365-copilot-usage)
   and the [Viva Insights Copilot Dashboard](https://learn.microsoft.com/en-us/viva/insights/org-team-insights/copilot-dashboard).
-  ValueLens takes its Copilot figures mainly from the Purview audit log, which isn't the
+  Analytics Hub takes its Copilot figures mainly from the Purview audit log, which isn't the
   authoritative source, so its numbers may not always match those reports exactly.
-- **You're responsible for the data once it's extracted.** ValueLens copies data into your own
-  Fabric, Azure, Dataverse, SharePoint or CSV files. The retention, deletion and other policies you
-  set in Purview, Microsoft 365, Entra ID, Dataverse and the other sources don't apply to those
-  copies. Managing that data and meeting your organisation's requirements is up to you.
+- **You're responsible for the data once it's extracted.** Analytics Hub copies data into your own
+  Fabric workspace or Azure subscription. The retention, deletion and other policies you set in
+  Purview, Microsoft 365, Entra ID and the other sources don't apply to those copies. Managing that
+  data and meeting your organisation's requirements is up to you.
 
-## Pick a path
+## Pick where it runs
 
-Every path gives you the same dashboard. Pick the one that matches what you have, then follow the
-steps in its README.
+Both give you the same data, model, measures and app pages.
 
-| Path | You need | Setup |
+| Where | You need | Setup |
 |---|---|---|
-| **[1. Fabric](fabric/)** (recommended) | Fabric capacity (F2 or larger, or a trial) | Double-click an installer. It sets up everything and deploys the dashboard as an app. **[🎥 Watch the setup](fabric/README.md#watch-the-setup)** |
-| **[2. Azure](azure/)** (preview) | An Azure subscription (Contributor plus User Access Administrator) and Power BI Pro | Run the installer with the Azure target. It deploys Azure SQL, Container Apps jobs and the web app into your subscription, with no Fabric. See [Azure target](installer/README.md#azure-target-preview). |
-| **[3. Power Automate + Dataverse](3.%20Power%20Automate%20+%20Dataverse/)** (preview) | Power Automate premium and Dataverse | Import a collector solution and run a refresh script. |
-| **[4. SharePoint](4.%20SharePoint/)** | Power BI Pro | App registration, a SharePoint library and a scheduled export. |
-| **[5. Local CSV](5.%20Local%20CSV/)** | Power BI Desktop | Open the template. Sample data is included. |
+| **[Fabric](fabric/)** (recommended) | Fabric capacity (F2 or larger, or a trial) | Open the installer. It sets up everything and deploys the dashboard as an app in Fabric. **[🎥 Watch the setup](fabric/README.md#for-manual-setup-not-using-the-installer)** |
+| **[Azure](azure/)** (preview) | An Azure subscription (Contributor plus User Access Administrator) and Power BI Pro | Open the installer and pick **Your Azure subscription**. It deploys Azure SQL, Container Apps jobs and the web app, with no Fabric. See [Azure target](installer/README.md#azure-target-preview). |
 
-**Just want a look?** Use [5. Local CSV](5.%20Local%20CSV/) with its sample data. It takes two
-minutes and needs no access to your tenant.
-
-## Report interpretation guide
-
-A page-by-page guide to reading the ValueLens report — 15 report pages, with the key questions each one answers. Built for both internal teams and external customers.
-
-[![ValueLens Report Interpretation Guide](Images/Report-Interpretation-Guide-Cover.png)](docs/ValueLens-Report-Interpretation-Guide.pdf)
-
-**[📖 Open the Report Interpretation Guide (PDF)](docs/ValueLens-Report-Interpretation-Guide.pdf)**
+**Update an existing install:** download the latest installer, open it and choose **Repair or
+change**. Your saved answers are kept.
 
 ## Optional add-ons
 
-- **Credit consumption and cost:** in Fabric, choose it in the installer. Other paths have an
-  `Add Credit Consumption` folder.
+- **Credit consumption and cost:** choose it in the installer, or
+  [set it up by hand](fabric/Add%20Credit%20Consumption/) in Fabric.
 - **Copilot Studio agent conversations:** in Fabric, choose *Agent Evaluator* in the installer, or
   [set it up by hand](fabric/Add%20Agent%20Evaluator/).
 - **Shadow AI and agent risk:** in Fabric or Azure, choose *Defender (shadow AI and agent risk)* in
   the installer. It reads Microsoft Defender, needs Defender for Endpoint P2 or Defender for Cloud
   Apps, and fills the Shadow AI section of the app's Governance page
   ([details](installer/README.md#defender-shadow-ai-and-agent-risk)).
+
+## What's here
+
+| Folder | What it is |
+|---|---|
+| [`installer/`](installer/) | `AnalyticsHubInstaller.exe`: sets up, repairs and updates Fabric or Azure installs |
+| [`app/`](app/) | The Analytics Hub app: a Fabric app item, and the web app's front end on Azure |
+| [`fabric/`](fabric/) | Notebooks, pipeline, flows and Power BI models the installer deploys to Fabric, and how to set them up by hand |
+| [`azure/`](azure/) | Bicep, Container Apps jobs, SQL schema, web app and Teams package for the Azure target |
+| [`core/`](core/) | `valuelens_core`, the Python core shared by the Azure jobs and the Fabric Defender notebook |
+| [`samples/`](samples/) | Synthetic sample data for demo mode |
+| [`docs/`](docs/) | Methodology, prerequisites, permissions and data dictionary |
 
 ## Reference
 
@@ -73,6 +69,7 @@ A page-by-page guide to reading the ValueLens report — 15 report pages, with t
 - [Permissions](docs/PERMISSIONS.md)
 - [Data dictionary](docs/DATA-DICTIONARY.md)
 - [Report interpretation guide (PDF)](docs/ValueLens-Report-Interpretation-Guide.pdf)
+- [Installer reference](installer/README.md)
 - [What changed](CHANGELOG.md)
 
 <details>
@@ -90,7 +87,7 @@ Source: [Audit logs for Copilot and AI applications](https://learn.microsoft.com
 
 ## Help
 
-[Open an issue](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/issues) ·
+[Open an issue](https://github.com/microsoft/AnalyticsHub-Dashboard/issues) ·
 [Support](SUPPORT.md) · [Report a vulnerability](SECURITY.md) · [Contributing](CONTRIBUTING.md) ·
 [MIT licence](LICENSE)
 
@@ -98,12 +95,12 @@ Source: [Audit logs for Copilot and AI applications](https://learn.microsoft.com
 <summary>Usage and compliance disclaimer</summary>
 
 While this tool helps customers understand the business value of their AI usage data, Microsoft has
-**no visibility** into the data customers input, nor control over how the template is used. Customers
+**no visibility** into the data customers input, nor control over how the tool is used. Customers
 are solely responsible for ensuring their use complies with all applicable laws and regulations
 (including data privacy and security). **Microsoft disclaims all liability** arising from use of this
-template.
+tool.
 
-This is an **experimental** template with Purview audit logs as the primary source. Audit logs
+This is an **experimental** tool with Purview audit logs as the primary source. Audit logs
 provide visibility into Copilot/agent interactions but are not intended as the sole source of truth
 for licensing or full‑fidelity reporting. Not supported through Microsoft support channels — please
 open an issue in this repo.

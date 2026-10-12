@@ -5,7 +5,7 @@
   "id": "{{appId}}",
   "developer": {
     "name": "Microsoft",
-    "websiteUrl": "https://github.com/microsoft/ValueLens-for-Microsoft-Copilot",
+    "websiteUrl": "https://github.com/microsoft/AnalyticsHub-Dashboard",
     "privacyUrl": "https://privacy.microsoft.com/privacystatement",
     "termsOfUseUrl": "https://www.microsoft.com/legal/terms-of-use"
   },

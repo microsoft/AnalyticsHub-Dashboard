@@ -517,7 +517,7 @@ function onEvent(e) {
   app.replay = Date.now() - e.at > 1500 || app.rewinding || !!e.replayed;
   if (e.type === 'command') return onCommand(e);
   if (e.type === 'rewind') return onRewind(e);
-  if (e.type === 'prereqs-ready') {
+  if (e.type === 'prereqs-ready' || e.type === 'update-available') {
     if (!app.replay) refreshState();
     return;
   }
@@ -1272,6 +1272,15 @@ function runningBanner() {
     h('button', { type: 'button', class: 'btn primary', onclick: () => show('run') }, 'Back to it'));
 }
 
+/** A newer installer is out: says so, with a link to download it. */
+function updateBanner() {
+  const u = app.state?.update;
+  if (!u) return null;
+  return h('div', { class: 'back', role: 'status' },
+    h('span', null, h('strong', null, `Installer ${u.version} is available.`), ' Download it, open it and choose Repair or change.'),
+    h('a', { class: 'btn primary', href: u.url, target: '_blank', rel: 'noreferrer' }, 'Get it'));
+}
+
 function startError() {
   const el = h('p', { class: 'err', role: 'alert' }, app.startError);
   el.hidden = !app.startError;
@@ -1295,6 +1304,7 @@ function renderHome() {
 
   if (!rec?.installed) {
     kids.unshift(head('sliders', 'Set up Analytics Hub', `Fabric installer ${st.version}`));
+    kids.push(updateBanner());
     if (running) kids.push(runningBanner());
     kids.push(h('p', { class: 'lede' },
       'Answer a few questions and review the plan. Then the installer builds Analytics Hub in your tenant: an app registration with its secret in Key Vault, a Fabric workspace and Lakehouse, the notebooks and pipeline, and the semantic model with the Analytics Hub app on top.'));
@@ -1329,6 +1339,7 @@ function renderHome() {
   }
 
   kids.unshift(head('home', 'Manage Analytics Hub', `Tenant ${rec.tenantId}`));
+  kids.push(updateBanner());
   if (running) kids.push(runningBanner());
 
   const days = rec.secretExpires ? Math.floor((Date.parse(rec.secretExpires) - Date.now()) / 86_400_000) : null;

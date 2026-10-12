@@ -8,7 +8,7 @@
 - `GET /api/health` returns `{ "status": "ok", "version" }` for Container Apps probes.
 - `POST /api/query` validates an Analytics Hub JWT, checks the configured semantic-model allow-list, acquires a Power BI OBO token, and proxies `executeQueries` JSON verbatim. It coalesces identical requests, caches per user for 10 minutes, limits each user to four upstream calls, and preserves 429 `Retry-After`.
 - `GET/PUT/DELETE /api/settings/:entity[/:id]` stores `CommercialTerms` and `TaskTime` rows in Azure Table Storage table `appsettings` using managed identity. Writes require `AnalyticsHub.Admin` unless `VALUELENS_SETTINGS_WRITERS=all`.
-- `GET /api/version` compares `VALUELENS_VERSION` with stable GitHub release tags prefixed `analytics-hub-azure-v` or `v`.
+- `GET /api/version` compares `VALUELENS_VERSION` with the stable releases of `microsoft/AnalyticsHub-Dashboard` tagged `installer-v`, `analytics-hub-azure-v` or `v`.
 - Other GETs serve static assets, with SPA fallback to `index.html` for HTML navigation requests.
 
 Security headers, including a Teams-compatible CSP `frame-ancestors`, are applied to all responses. The server intentionally does not set `X-Frame-Options`.

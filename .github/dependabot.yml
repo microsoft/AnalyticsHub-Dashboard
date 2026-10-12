@@ -9,3 +9,30 @@ updates:
       interval: "weekly"
     cooldown:
       default-days: 7
+
+  - package-ecosystem: "npm"
+    directories: ["/app", "/installer", "/azure/web"]
+    groups:
+      npm:
+        patterns: ["*"]
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: "pip"
+    directories: ["/azure/jobs", "/core"]
+    groups:
+      pip:
+        patterns: ["*"]
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
+
+  - package-ecosystem: "docker"
+    directories: ["/azure/jobs", "/azure/web"]
+    schedule:
+      interval: "weekly"
+    cooldown:
+      default-days: 7
