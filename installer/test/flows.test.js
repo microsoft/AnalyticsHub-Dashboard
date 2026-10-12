@@ -20,6 +20,7 @@ import {
   flowClientData,
   flowFile,
   hourBefore,
+  nameByConnection,
   newConnections,
   oneLakeEndpoint,
   STUDIO_BACKFILL_DAYS,
@@ -183,6 +184,26 @@ test('studioFlowDefinition: as the app, Key Vault and the Power Platform API, wr
   assert.equal(actions.Check_backfill.inputs.uri, `https://onelake.blob.fabric.microsoft.com/ws-guid/lh-guid/${FLOW_STATE_DIR}/${BACKFILL_MARKER}`);
   assert.deepEqual(actions.Get_environments.runAfter, { Get_client_secret: ['Succeeded'] });
   for (const [name, a] of allActions(def.actions)) if (a.type === 'Http') assert.ok(a.runtimeConfiguration?.secureData, `${name} hides its inputs`);
+});
+
+test('nameByConnection: each action on an HTTP with Microsoft Entra ID connection says which, references follow, and no Set variable is empty', () => {
+  /** @param {any} def @param {{ endpoint: string }} t @param {string} storage */
+  const check = (def, t, storage) => {
+    const named = nameByConnection(def, t);
+    assertWellFormed(named);
+    const actions = allActions(named.actions);
+    const names = new Set(actions.map(([n]) => n));
+    for (const [name, a] of actions) {
+      const conn = a.inputs?.host?.connectionName;
+      if (conn === CONNECTORS.entra.name) assert.ok(name.endsWith('_via_Power_Platform_API'), name);
+      if (conn === CONNECTORS.storage.name) assert.ok(name.endsWith(`_${storage}`), name);
+      if (a.type === 'SetVariable') assert.notEqual(a.inputs.value, '', `${name} has a value the designer accepts`);
+    }
+    for (const [, ref] of JSON.stringify(named).matchAll(/(?:body|outputs|actions)\('([^']+)'\)/g)) assert.ok(names.has(ref), `${ref} is an action`);
+  };
+  check(studioFlowDefinition(USER, SCHEDULE), USER, 'via_OneLake');
+  const adls = { endpoint: 'https://acct.dfs.core.windows.net/landing' };
+  check(feedbackFlowDefinition(adls), adls, 'via_Azure_Storage');
 });
 
 test('the writer takes any DFS endpoint: an ADLS Gen2 container works too', () => {
@@ -470,10 +491,11 @@ test('flowsSummary: short numbered steps for each connection; the private vault 
   flowsSummary(ctx);
   const out = text();
   assert.match(out, /1\. Open it: https:\/\/make\.powerautomate\.com\/environments\/env-1\/flows/);
-  assert.match(out, /2\. HTTP with Microsoft Entra ID \(preauthorized\), for the Power Platform API: Base Resource URL and Resource URI https:\/\/api\.powerplatform\.com\. Sign in as a Power Platform, Billing or Global administrator\./);
-  assert.match(out, /3\. .*for OneLake: Base Resource URL https:\/\/onelake\.dfs\.fabric\.microsoft\.com, Resource URI https:\/\/storage\.azure\.com\. Sign in as someone with Contributor or higher on Analytics\./);
-  assert.match(out, /4\. Save, then turn it on\./);
-  assert.match(out, /5\. To load about six months now rather than at its first daily run, click Run\. Or use ".*run", which offers to run it before the pipeline\./);
+  assert.match(out, /2\. Allow pop-ups for make\.powerautomate\.com.*pick that connection on its other actions\./);
+  assert.match(out, /3\. HTTP with Microsoft Entra ID \(preauthorized\), for the Power Platform API: Base Resource URL and Resource URI https:\/\/api\.powerplatform\.com\. Sign in as a Power Platform, Billing or Global administrator\. Its actions end in "via Power Platform API"\./);
+  assert.match(out, /4\. .*for OneLake: Base Resource URL https:\/\/onelake\.dfs\.fabric\.microsoft\.com, Resource URI https:\/\/storage\.azure\.com\. Sign in as someone with Contributor or higher on Analytics\. Its actions end in "via OneLake"\./);
+  assert.match(out, /5\. Save, then turn it on\./);
+  assert.match(out, /6\. To load about six months now rather than at its first daily run, click Run\. Or use ".*run", which offers to run it before the pipeline\./);
   assert.match(out, /co-owner/);
   assert.doesNotMatch(out, /Key Vault|kv-private|trusted service|gateway/i);
 
@@ -484,7 +506,7 @@ test('flowsSummary: short numbered steps for each connection; the private vault 
   config2.keyVault.private = true;
   config2.uploads = { flowIdentity: 'app', flowIds: { studio: 'flow-1' }, flowEnvironment: { url: 'https://org1.crm.dynamics.com' } };
   flowsSummary(ctx2);
-  assert.match(app.text(), /3\. Azure Key Vault: vault kv-private\./);
+  assert.match(app.text(), /4\. Azure Key Vault: vault kv-private\./);
   assert.match(app.text(), /kv-private blocks public network access, which the Key Vault connector needs\. Run install --flow-identity user/);
   assert.doesNotMatch(app.text(), /trusted service|gateway|exempt/i);
 });

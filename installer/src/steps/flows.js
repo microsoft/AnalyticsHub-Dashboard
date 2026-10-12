@@ -27,6 +27,7 @@ import {
   FLOW_STATE_DIR,
   flowFile,
   isBound,
+  nameByConnection,
   newConnections,
   ONELAKE_DFS,
   oneLakeEndpoint,
@@ -189,17 +190,17 @@ export function flowDefinitions(config, tenantId) {
     feedback: {
       name: FEEDBACK_FLOW_NAME,
       description: `Saves product feedback exports emailed with the subject "${FEEDBACK_SUBJECT}" to ${where}. Created by the Analytics Hub installer.`,
-      definition: feedbackFlowDefinition(t),
+      definition: nameByConnection(feedbackFlowDefinition(t), t),
     },
     studio: {
       name: STUDIO_FLOW_NAME,
       description: `Saves Copilot Studio credits from the Power Platform licensing API to ${where} each day. Created by the Analytics Hub installer.`,
-      definition: studioFlowDefinition(t, schedule),
+      definition: nameByConnection(studioFlowDefinition(t, schedule), t),
     },
     agents: {
       name: AGENT_INVENTORY_FLOW_NAME,
       description: `Saves the Power Platform inventory of Copilot Studio agents, environments and agent flows to ${inventoryWhere} each day, for when Azure Resource Graph won't return agents. The inventory API takes delegated sign-ins only, so its connection signs in as a Power Platform or Global Reader-type administrator. Created by the Analytics Hub installer.`,
-      definition: agentInventoryFlowDefinition(t, schedule, inventoryDir),
+      definition: nameByConnection(agentInventoryFlowDefinition(t, schedule, inventoryDir), t),
     },
   };
 }
@@ -349,15 +350,14 @@ export function connectionSteps(config, kind) {
       ? azureStorageStep(config.azure)
       : flowIdentity(config) === 'app'
         ? `${CONNECTORS.keyVault.label}: vault ${config.keyVault.name ?? 'your Key Vault'}.`
-        : `${CONNECTORS.storage.label}: Base Resource URL ${ONELAKE_DFS}, Resource URI ${STORAGE_RESOURCE}. Sign in as someone with Contributor or higher on ${workspace}.`;
+        : `${CONNECTORS.storage.label}: Base Resource URL ${ONELAKE_DFS}, Resource URI ${STORAGE_RESOURCE}. Sign in as someone with Contributor or higher on ${workspace}. Its actions end in "via OneLake".`;
   if (kind === 'feedback') return [`${CONNECTORS.outlook.label}: sign in as the mailbox the export is emailed to.`, storage];
+  const ppApi = `${CONNECTORS.entra.label}: Base Resource URL and Resource URI ${PPAPI}.`;
+  const ppActions = 'Its actions end in "via Power Platform API".';
   if (kind === 'agents') {
-    return [
-      `${CONNECTORS.entra.label}: Base Resource URL and Resource URI ${PPAPI}. Sign in as a Power Platform administrator, or an admin with Global Reader: the inventory API takes delegated sign-ins only.`,
-      storage,
-    ];
+    return [`${ppApi} Sign in as a Power Platform administrator, or an admin with Global Reader: the inventory API takes delegated sign-ins only. ${ppActions}`, storage];
   }
-  return [`${CONNECTORS.entra.label}: Base Resource URL and Resource URI ${PPAPI}. Sign in as a Power Platform, Billing or Global administrator.`, storage];
+  return [`${ppApi} Sign in as a Power Platform, Billing or Global administrator. ${ppActions}`, storage];
 }
 
 /**
@@ -369,7 +369,7 @@ function azureStorageStep(az) {
     return `${CONNECTORS.sharePoint.label}: sign in as someone who can add files to ${az?.drop?.folderUrl ?? 'the drop folder'}.`;
   }
   const account = az?.outputs?.storageAccountName ?? '<storage account>';
-  return `${connectorLabel(CONNECTORS.storage.name, /** @type {any} */ ({ target: 'azure' }))}: Base Resource URL https://${account}.dfs.core.windows.net, Resource URI ${STORAGE_RESOURCE}. Sign in as someone with Storage Blob Data Contributor on ${account} (the installer gave it to you).`;
+  return `${connectorLabel(CONNECTORS.storage.name, /** @type {any} */ ({ target: 'azure' }))}: Base Resource URL https://${account}.dfs.core.windows.net, Resource URI ${STORAGE_RESOURCE}. Sign in as someone with Storage Blob Data Contributor on ${account} (the installer gave it to you). Its actions end in "via Azure Storage".`;
 }
 
 /**
@@ -392,6 +392,7 @@ export function flowsSummary(ctx) {
     else continue;
     let n = 1;
     ui.info(`  ${n++}. Open it: ${link}`);
+    ui.info(`  ${n++}. Allow pop-ups for make.powerautomate.com: each sign-in opens one. Sign in on the first action for each connection below, then pick that connection on its other actions.`);
     for (const step of connectionSteps(config, kind)) ui.info(`  ${n++}. ${step}`);
     ui.info(`  ${n++}. Save, then turn it on.`);
     if (kind === 'feedback') ui.info(`  ${n++}. In the Microsoft 365 admin center, schedule the product feedback export to that mailbox, subject "${FEEDBACK_SUBJECT}".`);

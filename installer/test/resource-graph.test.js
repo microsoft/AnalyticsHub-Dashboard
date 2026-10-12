@@ -174,7 +174,7 @@ test('agent inventory flow: pages the Power Platform inventory as the signed-in 
   assert.deepEqual(d.triggers.Daily.recurrence.schedule, { hours: [(Number(config.schedule.time.split(':')[0]) + 23) % 24], minutes: [Number(config.schedule.time.split(':')[1])] });
   assert.equal(d.actions.Each_page.type, 'Until');
   assert.equal(d.actions.Each_page.limit.count, 100);
-  const get = d.actions.Each_page.actions.Get_inventory.inputs;
+  const get = d.actions.Each_page.actions.Get_inventory_via_Power_Platform_API.inputs;
   assert.equal(get.host.connectionName, CONNECTORS.entra.name);
   assert.equal(get.parameters['request/method'], 'POST');
   assert.equal(get.parameters['request/url'], `${PPAPI}/resourcequery/resources/query?api-version=2024-10-01`);
