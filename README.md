@@ -7,7 +7,8 @@ own Azure subscription**.
 [![Download the Analytics Hub installer](https://img.shields.io/badge/Download-Analytics%20Hub%20installer-0078D4?style=for-the-badge)](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
 
 For Windows 10 or 11. Open it and follow the steps in your browser. Check
-[what you need](docs/PREREQUISITES.md) first.
+[what you need](docs/PREREQUISITES.md) first. If Edge or Windows warns about the download, see
+[Check the download](installer/README.md#check-the-download).
 
 > **Moved from ValueLens.** Analytics Hub used to live in
 > [ValueLens for Microsoft Copilot](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot)
