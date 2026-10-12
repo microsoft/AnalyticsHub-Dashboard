@@ -74,6 +74,35 @@ export async function createdId(ctx, created, type, name) {
   return found.id;
 }
 
+/**
+ * Whether the workspace an install record points at is gone, so the record is stale. Only a
+ * definite answer counts: Fabric says it isn't there, or the record is for another tenant. A 403,
+ * a network error or anything else returns null, and the record is used as it is.
+ * @param {{ config: import('../config.js').InstallConfig, fabric: { getWorkspace: (id: string) => Promise<any> }, tenantId?: string }} o
+ * @returns {Promise<{ workspace: string, reason: 'not-found' | 'other-tenant' } | null>}
+ */
+export async function recordWorkspaceGone({ config, fabric, tenantId }) {
+  const f = config.fabric;
+  if (config.target === 'azure' || !f?.workspaceId) return null;
+  const workspace = f.workspaceName ?? f.workspaceId;
+  if (config.tenantId && tenantId && config.tenantId.toLowerCase() !== tenantId.toLowerCase()) return { workspace, reason: 'other-tenant' };
+  try {
+    await fabric.getWorkspace(f.workspaceId);
+    return null;
+  } catch (err) {
+    return isNotFound(err) && /** @type {HttpError} */ (err).status !== 403 ? { workspace, reason: 'not-found' } : null;
+  }
+}
+
+/**
+ * Says why the install record is stale.
+ * @param {{ workspace: string, reason: 'not-found' | 'other-tenant' }} gone
+ */
+export const staleRecordMessage = (gone) =>
+  gone.reason === 'other-tenant'
+    ? `The install record is for workspace "${gone.workspace}" in another tenant, not the one you signed in to.`
+    : `This workspace no longer exists: "${gone.workspace}".`;
+
 /** @param {Ctx} ctx */
 export async function ensureWorkspace(ctx) {
   const { ui, config, api } = ctx;
