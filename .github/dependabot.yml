@@ -13,8 +13,13 @@ updates:
   - package-ecosystem: "npm"
     directories: ["/app", "/installer", "/azure/web"]
     groups:
+      # Rayfin ships every package at the same version, and the installer exe build fails when the
+      # app's rayfin-cli and rayfin-core differ. The app pins them exactly so they move only together.
+      rayfin:
+        patterns: ["@microsoft/rayfin-*"]
       npm:
         patterns: ["*"]
+        exclude-patterns: ["@microsoft/rayfin-*"]
     schedule:
       interval: "weekly"
     cooldown:
