@@ -107,6 +107,19 @@ test('settings API round-trips the reporting currency beside the exchange rate',
   } finally { server.close(); }
 });
 
+test('settings API stores report packs with their stage list as sent', async () => {
+  const { server, baseUrl } = await startTestServer({ settingsStore: new MemorySettingsStore() });
+  const id = '00000000-0000-0000-0000-0000000000aa';
+  try {
+    const pack = { id, name: 'Finance weekly', stages: '["budget-runway","cost-vs-value"]' };
+    assert.equal((await request(baseUrl, `/api/settings/ReportPack/${id}`, { method: 'PUT', headers: { ...authHeader(), 'Content-Type': 'application/json' }, body: JSON.stringify(pack) })).status, 403);
+    const put = await request(baseUrl, `/api/settings/ReportPack/${id}`, { method: 'PUT', headers: { ...authHeader('admin'), 'Content-Type': 'application/json' }, body: JSON.stringify(pack) });
+    assert.equal(put.status, 200);
+    const [row] = await (await request(baseUrl, '/api/settings/ReportPack', { headers: authHeader() })).json();
+    assert.deepEqual({ name: row.name, stages: row.stages }, { name: pack.name, stages: pack.stages });
+  } finally { server.close(); }
+});
+
 test('settings entity whitelist returns 404', async () => {
   const { server, baseUrl } = await startTestServer();
   try { assert.equal((await request(baseUrl, '/api/settings/Other', { headers: authHeader() })).status, 404); } finally { server.close(); }

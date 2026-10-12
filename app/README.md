@@ -72,6 +72,28 @@ only with people who should.
 
 The app saves these in a small SQL database under its item. The Power BI report doesn't see them.
 
+## Reports
+
+A report pack is a named, ordered list of sections taken from any page. Packs are listed under
+**Reports** in the sidebar.
+
+- **Built-in packs.** *Exec pre-read*, *Finance weekly* and *Adoption review* come with the app.
+  You can't edit or delete them, but **Save a copy** starts a new pack from one.
+- **Your packs.** **New pack** opens an editor where you name the pack, tick sections from each
+  page, and put them in order. On Fabric anyone who can open the app can save, edit or delete a
+  pack, and it changes for everyone. On Azure that needs the `AnalyticsHub.Admin` role. Packs are
+  stored with the other settings: in the app's SQL database on Fabric, and in Table Storage on
+  Azure.
+- **Missing sections.** A pack skips a section whose page is hidden because its optional data
+  hasn't arrived, and says which ones it left out.
+- **Download PDF** and **Download PowerPoint** are on every page and every pack. Both show the
+  filters in use and the date the data runs to, and the file is named after it, such as
+  `exec-pre-read-data-to-2026-10-11.pdf`. The PDF uses the browser's print dialog: choose
+  **Save as PDF**. Where the browser can't open a print dialog, the report downloads as an HTML
+  file you can print later.   The PowerPoint deck opens with a cover listing the filters, the
+    data dates and any sections left out, then has one slide per chart or table.
+- **Download CSV** on each chart and table also adds the data date to the file name.
+
 ## Change the app
 
 | Task | How |

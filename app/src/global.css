@@ -594,3 +594,37 @@ body,
     box-shadow: none;
   }
 }
+
+/* Exports (lib/report-export.ts). "Download PDF" prints a report built from
+   the captured charts in place of the app, so the paper copy matches the
+   slides and no chart has to re-flow to the page width. A plain Ctrl+P still
+   prints the page itself, without the sidebar, filters and buttons. */
+#vl-print-report {
+  display: none;
+}
+
+@media print {
+  html.vl-printing body > :not(#vl-print-report) {
+    display: none !important;
+  }
+
+  html.vl-printing #vl-print-report {
+    display: block;
+  }
+
+  html:not(.vl-printing),
+  html:not(.vl-printing) body,
+  html:not(.vl-printing) #root,
+  html:not(.vl-printing) [data-print="flow"] {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  html:not(.vl-printing) [data-print="hide"] {
+    display: none !important;
+  }
+
+  html:not(.vl-printing) [data-export] {
+    break-inside: avoid;
+  }
+}

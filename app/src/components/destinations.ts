@@ -46,7 +46,8 @@ import { consumptionConnection, evaluatorConnection } from "@/queries/shared";
  * the report placed on its pages; the destination id doubles as its palette.
  * A `reference` destination holds definitions rather than activity, so it has
  * no filters and sits apart in the sidebar. Ask takes no filters either: the
- * question says what period and organisations it is about.
+ * question says what period and organisations it is about. It is
+ * `conversational`, so it can't go in a report pack.
  *
  * The executive summary comes first and is where the app opens: one page
  * drawing on the others, each of its panels linking to the destination
@@ -196,6 +197,7 @@ export const destinations = [
         blurb: "Questions about the data, in your own words",
         icon: Sparkles as LucideIcon,
         filters: [] as FilterKey[],
+        conversational: true,
         stages: [{ id: "ask", label: "Ask", ready: true }],
     },
     {
@@ -234,6 +236,11 @@ export function isDestinationReady(destination: Destination): boolean {
 /** Reference destinations hold definitions rather than activity. */
 export function isReference(destination: Destination): boolean {
     return "reference" in destination && destination.reference;
+}
+
+/** Whether a destination's stages can go in a report pack: not a conversation like Ask. */
+export function isPackable(destination: Destination): boolean {
+    return !("conversational" in destination && destination.conversational);
 }
 
 /**
