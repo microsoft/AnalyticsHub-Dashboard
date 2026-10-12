@@ -900,7 +900,7 @@ export function planReview(ctx, pre) {
       kind: 'Power Automate flow',
       name: FLOW_NAMES[kind],
       isNew: !config.uploads.flowIds?.[kind],
-      detail: env ? `In ${env.name ?? env.url}, turned off until you sign in to its connections.` : 'Written to a file to import.',
+      detail: env ? `In ${env.name ?? env.url}, turned off. The installer helps you sign in to its connections, then turns it on.` : 'Written to a file to import.',
     });
   }
   if (sm.enabled) {

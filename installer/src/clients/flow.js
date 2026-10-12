@@ -1,6 +1,7 @@
 // @ts-check
 /**
- * Power Automate: a flow's state and runs, and running its trigger now, as the signed-in user.
+ * Power Automate: a flow's state and runs, running its trigger now, and binding its connections and
+ * turning it on, as the signed-in user.
  * A solution flow's name here is its Dataverse workflowid.
  */
 
@@ -39,6 +40,28 @@ export function flowApi(http) {
      * @param {string} trigger  The trigger's name in the definition.
      */
     runTrigger: (env, id, trigger) => http.post(`${path(env, id)}/triggers/${encodeURIComponent(trigger)}/run?${VERSION}`, {}),
+    /**
+     * The flow with its definition and connection references, as Power Automate holds them: each
+     * signed-in reference has a `connectionName`.
+     * @param {string} env
+     * @param {string} id
+     * @returns {Promise<{ name: string, properties?: { state?: string, displayName?: string, definition?: any, connectionReferences?: Record<string, any> } }>}
+     */
+    getFlowDetails: (env, id) => http.get(`${path(env, id)}?${VERSION}&$expand=properties.definition,properties.connectionReferences`),
+    /**
+     * Points the flow's connection references at connections, as picking them in the designer does.
+     * The definition and name go with them, as the designer sends them.
+     * @param {string} env
+     * @param {string} id
+     * @param {{ displayName?: string, definition: any, connectionReferences: Record<string, any> }} properties
+     */
+    setConnections: (env, id, properties) => http.patch(`${path(env, id)}?${VERSION}`, { properties }),
+    /**
+     * Turns the flow on.
+     * @param {string} env
+     * @param {string} id
+     */
+    start: (env, id) => http.post(`${path(env, id)}/start?${VERSION}`, {}),
   };
 }
 
