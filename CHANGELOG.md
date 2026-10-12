@@ -69,6 +69,35 @@ wanted to share their own org with someone who works for them.
 
 ---
 
+## Unreleased — Agent Evaluator and Consumption Central model fixes
+
+### Fixed: refresh failures and an empty Credit Consumption page
+
+**Why.** On a large tenant the Consumption Central and Agent Evaluator models failed to refresh,
+and in Fabric mode the Agent Evaluator's Credit Consumption page was always empty.
+
+- **Consumption Central: connection pool exhausted.** The credit and Azure tables that are read
+  column by column (`studio_tenant_daily`, `studio_agent`, `studio_user` and the four
+  `azure_*` spend and health tables) now buffer the Lakehouse table first. Unbuffered, the SQL
+  endpoint was queried once per column.
+- **Agent Evaluator: `'Agent Turns'[Response Seconds]` ran out of memory.** It now scans just the
+  conversation, role and timestamp columns with `FILTER(ALL(...))` instead of
+  `CALCULATE(..., ALLEXCEPT(...))`. The values are the same.
+- **Agent Evaluator: Credit Consumption page empty in Fabric mode.** Nothing in Fabric writes the
+  `credit_consumption_*` tables the page read. A new `FabricCreditTable` function reads them when
+  they have rows, else the Consumption Central add-on's `studio_agent`, `studio_user` and
+  `studio_tenant_daily` tables (latest snapshot), renamed to the export's columns.
+- **Agent Evaluator: Agent Name Map.** In Fabric mode it now reads the credit-side agent names
+  too, instead of an empty table. Both of its key columns are relationship keys, so a new
+  `AgentNameMapRows` function keeps them unique the way the engine compares text (ignoring case
+  and trailing spaces): one row per credit name, and a blank or already claimed `agent_schema`
+  becomes `(unmatched) <name>`. Unmatched names used to share a blank key and fail the refresh.
+
+The changes are applied by `scripts/Update-Model-Refresh-Fixes.py` (`--check` reports templates
+that need it). **Repair or change** deploys the updated models; refresh them afterwards.
+
+---
+
 ## Unreleased — Fabric App: report packs, PDF and PowerPoint
 
 ### New: report packs, exported as PDF and PowerPoint
