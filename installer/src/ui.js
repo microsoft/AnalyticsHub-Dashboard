@@ -42,6 +42,8 @@ export function createUi(opts = {}) {
 
   return {
     yes,
+    /** The browser wizard, rather than the terminal. */
+    web: false,
     line,
     /** @param {string} title */
     heading: (title) => line(`\n${c.bold(c.cyan(title))}`),
