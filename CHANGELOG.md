@@ -18,13 +18,16 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ---
 
-## Unreleased — Analytics Hub installer 0.5.0
+## 2026-10-12 — Analytics Hub installer 0.5.0
 
 **Update an existing install:** download installer 0.5.0
 [from this repo](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe),
 open it and choose **Repair or change**. Nothing about your install changes: the install record,
 the Fabric items, the Azure resources and the `valuelens-jobs` and `valuelens-web` images keep
 their names.
+
+The tag also publishes the `valuelens-jobs` and `valuelens-web` images as `0.5.0`, from this repo,
+which the Azure install pulls.
 
 ### Changed: Analytics Hub has its own repo
 
