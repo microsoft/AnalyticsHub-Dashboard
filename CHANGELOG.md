@@ -39,6 +39,40 @@ and some text named internal tools.
 - **Wording.** The web page says you can close the window while a run carries on, not Ctrl+C. The
   app deploy says a browser window may open for sign-in, without naming its deploy tool.
 
+---
+
+## Unreleased — Before you start checklist (docs)
+
+Docs only. Nothing in the installer, app or notebooks changes.
+
+### Changed: one checklist for everything you need before you install
+
+**Why.** A newcomer had to piece together what to ask for from three overlapping lists, found out
+about the Viva Insights query, Power Automate Premium and the data policy only part-way through,
+and had no idea how long it would take or what it would cost.
+
+- **[Before you start](docs/PREREQUISITES.md)** is now the one checklist, organised by person: you,
+  the Fabric admin, the Power Platform admin, the Viva Insights analyst, the Entra admin and the
+  Microsoft 365 admin, then each optional extra with what it needs. The root, Fabric and installer
+  READMEs link to it rather than repeat it.
+- **Send this to your Viva Insights analyst first.** A short note to forward, so the Cowork credits
+  query exists before you start. The partition ID defaults to the tenant ID, and you can add the
+  query later.
+- **How long it takes**: about 5 minutes of questions, 15 minutes of setup, and the first data
+  about 25 minutes after **Go ahead** (about 2 hours for 180 days). Keep the PC awake and plugged
+  in.
+- **What it costs**: links to the official pricing pages for Fabric capacity (with a size hint),
+  the Fabric free trial, Power Automate Premium and the optional Azure resources. No prices are
+  written down.
+- **Fabric README.** The installer comes before the manual setup video. Sharing is two steps:
+  share the app with Analytics Hub Viewers once, then add people to the group. The data source
+  cards are named as the installer shows them, and the Dataflow staging items are explained.
+- **Credit consumption** docs use the card names (Copilot Studio credits, Copilot Cowork credits,
+  Azure AI costs). A broken link from the Fabric README to the installer's download check is
+  fixed.
+
+---
+
 ## Unreleased — Org-scoped access (row-level security)
 
 **Nothing changes unless you turn it on.** Upgrading or choosing **Repair or change** deploys the
