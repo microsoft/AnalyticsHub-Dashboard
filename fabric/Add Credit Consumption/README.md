@@ -9,10 +9,16 @@ You can use the **same Lakehouse as ValueLens**. Its table names and `Files/land
 overlap with anything ValueLens reads or writes. Load only the products you have; the other pages
 stay empty.
 
-> **Using the [Fabric installer](../../installer/#credit-consumption)?** Choose *Credit consumption*
-> and it sets up the Azure AI, Copilot Studio and Cowork notebooks, the upload folders, the
-> semantic model and the app's Consumption pages for you. You still land the Cowork data
-> ([step 1](#viva-dataflow)) and the Copilot Studio exports yourself; the installer prints how.
+> **Using the [Fabric installer](../../installer/README.md#credit-consumption)?** On its **Data
+> sources** screen, **Credit consumption** is three cards: **Copilot Studio credits**, **Copilot
+> Cowork credits** and **Azure AI costs**. Choose the ones you want. The installer sets up the
+> notebooks, the upload folders, the semantic model and the app's Consumption pages for you. For
+> **Copilot Studio credits** it creates the Power Automate flow, and you
+> [sign in to its connections](../../installer/README.md#power-automate-flows) once. For **Copilot
+> Cowork credits** it creates the Dataflow from the Viva Insights query
+> ([step 1](#viva-dataflow)): it fills in the partition ID with your tenant ID, and if you don't
+> have the query yet you can add the query later. Ask your Viva Insights analyst for it
+> [before you start](../../docs/PREREQUISITES.md#send-this-to-your-viva-insights-analyst-first).
 
 ### What's here
 
@@ -31,8 +37,9 @@ stay empty.
 
 ### 1. Land Cowork data with a Dataflow
 
-The [installer](../../installer/README.md#credit-consumption) does this for you when you choose
-**Connected (Dataflow)**, except signing in to the Dataflow's connections, which only you can do:
+The [installer](../../installer/README.md#credit-consumption) does this for you when you set the
+**Copilot Cowork credits** card to **Connected (Dataflow)**, except signing in to the Dataflow's
+connections, which only you can do:
 
 - Open `AnalyticsHub_Cowork_Credits` (the **Done** page links to it). It shows **Configure
   connection** twice, once for the Viva Insights source and once for the Lakehouse destination.
@@ -45,14 +52,13 @@ The [installer](../../installer/README.md#credit-consumption) does this for you 
 
 If the Dataflow isn't signed in when the installer's first load starts, that run leaves it out
 (`SkipCowork=true`) and the **Done** page shows *To do: sign in to the Cowork Dataflow*. Scheduled
-runs never skip it. Fabric also creates `StagingLakehouseForDataflows_…` and
-`StagingWarehouseForDataflows_…` items for Dataflows; they're expected, so leave them in place.
+runs never skip it. The staging items Fabric adds for Dataflows are expected; see below.
 
 By hand:
 
 1. Viva Insights → **Analysis** → build a query with the Copilot credit metrics → turn on
    **Auto-refresh** → **Analysis results** → **link icon** → copy the **Partition** and **Query**
-   identifiers.
+   identifiers. You need the **Insights Analyst** role. The partition ID is usually your tenant ID.
 2. Fabric workspace → **New** → **Dataflow Gen2** → **Get data** → **Viva Insights**. Paste both
    identifiers and leave *Query Name* blank. Under **Advanced options** set **Schema Type = Pivoted** and
    **Data Granularity = Row-level data**.
@@ -64,6 +70,9 @@ By hand:
 
 A Dataflow you set up earlier that writes straight to `viva_credits_weekly` still works, as long
 as you don't also run `Ingest_Viva_Consumption`.
+
+Fabric adds **DataflowsStagingLakehouse** and **DataflowsStagingWarehouse** items to the workspace
+for Dataflows. They're expected: leave them.
 
 [Microsoft's guide ↗](https://learn.microsoft.com/en-us/viva/insights/advanced/analyst/export-query-data-microsoft-fabric)
 

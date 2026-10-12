@@ -35,7 +35,7 @@ turned the run red and gave no clear next step.
 - The **Done** page and the terminal show an amber **To do: sign in to the Cowork Dataflow** card.
   It links to the Dataflow and lists the steps: **Configure connection** for the Viva Insights
   source and for the Lakehouse destination, then **Save** and wait for publishing. It also explains
-  the `StagingLakehouseForDataflows_…` and `StagingWarehouseForDataflows_…` items Fabric adds.
+  the `DataflowsStagingLakehouse` and `DataflowsStagingWarehouse` items Fabric adds.
 - New **Load Cowork now** action (`load-cowork`). It waits until the Dataflow has finished
   publishing, refreshes it (trying once more after a minute if the refresh fails straight after
   the save), then runs the Viva load and the consumption model refresh and reports the rows loaded.
@@ -53,6 +53,61 @@ run looked fine.
   Dataflow, then the consumption model refresh.
 - A Viva load that got no rows from the Dataflow shows as **to do**, not loaded. The Viva notebook
   writes its row counts to `Files/valuelens_installer/viva_load.json` for the installer to check.
+
+---
+
+## Unreleased — Install record and launch
+
+**Why.** In a newcomer self-serve test of installer 0.4.2, an install record for a deleted
+workspace kept showing **Manage Analytics Hub**. Nothing said where the record was or how to start
+again. A closed page couldn't be reopened without the printed link, the PC could sleep mid-setup,
+and some text named internal tools.
+
+- **A record whose workspace has gone.** After sign-in, the installer checks that the record's
+  workspace still exists. If Fabric says it doesn't, or the record is for another tenant, the home
+  page says so and offers **Start fresh** or **Keep this record**. Start fresh renames the record to
+  `valuelens-install.<yyyyMMdd-HHmmss>.json` beside it. A network error or a 403 changes nothing.
+  In the terminal, `install` asks whether to start fresh; other commands stop and say how.
+- **Where the record is.** **Manage Analytics Hub** shows the record's full path, and notes that
+  OneDrive may sync it.
+- **Reopen the page.** The installer's window says to press **Enter** to open the page again. A
+  page opened without the link says to do that.
+- **Keep awake.** The exe stops Windows going to sleep while it runs. The plan says to keep the
+  PC plugged in and awake until setup finishes.
+- **Wording.** The web page says you can close the window while a run carries on, not Ctrl+C. The
+  app deploy says a browser window may open for sign-in, without naming its deploy tool.
+
+---
+
+## Unreleased — Before you start checklist (docs)
+
+Docs only. Nothing in the installer, app or notebooks changes.
+
+### Changed: one checklist for everything you need before you install
+
+**Why.** A newcomer had to piece together what to ask for from three overlapping lists, found out
+about the Viva Insights query, Power Automate Premium and the data policy only part-way through,
+and had no idea how long it would take or what it would cost.
+
+- **[Before you start](docs/PREREQUISITES.md)** is now the one checklist, organised by person: you,
+  the Fabric admin, the Power Platform admin, the Viva Insights analyst, the Entra admin and the
+  Microsoft 365 admin, then each optional extra with what it needs. The root, Fabric and installer
+  READMEs link to it rather than repeat it.
+- **Send this to your Viva Insights analyst first.** A short note to forward, so the Cowork credits
+  query exists before you start. The partition ID defaults to the tenant ID, and you can add the
+  query later.
+- **How long it takes**: about 5 minutes of questions, 15 minutes of setup, and the first data
+  about 25 minutes after **Go ahead** (about 2 hours for 180 days). Keep the PC awake and plugged
+  in.
+- **What it costs**: links to the official pricing pages for Fabric capacity (with a size hint),
+  the Fabric free trial, Power Automate Premium and the optional Azure resources. No prices are
+  written down.
+- **Fabric README.** The installer comes before the manual setup video. Sharing is two steps:
+  share the app with Analytics Hub Viewers once, then add people to the group. The data source
+  cards are named as the installer shows them, and the Dataflow staging items are explained.
+- **Credit consumption** docs use the card names (Copilot Studio credits, Copilot Cowork credits,
+  Azure AI costs). A broken link from the Fabric README to the installer's download check is
+  fixed.
 
 ---
 

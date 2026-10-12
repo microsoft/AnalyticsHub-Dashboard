@@ -65,7 +65,7 @@ export function coworkSignInSteps(config) {
 }
 
 /** Fabric adds these for Dataflows. Said wherever someone might wonder where they came from. */
-export const STAGING_ITEMS_NOTE = 'Fabric also creates StagingLakehouseForDataflows_… and StagingWarehouseForDataflows_… items in the workspace for its Dataflows. They are expected: leave them in place.';
+export const STAGING_ITEMS_NOTE = 'Fabric also adds DataflowsStagingLakehouse and DataflowsStagingWarehouse items to the workspace for its Dataflows. They are expected: leave them in place.';
 
 /** Where the Viva load notebook writes how many rows it read from the Dataflow and the CSVs. */
 export const VIVA_LOAD_FILE = 'Files/valuelens_installer/viva_load.json';

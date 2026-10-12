@@ -408,7 +408,7 @@ function setConn(conn) {
     icon('warn'),
     h('span', null, conn === 'lost'
       ? 'Lost the link to the installer. Trying again.'
-      : `This page has lost its link to the installer. If it's still running, open the link it printed in ${installerWindow()}.`),
+      : `This page has lost its link to the installer. If it's still running, go back to ${installerWindow()} and press Enter there to open it again.`),
   );
 }
 
@@ -523,7 +523,7 @@ function onEvent(e) {
   app.replay = Date.now() - e.at > 1500 || app.rewinding || !!e.replayed;
   if (e.type === 'command') return onCommand(e);
   if (e.type === 'rewind') return onRewind(e);
-  if (e.type === 'prereqs-ready' || e.type === 'update-available') {
+  if (e.type === 'prereqs-ready' || e.type === 'update-available' || e.type === 'record-checked') {
     if (!app.replay) refreshState();
     return;
   }
@@ -681,6 +681,8 @@ function onCommand(e) {
   schedule();
   if (!app.replay) {
     announce(`${headTitle(run)}: ${blurb(run)}`);
+    // The record's workspace is gone: the home page says what to do.
+    if (e.stale) show('home');
     refreshState();
   }
 }
@@ -1311,6 +1313,35 @@ function startError() {
   return el;
 }
 
+/** The install record points at a workspace that's gone: start fresh, or keep the record. */
+function staleBanner(busy) {
+  const gone = app.state?.stale;
+  if (!gone) return null;
+  const err = h('p', { class: 'err', role: 'alert' });
+  err.hidden = true;
+  const act = async (path) => {
+    const r = await post(path);
+    if (!r.ok) {
+      err.textContent = r.body?.error ?? 'That didn\'t work. Try again.';
+      err.hidden = false;
+      return;
+    }
+    if (r.body?.archived) announce(`The old install record is now ${r.body.archived}.`);
+    refreshState();
+  };
+  const other = gone.reason === 'other-tenant';
+  return h('section', { class: 'outcome fail', role: 'alert' },
+    h('h2', null, other ? 'This workspace isn\'t in the tenant you signed in to' : 'This workspace no longer exists'),
+    h('p', null, other
+      ? `Your install record is for "${gone.workspace}", in another tenant.`
+      : `Fabric can't find "${gone.workspace}", the workspace in your install record. It may have been deleted.`),
+    h('p', null, 'Start fresh to set up Analytics Hub again. The old record is kept beside the new one, renamed with the date and time.'),
+    h('div', { class: 'actions' },
+      h('button', { type: 'button', class: 'btn primary', disabled: busy, onclick: () => act('/api/fresh') }, 'Start fresh'),
+      h('button', { type: 'button', class: 'btn', disabled: busy, onclick: () => act('/api/keep') }, 'Keep this record')),
+    err);
+}
+
 function renderHome() {
   const st = app.state;
   if (!st) return h('div', { class: 'page' }, h('p', { class: 'sub' }, 'Loading.'));
@@ -1329,6 +1360,7 @@ function renderHome() {
   if (!rec?.installed) {
     kids.unshift(head('sliders', 'Set up Analytics Hub', `Fabric installer ${st.version}`));
     kids.push(updateBanner());
+    kids.push(staleBanner(busy));
     if (running) kids.push(runningBanner());
     kids.push(h('p', { class: 'lede' },
       'Answer a few questions and review the plan. Then the installer builds Analytics Hub in your tenant: an app registration with its secret in Key Vault, a Fabric workspace and Lakehouse, the notebooks and pipeline, and the semantic model with the Analytics Hub app on top.'));
@@ -1364,6 +1396,7 @@ function renderHome() {
 
   kids.unshift(head('home', 'Manage Analytics Hub', `Tenant ${rec.tenantId}`));
   kids.push(updateBanner());
+  kids.push(staleBanner(busy));
   if (running) kids.push(runningBanner());
 
   const days = rec.secretExpires ? Math.floor((Date.parse(rec.secretExpires) - Date.now()) / 86_400_000) : null;
@@ -1381,6 +1414,8 @@ function renderHome() {
     ['Client secret expires', rec.secretExpires ? h('span', { class: soon ? 'soon' : null }, `${rec.secretExpires} (${days < 0 ? 'expired' : `in ${days} days`})`) : 'Unknown'],
     ['First load', firstRun],
     ['Audit history', rec.historyDays ? `${rec.historyDays} days` : null],
+    ['Install record', [h('div', null, st.configFile),
+      h('p', { class: 'hint' }, 'If OneDrive syncs your Documents folder, this record follows you to your other PCs.')]],
   ].filter(([, v]) => v != null && v !== '');
   kids.push(h('section', { class: 'panel' },
     h('div', { class: 'panel-head' }, h('h2', null, 'Your installation'),

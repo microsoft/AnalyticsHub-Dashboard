@@ -165,7 +165,7 @@ test('coworkNextStep: the sign-in to-do, with the real names, only when the Data
   assert.equal(step.url, 'https://app.fabric.microsoft.com/groups/ws-1/dataflows-gen2/df-1');
   assert.equal(step.action, 'load-cowork');
   assert.equal(step.note, STAGING_ITEMS_NOTE);
-  assert.match(step.note, /StagingLakehouseForDataflows_.*StagingWarehouseForDataflows_.*expected/);
+  assert.match(step.note, /DataflowsStagingLakehouse and DataflowsStagingWarehouse.*expected/);
   assert.match(step.steps[0], /Open AnalyticsHub_Cowork_Credits in Analytics Hub: https:\/\/app\.fabric\.microsoft\.com\/groups\/ws-1\/dataflows-gen2\/df-1/);
   assert.match(step.steps[1], /"Configure connection" twice.*Viva Insights source.*Lakehouse destination \(ValueLens\)/);
   assert.match(step.steps[3], /Save.*finished publishing/);
