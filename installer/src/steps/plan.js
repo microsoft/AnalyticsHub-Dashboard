@@ -1063,5 +1063,9 @@ export async function confirmPlan(ctx, pre) {
   if (ctx.runFirstLoad) ui.info(`First load:  ${config.history.days} days of history, straight after setup`);
   if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)} ${c.dim(`(${reloadDetail(ctx.reloadHistoryDays)})`)}`);
   ui.review(planReview(ctx, pre));
+  ui.note(KEEP_AWAKE);
   return ui.confirm('Go ahead?', true);
 }
+
+/** Said before Go ahead: a PC that sleeps stops the setup part way. */
+export const KEEP_AWAKE = 'Keep this PC plugged in and awake until setup finishes.';
