@@ -14,9 +14,15 @@ https://github.com/user-attachments/assets/b415625d-c2ae-467f-9a91-59ef9adca6c8
 
 [![Download the Analytics Hub installer](https://img.shields.io/badge/Download-Analytics%20Hub%20installer-0078D4?style=for-the-badge)](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
 
-For Windows 10 or 11. Open it and follow the steps in your browser. Check
-[what you need](docs/PREREQUISITES.md) first. If Edge or Windows warns about the download, see
-[Check the download](installer/README.md#check-the-download).
+For Windows 10 or 11. Open it and follow the steps in your browser. If Edge or Windows warns about
+the download, see [Check the download](installer/README.md#check-the-download).
+
+**Before you start**, go through the **[checklist](docs/PREREQUISITES.md)**. It says what you need
+and what to ask other admins for (a Fabric admin, an Entra admin and, for some extras, a Power
+Platform admin or a Viva Insights analyst), with the costs. Allow about 5 minutes of questions and
+15 minutes of setup. The first data arrives about 25 minutes after you approve the plan, or about
+2 hours with 180 days of history. No Fabric capacity?
+[Start a free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager).
 
 > **Moved from ValueLens.** Analytics Hub used to live in
 > [ValueLens for Microsoft Copilot](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot)
@@ -61,7 +67,7 @@ Both give you the same data, model, measures and app pages.
 
 | Where | You need | Setup |
 |---|---|---|
-| **[Fabric](fabric/)** (recommended) | Fabric capacity (F2 or larger, or a trial) | Open the installer. It sets up everything and deploys the dashboard as an app in Fabric. To set it up by hand instead, **[🎥 watch the manual setup](fabric/README.md#for-manual-setup-not-using-the-installer)**. |
+| **[Fabric](fabric/)** (recommended) | Fabric capacity (F2 or larger, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager)) | Open the installer. It sets up everything and deploys the dashboard as an app in Fabric. To set it up by hand instead, **[🎥 watch the manual setup](fabric/README.md#set-it-up-by-hand)**. |
 | **[Azure](azure/)** | An Azure subscription (Contributor plus User Access Administrator) and Power BI Pro | Open the installer and pick **Your Azure subscription**. It deploys Azure SQL, Container Apps jobs and the web app, with no Fabric. See [Azure target](installer/README.md#azure-target). |
 
 **Update an existing install:** download the latest installer, open it and choose **Repair or
@@ -69,7 +75,8 @@ change**. Your saved answers are kept.
 
 ## Optional add-ons
 
-- **Credit consumption and cost:** choose it in the installer, or
+- **Credit consumption and cost:** on the installer's **Data sources** screen, choose any of the
+  **Copilot Studio credits**, **Copilot Cowork credits** and **Azure AI costs** cards, or
   [set it up by hand](fabric/Add%20Credit%20Consumption/) in Fabric.
 - **Copilot Studio agent conversations:** in Fabric, choose *Agent Evaluator* in the installer, or
   [set it up by hand](fabric/Add%20Agent%20Evaluator/).
@@ -105,7 +112,7 @@ Power BI or wants to build their own ([details](installer/README.md#power-bi-rep
 
 - [App guide](docs/APP-GUIDE.md)
 - [How the value is calculated](docs/METHODOLOGY.md)
-- [Prerequisites](docs/PREREQUISITES.md)
+- [Before you start](docs/PREREQUISITES.md)
 - [Permissions](docs/PERMISSIONS.md)
 - [Data dictionary](docs/DATA-DICTIONARY.md)
 - [Power BI report guide (PDF)](docs/ValueLens-Report-Interpretation-Guide.pdf)
