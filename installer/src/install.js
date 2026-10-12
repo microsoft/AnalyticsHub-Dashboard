@@ -41,6 +41,7 @@ import { ensureModelConnection, ensureSemanticModel, modelUrl, refreshModel, rot
 import { confirmPlan, plan, preflight } from './steps/plan.js';
 import { checkPrereqs } from './prereqs.js';
 import { ensureReports, reportsOn, reportsSummary } from './steps/report.js';
+import { dataAgentSummary, dataAgentWanted, ensureDataAgent } from './steps/data-agent.js';
 import { dataSourcesSummary, ensureUploads, uploadCommand } from './steps/data-sources.js';
 import { ensureFlows, FLOW_FILES, flowDefinitions, flowsSummary, flowsWanted, offerStudioRun } from './steps/flows.js';
 import { ensureAppResourceGraphAccess, resourceGraphOn } from './steps/resource-graph.js';
@@ -281,6 +282,7 @@ export async function install(ctx, opts) {
   const withUploads = routerWanted(config.dataSources) || !!ctx.pendingUploads?.length || flowsWanted(config).length > 0;
   const withResourceGraph = resourceGraphOn(config);
   const withReports = reportsOn(config);
+  const withDataAgent = dataAgentWanted(ctx);
   const withAccess = withModel && !!config.access;
   const titles = [
     'Key Vault',
@@ -292,6 +294,7 @@ export async function install(ctx, opts) {
     ...(withAgentEvaluator ? ['Copilot Studio transcripts'] : []),
     ...(withResourceGraph ? ['Resource Graph access'] : []),
     ...(withReports ? ['Power BI reports'] : []),
+    ...(withDataAgent ? ['Ask data agent'] : []),
     ...(withUploads ? ['Data uploads'] : []),
     'Notebooks, pipeline and schedule',
     ...(withAccess ? ['Viewer access'] : []),
@@ -331,6 +334,10 @@ export async function install(ctx, opts) {
   if (withReports) {
     step('Power BI reports');
     await ensureReports(ctx);
+  }
+  if (withDataAgent) {
+    step('Ask data agent');
+    await ensureDataAgent(ctx);
   }
   if (withUploads) {
     step('Data uploads');
@@ -512,6 +519,7 @@ export async function update(ctx, opts = {}) {
   if (config.modules.agentEvaluator) await agentEvaluatorSteps(ctx, { force: true });
   if (resourceGraphOn(config)) await ensureAppResourceGraphAccess(ctx);
   if (reportsOn(config)) await ensureReports(ctx);
+  await ensureDataAgent(ctx);
   if (routerWanted(config.dataSources)) await ensureUploads(ctx);
   await ensureFlows(ctx);
   await ensureNotebooks(ctx, { force: true });
@@ -715,6 +723,7 @@ export async function summary(ctx) {
     if (sm.connectionName) ui.info(`            ${c.dim(`Reads the Lakehouse through "${sm.connectionName}"${sm.secretExpires ? `, whose secret expires ${sm.secretExpires.slice(0, 10)}` : ''}.`)}`);
     if (fa.enabled && fa.itemId) ui.info(`App:        ${fa.name}  ${c.dim(fa.url ?? '')}`);
     reportsSummary(ctx);
+    dataAgentSummary(ctx);
 
     const shared = [...(reportsOn(config) ? ['reports'] : []), ...(fa.enabled ? ['app'] : [])].join(' and ') || 'reports you publish';
     const group = config.access?.groupId ? config.access : undefined;

@@ -248,6 +248,25 @@ export function fakeFabric() {
       find(id).content = def;
       return null;
     },
+    /** @param {string} _ws @param {string} name @param {any} def */
+    createDataAgent: async (_ws, name, def) => {
+      calls.push(`createDataAgent ${name}`);
+      fail('createDataAgent');
+      return { id: add('DataAgent', name, def).id };
+    },
+    /** @param {string} _ws @param {string} id @param {any} def */
+    updateDataAgent: async (_ws, id, def) => {
+      calls.push(`updateDataAgent ${find(id).displayName}`);
+      fail('updateDataAgent');
+      find(id).content = def;
+      return null;
+    },
+    /** @param {string} _ws @param {string} id */
+    publishDataAgent: async (_ws, id) => {
+      calls.push(`publishDataAgent ${find(id).displayName}`);
+      fail('publishDataAgent');
+      return null;
+    },
     listRoleAssignments: async () => structuredClone(roles),
     /** @param {string} _ws @param {string} id @param {string} type @param {string} role */
     addRoleAssignment: async (_ws, id, type, role) => {

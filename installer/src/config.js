@@ -34,6 +34,7 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {ConsumptionConfig} consumption
  * @property {AgentEvaluatorConfig} agentEvaluator
  * @property {ResourceGraphConfig} resourceGraph
+ * @property {DataAgentConfig} dataAgent
  */
 
 /**
@@ -191,6 +192,17 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  */
 
 /**
+ * The Fabric data agent behind the app's Ask page.
+ * @typedef {object} DataAgentConfig
+ * @property {boolean} [enabled]  Create it. Unset means yes, on a capacity that runs data agents.
+ * @property {string} [id]
+ * @property {string} name
+ * @property {boolean} [capacityOk]  The workspace's capacity runs data agents (paid F or P), as of the last plan.
+ * @property {string} [signature]  What the deployed definition was built from.
+ * @property {string} [publishedSignature]  The definition last published.
+ */
+
+/**
  * The ValueLens web app (Fabric App item) from `app`.
  * @typedef {object} FabricAppConfig
  * @property {boolean} [enabled]
@@ -259,6 +271,7 @@ export const AGENT_EVALUATOR_MODEL_NAME = 'Analytics Hub Agent Evaluator Model';
 export const REPORT_NAME = 'ValueLens';
 export const CONSUMPTION_REPORT_NAME = 'Consumption Central';
 export const AGENT_EVALUATOR_REPORT_NAME = 'Agent Evaluator';
+export const DATA_AGENT_NAME = 'Analytics Hub Ask';
 
 /** @returns {InstallConfig} */
 export function emptyConfig() {
@@ -279,6 +292,7 @@ export function emptyConfig() {
     consumption: { model: { name: CONSUMPTION_MODEL_NAME } },
     agentEvaluator: { environments: [], model: { name: AGENT_EVALUATOR_MODEL_NAME } },
     resourceGraph: { managementGroup: '', agents: true, foundry: true },
+    dataAgent: { name: DATA_AGENT_NAME },
   };
 }
 
@@ -335,6 +349,7 @@ export function loadConfig(file) {
       model: { ...base.agentEvaluator.model, ...(raw.agentEvaluator?.model ?? {}) },
     },
     resourceGraph: normaliseResourceGraph(raw.resourceGraph),
+    dataAgent: { ...base.dataAgent, ...(raw.dataAgent ?? {}) },
   };
   if (!config.reporting) delete config.reporting;
   assertNoSecrets(config);
