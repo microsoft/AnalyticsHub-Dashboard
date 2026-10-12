@@ -50,6 +50,24 @@ own org had no way to keep the rest of the tenant out of it.
 
 ---
 
+## Unreleased — Fabric App: chart redraw and Shadow AI fixes
+
+### Fixed: charts that collapsed after a filter, and missing Shadow AI bars
+
+- **Row charts redraw when their row count changes.** Charts with one row per category (by org,
+  city, country or surface) set their height from the row count. When a filter or a different
+  grouping returned fewer rows, the plot kept its old layout: the rows collapsed onto one line and
+  the bars vanished until the window was resized. Every chart now redraws from scratch when its
+  row count changes.
+- **Cloud Discovery shows its unreviewed apps.** Defender for Cloud Apps leaves most apps
+  untagged (an empty posture) or marks them Monitored. The Shadow AI tools query only caught a
+  blank posture, so these apps had no colour and drew no bar. Anything that isn't Sanctioned or
+  Unsanctioned now reads as Not reviewed, as the Cloud Discovery KPI already counts it.
+
+Redeploy the app (**Repair or change**) to pick these up. The models don't change.
+
+---
+
 ## Unreleased — Agent Evaluator and Consumption Central model fixes
 
 ### Fixed: refresh failures and an empty Credit Consumption page
