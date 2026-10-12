@@ -1,10 +1,10 @@
-# Azure (preview)
+# Azure
 
 Analytics Hub running in **your own Azure subscription**, without Microsoft Fabric. It has the
 same data, the same ValueLens Model and measures, and the same app pages as [Fabric](../fabric/README.md).
 The design and the roadmap are in [`docs/plans/AZURE-HOSTED-PLAN.md`](../docs/plans/AZURE-HOSTED-PLAN.md).
 
-> **Status: preview.** The installer deploys it end to end: Azure SQL, the Container Apps jobs, the Power BI
+> **Status.** The installer deploys it end to end: Azure SQL, the Container Apps jobs, the Power BI
 > models, the web app and a Teams package. It collects Copilot interactions, licences and org data, Microsoft
 > 365 activity, credit consumption (Copilot Studio, Cowork, Azure AI and pay-as-you-go), and optionally
 > Defender shadow AI and agent risk. The other modules
@@ -46,7 +46,7 @@ catalog: see [teams](teams/README.md#give-it-to-everyone). Permissions are in
 [Viewing Analytics Hub](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
 
 What you need, networking, regions and the commands are in the installer's
-[Azure target section](../installer/README.md#azure-target-preview). The images come from
+[Azure target section](../installer/README.md#azure-target). The images come from
 `ghcr.io/microsoft/valuelens-jobs` and `valuelens-web`, tagged with the installer's version. For every
 prerequisite on one page, with links to Microsoft Learn, see [Prerequisites](../docs/PREREQUISITES.md).
 

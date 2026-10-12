@@ -617,7 +617,7 @@ export async function runCommand(ctx, command, opts) {
       return true;
     case 'uninstall':
       if (ctx.config.target === 'azure') await azureUninstall(ctx);
-      else throw new Error('Uninstall is only implemented for the Azure target in this preview.');
+      else throw new Error('Uninstall is only implemented for the Azure target.');
       return true;
     case 'upload':
       return uploadCommand(ctx, { files: opts.files ?? [], run: opts.run, wait: opts.wait }, (c2, o) => run(c2, o));

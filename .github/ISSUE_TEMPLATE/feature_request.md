@@ -13,7 +13,7 @@ What decision or deployment task is difficult today? Do not include tenant data.
 ### Where does it apply?
 
 - [ ] Fabric
-- [ ] Azure (preview)
+- [ ] Azure
 - [ ] The installer
 - [ ] The app
 

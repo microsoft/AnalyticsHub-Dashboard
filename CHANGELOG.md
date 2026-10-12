@@ -18,6 +18,18 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ---
 
+## Unreleased — Azure is no longer in preview
+
+**Nothing to update.** Only wording changes.
+
+### Changed
+
+- The READMEs, prerequisites, issue templates and the installer no longer call the Azure target a
+  preview. The installer README section is now [Azure target](installer/README.md#azure-target), so
+  links to `#azure-target-preview` open the top of that README instead.
+
+---
+
 ## Unreleased — Analytics Hub installer download: checking it, and getting it signed
 
 **Nothing to update.** This changes how the exe is released, not what it does.
