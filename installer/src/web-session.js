@@ -58,7 +58,7 @@ export function describeRecord(config) {
       'rotate-secret': azure ? !!az?.sqlReader?.clientId : !!(config.app.appId && (secretMode(config) === 'notebook' ? installed : config.keyVault.uri)),
       access: azure ? !!az?.powerBi?.datasetId : !!sm.id,
       upload: !azure && installed && !!f.notebooks.uploadRouter && routerWanted(config.dataSources),
-      uninstall: azure && installed,
+      uninstall: azure ? installed : !!f.workspaceId,
     },
   };
 }

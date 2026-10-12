@@ -12,7 +12,8 @@ import { LOAD_LABELS, statusConfigJson } from '../src/loads.js';
 import { argParameters, armParameterNames, azureDeployment, installAzure, parseDropFolder, REQUIRED_ARM_PARAMETERS } from '../src/steps/azure/index.js';
 import { notebookSettings } from '../src/steps/fabric.js';
 import { flowDefinitions, flowsWanted } from '../src/steps/flows.js';
-import { ensureAppResourceGraphAccess, managementGroupId, resourceGraphGrants, resourceGraphScope } from '../src/steps/resource-graph.js';
+import { AGENT_ROLE, directoryRoleHandoff, ENTRA_ROLES_URL, ensureAgentDirectoryRole, ensureAppResourceGraphAccess, managementGroupId, resourceGraphGrants, resourceGraphScope } from '../src/steps/resource-graph.js';
+import { CONSENT_ROLES, GLOBAL_READER_ROLE, POWER_PLATFORM_ADMIN_ROLE } from '../src/clients/graph.js';
 import { AGENT_INVENTORY_DIR, AGENT_INVENTORY_FLOW_NAME, CONNECTORS, connectorsUsed, PPAPI } from '../src/transform/flows.js';
 import { buildConsumptionModel, buildModel, loadTemplateModel } from '../src/transform/model.js';
 import { buildPipeline, findActivity, LANE_ORDER, REFRESH_ACTIVITY, RESOURCE_GRAPH_ACTIVITY } from '../src/transform/pipeline.js';
@@ -112,7 +113,7 @@ test('Fabric access: Reader for the app on the tenant root group, or the chosen 
   assert.equal(await ensureAppResourceGraphAccess(ctx), true);
   assert.ok(arm.calls.includes(`assignRole ${MG_ROOT} ${ROLES.reader} sp-1 ServicePrincipal`));
   assert.equal(config.resourceGraph?.access, true);
-  assert.match(ui.text(), /Global Reader, Power Platform Administrator or AI Administrator/, 'the Entra role is described, not assigned');
+  assert.match(ui.text(), /needs the Global Reader Entra role/, 'without a Graph that can give it, the steps are shown');
 
   arm.calls.length = 0;
   assert.equal(await ensureAppResourceGraphAccess(ctx), true);
@@ -141,7 +142,7 @@ test('Fabric access: Reader for the app on the tenant root group, or the chosen 
   turnOn(o.config).resourceGraph = { managementGroup: '', agents: true, foundry: false };
   await ensureAppResourceGraphAccess(o.ctx);
   assert.ok(!off.calls.length, 'no Reader without Foundry');
-  assert.deepEqual(resourceGraphGrants(o.config, 'tenant-1', 'App', 'access').map((g) => g.what), ['One of Global Reader, Power Platform Administrator, AI Administrator (Entra)']);
+  assert.deepEqual(resourceGraphGrants(o.config, 'tenant-1', 'App', 'access').map((g) => g.what), ['Global Reader (Entra)']);
   assert.equal(resourceGraphGrants(emptyConfig(), 'tenant-1', 'App', 'access').length, 0);
   assert.equal(resourceGraphScope(emptyConfig(), 'tenant-1'), MG_ROOT);
 });
@@ -272,7 +273,7 @@ test('Azure install with Resource Graph: Reader for the jobs on the tenant root 
   assert.equal(flows.size, 1);
   assert.equal([...flows.values()][0].name, AGENT_INVENTORY_FLOW_NAME);
   assert.match([...flows.values()][0].clientdata, /landing\/arg_inventory/);
-  assert.match(ui.text(), /Global Reader, Power Platform Administrator or AI Administrator/);
+  assert.match(ui.text(), /The jobs' managed identity needs the Global Reader Entra role/);
 });
 
 test('models: the Resource Graph tables are always there, read from the Lakehouse only when on', () => {
@@ -306,4 +307,119 @@ test('models: the Resource Graph tables are always there, read from the Lakehous
   assert.ok(!ccOn.relationships?.some((/** @type {any} */ r) => r.fromTable === FOUNDRY_TABLE || r.toTable === FOUNDRY_TABLE));
   const ccOff = buildConsumptionModel(cc, { server: 's', database: 'd' }).model;
   assert.doesNotMatch(ccOff.tables.find((x) => x.name === FOUNDRY_TABLE).partitions[0].source.expression.join('\n'), /GetTable/);
+});
+
+/**
+ * Graph for the Entra role: the signed-in user's roles, the app's assignments, and what assigning does.
+ * @param {{ mine?: string[], existing?: { roleDefinitionId: string, directoryScopeId?: string }[], assign?: Error[] }} [o]
+ */
+function roleGraph(o = {}) {
+  /** @type {string[]} */
+  const calls = [];
+  const assigned = [...(o.existing ?? [])];
+  const failures = [...(o.assign ?? [])];
+  const api = {
+    myDirectoryRoleTemplateIds: async () => {
+      calls.push('mine');
+      return o.mine ?? [];
+    },
+    directoryRoleAssignments: async (/** @type {string} */ id) => {
+      calls.push(`list ${id}`);
+      return assigned.map((a, i) => ({ id: `ra-${i}`, ...a }));
+    },
+    assignDirectoryRole: async (/** @type {string} */ id, /** @type {string} */ role) => {
+      calls.push(`assign ${id} ${role}`);
+      const err = failures.shift();
+      if (err) throw err;
+      assigned.push({ roleDefinitionId: role, directoryScopeId: '/' });
+      return {};
+    },
+  };
+  return { api, calls };
+}
+
+const GA = Object.keys(CONSENT_ROLES)[0];
+
+test('Entra role: a Global Administrator gives the app Global Reader once, and the record says so', async () => {
+  const graph = roleGraph({ mine: [GA] });
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ graph: graph.api, ui: ui.ui });
+  turnOn(config);
+  assert.equal(await ensureAgentDirectoryRole(ctx, { id: 'sp-1', name: 'Analytics Hub Data Collector', appId: 'app-1' }, 'access'), 'assigned');
+  assert.deepEqual(graph.calls, ['list sp-1', 'mine', `assign sp-1 ${GLOBAL_READER_ROLE}`]);
+  assert.equal(config.resourceGraph.roleAssigned, AGENT_ROLE);
+  assert.match(ui.text(), /Gave Analytics Hub Data Collector the Global Reader Entra role/);
+
+  graph.calls.length = 0;
+  assert.equal(await ensureAgentDirectoryRole(ctx, { id: 'sp-1', name: 'Analytics Hub Data Collector' }, 'access'), 'has');
+  assert.deepEqual(graph.calls, [], 'a repair trusts the record');
+  assert.deepEqual(resourceGraphGrants(config, 'tenant-1', 'App', 'access', { canAssign: true }).filter((g) => /Entra/.test(g.what)), [], 'nothing left to give');
+});
+
+test('Entra role: an app that already has a role that covers agents is left alone', async () => {
+  const graph = roleGraph({ mine: [GA], existing: [{ roleDefinitionId: POWER_PLATFORM_ADMIN_ROLE, directoryScopeId: '/' }] });
+  const { ctx, config } = fakeCtx({ graph: graph.api });
+  turnOn(config);
+  assert.equal(await ensureAgentDirectoryRole(ctx, { id: 'sp-1', name: 'App' }, 'access'), 'has');
+  assert.ok(!graph.calls.some((c) => c.startsWith('assign')));
+  assert.equal(config.resourceGraph.roleAssigned, 'Power Platform Administrator');
+
+  const scoped = roleGraph({ mine: [GA], existing: [{ roleDefinitionId: GLOBAL_READER_ROLE, directoryScopeId: '/administrativeUnits/au-1' }] });
+  const s = fakeCtx({ graph: scoped.api });
+  turnOn(s.config);
+  assert.equal(await ensureAgentDirectoryRole(s.ctx, { id: 'sp-1', name: 'App' }, 'access'), 'assigned', 'an administrative unit role doesn\'t count');
+
+  const raced = roleGraph({ mine: [GA], assign: [new HttpError('400 Bad Request', { method: 'POST', url: 'x', status: 400, body: { error: { message: 'A conflicting object with one or more of the specified property values is present in the directory.' } } })] });
+  const r = fakeCtx({ graph: raced.api });
+  turnOn(r.config);
+  assert.equal(await ensureAgentDirectoryRole(r.ctx, { id: 'sp-1', name: 'App' }, 'access'), 'assigned', 'already there counts as done');
+});
+
+test('Entra role: without the rights, the steps for an admin, with the app\'s object ID and an Entra link', async () => {
+  const graph = roleGraph({ mine: [POWER_PLATFORM_ADMIN_ROLE] });
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ graph: graph.api, ui: ui.ui });
+  turnOn(config);
+  const who = { id: 'sp-1', name: 'Analytics Hub Data Collector', appId: 'app-1' };
+  assert.equal(await ensureAgentDirectoryRole(ctx, who, 'access'), 'handoff');
+  assert.ok(!graph.calls.some((c) => c.startsWith('assign')), 'not tried without the rights');
+  assert.equal(config.resourceGraph.roleAssigned, undefined);
+  const text = ui.text();
+  for (const line of directoryRoleHandoff(who)) assert.ok(text.includes(line), line);
+  assert.match(text, /object ID sp-1/);
+  assert.ok(text.includes(ENTRA_ROLES_URL));
+  assert.ok(text.includes(`"roleDefinitionId":"${GLOBAL_READER_ROLE}"`));
+  assert.match(text, /Not collected: permission missing/);
+  const grant = resourceGraphGrants(config, 'tenant-1', 'App', 'access', { canAssign: false }).find((g) => /Entra/.test(g.what));
+  assert.match(grant?.detail ?? '', /You can't give it yourself/);
+});
+
+test('Entra role: a refused assignment tries the role management sign-in, then falls back to the steps', async () => {
+  const forbidden = () => new HttpError('403 Forbidden', { method: 'POST', url: 'x', status: 403 });
+  const graph = roleGraph({ mine: [GA], assign: [forbidden()] });
+  const roles = roleGraph({ mine: [GA] });
+  const { ctx, config } = fakeCtx({ graph: graph.api });
+  /** @type {any} */ (ctx.api).graphRoles = roles.api;
+  turnOn(config);
+  assert.equal(await ensureAgentDirectoryRole(ctx, { id: 'sp-1', name: 'App' }, 'access'), 'assigned');
+  assert.deepEqual(roles.calls, [`assign sp-1 ${GLOBAL_READER_ROLE}`]);
+
+  const both = roleGraph({ mine: [GA], assign: [forbidden()] });
+  const ui = fakeUi();
+  const b = fakeCtx({ graph: both.api, ui: ui.ui });
+  /** @type {any} */ (b.ctx.api).graphRoles = roleGraph({ assign: [new Error('consent declined')] }).api;
+  turnOn(b.config);
+  assert.equal(await ensureAgentDirectoryRole(b.ctx, { id: 'sp-1', name: 'App' }, 'access'), 'handoff');
+  assert.match(ui.text(), /Couldn't give App the Global Reader Entra role \(consent declined\)/);
+});
+
+test('Entra role: never given when Resource Graph or its agents aren\'t read', async () => {
+  const graph = roleGraph({ mine: [GA] });
+  const { ctx, config } = fakeCtx({ graph: graph.api });
+  assert.equal(await ensureAgentDirectoryRole(ctx, { id: 'sp-1', name: 'App' }, 'access'), 'off');
+  turnOn(config).resourceGraph = { managementGroup: '', agents: false, foundry: true };
+  assert.equal(await ensureAgentDirectoryRole(ctx, { id: 'sp-1', name: 'App' }, 'access'), 'off');
+  assert.deepEqual(graph.calls, []);
+  assert.ok(!resourceGraphGrants(config, 'tenant-1', 'App', 'access', { canAssign: true }).some((g) => /Entra/.test(g.what)));
+  assert.deepEqual(resourceGraphGrants(emptyConfig(), 'tenant-1', 'App', 'access', { canAssign: true }), []);
 });

@@ -29,6 +29,55 @@ export const FRESHNESS_LABELS: Readonly<Record<FreshnessSource, string>> = {
     agentEvaluation: "Agent evaluation",
 };
 
+/**
+ * The pipeline loads behind each source, as dbo.load_log names them, so a page
+ * can say when one of them failed or loaded with a warning.
+ */
+export const SOURCE_LOADS: Readonly<Record<FreshnessSource, readonly string[]>> = {
+    auditLog: ["Run_Audit_Log_Ingester", "Run_Audit_Log_Processor"],
+    m365Activity: ["Run_M365_Activity_Ingester"],
+    productFeedback: ["Run_ProductFeedback_Ingester"],
+    agentRegistry: ["Run_Agent365_Registry_Ingester", "Run_Agent365_CSV_Fallback", "Run_Agent365_Lander"],
+    cowork: ["Refresh_Cowork_Credits", "Run_Consumption_Viva"],
+    copilotStudio: ["Run_Consumption_Studio"],
+    azure: ["Run_Consumption_Azure_AI"],
+    agentEvaluation: ["Run_Agent_Evaluator_Transcripts"],
+};
+
+/** One load's outcome on the latest pipeline run, from the `Load Log` table. */
+export interface LoadStatus {
+    activity: string;
+    /** The load's plain name, such as "Agent transcripts". */
+    source: string;
+    /** Succeeded, Warning, Failed, Skipped, Cancelled or TimedOut. */
+    status: string;
+    reason?: string;
+}
+
+const FAILED_STATUSES: ReadonlySet<string> = new Set(["failed", "cancelled", "timedout"]);
+
+/**
+ * "Agent transcripts loaded with a warning: It ran, but found nothing to load
+ * in Sales." for each load behind `sources` that failed or loaded with a
+ * warning on the latest run, in the order given. Loads that succeeded or were
+ * skipped are left out.
+ */
+export function describeLoadIssues(sources: readonly FreshnessSource[], loads: readonly LoadStatus[] | undefined): string[] {
+    if (!loads) return [];
+    const issues = sources.flatMap((source) =>
+        SOURCE_LOADS[source].flatMap((activity) =>
+            loads.flatMap((load) => {
+                if (load.activity !== activity) return [];
+                const status = load.status.toLowerCase();
+                const outcome = status === "warning" ? "loaded with a warning" : FAILED_STATUSES.has(status) ? "failed" : undefined;
+                if (!outcome) return [];
+                return [`${load.source} ${outcome}${load.reason ? `: ${load.reason}` : ""}`];
+            }),
+        ),
+    );
+    return [...new Set(issues)];
+}
+
 /** Sources that report by week, so their last date starts a week rather than ending one. */
 const WEEKLY: ReadonlySet<FreshnessSource> = new Set(["cowork"]);
 

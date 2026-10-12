@@ -43,6 +43,7 @@ export const LOAD_LABELS = /** @type {Record<string, string>} */ ({
   [AGENT_EVALUATOR_ACTIVITY]: 'Agent transcripts',
   [AGENT_EVALUATOR_REFRESH_ACTIVITY]: 'Agent Evaluator model refresh',
   [RESOURCE_GRAPH_ACTIVITY]: 'Agent configuration and Foundry (Resource Graph)',
+  Run_Defender_Ingester: 'Shadow AI and agent risk (Defender)',
   [STATUS_ACTIVITY]: 'Load status record',
 });
 
@@ -89,7 +90,50 @@ export const REASONS = [
   },
 ];
 
-/** @typedef {'capacity' | 'notSynced' | 'signIn' | 'timeout' | 'noData' | 'other'} ReasonKind */
+/**
+ * Loads that write a status table saying what they couldn't read. They succeed either way, so the
+ * Record_Load_Status notebook reads the table and marks a load that ran but loaded nothing, or wasn't
+ * allowed to read part of its source, as a Warning. Each load replaces its table every run.
+ */
+export const STATUS_TABLES = [
+  { activity: RESOURCE_GRAPH_ACTIVITY, table: 'arg_status', item: 'Probe', status: 'Status' },
+  { activity: 'Run_Defender_Ingester', table: 'defender_status', item: 'Probe', status: 'Status' },
+  { activity: AGENT_EVALUATOR_ACTIVITY, table: 'evaluator_status', item: 'Environment', status: 'Status' },
+];
+
+/**
+ * Why a load that succeeded is a warning, tested in order against its status table's rows. `all`
+ * means every row must be empty or skipped. `{items}` is filled with the probes or environments.
+ */
+export const WARNINGS = [
+  {
+    kind: 'forbidden',
+    statuses: ['forbidden'],
+    text: 'It ran, but wasn\'t allowed to read {items}.',
+    fix: `Give the app that runs the load the role this source needs (docs/PERMISSIONS.md lists them), then ${RERUN}.`,
+  },
+  {
+    kind: 'unlicensed',
+    statuses: ['unlicensed'],
+    text: 'It ran, but the tenant isn\'t licensed for {items}.',
+    fix: 'Nothing to do unless you add the licence. The rest of the source loaded.',
+  },
+  {
+    kind: 'other',
+    statuses: ['error'],
+    text: 'It ran, but couldn\'t read {items}.',
+    fix: `Open the load's notebook run in Fabric to see why, then ${RERUN}.`,
+  },
+  {
+    kind: 'empty',
+    statuses: ['empty'],
+    all: true,
+    text: 'It ran, but found nothing to load in {items}.',
+    fix: 'Check the source has data for the period it reads. For Agent transcripts, choose the environments that hold your Copilot Studio agents with Repair or change in the installer.',
+  },
+];
+
+/** @typedef {'capacity' | 'notSynced' | 'signIn' | 'timeout' | 'noData' | 'empty' | 'forbidden' | 'unlicensed' | 'other'} ReasonKind */
 
 /**
  * @param {{ errorCode?: unknown, message?: unknown } | null | undefined} error
@@ -107,16 +151,43 @@ export function classifyFailure(error) {
   };
 }
 
-/** Labels and reasons as the Record_Load_Status notebook has them. */
+/** Labels, reasons, status tables and warnings as the Record_Load_Status notebook has them. */
 export function statusConfigJson() {
-  return JSON.stringify({ labels: LOAD_LABELS, reasons: REASONS.map(({ kind, pattern, text }) => ({ kind, pattern, text })) });
+  return JSON.stringify({
+    labels: LOAD_LABELS,
+    reasons: REASONS.map(({ kind, pattern, text }) => ({ kind, pattern, text })),
+    statusTables: STATUS_TABLES,
+    warnings: WARNINGS.map(({ kind, statuses, all, text }) => ({ kind, statuses, all: !!all, text })),
+  });
+}
+
+/** Marks the warnings in the Record_Load_Status notebook's error message, when a load also failed. */
+export const WARNINGS_MARK = 'load_warnings=';
+
+/**
+ * The warnings the Record_Load_Status notebook found, by activity: from its exit value, or from
+ * its error message when a load failed. Empty when it didn't say, such as on an older notebook.
+ * @param {any} statusRun  The notebook's activity run.
+ * @returns {Record<string, { kind: ReasonKind, reason: string }>}
+ */
+export function loadWarnings(statusRun) {
+  const exit = statusRun?.output?.result?.exitValue;
+  const marked = String(statusRun?.error?.message ?? '').split(/\r?\n/).find((l) => l.trim().startsWith(WARNINGS_MARK));
+  const text = typeof exit === 'string' && exit.trim() ? exit : marked?.trim().slice(WARNINGS_MARK.length);
+  if (!text) return {};
+  try {
+    const warnings = JSON.parse(text)?.warnings;
+    return warnings && typeof warnings === 'object' ? warnings : {};
+  } catch {
+    return {};
+  }
 }
 
 /**
  * @typedef {object} LoadCard
  * @property {string} activity
  * @property {string} name  Plain name of the source.
- * @property {'ok' | 'failed' | 'skipped' | 'running'} state
+ * @property {'ok' | 'warning' | 'failed' | 'skipped' | 'running'} state  A warning loaded, but not all of its source.
  * @property {string} [reason]
  * @property {ReasonKind} [kind]
  * @property {string[]} fix  What to do, with {@link RERUN} still in it.
@@ -160,6 +231,7 @@ export function loadCards(runs, activities) {
   const statusOf = (name) => runs.get(name)?.status ?? 'Skipped';
   const fallbackWorked = statusOf(AGENT365_FALLBACK) === 'Succeeded';
   const registryWorked = statusOf(AGENT365_REGISTRY) === 'Succeeded';
+  const warnings = loadWarnings(runs.get(STATUS_ACTIVITY));
 
   /** @type {{ load: any, parent?: any }[]} */
   const loads = [];
@@ -185,7 +257,14 @@ export function loadCards(runs, activities) {
     /** @type {LoadCard} */
     const card = { activity: name, name: loadLabel(name), state, fix: [] };
     if (run?.attempts > 1) card.attempts = run.attempts;
-    if (state === 'failed') {
+    const warning = state === 'ok' ? warnings[name] : undefined;
+    if (warning?.reason) {
+      const rule = WARNINGS.find((w) => w.kind === warning.kind);
+      card.state = 'warning';
+      card.reason = warning.reason;
+      card.kind = warning.kind;
+      card.fix = rule ? [rule.fix] : [];
+    } else if (state === 'failed') {
       const why = classifyFailure(run?.error);
       card.reason = why.text;
       card.kind = why.kind;

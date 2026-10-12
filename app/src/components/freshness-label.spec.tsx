@@ -9,8 +9,9 @@ import { render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { FreshnessLabel } from "./freshness-label";
 
-const { useSourceFreshness } = vi.hoisted(() => ({ useSourceFreshness: vi.fn() }));
+const { useSourceFreshness, useLoadStatus } = vi.hoisted(() => ({ useSourceFreshness: vi.fn(), useLoadStatus: vi.fn() }));
 vi.mock("@/hooks/use-source-freshness", () => ({ useSourceFreshness }));
+vi.mock("@/hooks/use-load-status", () => ({ useLoadStatus }));
 
 beforeEach(() => {
     vi.useFakeTimers({ toFake: ["Date"] });
@@ -54,5 +55,27 @@ describe("FreshnessLabel", () => {
         render(<FreshnessLabel sources={["auditLog"]} dates={{ auditLog: "2026-10-07T00:00:00" }} />);
         expect(useSourceFreshness).toHaveBeenCalledWith([]);
         expect(screen.getByText("Data: Audit log to 7 Oct")).toBeInTheDocument();
+    });
+
+    it("adds a line for each of the page's loads that failed or loaded with a warning, with its reason", () => {
+        useSourceFreshness.mockReturnValue({ agentEvaluation: "2026-10-07T00:00:00" });
+        useLoadStatus.mockReturnValue([
+            { activity: "Run_Agent_Evaluator_Transcripts", source: "Agent transcripts", status: "Warning", reason: "It ran, but found nothing to load in Sales." },
+            { activity: "Run_Audit_Log_Ingester", source: "Copilot audit log", status: "Failed", reason: "It ran out of time." },
+        ]);
+        render(<FreshnessLabel destination="agent-evaluation" />);
+        expect(useLoadStatus).toHaveBeenCalledWith(true);
+        expect(screen.getByText("Data: Agent evaluation to 7 Oct")).toBeInTheDocument();
+        expect(screen.getByText("Agent transcripts loaded with a warning: It ran, but found nothing to load in Sales.")).toBeInTheDocument();
+        expect(screen.queryByText(/Copilot audit log/)).toBeNull();
+    });
+
+    it("says a load failed even before any date arrives, and asks nothing on a page with no sources", () => {
+        useSourceFreshness.mockReturnValue({});
+        useLoadStatus.mockReturnValue([{ activity: "Run_Audit_Log_Ingester", source: "Copilot audit log", status: "Failed" }]);
+        render(<FreshnessLabel destination="executive" />);
+        expect(screen.getByText("Copilot audit log failed")).toBeInTheDocument();
+        render(<FreshnessLabel destination="assumptions" />);
+        expect(useLoadStatus).toHaveBeenLastCalledWith(false);
     });
 });

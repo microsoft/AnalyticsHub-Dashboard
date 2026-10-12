@@ -974,7 +974,7 @@ export function planReview(ctx, pre) {
   if (withAzureAi && !cc.azureAccess) {
     grants.push({ who: appWho, what: AZURE_AI_ROLES.map((r) => r.name).join(', '), where: `Azure subscription ${cc.azureSubscriptionName ?? cc.azureSubscriptionId}`, detail: 'So the notebook can read Azure AI usage and cost.' });
   }
-  grants.push(...resourceGraphGrants(config, user.tenantId, appWho, 'access'));
+  grants.push(...resourceGraphGrants(config, user.tenantId, appWho, 'access', { canAssign: pre?.canConsent }));
   const waiting = ae.environments.filter((e) => !e.access);
   if (config.modules.agentEvaluator && waiting.length) {
     grants.push({

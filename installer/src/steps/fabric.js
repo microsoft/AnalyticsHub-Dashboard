@@ -102,6 +102,7 @@ export async function ensureWorkspace(ctx) {
     if (!f.workspaceName || !f.capacityId) throw new Error('Workspace settings are incomplete. Run the installer without --yes to choose them.');
     const ws = await api.fabric.createWorkspace(f.workspaceName, f.capacityId);
     f.workspaceId = ws.id;
+    f.createdWorkspace = true;
     ui.ok(`Created workspace "${ws.displayName}"`);
   }
   ctx.save();
@@ -415,13 +416,15 @@ export function paygPatch(subs) {
 
 /**
  * Lists every chosen environment, including those still waiting for access: the parser skips
- * those, then reads them once an admin adds the app.
+ * those, then reads them once an admin adds the app. Their names go in too, for evaluator_status.
  * @param {import('../config.js').AgentEnvironment[]} environments
  * @returns {import('../catalog.js').NotebookPatch}
  */
 export function environmentsPatch(environments) {
   const lines = environments.map((e) => `    ${pyString(e.url)},${e.name ? `  # ${e.name.replace(/[\r\n]+/g, ' ')}` : ''}`);
-  return { find: ENVIRONMENTS_FIND, replace: ['DATAVERSE_URLS = [  # ' + MARKER, ...lines, ']'].join('\n') };
+  const names = environments.flatMap((e) => (e.name ? [`${pyString(e.url.replace(/\/+$/, ''))}: ${pyString(e.name.replace(/[\r\n]+/g, ' '))}`] : []));
+  // The names come after the list, so they replace the empty default above it; evaluator_status uses them.
+  return { find: ENVIRONMENTS_FIND, replace: ['DATAVERSE_URLS = [  # ' + MARKER, ...lines, ']', `DATAVERSE_ENV_NAMES = {${names.join(', ')}}`].join('\n') };
 }
 
 /**

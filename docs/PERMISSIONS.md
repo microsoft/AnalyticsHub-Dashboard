@@ -56,10 +56,32 @@ projects. Used by `Copilot_Resource_Graph_Ingester` (Fabric, as the app registra
 | Part | Needs | Notes |
 |---|---|---|
 | Foundry accounts and projects (`resources`) | Azure **Reader** at a management group, or the tenant root group to see every subscription | Resource Graph returns only what the identity can read. The installer assigns it when the person installing can assign roles there, or prints the `az role assignment create` command |
-| Copilot Studio agents, environments and agent flows (`PowerPlatformResources`) | An Entra role that can read the Power Platform inventory: **Global Reader**, **Power Platform Administrator** or **AI Administrator** | A directory role, so the installer only prints the step. Microsoft doesn't document app-only access to this table, so it may be refused or come back empty |
+| Copilot Studio agents, environments and agent flows (`PowerPlatformResources`) | An Entra role that can read the Power Platform inventory: **Global Reader**, **Power Platform Administrator** or **AI Administrator** | When the person installing is a **Global Administrator** or **Privileged Role Administrator**, the installer assigns **Global Reader** itself (see below). Otherwise it shows a message to pass on. Microsoft doesn't document app-only access to this table, so it may be refused or come back empty |
 | Fallback: the **Analytics Hub - Agent inventory** flow | The flow's Power Platform API connection (**HTTP with Microsoft Entra ID**, resource `https://api.powerplatform.com`) signed in as one of the roles above. Same flow licence and environment roles as the Copilot Studio credits flow | The Power Platform inventory API takes delegated sign-ins only. The flow writes the inventory as JSON to `arg_inventory/` in the drop folder each day, and the notebook or job reads the newest file when Resource Graph doesn't return agents |
 
 No per-project agent sweep: Foundry is read at account and project level only.
+
+**Global Reader for the agents.** It happens only when agents are read from Resource Graph. It
+covers the app on Fabric, and the jobs' managed identity on Azure.
+
+- **When it's assigned.** The installer checks your own directory roles
+  (`GET /me/transitiveMemberOf/microsoft.graph.directoryRole`). If you're a Global Administrator
+  or Privileged Role Administrator, *Ready to set up* lists it. The installer then assigns it with
+  `POST /roleManagement/directory/roleAssignments`, using:
+  - `principalId`: the service principal
+  - `roleDefinitionId`: `f2ef992c-3afb-46b9-b7cf-a126ee74c451`
+  - `directoryScopeId`: `/`
+- **Repeat runs.** It checks the principal's tenant-wide assignments first. If it already holds
+  Global Reader, Power Platform Administrator or AI Administrator, nothing is added.
+- **The Graph scope.** If your sign-in token can't make the assignment, the installer asks for
+  the delegated scope `RoleManagement.ReadWrite.Directory` for that one call.
+- **Where it's recorded.** The config file records it as `resourceGraph.roleAssigned`, or
+  `resourceGraph.azureRoleAssigned` on Azure.
+- **When you can't assign it.** The installer shows a message to copy to someone who can. It
+  names the role, the principal and its object ID, and links to **Roles and administrators** in
+  the Entra admin center.
+- **Removing it.** To withdraw it, remove the assignment there. The app keeps working, and the
+  Governance page says *Not collected: permission missing* for the agents.
 
 > **Add-ons.** [Agent Evaluator](../fabric/Add%20Agent%20Evaluator/README.md) needs the app
 > registration as a Dataverse **application user**.

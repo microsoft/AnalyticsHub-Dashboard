@@ -10,7 +10,7 @@ import { KpiCard, KpiStat } from "@/components/kpi-card";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { readNumber } from "@/lib/summary-row";
 import { BODY } from "@/lib/type-scale";
-import { RESOURCE_GRAPH_NO_DATA, RESOURCE_GRAPH_NOT_SET_UP } from "@/queries/governance";
+import { NOT_COLLECTED, RESOURCE_GRAPH_FORBIDDEN, RESOURCE_GRAPH_NO_DATA, RESOURCE_GRAPH_NOT_SET_UP } from "@/queries/governance";
 import type { ResourceGraphSummary } from "./resource-graph-summary";
 
 function Notes({ notes }: { notes: readonly string[] }) {
@@ -41,20 +41,24 @@ export function ResourceGraphPanel({ summary, className }: { summary: ResourceGr
         case "noData":
             return (
                 <>
-                    <QueryEmpty {...RESOURCE_GRAPH_NO_DATA} />
+                    <QueryEmpty
+                        {...(view.forbidden.agents || view.forbidden.foundry ? RESOURCE_GRAPH_FORBIDDEN : RESOURCE_GRAPH_NO_DATA)}
+                    />
                     <Notes notes={view.notes} />
                 </>
             );
         case "ready": {
             const agentValue = (column: string) => (view.agents ? readNumber(row, column) : undefined);
             const foundryValue = (column: string) => (view.foundry ? readNumber(row, column) : undefined);
+            const agentEmpty = view.forbidden.agents ? NOT_COLLECTED : "Not read";
+            const foundryEmpty = view.forbidden.foundry ? NOT_COLLECTED : "Not read";
             return (
                 <>
                     <div className={className}>
                         <KpiCard
                             label="No sign-in required"
                             value={agentValue("[No Sign In]")}
-                            emptyValue="Not read"
+                            emptyValue={agentEmpty}
                             emphasis
                             detail={
                                 <KpiStat label="Any agent, live or not" value={agentValue("[No Sign In Configured]")} />
@@ -63,7 +67,7 @@ export function ResourceGraphPanel({ summary, className }: { summary: ResourceGr
                         <KpiCard
                             label="Web search on"
                             value={agentValue("[Web Search]")}
-                            emptyValue="Not read"
+                            emptyValue={agentEmpty}
                             detail={
                                 <div className="flex flex-col gap-100">
                                     <KpiStat label="Agents configured" value={agentValue("[Configured Agents]")} />
@@ -74,7 +78,7 @@ export function ResourceGraphPanel({ summary, className }: { summary: ResourceGr
                         <KpiCard
                             label="Foundry open to the public network"
                             value={foundryValue("[Foundry Public]")}
-                            emptyValue="Not read"
+                            emptyValue={foundryEmpty}
                             detail={
                                 <div className="flex flex-col gap-100">
                                     <KpiStat label="Foundry resources" value={foundryValue("[Foundry Resources]")} />

@@ -7,13 +7,13 @@ import { test } from 'node:test';
 import { MODULES, notebooksFor, OPTIONAL_MODULES } from '../src/catalog.js';
 import { TRANSCRIPT_ROLE } from '../src/clients/dataverse.js';
 import { AGENT_EVALUATOR_MODEL_NAME, CONFIG_VERSION, emptyConfig, loadConfig } from '../src/config.js';
-import { agentEvaluatorSummary, ensureAgentEvaluatorModel, ensureTranscriptAccess, grantTranscriptAccess, planAgentEvaluator } from '../src/steps/agent-evaluator.js';
+import { agentEvaluatorSummary, ensureAgentEvaluatorModel, ensureTranscriptAccess, environmentsWithAgents, grantTranscriptAccess, planAgentEvaluator } from '../src/steps/agent-evaluator.js';
 import { appModels, pagesChange } from '../src/steps/app.js';
 import { agentEvaluatorModelDeployed, agentEvaluatorOn, ensureNotebooks, ENVIRONMENTS_FIND, notebookSettings, pipelineSignature } from '../src/steps/fabric.js';
 import { ensureModelConnection, ensureSemanticModel } from '../src/steps/model.js';
 import { buildAgentEvaluatorModel, loadTemplateModel } from '../src/transform/model.js';
 import { cellText, findAssignmentCell, MARKER, prepareNotebook } from '../src/transform/notebook.js';
-import { AGENT_EVALUATOR_ACTIVITY, AGENT_EVALUATOR_REFRESH_ACTIVITY, buildPipeline, findActivity, TRANSCRIPT_LOOKBACK_DAYS } from '../src/transform/pipeline.js';
+import { AGENT_EVALUATOR_ACTIVITY, AGENT_EVALUATOR_REFRESH_ACTIVITY, buildPipeline, findActivity, TRANSCRIPT_BACKFILL_DAYS, TRANSCRIPT_LOOKBACK_DAYS } from '../src/transform/pipeline.js';
 import { fakeCtx, fakeFabric, fakeGraph, fakePowerBi, fakeUi, httpError, realSources } from './fakes.js';
 
 const PROD = 'https://contoso.crm.dynamics.com';
@@ -164,7 +164,12 @@ test('pipeline: transcripts run at the end of lane 2, then refresh their own mod
   const days = run.typeProperties.parameters.LOOKBACK_DAYS;
   assert.equal(days.type, 'int');
   assert.equal(days.value.type, 'Expression');
-  assert.match(days.value.value, new RegExp(`BackfillDays, ${TRANSCRIPT_LOOKBACK_DAYS}\\)$`));
+  // A backfill, such as the first run, reads at least 180 days; a scheduled run reads the last 14.
+  assert.equal(TRANSCRIPT_BACKFILL_DAYS, 180);
+  assert.equal(
+    days.value.value,
+    `@if(equals(pipeline().parameters.AuditMode, 'backfill'), max(pipeline().parameters.BackfillDays, ${TRANSCRIPT_BACKFILL_DAYS}), ${TRANSCRIPT_LOOKBACK_DAYS})`,
+  );
 
   const refresh = findActivity(doc.properties.activities, AGENT_EVALUATOR_REFRESH_ACTIVITY);
   assert.deepEqual(refresh.dependsOn, [
@@ -242,6 +247,66 @@ test('plan: lists enabled environments by name, keeps earlier choices and access
   await planAgentEvaluator(none.ctx);
   assert.deepEqual(none.config.agentEvaluator.environments, []);
   assert.match(none.ui.text(), /No environments chosen/);
+});
+
+test('plan: the first time, the environments with agents are ticked, or else the default one', async () => {
+  const QA = 'https://contoso-qa.crm.dynamics.com';
+  const instances = [instance(PROD, 'Contoso (default)'), instance(DEV, 'Contoso Dev'), instance(QA, 'Contoso QA')];
+  const pick = async (/** @type {Record<string, boolean | Error>} */ agents) => {
+    const t = setup({ instances });
+    /** @type {any[]} */
+    let choices = [];
+    /** @type {string} */
+    let message = '';
+    t.ui.ui.checkbox = /** @type {any} */ (async (/** @type {string} */ m, /** @type {any[]} */ c) => {
+      message = m;
+      choices = c;
+      return c.filter((ch) => ch.checked).map((ch) => ch.value);
+    });
+    const base = t.ctx.api.dataverse;
+    t.ctx.api.dataverse = (/** @type {string} */ url) => ({
+      ...base(url),
+      hasAgents: async () => {
+        const v = agents[url];
+        if (v instanceof Error) throw v;
+        return v ?? false;
+      },
+    });
+    await planAgentEvaluator(t.ctx);
+    return { t, message, ticked: choices.filter((ch) => ch.checked).map((ch) => ch.value) };
+  };
+
+  const found = await pick({ [DEV]: true, [QA]: true, [PROD]: false });
+  assert.equal(found.message, 'Read the environments that hold your Copilot Studio agents');
+  assert.deepEqual(found.ticked, [DEV, QA]);
+  assert.match(found.t.ui.text(), /Ticked the 2 environments that have Copilot Studio agents/);
+  assert.deepEqual(found.t.config.agentEvaluator.environments.map((e) => e.url), [DEV, QA]);
+
+  const unknown = await pick({ [DEV]: httpError(403, 'Forbidden'), [QA]: httpError(403, 'Forbidden') });
+  assert.deepEqual(unknown.ticked, [PROD]);
+  assert.match(unknown.t.ui.text(), /only the default environment is ticked\. Tick every environment that holds your agents/);
+  assert.match(unknown.t.ui.text(), /Repair or change/);
+});
+
+test('plan: an environment that answers slowly or not at all is left unticked', async () => {
+  const t = setup();
+  const calls = /** @type {string[]} */ ([]);
+  t.ctx.api.dataverse = (/** @type {string} */ url) => /** @type {any} */ ({
+    hasAgents: async () => {
+      calls.push(url);
+      if (url.includes('broken')) throw new Error('boom');
+      return url.includes('yes');
+    },
+  });
+  const urls = ['https://yes1.crm.dynamics.com', 'https://no.crm.dynamics.com', 'https://broken.crm.dynamics.com', 'https://yes2.crm.dynamics.com', 'https://yes3.crm.dynamics.com'];
+  const found = await environmentsWithAgents(t.ctx, urls);
+  assert.deepEqual([...calls].sort(), [...urls].sort(), 'each environment is probed once');
+  assert.deepEqual(Object.fromEntries(found), {
+    'https://yes1.crm.dynamics.com': true,
+    'https://no.crm.dynamics.com': false,
+    'https://yes2.crm.dynamics.com': true,
+    'https://yes3.crm.dynamics.com': true,
+  });
 });
 
 test('plan: without discovery, environment URLs are typed in and checked', async () => {

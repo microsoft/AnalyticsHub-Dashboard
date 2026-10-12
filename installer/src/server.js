@@ -342,7 +342,8 @@ export function mirror(write) {
       case 'loads':
         for (const card of /** @type {import('./loads.js').LoadCard[]} */ (e.cards)) {
           const kind = card.state === 'ok' ? 'ok' : card.state === 'failed' ? 'fail' : 'warn';
-          line(`  ${SYMBOL[kind]} ${card.name}${card.state === 'ok' ? '' : `: ${card.state === 'running' ? 'still running' : card.state}`}`);
+          const state = { running: 'still running', warning: 'loaded with a warning' }[card.state] ?? card.state;
+          line(`  ${SYMBOL[kind]} ${card.name}${card.state === 'ok' ? '' : `: ${state}`}`);
           if (card.reason) line(`    ${card.reason}`);
           for (const fix of card.fix) line(`    ${c.dim(fix)}`);
         }

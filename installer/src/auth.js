@@ -14,6 +14,8 @@ export const SCOPES = {
   discovery: 'https://globaldisco.crm.dynamics.com/.default',
   powerPlatform: 'https://api.powerplatform.com/.default',
   flow: 'https://service.flow.microsoft.com/.default',
+  /** Asked for only when giving the app an Entra role, and only if the usual Graph sign-in can't. */
+  graphRoles: 'https://graph.microsoft.com/RoleManagement.ReadWrite.Directory',
 };
 
 /**
