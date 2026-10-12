@@ -55,6 +55,15 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {string} [contact]  Who people ask for access. Defaults to the installer.
  * @property {string} [requestUrl]  Optional link for access requests, e.g. a My Access package or a form.
  * @property {string[]} [grantedModels]  Semantic model IDs the group has Build (ReadExplore) on.
+ * @property {RlsConfig} [rls]  Org-scoped access (row-level security). Off when absent.
+ */
+
+/**
+ * Org-scoped access. Opt-in: with it off the models have no roles, as before.
+ * @typedef {object} RlsConfig
+ * @property {boolean} enabled
+ * @property {'department' | 'country'} [orgAttribute]  What an org scope matches. Defaults to department.
+ * @property {string[]} [applied]  Models whose role members were applied since they were last deployed. A deploy drops members.
  */
 
 /**
@@ -229,7 +238,7 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {Record<string, any>} [outputs]
  * @property {{ clientId?: string, objectId?: string, servicePrincipalId?: string, created?: boolean, appIdUri?: string }} [webApp]
  * @property {{ clientId?: string, objectId?: string, servicePrincipalId?: string, secretKeyId?: string, secretExpiry?: string, created?: boolean }} [sqlReader]
- * @property {{ workspaceId?: string, createdWorkspace?: boolean, datasetId?: string, consumptionDatasetId?: string, capacityId?: string, gatewayId?: string, createdGateway?: boolean, connectionId?: string }} [powerBi]
+ * @property {{ workspaceId?: string, createdWorkspace?: boolean, datasetId?: string, consumptionDatasetId?: string, capacityId?: string, gatewayId?: string, createdGateway?: boolean, connectionId?: string, accessNotebookId?: string }} [powerBi]
  *   `capacityId` hosts the workspace (semantic model definition APIs need a Fabric/Premium capacity) and, in private
  *   networking mode, the VNet data gateway `gatewayId` whose SQL connection `connectionId` the model is bound to.
  *   `consumptionDatasetId` is the Consumption model, deployed with credit consumption.
@@ -237,7 +246,7 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {boolean} [storageRole] The installer gave the signed-in user Storage Blob Data Contributor on the landing container, for the Studio flow.
  * @property {{ assigned: string[], pending: string[] }} [graphRoles]
  * @property {string} [teamsPackage]
- * @property {{ whatIf?: any[], pendingAdminActions?: string[], lastRun?: any, lastMigrate?: any }} [status]
+ * @property {{ whatIf?: any[], pendingAdminActions?: string[], lastRun?: any, lastMigrate?: any, lastAccess?: any }} [status]
  */
 
 /**
@@ -314,7 +323,15 @@ export function loadConfig(file) {
     fabric: { ...base.fabric, ...(raw.fabric ?? {}), notebooks: { ...(raw.fabric?.notebooks ?? {}) } },
     semanticModel: { ...base.semanticModel, ...(raw.semanticModel ?? {}) },
     fabricApp: { ...(raw.fabricApp ?? {}) },
-    ...(raw.access ? { access: { ...raw.access, grantedModels: [...(raw.access.grantedModels ?? [])] } } : {}),
+    ...(raw.access
+      ? {
+          access: {
+            ...raw.access,
+            grantedModels: [...(raw.access.grantedModels ?? [])],
+            ...(raw.access.rls ? { rls: { ...raw.access.rls, applied: Array.isArray(raw.access.rls.applied) ? [...raw.access.rls.applied] : [] } } : {}),
+          },
+        }
+      : {}),
     azure: {
       ...base.azure,
       ...(raw.azure ?? {}),

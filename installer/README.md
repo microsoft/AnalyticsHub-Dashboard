@@ -528,6 +528,7 @@ addresses, the M365 Copilot licence flag and the exact prepaid split.
 | Upload exports later, then load them now | `upload feedback.csv agents.csv --run` |
 | Run only the loads that failed last time | `rerun-failed` |
 | Add viewers or owners to the viewer group, or choose another group | `access` |
+| Show each viewer only the orgs they're given (opt-in) | `access`, then **Turn on org-scoped access**. See [Org-scoped access](../docs/PERMISSIONS.md#org-scoped-access-row-level-security) |
 
 Source IDs for `--data`: `workday`, `m365Activity`, `agent365`, `productFeedback`,
 `studioCredits`, `coworkCredits`, `azureAi`, `agentEvaluator`, `defender`, `resourceGraph`. Modes:

@@ -287,6 +287,14 @@ export function graphApi(http) {
       }),
     /** Direct members of a group. @param {string} groupId @returns {Promise<{ id: string, displayName?: string, userPrincipalName?: string }[]>} */
     groupMembers: (groupId) => http.list(`/groups/${groupId}/members`, { query: { $select: 'id,displayName,userPrincipalName' } }),
+    /**
+     * The users in a group, including through nested groups.
+     * @param {string} groupId
+     * @returns {Promise<{ id: string, displayName?: string, userPrincipalName?: string }[]>}
+     */
+    groupUsers: async (groupId) =>
+      (await http.list(`/groups/${groupId}/transitiveMembers`, { query: { $select: 'id,displayName,userPrincipalName' } }))
+        .filter((/** @type {any} */ m) => !m['@odata.type'] || m['@odata.type'] === '#microsoft.graph.user'),
     /** @param {string} groupId @returns {Promise<{ id: string, displayName?: string, userPrincipalName?: string }[]>} */
     groupOwners: (groupId) => http.list(`/groups/${groupId}/owners`, { query: { $select: 'id,displayName,userPrincipalName' } }),
     /** Adds a user or group to a group. Already being a member is fine. @param {string} groupId @param {string} memberId */

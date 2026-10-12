@@ -18,6 +18,38 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ---
 
+## Unreleased — Org-scoped access (row-level security)
+
+**Nothing changes unless you turn it on.** Upgrading or choosing **Repair or change** deploys the
+models exactly as before. To use it, run the installer's `access` command and choose **Turn on
+org-scoped access**. See [Org-scoped access](docs/PERMISSIONS.md#org-scoped-access-row-level-security).
+
+### Added: each viewer can see only the orgs they're given
+
+**Why.** Everyone in Analytics Hub Viewers saw every org. A leader sharing the dashboard with their
+own org had no way to keep the rest of the tenant out of it.
+
+- **Scopes.** A viewer can see everyone, everyone below a person (from the org data's manager
+  chain), or one department or country. The installer's `access` command adds and removes them,
+  switches between department and country, applies the changes and turns the feature off again.
+- **Models.** When it's on, the ValueLens, Consumption Central and Agent Evaluator models get two
+  roles and two hidden access tables. Tenant-wide data (spend, agent inventory, Defender, Resource
+  Graph, product feedback) shows only to people who see everyone.
+- **Turning it on keeps everyone's view.** Current members of the viewer group, and you, get an
+  "everyone" scope. People added to the group later see nothing until they're given a scope.
+- **Role members are applied after every deploy.** A model deploy drops them, so the installer
+  runs the new `AnalyticsHub_Access_Scope` notebook through the XMLA endpoint after each deploy,
+  then checks the result by querying as a seeded viewer. It needs **Allow XMLA endpoints** and a
+  capacity with the XMLA endpoint set to Read Write. On Azure the Power BI workspace has to be on a
+  capacity, and installs with private networking aren't supported yet.
+- **App.** Pages say whose data they show ("Showing: people below …"). A viewer with no scope sees
+  who to ask instead of empty pages.
+- **Data.** The org data gains an `OrgPath` column (the manager chain by UPN) on both targets. Azure
+  gets an `access_scope` table (migration V005) and an `access_people` view, and the jobs' publish
+  step loads the scope list into it.
+
+---
+
 ## 2026-10-12 — Analytics Hub installer 0.5.1
 
 **Updating is optional.** 0.5.1 changes how the exe is released and some wording. What the installer

@@ -5,7 +5,9 @@
  * then adding people to the group, from the installer, the app's Share panel or My Groups.
  */
 import { HttpError } from '../http.js';
+import { rlsOn } from '../transform/access.js';
 import { asksAdvanced } from './advanced.js';
+import { orgAccessCommand } from './org-access.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 /** @typedef {{ workspaceId: string, datasetId: string, name: string }} ModelRef */
@@ -204,8 +206,9 @@ export function accessSummaryLines(config) {
  * The `access` command: shows the viewer group and adds viewers or owners to it.
  * @param {Ctx} ctx
  * @param {ModelRef[]} models  The models the group should have Build on.
+ * @param {(ctx: Ctx) => Promise<unknown>} [redeploy]  The `update` command, for turning org-scoped access on or off.
  */
-export async function accessCommand(ctx, models) {
+export async function accessCommand(ctx, models, redeploy) {
   const { ui, config, api } = ctx;
   if (!config.access?.groupId) await planAccess(ctx);
   ctx.save();
@@ -222,11 +225,18 @@ export async function accessCommand(ctx, models) {
         { name: 'Add viewers', value: 'members', description: 'People or groups, by email or group name.' },
         { name: 'Add an owner', value: 'owner', description: 'Owners can add and remove viewers themselves.' },
         { name: 'Give the group Build on the models again', value: 'grants', description: 'Repairs access to the models the app queries.' },
+        ...(redeploy
+          ? [{ name: rlsOn(config) ? 'Org-scoped access: who sees which orgs' : 'Turn on org-scoped access', value: 'orgs', description: 'Row-level security: each viewer sees only the orgs you give them.' }]
+          : []),
         { name: 'Done', value: 'done' },
       ],
       'done',
     );
     if (action === 'done') return;
+    if (action === 'orgs' && redeploy) {
+      await orgAccessCommand(ctx, redeploy);
+      continue;
+    }
     if (action === 'grants') {
       await grantModelAccess(ctx, models);
       continue;

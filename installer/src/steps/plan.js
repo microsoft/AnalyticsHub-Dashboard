@@ -4,6 +4,7 @@
  * install can run unattended.
  */
 import { randomBytes } from 'node:crypto';
+import { rlsOn } from '../transform/access.js';
 import { collectedLabels, ESSENTIAL_MODULES, MODULES, notebooksFor, OPTIONAL_MODULES, permissionsFor } from '../catalog.js';
 import { allowsAction, armLocation, validateVaultName } from '../clients/azure.js';
 import { TRANSCRIPT_ROLE } from '../clients/dataverse.js';
@@ -775,6 +776,7 @@ export async function reserveNames(ctx) {
     semanticModel: !!sm.enabled,
     azureAi: !!config.modules.consumption && !!cc.azureSubscriptionId,
     dataverse: !!config.modules.agentEvaluator && ae.environments.length > 0,
+    access: rlsOn(config),
     dataSources: config.dataSources,
   });
   f.notebookNames ??= {};
@@ -821,7 +823,7 @@ export function planReview(ctx, pre) {
   const appName = config.app.appId ? config.app.displayName ?? config.app.appId : APP_NAME;
   const withAzureAi = !!config.modules.consumption && !!cc.azureSubscriptionId;
   const withTranscripts = !!config.modules.agentEvaluator && ae.environments.length > 0;
-  const notebooks = notebooksFor(config.modules, { semanticModel: !!sm.enabled, azureAi: withAzureAi, dataverse: withTranscripts, dataSources: config.dataSources });
+  const notebooks = notebooksFor(config.modules, { semanticModel: !!sm.enabled, azureAi: withAzureAi, dataverse: withTranscripts, access: rlsOn(config), dataSources: config.dataSources });
 
   const mode = secretMode(config);
   /** @type {ReviewItem[]} */

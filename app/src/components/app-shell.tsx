@@ -11,6 +11,7 @@ import { paletteClass, usePaletteTheme } from "@/hooks/use-palette-theme";
 import { ThemeContext, useThemeContext } from "@/hooks/theme.context";
 import { AuthContext } from "@/hooks/auth.context";
 import { useSourceAvailability } from "@/hooks/source-availability.context";
+import { useAccessScope } from "@/hooks/use-access-scope";
 import { useIsRefreshing } from "@/lib/refresh-tracker";
 import { runtimeConfig } from "@/lib/runtime-config";
 import { scrollToAnchor } from "@/lib/scroll-to-anchor";
@@ -26,6 +27,7 @@ import {
     type DestinationId,
     type StageId,
 } from "./destinations";
+import { AccessScopeChip, NoScopeNotice } from "./access-scope";
 import { FilterBar } from "./filter-bar";
 import { FreshnessLabel } from "./freshness-label";
 import { SharePanel } from "./share-panel";
@@ -94,6 +96,8 @@ export function AppShell({ active, onNavigate, children }: AppShellProps) {
     const mainRef = useRef<HTMLElement>(null);
     const [readingStage, setReadingStage] = useState<StageId>();
     const sources = useSourceAvailability();
+    const accessScope = useAccessScope();
+    const noScope = accessScope.kind === "none";
     // Pages whose model the install didn't set up, or whose source has no data, are left out of the sidebar.
     const available = useMemo(() => availableDestinations(runtimeConfig().semanticModels, sources), [sources]);
 
@@ -280,19 +284,26 @@ export function AppShell({ active, onNavigate, children }: AppShellProps) {
                                     {current.blurb}
                                 </span>
                                 <FreshnessLabel key={current.id} destination={current.id} />
+                                <AccessScopeChip state={accessScope} />
                             </span>
                         </header>
                     )}
-                    {current && current.filters.length > 0 && <FilterBar destinationLabel={current.label} />}
-                    <ThemeContext.Provider value={{ ...themeContext, theme: paletteTheme }}>
-                        <div
-                            aria-busy={refreshing || undefined}
-                            data-refreshing={refreshing || undefined}
-                            className="flex flex-col gap-700 transition-opacity duration-200 data-[refreshing]:opacity-55 data-[refreshing]:delay-150"
-                        >
-                            {children}
-                        </div>
-                    </ThemeContext.Provider>
+                    {noScope ? (
+                        <NoScopeNotice />
+                    ) : (
+                        <>
+                            {current && current.filters.length > 0 && <FilterBar destinationLabel={current.label} />}
+                            <ThemeContext.Provider value={{ ...themeContext, theme: paletteTheme }}>
+                                <div
+                                    aria-busy={refreshing || undefined}
+                                    data-refreshing={refreshing || undefined}
+                                    className="flex flex-col gap-700 transition-opacity duration-200 data-[refreshing]:opacity-55 data-[refreshing]:delay-150"
+                                >
+                                    {children}
+                                </div>
+                            </ThemeContext.Provider>
+                        </>
+                    )}
                 </div>
             </main>
         </div>
