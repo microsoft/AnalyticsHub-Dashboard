@@ -39,16 +39,16 @@ function fakeCloud({ refreshStatus = 202 } = {}) {
   const calls = [];
   const json = (status, body) => new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   const fetchImpl = async (url, init = {}) => {
-    const u = String(url); const caller = String(init.headers?.Authorization || '').replace('Bearer graph-', '');
-    calls.push({ url: u, method: init.method || 'GET', caller, body: init.body ? JSON.parse(init.body) : undefined });
-    if (u.includes('api.powerbi.com')) return json(refreshStatus, refreshStatus === 202 ? undefined : { error: { code: 'x', message: refreshStatus === 409 ? 'A refresh is in progress' : 'nope' } });
+    const u = String(url); const { hostname, pathname } = new URL(u); const caller = String(init.headers?.Authorization || '').replace('Bearer graph-', '');
+    calls.push({ url: u, hostname, method: init.method || 'GET', caller, body: init.body ? JSON.parse(init.body) : undefined });
+    if (hostname === 'api.powerbi.com') return json(refreshStatus, refreshStatus === 202 ? undefined : { error: { code: 'x', message: refreshStatus === 409 ? 'A refresh is in progress' : 'nope' } });
     const user = /\/users\/([^?]+)\?/.exec(u);
     if (user) {
       const upn = decodeURIComponent(user[1]);
       return upn.startsWith('ghost') ? json(404, { error: { message: 'not found' } }) : json(200, { id: `id-${upn}`, userPrincipalName: upn, displayName: upn });
     }
-    if (u.endsWith('/groups/group-1/members/$ref')) return caller === 'admin' || caller === 'owner' ? json(204) : json(403, { error: { message: 'Insufficient privileges' } });
-    if (u.includes('/checkMemberGroups')) return json(200, { value: u.includes('already') ? ['group-1'] : [] });
+    if (pathname.endsWith('/groups/group-1/members/$ref')) return caller === 'admin' || caller === 'owner' ? json(204) : json(403, { error: { message: 'Insufficient privileges' } });
+    if (pathname.endsWith('/checkMemberGroups')) return json(200, { value: pathname.includes('already') ? ['group-1'] : [] });
     return json(404, { error: { message: `unexpected ${u}` } });
   };
   return { calls, fetchImpl };
@@ -66,7 +66,7 @@ async function setup({ access = ACCESS, store = seedStore(), cloud = fakeCloud()
   return { server, call, store, cloud };
 }
 
-const refreshes = (cloud) => cloud.calls.filter((c) => c.url.includes('api.powerbi.com'));
+const refreshes = (cloud) => cloud.calls.filter((c) => c.hostname === 'api.powerbi.com');
 
 test('delegation is off without org-scoped access', async () => {
   const { server, call } = await setup({ access: { groupId: 'group-1' } });
