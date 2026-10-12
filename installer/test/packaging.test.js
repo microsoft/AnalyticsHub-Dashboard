@@ -40,7 +40,7 @@ test('packaging: ships the installer code, not its tests or tooling', () => {
 });
 
 test('packaging: ships only what deploys the built app', () => {
-  for (const f of ['tsconfig.json', 'LICENSE', 'rayfin/tsconfig.json', 'rayfin/data/schema.ts', 'rayfin/data/TaskTime.ts']) assert.ok(appFile(f), f);
+  for (const f of ['tsconfig.json', 'LICENSE', 'rayfin/tsconfig.json', 'rayfin/data/schema.ts', 'rayfin/data/TaskTime.ts', 'rayfin/data/ReportPack.ts']) assert.ok(appFile(f), f);
   for (const f of ['src/main.tsx', 'package.json', 'rayfin/rayfin.yml', 'rayfin/.deployments.json', 'rayfin/.env', 'fabric.yaml', '.env.local', 'rayfin/data/sub/x.ts']) {
     assert.ok(!appFile(f), f);
   }
