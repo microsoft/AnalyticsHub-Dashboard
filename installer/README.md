@@ -88,9 +88,9 @@ it with admin consent. It lists anything missing with the link to the app's API 
 Once an admin has fixed it, choose **Check again**. Or choose **Carry on anyway**: data the missing
 permissions cover won't load until they're fixed.
 
-## Azure target (preview)
+## Azure target
 
-The installer can also set up the Phase 1 preview in **your Azure subscription**. Start it with
+The installer can also set up Analytics Hub in **your Azure subscription**. Start it with
 `--target azure`, or pick **Your Azure subscription** as the first wizard answer.
 
 You need:
@@ -105,13 +105,13 @@ You need:
   the managed identity, so the jobs can refresh the model) and *Semantic Model Execute Queries REST
   API* (for the app's queries).
 
-The preview creates or reuses a resource group and deploys a managed identity, Storage, Log Analytics,
+It creates or reuses a resource group and deploys a managed identity, Storage, Log Analytics,
 Azure SQL Database serverless, Container Apps jobs, and the web app from the ARM template in
 `src/azure/main.arm.json`. It also creates the Azure web app registration, an SQL reader app
 registration, a Power BI workspace and model, and an `AnalyticsHub-Teams.zip` package (the app as a
 Teams tab, built by `src/azure/teams/build-package.mjs`) next to the install record.
 
-`core`, `orgData`, `m365Activity` and `consumption` are supported on Azure in this preview. Other modules
+`core`, `orgData`, `m365Activity` and `consumption` are supported on Azure. Other modules
 are shown as coming soon and cannot be selected. Credit consumption deploys the Consumption Central model,
 gives the jobs' managed identity Cost Management and Azure AI roles, and creates the Copilot Studio flow,
 signed in as you (`--flow-identity app` is Fabric only). With public endpoints the flow writes to the
@@ -257,7 +257,7 @@ many of it make $1, or leave it blank and set it under **Prices** in the app. It
 Power BI model's currency symbol. Nothing is looked up online. To choose it without the question,
 use `install --currency GBP --exchange-rate 0.79`. The installer keeps your choice for next time.
 
-The [Azure target](#azure-target-preview) asks the same question. Its advanced settings also cover
+The [Azure target](#azure-target) asks the same question. Its advanced settings also cover
 [demo mode](#demo-mode), the Azure SQL region, the name prefix, extra tags,
 [networking](#networking), where credits come from, and agent configuration and Foundry.
 
@@ -405,7 +405,7 @@ The record keeps the most history loaded, once the reload has started. On Fabric
 read are reused, so a reload only queries what's missing. On a large tenant, 90 or 180 days can
 take many hours.
 
-On the [Azure target](#azure-target-preview), the reload starts the run job once with
+On the [Azure target](#azure-target), the reload starts the run job once with
 `VALUELENS_AUDIT_BACKFILL_DAYS` set, and leaves its usual settings alone. Job images older than
 this installer ignore it and run as usual: run `update` first if yours is.
 

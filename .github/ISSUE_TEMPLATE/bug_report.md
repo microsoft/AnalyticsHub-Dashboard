@@ -13,7 +13,7 @@ Use fabricated examples and redact screenshots. -->
 ### Where does it run?
 
 - [ ] Fabric
-- [ ] Azure (preview)
+- [ ] Azure
 
 ### Where did it go wrong?
 

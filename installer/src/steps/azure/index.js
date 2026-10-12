@@ -142,7 +142,7 @@ export async function askTarget(ctx) {
   ctx.ui.heading('Where should Analytics Hub run?');
   ctx.config.target = await ctx.ui.select('Where should Analytics Hub run?', [
     { name: 'Microsoft Fabric', value: 'fabric', description: 'Use Fabric workspaces, Lakehouse, notebooks and pipeline.' },
-    { name: 'Your Azure subscription', value: 'azure', description: 'Preview: use Azure PaaS, Container Apps jobs and a Power BI workspace.' },
+    { name: 'Your Azure subscription', value: 'azure', description: 'Use Azure PaaS, Container Apps jobs and a Power BI workspace.' },
   ], ctx.config.target);
 }
 
@@ -1036,7 +1036,7 @@ async function ensureAzurePowerBi(ctx, sqlReaderSecret) {
     signature: `azure;${modelSignature(server, database, config.modules)}`,
     definition: () => semanticModelDefinition(buildModel(loadTemplateModel(/** @type {string} */ (sources.modelFile)), { server, database, modules: config.modules, resourceGraph: azureResourceGraphOn(config), currency: config.reporting?.currency }), PBISM),
   }).catch((err) => {
-    if (err instanceof HttpError && err.status >= 400 && /FeatureNotAvailable|capacity|Premium|Fabric/i.test(JSON.stringify(err.body ?? err.message))) throw new Error('Power BI semantic model definition APIs are not available in this Pro workspace. The .pbix Imports fallback is planned but not implemented in this preview.');
+    if (err instanceof HttpError && err.status >= 400 && /FeatureNotAvailable|capacity|Premium|Fabric/i.test(JSON.stringify(err.body ?? err.message))) throw new Error('Power BI semantic model definition APIs are not available in this Pro workspace. The .pbix Imports fallback is planned but not implemented yet.');
     throw err;
   });
   az.powerBi.datasetId = sm.id;

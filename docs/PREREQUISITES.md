@@ -13,12 +13,12 @@ What you need before you install Analytics Hub, on one page. For the detail behi
 - **Fabric:** somewhere to keep the app's secret: [Contributor](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#contributor)
   on a subscription or resource group for a new [Key Vault](https://learn.microsoft.com/azure/key-vault/general/rbac-guide),
   or access to an existing one ([Where the secret goes](../installer/README.md#where-the-secret-goes)).
-- **Azure (preview), instead of Fabric:** [Contributor](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#contributor)
+- **Azure, instead of Fabric:** [Contributor](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#contributor)
   plus [User Access Administrator](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#user-access-administrator),
   or [Owner](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#owner), on the
   subscription or resource group, and [Power BI Pro or PPU](https://learn.microsoft.com/power-bi/fundamentals/service-features-license-type).
   Agent 365, product feedback, Copilot Studio transcripts, GitHub Copilot credits and the Cowork credits
-  Dataflow aren't on Azure yet ([Azure target](../installer/README.md#azure-target-preview)).
+  Dataflow aren't on Azure yet ([Azure target](../installer/README.md#azure-target)).
 - **Fabric tenant settings** turned on:
   [*Service principals can call Fabric public APIs*](https://learn.microsoft.com/fabric/admin/service-admin-portal-developer#service-principals-can-call-fabric-public-apis),
   [*Semantic Model Execute Queries REST API*](https://learn.microsoft.com/fabric/admin/service-admin-portal-integration#semantic-model-execute-queries-rest-api)
