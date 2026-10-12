@@ -369,6 +369,19 @@ def test_collect_org_keeps_manager_cycles_and_warns(tmp_path, caplog):
                     ("top@contoso.com", "")]
 
 
+def test_collect_org_logs_department_coverage(tmp_path, caplog):
+    users = [{"userPrincipalName": "a@contoso.com", "department": "Sales"},
+             {"userPrincipalName": "b@contoso.com", "department": "  "},
+             {"userPrincipalName": "c@contoso.com"}]
+    api, _ = make_api(lambda m, u, kw: Resp(200, {"value": users}))
+    with caplog.at_level("INFO", logger="valuelens_jobs.collect"):
+        assert graph.collect_org(api, LocalStore(tmp_path), settings()) == 3
+    warning = [r for r in caplog.records if "have a department" in r.getMessage()]
+    assert [r.levelname for r in warning] == ["WARNING"]
+    assert "1 of 3 people have a department" in warning[0].getMessage()
+    assert "Microsoft Entra ID" in warning[0].getMessage()
+
+
 def test_collect_org_rejects_loops_and_foreign_links(tmp_path):
     api, _ = make_api(lambda m, u, kw: Resp(200, {"value": [], "@odata.nextLink": graph.org.USERS_URL}))
     with pytest.raises(RuntimeError, match="looped"):
@@ -399,6 +412,34 @@ def test_collect_m365_writes_day_files(tmp_path):
     assert out["written"]
     files = sorted(p.name for p in (tmp_path / "raw" / "m365_activity_daily").glob("*.parquet"))
     assert files == [f"day-{d:%Y%m%d}.parquet" for d in out["written"]]
+
+
+def test_collect_m365_records_reports_with_no_app_usage(tmp_path, caplog):
+    teams = ("Report Refresh Date,User Principal Name,Team Chat Message Count\n"
+             "2026-09-08,Ada@contoso.com,4\n")
+    apps = ("Report Refresh Date,User Principal Name,Word,Excel,Windows\n"
+            "2026-09-08,Ada@contoso.com,No,No,No\n2026-09-08,Bo@contoso.com,,,\n")
+
+    def handler(m, url, kw):
+        if "getTeamsUserActivityUserDetail" in url:
+            return Resp(200, text=teams, content=teams.encode())
+        if "getM365AppUserDetail" in url:
+            return Resp(200, text=apps, content=apps.encode())
+        return Resp(404, {})
+
+    api, _ = make_api(handler)
+    store = LocalStore(tmp_path)
+    with caplog.at_level("INFO", logger="valuelens_jobs.collect"):
+        out = graph.collect_m365(api, store, settings(), today=date(2026, 9, 10), reread_days=2)
+    day = out["written"][0]
+    by_report = {r[1]: r for r in out["status"] if r[0] == day}
+    assert by_report["teams"][3:6] == ("ok", 1, 1)
+    assert by_report["apps"][3:6] == ("no_activity", 2, 0)
+    assert by_report["email"][3:6] == ("unavailable", 0, 0)
+    assert "apps report no_activity (2 row(s), 0 with use)" in caplog.text
+    path = store.path(graph.m365_status_file(day)).as_posix()
+    rows = duckdb.sql(f"SELECT Report, Status, Rows, ActiveRows FROM '{path}' ORDER BY Report").fetchall()
+    assert ("apps", "no_activity", 2, 0) in rows and len(rows) == len(graph.m365.REPORTS)
 
 
 # ---------------------------------------------------------------- publish

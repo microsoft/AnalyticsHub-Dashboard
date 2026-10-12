@@ -87,12 +87,28 @@ def test_licensed_empty_guard():
 
 
 def test_org_matches_notebook():
-    nb = notebook_source.namespace(ORG_NB, {"MAX_ORG_LEVELS", "HIER_FIXED", "HIER_LEVELS", "HIER_COLUMNS"})
+    nb = notebook_source.namespace(ORG_NB, {"MAX_ORG_LEVELS", "HIER_FIXED", "HIER_LEVELS", "HIER_COLUMNS",
+                                            "LOW_DEPARTMENT_COVERAGE"})
     nb_rows = nb["_dedupe_org_rows"]([nb["_canonical_org_row"](u) for u in USERS])
     assert nb_rows == org._dedupe_org_rows([org._canonical_org_row(u) for u in USERS])
     assert nb["build_hierarchy"](nb_rows) == org.build_hierarchy(nb_rows)
     assert nb["HIER_COLUMNS"] == org.HIER_COLUMNS
     assert nb["build_hierarchy"](CYCLE_ROWS) == org.build_hierarchy(CYCLE_ROWS)
+    assert nb["LOW_DEPARTMENT_COVERAGE"] == org.LOW_DEPARTMENT_COVERAGE
+    departments = [r.get("Organization") for r in nb_rows]
+    assert nb["department_coverage"](departments) == org.department_coverage(departments)
+    for have, total in [(0, 0), (1, 3), (8, 10), (999, 1000)]:
+        assert nb["coverage_message"](have, total) == org.coverage_message(have, total)
+
+
+def test_department_coverage_counts_non_blank_departments_and_advises_when_low():
+    assert org.department_coverage(["Sales", "", "  ", None, "HR"]) == (2, 5)
+    assert org.department_coverage([]) == (0, 0)
+    assert org.coverage_message(1200, 1500) == "1,200 of 1,500 people have a department"
+    low = org.coverage_message(2, 5)
+    assert low.startswith("2 of 5 people have a department.")
+    assert "Department on users in Microsoft Entra ID" in low and "Workday" in low
+    assert org.coverage_message(0, 0) == "0 of 0 people have a department"
 
 
 def test_org_snapshot_shape():
@@ -205,3 +221,25 @@ def test_m365_matches_notebook():
     loaded = {today.replace(day=d) for d in range(1, 10)}
     assert m365.days_to_load(today, loaded, {date(2026, 3, 2)}, 4) == \
         nb["days_to_load"](today, loaded, {date(2026, 3, 2)}, 4)
+
+
+def test_m365_report_status_matches_notebook_and_flags_reports_with_no_use():
+    nb = notebook_source.namespace(M365_NB, {"REPORTS", "COUNTS", "FLAGS", "ACTIVE", "VALUE_COLUMNS",
+                                             "_ISO_DURATION", "BY_REPORT", "GRAPH"})
+    reports = {
+        "teams": [{"User Principal Name": "a@x", "Call Count": "2"}, {"User Principal Name": "b@x"}],
+        "apps": [{"User Principal Name": "a@x", "Word": "No", "Windows": "No"}, {"User Principal Name": "b@x", "Excel": ""}],
+        "email": [],
+        "sharepoint": None,
+        "onedrive": [{"User Principal Name": "a@x", "Synced File Count": "PT0S"}],
+    }
+    day, at = date(2026, 3, 4), datetime(2026, 3, 5, 6, 0)
+    ours = m365.report_status(day, reports, at)
+    assert ours == nb["report_status"](day, reports, at)
+    by = {r[1]: r[3:6] for r in ours}
+    assert by == {"teams": ("ok", 2, 1), "apps": ("no_activity", 2, 0), "email": ("empty", 0, 0),
+                  "sharepoint": ("unavailable", 0, 0), "onedrive": ("no_activity", 1, 0),
+                  "vivaengage": ("unavailable", 0, 0)}
+    assert [r[2] for r in ours] == list(m365.REPORTS.values())
+    assert all(len(r) == len(m365.STATUS_SCHEMA) for r in ours)
+    assert m365.report_status(day, {"apps": [{"User Principal Name": "a@x", "Mobile": "Yes"}]}, at)[-1][3:6] == ("ok", 1, 1)

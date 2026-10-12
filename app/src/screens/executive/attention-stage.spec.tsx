@@ -106,11 +106,21 @@ describe("What needs attention", () => {
     it("says what the figures rest on", () => {
         renderStage();
         expect(screen.getByText("Reconciles with activity")).toBeTruthy();
-        expect(screen.getByText("100% of the 180 people with a task")).toBeTruthy();
+        expect(screen.getByText("180 of 180 people with a task have a department")).toBeTruthy();
         expect(
             screen.getByText(
                 "None of the 4,500 agent sessions match an agent it lists, so agents go by the names the audit log gives them. Updated 15 Sept 2026.",
             ),
         ).toBeTruthy();
+    });
+
+    it("says how to fill in departments when few people have one", () => {
+        const thin = { ...data, summary: { ...data.summary, row: { ...summaryRows[0], "[People With Organization]": 45 } } };
+        render(
+            <NavigationContext.Provider value={{ navigate: vi.fn() }}>
+                <AttentionStage data={thin as unknown as ExecutiveData} />
+            </NavigationContext.Provider>,
+        );
+        expect(screen.getByText(/^45 of 180 people with a task have a department\. .*Fill in Department on users in Microsoft Entra ID/)).toBeTruthy();
     });
 });

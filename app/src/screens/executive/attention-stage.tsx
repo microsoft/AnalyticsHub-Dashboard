@@ -18,6 +18,7 @@ import { useConsumptionSummary } from "@/hooks/use-consumption-query";
 import { useSummaryQuery, useTableQuery, type SummaryResult, type TableResult } from "@/hooks/use-table-query";
 import type { FilterKey } from "@/lib/filters";
 import { formatKpi } from "@/lib/format-kpi";
+import { coverageNote, departmentCoverage } from "@/lib/department-coverage";
 import { withIndefiniteArticle } from "@/lib/org-attribute";
 import { readNumber, readText } from "@/lib/summary-row";
 import { BODY, SMALL } from "@/lib/type-scale";
@@ -149,6 +150,7 @@ export function AttentionStage({ data }: { data: ExecutiveData }) {
 
     const people = readNumber(summary.row, "[People]");
     const coverage = ratio(readNumber(summary.row, "[People With Organization]"), people);
+    const deptCoverage = departmentCoverage(readNumber(summary.row, "[People With Organization]"), people, org.column);
     const linkage = describeRegistryLinkage(registry.row);
     const creditsThrough = formatDay(readText(creditDates.row, "[Last Date]"));
     const activityThrough = formatDay(options?.lastDate);
@@ -200,9 +202,11 @@ export function AttentionStage({ data }: { data: ExecutiveData }) {
                             {
                                 term: `People with ${withIndefiniteArticle(org.noun)}`,
                                 text:
-                                    coverage === undefined
-                                        ? undefined
-                                        : `${formatKpi(coverage, "percent")} of the ${formatKpi(people, "whole")} people with a task`,
+                                    deptCoverage !== undefined
+                                        ? coverageNote(deptCoverage)
+                                        : coverage === undefined
+                                          ? undefined
+                                          : `${formatKpi(coverage, "percent")} of the ${formatKpi(people, "whole")} people with a task`,
                             },
                             {
                                 term: "Agent registry",

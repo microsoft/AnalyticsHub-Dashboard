@@ -24,6 +24,7 @@ import { formatKpi } from "@/lib/format-kpi";
 import { columnHeat, heatRenderer } from "@/lib/heat";
 import { withIndefiniteArticle, withOrgAttribute } from "@/lib/org-attribute";
 import { readNumber, readText, toSummaryRow } from "@/lib/summary-row";
+import { orgEmptyDescription } from "@/lib/department-coverage";
 import { toDataTable } from "@/lib/to-data-table";
 import {
     agentValue,
@@ -334,7 +335,10 @@ export function EstimatedValueStage() {
                         <QueryEmpty
                             className="h-full"
                             title={`No ${org.plural} to compare`}
-                            description={`No rows carry both ${withIndefiniteArticle(org.noun)} and an estimated value for this slice.`}
+                            description={orgEmptyDescription(
+                                `No rows carry both ${withIndefiniteArticle(org.noun)} and an estimated value for this slice.`,
+                                org,
+                            )}
                         />
                     ) : (
                         <DataGrid

@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
 import { isMissingFromModelError, isModelNotRefreshedError, parseMissingModelObject } from "@/lib/model-errors";
 
@@ -32,8 +33,10 @@ export function QueryLoading({ className }: QueryStateProps) {
 interface QueryEmptyProps extends QueryStateProps {
     title: string;
     /** Why there is nothing to show, and what would make data appear. */
-    description: string;
+    description: ReactNode;
 }
+
+const EMPTY_TEXT = "max-w-[60ch] text-[length:var(--text-300)] leading-300 text-muted-foreground";
 
 /** Shown when a query succeeds but the tenant has no data for it. */
 export function QueryEmpty({ title, description, className }: QueryEmptyProps) {
@@ -45,9 +48,11 @@ export function QueryEmpty({ title, description, className }: QueryEmptyProps) {
             )}
         >
             <span className="text-[length:var(--text-400)] leading-400 font-semibold text-foreground">{title}</span>
-            <p className="max-w-[60ch] text-[length:var(--text-300)] leading-300 text-muted-foreground">
-                {description}
-            </p>
+            {typeof description === "string" ? (
+                <p className={EMPTY_TEXT}>{description}</p>
+            ) : (
+                <div className={cn(EMPTY_TEXT, "flex flex-col gap-200")}>{description}</div>
+            )}
         </div>
     );
 }

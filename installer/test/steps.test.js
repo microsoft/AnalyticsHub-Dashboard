@@ -851,6 +851,24 @@ test('printDataCheck says when the audit log had no Copilot activity at all', ()
   assert.doesNotMatch(ui.text(), /test or admin activity/);
 });
 
+test('printDataCheck reports how many people in the org data have a department', () => {
+  const ui = fakeUi();
+  const { ctx } = fakeCtx({ ui: ui.ui });
+  printDataCheck(ctx, { tables: { org: { rows: 1200, withDepartment: 1150 } } });
+  assert.match(ui.text(), /✓ Org data: 1,150 of 1,200 people have a department/);
+  assert.doesNotMatch(ui.text(), /Microsoft Entra ID/);
+
+  const low = fakeUi();
+  printDataCheck(fakeCtx({ ui: low.ui }).ctx, { tables: { org: { rows: 1200, withDepartment: 300 } } });
+  assert.match(low.text(), /! Org data: 300 of 1,200 people have a department/);
+  assert.match(low.text(), /Fill in Department on users in Microsoft Entra ID/);
+  assert.match(low.text(), /Workday org data source/);
+
+  const old = fakeUi();
+  printDataCheck(fakeCtx({ ui: old.ui }).ctx, { tables: { org: { rows: 1200 } } });
+  assert.doesNotMatch(old.text(), /have a department/, 'a summary from before the count says nothing');
+});
+
 test('printDataCheck explains hidden user names in the licence roster', () => {
   const ui = fakeUi();
   const { ctx } = fakeCtx({ ui: ui.ui });

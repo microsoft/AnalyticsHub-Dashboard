@@ -157,6 +157,16 @@ class M365ActivityNotebookTests(unittest.TestCase):
         later = days_to_load(today, loaded, concealed, 4)
         self.assertEqual(later, sorted({today - timedelta(days=20), today - timedelta(days=10)} | {today - timedelta(days=n) for n in range(1, 5)}))
 
+    def test_each_day_read_records_per_report_status_before_skipping_empty_days(self):
+        loop = cell("def write_status")
+        self.assertIn("STATUS_TABLE = 'dbo.m365_report_status'", loop)
+        for name in ("'ActivityDate'", "'Report'", "'GraphFunction'", "'Status'", "'Rows'", "'ActiveRows'", "'CheckedAtUtc'"):
+            self.assertIn(f"StructField({name}", loop)
+        body = loop[loop.index("for day in todo:"):]
+        self.assertLess(body.index("kept the loaded day"), body.index("write_status(day, status)"))
+        self.assertLess(body.index("write_status(day, status)"), body.index("if not rows:"))
+        self.assertIn("returned rows with no usage", cell("returned rows with no usage"))
+
 
 if __name__ == "__main__":
     unittest.main()

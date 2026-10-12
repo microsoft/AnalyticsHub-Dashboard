@@ -183,6 +183,59 @@ export function layerUnavailable(statuses: readonly ProbeStatus[] | undefined, l
     return found !== undefined && !WORKING.has(found.status);
 }
 
+/** The Defender product each layer's probe reads; an "unlicensed" probe means the tenant doesn't have it. */
+export const PROBE_LICENCES: Readonly<Partial<Record<ShadowAiProbe, string>>> = {
+    device_activity: "Microsoft Defender for Endpoint Plan 2",
+    installed: "Microsoft Defender Vulnerability Management",
+    cloud_discovery: "Microsoft Defender for Cloud Apps",
+};
+
+/** What a probe needs, when it was refused for want of a licence. */
+export function probeNeeds(probe: string): string | undefined {
+    const licence = PROBE_LICENCES[probe as ShadowAiProbe];
+    return licence ? `Needs ${licence}` : undefined;
+}
+
+export interface LayerEmpty {
+    title: string;
+    description: string;
+}
+
+/**
+ * Why one layer's chart is empty. A licence gap names the product, a probe
+ * that ran and returned nothing says so, and only a probe that returned rows
+ * none of which were watched tools reads as no shadow AI.
+ */
+export function layerEmptyState(statuses: readonly ProbeStatus[] | undefined, layer: ShadowAiLayer): LayerEmpty {
+    const probe = SHADOW_AI_LAYERS.find((entry) => entry.id === layer)?.probe;
+    const found = statuses?.find((entry) => entry.probe === probe);
+    const needs = found?.status === "unlicensed" && probe ? probeNeeds(probe) : undefined;
+    if (needs) {
+        return {
+            title: needs,
+            description: `Defender answered that this tenant doesn't have ${PROBE_LICENCES[probe as ShadowAiProbe]}, so this view stays empty. The other views still load.`,
+        };
+    }
+    if (found && !WORKING.has(found.status)) {
+        return {
+            title: "This part of Defender didn't load",
+            description: "The probe behind this view was refused or failed on the last run. The note above says why.",
+        };
+    }
+    if (found?.status === "empty") {
+        return {
+            title: "No data returned",
+            description: found.message
+                ? `Defender ran this probe and returned no rows: ${found.message}`
+                : "Defender ran this probe and returned no rows for the last 30 days.",
+        };
+    }
+    return {
+        title: "No shadow AI seen here",
+        description: "Defender saw none of the watched tools this way in the last 30 days.",
+    };
+}
+
 /**
  * The tools seen in one layer, the busiest first. Any posture the chart has no colour for
  * (an untagged app, or Defender's "Monitored") reads as Not reviewed, so its bar still draws.

@@ -5,7 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { useCallback, useMemo } from "react";
+import { useCallback, useMemo, type ReactNode } from "react";
 import { ChartPanel } from "@/components/report-panels";
 import type { TableResult } from "@/hooks/use-table-query";
 import {
@@ -32,7 +32,7 @@ interface ConcentrationPanelProps {
     title: string;
     subtitle: string;
     emptyTitle: string;
-    emptyDescription: string;
+    emptyDescription: ReactNode;
     height?: number;
 }
 
