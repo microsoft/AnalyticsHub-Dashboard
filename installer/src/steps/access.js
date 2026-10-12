@@ -5,7 +5,7 @@
  * then adding people to the group, from the installer, the app's Share panel or My Groups.
  */
 import { HttpError } from '../http.js';
-import { rlsOn } from '../transform/access.js';
+import { rlsOn, rlsSettings } from '../transform/access.js';
 import { asksAdvanced } from './advanced.js';
 import { orgAccessCommand } from './org-access.js';
 
@@ -177,6 +177,7 @@ export async function grantModelAccess(ctx, models) {
 
 /**
  * What the app is told about access: the group and who to ask. Undefined without a group.
+ * With org-scoped access on, also the org attribute, which turns on scoped delegation in the Share panel.
  * @param {import('../config.js').InstallConfig} config
  * @returns {Record<string, string> | undefined}
  */
@@ -186,6 +187,8 @@ export function publicAccess(config) {
   /** @type {Record<string, string>} */
   const out = { groupId: a.groupId };
   for (const k of /** @type {const} */ (['groupName', 'contact', 'requestUrl'])) if (a[k]) out[k] = /** @type {string} */ (a[k]);
+  const rls = rlsSettings(config);
+  if (rls?.orgAttribute) out.rlsOrgAttribute = rls.orgAttribute;
   return out;
 }
 

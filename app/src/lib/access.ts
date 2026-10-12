@@ -54,3 +54,8 @@ export function scopeRequestMailto(access: AccessInfo | undefined, link = appLin
     const body = `Hi,\n\nI can open ${link} but haven't been given any orgs to see yet. Please give me a scope.\n\nThanks`;
     return `mailto:${encodeURIComponent(access.contact)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
+
+/** Who can choose what people see, for those who can't. */
+export function adminOnlyCopy(contact?: string): string {
+    return `Only an Analytics Hub admin can choose what people see.${contact ? ` Ask ${contact}.` : ""}`;
+}

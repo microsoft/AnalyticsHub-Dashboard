@@ -15,6 +15,8 @@ export function loadConfig(env = process.env) {
     settingsWriters: (env.VALUELENS_SETTINGS_WRITERS || 'admin').toLowerCase(),
     reporting: parseReporting(env.VALUELENS_CURRENCY, env.VALUELENS_EXCHANGE_RATE),
     azureClientId: env.AZURE_CLIENT_ID || '',
+    sqlServer: env.VALUELENS_SQL_SERVER || '',
+    sqlDatabase: env.VALUELENS_SQL_DATABASE || '',
     publicDir: env.VALUELENS_PUBLIC_DIR || path.resolve('/app/public'),
     webClientCertPath: env.VALUELENS_WEB_CLIENT_CERT_PATH || ''
   };
@@ -43,14 +45,17 @@ export function parseSemanticModels(value) {
   return parsed;
 }
 
-/** The viewer group and who to ask for access, written by the installer; null when there is no group. */
+/**
+ * The viewer group and who to ask for access, written by the installer; null when there is no group.
+ * `rlsOrgAttribute` is there only when org-scoped access (row-level security) is on.
+ */
 export function parseAccess(value) {
   if (!value) return null;
   const parsed = JSON.parse(value);
   if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('VALUELENS_ACCESS must be a JSON object');
   if (typeof parsed.groupId !== 'string' || !parsed.groupId) return null;
   const pick = (key) => (typeof parsed[key] === 'string' && parsed[key] ? { [key]: parsed[key] } : {});
-  return { groupId: parsed.groupId, ...pick('groupName'), ...pick('contact'), ...(/^https:\/\//i.test(parsed.requestUrl || '') ? { requestUrl: parsed.requestUrl } : {}) };
+  return { groupId: parsed.groupId, ...pick('groupName'), ...pick('contact'), ...(/^https:\/\//i.test(parsed.requestUrl || '') ? { requestUrl: parsed.requestUrl } : {}), ...pick('rlsOrgAttribute') };
 }
 
 export function isAllowedSemanticModel(semanticModels, workspaceId, itemId) {

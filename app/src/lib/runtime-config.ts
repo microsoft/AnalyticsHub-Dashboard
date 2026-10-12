@@ -50,6 +50,8 @@ export interface AccessInfo {
     contact?: string;
     /** A form or page for requesting access, used instead of email when set. */
     requestUrl?: string;
+    /** The org attribute that org-scoped access (row-level security) filters on. Only there when it's on. */
+    rlsOrgAttribute?: string;
 }
 
 export interface RuntimeModules {
@@ -228,6 +230,7 @@ export function parseAccess(json: unknown): AccessInfo | undefined {
         ...(text("groupName") ? { groupName: text("groupName") } : {}),
         ...(text("contact") ? { contact: text("contact") } : {}),
         ...(requestUrl && /^https:\/\//i.test(requestUrl) ? { requestUrl } : {}),
+        ...(text("rlsOrgAttribute") ? { rlsOrgAttribute: text("rlsOrgAttribute") } : {}),
     };
 }
 

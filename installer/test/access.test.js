@@ -221,6 +221,11 @@ test('access: the app is told the group and who to ask, and nothing without a gr
   const expected = { groupId: 'g-1', groupName: VIEWER_GROUP_NAME, contact: 'admin@contoso.com' };
   assert.deepEqual(fabricConfigFile(ctx.config, 'ws', ['vl']).access, expected);
   assert.deepEqual(JSON.parse(webAccess(ctx.config)), expected);
+
+  ctx.config.access.rls = { enabled: true, orgAttribute: 'country', applied: [] };
+  assert.deepEqual(JSON.parse(webAccess(ctx.config)), { ...expected, rlsOrgAttribute: 'country' }, 'org-scoped access turns on delegation');
+  ctx.config.access.rls = { enabled: false, applied: [] };
+  assert.deepEqual(JSON.parse(webAccess(ctx.config)), expected);
 });
 
 test('access: each target grants Build on the models its app queries', () => {

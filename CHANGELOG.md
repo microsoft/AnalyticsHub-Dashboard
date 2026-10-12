@@ -48,6 +48,25 @@ own org had no way to keep the rest of the tenant out of it.
   gets an `access_scope` table (migration V005) and an `access_people` view, and the jobs' publish
   step loads the scope list into it.
 
+### Added: leaders give their own org from the Share panel (Azure)
+
+**Why.** Every scope change went through an admin running the installer, even when a leader only
+wanted to share their own org with someone who works for them.
+
+- **Admins** (AnalyticsHub.Admin) give anyone the people below a person, or an org, from **Share**
+  in the app, and can let them share their org in turn.
+- **Leaders** with a "can share" scope give someone their own org: the people below them. They
+  can't pass on "can share" and take back only what they gave. Nobody gives "everyone" from the
+  app: that stays in the installer.
+- **Waiting for an admin.** The delegate is added to the viewer group as the signed-in person. When
+  Microsoft Entra doesn't allow that (only group owners and directory admins can), the scope waits
+  until an admin approves it in the Share panel. No new Graph permissions.
+- **Applies in minutes.** The web app saves the scope to Azure SQL as its managed identity and
+  refreshes the models' access table. Changes close together share a refresh; if Power BI won't
+  take one, the change applies at the next scheduled refresh. The jobs' load leaves these scopes
+  alone.
+- **Fabric** stays admin-only, through the installer. The Share panel says who to ask.
+
 ---
 
 ## 2026-10-12 — Analytics Hub installer 0.5.1
