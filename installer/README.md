@@ -184,7 +184,8 @@ Azure commands:
    see [Check the download](#check-the-download).
 2. Open it. If Windows says it protected your PC, choose **More info**, then **Run anyway**.
 3. The first time, it takes about a minute to unpack. Then it opens in your browser. Keep its
-   window open while you use the page, and keep the PC awake and plugged in until it finishes.
+   window open while you use the page, and keep the PC awake and plugged in until it finishes. If
+   you close the page, go back to that window and press **Enter** to open it again.
 4. Choose **Set up Analytics Hub** and sign in.
 5. Answer the questions. This takes about 5 minutes:
    1. **Data sources.** Each source has a card: **Connected (API)**, **Upload CSV** or **Skip**.
@@ -206,7 +207,8 @@ Azure commands:
       can add the secret. See [Where the secret goes](#where-the-secret-goes).
 6. Check the plan and approve it. Nothing is created until you do. The plan shows every setting,
    including the defaults, and a **Costs** list of what's billed (the Fabric capacity, Power
-   Automate Premium for the flows, the Azure resources), with links to the pricing pages.
+   Automate Premium for the flows, the Azure resources), with links to the pricing pages. The exe
+   stops Windows going to sleep while it runs.
 7. Wait for it to finish. Setting up takes about 15 minutes. The first data reaches the app about
    25 minutes after you choose **Go ahead** with 30 days of history, or about 2 hours with 180 days
    ([a large tenant](#a-large-tenant) takes longer). Copilot Studio credits arrive after the Studio
@@ -218,8 +220,17 @@ previous question with your answer filled in, and the questions after it are ask
 go back to the client secret, leave the box empty to keep the one you pasted. If you go back
 further, you'll be asked for it again.
 
-It keeps your answers in `Documents\Analytics Hub`. Keep that folder. To run the pipeline, check
-status, update, or repair the set-up later, open the exe again.
+It keeps your answers in `Documents\Analytics Hub`, in an install record named
+`valuelens-install.json`. Keep that folder. To run the pipeline, check status, update, or repair
+the set-up later, open the exe again. **Manage Analytics Hub** shows the record's full path. If
+OneDrive syncs your Documents folder, the record follows you to your other PCs.
+
+**The workspace has gone?** After you sign in, the installer checks that the record's workspace
+still exists. If Fabric says it doesn't, or the record is for another tenant, the home page says
+so. Choose **Start fresh** to set up again. The old record is kept beside the new one, renamed
+with the date and time, such as `valuelens-install.20260507-090302.json`. Or choose **Keep this
+record** to carry on with it. In the terminal, `install` asks whether to start fresh. If Fabric
+can't be reached, or you can't read the workspace, nothing changes.
 
 **Updates.** When it opens, the installer checks
 [the latest release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest). If
@@ -742,6 +753,8 @@ the endpoint, someone who manages the vault approves it under **Networking** >
 | Edge says the file isn't commonly downloaded | Choose **…** next to the file, then **Keep**, **Show more** and **Keep anyway**. The exe isn't code-signed yet. |
 | Windows says it protected your PC | Choose **More info**, then **Run anyway**. The exe isn't code-signed yet. |
 | `The installer couldn't start` | Download the exe again. If that doesn't help, delete `%LOCALAPPDATA%\AnalyticsHub` and open it again. |
+| The page says it needs the installer's link, or the link has expired | Go back to the installer's window and press **Enter**. It opens the page again. |
+| `This workspace no longer exists` | The workspace in the install record was deleted, or the record is for another tenant. Choose **Start fresh**. The old record is kept, renamed with the date and time. See [Run it](#run-it). |
 | `No active Fabric capacity you can use` | Start a Fabric trial, or ask a capacity admin to make you a Contributor on a capacity. |
 | `No Azure subscription you can use` | Ask for Contributor on a subscription, on a resource group, or for read access to an existing vault a vault admin can add the secret to. Or, for a quick test only, [store the secret in the notebook](#where-the-secret-goes). |
 | `You can't write secrets to …` or `You can't change access policies on …` | Run the installer again without `--yes`, pick the vault, and choose **A vault admin will add the secret for me**. See [Where the secret goes](#where-the-secret-goes). |

@@ -64,6 +64,29 @@ for access.
 
 ---
 
+## Unreleased — Install record and launch
+
+**Why.** In a newcomer self-serve test of installer 0.4.2, an install record for a deleted
+workspace kept showing **Manage Analytics Hub**. Nothing said where the record was or how to start
+again. A closed page couldn't be reopened without the printed link, the PC could sleep mid-setup,
+and some text named internal tools.
+
+- **A record whose workspace has gone.** After sign-in, the installer checks that the record's
+  workspace still exists. If Fabric says it doesn't, or the record is for another tenant, the home
+  page says so and offers **Start fresh** or **Keep this record**. Start fresh renames the record to
+  `valuelens-install.<yyyyMMdd-HHmmss>.json` beside it. A network error or a 403 changes nothing.
+  In the terminal, `install` asks whether to start fresh; other commands stop and say how.
+- **Where the record is.** **Manage Analytics Hub** shows the record's full path, and notes that
+  OneDrive may sync it.
+- **Reopen the page.** The installer's window says to press **Enter** to open the page again. A
+  page opened without the link says to do that.
+- **Keep awake.** The exe stops Windows going to sleep while it runs. The plan says to keep the
+  PC plugged in and awake until setup finishes.
+- **Wording.** The web page says you can close the window while a run carries on, not Ctrl+C. The
+  app deploy says a browser window may open for sign-in, without naming its deploy tool.
+
+---
+
 ## Unreleased — Before you start checklist (docs)
 
 Docs only. Nothing in the installer, app or notebooks changes.

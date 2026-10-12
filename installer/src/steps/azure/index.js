@@ -18,7 +18,7 @@ import { APP_ALIAS, CONSUMPTION_ALIAS } from '../app.js';
 import { AZURE_AI_ROLES, ensureAzureAiAccess, planConsumption } from '../consumption.js';
 import { AZURE_LANDING_DIRS, azureDropLabel, azureDropsToSharePoint, ensureFlows, flowsSummary, flowsWanted, offerStudioRun, planFlows } from '../flows.js';
 import { DEFAULT_CURRENCY } from '../../currency.js';
-import { askMoreHistory, askReportingCurrency, HISTORY_CHOICES, planCosts, reloadDetail, reloadLine } from '../plan.js';
+import { askMoreHistory, askReportingCurrency, HISTORY_CHOICES, KEEP_AWAKE, planCosts, reloadDetail, reloadLine } from '../plan.js';
 import { ensureResourceGraphAccess, planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from '../resource-graph.js';
 import { DATA_SOURCES } from '../../uploads.js';
 import { normaliseResourceGraph } from '../../config.js';
@@ -787,6 +787,7 @@ export async function confirmAzurePlan(ctx) {
   ui.info(`Ask:         ${askLine(az)}`);
   if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)}`);
   ui.review(azurePlanReview(ctx));
+  ui.note(KEEP_AWAKE);
   return ui.confirm('Go ahead?', true);
 }
 
