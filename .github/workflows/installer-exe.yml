@@ -10,7 +10,7 @@ on:
     tags: ['installer-v*']
   pull_request:
     paths:
-      - '1. Fabric/installer/packaging/**'
+      - 'installer/packaging/**'
       - '.github/workflows/installer-exe.yml'
 
 permissions:
@@ -29,7 +29,7 @@ jobs:
 
       - name: Check the tag matches the installer's version
         if: startsWith(github.ref, 'refs/tags/installer-v')
-        working-directory: '1. Fabric/installer'
+        working-directory: 'installer'
         env:
           TAG: ${{ github.ref_name }}
         run: |
@@ -38,27 +38,27 @@ jobs:
 
       # The lock files may resolve through Microsoft's internal mirror of npm, which runners can't reach.
       - name: Use the public npm registry
-        working-directory: '1. Fabric/installer'
-        run: node packaging/public-registry.js "../Fabric App/package-lock.json" package-lock.json
+        working-directory: 'installer'
+        run: node packaging/public-registry.js "../app/package-lock.json" package-lock.json
 
       - name: Install the app's dependencies
-        working-directory: '1. Fabric/Fabric App'
+        working-directory: 'app'
         run: npm ci --no-audit --no-fund
 
       - name: Install the installer's dependencies
-        working-directory: '1. Fabric/installer'
+        working-directory: 'installer'
         run: npm ci --no-audit --no-fund
 
       - name: Test the installer
-        working-directory: '1. Fabric/installer'
+        working-directory: 'installer'
         run: npm test
 
       - name: Type-check the installer
-        working-directory: '1. Fabric/installer'
+        working-directory: 'installer'
         run: npm run typecheck
 
       - name: Build the exe
-        working-directory: '1. Fabric/installer'
+        working-directory: 'installer'
         run: npm run build:exe -- --release --out "${{ runner.temp }}\exe"
 
       - name: Smoke-test the exe
@@ -97,5 +97,5 @@ jobs:
         run: |
           gh release create "$TAG" AnalyticsHubInstaller.exe AnalyticsHubInstaller.exe.sha256 \
             --repo "$GITHUB_REPOSITORY" --draft \
-            --notes "Download AnalyticsHubInstaller.exe and open it. Steps: https://github.com/$GITHUB_REPOSITORY/tree/main/1.%20Fabric#install" \
+            --notes "Download AnalyticsHubInstaller.exe and open it. Steps: https://github.com/$GITHUB_REPOSITORY/tree/main/fabric#install" \
             --title "Analytics Hub installer ${TAG#installer-v}"

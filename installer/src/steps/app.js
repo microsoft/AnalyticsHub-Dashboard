@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Builds the ValueLens web app (`1. Fabric/Fabric App`) against the customer's semantic model and
+ * Builds the ValueLens web app (`app`) against the customer's semantic model and
  * deploys it to their workspace as a Fabric App item, using the app's own Rayfin tooling. The
  * installer download ships the app already built instead; that copy only needs deploying.
  */
@@ -309,7 +309,7 @@ export async function deployApp(ctx) {
   const dir = sources.appDir;
   const ws = /** @type {string} */ (config.fabric.workspaceId);
   const modelId = config.semanticModel.id;
-  if (!dir) throw new Error('This checkout has no "1. Fabric/Fabric App" folder to deploy.');
+  if (!dir) throw new Error('This checkout has no "app" folder to deploy.');
   if (!modelId) throw new Error('The app needs the semantic model. Deploy it first.');
   if (!nodeVersionOk()) throw new Error(`Building the app needs Node.js ${MIN_NODE.join('.')} or later; this is ${process.versions.node}.`);
 

@@ -61,7 +61,7 @@ Set the workspace and Lakehouse at the top of each notebook, then run it.
 | `Ingest_GitHub_API` | GitHub REST API *(preferred: runs unattended)* | `github_*` |
 | `Ingest_GitHub` | The emailed AI usage report in `Files/landing/github/` | `github_*` |
 | `Ingest_Azure_AI` | Azure Cost Management, Monitor, ARM and the public Retail Prices API ([setup ↗](https://github.com/microsoft/ConsumptionCentral-for-Microsoft-Copilot/blob/main/docs/ADVANCED-SETUP.md#azure-ingestion-in-fabric)) | `azure_ai_spend`, `azure_ai_tokens`, and `copilot_payg_spend` for Copilot Studio and Cowork pay-as-you-go billed in Azure; then, best-effort, `azure_deployment_health`, `azure_solution_spend` and `azure_billing_reconciliation` ([details](DATA-DICTIONARY.md#azure-capacity-solution-spend-and-reconciliation)) |
-| `Ingest_CommercialTerms` | Your negotiated rates *(optional; the [Fabric App](../../Fabric%20App/README.md#settings-in-the-app) can also take them)* | `commercial_terms` |
+| `Ingest_CommercialTerms` | Your negotiated rates *(optional; the [Fabric App](../../app/README.md#settings-in-the-app) can also take them)* | `commercial_terms` |
 | `Ingest_Org` | Viva attributes, optionally overridden by files in `Files/landing/org/` | `org_attributes` |
 | `Ingest_Viva_Consumption` | The Dataflow's `viva_credits_dataflow` table, and Viva CSV exports in `Files/landing/viva/`. For weeks both cover, the Dataflow wins | `viva_credits_weekly`, `viva_spending_policy` |
 
@@ -91,7 +91,7 @@ python seed_sample_data.py --workspace <workspace-guid> --lakehouse <lakehouse-g
 ```
 
 Both GUIDs are in the Fabric portal URL when the Lakehouse is open. The script reads the CSVs from
-[`samples/consumption/`](../../../samples/consumption/).
+[`samples/consumption/`](../../samples/consumption/).
 It writes to the `dbo` schema; add `--schema=` if your Lakehouse was created without schemas.
 
 > **Per-person and department views** need Viva Insights **Identification** turned on

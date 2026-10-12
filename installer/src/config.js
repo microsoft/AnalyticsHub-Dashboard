@@ -191,7 +191,7 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  */
 
 /**
- * The ValueLens web app (Fabric App item) from `1. Fabric/Fabric App`.
+ * The ValueLens web app (Fabric App item) from `app`.
  * @typedef {object} FabricAppConfig
  * @property {boolean} [enabled]
  * @property {string} [itemId]

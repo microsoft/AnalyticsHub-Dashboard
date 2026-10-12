@@ -31,8 +31,8 @@ import {
 } from './payload.js';
 
 const INSTALLER = resolve(dirname(fileURLToPath(import.meta.url)), '..');
-const FABRIC = resolve(INSTALLER, '..');
-const APP = join(FABRIC, APP_DIR);
+const SOURCE = resolve(INSTALLER, '..');
+const APP = join(SOURCE, APP_DIR);
 const LAUNCHER = join(INSTALLER, 'packaging', 'launcher');
 
 const { values: opts } = parseArgs({
@@ -177,7 +177,7 @@ try {
 
   step('Staging the notebooks, pipeline and templates');
   for (const rel of sourceFiles()) {
-    const from = join(FABRIC, rel);
+    const from = join(SOURCE, rel);
     if (!existsSync(from)) throw new Error(`Missing ${from}.`);
     put(join(stage, SOURCE_ROOT, rel), readFileSync(from));
   }
@@ -197,7 +197,7 @@ try {
     warn(`No LICENSE next to ${process.execPath}; pointing to Node.js's licence online instead.`);
     put(join(stage, 'node', 'LICENSE'), `Node.js ${process.version} is licensed under the MIT License, with the third-party licences listed at\nhttps://github.com/nodejs/node/blob/${process.version}/LICENSE\n`);
   }
-  copyFileSync(join(FABRIC, '..', 'LICENSE'), join(stage, 'LICENSE.txt'));
+  copyFileSync(join(SOURCE, 'LICENSE'), join(stage, 'LICENSE.txt'));
 
   step('Leaving out source maps');
   let pruned = 0;

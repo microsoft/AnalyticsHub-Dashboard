@@ -11,11 +11,11 @@ on:
     tags: ['installer-v*']
   pull_request:
     paths:
-      - '2. Azure/jobs/**'
-      - '2. Azure/web/**'
-      - '2. Azure/sql/**'
-      - 'shared/python/**'
-      - '1. Fabric/Fabric App/**'
+      - 'azure/jobs/**'
+      - 'azure/web/**'
+      - 'azure/sql/**'
+      - 'core/**'
+      - 'app/**'
       - '.github/workflows/azure-images.yml'
 
 permissions:
@@ -39,12 +39,12 @@ jobs:
       # The lock files may resolve through Microsoft's internal mirror of npm, which runners can't reach.
       - name: Use the public npm registry
         if: matrix.image == 'valuelens-web'
-        run: node "1. Fabric/installer/packaging/public-registry.js" "1. Fabric/Fabric App/package-lock.json" "2. Azure/web/package-lock.json"
+        run: node "installer/packaging/public-registry.js" "app/package-lock.json" "azure/web/package-lock.json"
 
       - name: Work out the tag
         id: tag
         run: |
-          version=$(node -p "require('./1. Fabric/installer/package.json').version")
+          version=$(node -p "require('./installer/package.json').version")
           if [[ "$GITHUB_REF" == refs/tags/installer-v* && "$GITHUB_REF_NAME" != "installer-v$version" ]]; then
             echo "Tag $GITHUB_REF_NAME doesn't match the installer's version $version." >&2; exit 1
           fi
@@ -52,7 +52,7 @@ jobs:
 
       - name: Build
         run: |
-          dockerfile="2. Azure/${{ matrix.image == 'valuelens-jobs' && 'jobs' || 'web' }}/Dockerfile"
+          dockerfile="azure/${{ matrix.image == 'valuelens-jobs' && 'jobs' || 'web' }}/Dockerfile"
           docker build -f "$dockerfile" -t "${{ steps.tag.outputs.image }}" .
 
       - name: Smoke-test the jobs image

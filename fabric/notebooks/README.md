@@ -5,7 +5,7 @@ The [installer](../../installer/) does all of this for you. Use these steps only
 ## Before you start
 
 1. **Register an app** in Entra. Add the Microsoft Graph application permissions listed in
-   [PERMISSIONS](../../../docs/PERMISSIONS.md), grant admin consent, and create a client secret.
+   [PERMISSIONS](../../docs/PERMISSIONS.md), grant admin consent, and create a client secret.
 2. **Store the secret** in an Azure Key Vault. Anyone who runs the notebooks needs the
    *Key Vault Secrets User* role on it.
 3. **Create a Lakehouse** in your Fabric workspace with **Lakehouse schemas** turned on.
@@ -46,12 +46,12 @@ Run these before the processor.
 
 | Notebook | Writes | Before you run it |
 |---|---|---|
-| `Copilot_Agent365_Registry_Ingester` | `agents_365` | Needs an Agent 365 licence and the extra Graph permissions in [PERMISSIONS](../../../docs/PERMISSIONS.md). Fill in the first cell. |
+| `Copilot_Agent365_Registry_Ingester` | `agents_365` | Needs an Agent 365 licence and the extra Graph permissions in [PERMISSIONS](../../docs/PERMISSIONS.md). Fill in the first cell. |
 | `Copilot_Agent365_Lander` | `agents_365` | Use this instead of the registry ingester if you don't have an Agent 365 licence. Export the agent list from the Microsoft 365 admin center to `Files/agent365/agents.csv`. |
 | `Copilot_ProductFeedback_Ingester` | `user_feedback` | Export product feedback from the Microsoft 365 admin center (**Health** > **Product feedback**) to `Files/product_feedback/`. |
 | `Copilot_M365_Activity_Ingester` | `m365_activity_daily` | Fill in the first cell. Only Analytics Hub reads this table; the templates don't. |
 | `Copilot_Defender_Ingester` | `defender_*` (7 tables) | Needs Defender for Endpoint P2 or Defender for Cloud Apps, and `ThreatHunting.Read.All` (plus `CloudApp-Discovery.Read.All` for Cloud Discovery). Fill in the first cell. Edit `Files/defender/ai_watchlist.csv` to change the AI tools it looks for. Probes you aren't licensed for are skipped. |
-| `Copilot_Resource_Graph_Ingester` | `arg_agent_config`, `arg_environments`, `arg_agent_flows`, `arg_foundry_resources`, `arg_status` | Agent configuration (sign-in, quarantine, connectors, web search, sharing) and Foundry accounts and projects, from Azure Resource Graph. Fill in the first cell. Run it after the Agent 365 notebook, so agents link to their Title ID. The app registration needs the roles in [PERMISSIONS](../../../docs/PERMISSIONS.md#azure-resource-graph). When Resource Graph won't return agents, it reads the newest file the **Analytics Hub - Agent inventory** flow drops in `Files/arg_inventory/`. A refused probe never fails the notebook; `arg_status` says why. |
+| `Copilot_Resource_Graph_Ingester` | `arg_agent_config`, `arg_environments`, `arg_agent_flows`, `arg_foundry_resources`, `arg_status` | Agent configuration (sign-in, quarantine, connectors, web search, sharing) and Foundry accounts and projects, from Azure Resource Graph. Fill in the first cell. Run it after the Agent 365 notebook, so agents link to their Title ID. The app registration needs the roles in [PERMISSIONS](../../docs/PERMISSIONS.md#azure-resource-graph). When Resource Graph won't return agents, it reads the newest file the **Analytics Hub - Agent inventory** flow drops in `Files/arg_inventory/`. A refused probe never fails the notebook; `arg_status` says why. |
 | [Workday org data](workday-org-data/README.md) | `copilot_org_data` | Adds HR columns to the org data. Follow its README. |
 | `AnalyticsHub_Upload_Router` | `analytics_hub_upload_log` | Run it first. It reads any export dropped in `Files/analytics_hub_uploads`, recognises it from its headers, moves it to the folder its notebook reads, and archives it to `_processed`. Set `ENABLED_SOURCES` to the sources you use. The installer sets this up for you. |
 | `AnalyticsHub_Load_Status` | `load_log` | The pipeline's last step, run whatever happened before it. It writes one row per source with its status and, for a failure, the reason in plain words. It fails when a load failed, so the run shows as failed. Run by hand, it does nothing: it needs the pipeline's run ID. |
@@ -61,7 +61,7 @@ Run these before the processor.
 | Setting | Notebook | Change it to |
 |---|---|---|
 | `AGENT_IDENTITY_PATTERNS` | Processor | Add your own service accounts. Accounts that match, such as Security Copilot agents, aren't counted as people. |
-| `AGENT_TYPE_OVERRIDES_TABLE` | Processor | The optional Lakehouse table (columns `key`, `Agent_Type`) that corrects an agent's type. Default `agent_type_overrides`; skipped when the table doesn't exist. See [agent type and publisher](../../../docs/DATA-DICTIONARY.md#agent-type-and-publisher). |
+| `AGENT_TYPE_OVERRIDES_TABLE` | Processor | The optional Lakehouse table (columns `key`, `Agent_Type`) that corrects an agent's type. Default `agent_type_overrides`; skipped when the table doesn't exist. See [agent type and publisher](../../docs/DATA-DICTIONARY.md#agent-type-and-publisher). |
 | `INCLUDE_RAW_PASSTHROUGH` | Processor, registry ingester | `True` to keep the raw payloads. They can hold names, file names and URLs, so review privacy first. Then run the processor once with `WRITE_MODE = 'overwrite'`. |
 | `MAX_CONCURRENT_QUERIES`, `CHUNK_HOURS` | Audit ingester | Lower them if audit windows fail on a large tenant. See [A large tenant](#a-large-tenant). |
 | `WINDOW_RETRIES`, `MIN_CHUNK_HOURS` | Audit ingester | How often a failing audit window is resent (default `3`), and the smallest size it is split down to (default `1` hour). |

@@ -12,7 +12,7 @@ import notebook_source
 
 ROOT = notebook_source.ROOT
 NOTEBOOK = "credit-consumption/Ingest_Azure_AI.ipynb"
-JOBS_COLLECTOR = ROOT / "2. Azure" / "jobs" / "valuelens_jobs" / "collect" / "azure_ai.py"
+JOBS_COLLECTOR = ROOT / "azure" / "jobs" / "valuelens_jobs" / "collect" / "azure_ai.py"
 SAMPLES = ROOT / "samples" / "consumption"
 SHARED_START = "# --- Shared with the Fabric notebook Ingest_Azure_AI.ipynb (section 4); keep identical. ---\n"
 SHARED_END = "# --- End of shared block. ---\n"

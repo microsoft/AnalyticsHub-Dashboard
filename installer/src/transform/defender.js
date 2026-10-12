@@ -3,7 +3,7 @@
  * The Defender (shadow AI and agent risk) tables and measures. The installer adds them to the
  * ValueLens model at deploy time on Fabric and Azure, so the template stays as it is. When the
  * module is off, or before the first load, the tables are there but empty, so queries never fail.
- * Column lists mirror `shared/python/valuelens_core/defender.py` (COLUMNS); a test keeps them in step.
+ * Column lists mirror `core/valuelens_core/defender.py` (COLUMNS); a test keeps them in step.
  */
 import { createHash } from 'node:crypto';
 

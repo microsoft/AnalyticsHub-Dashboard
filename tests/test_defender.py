@@ -55,7 +55,7 @@ class NotebookParity(unittest.TestCase):
         upd = _updater()
         notebook = json.loads((NOTEBOOKS / NOTEBOOK).read_text(encoding="utf-8"))
         cell = notebook["cells"][upd.shared_cell_index(notebook)]
-        wanted = upd.embedded_source((ROOT / "shared" / "python" / "valuelens_core" / "defender.py")
+        wanted = upd.embedded_source((ROOT / "core" / "valuelens_core" / "defender.py")
                                      .read_text(encoding="utf-8"))
         self.assertEqual("".join(cell["source"]), wanted,
                          "Run python scripts/Update-Defender-Notebook.py after editing defender.py.")
@@ -69,7 +69,7 @@ class NotebookParity(unittest.TestCase):
 
     def test_installer_model_reads_the_tables_and_columns_the_core_writes(self):
         import re
-        js = (ROOT / "1. Fabric" / "installer" / "src" / "transform" / "defender.js").read_text(encoding="utf-8")
+        js = (ROOT / "installer" / "src" / "transform" / "defender.js").read_text(encoding="utf-8")
         found = {}
         for source, cols in re.findall(r"source: '(\w+)',\s*\n\s*description: [^\n]*\n\s*columns: \[(.*)\],\n", js):
             found[source] = re.findall(r"\['(\w+)', '(\w+)'\]", cols)

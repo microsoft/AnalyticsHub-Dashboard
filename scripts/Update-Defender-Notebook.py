@@ -1,4 +1,4 @@
-"""Copy shared/python/valuelens_core/defender.py into Copilot_Defender_Ingester.ipynb.
+"""Copy core/valuelens_core/defender.py into Copilot_Defender_Ingester.ipynb.
 
 The notebook runs on its own in Fabric, so it carries the shared Defender logic in one cell.
 Edit the module, then run this script; tests/test_defender.py fails while the two differ.
@@ -13,9 +13,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE = ROOT / "shared" / "python" / "valuelens_core" / "defender.py"
-NOTEBOOK = ROOT / "1. Fabric" / "Manual setup" / "notebooks" / "Copilot_Defender_Ingester.ipynb"
-MARKER = "# Shared Defender logic, copied from shared/python/valuelens_core/defender.py"
+MODULE = ROOT / "core" / "valuelens_core" / "defender.py"
+NOTEBOOK = ROOT / "fabric" / "notebooks" / "Copilot_Defender_Ingester.ipynb"
+MARKER = "# Shared Defender logic, copied from core/valuelens_core/defender.py"
 HEADER = [
     MARKER,
     "# by scripts/Update-Defender-Notebook.py. Edit the module and re-run the script, not this cell.",

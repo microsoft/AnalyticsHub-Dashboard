@@ -13,7 +13,7 @@ What decision or deployment task is difficult today? Do not include tenant data.
 ### Affected deployment paths
 
 - [ ] 1. Fabric
-- [ ] 1. Fabric/Fabric App (preview)
+- [ ] app (preview)
 - [ ] 2. Azure (preview)
 - [ ] 3. Power Automate + Dataverse (preview)
 - [ ] 4. SharePoint

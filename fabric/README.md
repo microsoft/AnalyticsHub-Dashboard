@@ -1,4 +1,4 @@
-# 1. Fabric
+# Fabric
 
 The recommended path. One installer sets everything up in your tenant and gives you the dashboard
 as an app in Fabric, called **Analytics Hub**. You don't need a terminal or Power BI Desktop.
@@ -32,7 +32,7 @@ Someone in your organisation also needs to:
   *Service principals can call Fabric public APIs*, *Semantic Model Execute Queries REST API* and
   *Fabric App items*.
 
-The full list of roles is in the [installer README](installer/README.md#before-you-start). For
+The full list of roles is in the [installer README](../installer/README.md#before-you-start). For
 everything on one page, with links to Microsoft Learn, see [Prerequisites](../docs/PREREQUISITES.md).
 
 Read the [disclaimer](../README.md#disclaimer) too: these aren't the official Copilot reports, and
@@ -50,7 +50,7 @@ you're responsible for the data once it's in your workspace.
 4. Choose **Set up Analytics Hub** and sign in with your work account.
 5. Answer the questions. Under **Data sources**, choose the data you want. Then **Change the
    advanced settings?** **No** takes the defaults, which suit most organisations: see
-   [Advanced settings](installer/README.md#advanced-settings). **Back** takes you to the previous
+   [Advanced settings](../installer/README.md#advanced-settings). **Back** takes you to the previous
    question, with your answer filled in.
 6. Check the plan and approve it. Nothing is created until you do.
 7. Wait for it to finish. It sets everything up, loads the first data and gives you a link to the
@@ -77,10 +77,10 @@ installer under **What to collect**. Each one has a few steps of its own.
 
 | Extra | What it shows | Where the data comes from |
 |---|---|---|
-| [Credit consumption](installer/README.md#credit-consumption) | Credits used and what they cost across Copilot Studio, Copilot Cowork and Azure AI | Copilot Studio credits from a daily flow on the Power Platform licensing API (exports from the Power Platform admin center are optional), Cowork credits from a Viva Insights query through a Dataflow (or its CSV export), and Azure AI and pay-as-you-go costs from Azure |
-| [Agent Evaluator](installer/README.md#agent-evaluator) | How well your Copilot Studio agents work: how conversations end, topics, knowledge, errors and user feedback | Copilot Studio conversation transcripts in Dataverse |
-| [Microsoft 365 activity](installer/README.md#microsoft-365-activity) *(on by default)* | How people work across Teams, Outlook, SharePoint, OneDrive and the Office apps | Microsoft 365 usage reports |
-| [Defender (shadow AI and agent risk)](installer/README.md#defender-shadow-ai-and-agent-risk) | AI tools other than Copilot in use on your devices and network, and agents that answer without sign-in | Microsoft Defender advanced hunting and Cloud Discovery |
+| [Credit consumption](../installer/README.md#credit-consumption) | Credits used and what they cost across Copilot Studio, Copilot Cowork and Azure AI | Copilot Studio credits from a daily flow on the Power Platform licensing API (exports from the Power Platform admin center are optional), Cowork credits from a Viva Insights query through a Dataflow (or its CSV export), and Azure AI and pay-as-you-go costs from Azure |
+| [Agent Evaluator](../installer/README.md#agent-evaluator) | How well your Copilot Studio agents work: how conversations end, topics, knowledge, errors and user feedback | Copilot Studio conversation transcripts in Dataverse |
+| [Microsoft 365 activity](../installer/README.md#microsoft-365-activity) *(on by default)* | How people work across Teams, Outlook, SharePoint, OneDrive and the Office apps | Microsoft 365 usage reports |
+| [Defender (shadow AI and agent risk)](../installer/README.md#defender-shadow-ai-and-agent-risk) | AI tools other than Copilot in use on your devices and network, and agents that answer without sign-in | Microsoft Defender advanced hunting and Cloud Discovery |
 
 ## Prefer Power BI Desktop?
 
@@ -89,16 +89,16 @@ in your workspace.
 
 To use a template instead, choose not to deploy the model in the installer's **Power BI** step.
 When it finishes, it shows the values to enter in
-[`ValueLens - Fabric.pbit`](Manual%20setup/ValueLens%20-%20Fabric.pbit) (SQL endpoint) or
-[`ValueLens - Fabric OneLake.pbit`](Manual%20setup/ValueLens%20-%20Fabric%20OneLake.pbit) (OneLake).
+[`ValueLens - Fabric.pbit`](ValueLens%20-%20Fabric.pbit) (SQL endpoint) or
+[`ValueLens - Fabric OneLake.pbit`](ValueLens%20-%20Fabric%20OneLake.pbit) (OneLake).
 Publish the report, then
-[add a refresh step to the pipeline](Manual%20setup/pipelines/README.md#refresh-power-bi-from-the-pipeline).
+[add a refresh step to the pipeline](pipelines/README.md#refresh-power-bi-from-the-pipeline).
 
 ## Set it up by hand
 
-If you can't use the installer, follow [Manual setup](Manual%20setup/README.md). It uses the same
+If you can't use the installer, follow [Manual setup](MANUAL-SETUP.md). It uses the same
 files the installer does.
 
 ## Problems
 
-See [Troubleshooting](installer/README.md#troubleshooting).
+See [Troubleshooting](../installer/README.md#troubleshooting).

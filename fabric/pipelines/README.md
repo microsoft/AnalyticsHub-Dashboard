@@ -54,10 +54,10 @@ placeholder. Import the notebook first.
 |---|---|---|---|
 | `EnableOrgDataPull` (on by default) | `Copilot_Org_Data_Direct_Ingester` | `REPLACE_WITH_ORG_DATA_NOTEBOOK_ID` | Nothing. Set it to `false` if you load org data yourself. |
 | `EnableM365Activity` | `Copilot_M365_Activity_Ingester` | `REPLACE_WITH_M365_ACTIVITY_NOTEBOOK_ID` | Turn off concealed names in the Microsoft 365 admin center (**Settings** > **Org settings** > **Services** > **Reports**). |
-| `EnableAgent365` | `Copilot_Agent365_Registry_Ingester` | `REPLACE_WITH_AGENT365_REGISTRY_NOTEBOOK_ID` | Needs an Agent 365 licence and the [extra Graph permissions](../../../docs/PERMISSIONS.md). |
+| `EnableAgent365` | `Copilot_Agent365_Registry_Ingester` | `REPLACE_WITH_AGENT365_REGISTRY_NOTEBOOK_ID` | Needs an Agent 365 licence and the [extra Graph permissions](../../docs/PERMISSIONS.md). |
 | `EnableAgent365` | `Copilot_Agent365_Lander` | `REPLACE_WITH_AGENT365_LANDER_NOTEBOOK_ID` | Runs only if the registry ingester fails. Put the admin center export at `Files/agent365/agents.csv`. |
 | `EnableProductFeedback` | `Copilot_ProductFeedback_Ingester` | `REPLACE_WITH_PRODUCT_FEEDBACK_NOTEBOOK_ID` | Put the export in `Files/product_feedback/`, by hand or with the [flow](../flows/). |
-| `EnableDefender` | `Copilot_Defender_Ingester` | `REPLACE_WITH_DEFENDER_NOTEBOOK_ID` | Grant `ThreatHunting.Read.All` and `CloudApp-Discovery.Read.All` ([permissions](../../../docs/PERMISSIONS.md)). Needs Defender for Endpoint P2 or Defender for Cloud Apps; a probe you aren't licensed for is skipped. Edit the AI watchlist at `Files/defender/ai_watchlist.csv` after the first run. |
+| `EnableDefender` | `Copilot_Defender_Ingester` | `REPLACE_WITH_DEFENDER_NOTEBOOK_ID` | Grant `ThreatHunting.Read.All` and `CloudApp-Discovery.Read.All` ([permissions](../../docs/PERMISSIONS.md)). Needs Defender for Endpoint P2 or Defender for Cloud Apps; a probe you aren't licensed for is skipped. Edit the AI watchlist at `Files/defender/ai_watchlist.csv` after the first run. |
 | `EnableDataverse` | `Copilot_Agent_Transcript_Parser`, from [Add Agent Evaluator](../Add%20Agent%20Evaluator/) | `REPLACE_WITH_TRANSCRIPT_PARSER_NOTEBOOK_ID` | Add the app registration as an application user in Dataverse. |
 | `EnableConsumption` | Retired | `REPLACE_WITH_CREDIT_CONSUMPTION_NOTEBOOK_ID` | Leave it `false`. Use [Add Credit Consumption](../Add%20Credit%20Consumption/) instead. |
 

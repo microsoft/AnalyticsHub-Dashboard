@@ -2,7 +2,7 @@
 
 The Azure-hosted Analytics Hub's data jobs: one container image, run on a schedule as an Azure
 Container Apps job (`infra/modules/containerapps.bicep`). It replaces the Fabric notebooks and
-pipeline. The processing logic is the shared DuckDB core in `shared/python/valuelens_core`, kept
+pipeline. The processing logic is the shared DuckDB core in `core/valuelens_core`, kept
 in step with the Fabric notebooks by the golden tests in `tests/`. No Spark or JVM is needed.
 
 ## Steps
@@ -22,7 +22,7 @@ in step with the Fabric notebooks by the golden tests in `tests/`. No Spark or J
 
 The other commands are:
 
-- `migrate` applies `2. Azure/sql/migrations/V*.sql` and grants the app's reader identity `db_datareader`. The installer runs it on every deploy.
+- `migrate` applies `azure/sql/migrations/V*.sql` and grants the app's reader identity `db_datareader`. The installer runs it on every deploy.
 - `process --data-dir <dir>` runs only the processing step, on local files.
 
 Any failure is logged and the job exits with code 1, so Container Apps records the run as failed.
@@ -103,7 +103,7 @@ state is ignored. Where the folder lives depends on the networking mode:
 | `azure_ai_spend`, `azure_ai_tokens`, `copilot_payg_spend`, `azure_deployment_health`, `azure_solution_spend`, `azure_billing_reconciliation` | azure_ai | snapshot |
 | `arg_agent_config`, `arg_environments`, `arg_agent_flows`, `arg_foundry_resources`, `arg_status` | resource_graph | snapshot |
 
-`2. Azure/sql/migrations/V002__consumption.sql` and `V004__resource_graph.sql` create every table up front, so a refresh before
+`azure/sql/migrations/V002__consumption.sql` and `V004__resource_graph.sql` create every table up front, so a refresh before
 the first collection finds empty tables. A table whose source has never run is skipped at
 publish. The consumption tables never trigger the full refresh of the incremental Copilot model.
 
@@ -128,7 +128,7 @@ Optional and off by default. It mirrors `Copilot_Defender_Ingester.ipynb` on Fab
 | `defender_shadow_ai_daily`, `defender_shadow_ai_totals_daily` | by `Day` |
 | `defender_ai_watchlist`, `defender_ai_installed`, `defender_cloud_discovery_ai`, `defender_ai_agents`, `defender_status` | snapshot |
 
-`2. Azure/sql/migrations/V003__defender.sql` creates them up front, so the model loads empty tables
+`azure/sql/migrations/V003__defender.sql` creates them up front, so the model loads empty tables
 until the first run.
 
 ## Settings
@@ -174,8 +174,8 @@ changes its connection parameters.
 ## Running locally
 
 ```powershell
-pip install -r "2. Azure/jobs/requirements.txt" -e shared/python
-$env:PYTHONPATH = "2. Azure/jobs"
+pip install -r "azure/jobs/requirements.txt" -e core
+$env:PYTHONPATH = "azure/jobs"
 # Offline: a folder holding raw/copilot_interactions_parsed, raw/copilot_licensed_users, raw/agents_365
 python -m valuelens_jobs process --data-dir .\data
 python -m pytest tests/test_azure_jobs.py -q
@@ -184,7 +184,7 @@ python -m pytest tests/test_azure_jobs.py -q
 To build the image, run `docker build` from the repo root, so that the shared core and the migrations are in the build context:
 
 ```powershell
-docker build -f "2. Azure/jobs/Dockerfile" -t valuelens-jobs:dev .
+docker build -f "azure/jobs/Dockerfile" -t valuelens-jobs:dev .
 ```
 
 The `azure-images` workflow builds the image on pull requests. On `installer-v*` tags it publishes `ghcr.io/microsoft/valuelens-jobs:<installer version>`.

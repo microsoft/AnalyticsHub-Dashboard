@@ -368,7 +368,7 @@ Reconciliation** and Foundry solution spend pages. They're **best-effort**: the 
 deployment or metric that fails is logged as a `WARNING` and skipped. If a table's source fails
 entirely, that table is left as it was. The app registration's Reader, Cost Management Reader and
 Monitoring Reader roles on the subscription are enough. The column names, order and types match
-the [sample data](../../../samples/consumption/).
+the [sample data](../../samples/consumption/).
 
 ### `azure_deployment_health`
 

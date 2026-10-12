@@ -37,7 +37,7 @@ except ImportError:
     sys.exit("pip install pandas deltalake requests")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SAMPLE = os.path.join(HERE, "..", "..", "..", "samples", "consumption")
+SAMPLE = os.path.join(HERE, "..", "..", "samples", "consumption")
 
 # Written in full every run. Nothing outside this set is created or removed.
 OURS = ["viva_credits_weekly", "viva_spending_policy", "studio_tenant_daily",

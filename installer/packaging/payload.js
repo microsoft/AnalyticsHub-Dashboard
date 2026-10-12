@@ -5,8 +5,8 @@
  *   node/node.exe            Node.js, which runs everything below
  *   f/installer/             the installer, with its production dependencies
  *   f/<templates>            the notebooks, pipeline and semantic model templates it deploys
- *   f/Fabric App/            the app, already built, with only the tools that deploy it
- * `f` stands in for `1. Fabric`, which keeps paths short when unpacked under the user's profile.
+ *   f/app/                   the app, already built, with only the tools that deploy it
+ * `f` stands in for the repo root, which keeps paths short when unpacked under the user's profile.
  */
 import { posix } from 'node:path';
 import { NOTEBOOKS, NOTEBOOKS_DIR } from '../src/catalog.js';
@@ -15,7 +15,7 @@ import { PREBUILT_STATIC } from '../src/steps/app.js';
 import { AGENT_EVALUATOR_TEMPLATE, CONSUMPTION_TEMPLATE, MODEL_TEMPLATE } from '../src/transform/model.js';
 
 export const EXE_NAME = 'AnalyticsHubInstaller.exe';
-/** The `1. Fabric` folder inside the payload. */
+/** The source folder (the repo root) inside the payload. */
 export const SOURCE_ROOT = 'f';
 /** The app folder inside the payload. */
 export const APP_PAYLOAD_DIR = posix.join(SOURCE_ROOT, APP_DIR);
@@ -38,7 +38,7 @@ export { MIRROR_REGISTRY, PUBLIC_REGISTRY, publicRegistry } from './registry.js'
 const slash = (p) => p.replaceAll('\\', '/');
 
 /**
- * The files under `1. Fabric` that `loadSources` reads, relative to it.
+ * The files under the source folder that `loadSources` reads, relative to it.
  * @returns {string[]}
  */
 export function sourceFiles() {

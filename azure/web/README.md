@@ -16,7 +16,7 @@ Security headers, including a Teams-compatible CSP `frame-ancestors`, are applie
 ## Development
 
 ```powershell
-cd "2. Azure/web"
+cd "azure/web"
 npm.cmd install
 npm.cmd test
 ```

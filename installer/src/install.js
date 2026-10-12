@@ -754,7 +754,7 @@ export async function summary(ctx) {
   ui.info('1. Open a template in Power BI Desktop with the values above, then publish it to this workspace.');
   ui.info('2. Add a semantic model refresh to the end of the pipeline so the report updates after each load,');
   ui.info('   or re-run the installer and let it deploy the semantic model, which adds one for you.');
-  ui.note('   See "Refresh Power BI from the pipeline" in 1. Fabric/Manual setup/pipelines/README.md.');
+  ui.note('   See "Refresh Power BI from the pipeline" in fabric/pipelines/README.md.');
   if (secretMode(config) === 'notebook') {
     ui.info('3. The client secret is plain text in the notebooks. Move it to Key Vault before you share the');
     ui.info(`   workspace, or rotate it with "${commandLine('rotate-secret')}".`);

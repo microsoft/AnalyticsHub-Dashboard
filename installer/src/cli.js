@@ -47,7 +47,7 @@ Options:
                        the command there. Only this computer can reach the page.
   --no-open            With --ui: print the link instead of opening the browser
   --config <file>      Install record (default ./${DEFAULT_CONFIG_FILE})
-  --source <dir>       The "1. Fabric" folder to deploy from (default: this checkout)
+  --source <dir>       The repo folder to deploy from (default: this checkout)
   --tenant <id>        Tenant ID or domain to sign in to
   --target <target>    Where Analytics Hub runs: fabric (default) or azure
   --device-code        Sign in with a code on another device instead of a browser

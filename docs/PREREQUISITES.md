@@ -6,19 +6,19 @@ What you need before you install Analytics Hub, on one page. For the detail behi
 
 ## Platform
 
-- **Windows 10 or 11** (64-bit) to run the installer, or [Node.js](../1.%20Fabric/installer/README.md#without-the-exe).
+- **Windows 10 or 11** (64-bit) to run the installer, or [Node.js](../installer/README.md#without-the-exe).
 - **Fabric:** a [Fabric capacity](https://learn.microsoft.com/fabric/enterprise/licenses#capacity), F2 or
   larger, or a [trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial). Use **F64 or larger**
-  for a tenant with more than 10,000 people ([A large tenant](../1.%20Fabric/installer/README.md#a-large-tenant)).
+  for a tenant with more than 10,000 people ([A large tenant](../installer/README.md#a-large-tenant)).
 - **Fabric:** somewhere to keep the app's secret: [Contributor](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#contributor)
   on a subscription or resource group for a new [Key Vault](https://learn.microsoft.com/azure/key-vault/general/rbac-guide),
-  or access to an existing one ([Where the secret goes](../1.%20Fabric/installer/README.md#where-the-secret-goes)).
+  or access to an existing one ([Where the secret goes](../installer/README.md#where-the-secret-goes)).
 - **Azure (preview), instead of Fabric:** [Contributor](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#contributor)
   plus [User Access Administrator](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#user-access-administrator),
   or [Owner](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#owner), on the
   subscription or resource group, and [Power BI Pro or PPU](https://learn.microsoft.com/power-bi/fundamentals/service-features-license-type).
   Agent 365, product feedback, Copilot Studio transcripts, GitHub Copilot credits and the Cowork credits
-  Dataflow aren't on Azure yet ([Azure target](../1.%20Fabric/installer/README.md#azure-target-preview)).
+  Dataflow aren't on Azure yet ([Azure target](../installer/README.md#azure-target-preview)).
 - **Fabric tenant settings** turned on:
   [*Service principals can call Fabric public APIs*](https://learn.microsoft.com/fabric/admin/service-admin-portal-developer#service-principals-can-call-fabric-public-apis),
   [*Semantic Model Execute Queries REST API*](https://learn.microsoft.com/fabric/admin/service-admin-portal-integration#semantic-model-execute-queries-rest-api)
@@ -28,7 +28,7 @@ What you need before you install Analytics Hub, on one page. For the detail behi
 
 - Permission to [register an app](https://learn.microsoft.com/entra/identity-platform/quickstart-register-app)
   in Entra. Users can by default ([who can](https://learn.microsoft.com/entra/identity/role-based-access-control/delegate-app-roles#restrict-who-can-create-applications));
-  otherwise an admin registers it with the [admin pack](../1.%20Fabric/installer/README.md#if-you-cant-register-apps).
+  otherwise an admin registers it with the [admin pack](../installer/README.md#if-you-cant-register-apps).
 - A [Global Administrator](https://learn.microsoft.com/entra/identity/role-based-access-control/permissions-reference#global-administrator)
   or [Privileged Role Administrator](https://learn.microsoft.com/entra/identity/role-based-access-control/permissions-reference#privileged-role-administrator)
   to [grant admin consent](https://learn.microsoft.com/entra/identity/enterprise-apps/grant-admin-consent)
@@ -83,12 +83,12 @@ What you need before you install Analytics Hub, on one page. For the detail behi
   for the app ([Azure Resource Graph](https://learn.microsoft.com/azure/governance/resource-graph/overview)).
 - **Product feedback:** a Global Administrator or [Reports Reader](https://learn.microsoft.com/entra/identity/role-based-access-control/permissions-reference#reports-reader)
   exports it from the Microsoft 365 admin center (**Health** > **Product feedback**); a
-  [Power Automate flow](../1.%20Fabric/installer/README.md#power-automate-flows) or an upload lands it.
+  [Power Automate flow](../installer/README.md#power-automate-flows) or an upload lands it.
 - **GitHub Copilot credits:** a GitHub [personal access token](https://docs.github.com/authentication/keeping-your-account-and-data-secure/managing-your-personal-access-tokens)
   with `manage_billing:enterprise`, from an enterprise admin or billing manager, for the
   [billing usage API](https://docs.github.com/enterprise-cloud@latest/rest/billing/usage). Or export the AI usage
   report from [GitHub Billing](https://docs.github.com/billing/reference/billing-reports). Not in the installer: see
-  [Add Credit Consumption](../1.%20Fabric/Manual%20setup/Add%20Credit%20Consumption/README.md).
+  [Add Credit Consumption](../fabric/Add%20Credit%20Consumption/README.md).
 
 ## Viewers
 

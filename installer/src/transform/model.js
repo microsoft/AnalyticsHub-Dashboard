@@ -12,9 +12,9 @@ import { addCopilotPaygSpend } from './payg.js';
 import { addFoundryResources, addResourceGraph } from './resource-graph.js';
 import { readZipEntry } from './zip.js';
 
-/** The ValueLens report, relative to `1. Fabric`. */
+/** The ValueLens report, relative to the source folder. */
 export const MODEL_TEMPLATE = `${SETUP_DIR}/ValueLens - Fabric.pbit`;
-/** The credit consumption report from Consumption Central, relative to `1. Fabric`. */
+/** The credit consumption report from Consumption Central, relative to the source folder. */
 export const CONSUMPTION_TEMPLATE = `${SETUP_DIR}/Add Credit Consumption/Consumption Central - Fabric.pbit`;
 /** The Agent Evaluator report, vendored from microsoft/AgentEvaluator-for-Copilot-Studio. */
 export const AGENT_EVALUATOR_TEMPLATE = `${SETUP_DIR}/Add Agent Evaluator/Agent Evaluator.pbit`;

@@ -16,12 +16,12 @@ import tempfile
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "shared" / "python"))
+sys.path.insert(0, str(ROOT / "core"))
 sys.path.insert(0, str(ROOT / "tests"))
 
 import valuelens_golden as vg  # noqa: E402
 
-NOTEBOOK = ROOT / "1. Fabric" / "Manual setup" / "notebooks" / "Copilot_Audit_Log_Direct_Ingester.ipynb"
+NOTEBOOK = ROOT / "fabric" / "notebooks" / "Copilot_Audit_Log_Direct_Ingester.ipynb"
 RECORDS = vg.INPUTS / "audit_records.json"
 EXPECTED = vg.EXPECTED / "audit_flatten.json"
 HELPER_CELL, FLATTEN_CELLS = 6, (14, 16, 18)

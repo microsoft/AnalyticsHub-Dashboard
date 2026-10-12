@@ -1,7 +1,7 @@
-# 2. Azure (preview)
+# Azure (preview)
 
 Analytics Hub running in **your own Azure subscription**, without Microsoft Fabric. It has the
-same data, the same ValueLens Model and measures, and the same app pages as `1. Fabric`.
+same data, the same ValueLens Model and measures, and the same app pages as [Fabric](../fabric/README.md).
 The design and the roadmap are in [`docs/plans/AZURE-HOSTED-PLAN.md`](../docs/plans/AZURE-HOSTED-PLAN.md).
 
 > **Status: preview.** The installer deploys it end to end: Azure SQL, the Container Apps jobs, the Power BI
@@ -13,11 +13,11 @@ The design and the roadmap are in [`docs/plans/AZURE-HOSTED-PLAN.md`](../docs/pl
 ## Install it
 
 1. [Download the installer](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/releases/latest/download/AnalyticsHubInstaller.exe)
-   (0.3.0 or later) and open it, or run `npx valuelens-install --ui` from `1. Fabric/installer` after
-   `npm install` (see [Without the exe](../1.%20Fabric/installer/README.md#without-the-exe)).
+   (0.3.0 or later) and open it, or run `npx valuelens-install --ui` from `installer` after
+   `npm install` (see [Without the exe](../installer/README.md#without-the-exe)).
 2. Pick **Your Azure subscription** and tick the data to collect. **Change the advanced settings?**
    **No** takes the defaults that suit most organisations: see
-   [Advanced settings](../1.%20Fabric/installer/README.md#advanced-settings). With **Yes** you can also
+   [Advanced settings](../installer/README.md#advanced-settings). With **Yes** you can also
    choose which data the dashboard shows:
    - **Your tenant's data** (the default) collects from the audit log and Microsoft Graph.
    - **Demo mode (sample data)** publishes a synthetic sample instead, with its dates moved forward to end
@@ -44,7 +44,7 @@ catalog: see [teams](teams/README.md#give-it-to-everyone). Permissions are in
 [Viewing Analytics Hub](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
 
 What you need, networking, regions and the commands are in the installer's
-[Azure target section](../1.%20Fabric/installer/README.md#azure-target-preview). The images come from
+[Azure target section](../installer/README.md#azure-target-preview). The images come from
 `ghcr.io/microsoft/valuelens-jobs` and `valuelens-web`, tagged with the installer's version. For every
 prerequisite on one page, with links to Microsoft Learn, see [Prerequisites](../docs/PREREQUISITES.md).
 
@@ -86,7 +86,7 @@ Not on Azure yet: GitHub Copilot consumption, the dated Agent Daily table, Viva 
 | `web/` | The `valuelens-web` image: the Node service that serves the app's `dist` plus `/api/query`, `/api/settings`, `/api/version` and `/api/health` |
 | `teams/` | The Teams tab manifest template (SSO) |
 
-The processing logic lives in [`shared/python/valuelens_core`](../shared/python/valuelens_core). It's a DuckDB
+The processing logic lives in [`core/valuelens_core`](../core/valuelens_core). It's a DuckDB
 port of `Copilot_Audit_Log_Processor`, held to the Fabric notebook row for row by
 `tests/test_valuelens_core_parity.py`. **The notebook is still the source of truth**: change both together,
 then run `python tests/valuelens_golden.py --regenerate` (this needs pyspark and Java) and `--check`.
@@ -95,7 +95,7 @@ then run `python tests/valuelens_golden.py --regenerate` (this needs pyspark and
 
 ```powershell
 pip install duckdb
-$env:PYTHONPATH = "shared\python;2. Azure\jobs"
+$env:PYTHONPATH = "core;azure\jobs"
 # raw\copilot_interactions_parsed\*.parquet (and optionally copilot_licensed_users, agents_365)
 python -m valuelens_jobs process --data-dir .\data
 # -> data\curated\copilot_interactions_curated\part-0.parquet
@@ -106,8 +106,8 @@ Or run it on single files: `python -m valuelens_core --interactions in.csv --out
 ## Validate the templates
 
 ```powershell
-az bicep build --file "2. Azure/infra/main.bicep" --stdout > $null
-az deployment group what-if -g <rg> --template-file "2. Azure/infra/main.bicep" --parameters "2. Azure/infra/main.bicepparam"
+az bicep build --file "azure/infra/main.bicep" --stdout > $null
+az deployment group what-if -g <rg> --template-file "azure/infra/main.bicep" --parameters "azure/infra/main.bicepparam"
 ```
 
 The installer runs the same what-if for its plan screen, then deploys in incremental mode. It passes the

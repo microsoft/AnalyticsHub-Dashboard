@@ -5,7 +5,7 @@ deploys it for you. Use this folder only to deploy it by hand or to change it.
 
 The app keeps no copy of your data. Each page queries the semantic model live, as the person
 viewing it, so row-level security applies. How each figure is worked out is in the
-[methodology](../../docs/METHODOLOGY.md).
+[methodology](../docs/METHODOLOGY.md).
 
 ## Deploy it by hand
 
@@ -16,7 +16,7 @@ You need:
 - The tenant settings **Fabric Apps (preview)** and **Semantic Model Execute Queries REST API** turned on.
 - [Node.js 22.13 or later](https://nodejs.org/).
 
-From this folder (`1. Fabric/Fabric App`):
+From this folder (`app`):
 
 1. Run `npm install`.
 2. In [`fabric.yaml`](fabric.yaml), replace `workspaceId` and `itemId` under `vl` with your

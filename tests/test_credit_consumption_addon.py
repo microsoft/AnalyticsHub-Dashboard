@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[1]
 ADDON = "Add Credit Consumption"
 # Folder that holds each path's add-on folder.
 PBITS = {
-    "1. Fabric/Manual setup": "Consumption Central - Fabric.pbit",
+    "fabric": "Consumption Central - Fabric.pbit",
 }
 LINK = re.compile(r"\]\(([^)\s]+)\)")
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@([A-Za-z0-9.-]+\.[A-Za-z]{2,})")
@@ -49,8 +49,8 @@ class CreditConsumptionAddon(unittest.TestCase):
                     self.assertNotIn("Text.Proper(Text.Combine(List.FirstN(ws, i)", text, (name, member))
 
     def test_fabric_sample_seeder_points_at_shared_sample(self):
-        source = (ROOT / "1. Fabric" / "Manual setup" / ADDON / "seed_sample_data.py").read_text(encoding="utf-8")
-        self.assertIn('"..", "..", "..", "samples", "consumption"', source)
+        source = (ROOT / "fabric" / ADDON / "seed_sample_data.py").read_text(encoding="utf-8")
+        self.assertIn('"..", "..", "samples", "consumption"', source)
         self.assertTrue((ROOT / "samples" / "consumption" / "StudioTenantDaily.csv").is_file())
 
     def test_relative_links_resolve(self):

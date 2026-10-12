@@ -25,11 +25,11 @@ services:
 
 test('packaging: ships every template the installer reads, and they exist', () => {
   const files = sourceFiles();
-  assert.ok(files.includes('Manual setup/pipelines/CopilotAdoptionPipeline.DataPipeline/pipeline-content.json'));
-  assert.ok(files.includes('Manual setup/ValueLens - Fabric.pbit'));
-  assert.ok(files.includes('Manual setup/notebooks/Copilot_Audit_Log_Processor.ipynb'));
-  assert.ok(files.some((f) => f.startsWith('Manual setup/notebooks/credit-consumption/')));
-  assert.ok(files.some((f) => f.startsWith('Manual setup/notebooks/agent-evaluator/')));
+  assert.ok(files.includes('fabric/pipelines/CopilotAdoptionPipeline.DataPipeline/pipeline-content.json'));
+  assert.ok(files.includes('fabric/ValueLens - Fabric.pbit'));
+  assert.ok(files.includes('fabric/notebooks/Copilot_Audit_Log_Processor.ipynb'));
+  assert.ok(files.some((f) => f.startsWith('fabric/notebooks/credit-consumption/')));
+  assert.ok(files.some((f) => f.startsWith('fabric/notebooks/agent-evaluator/')));
   assert.ok(files.every((f) => !f.includes('\\')));
   for (const f of files) assert.ok(existsSync(join(DEFAULT_SOURCE_DIR, f)), `${f} is missing`);
 });
@@ -44,7 +44,7 @@ test('packaging: ships only what deploys the built app', () => {
   for (const f of ['src/main.tsx', 'package.json', 'rayfin/rayfin.yml', 'rayfin/.deployments.json', 'rayfin/.env', 'fabric.yaml', '.env.local', 'rayfin/data/sub/x.ts']) {
     assert.ok(!appFile(f), f);
   }
-  assert.equal(APP_PAYLOAD_DIR, 'f/Fabric App');
+  assert.equal(APP_PAYLOAD_DIR, 'f/app');
 });
 
 test('packaging: rayfin.yml deploys the built files without building', () => {
@@ -64,7 +64,7 @@ test('packaging: rayfin.yml without static hosting is refused', () => {
 
 test('packaging: the committed rayfin.yml can be made prebuilt', () => {
   // The working copy is skip-worktree on developer machines, but keeps the same shape.
-  const yml = readFileSync(join(DEFAULT_SOURCE_DIR, 'Fabric App', 'rayfin', 'rayfin.yml'), 'utf8');
+  const yml = readFileSync(join(DEFAULT_SOURCE_DIR, 'app', 'rayfin', 'rayfin.yml'), 'utf8');
   assert.match(prebuiltRayfinYml(yml), /^ {4}folder: public$/m);
 });
 
@@ -91,17 +91,17 @@ test('packaging: file versions take four numbers', () => {
 
 test('packaging: long paths are caught, with a tighter limit for native binaries', () => {
   const ok = 'f/installer/src/cli.js';
-  const long = `f/Fabric App/node_modules/${'x'.repeat(MAX_PAYLOAD_PATH)}`;
-  const addon = `f/Fabric App/node_modules/${'x'.repeat(MAX_NATIVE_PATH)}/a.node`;
-  const deepJs = `f/Fabric App/node_modules/${'x'.repeat(MAX_NATIVE_PATH)}/a.js`;
+  const long = `f/app/node_modules/${'x'.repeat(MAX_PAYLOAD_PATH)}`;
+  const addon = `f/app/node_modules/${'x'.repeat(MAX_NATIVE_PATH)}/a.node`;
+  const deepJs = `f/app/node_modules/${'x'.repeat(MAX_NATIVE_PATH)}/a.js`;
   assert.ok(MAX_NATIVE_PATH < MAX_PAYLOAD_PATH);
   assert.deepEqual(tooLong([ok, long, addon, deepJs]), [long, addon]);
   assert.deepEqual(tooLong([ok, 'node/node.exe'], { max: 10, native: 100 }), [ok]);
 });
 
 test('packaging: source maps in installed packages are left out', () => {
-  for (const f of ['f/Fabric App/node_modules/a/index.js.map', 'f/installer/node_modules/@s/b/build/x.d.ts.map']) assert.ok(prunable(f), f);
-  for (const f of ['f/Fabric App/public/assets/index.js.map', 'f/Fabric App/node_modules/a/index.js', 'f/installer/node_modules/a/map.js', 'f/x.map']) {
+  for (const f of ['f/app/node_modules/a/index.js.map', 'f/installer/node_modules/@s/b/build/x.d.ts.map']) assert.ok(prunable(f), f);
+  for (const f of ['f/app/public/assets/index.js.map', 'f/app/node_modules/a/index.js', 'f/installer/node_modules/a/map.js', 'f/x.map']) {
     assert.ok(!prunable(f), f);
   }
 });

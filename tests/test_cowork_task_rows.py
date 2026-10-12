@@ -10,7 +10,7 @@ from valuelens_core import audit
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "cowork_scheduled_runs.jsonl"
-INGESTER = ROOT / "1. Fabric" / "Manual setup" / "notebooks" / "Copilot_Audit_Log_Direct_Ingester.ipynb"
+INGESTER = ROOT / "fabric" / "notebooks" / "Copilot_Audit_Log_Direct_Ingester.ipynb"
 def fixture_rows() -> list[dict]:
     return [json.loads(line) for line in FIXTURE.read_text(encoding="utf-8").splitlines() if line.strip()]
 

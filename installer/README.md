@@ -1,6 +1,6 @@
 # Analytics Hub installer
 
-Sets up the [Fabric path](../README.md) in your tenant: the app registration and its secret in Key
+Sets up the [Fabric path](../fabric/README.md) in your tenant: the app registration and its secret in Key
 Vault, a workspace and Lakehouse, the notebooks, the pipeline and its schedule, the semantic model
 and the Analytics Hub app. Then it loads the first data and checks it.
 
@@ -19,8 +19,8 @@ and the Analytics Hub app. Then it loads the first data and checks it.
 | For credit consumption: **Owner** or **User Access Administrator** on the subscription | Only if you add [credit consumption](#credit-consumption). |
 | For the Agent Evaluator: **System Administrator** in each Power Platform environment | Only if you add the [Agent Evaluator](#agent-evaluator). |
 
-The Graph permissions are listed in [`/docs/PERMISSIONS.md`](../../docs/PERMISSIONS.md). For every
-prerequisite on one page, optional data sources included, see [`/docs/PREREQUISITES.md`](../../docs/PREREQUISITES.md).
+The Graph permissions are listed in [`/docs/PERMISSIONS.md`](../docs/PERMISSIONS.md). For every
+prerequisite on one page, optional data sources included, see [`/docs/PREREQUISITES.md`](../docs/PREREQUISITES.md).
 
 **Check what you have.** Once you sign in, the home page's **Prerequisites** panel checks the
 list above for you, and says what each one is for and how to get it. It only reads; nothing is
@@ -118,7 +118,7 @@ signed in as you (`--flow-identity app` is Fabric only). With public endpoints t
 storage account's `landing` container and you get **Storage Blob Data Contributor** on it. With private
 networking it writes to a SharePoint folder you name, and the managed identity gets **Sites.Selected** read
 on that site (a SharePoint or Global administrator grants it). See
-[2. Azure](../../2.%20Azure/README.md#credit-consumption). Agent configuration and Foundry from Azure
+[Azure](../azure/README.md#credit-consumption). Agent configuration and Foundry from Azure
 Resource Graph also works on Azure: see [Agent configuration and Foundry](#agent-configuration-and-foundry).
 Re-runs are incremental and use the same
 `valuelens-install.json`, with `target: "azure"` and an `azure` block. The installer tags every Azure
@@ -161,8 +161,8 @@ Under [Advanced settings](#advanced-settings), the wizard asks how the app, jobs
   an unreleased build: `{ "registry": "myacr.azurecr.io/valuelens", "registryResourceId": "<ACR
   resource ID>", "tag": "dev-abc123" }`. With `registryResourceId` set, the managed identity is granted
   AcrPull. Build into your registry from the repo root with
-  `az acr build -r myacr -t valuelens/valuelens-jobs:<tag> -f "2. Azure/jobs/Dockerfile" .` (and the
-  same for `valuelens-web` with `2. Azure/web/Dockerfile`). If the upload fails on long `node_modules`
+  `az acr build -r myacr -t valuelens/valuelens-jobs:<tag> -f "azure/jobs/Dockerfile" .` (and the
+  same for `valuelens-web` with `azure/web/Dockerfile`). If the upload fails on long `node_modules`
   paths, build from a folder that holds only the paths the Dockerfile copies.
 
 If the database migration job fails, setup stops before the first load and prints the
@@ -261,7 +261,7 @@ The [Azure target](#azure-target-preview) asks the same question. Its advanced s
   **ValueLens** report with the group once: open each in the workspace, choose **Share** and add
   it. From then on, sharing is adding people to the group: run `access` (**Manage access** in
   the browser), use **Share** in the app, or open the group in My Groups. Keep viewers off
-  workspace roles. See [Viewing Analytics Hub](../../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
+  workspace roles. See [Viewing Analytics Hub](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
 - **Own reports.** Connect Power BI Desktop to `Analytics Hub Model`, or use **Save a copy** on a
   published report.
 - **Flows and the Cowork Dataflow.** If you chose them, the end of the install lists what to sign
@@ -492,7 +492,7 @@ Vault, not in the notebooks.
 
 If a flow can't be created (no environment, or no maker rights), the installer writes it to a file
 beside your answers in `Documents\Analytics Hub`. Create a cloud flow and paste the file's
-`definition` in. The [Manual setup flows](../Manual%20setup/flows/README.md) describe the feedback
+`definition` in. The [Manual setup flows](../fabric/flows/README.md) describe the feedback
 flow by hand. **Repair or change** updates existing flows and keeps the connections you signed in
 to. If an update adds a connection, the installer turns the flow off and tells you which one to
 sign in to. Dataverse won't update a flow that still has a connection to sign in to, so a flow
@@ -542,7 +542,7 @@ Microsoft 365 admin center, go to **Settings** > **Org settings** > **Services**
 
 ## Credit consumption
 
-Optional. It fills the app's Consumption pages. See [Consumption Central](../Manual%20setup/Add%20Credit%20Consumption/).
+Optional. It fills the app's Consumption pages. See [Consumption Central](../fabric/Add%20Credit%20Consumption/).
 
 The installer reads Azure AI and Copilot pay-as-you-go costs for you. `Ingest_Azure_AI` also fills
 the Azure capacity and health, billing reconciliation and Foundry solution spend pages from ARM,
@@ -597,7 +597,7 @@ the app's **Governance** page, and gives the Agent 365 registry a *No sign-in re
   `Sanctioned`, `Unsanctioned` or `Not reviewed` (the default). Sanctioned tools aren't shadow AI, so
   the page leaves them out.
 - **It's a floor, not a census.** Defender sees only onboarded devices and the tools on the
-  watchlist. See [Methodology](../../docs/METHODOLOGY.md#shadow-ai-what-other-ai-tools-are-in-use).
+  watchlist. See [Methodology](../docs/METHODOLOGY.md#shadow-ai-what-other-ai-tools-are-in-use).
 
 ## Agent configuration and Foundry
 
@@ -637,7 +637,7 @@ and what to read (`argManagementGroup`, `argAgents`, `argFoundry`). Demo mode le
 ## Agent Evaluator
 
 Optional. It fills the app's Agent Evaluation pages from your Copilot Studio conversations. See
-[Agent Evaluator](../Manual%20setup/Add%20Agent%20Evaluator/).
+[Agent Evaluator](../fabric/Add%20Agent%20Evaluator/).
 
 If you aren't a System Administrator in an environment you pick, ask one to:
 
@@ -677,7 +677,7 @@ the endpoint, someone who manages the vault approves it under **Networking** >
 | `Couldn't turn on high concurrency for pipelines` | You need the workspace Admin role to change it. Ask a workspace admin to turn it on, or carry on: the notebooks start their own Spark sessions. See [Load status and reruns](#load-status-and-reruns). |
 | The model refresh fails with `Table '…' is not in database` | The Lakehouse's SQL endpoint hadn't caught up with tables the run had just written. The refresh notebook syncs the endpoint first, so this is rare. Wait a couple of minutes, then choose **Rerun failed loads** or **Refresh the models**. |
 | A run failed and you want to know which source | Its cards say. Or query `dbo.load_log` in the Lakehouse for the run: each row has the source, its status and the reason. |
-| Copilot interactions fails with `audit window(s) still failed` | Purview kept failing some audit queries, usually because too many ran at once. The ingester already resends and splits failing windows, and nothing was written. Wait, make sure no one is running audit searches in the Purview portal, then choose **Rerun failed loads**. Windows that succeeded are reused. If it keeps failing, see [An audit window keeps failing](../Manual%20setup/notebooks/README.md#an-audit-window-keeps-failing). |
+| Copilot interactions fails with `audit window(s) still failed` | Purview kept failing some audit queries, usually because too many ran at once. The ingester already resends and splits failing windows, and nothing was written. Wait, make sure no one is running audit searches in the Purview portal, then choose **Rerun failed loads**. Windows that succeeded are reused. If it keeps failing, see [An audit window keeps failing](../fabric/notebooks/README.md#an-audit-window-keeps-failing). |
 | Copilot interactions fails with `earlier audit range(s) failed and were never recovered` | An earlier load failed and was never rerun, and the usual run doesn't go back that far. Run `run --backfill-days <n>`, with `<n>` covering the listed dates. Windows that succeeded are reused. |
 | `Copilot interactions: 0 rows` after a successful run | Either the audit log had no Copilot activity in the window, or all of it was test or admin activity, such as Copilot Studio test runs (*Maker evaluation*), which the dashboard leaves out. The data check says which, with counts. People's own Copilot use appears after the next run. To keep some of the left-out activity, edit `DROP_EXCLUDE_REASONS` in the Audit Log Processor. |
 | `Fabric couldn't set up the model's connection` | Turn on *Service principals can call Fabric public APIs*, then choose **Repair or change**. |
@@ -699,7 +699,7 @@ the endpoint, someone who manages the vault approves it under **Networking** >
 If you can't run the exe, run the installer from a clone of this repo with Node.js 22.13 or later:
 
 ```text
-cd "1. Fabric/installer"
+cd "installer"
 npm install
 npx valuelens-install --ui
 ```

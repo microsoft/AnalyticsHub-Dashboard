@@ -106,7 +106,7 @@ test('semantic model: a re-run redeploys a model whose definition changed, such 
 
 test('the built model has no DAX variable named after a reserved word, which would leave its tables uncalculated', () => {
   const reserved = new Set(
-    readFileSync(new URL('../../../tests/fixtures/dax_reserved_names.txt', import.meta.url), 'utf8')
+    readFileSync(new URL('../../tests/fixtures/dax_reserved_names.txt', import.meta.url), 'utf8')
       .split(/\r?\n/)
       .map((l) => l.trim().toUpperCase())
       .filter((l) => l && !l.startsWith('#')),
@@ -551,7 +551,7 @@ test('app: needs the model and the app source', async () => {
     t.config.semanticModel.id = undefined;
     await assert.rejects(deployApp(t.ctx), /needs the semantic model/);
     t.ctx.sources = { ...t.ctx.sources, appDir: undefined };
-    await assert.rejects(deployApp(t.ctx), /no "1\. Fabric\/Fabric App" folder/);
+    await assert.rejects(deployApp(t.ctx), /no "app" folder/);
   } finally {
     t.cleanup();
   }

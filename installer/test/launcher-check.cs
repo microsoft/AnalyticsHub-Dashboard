@@ -46,7 +46,7 @@ internal static class LauncherCheck
         Check(Launcher.Quote("C:\\Program Files\\x\\") == "\"C:\\Program Files\\x\\\\\"", "argument ending in a backslash");
         Check(Launcher.Quote("say \"hi\"") == "\"say \\\"hi\\\"\"", "argument with quotes");
 
-        foreach (string ok in new[] { "node\\node.exe", "f\\", "f\\Fabric App\\x.js" }) Check(Launcher.SafeEntry(ok), "safe entry " + ok);
+        foreach (string ok in new[] { "node\\node.exe", "f\\", "f\\app\\x.js" }) Check(Launcher.SafeEntry(ok), "safe entry " + ok);
         foreach (string bad in new[] { "", "\\x", "..\\x", "f\\..\\..\\x", "C:\\x", "f\\.\\x", "f\\\\x", "f\\x.", "f\\x " })
         {
             Check(!Launcher.SafeEntry(bad), "unsafe entry " + bad);

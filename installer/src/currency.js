@@ -2,7 +2,7 @@
 /**
  * The reporting currency: the one currency the Value page shows value and cost in.
  * Licences and credits are billed in US dollars, so another currency needs a rate.
- * Keep CURRENCIES in step with `1. Fabric/Fabric App/src/lib/currency.ts`.
+ * Keep CURRENCIES in step with `app/src/lib/currency.ts`.
  */
 
 export const DEFAULT_CURRENCY = 'USD';
