@@ -18,21 +18,15 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ---
 
-## Unreleased — Azure is no longer in preview
+## 2026-10-12 — Analytics Hub installer 0.5.1
 
-**Nothing to update.** Only wording changes.
+**Updating is optional.** 0.5.1 changes how the exe is released and some wording. What the installer
+deploys is the same. To update, download installer 0.5.1
+[from this repo](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe),
+open it and choose **Repair or change**.
 
-### Changed
-
-- The READMEs, prerequisites, issue templates and the installer no longer call the Azure target a
-  preview. The installer README section is now [Azure target](installer/README.md#azure-target), so
-  links to `#azure-target-preview` open the top of that README instead.
-
----
-
-## Unreleased — Analytics Hub installer download: checking it, and getting it signed
-
-**Nothing to update.** This changes how the exe is released, not what it does.
+The tag also publishes the `valuelens-jobs` and `valuelens-web` images as `0.5.1`, which the Azure
+install pulls.
 
 ### Changed: the download explains its warnings and how to check it
 
@@ -60,6 +54,12 @@ builds reputation by its hash, so each new version starts again from nothing.
   checks it against its `.sha256`. With the repo variable `REQUIRE_SIGNED_INSTALLER` set to `true`, it
   also requires the signature. A release that fails goes back to being a draft, so the download link
   keeps serving the last good version.
+
+### Changed: Azure is no longer in preview
+
+- The READMEs, prerequisites, issue templates and the installer no longer call the Azure target a
+  preview. The installer README section is now [Azure target](installer/README.md#azure-target), so
+  links to `#azure-target-preview` open the top of that README instead.
 
 ---
 
