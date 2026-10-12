@@ -11,7 +11,7 @@ import { MAX_PACK_DESCRIPTION, MAX_PACK_NAME, stageLabel, type ReportPack } from
 import { SMALL } from "@/lib/type-scale";
 import { cn } from "@/lib/utils";
 import { ACTION_BUTTON } from "@/lib/action-button";
-import type { Destination, StageId } from "./destinations";
+import { isPackable, type Destination, type StageId } from "./destinations";
 
 interface ReportPackEditorProps {
     /** The pack to edit; a new one has no name or stages yet. */
@@ -180,7 +180,7 @@ export function ReportPackEditor({ pack, heading, available, onSave, onClose }: 
 
                     <div className="flex flex-col gap-300">
                         <span className={cn(SMALL, "font-semibold")}>Stages</span>
-                        {available.map((destination) => {
+                        {available.filter(isPackable).map((destination) => {
                             const ready = destination.stages.filter((stage) => stage.ready);
                             if (ready.length === 0) return null;
                             return (

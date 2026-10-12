@@ -25,6 +25,7 @@ import {
     availableDestinations,
     destinations,
     isDestinationReady,
+    isPackable,
     isReference,
     stageAnchor,
     type Destination,
@@ -344,6 +345,7 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                                 dates={dates}
                                 filterKeys={filterKeys}
                                 contentRef={contentRef}
+                                downloadable={isPackable(current)}
                             />
                         )
                     )}

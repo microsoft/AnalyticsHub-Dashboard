@@ -30,6 +30,8 @@ test('packaging: ships every template the installer reads, and they exist', () =
   assert.ok(files.includes('fabric/notebooks/Copilot_Audit_Log_Processor.ipynb'));
   assert.ok(files.some((f) => f.startsWith('fabric/notebooks/credit-consumption/')));
   assert.ok(files.some((f) => f.startsWith('fabric/notebooks/agent-evaluator/')));
+  assert.ok(files.includes('app/src/ask/catalogue.json'), 'the Ask catalogue, for the data agent');
+  assert.ok(files.some((f) => f.startsWith('app/src/queries/') && f.endsWith('.dax')), 'the queries the catalogue names');
   assert.ok(files.every((f) => !f.includes('\\')));
   for (const f of files) assert.ok(existsSync(join(DEFAULT_SOURCE_DIR, f)), `${f} is missing`);
 });

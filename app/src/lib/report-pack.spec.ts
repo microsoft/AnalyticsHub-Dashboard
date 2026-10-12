@@ -13,6 +13,7 @@ import {
     destinationPack,
     earliestDate,
     exportFileName,
+    isStageId,
     MAX_PACK_NAME,
     packFilters,
     packRuns,
@@ -52,6 +53,11 @@ describe("parsePack", () => {
         expect(parsePack({ id: "p1", name: "A", stages: ["nope"] })).toBeUndefined();
         expect(parsePack({ id: "p1", name: "A", stages: "{" })).toBeUndefined();
         expect(parsePack(null)).toBeUndefined();
+    });
+
+    it("leaves Ask out, as a conversation can't be exported", () => {
+        expect(parsePack({ id: "p1", name: "A", stages: ["ask", "glossary"] })?.stages).toEqual(["glossary"]);
+        expect(isStageId("ask")).toBe(false);
     });
 });
 

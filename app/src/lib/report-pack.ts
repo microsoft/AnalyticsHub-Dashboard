@@ -5,7 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { destinations, type Destination, type DestinationId, type StageId } from "@/components/destinations";
+import { destinations, isPackable, type Destination, type DestinationId, type StageId } from "@/components/destinations";
 import { dataToSuffix } from "@/lib/download";
 import { FILTER_KEYS, type FilterKey } from "@/lib/filters";
 import { PAGE_SOURCES, type FreshnessSource } from "@/lib/freshness";
@@ -54,8 +54,11 @@ export const BUILT_IN_PACKS: readonly ReportPack[] = [
     },
 ];
 
+/** Where each stage lives, for the stages a pack can hold. */
 const STAGE_HOME = new Map<string, Destination>(
-    destinations.flatMap((destination) => destination.stages.map((stage) => [stage.id, destination] as const)),
+    destinations
+        .filter(isPackable)
+        .flatMap((destination) => destination.stages.map((stage) => [stage.id, destination] as const)),
 );
 
 /** The destination a stage belongs to. */

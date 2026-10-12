@@ -151,6 +151,21 @@ describe("ReportPackEditor", () => {
         );
     });
 
+    it("doesn't offer Ask's conversation as a stage", () => {
+        render(
+            <ReportPackEditor
+                pack={{ id: "new-1", name: "", stages: [] }}
+                heading="New report pack"
+                available={destinations.filter(({ id }) => id === "ask" || id === "appendix")}
+                onSave={vi.fn(async () => undefined)}
+                onClose={vi.fn()}
+            />,
+        );
+        expect(screen.getByRole("checkbox", { name: stageLabel("glossary") })).toBeInTheDocument();
+        expect(screen.queryByRole("checkbox", { name: "Ask" })).toBeNull();
+        expect(screen.queryByRole("group", { name: "Ask" })).toBeNull();
+    });
+
     it("says why a save failed and keeps the dialog open", async () => {
         renderEditor(vi.fn(async () => Promise.reject(new Error("Only Analytics Hub admins can change this"))));
         fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Pack" } });
@@ -276,5 +291,24 @@ describe("ReportHeader", () => {
         });
         fireEvent.click(screen.getByRole("button", { name: "Download PDF" }));
         expect(run).toHaveBeenLastCalledWith("pdf", expect.objectContaining({ name: "Exec pre-read" }));
+    });
+
+    it("offers no downloads on a page that can't be exported", () => {
+        render(
+            <Themed>
+                <ReportHeader
+                    icon={Gauge}
+                    title="Ask"
+                    sources={[]}
+                    dates={{}}
+                    filterKeys={[]}
+                    contentRef={{ current: null }}
+                    downloadable={false}
+                />
+            </Themed>,
+        );
+        expect(screen.getByRole("heading", { level: 1, name: "Ask" })).toBeInTheDocument();
+        expect(screen.queryByRole("button", { name: "Download PDF" })).toBeNull();
+        expect(screen.queryByRole("button", { name: "Download PowerPoint" })).toBeNull();
     });
 });

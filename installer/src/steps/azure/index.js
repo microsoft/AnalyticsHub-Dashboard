@@ -23,12 +23,15 @@ import { DATA_SOURCES } from '../../uploads.js';
 import { normaliseResourceGraph } from '../../config.js';
 import { accessReview, accessSummaryLines, ensureViewerGroup, grantModelAccess, planAccess, publicAccess } from '../access.js';
 import { askAdvanced, asksAdvanced } from '../advanced.js';
+import { askGrants, askLine, askMode, askParameters, ensureAzureAskAccess, planAzureAsk } from './ask.js';
 
 /** @typedef {import('../../install.js').Ctx} Ctx */
 
 export const AZURE_PROVIDERS = ['Microsoft.App', 'Microsoft.Sql', 'Microsoft.Storage', 'Microsoft.OperationalInsights', 'Microsoft.ManagedIdentity'];
 /** Extra resource providers for private networking: the VNet and private endpoints, and the Power BI VNet data gateway's subnet delegation. */
 export const PRIVATE_PROVIDERS = ['Microsoft.Network', 'Microsoft.PowerPlatform'];
+/** For the Ask model, when the installer creates one. */
+export const ASK_PROVIDERS = ['Microsoft.CognitiveServices'];
 export const PRIVATE_FEATURE = /** @type {[string, string]} */ (['Microsoft.Network', 'AllowBringYourOwnPublicIpAddress']);
 /** Capacities that can host a Power BI VNet data gateway: F (including trial), P and A4+; not PPU, EM or A1-A3. */
 export const supportsVnetGateway = (/** @type {{ sku?: string }} */ cap) => /^(F|FT|P\d|A[4-9])/i.test(String(cap.sku ?? '')) && !/^PP/i.test(String(cap.sku ?? ''));
@@ -45,6 +48,7 @@ export const REQUIRED_ARM_PARAMETERS = [
   'sqlAdminPrincipalType', 'sqlMinCapacity', 'sqlMaxCapacity', 'sqlAutoPauseDelayMinutes', 'sqlUseFreeLimit', 'publicNetworkAccess', 'deployWeb',
   'webMinReplicas', 'webClientId', 'webAppIdUri', 'webAccess', 'modules', 'auditHistoryDays', 'powerBiWorkspaceId', 'semanticModels', 'sqlReaderName', 'sqlReaderClientId',
   'azureAiSubscriptionId', 'paygSubscriptionIds', 'dropSiteId', 'dropDriveId', 'dropFolder', 'argManagementGroup', 'argAgents', 'argFoundry', 'reportingCurrency', 'exchangeRate',
+  'askMode', 'askEndpoint', 'askDeployment', 'askModelName', 'askModelVersion', 'askSku', 'askCapacity', 'askLocation',
 ];
 
 const last = (/** @type {string} */ path) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
@@ -107,7 +111,15 @@ export function publicAccessMessage(err) {
 }
 
 /** @param {any} err */
-const explain = (err) => policyMessage(err) || publicAccessMessage(err) || regionCapacityMessage(err);
+const explain = (err) => policyMessage(err) || publicAccessMessage(err) || regionCapacityMessage(err) || askModelMessage(err);
+
+/** @param {any} err */
+export function askModelMessage(err) {
+  const body = err instanceof HttpError ? err.body : err;
+  const text = typeof body === 'string' ? body : JSON.stringify(body ?? {});
+  if (!/InsufficientQuota|DeploymentModelNotSupported|ModelNotSupported|ServiceModelDeprecated|SkuNotSupported/i.test(text) || !/CognitiveServices|deployment|model/i.test(text)) return '';
+  return 'Azure couldn\'t deploy the Ask model (quota, region or model version). Run the installer again, choose advanced options, and point Ask at an existing deployment or leave it off; everything else is unaffected.';
+}
 
 /** @param {any} err */
 export function regionCapacityMessage(err) {
@@ -241,6 +253,7 @@ export async function planAzure(ctx, pre) {
   }
   await planAzureConsumption(ctx, subs);
   await planAzureResourceGraph(ctx);
+  await planAzureAsk(ctx);
   // A reload runs the job straight after setup anyway.
   ctx.runFirstLoad = ctx.reloadHistoryDays ? false : !advanced || (await ui.confirm('Run the first load as soon as setup finishes?', true));
   if (advanced) await askReportingCurrency(ctx);
@@ -497,7 +510,7 @@ export async function azurePreflight(ctx) {
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
   ui.heading('Checking Azure');
   az.installId ??= randomUUID();
-  for (const ns of [...AZURE_PROVIDERS, ...(isPrivate(az) ? PRIVATE_PROVIDERS : [])]) await api.arm.ensureProvider(/** @type {string} */ (az.subscriptionId), ns).catch((err) => ui.warn(`Couldn't register ${ns}: ${err.message}`));
+  for (const ns of [...AZURE_PROVIDERS, ...(isPrivate(az) ? PRIVATE_PROVIDERS : []), ...(askMode(az) === 'create' ? ASK_PROVIDERS : [])]) await api.arm.ensureProvider(/** @type {string} */ (az.subscriptionId), ns).catch((err) => ui.warn(`Couldn't register ${ns}: ${err.message}`));
   // A VNet-integrated Container Apps environment fails with SubscriptionNotRegisteredForFeature unless this flag is on.
   if (isPrivate(az)) await api.arm.ensureFeature(/** @type {string} */ (az.subscriptionId), ...PRIVATE_FEATURE).catch((err) => ui.warn(`Couldn't register the ${PRIVATE_FEATURE.join('/')} feature: ${err.message}`));
   if (isPrivate(az) && !az.powerBi?.capacityId) throw new Error('Private networking needs a Fabric or Premium capacity for the Power BI VNet data gateway. Run the installer without --yes to choose one.');
@@ -557,6 +570,7 @@ export function newResourceGroupResources(az) {
       ['Microsoft.Network/privateEndpoints', 'private endpoints for SQL, blob, dfs and table'],
       ['Microsoft.Network/privateDnsZones', 'private DNS zones linked to the VNet'],
     ] : []),
+    ...(askMode(az) === 'create' ? [['Microsoft.CognitiveServices/accounts', `Azure AI Services account and ${az.ask?.deployment ?? 'model'} deployment for Ask`]] : []),
   ].map(([resourceType, name]) => ({ resourceType, name, changeType: 'Create' }));
 }
 
@@ -590,6 +604,7 @@ export async function azureDeployment(ctx, o) {
     reportingCurrency: param(config.reporting?.currency ?? DEFAULT_CURRENCY), exchangeRate: param(config.reporting?.exchangeRate ? String(config.reporting.exchangeRate) : ''),
     ...consumptionParameters(config),
     ...argParameters(config),
+    ...askParameters(config),
   };
   return { properties: { mode: 'Incremental', template: ARM, parameters: params } };
 }
@@ -723,6 +738,7 @@ export function azurePlanReview(ctx) {
       ...access.grants,
       ...consumptionGrants,
       ...argGrants,
+      ...askGrants(az),
     ],
     runsOn: [
       { what: 'Azure resources', where: `${az.subscriptionName ?? az.subscriptionId} / ${az.resourceGroup} / ${az.location}`, detail: `Incremental ARM deployment. Deletes are not applied by the template.${az.sqlLocation ? ` Azure SQL goes in ${az.sqlLocation}.` : ''}` },
@@ -754,6 +770,7 @@ export async function confirmAzurePlan(ctx) {
     ui.info(`Azure AI:    ${ds.azureAi === 'api' && config.consumption.azureSubscriptionId ? config.consumption.azureSubscriptionName ?? config.consumption.azureSubscriptionId : 'Left out'}`);
   }
   if (azureResourceGraphOn(config)) ui.info(`Governance:  ${resourceGraphKinds(config)} from Azure Resource Graph, in ${scopeName(config)}`);
+  ui.info(`Ask:         ${askLine(az)}`);
   if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)}`);
   ui.review(azurePlanReview(ctx));
   return ui.confirm('Go ahead?', true);
@@ -769,8 +786,10 @@ export async function installAzure(ctx, opts) {
   const resourceGraph = azureResourceGraphOn(config);
   const flows = flowsWanted(config).length > 0;
   const withAccess = !!config.access;
+  const askAccess = askMode(az) === 'existing';
   const titles = [
     'Resource group', 'Azure resources', 'Entra applications', 'Microsoft Graph permissions', ...(consumption ? ['Credit consumption'] : []), ...(resourceGraph ? ['Resource Graph access'] : []),
+    ...(askAccess ? ['Ask model access'] : []),
     'Power BI model', ...(withAccess ? ['Viewer access'] : []), 'Azure resources (final)', 'Database migration',
     ...(flows ? ['Power Automate flow'] : []), 'Teams package', ...(ctx.reloadHistoryDays ? ['Reload audit history'] : ctx.runFirstLoad ? ['First load'] : []),
   ];
@@ -809,6 +828,11 @@ export async function installAzure(ctx, opts) {
     step('Resource Graph access');
     await ensureAzureResourceGraphAccess(ctx);
     ctx.save();
+  }
+
+  if (askAccess) {
+    step('Ask model access');
+    await ensureAzureAskAccess(ctx);
   }
 
   step('Power BI model');
@@ -1404,6 +1428,7 @@ export async function azureSummary(ctx) {
   if (az.powerBi?.workspaceId) ui.info(`Power BI:   workspace ${az.powerBi.workspaceId}, model ${az.powerBi.datasetId ?? 'not deployed'}`);
   if (az.powerBi?.consumptionDatasetId) ui.info(`Credits:    model ${az.powerBi.consumptionDatasetId}`);
   if (az.teamsPackage) ui.info(`Teams:      ${az.teamsPackage}`);
+  ui.info(`Ask:        ${askLine(az)}`);
   for (const line of accessSummaryLines(config)) ui.info(line);
   if (flowsWanted(config).length) flowsSummary(ctx);
   ui.info('Record:     Keep valuelens-install.json. It holds no secrets.');

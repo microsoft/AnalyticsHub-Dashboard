@@ -19,6 +19,7 @@ export const SCREENS: Readonly<Record<DestinationId, ComponentType>> = {
     value: lazy(() => import("./value").then((module) => ({ default: module.ValueScreen }))),
     efficiency: lazy(() => import("./efficiency").then((module) => ({ default: module.EfficiencyScreen }))),
     feedback: lazy(() => import("./feedback").then((module) => ({ default: module.FeedbackScreen }))),
+    ask: lazy(() => import("./ask").then((module) => ({ default: module.AskScreen }))),
     "agent-evaluation": lazy(() =>
         import("./agent-evaluation").then((module) => ({ default: module.AgentEvaluationScreen })),
     ),

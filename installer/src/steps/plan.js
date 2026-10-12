@@ -12,7 +12,7 @@ import { HttpError } from '../http.js';
 import { commandLine } from '../launch.js';
 import { c } from '../ui.js';
 import { CURRENCIES, DEFAULT_CURRENCY, describeReporting, parseRate } from '../currency.js';
-import { AGENT_EVALUATOR_MODEL_NAME, CONSUMPTION_MODEL_NAME, flowIdentity, MODEL_NAME, secretMode } from '../config.js';
+import { AGENT_EVALUATOR_MODEL_NAME, CONSUMPTION_MODEL_NAME, DATA_AGENT_NAME, flowIdentity, MODEL_NAME, secretMode } from '../config.js';
 import { MIN_NODE, nodeVersionOk } from './app.js';
 import { agentEvaluatorModelWanted, planAgentEvaluator } from './agent-evaluator.js';
 import { AZURE_AI_ROLES, consumptionModelWanted, COWORK_DATAFLOW_NAME, planConsumption, planCowork } from './consumption.js';
@@ -23,6 +23,7 @@ import { askAdvanced, asksAdvanced } from './advanced.js';
 import { describeSchedule, displayNames, freeName, PIPELINE_NAME } from './fabric.js';
 import { connectionName } from './model.js';
 import { reportsWanted } from './report.js';
+import { DATA_AGENT_TYPE, dataAgentWanted, planDataAgent } from './data-agent.js';
 import { planDataSources } from './data-sources.js';
 import { accessReview, planAccess } from './access.js';
 import { DATA_SOURCES, modulesFromSources, routerWanted, UPLOAD_DIR } from '../uploads.js';
@@ -354,6 +355,7 @@ export async function plan(ctx, pre) {
     pre.capacities.some((cap) => cap.id === config.fabric.capacityId) ? config.fabric.capacityId : pre.capacities[0].id,
   );
   const capacity = pre.capacities.find((cap) => cap.id === config.fabric.capacityId);
+  await planDataAgent(ctx, pre, capacity, advanced());
   const scale = config.scale ?? (capacity && largeCapacity(capacity) ? 'large' : 'standard');
   config.scale = !advanced()
     ? scale
@@ -760,7 +762,13 @@ export async function reserveNames(ctx) {
   const ae = config.agentEvaluator;
   const ws = f.workspaceId;
   const list = async (/** @type {string} */ type) => (ws ? displayNames(await api.fabric.listItems(ws, type)) : []);
-  const [notebookNames, pipelineNames, modelNames, reportNames] = await Promise.all([list('Notebook'), list('DataPipeline'), list('SemanticModel'), list('Report')]);
+  const [notebookNames, pipelineNames, modelNames, reportNames, agentNames] = await Promise.all([
+    list('Notebook'),
+    list('DataPipeline'),
+    list('SemanticModel'),
+    list('Report'),
+    dataAgentWanted(ctx) ? list(DATA_AGENT_TYPE) : [],
+  ]);
   /** @type {string[]} */
   const renamed = [];
   /** @param {string} wanted @param {string[]} taken */
@@ -788,6 +796,8 @@ export async function reserveNames(ctx) {
   for (const w of reportsWanted(ctx)) {
     if (!w.model.report?.id) w.model.report = { ...w.model.report, name: pick(startFrom(w.model.report?.name, w.name), reportNames) };
   }
+  const da = config.dataAgent;
+  if (dataAgentWanted(ctx) && !da.id) da.name = pick(startFrom(da.name, DATA_AGENT_NAME), agentNames);
 
   if (renamed.length) {
     ui.note(
@@ -904,6 +914,14 @@ export function planReview(ctx, pre) {
     if (fa.enabled) creates.push({ kind: 'Fabric app', name: fa.name ?? 'Analytics Hub', isNew: !fa.itemId, detail: `A web app in the workspace, built on the semantic model. ${describeReporting(config.reporting)}` });
     for (const w of reportsWanted(ctx)) {
       creates.push({ kind: 'Report', name: w.model.report?.name ?? w.name, isNew: !w.model.report?.id, detail: `From its Power BI template, reading ${w.model.name}.` });
+    }
+    if (dataAgentWanted(ctx)) {
+      creates.push({
+        kind: 'Data agent',
+        name: config.dataAgent.name,
+        isNew: !config.dataAgent.id,
+        detail: 'Answers questions in plain language from the semantic models, for the app\'s Ask page. Published to Microsoft 365 Copilot by hand.',
+      });
     }
   }
   const access = sm.enabled ? accessReview(config, `Semantic models in workspace ${f.workspaceName ?? f.workspaceId}`) : { creates: [], grants: [] };
@@ -1027,6 +1045,7 @@ export async function confirmPlan(ctx, pre) {
     ui.info(`Power BI:    ${config.semanticModel.name} ${config.semanticModel.id ? '' : c.dim('(new)')}`.trimEnd() + consumption + evaluator + app.trimEnd());
     const reports = reportsWanted(ctx).map((w) => `${w.model.report?.name ?? w.name} ${w.model.report?.id ? '' : c.dim('(new)')}`.trimEnd());
     if (reports.length) ui.info(`Reports:     ${reports.join(', ')}`);
+    if (dataAgentWanted(ctx)) ui.info(`Ask:         ${config.dataAgent.name} ${config.dataAgent.id ? '' : c.dim('(new data agent)')}`.trimEnd());
   }
   if (config.modules.consumption) {
     const cc = config.consumption;

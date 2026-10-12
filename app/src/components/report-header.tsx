@@ -33,6 +33,8 @@ interface ReportHeaderProps {
     contentRef: RefObject<HTMLElement | null>;
     /** Further actions after the downloads, such as editing a pack. */
     actions?: ReactNode;
+    /** Offer the downloads and actions; off for a conversation like Ask, which can't be exported. */
+    downloadable?: boolean;
 }
 
 const LABELS: Record<ExportFormat, string> = { pdf: "Download PDF", pptx: "Download PowerPoint" };
@@ -42,7 +44,18 @@ const LABELS: Record<ExportFormat, string> = { pdf: "Download PDF", pptx: "Downl
  * is, and downloads of it as a PDF or a PowerPoint deck drawn with the
  * current filters.
  */
-export function ReportHeader({ icon: Icon, title, blurb, sources, dates, filterKeys, missing, contentRef, actions }: ReportHeaderProps) {
+export function ReportHeader({
+    icon: Icon,
+    title,
+    blurb,
+    sources,
+    dates,
+    filterKeys,
+    missing,
+    contentRef,
+    actions,
+    downloadable = true,
+}: ReportHeaderProps) {
     const { filters, orgAttribute } = useFilterContext();
     const exporter = useReportExport();
 
@@ -67,30 +80,32 @@ export function ReportHeader({ icon: Icon, title, blurb, sources, dates, filterK
                 {blurb && <span className="text-[length:var(--text-300)] leading-300 text-muted-foreground">{blurb}</span>}
                 <FreshnessLabel sources={sources} dates={dates} />
             </span>
-            <span className="flex flex-col items-end gap-100" data-print="hide">
-                <span role="group" aria-label={`Download ${title}`} className="flex flex-wrap items-center justify-end gap-200">
-                    {(["pdf", "pptx"] as const).map((format) => {
-                        const FormatIcon = format === "pdf" ? FileDown : Presentation;
-                        return (
-                            <button
-                                key={format}
-                                type="button"
-                                className={ACTION_BUTTON}
-                                disabled={exporter.busy !== undefined}
-                                aria-busy={exporter.busy === format || undefined}
-                                onClick={() => start(format)}
-                            >
-                                <FormatIcon className="icon-size-100 shrink-0" aria-hidden="true" />
-                                {LABELS[format]}
-                            </button>
-                        );
-                    })}
-                    {actions}
+            {downloadable && (
+                <span className="flex flex-col items-end gap-100" data-print="hide">
+                    <span role="group" aria-label={`Download ${title}`} className="flex flex-wrap items-center justify-end gap-200">
+                        {(["pdf", "pptx"] as const).map((format) => {
+                            const FormatIcon = format === "pdf" ? FileDown : Presentation;
+                            return (
+                                <button
+                                    key={format}
+                                    type="button"
+                                    className={ACTION_BUTTON}
+                                    disabled={exporter.busy !== undefined}
+                                    aria-busy={exporter.busy === format || undefined}
+                                    onClick={() => start(format)}
+                                >
+                                    <FormatIcon className="icon-size-100 shrink-0" aria-hidden="true" />
+                                    {LABELS[format]}
+                                </button>
+                            );
+                        })}
+                        {actions}
+                    </span>
+                    <span role="status" className={cn(SMALL, "max-w-[48ch] text-right text-muted-foreground")}>
+                        {exporter.message}
+                    </span>
                 </span>
-                <span role="status" className={cn(SMALL, "max-w-[48ch] text-right text-muted-foreground")}>
-                    {exporter.message}
-                </span>
-            </span>
+            )}
         </header>
     );
 }

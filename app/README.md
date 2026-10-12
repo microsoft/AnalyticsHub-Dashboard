@@ -38,6 +38,10 @@ From this folder (`app`):
    object to `fabric.config.json` so the app shows who to ask and links to the group:
    `{ "groupId": "<object id>", "groupName": "...", "contact": "you@example.com", "requestUrl": "https://..." }`
    (`requestUrl` is optional and must be https).
+6. Optional: to link the **Ask** page to a Fabric data agent, add
+   `"ask": { "workspaceId": "<workspace id>", "itemId": "<data agent id>" }` to `fabric.config.json`.
+   The installer creates the agent and adds this for you; see [Ask](../installer/README.md#ask).
+   Without it the page lists suggested questions and how to turn Ask on.
 
 To update it, run `npx rayfin up` again.
 
