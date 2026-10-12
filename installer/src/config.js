@@ -249,7 +249,21 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {boolean} [storageRole] The installer gave the signed-in user Storage Blob Data Contributor on the landing container, for the Studio flow.
  * @property {{ assigned: string[], pending: string[] }} [graphRoles]
  * @property {string} [teamsPackage]
+ * @property {AzureAskConfig} [ask] The model the web app's Ask answers with. Absent on installs from before Ask, which leaves it off.
  * @property {{ whatIf?: any[], pendingAdminActions?: string[], lastRun?: any, lastMigrate?: any }} [status]
+ */
+
+/**
+ * Ask on Azure: an Azure OpenAI model the installer creates, one that already exists, or none.
+ * @typedef {object} AzureAskConfig
+ * @property {'create' | 'existing' | 'off'} mode
+ * @property {string} [location] create: region of the AI Services account.
+ * @property {string} [sku] create: GlobalStandard or DataZoneStandard.
+ * @property {number} [capacity] create: thousands of tokens a minute.
+ * @property {string} [deployment] The model deployment's name.
+ * @property {string} [endpoint] existing: the account's endpoint.
+ * @property {string} [accountId] existing: the account's ARM resource ID, when it was picked from a list.
+ * @property {boolean} [granted] existing: the web app's managed identity has Cognitive Services OpenAI User on it.
  */
 
 /**
