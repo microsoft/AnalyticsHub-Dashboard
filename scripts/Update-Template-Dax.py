@@ -1,8 +1,9 @@
 """Apply the shared DAX fixes to every shipped ValueLens and Consumption Central PBIT.
 
-The five ValueLens templates and the four Consumption Central add-ons carry the same
-model, so a DAX fix has to land in all of them byte-for-byte. This script owns those
-objects: it sets each one's expression (adding the object when a template lacks it),
+The two Fabric ValueLens templates and the Fabric Consumption Central add-on carry the same
+model, so a DAX fix has to land in all of them byte-for-byte. (The Power BI template paths
+in ValueLens keep their own copy of this script.) This script owns those objects: it sets
+each one's expression (adding the object when a template lacks it),
 leaves every other model field and ZIP member untouched, and is idempotent.
 
     python scripts/Update-Template-Dax.py           # patch the templates in place
@@ -23,16 +24,9 @@ ROOT = Path(__file__).resolve().parents[1]
 VALUELENS = (
     Path("1. Fabric") / "Manual setup" / "ValueLens - Fabric.pbit",
     Path("1. Fabric") / "Manual setup" / "ValueLens - Fabric OneLake.pbit",
-    Path("5. Local CSV") / "ValueLens - Local CSV.pbit",
-    Path("4. SharePoint") / "ValueLens - SharePoint.pbit",
-    Path("3. Power Automate + Dataverse") / "ValueLens - Power Automate + Dataverse.pbit",
 )
 CONSUMPTION = (
     Path("1. Fabric") / "Manual setup" / "Add Credit Consumption" / "Consumption Central - Fabric.pbit",
-    Path("3. Power Automate + Dataverse") / "Add Credit Consumption"
-    / "Consumption Central - Power Automate + Dataverse.pbit",
-    Path("4. SharePoint") / "Add Credit Consumption" / "Consumption Central - Viva Direct.pbit",
-    Path("5. Local CSV") / "Add Credit Consumption" / "Consumption Central - Local CSV.pbit",
 )
 ZIP_METADATA = (
     "filename", "orig_filename", "date_time", "compress_type", "comment", "extra",

@@ -1,7 +1,5 @@
 """Execute the distributed notebook classifier offline; never authenticate or write Delta."""
-import ast
 import contextlib
-import functools
 import io
 import json
 import re
@@ -138,7 +136,7 @@ class LicenseClassificationTests(unittest.TestCase):
         paths = [p for p in ROOT.rglob("*.pbit")
                  if "archive" not in p.parts
                  and not {"Add Credit Consumption", "Add Agent Evaluator"} & set(p.parts)]
-        self.assertEqual(len(paths), 5)
+        self.assertEqual(len(paths), 2)
         for path in paths:
             with self.subTest(path=path), zipfile.ZipFile(path) as archive:
                 self.assertIsNone(archive.testzip())
@@ -151,30 +149,9 @@ class LicenseClassificationTests(unittest.TestCase):
                 self.assertNotIn("Assigned Products", read)
                 self.assertNotIn("Assigned_Products", read)
                 self.assertIn('"Has license"', expression)
-                if "1. Fabric" in path.parts:
-                    self.assertIn('FabricTable("copilot_licensed_users")', expression)
-                    self.assertIn('"Has_license"', expression)
-                    self.assertIn('"HasCopilot"', expression)
-                else:
-                    self.assertIn('#"Org Data File"', expression)
-                    self.assertIn("Csv.Document", expression)
-
-    def test_supplied_flags_feed_optional_processor_without_sku_inference(self):
-        path = ROOT / "5. Local CSV" / "scripts" / "Purview_CopilotInteraction_Processor_v4.0.0.py"
-        tree = ast.parse(path.read_text(encoding="utf-8-sig"))
-        nodes = [
-            node for node in tree.body
-            if (isinstance(node, ast.FunctionDef) and node.name == "compute_license_status")
-            or (isinstance(node, ast.Assign) and any(
-                isinstance(target, ast.Name) and target.id == "_LICENSE_TRUTHY" for target in node.targets))
-        ]
-        namespace = {"functools": functools}
-        exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), "exec"), namespace)
-        flags, _ = classify(["Microsoft 365 E7", "Microsoft 365 E5"])
-        status = namespace["compute_license_status"]
-        self.assertEqual([status(row["HasCopilot"]) for row in flags["rows"]],
-                         ["M365 Copilot Licensed", "Unlicensed"])
-        self.assertEqual(status("Microsoft 365 E7"), "Unlicensed")
+                self.assertIn('FabricTable("copilot_licensed_users")', expression)
+                self.assertIn('"Has_license"', expression)
+                self.assertIn('"HasCopilot"', expression)
 
 
 if __name__ == "__main__":

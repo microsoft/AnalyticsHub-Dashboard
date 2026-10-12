@@ -1,4 +1,4 @@
-"""Portable structural release checks for the five active templates.
+"""Portable structural release checks for the two Fabric templates (Lakehouse SQL and OneLake).
 
 Desktop refresh and rendering still need live QA.
 """
@@ -10,11 +10,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 TEMPLATES = (
-    Path("5. Local CSV") / "ValueLens - Local CSV.pbit",
-    Path("4. SharePoint") / "ValueLens - SharePoint.pbit",
     Path("1. Fabric") / "Manual setup" / "ValueLens - Fabric.pbit",
     Path("1. Fabric") / "Manual setup" / "ValueLens - Fabric OneLake.pbit",
-    Path("3. Power Automate + Dataverse") / "ValueLens - Power Automate + Dataverse.pbit",
 )
 PAGE_COUNT = 16
 # Separate Consumption Central report shipped as an optional add-on in each path.
@@ -86,7 +83,7 @@ class CoreTemplateTests(unittest.TestCase):
                     if n.startswith("Report/definition/") and n.endswith(".json")}
             cls.templates.append((str(relative), members, model, docs))
 
-    def test_exactly_five_active_templates(self):
+    def test_exactly_two_active_templates(self):
         active = {p.relative_to(ROOT) for p in ROOT.rglob("*.pbit")
                   if "archive" not in p.parts and not ADDONS & set(p.parts)}
         self.assertEqual(active, set(TEMPLATES))

@@ -1,9 +1,8 @@
-"""Azure capacity, solution spend and billing reconciliation collectors (Fabric notebook + CSV script)."""
+"""Azure capacity, solution spend and billing reconciliation collectors (Fabric notebook + Azure jobs)."""
 from __future__ import annotations
 
 import ast
 import csv
-import importlib.util
 import json
 from datetime import date
 
@@ -13,10 +12,8 @@ import notebook_source
 
 ROOT = notebook_source.ROOT
 NOTEBOOK = "credit-consumption/Ingest_Azure_AI.ipynb"
-CSV_SCRIPT = ROOT / "5. Local CSV" / "Add Credit Consumption" / "pull_azure_ai.py"
 JOBS_COLLECTOR = ROOT / "2. Azure" / "jobs" / "valuelens_jobs" / "collect" / "azure_ai.py"
-SAMPLES = ROOT / "5. Local CSV" / "Add Credit Consumption" / "sample-data"
-DATAVERSE = ROOT / "3. Power Automate + Dataverse" / "Add Credit Consumption" / "dataverse-schema.json"
+SAMPLES = ROOT / "samples" / "consumption"
 SHARED_START = "# --- Shared with the Fabric notebook Ingest_Azure_AI.ipynb (section 4); keep identical. ---\n"
 SHARED_END = "# --- End of shared block. ---\n"
 CONSTANTS = {"HEALTH_HEADERS", "RECON_HEADERS", "SOLUTION_HEADERS", "APPLICATION_TAG_KEYS",
@@ -29,21 +26,13 @@ RID = "/subscriptions/s/resourceGroups/RG1/providers/Microsoft.CognitiveServices
 START, END = date(2026, 4, 1), date(2026, 5, 10)
 
 
-def _load_csv_module():
-    spec = importlib.util.spec_from_file_location("pull_azure_ai", CSV_SCRIPT)
-    module = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(module)
-    return module
-
-
-CSV_MODULE = _load_csv_module()
 NOTEBOOK_NS = notebook_source.namespace(NOTEBOOK, CONSTANTS)
 
 
-@pytest.fixture(params=["notebook", "csv"])
-def impl(request):
-    return NOTEBOOK_NS if request.param == "notebook" else vars(CSV_MODULE)
-
+@pytest.fixture
+def impl():
+    # The Azure jobs collector carries the same shared block, checked below.
+    return NOTEBOOK_NS
 
 def _helper_cell():
     cells = json.loads((notebook_source.NOTEBOOKS / NOTEBOOK).read_text(encoding="utf-8"))["cells"]
@@ -52,28 +41,20 @@ def _helper_cell():
     return "".join(found[0]["source"])
 
 
-def test_shared_block_is_identical_in_notebook_and_csv_script():
-    script = CSV_SCRIPT.read_text(encoding="utf-8").replace("\r\n", "\n")
-    shared = script.split(SHARED_START, 1)[1].split(SHARED_END, 1)[0].strip()
+def test_shared_block_is_identical_in_notebook_and_jobs_collector():
+    jobs = JOBS_COLLECTOR.read_text(encoding="utf-8").replace("\r\n", "\n")
+    shared = jobs.split(SHARED_START, 1)[1].split(SHARED_END, 1)[0].strip()
     cell = _helper_cell()
     assert cell.startswith("import re\n")
     assert cell[len("import re\n"):].strip() == shared
     assert not any(isinstance(n, (ast.Import, ast.ImportFrom)) for n in ast.parse(shared).body)
-    jobs = JOBS_COLLECTOR.read_text(encoding="utf-8").replace("\r\n", "\n")
-    assert jobs.split(SHARED_START, 1)[1].split(SHARED_END, 1)[0].strip() == shared
 
 
 @pytest.mark.parametrize("table", TABLES)
-def test_headers_match_the_report_contract(table):
+def test_headers_match_the_sample_data(table):
     with (SAMPLES / f"{table}.csv").open(encoding="utf-8-sig", newline="") as handle:
         sample = next(csv.reader(handle))
-    schema = json.loads(DATAVERSE.read_text(encoding="utf-8"))
-    dataverse = next(t for t in schema["tables"] if t["modelTable"] == table)
-    headers = getattr(CSV_MODULE, TABLES[table])
-    assert headers == sample
-    assert headers == [c["canonical"] for c in dataverse["columns"]]
-    assert NOTEBOOK_NS[TABLES[table]] == headers
-
+    assert NOTEBOOK_NS[TABLES[table]] == sample
 
 def test_notebook_writes_every_new_table_with_matching_schema():
     cells = json.loads((notebook_source.NOTEBOOKS / NOTEBOOK).read_text(encoding="utf-8"))["cells"]
@@ -177,59 +158,6 @@ def test_failed_metric_errors_are_logged_not_raised(impl):
     assert acc == {} and warnings == ["Acc: TimeToLastByte returned Throttled; skipped"]
 
 
-class FakeClient:
-    """Fails every batched metric call and the reconciliation cost query; everything else works."""
-
-    def __init__(self):
-        self.metric_urls = []
-
-    def pages(self, url, body=None):
-        if "/providers/microsoft.insights/metrics" in url:
-            self.metric_urls.append(url)
-            if "ProvisionedUtilization%2CTimeToLastByte" in url:
-                raise CSV_MODULE.CollectionError("batched call failed")
-            if "TimeToLastByte" in url:
-                raise CSV_MODULE.CollectionError("latency unavailable")
-            payload = REQUESTS if "ModelRequests" in url else QUALITY
-            yield {"value": [m for m in payload["value"] if f"metricnames={m['name']['value']}&" in url]}
-            return
-        grouping = [g["name"] for g in body["dataset"]["grouping"]]
-        if "ResourceGuid" in grouping:
-            raise CSV_MODULE.CollectionError("throttled")
-        yield {"properties": {"columns": [{"name": n} for n in ["Cost", "UsageQuantity", "UsageDate",
-                                                                    *grouping, "Currency"]],
-                              "rows": [[3.0, 1.0, 20260402, RID, "Foundry Models", "USD"]]}}
-
-    def request(self, method, url, body=None):
-        return {"displayName": "Sub"}
-
-
-def test_csv_details_survive_failed_calls(capsys):
-    client = FakeClient()
-    context = {"accounts": [{"id": RID, "name": "Acc", "location": "swedencentral"}],
-               "resources": [{"id": RID, "tags": {"Department": "Finance"}}],
-               "spend": [], "points": [],
-               "deployments": {RID.lower(): DEPLOYMENTS}, "definitions": {RID.lower(): DEFINITIONS}}
-    datasets = CSV_MODULE.collect_details(client, "s", START, END, context)
-    assert set(datasets) == {"AzureDeploymentHealth.csv", "AzureSolutionSpend.csv"}
-    rows = {(r["DeploymentName"], str(r["MetricDate"])): r for r in datasets["AzureDeploymentHealth.csv"][1]}
-    assert rows[("ptu", "2026-05-31")]["MeanUtilizationPct"] == 50.0  # single-metric retry succeeded
-    assert rows[("chat", "2026-04-30")]["MeanLatencyMs"] is None
-    solution = datasets["AzureSolutionSpend.csv"][1]
-    assert solution[0]["ActualCost"] == 3.0 and solution[0]["AmortizedCost"] == 3.0
-    assert solution[0]["DepartmentTag"] == "Finance" and solution[0]["SubscriptionName"] == "Sub"
-    err = capsys.readouterr().err
-    assert "latency unavailable" in err and "AzureBillingReconciliation.csv not refreshed" in err
-
-
-def test_csv_publish_accepts_detail_rows(tmp_path):
-    rows, _ = _health(vars(CSV_MODULE))
-    CSV_MODULE.publish(tmp_path, {"AzureDeploymentHealth.csv": (CSV_MODULE.HEALTH_HEADERS, list(rows.values()))})
-    with (tmp_path / "AzureDeploymentHealth.csv").open(encoding="utf-8", newline="") as handle:
-        written = list(csv.DictReader(handle))
-    assert written[0]["MetricDate"] == "2026-04-30" and written[0]["PtuCapacity"] == ""
-
-
 @pytest.mark.parametrize("meter, expected", [
     ("5 mini pp Inp Gl 1M Tokens", ("input", 1.0)),
     ("gpt 4o 0806 Outp glbl 1K Tokens", ("output", 0.001)),
@@ -317,39 +245,3 @@ def test_recon_rows_statuses_and_pools(impl):
     assert by[("2026-05", "Foundry Models", "Foundry PAYG Pool", "AzureActual")]["Amount"] == 1.0
     assert {(r["PeriodStart"], r["PeriodEnd"]) for r in rows if r["Period"] == "2026-05"} == {(date(2026, 5, 1), date(2026, 5, 9))}
     assert {r["Representation"] for r in rows} == {"UsageEstimate", "AzureActual"}
-
-
-def test_csv_cli_backs_off_longer_when_throttled(monkeypatch):
-    class Result:
-        def __init__(self, code, stderr="", stdout=""):
-            self.returncode, self.stderr, self.stdout = code, stderr, stdout
-
-    results = iter([Result(1, "ERROR: Too Many Requests({\"error\":{\"code\":\"429\"}})"),
-                    Result(1, "ERROR: (ServiceUnavailable)"), Result(0, stdout="{\"ok\": 1}")])
-    monkeypatch.setattr(CSV_MODULE.subprocess, "run", lambda *a, **k: next(results))
-    sleeps = []
-    client = CSV_MODULE.AzureCLI(executable="az", sleep=sleeps.append)
-    assert client.run(["rest"]) == {"ok": 1}
-    assert sleeps == [15, 4]
-
-
-def test_retail_prices_never_leave_the_public_host():
-    with pytest.raises(CSV_MODULE.CollectionError):
-        CSV_MODULE.fetch_json("https://management.azure.com/subscriptions")
-    pages = iter([{"Items": [{"meterId": "x"}], "NextPageLink": "https://evil.example/next"}])
-    seen = []
-
-    def fetch(url):
-        seen.append(url)
-        if len(seen) > 1:
-            return CSV_MODULE.fetch_json(url)
-        return next(pages)
-
-    meter = "11111111-1111-1111-1111-111111111111"
-    with pytest.raises(CSV_MODULE.CollectionError):
-        CSV_MODULE.retail_prices([meter], "USD", fetch)
-    assert seen[0].startswith("https://prices.azure.com/api/retail/prices?currencyCode=USD&%24filter=meterId%20eq%20")
-    with pytest.raises(ValueError):
-        CSV_MODULE.retail_prices(["not-a-uuid'"], "USD", fetch)
-    with pytest.raises(CSV_MODULE.CollectionError):
-        CSV_MODULE.retail_prices([meter], "usd'", fetch)
