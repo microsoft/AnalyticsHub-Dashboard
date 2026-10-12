@@ -7,6 +7,7 @@
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { Check, Copy, Share2, X } from "lucide-react";
 import { adminOnlyCopy, appLink, myGroupsUrl } from "@/lib/access";
+import { fabricItemUrl } from "@/lib/fabric-item-url";
 import { addViewer, loadAccess, removeViewer, type AccessPrincipal, type AccessState } from "@/lib/access-api";
 import { runtimeConfig, type AccessInfo } from "@/lib/runtime-config";
 import { ScopedDelegation } from "@/components/share-delegations";
@@ -87,14 +88,39 @@ function CopyLink() {
 function FabricAccess({ access }: { access?: AccessInfo }) {
     if (!access)
         return <p className={cn(TEXT, "text-muted-foreground")}>Give people access by sharing the app item in Fabric.</p>;
+    const group = access.groupName ?? "the viewer group";
+    const item = fabricItemUrl();
     return (
         <div className="flex flex-col gap-100">
             <p className={cn(TEXT, "text-muted-foreground")}>
-                Anyone in <span className="font-semibold text-foreground">{access.groupName ?? "the viewer group"}</span> can open it.
+                To give someone access, add them to <span className="font-semibold text-foreground">{group}</span>.
             </p>
             <a href={myGroupsUrl(access.groupId)} target="_blank" rel="noreferrer" className={LINK}>
-                Add or remove people in My Groups
+                Add members in My Groups
             </a>
+            {access.appShared ? (
+                <p className={cn(TEXT, "text-muted-foreground")}>
+                    Anyone in <span className="font-semibold text-foreground">{group}</span> can open it.
+                </p>
+            ) : (
+                <>
+                    <p className={cn(TEXT, "text-muted-foreground")}>
+                        The app item also has to be shared with {group} once: open it in Fabric, choose Share, enter {group} and choose Grant.
+                        Until then, people in the group can't open it.
+                    </p>
+                    {item && (
+                        <a href={item} target="_blank" rel="noreferrer" className={LINK}>
+                            Open the app item in Fabric
+                        </a>
+                    )}
+                </>
+            )}
+            {access.requestUrl && (
+                <a href={access.requestUrl} target="_blank" rel="noreferrer" className={LINK}>
+                    Where people ask for access
+                </a>
+            )}
+            {access.contact && <p className={cn(TEXT, "text-muted-foreground")}>Access requests go to {access.contact}.</p>}
             {access.rlsOrgAttribute && <p className={cn(TEXT, "text-muted-foreground")}>{adminOnlyCopy(access.contact)}</p>}
         </div>
     );

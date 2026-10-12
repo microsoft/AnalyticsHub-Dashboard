@@ -78,6 +78,24 @@ export function createUi(opts = {}) {
       }
     },
     /**
+     * What's left, as numbered cards: who does each, why, the link and steps, and for a hand-off the message to send.
+     * @param {string} title  e.g. "2 steps left".
+     * @param {import('./steps/next-steps.js').NextStep[]} steps
+     */
+    nextSteps: (title, steps) => {
+      line(`  ${c.bold(c.yellow(title))}`);
+      steps.forEach((s, i) => {
+        line(`  ${c.yellow(`${i + 1}.`)} ${c.bold(s.title)}${s.optional ? c.dim(' (optional)') : ''}${c.dim(`  ${s.who}`)}`);
+        line(`     ${s.why}`);
+        if (s.link) line(`     ${c.dim(`${s.linkText ? `${s.linkText}: ` : ''}${s.link}`)}`);
+        (s.steps ?? []).forEach((step, j) => line(`     ${String.fromCharCode(97 + j)}. ${step}`));
+        if (s.message) {
+          line(`     ${c.dim('Copy and send:')}`);
+          for (const m of s.message.split('\n')) line(`       ${c.dim(m)}`);
+        }
+      });
+    },
+    /**
      * What the user has and lacks: met, missing, eligible (activate first) or couldn't check.
      * @param {import('./prereqs.js').Prereq[]} items
      */

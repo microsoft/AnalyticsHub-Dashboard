@@ -57,6 +57,8 @@ export interface AccessInfo {
     requestUrl?: string;
     /** The org attribute that org-scoped access (row-level security) filters on. Only there when it's on. */
     rlsOrgAttribute?: string;
+    /** On Fabric, whether the installer recorded the app item as shared with the group. */
+    appShared?: boolean;
 }
 
 export interface RuntimeModules {
@@ -262,6 +264,7 @@ export function parseAccess(json: unknown): AccessInfo | undefined {
         ...(text("contact") ? { contact: text("contact") } : {}),
         ...(requestUrl && /^https:\/\//i.test(requestUrl) ? { requestUrl } : {}),
         ...(text("rlsOrgAttribute") ? { rlsOrgAttribute: text("rlsOrgAttribute") } : {}),
+        ...(access.appShared === true ? { appShared: true } : {}),
     };
 }
 
