@@ -11,6 +11,7 @@ import { installerWindow } from './launch.js';
 import { createSession } from './web-session.js';
 import { clearStaged, sizeOk, stageUpload } from './staging.js';
 import { c } from './ui.js';
+import { checkForUpdate } from './update-check.js';
 import { MAX_UPLOAD_BYTES } from './uploads.js';
 import { createWebUi } from './web-ui.js';
 
@@ -352,7 +353,7 @@ export function mirror(write) {
 
 /**
  * `valuelens-install --ui`: serves the wizard until the page closes it or Ctrl+C.
- * @param {{ configFile: string, sourceDir?: string, tenantId?: string, method?: import('./web-session.js').Method, open: boolean, version: string, debug?: (m: string) => void, write?: (s: string) => void }} o
+ * @param {{ configFile: string, sourceDir?: string, tenantId?: string, method?: import('./web-session.js').Method, open: boolean, version: string, debug?: (m: string) => void, write?: (s: string) => void, checkUpdate?: () => Promise<import('./update-check.js').Update | null> }} o
  */
 export async function runWizard(o) {
   const write = o.write ?? ((/** @type {string} */ s) => process.stdout.write(s));
@@ -364,6 +365,13 @@ export async function runWizard(o) {
   write(`${o.open ? 'The installer is opening in your browser. If it doesn\'t, go to:' : 'Open the installer in your browser:'}\n\n  ${server.launchUrl}\n\n`);
   write(`${c.dim('Only this computer can reach it. Keep this window open; press Ctrl+C to stop.')}\n`);
   if (o.open) openBrowser(server.launchUrl);
+  (o.checkUpdate ?? (() => checkForUpdate({ version: o.version })))()
+    .then((u) => {
+      if (!u) return;
+      session.setUpdate(u);
+      write(`\n${c.yellow('!')} Installer ${u.version} is available. Download it from ${u.url}, then choose Repair or change.\n`);
+    })
+    .catch(() => {});
   await server.done;
   write('Closed the installer.\n');
 }

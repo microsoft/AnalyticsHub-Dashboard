@@ -1,11 +1,11 @@
-# Contributing to ValueLens
+# Contributing to Analytics Hub
 
-Thanks for helping make ValueLens more useful and reliable.
+Thanks for helping make Analytics Hub more useful and reliable.
 
 ## Propose a change
 
-For a bug, include the deployment path, Power BI Desktop version, template revision,
-whether you used sample or your own data, and reproducible steps. For a feature,
+For a bug, include Fabric or Azure, the installer version, the step that failed,
+whether you used demo mode or your own data, and reproducible steps. For a feature,
 explain the use case, data source and expected result. Discuss substantial changes
 in an issue before rebuilding templates or changing source contracts.
 
@@ -17,28 +17,25 @@ compatibility, validation and any limitations. Follow the
 
 ## Run the tests
 
-Run from the repository root with **Python 3.12** (the CI version) and
-**PowerShell 7** (`pwsh` on `PATH`). Python 3.12 satisfies both the Local CSV
-processor's documented 3.9+ baseline and the SharePoint / Dataverse paths' 3.10+
-prerequisites; those path-specific minimums are not a whole-repository test matrix.
+Run from the repository root with **Python 3.12** (the CI version):
 
 ```text
-python -m pip install pytest
+python -m pip install pytest duckdb pandas
 python -B -m pytest tests -q
 ```
 
-The offline suite uses the Python standard library plus pytest as the runner;
-PowerShell subprocess checks also exercise dry-run helpers. No tenant credentials
-are required. Do not provide production credentials or customer data to tests.
+No tenant credentials are required. Do not provide production credentials or customer data to
+tests.
 The optional Spark check in `test_snapshot_safety.py` skips when local PySpark /
 Spark is unavailable; the default CI job does not install Spark. Local tests do
 not certify Fabric execution, tenant permissions or Desktop / Service refresh.
 
-CI runs the full suite with no exclusions. The Dataverse directory-refresh
-checks launch PowerShell 7 (`pwsh`); on a machine with only
-Windows PowerShell 5.1 or a restrictive execution policy they fail at setup
-rather than on template content. Don't bypass the execution policy to run them;
-rely on CI or install PowerShell 7.
+CI runs the full suite with no exclusions, plus the installer and web app tests below and a
+check that `installer/src/azure/main.arm.json` matches `azure/infra/main.bicep`.
+
+The Power BI templates in [ValueLens](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot)
+share the Fabric model's measures and report. Its CI checks them against a pinned release of this
+repo, so a DAX or model fix here also needs a matching change there when the pin is bumped.
 
 ## Work on the installer
 
@@ -60,12 +57,24 @@ when something a published download needs is missing; `--out <dir>` writes the e
 The [`installer-exe`](.github/workflows/installer-exe.yml) workflow builds, tests and smoke-tests
 the exe on pull requests that touch `packaging/`. To publish one, set the version in
 `installer/package.json` and push a tag `installer-v<version>`. The workflow drafts a
-release with the exe and its SHA-256; review it and publish.
+release with the exe and its SHA-256; review it and publish. The same tag makes
+[`azure-images`](.github/workflows/azure-images.yml) push `ghcr.io/microsoft/valuelens-jobs` and
+`valuelens-web` with that version, which Azure installs pull.
+
+## Work on the app and the Azure web app
+
+```text
+cd app        && npm ci && npm test   # the app's query and component tests (vitest)
+cd azure/web  && npm ci && npm test   # the Azure web proxy
+```
+
+See the [app README](app/README.md) and the [Azure README](azure/README.md) for running them
+against a workspace or a local SQL database.
 
 ## Repository conventions
 
-- Keep the four numbered deployment paths stable. Put setup details in the relevant
-  path README and shared column contracts in the
+- Put setup details in the relevant README (`fabric/`, `azure/`, `installer/`) and shared
+  column contracts in the
   [data dictionary](docs/DATA-DICTIONARY.md).
 - Preserve existing names, formatting and README tone. Separate measured signals
   from estimates, and document optional sources, toggles and blank-data behaviour.
@@ -73,7 +82,9 @@ release with the exe and its SHA-256; review it and publish.
   prompts, credentials, private solution packages or populated report files.
   Review notebook outputs and screenshots before attaching them.
 - Edit Fabric notebooks in `fabric/notebooks/`. There are no mirrored copies to keep in sync.
-- Old templates live, flat, in [`archive/`](archive/). They aren't maintained.
+- Keep the names that installs in the field depend on: `valuelens-install.json`, the
+  `valuelens-*` resource tags, image names and `VALUELENS_*` settings, and the Fabric item
+  names that **Repair or change** looks up.
 - **`.pbit` templates are binary packages.** Source/helper changes do not update
   shipped templates automatically: rebuild with the relevant repository generator
   or Power BI Desktop workflow. Describe the rebuild, preserve unrelated report /

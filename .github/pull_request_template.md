@@ -4,19 +4,21 @@ Describe what changed and why. Link the related issue, if any.
 
 ## Scope
 
-Deployment paths affected (Fabric / Fabric App / Azure / Power Automate + Dataverse / SharePoint / Local CSV):
+Parts affected (installer / app / Fabric notebooks and pipeline / Azure infra, jobs or web / core / Power BI models):
 
-Source contracts, optional inputs or refresh behaviour changed:
+Source contracts, optional inputs, install record or deployed item names changed:
 
 ## Validation
 
 - [ ] Ran `python -B -m pytest tests -q` and recorded results below.
+- [ ] Ran `npm test` (and `npm run typecheck` for the installer) in each changed Node project.
 - [ ] Updated directly related documentation and checked changed links.
-- [ ] No credentials, tenant exports, prompts or private solution packages are included.
+- [ ] No credentials, tenant exports, prompts or customer names are included.
 - [ ] If `.pbit` files changed, documented the rebuild method and Desktop refresh / visual checks.
 
 Results, skipped checks and limitations:
 
 ## Compatibility
 
-Describe migration steps, binary-template changes and anything deliberately left unchanged.
+Describe what happens to existing installs on **Repair or change**, migration steps, and anything
+deliberately left unchanged. Note if the Power BI templates in ValueLens need a matching change.

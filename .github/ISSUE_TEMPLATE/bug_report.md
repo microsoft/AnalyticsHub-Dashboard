@@ -1,33 +1,35 @@
 ---
 name: Bug report
-about: Report a reproducible ValueLens setup, processing or dashboard defect
+about: Report a reproducible Analytics Hub installer, data or app defect
 title: "[Bug]: "
 labels: ""
 assignees: ""
 ---
 
 <!-- Do not report vulnerabilities here. Follow ../../SECURITY.md.
-Do not attach tenant exports, credentials, user identities, prompts or private solution packages.
+Do not attach tenant exports, credentials, user identities, prompts or install records with secrets.
 Use fabricated examples and redact screenshots. -->
 
-### Deployment path
+### Where does it run?
 
-- [ ] 1. Fabric (SQL endpoint or OneLake? Specify below.)
-- [ ] app (preview)
-- [ ] 2. Azure (preview)
-- [ ] 3. Power Automate + Dataverse (preview)
-- [ ] 4. SharePoint
-- [ ] 5. Local CSV
+- [ ] Fabric
+- [ ] Azure (preview)
+
+### Where did it go wrong?
+
+- [ ] The installer (set up, repair, update, access)
+- [ ] A notebook or pipeline run (Fabric)
+- [ ] A Container Apps job run (Azure)
+- [ ] The app or the web app
+- [ ] A Power BI report or model
+- [ ] Setting it up by hand
 
 ### Environment
 
-- Power BI Desktop version:
-- Template filename and repository commit / download date:
+- Installer version (shown at the top of the installer window and on its setup page):
 - Operating system:
-- Python / PowerShell version (if scripts are involved):
-- Sample data or your own data:
-- Optional sources enabled:
-- Desktop or Power BI Service:
+- Demo mode (sample data) or your own data:
+- Optional data sources and add-ons chosen:
 
 ### What happened?
 
@@ -43,5 +45,5 @@ Describe the defect and include the exact error message, with sensitive values r
 
 ### Sanitized evidence
 
-Include a minimal fabricated input, relevant log excerpt or redacted screenshot.
-For refresh issues, identify the failing query, notebook or script.
+Include a minimal fabricated input, a relevant log excerpt or a redacted screenshot. For a failed
+run, name the notebook, job or installer step.

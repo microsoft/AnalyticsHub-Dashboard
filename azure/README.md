@@ -12,7 +12,7 @@ The design and the roadmap are in [`docs/plans/AZURE-HOSTED-PLAN.md`](../docs/pl
 
 ## Install it
 
-1. [Download the installer](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/releases/latest/download/AnalyticsHubInstaller.exe)
+1. [Download the installer](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
    (0.3.0 or later) and open it, or run `npx valuelens-install --ui` from `installer` after
    `npm install` (see [Without the exe](../installer/README.md#without-the-exe)).
 2. Pick **Your Azure subscription** and tick the data to collect. **Change the advanced settings?**

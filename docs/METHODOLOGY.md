@@ -1,10 +1,12 @@
-# ValueLens methodology
+# Analytics Hub methodology
 
-How ValueLens turns Microsoft Purview audit records into the figures on each page. It covers what
-is counted, how each interaction is classified, how value is estimated, and the research behind
-the assumptions.
+How Analytics Hub turns Microsoft Purview audit records into the figures on each page. It covers
+what is counted, how each interaction is classified, how value is estimated, and the research
+behind the assumptions.
 
-It applies to the Power BI template, where all four data paths share one model, and to the
+It applies to the Fabric and Azure paths here, and to the Power BI templates in
+[ValueLens](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot) (paths 3 Power Automate +
+Dataverse, 4 SharePoint and 5 Local CSV), which share one model. It also applies to the
 [Fabric App](../app/). The app reads the same model and adds three pages and a Value
 stage of its own ([§8](#8-fabric-app-only-consumption-agent-evaluation-cost-vs-value-and-work-patterns)). Every rule here is taken from
 `fabric/ValueLens - Fabric.pbit` and the `Copilot_Audit_Log_Processor` notebook. If this page
@@ -73,7 +75,7 @@ flowchart LR
 | **4. Date** | `InteractionDate`, `WeekStart` (Monday) and `MonthStart`, all from the record's UTC timestamp. |
 | **5. Licence** | The user ID is lower-cased and trimmed, then matched to the licensed-users table. `Has license` of YES, TRUE, Y or 1 gives **M365 Copilot Licensed**; anything else, including no match, gives **Unlicensed**. |
 | **6. Link agents** | Each agent row is linked to the Agent 365 registry by Title ID, then Copilot Studio Bot Id, then Entra agent ID. The first match wins. Agents are never matched by name ([§2.2](#22-how-agents-are-linked-to-the-registry)). |
-| **7. Classify** | The rules in [§3](#3-how-each-interaction-is-classified). On Fabric the `Copilot_Audit_Log_Processor` notebook runs them in Spark and writes `copilot_interactions_curated`. On Azure, the `valuelens_core` DuckDB port runs the same rules. The other paths run [`Purview_CopilotInteraction_Processor_v4.0.0.py`](../5.%20Local%20CSV/scripts/Purview_CopilotInteraction_Processor_v4.0.0.py), which classifies agents less finely ([§3.2](#paths-3-4-and-5)). |
+| **7. Classify** | The rules in [§3](#3-how-each-interaction-is-classified). On Fabric the `Copilot_Audit_Log_Processor` notebook runs them in Spark and writes `copilot_interactions_curated`. On Azure, the `valuelens_core` DuckDB port runs the same rules. The other paths run [`Purview_CopilotInteraction_Processor_v4.0.0.py`](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/blob/main/5.%20Local%20CSV/scripts/Purview_CopilotInteraction_Processor_v4.0.0.py), which classifies agents less finely ([§3.2](#paths-3-4-and-5)). |
 | **8. Model** | The model reads the curated rows without reclassifying them. It joins org data (organisation, department, location) on the normalised person ID, and computes the measures. On Fabric, refresh is incremental by `CreationDate`. |
 
 Table and column contracts are in the [data dictionary](DATA-DICTIONARY.md).
@@ -325,7 +327,7 @@ ServiceNow site), so the ticket counts as a workflow, not a service desk questio
 #### Paths 3, 4 and 5
 
 These paths classify with
-[`Purview_CopilotInteraction_Processor_v4.0.0.py`](../5.%20Local%20CSV/scripts/Purview_CopilotInteraction_Processor_v4.0.0.py).
+[`Purview_CopilotInteraction_Processor_v4.0.0.py`](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/blob/main/5.%20Local%20CSV/scripts/Purview_CopilotInteraction_Processor_v4.0.0.py).
 It runs step 1 the same way, and step 4 is in the shared model. But it has no Agent 365 registry,
 doesn't split workflows, and doesn't apply the name keywords to agent rows. So on
 these paths agent chats with no matching resource stay General Chat, and workflows stay Running a

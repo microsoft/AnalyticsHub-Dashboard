@@ -95,6 +95,8 @@ export function createSession(o) {
   let prereqs = null;
   /** @type {Promise<void>} */
   let checking = Promise.resolve();
+  /** A newer installer, once the update check finds one. @type {import('./update-check.js').Update | null} */
+  let update = null;
 
   /**
    * Checks the prerequisites in the background after a sign-in, without holding up the command.
@@ -132,6 +134,7 @@ export function createSession(o) {
       running,
       user: signedIn ? { upn: signedIn.user.upn, displayName: signedIn.user.displayName, tenantId: signedIn.user.tenantId, method: signedIn.method } : null,
       prereqs,
+      update,
       defaults: { tenant: o.tenantId ?? record?.tenantId ?? '', method: o.method ?? 'browser' },
     };
   }
@@ -181,6 +184,14 @@ export function createSession(o) {
     state,
     get running() {
       return running;
+    },
+    /**
+     * Records a newer installer and tells the page to show it.
+     * @param {import('./update-check.js').Update} u
+     */
+    setUpdate(u) {
+      update = u;
+      o.ui.emit({ type: 'update-available' });
     },
     /** Resolves when the command that is running now, and any background prerequisites check, have finished. */
     settled: async () => {

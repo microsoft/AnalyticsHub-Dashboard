@@ -3,7 +3,7 @@
 The recommended path. One installer sets everything up in your tenant and gives you the dashboard
 as an app in Fabric, called **Analytics Hub**. You don't need a terminal or Power BI Desktop.
 
-[![Download the Analytics Hub installer](https://img.shields.io/badge/Download-Analytics%20Hub%20installer-0078D4?style=for-the-badge)](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/releases/latest/download/AnalyticsHubInstaller.exe)
+[![Download the Analytics Hub installer](https://img.shields.io/badge/Download-Analytics%20Hub%20installer-0078D4?style=for-the-badge)](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
 
 For Windows 10 or 11. Check [what you need](#before-you-start) first.
 
@@ -40,7 +40,7 @@ you're responsible for the data once it's in your workspace.
 
 ## Install
 
-1. [Download the installer](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/releases/latest/download/AnalyticsHubInstaller.exe).
+1. [Download the installer](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe).
    If Edge says it isn't commonly downloaded, choose **…** next to the file, then **Keep**,
    **Show more** and **Keep anyway**.
 2. Open it. If Windows says it protected your PC, choose **More info**, then **Run anyway**.

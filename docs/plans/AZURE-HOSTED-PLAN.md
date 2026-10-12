@@ -1,5 +1,10 @@
 # Analytics Hub on Azure: a plan for running outside Fabric
 
+> This plan was written in ValueLens, before Analytics Hub moved to its own repo. Its paths are the
+> old ones: `1. Fabric/Fabric App` is now `app/`, `1. Fabric/installer` is `installer/`,
+> `1. Fabric/Manual setup` is `fabric/`, `2. Azure` is `azure/`, and paths 3 to 5 are still in
+> [ValueLens](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot).
+
 ## 0. Summary
 
 This plan recreates Analytics Hub and its installer so they run in the **customer's own Azure
