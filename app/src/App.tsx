@@ -61,6 +61,7 @@ const AppendixScreen = lazy(() =>
 const AssumptionsScreen = lazy(() =>
     import("./screens/assumptions").then((module) => ({ default: module.AssumptionsScreen })),
 );
+const AskScreen = lazy(() => import("./screens/ask").then((module) => ({ default: module.AskScreen })));
 
 function App() {
     const [selected, setDestination] = useState<DestinationId>("executive");
@@ -103,6 +104,7 @@ function App() {
                                 {destination === "value" && <ValueScreen />}
                                 {destination === "efficiency" && <EfficiencyScreen />}
                                 {destination === "feedback" && <FeedbackScreen />}
+                                {destination === "ask" && <AskScreen />}
                                 {destination === "agent-evaluation" && <AgentEvaluationScreen />}
                                 {destination === "governance" && <GovernanceScreen />}
                                 {destination === "assumptions" && <AssumptionsScreen />}

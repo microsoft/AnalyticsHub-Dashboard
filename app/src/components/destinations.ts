@@ -17,6 +17,7 @@ import {
     LayoutDashboard,
     MessageSquareQuote,
     ShieldCheck,
+    Sparkles,
     Timer,
     TrendingUp,
     Trophy,
@@ -44,7 +45,8 @@ import { consumptionConnection, evaluatorConnection } from "@/queries/shared";
  * `filters` are the slicers the destination responds to, taken from the ones
  * the report placed on its pages; the destination id doubles as its palette.
  * A `reference` destination holds definitions rather than activity, so it has
- * no filters and sits apart in the sidebar.
+ * no filters and sits apart in the sidebar. Ask takes no filters either: the
+ * question says what period and organisations it is about.
  *
  * The executive summary comes first and is where the app opens: one page
  * drawing on the others, each of its panels linking to the destination
@@ -187,6 +189,14 @@ export const destinations = [
         filters: ["dateRange"] as FilterKey[],
         source: "productFeedback",
         stages: [{ id: "feedback", label: "Feedback", ready: true }],
+    },
+    {
+        id: "ask",
+        label: "Ask",
+        blurb: "Questions about the data, in your own words",
+        icon: Sparkles as LucideIcon,
+        filters: [] as FilterKey[],
+        stages: [{ id: "ask", label: "Ask", ready: true }],
     },
     {
         id: "assumptions",
