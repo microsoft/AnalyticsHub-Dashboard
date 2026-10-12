@@ -3,8 +3,8 @@ name: tests
 on:
   push:
     branches: [main]
+  # Every base, so stacked pull requests are tested too.
   pull_request:
-    branches: [main]
 
 permissions:
   contents: read
