@@ -120,6 +120,8 @@ networking it writes to a SharePoint folder you name, and the managed identity g
 on that site (a SharePoint or Global administrator grants it). See
 [Azure](../azure/README.md#credit-consumption). Agent configuration and Foundry from Azure
 Resource Graph also works on Azure: see [Agent configuration and Foundry](#agent-configuration-and-foundry).
+The app's Ask page answers with an Azure OpenAI model, an AI Services account the installer creates
+by default or a deployment you already have: see [Ask](#ask).
 Re-runs are incremental and use the same
 `valuelens-install.json`, with `target: "azure"` and an `azure` block. The installer tags every Azure
 resource with `valuelens-install-id` and stops rather than modifying untagged resources with colliding
@@ -250,6 +252,7 @@ then **Yes**.
 | Run the first load as soon as setup finishes | Yes. |
 | Value page currency | US dollars. See below. |
 | [Agent configuration and Foundry](#agent-configuration-and-foundry) | The whole tenant, agents and Foundry. |
+| [Ask data agent](#ask) | Yes, on a paid F2 or larger, or Premium, capacity. |
 
 **Currency for the Value page.** Licences and credits are billed in US dollars, so it reports in
 dollars unless you choose another, such as euros or pounds. For another currency you can type how
@@ -259,7 +262,8 @@ use `install --currency GBP --exchange-rate 0.79`. The installer keeps your choi
 
 The [Azure target](#azure-target) asks the same question. Its advanced settings also cover
 [demo mode](#demo-mode), the Azure SQL region, the name prefix, extra tags,
-[networking](#networking), where credits come from, and agent configuration and Foundry.
+[networking](#networking), where credits come from, agent configuration and Foundry, and
+[which model Ask uses](#ask).
 
 ## After it finishes
 
@@ -657,6 +661,53 @@ If you aren't a System Administrator in an environment you pick, ask one to:
 2. Pick the app registration, the root business unit and the **Bot Transcript Viewer** role.
 
 Then choose **Repair or change**.
+
+## Ask
+
+The app's **Ask** page answers questions about the dashboard in plain language. It lists suggested
+questions for each page the install shows, from `app/src/ask/catalogue.json`. How it answers depends
+on the target.
+
+**Fabric.** The installer creates a data agent, **Analytics Hub Ask**, in the workspace and publishes
+it. It reads `Analytics Hub Model`, and Consumption Central and Agent Evaluator when they're on. Its
+instructions come from the same catalogue: what the measures mean, how to filter by date and
+organization, to compare rather than explain why, never to estimate, and to leave out groups under
+5 people. A data agent built on semantic models can't take example queries, so these all go into its
+instructions. On a re-run the installer updates and republishes it only when the models or the
+catalogue changed, and a failure here never stops the install. The app's Ask page links to the agent
+in Fabric (**Open the data agent in Fabric**) and copies questions to ask it. To use it in Teams or
+Microsoft 365 Copilot, publish it there from Fabric by hand: there's no API for that yet.
+
+It needs:
+
+- A paid Fabric capacity, **F2 or larger**, or Premium (P1 or larger). On a trial capacity the
+  installer skips the agent and the Ask page lists the questions only.
+- The tenant settings **Users can create and share data agent items**, **Users can use Copilot and
+  other features powered by Azure OpenAI** and, if your capacity isn't in the US or EU, **Data sent
+  to Azure OpenAI can be processed outside your capacity's geographic region**. The installer
+  checks them when it can read tenant settings and warns about any that look off.
+- For the people who ask it: access to the agent (share it, or a workspace role) and **Build** or
+  **Read** on the models it reads. The viewer group already has Build.
+
+To leave it out, choose **Yes** for the advanced settings and **No** when asked to create the data
+agent. It's recorded as `dataAgent` in `valuelens-install.json`.
+
+**Azure.** The web app answers on the page itself through `POST /api/ask`, with an Azure OpenAI model.
+The model can only run the named queries the pages run, as the person asking, so it sees only what
+they can see. Under [Advanced settings](#advanced-settings) the wizard asks which model to use:
+
+- **Create one for Ask** (the default): an Azure AI Services account in the resource group with a
+  `gpt-5-mini` deployment, billed per token. Choose whether prompts may be processed in any region
+  (Global Standard) or only in your data zone (Data Zone Standard). The installer checks the region
+  offers the model and has quota, and moves a global deployment to another region if it doesn't.
+  The web app's managed identity gets **Cognitive Services OpenAI User** on it.
+- **Use an Azure OpenAI deployment you already have**: pick the account and a chat deployment that
+  supports tool calling. The installer gives the managed identity Cognitive Services OpenAI User on
+  that account if you can assign roles there, or prints the `az role assignment create` command.
+- **Leave Ask off**: the page lists suggested questions without answers. An account the installer
+  created earlier stays until you delete it.
+
+It's recorded as `azure.ask`. See [Ask](../azure/README.md#ask) for the limits and what's logged.
 
 ## Private Key Vaults
 

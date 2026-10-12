@@ -50,6 +50,32 @@ own org had no way to keep the rest of the tenant out of it.
 
 ---
 
+## Unreleased — Fabric App: report packs, PDF and PowerPoint
+
+### New: report packs, exported as PDF and PowerPoint
+
+**What changed.** The Fabric App, which serves both the Fabric and Azure paths, can now build and
+export reports (#24).
+
+- **Report packs.** A pack is a named, ordered list of sections taken from any page, listed under
+  **Reports** in the sidebar. *Exec pre-read*, *Finance weekly* and *Adoption review* come built
+  in; **Save a copy** starts a new pack from one. **New pack** opens an editor to name a pack, tick
+  sections and order them. Packs are stored with the other settings: in the app's SQL database on
+  Fabric, where anyone who can open the app can change them, and in Table Storage through
+  `/api/settings/ReportPack` on Azure, where saving needs `AnalyticsHub.Admin`. A pack skips, and
+  names, sections whose page this install hides.
+- **Download PDF.** Every page and pack can be printed as a report laid out for paper, through the
+  browser's **Save as PDF**. Where the host blocks the print dialog, it downloads as an HTML page
+  to print instead.
+- **Download PowerPoint.** A deck with a cover (filters, data dates, sections left out) and one
+  slide per chart or table, built in the browser with `pptxgenjs`.
+- **Data dates in file names.** Exports and each chart's **Download CSV** are named with the
+  date the data runs to, such as `exec-pre-read-data-to-2026-10-11.pptx`.
+
+Scheduled digests by email are not part of this change. The Power BI templates are unchanged.
+
+---
+
 ## 2026-10-12 — Analytics Hub installer 0.5.1
 
 **Updating is optional.** 0.5.1 changes how the exe is released and some wording. What the installer

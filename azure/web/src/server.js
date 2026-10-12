@@ -8,6 +8,7 @@ import { AccessService, httpError } from './access.js';
 import { MemorySettingsStore, TableSettingsStore, validateEntity, validateSettingsRow } from './settings.js';
 import { VersionService } from './version.js';
 import { createStaticHandler } from './static.js';
+import { AskService } from './ask.js';
 
 export function createServer(deps = {}) {
   const config = deps.config || loadConfig();
@@ -16,6 +17,7 @@ export function createServer(deps = {}) {
   const settingsStore = deps.settingsStore || new TableSettingsStore(config);
   const queryService = new QueryService({ config, tokenAcquirer, fetchImpl: deps.fetchImpl || fetch, now: deps.now });
   const accessService = new AccessService({ config, tokenAcquirer, fetchImpl: deps.fetchImpl || fetch, now: deps.now });
+  const askService = new AskService({ config, queryService, fetchImpl: deps.fetchImpl || fetch, now: deps.now, aiToken: deps.aiToken, loadCatalogue: deps.loadAskCatalogue });
   const auth = (req, write = false) => requireAuth(req, verifyToken, write, config, accessService);
   const versionService = new VersionService({ installed: config.version, releasesUrl: config.releasesUrl, fetchImpl: deps.fetchImpl || fetch, now: deps.now });
   const staticHandler = createStaticHandler(deps.publicDir || config.publicDir);
@@ -26,7 +28,7 @@ export function createServer(deps = {}) {
       const url = new URL(req.url || '/', 'http://localhost');
       if (req.method === 'GET' && url.pathname === '/app.config.json') {
         res.setHeader('Cache-Control', 'no-store');
-        return sendJson(res, 200, { host: 'azure', tenantId: config.tenantId, clientId: config.webClientId, apiScope: `${config.appIdUri}/access_as_user`, semanticModels: config.semanticModels, reporting: config.reporting, version: config.version, ...(config.access ? { access: publicAccess(config.access) } : {}) });
+        return sendJson(res, 200, { host: 'azure', tenantId: config.tenantId, clientId: config.webClientId, apiScope: `${config.appIdUri}/access_as_user`, semanticModels: config.semanticModels, reporting: config.reporting,         version: config.version, ...(config.access ? { access: publicAccess(config.access) } : {}), ...(askService.enabled ? { ask: { mode: 'chat' } } : {}) });
       }
       if (req.method === 'GET' && url.pathname === '/api/health') return sendJson(res, 200, { status: 'ok', version: config.version });
       if (url.pathname === '/api/query' && req.method === 'POST') {
@@ -34,6 +36,10 @@ export function createServer(deps = {}) {
         for (const [key, value] of Object.entries(result.headers || {})) res.setHeader(key, value);
         res.statusCode = result.status;
         return res.end(result.body);
+      }
+      if (url.pathname === '/api/ask' && req.method === 'POST') {
+        const caller = await auth(req);
+        return sendJson(res, 200, await askService.ask(await readJsonBody(req, 64 * 1024), caller));
       }
       const settingsMatch = /^\/api\/settings\/([^/]+)(?:\/([^/]+))?$/.exec(url.pathname);
       if (settingsMatch) {
@@ -67,6 +73,7 @@ export function createServer(deps = {}) {
       const status = error.statusCode || 500;
       if (status >= 500) console.error(`${req.method} ${req.url} failed:`, error);
       else if (status === 401 || status === 403) console.warn(`${req.method} ${req.url} ${status}: ${error.message}`);
+      if (error.retryAfter) res.setHeader('Retry-After', String(error.retryAfter));
       return sendJson(res, status, { error: { code: error.code || (status === 401 ? 'Unauthorized' : status === 403 ? 'Forbidden' : 'ServerError'), message: status === 500 ? 'Internal server error.' : error.message } });
     }
   });

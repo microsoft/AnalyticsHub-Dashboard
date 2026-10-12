@@ -441,7 +441,7 @@ export function fabricConfigFile(config, ws, models) {
     [CONSUMPTION_ALIAS]: config.consumption.model.id,
     [EVALUATOR_ALIAS]: config.agentEvaluator.model.id,
   };
-  /** @type {{ semanticModels: Record<string, { workspaceId: string, itemId: string | undefined }>, modules?: Record<string, boolean>, reporting?: import('../currency.js').ReportingConfig, access?: Record<string, string> }} */
+  /** @type {{ semanticModels: Record<string, { workspaceId: string, itemId: string | undefined }>, modules?: Record<string, boolean>, reporting?: import('../currency.js').ReportingConfig, access?: Record<string, string>, ask?: { workspaceId: string, itemId: string } }} */
   const body = { semanticModels: Object.fromEntries(models.map((alias) => [alias, { workspaceId: ws, itemId: ids[alias] }])) };
   if (config.modules) {
     body.modules = {
@@ -454,6 +454,8 @@ export function fabricConfigFile(config, ws, models) {
   if (config.reporting) body.reporting = { ...config.reporting };
   const access = publicAccess(config);
   if (access) body.access = access;
+  const da = config.dataAgent;
+  if (da?.id && da.enabled !== false && da.capacityOk !== false) body.ask = { workspaceId: ws, itemId: da.id };
   return body;
 }
 

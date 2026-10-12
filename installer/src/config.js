@@ -34,6 +34,7 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {ConsumptionConfig} consumption
  * @property {AgentEvaluatorConfig} agentEvaluator
  * @property {ResourceGraphConfig} resourceGraph
+ * @property {DataAgentConfig} dataAgent
  */
 
 /**
@@ -200,6 +201,17 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  */
 
 /**
+ * The Fabric data agent behind the app's Ask page.
+ * @typedef {object} DataAgentConfig
+ * @property {boolean} [enabled]  Create it. Unset means yes, on a capacity that runs data agents.
+ * @property {string} [id]
+ * @property {string} name
+ * @property {boolean} [capacityOk]  The workspace's capacity runs data agents (paid F or P), as of the last plan.
+ * @property {string} [signature]  What the deployed definition was built from.
+ * @property {string} [publishedSignature]  The definition last published.
+ */
+
+/**
  * The ValueLens web app (Fabric App item) from `app`.
  * @typedef {object} FabricAppConfig
  * @property {boolean} [enabled]
@@ -246,7 +258,21 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {boolean} [storageRole] The installer gave the signed-in user Storage Blob Data Contributor on the landing container, for the Studio flow.
  * @property {{ assigned: string[], pending: string[] }} [graphRoles]
  * @property {string} [teamsPackage]
+ * @property {AzureAskConfig} [ask] The model the web app's Ask answers with. Absent on installs from before Ask, which leaves it off.
  * @property {{ whatIf?: any[], pendingAdminActions?: string[], lastRun?: any, lastMigrate?: any, lastAccess?: any }} [status]
+ */
+
+/**
+ * Ask on Azure: an Azure OpenAI model the installer creates, one that already exists, or none.
+ * @typedef {object} AzureAskConfig
+ * @property {'create' | 'existing' | 'off'} mode
+ * @property {string} [location] create: region of the AI Services account.
+ * @property {string} [sku] create: GlobalStandard or DataZoneStandard.
+ * @property {number} [capacity] create: thousands of tokens a minute.
+ * @property {string} [deployment] The model deployment's name.
+ * @property {string} [endpoint] existing: the account's endpoint.
+ * @property {string} [accountId] existing: the account's ARM resource ID, when it was picked from a list.
+ * @property {boolean} [granted] existing: the web app's managed identity has Cognitive Services OpenAI User on it.
  */
 
 /**
@@ -268,6 +294,7 @@ export const AGENT_EVALUATOR_MODEL_NAME = 'Analytics Hub Agent Evaluator Model';
 export const REPORT_NAME = 'ValueLens';
 export const CONSUMPTION_REPORT_NAME = 'Consumption Central';
 export const AGENT_EVALUATOR_REPORT_NAME = 'Agent Evaluator';
+export const DATA_AGENT_NAME = 'Analytics Hub Ask';
 
 /** @returns {InstallConfig} */
 export function emptyConfig() {
@@ -288,6 +315,7 @@ export function emptyConfig() {
     consumption: { model: { name: CONSUMPTION_MODEL_NAME } },
     agentEvaluator: { environments: [], model: { name: AGENT_EVALUATOR_MODEL_NAME } },
     resourceGraph: { managementGroup: '', agents: true, foundry: true },
+    dataAgent: { name: DATA_AGENT_NAME },
   };
 }
 
@@ -352,6 +380,7 @@ export function loadConfig(file) {
       model: { ...base.agentEvaluator.model, ...(raw.agentEvaluator?.model ?? {}) },
     },
     resourceGraph: normaliseResourceGraph(raw.resourceGraph),
+    dataAgent: { ...base.dataAgent, ...(raw.dataAgent ?? {}) },
   };
   if (!config.reporting) delete config.reporting;
   assertNoSecrets(config);

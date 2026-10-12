@@ -16,8 +16,18 @@ export function loadConfig(env = process.env) {
     reporting: parseReporting(env.VALUELENS_CURRENCY, env.VALUELENS_EXCHANGE_RATE),
     azureClientId: env.AZURE_CLIENT_ID || '',
     publicDir: env.VALUELENS_PUBLIC_DIR || path.resolve('/app/public'),
-    webClientCertPath: env.VALUELENS_WEB_CLIENT_CERT_PATH || ''
+    webClientCertPath: env.VALUELENS_WEB_CLIENT_CERT_PATH || '',
+    ask: parseAsk(env.VALUELENS_ASK_ENDPOINT, env.VALUELENS_ASK_DEPLOYMENT),
+    askDir: env.VALUELENS_ASK_DIR || ''
   };
+}
+
+/** Ask's Azure OpenAI endpoint and deployment; null, so Ask is off, unless both are set and the endpoint is https. */
+export function parseAsk(endpoint, deployment) {
+  const url = String(endpoint || '').trim();
+  const name = String(deployment || '').trim();
+  if (!name || !/^https:\/\/[^\s/]+/i.test(url)) return null;
+  return { endpoint: url.replace(/\/+$/, ''), deployment: name };
 }
 
 /**
