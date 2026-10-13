@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { emptyConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
-import { DATA_CLI, deployApp, deploymentKey, ensureAppName, ensureFabricApp, FABRIC_CONFIG, fabricConfigFile, findDeployment, nodeVersionOk, PREBUILT_MARKER, PREBUILT_STATIC, profileName, RAYFIN_CLI, yamlValue } from '../src/steps/app.js';
+import { DATA_CLI, deployApp, deploymentKey, ensureAppName, ensureFabricApp, FABRIC_CONFIG, fabricConfigFile, findDeployment, nodeVersionOk, PREBUILT_MARKER, PREBUILT_STATIC, profileName, RAYFIN_CLI, rayfinEnv, yamlValue } from '../src/steps/app.js';
 import { CONNECTION_SECRET_NAME, connectionName, definitionHash, ensureModelConnection, ensureSemanticModel, MODEL_PROBE, refreshModel, rotateModelSecret, verifyModel } from '../src/steps/model.js';
 import { blockedSettings } from '../src/steps/plan.js';
 import { buildModel, loadTemplateModel } from '../src/transform/model.js';
@@ -354,8 +354,11 @@ function appSetup(o = {}) {
   t.config.fabricApp.enabled = true;
   /** @type {string[]} */
   const runs = [];
+  /** @type {import('../src/steps/app.js').RunOptions[]} */
+  const upOpts = [];
   /** @type {import('../src/steps/app.js').Runner} */
-  const runner = async (command, args) => {
+  const runner = async (command, args, opts) => {
+    if (args[1] === 'up') upOpts.push(opts);
     const line = [command === process.execPath ? 'node' : command, ...args.map((a) => a.replace(dir, '<app>'))].join(' ');
     runs.push(line);
     if (command.startsWith('npm ci')) tools();
@@ -377,7 +380,7 @@ function appSetup(o = {}) {
   t.ctx.runner = runner;
   t.ctx.sources = { ...realSources(), appDir: dir };
   const cleanup = () => rmSync(dir, { recursive: true, force: true });
-  return { ...t, dir, runs, deploymentsFile, cleanup };
+  return { ...t, dir, runs, upOpts, deploymentsFile, cleanup };
 }
 
 test('app: deployed to the customer workspace under the app name, and a developer checkout put back as it was', async () => {
@@ -791,4 +794,52 @@ test('app: fabricConfigFile omits module choices from older records that do not 
   assert.deepEqual(fabricConfigFile(config, 'ws', ['vl']), {
     semanticModels: { vl: { workspaceId: 'ws', itemId: 'm' } },
   });
+});
+
+/** Runs fn as if in Azure Cloud Shell. */
+async function inCloudShellEnv(fn) {
+  const before = process.env.ANALYTICS_HUB_CLOUD_SHELL;
+  process.env.ANALYTICS_HUB_CLOUD_SHELL = '1';
+  try {
+    await fn();
+  } finally {
+    if (before === undefined) delete process.env.ANALYTICS_HUB_CLOUD_SHELL;
+    else process.env.ANALYTICS_HUB_CLOUD_SHELL = before;
+  }
+}
+
+test('app: in Azure Cloud Shell, rayfin deploys with the installer sign-in\'s Fabric token instead of opening a browser', async () => {
+  const t = appSetup();
+  /** @type {string[]} */
+  const asked = [];
+  t.ctx.getToken = async (r) => { asked.push(r); return `token-for-${r}`; };
+  try {
+    await inCloudShellEnv(() => deployApp(t.ctx));
+    assert.deepEqual(asked, ['fabric']);
+    const env = t.upOpts[0].env;
+    assert.equal(env?.RAYFIN_TOKEN, 'token-for-fabric');
+    assert.equal(env?.RAYFIN_TENANT_ID, 'tenant-1');
+    assert.equal(env?.PATH, process.env.PATH, 'the rest of the environment as it was');
+    assert.match(t.ui.text(), /Building and deploying the app\. It uses your installer sign-in\./);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('app: in Azure Cloud Shell, a deploy Fabric turns down says how to finish from Windows', async () => {
+  const t = appSetup({ upFails: true });
+  t.ctx.getToken = async () => 'token';
+  try {
+    await inCloudShellEnv(() => assert.rejects(deployApp(t.ctx), /installer sign-in's Fabric token[\s\S]*run deploy-app there/));
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('rayfinEnv: only in Azure Cloud Shell, and never over a token already set', async () => {
+  const ctx = /** @type {any} */ ({ getToken: async () => 'tok', user: { tenantId: 't1' } });
+  assert.equal(await rayfinEnv(ctx, {}), undefined);
+  assert.equal(await rayfinEnv(ctx, { ACC_CLOUD: 'PROD', RAYFIN_TOKEN: 'mine' }), undefined);
+  assert.equal(await rayfinEnv({ ...ctx, getToken: undefined }, { ACC_CLOUD: 'PROD' }), undefined);
+  assert.deepEqual(await rayfinEnv(ctx, { ACC_CLOUD: 'PROD', X: '1' }), { ACC_CLOUD: 'PROD', X: '1', RAYFIN_TOKEN: 'tok', RAYFIN_TENANT_ID: 't1' });
 });

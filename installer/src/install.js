@@ -4,7 +4,7 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { createCredential, createTokenProvider, decodeJwt } from './auth.js';
+import { checkTokens, createCredential, createTokenProvider, decodeJwt } from './auth.js';
 import { notebooksFor, permissionsFor } from './catalog.js';
 import { armApi, keyVaultApi } from './clients/azure.js';
 import { connectionsApi, POWERAPPS_URL } from './clients/connections.js';
@@ -101,12 +101,14 @@ import { ensureOrgAccess, verifyOrgAccess } from './steps/org-access.js';
  * @property {import('./staging.js').PendingUpload[]} [pendingUploads]  Exports to upload to the drop folder during the install.
  * @property {string[]} [csvFiles]  Exports named with --csv.
  * @property {string} [configFile]  The install record's path.
+ * @property {(resource: import('./auth.js').Resource) => Promise<string>} [getToken]  The signed-in user's tokens, for tools the installer runs.
  */
 
 /**
  * Signs in once and builds a client for each API.
- * @param {{ tenantId?: string, method?: 'browser' | 'device-code' | 'azure-cli', ui: import('./ui.js').Ui, debug?: (m: string) => void }} opts
- * @returns {Promise<{ api: Apis, user: User }>}
+ * @param {{ tenantId?: string, method?: 'browser' | 'device-code' | 'azure-cli', ui: import('./ui.js').Ui, debug?: (m: string) => void, checkTokens?: boolean }} opts
+ *   checkTokens: get a token for every API first, so a sign-in that can't reach one fails before anything changes.
+ * @returns {Promise<{ api: Apis, user: User, getToken: (resource: import('./auth.js').Resource) => Promise<string> }>}
  */
 export async function connect(opts) {
   const credential = createCredential({ tenantId: opts.tenantId, method: opts.method, print: (m) => opts.ui.line(m) });
@@ -133,13 +135,14 @@ export async function connect(opts) {
     dataverse: (url) => dataverseApi(client(`${orgUrl(url)}/api/data/v9.2`, dataverseScope(url)), url),
     dataLake: (account) => dataLakeApi(client(dataLakeUrl(account), 'storage')),
   };
+  if (opts.checkTokens) await checkTokens(getToken);
   const claims = decodeJwt(await getToken('graph'));
   const me = await api.graph.me();
-  return { api, user: { id: me.id, upn: me.userPrincipalName, displayName: me.displayName, tenantId: claims.tid } };
+  return { api, user: { id: me.id, upn: me.userPrincipalName, displayName: me.displayName, tenantId: claims.tid }, getToken };
 }
 
 /**
- * @param {{ ui: import('./ui.js').Ui, config: import('./config.js').InstallConfig, file: string, api: Apis, user: User, sources: import('./sources.js').Sources, sleep?: (ms: number) => Promise<void>, now?: () => Date }} o
+ * @param {{ ui: import('./ui.js').Ui, config: import('./config.js').InstallConfig, file: string, api: Apis, user: User, sources: import('./sources.js').Sources, sleep?: (ms: number) => Promise<void>, now?: () => Date, getToken?: (resource: import('./auth.js').Resource) => Promise<string> }} o
  * @returns {Ctx}
  */
 export function createCtx(o) {
@@ -158,6 +161,7 @@ export function createCtx(o) {
     sleep: o.sleep ?? defaultSleep,
     now: o.now ?? (() => new Date()),
     configFile: o.file,
+    ...(o.getToken ? { getToken: o.getToken } : {}),
   };
 }
 

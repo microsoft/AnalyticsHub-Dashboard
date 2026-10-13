@@ -24,6 +24,9 @@ the same installer in your browser ([more](installer/README.md#from-powershell))
 irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
 ```
 
+If your PC can't run either, run the same command in
+[Azure Cloud Shell](installer/README.md#locked-down-tenant--azure-cloud-shell)'s PowerShell.
+
 **Before you start**, go through the **[checklist](docs/PREREQUISITES.md)**. It says what you need
 and what to ask other admins for (a Fabric admin, an Entra admin and, for some extras, a Power
 Platform admin or a Viva Insights analyst), with the costs. Allow about 5 minutes of questions and

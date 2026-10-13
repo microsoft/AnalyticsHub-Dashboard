@@ -2,8 +2,9 @@
 /**
  * install.ps1, the PowerShell launcher published next to AnalyticsHubInstaller.exe. It downloads
  * the exe's payload as a zip, checks its SHA-256 and runs the installer with the Node.js inside, for
- * organisations that block downloaded exes. build-exe.js fills in the template in
- * launcher/install.ps1 for each release.
+ * organisations that block downloaded exes. In Azure Cloud Shell, for tenants where no PC can run
+ * it, it gets the release's commit from GitHub instead and runs the installer in the terminal.
+ * build-exe.js fills in the template in launcher/install.ps1 for each release.
  */
 
 export const ZIP_NAME = 'AnalyticsHubInstaller.zip';
@@ -29,12 +30,16 @@ export function scriptCommand(repo, version) {
 /**
  * Fills in the launcher template.
  * @param {string} template  launcher/install.ps1
- * @param {{ version: string, sha256: string, id: string, repo: string, sizeMb: number }} v
+ * @param {{ version: string, sha256: string, id: string, repo: string, sizeMb: number, commit: string, nodeVersion: string }} v
+ *   commit: the commit the release is built from, which Azure Cloud Shell gets the source of.
+ *   nodeVersion: the Node.js Cloud Shell downloads when its own is too old.
  */
 export function installScript(template, v) {
   if (!/^[0-9a-f]{64}$/i.test(v.sha256)) throw new Error(`"${v.sha256}" isn't a SHA-256.`);
   if (!/^[\w.+-]+$/.test(v.version) || !/^[\w.+-]+$/.test(v.id)) throw new Error('The version and payload ID can only hold letters, digits and . + - _.');
   if (!/^[\w.-]+\/[\w.-]+$/.test(v.repo)) throw new Error(`"${v.repo}" isn't an owner/name.`);
+  if (!/^[0-9a-f]{40}$/i.test(v.commit)) throw new Error(`"${v.commit}" isn't a full commit ID.`);
+  if (!/^\d+\.\d+\.\d+$/.test(v.nodeVersion)) throw new Error(`"${v.nodeVersion}" isn't a Node.js version.`);
   /** @type {Record<string, string>} */
   const values = {
     VERSION: v.version,
@@ -44,6 +49,8 @@ export function installScript(template, v) {
     ZIP_NAME,
     SIZE_MB: String(Math.max(1, Math.round(v.sizeMb))),
     REPO: v.repo,
+    COMMIT: v.commit.toLowerCase(),
+    NODE_VERSION: v.nodeVersion,
   };
   const text = template.replace(/\{\{([A-Z0-9_]+)\}\}/g, (m, k) => {
     if (!(k in values)) throw new Error(`install.ps1 has an unknown placeholder ${m}.`);
