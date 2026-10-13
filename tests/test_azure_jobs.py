@@ -728,7 +728,8 @@ def test_sample_load_runs_through_processor(tmp_path):
     store = LocalStore(tmp_path)
     info = sample.load(store, folder=folder, today=date(2026, 10, 6))
     assert info["people"] == 170 and info["shift_days"] == 35
-    assert jobs_main.process(store) == info["interactions"]
+    # The sample includes 482 Copilot Studio test-pane and 9 autonomous-run rows, which the processor drops.
+    assert jobs_main.process(store) == info["interactions"] - 491
 
     curated = f"read_parquet('{(tmp_path / 'curated/copilot_interactions_curated').as_posix()}/*.parquet')"
     users, latest, licensed = duckdb.sql(

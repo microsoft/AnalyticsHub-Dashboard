@@ -5,15 +5,35 @@ dimensions) into the flat `copilot_interactions_curated` table the semantic mode
 It mirrors the Spark notebook step for step, including column order, types and Spark's
 null / JSON semantics, and is held to it by the golden parity tests in
 `tests/test_valuelens_core_parity.py`. Change the notebook and this module together.
+The notebook's pure-Python agent link and agent type rules (cell 2) are copied verbatim
+into `agent_link.py` and `agent_type.py`.
 """
 from __future__ import annotations
 
+import re
 import uuid
+from collections.abc import Mapping
 from typing import Iterable, Optional, Sequence, Union
 
 import duckdb
 
+from .agent_link import (BARE_GUID_PATTERN, EXCLUDE_REASON_SQL, PLATFORM_AGENT_ID_PATTERN,
+                         TITLE_SCHEMA_PATTERN, build_agent_link_maps, build_schema_title_map,
+                         resolve_agent_link)
+from .agent_type import build_agent_type_overrides, describe_agent
+
 DEFAULT_AGENT_IDENTITY_PATTERNS = (r"^securitycopilotagentuser-",)
+
+# Exclude_Reason values whose rows are dropped (notebook cell 1, DROP_EXCLUDE_REASONS).
+DEFAULT_DROP_EXCLUDE_REASONS = (
+    "Copilot Studio test pane",
+    "Maker evaluation",
+    "Agent authoring",
+    "Autonomous run",
+    "Workflow run",
+    "M365 Copilot twin",
+    "Fabric multi-agent",
+)
 
 RAW_PASSTHROUGH_COLUMNS = {
     "AppIdentity": "AppIdentity_Raw",
@@ -32,6 +52,14 @@ REQUIRED_TEXT_COLS = [
     "ModelTransparencyDetails_ModelName", "ModelTransparencyDetails_ModelProviderName",
     "SensitivityLabelId", "ThreadId", "Workload",
 ]
+# Agent-link and runtime columns added after the original contract.
+AGENT_LINK_TEXT_COLS = [
+    "Agent_BotId", "Agent_EnvironmentId", "Agent_MatchedTitleID", "Agent_LinkMethod",
+    "AgentPlatform", "PlatformAgentId", "Prompts_Available", "Exclude_Reason",
+]
+
+AGENT_TYPE_COLS = ["Agent_Key", "Agent_Type", "Agent_Type_Basis", "Agent_Publisher",
+                   "Agent_Is_Published", "Agent_Consolidated_Name"]
 
 ENRICHED_COLS = [
     "Environment", "License Status", "Is_Sensitive", "AI_Model", "Behavior_Category",
@@ -40,7 +68,7 @@ ENRICHED_COLS = [
     "Is_Agent_Activity", "Agent Filter", "Grounding Source", "Agent_Surface", "Execution_Trigger",
     "UserMonthKey", "Delegation_Event_Key", "ActivityDate", "Agent Last Used Date",
     "User_Stage_Maturity", "User_Stage",
-]
+] + AGENT_TYPE_COLS
 
 Source = Union[str, duckdb.DuckDBPyRelation, None]
 
@@ -235,10 +263,25 @@ class Frame:
         return self.step(f"SELECT * FROM {q(self.name)} WHERE {cond}")
 
     def left_join(self, right_sql: str, left_key: str, right_key: str, right_cols) -> "Frame":
+        return self.left_join_on(right_sql, f"__l.{q(left_key)} = __r.{q(right_key)}", right_cols)
+
+    def left_join_on(self, right_sql: str, on: str, right_cols) -> "Frame":
         items = [f"__l.{q(c)}" for c in self.columns] + [f"__r.{q(c)}" for c in right_cols]
         return self.step(
             f"SELECT {', '.join(items)} FROM {q(self.name)} AS __l "
-            f"LEFT JOIN ({right_sql}) AS __r ON __l.{q(left_key)} = __r.{q(right_key)}")
+            f"LEFT JOIN ({right_sql}) AS __r ON {on}")
+
+    def values_table(self, columns, rows, batch: int = 500) -> str:
+        """A temp table holding Python rows; `columns` is [(name, duckdb type), ...]."""
+        name = self._new("TABLE", "SELECT " + ", ".join(
+            f"CAST(NULL AS {t}) AS {q(c)}" for c, t in columns) + " WHERE FALSE")
+        row_ph = "(" + ", ".join("?" for _ in columns) + ")"
+        rows = list(rows)
+        for i in range(0, len(rows), batch):
+            chunk = rows[i:i + batch]
+            self.con.execute(f"INSERT INTO {q(name)} VALUES {', '.join(row_ph for _ in chunk)}",
+                             [v for r in chunk for v in r])
+        return name
 
     def cleanup(self):
         for kind, name in reversed(self.objects):
@@ -308,13 +351,25 @@ def curate(con: duckdb.DuckDBPyConnection,
            exclude_agent_identities: bool = True,
            agent_identity_patterns=DEFAULT_AGENT_IDENTITY_PATTERNS,
            include_raw_passthrough: bool = False,
+           drop_exclude_reasons: Iterable[str] = DEFAULT_DROP_EXCLUDE_REASONS,
+           agent_type_overrides: Union[Mapping, Iterable, None] = None,
            output: Optional[str] = None) -> duckdb.DuckDBPyRelation:
     """Build the curated table. Sources are table/view names or DuckDB relations.
 
     The result is materialised as a TEMP table (named `output`, or generated) and
     returned as a relation. Sets the connection's TimeZone to UTC, matching the
     Fabric Spark session, so string timestamps without an offset are read as UTC.
+
+    `drop_exclude_reasons` lists the Exclude_Reason values whose rows are dropped
+    (notebook DROP_EXCLUDE_REASONS). `agent_type_overrides` maps an agent id, agent
+    name or AppIdentity to an Agent_Type (a mapping or (key, Agent_Type) rows).
     """
+    if agent_type_overrides is None:
+        overrides = {}
+    elif isinstance(agent_type_overrides, Mapping):
+        overrides = build_agent_type_overrides(agent_type_overrides.items())
+    else:
+        overrides = build_agent_type_overrides(agent_type_overrides)
     prefix = "__vl_" + uuid.uuid4().hex[:10]
     con.execute("SET TimeZone = 'UTC'")
     src = _register(con, interactions, prefix + "_src")
@@ -324,7 +379,7 @@ def curate(con: duckdb.DuckDBPyConnection,
     f = Frame(con, src, prefix)
     try:
         _curate(f, lic_src, ag_src, exclude_agent_identities, agent_identity_patterns,
-                include_raw_passthrough)
+                include_raw_passthrough, list(drop_exclude_reasons or []), overrides)
         con.execute(f"CREATE OR REPLACE TEMP TABLE {q(out)} AS SELECT * FROM {q(f.name)}")
     finally:
         f.cleanup()
@@ -333,7 +388,8 @@ def curate(con: duckdb.DuckDBPyConnection,
     return con.sql(f"SELECT * FROM {q(out)}")
 
 
-def _curate(f: Frame, lic_src, ag_src, exclude_agents, agent_patterns, passthrough):
+def _curate(f: Frame, lic_src, ag_src, exclude_agents, agent_patterns, passthrough,
+            drop_exclude_reasons, agent_type_overrides):
     con = f.con
 
     # 1. RAW FACT (+ optional raw payload copies) ---------------------------------
@@ -350,15 +406,49 @@ def _curate(f: Frame, lic_src, ag_src, exclude_agents, agent_patterns, passthrou
     for c in ["ModelTransparencyDetails_ModelProviderName", "ModelTransparencyDetails_ModelName",
               "ApplicationName", "Audit_UserKey", "SensitivityLabelId",
               "AccessedResource_SensitivityLabelId",
-              "Id", "RecordId", "Source_RecordKey", "Source_MessageKey", "Source_ResourceKey",
-              "AppIdentity_AppId"]:
+              "Id", "RecordId", "Source_RecordKey", "Source_MessageKey", "Source_ResourceKey"]:
         f.ensure(c)
+    # Agent-type rule inputs. Parsed tables written before the ingester kept them lack them.
+    for c in ["AppIdentity_Text", "Agent_TargetPlatformId", "Agent_TargetName", "Agent_PlatformType"]:
+        f.ensure(c)
+    if f.has("AppIdentity") and f.type_of("AppIdentity") == "VARCHAR":
+        f.with_col("AppIdentity_Text", coalesce(col("AppIdentity_Text"), col("AppIdentity")))
+    f.ensure("AppIdentity_AppId")
     if f.has("AppIdentity"):
         if not f.has("AppIdentity_DisplayName"):
             f.with_col("AppIdentity_DisplayName", _as_text(f, "AppIdentity"))
         f.drop("AppIdentity")
     else:
         f.ensure("AppIdentity_DisplayName")
+
+    # Copilot Studio runtime keys and the exclusion flag. Older parsed tables lack them.
+    for c in ["AgentId", "AppHost", "Agent_EntraId", "AgentPlatform", "PlatformAgentId",
+              "Agent_BotId", "Agent_EnvironmentId"]:
+        f.ensure(c)
+    f.ensure("Prompts_Available", "TRUE")
+    f.with_col("Prompts_Available", coalesce(E(f"upper({trim(s_(col('Prompts_Available')))})"), "TRUE"))
+    pid = trim(coalesce(s_(col("PlatformAgentId")), ""))
+    aid = trim(coalesce(s_(col("AgentId")), ""))
+    pid_platform = E(f"regexp_matches({pid}, {lit(PLATFORM_AGENT_ID_PATTERN)})")
+    pid_guid = E(f"regexp_matches({pid}, {lit(BARE_GUID_PATTERN)})")
+    f.with_col("Agent_BotId", E(
+        f"lower(coalesce({clean('Agent_BotId')}, (CASE WHEN {pid_platform} "
+        f"THEN regexp_extract({pid}, {lit(PLATFORM_AGENT_ID_PATTERN)}, 2) "
+        f"WHEN {pid_guid} THEN {pid} END)))"))
+    f.with_col("Agent_EnvironmentId", E(
+        f"coalesce({clean('Agent_EnvironmentId')}, (CASE WHEN {pid_platform} "
+        f"THEN regexp_extract({pid}, {lit(PLATFORM_AGENT_ID_PATTERN)}, 1) END))"))
+    f.with_col("Agent_EntraId", E(
+        f"coalesce({clean('Agent_EntraId')}, (CASE WHEN regexp_matches({aid}, {lit(BARE_GUID_PATTERN)}) "
+        f"THEN {aid} END))"))
+    # An all-zero GUID (Fabric multi-agent orchestration) is not an agent identity.
+    f.with_col("Agent_EntraId", E(
+        f"(CASE WHEN regexp_replace(coalesce({col('Agent_EntraId')}, ''), '[-0]', '', 'g') = '' "
+        f"THEN CAST(NULL AS VARCHAR) ELSE {col('Agent_EntraId')} END)"))
+    # Recomputed here so older parsed rows are classified the same way as new ones.
+    f.with_col("Exclude_Reason", E(f"({EXCLUDE_REASON_SQL})"))
+    if drop_exclude_reasons:
+        f.where(f"NOT coalesce({isin(col('Exclude_Reason'), drop_exclude_reasons)}, FALSE)")
 
     # 3. ACCESSED RESOURCES: parse + explode_outer ---------------------------------------
     if f.has("AccessedResources"):
@@ -466,42 +556,54 @@ def _curate(f: Frame, lic_src, ag_src, exclude_agents, agent_patterns, passthrou
     f.ensure("Agent_EntraId")
     f.ensure("AgentName")
 
-    # 9. AGENT MAPS -> Agent_LinkID ----------------------------------------------------------------
+    # 9. AGENT LINK (Title ID -> Bot Id -> Entra agent ID -> schema GUID; never by name) ----------
+    f.with_col("__lk_title", f"upper({clean('Agent_TitleID')})")
+    f.with_col("__lk_bot", f"lower({clean('Agent_BotId')})")
+    f.with_col("__lk_entra", f"lower({clean('Agent_EntraId')})")
+    f.drop("Agent_LinkID", "Agent_MatchedTitleID", "Agent_LinkMethod")
+    f.checkpoint()
+
     ag_cols = _columns(con, ag_src)
-    f.with_col("__nkey_fact", f"lower({trim(s_(col('AgentName')))})")
+    registry_rows = []
     if ag_cols is not None and "Title ID" in ag_cols:
-        entra_col = first_existing(ag_cols, ["Entra Agent ID", "EntraAgentId", "Entra Agent Id",
-                                             "EntraAgentID", "Agent ID", "AgentId", "Agent Id",
-                                             "Bot Id", "BotId"])
-        name_col = first_existing(ag_cols, ["Agent name", "Name"])
-        title = trim(s_(col("Title ID")))
-        if entra_col:
-            entra_sql = (f"SELECT DISTINCT ON (__k) __k AS __entra, __t AS {q('__EntraTitle')} FROM "
-                         f"(SELECT {trim(s_(col(entra_col)))} AS __k, {title} AS __t FROM {ag_src}) "
-                         f"WHERE __k IS NOT NULL AND __k <> ''")
-            f.left_join(entra_sql, "Agent_EntraId", "__entra", ["__EntraTitle"])
-        else:
-            f.with_col("__EntraTitle", lit(None))
-        title_sql = (f"SELECT DISTINCT ON (__t) __t AS __tkey, __t AS {q('__DirectTitle')} FROM "
-                     f"(SELECT {title} AS __t FROM {ag_src}) WHERE __t IS NOT NULL AND __t <> ''")
-        f.left_join(title_sql, "Agent_TitleID", "__tkey", ["__DirectTitle"])
-        if name_col:
-            name_sql = (f"SELECT DISTINCT ON (__k) __k AS __nkey, __t AS {q('__NameTitle')} FROM "
-                        f"(SELECT lower({trim(s_(col(name_col)))}) AS __k, {title} AS __t FROM {ag_src}) "
-                        f"WHERE __k IS NOT NULL AND __k <> ''")
-            f.left_join(name_sql, "__nkey_fact", "__nkey", ["__NameTitle"])
-        else:
-            f.with_col("__NameTitle", lit(None))
-    else:
-        for c in ["__EntraTitle", "__DirectTitle", "__NameTitle"]:
-            f.with_col(c, lit(None))
-    f.with_col("Agent_LinkID", coalesce(clean("__EntraTitle"), clean("__DirectTitle"), clean("__NameTitle")))
-    f.drop("__EntraTitle", "__DirectTitle", "__NameTitle", "__nkey_fact", "_NormUPN")
+        def reg(names):
+            c = first_existing(ag_cols, names)
+            return s_(col(c)) if c else "CAST(NULL AS VARCHAR)"
+        cur = con.execute(
+            f"SELECT {reg(['Title ID'])} AS title, "
+            f"{reg(['Bot Id', 'BotId', 'Bot ID'])} AS bot, "
+            f"{reg(['Entra Agent ID', 'Entra agent ID', 'EntraAgentId', 'Entra Agent Id', 'EntraAgentID', 'Agent ID', 'AgentId', 'Agent Id'])} AS entra, "
+            f"{reg(['Agent type (A365)', 'Agent Type (A365)', 'Agent type'])} AS type, "
+            f"{reg(['Created in', 'Platform'])} AS created_in, "
+            f"{reg(['Last updated', 'Last Updated'])} AS updated FROM {ag_src}")
+        names = [d[0] for d in cur.description]
+        registry_rows = [dict(zip(names, r)) for r in cur.fetchall()]
+    maps = build_agent_link_maps(registry_rows)
+    schema_titles = build_schema_title_map(
+        r[0] for r in con.execute(
+            f"SELECT DISTINCT {s_(col('AgentId'))} FROM {q(f.name)} "
+            f"WHERE regexp_matches({s_(col('AgentId'))}, {lit(TITLE_SCHEMA_PATTERN)})").fetchall()
+    ) if f.has("AgentId") else {}
+
+    links = []
+    for r in con.execute(f"SELECT DISTINCT __lk_title, __lk_bot, __lk_entra FROM {q(f.name)}").fetchall():
+        schema = schema_titles.get(r[2]) if r[2] and re.match(BARE_GUID_PATTERN, r[2]) else None
+        links.append(tuple(r) + tuple(resolve_agent_link(maps, r[0], r[1], r[2], schema)))
+    link_table = f.values_table(
+        [("_lk_title", "VARCHAR"), ("_lk_bot", "VARCHAR"), ("_lk_entra", "VARCHAR"),
+         ("Agent_LinkID", "VARCHAR"), ("Agent_MatchedTitleID", "VARCHAR"), ("Agent_LinkMethod", "VARCHAR")],
+        links)
+    f.left_join_on(f"SELECT * FROM {q(link_table)}",
+                   "__l.__lk_title IS NOT DISTINCT FROM __r._lk_title "
+                   "AND __l.__lk_bot IS NOT DISTINCT FROM __r._lk_bot "
+                   "AND __l.__lk_entra IS NOT DISTINCT FROM __r._lk_entra",
+                   ["Agent_LinkID", "Agent_MatchedTitleID", "Agent_LinkMethod"])
+    f.drop("__lk_title", "__lk_bot", "__lk_entra", "_NormUPN")
     if not passthrough:
         f.drop("Audit_UserId_Normalized")
 
     # 10. MODEL CONTRACT -------------------------------------------------------------------------
-    for c in REQUIRED_TEXT_COLS:
+    for c in REQUIRED_TEXT_COLS + AGENT_LINK_TEXT_COLS:
         f.ensure(c)
     f.with_col("CreationDate", f"CAST({col('CreationDate')} AS TIMESTAMP)")
     for c in ["InteractionDate", "WeekStart", "MonthStart"]:
@@ -509,12 +611,12 @@ def _curate(f: Frame, lic_src, ag_src, exclude_agents, agent_patterns, passthrou
     f.with_col("Resource_Count", f"CAST({col('Resource_Count')} AS BIGINT)")
     f.checkpoint()
 
-    _enrich(f, ag_src)
+    _enrich(f, ag_src, agent_type_overrides)
     missing = [c for c in ENRICHED_COLS if not f.has(c)]
     assert not missing, f"enrichment incomplete, missing: {missing}"
 
 
-def _enrich(f: Frame, ag_src):
+def _enrich(f: Frame, ag_src, agent_type_overrides):
     con = f.con
     appHost, ctxType = low("AppHost"), low("Context_Type")
     resType, resAction = low("AccessedResource_Type"), low("AccessedResource_Action")
@@ -867,6 +969,32 @@ def _enrich(f: Frame, ag_src):
         (isAutonomous, "Autonomous / Flow"),
         (agent_act, "Copilot Agents"),
     ], None))
+
+    # Agent type / publisher / consolidated name: classify each distinct key tuple once
+    # in Python (describe_agent), then join back.
+    at_inputs = [
+        ("__at_aid", coalesce(clean("Agent_TargetPlatformId"), clean("AgentId"), clean("PlatformAgentId"))),
+        ("__at_name", coalesce(clean("Agent_TargetName"), clean("AgentName"))),
+        ("__at_app", clean("AppIdentity_Text")),
+        ("__at_type", coalesce(clean("Agent_PlatformType"), clean("AgentPlatform"))),
+        ("__at_workload", clean("Workload")),
+    ]
+    at_keys = [name for name, _ in at_inputs]
+    f.drop(*AGENT_TYPE_COLS)
+    for name, expr in at_inputs:
+        f.with_col(name, coalesce(expr, ""))
+    f.checkpoint()
+    keys_sql = ", ".join(q(k) for k in at_keys)
+    at_rows = [tuple(r) + tuple(describe_agent(*r, overrides=agent_type_overrides))
+               for r in f.con.execute(f"SELECT DISTINCT {keys_sql} FROM {q(f.name)}").fetchall()]
+    at_table = f.values_table(
+        [(k, "VARCHAR") for k in at_keys]
+        + [(c, "BOOLEAN" if c == "Agent_Is_Published" else "VARCHAR") for c in AGENT_TYPE_COLS],
+        at_rows)
+    f.left_join_on(f"SELECT * FROM {q(at_table)}",
+                   " AND ".join(f"__l.{q(k)} = __r.{q(k)}" for k in at_keys), AGENT_TYPE_COLS)
+    f.drop(*at_keys)
+
     f.with_col("Execution_Trigger", when(isAutonomous, "Scheduled / Autonomous", "Interactive / On-demand"))
 
     # UserMonthKey / Delegation_Event_Key / ActivityDate

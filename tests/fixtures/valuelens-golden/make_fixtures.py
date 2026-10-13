@@ -287,6 +287,83 @@ def minimal(with_id=True):
     return {"columns": cols, "rows": rows}
 
 
+# Agent link, agent type and exclusion branches: parsed rows as the current ingester writes them.
+BOT_LOB = "aaaaaaaa-0000-4000-8000-000000000001"
+BOT_BUILDER = "aaaaaaaa-0000-4000-8000-000000000002"
+ENTRA_1 = "bbbbbbbb-0000-4000-8000-000000000001"
+TITLE_GUID = "cccccccc-0000-4000-8000-000000000001"
+SCHEMA_GUID = "dddddddd-0000-4000-8000-000000000001"
+RUNTIME_COLUMNS = [
+    ("Id", "string"), ("CreationDate", "string"), ("Audit_UserId", "string"), ("AgentId", "string"),
+    ("AgentName", "string"), ("AgentPlatform", "string"), ("PlatformAgentId", "string"),
+    ("AppIdentity_Text", "string"), ("Agent_TargetPlatformId", "string"), ("Agent_TargetName", "string"),
+    ("Agent_PlatformType", "string"), ("AppHost", "string"), ("Workload", "string"),
+    ("Prompts_Available", "string"), ("Agent_BotId", "string"),
+]
+# (AgentId, AgentName, AgentPlatform, PlatformAgentId, AppIdentity_Text, Agent_TargetPlatformId,
+#  Agent_TargetName, Agent_PlatformType, AppHost, Workload, Prompts_Available, Agent_BotId)
+RUNTIME_SCENARIOS = [
+    (None, "HR Helper", "Copilot Studio", f"Default-env-01_{BOT_LOB.upper()}", f"Copilot.Studio.{BOT_LOB}",
+     None, "HR Helper", None, "Teams", "Copilot", "FALSE", None),
+    ("T_shared1", "HR Helper (shared)", None, None, None, None, None, None, "Teams", "Copilot", "TRUE", None),
+    (ENTRA_1, "Entra Agent", None, None, None, None, None, None, "Word", "Copilot", "TRUE", None),
+    (f"T_{TITLE_GUID}.{SCHEMA_GUID}", "Schema Agent", None, None, None, None, None, None, "Teams", "Copilot",
+     "TRUE", None),
+    (SCHEMA_GUID, None, None, None, None, None, None, None, "Teams", "Copilot", "TRUE", None),
+    ("T_unknown", "Unknown Agent", None, None, None, None, None, None, "Teams", "Copilot", "TRUE", None),
+    (None, None, None, BOT_BUILDER.upper(), None, None, "Builder Agent", None, "Teams", "Copilot", None, None),
+    (None, "Bot Direct", None, None, None, None, None, None, "Teams", "Copilot", "TRUE", f" {BOT_BUILDER.upper()} "),
+    (None, "Researcher", None, None, "MicrosoftAgent.Researcher.P_abc", None, None, None, "Teams", "Copilot",
+     "TRUE", None),
+    ("BuiltIn_Analyst", None, None, None, None, None, None, None, "Teams", "Copilot", "TRUE", None),
+    (None, None, None, None, "Copilot.TeamCopilot.Facilitator", None, None, None, "Teams", "Copilot", "TRUE", None),
+    ("ignored", "Custom Engine", None, None, None, "CustomEngine_abc", "Engine Target", None, "Teams", "Copilot",
+     "TRUE", None),
+    ("CopilotStudio.Declarative.T_decl1.abc", "Declarative Agent", None, None, None, None, None, None, "Word",
+     "Copilot", "TRUE", None),
+    ("U_shared9", "Shared By Me", None, None, None, None, None, None, "Teams", "Copilot", "TRUE", None),
+    ("P_store1", "Store Agent", None, None, None, None, None, None, "Teams", "Copilot", "TRUE", None),
+    (None, None, None, None, "ConnectedAIApp.ExampleApp", None, None, None, None, "ConnectedAIApp", "TRUE", None),
+    (None, "Chat App", None, None, "AIApp.ChatApp", None, None, None, None, "AIApp", "TRUE", None),
+    (None, None, None, None, None, None, None, " Copilot Studio ", "Teams", "Copilot", "TRUE", None),
+    (None, "Kind Only", None, None, None, None, None, "Copilot Studio", "Teams", "Copilot", "TRUE", None),
+    (None, "Inside M365", None, None, "Copilot.M365Copilot.Chat", None, None, None, "M365Copilot", "Copilot",
+     "TRUE", None),
+    (None, None, None, None, None, None, None, None, "Teams", "Copilot", "TRUE", None),
+    # Excluded rows (Exclude_Reason in DROP_EXCLUDE_REASONS).
+    ("T_test", "Test Pane", None, None, None, None, None, None, "Copilot Studio", "Copilot", "TRUE", None),
+    ("T_eval", "Eval", None, None, None, None, None, None, " PVA-Maker-Evaluation ", "Copilot", "TRUE", None),
+    ("T_auth", "Authoring", None, None, None, None, None, None, "agentic-builder", "Copilot", "TRUE", None),
+    ("T_auto", "Auto", None, None, None, None, None, None, "Autonomous", "Copilot", "TRUE", None),
+    ("T_flow", "Flow", None, None, None, None, None, None, "workflow-agents", "Copilot", "TRUE", None),
+    (None, "Twin", "CopilotStudio", None, None, None, None, None, "m365copilot", "Copilot", " false ", None),
+    ("00000000-0000-0000-0000-000000000000", "Multi", None, None, None, None, None, None, "Teams", "Copilot",
+     "TRUE", None),
+]
+
+
+def agent_runtime():
+    rows = []
+    for i, s in enumerate(RUNTIME_SCENARIOS):
+        rows.append([f"rt-{i:02d}", f"2026-10-{1 + i % 20:02d}T09:00:00Z", f"user{i % 4}@example.invalid", *s])
+    return {"columns": RUNTIME_COLUMNS, "rows": rows}
+
+
+AGENTS_LINK = {
+    "columns": [("Title ID", "string"), ("Bot Id", "string"), ("Entra Agent ID", "string"),
+                ("Agent name", "string"), ("Agent type (A365)", "string"), ("Created in", "string"),
+                ("Last updated", "string")],
+    "rows": [
+        ["T_lob1", BOT_LOB.upper(), None, "HR Helper", "LOB", "Copilot Studio", "2026-01-02"],
+        ["T_shared1", BOT_LOB, None, "HR Helper", "Shared", "Copilot Studio", "2026-02-01"],
+        ["T_entra1", None, ENTRA_1, "Entra Agent", "LOB", "Copilot Studio", "2026-01-05"],
+        [f"T_{TITLE_GUID}", None, None, "Schema Agent", "Declarative", "Agent Builder", "2026-01-06"],
+        ["T_builder1", BOT_BUILDER, None, "Builder Agent", "LOB", "Agent Builder", "2026-01-01"],
+        ["T_builder2", BOT_BUILDER, None, "Builder Agent", "LOB", "Agent Builder", "2026-03-01"],
+    ],
+}
+
+
 def dump(name, table):
     INPUTS.mkdir(parents=True, exist_ok=True)
     payload = {"columns": [list(c) for c in table["columns"]], "rows": table["rows"]}
@@ -306,6 +383,8 @@ def main():
     dump("minimal_interactions", minimal())
     dump("minimal_no_id_interactions", minimal(with_id=False))
     dump("empty_interactions", {"columns": minimal()["columns"], "rows": []})
+    dump("agent_runtime_interactions", agent_runtime())
+    dump("agents_link", AGENTS_LINK)
 
 
 if __name__ == "__main__":

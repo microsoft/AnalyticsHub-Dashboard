@@ -15,12 +15,17 @@ SQL_TYPES = {"string": "NVARCHAR(4000)", "timestamp": "DATETIME2(6)", "date": "D
              "bigint": "BIGINT", "boolean": "BIT"}
 
 
-def test_v001_matches_curated_contract():
+def test_migrations_match_curated_contract():
     contract = json.loads((EXPECTED / "minimal_no_dims.json").read_text(encoding="utf-8"))["columns"]
-    sql = (AZURE / "sql" / "migrations" / "V001__init.sql").read_text(encoding="utf-8")
+    migrations = AZURE / "sql" / "migrations"
+    sql = (migrations / "V001__init.sql").read_text(encoding="utf-8")
     body = re.search(r"CREATE TABLE dbo\.copilot_interactions_curated \((.*?)\n\);", sql, re.S).group(1)
     ddl = re.findall(r"^\s*\[([^\]]+)\] (\S+) NULL", body, re.M)
-    assert ddl == [(name, SQL_TYPES[kind]) for name, kind in contract]
+    added = re.findall(r"ALTER TABLE dbo\.copilot_interactions_curated ADD \[([^\]]+)\] (\S+) NULL",
+                       (migrations / "V006__agent_columns.sql").read_text(encoding="utf-8"))
+    columns = ddl + added
+    assert len({name for name, _ in columns}) == len(columns)
+    assert dict(columns) == {name: SQL_TYPES[kind] for name, kind in contract}
 
 
 def test_every_bicep_resource_is_tagged():
