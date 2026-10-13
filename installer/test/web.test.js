@@ -9,7 +9,7 @@ import { memoApi, rewindable } from '../src/install.js';
 import { mirror, reopenOnEnter, startServer } from '../src/server.js';
 import { collectChoices } from '../src/steps/plan.js';
 import { createWebUi, plainText, SECRET_MASK, toSegments } from '../src/web-ui.js';
-import { describeRecord, WEB_COMMANDS } from '../src/web-session.js';
+import { describeRecord, prereqsSnapshot, WEB_COMMANDS } from '../src/web-session.js';
 import { fakeCtx } from './fakes.js';
 
 const SRC = new URL('../src/', import.meta.url);
@@ -696,4 +696,14 @@ test('page: every command has a row, or for prerequisites its own panel; Check t
   assert.equal(describeRecord(config).historyDays, 90, 'the installed view shows how much audit history is loaded');
   assert.equal(describeRecord({ ...config, target: 'azure' }).target, 'azure', 'the page shows only that target\'s stages');
   assert.match(app, /backfillDays/, 'the Run row can load more history');
+});
+
+test('prereqsSnapshot: says whether the signer can assign directory roles, from an active Global or Privileged Role Administrator', () => {
+  const row = (/** @type {string} */ status) => /** @type {any} */ ({ id: 'consent-role', label: 'x', neededFor: 'x', status });
+  const yes = prereqsSnapshot('admin@contoso.com', [row('met')]);
+  assert.equal(yes.canAssignDirectoryRoles, true);
+  assert.equal(yes.upn, 'admin@contoso.com');
+  assert.equal(prereqsSnapshot('admin@contoso.com', [row('eligible')]).canAssignDirectoryRoles, false, 'eligible is not active');
+  assert.equal(prereqsSnapshot('admin@contoso.com', [row('missing')]).canAssignDirectoryRoles, false);
+  assert.equal(prereqsSnapshot('admin@contoso.com', []).canAssignDirectoryRoles, false);
 });

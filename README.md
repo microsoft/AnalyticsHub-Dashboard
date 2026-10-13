@@ -68,7 +68,7 @@ Both give you the same data, model, measures and app pages.
 | Where | You need | Setup |
 |---|---|---|
 | **[Fabric](fabric/)** (recommended) | Fabric capacity (F2 or larger, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager)) | Open the installer. It sets up everything and deploys the dashboard as an app in Fabric. To set it up by hand instead, **[🎥 watch the manual setup](fabric/README.md#set-it-up-by-hand)**. |
-| **[Azure](azure/)** | An Azure subscription (Contributor plus User Access Administrator) and Power BI Pro | Open the installer and pick **Your Azure subscription**. It deploys Azure SQL, Container Apps jobs and the web app, with no Fabric. See [Azure target](installer/README.md#azure-target). |
+| **[Azure](azure/)** | An Azure subscription (Contributor plus User Access Administrator) and Power BI Pro | Open the installer and pick **Your Azure subscription**. It runs the data collection in your Azure subscription (scheduled jobs in Azure Container Apps, with Azure SQL and the web app) and publishes to a Power BI workspace, with no Fabric. See [Azure target](installer/README.md#azure-target). |
 
 **Update an existing install:** download the latest installer, open it and choose **Repair or
 change**. Your saved answers are kept.
