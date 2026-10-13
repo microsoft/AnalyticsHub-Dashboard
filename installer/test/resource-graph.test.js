@@ -319,9 +319,9 @@ function roleGraph(o = {}) {
   const assigned = [...(o.existing ?? [])];
   const failures = [...(o.assign ?? [])];
   const api = {
-    myDirectoryRoleTemplateIds: async () => {
+    myDirectoryRoles: async () => {
       calls.push('mine');
-      return o.mine ?? [];
+      return (o.mine ?? []).map((roleTemplateId) => ({ roleTemplateId, displayName: roleTemplateId }));
     },
     directoryRoleAssignments: async (/** @type {string} */ id) => {
       calls.push(`list ${id}`);

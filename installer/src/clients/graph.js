@@ -99,12 +99,6 @@ export function graphApi(http) {
     myDirectoryRoles: () =>
       http.list('/me/transitiveMemberOf/microsoft.graph.directoryRole', { query: { $select: 'roleTemplateId,displayName' } }),
     /**
-     * Template IDs of the directory roles the signed-in user holds now, directly or through a group.
-     * @returns {Promise<string[]>}
-     */
-    myDirectoryRoleTemplateIds: async () =>
-      (await http.list('/me/transitiveMemberOf/microsoft.graph.directoryRole', { query: { $select: 'roleTemplateId' } })).map((r) => String(r.roleTemplateId).toLowerCase()),
-    /**
      * A principal's tenant-wide directory role assignments.
      * @param {string} principalId
      * @returns {Promise<{ id: string, roleDefinitionId: string, directoryScopeId?: string }[]>}

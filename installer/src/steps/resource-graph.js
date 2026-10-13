@@ -5,9 +5,10 @@
  * person running the installer can, or else the steps for someone who can.
  */
 import { ROLES } from '../clients/azure.js';
-import { AI_ADMIN_ROLE, CONSENT_ROLES, GLOBAL_READER_ROLE, POWER_PLATFORM_ADMIN_ROLE } from '../clients/graph.js';
+import { AI_ADMIN_ROLE, GLOBAL_READER_ROLE, POWER_PLATFORM_ADMIN_ROLE } from '../clients/graph.js';
 import { normaliseResourceGraph } from '../config.js';
 import { HttpError } from '../http.js';
+import { canAssignDirectoryRoles } from '../prereqs.js';
 import { asksAdvanced } from './advanced.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
@@ -236,14 +237,8 @@ export async function ensureAgentDirectoryRole(ctx, who, key) {
   } catch {
     // Can't read role assignments: giving the role, or the steps, still settles it.
   }
-  /** @type {string[]} */
-  let mine = [];
-  try {
-    mine = await api.graph.myDirectoryRoleTemplateIds();
-  } catch {
-    // Unknown: treated as not able to give roles, so the steps are shown.
-  }
-  if (mine.some((id) => id in CONSENT_ROLES)) {
+  // Unknown is treated as not able to give roles, so the steps are shown.
+  if (await canAssignDirectoryRoles(api).catch(() => false)) {
     /** @type {string | undefined} */
     let failed;
     // The usual Graph sign-in first; then, if that's refused, one that asks for role management on its own.
