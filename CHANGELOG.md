@@ -18,6 +18,14 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ---
 
+## Unreleased
+
+- **Azure: set-up carries on when Azure turns down the Azure SQL free offer.** A subscription that
+  has used its free databases can get only `InternalServerError` on the new database, and set-up
+  stopped at Azure resources. The installer now creates the database once more without the free
+  offer, at the usual serverless price (it still pauses after an hour without use), says so, and
+  remembers it. An existing database is never moved off the free offer.
+
 ## 2026-10-13 — Analytics Hub installer 0.6.0 (pre-release)
 
 **A pre-release, for testing.** 0.6.0 is published as a GitHub pre-release, so the

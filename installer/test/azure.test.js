@@ -8,7 +8,7 @@ import { MODULES, azureGraphRolesFor } from '../src/catalog.js';
 import { HttpError } from '../src/http.js';
 import { armApi, armErrors, waitForDeployment } from '../src/clients/azure.js';
 import { runCommand } from '../src/install.js';
-import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, armParameterNames, askTarget, azureConsumptionOn, azureCron, azureDeployment, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureRotateSecret, azureSemanticModels, consumptionParameters, installAzure, parseDropFolder, policyMessage, publicAccessMessage, regionCapacityMessage, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
+import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, armParameterNames, askTarget, azureConsumptionOn, azureCron, azureDeployment, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureRotateSecret, azureSemanticModels, consumptionParameters, installAzure, parseDropFolder, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
 import { AZURE_AI_ROLES } from '../src/steps/consumption.js';
 import { azureFlowTarget, connectionSteps, flowDefinitions, flowsWanted } from '../src/steps/flows.js';
 import { CONNECTORS, connectorsUsed } from '../src/transform/flows.js';
@@ -638,4 +638,50 @@ test('askTarget: the Azure choice says what it runs, in plain words', async () =
   assert.equal(azure.description, AZURE_TARGET_DESCRIPTION);
   assert.match(azure.description, /scheduled jobs in Azure Container Apps/);
   assert.doesNotMatch(azure.description, /PaaS/);
+});
+test('Azure SQL free offer turned down: the new database is created at the usual price instead', async () => {
+  const arm = fakeArm();
+  const graph = fakeAzureGraph();
+  const fabric = fakeFabric();
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds', connectionDetails: { server: 'vlens-sql.database.windows.net', database: 'valuelens' } }]);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fabric.api, powerBi: powerBi.api, ui: ui.ui });
+  Object.assign(config, {
+    target: 'azure',
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+  });
+  ctx.runFirstLoad = false;
+  const deploy = /** @type {(...a: any[]) => Promise<any>} */ (arm.api.deployTemplate);
+  /** @type {boolean[]} */
+  const freeAsked = [];
+  let failures = 1;
+  arm.api.deployTemplate = async (/** @type {any[]} */ ...args) => {
+    freeAsked.push(args[3].properties.parameters.sqlUseFreeLimit.value);
+    if (failures-- > 0) {
+      throw Object.assign(new Error('ARM deployment valuelens failed: InternalServerError on Microsoft.Sql/servers/databases vlens-sql/valuelens: An unexpected error occured while processing the request.'), {
+        body: { error: { code: 'DeploymentFailed' } },
+        operations: [{ resourceType: 'Microsoft.Sql/servers/databases', resourceName: 'vlens-sql/valuelens', code: 'InternalServerError', message: 'An unexpected error occured while processing the request.' }],
+      });
+    }
+    return deploy(...args);
+  };
+
+  await installAzure(ctx, { wait: true });
+  assert.deepEqual(freeAsked, [true, false, false], 'retried once without the free offer, and the second pass keeps it off');
+  assert.equal(config.azure?.sqlFreeOffer, false, 'remembered, so Repair or change does not ask again');
+  assert.match(ui.text(), /Azure turned down the Azure SQL free offer for a new database \(InternalServerError\)/);
+});
+
+test('sqlFreeOfferTurnedDown: only for a new database that asked for the free offer', async () => {
+  const dbFailed = { operations: [{ resourceType: 'Microsoft.Sql/servers/databases', resourceName: 'vlens-sql/valuelens', code: 'InternalServerError' }] };
+  const ctxWith = (/** @type {any} */ azure, /** @type {any} */ db = null) => /** @type {any} */ ({
+    config: { azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', ...azure } },
+    api: { arm: { getSqlDatabase: async () => db } },
+  });
+  assert.equal(await sqlFreeOfferTurnedDown(ctxWith({}), dbFailed), 'InternalServerError');
+  assert.equal(await sqlFreeOfferTurnedDown(ctxWith({}, { properties: { useFreeLimit: true } }), dbFailed), undefined, 'an existing database is never moved off the free offer');
+  assert.equal(await sqlFreeOfferTurnedDown(ctxWith({ sqlFreeOffer: false }), dbFailed), undefined, 'already without the free offer');
+  assert.equal(await sqlFreeOfferTurnedDown(ctxWith({}), { operations: [{ resourceType: 'Microsoft.Web/sites', resourceName: 'web', code: 'Conflict' }] }), undefined, 'another resource failed');
+  assert.equal(await sqlFreeOfferTurnedDown(ctxWith({}), new Error('BadRequest')), undefined, 'no failed operations');
 });
