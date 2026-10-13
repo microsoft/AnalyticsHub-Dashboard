@@ -35,6 +35,9 @@ Deployment instructions do **not** live here. They live in the READMEs:
   `-Uninstall`, in Windows PowerShell 5.1. Windows PowerShell 5.1 dropped the double quotes from
   the Node.js code that removes the folder. The code failed, and the launcher fell back to
   `Remove-Item`, which can't remove paths longer than 260 characters.
+- **Plan review: the no-Key-Vault notebook secret shows as New.** With no Key Vault, each install,
+  repair or update writes a new client secret into the notebooks, but the review listed it as
+  "Already there" and counted it that way in its summary. It now shows New.
 
 ## 2026-10-13 — Analytics Hub installer 0.6.0 (pre-release)
 
