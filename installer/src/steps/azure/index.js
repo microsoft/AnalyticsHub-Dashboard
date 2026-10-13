@@ -26,6 +26,7 @@ import { accessReview, accessSummaryLines, ensureViewerGroup, grantModelAccess, 
 import { ensureOrgAccess, verifyOrgAccess } from '../org-access.js';
 import { askAdvanced, asksAdvanced } from '../advanced.js';
 import { askGrants, askLine, askMode, askParameters, ensureAzureAskAccess, planAzureAsk } from './ask.js';
+import { checkRegions, noRegionMessage, regionNotes, regionProblems, sqlProblem } from './regions.js';
 
 /** @typedef {import('../../install.js').Ctx} Ctx */
 
@@ -211,10 +212,21 @@ export async function planAzure(ctx, pre) {
   az.createdResourceGroup = false;
   const rg = az.resourceGroup ? await api.arm.getResourceGroup(subscriptionId, az.resourceGroup).catch(() => null) : null;
   const locations = await api.arm.listLocations(subscriptionId).catch(() => []);
-  const defaultLocation = rg?.location ?? az.location ?? 'uksouth';
-  az.location = await ui.select('Azure region', locations.length ? locations.map((l) => ({ name: l.displayName ?? l.name, value: l.name })) : [{ name: defaultLocation, value: defaultLocation }], defaultLocation);
+  // A first install offers only the regions policy allows and everything is offered in; a re-run keeps its resources where they are.
+  const check = az.outputs?.sqlServerFqdn ? undefined : await checkRegions(api.arm, { subscriptionId, scope: `/subscriptions/${subscriptionId}${rg ? `/resourceGroups/${az.resourceGroup}` : ''}`, newResourceGroup: !rg, locations });
+  ctx.azureRegions = check;
+  const sqlApart = advanced || !!az.sqlLocation;
+  const offered = check ? check.regions.filter((l) => !regionProblems(check, l.name, { sql: !sqlApart }).length) : locations;
+  if (check) for (const line of regionNotes(check, offered.map((l) => l.name), { sql: !sqlApart })) ui.note(line);
+  if (check?.regions.length && !offered.length) throw new Error(noRegionMessage(check, { sql: !sqlApart }));
+  const defaultLocation = [rg?.location, az.location, 'uksouth'].find((r) => r && offered.some((l) => l.name === r)) ?? offered[0]?.name ?? rg?.location ?? az.location ?? 'uksouth';
+  const sqlNote = (/** @type {string} */ name) => (advanced && check && sqlProblem(check, name) ? { description: `${sqlProblem(check, name)}: pick another Azure SQL region next.` } : {});
+  az.location = await ui.select('Azure region', offered.length ? offered.map((l) => ({ name: l.displayName ?? l.name, value: l.name, ...sqlNote(l.name) })) : [{ name: defaultLocation, value: defaultLocation }], defaultLocation);
   if (advanced) {
-    const sqlChoice = await ui.select('Azure SQL region', [{ name: 'Same as above', value: '' }, ...locations.filter((l) => l.name !== az.location).map((l) => ({ name: l.displayName ?? l.name, value: l.name }))], az.sqlLocation ?? '');
+    const sameOk = !check || !sqlProblem(check, /** @type {string} */ (az.location));
+    const sqlChoices = [...(sameOk ? [{ name: 'Same as above', value: '' }] : []), ...(check ? check.regions.filter((l) => !sqlProblem(check, l.name)) : locations).filter((l) => l.name !== az.location).map((l) => ({ name: l.displayName ?? l.name, value: l.name }))];
+    if (check && !sqlChoices.length) throw new Error(noRegionMessage(check, { sql: true }));
+    const sqlChoice = await ui.select('Azure SQL region', sqlChoices, sqlChoices.some((c) => c.value === (az.sqlLocation ?? '')) ? az.sqlLocation ?? '' : sqlChoices[0].value);
     az.sqlLocation = sqlChoice || undefined;
     az.namePrefix = await ui.input('Name prefix', { default: az.namePrefix ?? 'vlens', validate: (v) => (/^[a-z][a-z0-9-]{1,9}$/.test(v) ? true : 'Use 2-10 lowercase letters, digits or hyphens, starting with a letter.') });
     az.tags = parseTags(await ui.input('Extra tags (key=value, comma-separated)', { default: Object.entries(az.tags ?? {}).map(([k, v]) => `${k}=${v}`).join(', ') }));
