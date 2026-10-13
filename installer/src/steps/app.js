@@ -5,7 +5,7 @@
  * installer download ships the app already built instead; that copy only needs deploying.
  */
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { HttpError } from '../http.js';
 import { publicAccess } from './access.js';
@@ -245,11 +245,13 @@ export async function ensureFabricApp(ctx) {
       // A prebuilt app reads its models and currency when it loads, so it only needs deploying.
       const prebuilt = !!ctx.sources.appDir && isPrebuilt(ctx.sources.appDir);
       const currencyChanged = prebuilt && !!config.reporting && reportingKey(fa.reporting) !== reportingKey(config.reporting);
-      const changed = pagesChanged || currencyChanged;
+      const accessChanged = accessKey(fa.access) !== accessKey(publicAccess(config));
+      const changed = pagesChanged || currencyChanged || accessChanged;
       const again = prebuilt ? 'Deploy it again?' : 'Build and deploy it again?';
       const why = [
         pagesChanged ? pagesChange(fa.models ?? [APP_ALIAS], appModels(config)) : '',
         currencyChanged ? `show the Value page in ${config.reporting?.currency}` : '',
+        accessChanged ? 'show who can view it and how to share it' : '',
       ].filter(Boolean).join(' and ');
       const question = changed
         ? `The app "${item.displayName}" needs ${prebuilt ? 'redeploying' : 'rebuilding'} to ${why}. ${again}`
@@ -269,6 +271,9 @@ export async function ensureFabricApp(ctx) {
 
 /** @param {import('../currency.js').ReportingConfig | undefined} r */
 const reportingKey = (r) => (r ? `${r.currency}:${r.exchangeRate ?? ''}` : '');
+
+/** @param {Record<string, string | boolean> | undefined} a */
+const accessKey = (a) => (a ? JSON.stringify(Object.keys(a).sort().map((k) => [k, a[k]])) : '');
 
 /**
  * Renames a deployed app that still has an old name, without rebuilding it.
@@ -329,6 +334,9 @@ export async function deployApp(ctx) {
     deployedAt: record.deployedAt ?? ctx.now().toISOString(),
   });
   if (prebuilt && config.reporting) fa.reporting = { ...config.reporting };
+  const access = publicAccess(config);
+  if (access) fa.access = access;
+  else delete fa.access;
   ctx.save();
   ui.ok(`Deployed the app "${name}"`);
 }
@@ -378,11 +386,23 @@ async function buildAndDeploy(ctx, dir, ws, models) {
     }
   }
 
+  // The app reads its modules and viewer access from fabric.config.json, as the prebuilt app does.
+  // Vite copies public/ into the build; the file comes out again afterwards so the checkout stays clean.
+  const publicDir = join(dir, PREBUILT_STATIC);
+  const configFile = join(publicDir, FABRIC_CONFIG);
+  const hadPublic = existsSync(publicDir);
+  const hadConfig = readText(configFile);
+  mkdirSync(publicDir, { recursive: true });
+  writeFileSync(configFile, `${JSON.stringify(fabricConfigFile(config, ws, models), null, 2)}\n`, 'utf8');
+
   try {
     await data('use', profile, '-o', GENERATED);
     ui.info('Building and deploying the app. A browser window may open for sign-in.');
     return { record: await rayfinUp(ctx, dir, ws), profile };
   } finally {
+    if (hadConfig !== null) writeFileSync(configFile, hadConfig, 'utf8');
+    else rmSync(configFile, { force: true });
+    if (!hadPublic && existsSync(publicDir) && !readdirSync(publicDir).length) rmSync(publicDir, { recursive: true, force: true });
     if (restore) {
       if (before.profile && before.profile !== profile) await data('use', before.profile, '-o', GENERATED).catch(() => {});
       const now = readJson(deploymentsFile);
@@ -441,7 +461,7 @@ export function fabricConfigFile(config, ws, models) {
     [CONSUMPTION_ALIAS]: config.consumption.model.id,
     [EVALUATOR_ALIAS]: config.agentEvaluator.model.id,
   };
-  /** @type {{ semanticModels: Record<string, { workspaceId: string, itemId: string | undefined }>, modules?: Record<string, boolean>, reporting?: import('../currency.js').ReportingConfig, access?: Record<string, string>, ask?: { workspaceId: string, itemId: string } }} */
+  /** @type {{ semanticModels: Record<string, { workspaceId: string, itemId: string | undefined }>, modules?: Record<string, boolean>, reporting?: import('../currency.js').ReportingConfig, access?: Record<string, string | boolean>, ask?: { workspaceId: string, itemId: string } }} */
   const body = { semanticModels: Object.fromEntries(models.map((alias) => [alias, { workspaceId: ws, itemId: ids[alias] }])) };
   if (config.modules) {
     body.modules = {

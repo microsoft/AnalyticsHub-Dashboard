@@ -439,6 +439,58 @@ test('app: an app already deployed is left alone unless asked; a deleted one is 
   }
 });
 
+test('app: a source build carries fabric.config.json with the viewer access, then the checkout is left clean', async () => {
+  const t = appSetup();
+  try {
+    t.config.access = { groupId: 'g-1', groupName: 'Analytics Hub Viewers', appShared: true };
+    const runner = /** @type {import('../src/steps/app.js').Runner} */ (t.ctx.runner);
+    /** @type {any} */
+    let built;
+    t.ctx.runner = async (command, args, opts) => {
+      if (args[1] === 'up') built = JSON.parse(readFileSync(join(t.dir, PREBUILT_STATIC, FABRIC_CONFIG), 'utf8'));
+      return runner(command, args, opts);
+    };
+    await deployApp(t.ctx);
+    assert.deepEqual(built.access, { groupId: 'g-1', groupName: 'Analytics Hub Viewers', appShared: true }, 'the build reads who can view it');
+    assert.deepEqual(built.semanticModels, { vl: { workspaceId: 'ws-1', itemId: 'model-1' } });
+    assert.ok(!existsSync(join(t.dir, PREBUILT_STATIC)), 'a public folder that wasn\'t there is removed again');
+    assert.deepEqual(t.config.fabricApp.access, built.access, 'what the app was told is recorded');
+
+    mkdirSync(join(t.dir, PREBUILT_STATIC));
+    writeFileSync(join(t.dir, PREBUILT_STATIC, FABRIC_CONFIG), '{"mine":true}');
+    await deployApp(t.ctx);
+    assert.equal(readFileSync(join(t.dir, PREBUILT_STATIC, FABRIC_CONFIG), 'utf8'), '{"mine":true}', 'a developer\'s own file is put back');
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('app: a deployed app is offered a rebuild when who can view it changed, such as the app being shared', async () => {
+  const t = appSetup();
+  try {
+    const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
+    t.config.fabricApp.itemId = item.id;
+    t.config.access = /** @type {import('../src/config.js').AccessConfig} */ ({ groupId: 'g-1', groupName: 'Analytics Hub Viewers' });
+    await ensureFabricApp(t.ctx);
+    assert.match(t.ui.asked.at(-1) ?? '', /needs rebuilding to show who can view it and how to share it/);
+    assert.equal(t.runs.length, 4, 'it rebuilds by default');
+    assert.deepEqual(t.config.fabricApp.access, { groupId: 'g-1', groupName: 'Analytics Hub Viewers' });
+
+    t.runs.length = 0;
+    await ensureFabricApp(t.ctx);
+    assert.match(t.ui.asked.at(-1) ?? '', /is deployed\. Build and deploy it again\?/);
+    assert.deepEqual(t.runs, [], 'nothing changed: left alone by default');
+
+    t.config.access = { ...t.config.access, appShared: true };
+    await ensureFabricApp(t.ctx);
+    assert.match(t.ui.asked.at(-1) ?? '', /show who can view it/);
+    const deployed = /** @type {Record<string, unknown> | undefined} */ (t.config.fabricApp.access);
+    assert.equal(deployed?.appShared, true);
+  } finally {
+    t.cleanup();
+  }
+});
+
 test('app: an app in the workspace that is not from this install is never taken over', async () => {
   const t = appSetup();
   try {

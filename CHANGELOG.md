@@ -71,6 +71,50 @@ no app usage.
 
 ---
 
+## Unreleased — Sharing and the Done page
+
+From the newcomer self-serve test of installer 0.4.2.
+
+### Fixed: the app's Share panel didn't name the viewer group
+
+**Why.** The app reads who can view it from `fabric.config.json`. Only the prebuilt app got that
+file: a deploy from source left it out, so **Share** fell back to "share the app item in Fabric".
+A deployed app also wasn't redeployed when its access changed.
+
+- A deploy from source now builds `fabric.config.json` into the app too, then removes it from the
+  checkout.
+- Repair offers to rebuild the app when who can view it has changed, such as the viewer group or
+  the app being shared.
+
+### Changed: the installer asks you to share the app before the first load
+
+**Why.** Viewers got "no access" because the app item was never shared with the group, and the
+reminder only came at the end, after the first load, which can take hours.
+
+- Straight after the app is deployed, the installer gives a link to the app item and the three
+  clicks (**Share**, enter **Analytics Hub Viewers**, **Grant**). Choose **I've shared it** and
+  it's recorded and not asked again. Choose **Later** and Repair asks again.
+- **Share** in the Fabric app says "To give someone access, add them to" the group, with a link to
+  it in My Groups, and who to ask. It says anyone in the group can open the app only once the app
+  item is recorded as shared. Until then, it says the item still has to be shared, with a link.
+
+### Changed: the Done page starts with what's left, with messages for other admins
+
+**Why.** Steps for other people were spread through the summary, so they were easy to miss, and a
+Cowork Dataflow waiting for its sign-in showed as a red failed load.
+
+- The Done page and the end of the terminal output start with "N steps left": a card per step
+  with who does it, why, a link and the steps. Share the app, sign in to the flows, and sign in
+  to the Cowork Dataflow come first, then the hand-offs.
+- Each hand-off has a message to copy and send: Global Reader for **Analytics Hub Data
+  Collector** for a Privileged Role Administrator (with its IDs and a Cloud Shell command), the
+  product feedback export for a Microsoft 365 admin, the flow sign-ins for a Power Platform admin,
+  and, optionally, the Cowork credits query for a Viva Insights analyst.
+- A Cowork Dataflow refresh that fails before its sign-in shows as waiting, not failed, and isn't
+  a reason to rerun.
+
+---
+
 ## Unreleased — Power Automate flow connections
 
 **Update an existing install:** choose **Repair or change**, or run `update`. Flows that are off

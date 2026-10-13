@@ -374,6 +374,10 @@ export function mirror(write) {
           for (const fix of card.fix) line(`    ${c.dim(fix)}`);
         }
         break;
+      case 'next-steps':
+        line(`  ${c.bold(c.yellow(e.title))}`);
+        for (const s of /** @type {import('./steps/next-steps.js').NextStep[]} */ (e.steps)) line(`  ${SYMBOL.warn} ${s.title}${c.dim(`  ${s.who}`)}`);
+        break;
     }
   };
 }

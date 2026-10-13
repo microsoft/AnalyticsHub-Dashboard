@@ -55,7 +55,8 @@ import { buildAgentEvaluatorModel, buildConsumptionModel, buildModel, loadTempla
 import { buildPipeline } from './transform/pipeline.js';
 import { c } from './ui.js';
 import { askTarget, azureRefresh, azureRotateSecret, azureRun, azureStatus, azureUninstall, azureUpdate, azureViewerModels, confirmAzurePlan, installAzure, planAzure } from './steps/azure/index.js';
-import { accessCommand, ensureViewerGroup, grantModelAccess, myGroupsUrl } from './steps/access.js';
+import { accessCommand, ensureViewerGroup, grantModelAccess, myGroupsUrl, shareApp } from './steps/access.js';
+import { nextSteps, stepsLeftTitle } from './steps/next-steps.js';
 import { ensureOrgAccess, verifyOrgAccess } from './steps/org-access.js';
 
 /**
@@ -291,6 +292,8 @@ export async function install(ctx, opts) {
   const withReports = reportsOn(config);
   const withDataAgent = dataAgentWanted(ctx);
   const withAccess = withModel && !!config.access;
+  // Once, straight after the app is deployed and before the long first load.
+  const withShare = withApp && withAccess && config.access?.appShared !== true;
   const titles = [
     'Key Vault',
     'App registration',
@@ -306,6 +309,7 @@ export async function install(ctx, opts) {
     'Notebooks, pipeline and schedule',
     ...(withAccess ? ['Viewer access'] : []),
     ...(withApp ? ['Analytics Hub app'] : []),
+    ...(withShare ? ['Share the app'] : []),
     ...(ctx.runFirstLoad ? ['First load'] : ctx.reloadHistoryDays ? ['Reload audit history'] : withModel ? ['Model refresh'] : []),
   ];
   let n = 0;
@@ -365,6 +369,10 @@ export async function install(ctx, opts) {
   if (withApp) {
     step('Analytics Hub app');
     await tryDeployApp(ctx);
+  }
+  if (withShare) {
+    step('Share the app');
+    await shareApp(ctx);
   }
 
   // A Studio flow that's on but hasn't loaded its six months yet: run it now, before the pipeline.
@@ -718,6 +726,8 @@ export async function summary(ctx) {
   const sql = lakehouse?.properties?.sqlEndpointProperties;
 
   ui.heading('Analytics Hub is set up');
+  const left = nextSteps(config, ctx.user);
+  if (left.length) ui.nextSteps(stepsLeftTitle(left), left);
   ui.info(`Workspace:  ${f.workspaceName}  ${c.dim(`https://app.fabric.microsoft.com/groups/${ws}`)}`);
   ui.info(`Lakehouse:  ${f.lakehouseName}`);
   ui.info(`Pipeline:   ${f.pipelineName ?? PIPELINE_NAME}, ${describeSchedule(config.schedule)}`);
@@ -736,14 +746,15 @@ export async function summary(ctx) {
     reportsSummary(ctx);
     dataAgentSummary(ctx);
 
-    const shared = [...(reportsOn(config) ? ['reports'] : []), ...(fa.enabled ? ['app'] : [])].join(' and ') || 'reports you publish';
     const group = config.access?.groupId ? config.access : undefined;
     ui.heading('Next steps');
     if (group) {
-      ui.info(`1. Share the ${shared} with "${group.groupName}" once: open ${shared === 'app' ? 'it' : 'them'} in the workspace, choose Share, and add the group.`);
-      ui.info(`   The group already has Build on the models. After that, share by adding people to the group: run "${commandLine('access')}",`);
-      ui.info(`   use Share in the app, or open ${myGroupsUrl(/** @type {string} */ (group.groupId))}. Keep viewers off workspace roles.`);
+      // Sharing the app item itself is asked before the first load, and is a card above until it's done.
+      ui.info(`1. Give people access by adding them to "${group.groupName}": run "${commandLine('access')}", use Share in the app,`);
+      ui.info(`   or open ${myGroupsUrl(/** @type {string} */ (group.groupId))}. The group already has Build on the models. Keep viewers off workspace roles.`);
+      if (reportsOn(config)) ui.info(`   Share the reports with "${group.groupName}" once: open them in the workspace, choose Share, and add the group.`);
     } else {
+      const shared = [...(reportsOn(config) ? ['reports'] : []), ...(fa.enabled ? ['app'] : [])].join(' and ') || 'reports you publish';
       ui.info(`1. Share the ${shared}: open ${shared === 'app' ? 'it' : 'them'} in the workspace, choose Share, and add people or a group.`);
       ui.info(`   They also need Build on ${sm.name} (its Manage permissions page), or Viewer on the workspace.`);
     }
