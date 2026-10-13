@@ -32,6 +32,12 @@ test('script: is plain ASCII with Windows line endings, for Windows PowerShell 5
   assert.throws(() => installScript(`${TEMPLATE}\n# caf\u00e9`, V), /plain ASCII/);
 });
 
+test('script: Node.js code passed with -e has no double quotes, which Windows PowerShell 5.1 drops', () => {
+  const evals = [...TEMPLATE.matchAll(/ -e '((?:[^']|'')*)'/g)].map((m) => m[1]);
+  assert.ok(evals.length > 0);
+  for (const code of evals) assert.doesNotMatch(code, /"/, code);
+});
+
 test('script: refuses values that would break out of a PowerShell string', () => {
   assert.throws(() => installScript(TEMPLATE, { ...V, sha256: 'abc' }), /isn't a SHA-256/);
   assert.throws(() => installScript(TEMPLATE, { ...V, version: "1'; rm -r ~; '" }), /letters, digits/);

@@ -243,6 +243,7 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {boolean} [createdResourceGroup]
  * @property {string} [location]
  * @property {string} [sqlLocation] Region for Azure SQL when it differs from location (regional SQL capacity).
+ * @property {boolean} [sqlFreeOffer] false once Azure turned down the Azure SQL free offer for a new database, which then uses the usual serverless price. Unset = ask for it.
  * @property {string} [namePrefix]
  * @property {string} [installId]
  * @property {Record<string, string>} [tags]

@@ -6,6 +6,7 @@
  */
 import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { homedir } from 'node:os';
 import { join } from 'node:path';
 import { HttpError } from '../http.js';
 import { inCloudShell } from '../launch.js';
@@ -398,7 +399,7 @@ async function buildAndDeploy(ctx, dir, ws, models) {
 
   try {
     await data('use', profile, '-o', GENERATED);
-    ui.info(`Building and deploying the app. ${signInNote()}`);
+    ui.info(`Building and deploying the app. ${signInNote(ctx)}`);
     return { record: await rayfinUp(ctx, dir, ws), profile };
   } finally {
     if (hadConfig !== null) writeFileSync(configFile, hadConfig, 'utf8');
@@ -435,7 +436,7 @@ async function deployPrebuilt(ctx, dir, ws, models) {
   writeOrRemove(deploymentsFile, fa.rayfin?.deployments ? `${JSON.stringify(fa.rayfin.deployments, null, 2)}\n` : null);
   writeOrRemove(envFile, fa.rayfin?.env ?? null);
 
-  ui.info(`Deploying the app. ${signInNote()}`);
+  ui.info(`Deploying the app. ${signInNote(ctx)}`);
   try {
     return { record: await rayfinUp(ctx, dir, ws), profile: undefined };
   } finally {
@@ -481,20 +482,56 @@ export function fabricConfigFile(config, ws, models) {
 }
 
 /**
- * The environment `rayfin up` runs in. In Azure Cloud Shell, Rayfin's own sign-in would wait for a
- * browser that can't open, so it gets the installer's Fabric token instead: every call `up` makes
- * is to Fabric. Elsewhere Rayfin signs in itself and keeps that sign-in between runs.
+ * The sign-in Rayfin saved last time it signed in on this PC, from its `auth.json`.
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {{ identityType?: string, tenantId?: string, userPrincipalName?: string } | null}
+ */
+export function rayfinSignIn(env = process.env) {
+  return readJson(join(env.RAYFIN_CONFIG_DIR || join(homedir(), '.rayfin'), 'auth.json'));
+}
+
+/**
+ * Whether Rayfin's saved sign-in is someone other than the person running the installer. Rayfin
+ * reuses it without asking, even with `--tenant`, so `up` would run as them and not find the workspace.
+ * @param {ReturnType<typeof rayfinSignIn>} saved
+ * @param {{ upn?: string, tenantId: string }} user
+ */
+export const rayfinSignedInAsOther = (saved, user) =>
+  !!saved && (
+    saved.identityType === 'service_principal' ||
+    String(saved.tenantId ?? '').toLowerCase() !== String(user.tenantId).toLowerCase() ||
+    (!!saved.userPrincipalName && !!user.upn && saved.userPrincipalName.toLowerCase() !== user.upn.toLowerCase())
+  );
+
+/**
+ * Whether `rayfin up` gets the installer's Fabric token rather than signing in itself. Every call
+ * `up` makes is to Fabric. In Azure Cloud Shell Rayfin's own sign-in would wait for a browser that
+ * can't open; elsewhere it would deploy as whoever it last signed in as when that's someone else.
+ * Otherwise Rayfin signs in itself and keeps that sign-in between runs.
  * @param {Ctx} ctx
  * @param {NodeJS.ProcessEnv} [env]
+ * @param {ReturnType<typeof rayfinSignIn>} [saved]
+ */
+const usesInstallerToken = (ctx, env = process.env, saved = rayfinSignIn(env)) =>
+  !env.RAYFIN_TOKEN && !!ctx.getToken && (inCloudShell(env) || rayfinSignedInAsOther(saved, ctx.user));
+
+/**
+ * The environment `rayfin up` runs in.
+ * @param {Ctx} ctx
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {ReturnType<typeof rayfinSignIn>} [saved]  Rayfin's saved sign-in; read from disk when left out.
  * @returns {Promise<NodeJS.ProcessEnv | undefined>}  undefined to run with the installer's own environment.
  */
-export async function rayfinEnv(ctx, env = process.env) {
-  if (!inCloudShell(env) || env.RAYFIN_TOKEN || !ctx.getToken) return undefined;
+export async function rayfinEnv(ctx, env = process.env, saved = rayfinSignIn(env)) {
+  if (!usesInstallerToken(ctx, env, saved) || !ctx.getToken) return undefined;
   return { ...env, RAYFIN_TOKEN: await ctx.getToken('fabric'), RAYFIN_TENANT_ID: ctx.user.tenantId };
 }
 
-/** What `rayfin up` asks of the person running the installer. */
-const signInNote = () => (inCloudShell() ? 'It uses your installer sign-in.' : 'A browser window may open for sign-in.');
+/**
+ * What `rayfin up` asks of the person running the installer.
+ * @param {Ctx} ctx
+ */
+const signInNote = (ctx) => (usesInstallerToken(ctx) ? 'It uses your installer sign-in.' : 'A browser window may open for sign-in.');
 
 /**
  * Runs `rayfin up` in the app folder and returns the deployment it recorded for the workspace.
@@ -508,9 +545,11 @@ async function rayfinUp(ctx, dir, ws) {
   const env = await rayfinEnv(ctx);
   const res = await run(process.execPath, [join(dir, RAYFIN_CLI), 'up', '--tenant', ctx.user.tenantId, '--workspace-id', ws, '--yes'], { cwd: dir, inherit: true, ...(env ? { env } : {}) });
   if (res.code) {
-    throw new Error(env
+    throw new Error(env && inCloudShell()
       ? 'The app\'s deploy tool failed. Its output is above. It ran with your installer sign-in\'s Fabric token. If Fabric turned that down, the rest of the set-up is done: copy the install record to a Windows PC and run deploy-app there, with the exe or the PowerShell command.'
-      : 'The app\'s deploy tool failed. Its output is above.');
+      : env
+        ? 'The app\'s deploy tool failed. Its output is above. It ran with your installer sign-in\'s Fabric token, because the deploy tool was signed in as someone else.'
+        : 'The app\'s deploy tool failed. Its output is above.');
   }
   const record = findDeployment(readJson(join(dir, 'rayfin', '.deployments.json')), ws);
   if (!record?.fabricItemId) throw new Error('The app deployed, but its deploy tool didn\'t record the item it created.');

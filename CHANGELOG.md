@@ -18,15 +18,26 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ---
 
-## Unreleased — Plan review for the no-Key-Vault secret
+## Unreleased
 
-### Fixed
-
-- **The plan review said the notebook client secret was "Already there".** With no Key Vault,
-  each install, repair or update writes a new client secret into the notebooks, but the
-  review listed it as already there and counted it that way in its summary. It now shows New.
-
----
+- **Azure: set-up carries on when Azure turns down the Azure SQL free offer.** A subscription that
+  has used its free databases can get only `InternalServerError` on the new database, and set-up
+  stopped at Azure resources. The installer now creates the database once more without the free
+  offer, at the usual serverless price (it still pauses after an hour without use), says so, and
+  remembers it. An existing database is never moved off the free offer.
+- **Installer: the app deploys as the person who signed in to the installer.** The app deploy
+  tool keeps its own saved sign-in. If that sign-in was for another account or tenant, the deploy
+  ran as that account and failed with "The provided workspace was not found". The installer now
+  passes its own Fabric token to the deploy tool when the saved sign-in is for someone else, as it
+  already did in Azure Cloud Shell.
+- **PowerShell launcher: removing an older version works in Windows PowerShell 5.1.** `install.ps1`
+  no longer prints a Node.js error when it removes an older version, or when it runs with
+  `-Uninstall`, in Windows PowerShell 5.1. Windows PowerShell 5.1 dropped the double quotes from
+  the Node.js code that removes the folder. The code failed, and the launcher fell back to
+  `Remove-Item`, which can't remove paths longer than 260 characters.
+- **Plan review: the no-Key-Vault notebook secret shows as New.** With no Key Vault, each install,
+  repair or update writes a new client secret into the notebooks, but the review listed it as
+  "Already there" and counted it that way in its summary. It now shows New.
 
 ## 2026-10-13 — Analytics Hub installer 0.6.0 (pre-release)
 
