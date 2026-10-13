@@ -10,6 +10,7 @@ const AUTHORIZATION_API = '2022-04-01';
 const DEPLOYMENTS_API = '2022-09-01';
 const CONTAINER_APPS_API = '2024-03-01';
 const RESOURCE_GRAPH_API = '2022-10-01';
+const POLICY_API = '2023-04-01';
 
 export const ROLES = {
   keyVaultSecretsOfficer: 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7',
@@ -83,12 +84,87 @@ export function parseResourceId(id) {
   return { subscriptionId: m[1], resourceGroup: m[2], type: m[3], name: m[4] };
 }
 
+const parseJsonObject = (/** @type {string} */ s) => {
+  if (!s.trim().startsWith('{')) return null;
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Every error in an ARM error tree, depth first. A failed deployment nests each module's error in
+ * `details` (DeploymentFailed > ResourceDeploymentFailure > ...), and some put a JSON error body in
+ * `message`; both are followed. Each entry carries the nearest target; `leaf` marks errors with
+ * nothing nested under them, which are the ones that say what actually went wrong.
+ * @param {any} error  An ARM error, or a body holding one in `error`.
+ * @returns {{ code?: string, message?: string, target?: string, additionalInfo?: any[], leaf: boolean }[]}
+ */
+export function armErrors(error) {
+  /** @type {{ code?: string, message?: string, target?: string, additionalInfo?: any[], leaf: boolean }[]} */
+  const out = [];
+  const walk = (/** @type {any} */ node, /** @type {string | undefined} */ target, depth = 0) => {
+    if (!node || depth > 12) return;
+    if (typeof node === 'string') return walk(parseJsonObject(node), target, depth + 1);
+    if (typeof node !== 'object') return;
+    if (node.error && typeof node.error === 'object') return walk(node.error, target, depth + 1);
+    const here = node.target || target;
+    const inner = typeof node.message === 'string' ? parseJsonObject(node.message) : null;
+    const details = Array.isArray(node.details) ? node.details : [];
+    out.push({ code: node.code, message: inner ? undefined : node.message, target: here, additionalInfo: node.additionalInfo, leaf: !inner && !details.length });
+    if (inner) walk(inner, here, depth + 1);
+    for (const d of details) walk(d, here, depth + 1);
+  };
+  walk(error, undefined);
+  return out;
+}
+
+/**
+ * @typedef {{ resourceType?: string, resourceName?: string, resourceId?: string, code?: string, message?: string, error?: any }} FailedOperation
+ */
+
+/**
+ * The resources that actually failed in a deployment, from its operations: a failed deployment's own
+ * error only says DeploymentFailed > ResourceDeploymentFailure, while the operation on the resource
+ * carries the real code and message. Failed nested deployments (modules) are followed.
+ * @param {(deploymentId: string) => Promise<any[]>} listOps  Lists a deployment's operations.
+ * @param {string} deploymentId  The deployment's resource ID.
+ * @returns {Promise<FailedOperation[]>}
+ */
+export async function failedOperations(listOps, deploymentId) {
+  /** @type {FailedOperation[]} */
+  const out = [];
+  const seen = new Set();
+  const walk = async (/** @type {string} */ id, depth = 0) => {
+    if (depth > 5 || seen.has(id.toLowerCase())) return;
+    seen.add(id.toLowerCase());
+    for (const op of await listOps(id)) {
+      const p = op?.properties ?? {};
+      if (p.provisioningState !== 'Failed') continue;
+      const target = p.targetResource ?? {};
+      if (/^Microsoft\.Resources\/deployments$/i.test(target.resourceType ?? '') && target.id) {
+        const before = out.length;
+        await walk(target.id, depth + 1);
+        if (out.length > before) continue;
+      }
+      const status = typeof p.statusMessage === 'string' ? parseJsonObject(p.statusMessage) ?? { message: p.statusMessage } : p.statusMessage;
+      const error = status?.error ?? status ?? {};
+      const leaf = armErrors(error).filter((x) => x.leaf && (x.code || x.message)).pop();
+      out.push({ resourceType: target.resourceType, resourceName: target.resourceName, resourceId: target.id, code: leaf?.code ?? error.code, message: leaf?.message ?? error.message, error });
+    }
+  };
+  await walk(deploymentId);
+  return out;
+}
+
 /**
  * Polls an ARM deployment until it finishes. The deployment PUT answers 200/201 while it is still
- * running, so the generic 202 long-running-operation handling doesn't wait for it.
+ * running, so the generic 202 long-running-operation handling doesn't wait for it. When it fails and
+ * `operations` is given, the error names the resources that failed and their own errors.
  * @param {() => Promise<any>} get  Reads the deployment.
  * @param {any} first  The PUT response.
- * @param {{ sleep?: (ms: number) => Promise<void>, pollMs?: number, timeoutMs?: number }} [opts]
+ * @param {{ sleep?: (ms: number) => Promise<void>, pollMs?: number, timeoutMs?: number, deploymentId?: string, operations?: (deploymentId: string) => Promise<any[]> }} [opts]
  */
 export async function waitForDeployment(get, first, opts = {}) {
   const sleep = opts.sleep ?? ((/** @type {number} */ ms) => new Promise((r) => setTimeout(r, ms)));
@@ -99,9 +175,23 @@ export async function waitForDeployment(get, first, opts = {}) {
     if (state === 'Succeeded') return d;
     if (state === 'Failed' || state === 'Canceled') {
       const e = d?.properties?.error;
-      const detail = (e?.details ?? []).map((/** @type {any} */ x) => `${x.code}: ${x.message}`).join('; ');
-      const err = new Error(`ARM deployment ${d?.name ?? ''} ${state.toLowerCase()}: ${e?.code ?? ''} ${e?.message ?? ''}${detail ? ` (${detail})` : ''}`.trim());
-      /** @type {any} */ (err).body = { error: e };
+      /** @type {FailedOperation[]} */
+      let failed = [];
+      const id = d?.id ?? opts.deploymentId;
+      if (opts.operations && id) failed = await failedOperations(opts.operations, id).catch(() => []);
+      /** @type {any} */
+      let err;
+      if (failed.length) {
+        const detail = [...new Set(failed.map((f) => `${f.code ?? 'Failed'} on ${f.resourceType ?? 'resource'} ${f.resourceName ?? ''}: ${f.message ?? ''}`.trim()))].join('; ');
+        err = new Error(`ARM deployment ${d?.name ?? ''} ${state.toLowerCase()}: ${detail}`);
+        err.body = { error: { ...e, details: [...(e?.details ?? []), ...failed.map((f) => ({ ...f.error, target: f.resourceId }))] } };
+        err.operations = failed;
+      } else {
+        const leaves = armErrors(e).slice(1).filter((x) => x.leaf);
+        const detail = [...new Set(leaves.map((x) => `${x.code}${x.target ? ` (${x.target.split('/').pop()})` : ''}: ${x.message ?? ''}`.trim()))].join('; ');
+        err = new Error(`ARM deployment ${d?.name ?? ''} ${state.toLowerCase()}: ${e?.code ?? ''} ${e?.message ?? ''}${detail ? ` (${detail})` : ''}`.trim());
+        err.body = { error: e };
+      }
       throw err;
     }
     if (Date.now() > deadline) throw new Error(`ARM deployment ${d?.name ?? ''} is still ${state} after the timeout.`);
@@ -139,6 +229,29 @@ export function armApi(http, opts = {}) {
      */
     sqlCapability: (subscriptionId, location) =>
       http.get(`/subscriptions/${subscriptionId}/providers/Microsoft.Sql/locations/${location}/capabilities`, { query: { 'api-version': '2023-08-01-preview', include: 'supportedEditions' } }),
+
+    /**
+     * A resource provider, with the regions each of its resource types is offered in (display names).
+     * @param {string} subscriptionId @param {string} namespace
+     * @returns {Promise<{ resourceTypes?: { resourceType: string, locations?: string[] }[] }>}
+     */
+    getProvider: (subscriptionId, namespace) => http.get(`/subscriptions/${subscriptionId}/providers/${namespace}`, { query: { 'api-version': RESOURCES_API } }),
+
+    /** Storage SKUs by region, with the regions this subscription can't use. @param {string} subscriptionId */
+    storageSkus: (subscriptionId) => http.list(`/subscriptions/${subscriptionId}/providers/Microsoft.Storage/skus`, { query: { 'api-version': '2023-05-01' } }),
+
+    /** Azure Policy assignments at `scope` and above it. @param {string} scope  e.g. /subscriptions/{id} */
+    listPolicyAssignments: (scope) => http.list(`${scope}/providers/Microsoft.Authorization/policyAssignments`, { query: { 'api-version': POLICY_API, $filter: 'atScope()' } }),
+
+    /**
+     * Custom policy definitions or initiatives visible to a subscription: its own and its management groups'.
+     * @param {string} subscriptionId @param {'policyDefinitions' | 'policySetDefinitions'} kind
+     */
+    listCustomPolicies: (subscriptionId, kind) =>
+      http.list(`/subscriptions/${subscriptionId}/providers/Microsoft.Authorization/${kind}`, { query: { 'api-version': POLICY_API, $filter: "policyType eq 'Custom'" } }),
+
+    /** A policy definition or initiative, by ID. @param {string} id */
+    getPolicy: (id) => http.get(id, { query: { 'api-version': POLICY_API } }),
 
     /** @param {string} scope  e.g. /subscriptions/{id} */
     permissions: (scope) => http.list(`${scope}/providers/Microsoft.Authorization/permissions`, { query: { 'api-version': AUTHORIZATION_API } }),
@@ -253,7 +366,11 @@ export function armApi(http, opts = {}) {
     deployTemplate: async (subscriptionId, resourceGroup, name, deployment) => {
       const path = `/subscriptions/${subscriptionId}/resourcegroups/${resourceGroup}/providers/Microsoft.Resources/deployments/${name}`;
       const first = await http.requestLro('PUT', path, { query: { 'api-version': DEPLOYMENTS_API }, body: deployment, lroResult: true });
-      return waitForDeployment(() => http.get(path, { query: { 'api-version': DEPLOYMENTS_API } }), first, opts);
+      return waitForDeployment(() => http.get(path, { query: { 'api-version': DEPLOYMENTS_API } }), first, {
+        ...opts,
+        deploymentId: path,
+        operations: (/** @type {string} */ id) => http.list(`${id}/operations`, { query: { 'api-version': DEPLOYMENTS_API } }),
+      });
     },
 
     /** @param {string} subscriptionId @param {string} resourceGroup @param {string} serverName @param {string} databaseName */

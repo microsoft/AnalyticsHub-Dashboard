@@ -11,7 +11,7 @@ import { allowsAction, armLocation, parseResourceId, validateVaultName } from '.
 import { notebookDefinition, notebookJobParameters, scheduleBody } from '../src/clients/fabric.js';
 import { resolveAppRoles } from '../src/clients/graph.js';
 import { emptyConfig, loadConfig, saveConfig } from '../src/config.js';
-import { commandLine, EXE_ENV, fromExe, installerWindow } from '../src/launch.js';
+import { bundled, commandLine, EXE_ENV, fromExe, installerWindow, LAUNCHER_ENV, launcher, reopenHint, SCRIPT_COMMAND, SCRIPT_URL, updateHint } from '../src/launch.js';
 import { describeSchedule, sameSchedule } from '../src/steps/fabric.js';
 import { addDays, addMonths, notebookSecretDays } from '../src/steps/identity.js';
 import { jobIdFrom, utc } from '../src/steps/run.js';
@@ -264,4 +264,23 @@ test('messages name the exe when it started the installer', () => {
   assert.equal(installerWindow(exe), 'the installer window');
   assert.match(help(), /Usage: (valuelens-install|AnalyticsHubInstaller\.exe) \[command\] \[options\]/);
   assert.match(help(), /deploy-app\s+Deploy the Analytics Hub app again/);
+});
+
+test('messages name the PowerShell command when install.ps1 started the installer', () => {
+  const pwsh = { [LAUNCHER_ENV]: 'pwsh' };
+  assert.equal(launcher({}), 'node');
+  assert.equal(launcher(pwsh), 'pwsh');
+  assert.equal(launcher({ [EXE_ENV]: '1', [LAUNCHER_ENV]: 'pwsh' }), 'exe', 'the exe wins if both are set');
+  assert.equal(fromExe(pwsh), false);
+  assert.equal(bundled(pwsh), true);
+  assert.equal(bundled({ [EXE_ENV]: '1' }), true);
+  assert.equal(bundled({}), false);
+  assert.equal(commandLine('status', pwsh), '& $env:LOCALAPPDATA\\AnalyticsHub\\analytics-hub.cmd status');
+  assert.equal(installerWindow(pwsh), 'the PowerShell window');
+  assert.match(reopenHint(pwsh), /analytics-hub\.cmd in PowerShell/);
+  assert.match(reopenHint({ [EXE_ENV]: '1' }), /AnalyticsHubInstaller\.exe/);
+  assert.match(reopenHint({}), /valuelens-install --ui/);
+  assert.match(updateHint('https://example.test/r', pwsh), /irm https:\/\/github\.com\/microsoft\/AnalyticsHub-Dashboard\/releases\/latest\/download\/install\.ps1 \| iex/);
+  assert.equal(updateHint('https://example.test/r', {}), 'Download it from https://example.test/r, then choose Repair or change.');
+  assert.equal(SCRIPT_COMMAND, `irm ${SCRIPT_URL} | iex`);
 });

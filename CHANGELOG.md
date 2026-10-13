@@ -18,6 +18,76 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ---
 
+## Unreleased — Install from PowerShell
+
+### Added: a PowerShell command for organisations that block downloaded exes
+
+**Why.** Many organisations block downloaded `.exe` files, so people couldn't start the installer
+without cloning the repo and installing Node.js.
+
+**What changed.** Each release now also has `install.ps1` and `AnalyticsHubInstaller.zip`, the
+same payload as the exe. In PowerShell, run:
+
+```powershell
+irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+```
+
+It downloads the zip, checks its SHA-256 against the one written into `install.ps1`, unpacks it
+under `%LOCALAPPDATA%\AnalyticsHub` (the same place as the exe) and opens the same browser steps.
+No admin rights. It works in Windows PowerShell 5.1 and PowerShell 7, including Constrained
+Language Mode, and through a proxy (`$env:ANALYTICS_HUB_PROXY`). If `irm | iex` is blocked, download
+both files and run `install.ps1 -ZipPath`. It leaves `analytics-hub.cmd` behind for later
+commands, and messages in the installer name that command when you started it this way. The
+release notes give a command pinned to that release. See
+[From PowerShell](installer/README.md#from-powershell).
+
+**Still blocked by.** AppLocker or WDAC rules that stop programs under the user profile block the
+unpacked `node.exe`, as they block the exe. `install.ps1` isn't Authenticode-signed yet.
+
+The exe is unchanged and stays the main download.
+
+---
+
+## Unreleased — Private networking under Azure Policy
+
+### Fixed: private networking deploys where Azure Policy denies public access
+
+**Why.** A tester hit a deploy failure involving public and private endpoints. Several resources
+didn't follow the networking choice, and policy errors were hard to read.
+
+- **Locked down when private.** The Ask AI Services account turns public access off and gets a
+  private endpoint. Storage's firewall denies by default. Log Analytics turns public ingestion and
+  query off, and Container Apps logs reach it through a diagnostic setting (in the
+  `ContainerAppConsoleLogs` and `ContainerAppSystemLogs` tables). Every subnet gets a network
+  security group. Public mode is unchanged.
+- **Private DNS zones.** A new advanced setting creates the `privatelink.*` zones (the default), uses
+  existing zones in another resource group such as a Landing Zone hub, or leaves DNS to Azure Policy.
+- **Policy errors.** The installer walks the nested ARM error and names each policy, assignment and
+  resource it blocked. It no longer tells you to choose Private networking when you already have,
+  keeps the original error, and prints the command for the full error.
+- **Storage.** With private networking, the installer never calls the storage account from your
+  machine, and says why.
+
+### Fixed: Azure SQL firewall rule fails when Azure Policy switches SQL public access off
+
+**Why.** A tester's deploy failed on the SQL firewall rule with `DenyPublicEndpointEnabled`
+("Unable to create or modify firewall rules when public network interface for the server is
+disabled"). A policy switched the server's public access off as it was created, so the rule that lets
+Azure services in couldn't be added. The installer showed only the generic `DeploymentFailed …
+ResourceDeploymentFailure` text.
+
+- **Detected before deploying.** On a first Azure install, the installer reads the policy
+  assignments it already reads for the region preflight. When one denies SQL public access, or
+  modifies it to `Disabled` (built-in or custom, directly or in an initiative), the installer says so
+  and uses Private networking, which deploys no SQL firewall rule. Under advanced settings, Private is
+  the default and Public endpoints warns that the deployment would fail.
+- **The real error.** When a deployment fails, the installer reads the deployment operations,
+  following failed modules, and shows each failing resource with its own error code and message.
+- **Existing installs.** If an existing public install hits this, the installer says networking can't
+  change in place: uninstall and install again with Private networking, or ask for an exemption.
+
+---
+
 ## Unreleased — Load warnings, Global Reader, Agent Evaluator environments and Fabric uninstall
 
 ### Changed: a new Fabric install keeps the app's secret in the notebooks, not Key Vault
@@ -45,6 +115,25 @@ couldn't create. The notebook option was a last resort with a long-lived secret.
   connection references) ships in the Fabric notebook runtime, switch the default to a Fabric
   Connection that holds the secret, so workspace roles don't expose it. A Fabric Connection bound
   to each notebook by hand is a possible later option. Neither is built.
+
+### Added: an Azure region preflight
+
+**Why.** A tester reported that Azure restrictions, mainly region restrictions, were the hardest
+part of standing up the Azure target. The installer offered every region in the subscription.
+Choosing one that Azure Policy or the subscription doesn't allow then failed partway through the
+deployment.
+
+- **Installer.** On a first Azure install, the region list shows only the regions where every
+  resource can go. Regions are dropped if:
+  - Azure Policy's allowed locations deny them. The installer reads the built-in policies, either
+    assigned directly or in initiatives, and simple custom deny rules on `location`.
+  - The subscription isn't offered a resource type it needs there.
+  - Standard_LRS storage or Azure SQL is restricted there.
+
+  The installer prints why each region was dropped. If no region passes, it stops before deploying,
+  with a message that says what to ask an Azure administrator for. The Ask model's account only
+  moves to regions that policy allows. If the installer can't read a policy, it still deploys, says
+  so, and leaves that check to Azure.
 
 ### Changed: a load that couldn't read everything is a Warning, not Succeeded
 

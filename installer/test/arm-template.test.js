@@ -55,6 +55,58 @@ test('private networking, demo mode and a separate SQL region pass template vali
   const result = validateArmTemplate(TEMPLATE, params, SCOPE);
   assert.deepEqual(result.errors, []);
   assert.equal(byName(result, /^vl-network$/)?.deployed, true);
+  assert.equal(byName(result, /^vl-dnslinks-/)?.deployed, false, 'the default creates its own private DNS zones');
+});
+
+test('private networking with Ask and existing private DNS zones links the VNet in the zones resource group', async () => {
+  const resourceGroupId = '/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/rg-hub-dns';
+  const params = await installerParameters((az) => Object.assign(az, { publicNetworkAccess: false, ask: { mode: 'create' }, privateDns: { mode: 'existing', resourceGroupId } }));
+  assert.equal(params.privateDnsZoneMode.value, 'existing');
+  assert.equal(params.privateDnsZonesResourceGroupId.value, resourceGroupId);
+  const result = validateArmTemplate(TEMPLATE, params, SCOPE);
+  assert.deepEqual(result.errors, []);
+  const links = byName(result, /^vl-dnslinks-/);
+  assert.equal(links?.deployed, true);
+  assert.equal(links.subscriptionId, '33333333-3333-3333-3333-333333333333');
+  assert.equal(links.resourceGroup, 'rg-hub-dns');
+  assert.equal(byName(result, /^vl-ask$/)?.deployed, true);
+});
+
+test('private networking can leave private DNS to Azure Policy', async () => {
+  const params = await installerParameters((az) => Object.assign(az, { publicNetworkAccess: false, privateDns: { mode: 'none', resourceGroupId: '/subscriptions/x/resourceGroups/ignored' } }));
+  assert.equal(params.privateDnsZoneMode.value, 'none');
+  assert.equal(params.privateDnsZonesResourceGroupId.value, '');
+  const result = validateArmTemplate(TEMPLATE, params, SCOPE);
+  assert.deepEqual(result.errors, []);
+  assert.equal(byName(result, /^vl-dnslinks-/)?.deployed, false);
+});
+
+test('the private network module locks down every subnet and follows the DNS zone mode', () => {
+  const network = TEMPLATE.resources.find((/** @type {any} */ r) => r.name === 'vl-network').properties.template;
+  const vnet = Object.values(network.resources).find((/** @type {any} */ r) => r.type === 'Microsoft.Network/virtualNetworks');
+  assert.ok(vnet.properties.subnets.every((/** @type {any} */ s) => s.properties.networkSecurityGroup), 'policies often require an NSG on every subnet');
+  const ofType = (/** @type {string} */ t) => Object.values(network.resources).find((/** @type {any} */ r) => r.type === t);
+  assert.match(ofType('Microsoft.Network/privateDnsZones').condition, /'create'/);
+  assert.match(ofType('Microsoft.Network/privateEndpoints/privateDnsZoneGroups').condition, /'none'/);
+});
+
+test('no SQL firewall rule deploys when public access is off (private, or forced off by Azure Policy)', async () => {
+  // A server whose public access is off rejects firewall rules with DenyPublicEndpointEnabled, which
+  // a tester hit when a Modify policy switched it off at create time.
+  /** @type {{ module: string, rule: any, passes: any }[]} */
+  const rules = [];
+  const walk = (/** @type {any} */ template, /** @type {string} */ module, /** @type {any} */ passes) => {
+    for (const r of Object.values(template.resources ?? {})) {
+      if (/^Microsoft\.Sql\/servers\/firewallRules$/i.test(r.type)) rules.push({ module, rule: r, passes });
+      if (r.properties?.template) walk(r.properties.template, r.name, r.properties.parameters);
+    }
+  };
+  walk(TEMPLATE, 'main', {});
+  assert.deepEqual(rules.map((r) => r.module), ['vl-sql'], 'the only firewall rule is AllowAllWindowsAzureIps in the SQL module');
+  assert.equal(rules[0].rule.condition, "[equals(parameters('publicNetworkAccess'), 'Enabled')]");
+  assert.equal(rules[0].passes.publicNetworkAccess.value, "[parameters('publicNetworkAccess')]");
+  assert.equal((await installerParameters((az) => (az.publicNetworkAccess = false))).publicNetworkAccess.value, 'Disabled');
+  assert.equal((await installerParameters()).publicNetworkAccess.value, 'Enabled');
 });
 
 test('the template validates with only its required parameters (Deploy to Azure / az CLI)', () => {

@@ -27,7 +27,7 @@ resource account 'Microsoft.Storage/storageAccounts@2023-05-01' = {
     minimumTlsVersion: 'TLS1_2'
     supportsHttpsTrafficOnly: true
     publicNetworkAccess: publicNetworkAccess
-    networkAcls: { defaultAction: 'Allow', bypass: 'AzureServices' }
+    networkAcls: { defaultAction: publicNetworkAccess == 'Disabled' ? 'Deny' : 'Allow', bypass: 'AzureServices' }
   }
 }
 

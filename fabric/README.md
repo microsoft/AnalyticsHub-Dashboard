@@ -5,7 +5,8 @@ as an app in Fabric, called **Analytics Hub**. You don't need a terminal or Powe
 
 [![Download the Analytics Hub installer](https://img.shields.io/badge/Download-Analytics%20Hub%20installer-0078D4?style=for-the-badge)](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
 
-For Windows 10 or 11. Check [what you need](#before-you-start) first.
+For Windows 10 or 11. Check [what you need](#before-you-start) first. If your organisation blocks
+downloaded exes, use the [PowerShell command](../installer/README.md#from-powershell) instead.
 
 ## Before you start
 
@@ -36,8 +37,13 @@ you're responsible for the data once it's in your workspace.
    **Show more** and **Keep anyway**.
 2. Open it. If Windows says it protected your PC, choose **More info**, then **Run anyway**.
    These warnings appear because the installer is new and isn't code-signed yet. To check the
-   file first, or if your organisation blocks it, see
-   [Check the download](../installer/README.md#check-the-download).
+   file first, see [Check the download](../installer/README.md#check-the-download). If your
+   organisation blocks it, paste this into PowerShell instead and carry on from step 3:
+
+   ```powershell
+   irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+   ```
+
 3. After about a minute, it opens in your browser. Keep the installer window open until you're
    done.
 4. Choose **Set up Analytics Hub** and sign in with your work account.

@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs';
 import { collectedLabels } from './catalog.js';
 import { archiveConfig, loadConfig, secretMode } from './config.js';
 import { connect as realConnect, createCtx, runCommand, showPrereqs } from './install.js';
-import { fromExe } from './launch.js';
+import { bundled, commandLine, installerWindow, launcher, reopenHint, updateHint } from './launch.js';
 import { checkPrereqs } from './prereqs.js';
 import { loadSources } from './sources.js';
 import { coworkDataflowOn, describeSchedule, modelDeployed, recordWorkspaceGone, staleRecordMessage } from './steps/fabric.js';
@@ -159,7 +159,8 @@ export function createSession(o) {
     }
     return {
       version: o.version,
-      exe: fromExe(),
+      exe: bundled(),
+      launcher: { command: commandLine(), window: installerWindow(), reopen: reopenHint(), update: update && launcher() === 'pwsh' ? updateHint(update.url) : null },
       configFile: o.configFile,
       record,
       recordError,

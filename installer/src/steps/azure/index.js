@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { GRAPH_APP_ID, azureGraphRolesFor, collectedLabels, ESSENTIAL_MODULES, MODULES, OPTIONAL_MODULES } from '../../catalog.js';
 import { semanticModelDefinition } from '../../clients/fabric.js';
 import { POWER_BI_APP_ID, adminConsentUrl, apiPermissionsUrl, resolveAppRoles } from '../../clients/graph.js';
-import { ROLES } from '../../clients/azure.js';
+import { armErrors, ROLES } from '../../clients/azure.js';
 import { HttpError } from '../../http.js';
 import { commandLine } from '../../launch.js';
 import { rlsOn, rlsSettings } from '../../transform/access.js';
@@ -26,6 +26,7 @@ import { accessReview, accessSummaryLines, ensureViewerGroup, grantModelAccess, 
 import { ensureOrgAccess, verifyOrgAccess } from '../org-access.js';
 import { askAdvanced, asksAdvanced } from '../advanced.js';
 import { askGrants, askLine, askMode, askParameters, ensureAzureAskAccess, planAzureAsk } from './ask.js';
+import { checkRegions, noRegionMessage, regionNotes, regionProblems, sqlProblem } from './regions.js';
 
 /** @typedef {import('../../install.js').Ctx} Ctx */
 
@@ -47,7 +48,7 @@ export const TEAMS_CLIENTS = ['1fec8e78-bce4-4aaf-ab1b-5451cc387264', '5e3ce6c0-
 const ARM = JSON.parse(readFileSync(new URL('../../azure/main.arm.json', import.meta.url), 'utf8'));
 export const REQUIRED_ARM_PARAMETERS = [
   'location', 'sqlLocation', 'namePrefix', 'installId', 'tags', 'imageRegistry', 'imageTag', 'imageRegistryResourceId', 'runSchedule', 'runSteps', 'sampleData', 'sqlAdminLogin', 'sqlAdminObjectId',
-  'sqlAdminPrincipalType', 'sqlMinCapacity', 'sqlMaxCapacity', 'sqlAutoPauseDelayMinutes', 'sqlUseFreeLimit', 'publicNetworkAccess', 'deployWeb',
+  'sqlAdminPrincipalType', 'sqlMinCapacity', 'sqlMaxCapacity', 'sqlAutoPauseDelayMinutes', 'sqlUseFreeLimit', 'publicNetworkAccess', 'privateDnsZoneMode', 'privateDnsZonesResourceGroupId', 'deployWeb',
   'webMinReplicas', 'webClientId', 'webAppIdUri', 'webAccess', 'modules', 'auditHistoryDays', 'powerBiWorkspaceId', 'semanticModels', 'sqlReaderName', 'sqlReaderClientId',
   'azureAiSubscriptionId', 'paygSubscriptionIds', 'dropSiteId', 'dropDriveId', 'dropFolder', 'argManagementGroup', 'argAgents', 'argFoundry', 'reportingCurrency', 'exchangeRate',
   'askMode', 'askEndpoint', 'askDeployment', 'askModelName', 'askModelVersion', 'askSku', 'askCapacity', 'askLocation',
@@ -95,25 +96,83 @@ export function azureCron(schedule) {
   return `${m} ${h} * * *`;
 }
 
-/** @param {any} err */
-export function policyMessage(err) {
-  const body = err instanceof HttpError ? err.body : err;
-  const text = typeof body === 'string' ? body : JSON.stringify(body ?? {});
-  if (!/RequestDisallowedByPolicy/i.test(text)) return '';
-  const assignment = body?.error?.details?.[0]?.additionalInfo?.[0]?.info?.policyAssignmentDisplayName ?? /policy assignment '?([^'".]+)'?/i.exec(text)?.[1];
-  return `Azure Policy blocked the deployment${assignment ? ` (${assignment})` : ''}. Ask for an exemption on this resource group, or re-run the installer and choose Private networking.`;
+/**
+ * Each policy behind a RequestDisallowedByPolicy, however deep ARM nested it (validation errors
+ * put it in details; failed deployments nest it under DeploymentFailed and each module).
+ * @param {any} err
+ * @returns {{ resource?: string, definition?: string, definitionId?: string, assignment?: string, assignmentId?: string, message?: string }[]}
+ */
+export function policyViolations(err) {
+  const body = err instanceof HttpError ? err.body : (err?.body ?? err);
+  const denials = armErrors(body).filter((e) => e.leaf && /RequestDisallowedByPolicy/i.test(e.code ?? ''));
+  if (!denials.length) {
+    const text = typeof body === 'string' ? body : `${err?.message ?? ''} ${JSON.stringify(body ?? {})}`;
+    if (/RequestDisallowedByPolicy/i.test(text)) denials.push({ message: text, leaf: true });
+  }
+  return denials.flatMap((e) => {
+    const message = e.message ?? '';
+    const resource = /Resource '([^']+)' was disallowed/i.exec(message)?.[1] ?? e.target?.split('/').pop();
+    /** @type {any[]} */
+    let infos = (e.additionalInfo ?? []).filter((a) => a?.type === 'PolicyViolation' && a.info).map((a) => a.info);
+    if (!infos.length) {
+      const ids = /Policy identifiers: '(\[.*\])'/i.exec(message)?.[1];
+      try {
+        infos = ids ? JSON.parse(ids).map((/** @type {any} */ x) => ({ policyAssignmentName: x.policyAssignment?.name, policyAssignmentId: x.policyAssignment?.id, policyDefinitionName: x.policyDefinition?.name, policyDefinitionId: x.policyDefinition?.id })) : [];
+      } catch {
+        infos = [];
+      }
+    }
+    if (!infos.length) infos = [{ policyAssignmentDisplayName: /policy assignment '?([^'".]+)'?/i.exec(message)?.[1] }];
+    return infos.map((i) => ({
+      resource,
+      definition: i.policyDefinitionDisplayName ?? i.policyDefinitionName,
+      definitionId: i.policyDefinitionId,
+      assignment: i.policyAssignmentDisplayName ?? i.policyAssignmentName,
+      assignmentId: i.policyAssignmentId,
+      message,
+    }));
+  });
 }
 
-/** @param {any} err */
-export function publicAccessMessage(err) {
+/**
+ * @param {any} err
+ * @param {import('../../config.js').AzureConfig} [az]  The install being deployed; omitted when the networking choice isn't known yet.
+ */
+export function policyMessage(err, az) {
+  const found = policyViolations(err);
+  if (!found.length) return '';
+  const lines = [...new Set(found.map((v) => {
+    const by = v.assignment ? ` (assignment "${v.assignment}"${v.assignmentId ? `, ${v.assignmentId}` : ''})` : '';
+    return `  - ${v.definition ? `"${v.definition}"` : 'a policy'}${v.resource ? ` on ${v.resource}` : ''}${by}${v.definitionId ? ` [${v.definitionId}]` : ''}`;
+  }))];
+  const hints = [];
+  if (found.some((v) => /^privatelink\./i.test(v.resource ?? '') || /privateDnsZones/i.test(`${v.message} ${v.definition} ${v.definitionId}`))) {
+    hints.push('Your organisation manages private DNS zones centrally (common in Azure Landing Zones): run the installer again, choose advanced options and Private networking, then use the existing private DNS zones or leave DNS to Azure Policy.');
+  }
+  if (found.some((v) => /^(cae|ca|job)-/i.test(v.resource ?? '') || /Microsoft\.App\//i.test(v.message ?? '') || /container ?apps?/i.test(v.definition ?? ''))) {
+    hints.push('The web app needs public ingress on its Container Apps environment, so a policy that keeps Container Apps internal-only needs an exemption for this resource group.');
+  }
+  hints.push(isPrivate(az) ? 'Otherwise ask your Azure admin for an exemption on this resource group, or for the setting the policy expects.'
+    : az ? 'Otherwise ask for an exemption on this resource group, or run the installer again, choose advanced options and Private networking.'
+    : 'Otherwise ask for an exemption on this resource group. If the policy is about public network access, run the installer again, choose advanced options and Private networking.');
+  return `Azure Policy blocked the deployment:\n${lines.join('\n')}\n${hints.join('\n')}`;
+}
+
+/** @param {any} err @param {import('../../config.js').AzureConfig} [az] */
+export function publicAccessMessage(err, az) {
+  if (isPrivate(az)) return '';
   const body = err instanceof HttpError ? err.body : err;
   const text = typeof body === 'string' ? body : JSON.stringify(body ?? {});
   if (!/DenyPublicEndpointEnabled|PublicNetworkAccess.{0,40}(Disabled|denied)|public network access .{0,40}(disabled|not allowed)/i.test(text)) return '';
-  return 'This subscription keeps public network access switched off on Azure SQL or Storage (common on managed and MCAPS subscriptions). Re-run the installer and choose Private networking: it adds a VNet, private endpoints and a Power BI VNet data gateway.';
+  const firewall = /firewall rules? when public network interface/i.test(`${text} ${err?.message ?? ''}`)
+    ? 'Azure Policy switched off public network access on the Azure SQL server, so its firewall can\'t take the rule that lets Azure services in. '
+    : 'This subscription keeps public network access switched off on Azure SQL or Storage (common on managed and MCAPS subscriptions). ';
+  if (az?.outputs?.sqlServerFqdn) return `${firewall}This install uses public endpoints, and networking can't change in place: uninstall and install again with Private networking, or ask your Azure admin for an exemption on this resource group.`;
+  return `${firewall}Re-run the installer and choose Private networking: it adds a VNet, private endpoints and a Power BI VNet data gateway.`;
 }
 
-/** @param {any} err */
-const explain = (err) => policyMessage(err) || publicAccessMessage(err) || regionCapacityMessage(err) || askModelMessage(err);
+/** @param {any} err @param {import('../../config.js').AzureConfig} [az] */
+const explain = (err, az) => policyMessage(err, az) || publicAccessMessage(err, az) || regionCapacityMessage(err) || askModelMessage(err);
 
 /** @param {any} err */
 export function askModelMessage(err) {
@@ -211,17 +270,46 @@ export async function planAzure(ctx, pre) {
   az.createdResourceGroup = false;
   const rg = az.resourceGroup ? await api.arm.getResourceGroup(subscriptionId, az.resourceGroup).catch(() => null) : null;
   const locations = await api.arm.listLocations(subscriptionId).catch(() => []);
-  const defaultLocation = rg?.location ?? az.location ?? 'uksouth';
-  az.location = await ui.select('Azure region', locations.length ? locations.map((l) => ({ name: l.displayName ?? l.name, value: l.name })) : [{ name: defaultLocation, value: defaultLocation }], defaultLocation);
+  // A first install offers only the regions policy allows and everything is offered in; a re-run keeps its resources where they are.
+  const check = az.outputs?.sqlServerFqdn ? undefined : await checkRegions(api.arm, { subscriptionId, scope: `/subscriptions/${subscriptionId}${rg ? `/resourceGroups/${az.resourceGroup}` : ''}`, newResourceGroup: !rg, locations });
+  ctx.azureRegions = check;
+  const sqlApart = advanced || !!az.sqlLocation;
+  const offered = check ? check.regions.filter((l) => !regionProblems(check, l.name, { sql: !sqlApart }).length) : locations;
+  if (check) for (const line of regionNotes(check, offered.map((l) => l.name), { sql: !sqlApart })) ui.note(line);
+  if (check?.regions.length && !offered.length) throw new Error(noRegionMessage(check, { sql: !sqlApart }));
+  const defaultLocation = [rg?.location, az.location, 'uksouth'].find((r) => r && offered.some((l) => l.name === r)) ?? offered[0]?.name ?? rg?.location ?? az.location ?? 'uksouth';
+  const sqlNote = (/** @type {string} */ name) => (advanced && check && sqlProblem(check, name) ? { description: `${sqlProblem(check, name)}: pick another Azure SQL region next.` } : {});
+  az.location = await ui.select('Azure region', offered.length ? offered.map((l) => ({ name: l.displayName ?? l.name, value: l.name, ...sqlNote(l.name) })) : [{ name: defaultLocation, value: defaultLocation }], defaultLocation);
+  // With SQL's public access off (a deny, or a modify that switches it off after create), its firewall
+  // can't take the rule that lets Azure services in, so public endpoints fail with DenyPublicEndpointEnabled.
+  const sqlPrivate = check?.sqlPrivate ?? [];
+  const sqlPolicy = sqlPrivate.map((n) => `"${n}"`).join(', ');
+  if (sqlPrivate.length && az.publicNetworkAccess !== false) {
+    ui.note(`Azure Policy ${sqlPolicy} keeps public network access off on Azure SQL, so the installer uses Private networking: the jobs reach SQL through a private endpoint and Power BI through a VNet data gateway.`);
+    az.publicNetworkAccess = false;
+  }
   if (advanced) {
-    const sqlChoice = await ui.select('Azure SQL region', [{ name: 'Same as above', value: '' }, ...locations.filter((l) => l.name !== az.location).map((l) => ({ name: l.displayName ?? l.name, value: l.name }))], az.sqlLocation ?? '');
+    const sameOk = !check || !sqlProblem(check, /** @type {string} */ (az.location));
+    const sqlChoices = [...(sameOk ? [{ name: 'Same as above', value: '' }] : []), ...(check ? check.regions.filter((l) => !sqlProblem(check, l.name)) : locations).filter((l) => l.name !== az.location).map((l) => ({ name: l.displayName ?? l.name, value: l.name }))];
+    if (check && !sqlChoices.length) throw new Error(noRegionMessage(check, { sql: true }));
+    const sqlChoice = await ui.select('Azure SQL region', sqlChoices, sqlChoices.some((c) => c.value === (az.sqlLocation ?? '')) ? az.sqlLocation ?? '' : sqlChoices[0].value);
     az.sqlLocation = sqlChoice || undefined;
     az.namePrefix = await ui.input('Name prefix', { default: az.namePrefix ?? 'vlens', validate: (v) => (/^[a-z][a-z0-9-]{1,9}$/.test(v) ? true : 'Use 2-10 lowercase letters, digits or hyphens, starting with a letter.') });
     az.tags = parseTags(await ui.input('Extra tags (key=value, comma-separated)', { default: Object.entries(az.tags ?? {}).map(([k, v]) => `${k}=${v}`).join(', ') }));
     az.publicNetworkAccess = await ui.select('Networking', [
-      { name: 'Public endpoints', value: true, description: 'Azure SQL and Storage accept connections from Azure services only (firewall + Entra auth).' },
+      { name: 'Public endpoints', value: true, description: sqlPrivate.length ? `Azure Policy ${sqlPolicy} keeps Azure SQL's public access off, so this deployment would fail.` : 'Azure SQL and Storage accept connections from Azure services only (firewall + Entra auth).' },
       { name: 'Private networking', value: false, description: 'VNet, private endpoints and a Power BI VNet data gateway. Needed where policy keeps public access off. Needs a Fabric or Premium capacity.' },
     ], az.publicNetworkAccess !== false);
+    if (az.publicNetworkAccess === false) {
+      const mode = /** @type {'create' | 'existing' | 'none'} */ (await ui.select('Private DNS zones', [
+        { name: 'Create them in this resource group', value: 'create', description: 'privatelink zones for SQL, Storage and Ask, linked to the new VNet.' },
+        { name: 'Use existing zones in another resource group', value: 'existing', description: 'For Azure Landing Zones that keep privatelink zones in a hub. Links the VNet to them; needs Private DNS Zone Contributor there.' },
+        { name: 'Leave DNS to Azure Policy or the network team', value: 'none', description: 'No zones, links or DNS zone groups. The jobs can\'t reach SQL and Storage until policy or your network team adds them.' },
+      ], az.privateDns?.mode ?? 'create'));
+      az.privateDns = mode === 'existing'
+        ? { mode, resourceGroupId: (await ui.input('Resource ID of the resource group holding the privatelink zones', { default: az.privateDns?.resourceGroupId ?? '', validate: (v) => (/^\/subscriptions\/[^/]+\/resourceGroups\/[^/]+$/i.test(v.trim()) ? true : 'Use /subscriptions/<id>/resourceGroups/<name>.') })).trim() }
+        : { mode };
+    }
   } else {
     if (az.sqlLocation === az.location) az.sqlLocation = undefined;
     az.namePrefix ??= 'vlens';
@@ -232,7 +320,7 @@ export async function planAzure(ctx, pre) {
   ui.heading('Power BI');
   az.powerBi ??= {};
   const capacities = (await api.fabric.listCapacities().catch(() => [])).filter((cap) => cap.state === 'Active' && (!isPrivate(az) || supportsVnetGateway(cap)));
-  if (isPrivate(az) && !capacities.length) throw new Error('Private networking needs an active Fabric (F or trial) or Power BI Premium (P, A4+) capacity you can assign workspaces to, to host the VNet data gateway. Start a Fabric trial or ask a capacity admin, then run the installer again.');
+  if (isPrivate(az) && !capacities.length) throw new Error(`${sqlPrivate.length && az.publicNetworkAccess === false ? `Azure Policy ${sqlPolicy} keeps Azure SQL's public access off, so Analytics Hub needs Private networking here. ` : ''}Private networking needs an active Fabric (F or trial) or Power BI Premium (P, A4+) capacity you can assign workspaces to, to host the VNet data gateway. Start a Fabric trial or ask a capacity admin, then run the installer again.`);
   const capacityChoices = capacities.map((cap) => ({ name: `${cap.displayName} (${cap.sku}, ${cap.region})`, value: cap.id }));
   az.powerBi.capacityId = await ui.select(
     isPrivate(az) ? 'Capacity for the Power BI workspace and VNet data gateway' : 'Capacity for the Power BI workspace',
@@ -551,12 +639,12 @@ export async function azurePreflight(ctx) {
   try {
     await api.arm.validateDeployment(/** @type {string} */ (az.subscriptionId), /** @type {string} */ (az.resourceGroup), 'valuelens-validate', deployment);
   } catch (err) {
-    const msg = explain(err);
+    const msg = explain(err, az);
     if (msg) throw new Error(msg);
     throw err;
   }
   const changes = await api.arm.whatIfDeployment(/** @type {string} */ (az.subscriptionId), /** @type {string} */ (az.resourceGroup), 'valuelens-whatif', deployment).catch((err) => {
-    const msg = explain(err);
+    const msg = explain(err, az);
     if (msg) throw new Error(msg);
     throw err;
   });
@@ -580,8 +668,10 @@ export function newResourceGroupResources(az) {
     ['Microsoft.App/containerApps', 'web app'],
     ...(isPrivate(az) ? [
       ['Microsoft.Network/virtualNetworks', 'VNet with apps, private endpoint and Power BI gateway subnets'],
-      ['Microsoft.Network/privateEndpoints', 'private endpoints for SQL, blob, dfs and table'],
-      ['Microsoft.Network/privateDnsZones', 'private DNS zones linked to the VNet'],
+      ['Microsoft.Network/networkSecurityGroups', 'network security group on the VNet\'s subnets'],
+      ['Microsoft.Network/privateEndpoints', `private endpoints for SQL, blob, dfs and table${askMode(az) === 'create' ? ', and Ask' : ''}`],
+      ...(az.privateDns?.mode === 'existing' ? [['Microsoft.Network/privateDnsZones/virtualNetworkLinks', 'links from the VNet to the existing private DNS zones']]
+        : az.privateDns?.mode === 'none' ? [] : [['Microsoft.Network/privateDnsZones', 'private DNS zones linked to the VNet']]),
     ] : []),
     ...(askMode(az) === 'create' ? [['Microsoft.CognitiveServices/accounts', `Azure AI Services account and ${az.ask?.deployment ?? 'model'} deployment for Ask`]] : []),
   ].map(([resourceType, name]) => ({ resourceType, name, changeType: 'Create' }));
@@ -610,6 +700,7 @@ export async function azureDeployment(ctx, o) {
     sqlAdminLogin: param(''), sqlAdminObjectId: param(''), sqlAdminPrincipalType: param('Application'),
     sqlMinCapacity: param(String(liveSql.minCapacity ?? '0.5')), sqlMaxCapacity: param(liveSql.capacity ?? 2), sqlAutoPauseDelayMinutes: param(liveSql.autoPauseDelay ?? 60), sqlUseFreeLimit: param(liveSql.useFreeLimit ?? true),
     publicNetworkAccess: param(az.publicNetworkAccess === false ? 'Disabled' : 'Enabled'), deployWeb: param(true), webMinReplicas: param(0),
+    privateDnsZoneMode: param(az.privateDns?.mode ?? 'create'), privateDnsZonesResourceGroupId: param(az.privateDns?.mode === 'existing' ? (az.privateDns.resourceGroupId ?? '') : ''),
     webClientId: param(o.pass === 2 ? (az.webApp?.clientId ?? '') : ''), webAppIdUri: param(o.pass === 2 ? (az.webApp?.appIdUri ?? '') : ''), webAccess: param(webAccess(config)),
     modules: param([...enabledAzureModuleIds(config.modules, az), ...(azureResourceGraphOn(config) ? ['resourceGraph'] : [])].join(',')), auditHistoryDays: param(Math.max(config.history.days, ctx.reloadHistoryDays ?? 0)), powerBiWorkspaceId: param(az.powerBi?.workspaceId ?? ''),
     semanticModels: param(JSON.stringify(azureSemanticModels(az))),
@@ -912,8 +1003,11 @@ async function deployOrExplain(ctx, o) {
   try {
     return await ctx.api.arm.deployTemplate(/** @type {string} */ (az.subscriptionId), /** @type {string} */ (az.resourceGroup), 'valuelens', await azureDeployment(ctx, o));
   } catch (err) {
-    const msg = explain(err);
-    if (msg) throw new Error(msg);
+    const msg = explain(err, az);
+    // A deployment that ran and failed (waitForDeployment) stays in the resource group with its full error.
+    const more = !(err instanceof HttpError) && /** @type {any} */ (err)?.body?.error ? `\nFull error: az deployment group show -g ${az.resourceGroup} -n valuelens --query properties.error` : '';
+    if (msg) throw new Error(`${msg}\n${/** @type {Error} */ (err).message}${more}`, { cause: err });
+    if (more && err instanceof Error) err.message += more;
     throw err;
   }
 }

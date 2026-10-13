@@ -471,9 +471,32 @@ export function fakeArm() {
     const err = failures[method]?.shift();
     if (err) throw err;
   };
+  /** Regions, providers, Storage SKUs and Azure Policy, for the region preflight. Nothing restricted by default. */
+  const regions = {
+    /** @type {any[]} */ locations: [{ name: 'uksouth', displayName: 'UK South' }],
+    /** @type {Record<string, any>} */ providers: {},
+    /** @type {any[]} */ storageSkus: [],
+    /** @type {any[]} */ assignments: [],
+    /** @type {any[]} */ custom: [],
+    /** @type {Record<string, any>} */ builtIn: {},
+  };
   const api = {
     listSubscriptions: async () => [{ subscriptionId: 'sub-1', displayName: 'Sub', state: 'Enabled' }],
-    listLocations: async () => [{ name: 'uksouth', displayName: 'UK South' }],
+    listLocations: async () => regions.locations,
+    getProvider: async (/** @type {string} */ _sub, /** @type {string} */ ns) => regions.providers[ns] ?? { namespace: ns, resourceTypes: [] },
+    storageSkus: async () => regions.storageSkus,
+    listPolicyAssignments: async (/** @type {string} */ scope) => {
+      calls.push(`listPolicyAssignments ${scope}`);
+      fail('listPolicyAssignments');
+      return regions.assignments;
+    },
+    listCustomPolicies: async (/** @type {string} */ _sub, /** @type {string} */ kind) => regions.custom.filter((d) => d.id.includes(`/${kind}/`)),
+    getPolicy: async (/** @type {string} */ id) => {
+      calls.push(`getPolicy ${id}`);
+      const found = regions.builtIn[id] ?? regions.custom.find((d) => d.id === id);
+      if (!found) throw httpError(403, 'AuthorizationFailed');
+      return found;
+    },
     sqlCapability: async (/** @type {string} */ _sub, /** @type {string} */ location) => {
       calls.push(`sqlCapability ${location}`);
       return restrictedSqlRegions.has(location) ? { status: 'Visible', reason: 'Subscriptions are restricted from provisioning in this region.' } : { status: 'Available' };
@@ -560,7 +583,7 @@ export function fakeArm() {
       calls.push(`deleteResource ${id}`);
     },
   };
-  return { api, calls, resources, groups, executions, jobTemplates, failures, restrictedSqlRegions, ai };
+  return { api, calls, resources, groups, executions, jobTemplates, failures, restrictedSqlRegions, ai, regions };
 }
 
 /** Rich Graph fake for Azure app registration work. */

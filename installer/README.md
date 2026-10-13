@@ -158,23 +158,60 @@ Under [Advanced settings](#advanced-settings), the wizard asks how the app, jobs
 - **Public endpoints** (default). SQL allows Azure services and Power BI connects to it directly.
 - **Private networking**. Choose this where Azure Policy keeps public network access off (common on
   managed and MCAPS subscriptions; the installer says so when what-if hits `DenyPublicEndpointEnabled`).
-  It adds a VNet, private endpoints and private DNS zones for SQL and Storage (blob, dfs, table), a
-  VNet-integrated Container Apps environment, and a Power BI **VNet data gateway** that the model's SQL
-  connection runs through. SQL uses the Proxy connection policy, so everything stays on port 1433.
+  On a first install, when an Azure Policy assignment denies Azure SQL public access or modifies it
+  to `Disabled`, the installer names it and uses Private networking: SQL with public access off can't
+  take the firewall rule that public endpoints need. Your machine never connects to SQL either way:
+  the migrate job creates the schema and reader user over the private endpoint, and Power BI goes
+  through the VNet data gateway. Policy exemptions aren't read.
+  It adds a VNet whose subnets share a network security group, private endpoints and private DNS
+  zones for SQL, Storage (blob, dfs, table) and the Ask AI Services account when the installer
+  creates it, a VNet-integrated Container Apps environment, and a Power BI **VNet data gateway** that
+  the model's SQL connection runs through. SQL uses the Proxy connection policy, so everything stays
+  on port 1433. Storage, AI Services and Log Analytics turn public network access off too. The web
+  app keeps public ingress, so people can open it.
+  - **Private DNS zones.** Landing zones often deny private DNS zones outside a hub subscription, or
+    let a policy add the DNS records. The wizard then asks how to handle the `privatelink.*` zones:
+    - **Create them in this resource group** (default).
+    - **Use existing zones in another resource group.** Give the resource ID of the hub resource group that holds them. Every
+      zone must already exist there, including the three AI zones when Ask is created. The installer
+      links the VNet to them, which needs **Private DNS Zone Contributor** on that group.
+    - **Leave DNS to Azure Policy or the network team.** No zones and no DNS records. The jobs can't reach SQL or Storage
+      until a policy or your network team adds them, so the first migrate may fail.
+  - The setting is saved as `azure.privateDns`: `{ "mode": "existing", "resourceGroupId": "/subscriptions/<id>/resourceGroups/<name>" }`.
+  - Container Apps logs go to Log Analytics through a diagnostic setting, in the
+    `ContainerAppConsoleLogs` and `ContainerAppSystemLogs` tables. Querying them from a public network
+    needs an Azure Monitor Private Link Scope.
+  - When Azure Policy blocks the deployment, the installer names each policy, its assignment and the
+    resource it blocked, and prints the command that shows the full error. When any deployment
+    fails, it reads the deployment operations and shows each failing resource's own error code and
+    message, not just `DeploymentFailed`.
   - It needs an active Fabric (F or trial) or Power BI Premium capacity to host the gateway. The
     Power BI workspace is assigned to it.
   - The preflight registers the `Microsoft.Network/AllowBringYourOwnPublicIpAddress` subscription
     feature, which VNet-integrated Container Apps environments need. It's approved automatically.
-  - It adds about $30–40 a month (four private endpoints and DNS zones). The gateway uses capacity units
+  - It adds about $30–40 a month (four or five private endpoints and DNS zones). The gateway uses capacity units
     while refreshing.
   - Networking can't be changed in place. Uninstall and install again to switch.
 
 ### Regions and images
 
+- **Region preflight.** On a first install, the region list shows only the regions where every
+  resource can go. A region is left out if any of these are true:
+  - Azure Policy denies it. The installer reads the built-in **Allowed locations** and **Allowed
+    locations for resource groups** policies, either assigned directly or inside an initiative,
+    and simple custom deny rules on `location`.
+  - The subscription isn't offered one of the resource types there.
+  - Standard_LRS storage is restricted there.
+  - Azure SQL is restricted there.
+
+  The installer says why each region was dropped. If no region passes, it stops before deploying
+  anything. It still deploys if it can't read a policy, says so, and leaves that check to Azure.
+  The Ask model's account only moves to regions that policy allows. A re-run keeps its region.
 - `azure.sqlLocation` puts Azure SQL in a different region from everything else. Some subscriptions
   can't create SQL in busy regions (for example uksouth, northeurope or westeurope on MCAPS). The
-  preflight checks SQL capability and points at this setting. The private endpoint can be in another
-  region from the server.
+  preflight checks SQL capability and points at this setting. With **Yes** to advanced settings, the
+  region list keeps regions where only SQL is blocked, and the Azure SQL list offers only regions
+  where SQL can go. The private endpoint can be in another region from the server.
 - `azure.images` overrides where the jobs and web images come from, for air-gapped tenants or testing
   an unreleased build: `{ "registry": "myacr.azurecr.io/valuelens", "registryResourceId": "<ACR
   resource ID>", "tag": "dev-abc123" }`. With `registryResourceId` set, the managed identity is granted
@@ -201,7 +238,8 @@ Azure commands:
 1. [Download the installer](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe).
    This link always gets the newest version. If Edge says it isn't commonly downloaded, choose
    **…** next to the file, then **Keep**, **Show more** and **Keep anyway**. To check the file,
-   see [Check the download](#check-the-download).
+   see [Check the download](#check-the-download). If your organisation blocks downloaded exes,
+   use the [PowerShell command](#from-powershell) instead and carry on from step 3.
 2. Open it. If Windows says it protected your PC, choose **More info**, then **Run anyway**.
 3. The first time, it takes about a minute to unpack. Then it opens in your browser. Keep its
    window open while you use the page, and keep the PC awake and plugged in until it finishes. If
@@ -846,7 +884,8 @@ they can see. Under [Advanced settings](#advanced-settings) the wizard asks whic
 - **Create one for Ask** (the default): an Azure AI Services account in the resource group with a
   `gpt-5-mini` deployment, billed per token. Choose whether prompts may be processed in any region
   (Global Standard) or only in your data zone (Data Zone Standard). The installer checks the region
-  offers the model and has quota, and moves a global deployment to another region if it doesn't.
+  offers the model and has quota, and moves a global deployment to another region if it doesn't,
+  but only to a region that Azure Policy allows.
   The web app's managed identity gets **Cognitive Services OpenAI User** on it.
 - **Use an Azure OpenAI deployment you already have**: pick the account and a chat deployment that
   supports tool calling. The installer gives the managed identity Cognitive Services OpenAI User on
@@ -923,8 +962,52 @@ Edge and Windows SmartScreen warn about the exe because it's new and isn't code-
   **Show more** and **Keep anyway**.
 - If Windows says it **protected your PC**, choose **More info**, then **Run anyway**.
 
-If your organisation blocks the download or won't let you past the warnings,
-[run the installer with Node.js](#without-the-exe) instead.
+If your organisation blocks the download or won't let you past the warnings, use the
+[PowerShell command](#from-powershell), or [run the installer with Node.js](#without-the-exe).
+
+## From PowerShell
+
+If your organisation blocks downloaded exes, paste this into PowerShell (Windows PowerShell 5.1 or
+PowerShell 7) instead. It runs the same installer as the exe, with the same browser steps:
+
+```powershell
+irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+```
+
+It downloads `AnalyticsHubInstaller.zip` from the latest release (about 120 MB: Node.js, the
+installer and the app, already built), checks its SHA-256 against the one written into
+`install.ps1`, unpacks it under `%LOCALAPPDATA%\AnalyticsHub` and opens the installer in your
+browser. It needs no admin rights, installs nothing system-wide and changes no settings. Run it
+again to pick up a new version; it removes the old one.
+
+- **Later commands.** It leaves a command behind for the version it unpacked, for example
+  `& $env:LOCALAPPDATA\AnalyticsHub\analytics-hub.cmd status`. With no arguments it opens the
+  browser steps.
+- **A fixed version.** Each release's notes give a command pinned to that release, such as
+  `irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.5.1/install.ps1 | iex`.
+- **If `irm | iex` is blocked**, download `install.ps1` and `AnalyticsHubInstaller.zip` from the
+  [release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest) and run:
+
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\install.ps1 -ZipPath .\AnalyticsHubInstaller.zip
+  ```
+
+  Anything after the options goes to the installer, for example `... -ZipPath .\AnalyticsHubInstaller.zip status`.
+  `-ExecutionPolicy Bypass` applies to that one command only. `install.ps1` isn't signed yet, so
+  under an `AllSigned` policy use `irm | iex`, which execution policy doesn't cover.
+- **Behind a proxy.** It uses the system proxy. To name one, signed in as you, run
+  `$env:ANALYTICS_HUB_PROXY = 'http://proxy:8080'` first. If the proxy blocks GitHub's download host,
+  download the zip in a browser and set `$env:ANALYTICS_HUB_ZIP` to its path, or use `-ZipPath`.
+- **Constrained Language Mode** works: the launcher only uses commands allowed there. It skips
+  keeping the PC awake, so keep it plugged in and awake yourself.
+- **Remove it** with `.\install.ps1 -Uninstall` (from the download-and-run steps above), or by
+  deleting `%LOCALAPPDATA%\AnalyticsHub`. That doesn't touch what's in your tenant, or your
+  install record in `Documents\Analytics Hub`. To remove what's in your tenant, use **Uninstall**
+  in the installer first.
+
+What it can't get past: AppLocker or Windows Defender Application Control rules that block
+programs under your profile stop the unpacked `node.exe` just as they stop the exe. Some
+endpoint protection products flag `irm | iex`; the download-and-run command above avoids it.
 
 ## Without the exe
 

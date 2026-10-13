@@ -1,8 +1,9 @@
 name: installer-exe
 
 # Builds AnalyticsHubInstaller.exe, the download that runs the Fabric installer without a clone
-# of this repo or a terminal. A tag such as installer-v0.1.0 also drafts a release with it, to
-# publish by hand.
+# of this repo or a terminal, and install.ps1 with AnalyticsHubInstaller.zip, which run the same
+# payload from PowerShell for organisations that block downloaded exes. A tag such as
+# installer-v0.1.0 also drafts a release with them, to publish by hand.
 #
 # Signing: the exe is Authenticode-signed with ESRP outside this workflow (see
 # packaging/sign-installer.azure-pipelines.yml), which replaces the draft's exe, .sha256 and notes.
@@ -82,6 +83,24 @@ jobs:
           if ($LASTEXITCODE) { throw "preview failed with exit code $LASTEXITCODE." }
           if (-not (Test-Path (Join-Path $preview 'model.bim'))) { throw 'preview wrote no model.bim.' }
 
+      # Unpacks into its own LOCALAPPDATA, so it doesn't reuse what the exe unpacked above.
+      - name: Smoke-test install.ps1
+        run: |
+          $out = Join-Path $env:RUNNER_TEMP 'exe'
+          $zip = Join-Path $out 'AnalyticsHubInstaller.zip'
+          $script = Join-Path $out 'install.ps1'
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'ps-local'
+          & $script -ZipPath $zip --version
+          if ($LASTEXITCODE) { throw "install.ps1 --version failed with exit code $LASTEXITCODE." }
+          & (Join-Path $env:LOCALAPPDATA 'AnalyticsHub\analytics-hub.cmd') --version
+          if ($LASTEXITCODE) { throw "analytics-hub.cmd --version failed with exit code $LASTEXITCODE." }
+          # Windows PowerShell 5.1 in Constrained Language Mode, as on a locked-down PC, through iex.
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'ps-clm'
+          $env:ANALYTICS_HUB_ZIP = $zip
+          $env:INSTALL_PS1 = $script
+          powershell.exe -NoProfile -Command '$ExecutionContext.SessionState.LanguageMode = ''ConstrainedLanguage''; $s = Get-Content -Raw $env:INSTALL_PS1; iex (''& {'' + [char]10 + $s + [char]10 + ''} --version''); exit $LASTEXITCODE'
+          if ($LASTEXITCODE) { throw "install.ps1 in Constrained Language Mode failed with exit code $LASTEXITCODE." }
+
       # Run on the exe that gets published, after any signing: signing changes the hash.
       - name: Check the signature, write the hash and the release notes
         working-directory: 'installer'
@@ -93,6 +112,9 @@ jobs:
           path: |
             ${{ runner.temp }}\exe\AnalyticsHubInstaller.exe
             ${{ runner.temp }}\exe\AnalyticsHubInstaller.exe.sha256
+            ${{ runner.temp }}\exe\AnalyticsHubInstaller.zip
+            ${{ runner.temp }}\exe\AnalyticsHubInstaller.zip.sha256
+            ${{ runner.temp }}\exe\install.ps1
           if-no-files-found: error
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -122,6 +144,7 @@ jobs:
           TAG: ${{ github.ref_name }}
         run: |
           gh release create "$TAG" AnalyticsHubInstaller.exe AnalyticsHubInstaller.exe.sha256 \
+            AnalyticsHubInstaller.zip AnalyticsHubInstaller.zip.sha256 install.ps1 \
             --repo "$GITHUB_REPOSITORY" --draft \
             --notes-file notes/release-notes.md \
             --title "Analytics Hub installer ${TAG#installer-v}"
@@ -153,6 +176,17 @@ jobs:
           $require = if ($env:REQUIRE_SIGNED -eq 'true') { '--require-signed' } else { $null }
           node packaging/finish-exe.js "$env:RUNNER_TEMP\published\AnalyticsHubInstaller.exe" --check-hash $require
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
+
+      - name: Check install.ps1 matches the published zip
+        run: |
+          $dir = Join-Path $env:RUNNER_TEMP 'published'
+          gh release download $env:TAG --repo $env:GITHUB_REPOSITORY --dir $dir --pattern AnalyticsHubInstaller.zip --pattern AnalyticsHubInstaller.zip.sha256 --pattern install.ps1
+          if ($LASTEXITCODE) { throw 'The release needs AnalyticsHubInstaller.zip, its .sha256 and install.ps1.' }
+          $hash = (Get-FileHash (Join-Path $dir 'AnalyticsHubInstaller.zip') -Algorithm SHA256).Hash.ToLowerInvariant()
+          $listed = ((Get-Content -Raw (Join-Path $dir 'AnalyticsHubInstaller.zip.sha256')) -split '\s+')[0]
+          if ($listed -ne $hash) { throw "AnalyticsHubInstaller.zip.sha256 says $listed, but the zip's SHA-256 is $hash." }
+          if ((Get-Content -Raw (Join-Path $dir 'install.ps1')) -notmatch "\`$Sha256 = '$hash'") { throw "install.ps1 doesn't check for the published zip's SHA-256 $hash." }
+          Write-Output "install.ps1 and AnalyticsHubInstaller.zip match ($hash)"
 
       - name: Turn the release back into a draft
         if: failure()
