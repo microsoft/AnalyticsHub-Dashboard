@@ -1354,7 +1354,8 @@ function renderOutcome(run) {
 /**
  * Something left to finish, such as signing in to the Cowork Dataflow (coworkNextStep in
  * steps/consumption.js): the steps, a link to the item and, when it can run here, its action.
- */ renderTodo(step) {
+ */
+function renderTodo(step) {
   const can = step.action && app.state?.record?.can?.[step.action];
   return h('div', { class: 'todo', role: 'note' },
     h('h3', null, icon('warn'), step.title),
