@@ -819,7 +819,8 @@ test('app: in Azure Cloud Shell, rayfin deploys with the installer sign-in\'s Fa
     const env = t.upOpts[0].env;
     assert.equal(env?.RAYFIN_TOKEN, 'token-for-fabric');
     assert.equal(env?.RAYFIN_TENANT_ID, 'tenant-1');
-    assert.equal(env?.PATH, process.env.PATH, 'the rest of the environment as it was');
+    const pathKey = Object.keys(env ?? {}).find((k) => k.toUpperCase() === 'PATH') ?? 'PATH';
+    assert.equal(env?.[pathKey], process.env.PATH, 'the rest of the environment as it was');
     assert.match(t.ui.text(), /Building and deploying the app\. It uses your installer sign-in\./);
   } finally {
     t.cleanup();
