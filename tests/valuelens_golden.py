@@ -35,6 +35,7 @@ CASES = {
     "minimal_no_dims": ("minimal_interactions", None, None, {}),
     "minimal_no_id": ("minimal_no_id_interactions", "licensed_normalized", "agents_min", {}),
     "empty": ("empty_interactions", "licensed_normalized", "agents_min", {}),
+    "agent_runtime": ("agent_runtime_interactions", "licensed_upn", "agents_link", {}),
 }
 
 

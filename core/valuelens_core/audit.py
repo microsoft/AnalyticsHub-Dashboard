@@ -15,14 +15,17 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
+from .agent_link import BARE_GUID_PATTERN, EXCLUDE_REASON_SQL, PLATFORM_AGENT_ID_PATTERN
+
 WINDOW_KEY_VERSION = 2
 KEY_COLUMNS = ['Id', 'Source_RecordKey', 'Source_MessageKey', 'Source_ResourceKey']
 STAGE_COLUMNS = ['RecordId', 'CreationDate', 'RecordType', 'Operation',
                  'AuditData', 'SourceRecordKey', 'AssociatedAdminUnits', 'AssociatedAdminUnitsNames']
 PARSED_COLUMNS = [
     'Id', 'RecordId', 'Source_RecordKey', 'Source_MessageKey', 'Source_ResourceKey',
-    'CreationDate', 'AgentId', 'AgentName',
+    'CreationDate', 'AgentId', 'AgentName', 'AgentPlatform', 'PlatformAgentId',
     'AppIdentity_AppId', 'AppIdentity_DisplayName', 'AppIdentity_PublisherId',
+    'AppIdentity_Text', 'Agent_TargetPlatformId', 'Agent_TargetName', 'Agent_PlatformType',
     'ApplicationName', 'ClientRegion',
     'Audit_UserId', 'Audit_UserId_Normalized', 'Workload',
     'AppHost', 'ThreadId', 'SensitivityLabelId',
@@ -31,8 +34,10 @@ PARSED_COLUMNS = [
     'ModelTransparencyDetails_ModelName',
     'AccessedResource_Type', 'AccessedResource_Action', 'AccessedResource_SiteUrl',
     'AccessedResource_SensitivityLabelId',
-    'Message_Id', 'Message_isPrompt', 'Message_Ordinal', 'Resource_Ordinal', 'Resource_Count',
+    'Message_Id', 'Message_isPrompt', 'Prompts_Available',
+    'Message_Ordinal', 'Resource_Ordinal', 'Resource_Count',
     'InteractionDate', 'WeekStart', 'MonthStart', 'Agent_TitleID', 'Agent_EntraId',
+    'Agent_BotId', 'Agent_EnvironmentId', 'Exclude_Reason',
 ]
 _SYNTHETIC_AUDIT_FIELDS = frozenset({'_StableKey', '_StableOrdinal'})
 
@@ -353,6 +358,10 @@ def _scalar(path: str, src: str = 'j') -> str:
     return f"json_extract_string({src}, '{path}')"
 
 
+def _nonblank(expr: str) -> str:
+    return f"length(trim(coalesce(CAST({expr} AS VARCHAR), ''))) > 0"
+
+
 def is_cowork_autonomous(audit_data: dict) -> bool:
     """True for M365 Copilot Cowork scheduled/autonomous audit records."""
     audit_data = audit_data or {}
@@ -383,18 +392,33 @@ def flatten(con, staged_src: str):
             TRY_CAST({_scalar('$.CreationTime')} AS TIMESTAMP) AS CreationDate,
             {_scalar('$.AgentId')} AS AgentId,
             {_scalar('$.AgentName')} AS AgentName,
+            {_scalar('$.AgentPlatform')} AS AgentPlatform,
+            {_scalar('$.PlatformAgentId')} AS PlatformAgentId,
             {_scalar('$.AppIdentity.AppId')} AS AppIdentity_AppId,
             {_scalar('$.AppIdentity.DisplayName')} AS AppIdentity_DisplayName,
             {_scalar('$.AppIdentity.PublisherId')} AS AppIdentity_PublisherId,
-            {_scalar('$.AppIdentity')} AS AppIdentity_Text,
-            {_scalar('$.AgentPlatform')} AS AgentPlatform,
+            -- AppIdentity is documented as 'workload.appGroup.appName' text; an object
+            -- value falls back to its DisplayName.
+            CASE WHEN starts_with(trim({_scalar('$.AppIdentity')}), '{{')
+                 THEN {_scalar('$.AppIdentity.DisplayName')}
+                 ELSE {_scalar('$.AppIdentity')} END AS AppIdentity_Text,
+            {_scalar('$.CopilotEventData.TargetPlatformAgentId')} AS Agent_TargetPlatformId,
+            coalesce({_scalar('$.CopilotEventData.TargetAgentName')},
+                     {_scalar('$.CopilotEventData.AgentName')}) AS Agent_TargetName,
+            {_scalar('$.CopilotEventData.PlatformAgentType')} AS Agent_PlatformType,
             {_scalar('$.ApplicationName')} AS ApplicationName,
             {_scalar('$.ClientRegion')} AS ClientRegion,
             {_scalar('$.UserId')} AS Audit_UserId,
             lower(trim({_scalar('$.UserId')})) AS Audit_UserId_Normalized,
             {_scalar('$.Workload')} AS Workload,
             {_scalar('$.CopilotEventData.AppHost')} AS AppHost,
-            {_scalar('$.CopilotEventData.ThreadId')} AS ThreadId,
+            -- Runtime records name the conversation ConversationId rather than ThreadId.
+            CASE WHEN {_nonblank(_scalar('$.CopilotEventData.ThreadId'))}
+                      THEN {_scalar('$.CopilotEventData.ThreadId')}
+                 WHEN {_nonblank(_scalar('$.CopilotEventData.ConversationId'))}
+                      THEN {_scalar('$.CopilotEventData.ConversationId')}
+                 WHEN {_nonblank(_scalar('$.ConversationId'))}
+                      THEN {_scalar('$.ConversationId')} END AS ThreadId,
             {_scalar('$.CopilotEventData.SensitivityLabelId')} AS SensitivityLabelId,
             {_scalar('$.CopilotEventData.Contexts[0].Type')} AS Context_Type,
             {_scalar('$.CopilotEventData.AISystemPlugin[0].Id')} AS AISystemPlugin_Id,
@@ -484,13 +508,15 @@ def flatten(con, staged_src: str):
             "Canonical audit identity fields are missing from staged data; "
             "rerun ingestion with the canonical stage helpers.")
 
+    pid = "trim(coalesce(PlatformAgentId, ''))"
     return con.sql(f"""
     WITH ided AS (
         SELECT
             sha256(concat_ws('||', Source_RecordKey, Source_MessageKey, Source_ResourceKey)) AS Id,
             RecordId, Source_RecordKey, Source_MessageKey, Source_ResourceKey,
-            CreationDate, AgentId, AgentName,
+            CreationDate, AgentId, AgentName, AgentPlatform, PlatformAgentId,
             AppIdentity_AppId, AppIdentity_DisplayName, AppIdentity_PublisherId,
+            AppIdentity_Text, Agent_TargetPlatformId, Agent_TargetName, Agent_PlatformType,
             ApplicationName, ClientRegion,
             Audit_UserId, Audit_UserId_Normalized, Workload,
             AppHost, ThreadId, SensitivityLabelId,
@@ -502,6 +528,7 @@ def flatten(con, staged_src: str):
             {_scalar('$.SensitivityLabelId', 'res')} AS AccessedResource_SensitivityLabelId,
             {_scalar('$.Id', 'msg')} AS Message_Id,
             {_scalar('$.isPrompt', 'msg')} AS Message_isPrompt,
+            CASE WHEN Has_Prompt THEN 'TRUE' ELSE 'FALSE' END AS Prompts_Available,
             CAST(Message_Ordinal AS BIGINT) AS Message_Ordinal,
             CAST(Resource_Ordinal AS BIGINT) AS Resource_Ordinal,
             CAST(coalesce(Resource_Count, 1) AS BIGINT) AS Resource_Count,
@@ -521,12 +548,28 @@ def flatten(con, staged_src: str):
               ELSE NULL
             END AS Agent_TitleID
         FROM ided
+    ), entra AS (
+        SELECT *,
+            CASE
+              WHEN Agent_TitleID IS NOT NULL THEN NULL
+              WHEN AgentId IS NULL THEN NULL
+              ELSE nullif(regexp_extract(AgentId, '{_GUID}', 0), '')
+            END AS Agent_EntraId
+        FROM titled
+    ), runtime AS (
+        SELECT * REPLACE (
+            -- An all-zero AgentId (Fabric multi-agent orchestration) is not an agent identity.
+            CASE WHEN regexp_replace(coalesce(Agent_EntraId, ''), '[-0]', '', 'g') = ''
+                 THEN NULL ELSE Agent_EntraId END AS Agent_EntraId),
+            -- Copilot Studio runtime records carry the bot, not the Title ID:
+            -- PlatformAgentId = '<environment id>_<bot id>'. A bare GUID is taken as the bot id.
+            lower(CASE WHEN regexp_matches({pid}, '{PLATFORM_AGENT_ID_PATTERN}')
+                       THEN regexp_extract({pid}, '{PLATFORM_AGENT_ID_PATTERN}', 2)
+                       WHEN regexp_matches({pid}, '{BARE_GUID_PATTERN}') THEN {pid} END) AS Agent_BotId,
+            CASE WHEN regexp_matches({pid}, '{PLATFORM_AGENT_ID_PATTERN}')
+                 THEN regexp_extract({pid}, '{PLATFORM_AGENT_ID_PATTERN}', 1) END AS Agent_EnvironmentId
+        FROM entra
     )
-    SELECT *,
-        CASE
-          WHEN Agent_TitleID IS NOT NULL THEN NULL
-          WHEN AgentId IS NULL THEN NULL
-          ELSE nullif(regexp_extract(AgentId, '{_GUID}', 0), '')
-        END AS Agent_EntraId
-    FROM titled
+    SELECT *, ({EXCLUDE_REASON_SQL}) AS Exclude_Reason
+    FROM runtime
     """)

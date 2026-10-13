@@ -20,6 +20,13 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+- **Azure: the first data load no longer fails with "The 'Agent_Key' column does not exist".** The
+  Azure jobs' audit processor had fallen behind the Fabric notebook, so the curated table lacked the
+  agent link and agent type columns (`Agent_Key`, `Agent_Type`, `Agent_Publisher` and the rest) that
+  the semantic model reads, and the model refresh failed. The processor now matches the notebook:
+  it flattens the agent platform and target fields, links agents, classifies agent types and drops
+  the same non-user records (the Copilot Studio test pane, maker evaluations, agent authoring,
+  autonomous and workflow runs). Migration V006 adds the 18 new columns to the curated table.
 - **Azure: set-up carries on when Azure turns down the Azure SQL free offer.** A subscription that
   has used its free databases can get only `InternalServerError` on the new database, and set-up
   stopped at Azure resources. The installer now creates the database once more without the free

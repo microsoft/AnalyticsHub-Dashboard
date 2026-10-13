@@ -57,11 +57,63 @@
    "string"
   ],
   [
+   "AppIdentity_Text",
+   "string"
+  ],
+  [
+   "Agent_TargetPlatformId",
+   "string"
+  ],
+  [
+   "Agent_TargetName",
+   "string"
+  ],
+  [
+   "Agent_PlatformType",
+   "string"
+  ],
+  [
    "AppIdentity_AppId",
    "string"
   ],
   [
    "AppIdentity_DisplayName",
+   "string"
+  ],
+  [
+   "AgentId",
+   "string"
+  ],
+  [
+   "AppHost",
+   "string"
+  ],
+  [
+   "Agent_EntraId",
+   "string"
+  ],
+  [
+   "AgentPlatform",
+   "string"
+  ],
+  [
+   "PlatformAgentId",
+   "string"
+  ],
+  [
+   "Agent_BotId",
+   "string"
+  ],
+  [
+   "Agent_EnvironmentId",
+   "string"
+  ],
+  [
+   "Prompts_Available",
+   "string"
+  ],
+  [
+   "Exclude_Reason",
    "string"
   ],
   [
@@ -109,10 +161,6 @@
    "string"
   ],
   [
-   "Agent_EntraId",
-   "string"
-  ],
-  [
    "AgentName",
    "string"
   ],
@@ -121,11 +169,11 @@
    "string"
   ],
   [
-   "AgentId",
+   "Agent_MatchedTitleID",
    "string"
   ],
   [
-   "AppHost",
+   "Agent_LinkMethod",
    "string"
   ],
   [
@@ -229,6 +277,30 @@
    "string"
   ],
   [
+   "Agent_Key",
+   "string"
+  ],
+  [
+   "Agent_Type",
+   "string"
+  ],
+  [
+   "Agent_Type_Basis",
+   "string"
+  ],
+  [
+   "Agent_Publisher",
+   "string"
+  ],
+  [
+   "Agent_Is_Published",
+   "boolean"
+  ],
+  [
+   "Agent_Consolidated_Name",
+   "string"
+  ],
+  [
    "Execution_Trigger",
    "string"
   ],
@@ -280,12 +352,24 @@
    null,
    null,
    null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
+   "TRUE",
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
    "2026-09-02",
    "2026-08-31",
    "2026-09-01",
    1,
    "No",
-   null,
    null,
    null,
    null,
@@ -315,6 +399,12 @@
    false,
    null,
    "Internal",
+   null,
+   null,
+   null,
+   null,
+   null,
+   null,
    null,
    "Interactive / On-demand",
    "unlicensed@example.invalid|2026-09",
