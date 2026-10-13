@@ -28,14 +28,18 @@ installer can't check, is needed for the Cowork credits query. In the terminal, 
 
 ### Where the secret goes
 
-The notebooks sign in as the app registration with its client secret. The installer offers three
-places for it:
+The notebooks sign in as the app registration with its client secret. Fabric notebooks can't get
+Microsoft Graph tokens from a workspace identity, so they need that secret. The installer offers
+three places for it. For a new Fabric install, the default is no Key Vault:
 
 | Option | You need | Use it when |
 |---|---|---|
-| **Key Vault, written by the installer** (the default) | Contributor to create a vault, or write access to an existing one | You can create a vault or already write to one. |
-| **A vault admin will add the secret for me** | Read access to the vault: Key Vault Secrets User, or secret Get and List on an access policy | You can't write to the vault and can't create one. Offered when the installer finds you can't write. |
-| **Store the secret in the notebook (not recommended)** | Nothing in Azure: no subscription and no vault | Quick tests only, in a workspace nobody else uses. |
+| **No Key Vault: keep the secret in the notebooks** (the default) | Nothing in Azure: no subscription and no vault | You want the quickest set-up, have no Azure subscription, or can't create or write to a vault. Anyone with a role in the workspace can read the secret. |
+| **Key Vault, written by the installer** | Contributor to create a vault, or write access to an existing one | You want workspace roles not to expose the secret. Choose **Azure Key Vault**, or run `install --key-vault`. |
+| **A vault admin will add the secret for me** | Read access to the vault: Key Vault Secrets User, or secret Get and List on an access policy | You want Key Vault but can't write to the vault and can't create one. Offered when the installer finds you can't write. |
+
+Installs that already keep the secret in Key Vault carry on using it. `--flow-identity app` reads
+the secret from Key Vault, so it goes to the Key Vault questions.
 
 **A vault admin adds the secret.** The installer shows the vault, the secret name and one
 Azure Cloud Shell command for the admin. The command creates a new client secret on the app and
@@ -47,21 +51,37 @@ email when asked. Then answer **Has the admin added it?** with **Yes, carry on**
 Read access is all the notebooks need: they read the secret with `notebookutils` as the person
 the run uses. The choice is recorded in the install record as `keyVault.mode: "keyvault-admin"`.
 
-**Store the secret in the notebook.** Choose it in the Key Vault question, or run
-`install --secret-in-notebook`. The installer warns you first, and you have to confirm. The answer
-defaults to no:
+**No Key Vault: keep the secret in the notebooks.** The default for a new Fabric install: take it
+at the **Where should the app's client secret go?** question, or run `install --no-key-vault`
+(`--secret-in-notebook` still works). It's also recommended when you pick Key Vault but can't
+create a vault or write to the one you picked. The installer states the trade-off and asks you to
+confirm (with `--yes`, the default is taken):
 
-- The secret is plain text in the notebook code.
-- Anyone with access to the workspace can read it, and use it to read your tenant's data through
-  Microsoft Graph.
-- It is copied into notebook run snapshots, exports, Git sync and deployment pipelines.
+- **Anyone with a role in the workspace can read the secret**, Viewer included, and so can anyone
+  a notebook is shared with. They could use it to read your tenant's data through Microsoft Graph
+  until it expires. Key Vault avoids that: the notebooks read the secret from the vault at run
+  time, so a workspace role doesn't expose it.
+- It is copied into notebook run snapshots, exports and deployment pipelines.
+- There's no vault audit log of who read it, and no vault network rules.
 
-The installer writes the value into each notebook that needs it instead of a Key Vault
-reference, and records `keyVault.mode: "notebook"`. It never logs the value. Power Automate flows
-still work in this mode, because they sign in to OneLake rather than read the secret (unless you
-choose `--flow-identity app`). To move to Key Vault
-later, run the installer again and choose **Use Key Vault instead**. It rewrites the notebooks to
-read the secret from the vault and removes the secret they held from the app.
+To limit that, the installer:
+
+- Gives the secret a short life: **90 days** by default. Change it with `--secret-days <n>` (1 to
+  730), or under **Advanced settings**.
+- Replaces it on every install, **Repair or change** and `update`: it writes a new secret into
+  the notebooks, then removes the old one from the app. If the rewrite stops part-way, the old
+  secret is kept until the next run finishes.
+- Won't write it into a workspace connected to Git, so it never reaches source control. Disconnect
+  Git under **Workspace settings** > **Git integration**, or choose Key Vault.
+- Never writes it to the install record or the logs. `valuelens-install.json` holds only the
+  secret's ID and expiry date.
+
+The installer records `keyVault.mode: "notebook"`. Power Automate flows still work in this mode,
+because they sign in to OneLake rather than read the secret (unless you choose
+`--flow-identity app`). If you brought your own app, the installer can't make its secrets, so it
+doesn't replace yours: paste a new one with **Create new secrets** (`rotate-secret`). To move to
+Key Vault later, run the installer again and choose **Use Key Vault instead**. It rewrites the
+notebooks to read the secret from the vault and removes the secret they held from the app.
 
 ### If you can't register apps
 
@@ -357,14 +377,15 @@ The [Azure target](#azure-target) asks the same question. Its advanced settings 
 - **Someone else takes over the pipeline?** The notebooks run as the person who last changed the
   pipeline, or the schedule's owner. Give them Key Vault Secrets User on the vault and Contributor
   on the workspace first. With the secret in the notebooks, they only need Contributor.
-- **Secrets expire after 12 months.** **Check status** warns you 30 days before. Choose
-  **Create new secrets** (`rotate-secret`). Where the secret goes decides what happens:
+- **Secrets expire.** In Key Vault they last 12 months; in the notebooks, 90 days unless you chose
+  otherwise, and each install, repair or update replaces them. **Check status** warns you 30 days
+  before. Choose **Create new secrets** (`rotate-secret`). Where the secret goes decides what happens:
   - **Key Vault, written by the installer:** it creates and stores a new secret.
   - **A vault admin adds it:** it shows the admin the same steps again, then waits for you to
     say it's done.
   - **In the notebooks:** it creates a new secret, rewrites the notebooks and removes the old
-    one. If you brought the app, paste its new secret when asked. Rotate it regularly: anyone
-    who could read the old one could keep using it until then.
+    one. If you brought the app, paste its new secret when asked. Add `--secret-days <n>` to
+    change how long the new one lasts.
 
 ## Power BI reports
 
@@ -690,9 +711,7 @@ Studio credits**, **Copilot Cowork credits** and **Azure AI costs**. Choose any 
 - **Azure AI costs.** The installer reads Azure AI and Copilot pay-as-you-go costs for you.
   `Ingest_Azure_AI` also fills the Azure capacity and health, billing reconciliation and Foundry
   solution spend pages from ARM, Azure Monitor, Cost Management and the public Retail Prices API.
-  It needs no extra roles. Installs from 0.3.5 or earlier get it with **Repair or change** when the
-  client secret is in Key Vault. If you keep the secret in the notebooks, run
-  `AnalyticsHubInstaller.exe update` instead: Repair doesn't rewrite those notebooks.
+  It needs no extra roles. Installs from 0.3.5 or earlier get it with **Repair or change**.
 - **Copilot Studio credits.** Leave it on **Connected** and finish the
   [Copilot Studio credits flow](#power-automate-flows). To add exports as well, or instead, in the
   Power Platform admin center go to **Licensing** > **Products** > **Copilot Studio**. Download the
@@ -893,7 +912,8 @@ the endpoint, someone who manages the vault approves it under **Networking** >
 | The page says it needs the installer's link, or the link has expired | Go back to the installer's window and press **Enter**. It opens the page again. |
 | `This workspace no longer exists` | The workspace in the install record was deleted, or the record is for another tenant. Choose **Start fresh**. The old record is kept, renamed with the date and time. See [Run it](#run-it). |
 | `No active Fabric capacity you can use` | Start a Fabric trial, or ask a capacity admin to make you a Contributor on a capacity. |
-| `No Azure subscription you can use` | Ask for Contributor on a subscription, on a resource group, or for read access to an existing vault a vault admin can add the secret to. Or, for a quick test only, [store the secret in the notebook](#where-the-secret-goes). |
+| `No Azure subscription you can use` | Ask for Contributor on a subscription, on a resource group, or for read access to an existing vault a vault admin can add the secret to. Or choose [no Key Vault](#where-the-secret-goes) (`--no-key-vault`): anyone with a role in the workspace can then read the secret. |
+| `This workspace is connected to Git` | With no Key Vault, the installer won't write the client secret into a Git-connected workspace. Disconnect it under **Workspace settings** > **Git integration**, or run the installer again and choose Key Vault. |
 | `You can't write secrets to …` or `You can't change access policies on …` | Run the installer again without `--yes`, pick the vault, and choose **A vault admin will add the secret for me**. See [Where the secret goes](#where-the-secret-goes). |
 | `You can't create resource groups in this subscription` | Run the installer again and give the name of a resource group where you're a Contributor. |
 | `The subscription isn't registered for Microsoft.KeyVault` | Ask a subscription Owner or Contributor to register the `Microsoft.KeyVault` resource provider, then run the installer again. |
@@ -1002,5 +1022,6 @@ npx valuelens-install --ui
 Leave out `--ui` to answer the questions in the terminal. Other commands: `run`, `check`,
 `refresh`, `status`, `update`, `deploy-app`, `rotate-secret`, `upload`, `prereqs` and `preview`. Add `--help` for
 options. The exe takes the same commands, for example `AnalyticsHubInstaller.exe status`.
-`install --yes --secret-in-notebook` keeps the secret in the notebooks without asking; only use it
-for [quick tests](#where-the-secret-goes).
+`install --yes` keeps the secret in the notebooks for a new Fabric install; read
+[the trade-off](#where-the-secret-goes) first, and add `--key-vault` to use Key Vault instead.
+`--secret-days <n>` sets how long the secret in the notebooks lasts.

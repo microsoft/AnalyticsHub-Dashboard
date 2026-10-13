@@ -13,7 +13,7 @@ import { resolveAppRoles } from '../src/clients/graph.js';
 import { emptyConfig, loadConfig, saveConfig } from '../src/config.js';
 import { bundled, commandLine, EXE_ENV, fromExe, installerWindow, LAUNCHER_ENV, launcher, reopenHint, SCRIPT_COMMAND, SCRIPT_URL, updateHint } from '../src/launch.js';
 import { describeSchedule, sameSchedule } from '../src/steps/fabric.js';
-import { addMonths } from '../src/steps/identity.js';
+import { addDays, addMonths, notebookSecretDays } from '../src/steps/identity.js';
 import { jobIdFrom, utc } from '../src/steps/run.js';
 import { formatDuration } from '../src/ui.js';
 
@@ -178,8 +178,13 @@ test('job helpers read Fabric times as UTC and take the job ID from its URL', ()
   assert.equal(jobIdFrom('/workspaces/w/items/i/jobs/instances/j-9/'), 'j-9');
 });
 
-test('addMonths and formatDuration', () => {
+test('addMonths, addDays, notebookSecretDays and formatDuration', () => {
   assert.equal(addMonths(new Date('2026-01-15T10:00:00Z'), 12).toISOString(), '2027-01-15T10:00:00.000Z');
+  assert.equal(addDays(new Date('2026-06-01T12:00:00Z'), 90).toISOString(), '2026-08-30T12:00:00.000Z');
+  const config = emptyConfig();
+  assert.equal(notebookSecretDays(config), 90);
+  config.app.secretDays = 14;
+  assert.equal(notebookSecretDays(config), 14);
   assert.equal(formatDuration(4_000), '4s');
   assert.equal(formatDuration(125_000), '2m 05s');
   assert.equal(formatDuration(3_780_000), '1h 03m');

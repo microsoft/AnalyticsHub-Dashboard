@@ -137,8 +137,9 @@ test('checkPrereqs: the install\'s subscription is checked first; no Azure at al
   const none = await run({ subs: [] });
   assert.equal(none['azure-rbac'].status, 'missing');
   assert.equal(none['azure-rbac'].optional, true);
-  assert.match(none['azure-rbac'].howTo, /--secret-in-notebook/);
+  assert.match(none['azure-rbac'].howTo, /--no-key-vault/);
   assert.equal(none['key-vault'].status, 'missing');
+  assert.equal(none['key-vault'].optional, true, 'no Key Vault is a choice on Fabric');
 
   const azure = emptyConfig();
   azure.target = 'azure';

@@ -15,7 +15,9 @@ and what to ask other admins for, by person, with the optional extras and the co
 
 - A **Fabric capacity**, F2 or larger. No capacity?
   [Start a free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager).
-- An **Azure subscription** or resource group where you can create a Key Vault.
+- Optional: an **Azure subscription** or resource group where you can create a Key Vault. By
+  default the app's client secret goes in the notebooks instead, with nothing in Azure. See
+  [Where the client secret goes](#where-the-client-secret-goes).
 - A **Fabric admin** to turn on three tenant settings, and a **Global Administrator** or
   **Privileged Role Administrator** to grant admin consent. The installer gives you a link to send.
 - For Copilot Cowork credits, a **Viva Insights query** built first.
@@ -55,6 +57,38 @@ you're responsible for the data once it's in your workspace.
 
 If admin consent isn't granted yet, the installer skips the first load. Once an admin has granted
 it, open the exe again and choose **Run now**.
+
+## Where the client secret goes
+
+The notebooks sign in to Microsoft Graph as the installer's app registration, with its client
+secret. Fabric notebooks can't get Graph tokens from a workspace identity, so they need that
+secret. The installer asks where to keep it. The default is no Key Vault:
+
+| Choice | What you need | Who can read the secret |
+|---|---|---|
+| **No Key Vault** (the default) | Nothing in Azure | **Anyone with a role in the workspace**, Viewer included. Key Vault avoids that. |
+| **Key Vault** | An Azure subscription or resource group where you can create a vault, or an existing vault | Only people with access to the vault. The notebooks read it at run time. |
+| **A vault admin adds it** | Read access to a vault someone else manages | As above. |
+
+With no Key Vault, the secret is written into the notebooks. It lasts 90 days (change it with
+`--secret-days`), and each install, repair or update replaces it and removes the old one. The
+installer won't write it into a workspace that's connected to Git, and never puts it in the
+install record or the logs. Details are in
+[Where the secret goes](../installer/README.md#where-the-secret-goes).
+
+### Later: no secret in the notebooks and no Key Vault
+
+Two Fabric features could remove the trade-off. Neither is built yet:
+
+- **Variable library connection references (planned).** A variable library could hold a reference
+  to a Fabric connection that stores the secret, and the notebooks would read it with
+  `notebookutils.connections.getConnectionRef`. Workspace roles wouldn't expose the secret, and the
+  installer could set it up without the manual step a connection needs today. Once
+  `getConnectionRef` reaches the Fabric notebook runtime, the plan is to make this the default
+  instead of the secret in the notebooks.
+- **A Fabric connection bound to each notebook.** This works today with a Web connection and
+  `notebookutils.connections.getCredential`, but each notebook has to be bound to the connection
+  by hand in the Fabric portal. It may be offered later as an option with a few manual steps.
 
 ## Use it
 

@@ -12,7 +12,7 @@
  * @typedef {object} NotebookSettings
  * @property {string} [tenantId]
  * @property {string} [clientId]
- * @property {{ vaultUri: string, secretName: string } | { value: string }} [secret]  Read from Key Vault at run time, or (not recommended) the value itself.
+ * @property {{ vaultUri: string, secretName: string } | { value: string }} [secret]  Read from Key Vault at run time, or (with no Key Vault) the value itself.
  * @property {string[]} [parameters]  Assignments the pipeline overrides.
  * @property {Record<string, string>} [values]  Defaults to write into the notebook, e.g. IDs for a manual run.
  * @property {Record<string, string>} [expressions]  Python expressions to assign as they are, e.g. `True`.
@@ -101,7 +101,7 @@ export function secretExpression(secret) {
 }
 
 /** The comment next to a client secret kept in the notebook. */
-export const INLINE_SECRET_NOTE = `${MARKER}: stored in the notebook (not recommended). Anyone who can open this notebook can read it`;
+export const INLINE_SECRET_NOTE = `${MARKER}: no Key Vault, so the secret is here. Anyone with a role in this workspace can read it. Each install, repair or update replaces it`;
 
 /** Where the data check's summary lands, relative to the Lakehouse root. */
 export const DATA_CHECK_FILE = 'Files/valuelens_installer/data_check.json';

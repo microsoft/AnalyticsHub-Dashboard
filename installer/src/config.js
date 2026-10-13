@@ -23,7 +23,7 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {import('./transform/pipeline.js').TenantScale} [scale]  How the loads are sized. Standard when absent.
  * @property {import('./currency.js').ReportingConfig} [reporting]  The currency the Value page reports in until one is saved in the app. Asked for when absent.
  * @property {{ frequency: 'daily' | 'weekly', time: string, weekday: string, timeZone: string }} schedule
- * @property {{ appId?: string, objectId?: string, servicePrincipalId?: string, displayName?: string, secretExpires?: string, secretKeyId?: string, retiredSecretKeyIds?: string[], existing?: boolean, adminPack?: string }} app
+ * @property {{ appId?: string, objectId?: string, servicePrincipalId?: string, displayName?: string, secretExpires?: string, secretKeyId?: string, retiredSecretKeyIds?: string[], existing?: boolean, adminPack?: string, secretDays?: number }} app  secretDays: how long a secret kept in the notebooks lasts (--secret-days). 90 when absent.
  * @property {{ subscriptionId?: string, resourceGroup?: string, name?: string, id?: string, uri?: string, location?: string, secretName: string, existing?: boolean, rbac?: boolean, private?: boolean, secretSetAt?: string, mode?: SecretMode, handoff?: SecretHandoff }} keyVault
  * @property {{ capacityId?: string, workspaceId?: string, workspaceName?: string, lakehouseId?: string, lakehouseName?: string, notebooks: Partial<Record<import('./catalog.js').NotebookKey, string>>, notebookNames?: Partial<Record<import('./catalog.js').NotebookKey, string>>, notebookHashes?: Partial<Record<import('./catalog.js').NotebookKey, string>>, pipelineId?: string, pipelineName?: string, pipelineModules?: string, pipelineVersion?: number, scheduleId?: string, vaultEndpointId?: string, deployedRouter?: string, secretInNotebooks?: boolean, createdWorkspace?: boolean }} fabric
  * @property {{ jobId?: string, status?: string, startedAt?: string, finishedAt?: string, coworkSkipped?: boolean }} [firstRun]  coworkSkipped: the first load left out the Cowork Dataflow, which wasn't signed in yet.
@@ -74,7 +74,9 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * Where the app's client secret lives and who puts it there.
  * - `keyvault`: the installer writes it to Key Vault (the default when absent).
  * - `keyvault-admin`: a vault admin writes it to Key Vault; the user only needs read access.
- * - `notebook`: the installer writes it into the notebooks as plain text. Not recommended.
+ * - `notebook`: no Key Vault. The installer writes it into the notebooks as plain text, where anyone
+ *   with a role in the workspace can read it. It lasts 90 days by default and every install, repair
+ *   or update replaces it.
  * @typedef {'keyvault' | 'keyvault-admin' | 'notebook'} SecretMode
  */
 

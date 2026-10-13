@@ -18,7 +18,7 @@ import { POWER_PLATFORM_URL, powerPlatformApi } from './clients/powerplatform.js
 import { saveConfig, secretMode } from './config.js';
 import { createClient, defaultSleep } from './http.js';
 import { commandLine } from './launch.js';
-import { ensureConsent, ensureApp, ensureKeyVault, newSecret } from './steps/identity.js';
+import { ensureConsent, ensureApp, ensureKeyVault, newSecret, notebookSecretDays } from './steps/identity.js';
 import { agentEvaluatorModelWanted, agentEvaluatorSummary, ensureAgentEvaluatorModel, ensureTranscriptAccess } from './steps/agent-evaluator.js';
 import { deployApp, ensureAppName, ensureFabricApp } from './steps/app.js';
 import { COWORK_DATAFLOW_NAME, consumptionModelWanted, consumptionSummary, ensureAzureAiAccess, ensureConsumptionModel, ensureCoworkDataflow, ensureLandingFolders } from './steps/consumption.js';
@@ -89,7 +89,8 @@ import { ensureOrgAccess, verifyOrgAccess } from './steps/org-access.js';
  * @property {(ms: number) => Promise<void>} sleep
  * @property {() => Date} now
  * @property {string} [pendingSecret]  A secret the user pasted, held in memory until it is in Key Vault or the notebooks.
- * @property {boolean} [secretInNotebook]  --secret-in-notebook: store the secret in the notebooks instead of Key Vault.
+ * @property {boolean} [secretInNotebook]  --no-key-vault (or --secret-in-notebook): keep the secret in the notebooks instead of Key Vault.
+ * @property {boolean} [useKeyVault]  --key-vault: keep the secret in Key Vault, not the notebooks (the default for a new Fabric install).
  * @property {Apis} [liveApi]  While the plan's answers can be rewound, the clients without the cache, for checks the user repeats.
  * @property {boolean} [runFirstLoad]
  * @property {boolean} [advanced]  The plan's "Change the advanced settings?" answer. With false, those settings keep their saved value or default.
@@ -361,7 +362,8 @@ export async function install(ctx, opts) {
     await ensureFlows(ctx);
   }
   step('Notebooks, pipeline and schedule');
-  await ensureNotebooks(ctx);
+  // With no Key Vault, each install or repair gives the notebooks a new client secret.
+  await ensureNotebooks(ctx, { rotate: true });
   await ensureSparkSettings(ctx);
   await ensurePipeline(ctx);
   await ensureSchedule(ctx);
@@ -696,19 +698,19 @@ export async function rotateSecret(ctx) {
   const sm = config.semanticModel;
   ui.heading('New client secret');
   ui.info(`App: ${config.app.displayName ?? config.app.appId}`);
-  if (mode === 'notebook') ui.info('Secret: in the notebooks (not recommended)');
+  if (mode === 'notebook') ui.info('Secret: in the notebooks (no Key Vault)');
   else ui.info(`Key Vault: ${config.keyVault.name}, secret ${config.keyVault.secretName}`);
   if (sm.connectionId) ui.info(`Connection: ${sm.connectionName}, used by ${sm.name}`);
   if (mode === 'notebook') {
     ui.note(
       config.app.existing
         ? 'You paste the new secret, and the notebooks are rewritten with it. Then delete the old one from the app\'s Certificates & secrets page.'
-        : 'A new secret is written into the notebooks, then the old one is removed from the app, so copies of it in run snapshots, exports or Git stop working.',
+        : `A new secret, valid for ${notebookSecretDays(config)} days, is written into the notebooks, then the old one is removed from the app, so copies of it in run snapshots, exports or Git stop working.`,
     );
     if (!(await ui.confirm(`Create a new secret and rewrite the notebooks${sm.connectionId ? ', and replace the connection\'s' : ''}?`, true))) return;
     await ensureNotebooks(ctx, { force: true });
     if (sm.connectionId) await rotateModelSecret(ctx);
-    ui.warn('The secret is still plain text in the notebooks. Rotate it often, and move to Key Vault for anything you keep.');
+    ui.note('Anyone with a role in the workspace can read the secret in the notebooks. Key Vault avoids that: run the installer again and choose Use Key Vault instead.');
     return;
   }
   if (mode === 'keyvault-admin') {
@@ -741,7 +743,8 @@ export async function summary(ctx) {
   ui.info(`Pipeline:   ${f.pipelineName ?? PIPELINE_NAME}, ${describeSchedule(config.schedule)}`);
   const mode = secretMode(config);
   const expires = config.app.secretExpires ? `, expires ${config.app.secretExpires.slice(0, 10)}` : '';
-  if (mode === 'notebook') ui.info(`Secret:     in the notebooks${expires}  ${c.dim('Not recommended: plain text that anyone with access to the workspace can read.')}`);
+  const expiresOn = config.app.secretExpires ? ` on ${config.app.secretExpires.slice(0, 10)}` : '';
+  if (mode === 'notebook') ui.info(`Secret:     in the notebooks${expires}  ${c.dim('No Key Vault: anyone with a role in the workspace can read it. Each install, repair or update replaces it.')}`);
   else ui.info(`Secret:     ${config.keyVault.name} / ${config.keyVault.secretName}${expires}${mode === 'keyvault-admin' ? c.dim('  Added by a vault admin.') : ''}`);
   if (config.keyVault.private) ui.info(`            ${c.dim('Private vault, reached through a managed private endpoint. Spark sessions take a few minutes longer to start.')}`);
 
@@ -767,8 +770,8 @@ export async function summary(ctx) {
       ui.info(`   They also need Build on ${sm.name} (its Manage permissions page), or Viewer on the workspace.`);
     }
     if (secretMode(config) === 'notebook') {
-      ui.info('2. Scheduled runs refresh the model as you, the schedule\'s owner. The client secret is plain text in the');
-      ui.info(`   notebooks: move it to Key Vault before you share the workspace, or rotate it with "${commandLine('rotate-secret')}".`);
+      ui.info('2. Scheduled runs refresh the model as you, the schedule\'s owner. Anyone with a role in the workspace can');
+      ui.info(`   read the client secret in the notebooks. Repair or run "${commandLine('rotate-secret')}" before it expires${expiresOn}.`);
     } else {
       ui.info('2. Scheduled runs read the Key Vault secret as you, the schedule\'s owner, and refresh the model');
       ui.info('   as you. Anyone who takes over the pipeline needs "get" on the secret and Contributor on the workspace.');
@@ -795,8 +798,8 @@ export async function summary(ctx) {
   ui.info('   or re-run the installer and let it deploy the semantic model, which adds one for you.');
   ui.note('   See "Refresh Power BI from the pipeline" in fabric/pipelines/README.md.');
   if (secretMode(config) === 'notebook') {
-    ui.info('3. The client secret is plain text in the notebooks. Move it to Key Vault before you share the');
-    ui.info(`   workspace, or rotate it with "${commandLine('rotate-secret')}".`);
+    ui.info('3. Anyone with a role in the workspace can read the client secret in the notebooks. Repair or run');
+    ui.info(`   "${commandLine('rotate-secret')}" before it expires${expiresOn}.`);
   } else {
     ui.info('3. Scheduled runs read the Key Vault secret as you, the schedule\'s owner. Anyone who edits the');
     ui.info('   pipeline or takes over the schedule needs "get" on the secret first.');
