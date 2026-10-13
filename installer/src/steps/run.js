@@ -5,12 +5,12 @@
  */
 import { isTransientNetworkError } from '../auth.js';
 import { commandLine } from '../launch.js';
-import { failedCards, fillRerun, loadCards, RERUN } from '../loads.js';
+import { failedCards, fillRerun, loadCards, VIVA_ACTIVITY } from '../loads.js';
 import { DATA_CHECK_FILE } from '../transform/notebook.js';
-import { AGENT_EVALUATOR_ACTIVITY, COWORK_DATAFLOW_ACTIVITY, firstRunParameters, REFRESH_ACTIVITY } from '../transform/pipeline.js';
+import { AGENT_EVALUATOR_ACTIVITY, COWORK_DATAFLOW_ACTIVITY, COWORK_WRAPPER_ACTIVITY, firstRunParameters, REFRESH_ACTIVITY, SKIP_COWORK_PARAMETER } from '../transform/pipeline.js';
 import { c, formatDuration } from '../ui.js';
-import { coworkSignInSteps } from './consumption.js';
-import { agentEvaluatorOn, modelDeployed } from './fabric.js';
+import { coworkConnections, coworkNextStep, coworkSignInSteps, VIVA_LOAD_FILE } from './consumption.js';
+import { agentEvaluatorOn, coworkDataflowOn, modelDeployed } from './fabric.js';
 import { modelRefreshes } from './model.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
@@ -154,7 +154,8 @@ const STUCK_MS = 24 * 3_600_000;
  * Starts the pipeline. With `backfillDays` it reloads that much audit history and rebuilds the curated table.
  * It doesn't start a run while another is going: two at once overload a small capacity.
  * @param {Ctx} ctx
- * @param {{ backfillDays?: number, wait?: boolean, first?: boolean }} opts
+ * @param {{ backfillDays?: number, wait?: boolean, first?: boolean, skipCowork?: boolean }} opts  skipCowork: leave the Cowork
+ *   Dataflow out of this run only (SkipCowork), because its connections aren't signed in yet.
  * @returns {Promise<RunResult>}
  */
 export async function runPipeline(ctx, opts) {
@@ -171,12 +172,14 @@ export async function runPipeline(ctx, opts) {
     return { jobId: running.id, status: running.status, ok: false, started: false };
   }
   const days = opts.backfillDays;
-  const parameters = days ? firstRunParameters(days) : undefined;
+  /** @type {Record<string, any> | undefined} */
+  let parameters = days ? firstRunParameters(days) : undefined;
+  if (opts.skipCowork) parameters = { ...parameters, [SKIP_COWORK_PARAMETER]: true };
   const startedAt = ctx.now().toISOString();
   const url = await api.fabric.runJob(f.workspaceId, f.pipelineId, 'Pipeline', parameters ? { parameters } : undefined);
   const jobId = jobIdFrom(url);
   if (opts.first) {
-    config.firstRun = { jobId, status: 'NotStarted', startedAt };
+    config.firstRun = { jobId, status: 'NotStarted', startedAt, ...(opts.skipCowork ? { coworkSkipped: true } : {}) };
     ctx.save();
   }
   if (!days) ui.ok('Started the pipeline');
@@ -224,15 +227,54 @@ export async function pipelineActivities(ctx) {
 export async function reportLoads(ctx, runs, activities) {
   if (!runs) return [];
   const cards = loadCards(runs, activities ?? (await pipelineActivities(ctx)));
+  await checkVivaRows(ctx, cards);
+  const todo = coworkNextStep(ctx.config, cards);
   const rerun = `run "${commandLine('rerun-failed')}"`;
   for (const card of cards) {
     if (card.activity === COWORK_DATAFLOW_ACTIVITY && card.state === 'failed' && card.kind !== 'capacity') {
-      card.fix = ['The Cowork credits Dataflow usually fails until it has its sign-ins:', ...coworkSignInSteps(ctx.config).map((step, i) => `  ${i + 1}. ${step}`), `Then ${RERUN}.`];
+      card.fix = todo
+        ? [`The Cowork credits Dataflow fails until its connections are signed in: see "${todo.title}".`]
+        : ['The Cowork credits Dataflow usually fails until it has its sign-ins:', ...coworkSignInSteps(ctx.config).map((step, i) => `  ${i + 1}. ${step}`)];
     }
     card.fix = card.fix.map((t) => fillRerun(t, rerun));
   }
   if (cards.length) ctx.ui.loads(cards);
+  if (todo) ctx.ui.todo(todo);
   return cards;
+}
+
+/**
+ * The Viva load succeeds whether or not the Dataflow gave it any rows, so it reads back the counts
+ * the notebook wrote and isn't green when none came. Without the file it leaves the card as it is.
+ * @param {Ctx} ctx
+ * @param {LoadCard[]} cards
+ */
+async function checkVivaRows(ctx, cards) {
+  const viva = cards.find((c) => c.activity === VIVA_ACTIVITY);
+  const f = ctx.config.fabric;
+  if (viva?.state !== 'ok' || !coworkDataflowOn(ctx.config) || !ctx.api.oneLake || !f.workspaceId || !f.lakehouseId) return;
+  /** @type {any} */
+  const summary = await ctx.api.oneLake.readJson(f.workspaceId, f.lakehouseId, VIVA_LOAD_FILE).catch(() => null);
+  if (summary && Number(summary.dataflowRows) === 0) {
+    viva.state = 'todo';
+    viva.reason = 'It ran, but no rows came from the Cowork Dataflow.';
+    viva.fix = ['Check the Viva Insights query has Auto-refresh on and covers recent weeks, then choose Load Cowork now.'];
+  }
+}
+
+/**
+ * Whether the installer's first load should leave the Cowork Dataflow out: only when Fabric says its
+ * connections aren't signed in and the pipeline has the SkipCowork switch. When unsure, it runs it.
+ * @param {Ctx} ctx
+ */
+export async function coworkSkipForFirstLoad(ctx) {
+  if (!coworkDataflowOn(ctx.config)) return false;
+  const activities = await pipelineActivities(ctx);
+  if (!activities?.some((a) => a.name === COWORK_WRAPPER_ACTIVITY)) return false;
+  if ((await coworkConnections(ctx)) !== 'unbound') return false;
+  ctx.ui.warn('Cowork credits are left out of this first load: the Cowork Dataflow isn\'t signed in yet.');
+  ctx.ui.note('Everything else loads now. The steps to sign in and load Cowork follow once the load has finished.');
+  return true;
 }
 
 /**

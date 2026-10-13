@@ -1,9 +1,11 @@
 // @ts-check
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readdir, readFile } from 'node:fs/promises';
 import { request } from 'node:http';
 import { PassThrough } from 'node:stream';
 import { test } from 'node:test';
+import { fileURLToPath } from 'node:url';
 import { emptyConfig } from '../src/config.js';
 import { memoApi, rewindable } from '../src/install.js';
 import { mirror, reopenOnEnter, startServer } from '../src/server.js';
@@ -649,6 +651,16 @@ test('memoApi: the same call is made once, each caller gets its own copy, and a 
   await api.fabric.each(() => {});
   assert.equal(calls.filter((x) => x === 'each').length, 2, 'a call given a function is never kept');
   assert.equal(api.dataverse, real.dataverse);
+});
+
+test('page: every script under web/ parses', async () => {
+  const web = new URL('web/', SRC);
+  const scripts = (await readdir(web)).filter((f) => f.endsWith('.js'));
+  assert.ok(scripts.includes('app.js'));
+  for (const f of scripts) {
+    const r = spawnSync(process.execPath, ['--check', fileURLToPath(new URL(f, web))], { encoding: 'utf8' });
+    assert.equal(r.status, 0, `web/${f} has a syntax error:\n${r.stderr}`);
+  }
 });
 
 test('page: the stages and the finish it waits for are headings the installer prints', async () => {
