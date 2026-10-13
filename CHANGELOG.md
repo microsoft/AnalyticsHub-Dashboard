@@ -18,6 +18,48 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ---
 
+## Unreleased — Power Automate flow connections
+
+**Update an existing install:** choose **Repair or change**, or run `update`. Flows that are off
+are signed in and turned on with you; flows that are on are left alone.
+
+### Added: the installer signs the flows in and turns them on
+
+**Why.** Every flow was created turned off, with its connections left for you to make in Power
+Automate. That meant finding the right connector, typing two URLs into each connection and
+working out which actions use which. Until you did, the Copilot Studio credits flow never ran, so
+the first pipeline load had no Studio data.
+
+- **Connections made for you.** The installer makes the HTTP with Microsoft Entra ID connections
+  the flows need, with their URLs filled in, named `Analytics Hub - Power Platform API` and
+  `Analytics Hub - OneLake` (or `Analytics Hub - Azure Storage (<account>)` on Azure). It reuses
+  ones of the same name that are signed in to already.
+- **One sign-in link each.** It says who signs in to each, warns that a blocked pop-up opens
+  nothing, and that whoever signs in, and the flows' owner, need Power Automate Premium. Then it
+  waits while you sign in, or you choose **Do this later**.
+- **Turned on before the first load.** Once the connections are signed in to, it points each flow
+  at them and turns it on, so the Studio flow can be run before the pipeline starts. If you leave
+  it for later, it says so: Copilot Studio data arrives after the flow runs and the next daily
+  load. Run `update` to finish it.
+- **Tidy.** It deletes connections it made before that nobody signed in to and no flow uses. Your
+  other connections that aren't signed in to are listed, never deleted.
+- **Steps when the flow is made.** Whatever it can't do (such as the feedback flow's Outlook
+  connection) is shown as numbered steps as soon as the flows are created, not only at the end.
+- **Product feedback export link.** The feedback flow's steps link straight to Microsoft 365
+  admin center > Health > Product feedback, where the export is scheduled.
+
+### Fixed: Power Automate flows are easier to finish by hand
+
+- The Copilot Studio credits flow saves in the designer: its Reset token steps set
+  `@string('')` rather than an empty value, which the flow checker refused.
+- Each action that needs a sign-in ends in **via Power Platform API**, **via OneLake** or
+  **via Azure Storage**, so you can tell which connection to pick. Both connections use the same
+  connector and looked alike.
+- The steps say to allow pop-ups for make.powerautomate.com, and to sign in once per connection,
+  then pick it on that connection's other actions.
+
+---
+
 ## Unreleased — Prerequisites and questions
 
 Findings F8, F12, F13 and F14 from the newcomer self-serve test of installer 0.4.2.

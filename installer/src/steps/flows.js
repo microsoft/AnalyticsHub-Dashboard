@@ -2,12 +2,15 @@
 /**
  * The Power Automate flows: product feedback exports emailed to the admin, and Copilot Studio
  * credits from the Power Platform licensing API. The installer creates each flow, turned off, in a
- * Power Platform environment the user picks; the user signs in to its connections and turns it on.
+ * Power Platform environment the user picks. It makes the HTTP with Microsoft Entra ID connections
+ * the flows need, gives a sign-in link for each, and once they're signed in to, points the flows at
+ * them and turns them on. Anything else (e.g. Outlook) the user signs in to in Power Automate.
  * When a flow can't be created, it is written to a file to import instead.
  */
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { isConnected } from '../clients/connections.js';
 import { orgUrl } from '../clients/dataverse.js';
 import { flowIdentity, secretMode } from '../config.js';
 import { commandLine } from '../launch.js';
@@ -27,6 +30,7 @@ import {
   FLOW_STATE_DIR,
   flowFile,
   isBound,
+  nameByConnection,
   newConnections,
   ONELAKE_DFS,
   oneLakeEndpoint,
@@ -214,17 +218,17 @@ export function flowDefinitions(config, tenantId) {
     feedback: {
       name: FEEDBACK_FLOW_NAME,
       description: `Saves product feedback exports emailed with the subject "${FEEDBACK_SUBJECT}" to ${where}. Created by the Analytics Hub installer.`,
-      definition: feedbackFlowDefinition(t),
+      definition: nameByConnection(feedbackFlowDefinition(t), t),
     },
     studio: {
       name: STUDIO_FLOW_NAME,
       description: `Saves Copilot Studio credits from the Power Platform licensing API to ${where} each day. Created by the Analytics Hub installer.`,
-      definition: studioFlowDefinition(t, schedule),
+      definition: nameByConnection(studioFlowDefinition(t, schedule), t),
     },
     agents: {
       name: AGENT_INVENTORY_FLOW_NAME,
       description: `Saves the Power Platform inventory of Copilot Studio agents, environments and agent flows to ${inventoryWhere} each day, for when Azure Resource Graph won't return agents. The inventory API takes delegated sign-ins only, so its connection signs in as a Power Platform or Global Reader-type administrator. Created by the Analytics Hub installer.`,
-      definition: agentInventoryFlowDefinition(t, schedule, inventoryDir),
+      definition: nameByConnection(agentInventoryFlowDefinition(t, schedule, inventoryDir), t),
     },
   };
 }
@@ -278,7 +282,7 @@ export async function ensureFlows(ctx) {
         } else {
           if (id) ui.warn(`The flow ${name} was deleted. Creating it again.`);
           up.flowIds[kind] = await dv.createFlow({ name, description, clientdata: flowClientData(definition) });
-          ui.ok(`Created the flow ${name}, turned off until you sign in to its connections`);
+          ui.ok(`Created the flow ${name}, turned off until it is signed in to its connections`);
         }
         up.flowSignatures[kind] = signature;
         delete up.flowFiles?.[kind];
@@ -289,6 +293,15 @@ export async function ensureFlows(ctx) {
       }
     }
     writeFlowFile(ctx, kind, name, definition);
+  }
+  const on = await connectFlows(ctx);
+  // The steps for whatever is still off, here rather than only on the Done page.
+  const off = kinds.filter((k) => up.flowIds?.[k] && !up.flowFiles?.[k] && !on.has(k) && !flowConnected(config, k));
+  const env = up.flowEnvironment;
+  const link = env?.id ? `${MAKER}environments/${env.id}/flows` : MAKER;
+  for (const kind of off) {
+    ui.info(`To finish ${c.bold(FLOW_NAMES[kind])} in Power Automate:`);
+    flowSteps(ctx, kind, link);
   }
 }
 
@@ -320,7 +333,7 @@ async function updateFlow(ctx, dv, existing, { name, description, definition }) 
   }
   if (!Object.values(current).some(isBound)) {
     const id = await replace();
-    ui.ok(`Replaced the flow ${name} with the new version, turned off until you sign in to its connections`);
+    ui.ok(`Replaced the flow ${name} with the new version, turned off until it is signed in to its connections`);
     return id;
   }
   if (wasOn) await dv.turnOffFlow(existing.workflowid);
@@ -363,26 +376,346 @@ function writeFlowFile(ctx, kind, name, definition) {
 }
 
 /**
+ * The names of the connections the installer makes. Cleaning up only ever deletes these.
+ */
+export const CONNECTION_NAMES = {
+  ppApi: 'Analytics Hub - Power Platform API',
+  oneLake: 'Analytics Hub - OneLake',
+  azureStorage: 'Analytics Hub - Azure Storage',
+};
+const OWNED_NAME = /^Analytics Hub - (Power Platform API|OneLake|Azure Storage( \(.+\))?)$/;
+/** Whether a connection's display name is one the installer gives. @param {string | undefined} name */
+export const isOwnedConnectionName = (name) => OWNED_NAME.test(name ?? '');
+
+/**
+ * The name of the connection the installer makes for a connection reference, if it makes one.
+ * @param {import('../config.js').InstallConfig} config
+ * @param {string} ref
+ */
+export function ownedConnectionName(config, ref) {
+  if (ref === CONNECTORS.entra.name) return CONNECTION_NAMES.ppApi;
+  if (ref !== CONNECTORS.storage.name) return undefined;
+  if (config.target !== 'azure') return CONNECTION_NAMES.oneLake;
+  const account = config.azure?.outputs?.storageAccountName;
+  return account ? `${CONNECTION_NAMES.azureStorage} (${account})` : undefined;
+}
+
+/** The connector both HTTP with Microsoft Entra ID references use. */
+const WEBCONTENTS = CONNECTORS.entra.api;
+/** How often, and how many times, to look at the connections after the user says they've signed in. */
+export const CONNECT_POLL_MS = 5_000;
+export const CONNECT_POLLS = 12;
+
+/**
+ * A connection the installer makes, with its URLs filled in.
+ * @typedef {object} OwnedConnection
+ * @property {string} ref  The connection reference it fills.
+ * @property {string} displayName
+ * @property {Record<string, string>} parameters  The connector's connection parameters.
+ * @property {string} who  Who signs in to it.
+ */
+
+/**
+ * The HTTP with Microsoft Entra ID connections these flows use, one per connection reference.
+ * @param {Ctx} ctx
+ * @param {FlowKind[]} kinds
+ * @returns {OwnedConnection[]}
+ */
+export function ownedConnections(ctx, kinds) {
+  const { config } = ctx;
+  const defs = flowDefinitions(config, ctx.user.tenantId);
+  const used = new Set(kinds.flatMap((k) => connectorsUsed(defs[k].definition)));
+  /** @type {OwnedConnection[]} */
+  const out = [];
+  if (used.has(CONNECTORS.entra.name)) {
+    out.push({
+      ref: CONNECTORS.entra.name,
+      displayName: CONNECTION_NAMES.ppApi,
+      parameters: { baseResourceUrl: PPAPI, 'token:ResourceUri': PPAPI },
+      who: kinds.includes('agents') ? 'a Power Platform administrator' : 'a Power Platform, Billing or Global administrator',
+    });
+  }
+  const storageName = ownedConnectionName(config, CONNECTORS.storage.name);
+  if (used.has(CONNECTORS.storage.name) && storageName) {
+    const account = config.azure?.outputs?.storageAccountName;
+    out.push(
+      config.target === 'azure'
+        ? {
+            ref: CONNECTORS.storage.name,
+            displayName: storageName,
+            parameters: { baseResourceUrl: `https://${account}.dfs.core.windows.net`, 'token:ResourceUri': STORAGE_RESOURCE },
+            who: `someone with Storage Blob Data Contributor on ${account}`,
+          }
+        : {
+            ref: CONNECTORS.storage.name,
+            displayName: storageName,
+            parameters: { baseResourceUrl: ONELAKE_DFS, 'token:ResourceUri': STORAGE_RESOURCE },
+            who: `someone with Contributor or higher on ${config.fabric.workspaceName ?? 'the workspace'}`,
+          },
+    );
+  }
+  return out;
+}
+
+/** Whether the signed-in user made the connection. @param {Ctx} ctx @param {import('../clients/connections.js').Connection} c */
+const madeByMe = (ctx, c) => !!ctx.user.id && c.properties?.createdBy?.id?.toLowerCase() === ctx.user.id.toLowerCase();
+
+/** Whether a connection points at the same place. Rows without their parameters match on name alone. @param {import('../clients/connections.js').Connection} c @param {OwnedConnection} want */
+const sameTarget = (c, want) => {
+  const url = c.properties?.connectionParameters?.baseResourceUrl;
+  return typeof url !== 'string' || url.replace(/\/+$/, '') === want.parameters.baseResourceUrl;
+};
+
+/**
+ * Signs the flows in for the user. Makes each HTTP with Microsoft Entra ID connection a flow needs,
+ * with its URLs filled in and a name the installer owns, and gives one sign-in link for each. Once
+ * they're signed in to, points each flow at them and turns it on, so the Studio flow can run before
+ * the first load. Connections the installer made before and nobody signed in to are deleted.
+ * Never throws: whatever it can't do is left to the steps.
+ * @param {Ctx} ctx
+ * @returns {Promise<Set<FlowKind>>}  The flows that are on.
+ */
+export async function connectFlows(ctx) {
+  const { ui, config, api } = ctx;
+  const up = config.uploads;
+  /** @type {Set<FlowKind>} */
+  const on = new Set();
+  const connections = api.connections;
+  const kinds = flowsWanted(config).filter((k) => up.flowIds?.[k] && !up.flowFiles?.[k]);
+  if (!connections || !kinds.length || !up.flowEnvironment) return on;
+  try {
+    const env = await flowEnvironmentId(ctx);
+    if (!env) return on;
+    /** @type {Partial<Record<FlowKind, Awaited<ReturnType<typeof api.flow.getFlowDetails>>>>} */
+    const flows = {};
+    /** @type {Awaited<ReturnType<typeof api.flow.getFlowDetails>>[]} */
+    const details = [];
+    for (const kind of kinds) {
+      const flow = await api.flow.getFlowDetails(env, /** @type {string} */ (up.flowIds?.[kind]));
+      details.push(flow);
+      if (flow?.properties?.state === 'Started') {
+        on.add(kind);
+        up.flowsConnected = { ...up.flowsConnected, [kind]: /** @type {string} */ (up.flowIds?.[kind]) };
+      } else {
+        flows[kind] = flow;
+        if (up.flowsConnected?.[kind]) delete up.flowsConnected[kind];
+      }
+    }
+    const pending = kinds.filter((k) => !on.has(k));
+    ctx.save();
+    const wanted = ownedConnections(ctx, pending);
+    if (!pending.length || !wanted.length) return on;
+
+    ui.heading('Flow connections');
+    const page = `${MAKER}environments/${env}/connections`;
+    const existing = await connections.list(env, WEBCONTENTS);
+    /** @type {Map<string, import('../clients/connections.js').Connection>} */
+    const chosen = new Map();
+    for (const want of wanted) {
+      const same = existing.filter((c) => c.properties?.displayName === want.displayName && sameTarget(c, want));
+      const saved = up.flowConnections?.[want.ref];
+      const found =
+        same.find((c) => isConnected(c) && madeByMe(ctx, c)) ??
+        same.find(isConnected) ??
+        same.find((c) => c.name === saved) ??
+        same.find((c) => madeByMe(ctx, c));
+      if (found) {
+        chosen.set(want.ref, found);
+        continue;
+      }
+      chosen.set(want.ref, await connections.create(env, WEBCONTENTS, { displayName: want.displayName, parameters: want.parameters }));
+      ui.ok(`Created the connection ${want.displayName}, with its URLs filled in`);
+    }
+    up.flowConnections = { ...up.flowConnections, ...Object.fromEntries([...chosen].map(([ref, c]) => [ref, c.name])) };
+    ctx.save();
+
+    const left = () => wanted.filter((w) => !isConnected(chosen.get(w.ref)));
+    if (left().length) {
+      await showSignIns(ctx, env, left(), chosen, page);
+      if (!ui.yes) await waitForSignIns(ctx, env, wanted, chosen);
+    }
+    if (!left().length) ui.ok('The flow connections are signed in to');
+
+    const defs = flowDefinitions(config, ctx.user.tenantId);
+    const owned = new Set(wanted.map((w) => w.ref));
+    const byName = new Map(existing.map((conn) => [conn.name, conn]));
+    for (const conn of chosen.values()) byName.set(conn.name, conn);
+    let waiting = false;
+    for (const kind of pending) {
+      const id = /** @type {string} */ (up.flowIds?.[kind]);
+      const flow = flows[kind];
+      const definition = flow?.properties?.definition ?? defs[kind].definition;
+      const current = flow?.properties?.connectionReferences ?? {};
+      /** @type {Record<string, any>} */
+      const refs = {};
+      const missing = [];
+      for (const ref of connectorsUsed(definition)) {
+        const conn = chosen.get(ref);
+        const bound = current[ref]?.connectionName;
+        const boundOk = typeof bound === 'string' && bound !== '' && (owned.has(ref) ? isConnected(byName.get(bound)) : true);
+        if (boundOk) refs[ref] = current[ref];
+        else if (conn && isConnected(conn)) refs[ref] = { connectionName: conn.name, source: 'Embedded', id: `/providers/Microsoft.PowerApps/apis/${WEBCONTENTS}`, tier: 'NotSpecified' };
+        else missing.push(ref);
+      }
+      if (missing.length) {
+        const others = missing.filter((ref) => !owned.has(ref));
+        if (others.length) ui.info(`${FLOW_NAMES[kind]} also needs ${labels(others, config)}, which only Power Automate can sign in to. Its steps below say how.`);
+        else waiting = true;
+        continue;
+      }
+      try {
+        await api.flow.setConnections(env, id, { displayName: flow?.properties?.displayName ?? FLOW_NAMES[kind], definition, connectionReferences: refs });
+        await api.flow.start(env, id);
+        up.flowsConnected = { ...up.flowsConnected, [kind]: id };
+        ctx.save();
+        on.add(kind);
+        ui.ok(`Pointed ${FLOW_NAMES[kind]} at its connections and turned it on`);
+      } catch (err) {
+        ui.warn(`Couldn't turn on ${FLOW_NAMES[kind]} (${/** @type {Error} */ (err).message}). Its steps below say how to do it in Power Automate.`);
+      }
+    }
+    if (waiting) ui.note(`When the connections are signed in to, run "${commandLine('update')}" to point the flows at them and turn them on. Or follow the steps below.`);
+    if (pending.includes('studio') && !on.has('studio')) ui.warn('Copilot Studio data arrives after the flow runs and the next daily load.');
+    await tidyConnections(ctx, env, new Set([...chosen.values()].map((conn) => conn.name).concat(boundTo(Object.values(details)))), page);
+  } catch (err) {
+    ui.warn(`Couldn't set up the flow connections (${/** @type {Error} */ (err).message}). Sign in to them in Power Automate instead; the steps below say how.`);
+  }
+  return on;
+}
+
+/** The connections the flows already use. @param {any[]} flows @returns {string[]} */
+const boundTo = (flows) =>
+  flows.flatMap((f) => Object.values(f?.properties?.connectionReferences ?? {}).map((r) => r?.connectionName).filter((n) => typeof n === 'string' && n));
+
+/**
+ * One sign-in link for each connection, and who signs in.
+ * @param {Ctx} ctx
+ * @param {string} env
+ * @param {OwnedConnection[]} wanted
+ * @param {Map<string, import('../clients/connections.js').Connection>} chosen
+ * @param {string} page  The environment's Connections page.
+ */
+async function showSignIns(ctx, env, wanted, chosen, page) {
+  const { ui, api } = ctx;
+  const connections = /** @type {import('../clients/connections.js').ConnectionsApi} */ (api.connections);
+  ui.info('Sign in to each connection: open its link and sign in as the person shown. Each is one click.');
+  let n = 1;
+  for (const want of wanted) {
+    const conn = /** @type {import('../clients/connections.js').Connection} */ (chosen.get(want.ref));
+    /** @type {string | undefined} */
+    let link;
+    try {
+      link = await connections.consentLink(env, WEBCONTENTS, conn.name, page);
+    } catch {
+      // The Connections page does the same.
+    }
+    ui.info(`  ${n++}. ${c.bold(want.displayName)}: sign in as ${want.who}.`);
+    ui.info(`     ${link ?? `${page} (find "${want.displayName}" and click Fix connection)`}`);
+  }
+  ui.note('  If a link opens nothing, your browser blocked the pop-up: allow pop-ups for make.powerautomate.com and login.microsoftonline.com, then open it again.');
+  ui.note(`  If a link has expired, open ${page}, find the connection by its name and click Fix connection.`);
+  ui.note('  HTTP with Microsoft Entra ID (preauthorized) is a Premium connector: whoever signs in, and you as the flows\' owner, need a Power Automate Premium licence.');
+}
+
+/**
+ * Asks the user to sign in, then looks at the connections until they're signed in to, or the user
+ * leaves it for later. Updates `chosen` as they change.
+ * @param {Ctx} ctx
+ * @param {string} env
+ * @param {OwnedConnection[]} wanted
+ * @param {Map<string, import('../clients/connections.js').Connection>} chosen
+ * @returns {Promise<boolean>}  Whether they're all signed in to.
+ */
+async function waitForSignIns(ctx, env, wanted, chosen) {
+  const { ui, api } = ctx;
+  const connections = /** @type {import('../clients/connections.js').ConnectionsApi} */ (api.connections);
+  const left = () => wanted.filter((w) => !isConnected(chosen.get(w.ref)));
+  for (;;) {
+    const choice = await ui.select(
+      'Signed in to the connections?',
+      [
+        { name: "I've signed in, check now", value: 'check' },
+        { name: 'Do this later', value: 'later' },
+      ],
+      'check',
+    );
+    if (choice === 'later') return false;
+    const progress = ui.progress('Flow connections');
+    try {
+      for (let i = 0; i < CONNECT_POLLS; i++) {
+        for (const w of left()) {
+          const conn = /** @type {import('../clients/connections.js').Connection} */ (chosen.get(w.ref));
+          chosen.set(w.ref, (await connections.get(env, WEBCONTENTS, conn.name)) ?? conn);
+        }
+        if (!left().length) return true;
+        progress.update(`Waiting for ${left().map((w) => w.displayName).join(', ')}`);
+        await ctx.sleep(CONNECT_POLL_MS);
+      }
+    } finally {
+      progress.done();
+    }
+    ui.warn(`Not signed in to yet: ${left().map((w) => w.displayName).join(', ')}. Use the links above, then check again.`);
+  }
+}
+
+/**
+ * Deletes the connections the installer made that nobody signed in to and nothing uses, so they
+ * don't pile up. Lists the user's other HTTP with Microsoft Entra ID connections that aren't signed
+ * in to, but never deletes them.
+ * @param {Ctx} ctx
+ * @param {string} env
+ * @param {Set<string>} keep  Connections in use, or just made.
+ * @param {string} page
+ */
+async function tidyConnections(ctx, env, keep, page) {
+  const { ui, api } = ctx;
+  const connections = /** @type {import('../clients/connections.js').ConnectionsApi} */ (api.connections);
+  const stale = (await connections.list(env, WEBCONTENTS)).filter((conn) => !isConnected(conn) && !keep.has(conn.name) && madeByMe(ctx, conn));
+  const ours = stale.filter((conn) => isOwnedConnectionName(conn.properties?.displayName));
+  let removed = 0;
+  for (const conn of ours) {
+    try {
+      await connections.remove(env, WEBCONTENTS, conn.name);
+      removed++;
+    } catch {
+      // Left for next time.
+    }
+  }
+  if (removed) ui.ok(`Deleted ${removed} connection${removed === 1 ? '' : 's'} the installer made before that nobody signed in to`);
+  const others = stale.filter((conn) => !ours.includes(conn));
+  if (others.length) {
+    ui.note(`You have ${others.length} other HTTP with Microsoft Entra ID connection${others.length === 1 ? '' : 's'} that ${others.length === 1 ? "isn't" : "aren't"} signed in to. The installer leaves ${others.length === 1 ? 'it' : 'them'} alone; delete any you don't need at ${page}:`);
+    for (const conn of others.slice(0, 10)) ui.note(`  ${conn.properties?.displayName ?? conn.name}`);
+    if (others.length > 10) ui.note(`  and ${others.length - 10} more`);
+  }
+}
+
+/**
  * The connection sign-ins a flow needs, one line each.
  * @param {import('../config.js').InstallConfig} config
  * @param {FlowKind} kind
  */
 export function connectionSteps(config, kind) {
   const workspace = config.fabric.workspaceName ?? 'the workspace';
+  const made = config.uploads.flowConnections ?? {};
+  const orPick = (/** @type {string} */ ref) => {
+    const name = ownedConnectionName(config, ref);
+    return made[ref] && name ? ` Or pick the connection "${name}" the installer made, once it's signed in to.` : '';
+  };
   const storage =
-    config.target === 'azure'
+    (config.target === 'azure'
       ? azureStorageStep(config.azure)
       : flowIdentity(config) === 'app'
         ? `${CONNECTORS.keyVault.label}: vault ${config.keyVault.name ?? 'your Key Vault'}.`
-        : `${CONNECTORS.storage.label}: Base Resource URL ${ONELAKE_DFS}, Resource URI ${STORAGE_RESOURCE}. Sign in as someone with Contributor or higher on ${workspace}.`;
+        : `${CONNECTORS.storage.label}: Base Resource URL ${ONELAKE_DFS}, Resource URI ${STORAGE_RESOURCE}. Sign in as someone with Contributor or higher on ${workspace}. Its actions end in "via OneLake".`) +
+    (flowIdentity(config) === 'app' || azureDropsToSharePoint(config.azure) ? '' : orPick(CONNECTORS.storage.name));
   if (kind === 'feedback') return [`${CONNECTORS.outlook.label}: sign in as the mailbox the export is emailed to.`, storage];
+  const ppApi = `${CONNECTORS.entra.label}: Base Resource URL and Resource URI ${PPAPI}.`;
+  const ppActions = `Its actions end in "via Power Platform API".${orPick(CONNECTORS.entra.name)}`;
   if (kind === 'agents') {
-    return [
-      `${CONNECTORS.entra.label}: Base Resource URL and Resource URI ${PPAPI}. Sign in as a Power Platform administrator, or an admin with Global Reader: the inventory API takes delegated sign-ins only.`,
-      storage,
-    ];
+    return [`${ppApi} Sign in as a Power Platform administrator, or an admin with Global Reader: the inventory API takes delegated sign-ins only. ${ppActions}`, storage];
   }
-  return [`${CONNECTORS.entra.label}: Base Resource URL and Resource URI ${PPAPI}. Sign in as a Power Platform, Billing or Global administrator.`, storage];
+  return [`${ppApi} Sign in as a Power Platform, Billing or Global administrator. ${ppActions}`, storage];
 }
 
 /**
@@ -394,7 +727,39 @@ function azureStorageStep(az) {
     return `${CONNECTORS.sharePoint.label}: sign in as someone who can add files to ${az?.drop?.folderUrl ?? 'the drop folder'}.`;
   }
   const account = az?.outputs?.storageAccountName ?? '<storage account>';
-  return `${connectorLabel(CONNECTORS.storage.name, /** @type {any} */ ({ target: 'azure' }))}: Base Resource URL https://${account}.dfs.core.windows.net, Resource URI ${STORAGE_RESOURCE}. Sign in as someone with Storage Blob Data Contributor on ${account} (the installer gave it to you).`;
+  return `${connectorLabel(CONNECTORS.storage.name, /** @type {any} */ ({ target: 'azure' }))}: Base Resource URL https://${account}.dfs.core.windows.net, Resource URI ${STORAGE_RESOURCE}. Sign in as someone with Storage Blob Data Contributor on ${account} (the installer gave it to you). Its actions end in "via Azure Storage".`;
+}
+
+/** The Microsoft 365 admin center page for product feedback (Health > Product feedback), where the export is scheduled. */
+export const FEEDBACK_EXPORT_URL = 'https://admin.microsoft.com/Adminportal/Home#/tenantfeedback';
+const feedbackExportStep = `Schedule the product feedback export to that mailbox, subject "${FEEDBACK_SUBJECT}": ${FEEDBACK_EXPORT_URL} (Microsoft 365 admin center > Health > Product feedback).`;
+
+/**
+ * Whether the installer signed the flow in and turned it on, and it hasn't been replaced since.
+ * @param {import('../config.js').InstallConfig} config
+ * @param {FlowKind} kind
+ */
+const flowConnected = (config, kind) => !!config.uploads.flowIds?.[kind] && config.uploads.flowsConnected?.[kind] === config.uploads.flowIds[kind];
+
+/**
+ * The numbered steps to sign a flow in and turn it on by hand.
+ * @param {Ctx} ctx
+ * @param {FlowKind} kind
+ * @param {string} link  The flows page.
+ */
+function flowSteps(ctx, kind, link) {
+  const { ui, config } = ctx;
+  let n = 1;
+  ui.info(`  ${n++}. Open it: ${link}`);
+  ui.info(`  ${n++}. Allow pop-ups for make.powerautomate.com: each sign-in opens one. Sign in on the first action for each connection below, then pick that connection on its other actions.`);
+  for (const step of connectionSteps(config, kind)) ui.info(`  ${n++}. ${step}`);
+  ui.info(`  ${n++}. Save, then turn it on.`);
+  if (kind === 'feedback') ui.info(`  ${n++}. ${feedbackExportStep}`);
+  else if (kind === 'agents') ui.note('     It runs daily, an hour before the pipeline. The collector reads its newest file only when Azure Resource Graph returns no agents.');
+  else {
+    ui.info(`  ${n++}. To load about six months now rather than at its first daily run, click Run. Or use "${commandLine('run')}", which offers to run it before the pipeline.`);
+    ui.note('     After that it runs daily, an hour before the pipeline.');
+  }
 }
 
 /**
@@ -412,19 +777,15 @@ export function flowsSummary(ctx) {
   for (const kind of kinds) {
     const name = FLOW_NAMES[kind];
     const file = up.flowFiles?.[kind];
+    if (up.flowIds?.[kind] && !file && flowConnected(config, kind)) {
+      ui.info(c.bold(name) + c.dim(`  in ${env?.name ?? env?.url}, signed in and on`));
+      if (kind === 'feedback') ui.info(`  1. ${feedbackExportStep}`);
+      continue;
+    }
     if (up.flowIds?.[kind] && !file) ui.info(c.bold(name) + c.dim(`  in ${env?.name ?? env?.url}, turned off`));
     else if (file) ui.info(c.bold(name) + c.dim(`  to import: ${file}`));
     else continue;
-    let n = 1;
-    ui.info(`  ${n++}. Open it: ${link}`);
-    for (const step of connectionSteps(config, kind)) ui.info(`  ${n++}. ${step}`);
-    ui.info(`  ${n++}. Save, then turn it on.`);
-    if (kind === 'feedback') ui.info(`  ${n++}. In the Microsoft 365 admin center, schedule the product feedback export to that mailbox, subject "${FEEDBACK_SUBJECT}".`);
-    else if (kind === 'agents') ui.note('     It runs daily, an hour before the pipeline. The collector reads its newest file only when Azure Resource Graph returns no agents.');
-    else {
-      ui.info(`  ${n++}. To load about six months now rather than at its first daily run, click Run. Or use "${commandLine('run')}", which offers to run it before the pipeline.`);
-      ui.note('     After that it runs daily, an hour before the pipeline.');
-    }
+    flowSteps(ctx, kind, link);
   }
   ui.note('  Tip: sign in with a dedicated admin account and add a co-owner, so the flows outlive any one person.');
   if (flowIdentity(config) === 'app' && config.keyVault.private) {

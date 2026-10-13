@@ -4,11 +4,29 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
+import { connectionsApi, isConnected } from '../src/clients/connections.js';
 import { HttpError } from '../src/http.js';
-import { ensureFlows, FLOW_FILES, flowDefinitions, flowsSkipped, flowsSummary, flowsWanted, offerStudioRun, planFlows, STUDIO_RUN_POLL_MS } from '../src/steps/flows.js';
+import {
+  CONNECT_POLL_MS,
+  CONNECT_POLLS,
+  CONNECTION_NAMES,
+  ensureFlows,
+  FEEDBACK_EXPORT_URL,
+  FLOW_FILES,
+  flowDefinitions,
+  flowsSkipped,
+  flowsSummary,
+  flowsWanted,
+  isOwnedConnectionName,
+  offerStudioRun,
+  ownedConnections,
+  planFlows,
+  STUDIO_RUN_POLL_MS,
+} from '../src/steps/flows.js';
 import { run } from '../src/install.js';
 import { ensureWorkspaceRole } from '../src/steps/model.js';
 import {
+  agentInventoryFlowDefinition,
   BACKFILL_MARKER,
   connectionReferencesOf,
   isBound,
@@ -20,6 +38,7 @@ import {
   flowClientData,
   flowFile,
   hourBefore,
+  nameByConnection,
   newConnections,
   oneLakeEndpoint,
   STUDIO_BACKFILL_DAYS,
@@ -28,7 +47,7 @@ import {
   studioFlowDefinition,
 } from '../src/transform/flows.js';
 import { detectSource, UPLOAD_DIR } from '../src/uploads.js';
-import { fakeCtx, fakeFabric, fakeUi } from './fakes.js';
+import { fakeConnections, fakeCtx, fakeFabric, fakeUi } from './fakes.js';
 
 const ENDPOINT = oneLakeEndpoint('ws-guid', 'lh-guid');
 /** @type {import('../src/transform/flows.js').FlowTarget} */
@@ -183,6 +202,31 @@ test('studioFlowDefinition: as the app, Key Vault and the Power Platform API, wr
   assert.equal(actions.Check_backfill.inputs.uri, `https://onelake.blob.fabric.microsoft.com/ws-guid/lh-guid/${FLOW_STATE_DIR}/${BACKFILL_MARKER}`);
   assert.deepEqual(actions.Get_environments.runAfter, { Get_client_secret: ['Succeeded'] });
   for (const [name, a] of allActions(def.actions)) if (a.type === 'Http') assert.ok(a.runtimeConfiguration?.secureData, `${name} hides its inputs`);
+});
+
+test('nameByConnection: each action on an HTTP with Microsoft Entra ID connection says which, references follow, and no Set variable is empty', () => {
+  /** @param {any} def @param {{ endpoint: string }} t @param {string} storage */
+  const check = (def, t, storage) => {
+    const named = nameByConnection(def, t);
+    assertWellFormed(named);
+    const actions = allActions(named.actions);
+    const names = new Set(actions.map(([n]) => n));
+    for (const [name, a] of actions) {
+      const conn = a.inputs?.host?.connectionName;
+      if (conn === CONNECTORS.entra.name) assert.ok(name.endsWith('_via_Power_Platform_API'), name);
+      if (conn === CONNECTORS.storage.name) assert.ok(name.endsWith(`_${storage}`), name);
+      if (a.type === 'SetVariable') assert.notEqual(a.inputs.value, '', `${name} has a value the designer accepts`);
+      if (/^Reset_(user_)?token$/.test(name)) assert.equal(a.inputs.value, "@string('')", `${name} empties the token in a way the designer saves`);
+    }
+    for (const [, ref] of JSON.stringify(named).matchAll(/(?:body|outputs|actions|result)\('([^']+)'\)/g)) assert.ok(names.has(ref), `${ref} is an action`);
+    return names;
+  };
+  const studio = check(studioFlowDefinition(USER, SCHEDULE), USER, 'via_OneLake');
+  assert.ok(studio.has('Reset_token') && studio.has('Reset_user_token'));
+  const adls = { endpoint: 'https://acct.dfs.core.windows.net/landing' };
+  check(feedbackFlowDefinition(adls), adls, 'via_Azure_Storage');
+  check(agentInventoryFlowDefinition(USER, SCHEDULE, 'Files/agent_inventory'), USER, 'via_OneLake');
+  check(studioFlowDefinition(adls, SCHEDULE), adls, 'via_Azure_Storage');
 });
 
 test('the writer takes any DFS endpoint: an ADLS Gen2 container works too', () => {
@@ -503,10 +547,11 @@ test('flowsSummary: short numbered steps for each connection; the private vault 
   flowsSummary(ctx);
   const out = text();
   assert.match(out, /1\. Open it: https:\/\/make\.powerautomate\.com\/environments\/env-1\/flows/);
-  assert.match(out, /2\. HTTP with Microsoft Entra ID \(preauthorized\), for the Power Platform API: Base Resource URL and Resource URI https:\/\/api\.powerplatform\.com\. Sign in as a Power Platform, Billing or Global administrator\./);
-  assert.match(out, /3\. .*for OneLake: Base Resource URL https:\/\/onelake\.dfs\.fabric\.microsoft\.com, Resource URI https:\/\/storage\.azure\.com\. Sign in as someone with Contributor or higher on Analytics\./);
-  assert.match(out, /4\. Save, then turn it on\./);
-  assert.match(out, /5\. To load about six months now rather than at its first daily run, click Run\. Or use ".*run", which offers to run it before the pipeline\./);
+  assert.match(out, /2\. Allow pop-ups for make\.powerautomate\.com.*pick that connection on its other actions\./);
+  assert.match(out, /3\. HTTP with Microsoft Entra ID \(preauthorized\), for the Power Platform API: Base Resource URL and Resource URI https:\/\/api\.powerplatform\.com\. Sign in as a Power Platform, Billing or Global administrator\. Its actions end in "via Power Platform API"\./);
+  assert.match(out, /4\. .*for OneLake: Base Resource URL https:\/\/onelake\.dfs\.fabric\.microsoft\.com, Resource URI https:\/\/storage\.azure\.com\. Sign in as someone with Contributor or higher on Analytics\. Its actions end in "via OneLake"\./);
+  assert.match(out, /5\. Save, then turn it on\./);
+  assert.match(out, /6\. To load about six months now rather than at its first daily run, click Run\. Or use ".*run", which offers to run it before the pipeline\./);
   assert.match(out, /co-owner/);
   assert.doesNotMatch(out, /Key Vault|kv-private|trusted service|gateway/i);
 
@@ -517,7 +562,7 @@ test('flowsSummary: short numbered steps for each connection; the private vault 
   config2.keyVault.private = true;
   config2.uploads = { flowIdentity: 'app', flowIds: { studio: 'flow-1' }, flowEnvironment: { url: 'https://org1.crm.dynamics.com' } };
   flowsSummary(ctx2);
-  assert.match(app.text(), /3\. Azure Key Vault: vault kv-private\./);
+  assert.match(app.text(), /4\. Azure Key Vault: vault kv-private\./);
   assert.match(app.text(), /kv-private blocks public network access, which the Key Vault connector needs\. Run install --flow-identity user/);
   assert.doesNotMatch(app.text(), /trusted service|gateway|exempt/i);
 });
@@ -751,4 +796,257 @@ test('run: offers the Studio flow first, so the pipeline it starts picks up its 
   config.firstRun = { status: 'Completed' };
   await run(ctx, { wait: false });
   assert.deepEqual(order, ['flow', 'pipeline']);
+});
+/**
+ * Power Automate's view of the flows in `dv`: their state and connection references, binding them
+ * and turning them on. `refs` seeds a flow's references by its ID.
+ * @param {ReturnType<typeof fakeDataverse>} dv
+ * @param {{ refs?: Record<string, Record<string, any>>, failSet?: boolean }} [o]
+ */
+function fakePowerAutomate(dv, o = {}) {
+  /** @type {string[]} */
+  const calls = [];
+  /** @type {Map<string, Record<string, any>>} */
+  const refs = new Map(Object.entries(o.refs ?? {}));
+  const api = {
+    /** @param {string} _env @param {string} id */
+    getFlowDetails: async (_env, id) => {
+      calls.push(`getFlowDetails ${id}`);
+      const f = dv.flows.get(id);
+      return { name: id, properties: { state: f.statecode === 1 ? 'Started' : 'Stopped', displayName: f.name, definition: JSON.parse(f.clientdata).properties.definition, connectionReferences: refs.get(id) ?? {} } };
+    },
+    /** @param {string} _env @param {string} id @param {{ definition: any, connectionReferences: Record<string, any> }} p */
+    setConnections: async (_env, id, p) => {
+      const bound = Object.entries(p.connectionReferences).map(([k, v]) => `${k}=${v.connectionName}`).sort();
+      calls.push(`setConnections ${id} ${bound.join(' ')}`);
+      if (o.failSet) throw new Error('400 InvalidConnection');
+      assert.ok(p.definition?.triggers, 'the definition goes with the references');
+      refs.set(id, p.connectionReferences);
+    },
+    /** @param {string} _env @param {string} id */
+    start: async (_env, id) => {
+      calls.push(`start ${id}`);
+      dv.flows.get(id).statecode = 1;
+    },
+  };
+  return { api, calls, refs };
+}
+
+/** A Fabric install with the Studio flow, its connections and Power Automate faked. @param {{ ui: any, conns: ReturnType<typeof fakeConnections>, refs?: Record<string, Record<string, any>>, failSet?: boolean }} o */
+function connectCtx(o) {
+  const dv = fakeDataverse();
+  const pa = fakePowerAutomate(dv, { refs: o.refs, failSet: o.failSet });
+  const made = fakeCtx({ ui: o.ui, fabric: fakeFabric().api, dataverse: () => dv.api, flow: pa.api, connections: o.conns.api });
+  made.config.dataSources.studioCredits = 'api';
+  made.config.fabric.workspaceName = 'Analytics';
+  made.config.uploads = { flowEnvironment: { url: 'https://org1.crm.dynamics.com', id: 'env-1', name: 'Default' } };
+  return { ...made, dv, pa };
+}
+
+const PAGE = 'https://make.powerautomate.com/environments/env-1/connections';
+const PP_PARAMS = { baseResourceUrl: 'https://api.powerplatform.com', 'token:ResourceUri': 'https://api.powerplatform.com' };
+const ONELAKE_PARAMS = { baseResourceUrl: 'https://onelake.dfs.fabric.microsoft.com', 'token:ResourceUri': 'https://storage.azure.com' };
+
+test('connections client: create, sign-in link, list, look up and delete in the environment', async () => {
+  /** @type {any[]} */
+  const sent = [];
+  const http = /** @type {any} */ ({
+    list: async (/** @type {string} */ p, /** @type {any} */ o) => (sent.push(['LIST', p, o]), [{ name: 'c-1' }]),
+    get: async (/** @type {string} */ p, /** @type {any} */ o) => (sent.push(['GET', p, o]), { name: 'c-1' }),
+    put: async (/** @type {string} */ p, /** @type {any} */ body, /** @type {any} */ o) => (sent.push(['PUT', p, o, body]), { name: p.split('/').pop(), properties: body.properties }),
+    post: async (/** @type {string} */ p, /** @type {any} */ body, /** @type {any} */ o) => (sent.push(['POST', p, o, body]), { consentLink: 'https://login.example/consent' }),
+    del: async (/** @type {string} */ p, /** @type {any} */ o) => sent.push(['DELETE', p, o]),
+  });
+  const api = connectionsApi(http);
+  const query = { 'api-version': '2016-11-01', $filter: "environment eq 'env-1'" };
+  const base = '/providers/Microsoft.PowerApps/apis/shared_webcontents/connections';
+
+  const made = await api.create('env-1', 'shared_webcontents', { displayName: CONNECTION_NAMES.ppApi, parameters: PP_PARAMS });
+  const [method, path, opts, body] = sent[0];
+  assert.equal(method, 'PUT');
+  assert.match(path, new RegExp(`^${base}/shared-webcontents-[0-9a-f-]{36}$`));
+  assert.deepEqual(opts, { query });
+  assert.deepEqual(body, { properties: { environment: { id: '/providers/Microsoft.PowerApps/environments/env-1', name: 'env-1' }, displayName: CONNECTION_NAMES.ppApi, connectionParameters: PP_PARAMS } });
+  assert.match(made.name, /^shared-webcontents-/);
+
+  assert.equal(await api.consentLink('env-1', 'shared_webcontents', 'c-1', PAGE), 'https://login.example/consent');
+  assert.deepEqual(sent[1], ['POST', `${base}/c-1/getConsentLink`, { query }, { redirectUrl: PAGE }]);
+  assert.deepEqual(await api.list('env-1', 'shared_webcontents'), [{ name: 'c-1' }]);
+  assert.deepEqual(sent[2], ['LIST', base, { query }]);
+  await api.get('env-1', 'shared_webcontents', 'c-1');
+  assert.deepEqual(sent[3], ['GET', `${base}/c-1`, { query }]);
+  await api.remove('env-1', 'shared_webcontents', 'c-1');
+  assert.deepEqual(sent[4], ['DELETE', `${base}/c-1`, { query }]);
+
+  assert.equal(isConnected({ name: 'x', properties: { statuses: [{ status: 'Connected' }] } }), true);
+  assert.equal(isConnected({ name: 'x', properties: { statuses: [{ status: 'Error', error: { code: 'Unauthenticated' } }] } }), false);
+  assert.equal(isConnected(undefined), false);
+  assert.equal(isOwnedConnectionName('Analytics Hub - OneLake'), true);
+  assert.equal(isOwnedConnectionName('Analytics Hub - Azure Storage (acct)'), true);
+  assert.equal(isOwnedConnectionName('Analytics Hub - OneLake (copy)'), false);
+  assert.equal(isOwnedConnectionName('HTTP with Microsoft Entra ID'), false);
+});
+
+test('ensureFlows: makes the two connections with their URLs, one sign-in link each, then points the Studio flow at them and turns it on', async () => {
+  const conns = fakeConnections({ signsIn: true });
+  const { ui, text, asked } = fakeUi({ answers: ['check'] });
+  const { ctx, config, dv, pa } = connectCtx({ ui, conns });
+
+  await ensureFlows(ctx);
+  assert.deepEqual(conns.calls.filter((x) => x.startsWith('create')), [`create ${CONNECTION_NAMES.ppApi}`, `create ${CONNECTION_NAMES.oneLake}`]);
+  assert.deepEqual(conns.conns.map((x) => x.properties.connectionParameters), [PP_PARAMS, ONELAKE_PARAMS]);
+  assert.ok(conns.calls.includes(`consentLink shared-webcontents-1 ${PAGE}`));
+  const out = text();
+  assert.equal(out.match(/https:\/\/consent\.example\//g)?.length, 2, 'one sign-in link per connection');
+  assert.match(out, /Analytics Hub - Power Platform API.*sign in as a Power Platform, Billing or Global administrator/);
+  assert.match(out, /Analytics Hub - OneLake.*sign in as someone with Contributor or higher on Analytics/);
+  assert.match(out, /your browser blocked the pop-up: allow pop-ups for make\.powerautomate\.com/);
+  assert.match(out, /Premium connector: whoever signs in, and you as the flows' owner, need a Power Automate Premium licence/);
+  assert.deepEqual(asked, ['Signed in to the connections?']);
+  assert.deepEqual(pa.calls.slice(1), [
+    'setConnections flow-1 shared_webcontents=shared-webcontents-1 shared_webcontents_storage=shared-webcontents-2',
+    'start flow-1',
+  ]);
+  assert.equal(dv.flows.get('flow-1').statecode, 1);
+  assert.deepEqual(config.uploads.flowsConnected, { studio: 'flow-1' });
+  assert.deepEqual(config.uploads.flowConnections, { shared_webcontents: 'shared-webcontents-1', shared_webcontents_storage: 'shared-webcontents-2' });
+  assert.match(out, /Pointed Analytics Hub - Copilot Studio credits at its connections and turned it on/);
+  assert.doesNotMatch(out, /To finish|next daily load/);
+  assert.ok(!conns.calls.some((x) => x.startsWith('remove')));
+
+  const before = text().length;
+  flowsSummary(ctx);
+  const summary = text().slice(before);
+  assert.match(summary, /Copilot Studio credits.*signed in and on/);
+  assert.doesNotMatch(summary, /Save, then turn it on/);
+
+  const calls = conns.calls.length;
+  await ensureFlows(ctx);
+  assert.equal(conns.calls.length, calls, 'a flow that is on is left alone');
+  assert.equal(pa.calls.filter((x) => x.startsWith('setConnections')).length, 1);
+});
+
+test('ensureFlows: "Do this later" leaves the flow off with its steps, and the next run binds the connections once signed in to', async () => {
+  const conns = fakeConnections();
+  const { ui, text } = fakeUi({ answers: ['later'] });
+  const { ctx, config, pa } = connectCtx({ ui, conns });
+
+  await ensureFlows(ctx);
+  assert.ok(!pa.calls.some((x) => x.startsWith('setConnections') || x.startsWith('start')));
+  assert.equal(config.uploads.flowsConnected, undefined);
+  const out = text();
+  assert.match(out, /Copilot Studio data arrives after the flow runs and the next daily load\./);
+  assert.match(out, /run ".*update" to point the flows at them and turn them on/);
+  assert.match(out, /To finish .*Copilot Studio credits.* in Power Automate:/);
+  assert.match(out, /Or pick the connection "Analytics Hub - Power Platform API" the installer made, once it's signed in to\./);
+  assert.match(out, /Or pick the connection "Analytics Hub - OneLake" the installer made/);
+  assert.match(out, /5\. Save, then turn it on\./);
+
+  conns.signIn('shared-webcontents-1');
+  conns.signIn('shared-webcontents-2');
+  await ensureFlows(ctx);
+  assert.equal(conns.calls.filter((x) => x.startsWith('create')).length, 2, 'the same connections, not new ones');
+  assert.ok(pa.calls.includes('start flow-1'));
+  assert.deepEqual(config.uploads.flowsConnected, { studio: 'flow-1' });
+});
+
+test('ensureFlows: --yes gives the links without waiting; checking gives up after a while and asks again', async () => {
+  const quiet = fakeUi({ yes: true });
+  const one = connectCtx({ ui: quiet.ui, conns: fakeConnections() });
+  await ensureFlows(one.ctx);
+  assert.deepEqual(quiet.asked, []);
+  assert.match(quiet.text(), /https:\/\/consent\.example\/shared-webcontents-1/);
+  assert.ok(!one.pa.calls.some((x) => x.startsWith('start')));
+
+  const conns = fakeConnections({ noLinks: true });
+  const { ui, text, asked } = fakeUi({ answers: ['check', 'later'] });
+  const { ctx, sleeps } = connectCtx({ ui, conns });
+  await ensureFlows(ctx);
+  assert.equal(sleeps.filter((ms) => ms === CONNECT_POLL_MS).length, CONNECT_POLLS);
+  assert.equal(asked.length, 2);
+  assert.match(text(), /Not signed in to yet: Analytics Hub - Power Platform API, Analytics Hub - OneLake\./);
+  assert.ok(text().includes(`${PAGE} (find "Analytics Hub - OneLake" and click Fix connection)`), 'no consent link: the Connections page instead');
+});
+
+test('ensureFlows: reuses signed-in connections by name, and deletes only its own unsigned, unused ones', async () => {
+  const mine = { id: 'user-1' };
+  const theirs = { id: 'user-2' };
+  const ok = [{ status: 'Connected' }];
+  const bad = [{ status: 'Error', error: { code: 'Unauthenticated' } }];
+  const conns = fakeConnections({
+    existing: [
+      { name: 'mine-elsewhere', properties: { displayName: CONNECTION_NAMES.ppApi, statuses: ok, createdBy: mine, connectionParameters: { baseResourceUrl: 'https://example.com' } } },
+      { name: 'mine-ok', properties: { displayName: CONNECTION_NAMES.ppApi, statuses: ok, createdBy: mine, connectionParameters: { baseResourceUrl: 'https://api.powerplatform.com/' } } },
+      { name: 'theirs-onelake', properties: { displayName: CONNECTION_NAMES.oneLake, statuses: ok, createdBy: theirs } },
+      { name: 'mine-stale', properties: { displayName: CONNECTION_NAMES.ppApi, statuses: bad, createdBy: mine } },
+      { name: 'theirs-stale', properties: { displayName: CONNECTION_NAMES.oneLake, statuses: bad, createdBy: theirs } },
+      { name: 'bound-stale', properties: { displayName: CONNECTION_NAMES.oneLake, statuses: bad, createdBy: mine } },
+      { name: 'other-mine', properties: { displayName: 'My HTTP', statuses: bad, createdBy: mine } },
+    ],
+  });
+  const { ui, text, asked } = fakeUi();
+  const { ctx, pa } = connectCtx({ ui, conns, refs: { 'flow-1': { shared_webcontents_storage: { connectionName: 'bound-stale' } } } });
+
+  await ensureFlows(ctx);
+  assert.ok(!conns.calls.some((x) => x.startsWith('create') || x.startsWith('consentLink')));
+  assert.deepEqual(asked, [], 'both are signed in to already');
+  assert.ok(pa.calls.includes('setConnections flow-1 shared_webcontents=mine-ok shared_webcontents_storage=theirs-onelake'), 'an unsigned binding is replaced');
+  assert.deepEqual(conns.calls.filter((x) => x.startsWith('remove')), ['remove mine-stale'], 'never one made by someone else, in use, or not the installer\'s');
+  assert.match(text(), /Deleted 1 connection the installer made before that nobody signed in to/);
+  assert.match(text(), /You have 1 other HTTP with Microsoft Entra ID connection that isn't signed in to\. The installer leaves it alone/);
+  assert.match(text(), /My HTTP/);
+  assert.doesNotMatch(text(), /theirs-stale/);
+});
+
+test('ensureFlows: the feedback flow gets its OneLake connection but stays off for Outlook, with the admin center link', async () => {
+  const conns = fakeConnections({ signsIn: true });
+  const { ui, text } = fakeUi({ answers: ['check'] });
+  const { ctx, config, pa } = connectCtx({ ui, conns });
+  config.dataSources.studioCredits = 'skip';
+  config.dataSources.productFeedback = 'api';
+
+  await ensureFlows(ctx);
+  assert.deepEqual(conns.calls.filter((x) => x.startsWith('create')), [`create ${CONNECTION_NAMES.oneLake}`]);
+  assert.ok(!pa.calls.some((x) => x.startsWith('setConnections')));
+  assert.match(text(), /product feedback also needs Office 365 Outlook, which only Power Automate can sign in to/i);
+  assert.match(text(), /To finish .*product feedback/i);
+  assert.ok(text().includes(`Schedule the product feedback export to that mailbox, subject "`));
+  assert.ok(text().includes(FEEDBACK_EXPORT_URL));
+  assert.doesNotMatch(text(), /next daily load/);
+});
+
+test('ensureFlows: when the connections can\'t be made or bound, it says so and gives the steps', async () => {
+  const failing = fakeUi();
+  const one = connectCtx({ ui: failing.ui, conns: fakeConnections({ failCreate: true }) });
+  await ensureFlows(one.ctx);
+  assert.match(failing.text(), /Couldn't set up the flow connections \(403 Forbidden\)\. Sign in to them in Power Automate instead/);
+  assert.match(failing.text(), /To finish .*Copilot Studio credits/);
+
+  const conns = fakeConnections({ signsIn: true });
+  const { ui, text } = fakeUi({ answers: ['check'] });
+  const { ctx, config } = connectCtx({ ui, conns, failSet: true });
+  await ensureFlows(ctx);
+  assert.match(text(), /Couldn't turn on Analytics Hub - Copilot Studio credits \(400 InvalidConnection\)/);
+  assert.equal(config.uploads.flowsConnected, undefined);
+  assert.match(text(), /To finish .*Copilot Studio credits/);
+});
+
+test('ownedConnections: Azure Storage names its account; the SharePoint drop and the app identity need no storage connection', () => {
+  const { ctx, config } = fakeCtx();
+  config.target = 'azure';
+  config.modules.consumption = true;
+  config.dataSources.studioCredits = 'api';
+  config.azure = /** @type {any} */ ({ outputs: { storageAccountName: 'acct' } });
+  const az = ownedConnections(ctx, ['studio']);
+  assert.deepEqual(az.map((w) => w.displayName), [CONNECTION_NAMES.ppApi, 'Analytics Hub - Azure Storage (acct)']);
+  assert.deepEqual(az[1].parameters, { baseResourceUrl: 'https://acct.dfs.core.windows.net', 'token:ResourceUri': 'https://storage.azure.com' });
+  assert.match(az[1].who, /Storage Blob Data Contributor on acct/);
+
+  config.azure = /** @type {any} */ ({ outputs: { storageAccountName: 'acct' }, drop: { siteId: 'site-1', folderUrl: 'https://contoso.sharepoint.com/drop' } });
+  assert.deepEqual(ownedConnections(ctx, ['studio']).map((w) => w.displayName), [CONNECTION_NAMES.ppApi]);
+
+  const { ctx: app, config: appConfig } = fakeCtx();
+  appConfig.dataSources.studioCredits = 'api';
+  appConfig.uploads = { flowIdentity: 'app' };
+  assert.deepEqual(ownedConnections(app, ['studio']).map((w) => w.displayName), [CONNECTION_NAMES.ppApi], 'the app writes with its secret, so no OneLake connection');
 });
