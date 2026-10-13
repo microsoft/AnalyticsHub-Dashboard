@@ -178,6 +178,33 @@ def test_audit_collect_merge_is_idempotent(tmp_path):
     assert len(rows2) == 3 and again["rows"] <= 3
 
 
+def test_audit_merge_reads_day_files_written_before_new_columns(tmp_path):
+    # Upgrades keep the day files an older release wrote; merging into them must not need the newer columns.
+    t0 = NOW - timedelta(hours=3)
+    store = LocalStore(tmp_path)
+    api, _ = make_api(AuditGraph([_record(1, t0)]))
+    assert audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None)["rows"] == 1
+    dropped = ("AgentPlatform", "PlatformAgentId")
+    files = list((store.root / audit_collect.PARSED).glob("*.parquet"))
+    assert len(files) == 1
+    for f in files:
+        cols = [c for (c, *_) in duckdb.sql(f"DESCRIBE SELECT * FROM read_parquet('{f.as_posix()}')").fetchall()
+                if c not in dropped]
+        tmp = f.with_suffix(".old")
+        duckdb.sql(f"COPY (SELECT {', '.join(cols)} FROM read_parquet('{f.as_posix()}')) TO '{tmp.as_posix()}' "
+                   f"(FORMAT PARQUET)")
+        tmp.replace(f)
+    (store.root / audit_collect.STATE).unlink()
+
+    api, _ = make_api(AuditGraph([_record(1, t0), _record(2, t0 + timedelta(hours=1))]))
+    assert audit_collect.collect_audit(api, store, settings(), now=NOW + timedelta(minutes=5),
+                                       sleep=lambda x: None)["rows"] >= 1
+    assert len(list((store.root / audit_collect.PARSED).glob("*.parquet"))) == 1
+    rows, schema = _parsed(store)
+    assert len(rows) == 2
+    assert {"AgentPlatform", "PlatformAgentId"} <= {c for (c, *_) in schema}
+
+
 def test_audit_merge_logs_records_without_prompts(tmp_path, caplog):
     # Copilot Studio evaluations carry no messages and some events carry only responses; like every
     # variant they're not counted, but the run should say so rather than just "merged 0 rows".
