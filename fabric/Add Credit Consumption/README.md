@@ -38,7 +38,23 @@ stay empty.
 ### 1. Land Cowork data with a Dataflow
 
 The [installer](../../installer/README.md#credit-consumption) does this for you when you set the
-**Copilot Cowork credits** card to **Connected (Dataflow)**. By hand:
+**Copilot Cowork credits** card to **Connected (Dataflow)**, except signing in to the Dataflow's
+connections, which only you can do:
+
+- Open `AnalyticsHub_Cowork_Credits` (the **Done** page links to it). It shows **Configure
+  connection** twice, once for the Viva Insights source and once for the Lakehouse destination.
+  On each, choose **Configure connection**, sign in, then **Connect**.
+- Choose **Save** and wait until the Dataflow shows it has finished publishing. Until then a
+  refresh fails with *Job instance failed without detail error*, which the installer reports as
+  *Needs sign-in*.
+- Choose **Load Cowork now** in the installer, or run `load-cowork`. It refreshes the Dataflow,
+  runs `Ingest_Viva_Consumption` and the consumption model refresh, and says how many rows loaded.
+
+If the Dataflow isn't signed in when the installer's first load starts, that run leaves it out
+(`SkipCowork=true`) and the **Done** page shows *To do: sign in to the Cowork Dataflow*. Scheduled
+runs never skip it. The staging items Fabric adds for Dataflows are expected; see below.
+
+By hand:
 
 1. Viva Insights → **Analysis** → build a query with the Copilot credit metrics → turn on
    **Auto-refresh** → **Analysis results** → **link icon** → copy the **Partition** and **Query**

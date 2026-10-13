@@ -65,6 +65,20 @@ class LoadStatusTests(unittest.TestCase):
         self.assertEqual(s["classify"]({"message": "\n  KeyError: 'x'\nmore"}, reasons), ("other", "It stopped with an error: KeyError: 'x'"))
         self.assertEqual(s["classify"](None, reasons), ("other", "It stopped without saying why."))
 
+    def test_unsigned_cowork_dataflow_needs_sign_in_only_on_its_own_step(self):
+        s = namespace()
+        st = status(s)
+        error = {"errorCode": "JobInstanceFailed", "message": "Job instance failed without detail error"}
+        kind, text = s["classify"](error, st["reasons"], "Refresh_Cowork_Credits")
+        self.assertEqual(kind, "signIn")
+        self.assertTrue(text.startswith("Needs sign-in: the Cowork Dataflow's connections aren't signed in"))
+        self.assertEqual(s["classify"](error, st["reasons"], "Run_Audit_Log_Ingester")[0], "other")
+        self.assertEqual(s["classify"](error, st["reasons"])[0], "other")
+        t = "2026-06-01T10:00:00Z"
+        last = s["last_attempts"]([run("Refresh_Cowork_Credits", "Failed", t, error, kind="RefreshDataflow")])
+        row = s["rows"](last, st["labels"], st["reasons"], RUN_ID, datetime(2026, 6, 1, 12, 0))[0]
+        self.assertEqual(row["reason_kind"], "signIn")
+
     def test_last_attempt_counts_the_tries(self):
         s = namespace()
         last = s["last_attempts"]([

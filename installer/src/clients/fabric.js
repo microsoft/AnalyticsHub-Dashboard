@@ -252,6 +252,19 @@ export function fabricApi(http) {
         query: { updateMetadata: true },
         body: { definition },
       }),
+    /**
+     * The Dataflow's saved definition, each part decoded to text by its path. Its queryMetadata.json
+     * lists the connections the Dataflow was saved with: none until someone signs in and publishes.
+     * @param {string} workspaceId
+     * @param {string} id
+     * @returns {Promise<Record<string, string>>}
+     */
+    async getDataflowDefinition(workspaceId, id) {
+      const res = await http.requestLro('POST', `/workspaces/${workspaceId}/dataflows/${id}/getDefinition`, { lroResult: true });
+      const parts = res?.definition?.parts;
+      if (!Array.isArray(parts)) throw new Error('Fabric returned the Dataflow without its definition.');
+      return Object.fromEntries(parts.map((/** @type {any} */ p) => [p.path, Buffer.from(String(p.payload ?? ''), 'base64').toString('utf8')]));
+    },
 
     /** @param {string} workspaceId @param {string} displayName @param {any} pipeline */
     createPipeline: (workspaceId, displayName, pipeline) =>

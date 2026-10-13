@@ -147,7 +147,7 @@ function coworkStep(config) {
   return {
     id: 'cowork-dataflow',
     title: `Sign in to the Dataflow ${name}`,
-    why: 'Cowork credits load once the Dataflow has its sign-ins. Until then its refresh fails on each run, which is expected: everything else loads.',
+    why: 'Cowork credits load once the Dataflow has its sign-ins. Until then the first load skips it and scheduled runs fail at that step, which is expected: everything else loads.',
     who: 'You',
     ...(ws ? { link: `https://app.fabric.microsoft.com/groups/${ws}`, linkText: 'Open the workspace' } : {}),
     steps: coworkSignInSteps(config),

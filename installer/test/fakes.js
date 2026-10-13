@@ -153,6 +153,8 @@ export function fakeFabric() {
   const sqlStates = [];
   /** The workspace's Spark settings. @type {{ highConcurrency: Record<string, boolean> }} */
   const spark = { highConcurrency: { notebookInteractiveRunEnabled: true, notebookPipelineRunEnabled: false } };
+  /** The connections the Cowork Dataflow's definition lists, one list per call; the last repeats. None by default. @type {any[][]} */
+  const dataflowConnections = [];
   const fail = (/** @type {string} */ method) => {
     const err = failures[method]?.shift();
     if (err) throw err;
@@ -193,6 +195,13 @@ export function fakeFabric() {
       fail('updateDataflow');
       find(id).content = def;
       return null;
+    },
+    /** @param {string} _ws @param {string} id */
+    getDataflowDefinition: async (_ws, id) => {
+      calls.push(`getDataflowDefinition ${id}`);
+      fail('getDataflowDefinition');
+      const connections = dataflowConnections.length > 1 ? dataflowConnections.shift() : (dataflowConnections[0] ?? []);
+      return { 'queryMetadata.json': JSON.stringify({ name: items.find((i) => i.id === id)?.displayName, connections }), 'mashup.pq': 'section Section1;' };
     },
     /** @param {string} _ws @param {string} name @param {any} def */
     createPipeline: async (_ws, name, def) => {
@@ -389,7 +398,7 @@ export function fakeFabric() {
       return null;
     },
   };
-  return { api, items, schedules, calls, jobs, jobList, activityRuns, roles, connections, gateways, workspaceCapacities, failures, sqlStates, spark, add };
+  return { api, items, schedules, calls, jobs, jobList, activityRuns, roles, connections, gateways, workspaceCapacities, failures, sqlStates, spark, dataflowConnections, add };
 }
 
 /** @param {number} [status] @param {string} [message] */
