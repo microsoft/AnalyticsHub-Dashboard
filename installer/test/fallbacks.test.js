@@ -826,6 +826,7 @@ test('review: each secret mode says where the secret is and what the user needs'
   const inline = planReview(t.ctx);
   assert.equal(inline.creates.find((i) => i.kind === 'Key Vault'), undefined);
   assert.match(String(inline.creates.find((i) => i.kind === 'Client secret')?.detail), /Anyone with a role in the workspace, Viewer included, can read it/);
+  assert.equal(inline.creates.find((i) => i.kind === 'Client secret')?.isNew, true, 'each install writes a new secret, so the plan says New');
   assert.match(String(inline.creates.find((i) => i.kind === 'App registration')?.detail), /lasts 90 days and is replaced on each install, repair or update/);
   assert.equal(inline.grants.find((g) => String(g.where).startsWith('Key Vault')), undefined);
   assert.equal(inline.runsOn.find((r) => r.what === 'Key Vault'), undefined);

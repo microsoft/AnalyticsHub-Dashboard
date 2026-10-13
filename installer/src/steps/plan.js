@@ -976,7 +976,8 @@ export function planReview(ctx, pre) {
       ? {
           kind: 'Client secret',
           name: 'In the notebooks (no Key Vault)',
-          isNew: false,
+          // Every install, repair or update writes a fresh secret.
+          isNew: true,
           detail: 'Anyone with a role in the workspace, Viewer included, can read it; also in run snapshots, exports and deployment pipelines. Key Vault avoids that.',
         }
       : {

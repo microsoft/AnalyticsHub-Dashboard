@@ -18,6 +18,16 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ---
 
+## Unreleased — Plan review for the no-Key-Vault secret
+
+### Fixed
+
+- **The plan review said the notebook client secret was "Already there".** With no Key Vault,
+  each install, repair or update writes a new client secret into the notebooks, but the
+  review listed it as already there and counted it that way in its summary. It now shows New.
+
+---
+
 ## 2026-10-13 — Analytics Hub installer 0.6.0 (pre-release)
 
 **A pre-release, for testing.** 0.6.0 is published as a GitHub pre-release, so the
