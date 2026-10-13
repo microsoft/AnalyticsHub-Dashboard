@@ -698,7 +698,7 @@ export async function azureDeployment(ctx, o) {
     // The jobs' managed identity stays the Entra admin (empty = identity) so migrate can run DDL.
     // The SQL reader only gets db_datareader, created by SID from sqlReaderClientId.
     sqlAdminLogin: param(''), sqlAdminObjectId: param(''), sqlAdminPrincipalType: param('Application'),
-    sqlMinCapacity: param(String(liveSql.minCapacity ?? '0.5')), sqlMaxCapacity: param(liveSql.capacity ?? 2), sqlAutoPauseDelayMinutes: param(liveSql.autoPauseDelay ?? 60), sqlUseFreeLimit: param(liveSql.useFreeLimit ?? true),
+    sqlMinCapacity: param(String(liveSql.minCapacity ?? '0.5')), sqlMaxCapacity: param(liveSql.capacity ?? 2), sqlAutoPauseDelayMinutes: param(liveSql.autoPauseDelay ?? 60), sqlUseFreeLimit: param(liveSql.useFreeLimit ?? az.sqlFreeOffer ?? true),
     publicNetworkAccess: param(az.publicNetworkAccess === false ? 'Disabled' : 'Enabled'), deployWeb: param(true), webMinReplicas: param(0),
     privateDnsZoneMode: param(az.privateDns?.mode ?? 'create'), privateDnsZonesResourceGroupId: param(az.privateDns?.mode === 'existing' ? (az.privateDns.resourceGroupId ?? '') : ''),
     webClientId: param(o.pass === 2 ? (az.webApp?.clientId ?? '') : ''), webAppIdUri: param(o.pass === 2 ? (az.webApp?.appIdUri ?? '') : ''), webAccess: param(webAccess(config)),
@@ -1000,8 +1000,17 @@ export async function installAzure(ctx, opts) {
 /** @param {Ctx} ctx @param {{ pass: 1 | 2 }} o */
 async function deployOrExplain(ctx, o) {
   const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
+  const deploy = async () => ctx.api.arm.deployTemplate(/** @type {string} */ (az.subscriptionId), /** @type {string} */ (az.resourceGroup), 'valuelens', await azureDeployment(ctx, o));
   try {
-    return await ctx.api.arm.deployTemplate(/** @type {string} */ (az.subscriptionId), /** @type {string} */ (az.resourceGroup), 'valuelens', await azureDeployment(ctx, o));
+    try {
+      return await deploy();
+    } catch (err) {
+      const turnedDown = await sqlFreeOfferTurnedDown(ctx, err);
+      if (!turnedDown) throw err;
+      ctx.ui.warn(`Azure turned down the Azure SQL free offer for a new database (${turnedDown}). This subscription may have used its free databases. Creating it at the usual serverless price instead: it pauses after an hour without use.`);
+      az.sqlFreeOffer = false;
+      return await deploy();
+    }
   } catch (err) {
     const msg = explain(err, az);
     // A deployment that ran and failed (waitForDeployment) stays in the resource group with its full error.
@@ -1010,6 +1019,25 @@ async function deployOrExplain(ctx, o) {
     if (more && err instanceof Error) err.message += more;
     throw err;
   }
+}
+
+/**
+ * Whether a deployment failed on a new Azure SQL database that asked for the free offer. Azure can turn
+ * the free offer down with only InternalServerError, for one when the subscription has used its free
+ * databases. An existing database is never retried, so one already on the free offer stays on it.
+ * @param {Ctx} ctx @param {any} err
+ * @returns {Promise<string | undefined>}  the error code Azure gave, when it was turned down.
+ */
+export async function sqlFreeOfferTurnedDown(ctx, err) {
+  const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
+  if (az.sqlFreeOffer === false) return undefined;
+  /** @type {import('../../clients/azure.js').FailedOperation[]} */
+  const ops = err?.operations ?? [];
+  const failed = ops.find((f) => /^Microsoft\.Sql\/servers\/databases$/i.test(f.resourceType ?? ''));
+  const [server, database] = String(failed?.resourceName ?? '').split('/');
+  if (!failed || !server || !database) return undefined;
+  const existing = await ctx.api.arm.getSqlDatabase(/** @type {string} */ (az.subscriptionId), /** @type {string} */ (az.resourceGroup), server, database).catch(() => undefined);
+  return existing === null ? failed.code ?? 'Failed' : undefined;
 }
 
 /** @param {import('../../config.js').AzureConfig} az @param {any} deployment */
