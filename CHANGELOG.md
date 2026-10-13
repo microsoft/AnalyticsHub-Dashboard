@@ -30,6 +30,11 @@ Deployment instructions do **not** live here. They live in the READMEs:
   ran as that account and failed with "The provided workspace was not found". The installer now
   passes its own Fabric token to the deploy tool when the saved sign-in is for someone else, as it
   already did in Azure Cloud Shell.
+- **PowerShell launcher: removing an older version works in Windows PowerShell 5.1.** `install.ps1`
+  no longer prints a Node.js error when it removes an older version, or when it runs with
+  `-Uninstall`, in Windows PowerShell 5.1. Windows PowerShell 5.1 dropped the double quotes from
+  the Node.js code that removes the folder. The code failed, and the launcher fell back to
+  `Remove-Item`, which can't remove paths longer than 260 characters.
 
 ## 2026-10-13 — Analytics Hub installer 0.6.0 (pre-release)
 

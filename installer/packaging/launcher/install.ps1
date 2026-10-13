@@ -208,7 +208,8 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
   function Remove-Tree([string]$Dir, [string]$Node) {
     if (-not (Test-Path -LiteralPath $Dir)) { return }
     if ($Node -and (Test-Path -LiteralPath $Node)) {
-      & $Node -e 'require("fs").rmSync(process.argv[1], { recursive: true, force: true })' $Dir
+      # No double quotes: Windows PowerShell 5.1 drops them from a native command's arguments.
+      & $Node -e 'require(''fs'').rmSync(process.argv[1], { recursive: true, force: true })' $Dir
       if ($LASTEXITCODE -eq 0) { return }
     }
     Remove-Item -LiteralPath $Dir -Recurse -Force -ErrorAction SilentlyContinue
