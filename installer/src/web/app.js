@@ -904,7 +904,7 @@ function renderItem(it) {
 }
 
 const PREREQ_GLYPH = { met: 'check', missing: 'x', eligible: 'clock', unknown: 'circle' };
-const PREREQ_STATE = { met: 'You have it', missing: 'Missing', eligible: 'Eligible, activate first', unknown: 'Couldn\'t check' };
+const PREREQ_STATE = { met: 'You have it', missing: 'Missing', eligible: 'Can be activated', unknown: 'Couldn\'t check' };
 
 /** What the signed-in user has and lacks, each with what it's for and how to get it. */
 function renderPrereqs(items) {
@@ -915,14 +915,14 @@ function renderPrereqs(items) {
         h('span', { class: 'prereq-name' }, it.label),
         ' ',
         h('span', { class: 'prereq-state' }, PREREQ_STATE[it.status] ?? it.status, it.optional ? ', optional' : ''),
-        h('p', null, it.detail),
+        h('p', null, linkify(it.detail ?? '')),
         (it.rows ?? []).length
           ? h('ul', { class: 'prereq-rows' }, it.rows.map((r) => h('li', { class: r.status },
             h('span', { class: 'gl' }, icon(PREREQ_GLYPH[r.status] ?? 'circle')),
             h('span', null, h('strong', null, r.name), r.detail ? `: ${r.detail}` : ''))))
           : null,
         h('p', { class: 'prereq-why' }, h('strong', null, 'Needed for: '), it.neededFor),
-        it.status !== 'met' ? h('p', { class: 'prereq-how' }, h('strong', null, 'How to get it: '), it.howTo) : null))));
+        it.status !== 'met' ? h('p', { class: 'prereq-how' }, h('strong', null, 'How to get it: '), linkify(it.howTo ?? '')) : null))));
 }
 
 const LOAD_GLYPH = { ok: 'check', failed: 'x', skipped: 'minus', running: 'clock', todo: 'warn' };
@@ -1170,7 +1170,7 @@ function renderSources(item) {
     h('div', { class: 'picker' }, input, h('button', { type: 'button', class: 'btn', onclick: () => input.click() }, icon('upload'), 'Choose files')),
     list);
   const cards = item.lockModes ? item.cards.filter((c) => c.export) : item.cards;
-  const body = h('div', { class: 'ask-body' }, h('div', { class: 'srcs' }, cards.map(card)), picker);
+  const body = h('div', { class: 'ask-body' }, h('div', { class: 'srcs' }, groupCards(cards, card)), picker);
   for (const p of paints) p();
   paintList();
   const submit = () => {
@@ -1179,6 +1179,22 @@ function renderSources(item) {
     answer(item, { modes: item.lockModes ? undefined : modes, uploads: ok });
   };
   return { body, submit };
+}
+
+/** Cards in order, with each run of cards that share a group under that group's heading. */
+function groupCards(cards, card) {
+  const out = [];
+  for (let i = 0; i < cards.length;) {
+    const group = cards[i].group;
+    if (!group) {
+      out.push(card(cards[i++]));
+      continue;
+    }
+    const members = [];
+    while (i < cards.length && cards[i].group === group) members.push(card(cards[i++]));
+    out.push(h('section', { class: 'src-group', 'aria-label': group }, h('h3', { class: 'label' }, group), h('div', { class: 'srcs' }, members)));
+  }
+  return out;
 }
 
 function renderDecide(item) {
@@ -1216,7 +1232,12 @@ function renderReview(plan) {
       h('div', { class: 'rv-head' }, h('h2', null, 'Where it runs and bills')),
       table(['What', 'Where'], plan.runsOn.map((r) => h('tr', null,
         h('td', null, h('span', { class: 'name' }, r.what)),
-        h('td', null, r.where, detail(r.detail)))))));
+        h('td', null, r.where, detail(r.detail)))))),
+    plan.costs?.length ? h('section', { class: 'rv' },
+      h('div', { class: 'rv-head' }, h('h2', null, 'Costs')),
+      table(['What', 'Pricing'], plan.costs.map((x) => h('tr', null,
+        h('td', null, h('span', { class: 'name' }, x.what), detail(x.detail)),
+        h('td', null, linkify(x.url)))))) : null);
 }
 
 function renderOutcome(run) {
@@ -1487,7 +1508,7 @@ function prereqsPanel(busy) {
   if (p) {
     const counts = ['met', 'eligible', 'missing', 'unknown'].map((s) => [s, p.items.filter((i) => i.status === s).length]).filter(([, n]) => n);
     body = [
-      h('p', { class: 'hint' }, `Checked as ${p.upn} at ${when}. ${counts.map(([s, n]) => `${n} ${PREREQ_STATE[s].toLowerCase()}`).join(', ')}. Only active roles count; a PIM-eligible role must be activated first.`),
+      h('p', { class: 'hint' }, `Checked as ${p.upn} at ${when}. ${counts.map(([s, n]) => `${n} ${PREREQ_STATE[s].toLowerCase()}`).join(', ')}. Only active roles count. A role you can activate yourself in Entra (Privileged Identity Management) needs activating first.`),
       renderPrereqs(p.items),
     ];
   } else if (st.user) {
@@ -1713,6 +1734,10 @@ function reviewMarkdown(plan) {
   for (const g of plan.grants) L.push(`| ${cell(g.who)} | ${cell(g.what)} | ${cell(g.where)} | ${cell(g.detail)} |`);
   L.push('', '### Where it runs and bills', '', '| What | Where | Details |', '|---|---|---|');
   for (const r of plan.runsOn) L.push(`| ${cell(r.what)} | ${cell(r.where)} | ${cell(r.detail)} |`);
+  if (plan.costs?.length) {
+    L.push('', '### Costs', '', '| What | Details | Pricing |', '|---|---|---|');
+    for (const x of plan.costs) L.push(`| ${cell(x.what)} | ${cell(x.detail)} | ${cell(x.url)} |`);
+  }
   return L;
 }
 

@@ -18,6 +18,7 @@ function directory() {
   /** @type {Error | undefined} */
   let createError;
   const graph = {
+    verifiedDomains: async () => ['contoso.com', 'contoso.onmicrosoft.com'],
     getGroup: async (/** @type {string} */ id) => groups.get(id) ?? null,
     findGroupByName: async (/** @type {string} */ name) => [...groups.values()].find((g) => g.displayName === name) ?? null,
     /** @param {{ displayName: string, ownerId: string }} o */
@@ -105,6 +106,36 @@ test('access: without Advanced settings, a new viewer group with you as contact,
   await planAccess(again.ctx);
   assert.deepEqual(again.config.access, saved);
   assert.deepEqual(asked, []);
+});
+
+test('access: a contact from outside the tenant, e.g. a record from another tenant, goes back to you', async () => {
+  const quiet = fakeUi();
+  const moved = fakeCtx({ graph: directory().graph, ui: quiet.ui });
+  moved.ctx.advanced = false;
+  moved.config.access = { groupName: VIEWER_GROUP_NAME, contact: 'someone@fabrikam.com' };
+  await planAccess(moved.ctx);
+  assert.equal(moved.config.access?.contact, 'admin@contoso.com');
+  assert.match(quiet.text(), /someone@fabrikam\.com, isn't on one of this tenant's domains, so it's now admin@contoso\.com/);
+
+  const sub = fakeCtx({ graph: directory().graph, ui: fakeUi().ui });
+  sub.ctx.advanced = false;
+  sub.config.access = { groupName: VIEWER_GROUP_NAME, contact: 'help@it.contoso.com' };
+  await planAccess(sub.ctx);
+  assert.equal(sub.config.access?.contact, 'help@it.contoso.com', 'a subdomain of a verified domain is kept');
+
+  const blind = fakeCtx({ graph: { ...directory().graph, verifiedDomains: async () => { throw new Error('Forbidden'); } }, ui: fakeUi().ui });
+  blind.ctx.advanced = false;
+  blind.config.access = { groupName: VIEWER_GROUP_NAME, contact: 'someone@fabrikam.com' };
+  await planAccess(blind.ctx);
+  assert.equal(blind.config.access?.contact, 'someone@fabrikam.com', 'kept when the domains can\'t be read');
+
+  const t = fakeUi({ answers: ['new'] });
+  const asked = fakeCtx({ graph: directory().graph, ui: t.ui });
+  asked.config.access = { contact: 'someone@fabrikam.com' };
+  await planAccess(asked.ctx);
+  assert.equal(asked.config.access?.contact, 'admin@contoso.com', 'the question starts from you');
+  assert.match(t.text(), /People without access are asked to email admin@contoso\.com\. Add a link, e.g\. a request form, to offer that too\./);
+  assert.ok(t.asked.includes('Link where people can request access (optional)'));
 });
 
 test('access: an existing group is found by name, asking again until it exists', async () => {

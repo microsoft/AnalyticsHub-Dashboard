@@ -56,6 +56,52 @@ run looked fine.
 
 ---
 
+## Unreleased — Prerequisites and questions
+
+Findings F8, F12, F13 and F14 from the newcomer self-serve test of installer 0.4.2.
+
+### Changed: the prerequisite check covers more, in plainer words
+
+**Why.** A newcomer couldn't tell from the list whether they had what the flows and the Cowork
+credits need, and "PIM-eligible" meant nothing to them.
+
+- New optional rows: **Microsoft 365 Copilot licences in the tenant**, **Power Automate Premium**
+  (for whoever signs in to the flows) and the **Viva Insights analyst** role, which can't be
+  checked, so it says how to get it.
+- The Fabric administrator row says it's only needed if the tenant settings are off. A role you
+  can activate says so, with a link to Privileged Identity Management.
+- The check now records whether you can assign directory roles (Global Administrator or
+  Privileged Role Administrator), as `canAssignDirectoryRoles`.
+
+### Changed: the questions explain themselves
+
+**Why.** Defaults were picked by name, not by what the tenant uses, and some choices didn't say
+what they cost or need.
+
+- The Power Platform environment defaults to the tenant's default environment, with a note on
+  DLP, Power Automate Premium and who can see the flows.
+- The capacity question recommends F64 or larger for more than 10,000 people, and shows each
+  capacity's SKU and region.
+- A new install names the workspace `Analytics Hub` and the Lakehouse `Analytics_Hub`. Existing
+  installs keep `ValueLens`.
+- The Azure target is described in plain words.
+- Cowork credits ask first whether you have the Viva Insights query IDs. **Not yet** uses the CSV
+  export until you add them. The partition ID is prefilled with the tenant ID.
+- The Copilot Studio, Cowork and Azure AI cards sit under **Credit consumption**, and their hints
+  say what each needs.
+- **Ready to set up** lists the costs that apply, with links to the pricing pages.
+
+### Fixed: an access contact from another tenant
+
+**Why.** A record carried over from another tenant kept an outside address as the person to ask
+for access.
+
+- If the saved contact isn't on one of the tenant's verified domains, it's reset to you, with a
+  note.
+- The request-access link question says what it's for.
+
+---
+
 ## Unreleased — Install record and launch
 
 **Why.** In a newcomer self-serve test of installer 0.4.2, an install record for a deleted

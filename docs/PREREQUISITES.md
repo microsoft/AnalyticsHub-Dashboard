@@ -46,7 +46,7 @@ IDs, and building the query can take a while, so ask for it now. Copy this:
 > [Export query data to Microsoft Fabric](https://learn.microsoft.com/viva/insights/advanced/analyst/export-query-data-microsoft-fabric).
 
 The installer fills in the partition ID with your tenant ID, which is usually right. No query
-yet? Carry on: leave the query ID blank to **add the query later**. Until then, Cowork credits come
+yet? Carry on: choose **Not yet** to **add the query later**. Until then, Cowork credits come
 from the Copilot Consumption Dashboard's CSV export. Once you have the IDs, open the installer
 again and choose **Repair or change**.
 
@@ -145,7 +145,7 @@ the installer does both of these itself, and you can skip this section.
 
 Some organisations make admins switch a role on before they use it (Privileged Identity
 Management). If yours does, switch the role on first, then sign in to the installer. A role that's
-not switched on shows as **eligible, activate first** in the Prerequisites panel.
+not switched on shows as **can be activated** in the Prerequisites panel.
 
 ### Microsoft 365 admin
 
