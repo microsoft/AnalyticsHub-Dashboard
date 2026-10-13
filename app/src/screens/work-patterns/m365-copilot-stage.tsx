@@ -23,6 +23,7 @@ import { formatKpi } from "@/lib/format-kpi";
 import { columnFormat, columnHeat, columnValues, heatRenderer } from "@/lib/heat";
 import { withIndefiniteArticle, withOrgAttribute, type OrgAttribute } from "@/lib/org-attribute";
 import { readNumber, toSummaryRow } from "@/lib/summary-row";
+import { orgEmptyDescription } from "@/lib/department-coverage";
 import { toDataTable } from "@/lib/to-data-table";
 import { m365ByOrg, m365CopilotIndex, m365CopilotSummary, SMALL_GROUP_MIN_PEOPLE } from "@/queries/work-patterns";
 import { CONCEALED_FIX } from "./copy";
@@ -267,7 +268,10 @@ function CopilotComparison() {
                     <QueryEmpty
                         className="h-full"
                         title={`No ${org.plural} to compare`}
-                        description={`Nobody active on Microsoft 365 in this selection has ${withIndefiniteArticle(org.noun)} in the org data.`}
+                        description={orgEmptyDescription(
+                            `Nobody active on Microsoft 365 in this selection has ${withIndefiniteArticle(org.noun)} in the org data.`,
+                            org,
+                        )}
                     />
                 ) : (
                     <DataGrid

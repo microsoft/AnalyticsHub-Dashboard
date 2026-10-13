@@ -45,6 +45,9 @@ TBL_USER = "studio_user"
 TBL_AGENT_DAILY = "studio_agent_daily"
 TBL_USER_DAILY = "studio_user_daily"
 API_SOURCE = "ppac-api"
+# studio_tenant_daily rows summed from studio_user_daily, for days and environments nothing else covers.
+API_USER_SOURCE = "ppac-api-users"
+API_SOURCES = f"('{API_SOURCE}', '{API_USER_SOURCE}')"
 API_BILLING_PLAN = "00000000-0000-0000-0000-000000000000"
 IDS_PER_QUERY = 15
 QUERIES_PER_BATCH = 20
@@ -155,7 +158,7 @@ class StudioIngest:
         if not self.state.exists(table):
             return
         match = " AND ".join(f"{table}.{k} IS NOT DISTINCT FROM s.{k}" for k in keys)
-        self.state.delete(table, f"source_file = '{API_SOURCE}' AND EXISTS "
+        self.state.delete(table, f"source_file IN {API_SOURCES} AND EXISTS "
                                  f"(SELECT 1 FROM (SELECT DISTINCT {', '.join(keys)} FROM {source}) s WHERE {match})")
 
     def exports(self):
@@ -232,7 +235,7 @@ class StudioIngest:
             return set()
         return {r[0] for r in self.con.execute(
             f"SELECT DISTINCT snapshot_month FROM {table} "
-            f"WHERE source_file IS NULL OR source_file <> '{API_SOURCE}'").fetchall()}
+            f"WHERE source_file IS NULL OR source_file NOT IN {API_SOURCES}").fetchall()}
 
     def api_agents(self):
         c = self.read("raw_api_agent", *PAT_API_AGENT, api=True)
@@ -305,6 +308,33 @@ class StudioIngest:
             self.state.merge(TBL_AGENT, "monthly", AGENT_KEY)
 
         # studio_tenant_daily: the entitlement snapshot gives the prepaid share and each environment's allocation.
+        share, allocated = self._entitlement()
+
+        self.con.execute("CREATE OR REPLACE TEMP TABLE alloc (environment_id VARCHAR, entitled_quantity DOUBLE)")
+        if allocated:
+            self.con.executemany("INSERT INTO alloc VALUES (?, ?)", list(allocated.items()))
+        exported = ""
+        if self.state.exists(TBL_TENANT):
+            exported = f"""WHERE NOT EXISTS (SELECT 1 FROM {TBL_TENANT} x
+                WHERE (x.source_file IS NULL OR x.source_file NOT IN {API_SOURCES})
+                  AND x.usage_date = t.usage_date AND x.environment_id = t.environment_id)"""
+        self.con.execute(f"""CREATE OR REPLACE TEMP TABLE tenant_api AS
+            SELECT '{API_BILLING_PLAN}' AS billing_plan_id, 'Power Platform licensing API' AS billing_plan_name,
+                   t.environment_id, t.environment_name, 'MCSMessages' AS capacity_type,
+                   coalesce(a.entitled_quantity, 0.0) AS entitled_quantity,
+                   t.consumed * {share!r} AS prepaid_consumed, t.consumed * {1.0 - share!r} AS payg_consumed,
+                   t.usage_date, '{API_SOURCE}' AS source_file
+            FROM (SELECT usage_date, environment_id, any_value(environment_name) AS environment_name,
+                         sum(billed_credit) AS consumed FROM daily GROUP BY usage_date, environment_id) t
+            LEFT JOIN alloc a ON a.environment_id = t.environment_id
+            {exported}""")
+        self.state.delete(TBL_TENANT, f"usage_date IN ({day_list}) AND source_file = '{API_SOURCE}'")
+        self.state.merge(TBL_TENANT, "tenant_api", TENANT_KEY)
+
+    def _entitlement(self):
+        """(prepaid share, {environment id: allocation}) from the latest entitlement snapshot, read once."""
+        if "prepaid_share" in self.summary:
+            return self.summary["prepaid_share"], self._allocated
         share, allocated = None, {}
         e = self.read("raw_api_ent", *PAT_API_ENTITLEMENT, api=True)
         if e is not None:
@@ -326,27 +356,48 @@ class StudioIngest:
             share = 1.0
             log.info("  no entitlement snapshot - treating every credit as prepaid")
         self.summary["prepaid_share"] = share
+        self._allocated = allocated
+        return share, allocated
 
+    def tenant_from_users(self):
+        """studio_tenant_daily rows summed from studio_user_daily for the days and environments that no export
+        or agent file covers, so the totals aren't blank when the flow only lands the per-user file. Billed
+        credits split by the prepaid share; non-billed credits count as prepaid (absorbed by the entitlement).
+        Rebuilt in full each run, so a later export or agent file replaces them."""
+        stale = self.con.execute(
+            f"SELECT count(*) FROM {TBL_TENANT} WHERE source_file = '{API_USER_SOURCE}'").fetchone()[0]
+        if stale:
+            self.state.delete(TBL_TENANT, f"source_file = '{API_USER_SOURCE}'")
+        self.con.execute(f"""CREATE OR REPLACE TEMP TABLE tenant_users AS
+            SELECT usage_date, environment_id, sum(coalesce(billed_credit, 0.0)) AS billed,
+                   sum(coalesce(non_billed_credit, 0.0)) AS non_billed
+            FROM {TBL_USER_DAILY} WHERE usage_date IS NOT NULL GROUP BY usage_date, environment_id""")
+        if not self._n("tenant_users"):
+            return
+        share, allocated = self._entitlement()
         self.con.execute("CREATE OR REPLACE TEMP TABLE alloc (environment_id VARCHAR, entitled_quantity DOUBLE)")
         if allocated:
             self.con.executemany("INSERT INTO alloc VALUES (?, ?)", list(allocated.items()))
-        exported = ""
-        if self.state.exists(TBL_TENANT):
-            exported = f"""WHERE NOT EXISTS (SELECT 1 FROM {TBL_TENANT} x
-                WHERE (x.source_file IS NULL OR x.source_file <> '{API_SOURCE}')
-                  AND x.usage_date = t.usage_date AND x.environment_id = t.environment_id)"""
-        self.con.execute(f"""CREATE OR REPLACE TEMP TABLE tenant_api AS
-            SELECT '{API_BILLING_PLAN}' AS billing_plan_id, 'Power Platform licensing API' AS billing_plan_name,
-                   t.environment_id, t.environment_name, 'MCSMessages' AS capacity_type,
+        self.con.execute(f"""CREATE OR REPLACE TEMP TABLE tenant_from_users AS
+            SELECT '{API_BILLING_PLAN}' AS billing_plan_id,
+                   'Power Platform licensing API (per user)' AS billing_plan_name,
+                   t.environment_id, n.environment_name, 'MCSMessages' AS capacity_type,
                    coalesce(a.entitled_quantity, 0.0) AS entitled_quantity,
-                   t.consumed * {share!r} AS prepaid_consumed, t.consumed * {1.0 - share!r} AS payg_consumed,
-                   t.usage_date, '{API_SOURCE}' AS source_file
-            FROM (SELECT usage_date, environment_id, any_value(environment_name) AS environment_name,
-                         sum(billed_credit) AS consumed FROM daily GROUP BY usage_date, environment_id) t
+                   t.billed * {share!r} + t.non_billed AS prepaid_consumed,
+                   t.billed * {1.0 - share!r} AS payg_consumed,
+                   t.usage_date, '{API_USER_SOURCE}' AS source_file
+            FROM tenant_users t
             LEFT JOIN alloc a ON a.environment_id = t.environment_id
-            {exported}""")
-        self.state.delete(TBL_TENANT, f"usage_date IN ({day_list}) AND source_file = '{API_SOURCE}'")
-        self.state.merge(TBL_TENANT, "tenant_api", TENANT_KEY)
+            LEFT JOIN (SELECT environment_id, any_value(environment_name) AS environment_name
+                       FROM {TBL_AGENT_DAILY} WHERE environment_name IS NOT NULL AND environment_name <> ''
+                       GROUP BY environment_id) n ON n.environment_id = t.environment_id
+            WHERE NOT EXISTS (SELECT 1 FROM {TBL_TENANT} x
+                WHERE x.usage_date = t.usage_date AND x.environment_id IS NOT DISTINCT FROM t.environment_id)""")
+        n = self._n("tenant_from_users")
+        self.summary["tenant_from_user_rows"] = n
+        if n:
+            log.info("  %s tenant day(s) summed from the per-user file (no export or agent file covers them)", n)
+            self.state.merge(TBL_TENANT, "tenant_from_users", TENANT_KEY)
 
     def resolve_upns(self, ids) -> dict:
         """{object id (lower case): UPN (lower case)} for the IDs Graph knows (`/users` with `id in`)."""
@@ -493,6 +544,7 @@ def ingest(store, files: dict, *, api=None, today: date | None = None) -> dict:
         run.exports()
         run.api_agents()
         run.api_users()
+        run.tenant_from_users()
         written = state.save()
     finally:
         con.close()

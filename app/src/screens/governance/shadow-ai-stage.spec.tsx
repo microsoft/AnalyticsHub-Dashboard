@@ -87,4 +87,17 @@ describe("ShadowAiStage", () => {
         expect(screen.getByRole("status").textContent).toMatch(/Some of Defender didn't load/);
         expect(screen.getByText("How to read this")).toBeTruthy();
     });
+
+    it("names the missing licence in the note when a probe is unlicensed", () => {
+        mocked.statusRows = [row("device_activity", "ok"), row("installed", "unlicensed")];
+        render(
+            <Theme>
+                <ShadowAiStage source="present" />
+            </Theme>,
+        );
+
+        expect(screen.getByRole("status").textContent).toMatch(
+            /Installed software: Needs Microsoft Defender Vulnerability Management/,
+        );
+    });
 });

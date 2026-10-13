@@ -24,9 +24,11 @@ import { readNumber } from "@/lib/summary-row";
 import { BODY } from "@/lib/type-scale";
 import {
     describeProbeStatus,
+    layerEmptyState,
     layerToolsSpec,
     layerUnavailable,
     PROBE_LABELS,
+    probeNeeds,
     probeStatuses,
     readShadowAiState,
     SHADOW_AI_LAYERS,
@@ -75,7 +77,7 @@ const NOTES = [
 /** What to tell an admin when a probe was refused. */
 function failureHint(probe: ProbeStatus): string {
     const label = PROBE_LABELS[probe.probe as ShadowAiProbe] ?? probe.probe;
-    const status = describeProbeStatus(probe.status);
+    const status = (probe.status === "unlicensed" && probeNeeds(probe.probe)) || describeProbeStatus(probe.status);
     return probe.message ? `${label}: ${status} (${probe.message})` : `${label}: ${status}`;
 }
 
@@ -119,7 +121,7 @@ function ShadowAiFindings() {
         [layer, palette],
     );
     const current = SHADOW_AI_LAYERS.find((entry) => entry.id === layer) ?? SHADOW_AI_LAYERS[0];
-    const layerDown = layerUnavailable(statuses, layer);
+    const layerEmpty = layerEmptyState(statuses, layer);
     const row = summary.row;
 
     if (state?.kind === "notRun") {
@@ -186,7 +188,7 @@ function ShadowAiFindings() {
                         options={SHADOW_AI_LAYERS.map((entry) => ({
                             id: entry.id,
                             label: entry.label,
-                            hint: layerUnavailable(statuses, entry.id) ? "This part of Defender didn't load on the last run." : entry.subtitle,
+                            hint: layerUnavailable(statuses, entry.id) ? `${layerEmptyState(statuses, entry.id).title}.` : entry.subtitle,
                         }))}
                         value={layer}
                         onChange={setLayer}
@@ -198,12 +200,8 @@ function ShadowAiFindings() {
                         height={rowChartHeight(shown?.rows.length ?? 6)}
                         title="Shadow AI tools"
                         subtitle={current.subtitle}
-                        emptyTitle={layerDown ? "This part of Defender didn't load" : "No shadow AI seen here"}
-                        emptyDescription={
-                            layerDown
-                                ? "The probe behind this view was refused or failed on the last run. The note above says why."
-                                : "Defender saw none of the watched tools this way in the last 30 days."
-                        }
+                        emptyTitle={layerEmpty.title}
+                        emptyDescription={layerEmpty.description}
                     />
                 </div>
                 <div className="self-start">

@@ -37,6 +37,8 @@ import {
 } from "@/queries/consumption";
 import { AzureBilledPanel } from "./azure-billed";
 import { CREDIT_CURRENCY, LENSES, moneyCell, standalone, useConsumptionSummary, useConsumptionTable } from "./data";
+import { PpacExportHowTo } from "./ppac-export-how-to";
+import { PPAC_EXPORT_TITLE, studioDailyEmpty, studioTotalsEmpty } from "./studio-empty";
 import { BREAKDOWN_COST_HEADLINE, BREAKDOWN_CREDITS_HEADLINE, STUDIO_COST_HEADLINE, STUDIO_CREDITS_HEADLINE } from "./headlines";
 import { ChartPanel, KpiRowState, NoteCard, Panel, RollupGrid, type TreeColumn } from "@/components/report-panels";
 
@@ -101,6 +103,9 @@ export function StudioStage({ options, rates }: StudioStageProps) {
         () => personValues(users.table, STUDIO_USER_COLUMN, "Credits Used", ["Is Grand Total", "Is Group Total"]),
         [users.table],
     );
+    const hasUserCredits = (userCredits ?? []).some((value) => value > 0);
+    const totalsEmpty = studioTotalsEmpty(hasUserCredits);
+    const dailyEmpty = studioDailyEmpty(hasUserCredits);
 
     const row = summary.row;
     const cost = lens === "cost";
@@ -178,8 +183,8 @@ export function StudioStage({ options, rates }: StudioStageProps) {
                 summary={summary}
                 count={5}
                 className={KPI_GRID}
-                emptyTitle="No Copilot Studio credits"
-                emptyDescription="Consumption Central has no Copilot Studio credit rows for this period. Check that the Copilot Studio credits flow is on, or that a PPAC export has loaded."
+                emptyTitle={totalsEmpty.title}
+                emptyDescription={totalsEmpty.description}
             >
                 {cost ? (
                     <>
@@ -237,8 +242,8 @@ export function StudioStage({ options, rates }: StudioStageProps) {
                     title={cost ? "Cost over time" : "Consumption over time"}
                     headline={cost ? STUDIO_COST_HEADLINE : STUDIO_CREDITS_HEADLINE}
                     subtitle={cost ? "Tenant cost each day, prepaid then pay-as-you-go" : "Tenant credits each day, prepaid then pay-as-you-go"}
-                    emptyTitle="No daily credits"
-                    emptyDescription="The tenant data has no days with Copilot Studio credits in this period."
+                    emptyTitle={dailyEmpty.title}
+                    emptyDescription={dailyEmpty.description}
                 />
                 <NoteCard
                     title="About these figures"
@@ -263,8 +268,8 @@ export function StudioStage({ options, rates }: StudioStageProps) {
                     title={cost ? "Cost by model" : "Consumption by model"}
                     headline={cost ? BREAKDOWN_COST_HEADLINE : BREAKDOWN_CREDITS_HEADLINE}
                     subtitle="The model behind each agent's credits"
-                    emptyTitle="No model detail"
-                    emptyDescription="The agent detail does not name a model for these credits."
+                    emptyTitle={PPAC_EXPORT_TITLE}
+                    emptyDescription={<PpacExportHowTo what="model" />}
                 />
                 <ChartPanel
                     result={breakdown}
@@ -274,8 +279,8 @@ export function StudioStage({ options, rates }: StudioStageProps) {
                     title={cost ? "Cost by feature" : "Consumption by feature"}
                     headline={cost ? BREAKDOWN_COST_HEADLINE : BREAKDOWN_CREDITS_HEADLINE}
                     subtitle="The billable feature each credit was spent on"
-                    emptyTitle="No feature detail"
-                    emptyDescription="The agent detail does not name a billable feature for these credits."
+                    emptyTitle={PPAC_EXPORT_TITLE}
+                    emptyDescription={<PpacExportHowTo what="feature" />}
                 />
             </div>
 

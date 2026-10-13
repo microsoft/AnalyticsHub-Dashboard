@@ -161,6 +161,25 @@ def access_people(rows):
     return sorted(out.items())
 
 
+LOW_DEPARTMENT_COVERAGE = 0.8
+
+
+def department_coverage(departments):
+    """(people with a department, people) for the `Organization` values of an org table."""
+    values = list(departments)
+    have = sum(1 for v in values if v is not None and str(v).strip())
+    return have, len(values)
+
+
+def coverage_message(have, total):
+    """One line on department coverage, with advice when views by department would leave many out."""
+    line = f'{have:,} of {total:,} people have a department'
+    if not total or have / total >= LOW_DEPARTMENT_COVERAGE:
+        return line
+    return (f'{line}. Views by department leave out everyone without one: fill in Department on users '
+            'in Microsoft Entra ID, or load org data from Workday instead.')
+
+
 def build_snapshot(users, *, table_exists=False, allow_empty=False):
     """Graph users -> (columns, rows) for `copilot_org_data`."""
     rows = _dedupe_org_rows([_canonical_org_row(user) for user in users])

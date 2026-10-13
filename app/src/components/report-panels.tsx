@@ -42,7 +42,7 @@ export function KpiRowState({
     count: number;
     className: string;
     emptyTitle: string;
-    emptyDescription: string;
+    emptyDescription: ReactNode;
     children: ReactNode;
 }) {
     if (summary.error !== undefined) return <QueryError message={summary.error} onRetry={summary.refetch} />;
@@ -69,7 +69,7 @@ interface PanelProps {
     table?: DataTable;
     height: number;
     emptyTitle: string;
-    emptyDescription: string;
+    emptyDescription: ReactNode;
     children: (table: DataTable) => ReactNode;
 }
 
@@ -263,7 +263,7 @@ interface RollupGridProps {
     title: string;
     subtitle: string;
     emptyTitle: string;
-    emptyDescription: string;
+    emptyDescription: ReactNode;
 }
 
 type LevelHeat = Record<string, { group: HeatDomain | undefined; leaf: HeatDomain | undefined }>;

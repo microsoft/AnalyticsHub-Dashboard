@@ -85,6 +85,14 @@ SCHEMA = (
 )
 COLUMNS = [name for name, _, _ in SCHEMA]
 
+# Per-report row counts for each day read, so "no app usage" can be told apart from "not loaded".
+STATUS_TABLE = 'm365_report_status'
+STATUS_SCHEMA = [
+    ('ActivityDate', 'DATE', False), ('Report', 'VARCHAR', False), ('GraphFunction', 'VARCHAR', False),
+    ('Status', 'VARCHAR', False), ('Rows', 'BIGINT', False), ('ActiveRows', 'BIGINT', False),
+    ('CheckedAtUtc', 'TIMESTAMP', False),
+]
+
 _ISO_DURATION = re.compile(r'^P(?:(\d+(?:\.\d+)?)D)?(?:T(?:(\d+(?:\.\d+)?)H)?(?:(\d+(?:\.\d+)?)M)?(?:(\d+(?:\.\d+)?)S)?)?$')
 
 
@@ -149,6 +157,29 @@ def add_report(people, key, records):
             person[column] = person.get(column, 0) + _number(_pick(record, names))
         for column, names in flags:
             person[column] = max(person.get(column, 0), _flag(_pick(record, names)))
+
+
+def _record_active(key, raw):
+    counts, flags = BY_REPORT[key]
+    record = {(k or '').strip().lower(): v for k, v in raw.items()}
+    return (any(_number(_pick(record, names)) for _, names in counts)
+            or any(_flag(_pick(record, names)) for _, names in flags))
+
+
+def report_status(day, reports, checked_at):
+    """One row per report for a day: whether Graph answered, how many rows came back, and how
+    many of them showed any use. `no_activity` means rows came back but every count or flag was 0."""
+    rows = []
+    for key, function in REPORTS.items():
+        records = reports.get(key)
+        if records is None:
+            status, count, active = 'unavailable', 0, 0
+        else:
+            count = len(records)
+            active = sum(1 for raw in records if _record_active(key, raw))
+            status = 'ok' if active else ('no_activity' if count else 'empty')
+        rows.append((day, key, function, status, count, active, checked_at))
+    return rows
 
 
 def days_to_load(today, loaded, concealed_days, reread_days, window_days=28):

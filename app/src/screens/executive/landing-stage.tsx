@@ -19,6 +19,7 @@ import { gridHeight, rowChartHeight } from "@/lib/chart-height";
 import { formatKpi } from "@/lib/format-kpi";
 import { columnFormat, columnHeat, heatRenderer } from "@/lib/heat";
 import { readNumber } from "@/lib/summary-row";
+import { coverageNote, departmentCoverage, orgEmptyDescription } from "@/lib/department-coverage";
 import { DEPARTMENT_COLUMN, executiveWorkKinds, WORK_KINDS_SHOWN } from "@/queries/executive";
 import { mostUsedAgent, workRates } from "./executive-data";
 import { WORK_KINDS_HEADLINE } from "./headlines";
@@ -69,6 +70,7 @@ export function LandingStage({ data }: { data: ExecutiveData }) {
     const groupCount = departments.table?.rows.length;
 
     const row = summary.row;
+    const coverage = departmentCoverage(readNumber(row, "[People With Organization]"), readNumber(row, "[People]"), org.column);
     const rates = workRates(row);
     const agentHours = readNumber(row, "[Agent Hours]");
     const agentsInUse = readNumber(row, "[Agents In Use]");
@@ -89,7 +91,11 @@ export function LandingStage({ data }: { data: ExecutiveData }) {
                 result={departments}
                 height={gridHeight(groupCount ?? 6)}
                 emptyTitle={`No ${org.plural} to compare`}
-                emptyDescription={`Nobody in the current selection has a license or a task with ${org.noun} recorded.`}
+                emptyDescription={orgEmptyDescription(
+                    `Nobody in the current selection has a license or a task with ${org.noun} recorded.`,
+                    org,
+                    coverage,
+                )}
             >
                 {(table) => (
                     <DataGrid
@@ -100,7 +106,9 @@ export function LandingStage({ data }: { data: ExecutiveData }) {
                         theme={theme}
                         header={{
                             title: `${groups} by expert hours per seat`,
-                            subtitle: `${plural(table.rows.length, org.noun, org.plural)}, most expert-equivalent hours per licensed seat a month first. Shading compares the ${org.plural} with each other.`,
+                            subtitle: `${plural(table.rows.length, org.noun, org.plural)}, most expert-equivalent hours per licensed seat a month first. Shading compares the ${org.plural} with each other.${
+                                coverage?.low ? ` Only ${coverageNote(coverage)}` : ""
+                            }`,
                         }}
                     />
                 )}
