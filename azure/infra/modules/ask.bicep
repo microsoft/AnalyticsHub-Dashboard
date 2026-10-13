@@ -13,6 +13,9 @@ param deploymentName string
 param sku string
 @description('Throughput, in thousands of tokens per minute.')
 param capacity int
+@description('Disabled in private networking: the web app reaches the account through a private endpoint.')
+@allowed(['Enabled', 'Disabled'])
+param publicNetworkAccess string = 'Enabled'
 
 // Cognitive Services OpenAI User: call the deployments, nothing else.
 var openAiUserRole = '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd'
@@ -26,7 +29,8 @@ resource account 'Microsoft.CognitiveServices/accounts@2024-10-01' = {
   properties: {
     customSubDomainName: accountName
     disableLocalAuth: true
-    publicNetworkAccess: 'Enabled'
+    publicNetworkAccess: publicNetworkAccess
+    networkAcls: { defaultAction: publicNetworkAccess == 'Disabled' ? 'Deny' : 'Allow' }
   }
 }
 

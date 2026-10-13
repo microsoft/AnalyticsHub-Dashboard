@@ -55,6 +55,39 @@ test('private networking, demo mode and a separate SQL region pass template vali
   const result = validateArmTemplate(TEMPLATE, params, SCOPE);
   assert.deepEqual(result.errors, []);
   assert.equal(byName(result, /^vl-network$/)?.deployed, true);
+  assert.equal(byName(result, /^vl-dnslinks-/)?.deployed, false, 'the default creates its own private DNS zones');
+});
+
+test('private networking with Ask and existing private DNS zones links the VNet in the zones resource group', async () => {
+  const resourceGroupId = '/subscriptions/33333333-3333-3333-3333-333333333333/resourceGroups/rg-hub-dns';
+  const params = await installerParameters((az) => Object.assign(az, { publicNetworkAccess: false, ask: { mode: 'create' }, privateDns: { mode: 'existing', resourceGroupId } }));
+  assert.equal(params.privateDnsZoneMode.value, 'existing');
+  assert.equal(params.privateDnsZonesResourceGroupId.value, resourceGroupId);
+  const result = validateArmTemplate(TEMPLATE, params, SCOPE);
+  assert.deepEqual(result.errors, []);
+  const links = byName(result, /^vl-dnslinks-/);
+  assert.equal(links?.deployed, true);
+  assert.equal(links.subscriptionId, '33333333-3333-3333-3333-333333333333');
+  assert.equal(links.resourceGroup, 'rg-hub-dns');
+  assert.equal(byName(result, /^vl-ask$/)?.deployed, true);
+});
+
+test('private networking can leave private DNS to Azure Policy', async () => {
+  const params = await installerParameters((az) => Object.assign(az, { publicNetworkAccess: false, privateDns: { mode: 'none', resourceGroupId: '/subscriptions/x/resourceGroups/ignored' } }));
+  assert.equal(params.privateDnsZoneMode.value, 'none');
+  assert.equal(params.privateDnsZonesResourceGroupId.value, '');
+  const result = validateArmTemplate(TEMPLATE, params, SCOPE);
+  assert.deepEqual(result.errors, []);
+  assert.equal(byName(result, /^vl-dnslinks-/)?.deployed, false);
+});
+
+test('the private network module locks down every subnet and follows the DNS zone mode', () => {
+  const network = TEMPLATE.resources.find((/** @type {any} */ r) => r.name === 'vl-network').properties.template;
+  const vnet = Object.values(network.resources).find((/** @type {any} */ r) => r.type === 'Microsoft.Network/virtualNetworks');
+  assert.ok(vnet.properties.subnets.every((/** @type {any} */ s) => s.properties.networkSecurityGroup), 'policies often require an NSG on every subnet');
+  const ofType = (/** @type {string} */ t) => Object.values(network.resources).find((/** @type {any} */ r) => r.type === t);
+  assert.match(ofType('Microsoft.Network/privateDnsZones').condition, /'create'/);
+  assert.match(ofType('Microsoft.Network/privateEndpoints/privateDnsZoneGroups').condition, /'none'/);
 });
 
 test('the template validates with only its required parameters (Deploy to Azure / az CLI)', () => {
