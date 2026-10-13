@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { MODULES, azureGraphRolesFor } from '../src/catalog.js';
 import { HttpError } from '../src/http.js';
-import { armErrors, waitForDeployment } from '../src/clients/azure.js';
+import { armApi, armErrors, waitForDeployment } from '../src/clients/azure.js';
 import { runCommand } from '../src/install.js';
 import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, armParameterNames, askTarget, azureConsumptionOn, azureCron, azureDeployment, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureRotateSecret, azureSemanticModels, consumptionParameters, installAzure, parseDropFolder, policyMessage, publicAccessMessage, regionCapacityMessage, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
 import { AZURE_AI_ROLES } from '../src/steps/consumption.js';
@@ -339,6 +339,45 @@ test('regional SQL capacity errors point at the Azure SQL region choice', async 
   assert.equal(regionCapacityMessage(new Error('other')), '');
 });
 
+test('a failed deployment shows the failing resource\'s own error from the deployment operations', async () => {
+  const rg = '/subscriptions/sub-1/resourcegroups/rg-analytics-hub/providers/Microsoft.Resources/deployments';
+  const generic = "The resource write operation failed to complete successfully, because it reached terminal provisioning state 'Failed'.";
+  const failed = { provisioningState: 'Failed', error: { code: 'DeploymentFailed', message: 'At least one resource deployment operation failed.', details: [{ code: 'ResourceDeploymentFailure', target: `${rg}/vl-sql`, message: generic }] } };
+  const firewall = 'Unable to create or modify firewall rules when public network interface for the server is disabled. To manage server or database level firewall rules, please enable the public network interface.';
+  /** @type {Record<string, any[]>} */
+  const operations = {
+    [`${rg}/valuelens/operations`]: [
+      { properties: { provisioningState: 'Succeeded', targetResource: { id: `${rg}/vl-storage`, resourceType: 'Microsoft.Resources/deployments', resourceName: 'vl-storage' } } },
+      { properties: { provisioningState: 'Failed', statusMessage: { status: 'Failed', error: { code: 'ResourceDeploymentFailure', message: generic } }, targetResource: { id: `${rg}/vl-sql`, resourceType: 'Microsoft.Resources/deployments', resourceName: 'vl-sql' } } },
+    ],
+    [`${rg}/vl-sql/operations`]: [
+      { properties: { provisioningState: 'Succeeded', targetResource: { resourceType: 'Microsoft.Sql/servers', resourceName: 'sql-vlens-abc123' } } },
+      { properties: { provisioningState: 'Failed', statusCode: 'BadRequest', statusMessage: { status: 'Failed', error: { code: 'DenyPublicEndpointEnabled', message: firewall } }, targetResource: { id: '/x/firewallRules/AllowAllWindowsAzureIps', resourceType: 'Microsoft.Sql/servers/firewallRules', resourceName: 'sql-vlens-abc123/AllowAllWindowsAzureIps' } } },
+    ],
+  };
+  /** @type {string[]} */
+  const listed = [];
+  /** @param {boolean} [opsFail] */
+  const http = (opsFail) => /** @type {any} */ ({
+    requestLro: async () => ({ name: 'valuelens', properties: { provisioningState: 'Running' } }),
+    get: async () => ({ name: 'valuelens', properties: failed }),
+    list: async (/** @type {string} */ path) => {
+      listed.push(path);
+      if (opsFail) throw new HttpError('Forbidden', { status: 403, method: 'GET', url: path, body: {} });
+      return operations[path] ?? [];
+    },
+  });
+  const err = await armApi(http(), { sleep: async () => {}, pollMs: 0 }).deployTemplate('sub-1', 'rg-analytics-hub', 'valuelens', {}).catch((e) => e);
+  assert.equal(err.message, `ARM deployment valuelens failed: DenyPublicEndpointEnabled on Microsoft.Sql/servers/firewallRules sql-vlens-abc123/AllowAllWindowsAzureIps: ${firewall}`);
+  assert.doesNotMatch(err.message, /DeploymentFailed|terminal provisioning state/);
+  assert.deepEqual(listed, [`${rg}/valuelens/operations`, `${rg}/vl-sql/operations`], 'follows only the failed module');
+  assert.equal(err.operations[0].code, 'DenyPublicEndpointEnabled');
+  assert.match(publicAccessMessage(err), /^Azure Policy switched off public network access on the Azure SQL server/, 'explain() sees the operation error');
+
+  const fallback = await armApi(http(true), { sleep: async () => {}, pollMs: 0 }).deployTemplate('sub-1', 'rg-analytics-hub', 'valuelens', {}).catch((e) => e);
+  assert.match(fallback.message, /^ARM deployment valuelens failed: DeploymentFailed .*ResourceDeploymentFailure/, 'unreadable operations keep the deployment error');
+});
+
 test('Azure ARM parameters stay in sync with the committed template', async () => {
   assert.equal(REQUIRED_ARM_PARAMETERS.every((p) => armParameterNames().includes(p)), true);
   const { ctx, config } = fakeCtx();
@@ -482,7 +521,8 @@ test('private networking only offers capacities that can host a VNet data gatewa
   assert.equal(supportsVnetGateway({ sku: 'A1' }), false);
   assert.equal(supportsVnetGateway({ sku: 'EM1' }), false);
   const err = new HttpError('Conflict', { status: 400, method: 'PUT', url: 'https://x', body: { error: { code: 'DenyPublicEndpointEnabled', message: 'Unable to create or modify firewall rules when public network interface for the server is disabled.' } } });
-  assert.match(publicAccessMessage(err), /choose Private networking/);
+  assert.match(publicAccessMessage(err), /^Azure Policy switched off public network access on the Azure SQL server.*choose Private networking/);
+  assert.match(publicAccessMessage(err, { publicNetworkAccess: true, outputs: { sqlServerFqdn: 'x' } }), /networking can't change in place: uninstall and install again with Private networking/);
   assert.equal(publicAccessMessage(err, { publicNetworkAccess: false }), '', 'never suggests Private networking when it is already on');
   assert.equal(publicAccessMessage(new Error('other')), '');
 });

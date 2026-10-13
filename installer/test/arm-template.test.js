@@ -90,6 +90,25 @@ test('the private network module locks down every subnet and follows the DNS zon
   assert.match(ofType('Microsoft.Network/privateEndpoints/privateDnsZoneGroups').condition, /'none'/);
 });
 
+test('no SQL firewall rule deploys when public access is off (private, or forced off by Azure Policy)', async () => {
+  // A server whose public access is off rejects firewall rules with DenyPublicEndpointEnabled, which
+  // a tester hit when a Modify policy switched it off at create time.
+  /** @type {{ module: string, rule: any, passes: any }[]} */
+  const rules = [];
+  const walk = (/** @type {any} */ template, /** @type {string} */ module, /** @type {any} */ passes) => {
+    for (const r of Object.values(template.resources ?? {})) {
+      if (/^Microsoft\.Sql\/servers\/firewallRules$/i.test(r.type)) rules.push({ module, rule: r, passes });
+      if (r.properties?.template) walk(r.properties.template, r.name, r.properties.parameters);
+    }
+  };
+  walk(TEMPLATE, 'main', {});
+  assert.deepEqual(rules.map((r) => r.module), ['vl-sql'], 'the only firewall rule is AllowAllWindowsAzureIps in the SQL module');
+  assert.equal(rules[0].rule.condition, "[equals(parameters('publicNetworkAccess'), 'Enabled')]");
+  assert.equal(rules[0].passes.publicNetworkAccess.value, "[parameters('publicNetworkAccess')]");
+  assert.equal((await installerParameters((az) => (az.publicNetworkAccess = false))).publicNetworkAccess.value, 'Disabled');
+  assert.equal((await installerParameters()).publicNetworkAccess.value, 'Enabled');
+});
+
 test('the template validates with only its required parameters (Deploy to Azure / az CLI)', () => {
   const required = Object.entries(TEMPLATE.parameters).filter(([, d]) => !('defaultValue' in d)).map(([n]) => n);
   assert.deepEqual(required.sort(), ['imageTag', 'installId']);
