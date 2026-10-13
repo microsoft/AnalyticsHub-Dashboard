@@ -377,7 +377,8 @@ class AuditCollector:
             match = "InteractionDate IS NULL" if day is None else f"InteractionDate = DATE '{day.isoformat()}'"
             source = f"SELECT {select} FROM new_rows WHERE {match}"
             if target.is_file():
-                source = (f"SELECT {select} FROM ({source} UNION ALL BY NAME SELECT {select} FROM "
+                # SELECT * so day files written before a column was added still merge; BY NAME fills the gap with NULL.
+                source = (f"SELECT {select} FROM ({source} UNION ALL BY NAME SELECT * FROM "
                           f"read_parquet({q(target)}) WHERE Id NOT IN (SELECT Id FROM new_rows))")
             tmp = target.with_suffix(".parquet.tmp")
             con.execute(f"COPY ({source} ORDER BY CreationDate, Id) TO {q(tmp)} (FORMAT PARQUET)")

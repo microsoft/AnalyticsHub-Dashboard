@@ -46,6 +46,10 @@ The tag also publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.1
   it flattens the agent platform and target fields, links agents, classifies agent types and drops
   the same non-user records (the Copilot Studio test pane, maker evaluations, agent authoring,
   autonomous and workflow runs). Migration V006 adds the 18 new columns to the curated table.
+- **Azure: the audit collect no longer fails on an upgraded install with "Referenced column
+  "AgentPlatform" not found".** When it merged new audit records into a day file that an earlier
+  release had written, the collector asked that file for the new agent columns, which it doesn't
+  have. Older day files now merge as they are, and their missing columns come out empty.
 - **Azure: set-up carries on when Azure turns down the Azure SQL free offer.** A subscription that
   has used its free databases can get only `InternalServerError` on the new database, and set-up
   stopped at Azure resources. The installer now creates the database once more without the free
