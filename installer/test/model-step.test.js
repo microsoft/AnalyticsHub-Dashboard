@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { emptyConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
-import { DATA_CLI, deployApp, deploymentKey, ensureAppName, ensureFabricApp, FABRIC_CONFIG, fabricConfigFile, findDeployment, nodeVersionOk, PREBUILT_MARKER, PREBUILT_STATIC, profileName, RAYFIN_CLI, rayfinEnv, yamlValue } from '../src/steps/app.js';
+import { DATA_CLI, deployApp, deploymentKey, ensureAppName, ensureFabricApp, FABRIC_CONFIG, fabricConfigFile, findDeployment, nodeVersionOk, PREBUILT_MARKER, PREBUILT_STATIC, profileName, RAYFIN_CLI, rayfinEnv, rayfinSignedInAsOther, rayfinSignIn, yamlValue } from '../src/steps/app.js';
 import { CONNECTION_SECRET_NAME, connectionName, definitionHash, ensureModelConnection, ensureSemanticModel, MODEL_PROBE, refreshModel, rotateModelSecret, verifyModel } from '../src/steps/model.js';
 import { blockedSettings } from '../src/steps/plan.js';
 import { buildModel, loadTemplateModel } from '../src/transform/model.js';
@@ -838,10 +838,55 @@ test('app: in Azure Cloud Shell, a deploy Fabric turns down says how to finish f
   }
 });
 
-test('rayfinEnv: only in Azure Cloud Shell, and never over a token already set', async () => {
-  const ctx = /** @type {any} */ ({ getToken: async () => 'tok', user: { tenantId: 't1' } });
-  assert.equal(await rayfinEnv(ctx, {}), undefined);
-  assert.equal(await rayfinEnv(ctx, { ACC_CLOUD: 'PROD', RAYFIN_TOKEN: 'mine' }), undefined);
-  assert.equal(await rayfinEnv({ ...ctx, getToken: undefined }, { ACC_CLOUD: 'PROD' }), undefined);
-  assert.deepEqual(await rayfinEnv(ctx, { ACC_CLOUD: 'PROD', X: '1' }), { ACC_CLOUD: 'PROD', X: '1', RAYFIN_TOKEN: 'tok', RAYFIN_TENANT_ID: 't1' });
+test('rayfinEnv: in Azure Cloud Shell, and never over a token already set', async () => {
+  const ctx = /** @type {any} */ ({ getToken: async () => 'tok', user: { tenantId: 't1', upn: 'me@contoso.com' } });
+  assert.equal(await rayfinEnv(ctx, {}, null), undefined);
+  assert.equal(await rayfinEnv(ctx, { ACC_CLOUD: 'PROD', RAYFIN_TOKEN: 'mine' }, null), undefined);
+  assert.equal(await rayfinEnv({ ...ctx, getToken: undefined }, { ACC_CLOUD: 'PROD' }, null), undefined);
+  assert.deepEqual(await rayfinEnv(ctx, { ACC_CLOUD: 'PROD', X: '1' }, null), { ACC_CLOUD: 'PROD', X: '1', RAYFIN_TOKEN: 'tok', RAYFIN_TENANT_ID: 't1' });
+});
+
+test('rayfinEnv: when Rayfin is signed in as someone else, up runs as the installer\'s sign-in', async () => {
+  const ctx = /** @type {any} */ ({ getToken: async () => 'tok', user: { tenantId: 'T1', upn: 'Me@Contoso.com' } });
+  const withToken = { X: '1', RAYFIN_TOKEN: 'tok', RAYFIN_TENANT_ID: 'T1' };
+  assert.equal(await rayfinEnv(ctx, { X: '1' }, { tenantId: 't1', userPrincipalName: 'me@contoso.com' }), undefined, 'the same person, whatever the case');
+  assert.equal(await rayfinEnv(ctx, { X: '1' }, { tenantId: 't1' }), undefined, 'same tenant, no name saved');
+  assert.deepEqual(await rayfinEnv(ctx, { X: '1' }, { tenantId: 'other', userPrincipalName: 'me@contoso.com' }), withToken, 'another tenant');
+  assert.deepEqual(await rayfinEnv(ctx, { X: '1' }, { tenantId: 't1', userPrincipalName: 'someone@contoso.com' }), withToken, 'another person');
+  assert.deepEqual(await rayfinEnv(ctx, { X: '1' }, { identityType: 'service_principal', tenantId: 't1' }), withToken, 'a service principal');
+  assert.equal(await rayfinEnv(ctx, { X: '1', RAYFIN_TOKEN: 'mine' }, { tenantId: 'other' }), undefined, 'a token already set');
+  assert.equal(await rayfinEnv({ ...ctx, getToken: undefined }, { X: '1' }, { tenantId: 'other' }), undefined, 'no installer token');
+});
+
+test('rayfinSignIn: reads Rayfin\'s auth.json from RAYFIN_CONFIG_DIR', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'vl-rayfin-'));
+  try {
+    assert.equal(rayfinSignIn({ RAYFIN_CONFIG_DIR: dir }), null);
+    writeFileSync(join(dir, 'auth.json'), JSON.stringify({ identityType: 'user', tenantId: 't9', userPrincipalName: 'a@b.com' }));
+    assert.deepEqual(rayfinSignIn({ RAYFIN_CONFIG_DIR: dir }), { identityType: 'user', tenantId: 't9', userPrincipalName: 'a@b.com' });
+    assert.equal(rayfinSignedInAsOther(rayfinSignIn({ RAYFIN_CONFIG_DIR: dir }), { tenantId: 't1', upn: 'a@b.com' }), true);
+    assert.equal(rayfinSignedInAsOther(null, { tenantId: 't1', upn: 'a@b.com' }), false, 'never signed in: Rayfin signs in itself');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('app: Rayfin signed in as someone else deploys with the installer sign-in\'s Fabric token', async () => {
+  const t = appSetup();
+  const dir = mkdtempSync(join(tmpdir(), 'vl-rayfin-'));
+  writeFileSync(join(dir, 'auth.json'), JSON.stringify({ identityType: 'user', tenantId: 'another-tenant', userPrincipalName: 'someone@example.com' }));
+  const before = process.env.RAYFIN_CONFIG_DIR;
+  process.env.RAYFIN_CONFIG_DIR = dir;
+  t.ctx.getToken = async (r) => `token-for-${r}`;
+  try {
+    await deployApp(t.ctx);
+    assert.equal(t.upOpts[0].env?.RAYFIN_TOKEN, 'token-for-fabric');
+    assert.equal(t.upOpts[0].env?.RAYFIN_TENANT_ID, 'tenant-1');
+    assert.match(t.ui.text(), /Building and deploying the app\. It uses your installer sign-in\./);
+  } finally {
+    if (before === undefined) delete process.env.RAYFIN_CONFIG_DIR;
+    else process.env.RAYFIN_CONFIG_DIR = before;
+    rmSync(dir, { recursive: true, force: true });
+    t.cleanup();
+  }
 });
