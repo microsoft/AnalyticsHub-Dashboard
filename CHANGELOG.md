@@ -18,9 +18,69 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ---
 
-## Unreleased — Install from Azure Cloud Shell
+## 2026-10-13 — Analytics Hub installer 0.6.0 (pre-release)
 
-### Added: Azure Cloud Shell for PCs that can't run the installer
+**A pre-release, for testing.** 0.6.0 is published as a GitHub pre-release, so the
+`releases/latest` links still serve 0.5.1. To try it, download installer 0.6.0 from
+[its release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/tag/installer-v0.6.0),
+or run its pinned PowerShell command:
+
+```powershell
+irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.0/install.ps1 | iex
+```
+
+**Update an existing install:** open installer 0.6.0 and choose **Repair or change**. It deploys
+the updated notebooks, pipeline, models and app, and keeps your saved answers. An existing install
+that keeps the app's secret in Key Vault keeps it there. Org-scoped access stays off until you turn
+it on.
+
+The tag also publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.0`, which the Azure
+install pulls.
+
+**In this release:**
+
+- **Run it where exes are blocked:** a PowerShell command (`install.ps1` and
+  `AnalyticsHubInstaller.zip` are now release assets), and Azure Cloud Shell.
+- **Fabric without Azure:** a new Fabric install keeps the app's secret in the notebooks by default,
+  short-lived and rotated, instead of in Key Vault.
+- **Azure under policy:** a region preflight, hardened private networking, and the SQL firewall
+  rule skipped when policy turns SQL public access off, with the real deployment error.
+- **App:** report packs with PDF and PowerPoint export, Ask, org-scoped access (row-level security)
+  and scoped delegation from the Share panel (Azure).
+- **Newcomer fixes** from the self-serve test of 0.4.2: prerequisites, questions, flow sign-in,
+  sharing, the Done page, the install record, Cowork's first load and data gaps.
+- Agent Evaluator and Consumption Central refresh fixes, and chart redraw fixes.
+
+### Ask
+
+#### Added: ask questions about the data, in the app
+
+**What changed.** The app has an **Ask** page with suggested questions for each page.
+
+- **Fabric.** On a paid capacity, the installer builds and publishes a Fabric data agent over the
+  Analytics Hub models, with guardrail instructions and the measures each page uses. The Ask page
+  opens it and offers questions to copy. If building it fails, the install carries on.
+- **Azure.** The installer creates an Azure AI Services account with a `gpt-5-mini` deployment by
+  default (keys off; the web app's managed identity gets **Cognitive Services OpenAI User**), after
+  checking model availability and quota, or uses an existing deployment. The web app's `/api/ask`
+  answers inline and shows the queries behind each answer. It can only run the catalogue's named
+  queries, as the signed-in user, with date and organisation filters; groups under 5 people are
+  left out and rows are capped. Turns, queries and users are rate-limited, and logs keep questions
+  and query names only.
+- **Without either**, the page suggests questions and says how to turn Ask on. Azure installs from
+  before Ask keep it off on update.
+
+### Building the installer
+
+#### Fixed: the installer exe builds again
+
+- The app's `@microsoft/rayfin-*` packages are pinned to one version (1.35.1) and move together in
+  Dependabot. A grouped update had left them on different versions, so the exe wouldn't build. The
+  `installer-exe` workflow now runs when the app's package files change.
+
+### Install from Azure Cloud Shell
+
+#### Added: Azure Cloud Shell for PCs that can't run the installer
 
 **Why.** On some locked-down PCs, AppLocker or WDAC rules stop the exe and the PowerShell
 command's unpacked `node.exe` alike, which leaves no way to run the installer on that PC.
@@ -44,11 +104,9 @@ See [Locked-down tenant / Azure Cloud Shell](installer/README.md#locked-down-ten
 
 **Still blocked by.** Conditional Access policies that block sign-in with a code.
 
----
+### Install from PowerShell
 
-## Unreleased — Install from PowerShell
-
-### Added: a PowerShell command for organisations that block downloaded exes
+#### Added: a PowerShell command for organisations that block downloaded exes
 
 **Why.** Many organisations block downloaded `.exe` files, so people couldn't start the installer
 without cloning the repo and installing Node.js.
@@ -74,11 +132,9 @@ unpacked `node.exe`, as they block the exe. `install.ps1` isn't Authenticode-sig
 
 The exe is unchanged and stays the main download.
 
----
+### Private networking under Azure Policy
 
-## Unreleased — Private networking under Azure Policy
-
-### Fixed: private networking deploys where Azure Policy denies public access
+#### Fixed: private networking deploys where Azure Policy denies public access
 
 **Why.** A tester hit a deploy failure involving public and private endpoints. Several resources
 didn't follow the networking choice, and policy errors were hard to read.
@@ -96,7 +152,7 @@ didn't follow the networking choice, and policy errors were hard to read.
 - **Storage.** With private networking, the installer never calls the storage account from your
   machine, and says why.
 
-### Fixed: Azure SQL firewall rule fails when Azure Policy switches SQL public access off
+#### Fixed: Azure SQL firewall rule fails when Azure Policy switches SQL public access off
 
 **Why.** A tester's deploy failed on the SQL firewall rule with `DenyPublicEndpointEnabled`
 ("Unable to create or modify firewall rules when public network interface for the server is
@@ -114,11 +170,9 @@ ResourceDeploymentFailure` text.
 - **Existing installs.** If an existing public install hits this, the installer says networking can't
   change in place: uninstall and install again with Private networking, or ask for an exemption.
 
----
+### Load warnings, Global Reader, Agent Evaluator environments and Fabric uninstall
 
-## Unreleased — Load warnings, Global Reader, Agent Evaluator environments and Fabric uninstall
-
-### Changed: a new Fabric install keeps the app's secret in the notebooks, not Key Vault
+#### Changed: a new Fabric install keeps the app's secret in the notebooks, not Key Vault
 
 **Why.** Fabric notebooks can't get Microsoft Graph tokens from a workspace identity, so they need
 the app's client secret. Until now that meant an Azure subscription and a Key Vault, which a tester
@@ -144,7 +198,7 @@ couldn't create. The notebook option was a last resort with a long-lived secret.
   Connection that holds the secret, so workspace roles don't expose it. A Fabric Connection bound
   to each notebook by hand is a possible later option. Neither is built.
 
-### Added: an Azure region preflight
+#### Added: an Azure region preflight
 
 **Why.** A tester reported that Azure restrictions, mainly region restrictions, were the hardest
 part of standing up the Azure target. The installer offered every region in the subscription.
@@ -163,7 +217,7 @@ deployment.
   moves to regions that policy allows. If the installer can't read a policy, it still deploys, says
   so, and leaves that check to Azure.
 
-### Changed: a load that couldn't read everything is a Warning, not Succeeded
+#### Changed: a load that couldn't read everything is a Warning, not Succeeded
 
 **Why.** A load that was refused by Resource Graph, wasn't licensed for Defender, or found no
 transcripts still showed as *Succeeded*. Its page was then empty, with no reason given.
@@ -177,7 +231,7 @@ transcripts still showed as *Succeeded*. Its page was then empty, with no reason
   run at the next refresh, because the status step runs after the refresh. Azure has no run log,
   so the table stays empty there.
 
-### Changed: the installer gives Global Reader for agents when it can
+#### Changed: the installer gives Global Reader for agents when it can
 
 **Why.** Resource Graph returns Copilot Studio agents only to an identity with an Entra role such
 as Global Reader. The installer only told you to ask a Privileged Role Administrator, so agent
@@ -194,7 +248,7 @@ configuration often stayed empty.
 - **App.** Without the role, the Governance page's agent configuration says *Not collected:
   permission missing*, not zeros.
 
-### Changed: Agent Evaluator asks which environments, and reads further back the first time
+#### Changed: Agent Evaluator asks which environments, and reads further back the first time
 
 **Why.** The installer ticked only the default environment and moved on. The first run read only
 14 days. Then the Agent Evaluation page said nothing about where it had looked.
@@ -210,7 +264,7 @@ configuration often stayed empty.
 - **App.** When there are no conversations, the Agent Evaluation page says how many transcripts it
   found, in which environments, over how many days, and how to add environments.
 
-### Fixed: uninstall on Fabric
+#### Fixed: uninstall on Fabric
 
 **Why.** Uninstall did nothing on Fabric. Fabric also won't delete a workspace that still has
 managed private endpoints, so deleting it by hand failed.
@@ -219,15 +273,13 @@ managed private endpoints, so deleting it by hand failed.
   waits for them to go, then deletes the workspace. A 404 counts as already gone. It lists what it
   leaves alone.
 
----
-
-## Unreleased — Data completeness
+### Data completeness
 
 **Existing installs need the updated notebooks.** Run the installer and choose **Repair or change**
 to deploy them. Until then, Copilot Studio totals stay blank when the credits flow lands only
 per-user files, and Agent 365 can still show "year 1" dates.
 
-### Fixed: Copilot Studio totals were blank with only per-user credits
+#### Fixed: Copilot Studio totals were blank with only per-user credits
 
 **Why.** When the credits flow landed only the per-user file, `studio_tenant_daily` stayed empty.
 The app said "No daily credits" and the budget runway had nothing to project, even though the
@@ -241,7 +293,7 @@ per-user table held the credits.
   breakdown by feature and model says it needs a Power Platform admin centre export, with a link
   and the steps.
 
-### Added: department coverage
+#### Added: department coverage
 
 **Why.** People with no Entra department drop out of every view by organisation, and nothing said
 how many that was.
@@ -252,7 +304,7 @@ how many that was.
 - The app's by-organisation empty states and **What needs attention** show the coverage and the
   same advice.
 
-### Added: Microsoft 365 report status
+#### Added: Microsoft 365 report status
 
 **Why.** A Work patterns chart could be blank with no hint that the Graph report itself returned
 no app usage.
@@ -263,7 +315,7 @@ no app usage.
 - The Apps and Platforms charts say "The report returned no app usage for this period" instead of
   showing a blank chart.
 
-### Fixed: smaller gaps
+#### Fixed: smaller gaps
 
 - **Shadow AI.** The installed AI apps, Cloud Discovery and device panels name the licence they
   need (for example Microsoft Defender Vulnerability Management) when Defender reports it
@@ -272,13 +324,11 @@ no app usage.
   registry sends for a missing date, is now blank in both Agent 365 notebooks. The rule is shared
   as `valuelens_core.dates.plausible_date`.
 
----
-
-## Unreleased — Cowork first load and rerun
+### Cowork first load and rerun
 
 From the newcomer self-serve test of installer 0.4.2 (F3, F4, F5).
 
-### Changed: the first load doesn't fail on a Cowork Dataflow nobody has signed in to
+#### Changed: the first load doesn't fail on a Cowork Dataflow nobody has signed in to
 
 **Why.** The installer creates the Cowork Dataflow but can't sign in to its connections. The first
 load then failed on `Refresh_Cowork_Credits` with "Job instance failed without detail error",
@@ -299,7 +349,7 @@ turned the run red and gave no clear next step.
   Cowork Dataflow's connections aren't signed in (or it hadn't finished publishing)*, in the
   installer and in `dbo.load_log`.
 
-### Fixed: reruns no longer leave the Viva load falsely green
+#### Fixed: reruns no longer leave the Viva load falsely green
 
 **Why.** `Run_Consumption_Viva` succeeded on empty input after a failed Dataflow. Rerunning the
 Dataflow didn't rerun it or the consumption model refresh, so Cowork credits stayed empty while the
@@ -310,13 +360,11 @@ run looked fine.
 - A Viva load that got no rows from the Dataflow shows as **to do**, not loaded. The Viva notebook
   writes its row counts to `Files/valuelens_installer/viva_load.json` for the installer to check.
 
----
-
-## Unreleased — Sharing and the Done page
+### Sharing and the Done page
 
 From the newcomer self-serve test of installer 0.4.2.
 
-### Fixed: the app's Share panel didn't name the viewer group
+#### Fixed: the app's Share panel didn't name the viewer group
 
 **Why.** The app reads who can view it from `fabric.config.json`. Only the prebuilt app got that
 file: a deploy from source left it out, so **Share** fell back to "share the app item in Fabric".
@@ -327,7 +375,7 @@ A deployed app also wasn't redeployed when its access changed.
 - Repair offers to rebuild the app when who can view it has changed, such as the viewer group or
   the app being shared.
 
-### Changed: the installer asks you to share the app before the first load
+#### Changed: the installer asks you to share the app before the first load
 
 **Why.** Viewers got "no access" because the app item was never shared with the group, and the
 reminder only came at the end, after the first load, which can take hours.
@@ -339,7 +387,7 @@ reminder only came at the end, after the first load, which can take hours.
   it in My Groups, and who to ask. It says anyone in the group can open the app only once the app
   item is recorded as shared. Until then, it says the item still has to be shared, with a link.
 
-### Changed: the Done page starts with what's left, with messages for other admins
+#### Changed: the Done page starts with what's left, with messages for other admins
 
 **Why.** Steps for other people were spread through the summary, so they were easy to miss, and a
 Cowork Dataflow waiting for its sign-in showed as a red failed load.
@@ -354,14 +402,12 @@ Cowork Dataflow waiting for its sign-in showed as a red failed load.
 - A Cowork Dataflow refresh that fails before its sign-in shows as waiting, not failed, and isn't
   a reason to rerun.
 
----
-
-## Unreleased — Power Automate flow connections
+### Power Automate flow connections
 
 **Update an existing install:** choose **Repair or change**, or run `update`. Flows that are off
 are signed in and turned on with you; flows that are on are left alone.
 
-### Added: the installer signs the flows in and turns them on
+#### Added: the installer signs the flows in and turns them on
 
 **Why.** Every flow was created turned off, with its connections left for you to make in Power
 Automate. That meant finding the right connector, typing two URLs into each connection and
@@ -386,7 +432,7 @@ the first pipeline load had no Studio data.
 - **Product feedback export link.** The feedback flow's steps link straight to Microsoft 365
   admin center > Health > Product feedback, where the export is scheduled.
 
-### Fixed: Power Automate flows are easier to finish by hand
+#### Fixed: Power Automate flows are easier to finish by hand
 
 - The Copilot Studio credits flow saves in the designer: its Reset token steps set
   `@string('')` rather than an empty value, which the flow checker refused.
@@ -396,13 +442,11 @@ the first pipeline load had no Studio data.
 - The steps say to allow pop-ups for make.powerautomate.com, and to sign in once per connection,
   then pick it on that connection's other actions.
 
----
-
-## Unreleased — Prerequisites and questions
+### Prerequisites and questions
 
 Findings F8, F12, F13 and F14 from the newcomer self-serve test of installer 0.4.2.
 
-### Changed: the prerequisite check covers more, in plainer words
+#### Changed: the prerequisite check covers more, in plainer words
 
 **Why.** A newcomer couldn't tell from the list whether they had what the flows and the Cowork
 credits need, and "PIM-eligible" meant nothing to them.
@@ -415,7 +459,7 @@ credits need, and "PIM-eligible" meant nothing to them.
 - The check now records whether you can assign directory roles (Global Administrator or
   Privileged Role Administrator), as `canAssignDirectoryRoles`.
 
-### Changed: the questions explain themselves
+#### Changed: the questions explain themselves
 
 **Why.** Defaults were picked by name, not by what the tenant uses, and some choices didn't say
 what they cost or need.
@@ -433,7 +477,7 @@ what they cost or need.
   say what each needs.
 - **Ready to set up** lists the costs that apply, with links to the pricing pages.
 
-### Fixed: an access contact from another tenant
+#### Fixed: an access contact from another tenant
 
 **Why.** A record carried over from another tenant kept an outside address as the person to ask
 for access.
@@ -442,9 +486,7 @@ for access.
   note.
 - The request-access link question says what it's for.
 
----
-
-## Unreleased — Install record and launch
+### Install record and launch
 
 **Why.** In a newcomer self-serve test of installer 0.4.2, an install record for a deleted
 workspace kept showing **Manage Analytics Hub**. Nothing said where the record was or how to start
@@ -465,13 +507,11 @@ and some text named internal tools.
 - **Wording.** The web page says you can close the window while a run carries on, not Ctrl+C. The
   app deploy says a browser window may open for sign-in, without naming its deploy tool.
 
----
-
-## Unreleased — Before you start checklist (docs)
+### Before you start checklist (docs)
 
 Docs only. Nothing in the installer, app or notebooks changes.
 
-### Changed: one checklist for everything you need before you install
+#### Changed: one checklist for everything you need before you install
 
 **Why.** A newcomer had to piece together what to ask for from three overlapping lists, found out
 about the Viva Insights query, Power Automate Premium and the data policy only part-way through,
@@ -497,15 +537,13 @@ and had no idea how long it would take or what it would cost.
   Azure AI costs). A broken link from the Fabric README to the installer's download check is
   fixed.
 
----
-
-## Unreleased — Org-scoped access (row-level security)
+### Org-scoped access (row-level security)
 
 **Nothing changes unless you turn it on.** Upgrading or choosing **Repair or change** deploys the
 models exactly as before. To use it, run the installer's `access` command and choose **Turn on
 org-scoped access**. See [Org-scoped access](docs/PERMISSIONS.md#org-scoped-access-row-level-security).
 
-### Added: each viewer can see only the orgs they're given
+#### Added: each viewer can see only the orgs they're given
 
 **Why.** Everyone in Analytics Hub Viewers saw every org. A leader sharing the dashboard with their
 own org had no way to keep the rest of the tenant out of it.
@@ -529,7 +567,7 @@ own org had no way to keep the rest of the tenant out of it.
   gets an `access_scope` table (migration V005) and an `access_people` view, and the jobs' publish
   step loads the scope list into it.
 
-### Added: leaders give their own org from the Share panel (Azure)
+#### Added: leaders give their own org from the Share panel (Azure)
 
 **Why.** Every scope change went through an admin running the installer, even when a leader only
 wanted to share their own org with someone who works for them.
@@ -548,11 +586,9 @@ wanted to share their own org with someone who works for them.
   alone.
 - **Fabric** stays admin-only, through the installer. The Share panel says who to ask.
 
----
+### Fabric App: chart redraw and Shadow AI fixes
 
-## Unreleased — Fabric App: chart redraw and Shadow AI fixes
-
-### Fixed: charts that collapsed after a filter, and missing Shadow AI bars
+#### Fixed: charts that collapsed after a filter, and missing Shadow AI bars
 
 - **Row charts redraw when their row count changes.** Charts with one row per category (by org,
   city, country or surface) set their height from the row count. When a filter or a different
@@ -566,11 +602,9 @@ wanted to share their own org with someone who works for them.
 
 Redeploy the app (**Repair or change**) to pick these up. The models don't change.
 
----
+### Agent Evaluator and Consumption Central model fixes
 
-## Unreleased — Agent Evaluator and Consumption Central model fixes
-
-### Fixed: refresh failures and an empty Credit Consumption page
+#### Fixed: refresh failures and an empty Credit Consumption page
 
 **Why.** On a large tenant the Consumption Central and Agent Evaluator models failed to refresh,
 and in Fabric mode the Agent Evaluator's Credit Consumption page was always empty.
@@ -595,11 +629,9 @@ and in Fabric mode the Agent Evaluator's Credit Consumption page was always empt
 The changes are applied by `scripts/Update-Model-Refresh-Fixes.py` (`--check` reports templates
 that need it). **Repair or change** deploys the updated models; refresh them afterwards.
 
----
+### Fabric App: report packs, PDF and PowerPoint
 
-## Unreleased — Fabric App: report packs, PDF and PowerPoint
-
-### New: report packs, exported as PDF and PowerPoint
+#### New: report packs, exported as PDF and PowerPoint
 
 **What changed.** The Fabric App, which serves both the Fabric and Azure paths, can now build and
 export reports (#24).

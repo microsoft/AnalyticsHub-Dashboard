@@ -987,7 +987,8 @@ again to pick up a new version; it removes the old one.
   `& $env:LOCALAPPDATA\AnalyticsHub\analytics-hub.cmd status`. With no arguments it opens the
   browser steps.
 - **A fixed version.** Each release's notes give a command pinned to that release, such as
-  `irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.5.1/install.ps1 | iex`.
+  `irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.0/install.ps1 | iex`.
+  A pre-release is only reachable this way: `releases/latest` skips pre-releases.
 - **If `irm | iex` is blocked**, download `install.ps1` and `AnalyticsHubInstaller.zip` from the
   [release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest) and run:
 
