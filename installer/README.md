@@ -1051,9 +1051,13 @@ minute or two.
   installer on a PC that's allowed.
 - **Keep the install record.** It's in `~/analytics-hub/valuelens-install.json`. Your home folder
   is kept between sessions only if Cloud Shell has a storage account (it then has `~/clouddrive`);
-  `install.ps1` warns if it doesn't. Without the record, running the installer again sets up a
-  second copy, so in that case download it before you close Cloud Shell (**Manage files** >
-  **Download**). To carry on from a PC later, put the record in `Documents\Analytics Hub`.
+  `install.ps1` warns if it doesn't, and so may a tenant policy that changes new storage accounts
+  so Cloud Shell can't mount them. Without the record, running the installer again sets up a
+  second copy, so in that case download it before you close Cloud Shell: choose **Manage files** >
+  **Download** and enter `analytics-hub/valuelens-install.json`. The installer reminds you at the
+  end of each run. In a new session, upload it with **Manage files** > **Upload** and run the
+  installer again: it moves the uploaded record from your home folder to where it looks. To carry
+  on from a PC later, put the record in `Documents\Analytics Hub`.
 - **Idle timeout.** Cloud Shell ends a session after 20 minutes without input. If that stops the
   installer, run the same command again: it reuses what's in the install record, skips finished
   steps and doesn't create a second app. `--no-wait` saves waiting for the first load.

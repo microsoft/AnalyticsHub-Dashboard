@@ -20,6 +20,15 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**Fixed:**
+
+- **Installer, Azure Cloud Shell:** the plan before **Go ahead?** said to keep the PC plugged in
+  and awake; in Cloud Shell it now says to keep the Cloud Shell tab open. Without a storage
+  account, each run now ends by saying how to download the install record (**Manage files** >
+  **Download**, with the path to enter), and a record uploaded with **Manage files** > **Upload**
+  is moved from the home folder to where the installer looks, so running it again carries on
+  instead of setting up a second copy.
+
 ## 2026-10-13 — Analytics Hub installer 0.6.1 (pre-release)
 
 **A pre-release, for testing.** 0.6.1 fixes problems found while testing 0.6.0. Like 0.6.0, it's a
