@@ -416,6 +416,23 @@ export function saveConfig(file, config) {
   renameSync(tmp, file);
 }
 
+/**
+ * Sets an install record aside so the next install starts fresh. It's renamed beside itself, as
+ * `valuelens-install.<yyyyMMdd-HHmmss>.json`, so nothing in it is lost.
+ * @param {string} file
+ * @param {Date} [now]
+ * @returns {string} where the record went
+ */
+export function archiveConfig(file, now = new Date()) {
+  const p = (/** @type {number} */ n) => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
+  const base = file.replace(/\.json$/i, '');
+  let to = `${base}.${stamp}.json`;
+  for (let i = 2; existsSync(to); i++) to = `${base}.${stamp}-${i}.json`;
+  renameSync(file, to);
+  return to;
+}
+
 /** @param {unknown} config */
 function assertNoSecrets(config) {
   const text = JSON.stringify(config);

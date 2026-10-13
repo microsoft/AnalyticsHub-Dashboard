@@ -18,7 +18,7 @@ import { APP_ALIAS, CONSUMPTION_ALIAS } from '../app.js';
 import { AZURE_AI_ROLES, ensureAzureAiAccess, planConsumption } from '../consumption.js';
 import { AZURE_LANDING_DIRS, azureDropLabel, azureDropsToSharePoint, ensureFlows, flowsSummary, flowsWanted, offerStudioRun, planFlows } from '../flows.js';
 import { DEFAULT_CURRENCY } from '../../currency.js';
-import { askMoreHistory, askReportingCurrency, HISTORY_CHOICES, reloadDetail, reloadLine } from '../plan.js';
+import { askMoreHistory, askReportingCurrency, HISTORY_CHOICES, KEEP_AWAKE, planCosts, reloadDetail, reloadLine } from '../plan.js';
 import { ensureResourceGraphAccess, planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from '../resource-graph.js';
 import { DATA_SOURCES } from '../../uploads.js';
 import { normaliseResourceGraph } from '../../config.js';
@@ -149,6 +149,10 @@ export function whatIfSummary(changes) {
   return grouped;
 }
 
+/** What the Azure target is, in plain words. */
+export const AZURE_TARGET_DESCRIPTION =
+  'Runs the data collection in your Azure subscription (scheduled jobs in Azure Container Apps) and publishes to a Power BI workspace.';
+
 /** @param {Ctx} ctx */
 export async function askTarget(ctx) {
   ctx.config.target ??= 'fabric';
@@ -156,7 +160,7 @@ export async function askTarget(ctx) {
   ctx.ui.heading('Where should Analytics Hub run?');
   ctx.config.target = await ctx.ui.select('Where should Analytics Hub run?', [
     { name: 'Microsoft Fabric', value: 'fabric', description: 'Use Fabric workspaces, Lakehouse, notebooks and pipeline.' },
-    { name: 'Your Azure subscription', value: 'azure', description: 'Use Azure PaaS, Container Apps jobs and a Power BI workspace.' },
+    { name: 'Your Azure subscription', value: 'azure', description: AZURE_TARGET_DESCRIPTION },
   ], ctx.config.target);
 }
 
@@ -755,6 +759,7 @@ export function azurePlanReview(ctx) {
       { what: 'Cost', where: `Indicative Azure cost: about $5-40/month small tenants or $60-160/month large tenants, plus Power BI Pro/PPU licences.${isPrivate(az) ? ' Private networking adds about $30-40/month (4 private endpoints and DNS zones); the VNet data gateway uses capacity units on your Fabric/Premium capacity while refreshing.' : ''}` },
       ...(ctx.reloadHistoryDays ? [{ what: 'History reload', where: reloadLine(ctx.reloadHistoryDays), detail: `The run job, once, with ${BACKFILL_ENV}=${ctx.reloadHistoryDays}. ${reloadDetail(ctx.reloadHistoryDays)}` }] : []),
     ],
+    costs: planCosts(ctx.config),
   };
 }
 
@@ -782,6 +787,7 @@ export async function confirmAzurePlan(ctx) {
   ui.info(`Ask:         ${askLine(az)}`);
   if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)}`);
   ui.review(azurePlanReview(ctx));
+  ui.note(KEEP_AWAKE);
   return ui.confirm('Go ahead?', true);
 }
 
