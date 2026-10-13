@@ -151,10 +151,23 @@ Under [Advanced settings](#advanced-settings), the wizard asks how the app, jobs
 
 ### Regions and images
 
+- **Region preflight.** On a first install, the region list shows only the regions where every
+  resource can go. A region is left out if any of these are true:
+  - Azure Policy denies it. The installer reads the built-in **Allowed locations** and **Allowed
+    locations for resource groups** policies, either assigned directly or inside an initiative,
+    and simple custom deny rules on `location`.
+  - The subscription isn't offered one of the resource types there.
+  - Standard_LRS storage is restricted there.
+  - Azure SQL is restricted there.
+
+  The installer says why each region was dropped. If no region passes, it stops before deploying
+  anything. It still deploys if it can't read a policy, says so, and leaves that check to Azure.
+  The Ask model's account only moves to regions that policy allows. A re-run keeps its region.
 - `azure.sqlLocation` puts Azure SQL in a different region from everything else. Some subscriptions
   can't create SQL in busy regions (for example uksouth, northeurope or westeurope on MCAPS). The
-  preflight checks SQL capability and points at this setting. The private endpoint can be in another
-  region from the server.
+  preflight checks SQL capability and points at this setting. With **Yes** to advanced settings, the
+  region list keeps regions where only SQL is blocked, and the Azure SQL list offers only regions
+  where SQL can go. The private endpoint can be in another region from the server.
 - `azure.images` overrides where the jobs and web images come from, for air-gapped tenants or testing
   an unreleased build: `{ "registry": "myacr.azurecr.io/valuelens", "registryResourceId": "<ACR
   resource ID>", "tag": "dev-abc123" }`. With `registryResourceId` set, the managed identity is granted
@@ -827,7 +840,8 @@ they can see. Under [Advanced settings](#advanced-settings) the wizard asks whic
 - **Create one for Ask** (the default): an Azure AI Services account in the resource group with a
   `gpt-5-mini` deployment, billed per token. Choose whether prompts may be processed in any region
   (Global Standard) or only in your data zone (Data Zone Standard). The installer checks the region
-  offers the model and has quota, and moves a global deployment to another region if it doesn't.
+  offers the model and has quota, and moves a global deployment to another region if it doesn't,
+  but only to a region that Azure Policy allows.
   The web app's managed identity gets **Cognitive Services OpenAI User** on it.
 - **Use an Azure OpenAI deployment you already have**: pick the account and a chat deployment that
   supports tool calling. The installer gives the managed identity Cognitive Services OpenAI User on

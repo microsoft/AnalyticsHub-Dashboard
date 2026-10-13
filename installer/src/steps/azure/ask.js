@@ -3,6 +3,7 @@
 import { ROLES } from '../../clients/azure.js';
 import { HttpError } from '../../http.js';
 import { asksAdvanced } from '../advanced.js';
+import { allowedFor, ASK_TYPE } from './regions.js';
 
 /** @typedef {import('../../install.js').Ctx} Ctx */
 /** @typedef {import('../../config.js').AzureAskConfig} AzureAskConfig */
@@ -78,12 +79,14 @@ export async function planAzureAsk(ctx) {
   const sku = advanced
     ? await ui.select('Where may Azure process Ask\'s prompts?', Object.entries(ASK_SKUS).map(([value, name]) => ({ name, value })), prev?.sku ?? ASK_MODEL.sku)
     : prev?.sku ?? ASK_MODEL.sku;
-  const home = prev?.location ?? /** @type {string} */ (az.location);
+  const allowed = allowedFor(ctx.azureRegions, ASK_TYPE);
+  const ok = (/** @type {string | undefined} */ r) => !!r && (!allowed || allowed.includes(r));
+  const home = [prev?.location, az.location].find(ok) ?? /** @type {string} */ (az.location);
   let check = await askModelIn(ctx, home, sku);
   let location = home;
-  // A data zone deployment has to stay in its zone, so only global ones move region.
+  // A data zone deployment has to stay in its zone, so only global ones move region, and only where Azure Policy allows.
   if (!check.ok && sku === 'GlobalStandard') {
-    for (const region of ASK_FALLBACK_REGIONS.filter((r) => r !== home)) {
+    for (const region of [...new Set([...ASK_FALLBACK_REGIONS, ...(allowed ?? [])])].filter((r) => r !== home && ok(r))) {
       const next = await askModelIn(ctx, region, sku);
       if (next.ok) {
         ui.note(`${check.reason}, so the Ask model's account goes in ${region}. It's a global deployment, so prompts may run in any region either way.`);
