@@ -10,6 +10,7 @@ const AUTHORIZATION_API = '2022-04-01';
 const DEPLOYMENTS_API = '2022-09-01';
 const CONTAINER_APPS_API = '2024-03-01';
 const RESOURCE_GRAPH_API = '2022-10-01';
+const POLICY_API = '2023-04-01';
 
 export const ROLES = {
   keyVaultSecretsOfficer: 'b86a8fe4-44ce-4948-aee5-eccb2c155cd7',
@@ -176,6 +177,29 @@ export function armApi(http, opts = {}) {
      */
     sqlCapability: (subscriptionId, location) =>
       http.get(`/subscriptions/${subscriptionId}/providers/Microsoft.Sql/locations/${location}/capabilities`, { query: { 'api-version': '2023-08-01-preview', include: 'supportedEditions' } }),
+
+    /**
+     * A resource provider, with the regions each of its resource types is offered in (display names).
+     * @param {string} subscriptionId @param {string} namespace
+     * @returns {Promise<{ resourceTypes?: { resourceType: string, locations?: string[] }[] }>}
+     */
+    getProvider: (subscriptionId, namespace) => http.get(`/subscriptions/${subscriptionId}/providers/${namespace}`, { query: { 'api-version': RESOURCES_API } }),
+
+    /** Storage SKUs by region, with the regions this subscription can't use. @param {string} subscriptionId */
+    storageSkus: (subscriptionId) => http.list(`/subscriptions/${subscriptionId}/providers/Microsoft.Storage/skus`, { query: { 'api-version': '2023-05-01' } }),
+
+    /** Azure Policy assignments at `scope` and above it. @param {string} scope  e.g. /subscriptions/{id} */
+    listPolicyAssignments: (scope) => http.list(`${scope}/providers/Microsoft.Authorization/policyAssignments`, { query: { 'api-version': POLICY_API, $filter: 'atScope()' } }),
+
+    /**
+     * Custom policy definitions or initiatives visible to a subscription: its own and its management groups'.
+     * @param {string} subscriptionId @param {'policyDefinitions' | 'policySetDefinitions'} kind
+     */
+    listCustomPolicies: (subscriptionId, kind) =>
+      http.list(`/subscriptions/${subscriptionId}/providers/Microsoft.Authorization/${kind}`, { query: { 'api-version': POLICY_API, $filter: "policyType eq 'Custom'" } }),
+
+    /** A policy definition or initiative, by ID. @param {string} id */
+    getPolicy: (id) => http.get(id, { query: { 'api-version': POLICY_API } }),
 
     /** @param {string} scope  e.g. /subscriptions/{id} */
     permissions: (scope) => http.list(`${scope}/providers/Microsoft.Authorization/permissions`, { query: { 'api-version': AUTHORIZATION_API } }),

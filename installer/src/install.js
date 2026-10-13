@@ -94,6 +94,7 @@ import { ensureOrgAccess, verifyOrgAccess } from './steps/org-access.js';
  * @property {boolean} [runFirstLoad]
  * @property {boolean} [advanced]  The plan's "Change the advanced settings?" answer. With false, those settings keep their saved value or default.
  * @property {number} [reloadHistoryDays]  Repair or change: reload this many days of audit history after setup.
+ * @property {import('./steps/azure/regions.js').RegionCheck} [azureRegions]  Azure: what the region preflight found, for placing the Ask model.
  * @property {{ sp: any, roles: { id: string, value: string }[] }} [graphRoles]
  * @property {import('./steps/app.js').Runner} [runner]  Runs the app's build tools; tests replace it.
  * @property {import('./staging.js').PendingUpload[]} [pendingUploads]  Exports to upload to the drop folder during the install.

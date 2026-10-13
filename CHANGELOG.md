@@ -42,6 +42,24 @@ didn't follow the networking choice, and policy errors were hard to read.
 
 ## Unreleased — Load warnings, Global Reader, Agent Evaluator environments and Fabric uninstall
 
+### Added: an Azure region preflight
+
+**Why.** A tester reported that Azure restrictions, mainly region restrictions, were the hardest
+part of standing up the Azure target. The installer offered every region in the subscription.
+Choosing one that Azure Policy or the subscription doesn't allow then failed partway through the
+deployment.
+
+- **Installer.** On a first Azure install, the region list shows only the regions where every
+  resource can go. Regions are dropped if:
+  - Azure Policy's allowed locations deny them. The installer reads the built-in policies, either
+    assigned directly or in initiatives, and simple custom deny rules on `location`.
+  - The subscription isn't offered a resource type it needs there.
+  - Standard_LRS storage or Azure SQL is restricted there.
+
+  The installer prints why each region was dropped. If no region passes, it stops before deploying,
+  with a message that says what to ask an Azure administrator for. The Ask model's account only
+  moves to regions that policy allows. If the installer can't read a policy, it still deploys, says
+  so, and leaves that check to Azure.
 ### Changed: a load that couldn't read everything is a Warning, not Succeeded
 
 **Why.** A load that was refused by Resource Graph, wasn't licensed for Defender, or found no

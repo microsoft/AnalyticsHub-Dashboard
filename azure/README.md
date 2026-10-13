@@ -26,7 +26,9 @@ The design and the roadmap are in [`docs/plans/AZURE-HOSTED-PLAN.md`](../docs/pl
      last week. It's handy for a demo or to try Analytics Hub before the Graph permissions are granted. Run
      the installer again, choose **Repair or change**, then **Yes** for the advanced settings, and pick
      your tenant's data to switch; the next run replaces the sample.
-3. Choose the subscription, resource group, region and Power BI workspace.
+3. Choose the subscription, resource group, region and Power BI workspace. The installer only offers
+   regions that your Azure Policy allowed locations permit and where everything it deploys is
+   available. It says why the others were left out.
 4. Review the plan and approve it. The installer prints the web app's URL and writes `AnalyticsHub-Teams.zip`.
 
 ## Share it
