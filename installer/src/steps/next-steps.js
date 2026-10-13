@@ -8,7 +8,7 @@ import { FEEDBACK_SUBJECT } from '../transform/flows.js';
 import { isVivaId } from '../transform/dataflow.js';
 import { COWORK_DATAFLOW_ACTIVITY } from '../transform/pipeline.js';
 import { appItemUrl, shareAppPending, shareAppSteps, VIEWER_GROUP_NAME, myGroupsUrl } from './access.js';
-import { COWORK_DATAFLOW_NAME, coworkSignInSteps } from './consumption.js';
+import { COWORK_DATAFLOW_NAME, coworkSignInSteps, DATAFLOW_GUIDE } from './consumption.js';
 import { coworkDataflowOn } from './fabric.js';
 import { connectionSteps, FLOW_NAMES, flowsWanted } from './flows.js';
 import { APP_NAME } from './plan.js';
@@ -32,7 +32,6 @@ import { AGENT_DIRECTORY_ROLES, resourceGraphOn } from './resource-graph.js';
 export const GLOBAL_READER_ROLE_ID = 'f2ef992c-3afb-46b9-b7cf-a126ee74c451';
 export const ENTRA_ROLES_URL = 'https://entra.microsoft.com/#view/Microsoft_AAD_IAM/RolesManagementMenuBlade/~/AllRoles';
 export const M365_ADMIN_URL = 'https://admin.microsoft.com/';
-export const VIVA_QUERY_GUIDE = 'https://learn.microsoft.com/viva/insights/advanced/analyst/export-query-data-microsoft-fabric';
 const MAKER = 'https://make.powerautomate.com/';
 
 /**
@@ -177,7 +176,7 @@ function vivaQueryStep(config, user) {
     title: 'Ask a Viva Insights analyst for the Cowork credits query',
     why: 'Optional. With it, a Dataflow reads Cowork credits on every run, rather than someone uploading the Consumption Dashboard export. Then run the installer again and choose Connected (Dataflow) for Cowork credits.',
     who: 'A Viva Insights analyst',
-    link: VIVA_QUERY_GUIDE,
+    link: DATAFLOW_GUIDE,
     linkText: 'The guide',
     steps,
     optional: true,
@@ -188,7 +187,7 @@ function vivaQueryStep(config, user) {
         ...numbered(steps),
         '',
         'Then send me the partition ID and the query ID. They look like 00000000-0000-0000-0000-000000000000.',
-        `Guide: ${VIVA_QUERY_GUIDE}`,
+        `Guide: ${DATAFLOW_GUIDE}`,
       ],
       user.upn,
     ),

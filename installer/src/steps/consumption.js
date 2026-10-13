@@ -28,7 +28,7 @@ export const AZURE_AI_ROLES = [
 /** Subscriptions are only searched for AI resources when there are this many or fewer. */
 export const MAX_SUBSCRIPTIONS_TO_SEARCH = 25;
 
-const DATAFLOW_GUIDE = 'https://learn.microsoft.com/viva/insights/advanced/analyst/export-query-data-microsoft-fabric';
+export const DATAFLOW_GUIDE = 'https://learn.microsoft.com/viva/insights/advanced/analyst/export-query-data-microsoft-fabric';
 
 /** The Dataflow that reads Cowork credits from Viva Insights. */
 export const COWORK_DATAFLOW_NAME = 'AnalyticsHub_Cowork_Credits';
