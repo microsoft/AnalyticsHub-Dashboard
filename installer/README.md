@@ -476,9 +476,10 @@ use the Lakehouse folder.
 
 ### Power Automate flows
 
-The installer creates these flows in the Power Platform environment you pick, **turned off**. It
-preselects the tenant's default environment. The environment's DLP policy must allow *HTTP with
-Microsoft Entra ID (preauthorized)*, and people with access to the environment can see the flows.
+The installer creates these flows in the Power Platform environment you pick, **turned off**, then
+helps you sign in to them and turns them on. It preselects the tenant's default environment. The
+environment's DLP policy must allow *HTTP with Microsoft Entra ID (preauthorized)*, and people with
+access to the environment can see the flows.
 
 | Flow | When | What it does | Sign in to |
 |---|---|---|---|
@@ -486,12 +487,37 @@ Microsoft Entra ID (preauthorized)*, and people with access to the environment c
 | `Analytics Hub - Product feedback` | Product feedback set to **Power Automate (emailed export)** | Saves product feedback exports emailed with the subject `Copilot Product Feedback` | Office 365 Outlook and OneLake |
 | `Analytics Hub - Agent inventory` | Agent configuration and Foundry set to **Connected**, with agents | Each day, an hour before the pipeline, saves the Power Platform inventory of Copilot Studio agents, environments and agent flows to `Files/arg_inventory`, for when Resource Graph won't give the app the agents | Power Platform API and OneLake |
 
-They need Power Automate Premium for whoever signs in to them, and a data policy that allows
-**HTTP with Microsoft Entra ID (preauthorized)**: see the
-[Power Platform admin checklist](../docs/PREREQUISITES.md#power-platform-admin-for-the-copilot-studio-credits-flow). To finish each one:
+They need Power Automate Premium: whoever signs in to the HTTP with Microsoft Entra ID
+connections, and you as the flows' owner. See the
+[Power Platform admin checklist](../docs/PREREQUISITES.md#power-platform-admin-for-the-copilot-studio-credits-flow).
 
-1. Open it in Power Automate.
-2. Sign in to its connections:
+**The installer signs them in with you.** Straight after it creates the flows, it:
+
+1. Makes the HTTP with Microsoft Entra ID connections the flows need, with their URLs filled in,
+   named `Analytics Hub - Power Platform API` and `Analytics Hub - OneLake` (on Azure,
+   `Analytics Hub - Azure Storage (<account>)`). It reuses ones of the same name that are signed in
+   to already.
+2. Gives one sign-in link for each, and says who signs in. If a link opens nothing, your browser
+   blocked the pop-up: allow pop-ups for `make.powerautomate.com` and `login.microsoftonline.com`.
+   If there's no link, it names the connection to find on the environment's Connections page and
+   click **Fix connection**.
+3. Waits while you sign in. Choose **I've signed in, check now**, or **Do this later**. `--yes`
+   doesn't wait.
+4. Once they're signed in to, points each flow at them and turns it on, so the Studio flow can run
+   before the first pipeline load. Run `update` to finish this later.
+5. Deletes the connections it made before that nobody signed in to and no flow uses. It lists your
+   other HTTP with Microsoft Entra ID connections that aren't signed in to, but never deletes them.
+
+The feedback flow's Outlook connection, and the Key Vault one with `--flow-identity app`, are still
+yours to sign in to in Power Automate. If the installer can't do any of this, it shows the steps
+below as soon as it creates the flows, and again at the end. If you leave the sign-ins for later,
+Copilot Studio data arrives after the flow runs and the next daily load.
+
+To finish a flow by hand:
+
+1. Open it in Power Automate. Allow pop-ups for `make.powerautomate.com`: each sign-in opens one.
+2. Sign in to its connections, or pick the ones the installer made. Each action's name ends in the
+   connection it uses: "via Power Platform API", "via OneLake" or "via Azure Storage".
    - **HTTP with Microsoft Entra ID (preauthorized), for the Power Platform API** (Studio flow):
      Base Resource URL and Resource URI `https://api.powerplatform.com`. Sign in as a Power
      Platform, Billing or Global administrator. For the agent inventory flow, sign in as a Power
@@ -501,8 +527,9 @@ They need Power Automate Premium for whoever signs in to them, and a data policy
      `https://onelake.dfs.fabric.microsoft.com`, Resource URI `https://storage.azure.com`. Sign in
      as someone with Contributor or higher on the workspace.
 3. Save, then turn it on.
-4. For product feedback, schedule the export in the Microsoft 365 admin center to be emailed to
-   that mailbox with the subject `Copilot Product Feedback`.
+4. For product feedback, schedule the export to be emailed to that mailbox with the subject
+   `Copilot Product Feedback`, in the
+   [Microsoft 365 admin center > Health > Product feedback](https://admin.microsoft.com/Adminportal/Home#/tenantfeedback).
 
 **Load the Studio credits now.** The Studio flow loads its first six months on its first run,
 which is otherwise the next day, an hour before the pipeline. Once it's on, click **Run** in
