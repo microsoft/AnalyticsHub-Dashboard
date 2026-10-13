@@ -239,7 +239,8 @@ Azure commands:
    This link always gets the newest version. If Edge says it isn't commonly downloaded, choose
    **…** next to the file, then **Keep**, **Show more** and **Keep anyway**. To check the file,
    see [Check the download](#check-the-download). If your organisation blocks downloaded exes,
-   use the [PowerShell command](#from-powershell) instead and carry on from step 3.
+   use the [PowerShell command](#from-powershell) instead and carry on from step 3. If your PC
+   can't run either, use [Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell).
 2. Open it. If Windows says it protected your PC, choose **More info**, then **Run anyway**.
 3. The first time, it takes about a minute to unpack. Then it opens in your browser. Keep its
    window open while you use the page, and keep the PC awake and plugged in until it finishes. If
@@ -908,6 +909,8 @@ the endpoint, someone who manages the vault approves it under **Networking** >
 |---|---|
 | Edge says the file isn't commonly downloaded | Choose **…** next to the file, then **Keep**, **Show more** and **Keep anyway**. The exe isn't code-signed yet. |
 | Windows says it protected your PC | Choose **More info**, then **Run anyway**. The exe isn't code-signed yet. |
+| Your PC blocks both the exe and the PowerShell command | Run the installer in Azure Cloud Shell. See [Locked-down tenant / Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell). |
+| `The Azure CLI is on Cloud Shell's own sign-in` | Run `az login --use-device-code`, then run the installer again. Or leave out `--use-az`. See [Locked-down tenant / Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell). |
 | `The installer couldn't start` | Download the exe again. If that doesn't help, delete `%LOCALAPPDATA%\AnalyticsHub` and open it again. |
 | The page says it needs the installer's link, or the link has expired | Go back to the installer's window and press **Enter**. It opens the page again. |
 | `This workspace no longer exists` | The workspace in the install record was deleted, or the record is for another tenant. Choose **Start fresh**. The old record is kept, renamed with the date and time. See [Run it](#run-it). |
@@ -1007,7 +1010,63 @@ again to pick up a new version; it removes the old one.
 
 What it can't get past: AppLocker or Windows Defender Application Control rules that block
 programs under your profile stop the unpacked `node.exe` just as they stop the exe. Some
-endpoint protection products flag `irm | iex`; the download-and-run command above avoids it.
+endpoint protection products flag `irm | iex`; the download-and-run command above avoids it. If
+that's you, use [Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell).
+
+## Locked-down tenant / Azure Cloud Shell
+
+If your PC can't run the exe or the PowerShell command (AppLocker, WDAC, or no local PowerShell at
+all), run the installer in [Azure Cloud Shell](https://shell.azure.com) instead. Nothing runs on
+your PC: the installer runs in Cloud Shell and asks its questions in the terminal. Choose
+**PowerShell** in Cloud Shell and paste the same command:
+
+```powershell
+irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+```
+
+In Cloud Shell, `install.ps1` doesn't download the Windows zip. It fetches the release's source
+from GitHub at the commit written into `install.ps1`, checks it got that commit, and installs the
+installer's packages with `npm ci` from the lockfile. If Cloud Shell's Node.js is older than 22.13,
+it downloads the Node.js version the release was built with from nodejs.org and checks its SHA-256
+against the list nodejs.org publishes. It all goes in `~/.analytics-hub`. The first run takes a
+minute or two.
+
+- **Options.** To pass options or a command, run
+  `& ([scriptblock]::Create((irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1))) --use-az status`.
+  In Bash, run `pwsh -c "irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex"`.
+- **Later commands.** It leaves `~/.analytics-hub/analytics-hub` behind, which works from Bash or
+  PowerShell, for example `~/.analytics-hub/analytics-hub status`. To update, run the `irm` command
+  again.
+- **Terminal only.** Cloud Shell can't open the installer's page in your browser, so `--ui` isn't
+  available. The terminal asks the same questions.
+- **Signing in.** By default the installer signs you in with a code: it shows a code and a link,
+  and you sign in on any device. The tokens stay in memory, so each run asks again. Cloud Shell's
+  own sign-in, which the Azure CLI uses until you sign it in, can't get tokens for some of the APIs
+  the installer uses. To use `--use-az`, first run `az login --use-device-code`. The installer
+  checks the Azure CLI can reach every API it uses before it changes anything, and says which it
+  couldn't. The Azure CLI stays signed in between Cloud Shell sessions.
+- **If Conditional Access blocks sign-in with a code**, Cloud Shell can't run the installer:
+  both ways of signing in use a code there. Ask whoever manages Conditional Access, or run the
+  installer on a PC that's allowed.
+- **Keep the install record.** It's in `~/analytics-hub/valuelens-install.json`. Your home folder
+  is kept between sessions only if Cloud Shell has a storage account (it then has `~/clouddrive`);
+  `install.ps1` warns if it doesn't. Without the record, running the installer again sets up a
+  second copy, so in that case download it before you close Cloud Shell (**Manage files** >
+  **Download**). To carry on from a PC later, put the record in `Documents\Analytics Hub`.
+- **Idle timeout.** Cloud Shell ends a session after 20 minutes without input. If that stops the
+  installer, run the same command again: it reuses what's in the install record, skips finished
+  steps and doesn't create a second app. `--no-wait` saves waiting for the first load.
+- **The app.** The installer builds the app from source in Cloud Shell and deploys it with your
+  installer sign-in, so Rayfin doesn't open a browser. The build needs a few hundred MB in your
+  home folder (Cloud Shell gives you 5 GB). If deploying fails, copy the install record to a
+  Windows PC and run `deploy-app` there.
+- **Remove it** with
+  `& ([scriptblock]::Create((irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1))) -Uninstall`,
+  or by deleting `~/.analytics-hub`. Your install record stays.
+
+`install.ps1` spots Cloud Shell from the environment variables it sets. To force it either way,
+set `$env:ANALYTICS_HUB_CLOUD_SHELL` to `1` or `0` first. Cloud Shell is the PowerShell launcher's
+only Linux target; on other Linux or macOS machines, use [Without the exe](#without-the-exe).
 
 ## Without the exe
 

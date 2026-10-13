@@ -20,6 +20,13 @@ Options:
 Anything else goes to the installer, for example: status, or install --device-code.
 With irm | iex, set $env:ANALYTICS_HUB_ZIP or $env:ANALYTICS_HUB_PROXY instead.
 
+In Azure Cloud Shell's PowerShell, for tenants where no PC may run the installer, the same command
+gets this release's commit from GitHub with git, installs the installer's packages with npm and
+runs it in the terminal. It uses Cloud Shell's Node.js when that is 22.13 or later, or downloads
+Node.js {{NODE_VERSION}} and checks it against nodejs.org's SHA-256 list. The installer goes under
+~/.analytics-hub and the install record under ~/analytics-hub. -Uninstall removes the first.
+Set $env:ANALYTICS_HUB_CLOUD_SHELL to 1 or 0 if Cloud Shell isn't detected, or is wrongly.
+
 Works in Windows PowerShell 5.1 and PowerShell 7, including Constrained Language Mode. Generated
 by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps1.
 #>
@@ -48,7 +55,148 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
     else { $Forward += $a }
   }
 
-  if ($env:OS -ne 'Windows_NT') { throw 'This launcher runs on Windows. Elsewhere, run the installer with Node.js: see installer/README.md.' }
+  # Azure Cloud Shell runs Linux, so the zip's Windows Node.js and packages are no use there.
+  $CloudShell = $env:ANALYTICS_HUB_CLOUD_SHELL -eq '1' -or ($env:ANALYTICS_HUB_CLOUD_SHELL -ne '0' -and ([string]$env:AZUREPS_HOST_ENVIRONMENT -like 'cloud-shell*' -or [bool]$env:ACC_CLOUD))
+  if ($CloudShell) {
+    $Commit = '{{COMMIT}}'
+    $NodeVersion = '{{NODE_VERSION}}'
+    $RepoUrl = 'https://github.com/{{REPO}}.git'
+    if ($ZipPath) { throw '-ZipPath is for Windows. In Cloud Shell the installer comes from GitHub.' }
+    $AhHome = Join-Path $HOME '.analytics-hub'
+    $Root = Join-Path $AhHome $Id
+    $Shim = Join-Path $AhHome 'analytics-hub'
+    $Work = Join-Path $HOME 'analytics-hub'
+    $Marker = '.unpacked'
+    $Sep = [IO.Path]::PathSeparator
+
+    if ($Uninstall) {
+      if (-not (Test-Path -LiteralPath $AhHome)) { Write-Host 'Nothing to remove.'; return }
+      Remove-Item -LiteralPath $AhHome -Recurse -Force
+      Write-Host "Removed $AhHome. Your install record in $Work is still there."
+      return
+    }
+
+    function Invoke-Checked([string]$What, [scriptblock]$Run) {
+      & $Run
+      if ($LASTEXITCODE -ne 0) { throw "$What failed with exit code $LASTEXITCODE." }
+    }
+
+    # Building the app needs Node.js 22.13 or later. Cloud Shell's own is used when it's new enough.
+    $NodeExe = $null
+    $NodeDir = $null
+    $sys = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($sys) {
+      $v = [string](& $sys.Source --version 2>$null)
+      if ($v -match '^v(\d+)\.(\d+)\.' -and ([int]$Matches[1] -gt 22 -or ([int]$Matches[1] -eq 22 -and [int]$Matches[2] -ge 13))) { $NodeExe = $sys.Source }
+    }
+    if (-not $NodeExe) {
+      $NodeDir = Join-Path $AhHome "node-v$NodeVersion-linux-x64"
+      $NodeExe = Join-Path $NodeDir 'bin/node'
+      if (-not (Test-Path -LiteralPath $NodeExe)) {
+        if (-not $IsLinux -or [string][Runtime.InteropServices.RuntimeInformation]::OSArchitecture -ne 'X64') { throw 'The installer needs Node.js 22.13 or later. Install it, then run this again.' }
+        New-Item -ItemType Directory -Path $AhHome -Force | Out-Null
+        $file = "node-v$NodeVersion-linux-x64.tar.gz"
+        $base = "https://nodejs.org/dist/v$NodeVersion"
+        $tgz = Join-Path $AhHome "$file.partial-$PID"
+        $partial = "$NodeDir.partial-$PID"
+        Write-Host "Cloud Shell's Node.js is older than 22.13, so downloading Node.js $NodeVersion for the installer..."
+        try {
+          Invoke-WebRequest -Uri "$base/$file" -OutFile $tgz -UseBasicParsing
+          $want = $null
+          foreach ($line in ([string](Invoke-RestMethod -Uri "$base/SHASUMS256.txt")) -split "`n") {
+            $p = @($line.Trim() -split '\s+')
+            if ($p.Count -eq 2 -and $p[1] -eq $file) { $want = $p[0].ToLowerInvariant() }
+          }
+          $got = (Get-FileHash -LiteralPath $tgz -Algorithm SHA256).Hash.ToLowerInvariant()
+          if (-not $want -or $got -ne $want) { throw "The SHA-256 of $file is $got, which isn't the one nodejs.org lists for it." }
+          New-Item -ItemType Directory -Path $partial -Force | Out-Null
+          Invoke-Checked 'tar' { tar -x -z -f $tgz -C $partial --strip-components 1 }
+          if (Test-Path -LiteralPath $NodeDir) { Remove-Item -LiteralPath $NodeDir -Recurse -Force }
+          Rename-Item -LiteralPath $partial -NewName (Split-Path $NodeDir -Leaf)
+        } finally {
+          Remove-Item -LiteralPath $tgz -Force -ErrorAction SilentlyContinue
+          if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Recurse -Force -ErrorAction SilentlyContinue }
+        }
+      }
+    }
+    $NodeBin = Split-Path $NodeExe
+
+    if (-not (Test-Path -LiteralPath (Join-Path $Root $Marker))) {
+      if (-not (Get-Command git -ErrorAction SilentlyContinue)) { throw 'The installer needs git, which Azure Cloud Shell has.' }
+      New-Item -ItemType Directory -Path $AhHome -Force | Out-Null
+      $partial = "$Root.partial-$PID"
+      if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Recurse -Force }
+      $savedPath = $env:PATH
+      try {
+        Write-Host "Getting the Analytics Hub installer $Version ($($Commit.Substring(0, 7))) from GitHub..."
+        Invoke-Checked 'git init' { git init --quiet $partial }
+        Invoke-Checked 'git fetch' { git -C $partial fetch --quiet --depth 1 $RepoUrl $Commit }
+        Invoke-Checked 'git checkout' { git -C $partial -c advice.detachedHead=false checkout --quiet FETCH_HEAD }
+        $head = ([string](git -C $partial rev-parse HEAD)).Trim()
+        if ($head -ne $Commit) { throw "GitHub sent commit $head, not $Commit." }
+        Write-Host "Installing the installer's packages..."
+        $env:PATH = $NodeBin + $Sep + $env:PATH
+        Push-Location -LiteralPath (Join-Path $partial 'installer')
+        try { Invoke-Checked 'npm ci' { npm ci --omit=dev --no-audit --no-fund --loglevel=error } } finally { Pop-Location }
+        Set-Content -LiteralPath (Join-Path $partial $Marker) -Value (Get-Date -Format o) -Encoding Ascii
+        if (Test-Path -LiteralPath $Root) { Remove-Item -LiteralPath $Root -Recurse -Force }
+        for ($try = 1; ; $try++) {
+          try { Rename-Item -LiteralPath $partial -NewName $Id; break } catch { if ($try -ge 5) { throw }; Start-Sleep -Seconds 1 }
+        }
+      } catch {
+        if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Recurse -Force -ErrorAction SilentlyContinue }
+        throw "Couldn't get the installer: $($_.Exception.Message)"
+      } finally {
+        $env:PATH = $savedPath
+      }
+    }
+
+    # Remove other versions, and a Node.js this version doesn't use.
+    foreach ($dir in @(Get-ChildItem -LiteralPath $AhHome -Directory -ErrorAction SilentlyContinue)) {
+      if ($dir.Name -eq $Id -or ($NodeDir -and $dir.FullName -eq $NodeDir)) { continue }
+      if ($dir.Name -like '*.partial-*' -and $dir.LastWriteTimeUtc -gt (Get-Date).ToUniversalTime().AddHours(-1)) { continue }
+      Remove-Item -LiteralPath $dir.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    # A command for later, such as "~/.analytics-hub/analytics-hub status", that runs this version.
+    $shell = @(
+      '#!/bin/sh'
+      '# Runs the Analytics Hub installer that install.ps1 got. install.ps1 writes this file.'
+      "AH_ROOT='$Root'"
+      'if [ ! -f "$AH_ROOT/.unpacked" ]; then'
+      "  echo 'This copy of the Analytics Hub installer has been removed or replaced. In PowerShell, run: $Again'"
+      '  exit 1'
+      'fi'
+      'export ANALYTICS_HUB_LAUNCHER=cloudshell'
+      "export PATH='$NodeBin'`"$Sep`$PATH`""
+      "mkdir -p '$Work' && cd '$Work' || exit 1"
+      "exec '$NodeExe' `"`$AH_ROOT/installer/bin/valuelens-install.js`" `"`$@`""
+    )
+    [IO.File]::WriteAllText($Shim, (($shell -join "`n") + "`n"))
+    if (Get-Command chmod -CommandType Application -ErrorAction SilentlyContinue) { chmod +x $Shim }
+
+    # Cloud Shell keeps $HOME between sessions only when it has a storage account, which mounts ~/clouddrive.
+    if ($IsLinux -and -not (Test-Path -LiteralPath (Join-Path $HOME 'clouddrive'))) {
+      Write-Warning "This Cloud Shell session has no storage account, so its files go when it ends, including the install record in $Work. Without the record, running the installer again sets up a second copy. Download the record before you close Cloud Shell, or use Cloud Shell with a storage account."
+    }
+
+    New-Item -ItemType Directory -Path $Work -Force | Out-Null
+    $saved = @{ Launcher = $env:ANALYTICS_HUB_LAUNCHER; Path = $env:PATH }
+    Push-Location -LiteralPath $Work
+    try {
+      $env:ANALYTICS_HUB_LAUNCHER = 'cloudshell'
+      $env:PATH = $NodeBin + $Sep + $env:PATH
+      & $NodeExe (Join-Path $Root 'installer/bin/valuelens-install.js') @Forward
+      $global:LASTEXITCODE = $LASTEXITCODE
+    } finally {
+      Pop-Location
+      $env:ANALYTICS_HUB_LAUNCHER = $saved.Launcher
+      $env:PATH = $saved.Path
+    }
+    return
+  }
+
+  if ($env:OS -ne 'Windows_NT') { throw 'This launcher runs on Windows and in Azure Cloud Shell. Elsewhere, run the installer with Node.js: see "Without the exe" in installer/README.md.' }
   $FullLanguage = $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage'
   $AhHome = Join-Path $env:LOCALAPPDATA 'AnalyticsHub'
   $Root = Join-Path $AhHome $Id
