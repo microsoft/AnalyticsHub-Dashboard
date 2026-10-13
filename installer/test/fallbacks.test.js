@@ -342,9 +342,9 @@ test('notebook mode: the secret is written into the notebooks and nowhere else',
   await ensureNotebooks(t.ctx);
   const holding = fabric.items.filter((i) => String(i.content).includes('secret-1'));
   assert.ok(holding.length >= 1, 'the notebooks that sign in hold the secret');
-  for (const item of holding) assert.match(String(item.content), /stored in the notebook \(not recommended\)/);
+  for (const item of holding) assert.match(String(item.content), /no Key Vault, so the secret is here\. Anyone with a role in this workspace can read it/);
   assert.equal(t.config.app.secretKeyId, 'key-1');
-  assert.equal(t.config.app.secretExpires, '2027-06-01T12:00:00.000Z');
+  assert.equal(t.config.app.secretExpires, '2026-08-30T12:00:00.000Z', '90 days by default');
   assert.ok(t.config.keyVault.secretSetAt);
   assert.equal(t.ctx.pendingSecret, undefined);
   assert.doesNotMatch(ui.text(), /secret-1/);
@@ -364,8 +364,64 @@ test('notebook mode: the secret is written into the notebooks and nowhere else',
   assert.equal(t.config.app.secretKeyId, 'key-2');
   assert.ok(fabric.items.every((i) => !String(i.content).includes('secret-1')));
   assert.equal(fabric.items.filter((i) => String(i.content).includes('secret-2')).length, holding.length);
-  assert.match(rotate.text(), /still plain text in the notebooks\. Rotate it often/);
+  assert.match(rotate.text(), /Anyone with a role in the workspace can read the secret in the notebooks\. Key Vault avoids that/);
   assert.doesNotMatch(rotate.text(), /secret-2/);
+});
+
+test('notebook mode: each install or repair replaces the secret, then removes the old one', async () => {
+  const fabric = fakeFabric();
+  const graph = fakeGraph();
+  const t = fakeCtx({ fabric: fabric.api, graph: graph.api, ui: fakeUi().ui });
+  t.config.keyVault = { secretName: 'valuelens-client-secret', mode: 'notebook' };
+  t.config.app.secretDays = 30;
+  await ensureNotebooks(t.ctx, { rotate: true });
+  assert.equal(t.config.app.secretExpires, '2026-07-01T12:00:00.000Z', 'the lifetime is configurable');
+  const holding = fabric.items.filter((i) => String(i.content).includes('secret-1')).length;
+
+  graph.calls.length = 0;
+  fabric.calls.length = 0;
+  await ensureNotebooks(t.ctx, { rotate: true });
+  assert.deepEqual(graph.calls, ['addPassword Analytics Hub installer', 'removePassword key-1']);
+  assert.equal(fabric.calls.length, holding, 'only the notebooks that hold the secret are rewritten');
+  assert.equal(t.config.app.secretKeyId, 'key-2');
+  assert.ok(fabric.items.every((i) => !String(i.content).includes('secret-1')));
+  assert.doesNotMatch(JSON.stringify(t.config), /secret-\d/);
+
+  // Key Vault mode and an app the user brought are left alone.
+  const vaulted = fakeCtx({ fabric: fakeFabric().api, graph: fakeGraph().api, ui: fakeUi().ui });
+  await ensureNotebooks(vaulted.ctx, { rotate: true });
+  assert.equal(vaulted.config.app.secretKeyId, undefined);
+
+  const brought = fakeGraph();
+  const b = fakeCtx({ fabric: fakeFabric().api, graph: brought.api, ui: fakeUi().ui });
+  b.config.keyVault = { secretName: 'valuelens-client-secret', mode: 'notebook' };
+  b.config.app.existing = true;
+  b.ctx.pendingSecret = 'pasted-value';
+  await ensureNotebooks(b.ctx);
+  b.ctx.pendingSecret = undefined;
+  await ensureNotebooks(b.ctx, { rotate: true });
+  assert.deepEqual(brought.calls, [], 'a secret the user pasted is never replaced');
+});
+
+test('notebook mode: the secret is never written into a workspace connected to Git', async () => {
+  const fabric = fakeFabric();
+  fabric.git.gitConnectionState = 'ConnectedAndInitialized';
+  const graph = fakeGraph();
+  const t = fakeCtx({ fabric: fabric.api, graph: graph.api, ui: fakeUi().ui });
+  t.config.keyVault = { secretName: 'valuelens-client-secret', mode: 'notebook' };
+  await assert.rejects(ensureNotebooks(t.ctx), /connected to Git/);
+  assert.deepEqual(graph.calls, [], 'no secret is made');
+  assert.ok(fabric.items.every((i) => !/secret-\d/.test(String(i.content))));
+
+  // A lookup that fails doesn't block the install.
+  const flaky = fakeFabric();
+  flaky.failures.getGitConnection = [new Error('Forbidden')];
+  const ui = fakeUi();
+  const f = fakeCtx({ fabric: flaky.api, graph: fakeGraph().api, ui: ui.ui });
+  f.config.keyVault = { secretName: 'valuelens-client-secret', mode: 'notebook' };
+  await ensureNotebooks(f.ctx);
+  assert.equal(f.config.app.secretKeyId, 'key-1');
+  assert.match(ui.text(), /Git/);
 });
 
 test('notebook mode: a rotation that stops part-way removes the old secret on the next run', async () => {
@@ -462,16 +518,34 @@ test('--flow-identity: install only, user or app, and app needs the secret in Ke
   assert.throws(() => parseCli(['install', '--flow-identity', 'app', '--secret-in-notebook']), /can't go with --secret-in-notebook/);
 });
 
-test('notebook mode: --secret-in-notebook goes with a Fabric install only', () => {
+test('notebook mode: --no-key-vault (or --secret-in-notebook) goes with a Fabric install only', () => {
   assert.equal(parseCli(['install', '--secret-in-notebook']).secretInNotebook, true);
+  assert.equal(parseCli(['install', '--no-key-vault']).secretInNotebook, true);
   assert.equal(parseCli(['install']).secretInNotebook, false);
   assert.throws(() => parseCli(['update', '--secret-in-notebook']), /--secret-in-notebook goes with install/);
+  assert.throws(() => parseCli(['update', '--no-key-vault']), /--no-key-vault goes with install/);
   assert.throws(() => parseCli(['install', '--target', 'azure', '--secret-in-notebook']), /Fabric target only/);
+  assert.throws(() => parseCli(['install', '--target', 'azure', '--no-key-vault']), /Fabric target only/);
+  assert.throws(() => parseCli(['install', '--flow-identity', 'app', '--no-key-vault']), /can't go with --no-key-vault/);
+  assert.equal(parseCli(['install', '--key-vault']).useKeyVault, true);
+  assert.equal(parseCli(['install']).useKeyVault, false);
+  assert.throws(() => parseCli(['install', '--key-vault', '--no-key-vault']), /--key-vault can't go with --no-key-vault/);
+  assert.throws(() => parseCli(['update', '--key-vault']), /--key-vault goes with install/);
+  assert.throws(() => parseCli(['install', '--target', 'azure', '--key-vault']), /Fabric target only/);
 });
 
-test('planning: a vault the user can\'t write to offers the vault admin first', async () => {
+test('--secret-days: a whole number of days up to 730, for a Fabric install or rotate-secret', () => {
+  assert.equal(parseCli(['install']).secretDays, undefined);
+  assert.equal(parseCli(['install', '--no-key-vault', '--secret-days', '30']).secretDays, 30);
+  assert.equal(parseCli(['rotate-secret', '--secret-days', '730']).secretDays, 730);
+  for (const bad of ['0', '731', '1.5', 'soon']) assert.throws(() => parseCli(['install', '--secret-days', bad]), /--secret-days/);
+  assert.throws(() => parseCli(['update', '--secret-days', '30']), /--secret-days/);
+  assert.throws(() => parseCli(['install', '--target', 'azure', '--secret-days', '30']), /--secret-days/);
+});
+
+test('planning: a vault the user can\'t write to recommends no Key Vault, then the vault admin', async () => {
   const arm = vaultArm({ vaults: [vault()], perms: { [VAULT_ID]: READ_ONLY } });
-  const ui = fakeUi({ answers: ['sub-1', VAULT_ID] });
+  const ui = fakeUi({ answers: ['sub-1', VAULT_ID, 'keyvault-admin'] });
   const t = fakeCtx({ arm: arm.api, ui: ui.ui });
   await planKeyVault(t.ctx, PRE, 'uksouth');
   assert.equal(t.config.keyVault.mode, 'keyvault-admin');
@@ -480,6 +554,18 @@ test('planning: a vault the user can\'t write to offers the vault admin first', 
   assert.equal(t.config.keyVault.resourceGroup, 'rg-valuelens');
   assert.match(ui.text(), /You can't write secrets to kv-test: that needs Key Vault Secrets Officer/);
   assert.ok(ui.asked.includes('How should the client secret get there?'));
+
+  // The default is no Key Vault, after the warning and a yes.
+  const d = fakeUi({ answers: ['sub-1', VAULT_ID] });
+  const n = fakeCtx({ arm: arm.api, ui: d.ui });
+  await planKeyVault(n.ctx, PRE, 'uksouth');
+  assert.equal(n.config.keyVault.mode, 'notebook');
+  assert.match(d.text(), /Anyone with a role in the workspace/);
+
+  // With --yes and no flag, the vault admin.
+  const q = fakeCtx({ arm: arm.api, ui: fakeUi({ yes: true, answers: ['sub-1', VAULT_ID] }).ui });
+  await planKeyVault(q.ctx, PRE, 'uksouth');
+  assert.equal(q.config.keyVault.mode, 'keyvault-admin');
 
   // A vault they can write to keeps the usual path.
   const mine = vaultArm({ vaults: [vault(), vault({ id: OTHER_ID, name: 'kv-mine' })], perms: { [OTHER_ID]: SECRETS_OFFICER } });
@@ -493,34 +579,50 @@ test('planning: a vault the user can\'t write to offers the vault admin first', 
   assert.ok(!u.asked.includes('How should the client secret get there?'));
 });
 
-test('planning: the notebook option warns and needs a yes, which defaults to no', async () => {
+test('planning: the no Key Vault option states the trade-off and needs a yes', async () => {
   const arm = vaultArm({ vaults: [vault({ id: OTHER_ID, name: 'kv-mine' })], perms: { [OTHER_ID]: SECRETS_OFFICER } });
-  const ui = fakeUi({ answers: ['sub-1', 'notebook'] });
+  const ui = fakeUi({ answers: ['sub-1', 'notebook', false] });
   const t = fakeCtx({ arm: arm.api, ui: ui.ui });
   Object.assign(t.config.keyVault, { existing: true, id: OTHER_ID });
   await planKeyVault(t.ctx, PRE, 'uksouth');
-  assert.equal(secretMode(t.config), 'keyvault', 'declined by default, then the vault it had');
+  assert.equal(secretMode(t.config), 'keyvault', 'declined, then the vault it had');
   assert.equal(t.config.keyVault.name, 'kv-mine');
   const text = ui.text();
-  assert.match(text, /plain text in the notebook code/);
-  assert.match(text, /Anyone with access to the workspace can read it/);
-  assert.match(text, /run snapshots, exports, Git sync and deployment pipelines/);
+  assert.match(text, /written into the notebooks as plain text/);
+  assert.match(text, /Anyone with a role in the workspace, Viewer included/);
+  assert.match(text, /run snapshots, exports and deployment pipelines/);
+  assert.match(text, /won't write it\s+into a workspace that is connected to Git/);
+  assert.match(text, /It lasts 90 days/);
+  assert.match(text, /Key Vault avoids this/);
 
-  const yes = fakeUi({ answers: ['sub-1', 'notebook', true] });
+  const yes = fakeUi({ answers: ['sub-1', 'notebook'] });
   const y = fakeCtx({ arm: arm.api, ui: yes.ui });
   y.config.keyVault.handoff = { shownAt: 'x' };
   await planKeyVault(y.ctx, PRE, 'uksouth');
-  assert.equal(y.config.keyVault.mode, 'notebook');
+  assert.equal(y.config.keyVault.mode, 'notebook', 'yes by default once chosen');
   assert.equal(y.config.keyVault.handoff, undefined);
   assert.ok(!yes.asked.includes('Secret name'), 'no vault, so no secret name');
 });
 
-test('planning: with no subscription, only the notebook option is left; --yes needs the flag', async () => {
+test('planning: no rights to create a vault recommends no Key Vault; --yes needs the flag', async () => {
+  const arm = vaultArm({ groups: ['rg-valuelens'], perms: { [SUB]: READ_ONLY } });
+  const ui = fakeUi({ answers: ['sub-1', ''] });
+  const t = fakeCtx({ arm: arm.api, ui: ui.ui });
+  await planKeyVault(t.ctx, PRE, 'uksouth');
+  assert.equal(t.config.keyVault.mode, 'notebook');
+  assert.match(ui.text(), /You can't create a Key Vault in rg-valuelens: that needs Contributor there/);
+  assert.ok(ui.asked.includes('Where should the client secret go?'));
+
+  const quiet = fakeCtx({ arm: arm.api, ui: fakeUi({ yes: true, answers: ['sub-1', ''] }).ui });
+  await assert.rejects(planKeyVault(quiet.ctx, PRE, 'uksouth'), /Add --no-key-vault/);
+});
+
+test('planning: with no subscription, only no Key Vault is left; --yes needs the flag', async () => {
   const none = /** @type {any} */ ({ ...PRE, subscriptions: [] });
   const quiet = fakeUi({ yes: true });
   const t = fakeCtx({ ui: quiet.ui });
-  await assert.rejects(planKeyVault(t.ctx, none, 'uksouth'), /needs an Azure subscription/);
-  assert.match(quiet.text(), /add --secret-in-notebook/);
+  await assert.rejects(planKeyVault(t.ctx, none, 'uksouth'), /Key Vault needs an Azure subscription/);
+  assert.match(quiet.text(), /add --no-key-vault/);
 
   const flagged = fakeCtx({ ui: fakeUi({ yes: true }).ui });
   flagged.ctx.secretInNotebook = true;
@@ -723,12 +825,13 @@ test('review: each secret mode says where the secret is and what the user needs'
   t.config.keyVault.mode = 'notebook';
   const inline = planReview(t.ctx);
   assert.equal(inline.creates.find((i) => i.kind === 'Key Vault'), undefined);
-  assert.match(String(inline.creates.find((i) => i.kind === 'Client secret')?.detail), /Plain text that anyone with access to the workspace can read/);
+  assert.match(String(inline.creates.find((i) => i.kind === 'Client secret')?.detail), /Anyone with a role in the workspace, Viewer included, can read it/);
+  assert.match(String(inline.creates.find((i) => i.kind === 'App registration')?.detail), /lasts 90 days and is replaced on each install, repair or update/);
   assert.equal(inline.grants.find((g) => String(g.where).startsWith('Key Vault')), undefined);
   assert.equal(inline.runsOn.find((r) => r.what === 'Key Vault'), undefined);
 
   const ui = fakeUi({ answers: [true] });
   t.ctx.ui = ui.ui;
   await confirmPlan(t.ctx);
-  assert.match(ui.text(), /Secret: {6}in the notebooks/);
+  assert.match(ui.text(), /Secret: {6}in the notebooks \(no Key Vault: anyone with a role in the workspace can read it; lasts 90 days\)/);
 });

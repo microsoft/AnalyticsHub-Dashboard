@@ -14,7 +14,7 @@ import { HttpError } from '../http.js';
 import { rlsOn } from '../transform/access.js';
 import { INLINE_SECRET_NOTE, MARKER, prepareNotebook, pyString, serialiseNotebook } from '../transform/notebook.js';
 import { buildPipeline, PIPELINE_CHANGE, PIPELINE_VERSION } from '../transform/pipeline.js';
-import { addMonths, SECRET_LIFETIME_MONTHS } from './identity.js';
+import { addDays, notebookSecretDays } from './identity.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 
@@ -458,7 +458,8 @@ export function environmentsPatch(environments) {
 
 /**
  * @param {Ctx} ctx
- * @param {{ force?: boolean }} [opts]  `force` pushes fresh content to notebooks that already exist.
+ * @param {{ force?: boolean, rotate?: boolean }} [opts]  `force` pushes fresh content to notebooks that already exist.
+ *   `rotate`: with no Key Vault, give the notebooks a new client secret and remove the old one, so each install or repair replaces it.
  */
 export async function ensureNotebooks(ctx, opts = {}) {
   const { ui, config, api, sources } = ctx;
@@ -470,6 +471,8 @@ export async function ensureNotebooks(ctx, opts = {}) {
   // The notebooks that read the secret are rewritten when it moves into or out of them.
   const inNotebooks = secretMode(config) === 'notebook';
   const switched = !!f.secretInNotebooks !== inNotebooks;
+  // An app the user brought has a secret they paste, so the installer can't replace it.
+  const rotate = !!opts.rotate && inNotebooks && !config.app.existing;
 
   /** @param {import('../catalog.js').NotebookInfo} nb */
   const stale = (nb) => {
@@ -479,6 +482,7 @@ export async function ensureNotebooks(ctx, opts = {}) {
       !ids.has(id) ||
       !!opts.force ||
       (switched && usesSecret(nb)) ||
+      (rotate && usesSecret(nb)) ||
       (nb.key === 'agentTranscripts' && environmentUrls(config) !== config.agentEvaluator.deployedUrls) ||
       (nb.key === 'azureAi' && paygIds(config) !== (config.consumption.deployedPayg ?? '')) ||
       (nb.key === 'uploadRouter' && routerSignature(config) !== f.deployedRouter)
@@ -486,6 +490,7 @@ export async function ensureNotebooks(ctx, opts = {}) {
   };
   // With the secret in the notebooks, writing one means a fresh secret, so all of them get it.
   const inline = inNotebooks && wanted.some((nb) => usesSecret(nb) && stale(nb));
+  if (inline) await refuseGitSync(ctx);
   const fresh = inline ? await inlineSecret(ctx) : undefined;
   let written = 0;
 
@@ -604,6 +609,29 @@ async function removeKeys(ctx, keyIds) {
 }
 
 /**
+ * Stops before a client secret is written into notebooks that Git integration would commit to a
+ * repository. When the workspace's Git connection can't be read, it warns and carries on.
+ * @param {Ctx} ctx
+ */
+async function refuseGitSync(ctx) {
+  const { ui, config, api } = ctx;
+  const ws = /** @type {string} */ (config.fabric.workspaceId);
+  const git = await Promise.resolve()
+    .then(() => api.fabric.getGitConnection(ws))
+    .catch(() => undefined);
+  if (!git) {
+    ui.warn('Couldn\'t check whether the workspace is connected to Git. If it is, don\'t commit the notebooks: the client secret is in them.');
+    return;
+  }
+  if (git.gitConnectionState && git.gitConnectionState !== 'NotConnected') {
+    throw new Error(
+      'This workspace is connected to Git, so the client secret in the notebooks would be committed to the repository. ' +
+        'Disconnect it under Workspace settings > Git integration, or run the installer again and choose Key Vault.',
+    );
+  }
+}
+
+/**
  * The client secret to write into the notebooks. A new one on the app, unless the app is one
  * the user brought (they paste its secret) or they already pasted it this run. Held only in memory.
  * @param {Ctx} ctx
@@ -618,7 +646,7 @@ export async function inlineSecret(ctx) {
     return {};
   }
   if (!app.objectId) throw new Error('No app registration to add a secret to.');
-  const credential = await api.graph.addPassword(app.objectId, addMonths(ctx.now(), SECRET_LIFETIME_MONTHS));
+  const credential = await api.graph.addPassword(app.objectId, addDays(ctx.now(), notebookSecretDays(config)));
   ctx.pendingSecret = credential.secretText;
   ui.ok(`Created a client secret for the notebooks (expires ${credential.endDateTime.slice(0, 10)})`);
   return { keyId: credential.keyId, endDateTime: credential.endDateTime, previousKeyId: app.secretKeyId };

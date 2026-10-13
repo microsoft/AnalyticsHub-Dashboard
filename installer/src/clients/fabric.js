@@ -221,6 +221,13 @@ export function fabricApi(http) {
     /** @param {string} id */
     deleteConnection: (id) => http.del(`/connections/${id}`),
 
+    /**
+     * Whether the workspace is connected to Git. Needs Contributor or higher.
+     * @param {string} workspaceId
+     * @returns {Promise<{ gitConnectionState: 'NotConnected' | 'Connected' | 'ConnectedAndInitialized', gitProviderDetails?: any }>}
+     */
+    getGitConnection: (workspaceId) => http.get(`/workspaces/${workspaceId}/git/connection`),
+
     /** @returns {Promise<any[]>} */
     listGateways: () => http.list('/gateways'),
     /** @param {any} body */

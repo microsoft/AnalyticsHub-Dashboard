@@ -11,7 +11,7 @@ import { commandLine } from './launch.js';
 import { runWizard } from './server.js';
 import { loadSources } from './sources.js';
 import { recordWorkspaceGone, staleRecordMessage } from './steps/fabric.js';
-import { isResumeLater } from './steps/identity.js';
+import { isResumeLater, MAX_SECRET_DAYS, NOTEBOOK_SECRET_DAYS } from './steps/identity.js';
 import { isManagementGroupId, managementGroupId } from './steps/resource-graph.js';
 import { isVivaId } from './transform/dataflow.js';
 import { c, createUi } from './ui.js';
@@ -87,8 +87,14 @@ Options:
   --exchange-rate <n>  With --currency: how many of it to 1 US dollar, e.g. 0.79. Without it,
                        set the rate under Prices in the app
   --run                 With upload: run the pipeline straight after, to load the files now
-  --secret-in-notebook With install: store the client secret in plain text in the notebooks instead
-                       of Key Vault. Not recommended: for quick tests only. Needed with --yes.
+  --no-key-vault       With install: no Key Vault, the default for a new Fabric install. The client
+                       secret goes in the notebooks, where anyone with a role in the workspace can
+                       read it. Same as --secret-in-notebook.
+  --key-vault          With install: keep the client secret in Azure Key Vault instead, so workspace
+                       roles don't expose it. Needed with --yes to choose Key Vault for a new install.
+  --secret-days <n>    With install or rotate-secret, and no Key Vault: how many days the secret in
+                       the notebooks lasts, 1 to ${MAX_SECRET_DAYS} (default ${NOTEBOOK_SECRET_DAYS}). Each install, repair or update
+                       replaces it.
   --yes                Take saved answers and defaults without asking
   --no-wait            Don't wait for the first load or a refresh to finish
   --verbose            Print each API call
@@ -133,6 +139,9 @@ export function parseCli(argv) {
       'exchange-rate': { type: 'string' },
       run: { type: 'boolean' },
       'secret-in-notebook': { type: 'boolean' },
+      'no-key-vault': { type: 'boolean' },
+      'key-vault': { type: 'boolean' },
+      'secret-days': { type: 'string' },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' },
     },
@@ -142,15 +151,27 @@ export function parseCli(argv) {
   if (command !== 'upload' && positionals.length > 1) throw new Error(`Unexpected argument: ${positionals[1]}`);
   if (!COMMANDS.includes(command)) throw new Error(`Unknown command "${command}". Try --help.`);
   if (values.run && command !== 'upload') throw new Error('--run goes with upload.');
-  if (values['secret-in-notebook'] && command !== 'install') throw new Error('--secret-in-notebook goes with install.');
-  if (values['secret-in-notebook'] && values.target === 'azure') throw new Error('--secret-in-notebook is for the Fabric target only.');
+  const noVaultFlag = values['no-key-vault'] ? '--no-key-vault' : values['secret-in-notebook'] ? '--secret-in-notebook' : undefined;
+  if (noVaultFlag && command !== 'install') throw new Error(`${noVaultFlag} goes with install.`);
+  if (noVaultFlag && values.target === 'azure') throw new Error(`${noVaultFlag} is for the Fabric target only.`);
+  if (values['key-vault'] && command !== 'install') throw new Error('--key-vault goes with install.');
+  if (values['key-vault'] && values.target === 'azure') throw new Error('--key-vault is for the Fabric target only.');
+  if (values['key-vault'] && noVaultFlag) throw new Error(`--key-vault can't go with ${noVaultFlag}.`);
+  /** @type {number | undefined} */
+  let secretDays;
+  if (values['secret-days'] !== undefined) {
+    if (command !== 'install' && command !== 'rotate-secret') throw new Error('--secret-days goes with install or rotate-secret.');
+    if (values.target === 'azure') throw new Error('--secret-days is for the Fabric target only.');
+    secretDays = Number(values['secret-days']);
+    if (!Number.isInteger(secretDays) || secretDays < 1 || secretDays > MAX_SECRET_DAYS) throw new Error(`--secret-days must be a whole number from 1 to ${MAX_SECRET_DAYS}.`);
+  }
   const installOnly = ['feedback-flow', 'studio-flow', 'flow-environment', 'flow-identity', 'viva-partition', 'viva-query', 'arg-management-group', 'no-arg-agents', 'no-arg-foundry', 'currency', 'exchange-rate'].filter((k) => values[/** @type {'feedback-flow'} */ (k)] !== undefined);
   if ((values.data?.length || values.csv?.length || installOnly.length) && !['install', 'preview'].includes(command)) {
     throw new Error(`--data, --csv${installOnly.map((k) => ` and --${k}`).join('')} go with install. To add exports later, use upload.`);
   }
   const identity = values['flow-identity'];
   if (identity !== undefined && identity !== 'user' && identity !== 'app') throw new Error('--flow-identity must be "user" or "app".');
-  if (identity === 'app' && values['secret-in-notebook']) throw new Error('--flow-identity app reads the secret from Key Vault, so it can\'t go with --secret-in-notebook.');
+  if (identity === 'app' && noVaultFlag) throw new Error(`--flow-identity app reads the secret from Key Vault, so it can't go with ${noVaultFlag}.`);
   const dataSources = parseDataFlags(values.data ?? []);
   for (const k of /** @type {const} */ (['viva-partition', 'viva-query'])) {
     if (values[k] !== undefined && !isVivaId(values[k])) throw new Error(`--${k} should be a GUID, as Viva Insights shows it.`);
@@ -219,7 +240,9 @@ export function parseCli(argv) {
     exchangeRate,
     files,
     run: values.run,
-    secretInNotebook: !!values['secret-in-notebook'],
+    secretInNotebook: !!noVaultFlag,
+    useKeyVault: !!values['key-vault'],
+    secretDays,
     help: !!values.help,
     version: !!values.version,
   };
@@ -337,6 +360,8 @@ export async function main(argv) {
     const ctx = createCtx({ ui, config, file: args.configFile, api, user, sources });
     ctx.csvFiles = args.csvFiles;
     if (args.secretInNotebook) ctx.secretInNotebook = true;
+    if (args.useKeyVault) ctx.useKeyVault = true;
+    if (args.secretDays) config.app.secretDays = args.secretDays;
     const ok = await runCommand(ctx, args.command, { wait: args.wait, backfillDays: args.backfillDays, files: args.files, run: args.run });
     return ok ? 0 : 1;
   } catch (err) {

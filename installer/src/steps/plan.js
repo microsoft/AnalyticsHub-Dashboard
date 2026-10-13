@@ -18,7 +18,7 @@ import { MIN_NODE, nodeVersionOk } from './app.js';
 import { agentEvaluatorModelWanted, planAgentEvaluator } from './agent-evaluator.js';
 import { AZURE_AI_ROLES, consumptionModelWanted, COWORK_DATAFLOW_NAME, planConsumption, planCowork } from './consumption.js';
 import { FLOW_NAMES, flowsSkipped, flowsWanted, planFlows } from './flows.js';
-import { adminPack, canWriteSecrets, checkExistingApp, reportAppCheck, ResumeLater, writeAdminPack } from './identity.js';
+import { adminPack, canWriteSecrets, checkExistingApp, MAX_SECRET_DAYS, NOTEBOOK_SECRET_DAYS, notebookSecretDays, reportAppCheck, ResumeLater, writeAdminPack } from './identity.js';
 import { planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from './resource-graph.js';
 import { askAdvanced, asksAdvanced } from './advanced.js';
 import { describeSchedule, displayNames, freeName, PIPELINE_NAME } from './fabric.js';
@@ -175,12 +175,19 @@ export async function preflight(ctx) {
     if (!(err instanceof HttpError)) throw err;
   }
   if (!subscriptions.length && !ctx.config.keyVault.uri && secretMode(ctx.config) !== 'notebook') {
-    ui.fail('No Azure subscription you can use.');
-    // Without one, a Fabric install can still keep the secret in the notebooks, for a quick test.
-    if (ctx.config.target === 'azure' || (ui.yes && !ctx.secretInNotebook)) {
+    if (ctx.config.target === 'azure') {
+      ui.fail('No Azure subscription you can use.');
+      throw new Error('Analytics Hub on Azure needs an Azure subscription in this tenant. Ask for Contributor on one, then run the installer again.');
+    }
+    if (ctx.useKeyVault) {
+      ui.fail('No Azure subscription you can use, so no Key Vault.');
+      throw new Error('--key-vault needs an Azure subscription in this tenant. Ask for Contributor on one, or leave out --key-vault to keep the client secret in the notebooks.');
+    }
+    // A Fabric install doesn't need one: the client secret can go in the notebooks instead of Key Vault.
+    ui.info('No Azure subscription you can use, so no Key Vault: the client secret goes in the notebooks.');
+    if (ui.yes && !ctx.secretInNotebook && !defaultsToNoVault(ctx)) {
       throw new Error(
-        'The installer keeps the app secret in Azure Key Vault, which needs an Azure subscription in this tenant. Ask for Contributor on one, then run the installer again.' +
-          (ctx.config.target === 'azure' ? '' : ' For a quick test only, --secret-in-notebook stores it in the notebooks instead.'),
+        'With no Azure subscription there\'s no Key Vault for the app secret. Add --no-key-vault to keep it in the notebooks, where anyone with a role in the workspace can read it, or ask for Contributor on a subscription.',
       );
     }
   }
@@ -435,10 +442,10 @@ export async function plan(ctx, pre) {
     ui.ok(`Using ${config.keyVault.name} (${config.keyVault.uri})`);
   } else if (secretMode(config) === 'notebook' && !ctx.secretInNotebook && !ui.yes) {
     const keep = await ui.select(
-      'Last time you chose to store the client secret in the notebooks.',
+      'Last time you chose no Key Vault: the client secret is in the notebooks.',
       [
-        { name: 'Keep it in the notebooks (not recommended)', value: 'keep' },
-        { name: 'Use Key Vault instead', value: 'vault' },
+        { name: 'Keep it in the notebooks', value: 'keep', description: 'No Key Vault. Anyone with a role in the workspace can read it.' },
+        { name: 'Use Key Vault instead', value: 'vault', description: 'The notebooks read it from the vault at run time, so workspace roles don\'t expose it.' },
       ],
       'keep',
     );
@@ -450,9 +457,19 @@ export async function plan(ctx, pre) {
       await planKeyVault(ctx, pre, capacity ? armLocation(capacity.region) : 'westeurope');
     }
   } else if (secretMode(config) === 'notebook') {
-    ui.warn('The client secret is stored in the notebooks (not recommended).');
+    ui.info('No Key Vault: the client secret is in the notebooks, where anyone with a role in the workspace can read it.');
+  } else if (defaultsToNoVault(ctx)) {
+    await chooseSecretHome(ctx, pre, capacity ? armLocation(capacity.region) : 'westeurope');
   } else {
     await planKeyVault(ctx, pre, capacity ? armLocation(capacity.region) : 'westeurope');
+  }
+  if (secretMode(config) === 'notebook' && !config.app.existing && advanced()) {
+    const days = await ui.input(`Days before the client secret expires (1 to ${MAX_SECRET_DAYS}). Each install, repair or update replaces it.`, {
+      default: String(notebookSecretDays(config)),
+      validate: (v) => (/^\d+$/.test(v.trim()) && Number(v) >= 1 && Number(v) <= MAX_SECRET_DAYS ? true : `A whole number from 1 to ${MAX_SECRET_DAYS}.`),
+    });
+    if (Number(days) === NOTEBOOK_SECRET_DAYS) delete config.app.secretDays;
+    else config.app.secretDays = Number(days);
   }
   const skipped = flowsSkipped(config);
   if (skipped.length) ui.note(`${skipped.join(' and ')} won't be set up: --flow-identity app reads the client secret from Key Vault. Run install --flow-identity user to have them sign in to OneLake instead.`);
@@ -527,8 +544,9 @@ export async function askReportingCurrency(ctx) {
 }
 
 /**
- * Where the client secret goes: a new vault, one the user has, or (for a quick test) the notebooks.
+ * Where the client secret goes: a new vault, one the user has, or no vault (the notebooks).
  * A vault the user can't write secrets to can still be used: a vault admin adds the secret.
+ * No vault is recommended when the user can't create a vault or write to the one they chose.
  * @param {Ctx} ctx
  * @param {Preflight} pre
  * @param {string} location
@@ -538,9 +556,9 @@ export async function planKeyVault(ctx, pre, location) {
   const kv = config.keyVault;
   if (ctx.secretInNotebook && (await confirmNotebookMode(ctx))) return;
   if (!pre.subscriptions.length) {
-    ui.warn('With no Azure subscription, there\'s nowhere to create a Key Vault for the client secret.');
+    ui.info('With no Azure subscription, there\'s nowhere to create a Key Vault for the client secret.');
     if (await confirmNotebookMode(ctx)) return;
-    throw new Error('The installer keeps the app secret in Azure Key Vault, which needs an Azure subscription in this tenant. Ask for Contributor on one, then run the installer again.');
+    throw new Error('Key Vault needs an Azure subscription in this tenant. Ask for Contributor on one, or run the installer again and choose no Key Vault.');
   }
   kv.subscriptionId = await ui.select(
     'Azure subscription',
@@ -550,13 +568,14 @@ export async function planKeyVault(ctx, pre, location) {
   const subscriptionId = /** @type {string} */ (kv.subscriptionId);
 
   const vaults = await api.arm.listVaults(subscriptionId).catch(() => []);
+  let askGroup = asksAdvanced(ctx);
   for (;;) {
     const choice = await ui.select(
       'Vault',
       [
         { name: 'Create a new Key Vault', value: '' },
         ...vaults.map((v) => ({ name: `Use "${v.name}" (${v.location})`, value: v.id })),
-        { name: 'Store the secret in the notebook (not recommended)', value: NOTEBOOK, description: 'No Key Vault. For quick tests only: anyone with access to the workspace can read it.' },
+        { name: NO_VAULT_NAME, value: NOTEBOOK, description: NO_VAULT_DESCRIPTION },
       ],
       kv.existing && vaults.some((v) => v.id === kv.id) ? /** @type {string} */ (kv.id) : '',
     );
@@ -579,11 +598,12 @@ export async function planKeyVault(ctx, pre, location) {
         const how = await ui.select(
           'How should the client secret get there?',
           [
-            { name: 'A vault admin will add the secret for me (recommended)', value: 'keyvault-admin', description: 'You get the exact steps to send them. You only need to read the secret.' },
+            { name: `${NO_VAULT_NAME} (recommended)`, value: NOTEBOOK, description: NO_VAULT_DESCRIPTION },
+            { name: 'A vault admin will add the secret for me', value: 'keyvault-admin', description: 'You get the exact steps to send them. You only need to read the secret.' },
             { name: 'Pick another vault', value: 'other' },
-            { name: 'Store the secret in the notebook (not recommended)', value: NOTEBOOK, description: 'For quick tests only.' },
           ],
-          'keyvault-admin',
+          // With --yes, no vault takes --no-key-vault, so the vault admin is the answer that needs no flag.
+          ui.yes ? 'keyvault-admin' : NOTEBOOK,
         );
         if (how === 'other') continue;
         if (how === NOTEBOOK) {
@@ -595,17 +615,33 @@ export async function planKeyVault(ctx, pre, location) {
       }
     } else {
       kv.existing = false;
-      await askResourceGroup(ctx, subscriptionId);
+      await askResourceGroup(ctx, subscriptionId, askGroup);
+      // Contributor on just the resource group is enough for the vault, so roles are checked where it goes.
+      const group = await api.arm.getResourceGroup(subscriptionId, /** @type {string} */ (kv.resourceGroup)).catch(() => null);
+      const scope = group ? `/subscriptions/${subscriptionId}/resourceGroups/${kv.resourceGroup}` : `/subscriptions/${subscriptionId}`;
+      const perms = await api.arm.permissions(scope).catch(() => null);
+      // Unknown permissions aren't a no: the vault step reports a real failure.
+      if (perms && !allowsAction(perms, 'Microsoft.KeyVault/vaults/write')) {
+        ui.warn(`You can't create a Key Vault in ${group ? kv.resourceGroup : 'this subscription'}: that needs Contributor there.`);
+        const how = await ui.select(
+          'Where should the client secret go?',
+          [
+            { name: `${NO_VAULT_NAME} (recommended)`, value: NOTEBOOK, description: NO_VAULT_DESCRIPTION },
+            { name: 'Pick a vault or resource group', value: 'other' },
+          ],
+          NOTEBOOK,
+        );
+        if (how === NOTEBOOK && (await confirmNotebookMode(ctx))) return;
+        if (ui.yes) throw new Error(`You can't create a Key Vault in ${group ? kv.resourceGroup : 'this subscription'}. Add --no-key-vault to keep the client secret in the notebooks, or ask for Contributor there.`);
+        askGroup = true;
+        continue;
+      }
       kv.location = asksAdvanced(ctx) ? await ui.input('Azure region', { default: kv.location ?? location }) : kv.location ?? location;
       const suggested = kv.name ?? `valuelens-${randomBytes(3).toString('hex')}`;
       kv.name = asksAdvanced(ctx) ? await ui.input('Vault name (globally unique)', { default: suggested, validate: validateVaultName }) : suggested;
       const available = await api.arm.checkVaultName(subscriptionId, kv.name);
       if (!available.nameAvailable) throw new Error(`Key Vault name "${kv.name}" is taken: ${available.message ?? 'choose another'}.`);
-      // Contributor on just the resource group is enough for the vault, so roles are checked where it goes.
-      const group = await api.arm.getResourceGroup(subscriptionId, /** @type {string} */ (kv.resourceGroup)).catch(() => null);
-      const scope = group ? `/subscriptions/${subscriptionId}/resourceGroups/${kv.resourceGroup}` : `/subscriptions/${subscriptionId}`;
-      const perms = await api.arm.permissions(scope).catch(() => []);
-      kv.rbac = allowsAction(perms, 'Microsoft.Authorization/roleAssignments/write');
+      kv.rbac = !!perms && allowsAction(perms, 'Microsoft.Authorization/roleAssignments/write');
       if (!kv.rbac) ui.note('You can\'t assign Azure roles here, so the vault will use access policies instead of Azure RBAC.');
     }
     if (kv.mode !== 'keyvault-admin') delete kv.handoff;
@@ -615,17 +651,54 @@ export async function planKeyVault(ctx, pre, location) {
 }
 
 const NOTEBOOK = 'notebook';
+const NO_VAULT_NAME = 'No Key Vault: keep the secret in the notebooks';
+const NO_VAULT_DESCRIPTION = 'Nothing in Azure. Anyone with a role in the workspace can read the secret; Key Vault avoids that.';
+
+/**
+ * Whether the secret's home is still open and no Key Vault is the default: a new Fabric install
+ * that hasn't picked a vault, without --key-vault or flows that read the secret from the vault.
+ * @param {Ctx} ctx
+ */
+export function defaultsToNoVault(ctx) {
+  const { config } = ctx;
+  const kv = config.keyVault;
+  if (config.target === 'azure' || ctx.useKeyVault || flowIdentity(config) === 'app') return false;
+  return !kv.uri && !kv.mode && !kv.name && !kv.id && !kv.subscriptionId;
+}
+
+/**
+ * A new install: no Key Vault by default, or Key Vault.
+ * @param {Ctx} ctx
+ * @param {Preflight} pre
+ * @param {string} location
+ */
+async function chooseSecretHome(ctx, pre, location) {
+  const { ui } = ctx;
+  const where = ctx.secretInNotebook
+    ? NOTEBOOK
+    : await ui.select(
+        'Where should the app\'s client secret go?',
+        [
+          { name: `${NO_VAULT_NAME} (default)`, value: NOTEBOOK, description: NO_VAULT_DESCRIPTION },
+          { name: 'Azure Key Vault', value: 'keyvault', description: 'Needs an Azure subscription where you can create or use a vault. The notebooks read the secret at run time, so workspace roles don\'t expose it.' },
+        ],
+        NOTEBOOK,
+      );
+  if (where === NOTEBOOK && (await confirmNotebookMode(ctx, true))) return;
+  await planKeyVault(ctx, pre, location);
+}
 
 /**
  * The resource group for a new vault. Someone with Contributor on a resource group but not the
  * subscription can't create groups, so they're asked for one that exists.
  * @param {Ctx} ctx
  * @param {string} subscriptionId
+ * @param {boolean} [askFirst]  Ask even when the saved or default group would do.
  */
-async function askResourceGroup(ctx, subscriptionId) {
+async function askResourceGroup(ctx, subscriptionId, askFirst = asksAdvanced(ctx)) {
   const { ui, config, api } = ctx;
   const kv = config.keyVault;
-  for (let ask = asksAdvanced(ctx); ; ask = true) {
+  for (let ask = askFirst; ; ask = true) {
     const name = kv.resourceGroup ?? 'rg-valuelens';
     kv.resourceGroup = (ask ? await ui.input('Resource group (created if missing)', { default: name }) : name).trim();
     if (await api.arm.getResourceGroup(subscriptionId, kv.resourceGroup).catch(() => null)) return;
@@ -637,20 +710,22 @@ async function askResourceGroup(ctx, subscriptionId) {
 }
 
 /**
- * Asks before keeping the client secret in the notebooks. Returns true when the user agrees.
- * With --yes, --secret-in-notebook is the agreement.
+ * Shows what no Key Vault means, then asks. Returns true when the user agrees.
+ * With --yes, --no-key-vault (or --secret-in-notebook) is the agreement, or no Key Vault being the default.
  * @param {Ctx} ctx
+ * @param {boolean} [byDefault]  No Key Vault is the default here, so --yes takes it.
  */
-async function confirmNotebookMode(ctx) {
+async function confirmNotebookMode(ctx, byDefault = false) {
   const { ui, config } = ctx;
-  ui.warn('Storing the client secret in the notebooks is for quick tests only.');
-  ui.info('  - It is plain text in the notebook code.');
-  ui.info('  - Anyone with access to the workspace can read it, and use it to read your tenant\'s data through Microsoft Graph.');
-  ui.info('  - It is copied into notebook run snapshots, exports, Git sync and deployment pipelines.');
-  ui.info('  - Power Automate flows aren\'t set up, because they read the secret from Key Vault.');
-  ui.info('Use Key Vault for anything you keep. If you can\'t write to a vault, a vault admin can add the secret for you.');
-  const ok = ui.yes ? !!ctx.secretInNotebook : await ui.confirm('Store the client secret in plain text in the notebooks?', false);
-  if (ui.yes && !ok) ui.note('With --yes, add --secret-in-notebook to choose this.');
+  ui.warn('No Key Vault: the client secret is written into the notebooks as plain text.');
+  ui.info('  - Anyone with a role in the workspace, Viewer included, or anyone a notebook is shared with, can read it');
+  ui.info('    and use it to read your tenant\'s data through Microsoft Graph.');
+  ui.info('  - It is copied into notebook run snapshots, exports and deployment pipelines. The installer won\'t write it');
+  ui.info('    into a workspace that is connected to Git.');
+  ui.info(`  - It lasts ${notebookSecretDays(config)} days. Each install, repair or update replaces it and removes the old one.`);
+  ui.info('Key Vault avoids this: the notebooks read the secret from the vault at run time, so a workspace role doesn\'t expose it.');
+  const ok = ui.yes ? !!ctx.secretInNotebook || byDefault : await ui.confirm('Keep the client secret in the notebooks, with no Key Vault?', true);
+  if (ui.yes && !ok) ui.note('With --yes, add --no-key-vault to choose this.');
   if (!ok) return false;
   config.keyVault.mode = 'notebook';
   delete config.keyVault.handoff;
@@ -888,7 +963,9 @@ export function planReview(ctx, pre) {
         config.app.adminPack && !config.app.appId
           ? 'An admin registers it from the admin pack and sends you its client ID.'
           : mode === 'notebook'
-            ? `${config.app.existing ? 'Yours. ' : ''}Its client secret is written into the notebooks in plain text.`
+            ? config.app.existing
+              ? 'Yours. A client secret you paste is written into the notebooks; no Key Vault.'
+              : `Its client secret is written into the notebooks, lasts ${notebookSecretDays(config)} days and is replaced on each install, repair or update. No Key Vault.`
             : mode === 'keyvault-admin'
               ? `${config.app.existing ? 'Yours. ' : ''}A vault admin adds its client secret to Key Vault.`
               : config.app.existing
@@ -898,9 +975,9 @@ export function planReview(ctx, pre) {
     mode === 'notebook'
       ? {
           kind: 'Client secret',
-          name: 'In the notebooks (not recommended)',
+          name: 'In the notebooks (no Key Vault)',
           isNew: false,
-          detail: 'No Key Vault. Plain text that anyone with access to the workspace can read; also in run snapshots, exports, Git sync and deployment pipelines.',
+          detail: 'Anyone with a role in the workspace, Viewer included, can read it; also in run snapshots, exports and deployment pipelines. Key Vault avoids that.',
         }
       : {
           kind: 'Key Vault',
@@ -1075,7 +1152,7 @@ export async function confirmPlan(ctx, pre) {
   ui.info(`Lakehouse:   ${config.fabric.lakehouseName}`);
   ui.info(`App:         ${config.app.appId ? config.app.appId : `${APP_NAME} ${c.dim('(new)')}`}`);
   const kvMode = secretMode(config);
-  if (kvMode === 'notebook') ui.info(`Secret:      in the notebooks ${c.dim('(not recommended: plain text, for quick tests only)')}`);
+  if (kvMode === 'notebook') ui.info(`Secret:      in the notebooks ${c.dim(`(no Key Vault: anyone with a role in the workspace can read it; lasts ${notebookSecretDays(config)} days)`)}`);
   else if (kvMode === 'keyvault-admin') ui.info(`Key Vault:   ${config.keyVault.name} ${c.dim('(a vault admin adds the secret)')}`);
   else ui.info(`Key Vault:   ${config.keyVault.name} ${config.keyVault.existing || config.keyVault.uri ? '' : c.dim(`(new, ${config.keyVault.rbac ? 'Azure RBAC' : 'access policies'})`)}`);
   ui.info(`Schedule:    ${config.schedule.frequency === 'weekly' ? `${config.schedule.weekday}s` : 'Daily'} at ${config.schedule.time} ${config.schedule.timeZone}`);

@@ -147,7 +147,7 @@ const WAITING = {
 };
 const NEEDS = [
   'An active Fabric capacity (F2 or larger, or a trial) you can assign workspaces to, or a workspace where you\'re an Admin or Member.',
-  'An Azure subscription where you can create a Key Vault, or a vault you can read secrets from. If you can\'t write to it, a vault admin adds the secret for you.',
+  'Optional: an Azure subscription where you can create a Key Vault, or a vault you can read secrets from. By default on Fabric, the app\'s client secret goes in the notebooks instead, where anyone with a role in the workspace can read it.',
   'Permission to register apps in Entra, or an app registration you already have. If you have neither, you get an admin pack to send an admin.',
   'A Global Administrator or Privileged Role Administrator to grant admin consent. If that isn\'t you, you get a link to send them.',
 ];
@@ -1468,7 +1468,7 @@ function renderHome() {
     kids.push(staleBanner(busy));
     if (running) kids.push(runningBanner());
     kids.push(h('p', { class: 'lede' },
-      'Answer a few questions and review the plan. Then the installer builds Analytics Hub in your tenant: an app registration with its secret in Key Vault, a Fabric workspace and Lakehouse, the notebooks and pipeline, and the semantic model with the Analytics Hub app on top.'));
+      'Answer a few questions and review the plan. Then the installer builds Analytics Hub in your tenant: an app registration with its secret in the notebooks (or, if you choose, in Key Vault), a Fabric workspace and Lakehouse, the notebooks and pipeline, and the semantic model with the Analytics Hub app on top.'));
     if (rec) kids.push(h('p', { class: 'hint' }, 'Your answers from last time are saved, so the questions start from them.'));
 
     const tenantInput = h('input', {

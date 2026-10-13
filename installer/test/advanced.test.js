@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { askAdvanced, asksAdvanced } from '../src/steps/advanced.js';
 import { planAzure } from '../src/steps/azure/index.js';
-import { capacityLabel, plan } from '../src/steps/plan.js';
+import { capacityLabel, defaultsToNoVault, plan } from '../src/steps/plan.js';
 import { planResourceGraph } from '../src/steps/resource-graph.js';
 import { fakeArm, fakeCtx, fakeFabric, fakePowerBi, fakeUi } from './fakes.js';
 
@@ -86,6 +86,49 @@ test('plan: an existing record keeps its names', async () => {
   config.fabric.lakehouseName = 'ValueLens';
   await plan(ctx, PRE);
   assert.equal(config.fabric.lakehouseName, 'ValueLens');
+});
+
+test('plan: a new Fabric install keeps the secret in the notebooks by default; Key Vault is a choice', async () => {
+  const fresh = (/** @type {any} */ u, /** @type {any} */ extra = {}) => {
+    const t = fakeCtx({ ui: u.ui, fabric: fakeFabric().api, arm: fakeArm().api, ...extra });
+    t.config.keyVault = { secretName: 'valuelens-client-secret' };
+    return t;
+  };
+  const u = fakeUi();
+  const t = fresh(u);
+  assert.equal(defaultsToNoVault(t.ctx), true);
+  await plan(t.ctx, PRE);
+  assert.equal(t.config.keyVault.mode, 'notebook');
+  assert.ok(u.asked.includes('Where should the app\'s client secret go?'));
+  assert.ok(u.asked.includes('Keep the client secret in the notebooks, with no Key Vault?'));
+  assert.ok(!u.asked.includes('Azure subscription'));
+  assert.match(u.text(), /Anyone with a role in the workspace, Viewer included/);
+
+  const quiet = fresh(fakeUi({ yes: true }));
+  await plan(quiet.ctx, PRE);
+  assert.equal(quiet.config.keyVault.mode, 'notebook', '--yes takes the default');
+
+  const v = fakeUi();
+  const select = v.ui.select;
+  v.ui.select = /** @type {any} */ (async (/** @type {string} */ m, /** @type {any[]} */ ch, /** @type {any} */ d) => (m === 'Where should the app\'s client secret go?' ? (v.asked.push(m), 'keyvault') : select(m, ch, d)));
+  const kv = fresh(v);
+  await plan(kv.ctx, PRE).catch(() => {});
+  assert.ok(v.asked.includes('Azure subscription'), 'Key Vault goes to the vault questions');
+  assert.notEqual(kv.config.keyVault.mode, 'notebook');
+
+  // --key-vault, flows that read the secret from the vault, or a vault already chosen skip the default.
+  const flagged = fresh(fakeUi());
+  flagged.ctx.useKeyVault = true;
+  assert.equal(defaultsToNoVault(flagged.ctx), false);
+  const flows = fresh(fakeUi());
+  flows.config.uploads.flowIdentity = 'app';
+  assert.equal(defaultsToNoVault(flows.ctx), false);
+  const chosen = fresh(fakeUi());
+  chosen.config.keyVault.name = 'kv-test';
+  assert.equal(defaultsToNoVault(chosen.ctx), false);
+  const azure = fresh(fakeUi());
+  azure.config.target = 'azure';
+  assert.equal(defaultsToNoVault(azure.ctx), false);
 });
 
 test('capacityLabel: the SKU and region when Fabric gives them', () => {

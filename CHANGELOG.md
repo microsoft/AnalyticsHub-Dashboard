@@ -20,6 +20,32 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased — Load warnings, Global Reader, Agent Evaluator environments and Fabric uninstall
 
+### Changed: a new Fabric install keeps the app's secret in the notebooks, not Key Vault
+
+**Why.** Fabric notebooks can't get Microsoft Graph tokens from a workspace identity, so they need
+the app's client secret. Until now that meant an Azure subscription and a Key Vault, which a tester
+couldn't create. The notebook option was a last resort with a long-lived secret.
+
+- **Default.** For a new Fabric install, the installer asks **Where should the app's client secret
+  go?** and defaults to no Key Vault: the secret is written into the notebooks, and nothing in Azure
+  is needed. `--key-vault` picks Key Vault; `--no-key-vault` (or `--secret-in-notebook`) skips the
+  question. Installs whose record already uses a vault keep it, as does `--flow-identity app`.
+- **Trade-off, stated in the wizard and READMEs.** Anyone with a role in the workspace, Viewer
+  included, can read the secret, and it's copied into anything that copies the notebooks. There's
+  no vault audit log or network control. Key Vault avoids this, and stays an option, as does
+  handing the secret to a vault admin.
+- **Recommended when you can't use a vault.** With no Azure subscription, or when you can't create
+  a vault or write to the one you picked, the installer recommends no Key Vault.
+- **Short-lived and rotated.** The secret lasts 90 days by default (`--secret-days <n>`, 1–730, on
+  `install` and `rotate-secret`). Every install, Repair and update adds a new secret, rewrites the
+  notebooks, then removes the older secrets. Apps you brought yourself aren't rotated.
+- **Never stored elsewhere.** The secret isn't written to the install record or logs, and the
+  installer refuses to write it into a workspace that's connected to Git.
+- **Planned follow-up.** Once `notebookutils.credentials.getConnectionRef` (variable library
+  connection references) ships in the Fabric notebook runtime, switch the default to a Fabric
+  Connection that holds the secret, so workspace roles don't expose it. A Fabric Connection bound
+  to each notebook by hand is a possible later option. Neither is built.
+
 ### Changed: a load that couldn't read everything is a Warning, not Succeeded
 
 **Why.** A load that was refused by Resource Graph, wasn't licensed for Defender, or found no

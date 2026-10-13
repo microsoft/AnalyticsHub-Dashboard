@@ -65,11 +65,13 @@ items below give it access.
       another system.
 - [ ] **A Fabric capacity you can use.** You're a Contributor on a capacity, or an Admin or Member of
       a workspace that's on one. The Fabric admin can give you this (see below).
-- [ ] **Somewhere to keep the app's secret.**
+- [ ] **Optional: somewhere to keep the app's secret.** By default, the installer writes the app's
+      client secret into the Fabric notebooks: nothing in Azure is needed, but anyone with a role
+      in the workspace can read it. To keep it out of reach of workspace roles, use a
+      [Key Vault](https://learn.microsoft.com/azure/key-vault/general/overview) instead. That needs
       [Contributor](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#contributor)
-      on an Azure subscription, or on one resource group, so the installer can create a
-      [Key Vault](https://learn.microsoft.com/azure/key-vault/general/overview). Or access to a
-      vault you already have. See [Where the secret goes](../installer/README.md#where-the-secret-goes).
+      on an Azure subscription or one resource group, or access to a vault you already have.
+      See [Where the secret goes](../installer/README.md#where-the-secret-goes).
 - [ ] **Permission to register an app** in Microsoft Entra ID. Everyone can by default
       ([who can](https://learn.microsoft.com/entra/identity/role-based-access-control/delegate-app-roles#restrict-who-can-create-applications)).
       If you can't, an admin registers it with the [admin pack](../installer/README.md#if-you-cant-register-apps).
@@ -208,8 +210,9 @@ region and agreement, so check the official pages:
   [Power BI pricing](https://www.microsoft.com/power-platform/products/power-bi/pricing).
 - **Power Automate Premium**, for whoever signs in to the flows.
   [Power Automate pricing](https://www.microsoft.com/power-platform/products/power-automate/pricing).
-- **Azure Key Vault**, for the app's secret. Billed per operation, which is small for a few reads
-  a day. [Key Vault pricing](https://azure.microsoft.com/pricing/details/key-vault/).
+- **Azure Key Vault**, only if you keep the app's secret there instead of in the notebooks. Billed
+  per operation, which is small for a few reads a day.
+  [Key Vault pricing](https://azure.microsoft.com/pricing/details/key-vault/).
 - **Azure, only on the Azure target:**
   [Container Apps](https://azure.microsoft.com/pricing/details/container-apps/),
   [Storage](https://azure.microsoft.com/pricing/details/storage/blobs/),

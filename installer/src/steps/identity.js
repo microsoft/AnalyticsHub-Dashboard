@@ -18,6 +18,16 @@ import { APP_NAME } from './plan.js';
 
 export const SECRET_LIFETIME_MONTHS = 12;
 
+/** Without Key Vault the secret is readable in the workspace, so it lasts days, not months, and every run of the installer replaces it. */
+export const NOTEBOOK_SECRET_DAYS = 90;
+export const MAX_SECRET_DAYS = 730;
+
+/**
+ * How long a client secret kept in the notebooks lasts: --secret-days, or 90 days.
+ * @param {import('../config.js').InstallConfig} config
+ */
+export const notebookSecretDays = (config) => config.app.secretDays ?? NOTEBOOK_SECRET_DAYS;
+
 /**
  * Thrown when the user stops to wait for someone else, such as a vault admin. The install
  * record is saved, and running the installer again carries on from the same point.
@@ -58,6 +68,16 @@ export function addMonths(from, months) {
 }
 
 /**
+ * @param {Date} from
+ * @param {number} days
+ */
+export function addDays(from, days) {
+  const d = new Date(from);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d;
+}
+
+/**
  * Graph's service principal and the app roles ValueLens needs, looked up once per run.
  * @param {Ctx} ctx
  */
@@ -81,7 +101,7 @@ export async function ensureKeyVault(ctx) {
   const { ui, config, api, user } = ctx;
   const kv = config.keyVault;
   if (secretMode(config) === 'notebook') {
-    ui.warn('No Key Vault: the client secret is written into the notebooks (not recommended).');
+    ui.info('No Key Vault: the client secret is written into the notebooks, where anyone with a role in the workspace can read it.');
     return;
   }
   if (kv.uri && kv.id) {

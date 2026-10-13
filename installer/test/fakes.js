@@ -155,6 +155,8 @@ export function fakeFabric() {
   const spark = { highConcurrency: { notebookInteractiveRunEnabled: true, notebookPipelineRunEnabled: false } };
   /** The connections the Cowork Dataflow's definition lists, one list per call; the last repeats. None by default. @type {any[][]} */
   const dataflowConnections = [];
+  /** The workspace's Git connection. @type {{ gitConnectionState: string }} */
+  const git = { gitConnectionState: 'NotConnected' };
   const fail = (/** @type {string} */ method) => {
     const err = failures[method]?.shift();
     if (err) throw err;
@@ -397,8 +399,13 @@ export function fakeFabric() {
       fail('bindConnection');
       return null;
     },
+    /** @param {string} _ws */
+    getGitConnection: async (_ws) => {
+      fail('getGitConnection');
+      return { ...git };
+    },
   };
-  return { api, items, schedules, calls, jobs, jobList, activityRuns, roles, connections, gateways, workspaceCapacities, failures, sqlStates, spark, dataflowConnections, add };
+  return { api, items, schedules, calls, jobs, jobList, activityRuns, roles, connections, gateways, workspaceCapacities, failures, sqlStates, spark, dataflowConnections, git, add };
 }
 
 /** @param {number} [status] @param {string} [message] */

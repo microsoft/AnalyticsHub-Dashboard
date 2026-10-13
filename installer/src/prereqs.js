@@ -162,7 +162,7 @@ export async function checkPrereqs(ctx) {
         return {
           status: 'missing',
           detail: 'No enabled Azure subscription you can see.',
-          ...(azure ? {} : { howTo: 'Ask for Contributor (and User Access Administrator for credit consumption) on a subscription. For a quick test only, --secret-in-notebook keeps the app secret in the notebooks instead of Key Vault.' }),
+          ...(azure ? {} : { howTo: 'Ask for Contributor (and User Access Administrator for credit consumption) on a subscription. Without one, choose no Key Vault (--no-key-vault): the app secret goes in the notebooks, where anyone with a role in the workspace can read it.' }),
         };
       }
       const first = config.azure?.subscriptionId ?? config.keyVault.subscriptionId;
@@ -321,11 +321,12 @@ export async function checkPrereqs(ctx) {
             {
               id: 'key-vault',
               label: 'Key Vault access for the app secret',
-              neededFor: 'The app registration\'s client secret is kept in Azure Key Vault, where the notebooks read it.',
-              howTo: 'Ask for Contributor on a subscription to create a vault, or Key Vault Secrets User on an existing one (a vault admin then adds the secret). For a quick test only, --secret-in-notebook keeps it in the notebooks.',
+              neededFor: 'Keeping the app registration\'s client secret in Azure Key Vault (--key-vault), where the notebooks read it. Optional: by default on Fabric, the secret goes in the notebooks instead.',
+              howTo: 'Ask for Contributor on a subscription to create a vault, or Key Vault Secrets User on an existing one (a vault admin then adds the secret). Or keep the default, no Key Vault (--no-key-vault): anyone with a role in the workspace can then read the secret.',
+              optional: true,
             },
             async () => {
-              if (secretMode(config) === 'notebook') return { status: 'met', detail: 'The secret is kept in the notebooks (for a quick test only), so no vault is needed.' };
+              if (secretMode(config) === 'notebook') return { status: 'met', detail: 'No Key Vault: the secret is kept in the notebooks, so no vault is needed.' };
               const kv = config.keyVault;
               if (kv.id) {
                 const vault = await api.arm.getVault(kv.id);
@@ -336,7 +337,7 @@ export async function checkPrereqs(ctx) {
               const rbac = await azureRbac;
               if (rbac.rows?.some((r) => /^Can create resources/.test(r.detail ?? ''))) return { status: 'met', detail: 'You can create a new vault in one of your subscriptions.' };
               if (rbac.status === 'unknown') return { status: 'unknown', detail: 'Couldn\'t check your Azure access.' };
-              return { status: rbac.status === 'eligible' ? 'eligible' : 'missing', detail: 'You can\'t create a vault in any subscription you can see. You can use an existing vault you can read, or keep the secret in the notebooks for a quick test.' };
+              return { status: rbac.status === 'eligible' ? 'eligible' : 'missing', detail: 'You can\'t create a vault in any subscription you can see. You can use an existing vault you can read, or choose no Key Vault and keep the secret in the notebooks.' };
             },
           ),
         ]),
