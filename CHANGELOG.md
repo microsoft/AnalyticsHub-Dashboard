@@ -18,6 +18,34 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ---
 
+## Unreleased — Install from Azure Cloud Shell
+
+### Added: Azure Cloud Shell for PCs that can't run the installer
+
+**Why.** On some locked-down PCs, AppLocker or WDAC rules stop the exe and the PowerShell
+command's unpacked `node.exe` alike, which leaves no way to run the installer on that PC.
+
+**What changed.** The same `irm … install.ps1 | iex` command now also works in Azure Cloud Shell's
+PowerShell. There, `install.ps1` fetches the release's source from GitHub at the commit written
+into it, checks the commit, runs `npm ci` from the lockfile and, if Cloud Shell's Node.js is older
+than 22.13, downloads the release's Node.js and checks its SHA-256. It keeps everything in
+`~/.analytics-hub` and leaves `~/.analytics-hub/analytics-hub` for later commands. In Cloud Shell
+the installer:
+
+- asks its questions in the terminal (`--ui` isn't available) and signs in with a code by default;
+- with `--use-az`, checks the Azure CLI can reach every API before changing anything, and says to
+  run `az login --use-device-code` if it's still on Cloud Shell's own sign-in;
+- deploys the app with the installer's Fabric token (`RAYFIN_TOKEN`), so Rayfin doesn't wait for a
+  browser sign-in;
+- warns when Cloud Shell has no storage account, since the install record would go with the
+  session, and notes the 20-minute idle timeout. Re-running carries on from the record.
+
+See [Locked-down tenant / Azure Cloud Shell](installer/README.md#locked-down-tenant--azure-cloud-shell).
+
+**Still blocked by.** Conditional Access policies that block sign-in with a code.
+
+---
+
 ## Unreleased — Install from PowerShell
 
 ### Added: a PowerShell command for organisations that block downloaded exes

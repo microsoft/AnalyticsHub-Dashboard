@@ -100,7 +100,7 @@ export function describeError(err) {
  */
 export function createSession(o) {
   const connect = o.connect ?? realConnect;
-  /** @type {{ api: import('./install.js').Apis, user: import('./install.js').User, method: Method, tenant: string } | null} */
+  /** @type {{ api: import('./install.js').Apis, user: import('./install.js').User, method: Method, tenant: string, getToken?: (resource: import('./auth.js').Resource) => Promise<string> } | null} */
   let signedIn = null;
   /** @type {string | null} */
   let running = null;
@@ -191,8 +191,8 @@ export function createSession(o) {
         signedIn = null;
         prereqs = null;
         ui.emit({ type: 'signin', state: 'started', method });
-        const { api, user } = await connect({ tenantId: tenant || undefined, method, ui, debug: o.debug });
-        signedIn = { api, user, method, tenant };
+        const { api, user, getToken } = await connect({ tenantId: tenant || undefined, method, ui, debug: o.debug });
+        signedIn = { api, user, method, tenant, getToken };
         if (command !== 'prereqs') checkInBackground(config);
       }
       ui.emit({ type: 'signin', state: reuse ? 'reused' : 'done', user: { upn: signedIn.user.upn, displayName: signedIn.user.displayName, tenantId: signedIn.user.tenantId } });
@@ -201,7 +201,7 @@ export function createSession(o) {
         ui.emit({ type: 'command', command, state: 'failed', stale: true, error: `${staleRecordMessage(gone)} Go back to the home page to start fresh, or keep the record.` });
         return;
       }
-      const ctx = createCtx({ ui, config, file: o.configFile, api: signedIn.api, user: signedIn.user, sources });
+      const ctx = createCtx({ ui, config, file: o.configFile, api: signedIn.api, user: signedIn.user, sources, getToken: signedIn.getToken });
       let ok = true;
       if (command === 'prereqs') {
         const items = await showPrereqs(ctx);

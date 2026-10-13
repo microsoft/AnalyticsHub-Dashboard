@@ -6,7 +6,8 @@ as an app in Fabric, called **Analytics Hub**. You don't need a terminal or Powe
 [![Download the Analytics Hub installer](https://img.shields.io/badge/Download-Analytics%20Hub%20installer-0078D4?style=for-the-badge)](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
 
 For Windows 10 or 11. Check [what you need](#before-you-start) first. If your organisation blocks
-downloaded exes, use the [PowerShell command](../installer/README.md#from-powershell) instead.
+downloaded exes, use the [PowerShell command](../installer/README.md#from-powershell) instead. If
+your PC can't run either, use [Azure Cloud Shell](../installer/README.md#locked-down-tenant--azure-cloud-shell).
 
 ## Before you start
 

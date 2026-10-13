@@ -273,8 +273,9 @@ try {
   copyFileSync(zip, zipOut);
   writeFileSync(`${zipOut}.sha256`, sha256Line(zipHash, ZIP_NAME), 'utf8');
   const zipSize = readFileSync(zip).length;
+  // In Azure Cloud Shell, install.ps1 gets this commit's source from the repo instead, and Node.js this version if Cloud Shell's is too old.
   const script = installScript(readFileSync(join(LAUNCHER, SCRIPT_NAME), 'utf8'), {
-    version, sha256: zipHash, id, repo: opts.repo, sizeMb: zipSize / 1024 / 1024,
+    version, sha256: zipHash, id, repo: opts.repo, sizeMb: zipSize / 1024 / 1024, commit, nodeVersion: process.versions.node,
   });
   writeFileSync(join(outDir, SCRIPT_NAME), script, 'ascii');
   process.stdout.write(`✓ ${zipOut}\n  ${mb(zipSize)}, sha256 ${zipHash}\n✓ ${join(outDir, SCRIPT_NAME)}, downloading from ${opts.repo}\n`);

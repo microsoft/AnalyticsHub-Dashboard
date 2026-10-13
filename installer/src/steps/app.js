@@ -8,6 +8,7 @@ import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { HttpError } from '../http.js';
+import { inCloudShell } from '../launch.js';
 import { publicAccess } from './access.js';
 import { agentEvaluatorModelDeployed, consumptionModelDeployed, createdId, displayNames, freeName, noteRenamed } from './fabric.js';
 
@@ -37,14 +38,14 @@ export const FABRIC_CONFIG = 'fabric.config.json';
 export const isPrebuilt = (dir) => existsSync(join(dir, PREBUILT_MARKER));
 
 /**
- * @typedef {{ cwd: string, inherit?: boolean, shell?: boolean }} RunOptions
+ * @typedef {{ cwd: string, inherit?: boolean, shell?: boolean, env?: NodeJS.ProcessEnv }} RunOptions
  * @typedef {(command: string, args: string[], opts: RunOptions) => Promise<{ code: number, output: string }>} Runner
  */
 
 /** @type {Runner} */
 export function defaultRunner(command, args, opts) {
   return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd: opts.cwd, shell: !!opts.shell, stdio: opts.inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'] });
+    const child = spawn(command, args, { cwd: opts.cwd, shell: !!opts.shell, env: opts.env, stdio: opts.inherit ? 'inherit' : ['ignore', 'pipe', 'pipe'] });
     let output = '';
     child.stdout?.on('data', (d) => (output += d));
     child.stderr?.on('data', (d) => (output += d));
@@ -397,7 +398,7 @@ async function buildAndDeploy(ctx, dir, ws, models) {
 
   try {
     await data('use', profile, '-o', GENERATED);
-    ui.info('Building and deploying the app. A browser window may open for sign-in.');
+    ui.info(`Building and deploying the app. ${signInNote()}`);
     return { record: await rayfinUp(ctx, dir, ws), profile };
   } finally {
     if (hadConfig !== null) writeFileSync(configFile, hadConfig, 'utf8');
@@ -434,7 +435,7 @@ async function deployPrebuilt(ctx, dir, ws, models) {
   writeOrRemove(deploymentsFile, fa.rayfin?.deployments ? `${JSON.stringify(fa.rayfin.deployments, null, 2)}\n` : null);
   writeOrRemove(envFile, fa.rayfin?.env ?? null);
 
-  ui.info('Deploying the app. A browser window may open for sign-in.');
+  ui.info(`Deploying the app. ${signInNote()}`);
   try {
     return { record: await rayfinUp(ctx, dir, ws), profile: undefined };
   } finally {
@@ -480,6 +481,22 @@ export function fabricConfigFile(config, ws, models) {
 }
 
 /**
+ * The environment `rayfin up` runs in. In Azure Cloud Shell, Rayfin's own sign-in would wait for a
+ * browser that can't open, so it gets the installer's Fabric token instead: every call `up` makes
+ * is to Fabric. Elsewhere Rayfin signs in itself and keeps that sign-in between runs.
+ * @param {Ctx} ctx
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {Promise<NodeJS.ProcessEnv | undefined>}  undefined to run with the installer's own environment.
+ */
+export async function rayfinEnv(ctx, env = process.env) {
+  if (!inCloudShell(env) || env.RAYFIN_TOKEN || !ctx.getToken) return undefined;
+  return { ...env, RAYFIN_TOKEN: await ctx.getToken('fabric'), RAYFIN_TENANT_ID: ctx.user.tenantId };
+}
+
+/** What `rayfin up` asks of the person running the installer. */
+const signInNote = () => (inCloudShell() ? 'It uses your installer sign-in.' : 'A browser window may open for sign-in.');
+
+/**
  * Runs `rayfin up` in the app folder and returns the deployment it recorded for the workspace.
  * @param {Ctx} ctx
  * @param {string} dir
@@ -488,8 +505,13 @@ export function fabricConfigFile(config, ws, models) {
 async function rayfinUp(ctx, dir, ws) {
   const run = ctx.runner ?? defaultRunner;
   await claimAppItem(ctx, dir, ws);
-  const res = await run(process.execPath, [join(dir, RAYFIN_CLI), 'up', '--tenant', ctx.user.tenantId, '--workspace-id', ws, '--yes'], { cwd: dir, inherit: true });
-  if (res.code) throw new Error('The app\'s deploy tool failed. Its output is above.');
+  const env = await rayfinEnv(ctx);
+  const res = await run(process.execPath, [join(dir, RAYFIN_CLI), 'up', '--tenant', ctx.user.tenantId, '--workspace-id', ws, '--yes'], { cwd: dir, inherit: true, ...(env ? { env } : {}) });
+  if (res.code) {
+    throw new Error(env
+      ? 'The app\'s deploy tool failed. Its output is above. It ran with your installer sign-in\'s Fabric token. If Fabric turned that down, the rest of the set-up is done: copy the install record to a Windows PC and run deploy-app there, with the exe or the PowerShell command.'
+      : 'The app\'s deploy tool failed. Its output is above.');
+  }
   const record = findDeployment(readJson(join(dir, 'rayfin', '.deployments.json')), ws);
   if (!record?.fabricItemId) throw new Error('The app deployed, but its deploy tool didn\'t record the item it created.');
   return record;

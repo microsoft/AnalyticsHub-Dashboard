@@ -4,14 +4,14 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { createTokenProvider, isTransientNetworkError, TOKEN_ATTEMPTS } from '../src/auth.js';
+import { checkTokens, createTokenProvider, isMsiAudienceError, isTransientNetworkError, TOKEN_ATTEMPTS } from '../src/auth.js';
 import { collectedLabels, ESSENTIAL_MODULES, normaliseModules, OPTIONAL_MODULES, permissionsFor } from '../src/catalog.js';
 import { help, parseCli } from '../src/cli.js';
 import { allowsAction, armLocation, parseResourceId, validateVaultName } from '../src/clients/azure.js';
 import { notebookDefinition, notebookJobParameters, scheduleBody } from '../src/clients/fabric.js';
 import { resolveAppRoles } from '../src/clients/graph.js';
 import { emptyConfig, loadConfig, saveConfig } from '../src/config.js';
-import { bundled, commandLine, EXE_ENV, fromExe, installerWindow, LAUNCHER_ENV, launcher, reopenHint, SCRIPT_COMMAND, SCRIPT_URL, updateHint } from '../src/launch.js';
+import { bundled, CLOUD_SHELL_ENV, commandLine, EXE_ENV, fromExe, inCloudShell, installerWindow, LAUNCHER_ENV, launcher, reopenHint, SCRIPT_COMMAND, SCRIPT_URL, updateHint } from '../src/launch.js';
 import { describeSchedule, sameSchedule } from '../src/steps/fabric.js';
 import { addMonths } from '../src/steps/identity.js';
 import { jobIdFrom, utc } from '../src/steps/run.js';
@@ -53,6 +53,29 @@ test('tokens are tried again when the network or DNS blips, and not otherwise', 
   const mfa = createTokenProvider({ getToken: async () => { mfaCalls++; throw new Error('AADSTS50076'); } }, { sleep });
   await assert.rejects(mfa('graph'), /AADSTS50076/);
   assert.equal(mfaCalls, 1);
+});
+
+test('createTokenProvider and checkTokens: Cloud Shell\'s own Azure CLI sign-in says which APIs it can\'t reach and what to do', async () => {
+  const msi = (/** @type {string} */ scope) => new Error(`ERROR: Audience ${scope.replace('/.default', '')} is not a supported MSI token audience.`);
+  let calls = 0;
+  const cloud = createTokenProvider({
+    getToken: async (/** @type {string} */ scope) => {
+      calls++;
+      if (/fabric|powerbi|powerapps|flow/.test(scope)) throw msi(scope);
+      return { token: 't', expiresOnTimestamp: Date.now() + 3_600_000 };
+    },
+  }, { sleep: async () => {} });
+  await assert.rejects(cloud('fabric'), (/** @type {any} */ err) => {
+    assert.match(err.message, /Cloud Shell's own sign-in, which can't get tokens for Fabric\. Run az login --use-device-code/);
+    assert.match(err.cause.message, /not a supported MSI token audience/);
+    return true;
+  });
+  assert.equal(calls, 1, 'not retried');
+  assert.ok(isMsiAudienceError(msi('x')));
+  assert.ok(!isMsiAudienceError(new Error('AADSTS50076')));
+  await assert.rejects(checkTokens(cloud), /can't get tokens for Fabric, Power BI, Power Automate, Power Apps\. Run az login --use-device-code/);
+  await assert.doesNotReject(checkTokens(cloud, ['graph', 'arm']));
+  await assert.rejects(checkTokens(async () => { throw new Error('AADSTS50076'); }), /AADSTS50076/, 'other failures as they are');
 });
 
 test('allowsAction handles wildcards, notActions and data actions', () => {
@@ -278,4 +301,31 @@ test('messages name the PowerShell command when install.ps1 started the installe
   assert.match(updateHint('https://example.test/r', pwsh), /irm https:\/\/github\.com\/microsoft\/AnalyticsHub-Dashboard\/releases\/latest\/download\/install\.ps1 \| iex/);
   assert.equal(updateHint('https://example.test/r', {}), 'Download it from https://example.test/r, then choose Repair or change.');
   assert.equal(SCRIPT_COMMAND, `irm ${SCRIPT_URL} | iex`);
+});
+
+test('in Azure Cloud Shell: noticed from its environment, with commands for its shell', () => {
+  const cs = { [LAUNCHER_ENV]: 'cloudshell' };
+  assert.equal(inCloudShell({}), false);
+  assert.equal(inCloudShell(cs), true);
+  assert.equal(inCloudShell({ AZUREPS_HOST_ENVIRONMENT: 'cloud-shell/1.0' }), true);
+  assert.equal(inCloudShell({ ACC_CLOUD: 'PROD' }), true);
+  assert.equal(inCloudShell({ [CLOUD_SHELL_ENV]: '1' }), true);
+  assert.equal(inCloudShell({ [CLOUD_SHELL_ENV]: '0', ACC_CLOUD: 'PROD' }), false, 'the override wins');
+  assert.equal(launcher(cs), 'cloudshell');
+  assert.equal(bundled(cs), false, 'it runs from source, so it builds the app');
+  assert.equal(commandLine('status', cs), '~/.analytics-hub/analytics-hub status');
+  assert.equal(installerWindow(cs), 'Cloud Shell');
+  assert.match(reopenHint(cs), /~\/\.analytics-hub\/analytics-hub in Cloud Shell/);
+  assert.match(updateHint('https://example.test/r', cs), /install\.ps1 \| iex" again in Cloud Shell's PowerShell/);
+});
+
+test('parseCli: in Azure Cloud Shell, signs in with a code and stays in the terminal', () => {
+  const cs = { ACC_CLOUD: 'PROD' };
+  assert.equal(parseCli([], cs).method, 'device-code');
+  assert.equal(parseCli([], cs).cloudShell, true);
+  assert.equal(parseCli(['--use-az'], cs).method, 'azure-cli');
+  assert.equal(parseCli([], {}).method, 'browser');
+  assert.equal(parseCli([], {}).cloudShell, false);
+  assert.throws(() => parseCli(['--ui'], cs), /Leave out --ui/);
+  assert.doesNotThrow(() => parseCli(['--ui'], {}));
 });
