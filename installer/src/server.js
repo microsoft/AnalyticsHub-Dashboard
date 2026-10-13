@@ -7,7 +7,7 @@ import { spawn } from 'node:child_process';
 import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
-import { installerWindow } from './launch.js';
+import { installerWindow, updateHint } from './launch.js';
 import { createSession } from './web-session.js';
 import { clearStaged, sizeOk, stageUpload } from './staging.js';
 import { c } from './ui.js';
@@ -408,7 +408,7 @@ export async function runWizard(o) {
     .then((u) => {
       if (!u) return;
       session.setUpdate(u);
-      write(`\n${c.yellow('!')} Installer ${u.version} is available. Download it from ${u.url}, then choose Repair or change.\n`);
+      write(`\n${c.yellow('!')} Installer ${u.version} is available. ${updateHint(u.url)}\n`);
     })
     .catch(() => {});
   await server.done;

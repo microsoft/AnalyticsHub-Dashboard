@@ -3,17 +3,19 @@
  * What a published AnalyticsHubInstaller.exe has to pass: its Authenticode signature, the
  * SHA-256 file next to it and the release notes. Shared by finish-exe.js, the installer-exe
  * workflow and the ESRP signing pipeline, so each checks the same way. Those run it without
- * `npm ci`, so it imports nothing outside Node.js and src/launch.js.
+ * `npm ci`, so it imports nothing outside Node.js, src/launch.js and script.js.
  */
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { EXE_NAME } from '../src/launch.js';
+import { SCRIPT_NAME, ZIP_NAME, scriptCommand } from './script.js';
 
 export const PUBLISHER = 'Microsoft Corporation';
 
 /** Where the install steps live, relative to the repo's main branch. */
 export const INSTALL_DOCS = 'tree/main/fabric#install';
 export const WITHOUT_EXE_DOCS = 'blob/main/installer/README.md#without-the-exe';
+export const PWSH_DOCS = 'blob/main/installer/README.md#from-powershell';
 
 /** @param {string} file */
 export const sha256File = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
@@ -69,13 +71,30 @@ export function checkSignature(sig, { publisher = PUBLISHER } = {}) {
 
 /**
  * The release notes for an installer release.
- * @param {{ repo: string, sha256: string, signed: boolean, publisher?: string }} o
+ * @param {{ repo: string, sha256: string, signed: boolean, publisher?: string, version?: string }} o
+ *   `version` adds the PowerShell commands, which need install.ps1 and the zip on the release.
  */
-export function releaseNotes({ repo, sha256, signed, publisher = PUBLISHER }) {
+export function releaseNotes({ repo, sha256, signed, publisher = PUBLISHER, version }) {
   const base = `https://github.com/${repo}`;
   const lines = [
     `Download **${EXE_NAME}** and open it. Steps: ${base}/${INSTALL_DOCS}`,
     '',
+  ];
+  if (version) {
+    lines.push(
+      '### Or install from PowerShell',
+      '',
+      'If your organisation blocks downloaded exes, paste this into PowerShell instead. It needs no admin rights: it downloads this release\'s installer as a zip, checks its SHA-256 and opens the installer in your browser.',
+      '',
+      '```powershell',
+      `${scriptCommand(repo, version)}`,
+      '```',
+      '',
+      `If \`irm | iex\` is blocked too, download \`${SCRIPT_NAME}\` and \`${ZIP_NAME}\` from this release and run \`powershell -ExecutionPolicy Bypass -File .\\${SCRIPT_NAME} -ZipPath .\\${ZIP_NAME}\`. More: ${base}/${PWSH_DOCS}`,
+      '',
+    );
+  }
+  lines.push(
     '### Check the download',
     '',
     `SHA-256: \`${sha256.toLowerCase()}\``,
@@ -88,7 +107,7 @@ export function releaseNotes({ repo, sha256, signed, publisher = PUBLISHER }) {
     '',
     `It should match the hash above, which is also in \`${EXE_NAME}.sha256\`. PowerShell prints it in capitals; that doesn't matter.`,
     '',
-  ];
+  );
   if (signed) {
     lines.push(
       `The exe is signed by ${publisher}. To check, right-click it and choose **Properties**, then **Digital Signatures**.`,
@@ -103,7 +122,7 @@ export function releaseNotes({ repo, sha256, signed, publisher = PUBLISHER }) {
       '- If Edge says it **isn\'t commonly downloaded**, choose **…** next to the file, then **Keep**, **Show more** and **Keep anyway**.',
       '- If Windows says it **protected your PC**, choose **More info**, then **Run anyway**.',
       '',
-      `If your organisation blocks the download, run the installer with Node.js instead: ${base}/${WITHOUT_EXE_DOCS}`,
+      `If your organisation blocks the download, ${version ? 'use the PowerShell command above, or ' : ''}run the installer with Node.js instead: ${base}/${WITHOUT_EXE_DOCS}`,
       '',
     );
   }

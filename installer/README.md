@@ -181,7 +181,8 @@ Azure commands:
 1. [Download the installer](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe).
    This link always gets the newest version. If Edge says it isn't commonly downloaded, choose
    **…** next to the file, then **Keep**, **Show more** and **Keep anyway**. To check the file,
-   see [Check the download](#check-the-download).
+   see [Check the download](#check-the-download). If your organisation blocks downloaded exes,
+   use the [PowerShell command](#from-powershell) instead and carry on from step 3.
 2. Open it. If Windows says it protected your PC, choose **More info**, then **Run anyway**.
 3. The first time, it takes about a minute to unpack. Then it opens in your browser. Keep its
    window open while you use the page, and keep the PC awake and plugged in until it finishes. If
@@ -865,8 +866,52 @@ Edge and Windows SmartScreen warn about the exe because it's new and isn't code-
   **Show more** and **Keep anyway**.
 - If Windows says it **protected your PC**, choose **More info**, then **Run anyway**.
 
-If your organisation blocks the download or won't let you past the warnings,
-[run the installer with Node.js](#without-the-exe) instead.
+If your organisation blocks the download or won't let you past the warnings, use the
+[PowerShell command](#from-powershell), or [run the installer with Node.js](#without-the-exe).
+
+## From PowerShell
+
+If your organisation blocks downloaded exes, paste this into PowerShell (Windows PowerShell 5.1 or
+PowerShell 7) instead. It runs the same installer as the exe, with the same browser steps:
+
+```powershell
+irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+```
+
+It downloads `AnalyticsHubInstaller.zip` from the latest release (about 120 MB: Node.js, the
+installer and the app, already built), checks its SHA-256 against the one written into
+`install.ps1`, unpacks it under `%LOCALAPPDATA%\AnalyticsHub` and opens the installer in your
+browser. It needs no admin rights, installs nothing system-wide and changes no settings. Run it
+again to pick up a new version; it removes the old one.
+
+- **Later commands.** It leaves a command behind for the version it unpacked, for example
+  `& $env:LOCALAPPDATA\AnalyticsHub\analytics-hub.cmd status`. With no arguments it opens the
+  browser steps.
+- **A fixed version.** Each release's notes give a command pinned to that release, such as
+  `irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.5.1/install.ps1 | iex`.
+- **If `irm | iex` is blocked**, download `install.ps1` and `AnalyticsHubInstaller.zip` from the
+  [release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest) and run:
+
+  ```powershell
+  powershell -ExecutionPolicy Bypass -File .\install.ps1 -ZipPath .\AnalyticsHubInstaller.zip
+  ```
+
+  Anything after the options goes to the installer, for example `... -ZipPath .\AnalyticsHubInstaller.zip status`.
+  `-ExecutionPolicy Bypass` applies to that one command only. `install.ps1` isn't signed yet, so
+  under an `AllSigned` policy use `irm | iex`, which execution policy doesn't cover.
+- **Behind a proxy.** It uses the system proxy. To name one, signed in as you, run
+  `$env:ANALYTICS_HUB_PROXY = 'http://proxy:8080'` first. If the proxy blocks GitHub's download host,
+  download the zip in a browser and set `$env:ANALYTICS_HUB_ZIP` to its path, or use `-ZipPath`.
+- **Constrained Language Mode** works: the launcher only uses commands allowed there. It skips
+  keeping the PC awake, so keep it plugged in and awake yourself.
+- **Remove it** with `.\install.ps1 -Uninstall` (from the download-and-run steps above), or by
+  deleting `%LOCALAPPDATA%\AnalyticsHub`. That doesn't touch what's in your tenant, or your
+  install record in `Documents\Analytics Hub`. To remove what's in your tenant, use **Uninstall**
+  in the installer first.
+
+What it can't get past: AppLocker or Windows Defender Application Control rules that block
+programs under your profile stop the unpacked `node.exe` just as they stop the exe. Some
+endpoint protection products flag `irm | iex`; the download-and-run command above avoids it.
 
 ## Without the exe
 

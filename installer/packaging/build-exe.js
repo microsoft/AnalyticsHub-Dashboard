@@ -5,8 +5,13 @@
  * Node.js, the installer, the templates it deploys and the app already built, and unpacks them
  * under %LOCALAPPDATA%\AnalyticsHub the first time it runs.
  *
- * Usage: npm run build:exe -- [--out <dir>] [--keep] [--release]
+ * Next to it go the same payload as AnalyticsHubInstaller.zip, and install.ps1, which downloads that
+ * zip, checks it and runs it from PowerShell, for organisations that block downloaded exes.
+ *
+ * Usage: npm run build:exe -- [--out <dir>] [--keep] [--release] [--repo <owner/name>]
  *   --out <dir>   Where to write the exe (default ./dist-exe)
+ *   --repo <name> The repo whose releases install.ps1 downloads from (default $GITHUB_REPOSITORY,
+ *                 then microsoft/AnalyticsHub-Dashboard)
  *   --keep        Keep the working folder, to look at what went into the payload
  *   --release     Fail rather than warn when something a published download needs is missing
  *
@@ -29,7 +34,9 @@ import {
   EMPTY_GENERATED, EXE_NAME, SOURCE_ROOT, appFile, appPackageJson, fileVersion, installerFile, leakedIds, localIds, payloadId, prebuiltRayfinYml,
   prunable, sourceFiles, tooLong,
 } from './payload.js';
+import { SCRIPT_NAME, ZIP_NAME, installScript } from './script.js';
 import { sha256File, sha256Line } from './signing.js';
+import { REPO as GITHUB_REPO } from '../src/update-check.js';
 
 const INSTALLER = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const SOURCE = resolve(INSTALLER, '..');
@@ -37,7 +44,7 @@ const APP = join(SOURCE, APP_DIR);
 const LAUNCHER = join(INSTALLER, 'packaging', 'launcher');
 
 const { values: opts } = parseArgs({
-  options: { out: { type: 'string' }, keep: { type: 'boolean' }, release: { type: 'boolean' } },
+  options: { out: { type: 'string' }, keep: { type: 'boolean' }, release: { type: 'boolean' }, repo: { type: 'string', default: process.env.GITHUB_REPOSITORY || GITHUB_REPO } },
 });
 
 /** @param {string} m */
@@ -232,7 +239,8 @@ try {
   step('Packing');
   const zip = join(work, 'payload.zip');
   run(TAR, ['-a', '-c', '-f', zip, '-C', stage, 'node', SOURCE_ROOT, 'LICENSE.txt']);
-  const id = payloadId(version, createHash('sha256').update(readFileSync(zip)).digest('hex'));
+  const zipHash = createHash('sha256').update(readFileSync(zip)).digest('hex');
+  const id = payloadId(version, zipHash);
   writeFileSync(join(work, 'payload-id.txt'), id, 'utf8');
   for (const f of ['Launcher.cs', 'app.manifest']) copyFileSync(join(LAUNCHER, f), join(work, f));
   writeFileSync(join(work, 'AssemblyInfo.cs'), [
@@ -259,6 +267,17 @@ try {
   writeFileSync(`${exe}.sha256`, sha256Line(hash), 'utf8');
   const mb = (n) => `${(n / 1024 / 1024).toFixed(0)} MB`;
   process.stdout.write(`\n✓ ${exe}\n  ${mb(readFileSync(exe).length)}, payload ${id}\n  sha256 ${hash}\n`);
+
+  // The same payload for install.ps1, which unpacks it to the same folder the exe would.
+  const zipOut = join(outDir, ZIP_NAME);
+  copyFileSync(zip, zipOut);
+  writeFileSync(`${zipOut}.sha256`, sha256Line(zipHash, ZIP_NAME), 'utf8');
+  const zipSize = readFileSync(zip).length;
+  const script = installScript(readFileSync(join(LAUNCHER, SCRIPT_NAME), 'utf8'), {
+    version, sha256: zipHash, id, repo: opts.repo, sizeMb: zipSize / 1024 / 1024,
+  });
+  writeFileSync(join(outDir, SCRIPT_NAME), script, 'ascii');
+  process.stdout.write(`✓ ${zipOut}\n  ${mb(zipSize)}, sha256 ${zipHash}\n✓ ${join(outDir, SCRIPT_NAME)}, downloading from ${opts.repo}\n`);
 } finally {
   if (linked) {
     try {
