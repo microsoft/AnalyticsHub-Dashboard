@@ -38,6 +38,24 @@ didn't follow the networking choice, and policy errors were hard to read.
 - **Storage.** With private networking, the installer never calls the storage account from your
   machine, and says why.
 
+### Fixed: Azure SQL firewall rule fails when Azure Policy switches SQL public access off
+
+**Why.** A tester's deploy failed on the SQL firewall rule with `DenyPublicEndpointEnabled`
+("Unable to create or modify firewall rules when public network interface for the server is
+disabled"). A policy switched the server's public access off as it was created, so the rule that lets
+Azure services in couldn't be added. The installer showed only the generic `DeploymentFailed …
+ResourceDeploymentFailure` text.
+
+- **Detected before deploying.** On a first Azure install, the installer reads the policy
+  assignments it already reads for the region preflight. When one denies SQL public access, or
+  modifies it to `Disabled` (built-in or custom, directly or in an initiative), the installer says so
+  and uses Private networking, which deploys no SQL firewall rule. Under advanced settings, Private is
+  the default and Public endpoints warns that the deployment would fail.
+- **The real error.** When a deployment fails, the installer reads the deployment operations,
+  following failed modules, and shows each failing resource with its own error code and message.
+- **Existing installs.** If an existing public install hits this, the installer says networking can't
+  change in place: uninstall and install again with Private networking, or ask for an exemption.
+
 ---
 
 ## Unreleased — Load warnings, Global Reader, Agent Evaluator environments and Fabric uninstall

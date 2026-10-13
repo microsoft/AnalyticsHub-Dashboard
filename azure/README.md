@@ -119,7 +119,15 @@ open it. Container Apps logs reach Log Analytics through a diagnostic setting, i
 
 When Azure Policy blocks a deployment, the installer lists each policy, assignment and resource, and
 prints `az deployment group show -g <resource group> -n valuelens --query properties.error` for the
-full error. Some denies still need a policy exemption: an internal-only Container Apps environment
+full error. For any failed deployment it also reads the deployment operations, including nested
+modules, and shows each failing resource's own error. To see them yourself:
+`az deployment operation group list -g <resource group> -n vl-sql --query "[?properties.provisioningState=='Failed']"`.
+
+In public mode, SQL gets the `AllowAllWindowsAzureIps` firewall rule. A server whose public access is
+off rejects it with `DenyPublicEndpointEnabled`, which happens when a policy denies SQL public access
+or modifies it to `Disabled` as the server is created. On a first install the installer reads the
+policy assignments, and when one does this it uses Private networking, which has no firewall rule.
+Some denies still need a policy exemption: an internal-only Container Apps environment
 (the web app needs public ingress), a ban on creating virtual networks, and Log Analytics shared keys
 in public mode.
 

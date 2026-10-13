@@ -164,7 +164,11 @@ export function publicAccessMessage(err, az) {
   const body = err instanceof HttpError ? err.body : err;
   const text = typeof body === 'string' ? body : JSON.stringify(body ?? {});
   if (!/DenyPublicEndpointEnabled|PublicNetworkAccess.{0,40}(Disabled|denied)|public network access .{0,40}(disabled|not allowed)/i.test(text)) return '';
-  return 'This subscription keeps public network access switched off on Azure SQL or Storage (common on managed and MCAPS subscriptions). Re-run the installer and choose Private networking: it adds a VNet, private endpoints and a Power BI VNet data gateway.';
+  const firewall = /firewall rules? when public network interface/i.test(`${text} ${err?.message ?? ''}`)
+    ? 'Azure Policy switched off public network access on the Azure SQL server, so its firewall can\'t take the rule that lets Azure services in. '
+    : 'This subscription keeps public network access switched off on Azure SQL or Storage (common on managed and MCAPS subscriptions). ';
+  if (az?.outputs?.sqlServerFqdn) return `${firewall}This install uses public endpoints, and networking can't change in place: uninstall and install again with Private networking, or ask your Azure admin for an exemption on this resource group.`;
+  return `${firewall}Re-run the installer and choose Private networking: it adds a VNet, private endpoints and a Power BI VNet data gateway.`;
 }
 
 /** @param {any} err @param {import('../../config.js').AzureConfig} [az] */
@@ -276,6 +280,14 @@ export async function planAzure(ctx, pre) {
   const defaultLocation = [rg?.location, az.location, 'uksouth'].find((r) => r && offered.some((l) => l.name === r)) ?? offered[0]?.name ?? rg?.location ?? az.location ?? 'uksouth';
   const sqlNote = (/** @type {string} */ name) => (advanced && check && sqlProblem(check, name) ? { description: `${sqlProblem(check, name)}: pick another Azure SQL region next.` } : {});
   az.location = await ui.select('Azure region', offered.length ? offered.map((l) => ({ name: l.displayName ?? l.name, value: l.name, ...sqlNote(l.name) })) : [{ name: defaultLocation, value: defaultLocation }], defaultLocation);
+  // With SQL's public access off (a deny, or a modify that switches it off after create), its firewall
+  // can't take the rule that lets Azure services in, so public endpoints fail with DenyPublicEndpointEnabled.
+  const sqlPrivate = check?.sqlPrivate ?? [];
+  const sqlPolicy = sqlPrivate.map((n) => `"${n}"`).join(', ');
+  if (sqlPrivate.length && az.publicNetworkAccess !== false) {
+    ui.note(`Azure Policy ${sqlPolicy} keeps public network access off on Azure SQL, so the installer uses Private networking: the jobs reach SQL through a private endpoint and Power BI through a VNet data gateway.`);
+    az.publicNetworkAccess = false;
+  }
   if (advanced) {
     const sameOk = !check || !sqlProblem(check, /** @type {string} */ (az.location));
     const sqlChoices = [...(sameOk ? [{ name: 'Same as above', value: '' }] : []), ...(check ? check.regions.filter((l) => !sqlProblem(check, l.name)) : locations).filter((l) => l.name !== az.location).map((l) => ({ name: l.displayName ?? l.name, value: l.name }))];
@@ -285,7 +297,7 @@ export async function planAzure(ctx, pre) {
     az.namePrefix = await ui.input('Name prefix', { default: az.namePrefix ?? 'vlens', validate: (v) => (/^[a-z][a-z0-9-]{1,9}$/.test(v) ? true : 'Use 2-10 lowercase letters, digits or hyphens, starting with a letter.') });
     az.tags = parseTags(await ui.input('Extra tags (key=value, comma-separated)', { default: Object.entries(az.tags ?? {}).map(([k, v]) => `${k}=${v}`).join(', ') }));
     az.publicNetworkAccess = await ui.select('Networking', [
-      { name: 'Public endpoints', value: true, description: 'Azure SQL and Storage accept connections from Azure services only (firewall + Entra auth).' },
+      { name: 'Public endpoints', value: true, description: sqlPrivate.length ? `Azure Policy ${sqlPolicy} keeps Azure SQL's public access off, so this deployment would fail.` : 'Azure SQL and Storage accept connections from Azure services only (firewall + Entra auth).' },
       { name: 'Private networking', value: false, description: 'VNet, private endpoints and a Power BI VNet data gateway. Needed where policy keeps public access off. Needs a Fabric or Premium capacity.' },
     ], az.publicNetworkAccess !== false);
     if (az.publicNetworkAccess === false) {
@@ -308,7 +320,7 @@ export async function planAzure(ctx, pre) {
   ui.heading('Power BI');
   az.powerBi ??= {};
   const capacities = (await api.fabric.listCapacities().catch(() => [])).filter((cap) => cap.state === 'Active' && (!isPrivate(az) || supportsVnetGateway(cap)));
-  if (isPrivate(az) && !capacities.length) throw new Error('Private networking needs an active Fabric (F or trial) or Power BI Premium (P, A4+) capacity you can assign workspaces to, to host the VNet data gateway. Start a Fabric trial or ask a capacity admin, then run the installer again.');
+  if (isPrivate(az) && !capacities.length) throw new Error(`${sqlPrivate.length && az.publicNetworkAccess === false ? `Azure Policy ${sqlPolicy} keeps Azure SQL's public access off, so Analytics Hub needs Private networking here. ` : ''}Private networking needs an active Fabric (F or trial) or Power BI Premium (P, A4+) capacity you can assign workspaces to, to host the VNet data gateway. Start a Fabric trial or ask a capacity admin, then run the installer again.`);
   const capacityChoices = capacities.map((cap) => ({ name: `${cap.displayName} (${cap.sku}, ${cap.region})`, value: cap.id }));
   az.powerBi.capacityId = await ui.select(
     isPrivate(az) ? 'Capacity for the Power BI workspace and VNet data gateway' : 'Capacity for the Power BI workspace',

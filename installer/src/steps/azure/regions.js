@@ -12,6 +12,17 @@ export const ALLOWED_LOCATIONS = /** @type {Record<string, boolean>} */ ({
   'e765b5de-1225-4ba3-bd56-1ac6695af988': true,
 });
 const RG_TYPE = 'Microsoft.Resources/subscriptions/resourceGroups';
+/** The policy alias for Azure SQL's public network access. */
+export const SQL_PUBLIC_ACCESS = 'Microsoft.Sql/servers/publicNetworkAccess';
+/**
+ * Built-in policies that keep Azure SQL's public network access off, by definition name, with their
+ * default effect: "Public network access on Azure SQL Database should be disabled" (Audit, Deny) and
+ * "Configure Azure SQL Server to disable public network access" (Modify).
+ */
+export const SQL_PRIVATE_BUILT_INS = /** @type {Record<string, string>} */ ({
+  '1b8ca024-1d5c-4dec-8995-b1a932b41780': 'Audit',
+  '28b0b1e5-17ba-4963-a7a4-5a1ab4400a0b': 'Modify',
+});
 
 /** What a first deployment puts in the install region, by resource type. */
 export const REGION_TYPES = {
@@ -35,6 +46,7 @@ export const ASK_TYPE = 'Microsoft.CognitiveServices/accounts';
  * @property {boolean} newResourceGroup  The resource group is created in the install region.
  * @property {Record<string, string>} missing  By region: what the install region needs that isn't offered there.
  * @property {Record<string, string>} sql  By region: why Azure SQL can't go there.
+ * @property {string[]} [sqlPrivate]  Assignments that keep Azure SQL's public network access off (deny or modify).
  */
 
 const PARAM = /^\[parameters\('([^']+)'\)\]$/i;
@@ -73,13 +85,31 @@ export function locationRule(definition, params) {
 }
 
 /**
+ * Whether a custom policy keeps Azure SQL's public network access off: a deny whose condition reads
+ * the publicNetworkAccess alias, or a modify or append that sets it to Disabled.
+ * @param {any} definition  The policy definition.
+ * @param {Record<string, { value?: any }> | undefined} params  The assignment's values for its parameters.
+ */
+export function forcesSqlPrivate(definition, params) {
+  const p = definition?.properties ?? {};
+  const rule = p.policyRule;
+  const effect = String(resolve(rule?.then?.effect, params, p.parameters) ?? '').toLowerCase();
+  const sets = (/** @type {any} */ op) => same(op?.field, SQL_PUBLIC_ACCESS) && same(resolve(op?.value, params, p.parameters), 'Disabled');
+  if (effect === 'deny') return JSON.stringify(rule?.if ?? {}).toLowerCase().includes(SQL_PUBLIC_ACCESS.toLowerCase());
+  if (effect === 'modify') return (rule?.then?.details?.operations ?? []).some((/** @type {any} */ op) => !same(op?.operation, 'remove') && sets(op));
+  if (effect === 'append') return [rule?.then?.details ?? []].flat().some(sets);
+  return false;
+}
+
+/**
  * The allowed-locations rules Azure Policy enforces at `scope`: assignments there and above it, of
- * the built-in Allowed locations policies or simple custom ones, directly or in an initiative.
- * Best effort: a definition it can't read is reported in `unread`.
+ * the built-in Allowed locations policies or simple custom ones, directly or in an initiative. Also
+ * the assignments that keep Azure SQL's public network access off (`sqlPrivate`).
+ * Best effort: a definition it can't read is reported in `unread`; exemptions aren't read.
  * @param {any} arm  The ARM client.
  * @param {string} subscriptionId
  * @param {string} scope  The subscription, or the resource group when it exists.
- * @returns {Promise<{ rules: LocationRule[], unread: string[] } | null>}  null when the assignments can't be read.
+ * @returns {Promise<{ rules: LocationRule[], unread: string[], sqlPrivate: string[] } | null>}  null when the assignments can't be read.
  */
 export async function allowedLocationRules(arm, subscriptionId, scope) {
   /** @type {any[]} */
@@ -112,10 +142,14 @@ export async function allowedLocationRules(arm, subscriptionId, scope) {
   /** @type {LocationRule[]} */
   const rules = [];
   const unread = new Set();
+  /** @type {Set<string>} */
+  const sqlPrivate = new Set();
   /** @param {string} id @param {Record<string, { value?: any }> | undefined} params @param {string} name */
   const add = async (id, params, name) => {
     const builtIn = /^\/providers\/Microsoft\.Authorization\/policyDefinitions\/([^/]+)$/i.exec(id);
     if (builtIn) {
+      const sqlDefault = SQL_PRIVATE_BUILT_INS[builtIn[1].toLowerCase()];
+      if (sqlDefault && /^(deny|modify)$/i.test(String(params?.effect?.value ?? sqlDefault))) sqlPrivate.add(name);
       const resourceGroups = ALLOWED_LOCATIONS[builtIn[1].toLowerCase()];
       if (resourceGroups === undefined) return;
       const list = params?.listOfAllowedLocations?.value;
@@ -130,6 +164,7 @@ export async function allowedLocationRules(arm, subscriptionId, scope) {
     }
     const rule = locationRule(definition, params);
     if (rule) rules.push({ assignment: name, ...rule });
+    if (forcesSqlPrivate(definition, params)) sqlPrivate.add(name);
   };
   await Promise.all(live.map(async (a) => {
     const p = a.properties ?? {};
@@ -146,7 +181,7 @@ export async function allowedLocationRules(arm, subscriptionId, scope) {
       return add(String(ref.policyDefinitionId ?? ''), params, name);
     }));
   }));
-  return { rules, unread: [...unread] };
+  return { rules, unread: [...unread], sqlPrivate: [...sqlPrivate] };
 }
 
 /**
@@ -191,7 +226,7 @@ export async function checkRegions(arm, o) {
       .map((/** @type {string} */ l) => armLocation(l)),
   );
   /** @type {RegionCheck} */
-  const check = { regions, rules: policy?.rules ?? [], unread: policy?.unread ?? [], policyUnreadable: !policy, newResourceGroup: o.newResourceGroup, missing: {}, sql: {} };
+  const check = { regions, rules: policy?.rules ?? [], unread: policy?.unread ?? [], policyUnreadable: !policy, newResourceGroup: o.newResourceGroup, missing: {}, sql: {}, sqlPrivate: policy?.sqlPrivate ?? [] };
   for (const r of regions) {
     const gaps = Object.entries(REGION_TYPES).filter(([t]) => offeredIn[t] && !offeredIn[t].has(r.name)).map(([, label]) => label);
     if (storageBlocked.has(r.name)) gaps.push('Standard_LRS storage for this subscription');

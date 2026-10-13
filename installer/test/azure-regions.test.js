@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { planAzureAsk } from '../src/steps/azure/ask.js';
 import { planAzure } from '../src/steps/azure/index.js';
-import { allowedFor, allowedLocationRules, ASK_TYPE, checkRegions, locationRule, regionNotes, regionProblems, sqlProblem } from '../src/steps/azure/regions.js';
+import { allowedFor, allowedLocationRules, ASK_TYPE, checkRegions, forcesSqlPrivate, locationRule, regionNotes, regionProblems, sqlProblem } from '../src/steps/azure/regions.js';
 import { fakeArm, fakeCtx, fakeFabric, fakePowerBi, fakeUi, httpError } from './fakes.js';
 
 const SUB = '/subscriptions/sub-1';
@@ -208,4 +208,63 @@ test('planAzureAsk: the Ask model goes only where Azure Policy allows it', async
   t.a.ai.models = { uksouth: [], '*': [t.a.ai.offered()] };
   await planAzureAsk(t.ctx);
   assert.equal(t.az().ask?.location, 'francecentral', 'skips the usual fallbacks policy denies');
+});
+
+const SQL_DENY = '/providers/Microsoft.Authorization/policyDefinitions/1b8ca024-1d5c-4dec-8995-b1a932b41780';
+const SQL_MODIFY = '/providers/Microsoft.Authorization/policyDefinitions/28b0b1e5-17ba-4963-a7a4-5a1ab4400a0b';
+const effect = (/** @type {string} */ value) => ({ effect: { value } });
+
+test('forcesSqlPrivate: a custom deny on, or modify of, Azure SQL public network access', () => {
+  const modify = (/** @type {any} */ value, op = 'addOrReplace') => ({ properties: { parameters: { effect: { defaultValue: 'Modify' } }, policyRule: { if: { field: 'type', equals: 'Microsoft.Sql/servers' }, then: { effect: "[parameters('effect')]", details: { operations: [{ operation: op, field: 'Microsoft.Sql/servers/publicNetworkAccess', value }] } } } } });
+  assert.equal(forcesSqlPrivate(modify('Disabled'), undefined), true);
+  assert.equal(forcesSqlPrivate(modify('Disabled'), effect('Disabled')), false, 'switched off');
+  assert.equal(forcesSqlPrivate(modify('Enabled'), undefined), false);
+  assert.equal(forcesSqlPrivate(modify('Disabled', 'remove'), undefined), false);
+  const deny = { properties: { policyRule: { if: { allOf: [{ field: 'type', equals: 'Microsoft.Sql/servers' }, { field: 'Microsoft.Sql/servers/publicNetworkAccess', notEquals: 'Disabled' }] }, then: { effect: 'Deny' } } } };
+  assert.equal(forcesSqlPrivate(deny, undefined), true);
+  assert.equal(forcesSqlPrivate({ properties: { policyRule: { ...deny.properties.policyRule, then: { effect: 'Audit' } } } }, undefined), false);
+  assert.equal(forcesSqlPrivate({ properties: { policyRule: { if: { field: 'location', notIn: ['uksouth'] }, then: { effect: 'Deny' } } } }, undefined), false);
+});
+
+test('allowedLocationRules: finds the assignments that keep Azure SQL public access off', async () => {
+  const a = arm();
+  const set = '/providers/Microsoft.Management/managementGroups/mg/providers/Microsoft.Authorization/policySetDefinitions/sql-baseline';
+  a.regions.builtIn[set] = { id: set, properties: { parameters: { sqlEffect: { defaultValue: 'Deny' } }, policyDefinitions: [{ policyDefinitionId: SQL_DENY, parameters: { effect: { value: "[parameters('sqlEffect')]" } } }] } };
+  a.regions.assignments = [
+    assignment('Configure SQL private', SQL_MODIFY),
+    assignment('SQL audit only', SQL_DENY),
+    assignment('SQL deny', SQL_DENY, effect('Deny')),
+    assignment('SQL modify off', SQL_MODIFY, effect('Disabled')),
+    assignment('SQL baseline', set),
+    assignment('Not enforced', SQL_MODIFY, undefined, { enforcementMode: 'DoNotEnforce' }),
+  ];
+  const got = await allowedLocationRules(a.api, 'sub-1', SUB);
+  assert.deepEqual(got?.sqlPrivate.sort(), ['Configure SQL private', 'SQL baseline', 'SQL deny']);
+  assert.deepEqual((await check(a)).sqlPrivate?.sort(), ['Configure SQL private', 'SQL baseline', 'SQL deny']);
+  assert.deepEqual((await check(arm())).sqlPrivate, []);
+});
+
+test('planAzure: Azure Policy that keeps SQL public access off switches to Private networking, so no SQL firewall rule deploys', async () => {
+  const t = planCtx();
+  t.a.regions.assignments = [assignment('Configure SQL private', SQL_MODIFY)];
+  await planAzure(t.ctx, PRE);
+  assert.equal(t.az().publicNetworkAccess, false);
+  assert.match(t.u.text(), /Azure Policy "Configure SQL private" keeps public network access off on Azure SQL, so the installer uses Private networking/);
+
+  const adv = planCtx({ advanced: true });
+  adv.a.regions.assignments = [assignment('Configure SQL private', SQL_MODIFY)];
+  await planAzure(adv.ctx, PRE);
+  const networking = adv.selects['Networking'];
+  assert.equal(networking.def, false, 'defaults to Private networking');
+  assert.match(networking.choices.find((c) => c.value === true).description, /"Configure SQL private" keeps Azure SQL's public access off, so this deployment would fail/);
+
+  const off = planCtx();
+  off.a.regions.assignments = [assignment('SQL modify off', SQL_MODIFY, effect('Disabled'))];
+  await planAzure(off.ctx, PRE);
+  assert.equal(off.az().publicNetworkAccess, true, 'no switch when the policy is off');
+
+  const none = planCtx();
+  none.a.regions.assignments = [assignment('Configure SQL private', SQL_MODIFY)];
+  none.ctx.api.fabric.listCapacities = async () => [];
+  await assert.rejects(planAzure(none.ctx, PRE), /Azure Policy "Configure SQL private" keeps Azure SQL's public access off, so Analytics Hub needs Private networking here\. Private networking needs an active Fabric/);
 });

@@ -138,6 +138,11 @@ Under [Advanced settings](#advanced-settings), the wizard asks how the app, jobs
 - **Public endpoints** (default). SQL allows Azure services and Power BI connects to it directly.
 - **Private networking**. Choose this where Azure Policy keeps public network access off (common on
   managed and MCAPS subscriptions; the installer says so when what-if hits `DenyPublicEndpointEnabled`).
+  On a first install, when an Azure Policy assignment denies Azure SQL public access or modifies it
+  to `Disabled`, the installer names it and uses Private networking: SQL with public access off can't
+  take the firewall rule that public endpoints need. Your machine never connects to SQL either way:
+  the migrate job creates the schema and reader user over the private endpoint, and Power BI goes
+  through the VNet data gateway. Policy exemptions aren't read.
   It adds a VNet whose subnets share a network security group, private endpoints and private DNS
   zones for SQL, Storage (blob, dfs, table) and the Ask AI Services account when the installer
   creates it, a VNet-integrated Container Apps environment, and a Power BI **VNet data gateway** that
@@ -157,7 +162,9 @@ Under [Advanced settings](#advanced-settings), the wizard asks how the app, jobs
     `ContainerAppConsoleLogs` and `ContainerAppSystemLogs` tables. Querying them from a public network
     needs an Azure Monitor Private Link Scope.
   - When Azure Policy blocks the deployment, the installer names each policy, its assignment and the
-    resource it blocked, and prints the command that shows the full error.
+    resource it blocked, and prints the command that shows the full error. When any deployment
+    fails, it reads the deployment operations and shows each failing resource's own error code and
+    message, not just `DeploymentFailed`.
   - It needs an active Fabric (F or trial) or Power BI Premium capacity to host the gateway. The
     Power BI workspace is assigned to it.
   - The preflight registers the `Microsoft.Network/AllowBringYourOwnPublicIpAddress` subscription
