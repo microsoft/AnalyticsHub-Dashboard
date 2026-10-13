@@ -289,8 +289,8 @@ a { overflow-wrap: anywhere; }
 .load.ok .gl { color: var(--ok); }
 .load.failed { background: var(--fail-tint); }
 .load.failed .gl { color: var(--fail); }
-.load.skipped, .load.running { background: var(--warn-tint); }
-.load.skipped .gl, .load.running .gl { color: var(--warn); }
+.load.skipped, .load.running, .load.expected { background: var(--warn-tint); }
+.load.skipped .gl, .load.running .gl, .load.expected .gl { color: var(--warn); }
 .prereqs { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-width: calc(76ch + 20px); }
 .prereq { display: flex; gap: 8px; align-items: flex-start; padding: 6px 10px; margin-left: -10px; border-radius: 4px; overflow-wrap: anywhere; }
 .prereq p { margin: 2px 0 0; }
@@ -490,6 +490,18 @@ a { overflow-wrap: anywhere; }
 .todo-note { color: var(--muted-fg); font-size: 12px; line-height: 16px; }
 .load.todo { background: var(--warn-tint); }
 .load.todo .gl { color: var(--warn); }
+.next { display: flex; flex-direction: column; gap: 8px; }
+.next h3 { font-size: 14px; line-height: 20px; font-weight: 600; }
+.next-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.next-card { display: flex; flex-direction: column; gap: 6px; padding: 10px 14px; border-radius: 6px; border: 1px solid var(--border); background: var(--card); overflow-wrap: anywhere; }
+.next-card.optional { background: transparent; }
+.next-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.next-name { font-weight: 600; }
+.next-who { color: var(--muted-fg); font-size: 12px; }
+.next-card p { margin: 0; }
+.next-how { margin: 0; padding-left: 20px; list-style: lower-alpha; }
+.next-message summary { cursor: pointer; color: var(--muted-fg); }
+.next-message pre { margin: 6px 0 0; padding: 8px 10px; border-radius: 4px; background: var(--muted); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
 
 /* Home */
 .panel { border: 1px solid var(--border); border-radius: 8px; background: var(--card); }

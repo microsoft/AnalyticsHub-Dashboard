@@ -198,6 +198,12 @@ describe("parseAccess", () => {
         expect(parseAccess({ access: { groupId: "g-1", rlsOrgAttribute: 7 } })).toEqual({ groupId: "g-1" });
     });
 
+    it("keeps whether the app item is shared with the group, only when it's true", () => {
+        expect(parseAccess({ access: { groupId: "g-1", appShared: true } })).toEqual({ groupId: "g-1", appShared: true });
+        expect(parseAccess({ access: { groupId: "g-1", appShared: "true" } })).toEqual({ groupId: "g-1" });
+        expect(parseAccess({ access: { groupId: "g-1", appShared: false } })).toEqual({ groupId: "g-1" });
+    });
+
     it("drops a request link that isn't https", () => {
         expect(parseAccess({ access: { groupId: "g-1", requestUrl: "javascript:alert(1)" } })).toEqual({ groupId: "g-1" });
     });

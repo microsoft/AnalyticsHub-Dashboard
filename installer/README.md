@@ -283,15 +283,32 @@ The [Azure target](#azure-target) asks the same question. Its advanced settings 
 
 ## After it finishes
 
+- **What's left comes first.** The Done page (and the end of the terminal output) starts with
+  "N steps left": a card for each thing still to do, in order, with who does it, why, a link and
+  the steps. For a step another admin does, the card has a message to copy and send:
+  - **Share the app**, if you chose **Later** when asked.
+  - **Sign in to the Power Automate flows**, for you or a Power Platform administrator.
+  - **Sign in to the Cowork Dataflow.** Until then its refresh fails on each run. That's expected,
+    so the load shows it as waiting rather than failed.
+  - **Ask a Viva Insights analyst for the Cowork credits query** (optional), when Cowork credits
+    come from the CSV export.
+  - **Ask a Privileged Role Administrator for Global Reader** for **Analytics Hub Data
+    Collector**, when agent configuration comes from Azure Resource Graph. The message has the
+    app's IDs, the link to Roles & admins, and a Cloud Shell command.
+  - **Ask a Microsoft 365 admin to schedule the product feedback export**, when its flow is on.
 - **Admin consent.** If you couldn't grant it, send the link the installer gives you to an admin.
   They select **Grant admin consent**. Then open the exe again and choose **Run now**.
 - **Share the app and reports.** The installer creates **Analytics Hub Viewers** (or uses a group
   you name) with you as owner, and gives it **Build** on the models. Then:
-  1. **Once:** share the app with the group. In the workspace, choose **…** next to the
-     **Analytics Hub** app, then **Share**, add the group and choose **Grant**. Do the same for the
+  1. **Once:** share the app with the group. Straight after the app is deployed, before the first
+     load, the installer asks you to, with a link to the app item in Fabric: choose **Share**, add
+     the group and choose **Grant**. (Or in the workspace, choose **…** next to the
+     **Analytics Hub** app, then **Share**.) Choose **I've shared it** and it isn't asked again.
+     Choose **Later** and it's a card on the Done page, and Repair asks again. Do the same for the
      **ValueLens** report.
   2. **To give someone access:** add them to the group in
-     [My Groups](https://myaccount.microsoft.com/groups).
+     [My Groups](https://myaccount.microsoft.com/groups). You can also run `access`
+     (**Manage access** in the browser) or use **Share** in the app.
 
   Keep viewers off workspace roles. See [Viewing Analytics Hub](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
 - **Own reports.** Connect Power BI Desktop to `Analytics Hub Model`, or use **Save a copy** on a

@@ -13,7 +13,7 @@ import { SharePanel } from "@/components/share-panel";
 const runtime = vi.hoisted(() => ({
     host: "azure" as "fabric" | "azure",
     access: { groupId: "group-1", groupName: "Analytics Hub Viewers", contact: "admin@example.com" } as
-        { groupId: string; groupName?: string; contact?: string; rlsOrgAttribute?: string } | undefined,
+        { groupId: string; groupName?: string; contact?: string; requestUrl?: string; rlsOrgAttribute?: string; appShared?: boolean } | undefined,
 }));
 
 const api = vi.hoisted(() => ({
@@ -64,10 +64,42 @@ describe("SharePanel", () => {
         runtime.host = "fabric";
         openPanel();
 
-        expect(screen.getByRole("link", { name: "Add or remove people in My Groups" }))
+        expect(screen.getByText(/To give someone access, add them to/)).toHaveTextContent("To give someone access, add them to Analytics Hub Viewers.");
+        expect(screen.getByRole("link", { name: "Add members in My Groups" }))
             .toHaveAttribute("href", "https://myaccount.microsoft.com/groups/group-1");
+        expect(screen.getByText("Access requests go to admin@example.com.")).toBeInTheDocument();
         expect(api.loadAccess).not.toHaveBeenCalled();
         expect(screen.queryByText(/choose what people see/)).not.toBeInTheDocument();
+    });
+
+    it("on Fabric, says the app item still has to be shared until the installer records it", () => {
+        runtime.host = "fabric";
+        openPanel();
+
+        expect(screen.queryByText(/can open it/)).not.toBeInTheDocument();
+        expect(screen.getByText(/has to be shared with Analytics Hub Viewers once/)).toBeInTheDocument();
+        expect(screen.getByRole("link", { name: "Open the app item in Fabric" }))
+            .toHaveAttribute("href", "https://app.fabric.microsoft.com/groups/ws-1/appbackends/item-1");
+    });
+
+    it("on Fabric, says anyone in the group can open it once it's shared", () => {
+        runtime.host = "fabric";
+        runtime.access = { groupId: "group-1", groupName: "Analytics Hub Viewers", requestUrl: "https://example.com/ask", appShared: true };
+        openPanel();
+
+        expect(screen.getByText(/can open it/)).toHaveTextContent("Anyone in Analytics Hub Viewers can open it.");
+        expect(screen.queryByText(/has to be shared/)).not.toBeInTheDocument();
+        expect(screen.queryByRole("link", { name: "Open the app item in Fabric" })).not.toBeInTheDocument();
+        expect(screen.getByRole("link", { name: "Where people ask for access" })).toHaveAttribute("href", "https://example.com/ask");
+        expect(screen.queryByText(/Access requests go to/)).not.toBeInTheDocument();
+    });
+
+    it("on Fabric without a viewer group, says to share the item", () => {
+        runtime.host = "fabric";
+        runtime.access = undefined;
+        openPanel();
+
+        expect(screen.getByText("Give people access by sharing the app item in Fabric.")).toBeInTheDocument();
     });
 
     it("tells viewers who can add people", async () => {

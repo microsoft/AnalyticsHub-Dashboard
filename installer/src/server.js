@@ -379,6 +379,10 @@ export function mirror(write) {
         e.step.steps.forEach((/** @type {string} */ s, /** @type {number} */ i) => line(`    ${i + 1}. ${s}`));
         line(`    ${c.dim(e.step.note)}`);
         break;
+      case 'next-steps':
+        line(`  ${c.bold(c.yellow(e.title))}`);
+        for (const s of /** @type {import('./steps/next-steps.js').NextStep[]} */ (e.steps)) line(`  ${SYMBOL.warn} ${s.title}${c.dim(`  ${s.who}`)}`);
+        break;
     }
   };
 }

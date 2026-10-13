@@ -201,6 +201,10 @@ export function createWebUi(opts = {}) {
     loads: (cards) => {
       emit({ type: 'loads', cards });
     },
+    /** @param {string} title @param {import('./steps/next-steps.js').NextStep[]} steps */
+    nextSteps: (title, steps) => {
+      emit({ type: 'next-steps', title, steps });
+    },
     /** @param {import('./prereqs.js').Prereq[]} items */
     prereqs: (items) => {
       emit({ type: 'prereqs', items });
