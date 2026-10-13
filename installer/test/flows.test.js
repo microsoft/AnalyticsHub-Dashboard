@@ -965,7 +965,7 @@ test('ensureFlows: --yes gives the links without waiting; checking gives up afte
   assert.equal(sleeps.filter((ms) => ms === CONNECT_POLL_MS).length, CONNECT_POLLS);
   assert.equal(asked.length, 2);
   assert.match(text(), /Not signed in to yet: Analytics Hub - Power Platform API, Analytics Hub - OneLake\./);
-  assert.match(text(), new RegExp(`${PAGE.replace(/[./]/g, '\\$&')} \\(find "Analytics Hub - OneLake" and click Fix connection\\)`), 'no consent link: the Connections page instead');
+  assert.ok(text().includes(`${PAGE} (find "Analytics Hub - OneLake" and click Fix connection)`), 'no consent link: the Connections page instead');
 });
 
 test('ensureFlows: reuses signed-in connections by name, and deletes only its own unsigned, unused ones', async () => {
