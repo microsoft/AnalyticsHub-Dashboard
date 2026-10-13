@@ -627,12 +627,12 @@ export async function azurePreflight(ctx) {
   try {
     await api.arm.validateDeployment(/** @type {string} */ (az.subscriptionId), /** @type {string} */ (az.resourceGroup), 'valuelens-validate', deployment);
   } catch (err) {
-    const msg = explain(err);
+    const msg = explain(err, az);
     if (msg) throw new Error(msg);
     throw err;
   }
   const changes = await api.arm.whatIfDeployment(/** @type {string} */ (az.subscriptionId), /** @type {string} */ (az.resourceGroup), 'valuelens-whatif', deployment).catch((err) => {
-    const msg = explain(err);
+    const msg = explain(err, az);
     if (msg) throw new Error(msg);
     throw err;
   });
