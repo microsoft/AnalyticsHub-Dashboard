@@ -18,6 +18,14 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ---
 
+## Unreleased
+
+- **Installer: the app deploys as the person who signed in to the installer.** The app deploy
+  tool keeps its own saved sign-in. If that sign-in was for another account or tenant, the deploy
+  ran as that account and failed with "The provided workspace was not found". The installer now
+  passes its own Fabric token to the deploy tool when the saved sign-in is for someone else, as it
+  already did in Azure Cloud Shell.
+
 ## 2026-10-13 — Analytics Hub installer 0.6.0 (pre-release)
 
 **A pre-release, for testing.** 0.6.0 is published as a GitHub pre-release, so the
