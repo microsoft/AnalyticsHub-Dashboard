@@ -83,6 +83,42 @@ export function parseResourceId(id) {
   return { subscriptionId: m[1], resourceGroup: m[2], type: m[3], name: m[4] };
 }
 
+const parseJsonObject = (/** @type {string} */ s) => {
+  if (!s.trim().startsWith('{')) return null;
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+};
+
+/**
+ * Every error in an ARM error tree, depth first. A failed deployment nests each module's error in
+ * `details` (DeploymentFailed > ResourceDeploymentFailure > ...), and some put a JSON error body in
+ * `message`; both are followed. Each entry carries the nearest target; `leaf` marks errors with
+ * nothing nested under them, which are the ones that say what actually went wrong.
+ * @param {any} error  An ARM error, or a body holding one in `error`.
+ * @returns {{ code?: string, message?: string, target?: string, additionalInfo?: any[], leaf: boolean }[]}
+ */
+export function armErrors(error) {
+  /** @type {{ code?: string, message?: string, target?: string, additionalInfo?: any[], leaf: boolean }[]} */
+  const out = [];
+  const walk = (/** @type {any} */ node, /** @type {string | undefined} */ target, depth = 0) => {
+    if (!node || depth > 12) return;
+    if (typeof node === 'string') return walk(parseJsonObject(node), target, depth + 1);
+    if (typeof node !== 'object') return;
+    if (node.error && typeof node.error === 'object') return walk(node.error, target, depth + 1);
+    const here = node.target || target;
+    const inner = typeof node.message === 'string' ? parseJsonObject(node.message) : null;
+    const details = Array.isArray(node.details) ? node.details : [];
+    out.push({ code: node.code, message: inner ? undefined : node.message, target: here, additionalInfo: node.additionalInfo, leaf: !inner && !details.length });
+    if (inner) walk(inner, here, depth + 1);
+    for (const d of details) walk(d, here, depth + 1);
+  };
+  walk(error, undefined);
+  return out;
+}
+
 /**
  * Polls an ARM deployment until it finishes. The deployment PUT answers 200/201 while it is still
  * running, so the generic 202 long-running-operation handling doesn't wait for it.
@@ -99,7 +135,8 @@ export async function waitForDeployment(get, first, opts = {}) {
     if (state === 'Succeeded') return d;
     if (state === 'Failed' || state === 'Canceled') {
       const e = d?.properties?.error;
-      const detail = (e?.details ?? []).map((/** @type {any} */ x) => `${x.code}: ${x.message}`).join('; ');
+      const leaves = armErrors(e).slice(1).filter((x) => x.leaf);
+      const detail = [...new Set(leaves.map((x) => `${x.code}${x.target ? ` (${x.target.split('/').pop()})` : ''}: ${x.message ?? ''}`.trim()))].join('; ');
       const err = new Error(`ARM deployment ${d?.name ?? ''} ${state.toLowerCase()}: ${e?.code ?? ''} ${e?.message ?? ''}${detail ? ` (${detail})` : ''}`.trim());
       /** @type {any} */ (err).body = { error: e };
       throw err;

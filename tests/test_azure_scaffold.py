@@ -29,8 +29,8 @@ def test_every_bicep_resource_is_tagged():
         for block in re.split(r"\nresource ", text)[1:]:
             header = block.splitlines()[0]
             rtype = header.split("'")[1].split("@")[0]
-            # Child resources and role assignments (extension resources) don't take tags.
-            if " existing" in header or rtype.count("/") != 1 or rtype.startswith("Microsoft.Authorization/"):
+            # Child resources, role assignments and diagnostic settings (extension resources) don't take tags.
+            if " existing" in header or rtype.count("/") != 1 or rtype.startswith(("Microsoft.Authorization/", "Microsoft.Insights/diagnosticSettings")):
                 continue
             assert "tags: tags" in block, f"{path.name}: untagged resource {header}"
     main = (AZURE / "infra" / "main.bicep").read_text(encoding="utf-8")

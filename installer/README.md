@@ -138,14 +138,31 @@ Under [Advanced settings](#advanced-settings), the wizard asks how the app, jobs
 - **Public endpoints** (default). SQL allows Azure services and Power BI connects to it directly.
 - **Private networking**. Choose this where Azure Policy keeps public network access off (common on
   managed and MCAPS subscriptions; the installer says so when what-if hits `DenyPublicEndpointEnabled`).
-  It adds a VNet, private endpoints and private DNS zones for SQL and Storage (blob, dfs, table), a
-  VNet-integrated Container Apps environment, and a Power BI **VNet data gateway** that the model's SQL
-  connection runs through. SQL uses the Proxy connection policy, so everything stays on port 1433.
+  It adds a VNet whose subnets share a network security group, private endpoints and private DNS
+  zones for SQL, Storage (blob, dfs, table) and the Ask AI Services account when the installer
+  creates it, a VNet-integrated Container Apps environment, and a Power BI **VNet data gateway** that
+  the model's SQL connection runs through. SQL uses the Proxy connection policy, so everything stays
+  on port 1433. Storage, AI Services and Log Analytics turn public network access off too. The web
+  app keeps public ingress, so people can open it.
+  - **Private DNS zones.** Landing zones often deny private DNS zones outside a hub subscription, or
+    let a policy add the DNS records. The wizard then asks how to handle the `privatelink.*` zones:
+    - **Create them in this resource group** (default).
+    - **Use existing zones in another resource group.** Give the resource ID of the hub resource group that holds them. Every
+      zone must already exist there, including the three AI zones when Ask is created. The installer
+      links the VNet to them, which needs **Private DNS Zone Contributor** on that group.
+    - **Leave DNS to Azure Policy or the network team.** No zones and no DNS records. The jobs can't reach SQL or Storage
+      until a policy or your network team adds them, so the first migrate may fail.
+  - The setting is saved as `azure.privateDns`: `{ "mode": "existing", "resourceGroupId": "/subscriptions/<id>/resourceGroups/<name>" }`.
+  - Container Apps logs go to Log Analytics through a diagnostic setting, in the
+    `ContainerAppConsoleLogs` and `ContainerAppSystemLogs` tables. Querying them from a public network
+    needs an Azure Monitor Private Link Scope.
+  - When Azure Policy blocks the deployment, the installer names each policy, its assignment and the
+    resource it blocked, and prints the command that shows the full error.
   - It needs an active Fabric (F or trial) or Power BI Premium capacity to host the gateway. The
     Power BI workspace is assigned to it.
   - The preflight registers the `Microsoft.Network/AllowBringYourOwnPublicIpAddress` subscription
     feature, which VNet-integrated Container Apps environments need. It's approved automatically.
-  - It adds about $30–40 a month (four private endpoints and DNS zones). The gateway uses capacity units
+  - It adds about $30–40 a month (four or five private endpoints and DNS zones). The gateway uses capacity units
     while refreshing.
   - Networking can't be changed in place. Uninstall and install again to switch.
 

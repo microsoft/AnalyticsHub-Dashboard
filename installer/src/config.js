@@ -246,6 +246,7 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {Record<string, string>} [tags]
  * @property {'new' | 'existing'} [resourceGroupMode]
  * @property {boolean} [publicNetworkAccess]
+ * @property {{ mode: 'create' | 'existing' | 'none', resourceGroupId?: string }} [privateDns] Private networking: create the privatelink DNS zones, use existing ones (in resourceGroupId), or leave DNS to Azure Policy. Unset = create.
  * @property {boolean} [sampleData] Demo mode: the run job publishes the bundled synthetic sample instead of tenant data.
  * @property {'new' | 'existing'} [workspaceMode]
  * @property {string} [workspaceName]

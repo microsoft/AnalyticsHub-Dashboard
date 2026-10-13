@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.47.16.16243",
-      "templateHash": "2642653273680490021"
+      "templateHash": "11476349097750935280"
     }
   },
   "parameters": {
@@ -135,6 +135,25 @@
       "defaultValue": "10.60.0.0/22",
       "metadata": {
         "description": "Private networking only: address space of the VNet (at least a /22)."
+      }
+    },
+    "privateDnsZoneMode": {
+      "type": "string",
+      "defaultValue": "create",
+      "allowedValues": [
+        "create",
+        "existing",
+        "none"
+      ],
+      "metadata": {
+        "description": "Private networking only: create the privatelink DNS zones here (create), use zones in another resource group and link the VNet to them (existing, e.g. an Azure Landing Zone hub), or leave DNS to Azure Policy or the network team (none)."
+      }
+    },
+    "privateDnsZonesResourceGroupId": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Private networking, existing DNS zones: resource ID of the resource group holding the privatelink zones."
       }
     },
     "deployWeb": {
@@ -354,7 +373,9 @@
       "ask": "[format('ai-{0}-{1}', parameters('namePrefix'), variables('suffix'))]"
     },
     "privateRegistry": "[not(empty(parameters('imageRegistryResourceId')))]",
-    "registryIdParts": "[split(if(variables('privateRegistry'), parameters('imageRegistryResourceId'), format('{0}/providers/Microsoft.ContainerRegistry/registries/none', resourceGroup().id)), '/')]"
+    "registryIdParts": "[split(if(variables('privateRegistry'), parameters('imageRegistryResourceId'), format('{0}/providers/Microsoft.ContainerRegistry/registries/none', resourceGroup().id)), '/')]",
+    "linkExistingZones": "[and(and(variables('privateNetworking'), equals(parameters('privateDnsZoneMode'), 'existing')), not(empty(parameters('privateDnsZonesResourceGroupId'))))]",
+    "dnsZoneGroupParts": "[split(if(variables('linkExistingZones'), parameters('privateDnsZonesResourceGroupId'), resourceGroup().id), '/')]"
   },
   "resources": [
     {
@@ -390,6 +411,9 @@
           },
           "capacity": {
             "value": "[parameters('askCapacity')]"
+          },
+          "publicNetworkAccess": {
+            "value": "[parameters('publicNetworkAccess')]"
           }
         },
         "template": {
@@ -399,7 +423,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.47.16.16243",
-              "templateHash": "17399195808032408165"
+              "templateHash": "5025981456792673675"
             }
           },
           "parameters": {
@@ -438,6 +462,17 @@
               "metadata": {
                 "description": "Throughput, in thousands of tokens per minute."
               }
+            },
+            "publicNetworkAccess": {
+              "type": "string",
+              "defaultValue": "Enabled",
+              "allowedValues": [
+                "Enabled",
+                "Disabled"
+              ],
+              "metadata": {
+                "description": "Disabled in private networking: the web app reaches the account through a private endpoint."
+              }
             }
           },
           "variables": {
@@ -457,7 +492,10 @@
               "properties": {
                 "customSubDomainName": "[parameters('accountName')]",
                 "disableLocalAuth": true,
-                "publicNetworkAccess": "Enabled"
+                "publicNetworkAccess": "[parameters('publicNetworkAccess')]",
+                "networkAcls": {
+                  "defaultAction": "[if(equals(parameters('publicNetworkAccess'), 'Disabled'), 'Deny', 'Allow')]"
+                }
               }
             },
             {
@@ -604,6 +642,9 @@
           },
           "tags": {
             "value": "[variables('allTags')]"
+          },
+          "publicNetworkAccess": {
+            "value": "[parameters('publicNetworkAccess')]"
           }
         },
         "template": {
@@ -613,7 +654,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.47.16.16243",
-              "templateHash": "3393668488730181942"
+              "templateHash": "920578034006892032"
             }
           },
           "parameters": {
@@ -625,6 +666,17 @@
             },
             "tags": {
               "type": "object"
+            },
+            "publicNetworkAccess": {
+              "type": "string",
+              "defaultValue": "Enabled",
+              "allowedValues": [
+                "Enabled",
+                "Disabled"
+              ],
+              "metadata": {
+                "description": "Disabled in private networking. Container Apps then sends logs through a diagnostic setting, which doesn't use public ingestion."
+              }
             }
           },
           "resources": [
@@ -641,7 +693,9 @@
                 "retentionInDays": 30,
                 "features": {
                   "enableLogAccessUsingOnlyResourcePermissions": true
-                }
+                },
+                "publicNetworkAccessForIngestion": "[parameters('publicNetworkAccess')]",
+                "publicNetworkAccessForQuery": "[parameters('publicNetworkAccess')]"
               }
             }
           ],
@@ -691,7 +745,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.47.16.16243",
-              "templateHash": "15293850830708200665"
+              "templateHash": "6684926272909393571"
             }
           },
           "parameters": {
@@ -747,7 +801,7 @@
                 "supportsHttpsTrafficOnly": true,
                 "publicNetworkAccess": "[parameters('publicNetworkAccess')]",
                 "networkAcls": {
-                  "defaultAction": "Allow",
+                  "defaultAction": "[if(equals(parameters('publicNetworkAccess'), 'Disabled'), 'Deny', 'Allow')]",
                   "bypass": "AzureServices"
                 }
               }
@@ -1049,6 +1103,13 @@
           },
           "storageAccountId": {
             "value": "[reference(resourceId('Microsoft.Resources/deployments', 'vl-storage'), '2025-04-01').outputs.id.value]"
+          },
+          "askAccountId": "[if(equals(parameters('askMode'), 'create'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'vl-ask'), '2025-04-01').outputs.id.value), createObject('value', ''))]",
+          "privateDnsZoneMode": {
+            "value": "[parameters('privateDnsZoneMode')]"
+          },
+          "privateDnsZonesResourceGroupId": {
+            "value": "[parameters('privateDnsZonesResourceGroupId')]"
           }
         },
         "template": {
@@ -1058,7 +1119,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.47.16.16243",
-              "templateHash": "5323157603573697168"
+              "templateHash": "12855652593348936901"
             }
           },
           "parameters": {
@@ -1079,6 +1140,29 @@
             },
             "storageAccountId": {
               "type": "string"
+            },
+            "askAccountId": {
+              "type": "string",
+              "defaultValue": "",
+              "metadata": {
+                "description": "Ask AI Services account to reach privately. Empty = none."
+              }
+            },
+            "privateDnsZoneMode": {
+              "type": "string",
+              "defaultValue": "create",
+              "allowedValues": [
+                "create",
+                "existing",
+                "none"
+              ],
+              "metadata": {
+                "description": "create: private DNS zones in this resource group, linked to the VNet. existing: zones already in privateDnsZonesResourceGroupId (main.bicep links the VNet to them). none: no zones, links or zone groups (Azure Policy or the network team adds them)."
+              }
+            },
+            "privateDnsZonesResourceGroupId": {
+              "type": "string",
+              "defaultValue": ""
             }
           },
           "variables": {
@@ -1087,34 +1171,47 @@
               "endpoints": "[cidrSubnet(parameters('addressPrefix'), 24, 2)]",
               "gateway": "[cidrSubnet(parameters('addressPrefix'), 27, 24)]"
             },
-            "endpoints": [
-              {
-                "name": "sql",
-                "target": "[parameters('sqlServerId')]",
-                "group": "sqlServer",
-                "zone": "[format('privatelink{0}', environment().suffixes.sqlServerHostname)]"
-              },
-              {
-                "name": "blob",
-                "target": "[parameters('storageAccountId')]",
-                "group": "blob",
-                "zone": "[format('privatelink.blob.{0}', environment().suffixes.storage)]"
-              },
-              {
-                "name": "dfs",
-                "target": "[parameters('storageAccountId')]",
-                "group": "dfs",
-                "zone": "[format('privatelink.dfs.{0}', environment().suffixes.storage)]"
-              },
-              {
-                "name": "table",
-                "target": "[parameters('storageAccountId')]",
-                "group": "table",
-                "zone": "[format('privatelink.table.{0}', environment().suffixes.storage)]"
-              }
-            ]
+            "sqlZone": "[format('privatelink{0}', environment().suffixes.sqlServerHostname)]",
+            "blobZone": "[format('privatelink.blob.{0}', environment().suffixes.storage)]",
+            "dfsZone": "[format('privatelink.dfs.{0}', environment().suffixes.storage)]",
+            "tableZone": "[format('privatelink.table.{0}', environment().suffixes.storage)]",
+            "aiZones": [
+              "privatelink.cognitiveservices.azure.com",
+              "privatelink.openai.azure.com",
+              "privatelink.services.ai.azure.com"
+            ],
+            "endpoints": "[concat(createArray(createObject('name', 'sql', 'target', parameters('sqlServerId'), 'group', 'sqlServer', 'zones', createArray(variables('sqlZone'))), createObject('name', 'blob', 'target', parameters('storageAccountId'), 'group', 'blob', 'zones', createArray(variables('blobZone'))), createObject('name', 'dfs', 'target', parameters('storageAccountId'), 'group', 'dfs', 'zones', createArray(variables('dfsZone'))), createObject('name', 'table', 'target', parameters('storageAccountId'), 'group', 'table', 'zones', createArray(variables('tableZone')))), if(empty(parameters('askAccountId')), createArray(), createArray(createObject('name', 'ai', 'target', parameters('askAccountId'), 'group', 'account', 'zones', variables('aiZones')))))]",
+            "zoneNames": "[concat(createArray(variables('sqlZone'), variables('blobZone'), variables('dfsZone'), variables('tableZone')), if(empty(parameters('askAccountId')), createArray(), variables('aiZones')))]",
+            "zoneResourceGroupId": "[if(and(equals(parameters('privateDnsZoneMode'), 'existing'), not(empty(parameters('privateDnsZonesResourceGroupId')))), parameters('privateDnsZonesResourceGroupId'), resourceGroup().id)]"
           },
           "resources": [
+            {
+              "type": "Microsoft.Network/networkSecurityGroups",
+              "apiVersion": "2024-05-01",
+              "name": "[format('nsg-{0}', parameters('vnetName'))]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "securityRules": [
+                  {
+                    "name": "allow-web-ingress",
+                    "properties": {
+                      "priority": 100,
+                      "direction": "Inbound",
+                      "access": "Allow",
+                      "protocol": "Tcp",
+                      "sourceAddressPrefix": "Internet",
+                      "sourcePortRange": "*",
+                      "destinationAddressPrefix": "[variables('subnets').apps]",
+                      "destinationPortRanges": [
+                        "80",
+                        "443"
+                      ]
+                    }
+                  }
+                ]
+              }
+            },
             {
               "type": "Microsoft.Network/virtualNetworks",
               "apiVersion": "2024-05-01",
@@ -1132,6 +1229,9 @@
                     "name": "snet-apps",
                     "properties": {
                       "addressPrefix": "[variables('subnets').apps]",
+                      "networkSecurityGroup": {
+                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('nsg-{0}', parameters('vnetName')))]"
+                      },
                       "delegations": [
                         {
                           "name": "containerapps",
@@ -1146,6 +1246,9 @@
                     "name": "snet-endpoints",
                     "properties": {
                       "addressPrefix": "[variables('subnets').endpoints]",
+                      "networkSecurityGroup": {
+                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('nsg-{0}', parameters('vnetName')))]"
+                      },
                       "privateEndpointNetworkPolicies": "Disabled"
                     }
                   },
@@ -1153,6 +1256,9 @@
                     "name": "snet-powerbi-gateway",
                     "properties": {
                       "addressPrefix": "[variables('subnets').gateway]",
+                      "networkSecurityGroup": {
+                        "id": "[resourceId('Microsoft.Network/networkSecurityGroups', format('nsg-{0}', parameters('vnetName')))]"
+                      },
                       "delegations": [
                         {
                           "name": "powerplatform",
@@ -1164,27 +1270,32 @@
                     }
                   }
                 ]
-              }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Network/networkSecurityGroups', format('nsg-{0}', parameters('vnetName')))]"
+              ]
             },
             {
               "copy": {
                 "name": "zones",
-                "count": "[length(variables('endpoints'))]"
+                "count": "[length(variables('zoneNames'))]"
               },
+              "condition": "[equals(parameters('privateDnsZoneMode'), 'create')]",
               "type": "Microsoft.Network/privateDnsZones",
               "apiVersion": "2024-06-01",
-              "name": "[variables('endpoints')[copyIndex()].zone]",
+              "name": "[variables('zoneNames')[copyIndex()]]",
               "location": "global",
               "tags": "[parameters('tags')]"
             },
             {
               "copy": {
                 "name": "links",
-                "count": "[length(variables('endpoints'))]"
+                "count": "[length(variables('zoneNames'))]"
               },
+              "condition": "[equals(parameters('privateDnsZoneMode'), 'create')]",
               "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
               "apiVersion": "2024-06-01",
-              "name": "[format('{0}/{1}', variables('endpoints')[copyIndex()].zone, parameters('vnetName'))]",
+              "name": "[format('{0}/{1}', variables('zoneNames')[copyIndex()], parameters('vnetName'))]",
               "location": "global",
               "tags": "[parameters('tags')]",
               "properties": {
@@ -1195,7 +1306,7 @@
               },
               "dependsOn": [
                 "[resourceId('Microsoft.Network/virtualNetworks', parameters('vnetName'))]",
-                "[resourceId('Microsoft.Network/privateDnsZones', variables('endpoints')[copyIndex()].zone)]"
+                "[resourceId('Microsoft.Network/privateDnsZones', variables('zoneNames')[copyIndex()])]"
               ]
             },
             {
@@ -1233,22 +1344,27 @@
                 "name": "dnsGroups",
                 "count": "[length(variables('endpoints'))]"
               },
+              "condition": "[not(equals(parameters('privateDnsZoneMode'), 'none'))]",
               "type": "Microsoft.Network/privateEndpoints/privateDnsZoneGroups",
               "apiVersion": "2024-05-01",
               "name": "[format('{0}/{1}', format('pe-{0}-{1}', last(split(variables('endpoints')[copyIndex()].target, '/')), variables('endpoints')[copyIndex()].name), 'default')]",
               "properties": {
-                "privateDnsZoneConfigs": [
+                "copy": [
                   {
-                    "name": "[variables('endpoints')[copyIndex()].name]",
-                    "properties": {
-                      "privateDnsZoneId": "[resourceId('Microsoft.Network/privateDnsZones', variables('endpoints')[copyIndex()].zone)]"
+                    "name": "privateDnsZoneConfigs",
+                    "count": "[length(variables('endpoints')[copyIndex()].zones)]",
+                    "input": {
+                      "name": "[if(equals(copyIndex('privateDnsZoneConfigs'), 0), variables('endpoints')[copyIndex()].name, format('{0}-{1}', variables('endpoints')[copyIndex()].name, copyIndex('privateDnsZoneConfigs')))]",
+                      "properties": {
+                        "privateDnsZoneId": "[format('{0}/providers/Microsoft.Network/privateDnsZones/{1}', variables('zoneResourceGroupId'), variables('endpoints')[copyIndex()].zones[copyIndex('privateDnsZoneConfigs')])]"
+                      }
                     }
                   }
                 ]
               },
               "dependsOn": [
                 "[resourceId('Microsoft.Network/privateEndpoints', format('pe-{0}-{1}', last(split(variables('endpoints')[copyIndex()].target, '/')), variables('endpoints')[copyIndex()].name))]",
-                "[resourceId('Microsoft.Network/privateDnsZones', variables('endpoints')[copyIndex()].zone)]"
+                "zones"
               ]
             }
           ],
@@ -1268,13 +1384,93 @@
             "gatewaySubnetName": {
               "type": "string",
               "value": "snet-powerbi-gateway"
+            },
+            "zoneNames": {
+              "type": "array",
+              "value": "[variables('zoneNames')]"
             }
           }
         }
       },
       "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'vl-ask')]",
         "[resourceId('Microsoft.Resources/deployments', 'vl-sql')]",
         "[resourceId('Microsoft.Resources/deployments', 'vl-storage')]"
+      ]
+    },
+    {
+      "condition": "[variables('linkExistingZones')]",
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2025-04-01",
+      "name": "[format('vl-dnslinks-{0}', variables('suffix'))]",
+      "subscriptionId": "[variables('dnsZoneGroupParts')[2]]",
+      "resourceGroup": "[variables('dnsZoneGroupParts')[4]]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "zoneNames": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'vl-network'), '2025-04-01').outputs.zoneNames.value]"
+          },
+          "vnetId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', 'vl-network'), '2025-04-01').outputs.vnetId.value]"
+          },
+          "linkName": {
+            "value": "[variables('names').vnet]"
+          },
+          "tags": {
+            "value": "[variables('allTags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.47.16.16243",
+              "templateHash": "9210559606972337737"
+            }
+          },
+          "parameters": {
+            "zoneNames": {
+              "type": "array"
+            },
+            "vnetId": {
+              "type": "string"
+            },
+            "linkName": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "object"
+            }
+          },
+          "resources": [
+            {
+              "copy": {
+                "name": "links",
+                "count": "[length(parameters('zoneNames'))]"
+              },
+              "type": "Microsoft.Network/privateDnsZones/virtualNetworkLinks",
+              "apiVersion": "2024-06-01",
+              "name": "[format('{0}/{1}', parameters('zoneNames')[copyIndex()], parameters('linkName'))]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "registrationEnabled": false,
+                "virtualNetwork": {
+                  "id": "[parameters('vnetId')]"
+                }
+              }
+            }
+          ]
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', 'vl-network')]"
       ]
     },
     {
@@ -1348,6 +1544,9 @@
         "mode": "Incremental",
         "parameters": {
           "infrastructureSubnetId": "[if(variables('privateNetworking'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'vl-network'), '2025-04-01').outputs.appsSubnetId.value), createObject('value', ''))]",
+          "logsViaDiagnosticSettings": {
+            "value": "[variables('privateNetworking')]"
+          },
           "registryServer": "[if(variables('privateRegistry'), createObject('value', split(parameters('imageRegistry'), '/')[0]), createObject('value', ''))]",
           "location": {
             "value": "[parameters('location')]"
@@ -1476,7 +1675,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.47.16.16243",
-              "templateHash": "12369894832626957425"
+              "templateHash": "370049888728491602"
             }
           },
           "parameters": {
@@ -1624,6 +1823,13 @@
                 "description": "Subnet delegated to Microsoft.App/environments (private networking). Empty = no VNet."
               }
             },
+            "logsViaDiagnosticSettings": {
+              "type": "bool",
+              "defaultValue": false,
+              "metadata": {
+                "description": "Send logs through a diagnostic setting (azure-monitor) instead of the workspace's public ingestion endpoint and shared key. Used in private networking."
+              }
+            },
             "askEndpoint": {
               "type": "string",
               "defaultValue": "",
@@ -1688,13 +1894,7 @@
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
               "properties": {
-                "appLogsConfiguration": {
-                  "destination": "log-analytics",
-                  "logAnalyticsConfiguration": {
-                    "customerId": "[reference(resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsName')), '2023-09-01').customerId]",
-                    "sharedKey": "[listKeys(resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsName')), '2023-09-01').primarySharedKey]"
-                  }
-                },
+                "appLogsConfiguration": "[if(parameters('logsViaDiagnosticSettings'), createObject('destination', 'azure-monitor'), createObject('destination', 'log-analytics', 'logAnalyticsConfiguration', createObject('customerId', reference(resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsName')), '2023-09-01').customerId, 'sharedKey', listKeys(resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsName')), '2023-09-01').primarySharedKey)))]",
                 "workloadProfiles": [
                   {
                     "name": "Consumption",
@@ -1703,6 +1903,25 @@
                 ],
                 "vnetConfiguration": "[if(empty(parameters('infrastructureSubnetId')), null(), createObject('infrastructureSubnetId', parameters('infrastructureSubnetId'), 'internal', false()))]"
               }
+            },
+            {
+              "condition": "[parameters('logsViaDiagnosticSettings')]",
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[resourceId('Microsoft.App/managedEnvironments', parameters('environmentName'))]",
+              "name": "logs",
+              "properties": {
+                "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsName'))]",
+                "logs": [
+                  {
+                    "categoryGroup": "allLogs",
+                    "enabled": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.App/managedEnvironments', parameters('environmentName'))]"
+              ]
             },
             {
               "type": "Microsoft.App/jobs",
