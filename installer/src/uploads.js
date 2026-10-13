@@ -107,7 +107,7 @@ export const DATA_SOURCES = [
     },
     export: {
       where: 'Microsoft 365 admin center > Health > Product feedback > Export.',
-      url: 'https://admin.microsoft.com/',
+            url: 'https://admin.microsoft.com/Adminportal/Home#/tenantfeedback',
       files: 'One CSV per export. Uploads add up; duplicates are removed by Feedback Id.',
     },
   },

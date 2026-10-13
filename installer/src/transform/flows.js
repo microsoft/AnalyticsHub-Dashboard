@@ -67,6 +67,53 @@ export const CONNECTORS = {
 export const connectorByName = (name) => Object.values(CONNECTORS).find((k) => k.name === name);
 
 /**
+ * The words that end the name of each action using an HTTP with Microsoft Entra ID connection, by
+ * connection reference. Both connections use the same connector and look alike in the designer, so
+ * the name is how the user tells which one a card needs.
+ * @param {{ endpoint?: string }} t
+ * @returns {Record<string, string>}
+ */
+const connectionSuffixes = (t) => ({
+  [CONNECTORS.entra.name]: 'via_Power_Platform_API',
+  [CONNECTORS.storage.name]: /\.fabric\.microsoft\.com/i.test(t.endpoint ?? '') ? 'via_OneLake' : 'via_Azure_Storage',
+});
+
+/**
+ * Renames each action that uses one of the two HTTP with Microsoft Entra ID connections after the
+ * connection, e.g. Get_agent_credits_via_Power_Platform_API, and updates the references to it.
+ * @param {any} def  A flow definition.
+ * @param {{ endpoint?: string }} t
+ */
+export function nameByConnection(def, t) {
+  const suffixes = connectionSuffixes(t);
+  /** @type {Map<string, string>} */
+  const renames = new Map();
+  /** @param {any} actions */
+  const collect = (actions) => {
+    for (const [name, a] of Object.entries(actions ?? {})) {
+      const suffix = suffixes[a.inputs?.host?.connectionName];
+      if (suffix) renames.set(name, `${name}_${suffix}`);
+      collect(a.actions);
+      collect(a.else?.actions);
+    }
+  };
+  collect(def.actions);
+  if (!renames.size) return def;
+  const quoted = new RegExp(`'(${[...renames.keys()].join('|')})'`, 'g');
+  /** @param {any} v @returns {any} */
+  const rename = (v) => {
+    if (typeof v === 'string') return v.replace(quoted, (_, n) => `'${renames.get(n)}'`);
+    if (Array.isArray(v)) return v.map(rename);
+    if (v && typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [renames.get(k) ?? k, rename(x)]));
+    return v;
+  };
+  return rename(def);
+}
+
+/** An empty string the designer accepts: it refuses to save a Set variable with no value. */
+const EMPTY_STRING = "@string('')";
+
+/**
  * Where and how a flow writes.
  * @typedef {object} FlowTarget
  * @property {'user' | 'app'} [identity]  user (default): a signed-in storage connection. app: the app registration.
@@ -462,7 +509,7 @@ export function studioFlowDefinition(t, schedule) {
             runAfter: {},
             inputs: { name: 'Day', value: "@{formatDateTime(addDays(utcNow(), mul(-1, items('For_each_day'))), 'yyyy-MM-dd')}" },
           },
-          Reset_token: { type: 'SetVariable', runAfter: { Set_day: ['Succeeded'] }, inputs: { name: 'Token', value: '' } },
+          Reset_token: { type: 'SetVariable', runAfter: { Set_day: ['Succeeded'] }, inputs: { name: 'Token', value: EMPTY_STRING } },
           Each_page: {
             type: 'Until',
             runAfter: { Reset_token: ['Succeeded'] },
@@ -556,7 +603,7 @@ export function studioFlowDefinition(t, schedule) {
                 runAfter: {},
                 inputs: { name: 'UserDay', value: "@{formatDateTime(addDays(utcNow(), mul(-1, items('For_each_user_day'))), 'yyyy-MM-dd')}" },
               },
-              Reset_user_token: { type: 'SetVariable', runAfter: { Set_user_day: ['Succeeded'] }, inputs: { name: 'UserToken', value: '' } },
+              Reset_user_token: { type: 'SetVariable', runAfter: { Set_user_day: ['Succeeded'] }, inputs: { name: 'UserToken', value: EMPTY_STRING } },
               Each_user_page: {
                 type: 'Until',
                 runAfter: { Reset_user_token: ['Succeeded'] },

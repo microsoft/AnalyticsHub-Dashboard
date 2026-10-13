@@ -112,6 +112,8 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {Partial<Record<'feedback' | 'studio' | 'agents', string>>} [flowIds]  The flows, once created.
  * @property {Partial<Record<'feedback' | 'studio' | 'agents', string>>} [flowSignatures]  What each created flow was built from.
  * @property {Partial<Record<'feedback' | 'studio' | 'agents', string>>} [flowFiles]  Where a flow was written when it couldn't be created.
+ * @property {Record<string, string>} [flowConnections]  The connections the installer made for the flows, by connection reference.
+ * @property {Partial<Record<'feedback' | 'studio' | 'agents', string>>} [flowsConnected]  The flow IDs the installer signed in and turned on.
  */
 
 /**
