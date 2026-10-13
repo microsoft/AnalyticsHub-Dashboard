@@ -51,6 +51,12 @@ const COMMANDS = {
     desc: 'Run again only the loads that failed in the latest pipeline run, and the steps that waited for them, one at a time.',
     off: 'There is no pipeline yet.',
   },
+  'load-cowork': {
+    title: 'Load Cowork now', short: 'Load Cowork', icon: 'database', section: 'Cowork credits',
+    row: 'Load Cowork now', button: 'Load Cowork',
+    desc: 'Once the Cowork Dataflow is signed in and published: refresh it, load the Viva credits and refresh the consumption model.',
+    off: 'There is no Cowork credits Dataflow.',
+  },
   refresh: {
     title: 'Refresh the models', short: 'Refresh', icon: 'refresh', section: 'Model refresh',
     row: 'Refresh the models', button: 'Refresh',
@@ -110,7 +116,9 @@ const COMMANDS = {
     desc: 'See which roles, licences, capacities and Azure access you have and which are missing. Changes nothing.',
   },
 };
-const ROW_ORDER = ['run', 'rerun-failed', 'refresh', 'status', 'upload', 'check', 'update', 'deploy-app', 'access', 'rotate-secret', 'uninstall', 'install'];
+const ROW_ORDER = ['run', 'rerun-failed', 'load-cowork', 'refresh', 'status', 'upload', 'check', 'update', 'deploy-app', 'access', 'rotate-secret', 'uninstall', 'install'];
+/** The id of the Cowork Dataflow card in steps/next-steps.js. */
+const COWORK_STEP_ID = 'cowork-dataflow';
 
 // The install's stages in the order the installer prints them. Other headings (the target question,
 // Advanced settings, Who can view, Schedule...) slot in as they come.
@@ -617,6 +625,9 @@ function apply(e) {
       add(run, { t: 'next-steps', title: run.nextSteps.title, steps: run.nextSteps.steps });
       markExpected(run);
       return;
+    case 'todo':
+      run.todo = e.step;
+      return;
     case 'prereqs':
       ensureRoot(run, e.at);
       add(run, { t: 'prereqs', items: e.items ?? [] });
@@ -953,8 +964,8 @@ function renderPrereqs(items) {
         it.status !== 'met' ? h('p', { class: 'prereq-how' }, h('strong', null, 'How to get it: '), linkify(it.howTo ?? '')) : null))));
 }
 
-const LOAD_GLYPH = { ok: 'check', warning: 'warn', failed: 'x', skipped: 'minus', running: 'clock' };
-const LOAD_STATE = { ok: 'loaded', warning: 'loaded with a warning', failed: 'failed', skipped: 'didn\'t run', running: 'still running' };
+const LOAD_GLYPH = { ok: 'check', warning: 'warn', failed: 'x', skipped: 'minus', running: 'clock', todo: 'warn' };
+const LOAD_STATE = { ok: 'loaded', warning: 'loaded with a warning', failed: 'failed', skipped: 'didn\'t run', running: 'still running', todo: 'to do' };
 
 /** One card per source: whether it loaded, why not and what to do. */
 function renderLoads(cards) {
@@ -984,22 +995,31 @@ function copyButton(text, labelText) {
   }, icon('copy'), label);
 }
 
-/** What's left once it finishes: a card per step, with who does it, the link, and for a hand-off the message to send. */
-function renderNextSteps(next) {
+/**
+ * What's left once it finishes: a card per step, with who does it, the link, and for a hand-off the message to send.
+ * The Cowork to-do from the last load (renderTodo) folds into its card here, adding the Dataflow link and Load Cowork now.
+ */
+function renderNextSteps(next, todo) {
   return h('section', { class: 'next', 'aria-labelledby': 'next-title' },
     h('h3', { id: 'next-title' }, next.title),
-    h('ol', { class: 'next-list' }, next.steps.map((s) => h('li', { class: `next-card${s.optional ? ' optional' : ''}` },
-      h('div', { class: 'next-head' },
-        h('span', { class: 'next-name' }, s.title),
-        h('span', { class: 'next-who' }, s.who, s.optional ? ', optional' : '')),
-      h('p', null, s.why),
-      (s.steps ?? []).length ? h('ol', { class: 'next-how' }, s.steps.map((x) => h('li', null, x))) : null,
-      s.message ? h('details', { class: 'next-message' }, h('summary', null, 'The message to send'), h('pre', null, s.message)) : null,
-      s.link || s.message
-        ? h('div', { class: 'actions' },
-          s.message ? copyButton(s.message, 'Copy message') : null,
-          s.link ? h('a', { class: 'btn', href: s.link, target: '_blank', rel: 'noreferrer' }, icon('link'), s.linkText ?? 'Open') : null)
-        : null))));
+    h('ol', { class: 'next-list' }, next.steps.map((s) => {
+      const extra = todo && s.id === COWORK_STEP_ID ? todo : null;
+      const can = extra?.action && app.state?.record?.can?.[extra.action];
+      return h('li', { class: `next-card${s.optional ? ' optional' : ''}` },
+        h('div', { class: 'next-head' },
+          h('span', { class: 'next-name' }, s.title),
+          h('span', { class: 'next-who' }, s.who, s.optional ? ', optional' : '')),
+        h('p', null, s.why),
+        (s.steps ?? []).length ? h('ol', { class: 'next-how' }, s.steps.map((x) => h('li', null, x))) : null,
+        s.message ? h('details', { class: 'next-message' }, h('summary', null, 'The message to send'), h('pre', null, s.message)) : null,
+        s.link || s.message || extra
+          ? h('div', { class: 'actions' },
+            s.message ? copyButton(s.message, 'Copy message') : null,
+            extra?.url ? h('a', { class: 'btn', href: extra.url, target: '_blank', rel: 'noopener' }, icon('link'), 'Open the Dataflow') : null,
+            s.link && !extra?.url ? h('a', { class: 'btn', href: s.link, target: '_blank', rel: 'noreferrer' }, icon('link'), s.linkText ?? 'Open') : null,
+            can ? h('button', { type: 'button', class: 'btn primary', onclick: () => start(extra.action) }, icon(COMMANDS[extra.action]?.icon ?? 'play'), COMMANDS[extra.action]?.title ?? extra.action) : null)
+          : null);
+    })));
 }
 
 function renderProgress(it) {
@@ -1318,15 +1338,32 @@ function renderOutcome(run) {
       : ['', 'Stopped', [install && !built ? 'Nothing was created.' : 'Nothing after this point ran.']],
   }[r] ?? ['', 'Finished', []];
   const rerun = run.failedLoads && app.state?.record?.can?.['rerun-failed'];
+  const todoInSteps = !!run.todo && !!run.nextSteps?.steps.some((s) => s.id === COWORK_STEP_ID);
   return h('section', { class: `outcome ${copy[0]}`.trim(), 'aria-labelledby': 'outcome-title' },
     h('h2', { id: 'outcome-title' }, copy[1]),
-    run.nextSteps?.steps.length ? renderNextSteps(run.nextSteps) : null,
+    run.nextSteps?.steps.length ? renderNextSteps(run.nextSteps, run.todo) : null,
     copy[2].filter(Boolean).map((p) => h('p', null, p)),
+    run.todo && !todoInSteps ? renderTodo(run.todo) : null,
     rerun ? h('p', null, 'Some loads failed. Rerun failed runs just those again, and the steps that waited for them.') : null,
     h('div', { class: 'actions' },
       rerun ? h('button', { type: 'button', class: 'btn primary', onclick: () => start('rerun-failed') }, icon('refresh'), 'Rerun failed') : null,
       h('button', { type: 'button', class: rerun ? 'btn' : 'btn primary', onclick: () => saveRecord(run) }, icon('download'), 'Save a record'),
       h('button', { type: 'button', class: 'btn', onclick: () => show('home') }, 'Back to home')));
+}
+
+/**
+ * Something left to finish, such as signing in to the Cowork Dataflow (coworkNextStep in
+ * steps/consumption.js): the steps, a link to the item and, when it can run here, its action.
+ */
+function renderTodo(step) {
+  const can = step.action && app.state?.record?.can?.[step.action];
+  return h('div', { class: 'todo', role: 'note' },
+    h('h3', null, icon('warn'), step.title),
+    h('ol', null, step.steps.map((s) => h('li', null, s))),
+    step.note ? h('p', { class: 'todo-note' }, step.note) : null,
+    h('div', { class: 'actions' },
+      step.url ? h('a', { class: 'btn', href: step.url, target: '_blank', rel: 'noopener' }, icon('link'), 'Open the Dataflow') : null,
+      can ? h('button', { type: 'button', class: 'btn primary', onclick: () => start(step.action) }, icon(COMMANDS[step.action]?.icon ?? 'play'), COMMANDS[step.action]?.title ?? step.action) : null));
 }
 
 /* ---------- Rendering: home ---------- */
@@ -1812,7 +1849,7 @@ function itemMarkdown(it, depth) {
       return ['', ...reviewMarkdown(it.plan), ''];
     case 'loads':
       return it.cards.flatMap((card) => [
-        `- ${card.expected ? '…' : { ok: '✓', warning: '⚠', failed: '✗', skipped: '⚠', running: '…' }[card.state] ?? ''} ${card.name}: ${card.expected ? `waiting for "${card.expected}"` : LOAD_STATE[card.state] ?? card.state}${card.attempts ? ` (${card.attempts} attempts)` : ''}`,
+        `- ${card.expected ? '…' : { ok: '✓', warning: '⚠', failed: '✗', skipped: '⚠', running: '…', todo: '⚠' }[card.state] ?? ''} ${card.name}: ${card.expected ? `waiting for "${card.expected}"` : LOAD_STATE[card.state] ?? card.state}${card.attempts ? ` (${card.attempts} attempts)` : ''}`,
         ...(card.reason ? [`  - ${card.reason}`] : []),
         ...(card.fix ?? []).map((f) => `  - ${f.trim()}`),
       ]);
@@ -1873,6 +1910,7 @@ function runFacts(run) {
 function saveRecord(run) {
   const L = [`# ${headTitle(run)}`, '', ...runFacts(run)];
   if (run.error) L.push('', `**Error:** ${run.error}`);
+  if (run.todo) L.push('', `**${run.todo.title}**`, '', ...run.todo.steps.map((s, i) => `${i + 1}. ${s}`), '', `_${run.todo.note}_`);
   for (const s of run.stages) if (applies(run, s)) L.push(...stageMarkdown(s, 2));
   L.push('', '---', '', '_Written by the Analytics Hub installer. Secrets are masked and sign-in codes left out._');
   download(`valuelens-${run.command}-${stamp(run.startedAt)}.md`, L);

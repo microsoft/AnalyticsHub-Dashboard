@@ -78,6 +78,44 @@ managed private endpoints, so deleting it by hand failed.
 
 ---
 
+## Unreleased — Cowork first load and rerun
+
+From the newcomer self-serve test of installer 0.4.2 (F3, F4, F5).
+
+### Changed: the first load doesn't fail on a Cowork Dataflow nobody has signed in to
+
+**Why.** The installer creates the Cowork Dataflow but can't sign in to its connections. The first
+load then failed on `Refresh_Cowork_Credits` with "Job instance failed without detail error",
+turned the run red and gave no clear next step.
+
+- Before the first load, the installer reads the Dataflow's saved connections. If there are none,
+  that run sets the new pipeline parameter `SkipCowork=true`, which skips the Dataflow, so the
+  other loads aren't red. Scheduled runs keep the default `false` and still fail loudly until
+  someone signs in.
+- The **Done** page and the terminal show an amber **To do: sign in to the Cowork Dataflow** card.
+  It links to the Dataflow and lists the steps: **Configure connection** for the Viva Insights
+  source and for the Lakehouse destination, then **Save** and wait for publishing. It also explains
+  the `DataflowsStagingLakehouse` and `DataflowsStagingWarehouse` items Fabric adds.
+- New **Load Cowork now** action (`load-cowork`). It waits until the Dataflow has finished
+  publishing, refreshes it (trying once more after a minute if the refresh fails straight after
+  the save), then runs the Viva load and the consumption model refresh and reports the rows loaded.
+- "Job instance failed without detail error" on the Cowork Dataflow now reads *Needs sign-in: the
+  Cowork Dataflow's connections aren't signed in (or it hadn't finished publishing)*, in the
+  installer and in `dbo.load_log`.
+
+### Fixed: reruns no longer leave the Viva load falsely green
+
+**Why.** `Run_Consumption_Viva` succeeded on empty input after a failed Dataflow. Rerunning the
+Dataflow didn't rerun it or the consumption model refresh, so Cowork credits stayed empty while the
+run looked fine.
+
+- A rerun now also reruns steps that read what a rerun step wrote: the Viva load after the
+  Dataflow, then the consumption model refresh.
+- A Viva load that got no rows from the Dataflow shows as **to do**, not loaded. The Viva notebook
+  writes its row counts to `Files/valuelens_installer/viva_load.json` for the installer to check.
+
+---
+
 ## Unreleased — Sharing and the Done page
 
 From the newcomer self-serve test of installer 0.4.2.

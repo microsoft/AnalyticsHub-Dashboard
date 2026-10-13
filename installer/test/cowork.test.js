@@ -7,7 +7,7 @@ import { emptyConfig } from '../src/config.js';
 import { COWORK_DATAFLOW_NAME, ensureCoworkDataflow, planCowork } from '../src/steps/consumption.js';
 import { coworkDataflowOn } from '../src/steps/fabric.js';
 import { COWORK_DATAFLOW_TABLE, coworkDataflowDefinition, coworkMashup, coworkQueryMetadata, isVivaId } from '../src/transform/dataflow.js';
-import { buildPipeline, COWORK_DATAFLOW_ACTIVITY, findActivity } from '../src/transform/pipeline.js';
+import { buildPipeline, COWORK_DATAFLOW_ACTIVITY, COWORK_WRAPPER_ACTIVITY, findActivity } from '../src/transform/pipeline.js';
 import { UPLOAD_DIR } from '../src/uploads.js';
 import { fakeCtx, fakeFabric, fakeUi, httpError, realSources } from './fakes.js';
 
@@ -114,7 +114,7 @@ test('ensureCoworkDataflow: created once, left alone on re-run, redefined when t
   assert.ok(t.config.consumption.dataflowId);
   assert.equal(t.config.consumption.dataflowName, COWORK_DATAFLOW_NAME);
   assert.ok(coworkDataflowOn(t.config));
-  assert.match(t.ui.text(), /1\. Open \S+ in [\s\S]*Edit dataflow\.\n[\s\S]*2\. Under Home > Manage connections, sign in to Viva Insights[\s\S]*3\. Choose Save and wait until it says the Dataflow is published/);
+  assert.match(t.ui.text(), /1\. Open AnalyticsHub_Cowork_Credits in [^\n]*: https:\/\/app\.fabric\.microsoft\.com\/groups\/ws-1\/dataflows-gen2\/\S+\.\n[\s\S]*2\. It shows "Configure connection" twice[^\n]*Viva Insights source[^\n]*Lakehouse destination \(ValueLens\)[\s\S]*3\. On each one, choose Configure connection, sign in, then Connect[\s\S]*4\. Choose Save, then wait until the Dataflow shows it has finished publishing[\s\S]*5\. Then choose Load Cowork now, or run "[^"]*load-cowork"/);
 
   t.fabric.calls.length = 0;
   await ensureCoworkDataflow(t.ctx);
@@ -178,8 +178,12 @@ test('pipeline: the Dataflow is refreshed between the Studio and Viva loads, onl
   assert.equal(step.type, 'RefreshDataflow');
   assert.deepEqual(step.typeProperties, { workspaceId: 'ws-1', dataflowId: 'df-1', notifyOption: 'NoNotification', dataflowType: 'DataflowFabric' });
   assert.equal(step.policy.retry, 0);
-  assert.deepEqual(step.dependsOn, [{ activity: 'Run_Consumption_Studio', dependencyConditions: ['Completed'] }]);
-  assert.deepEqual(findActivity(doc.properties.activities, 'Run_Consumption_Viva').dependsOn, [{ activity: COWORK_DATAFLOW_ACTIVITY, dependencyConditions: ['Completed'] }]);
+  assert.deepEqual(step.dependsOn, []);
+  const wrapper = doc.properties.activities.find((/** @type {any} */ a) => a.name === COWORK_WRAPPER_ACTIVITY);
+  assert.equal(wrapper.type, 'IfCondition');
+  assert.deepEqual(wrapper.typeProperties.ifTrueActivities.map((/** @type {any} */ a) => a.name), [COWORK_DATAFLOW_ACTIVITY]);
+  assert.deepEqual(wrapper.dependsOn, [{ activity: 'Run_Consumption_Studio', dependencyConditions: ['Completed'] }]);
+  assert.deepEqual(findActivity(doc.properties.activities, 'Run_Consumption_Viva').dependsOn, [{ activity: COWORK_WRAPPER_ACTIVITY, dependencyConditions: ['Completed'] }]);
 
   const without = buildPipeline(realSources().pipeline, { workspaceId: 'ws-1', notebookIds: ids, modules });
   assert.ok(!without.properties.activities.some((/** @type {any} */ a) => a.name === COWORK_DATAFLOW_ACTIVITY));

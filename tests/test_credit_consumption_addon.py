@@ -53,6 +53,18 @@ class CreditConsumptionAddon(unittest.TestCase):
         self.assertIn('"..", "..", "samples", "consumption"', source)
         self.assertTrue((ROOT / "samples" / "consumption" / "StudioTenantDaily.csv").is_file())
 
+    def test_viva_load_writes_the_row_counts_the_installer_reads(self):
+        # The installer reads this file so a Viva load with no Dataflow rows isn't reported as loaded.
+        notebook = json.loads((ROOT / "fabric" / "notebooks" / "credit-consumption" / "Ingest_Viva_Consumption.ipynb").read_text(encoding="utf-8"))
+        code = "\n".join("".join(c["source"]) for c in notebook["cells"] if c["cell_type"] == "code")
+        self.assertIn('LOAD_SUMMARY = "Files/valuelens_installer/viva_load.json"', code)
+        self.assertIn("'dataflowRows':", code)
+        installer = (ROOT / "installer" / "src" / "steps" / "consumption.js").read_text(encoding="utf-8")
+        self.assertIn("VIVA_LOAD_FILE = 'Files/valuelens_installer/viva_load.json'", installer)
+        for cell in notebook["cells"]:
+            if cell["cell_type"] == "code":
+                compile("".join(cell["source"]), "Ingest_Viva_Consumption", "exec")
+
     def test_relative_links_resolve(self):
         for doc in addon_files("*.md") + addon_files("*.ipynb"):
             for target in LINK.findall(doc.read_text(encoding="utf-8")):

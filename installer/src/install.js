@@ -47,8 +47,8 @@ import { dataSourcesSummary, ensureUploads, uploadCommand } from './steps/data-s
 import { ensureFlows, FLOW_FILES, flowDefinitions, flowsSummary, flowsWanted, offerStudioRun } from './steps/flows.js';
 import { ensureAppResourceGraphAccess, resourceGraphOn } from './steps/resource-graph.js';
 import { routerWanted } from './uploads.js';
-import { checkData, chooseLoad, runDataCheck, runPipeline, status } from './steps/run.js';
-import { rerunFailed } from './steps/rerun.js';
+import { checkData, chooseLoad, coworkSkipForFirstLoad, runDataCheck, runPipeline, status } from './steps/run.js';
+import { loadCoworkNow, rerunFailed } from './steps/rerun.js';
 import { prepareNotebook, serialiseNotebook } from './transform/notebook.js';
 import { rlsOn, rlsSettings } from './transform/access.js';
 import { buildAgentEvaluatorModel, buildConsumptionModel, buildModel, loadTemplateModel } from './transform/model.js';
@@ -391,7 +391,8 @@ export async function install(ctx, opts) {
       ui.warn(`Skipped until the private endpoint to ${config.keyVault.name} is approved. Then run: ${commandLine(`run --backfill-days ${config.history.days}`)}`);
     } else {
       if (modelDeployed(config)) ui.note(`The pipeline refreshes ${joinNames(deployedModels(config).map((m) => m.name))} as its last step.`);
-      const result = await runPipeline(ctx, { backfillDays: config.history.days, wait: opts.wait, first: true });
+      const skipCowork = await coworkSkipForFirstLoad(ctx);
+      const result = await runPipeline(ctx, { backfillDays: config.history.days, wait: opts.wait, first: true, skipCowork });
       if (result.status === 'Completed') {
         await runDataCheck(ctx);
         if (modelDeployed(config)) ok = (await verifyModel(ctx)).ok;
@@ -571,7 +572,7 @@ export async function run(ctx, opts) {
   if (ctx.config.target === 'azure') return azureRun(ctx, opts);
   await offerStudioRun(ctx, { pipelineNext: true });
   const load = await chooseLoad(ctx, opts);
-  const result = await runPipeline(ctx, load);
+  const result = await runPipeline(ctx, { ...load, skipCowork: !!load.first && (await coworkSkipForFirstLoad(ctx)) });
   // Asking for more history than the record has: later repairs offer more than this.
   if (result.started && opts.backfillDays && (load.first || opts.backfillDays > ctx.config.history.days)) {
     ctx.config.history.days = opts.backfillDays;
@@ -626,6 +627,8 @@ export async function runCommand(ctx, command, opts) {
     }
     case 'rerun-failed':
       return !(await rerunFailed(ctx)).failed.length;
+    case 'load-cowork':
+      return !(await loadCoworkNow(ctx)).failed.length;
     case 'check': {
       const checked = !!(await checkData(ctx));
       if (ctx.config.target === 'azure' || !modelDeployed(ctx.config)) return checked;
