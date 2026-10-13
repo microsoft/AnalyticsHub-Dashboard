@@ -19,6 +19,33 @@ export const SCOPES = {
   graphRoles: 'https://graph.microsoft.com/RoleManagement.ReadWrite.Directory',
 };
 
+/** The APIs in SCOPES, as people know them. */
+export const API_NAMES = /** @type {Record<keyof typeof SCOPES, string>} */ ({
+  graph: 'Microsoft Graph',
+  fabric: 'Fabric',
+  arm: 'Azure Resource Manager',
+  keyVault: 'Key Vault',
+  storage: 'Azure Storage and OneLake',
+  powerbi: 'Power BI',
+  discovery: 'Dataverse',
+  powerPlatform: 'Power Platform',
+  flow: 'Power Automate',
+  powerApps: 'Power Apps',
+});
+
+/** Azure Cloud Shell's own sign-in, which the Azure CLI uses until you run az login, covers only some APIs. */
+const MSI_AUDIENCE = /not a supported MSI token audience/i;
+export const AZ_LOGIN = 'az login --use-device-code';
+
+/**
+ * Whether the Azure CLI couldn't get a token because it is on Cloud Shell's own sign-in.
+ * @param {unknown} err
+ */
+export const isMsiAudienceError = (err) => MSI_AUDIENCE.test(String(/** @type {any} */ (err)?.message ?? err));
+
+/** @param {string[]} apis */
+export const msiAudienceMessage = (apis) => `The Azure CLI is on Cloud Shell's own sign-in, which can't get tokens for ${apis.join(', ')}. Run ${AZ_LOGIN} to sign the Azure CLI in as you, then run the installer again. Or leave out --use-az to sign in with a code.`;
+
 /**
  * A named API, or the scope of one found at run time, such as a Dataverse environment.
  * @typedef {keyof typeof SCOPES | `https://${string}/.default`} Resource
@@ -92,6 +119,9 @@ export function createTokenProvider(credential, opts = {}) {
         cache.set(resource, { token: t.token, expiresOn: t.expiresOnTimestamp });
         return t.token;
       } catch (err) {
+        if (isMsiAudienceError(err)) {
+          throw new Error(msiAudienceMessage([resource in API_NAMES ? API_NAMES[/** @type {keyof typeof SCOPES} */ (resource)] : scope.replace(/\/\.default$/, '')]), { cause: err });
+        }
         if (attempt >= TOKEN_ATTEMPTS || !isTransientNetworkError(err)) throw err;
         const wait = Math.min(TOKEN_RETRY_MS * 2 ** (attempt - 1), 30_000);
         opts.debug?.(`Network error getting a token for ${resource}; trying again in ${Math.round(wait / 1000)}s`);
@@ -99,6 +129,26 @@ export function createTokenProvider(credential, opts = {}) {
       }
     }
   };
+}
+
+/**
+ * Gets a token for each named API in turn, so a sign-in that can't reach some of them fails before
+ * the installer changes anything. Cloud Shell's own sign-in fails this way.
+ * @param {(resource: Resource) => Promise<string>} getToken  From createTokenProvider, which keeps the tokens.
+ * @param {(keyof typeof SCOPES)[]} [apis]
+ */
+export async function checkTokens(getToken, apis = /** @type {(keyof typeof SCOPES)[]} */ (Object.keys(SCOPES))) {
+  /** @type {string[]} */
+  const missing = [];
+  for (const api of apis) {
+    try {
+      await getToken(api);
+    } catch (err) {
+      if (!isMsiAudienceError(/** @type {any} */ (err)?.cause ?? err)) throw err;
+      missing.push(API_NAMES[api]);
+    }
+  }
+  if (missing.length) throw new Error(msiAudienceMessage(missing));
 }
 
 /**

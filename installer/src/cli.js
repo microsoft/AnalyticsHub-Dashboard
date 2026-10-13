@@ -3,11 +3,12 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
+import { AZ_LOGIN } from './auth.js';
 import { orgUrl } from './clients/dataverse.js';
 import { archiveConfig, DEFAULT_CONFIG_FILE, loadConfig, normaliseResourceGraph } from './config.js';
 import { HttpError } from './http.js';
 import { connect, createCtx, preview, runCommand } from './install.js';
-import { commandLine } from './launch.js';
+import { commandLine, inCloudShell } from './launch.js';
 import { runWizard } from './server.js';
 import { loadSources } from './sources.js';
 import { recordWorkspaceGone, staleRecordMessage } from './steps/fabric.js';
@@ -54,8 +55,10 @@ Options:
   --source <dir>       The repo folder to deploy from (default: this checkout)
   --tenant <id>        Tenant ID or domain to sign in to
   --target <target>    Where Analytics Hub runs: fabric (default) or azure
-  --device-code        Sign in with a code on another device instead of a browser
-  --use-az             Use the account you are signed in to with the Azure CLI
+  --device-code        Sign in with a code on another device instead of a browser. The default
+                       in Azure Cloud Shell
+  --use-az             Use the account you are signed in to with the Azure CLI. In Azure Cloud
+                       Shell, run ${AZ_LOGIN} first
   --backfill-days <n>  With run: reload n days of audit history and rebuild the curated table
   --out <dir>          With preview: where to write (default ./valuelens-preview)
   --data <id=mode>     With install: how a source arrives, api, csv or skip. Repeat it or use
@@ -98,8 +101,9 @@ Options:
 
 /**
  * @param {string[]} argv
+ * @param {NodeJS.ProcessEnv} [env]
  */
-export function parseCli(argv) {
+export function parseCli(argv, env = process.env) {
   const { values, positionals } = parseArgs({
     args: argv,
     allowPositionals: true,
@@ -179,6 +183,8 @@ export function parseCli(argv) {
     }
   }
   if (values['device-code'] && values['use-az']) throw new Error('Choose one of --device-code and --use-az.');
+  const cloudShell = inCloudShell(env);
+  if (values.ui && cloudShell) throw new Error('Azure Cloud Shell can\'t open the installer\'s page in your browser. Leave out --ui to answer in the terminal.');
   if (values.target !== undefined && values.target !== 'fabric' && values.target !== 'azure') throw new Error('--target must be "fabric" or "azure".');
   if (values.ui && (positionals.length || values['dry-run'])) throw new Error('--ui opens a home page where you choose what to do. Leave out the command.');
   if (values.ui && values.yes) throw new Error('Choose one of --ui and --yes.');
@@ -196,7 +202,9 @@ export function parseCli(argv) {
     sourceDir: values.source,
     tenantId: values.tenant,
     target: /** @type {'fabric' | 'azure' | undefined} */ (values.target),
-    method: /** @type {'browser' | 'device-code' | 'azure-cli'} */ (values['use-az'] ? 'azure-cli' : values['device-code'] ? 'device-code' : 'browser'),
+    // Cloud Shell has no browser to sign in with.
+    method: /** @type {'browser' | 'device-code' | 'azure-cli'} */ (values['use-az'] ? 'azure-cli' : values['device-code'] || cloudShell ? 'device-code' : 'browser'),
+    cloudShell,
     backfillDays,
     outDir: values.out ?? 'valuelens-preview',
     yes: !!values.yes,
@@ -321,20 +329,24 @@ export async function main(argv) {
     }
     if (args.command !== 'install' && args.command !== 'prereqs' && !existed) throw new Error(`No install record at ${args.configFile}. Run the installer first, or pass --config.`);
     if (existed) ui.note(`Install record: ${args.configFile}`);
+    if (args.cloudShell && args.command !== 'prereqs') {
+      ui.note('Azure Cloud Shell signs you out after 20 minutes without input. If that stops the installer, run the same command again: it carries on from the install record. --no-wait saves waiting for the first load.');
+    }
 
     ui.note(args.method === 'azure-cli' ? 'Using your Azure CLI sign-in…' : 'Signing in…');
-    const { api, user } = await connect({
+    const { api, user, getToken } = await connect({
       tenantId: args.tenantId ?? config.tenantId,
       method: args.method,
       ui,
       debug,
+      checkTokens: args.cloudShell && args.method === 'azure-cli',
     });
     if (existed && args.command !== 'prereqs' && (await startFresh({ ui, config, file: args.configFile, fabric: api.fabric, tenantId: user.tenantId, command: args.command }))) {
       config = loadConfig(args.configFile).config;
       if (args.target) config.target = args.target;
       applyDataFlags(config, args);
     }
-    const ctx = createCtx({ ui, config, file: args.configFile, api, user, sources });
+    const ctx = createCtx({ ui, config, file: args.configFile, api, user, sources, getToken });
     ctx.csvFiles = args.csvFiles;
     if (args.secretInNotebook) ctx.secretInNotebook = true;
     const ok = await runCommand(ctx, args.command, { wait: args.wait, backfillDays: args.backfillDays, files: args.files, run: args.run });
