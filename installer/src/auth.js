@@ -14,6 +14,7 @@ export const SCOPES = {
   discovery: 'https://globaldisco.crm.dynamics.com/.default',
   powerPlatform: 'https://api.powerplatform.com/.default',
   flow: 'https://service.flow.microsoft.com/.default',
+  powerApps: 'https://service.powerapps.com/.default',
 };
 
 /**
