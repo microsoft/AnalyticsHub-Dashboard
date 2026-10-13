@@ -15,6 +15,8 @@
 # Run it with the tag once installer-exe has drafted the release. It signs the draft's exe, checks
 # the signature, then replaces the exe, its .sha256 and the notes. Review and publish by hand as
 # before. The repo variable REQUIRE_SIGNED_INSTALLER=true then stops an unsigned exe being published.
+# The draft's AnalyticsHubInstaller.zip, its .sha256 and install.ps1 stay as they are: signing the
+# exe doesn't change the zip, which holds the same payload.
 
 trigger: none
 pr: none
@@ -94,7 +96,8 @@ jobs:
 
       # The same check the GitHub workflow runs when the release is published.
       - pwsh: |
-          node packaging/finish-exe.js "$env:TOSIGN\AnalyticsHubInstaller.exe" --require-signed --repo $env:BUILD_REPOSITORY_NAME --notes "$env:TOSIGN\release-notes.md"
+          $version = '${{ parameters.tag }}' -replace '^installer-v', ''
+          node packaging/finish-exe.js "$env:TOSIGN\AnalyticsHubInstaller.exe" --require-signed --repo $env:BUILD_REPOSITORY_NAME --version $version --notes "$env:TOSIGN\release-notes.md"
           if ($LASTEXITCODE) { throw 'The signed exe failed its checks.' }
         displayName: Check the signature, write the hash and the release notes
         workingDirectory: installer

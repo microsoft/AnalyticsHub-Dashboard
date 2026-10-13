@@ -5,10 +5,12 @@
  * release notes. Run it on the exe that gets published, after any signing, because signing
  * changes the hash.
  *
- * Usage: node packaging/finish-exe.js <exe> [--require-signed] [--check-hash] [--notes <file>] [--repo <owner/name>]
+ * Usage: node packaging/finish-exe.js <exe> [--require-signed] [--check-hash] [--notes <file>] [--repo <owner/name>] [--version <x.y.z>]
  *   --require-signed  Fail if the exe isn't signed by Microsoft Corporation (--publisher to change)
  *   --check-hash      Check the .sha256 next to the exe instead of writing it
  *   --notes <file>    Write the release notes there, for the repo in --repo or $GITHUB_REPOSITORY
+ *   --version <x.y.z> The release's installer version, for the PowerShell command in the notes
+ *                     (default: this checkout's installer/package.json)
  *
  * A signature that's there but broken, from someone else or untimestamped always fails. Needs
  * Windows to read the signature.
@@ -27,6 +29,7 @@ const { values: opts, positionals } = parseArgs({
     publisher: { type: 'string', default: PUBLISHER },
     notes: { type: 'string' },
     repo: { type: 'string', default: process.env.GITHUB_REPOSITORY },
+    version: { type: 'string' },
   },
 });
 
@@ -83,7 +86,10 @@ process.stdout.write(`  sha256 ${hash}\n`);
 
 if (opts.notes) {
   if (!opts.repo) fail('--notes needs --repo or $GITHUB_REPOSITORY.');
-  writeFileSync(opts.notes, releaseNotes({ repo: opts.repo, sha256: hash, signed: verdict.signed, publisher: opts.publisher }), 'utf8');
+  // The version names the release, whose install.ps1 the notes link to.
+  const version = opts.version ?? JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version;
+  if (!/^\d+\.\d+\.\d+$/.test(version)) fail(`"${version}" isn't an x.y.z version.`);
+  writeFileSync(opts.notes, releaseNotes({ repo: opts.repo, sha256: hash, signed: verdict.signed, publisher: opts.publisher, version }), 'utf8');
   process.stdout.write(`✓ Wrote the release notes to ${opts.notes}\n`);
 }
 

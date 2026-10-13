@@ -63,4 +63,14 @@ test('signing: signed release notes point to the signature and drop the warning 
   assert.match(notes, /\*\*Digital Signatures\*\*/);
   assert.ok(notes.includes(HASH));
   assert.doesNotMatch(notes, /Keep anyway|Run anyway/);
+  assert.doesNotMatch(notes, /install\.ps1/, 'no PowerShell section without the version');
+});
+
+test('signing: release notes with a version give the pinned PowerShell command', () => {
+  const notes = releaseNotes({ repo: 'octo/hub', sha256: HASH, signed: true, version: '1.2.3' });
+  assert.ok(notes.includes('irm https://github.com/octo/hub/releases/download/installer-v1.2.3/install.ps1 | iex'));
+  assert.ok(notes.includes('-File .\\install.ps1 -ZipPath .\\AnalyticsHubInstaller.zip'));
+  assert.match(notes, /octo\/hub\/blob\/main\/installer\/README\.md#from-powershell/);
+  const unsigned = releaseNotes({ repo: 'octo/hub', sha256: HASH, signed: false, version: '1.2.3' });
+  assert.match(unsigned, /use the PowerShell command above, or run the installer with Node\.js/);
 });

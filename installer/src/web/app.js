@@ -151,12 +151,13 @@ const NEEDS = [
   'Permission to register apps in Entra, or an app registration you already have. If you have neither, you get an admin pack to send an admin.',
   'A Global Administrator or Privileged Role Administrator to grant admin consent. If that isn\'t you, you get a link to send them.',
 ];
-// AnalyticsHubInstaller.exe carries its own Node.js and a ready-built app.
+// The exe and the PowerShell launcher carry their own Node.js and a ready-built app.
 const NODE_NEED = 'Node.js 22.13 or later on this computer to build the Analytics Hub app.';
-const fromExe = () => !!app.state?.exe;
-const needs = () => (fromExe() ? NEEDS : [...NEEDS, NODE_NEED]);
-const installerName = () => (fromExe() ? 'AnalyticsHubInstaller.exe' : 'valuelens-install');
-const installerWindow = () => (fromExe() ? 'the installer window' : 'your terminal');
+const bundled = () => !!app.state?.exe;
+const launcher = () => app.state?.launcher ?? {};
+const needs = () => (bundled() ? NEEDS : [...NEEDS, NODE_NEED]);
+const installerName = () => launcher().command ?? 'valuelens-install';
+const installerWindow = () => launcher().window ?? 'your terminal';
 const GLYPH = { ok: 'check', warn: 'warn', fail: 'x' };
 const STATUS_ICON = { done: 'check', failed: 'x', stopped: 'stop', current: 'current', upcoming: 'circle', skipped: 'minus' };
 const STATUS_TEXT = { done: 'done', failed: 'failed', stopped: 'stopped', current: 'in progress', upcoming: 'to do', skipped: 'skipped' };
@@ -385,9 +386,7 @@ async function quit() {
     h('main', { class: 'closed' },
       h('h1', null, 'The installer has stopped'),
       h('p', { class: 'lede' }, 'You can close this tab.'),
-      h('p', { class: 'sub' }, fromExe()
-        ? 'To open it again, run AnalyticsHubInstaller.exe.'
-        : 'To open it again, run valuelens-install --ui in your terminal.'),
+      h('p', { class: 'sub' }, launcher().reopen ?? 'To open it again, run valuelens-install --ui in your terminal.'),
     ),
   );
 }
@@ -1408,7 +1407,7 @@ function updateBanner() {
   const u = app.state?.update;
   if (!u) return null;
   return h('div', { class: 'back', role: 'status' },
-    h('span', null, h('strong', null, `Installer ${u.version} is available.`), ' Download it, open it and choose Repair or change.'),
+    h('span', null, h('strong', null, `Installer ${u.version} is available.`), ' ', launcher().update ?? 'Download it, open it and choose Repair or change.'),
     h('a', { class: 'btn primary', href: u.url, target: '_blank', rel: 'noreferrer' }, 'Get it'));
 }
 

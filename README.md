@@ -17,6 +17,13 @@ https://github.com/user-attachments/assets/b415625d-c2ae-467f-9a91-59ef9adca6c8
 For Windows 10 or 11. Open it and follow the steps in your browser. If Edge or Windows warns about
 the download, see [Check the download](installer/README.md#check-the-download).
 
+Can't run downloaded exes? Paste this into PowerShell instead. It needs no admin rights and opens
+the same installer in your browser ([more](installer/README.md#from-powershell)):
+
+```powershell
+irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+```
+
 **Before you start**, go through the **[checklist](docs/PREREQUISITES.md)**. It says what you need
 and what to ask other admins for (a Fabric admin, an Entra admin and, for some extras, a Power
 Platform admin or a Viva Insights analyst), with the costs. Allow about 5 minutes of questions and

@@ -18,6 +18,36 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ---
 
+## Unreleased — Install from PowerShell
+
+### Added: a PowerShell command for organisations that block downloaded exes
+
+**Why.** Many organisations block downloaded `.exe` files, so people couldn't start the installer
+without cloning the repo and installing Node.js.
+
+**What changed.** Each release now also has `install.ps1` and `AnalyticsHubInstaller.zip`, the
+same payload as the exe. In PowerShell, run:
+
+```powershell
+irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+```
+
+It downloads the zip, checks its SHA-256 against the one written into `install.ps1`, unpacks it
+under `%LOCALAPPDATA%\AnalyticsHub` (the same place as the exe) and opens the same browser steps.
+No admin rights. It works in Windows PowerShell 5.1 and PowerShell 7, including Constrained
+Language Mode, and through a proxy (`$env:ANALYTICS_HUB_PROXY`). If `irm | iex` is blocked, download
+both files and run `install.ps1 -ZipPath`. It leaves `analytics-hub.cmd` behind for later
+commands, and messages in the installer name that command when you started it this way. The
+release notes give a command pinned to that release. See
+[From PowerShell](installer/README.md#from-powershell).
+
+**Still blocked by.** AppLocker or WDAC rules that stop programs under the user profile block the
+unpacked `node.exe`, as they block the exe. `install.ps1` isn't Authenticode-signed yet.
+
+The exe is unchanged and stays the main download.
+
+---
+
 ## Unreleased — Private networking under Azure Policy
 
 ### Fixed: private networking deploys where Azure Policy denies public access

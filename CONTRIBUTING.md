@@ -53,11 +53,18 @@ with the installer and the notebooks, pipeline and templates it deploys, and zip
 portable Node.js into a small C# launcher, compiled with the `csc` that comes with the .NET
 Framework. Run `npm ci` in the installer and in the app first. `--release` fails rather than warns
 when something a published download needs is missing; `--out <dir>` writes the exe somewhere else.
+Next to the exe it writes the same payload as `AnalyticsHubInstaller.zip` with its `.sha256`, and
+`install.ps1`, the [PowerShell launcher](installer/README.md#from-powershell), filled in from
+[`packaging/launcher/install.ps1`](installer/packaging/launcher/install.ps1) with the zip's
+version, URL and SHA-256. Keep that template plain ASCII, and to commands allowed in Constrained
+Language Mode, or guard what isn't with `$FullLanguage`.
 
 The [`installer-exe`](.github/workflows/installer-exe.yml) workflow builds, tests and smoke-tests
-the exe on pull requests that touch `packaging/`. To publish one, set the version in
+the exe and `install.ps1` (in PowerShell 7, and in Windows PowerShell 5.1 in Constrained Language
+Mode) on pull requests that touch `packaging/`. To publish one, set the version in
 `installer/package.json` and push a tag `installer-v<version>`. The workflow drafts a
-release with the exe, its SHA-256 and the release notes from `packaging/finish-exe.js`. The same
+release with the exe, the zip, their SHA-256 files, `install.ps1` and the release notes from
+`packaging/finish-exe.js`. The same
 tag makes [`azure-images`](.github/workflows/azure-images.yml) push
 `ghcr.io/microsoft/valuelens-jobs` and `valuelens-web` with that version, which Azure installs pull.
 
@@ -66,7 +73,9 @@ Signing happens in CI, never on your computer. Run the ESRP pipeline
 with the tag. It signs the draft's exe with the Microsoft Corporation certificate and replaces its
 exe, hash and notes. Then review the draft and publish it. Publishing checks the exe against its
 hash. With the repo variable `REQUIRE_SIGNED_INSTALLER` set to `true`, it also requires the
-signature. A release that fails goes back to being a draft.
+signature. A release that fails goes back to being a draft. Signing leaves the zip and
+`install.ps1` as they are; publishing also checks that `install.ps1` expects the published zip's
+SHA-256.
 
 ## Work on the app and the Azure web app
 
