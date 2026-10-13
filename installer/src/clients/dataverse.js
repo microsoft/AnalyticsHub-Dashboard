@@ -60,6 +60,11 @@ export function dataverseApi(http, url) {
      */
     findAppUser: async (appId) =>
       (await http.get(`/systemusers?$select=systemuserid,isdisabled,_businessunitid_value&$filter=${q(`applicationid eq ${appId}`)}`, { headers: ODATA }))?.value?.[0],
+    /**
+     * Whether the environment has any Copilot Studio agents (the bot table has a row).
+     * @returns {Promise<boolean>}
+     */
+    hasAgents: async () => ((await http.get('/bots?$top=1&$select=botid', { headers: ODATA }))?.value?.length ?? 0) > 0,
     /** @returns {Promise<string | undefined>} */
     rootBusinessUnit: async () =>
       (await http.get(`/businessunits?$select=businessunitid&$filter=${q('_parentbusinessunitid_value eq null')}`, { headers: ODATA }))?.value?.[0]?.businessunitid,

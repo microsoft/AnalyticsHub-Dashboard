@@ -107,8 +107,8 @@ const COMMANDS = {
   uninstall: {
     title: 'Uninstall Analytics Hub', short: 'Uninstall', icon: 'x', section: 'Uninstall', adopt: true,
     row: 'Uninstall', button: 'Uninstall',
-    desc: 'Azure target only: delete the resource group the installer created, or only tagged resources in an existing group.',
-    off: 'Only available for Azure installations.',
+    desc: 'Azure: delete the resource group the installer created, or only tagged resources in an existing group. Fabric: delete the workspace, after its managed private endpoints.',
+    off: 'Nothing is installed yet.',
   },
   prereqs: {
     title: 'Check prerequisites', short: 'Prerequisites', icon: 'shield', section: 'Prerequisites',
@@ -964,8 +964,8 @@ function renderPrereqs(items) {
         it.status !== 'met' ? h('p', { class: 'prereq-how' }, h('strong', null, 'How to get it: '), linkify(it.howTo ?? '')) : null))));
 }
 
-const LOAD_GLYPH = { ok: 'check', failed: 'x', skipped: 'minus', running: 'clock', todo: 'warn' };
-const LOAD_STATE = { ok: 'loaded', failed: 'failed', skipped: 'didn\'t run', running: 'still running', todo: 'to do' };
+const LOAD_GLYPH = { ok: 'check', warning: 'warn', failed: 'x', skipped: 'minus', running: 'clock', todo: 'warn' };
+const LOAD_STATE = { ok: 'loaded', warning: 'loaded with a warning', failed: 'failed', skipped: 'didn\'t run', running: 'still running', todo: 'to do' };
 
 /** One card per source: whether it loaded, why not and what to do. */
 function renderLoads(cards) {
@@ -1849,7 +1849,7 @@ function itemMarkdown(it, depth) {
       return ['', ...reviewMarkdown(it.plan), ''];
     case 'loads':
       return it.cards.flatMap((card) => [
-        `- ${card.expected ? '…' : { ok: '✓', failed: '✗', skipped: '⚠', running: '…', todo: '⚠' }[card.state] ?? ''} ${card.name}: ${card.expected ? `waiting for "${card.expected}"` : LOAD_STATE[card.state] ?? card.state}${card.attempts ? ` (${card.attempts} attempts)` : ''}`,
+        `- ${card.expected ? '…' : { ok: '✓', warning: '⚠', failed: '✗', skipped: '⚠', running: '…', todo: '⚠' }[card.state] ?? ''} ${card.name}: ${card.expected ? `waiting for "${card.expected}"` : LOAD_STATE[card.state] ?? card.state}${card.attempts ? ` (${card.attempts} attempts)` : ''}`,
         ...(card.reason ? [`  - ${card.reason}`] : []),
         ...(card.fix ?? []).map((f) => `  - ${f.trim()}`),
       ]);

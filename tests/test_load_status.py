@@ -131,6 +131,60 @@ class LoadStatusTests(unittest.TestCase):
         new = out["Run_Some_NewThing"]
         self.assertEqual((new["source"], new["duration_seconds"]), ("Some New Thing", None))
 
+    def test_status_tables_turn_a_success_into_a_warning(self):
+        s = namespace()
+        rules = status(s)["warnings"]
+        w = s["warning"]
+        rg = [{"item": "arg_agent_config", "status": "forbidden"}, {"item": "arg_foundry_resources", "status": "ok"},
+              {"item": "arg_agent_flows", "status": "forbidden"}]
+        self.assertEqual(w(rg, rules), ("forbidden", "It ran, but wasn't allowed to read arg_agent_config, arg_agent_flows."))
+        defender = [{"item": "agents", "status": "unlicensed"}, {"item": "installed", "status": "ok"}]
+        self.assertEqual(w(defender, rules)[0], "unlicensed")
+        self.assertEqual(w([{"item": "installed", "status": "error"}], rules)[0], "other")
+        envs = [{"item": "Default", "status": "empty"}, {"item": "Sales", "status": "Empty"}]
+        self.assertEqual(w(envs, rules), ("empty", "It ran, but found nothing to load in Default, Sales."))
+        # Empty is only a warning when nothing loaded; an empty probe beside a full one is fine.
+        self.assertIsNone(w([{"item": "Default", "status": "empty"}, {"item": "Sales", "status": "ok"}], rules))
+        self.assertIsNone(w([{"item": "agents", "status": "ok"}, {"item": "flows", "status": "skipped"}], rules))
+        self.assertIsNone(w([], rules))
+        # Forbidden wins over empty.
+        self.assertEqual(w([{"item": "a", "status": "empty"}, {"item": "b", "status": "forbidden"}], rules)[0], "forbidden")
+
+    def test_status_tables_name_loads_that_write_them(self):
+        tables = {t["activity"]: t["table"] for t in status(namespace())["statusTables"]}
+        self.assertEqual(tables, {"Run_Resource_Graph_Ingester": "arg_status", "Run_Defender_Ingester": "defender_status",
+                                  "Run_Agent_Evaluator_Transcripts": "evaluator_status"})
+
+    def test_warning_rows_are_recorded_as_warning_not_succeeded(self):
+        s = namespace()
+        st = status(s)
+        t = "2026-06-01T10:00:00Z"
+        last = s["last_attempts"]([
+            run("Run_Resource_Graph_Ingester", "Succeeded", t),
+            run("Run_Agent_Evaluator_Transcripts", "Succeeded", t),
+            run("Run_Org_Data_Ingester", "Succeeded", t),
+            run("Run_Defender_Ingester", "Failed", t, {"message": "boom"}),
+        ])
+        warnings = {
+            "Run_Resource_Graph_Ingester": ("forbidden", "It ran, but wasn't allowed to read arg_agent_config."),
+            "Run_Agent_Evaluator_Transcripts": ("empty", "It ran, but found nothing to load in Default."),
+            "Run_Defender_Ingester": ("unlicensed", "ignored: it failed"),
+        }
+        out = {r["activity"]: r for r in s["rows"](last, st["labels"], st["reasons"], RUN_ID, datetime(2026, 6, 1), warnings)}
+        rg = out["Run_Resource_Graph_Ingester"]
+        self.assertEqual((rg["status"], rg["reason_kind"]), ("Warning", "forbidden"))
+        self.assertIn("arg_agent_config", rg["reason"])
+        self.assertEqual((out["Run_Agent_Evaluator_Transcripts"]["status"], out["Run_Agent_Evaluator_Transcripts"]["reason_kind"]), ("Warning", "empty"))
+        self.assertEqual((out["Run_Org_Data_Ingester"]["status"], out["Run_Org_Data_Ingester"]["reason"]), ("Succeeded", None))
+        self.assertEqual((out["Run_Defender_Ingester"]["status"], out["Run_Defender_Ingester"]["reason_kind"]), ("Failed", "other"))
+        # A warning isn't a failure, so it doesn't fail the run.
+        self.assertEqual(s["failed_loads"](last), ["Run_Defender_Ingester"])
+
+    def test_record_hands_the_warnings_to_the_installer(self):
+        _, code = cells()
+        self.assertIn("notebookutils.notebook.exit(SUMMARY)", code[2])
+        self.assertIn("load_warnings={SUMMARY}", code[2])
+
     def test_window_covers_the_run(self):
         s = namespace()
         now = datetime(2026, 6, 1, 12, 0, tzinfo=timezone.utc)

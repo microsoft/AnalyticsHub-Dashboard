@@ -52,7 +52,10 @@ Import `Copilot_Agent_Transcript_Parser.ipynb`, attach your Lakehouse, and set t
 | `TENANT_ID`, `CLIENT_ID`, `CLIENT_SECRET` | The app registration. Read the secret from Key Vault with `notebookutils.credentials.getSecret`. |
 | `WRITE_MODE` | `'merge'` for scheduled runs, so each run adds to history |
 | `RAW_TABLE` | `''`. The report doesn't use the raw table. |
-| `LOOKBACK_DAYS` | `7` for a weekly schedule. Use `30` on the first run to load what Dataverse still holds. |
+| `LOOKBACK_DAYS` | `7` for a weekly schedule. An environment no run has read yet goes back `FIRST_READ_DAYS` instead. |
+| `FIRST_READ_DAYS` | `180`. Dataverse keeps transcripts for about 30 days by default, so this loads whatever it still holds. |
+| `STATUS_TABLE` | `'dbo.evaluator_status'`. Each run replaces it with one row per environment, giving how many days it read, how many transcripts it found, a `Status` of *ok*, *empty*, *forbidden* or *error*, and a plain `Reason`. |
+| `DATAVERSE_ENV_NAMES` | Optional: plain names by URL, for `evaluator_status`. The installer fills it in. |
 
 If a scheduled `merge` or `append` run finds no new transcripts, the notebook creates missing
 `agent_*` tables as empty string-schema tables and leaves existing tables unchanged.

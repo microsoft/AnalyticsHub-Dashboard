@@ -9,13 +9,17 @@ import { useStageFilter } from "@/hooks/stage-filter.context";
 import { useMemo, useState } from "react";
 import { stageAnchor } from "@/components/destinations";
 import { SourceEmpty, SourceError } from "@/components/source-states";
+import { useSemanticModelQuery } from "@/hooks/use-semantic-model-query";
 import { useTableQuery } from "@/hooks/use-table-query";
 import {
+    describeEvaluatorStatus,
     evaluationFilters,
     evaluationOptions,
+    evaluatorStatus,
     hasEvaluationData,
     NO_SELECTION,
     readEvaluationOptions,
+    readEvaluatorStatus,
     type EvaluationSelection,
 } from "@/queries/agent-evaluation";
 import { evaluatorConnection } from "@/queries/shared";
@@ -24,6 +28,7 @@ import { EvaluationBar } from "./evaluation-bar";
 import { PerformanceStage } from "./performance-stage";
 
 const OPTIONS = evaluationOptions();
+const STATUS = evaluatorStatus();
 const SOURCE = { anchor: stageAnchor("agent-performance"), page: "Agent Evaluation", model: "Agent Evaluator" };
 
 /**
@@ -41,6 +46,13 @@ export function AgentEvaluationScreen() {
     const { show, inPack } = useStageFilter();
     const [selection, setSelection] = useState<EvaluationSelection>(NO_SELECTION);
     const extra = useMemo(() => evaluationFilters(selection, options), [selection, options]);
+    const empty = options !== undefined && !hasEvaluationData(options);
+    // Where the parser looked, read only when the page is empty, unfiltered. A model without the table says nothing more.
+    const status = useSemanticModelQuery({ connection: STATUS.connection, query: empty ? STATUS.query : "" });
+    const why = useMemo(
+        () => (status.data?.status === "success" ? describeEvaluatorStatus(readEvaluatorStatus(status.data.table)) : undefined),
+        [status.data],
+    );
 
     if (optionsResult.error !== undefined) {
         return (
@@ -53,12 +65,15 @@ export function AgentEvaluationScreen() {
         );
     }
 
-    if (options && !hasEvaluationData(options)) {
+    if (empty) {
         return (
             <SourceEmpty
                 {...SOURCE}
-                title="No agent conversations yet"
-                description="Agent Evaluator is connected, but its model holds no Copilot Studio conversations. Once its lakehouse is loaded and the model refreshes, this page fills in."
+                title={why?.title ?? "No agent conversations yet"}
+                description={
+                    why?.description ??
+                    "Agent Evaluator is connected, but its model holds no Copilot Studio conversations. Once its lakehouse is loaded and the model refreshes, this page fills in."
+                }
             />
         );
     }

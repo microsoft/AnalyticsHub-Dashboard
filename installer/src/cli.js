@@ -40,7 +40,8 @@ Commands:
   rotate-secret    Create new client secrets for Key Vault and the model's connection
   access           Who can view: the viewer group, its members and owners, and its Build on the models
   upload [files]   Upload CSV exports to the drop folder (Files/analytics_hub_uploads)
-  uninstall        Azure target only: remove the resource group if created, or only tagged resources
+  uninstall        Azure: remove the resource group if created, or only tagged resources. Fabric: delete
+                   the workspace's managed private endpoints, then the workspace
   prereqs          Check the roles, licences, capacities and Azure access you have and lack.
                    Read-only; works before anything is installed
   preview          Write what would be deployed to a folder, without signing in

@@ -13,6 +13,8 @@ import {
     AGENT_INVENTORY_FORBIDDEN,
     describeResourceGraph,
     FOUNDRY_FORBIDDEN,
+    NOT_COLLECTED,
+    RESOURCE_GRAPH_FORBIDDEN,
     RESOURCE_GRAPH_NO_DATA,
     RESOURCE_GRAPH_NOT_SET_UP,
 } from "@/queries/governance";
@@ -49,10 +51,17 @@ describe("ResourceGraphPanel", () => {
         expect(screen.getByText(RESOURCE_GRAPH_NOT_SET_UP.title)).toBeTruthy();
     });
 
-    it("says nothing has loaded yet, with the missing roles", () => {
-        const row = { ...READY, "[Configured Agents]": 0, "[Foundry Resources]": 0, "[Agent Status]": "forbidden", "[Foundry Status]": "forbidden" };
+    it("says nothing has loaded yet when the probes ran but found nothing", () => {
+        const row = { ...READY, "[Configured Agents]": 0, "[Foundry Resources]": 0, "[Agent Status]": "empty", "[Foundry Status]": "empty" };
         render(<ResourceGraphPanel summary={summaryOf({ row, loaded: true })} />);
         expect(screen.getByText(RESOURCE_GRAPH_NO_DATA.title)).toBeTruthy();
+    });
+
+    it("says nothing was collected, not zero, when the probes were forbidden, with the missing roles", () => {
+        const row = { ...READY, "[Configured Agents]": 0, "[Foundry Resources]": 0, "[Agent Status]": "forbidden", "[Foundry Status]": "forbidden" };
+        render(<ResourceGraphPanel summary={summaryOf({ row, loaded: true })} />);
+        expect(screen.getByText(RESOURCE_GRAPH_FORBIDDEN.title)).toBeTruthy();
+        expect(screen.queryByText(RESOURCE_GRAPH_NO_DATA.title)).toBeNull();
         expect(screen.getByText(AGENT_INVENTORY_FORBIDDEN)).toBeTruthy();
         expect(screen.getByText(FOUNDRY_FORBIDDEN)).toBeTruthy();
     });
@@ -64,8 +73,16 @@ describe("ResourceGraphPanel", () => {
         expect(screen.getByText("No sign-in required")).toBeTruthy();
         expect(screen.getByText("Web search on")).toBeTruthy();
         expect(screen.getByText("Foundry open to the public network")).toBeTruthy();
-        expect(screen.getAllByText("Not read").length).toBeGreaterThan(0);
+        expect(screen.getByText(NOT_COLLECTED)).toBeTruthy();
         expect(screen.getByText(FOUNDRY_FORBIDDEN)).toBeTruthy();
         expect(screen.queryByText(AGENT_INVENTORY_FORBIDDEN)).toBeNull();
+    });
+
+    it("shows the agent figures as not collected, rather than zero, when the agent probe was forbidden", () => {
+        const row = { ...READY, "[Configured Agents]": 0, "[No Sign In]": 0, "[Web Search]": 0, "[Agent Status]": "forbidden" };
+        render(<ResourceGraphPanel summary={summaryOf({ row, loaded: true })} />);
+        expect(screen.getAllByText(NOT_COLLECTED)).toHaveLength(2);
+        expect(screen.getByText("Foundry open to the public network")).toBeTruthy();
+        expect(screen.getByText(AGENT_INVENTORY_FORBIDDEN)).toBeTruthy();
     });
 });

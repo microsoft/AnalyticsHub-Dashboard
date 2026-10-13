@@ -7,11 +7,11 @@
  */
 import { createHash } from 'node:crypto';
 
-/** @typedef {'date' | 'text' | 'count' | 'flag'} ArgColumnKind */
+/** @typedef {'date' | 'datetime' | 'text' | 'count' | 'flag'} ArgColumnKind */
 /** @typedef {{ name: string, source: string, description: string, columns: { name: string, kind: ArgColumnKind }[] }} ArgTable */
 
-/** @param {string} spec  Space-separated names; a suffix of `:date`, `:flag` or `:count` sets the kind. */
-const cols = (spec) =>
+/** @param {string} spec  Space-separated names; a suffix of `:date`, `:datetime`, `:flag` or `:count` sets the kind. */
+export const cols = (spec) =>
   spec.split(/\s+/).filter(Boolean).map((s) => {
     const [name, kind = 'text'] = s.split(':');
     return { name, kind: /** @type {ArgColumnKind} */ (kind) };
@@ -76,7 +76,7 @@ export function stableGuid(key) {
   return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-a${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
-const M_TYPES = /** @type {Record<ArgColumnKind, string>} */ ({ date: 'type date', text: 'type text', count: 'Int64.Type', flag: 'type logical' });
+const M_TYPES = /** @type {Record<ArgColumnKind, string>} */ ({ date: 'type date', datetime: 'type datetime', text: 'type text', count: 'Int64.Type', flag: 'type logical' });
 
 /**
  * The partition's Power Query. `source` is the M that reads the Lakehouse table; without it the table is empty.
@@ -125,6 +125,7 @@ function column(table, c) {
     annotations.push({ name: 'UnderlyingDateTimeDataType', value: 'Date' });
     return { ...base, dataType: 'dateTime', formatString: 'Long Date', summarizeBy: 'none', annotations };
   }
+  if (c.kind === 'datetime') return { ...base, dataType: 'dateTime', formatString: 'General Date', summarizeBy: 'none', annotations };
   if (c.kind === 'flag') return { ...base, dataType: 'boolean', formatString: '"TRUE";"TRUE";"FALSE"', summarizeBy: 'none', annotations };
   if (c.kind === 'count') return { ...base, dataType: 'int64', formatString: '#,0', summarizeBy: 'sum', annotations };
   return { ...base, dataType: 'string', summarizeBy: 'none', annotations };
@@ -134,11 +135,12 @@ function column(table, c) {
  * @param {import('./model.js').ModelBim['model']} model
  * @param {ArgTable} t
  * @param {string[]} expression
+ * @param {string} [from]  Ends the table's description.
  */
-function addTable(model, t, expression) {
+export function addTable(model, t, expression, from = 'From Azure Resource Graph.') {
   model.tables.push({
     name: t.name,
-    description: `${t.description} From Azure Resource Graph.`,
+    description: `${t.description} ${from}`,
     lineageTag: stableGuid(`table:${t.name}`),
     columns: t.columns.map((c) => column(t.name, c)),
     partitions: [{ name: t.name, mode: 'import', source: { type: 'm', expression } }],

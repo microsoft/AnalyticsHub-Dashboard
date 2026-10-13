@@ -289,8 +289,8 @@ a { overflow-wrap: anywhere; }
 .load.ok .gl { color: var(--ok); }
 .load.failed { background: var(--fail-tint); }
 .load.failed .gl { color: var(--fail); }
-.load.skipped, .load.running, .load.expected { background: var(--warn-tint); }
-.load.skipped .gl, .load.running .gl, .load.expected .gl { color: var(--warn); }
+.load.skipped, .load.running, .load.warning, .load.expected { background: var(--warn-tint); }
+.load.skipped .gl, .load.running .gl, .load.warning .gl, .load.expected .gl { color: var(--warn); }
 .prereqs { list-style: none; margin: 4px 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-width: calc(76ch + 20px); }
 .prereq { display: flex; gap: 8px; align-items: flex-start; padding: 6px 10px; margin-left: -10px; border-radius: 4px; overflow-wrap: anywhere; }
 .prereq p { margin: 2px 0 0; }

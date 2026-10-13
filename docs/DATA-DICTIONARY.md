@@ -629,3 +629,30 @@ per-project agent sweep.
 `arg_environments`, `arg_agent_flows`, `arg_foundry_resources`) with `Status` *ok*, *empty*,
 *forbidden*, *error* or *skipped* (turned off), `Rows`, `Source` and `Detail` (the error, or which
 inventory file was read). The dashboard uses it to say why a section is empty.
+
+### Run status
+
+**`load_log`** → `Load Log` (Analytics Hub model): `AnalyticsHub_Load_Status` writes one row per
+source per pipeline run. The columns are:
+
+- `run_id`, `activity`, `source` and `activity_type`.
+- `status`: *Succeeded*, *Warning*, *Failed*, *Cancelled* or *Skipped*.
+- `reason_kind`: *capacity*, *signIn*, *timeout*, *noData*, *empty*, *forbidden*, *unlicensed* or *other*.
+- `reason`, in plain words.
+- `attempts`, `started_at`, `ended_at`, `logged_at`, `error_code` and `error_message`.
+
+A *Warning* means the load finished but couldn't read everything: a Resource Graph probe was
+refused, Defender isn't licensed, or Agent Evaluator found no transcripts. The app's freshness
+line shows the latest status for each source. The row for a run reaches the model at the next
+refresh. On Azure the table stays empty.
+
+**`evaluator_status`** → `Evaluator Status` (Agent Evaluator model): `Copilot_Agent_Transcript_Parser`
+replaces it on each run, with one row per environment. The columns are:
+
+- `RunAt`, `Environment` and `EnvironmentUrl`.
+- `LookbackDays` and `Transcripts`.
+- `Status`: *ok*, *empty*, *forbidden* or *error*.
+- `Reason`.
+
+When the model has no conversations, the Agent Evaluation page uses it to say where the parser
+looked, and how far back.

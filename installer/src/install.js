@@ -54,6 +54,7 @@ import { rlsOn, rlsSettings } from './transform/access.js';
 import { buildAgentEvaluatorModel, buildConsumptionModel, buildModel, loadTemplateModel } from './transform/model.js';
 import { buildPipeline } from './transform/pipeline.js';
 import { c } from './ui.js';
+import { fabricUninstall } from './steps/fabric-uninstall.js';
 import { askTarget, azureRefresh, azureRotateSecret, azureRun, azureStatus, azureUninstall, azureUpdate, azureViewerModels, confirmAzurePlan, installAzure, planAzure } from './steps/azure/index.js';
 import { accessCommand, ensureViewerGroup, grantModelAccess, myGroupsUrl, shareApp } from './steps/access.js';
 import { nextSteps, stepsLeftTitle } from './steps/next-steps.js';
@@ -63,6 +64,7 @@ import { ensureOrgAccess, verifyOrgAccess } from './steps/org-access.js';
  * @typedef {object} Apis
  * @property {import('./clients/fabric.js').FabricApi} fabric
  * @property {import('./clients/graph.js').GraphApi} graph
+ * @property {import('./clients/graph.js').GraphApi} [graphRoles]  Graph with the role management scope, asked for only when it's used.
  * @property {import('./clients/azure.js').ArmApi} arm
  * @property {import('./clients/azure.js').KeyVaultApi} keyVault
  * @property {import('./clients/onelake.js').OneLakeApi} oneLake
@@ -116,6 +118,8 @@ export async function connect(opts) {
   const api = {
     fabric: fabricApi(client('https://api.fabric.microsoft.com/v1', 'fabric')),
     graph: graphApi(client('https://graph.microsoft.com/v1.0', 'graph')),
+    // The Azure CLI sign-in only hands out .default tokens, so it can't ask for this scope.
+    ...(opts.method === 'azure-cli' ? {} : { graphRoles: graphApi(client('https://graph.microsoft.com/v1.0', 'graphRoles')) }),
     arm: armApi(client('https://management.azure.com', 'arm')),
     keyVault: keyVaultApi(client('https://vault.azure.net', 'keyVault')),
     oneLake: oneLakeApi(client(ONELAKE_URL, 'storage')),
@@ -647,7 +651,7 @@ export async function runCommand(ctx, command, opts) {
       return true;
     case 'uninstall':
       if (ctx.config.target === 'azure') await azureUninstall(ctx);
-      else throw new Error('Uninstall is only implemented for the Azure target.');
+      else await fabricUninstall(ctx);
       return true;
     case 'upload':
       return uploadCommand(ctx, { files: opts.files ?? [], run: opts.run, wait: opts.wait }, (c2, o) => run(c2, o));

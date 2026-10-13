@@ -23,6 +23,7 @@ import { ReportsNav } from "./reports-nav";
 const { run } = vi.hoisted(() => ({ run: vi.fn() }));
 
 vi.mock("@/hooks/use-source-freshness", () => ({ useSourceFreshness: () => ({}) }));
+vi.mock("@/hooks/use-load-status", () => ({ useLoadStatus: () => undefined }));
 vi.mock("@/hooks/use-report-export", () => ({
     useReportExport: () => ({ busy: undefined, message: undefined, run }),
 }));
