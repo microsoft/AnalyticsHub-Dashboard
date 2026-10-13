@@ -71,6 +71,59 @@ export function fakeUi(opts = {}) {
   return { ui: /** @type {import('../src/ui.js').Ui} */ (/** @type {unknown} */ (ui)), out, asked, text: () => out.join('') };
 }
 
+/**
+ * Power Platform connections held in memory. A new one isn't signed in to. With `signsIn`, a
+ * connection whose sign-in link was given is signed in to by the next look at it, as if the user
+ * clicked it.
+ * @param {{ existing?: any[], signsIn?: boolean, noLinks?: boolean, failCreate?: boolean }} [o]
+ */
+export function fakeConnections(o = {}) {
+  /** @type {string[]} */
+  const calls = [];
+  /** @type {any[]} */
+  const conns = structuredClone(o.existing ?? []);
+  const linked = new Set();
+  let n = 0;
+  const signIn = (/** @type {string} */ id) => {
+    const conn = conns.find((x) => x.name === id);
+    if (conn) conn.properties.statuses = [{ status: 'Connected' }];
+  };
+  const api = {
+    /** @param {string} env @param {string} api */
+    list: async (env, api) => {
+      calls.push(`list ${env} ${api}`);
+      return structuredClone(conns);
+    },
+    /** @param {string} _env @param {string} _api @param {string} id */
+    get: async (_env, _api, id) => {
+      calls.push(`get ${id}`);
+      if (o.signsIn && linked.has(id)) signIn(id);
+      return structuredClone(conns.find((x) => x.name === id));
+    },
+    /** @param {string} env @param {string} api @param {{ displayName: string, parameters: Record<string, string> }} p */
+    create: async (env, api, p) => {
+      calls.push(`create ${p.displayName}`);
+      if (o.failCreate) throw new Error('403 Forbidden');
+      const conn = { name: `shared-webcontents-${++n}`, properties: { displayName: p.displayName, apiId: `/providers/Microsoft.PowerApps/apis/${api}`, environment: env, connectionParameters: p.parameters, statuses: [{ status: 'Error', error: { code: 'Unauthenticated' } }], createdBy: { id: 'user-1' } } };
+      conns.push(conn);
+      return structuredClone(conn);
+    },
+    /** @param {string} _env @param {string} _api @param {string} id @param {string} redirectUrl */
+    consentLink: async (_env, _api, id, redirectUrl) => {
+      calls.push(`consentLink ${id} ${redirectUrl}`);
+      linked.add(id);
+      if (o.noLinks) throw new Error('400 Bad Request');
+      return `https://consent.example/${id}`;
+    },
+    /** @param {string} _env @param {string} _api @param {string} id */
+    remove: async (_env, _api, id) => {
+      calls.push(`remove ${id}`);
+      conns.splice(conns.findIndex((x) => x.name === id), 1);
+    },
+  };
+  return { api, calls, conns, signIn };
+}
+
 /** A Fabric workspace held in memory. */
 export function fakeFabric() {
   let n = 0;
@@ -645,7 +698,7 @@ export function fakePowerBi() {
 }
 
 /**
- * @param {{ ui?: import('../src/ui.js').Ui, fabric?: any, graph?: any, oneLake?: any, arm?: any, keyVault?: any, powerBi?: any, discovery?: any, powerPlatform?: any, flow?: any, dataverse?: (url: string) => any, dataLake?: (account: string) => any, runner?: import('../src/steps/app.js').Runner, sources?: import('../src/sources.js').Sources, config?: import('../src/config.js').InstallConfig, now?: Date }} [o]
+ * @param {{ ui?: import('../src/ui.js').Ui, fabric?: any, graph?: any, oneLake?: any, arm?: any, keyVault?: any, powerBi?: any, discovery?: any, powerPlatform?: any, flow?: any, connections?: any, dataverse?: (url: string) => any, dataLake?: (account: string) => any, runner?: import('../src/steps/app.js').Runner, sources?: import('../src/sources.js').Sources, config?: import('../src/config.js').InstallConfig, now?: Date }} [o]
  */
 export function fakeCtx(o = {}) {
   const config = o.config ?? emptyConfig();
@@ -680,6 +733,7 @@ export function fakeCtx(o = {}) {
         dataverse: o.dataverse,
         dataLake: o.dataLake,
         flow: o.flow,
+        connections: o.connections,
       },
       user: { id: 'user-1', upn: 'admin@contoso.com', tenantId: 'tenant-1' },
       sources: o.sources ?? realSources(),

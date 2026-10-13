@@ -7,6 +7,7 @@ import { join, resolve } from 'node:path';
 import { createCredential, createTokenProvider, decodeJwt } from './auth.js';
 import { notebooksFor, permissionsFor } from './catalog.js';
 import { armApi, keyVaultApi } from './clients/azure.js';
+import { connectionsApi, POWERAPPS_URL } from './clients/connections.js';
 import { dataverseApi, dataverseScope, DISCOVERY_URL, discoveryApi, orgUrl } from './clients/dataverse.js';
 import { FLOW_URL, flowApi } from './clients/flow.js';
 import { fabricApi, scheduleBody } from './clients/fabric.js';
@@ -69,6 +70,7 @@ import { ensureOrgAccess, verifyOrgAccess } from './steps/org-access.js';
  * @property {import('./clients/dataverse.js').DiscoveryApi} discovery
  * @property {import('./clients/powerplatform.js').PowerPlatformApi} powerPlatform
  * @property {import('./clients/flow.js').FlowApi} flow
+ * @property {import('./clients/connections.js').ConnectionsApi} [connections]  Power Platform connections, for signing the flows in.
  * @property {(url: string) => import('./clients/dataverse.js').DataverseApi} dataverse  A Dataverse environment, by org URL.
  * @property {(account: string) => import('./clients/onelake.js').DataLakeApi} dataLake  An Azure storage account's files, by account name.
  *
@@ -121,6 +123,7 @@ export async function connect(opts) {
     discovery: discoveryApi(client(DISCOVERY_URL, 'discovery')),
     powerPlatform: powerPlatformApi(client(POWER_PLATFORM_URL, 'powerPlatform')),
     flow: flowApi(client(FLOW_URL, 'flow')),
+    connections: connectionsApi(client(POWERAPPS_URL, 'powerApps')),
     dataverse: (url) => dataverseApi(client(`${orgUrl(url)}/api/data/v9.2`, dataverseScope(url)), url),
     dataLake: (account) => dataLakeApi(client(dataLakeUrl(account), 'storage')),
   };
