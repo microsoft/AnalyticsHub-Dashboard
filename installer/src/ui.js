@@ -74,6 +74,7 @@ export function createUi(opts = {}) {
       for (const card of cards) {
         const tries = card.attempts ? c.dim(` (${card.attempts} attempts)`) : '';
         if (card.state === 'ok') line(`  ${c.green('✓')} ${card.name}${tries}`);
+        else if (card.state === 'warning') line(`  ${c.yellow('!')} ${card.name}: loaded with a warning${tries}`);
         else if (card.state === 'failed') line(`  ${c.red('✗')} ${card.name}: failed${tries}`);
         else if (card.state === 'skipped') line(`  ${c.yellow('!')} ${card.name}: skipped`);
         else if (card.state === 'todo') line(`  ${c.yellow('!')} ${card.name}: to do`);

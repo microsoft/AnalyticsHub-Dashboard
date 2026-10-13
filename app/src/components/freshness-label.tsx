@@ -5,9 +5,17 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { TriangleAlert } from "lucide-react";
 import type { DestinationId } from "@/components/destinations";
+import { useLoadStatus } from "@/hooks/use-load-status";
 import { useSourceFreshness } from "@/hooks/use-source-freshness";
-import { describeFreshness, PAGE_SOURCES, type FreshnessDates, type FreshnessSource } from "@/lib/freshness";
+import {
+    describeFreshness,
+    describeLoadIssues,
+    PAGE_SOURCES,
+    type FreshnessDates,
+    type FreshnessSource,
+} from "@/lib/freshness";
 import { SMALL } from "@/lib/type-scale";
 
 const NONE: readonly FreshnessSource[] = [];
@@ -20,12 +28,26 @@ type FreshnessLabelProps =
 
 /**
  * How recent each source behind the page is, as one muted line: "Audit log to
- * 7 Oct". Nothing at all until a date arrives, and nothing if none does.
+ * 7 Oct". Nothing at all until a date arrives, and nothing if none does. A
+ * load behind the page that failed or loaded with a warning on the latest
+ * pipeline run gets an amber line of its own, with the reason dbo.load_log gives.
  */
 export function FreshnessLabel({ destination, sources: given, dates: known }: FreshnessLabelProps) {
     const sources = given ?? PAGE_SOURCES[destination!];
     const read = useSourceFreshness(known ? NONE : sources);
     const text = describeFreshness(sources, known ?? read);
-    if (!text) return null;
-    return <span className={`${SMALL} text-muted-foreground`}>Data: {text}</span>;
+    const issues = describeLoadIssues(sources, useLoadStatus(sources.length > 0));
+    const line = text && <span className={`${SMALL} text-muted-foreground`}>Data: {text}</span>;
+    if (issues.length === 0) return line || null;
+    return (
+        <span className="flex flex-col gap-100">
+            {line}
+            {issues.map((issue) => (
+                <span key={issue} className={`flex max-w-[80ch] items-start gap-100 ${SMALL} text-caution`}>
+                    <TriangleAlert className="icon-size-200 mt-[2px] shrink-0" aria-hidden="true" />
+                    {issue}
+                </span>
+            ))}
+        </span>
+    );
 }

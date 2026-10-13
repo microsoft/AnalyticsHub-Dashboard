@@ -5,7 +5,8 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { HttpError } from '../src/http.js';
-import { classifyFailure, conditionMet, failedCards, fillRerun, loadCards, RERUN, statusConfigJson } from '../src/loads.js';
+import { classifyFailure, conditionMet, failedCards, fillRerun, loadCards, loadWarnings, RERUN, statusConfigJson, STATUS_TABLES, WARNINGS } from '../src/loads.js';
+import { createUi } from '../src/ui.js';
 import { PIPELINE_TEMPLATE } from '../src/sources.js';
 import { ensureSparkSettings, notebookSettings } from '../src/steps/fabric.js';
 import { BUSY_RETRIES, BUSY_WAIT_MS, dependencyOrder, evaluate, rerunFailed, rerunSteps, runParameters } from '../src/steps/rerun.js';
@@ -332,4 +333,52 @@ test('ensureSparkSettings only warns when it may not change the setting', async 
   await ensureSparkSettings(ctx);
   assert.match(ui.text(), /needs the workspace Admin role/);
   assert.match(ui.text(), /High concurrency/);
+});
+
+/* ---------- Warnings from the status tables ---------- */
+
+const RG = 'Run_Resource_Graph_Ingester';
+const WARNED = { warnings: { [RG]: { kind: 'forbidden', reason: 'It ran, but wasn\'t allowed to read arg_agent_config.' } } };
+
+test('loadWarnings: reads the notebook\'s exit value, or its error when a load failed, and nothing else', () => {
+  assert.deepEqual(loadWarnings({ status: 'Succeeded', output: { result: { exitValue: JSON.stringify(WARNED) } } }), WARNED.warnings);
+  const failed = { status: 'Failed', error: { message: `1 load(s) failed: Copilot audit log. See dbo.load_log for why.\nload_warnings=${JSON.stringify(WARNED)}` } };
+  assert.deepEqual(loadWarnings(failed), WARNED.warnings);
+  assert.deepEqual(loadWarnings({ status: 'Failed', error: { message: '1 load(s) failed.' } }), {});
+  assert.deepEqual(loadWarnings({ output: { result: { exitValue: 'not json' } } }), {});
+  assert.deepEqual(loadWarnings(undefined), {});
+});
+
+test('loadCards: a load the notebook flagged is a warning with its reason and fix; a failed one stays failed', () => {
+  const runs = runsOf({ [RG]: 'Succeeded', Run_Licensed_Users_Ingester: 'Succeeded', [STATUS_ACTIVITY]: 'Succeeded' });
+  /** @type {any} */ (runs.get(STATUS_ACTIVITY)).output = { result: { exitValue: JSON.stringify(WARNED) } };
+  const cards = loadCards(runs);
+  const rg = cards.find((c) => c.activity === RG);
+  assert.equal(rg?.state, 'warning');
+  assert.equal(rg?.kind, 'forbidden');
+  assert.match(rg?.reason ?? '', /arg_agent_config/);
+  assert.match(rg?.fix[0] ?? '', /PERMISSIONS/);
+  assert.equal(cards.find((c) => c.activity === 'Run_Licensed_Users_Ingester')?.state, 'ok');
+  assert.deepEqual(failedCards(cards), [], 'a warning is not a failure, so rerun-failed leaves it alone');
+
+  const failedRuns = runsOf({ [RG]: ['Failed', { message: 'boom' }], [STATUS_ACTIVITY]: 'Succeeded' });
+  /** @type {any} */ (failedRuns.get(STATUS_ACTIVITY)).output = { result: { exitValue: JSON.stringify(WARNED) } };
+  assert.equal(loadCards(failedRuns)[0].state, 'failed');
+});
+
+test('terminal: a warning shows amber, with its reason', () => {
+  /** @type {string[]} */
+  const out = [];
+  createUi({ write: (s) => out.push(s) }).loads([{ activity: RG, name: 'Agent configuration', state: 'warning', reason: 'It ran, but wasn\'t allowed to read arg_agent_config.', fix: ['Give it the role.'] }]);
+  const text = out.join('');
+  assert.match(text, /! Agent configuration: loaded with a warning/);
+  assert.match(text, /wasn't allowed to read arg_agent_config/);
+});
+
+test('status tables and warnings: every kind has a plain text, and the notebook gets them', () => {
+  const json = JSON.parse(statusConfigJson());
+  assert.deepEqual(json.statusTables, STATUS_TABLES);
+  assert.deepEqual(json.warnings.map((/** @type {any} */ w) => w.kind), ['forbidden', 'unlicensed', 'other', 'empty']);
+  for (const w of WARNINGS) assert.ok(w.text.includes('{items}') && w.fix, w.kind);
+  assert.ok(STATUS_TABLES.some((t) => t.table === 'evaluator_status'));
 });

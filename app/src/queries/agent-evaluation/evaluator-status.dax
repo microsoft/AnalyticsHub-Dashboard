@@ -1,0 +1,11 @@
+EVALUATE
+// Which Dataverse environments the transcript parser read on its last run, how
+// far back, and what it found. Each run replaces the table.
+SELECTCOLUMNS(
+    'Evaluator Status',
+    "Environment", 'Evaluator Status'[Environment],
+    "Lookback Days", 'Evaluator Status'[LookbackDays],
+    "Transcripts", 'Evaluator Status'[Transcripts],
+    "Status", 'Evaluator Status'[Status]
+)
+ORDER BY [Environment] ASC

@@ -65,6 +65,7 @@ export const ACCESS_INVENTORY = {
       'Agent Flows',
       'Foundry Resources',
       'Resource Graph Status',
+      'Load Log',
     ],
     open: ['Agents 365', 'Behavior Value Map', 'Human Time Estimates', 'Effort Scenario'],
   },
@@ -98,7 +99,7 @@ export const ACCESS_INVENTORY = {
       'Credit Consumption (User)',
     ],
     direct: [],
-    allOnly: ['Credit Consumption (Agent)', 'Credit Consumption (Tenant)', 'Conversation Transcripts (Raw)', 'Dataverse Diagnostic'],
+    allOnly: ['Credit Consumption (Agent)', 'Credit Consumption (Tenant)', 'Conversation Transcripts (Raw)', 'Dataverse Diagnostic', 'Evaluator Status'],
     open: ['Agent Catalogue', 'Agent Name Map'],
   },
 };

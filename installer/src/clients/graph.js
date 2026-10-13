@@ -17,6 +17,8 @@ export const APP_ROLES = {
 };
 
 export const FABRIC_ADMIN_ROLE = 'a9ea8996-122f-4c74-9520-8edcd192826c';
+export const GLOBAL_READER_ROLE = 'f2ef992c-3afb-46b9-b7cf-a126ee74c451';
+export const AI_ADMIN_ROLE = 'd2562ede-74db-457e-a7b6-544e236ebb61';
 export const POWER_PLATFORM_ADMIN_ROLE = '11648597-926c-4cf3-9c36-bcebb0ba8dcc';
 
 export const POWER_BI_APP_ID = '00000009-0000-0000-c000-000000000000';
@@ -96,6 +98,20 @@ export function graphApi(http) {
     /** @returns {Promise<{ roleTemplateId: string, displayName: string }[]>} */
     myDirectoryRoles: () =>
       http.list('/me/transitiveMemberOf/microsoft.graph.directoryRole', { query: { $select: 'roleTemplateId,displayName' } }),
+    /**
+     * A principal's tenant-wide directory role assignments.
+     * @param {string} principalId
+     * @returns {Promise<{ id: string, roleDefinitionId: string, directoryScopeId?: string }[]>}
+     */
+    directoryRoleAssignments: (principalId) =>
+      http.list('/roleManagement/directory/roleAssignments', { query: { $filter: `principalId eq '${principalId}'`, $select: 'id,roleDefinitionId,directoryScopeId' } }),
+    /**
+     * Gives a principal a directory role across the tenant.
+     * @param {string} principalId
+     * @param {string} roleDefinitionId
+     */
+    assignDirectoryRole: (principalId, roleDefinitionId) =>
+      http.post('/roleManagement/directory/roleAssignments', { principalId, roleDefinitionId, directoryScopeId: '/' }, replicationRetry),
     /** Whether ordinary users may register apps. */
     usersCanRegisterApps: async () => {
       const policy = await http.get('/policies/authorizationPolicy');

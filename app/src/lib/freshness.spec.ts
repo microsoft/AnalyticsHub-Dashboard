@@ -6,7 +6,15 @@
 //-----------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
-import { describeFreshness, formatFreshnessDate, PAGE_SOURCES } from "./freshness";
+import {
+    describeFreshness,
+    describeLoadIssues,
+    formatFreshnessDate,
+    FRESHNESS_LABELS,
+    PAGE_SOURCES,
+    SOURCE_LOADS,
+    type FreshnessSource,
+} from "./freshness";
 
 const today = new Date("2026-10-08T12:00:00Z");
 
@@ -65,5 +73,34 @@ describe("PAGE_SOURCES", () => {
         expect(PAGE_SOURCES.consumption).toEqual(["cowork", "copilotStudio", "azure"]);
         expect(PAGE_SOURCES["agent-evaluation"]).toEqual(["agentEvaluation"]);
         expect(PAGE_SOURCES.assumptions).toEqual([]);
+    });
+});
+
+describe("describeLoadIssues", () => {
+    const loads = [
+        { activity: "Run_Consumption_Studio", source: "Copilot Studio credits", status: "Succeeded" },
+        { activity: "Run_Consumption_Azure_AI", source: "Azure AI spend", status: "Failed", reason: "It ran out of time." },
+        { activity: "Refresh_Cowork_Credits", source: "Cowork credits (Viva Insights)", status: "Skipped" },
+        { activity: "Run_Consumption_Viva", source: "Cowork credits (load)", status: "warning", reason: "It ran, but found nothing to load in its source." },
+        { activity: "Run_Defender_Ingester", source: "Shadow AI and agent risk (Defender)", status: "Warning", reason: "Not this page's." },
+    ];
+
+    it("names each of the sources' loads that failed or loaded with a warning, in the sources' order", () => {
+        expect(describeLoadIssues(["cowork", "copilotStudio", "azure"], loads)).toEqual([
+            "Cowork credits (load) loaded with a warning: It ran, but found nothing to load in its source.",
+            "Azure AI spend failed: It ran out of time.",
+        ]);
+    });
+
+    it("says nothing before the log is read, or for loads that succeeded or were skipped", () => {
+        expect(describeLoadIssues(["cowork"], undefined)).toEqual([]);
+        expect(describeLoadIssues(["copilotStudio"], loads)).toEqual([]);
+        expect(describeLoadIssues([], loads)).toEqual([]);
+    });
+
+    it("lists every source's loads, as dbo.load_log names them", () => {
+        for (const source of Object.keys(FRESHNESS_LABELS) as FreshnessSource[]) {
+            expect(SOURCE_LOADS[source].length).toBeGreaterThan(0);
+        }
     });
 });

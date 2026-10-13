@@ -529,18 +529,22 @@ test('web ui: load cards become one event, and the terminal shows each source wi
     /** @type {any} */ ({ name: 'Licensed users', state: 'ok', fix: [] }),
     /** @type {any} */ ({ name: 'Copilot audit log', state: 'failed', reason: 'The capacity was busy.', fix: ['Try again later.'] }),
     /** @type {any} */ ({ name: 'Agent 365 (API)', state: 'skipped', fix: [] }),
+    /** @type {any} */ ({ name: 'Agent transcripts', state: 'warning', reason: 'It ran, but found nothing to load in Default.', fix: ['Choose more environments.'] }),
   ];
   ui.loads(cards);
   const e = latest(ui);
   assert.equal(e.type, 'loads');
-  assert.deepEqual(e.cards.map((/** @type {any} */ c) => c.state), ['ok', 'failed', 'skipped']);
+  assert.deepEqual(e.cards.map((/** @type {any} */ c) => c.state), ['ok', 'failed', 'skipped', 'warning']);
   const lines = out.join('').split('\n').map((l) => l.trim()).filter(Boolean);
-  assert.deepEqual(lines.slice(-5), [
+  assert.deepEqual(lines.slice(-8), [
     `${String.fromCharCode(10003)} Licensed users`,
     `${String.fromCharCode(10007)} Copilot audit log: failed`,
     'The capacity was busy.',
     'Try again later.',
     '! Agent 365 (API): skipped',
+    '! Agent transcripts: loaded with a warning',
+    'It ran, but found nothing to load in Default.',
+    'Choose more environments.',
   ]);
 });
 

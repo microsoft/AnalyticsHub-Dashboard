@@ -110,6 +110,11 @@ export const AGENT_EVALUATOR_REFRESH_ACTIVITY = 'Refresh_Agent_Evaluator_Model';
 
 /** Days of transcripts each scheduled run re-reads. Merge keeps the overlap from duplicating. */
 export const TRANSCRIPT_LOOKBACK_DAYS = 14;
+/**
+ * Days of transcripts a backfill, such as the first run, reads at least. Dataverse keeps transcripts
+ * for 30 days unless an admin changed the clean-up job, so this reads all an environment still has.
+ */
+export const TRANSCRIPT_BACKFILL_DAYS = 180;
 
 /** The credit consumption notebooks, as pipeline activities. */
 export const CONSUMPTION_ACTIVITIES = /** @type {const} */ ([
@@ -407,7 +412,8 @@ function consumptionRefreshActivity(activities, settings) {
 }
 
 /**
- * Reads Copilot Studio transcripts from Dataverse. A backfill reads as far back as the audit load.
+ * Reads Copilot Studio transcripts from Dataverse. A backfill reads as far back as the audit load, and
+ * at least {@link TRANSCRIPT_BACKFILL_DAYS}, as the transcripts don't add to the audit load's time.
  * @param {PipelineSettings} settings
  */
 function agentTranscriptsActivity(settings) {
@@ -425,7 +431,7 @@ function agentTranscriptsActivity(settings) {
       parameters: {
         LOOKBACK_DAYS: {
           value: {
-            value: `@if(equals(pipeline().parameters.AuditMode, 'backfill'), pipeline().parameters.BackfillDays, ${TRANSCRIPT_LOOKBACK_DAYS})`,
+            value: `@if(equals(pipeline().parameters.AuditMode, 'backfill'), max(pipeline().parameters.BackfillDays, ${TRANSCRIPT_BACKFILL_DAYS}), ${TRANSCRIPT_LOOKBACK_DAYS})`,
             type: 'Expression',
           },
           type: 'int',

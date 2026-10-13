@@ -48,6 +48,84 @@ The exe is unchanged and stays the main download.
 
 ---
 
+## Unreleased — Load warnings, Global Reader, Agent Evaluator environments and Fabric uninstall
+
+### Added: an Azure region preflight
+
+**Why.** A tester reported that Azure restrictions, mainly region restrictions, were the hardest
+part of standing up the Azure target. The installer offered every region in the subscription.
+Choosing one that Azure Policy or the subscription doesn't allow then failed partway through the
+deployment.
+
+- **Installer.** On a first Azure install, the region list shows only the regions where every
+  resource can go. Regions are dropped if:
+  - Azure Policy's allowed locations deny them. The installer reads the built-in policies, either
+    assigned directly or in initiatives, and simple custom deny rules on `location`.
+  - The subscription isn't offered a resource type it needs there.
+  - Standard_LRS storage or Azure SQL is restricted there.
+
+  The installer prints why each region was dropped. If no region passes, it stops before deploying,
+  with a message that says what to ask an Azure administrator for. The Ask model's account only
+  moves to regions that policy allows. If the installer can't read a policy, it still deploys, says
+  so, and leaves that check to Azure.
+### Changed: a load that couldn't read everything is a Warning, not Succeeded
+
+**Why.** A load that was refused by Resource Graph, wasn't licensed for Defender, or found no
+transcripts still showed as *Succeeded*. Its page was then empty, with no reason given.
+
+- **Load status.** `AnalyticsHub_Load_Status` reads `arg_status`, `defender_status` and the new
+  `evaluator_status`. It records those loads in `load_log` as `Warning`, with a `reason_kind` of
+  `empty`, `forbidden` or `unlicensed` and a plain reason. Warnings don't fail the run.
+- **Installer.** Warning loads show amber, with their reason, in the browser and the terminal.
+- **App.** The models gain a `Load Log` table (Analytics Hub model) and an `Evaluator Status` table
+  (Agent Evaluator model). The freshness line shows a source's latest warning or failure. It sees a
+  run at the next refresh, because the status step runs after the refresh. Azure has no run log,
+  so the table stays empty there.
+
+### Changed: the installer gives Global Reader for agents when it can
+
+**Why.** Resource Graph returns Copilot Studio agents only to an identity with an Entra role such
+as Global Reader. The installer only told you to ask a Privileged Role Administrator, so agent
+configuration often stayed empty.
+
+- **When it assigns the role.** It applies when agents are read from Resource Graph and you're a
+  Global Administrator or Privileged Role Administrator. The installer then assigns **Global
+  Reader** to the app (Fabric) or the jobs' managed identity (Azure), and *Ready to set up* lists
+  it.
+- **Repeat runs.** It checks first, so it never assigns the role twice. If your sign-in can't make
+  the assignment, it asks for `RoleManagement.ReadWrite.Directory` for that one call.
+- **When you can't.** It shows a message to copy to someone who can. The message names the role,
+  the principal and its object ID, and links to Entra's **Roles and administrators**.
+- **App.** Without the role, the Governance page's agent configuration says *Not collected:
+  permission missing*, not zeros.
+
+### Changed: Agent Evaluator asks which environments, and reads further back the first time
+
+**Why.** The installer ticked only the default environment and moved on. The first run read only
+14 days. Then the Agent Evaluation page said nothing about where it had looked.
+
+- **Choosing environments.** With more than one environment, the installer always asks: *Read the
+  environments that hold your Copilot Studio agents*. It checks each one for agents, four at a
+  time with a short timeout, and ticks those that have some. If it can't tell, it ticks the default
+  environment and says so.
+- **How far back.** An environment's first read goes back 180 days (`FIRST_READ_DAYS`). A backfill
+  reads at least 180 days too. Copilot Studio keeps transcripts for 30 days by default.
+- **Status.** The parser writes `evaluator_status`, one row per environment, with the transcripts it
+  read, over how many days, and why there were none.
+- **App.** When there are no conversations, the Agent Evaluation page says how many transcripts it
+  found, in which environments, over how many days, and how to add environments.
+
+### Fixed: uninstall on Fabric
+
+**Why.** Uninstall did nothing on Fabric. Fabric also won't delete a workspace that still has
+managed private endpoints, so deleting it by hand failed.
+
+- `uninstall` on Fabric asks first, then deletes the workspace's managed private endpoints. It
+  waits for them to go, then deletes the workspace. A 404 counts as already gone. It lists what it
+  leaves alone.
+
+---
+
 ## Unreleased — Data completeness
 
 **Existing installs need the updated notebooks.** Run the installer and choose **Repair or change**

@@ -42,6 +42,49 @@ const splitUrls = (v) => v.split(/[\s,;]+/).filter(Boolean);
 /** @param {string} url */
 const host = (url) => new URL(url).host;
 
+/** Environments probed for agents at once, and how long each probe may take. */
+const PROBE_CONCURRENCY = 4;
+const PROBE_TIMEOUT_MS = 8000;
+
+/** Discovery doesn't flag the default environment; its name ends "(default)". */
+const isDefault = (/** @type {import('../clients/dataverse.js').DataverseInstance} */ i) => /\(default\)\s*$/i.test(i.FriendlyName ?? '');
+
+/**
+ * Which environments hold Copilot Studio agents. An environment that can't be read in time, or
+ * at all, is left out of the answer rather than guessed.
+ * @param {Ctx} ctx
+ * @param {string[]} urls
+ * @returns {Promise<Map<string, boolean>>}
+ */
+export async function environmentsWithAgents(ctx, urls) {
+  /** @type {Map<string, boolean>} */
+  const found = new Map();
+  const queue = [...urls];
+  const probe = async (/** @type {string} */ url) => {
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let timer;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(resolve, PROBE_TIMEOUT_MS, undefined);
+      timer.unref?.();
+    });
+    try {
+      const dv = ctx.api.dataverse(url);
+      if (typeof dv?.hasAgents !== 'function') return;
+      const has = await Promise.race([dv.hasAgents(), timeout]);
+      if (typeof has === 'boolean') found.set(url, has);
+    } catch {
+      // No access to the bot table yet: the person ticks the environment themselves.
+    } finally {
+      clearTimeout(timer);
+    }
+  };
+  const worker = async () => {
+    for (let url = queue.shift(); url; url = queue.shift()) await probe(url);
+  };
+  await Promise.all(Array.from({ length: Math.min(PROBE_CONCURRENCY, queue.length) }, worker));
+  return found;
+}
+
 /**
  * Asks which environments' transcripts to read.
  * @param {Ctx} ctx
@@ -81,11 +124,29 @@ export async function planAgentEvaluator(ctx) {
       .sort((a, b) => (a.i.FriendlyName ?? a.url).localeCompare(b.i.FriendlyName ?? b.url));
     const listedUrls = new Set(listed.map((l) => l.url));
     const missing = ae.environments.filter((e) => !listedUrls.has(e.url));
-    urls = await ui.checkbox('Which environments\' Copilot Studio transcripts should it read?', [
+    /** @type {Set<string>} */
+    let ticked = before;
+    if (!before.size) {
+      // First time: tick the environments that hold agents, or else the default one, and say which.
+      const agents = await environmentsWithAgents(ctx, listed.map((l) => l.url));
+      const withAgents = listed.filter((l) => agents.get(l.url)).map((l) => l.url);
+      const fallback = listed.filter((l) => isDefault(l.i)).map((l) => l.url);
+      ticked = new Set(withAgents.length ? withAgents : fallback);
+      if (withAgents.length) ui.note(`Ticked the ${withAgents.length === 1 ? 'environment that has' : `${withAgents.length} environments that have`} Copilot Studio agents.`);
+      else if (listed.length > 1) {
+        ui.note(
+          fallback.length
+            ? 'Couldn\'t tell which environments have Copilot Studio agents, so only the default environment is ticked. Tick every environment that holds your agents.'
+            : 'Couldn\'t tell which environments have Copilot Studio agents. Tick every environment that holds your agents.',
+        );
+      }
+    }
+    ui.note('Only environments you\'re a member of are listed. To add one later, run the installer again and choose Repair or change.');
+    urls = await ui.checkbox('Read the environments that hold your Copilot Studio agents', [
       ...listed.map(({ i, url }) => ({
         name: `${i.FriendlyName ?? i.UniqueName ?? host(url)} (${host(url)})`,
         value: url,
-        checked: before.has(url),
+        checked: ticked.has(url),
         ...(i.IsUserSysAdmin === false ? { description: 'You aren\'t a System Administrator here, so an admin adds the app.' } : {}),
       })),
       ...missing.map((e) => ({ name: `${e.name ?? host(e.url)} (${host(e.url)}, not in your list)`, value: e.url, checked: true })),

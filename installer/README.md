@@ -151,10 +151,23 @@ Under [Advanced settings](#advanced-settings), the wizard asks how the app, jobs
 
 ### Regions and images
 
+- **Region preflight.** On a first install, the region list shows only the regions where every
+  resource can go. A region is left out if any of these are true:
+  - Azure Policy denies it. The installer reads the built-in **Allowed locations** and **Allowed
+    locations for resource groups** policies, either assigned directly or inside an initiative,
+    and simple custom deny rules on `location`.
+  - The subscription isn't offered one of the resource types there.
+  - Standard_LRS storage is restricted there.
+  - Azure SQL is restricted there.
+
+  The installer says why each region was dropped. If no region passes, it stops before deploying
+  anything. It still deploys if it can't read a policy, says so, and leaves that check to Azure.
+  The Ask model's account only moves to regions that policy allows. A re-run keeps its region.
 - `azure.sqlLocation` puts Azure SQL in a different region from everything else. Some subscriptions
   can't create SQL in busy regions (for example uksouth, northeurope or westeurope on MCAPS). The
-  preflight checks SQL capability and points at this setting. The private endpoint can be in another
-  region from the server.
+  preflight checks SQL capability and points at this setting. With **Yes** to advanced settings, the
+  region list keeps regions where only SQL is blocked, and the Azure SQL list offers only regions
+  where SQL can go. The private endpoint can be in another region from the server.
 - `azure.images` overrides where the jobs and web images come from, for air-gapped tenants or testing
   an unreleased build: `{ "registry": "myacr.azurecr.io/valuelens", "registryResourceId": "<ACR
   resource ID>", "tag": "dev-abc123" }`. With `registryResourceId` set, the managed identity is granted
@@ -395,6 +408,18 @@ the same thing to the Lakehouse table `dbo.load_log`, one row per source per run
 failed, that step fails too, so the run shows as failed in Fabric and in its alert emails. A failed
 Agent 365 API load doesn't count when the Agent 365 export loaded instead.
 
+**Loaded, with a warning.** Some loads finish but couldn't read everything. When that happens, the
+card is amber, and in the terminal the line is too, with the reason:
+
+- Resource Graph was refused (`arg_status`).
+- Defender isn't licensed (`defender_status`).
+- Agent Evaluator found no transcripts (`evaluator_status`).
+
+`load_log` records these as `Warning`, with a `reason_kind` of `empty`, `forbidden` or
+`unlicensed`. A warning doesn't fail the run. The app's freshness line shows the latest status and
+reason for each source. It reads them after the next model refresh, because the status step runs
+after the refresh.
+
 **Rerun only what failed.** Choose **Rerun failed loads**, or run `rerun-failed`. It runs the
 failed loads again, then the steps that depend on them, and refreshes the model. Loads that worked
 aren't run again, unless they read what a rerun step writes: when the Cowork Dataflow reruns, so do
@@ -601,6 +626,7 @@ addresses, the M365 Copilot licence flag and the exact prepaid split.
 | Report the Value page in another currency | `install --currency GBP --exchange-rate 0.79` |
 | Upload exports later, then load them now | `upload feedback.csv agents.csv --run` |
 | Run only the loads that failed last time | `rerun-failed` |
+| Delete the Fabric workspace and everything in it | `uninstall` |
 | After signing in to the Cowork Dataflow, refresh it and load Cowork credits | `load-cowork` |
 | Add viewers or owners to the viewer group, or choose another group | `access` |
 | Show each viewer only the orgs they're given (opt-in) | `access`, then **Turn on org-scoped access**. See [Org-scoped access](../docs/PERMISSIONS.md#org-scoped-access-row-level-security) |
@@ -616,6 +642,12 @@ whole tenant, and `--no-arg-agents` or `--no-arg-foundry` leaves agents or Found
 `--currency <code>` sets the Value page currency (US dollars by default), and `--exchange-rate <n>`
 how many of it make $1. Without the rate, set it under **Prices** in the app. In the browser, choose
 the currency under [Advanced settings](#advanced-settings) instead.
+
+`uninstall` on Fabric asks before it deletes the workspace. If the installer didn't create the
+workspace, the answer defaults to no. It deletes the workspace's managed private endpoints first,
+because Fabric won't delete a workspace that still has them, and waits up to ten minutes for them
+to go. It leaves the following alone: the app registration, the Key Vault, the flows, Dataverse
+access and the roles it gave.
 
 ## Microsoft 365 activity
 
@@ -724,9 +756,13 @@ Whoever runs the load (the app registration, or on Azure the jobs' managed ident
   User Access Administrator:
   `az role assignment create --assignee <app or identity client ID> --role Reader --scope /providers/Microsoft.Management/managementGroups/<group or tenant ID>`.
 - **Agents:** one of the Entra roles **Global Reader**, **Power Platform Administrator** or **AI
-  Administrator**. The installer doesn't assign directory roles: a Privileged Role Administrator
-  assigns it in the Entra admin center under **Roles and administrators**. Without it, Resource
-  Graph returns no agents.
+  Administrator**. If you're a Global Administrator or Privileged Role Administrator, the
+  installer gives it **Global Reader** itself, and *Ready to set up* says so. It checks first,
+  so a repeat install doesn't add it again. If you aren't, it shows a message to copy to someone
+  who is. The message names the role, the app and its object ID, with a link to **Roles and
+  administrators** in the Entra admin center. Without the role, Resource Graph returns no agents,
+  and the Governance page says *Not collected: permission missing*. See
+  [PERMISSIONS](../docs/PERMISSIONS.md#azure-resource-graph).
 
 When Resource Graph won't return the agents, the load reads the newest file the
 `Analytics Hub - Agent inventory` [flow](#power-automate-flows) saved instead. The Power Platform
@@ -743,6 +779,21 @@ and what to read (`argManagementGroup`, `argAgents`, `argFoundry`). Demo mode le
 
 Optional. It fills the app's Agent Evaluation pages from your Copilot Studio conversations. See
 [Agent Evaluator](../fabric/Add%20Agent%20Evaluator/).
+
+**Which environments.** When you have more than one, the installer always asks which to read.
+Read the environments that hold your Copilot Studio agents. It checks each environment for agents,
+four at a time, and ticks the ones that have some. If it can't tell, it ticks the default
+environment and says so. It lists only environments you're a member of, so ask for access to any
+that are missing.
+
+**How far back.** An environment's first run reads up to 180 days of transcripts, including an
+environment you add later. After that, each run reads the last 14 days. Copilot Studio keeps
+transcripts for 30 days by default, so a first run usually finds about a month's worth.
+
+**When it finds none.** The parser records what it read in each environment in
+`evaluator_status`: how many transcripts, over how many days, and why any are missing. When there
+are none, the Agent Evaluation page says where it looked and how far back. To add environments,
+choose **Repair or change**, then **Agent Evaluator**.
 
 If you aren't a System Administrator in an environment you pick, ask one to:
 
@@ -790,7 +841,8 @@ they can see. Under [Advanced settings](#advanced-settings) the wizard asks whic
 - **Create one for Ask** (the default): an Azure AI Services account in the resource group with a
   `gpt-5-mini` deployment, billed per token. Choose whether prompts may be processed in any region
   (Global Standard) or only in your data zone (Data Zone Standard). The installer checks the region
-  offers the model and has quota, and moves a global deployment to another region if it doesn't.
+  offers the model and has quota, and moves a global deployment to another region if it doesn't,
+  but only to a region that Azure Policy allows.
   The web app's managed identity gets **Cognitive Services OpenAI User** on it.
 - **Use an Azure OpenAI deployment you already have**: pick the account and a chat deployment that
   supports tool calling. The installer gives the managed identity Cognitive Services OpenAI User on

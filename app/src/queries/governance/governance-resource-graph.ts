@@ -40,12 +40,18 @@ export function governanceResourceGraph() {
 /** The load's probe outcomes, as `Resource Graph Status` records them. */
 export type ResourceGraphProbeStatus = "ok" | "empty" | "forbidden" | "error" | "skipped";
 
+/** Which probes the load wasn't allowed to run, so their figures read as not collected rather than zero. */
+export interface ResourceGraphForbidden {
+    agents: boolean;
+    foundry: boolean;
+}
+
 export type ResourceGraphView =
     | { kind: "loading" }
     | { kind: "notSetUp" }
-    | { kind: "noData"; notes: readonly string[] }
+    | { kind: "noData"; notes: readonly string[]; forbidden: ResourceGraphForbidden }
     | { kind: "error"; message: string }
-    | { kind: "ready"; agents: boolean; foundry: boolean; notes: readonly string[] };
+    | { kind: "ready"; agents: boolean; foundry: boolean; notes: readonly string[]; forbidden: ResourceGraphForbidden };
 
 export const RESOURCE_GRAPH_NOT_SET_UP = {
     title: "Azure Resource Graph isn't turned on",
@@ -59,8 +65,17 @@ export const RESOURCE_GRAPH_NO_DATA = {
         "Azure Resource Graph is turned on, but no agent configuration or Foundry resources have loaded yet. Run the load, refresh the model, then reopen the app.",
 };
 
+export const RESOURCE_GRAPH_FORBIDDEN = {
+    title: "Not collected: permission missing",
+    description:
+        "Azure Resource Graph is turned on, but the identity that runs the load isn't allowed to read it, so nothing was collected. The figures aren't zero: they're unknown until it has the role named below.",
+};
+
+/** What a figure the load wasn't allowed to read shows in place of a number. */
+export const NOT_COLLECTED = "Not collected: permission missing";
+
 export const AGENT_INVENTORY_FORBIDDEN =
-    "The identity that runs the load can't read the Copilot Studio agent inventory. Give it an Entra role such as Global Reader or Power Platform Administrator, or set up the \"Analytics Hub - Agent inventory\" flow as a fallback, then run the load again.";
+    "The identity that runs the load can't read the Copilot Studio agent inventory. Give it an Entra role such as Global Reader or Power Platform Administrator, or set up the \"Analytics Hub - Agent inventory\" flow as a fallback, then run the load again. The installer assigns Global Reader itself when whoever runs it is a Global Administrator or Privileged Role Administrator.";
 
 export const FOUNDRY_FORBIDDEN =
     "The identity that runs the load can't list Foundry resources. Give it Reader at the management group that holds your Azure subscriptions, then run the load again.";
@@ -103,6 +118,10 @@ export function describeResourceGraph(
     const notes = resourceGraphNotes(result.row);
     const agents = (readNumber(result.row, "[Configured Agents]") ?? 0) > 0;
     const foundry = (readNumber(result.row, "[Foundry Resources]") ?? 0) > 0;
-    if (!agents && !foundry) return { kind: "noData", notes };
-    return { kind: "ready", agents, foundry, notes };
+    const forbidden = {
+        agents: !agents && probeStatus(result.row, "[Agent Status]") === "forbidden",
+        foundry: !foundry && probeStatus(result.row, "[Foundry Status]") === "forbidden",
+    };
+    if (!agents && !foundry) return { kind: "noData", notes, forbidden };
+    return { kind: "ready", agents, foundry, notes, forbidden };
 }

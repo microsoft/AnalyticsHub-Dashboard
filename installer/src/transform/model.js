@@ -8,6 +8,7 @@ import { SETUP_DIR } from '../catalog.js';
 import { currencySymbol } from '../currency.js';
 import { addAccessScope } from './access.js';
 import { addDefender } from './defender.js';
+import { addEvaluatorStatus, addLoadLog } from './load-log.js';
 import { addM365Activity } from './m365.js';
 import { addCopilotPaygSpend } from './payg.js';
 import { addFoundryResources, addResourceGraph } from './resource-graph.js';
@@ -144,6 +145,7 @@ export function buildModel(template, settings) {
   addM365Activity(model, !!settings.modules.m365Activity);
   addDefender(model, !!settings.modules.defender);
   addResourceGraph(model, !!settings.resourceGraph);
+  addLoadLog(model);
   if (settings.currency) setCurrencySymbol(model, settings.currency);
   if (settings.access) addAccessScope(model, 'valuelens', settings.access);
   return { compatibilityLevel: template.compatibilityLevel, model };
@@ -208,6 +210,7 @@ export function buildAgentEvaluatorModel(template, settings) {
     if (!empty) throw new Error(`The "${AGENT_EVALUATOR_DIAGNOSTIC_TABLE}" table has changed shape.`);
     p.source.expression = empty[1];
   }
+  addEvaluatorStatus(model);
   if (settings.access) addAccessScope(model, 'agentEvaluator', settings.access);
   return { compatibilityLevel: template.compatibilityLevel, model };
 }

@@ -227,19 +227,28 @@ describe("Resource Graph on the governance page", () => {
 
     it("says no data until either side has rows", () => {
         const row = { "[Configured Agents]": 0, "[Foundry Resources]": 0 };
-        expect(describeResourceGraph({ row, loaded: true }, "present")).toEqual({ kind: "noData", notes: [] });
+        const none = { agents: false, foundry: false };
+        expect(describeResourceGraph({ row, loaded: true }, "present")).toEqual({ kind: "noData", notes: [], forbidden: none });
         expect(describeResourceGraph({ row: ready, loaded: true }, "present")).toEqual({
             kind: "ready",
             agents: true,
             foundry: true,
             notes: [],
+            forbidden: none,
         });
     });
 
     it("names the role the identity lacks when a probe was forbidden", () => {
         const row = { ...ready, "[Configured Agents]": 0, "[Agent Status]": "forbidden", "[Foundry Status]": "Forbidden" };
         const view = describeResourceGraph({ row, loaded: true }, "present");
-        expect(view).toEqual({ kind: "ready", agents: false, foundry: true, notes: [AGENT_INVENTORY_FORBIDDEN, FOUNDRY_FORBIDDEN] });
+        // Foundry still loaded, so only the agent figures read as not collected.
+        expect(view).toEqual({
+            kind: "ready",
+            agents: false,
+            foundry: true,
+            notes: [AGENT_INVENTORY_FORBIDDEN, FOUNDRY_FORBIDDEN],
+            forbidden: { agents: true, foundry: false },
+        });
         expect(AGENT_INVENTORY_FORBIDDEN).toMatch(/Global Reader|Power Platform Administrator/);
         expect(AGENT_INVENTORY_FORBIDDEN).toContain("Analytics Hub - Agent inventory");
         expect(FOUNDRY_FORBIDDEN).toContain("Reader at the management group");

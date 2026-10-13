@@ -142,6 +142,10 @@ export function fabricApi(http) {
      * @param {{ name: string, targetPrivateLinkResourceId: string, targetSubresourceType: string, requestMessage: string }} body
      */
     createPrivateEndpoint: (workspaceId, body) => http.post(`/workspaces/${workspaceId}/managedPrivateEndpoints`, body),
+    /** @param {string} workspaceId @param {string} id */
+    deletePrivateEndpoint: (workspaceId, id) => http.del(`/workspaces/${workspaceId}/managedPrivateEndpoints/${id}`),
+    /** Deletes a workspace and everything in it. @param {string} workspaceId */
+    deleteWorkspace: (workspaceId) => http.del(`/workspaces/${workspaceId}`),
 
     /** @param {string} workspaceId @param {string} [type] */
     listItems: (workspaceId, type) => http.list(`/workspaces/${workspaceId}/items`, { query: { type } }),
