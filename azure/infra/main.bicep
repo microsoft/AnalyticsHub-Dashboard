@@ -54,6 +54,12 @@ param publicNetworkAccess string = 'Enabled'
 @description('Private networking only: address space of the VNet (at least a /22).')
 param vnetAddressPrefix string = '10.60.0.0/22'
 
+@description('Private networking only: create the privatelink DNS zones here (create), use zones in another resource group and link the VNet to them (existing, e.g. an Azure Landing Zone hub), or leave DNS to Azure Policy or the network team (none).')
+@allowed(['create', 'existing', 'none'])
+param privateDnsZoneMode string = 'create'
+@description('Private networking, existing DNS zones: resource ID of the resource group holding the privatelink zones.')
+param privateDnsZonesResourceGroupId string = ''
+
 @description('Deploy the Analytics Hub web app (SPA + /api).')
 param deployWeb bool = true
 param webMinReplicas int = 0
@@ -147,6 +153,7 @@ module ask 'modules/ask.bicep' = if (askMode == 'create') {
     deploymentName: empty(askDeployment) ? askModelName : askDeployment
     sku: askSku
     capacity: askCapacity
+    publicNetworkAccess: publicNetworkAccess
   }
 }
 
@@ -160,7 +167,7 @@ module identity 'modules/identity.bicep' = {
 
 module monitoring 'modules/monitoring.bicep' = {
   name: 'vl-monitoring'
-  params: { location: location, name: names.logs, tags: allTags }
+  params: { location: location, name: names.logs, tags: allTags, publicNetworkAccess: publicNetworkAccess }
 }
 
 module storage 'modules/storage.bicep' = {
@@ -207,6 +214,24 @@ module network 'modules/network.bicep' = if (privateNetworking) {
     addressPrefix: vnetAddressPrefix
     sqlServerId: sql.outputs.serverId
     storageAccountId: storage.outputs.id
+    askAccountId: askMode == 'create' ? ask!.outputs.id : ''
+    privateDnsZoneMode: privateDnsZoneMode
+    privateDnsZonesResourceGroupId: privateDnsZonesResourceGroupId
+  }
+}
+
+var linkExistingZones = privateNetworking && privateDnsZoneMode == 'existing' && !empty(privateDnsZonesResourceGroupId)
+// Same stand-in as registryIdParts: ARM evaluates the scope even when the module is skipped.
+var dnsZoneGroupParts = split(linkExistingZones ? privateDnsZonesResourceGroupId : resourceGroup().id, '/')
+
+module dnsLinks 'modules/dnslinks.bicep' = if (linkExistingZones) {
+  name: 'vl-dnslinks-${suffix}'
+  scope: resourceGroup(dnsZoneGroupParts[2], dnsZoneGroupParts[4])
+  params: {
+    zoneNames: network!.outputs.zoneNames
+    vnetId: network!.outputs.vnetId
+    linkName: names.vnet
+    tags: allTags
   }
 }
 
@@ -224,6 +249,7 @@ module apps 'modules/containerapps.bicep' = {
   dependsOn: [acrPull]
   params: {
     infrastructureSubnetId: privateNetworking ? network!.outputs.appsSubnetId : ''
+    logsViaDiagnosticSettings: privateNetworking
     registryServer: privateRegistry ? split(imageRegistry, '/')[0] : ''
     location: location
     tags: allTags

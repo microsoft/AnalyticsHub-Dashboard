@@ -276,6 +276,11 @@ function store(ctx) {
   if (config.target === 'azure') {
     const account = config.azure?.outputs?.storageAccountName;
     if (!account) throw new Error(`The storage account isn't deployed yet. Run "${commandLine('install')}" first.`);
+    if (isPrivate(config.azure)) {
+      // Private networking: the account takes no public traffic, so calls from this machine would only get 403s.
+      const blocked = () => Promise.reject(new Error(`The storage account ${account} only accepts traffic from its private endpoints, so the installer can't read or write it from this machine.`));
+      return { where: `${account}/${AZURE_CONTAINER}/${AZURE_SCOPE_FILE}`, readScope: blocked, readRoles: blocked, writeScope: blocked, writeRoles: blocked, rolesPath: `abfss://${AZURE_CONTAINER}@${account}.dfs.core.windows.net/${AZURE_ROLES_FILE}` };
+    }
     const lake = api.dataLake(account);
     return {
       where: `${account}/${AZURE_CONTAINER}/${AZURE_SCOPE_FILE}`,

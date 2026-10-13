@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { MODULES, azureGraphRolesFor } from '../src/catalog.js';
 import { HttpError } from '../src/http.js';
-import { waitForDeployment } from '../src/clients/azure.js';
+import { armErrors, waitForDeployment } from '../src/clients/azure.js';
 import { runCommand } from '../src/install.js';
 import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, armParameterNames, askTarget, azureConsumptionOn, azureCron, azureDeployment, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureRotateSecret, azureSemanticModels, consumptionParameters, installAzure, parseDropFolder, policyMessage, publicAccessMessage, regionCapacityMessage, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
 import { AZURE_AI_ROLES } from '../src/steps/consumption.js';
@@ -15,6 +15,7 @@ import { CONNECTORS, connectorsUsed } from '../src/transform/flows.js';
 import { ROLES } from '../src/clients/azure.js';
 import { buildModel, mParameter } from '../src/transform/model.js';
 import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi } from './fakes.js';
+import { readScopes } from '../src/steps/org-access.js';
 
 test('Azure target gates modules and mirrors Graph roles', () => {
   const choices = azureModuleChoices({ orgData: true, m365Activity: true, agent365: true, productFeedback: true, consumption: true, agentEvaluator: true });
@@ -243,7 +244,7 @@ test('Azure preflight surfaces policy denial and what-if plan grouping', async (
   config.target = 'azure';
   config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] } };
   await arm.api.ensureResourceGroup('sub-1', 'rg', 'uksouth');
-  await assert.rejects(azurePreflight(ctx), /Azure Policy blocked the deployment.*Public SQL denied.*exemption.*private networking/i);
+  await assert.rejects(azurePreflight(ctx), /Azure Policy blocked the deployment.*Public SQL denied.*exemption.*private networking/is);
   assert.match(policyMessage(arm.failures.validateDeployment?.[0] ?? { error: { code: 'RequestDisallowedByPolicy' } }), /Policy/);
   assert.deepEqual(whatIfSummary([{ changeType: 'Create', resourceType: 'A', resourceId: '/x/a' }, { changeType: 'Modify', resourceType: 'A', name: 'b' }]).A, {
     create: ['a'],
@@ -288,6 +289,48 @@ test('ARM deployments are polled until they finish and failures carry the ARM er
     waitForDeployment(async () => ({ name: 'valuelens', properties: { provisioningState: 'Failed', error: { code: 'DeploymentFailed', details: [{ code: 'RequestDisallowedByPolicy', message: 'Denied' }] } } }), { properties: { provisioningState: 'Running' } }, { sleep: async () => {}, pollMs: 0 }),
     (/** @type {any} */ err) => /RequestDisallowedByPolicy: Denied/.test(err.message) && !!policyMessage(err.body),
   );
+});
+
+test('policy denials nested in a failed deployment name each policy, assignment and resource', async () => {
+  const violation = (/** @type {string} */ definition, /** @type {string} */ assignment) => ({
+    type: 'PolicyViolation',
+    info: { policyDefinitionDisplayName: definition, policyDefinitionId: `/providers/Microsoft.Authorization/policyDefinitions/${definition.replace(/\W+/g, '-')}`, policyAssignmentDisplayName: assignment, policyAssignmentId: `/providers/Microsoft.Management/managementGroups/corp/providers/Microsoft.Authorization/policyAssignments/${assignment.replace(/\W+/g, '-')}` },
+  });
+  const deployment = {
+    name: 'valuelens',
+    properties: {
+      provisioningState: 'Failed',
+      error: {
+        code: 'DeploymentFailed',
+        message: 'At least one resource deployment operation failed.',
+        details: [{
+          code: 'ResourceDeploymentFailure',
+          target: '/subscriptions/s/resourceGroups/rg/providers/Microsoft.Resources/deployments/vl-network',
+          message: 'The resource write operation failed to complete successfully, because it reached terminal provisioning state \'Failed\'.',
+          details: [{
+            code: 'DeploymentFailed',
+            details: [
+              { code: 'RequestDisallowedByPolicy', target: 'privatelink.blob.core.windows.net', message: "Resource 'privatelink.blob.core.windows.net' was disallowed by policy.", additionalInfo: [violation('Deny the creation of private DNS', 'Deny-Private-DNS-Zones')] },
+              { code: 'RequestDisallowedByPolicy', target: 'vnet-vlens-abc123', message: JSON.stringify({ error: { code: 'RequestDisallowedByPolicy', message: "Resource 'vnet-vlens-abc123' was disallowed by policy. Policy identifiers: '[{\"policyAssignment\":{\"name\":\"Subnets need NSG\",\"id\":\"/a/subnets-nsg\"},\"policyDefinition\":{\"name\":\"Subnets should have an NSG\",\"id\":\"/d/subnets-nsg\"}}]'." } }) },
+            ],
+          }],
+        }],
+      },
+    },
+  };
+  const err = await waitForDeployment(async () => deployment, { properties: { provisioningState: 'Running' } }, { sleep: async () => {}, pollMs: 0 }).catch((e) => e);
+  assert.match(err.message, /RequestDisallowedByPolicy \(privatelink\.blob\.core\.windows\.net\): Resource 'privatelink\.blob/);
+  assert.match(err.message, /RequestDisallowedByPolicy \(vnet-vlens-abc123\)/, 'JSON in a nested message is unpacked');
+  assert.equal(armErrors(err.body).filter((e) => e.code === 'RequestDisallowedByPolicy').length, 3);
+  const message = policyMessage(err, { publicNetworkAccess: false });
+  assert.match(message, /"Deny the creation of private DNS" on privatelink\.blob\.core\.windows\.net \(assignment "Deny-Private-DNS-Zones", \/providers\/Microsoft\.Management\/managementGroups\/corp\//);
+  assert.match(message, /"Subnets should have an NSG" on vnet-vlens-abc123 \(assignment "Subnets need NSG", \/a\/subnets-nsg\) \[\/d\/subnets-nsg\]/);
+  assert.match(message, /existing private DNS zones or leave DNS to Azure Policy/);
+  assert.doesNotMatch(message, /choose advanced options and Private networking\.$/m, 'already private: no advice to choose Private networking');
+  assert.match(policyMessage(err, { publicNetworkAccess: true }), /choose advanced options and Private networking/);
+  const ingress = { error: { code: 'RequestDisallowedByPolicy', target: 'cae-vlens-abc123-vnet', message: "Resource 'cae-vlens-abc123-vnet' was disallowed by policy." } };
+  assert.match(policyMessage(ingress, { publicNetworkAccess: false }), /web app needs public ingress/);
+  assert.equal(policyMessage(new Error('other')), '');
 });
 
 test('regional SQL capacity errors point at the Azure SQL region choice', async () => {
@@ -440,7 +483,16 @@ test('private networking only offers capacities that can host a VNet data gatewa
   assert.equal(supportsVnetGateway({ sku: 'EM1' }), false);
   const err = new HttpError('Conflict', { status: 400, method: 'PUT', url: 'https://x', body: { error: { code: 'DenyPublicEndpointEnabled', message: 'Unable to create or modify firewall rules when public network interface for the server is disabled.' } } });
   assert.match(publicAccessMessage(err), /choose Private networking/);
+  assert.equal(publicAccessMessage(err, { publicNetworkAccess: false }), '', 'never suggests Private networking when it is already on');
   assert.equal(publicAccessMessage(new Error('other')), '');
+});
+
+test('private networking never calls the storage data plane from this machine', async () => {
+  const { ctx, config } = fakeCtx();
+  config.target = 'azure';
+  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', publicNetworkAccess: false, outputs: { storageAccountName: 'stvlensabc123' } };
+  ctx.api.dataLake = () => assert.fail('no data-plane client in private mode');
+  await assert.rejects(readScopes(ctx), /stvlensabc123 only accepts traffic from its private endpoints/);
 });
 
 test('switching an existing install between public and private networking is refused', async () => {

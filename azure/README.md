@@ -100,11 +100,34 @@ only what they can. The answer shows which queries it ran and links to the page 
 - **Logs.** The question and the names of the queries it ran, never the answer or the data.
 - **Cost.** Billed per token on the AI Services account. Light use costs a few dollars a month.
 
+## Private networking and Azure Policy
+
+With **Private networking** (`publicNetworkAccess=false`), `infra/` turns public network access off
+on SQL, Storage (whose firewall also denies by default), the Ask AI Services account it creates (which
+gets its own private endpoint) and Log Analytics. Every subnet gets a network security group that
+lets HTTP and HTTPS reach the web app's subnet. The web app's ingress stays external, so people can
+open it. Container Apps logs reach Log Analytics through a diagnostic setting, in the
+`ContainerAppConsoleLogs` and `ContainerAppSystemLogs` tables.
+
+`privateDnsZoneMode` says where the `privatelink.*` zones live:
+
+| Mode | What it does | What you need |
+|---|---|---|
+| `create` (default) | Creates the zones in the resource group and links them to the VNet | Nothing more |
+| `existing` | Uses the zones in `privateDnsZonesResourceGroupId` (for example a Landing Zone hub) and links the VNet to them | The zones exist there, including the three AI ones when Ask is created, and you have **Private DNS Zone Contributor** on that group |
+| `none` | No zones, links or DNS zone groups | A deployIfNotExists policy or your network team adds the records. Until then the jobs can't reach SQL or Storage |
+
+When Azure Policy blocks a deployment, the installer lists each policy, assignment and resource, and
+prints `az deployment group show -g <resource group> -n valuelens --query properties.error` for the
+full error. Some denies still need a policy exemption: an internal-only Container Apps environment
+(the web app needs public ingress), a ban on creating virtual networks, and Log Analytics shared keys
+in public mode.
+
 ## What's here
 
 | Folder | Contents |
 |---|---|
-| `infra/` | Bicep: a user-assigned managed identity, ADLS Gen2 (shared keys off), Log Analytics, Azure SQL serverless (Entra-only), a Container Apps environment, a scheduled run job, a manual migrate job, the web app, optional private networking and an optional Azure AI Services account for Ask. Every resource is tagged `valuelens-install-id`. The installer ships it compiled as `src/azure/main.arm.json` |
+| `infra/` | Bicep: a user-assigned managed identity, ADLS Gen2 (shared keys off), Log Analytics, Azure SQL serverless (Entra-only), a Container Apps environment, a scheduled run job, a manual migrate job, the web app, optional private networking and an optional Azure AI Services account for Ask. Every resource is tagged `valuelens-install-id`. The installer ships it compiled as `src/azure/main.arm.json`. See [Private networking and Azure Policy](#private-networking-and-azure-policy) |
 | `jobs/` | The `valuelens-jobs` image: `python -m valuelens_jobs run --steps collect,process,publish,refresh` |
 | `sql/migrations/` | Versioned `V###__*.sql` scripts and a `schema_version` table, applied by the migrate job |
 | `web/` | The `valuelens-web` image: the Node service that serves the app's `dist` plus `/api/query`, `/api/ask`, `/api/settings`, `/api/version` and `/api/health` |

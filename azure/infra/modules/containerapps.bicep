@@ -43,6 +43,8 @@ param argFoundry bool = true
 param registryServer string = ''
 @description('Subnet delegated to Microsoft.App/environments (private networking). Empty = no VNet.')
 param infrastructureSubnetId string = ''
+@description('Send logs through a diagnostic setting (azure-monitor) instead of the workspace\'s public ingestion endpoint and shared key. Used in private networking.')
+param logsViaDiagnosticSettings bool = false
 
 @description('Ask: the Azure OpenAI endpoint and deployment the web app answers questions with. Empty = Ask runs in the data agent or not at all.')
 param askEndpoint string = ''
@@ -57,7 +59,7 @@ resource env 'Microsoft.App/managedEnvironments@2024-03-01' = {
   location: location
   tags: tags
   properties: {
-    appLogsConfiguration: {
+    appLogsConfiguration: logsViaDiagnosticSettings ? { destination: 'azure-monitor' } : {
       destination: 'log-analytics'
       logAnalyticsConfiguration: {
         customerId: logs.properties.customerId
@@ -67,6 +69,17 @@ resource env 'Microsoft.App/managedEnvironments@2024-03-01' = {
     workloadProfiles: [{ name: 'Consumption', workloadProfileType: 'Consumption' }]
     // Private mode: jobs reach SQL and Storage through private endpoints; web ingress stays public.
     vnetConfiguration: empty(infrastructureSubnetId) ? null : { infrastructureSubnetId: infrastructureSubnetId, internal: false }
+  }
+}
+
+// Diagnostic settings deliver over Azure's own channel, so they work with public ingestion off.
+// Logs land in ContainerAppConsoleLogs and ContainerAppSystemLogs (not the _CL tables).
+resource envLogs 'Microsoft.Insights/diagnosticSettings@2021-05-01-preview' = if (logsViaDiagnosticSettings) {
+  scope: env
+  name: 'logs'
+  properties: {
+    workspaceId: logs.id
+    logs: [{ categoryGroup: 'allLogs', enabled: true }]
   }
 }
 

@@ -18,6 +18,28 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ---
 
+## Unreleased — Private networking under Azure Policy
+
+### Fixed: private networking deploys where Azure Policy denies public access
+
+**Why.** A tester hit a deploy failure involving public and private endpoints. Several resources
+didn't follow the networking choice, and policy errors were hard to read.
+
+- **Locked down when private.** The Ask AI Services account turns public access off and gets a
+  private endpoint. Storage's firewall denies by default. Log Analytics turns public ingestion and
+  query off, and Container Apps logs reach it through a diagnostic setting (in the
+  `ContainerAppConsoleLogs` and `ContainerAppSystemLogs` tables). Every subnet gets a network
+  security group. Public mode is unchanged.
+- **Private DNS zones.** A new advanced setting creates the `privatelink.*` zones (the default), uses
+  existing zones in another resource group such as a Landing Zone hub, or leaves DNS to Azure Policy.
+- **Policy errors.** The installer walks the nested ARM error and names each policy, assignment and
+  resource it blocked. It no longer tells you to choose Private networking when you already have,
+  keeps the original error, and prints the command for the full error.
+- **Storage.** With private networking, the installer never calls the storage account from your
+  machine, and says why.
+
+---
+
 ## Unreleased — Load warnings, Global Reader, Agent Evaluator environments and Fabric uninstall
 
 ### Added: an Azure region preflight
