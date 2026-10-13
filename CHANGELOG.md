@@ -20,6 +20,25 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+## 2026-10-13 — Analytics Hub installer 0.6.1 (pre-release)
+
+**A pre-release, for testing.** 0.6.1 fixes problems found while testing 0.6.0. Like 0.6.0, it's a
+GitHub pre-release, so the `releases/latest` links still serve 0.5.1. To try it, download
+installer 0.6.1 from
+[its release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/tag/installer-v0.6.1),
+or run its pinned PowerShell command:
+
+```powershell
+irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.1/install.ps1 | iex
+```
+
+**Update an existing install:** open installer 0.6.1 and choose **Repair or change**. On Azure it
+pulls the `0.6.1` images and runs migration V006, and the next data load fills the new columns.
+
+The tag also publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.1`.
+
+**Fixed in this release:**
+
 - **Azure: the first data load no longer fails with "The 'Agent_Key' column does not exist".** The
   Azure jobs' audit processor had fallen behind the Fabric notebook, so the curated table lacked the
   agent link and agent type columns (`Agent_Key`, `Agent_Type`, `Agent_Publisher` and the rest) that
