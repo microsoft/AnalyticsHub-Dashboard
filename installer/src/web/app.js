@@ -507,6 +507,34 @@ function rerender(item) {
 
 const result = (run) => (run.state === 'done' && run.command === 'install' && run.phase !== 'build' && run.phase !== 'done' ? 'held' : run.state);
 
+function* runItems(stages) {
+  for (const s of stages) {
+    yield* s.items;
+    yield* runItems(s.kids ?? []);
+  }
+}
+
+/**
+ * A load that fails until a next step is done, like a Dataflow waiting for its sign-ins, is expected:
+ * it shows as waiting rather than failed, and isn't a reason to rerun.
+ */
+function markExpected(run) {
+  const waiting = new Map((run.nextSteps?.steps ?? []).filter((s) => s.activity).map((s) => [s.activity, s.title]));
+  const loads = [...runItems(run.stages)].filter((it) => it.t === 'loads');
+  for (const it of loads) {
+    let changed = false;
+    for (const card of it.cards) {
+      const expected = card.state === 'failed' ? waiting.get(card.activity) : undefined;
+      if (expected && card.expected !== expected) {
+        card.expected = expected;
+        changed = true;
+      }
+    }
+    if (changed) rerender(it);
+  }
+  run.failedLoads = (loads.at(-1)?.cards ?? []).some((card) => card.state === 'failed' && !card.expected);
+}
+
 /* ---------- Events ---------- */
 
 function onEvent(e) {
@@ -580,7 +608,14 @@ function apply(e) {
     case 'loads':
       ensureRoot(run, e.at);
       add(run, { t: 'loads', cards: e.cards ?? [] });
-      run.failedLoads = (e.cards ?? []).some((card) => card.state === 'failed');
+      markExpected(run);
+      return;
+    case 'next-steps':
+      ensureRoot(run, e.at);
+      run.nextSteps = { title: e.title ?? '', steps: e.steps ?? [] };
+      // Shown in the outcome at the end; kept as an item for the saved record.
+      add(run, { t: 'next-steps', title: run.nextSteps.title, steps: run.nextSteps.steps });
+      markExpected(run);
       return;
     case 'prereqs':
       ensureRoot(run, e.at);
@@ -887,6 +922,8 @@ function renderItem(it) {
       return renderReview(it.plan);
     case 'loads':
       return renderLoads(it.cards);
+    case 'next-steps':
+      return null;
     case 'prereqs':
       return renderPrereqs(it.items);
     default:
@@ -922,14 +959,47 @@ const LOAD_STATE = { ok: 'loaded', warning: 'loaded with a warning', failed: 'fa
 /** One card per source: whether it loaded, why not and what to do. */
 function renderLoads(cards) {
   return h('ul', { class: 'loads', 'aria-label': 'Loads by source' },
-    cards.map((card) => h('li', { class: `load ${card.state}` },
-      h('span', { class: 'gl' }, icon(LOAD_GLYPH[card.state] ?? 'circle')),
+    cards.map((card) => h('li', { class: `load ${card.expected ? 'expected' : card.state}` },
+      h('span', { class: 'gl' }, icon(card.expected ? 'clock' : LOAD_GLYPH[card.state] ?? 'circle')),
       h('div', null,
         h('span', { class: 'load-name' }, card.name),
         ' ',
-        h('span', { class: 'load-state' }, LOAD_STATE[card.state] ?? card.state, card.attempts ? `, ${card.attempts} attempts` : ''),
-        card.reason ? h('p', null, card.reason) : null,
+        h('span', { class: 'load-state' }, card.expected ? 'waiting for a step below' : LOAD_STATE[card.state] ?? card.state, card.attempts ? `, ${card.attempts} attempts` : ''),
+        card.expected ? h('p', null, `Expected until this is done: ${card.expected}.`) : card.reason ? h('p', null, card.reason) : null,
         (card.fix ?? []).length ? h('p', { class: 'load-fix' }, card.fix.join('\n')) : null))));
+}
+
+function copyButton(text, labelText) {
+  const label = document.createTextNode(labelText);
+  return h('button', {
+    type: 'button', class: 'btn',
+    onclick: async () => {
+      try {
+        await navigator.clipboard.writeText(text);
+        label.textContent = 'Copied';
+      } catch {
+        label.textContent = 'Select the text to copy it';
+      }
+    },
+  }, icon('copy'), label);
+}
+
+/** What's left once it finishes: a card per step, with who does it, the link, and for a hand-off the message to send. */
+function renderNextSteps(next) {
+  return h('section', { class: 'next', 'aria-labelledby': 'next-title' },
+    h('h3', { id: 'next-title' }, next.title),
+    h('ol', { class: 'next-list' }, next.steps.map((s) => h('li', { class: `next-card${s.optional ? ' optional' : ''}` },
+      h('div', { class: 'next-head' },
+        h('span', { class: 'next-name' }, s.title),
+        h('span', { class: 'next-who' }, s.who, s.optional ? ', optional' : '')),
+      h('p', null, s.why),
+      (s.steps ?? []).length ? h('ol', { class: 'next-how' }, s.steps.map((x) => h('li', null, x))) : null,
+      s.message ? h('details', { class: 'next-message' }, h('summary', null, 'The message to send'), h('pre', null, s.message)) : null,
+      s.link || s.message
+        ? h('div', { class: 'actions' },
+          s.message ? copyButton(s.message, 'Copy message') : null,
+          s.link ? h('a', { class: 'btn', href: s.link, target: '_blank', rel: 'noreferrer' }, icon('link'), s.linkText ?? 'Open') : null)
+        : null))));
 }
 
 function renderProgress(it) {
@@ -1250,6 +1320,7 @@ function renderOutcome(run) {
   const rerun = run.failedLoads && app.state?.record?.can?.['rerun-failed'];
   return h('section', { class: `outcome ${copy[0]}`.trim(), 'aria-labelledby': 'outcome-title' },
     h('h2', { id: 'outcome-title' }, copy[1]),
+    run.nextSteps?.steps.length ? renderNextSteps(run.nextSteps) : null,
     copy[2].filter(Boolean).map((p) => h('p', null, p)),
     rerun ? h('p', null, 'Some loads failed. Rerun failed runs just those again, and the steps that waited for them.') : null,
     h('div', { class: 'actions' },
@@ -1741,10 +1812,16 @@ function itemMarkdown(it, depth) {
       return ['', ...reviewMarkdown(it.plan), ''];
     case 'loads':
       return it.cards.flatMap((card) => [
-        `- ${{ ok: '✓', warning: '⚠', failed: '✗', skipped: '⚠', running: '…' }[card.state] ?? ''} ${card.name}: ${LOAD_STATE[card.state] ?? card.state}${card.attempts ? ` (${card.attempts} attempts)` : ''}`,
+        `- ${card.expected ? '…' : { ok: '✓', warning: '⚠', failed: '✗', skipped: '⚠', running: '…' }[card.state] ?? ''} ${card.name}: ${card.expected ? `waiting for "${card.expected}"` : LOAD_STATE[card.state] ?? card.state}${card.attempts ? ` (${card.attempts} attempts)` : ''}`,
         ...(card.reason ? [`  - ${card.reason}`] : []),
         ...(card.fix ?? []).map((f) => `  - ${f.trim()}`),
       ]);
+    case 'next-steps':
+      return ['', `**${it.title}**`, '', ...it.steps.flatMap((s, i) => [
+        `${i + 1}. **${s.title}** (${s.who}${s.optional ? ', optional' : ''}). ${s.why}`,
+        ...(s.link ? [`   - ${s.linkText ?? 'Link'}: ${s.link}`] : []),
+        ...(s.steps ?? []).map((x) => `   - ${x}`),
+      ]), ''];
     case 'prereqs':
       return it.items.flatMap((p) => [
         `- ${{ met: '✓', missing: '✗', eligible: '◐', unknown: '?' }[p.status] ?? ''} ${p.label}: ${PREREQ_STATE[p.status] ?? p.status}${p.optional ? ' (optional)' : ''}`,

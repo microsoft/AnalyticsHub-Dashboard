@@ -58,6 +58,7 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {string} [contact]  Who people ask for access. Defaults to the installer.
  * @property {string} [requestUrl]  Optional link for access requests, e.g. a My Access package or a form.
  * @property {string[]} [grantedModels]  Semantic model IDs the group has Build (ReadExplore) on.
+ * @property {boolean} [appShared]  The user said the Fabric app item is shared with the group. Fabric has no API to check.
  * @property {RlsConfig} [rls]  Org-scoped access (row-level security). Off when absent.
  */
 
@@ -226,6 +227,7 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {string[]} [models]  Model aliases the app was built with. Older records mean just "vl".
  * @property {string} [deployedAt]
  * @property {import('./currency.js').ReportingConfig} [reporting]  The Value page currency a prebuilt app was deployed with.
+ * @property {Record<string, string | boolean>} [access]  The viewer access the app was deployed with, so a change offers a redeploy.
  * @property {{ deployments: any, env?: string }} [rayfin]  Rayfin's `.deployments.json` and `.env` for the prebuilt app, which each installer version unpacks afresh.
  */
 
