@@ -363,6 +363,51 @@ def test_studio_user_lookup_failure_is_not_fatal(tmp_path):
     assert "network down" in out["upn_lookup_error"]
 
 
+def _users_only(folder: Path) -> dict:
+    files = _api_files(folder)
+    files.pop("StudioApiAgentDaily_20260910.csv")
+    return files
+
+
+def test_studio_tenant_daily_summed_from_users_when_no_agent_file(tmp_path):
+    store = LocalStore(tmp_path / "store")
+    out = studio.ingest(store, _users_only(tmp_path / "drop"), today=TODAY)
+    assert out["tenant_from_user_rows"] == 2 and out["prepaid_share"] == 0.75
+
+    tenant = {(t["usage_date"], t["environment_id"]): t for t in table(store, "studio_tenant_daily")}
+    assert set(tenant) == {(date(2026, 8, 5), "env-1"), (date(2026, 8, 5), "env-2")}
+    t1 = tenant[(date(2026, 8, 5), "env-1")]
+    assert t1["source_file"] == "ppac-api-users"
+    assert t1["billing_plan_id"] == "00000000-0000-0000-0000-000000000000"
+    assert t1["capacity_type"] == "MCSMessages" and t1["entitled_quantity"] == 500.0
+    # Billed 10 split 75/25 by the prepaid share; the 1 non-billed credit counts as prepaid.
+    assert (t1["prepaid_consumed"], t1["payg_consumed"]) == (8.5, 2.5)
+    assert tenant[(date(2026, 8, 5), "env-2")]["prepaid_consumed"] == 15.0
+
+    before = table(store, "studio_tenant_daily")
+    studio.ingest(store, _users_only(tmp_path / "drop"), today=TODAY)
+    assert table(store, "studio_tenant_daily") == before
+
+
+def test_studio_user_derived_tenant_rows_give_way_to_agent_file_and_export(tmp_path):
+    store = LocalStore(tmp_path / "store")
+    drop = tmp_path / "drop"
+    studio.ingest(store, _users_only(drop), today=TODAY)
+    assert {t["source_file"] for t in table(store, "studio_tenant_daily")} == {"ppac-api-users"}
+
+    # The agent file lands later: its rows replace the per-user sums for the same days.
+    studio.ingest(store, _api_files(drop), today=TODAY)
+    assert {t["source_file"] for t in table(store, "studio_tenant_daily")} == {"ppac-api"}
+
+    # An export for env-1 wins there; env-2 keeps the API row.
+    fresh = LocalStore(tmp_path / "fresh")
+    studio.ingest(fresh, _users_only(drop), today=TODAY)
+    studio.ingest(fresh, {**_users_only(drop), **_export_files(drop)}, today=TODAY)
+    rows = table(fresh, "studio_tenant_daily", order="environment_id")
+    assert [(r["environment_id"], r["source_file"]) for r in rows] == [
+        ("env-1", "EntitlementConsumptionTenantDetailsReport_MCSMessages_1.csv"), ("env-2", "ppac-api-users")]
+
+
 def test_studio_export_missing_column_fails(tmp_path):
     bad = write_csv(tmp_path, "Tenant.csv", ["Environment Id"], [["env-1"]])
     with pytest.raises(ValueError, match="BillingPlan Id"):

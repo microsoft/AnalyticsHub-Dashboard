@@ -130,6 +130,12 @@ for _key, _table in _tables.items():
             _r = _df.select(_F.min(_col).alias('lo'), _F.max(_col).alias('hi')).collect()[0]
             _info['from'], _info['to'] = str(_r['lo']), str(_r['hi'])
     _summary['tables'][_key] = _info
+# How many people in the org data have a department, so thin by-department views can be explained.
+if _summary['tables'].get('org') and _summary['tables']['org']['rows']:
+    _org = spark.read.table(_tables['org'])
+    if 'Organization' in _org.columns:
+        _summary['tables']['org']['withDepartment'] = _org.filter(
+            _F.length(_F.trim(_F.col('Organization'))) > 0).count()
 # How many licensed users match Copilot activity, from the notebook's overlap check.
 _summary['identity'] = globals().get('overlap_summary')
 # Why the audit table is empty, if the processor left out every record as test activity.

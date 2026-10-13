@@ -19,6 +19,7 @@ import { rowChartHeight } from "@/lib/chart-height";
 import type { Headline } from "@/lib/headline";
 import { toDataTable } from "@/lib/to-data-table";
 import { m365Apps, m365Platforms, m365SuiteDepth } from "@/queries/work-patterns";
+import { appReportEmpty } from "./copy";
 import { APP_REACH_HEADLINE, PLATFORM_REACH_HEADLINE, SUITE_DEPTH_HEADLINE } from "./headlines";
 
 const APPS = m365Apps();
@@ -109,6 +110,9 @@ export function M365SuiteStage() {
     const depthHeadline = useMemo(() => headlineOf(SUITE_DEPTH_HEADLINE, depth.table), [depth.table]);
     const platformHeadline = useMemo(() => headlineOf(PLATFORM_REACH_HEADLINE, platforms.table), [platforms.table]);
 
+    // Anyone active at all shows up in the depth chart, so an empty apps chart beside it is the report, not the people.
+    const othersActive = rowsOf(depth.table) > 0;
+
     // The apps and depth charts sit side by side, so they share one height and their bars line up,
     // plus a headline's line when either of them has one.
     const pairRows = Math.max(rowsOf(apps.table), rowsOf(depth.table));
@@ -129,7 +133,7 @@ export function M365SuiteStage() {
                     headline={appsHeadline}
                     title="Which apps people open"
                     subtitle="Share of active people, on desktop, web or mobile."
-                    empty={{ title: "No app activity", description: "Nobody in the current selection opened a Microsoft 365 app." }}
+                    empty={appReportEmpty("apps", othersActive)}
                 />
                 <BarChart
                     query={depth}
@@ -147,10 +151,7 @@ export function M365SuiteStage() {
                     headline={platformHeadline}
                     title="Where people work from"
                     subtitle="Share of active people on each platform, with days per week in the tooltip."
-                    empty={{
-                        title: "No platform reported",
-                        description: "The apps report had no platform for anyone in the current selection.",
-                    }}
+                    empty={appReportEmpty("platforms", othersActive)}
                 />
                 <div className="xl:self-start">
                     <NoteCard title="How these figures are worked out" notes={NOTES} />

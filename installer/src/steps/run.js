@@ -438,8 +438,33 @@ export function printDataCheck(ctx, summary) {
     const range = t.from && t.to ? `, ${String(t.from).slice(0, 10)} to ${String(t.to).slice(0, 10)}` : '';
     (t.rows ? ui.ok : ui.warn)(`${label}: ${rows} rows${range}`);
     if (key === 'audit' && !t.rows) printAuditExcluded(ctx, summary?.auditExcluded);
+    if (key === 'org' && t.rows) printDepartmentCoverage(ctx, Number(t.rows), t.withDepartment);
   }
   printIdentityMatch(ctx, summary?.identity);
+}
+
+/** Below this share of people with a department, by-department views leave most people out. */
+export const LOW_DEPARTMENT_COVERAGE = 0.8;
+
+/**
+ * Says how many people in the org data have a department, and how to fill the gaps when few do.
+ * @param {Ctx} ctx
+ * @param {number} people
+ * @param {number | undefined} withDepartment  Missing when the data check predates this count.
+ */
+function printDepartmentCoverage(ctx, people, withDepartment) {
+  const { ui } = ctx;
+  if (withDepartment === undefined || withDepartment === null) return;
+  const n = (/** @type {number} */ v) => v.toLocaleString('en-GB');
+  const have = Number(withDepartment);
+  const line = `Org data: ${n(have)} of ${n(people)} people have a department`;
+  if (have / people >= LOW_DEPARTMENT_COVERAGE) {
+    ui.ok(line);
+    return;
+  }
+  ui.warn(line);
+  ui.note('Views by department leave out everyone without one. Fill in Department on users in Microsoft Entra ID');
+  ui.note('(or the HR system that feeds it), or add the Workday org data source from "Repair or change". The next pipeline run picks it up.');
 }
 
 /**

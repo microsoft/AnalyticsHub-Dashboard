@@ -78,6 +78,59 @@ managed private endpoints, so deleting it by hand failed.
 
 ---
 
+## Unreleased — Data completeness
+
+**Existing installs need the updated notebooks.** Run the installer and choose **Repair or change**
+to deploy them. Until then, Copilot Studio totals stay blank when the credits flow lands only
+per-user files, and Agent 365 can still show "year 1" dates.
+
+### Fixed: Copilot Studio totals were blank with only per-user credits
+
+**Why.** When the credits flow landed only the per-user file, `studio_tenant_daily` stayed empty.
+The app said "No daily credits" and the budget runway had nothing to project, even though the
+per-user table held the credits.
+
+- **Fallback rows.** `Ingest_Studio` and the Azure `studio` job sum `studio_user_daily` into
+  `studio_tenant_daily` for the days and environments no export or per-agent file covers, with
+  `source_file = 'ppac-api-users'`. Billed credits split by the prepaid share; non-billed credits
+  count as prepaid. They're rebuilt each run, so a later export replaces them.
+- **App.** Studio's empty states no longer say there's no usage when per-user credits exist. The
+  breakdown by feature and model says it needs a Power Platform admin centre export, with a link
+  and the steps.
+
+### Added: department coverage
+
+**Why.** People with no Entra department drop out of every view by organisation, and nothing said
+how many that was.
+
+- The org ingester prints, and the Azure `org` job logs, "X of Y people have a department". Below
+  80% it says to fill in Department in Microsoft Entra ID or add Workday org data.
+- The installer's data check reports the same count after the first load.
+- The app's by-organisation empty states and **What needs attention** show the coverage and the
+  same advice.
+
+### Added: Microsoft 365 report status
+
+**Why.** A Work patterns chart could be blank with no hint that the Graph report itself returned
+no app usage.
+
+- `Copilot_M365_Activity_Ingester` writes `m365_report_status`, one row per report per day read
+  (`ok`, `no_activity`, `empty` or `unavailable`), and prints a warning for reports with no use.
+  The Azure job writes the same rows to `raw/m365_report_status/` and logs them.
+- The Apps and Platforms charts say "The report returned no app usage for this period" instead of
+  showing a blank chart.
+
+### Fixed: smaller gaps
+
+- **Shadow AI.** The installed AI apps, Cloud Discovery and device panels name the licence they
+  need (for example Microsoft Defender Vulnerability Management) when Defender reports it
+  unlicensed, and say "No data returned" when the probe ran but found nothing.
+- **Agent 365 dates.** A `Date created` or `Last Activity Date` before 2000-01-01, which the
+  registry sends for a missing date, is now blank in both Agent 365 notebooks. The rule is shared
+  as `valuelens_core.dates.plausible_date`.
+
+---
+
 ## Unreleased — Cowork first load and rerun
 
 From the newcomer self-serve test of installer 0.4.2 (F3, F4, F5).

@@ -20,6 +20,7 @@ import { rowChartHeight } from "@/lib/chart-height";
 import { plainText } from "@/lib/model-text";
 import { withIndefiniteArticle, withOrgAttribute } from "@/lib/org-attribute";
 import { readNumber, readText, toSummaryRow } from "@/lib/summary-row";
+import { orgEmptyDescription } from "@/lib/department-coverage";
 import { toDataTable } from "@/lib/to-data-table";
 import { activationByOrg, activationSummary, type ActivationCohort } from "@/queries/adoption";
 
@@ -203,7 +204,10 @@ export function ActivationStage() {
                     <QueryEmpty
                         className="h-full"
                         title={`No ${org.plural} to compare`}
-                        description={`No rows carry ${withIndefiniteArticle(org.noun)} value. Populate that column in the org data in the lakehouse to break activation down by team.`}
+                        description={orgEmptyDescription(
+                            `No rows carry ${withIndefiniteArticle(org.noun)} value. Populate that column in the org data in the lakehouse to break activation down by team.`,
+                            org,
+                        )}
                     />
                 ) : (
                     <VegaVisual

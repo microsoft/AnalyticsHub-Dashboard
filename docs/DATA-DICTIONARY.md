@@ -15,7 +15,16 @@ exact column names below (casing and spaces matter).
 
 > Copilot Studio transcripts and credit consumption are add-ons with their own tables: see
 > [Add Agent Evaluator](../fabric/Add%20Agent%20Evaluator/README.md) and
-> [Add Credit Consumption](../fabric/Add%20Credit%20Consumption/DATA-DICTIONARY.md).
+> [Add Credit Consumption](../fabric/Add%20Credit%20Consumption/DATA-DICTIONARY.md). When the
+> credits flow lands only per-user files, `studio_tenant_daily` is filled from `studio_user_daily`
+> (`source_file = 'ppac-api-users'`), so Studio totals aren't blank.
+
+> **`m365_report_status`** (Fabric Lakehouse, written by `Copilot_M365_Activity_Ingester`; on Azure
+> `raw/m365_report_status/day-YYYYMMDD.parquet`) records one row per Graph usage report per day read:
+> `ActivityDate`, `Report`, `GraphFunction`, `Status`, `Rows`, `ActiveRows`, `CheckedAtUtc`. `Status`
+> is `ok`, `no_activity` (rows, but every count is zero), `empty` (no rows) or `unavailable` (the
+> report wasn't ready). It isn't in the semantic model; it explains why a Work patterns chart is
+> empty.
 
 ---
 
@@ -190,6 +199,13 @@ officeLocation, city, country, accountEnabled, managerUPN
 **Join key:** `PersonId` = **userPrincipalName (UPN)** — used by the **Audit Logs** path
 (`Audit_UserId → PersonId`). `id` (AAD object id) is also emitted for downstream joins.
 
+**Department coverage.** `Organization` is each person's Entra `department`, so anyone without one
+drops out of every view by organization. The ingester prints, and the Azure `org` job logs,
+"X of Y people have a department". Below 80% it adds how to fill the gaps: set Department in
+Microsoft Entra ID, or add the Workday org data below. The installer's data check reports the same
+count after the first load, and the app's by-organization empty states and **What needs attention**
+say how many people with a task have a department.
+
 #### Optional Workday / HRIS enrichment or standalone source
 
 `Copilot_Org_Data_Workday_Lander` ([`notebooks/workday-org-data/`](../fabric/notebooks/workday-org-data/README.md))
@@ -345,6 +361,10 @@ model-declared column the chosen source did not supply as a **typed null**, so:
 To populate the observability visuals, land the **Admin Center Agents export** instead of (or merged
 with) the registry export. `Agent Activity Status` falls back to audit-log-derived activity when
 `Last Activity Date` is absent, so agent recency still works on the registry-only path.
+
+**Placeholder dates.** The registry sometimes returns `0001-01-01` for an agent with no creation
+date. Both notebooks blank any `Date created` or `Last Activity Date` before 2000-01-01, so these agents show no date rather than "year 1" and
+don't skew age or recency. `Last updated` is left alone because it keys `agents_365_history`.
 
 > Adding a column to the Agents 365 model? Add it to the guard's `__expected` list in the query too,
 > or it will be unstable on any source that doesn't emit it.

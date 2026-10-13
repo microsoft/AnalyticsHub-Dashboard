@@ -75,6 +75,9 @@ def collect_org(api, store, settings, *, allow_empty=False) -> int:
                     len(cycles), "; ".join(cycles[:20]))
     count = _replace_snapshot(store, prefix, columns, rows)
     log.info("org: %s people written from %s page(s)", count, page)
+    have, people = org.department_coverage(row[columns.index("Organization")] for row in rows)
+    (log.info if not people or have / people >= org.LOW_DEPARTMENT_COVERAGE else log.warning)(
+        "org: %s", org.coverage_message(have, people))
     return count
 
 
@@ -89,6 +92,10 @@ def _m365_report(api, function, day):
 
 def m365_day_file(day) -> str:
     return f"raw/{m365.TABLE}/day-{day:%Y%m%d}.parquet"
+
+
+def m365_status_file(day) -> str:
+    return f"raw/{m365.STATUS_TABLE}/day-{day:%Y%m%d}.parquet"
 
 
 def collect_m365(api, store, settings, *, today=None, reread_days=m365.REREAD_DAYS) -> dict:
@@ -119,7 +126,9 @@ def collect_m365(api, store, settings, *, today=None, reread_days=m365.REREAD_DA
 
     names = [n for n, _, _ in m365.SCHEMA]
     types = [t for _, t, _ in m365.SCHEMA]
-    written, skipped, kept = [], [], []
+    status_names = [n for n, _, _ in m365.STATUS_SCHEMA]
+    status_types = [t for _, t, _ in m365.STATUS_SCHEMA]
+    written, skipped, kept, statuses = [], [], [], []
     people_seen = concealed_seen = 0
     for day in todo:
         try:
@@ -134,6 +143,13 @@ def collect_m365(api, store, settings, *, today=None, reread_days=m365.REREAD_DA
         if day in loaded and missing:
             kept.append(day)
             continue
+        status = m365.report_status(day, reports, datetime.now(timezone.utc).replace(tzinfo=None))
+        write_rows(store.path(m365_status_file(day)), status_names, status, status_types)
+        store.push([m365_status_file(day)])
+        statuses.extend(status)
+        for _, key, _, state, count, active, _ in status:
+            if state != "ok":
+                log.info("m365 %s: %s report %s (%s row(s), %s with use)", day, key, state, count, active)
         people = {}
         for key, recs in reports.items():
             if recs:
@@ -154,4 +170,4 @@ def collect_m365(api, store, settings, *, today=None, reread_days=m365.REREAD_DA
                     "'Display concealed user, group, and site names in all reports'; the next run reloads "
                     "every concealed day still in the 28-day window.")
     log.info("m365: wrote %s day(s), kept %s, skipped %s", len(written), len(kept), len(skipped))
-    return {"written": written, "kept": kept, "skipped": skipped}
+    return {"written": written, "kept": kept, "skipped": skipped, "status": statuses}

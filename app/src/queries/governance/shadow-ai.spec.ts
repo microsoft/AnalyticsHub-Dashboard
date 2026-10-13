@@ -9,8 +9,10 @@ import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { describe, expect, it } from "vitest";
 import {
     describeProbeStatus,
+    layerEmptyState,
     layerToolsSpec,
     layerUnavailable,
+    probeNeeds,
     probeStatuses,
     readShadowAiState,
     shadowAiTools,
@@ -174,5 +176,36 @@ describe("layerToolsSpec", () => {
     it("leaves the shared spec untouched", () => {
         layerToolsSpec(base, "Cloud Discovery");
         expect(xOf(shadowAiTools().vegaLiteSpec).field).toBe("Devices");
+    });
+});
+
+describe("layerEmptyState", () => {
+    const statuses = probeStatuses(
+        statusTable([
+            ["device_activity", "ok", ""],
+            ["installed", "unlicensed", "Failed to resolve table 'DeviceTvmSoftwareInventory'"],
+            ["cloud_discovery", "empty", "No Cloud Discovery streams."],
+        ]),
+    );
+
+    it("names the licence a refused probe needs", () => {
+        expect(layerEmptyState(statuses, "Installed").title).toBe("Needs Microsoft Defender Vulnerability Management");
+        expect(probeNeeds("cloud_discovery")).toBe("Needs Microsoft Defender for Cloud Apps");
+        expect(probeNeeds("agents")).toBeUndefined();
+    });
+
+    it("says no data was returned when the probe ran empty", () => {
+        const empty = layerEmptyState(statuses, "Cloud Discovery");
+        expect(empty.title).toBe("No data returned");
+        expect(empty.description).toMatch(/No Cloud Discovery streams/);
+    });
+
+    it("only says no shadow AI when the probe loaded rows", () => {
+        expect(layerEmptyState(statuses, "Ran").title).toBe("No shadow AI seen here");
+    });
+
+    it("keeps the refused wording for a permission failure", () => {
+        const refused = probeStatuses(statusTable([["device_activity", "forbidden", "403"]]));
+        expect(layerEmptyState(refused, "Network").title).toBe("This part of Defender didn't load");
     });
 });

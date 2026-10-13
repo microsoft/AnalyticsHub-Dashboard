@@ -16,7 +16,7 @@ interface TreeFrameProps {
     isLoading: boolean;
     height: number | undefined;
     emptyTitle: string;
-    emptyDescription: string;
+    emptyDescription: ReactNode;
     children: ReactNode;
 }
 
