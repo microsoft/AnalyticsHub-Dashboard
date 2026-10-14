@@ -3,7 +3,7 @@
  * The install record, `valuelens-install.json`. It holds IDs and choices so a
  * re-run picks up where the last one stopped. It never holds a secret.
  */
-import { existsSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { normaliseModules } from './catalog.js';
 import { normaliseReporting } from './currency.js';
 import { normaliseDataSources } from './uploads.js';
@@ -412,16 +412,46 @@ export function normaliseResourceGraph(raw) {
   };
 }
 
+/** Errors Windows gives while a sync client, indexer or antivirus briefly holds the file open. */
+const LOCKED = new Set(['EPERM', 'EBUSY', 'EACCES']);
+
+/** @param {number} ms */
+function pause(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 /**
  * Writes atomically so an interrupted run never leaves a half-written file.
+ * In a OneDrive-synced folder the rename can fail for a moment while the file
+ * is being synced, so it's retried. If it still fails, the record is written
+ * in place so the run's progress isn't lost.
  * @param {string} file
  * @param {InstallConfig} config
+ * @param {{ rename?: (from: string, to: string) => void, wait?: (ms: number) => void, tries?: number }} [io]
  */
-export function saveConfig(file, config) {
+export function saveConfig(file, config, io = {}) {
   assertNoSecrets(config);
+  const { rename = renameSync, wait = pause, tries = 8 } = io;
+  const text = `${JSON.stringify(config, null, 2)}\n`;
   const tmp = `${file}.tmp`;
-  writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
-  renameSync(tmp, file);
+  writeFileSync(tmp, text, 'utf8');
+  for (let attempt = 1; ; attempt++) {
+    try {
+      rename(tmp, file);
+      return;
+    } catch (err) {
+      const code = /** @type {NodeJS.ErrnoException} */ (err).code ?? '';
+      if (!LOCKED.has(code)) throw err;
+      if (attempt >= tries) break;
+      wait(Math.min(100 * attempt, 500));
+    }
+  }
+  writeFileSync(file, text, 'utf8');
+  try {
+    unlinkSync(tmp);
+  } catch {
+    // A leftover .tmp is harmless; the next save overwrites it.
+  }
 }
 
 /**
