@@ -100,6 +100,15 @@ jobs:
           $env:INSTALL_PS1 = $script
           powershell.exe -NoProfile -Command '$ExecutionContext.SessionState.LanguageMode = ''ConstrainedLanguage''; $s = Get-Content -Raw $env:INSTALL_PS1; iex (''& {'' + [char]10 + $s + [char]10 + ''} --version''); exit $LASTEXITCODE'
           if ($LASTEXITCODE) { throw "install.ps1 in Constrained Language Mode failed with exit code $LASTEXITCODE." }
+          # -UseInstalledNode: runs with the Node.js from setup-node instead of the one in the zip.
+          $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'ps-installed'
+          & $script -ZipPath $zip -UseInstalledNode --version
+          if ($LASTEXITCODE) { throw "install.ps1 -UseInstalledNode failed with exit code $LASTEXITCODE." }
+          $cmd = Join-Path $env:LOCALAPPDATA 'AnalyticsHub\analytics-hub.cmd'
+          $node = (Get-Command node -CommandType Application | Select-Object -First 1).Source
+          if (-not (Select-String -Path $cmd -SimpleMatch "set `"AH_NODE=$node`"" -Quiet)) { throw "analytics-hub.cmd doesn't use $node." }
+          & $cmd --version
+          if ($LASTEXITCODE) { throw "analytics-hub.cmd --version (installed Node.js) failed with exit code $LASTEXITCODE." }
 
       # Run on the exe that gets published, after any signing: signing changes the hash.
       - name: Check the signature, write the hash and the release notes

@@ -32,6 +32,35 @@ Deployment instructions do **not** live here. They live in the READMEs:
   so existing links still land.
 - **The wiki.** docs/ is published to the
   [wiki](https://github.com/microsoft/AnalyticsHub-Dashboard/wiki) on every change to main.
+- **Install routes that don't rely on the exe** (part of #77). [Install](docs/INSTALL.md) leads
+  with the PowerShell one-liner and keeps the exe as an option. It adds routes for an IT-approved
+  Node.js, and for PCs that can't run anything locally: your IT team deploys it, or you run it
+  from an approved admin workstation. The docs, `install.ps1`'s help and the release notes no
+  longer suggest `-ExecutionPolicy Bypass`, `irm | iex` under `AllSigned`, or clicking past
+  SmartScreen. Where policy blocks a route, they point to another route or your IT team. They also
+  say what a matching SHA-256 proves: the file is the one in the release, not who published it.
+  [Known issues](docs/KNOWN-ISSUES.md#unsigned-files-in-the-download) lists the unsigned native
+  files still in the download, and when they load.
+
+**Installer:**
+
+- **`install.ps1 -UseInstalledNode`** runs the installer with the Node.js already on the PC (x64,
+  22.13 or later on 22.x, or 24.x), such as one your IT team has approved, instead of the
+  `node.exe` in the zip. For `irm | iex`, set `$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1'` first.
+  It downloads and checks the same zip, and uses the same folders and install record, so you can
+  switch routes without a second install. `analytics-hub.cmd` and the update command keep using
+  that Node.js. See [IT-approved Node.js](docs/INSTALL.md#it-approved-nodejs).
+- **Fix: the command `install.ps1` leaves behind** now prints the reinstall command with its `|`
+  intact, instead of cmd.exe treating it as a pipe.
+
+**Packaging:**
+
+- **Fewer unsigned files in the download.** The zip leaves out esbuild's `esbuild.exe`, `tsx` and
+  msal-node-runtime's native sign-in broker for Windows, Linux and macOS: 15 native files, about
+  19 MB of the zip and 54 MB unpacked.
+  Nothing loads them: Rayfin lists `tsx` but never imports it, compiles the schema with
+  TypeScript's `tsc.js`, and doesn't use the broker. The build checks Rayfin still starts and
+  compiles the schema without them.
 
 ## 2026-10-14 — Analytics Hub installer 0.6.2
 

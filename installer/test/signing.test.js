@@ -46,18 +46,20 @@ test('signing: a broken, foreign or untimestamped signature fails', () => {
   assert.match(noTimestamp.problems.join(), /no timestamp/);
 });
 
-test('signing: unsigned release notes say how to get past the warnings and check the hash', () => {
+test('signing: unsigned release notes check the hash and send blocked users to another route, not past the warnings', () => {
   const notes = releaseNotes({ repo: 'octo/hub', sha256: HASH.toUpperCase(), signed: false });
-  assert.match(notes, /https:\/\/github\.com\/octo\/hub\/tree\/main\/fabric#install/);
+  assert.match(notes, /https:\/\/github\.com\/octo\/hub\/blob\/main\/docs\/INSTALL\.md/);
   assert.ok(notes.includes(`\`${HASH}\``));
   assert.ok(notes.includes(`Get-FileHash .\\${EXE_NAME} -Algorithm SHA256`));
-  assert.match(notes, /\*\*Keep\*\*, \*\*Show more\*\* and \*\*Keep anyway\*\*/);
-  assert.match(notes, /\*\*More info\*\*, then \*\*Run anyway\*\*/);
-  assert.match(notes, /octo\/hub\/blob\/main\/installer\/README\.md#without-the-exe/);
+  assert.match(notes, /confirms the file is the one in this release, not who published it/);
+  assert.match(notes, /don't work around it/);
+  assert.match(notes, /ask your IT team/);
+  assert.match(notes, /octo\/hub\/blob\/main\/docs\/INSTALL\.md#without-the-exe/);
+  assert.doesNotMatch(notes, /Keep anyway|Run anyway|More info|Bypass|ExecutionPolicy|AllSigned/);
   assert.doesNotMatch(notes, /Digital Signatures/);
 });
 
-test('signing: signed release notes point to the signature and drop the warning steps', () => {
+test('signing: signed release notes point to the signature', () => {
   const notes = releaseNotes({ repo: 'octo/hub', sha256: HASH, signed: true });
   assert.match(notes, /signed by Microsoft Corporation/);
   assert.match(notes, /\*\*Digital Signatures\*\*/);
@@ -66,11 +68,17 @@ test('signing: signed release notes point to the signature and drop the warning 
   assert.doesNotMatch(notes, /install\.ps1/, 'no PowerShell section without the version');
 });
 
-test('signing: release notes with a version give the pinned PowerShell command', () => {
+test('signing: release notes with a version lead with the pinned PowerShell command, and keep the exe as an option', () => {
   const notes = releaseNotes({ repo: 'octo/hub', sha256: HASH, signed: true, version: '1.2.3' });
-  assert.ok(notes.includes('irm https://github.com/octo/hub/releases/download/installer-v1.2.3/install.ps1 | iex'));
-  assert.ok(notes.includes('-File .\\install.ps1 -ZipPath .\\AnalyticsHubInstaller.zip'));
-  assert.match(notes, /octo\/hub\/blob\/main\/installer\/README\.md#from-powershell/);
+  const cmd = 'irm https://github.com/octo/hub/releases/download/installer-v1.2.3/install.ps1 | iex';
+  assert.ok(notes.includes(cmd));
+  assert.ok(notes.indexOf(cmd) < notes.indexOf(`Download **${EXE_NAME}**`), 'the one-liner comes first');
+  assert.ok(notes.includes('run `.\\install.ps1 -ZipPath .\\AnalyticsHubInstaller.zip`'));
+  assert.match(notes, /-UseInstalledNode/);
+  assert.match(notes, /octo\/hub\/blob\/main\/docs\/INSTALL\.md#from-powershell/);
+  assert.match(notes, /octo\/hub\/blob\/main\/docs\/INSTALL\.md#it-approved-nodejs/);
+  assert.doesNotMatch(notes, /Bypass|ExecutionPolicy|AllSigned/);
   const unsigned = releaseNotes({ repo: 'octo/hub', sha256: HASH, signed: false, version: '1.2.3' });
-  assert.match(unsigned, /use the PowerShell command above, or run the installer with Node\.js/);
+  assert.match(unsigned, /Use the PowerShell command above, another route/);
+  assert.doesNotMatch(unsigned, /Keep anyway|Run anyway|Bypass/);
 });

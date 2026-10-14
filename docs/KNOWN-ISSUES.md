@@ -4,16 +4,36 @@ Limits we know about, and what to do. For error messages, see [Troubleshooting](
 
 ## Installing
 
-- **The exe and `install.ps1` aren't code-signed yet.** Edge and Windows SmartScreen warn about
-  them. See [Check the download](INSTALL.md#check-the-download). Under an `AllSigned` policy, use
-  `irm | iex`.
+- **The exe and `install.ps1` aren't code-signed yet.** A matching SHA-256 confirms a file is the
+  one in the release, not who published it. See [Check the download](INSTALL.md#check-the-download).
+  If your organisation's policy blocks them, use another route in [Install](INSTALL.md) or ask
+  your IT team.
 - **AppLocker or WDAC can block both the exe and the PowerShell one-liner.** Use
+  [IT-approved Node.js](INSTALL.md#it-approved-nodejs) if your IT team has approved one, or
   [Azure Cloud Shell](INSTALL.md#locked-down-tenant--azure-cloud-shell).
 - **Cloud Shell can't sign in where Conditional Access blocks sign-in with a code.** Run the
   installer on a PC that's allowed.
 - **Cloud Shell ends a session after 20 minutes without input.** Run the same command again: it
   carries on from the install record.
 - **Keep the PC awake.** If it sleeps, setup stops until it wakes.
+
+## Unsigned files in the download
+
+`AnalyticsHubInstaller.zip` (which the exe and `install.ps1` unpack) holds a signed `node.exe` and
+these unsigned native files, all in Rayfin's packages under `f\app\node_modules`:
+
+| File | Why it's there | When it loads |
+|---|---|---|
+| `@azure\msal-node-extensions\bin\x64\dpapi.node` | Encrypts Rayfin's saved sign-in with Windows DPAPI | When Rayfin signs you in itself to deploy the app on a Fabric install |
+| `keytar\build\Release\keytar.node` | msal-node-extensions loads it with the DPAPI cache; Rayfin stops if it can't | Same as above |
+
+Neither loads on an Azure install, or when the installer hands Rayfin its own sign-in (in Cloud
+Shell, or when Rayfin is signed in as someone else). If policy blocks native files under your
+profile, use [Azure Cloud Shell](INSTALL.md#locked-down-tenant--azure-cloud-shell) or ask your IT
+team. The zip also has `dpapi.node` for arm64 and ia32, which never load on x64.
+
+The download no longer includes esbuild's `esbuild.exe`, `tsx`, or msal-node-runtime's native
+sign-in broker: nothing loads them when the installer runs.
 
 ## Fabric
 

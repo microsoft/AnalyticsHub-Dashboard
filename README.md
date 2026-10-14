@@ -112,18 +112,21 @@ takes. Send each admin their row before you start.
 
 ### 2. Install
 
-[![Download the Analytics Hub installer](https://img.shields.io/badge/Download-Analytics%20Hub%20installer-0078D4?style=for-the-badge)](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
-
-For Windows 10 or 11. Open it and follow the steps in your browser. If Edge or Windows warns about
-the download, see [Check the download](docs/INSTALL.md#check-the-download). Can't run downloaded
-exes? Paste this into PowerShell, or into [Azure Cloud Shell](docs/INSTALL.md#locked-down-tenant--azure-cloud-shell).
-No admin rights needed:
+On Windows 10 or 11, paste this into PowerShell. It needs no admin rights, and opens the steps in
+your browser:
 
 ```powershell
 irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
 ```
 
-Allow about 20 minutes. See **[Install](docs/INSTALL.md)**.
+Or download the exe and open it:
+
+[![Download the Analytics Hub installer](https://img.shields.io/badge/Download-Analytics%20Hub%20installer-0078D4?style=for-the-badge)](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
+
+To check a download, see [Check the download](docs/INSTALL.md#check-the-download). If your
+organisation blocks both, use an [IT-approved Node.js](docs/INSTALL.md#it-approved-nodejs) or
+[Azure Cloud Shell](docs/INSTALL.md#locked-down-tenant--azure-cloud-shell), or ask your IT team.
+Don't work around the policy. Allow about 20 minutes. See **[Install](docs/INSTALL.md)**.
 
 ### 3. Verify
 

@@ -5,10 +5,15 @@ They all run the same installer and ask the same questions.
 
 | Your PC | Start with |
 |---|---|
-| Windows 10 or 11 | [The exe](#run-it) |
-| Windows, but downloaded exes are blocked | [The PowerShell one-liner](#from-powershell) |
+| Windows 10 or 11 | [The PowerShell one-liner](#from-powershell) |
+| Windows, and you'd rather download a program | [The exe](#run-it) |
+| Windows, with a Node.js your IT team has approved | [IT-approved Node.js](#it-approved-nodejs) |
 | Locked down, or not Windows | [Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell) |
+| Nothing can run locally, and no Cloud Shell | Your IT team deploys it, for example with Intune or Configuration Manager, or you run it from an approved admin workstation |
 | A clone of this repo, with Node.js | [Without the exe](#without-the-exe) |
+
+If your organisation's policy blocks a route, don't work around it. Use another route, or ask
+your IT team.
 
 **Fabric or Azure.** The first question is where it runs: **Your Fabric capacity** or **Your Azure
 subscription** (`--target azure`). The steps are the same. On Azure, you pick a subscription,
@@ -21,18 +26,21 @@ Next: [Verify the install](VERIFY.md).
 
 ## Run it
 
-1. [Download the installer](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe).
-   This link always gets the newest version. If Edge says it isn't commonly downloaded, choose
-   **…** next to the file, then **Keep**, **Show more** and **Keep anyway**. To check the file,
-   see [Check the download](#check-the-download). If your organisation blocks downloaded exes,
-   use the [PowerShell command](#from-powershell) instead and carry on from step 3. If your PC
-   can't run either, use [Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell).
-2. Open it. If Windows says it protected your PC, choose **More info**, then **Run anyway**.
-3. The first time, it takes about a minute to unpack. Then it opens in your browser. Keep its
+1. Start the installer. Paste this into PowerShell (see [From PowerShell](#from-powershell)):
+
+   ```powershell
+   irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+   ```
+
+   Or [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
+   and open it. Both links always get the newest version. To check the exe, see
+   [Check the download](#check-the-download). If your organisation blocks either, use another
+   route in the table above.
+2. The first time, it takes about a minute to unpack. Then it opens in your browser. Keep its
    window open while you use the page, and keep the PC awake and plugged in until it finishes. If
    you close the page, go back to that window and press **Enter** to open it again.
-4. Choose **Set up Analytics Hub** and sign in.
-5. Answer the questions. This takes about 5 minutes:
+3. Choose **Set up Analytics Hub** and sign in.
+4. Answer the questions. This takes about 5 minutes:
    1. **Data sources.** Each source has a card: **Connected (API)**, **Upload CSV** or **Skip**.
       Copilot usage, licences and org data are always connected. Microsoft 365 activity is
       connected by default; the rest are skipped until you choose otherwise. The **Copilot Studio
@@ -52,15 +60,15 @@ Next: [Verify the install](VERIFY.md).
    5. **Where the secret goes** (Fabric only): in the notebooks by default, with nothing in Azure.
       Or a Key Vault you create or pick; if you can't write to it, a vault admin can add the
       secret. See [Where the secret goes](../installer/README.md#where-the-secret-goes).
-6. Check the plan and approve it. Nothing is created until you do. The plan shows every setting,
+5. Check the plan and approve it. Nothing is created until you do. The plan shows every setting,
    including the defaults, and a **Costs** list of what's billed (the Fabric capacity, Power
-   Automate Premium for the flows, the Azure resources), with links to the pricing pages. The exe
-   stops Windows going to sleep while it runs.
-7. Wait for it to finish. Setting up takes about 15 minutes. The first data reaches the app about
+   Automate Premium for the flows, the Azure resources), with links to the pricing pages. The
+   installer stops Windows going to sleep while it runs.
+6. Wait for it to finish. Setting up takes about 15 minutes. The first data reaches the app about
    25 minutes after you choose **Go ahead** with 30 days of history, or about 2 hours with 180 days
    ([a large tenant](../installer/README.md#a-large-tenant) takes longer). Copilot Studio credits arrive after the Studio
    flow's first run: see [Load the Studio credits now](../installer/README.md#power-automate-flows).
-8. When it finishes, open the link to the app.
+7. When it finishes, open the link to the app.
 
 **Want to change an answer?** Choose **Back**, on any question or on the plan. It opens the
 previous question with your answer filled in, and the questions after it are asked again. If you
@@ -69,7 +77,7 @@ further, you'll be asked for it again.
 
 It keeps your answers in `Documents\Analytics Hub`, in an install record named
 `valuelens-install.json`. Keep that folder. To run the pipeline, check status, update, or repair
-the set-up later, open the exe again. **Manage Analytics Hub** shows the record's full path. If
+the set-up later, start the installer again the same way. **Manage Analytics Hub** shows the record's full path. If
 OneDrive syncs your Documents folder, the record follows you to your other PCs.
 
 **The workspace has gone?** After you sign in, the installer checks that the record's workspace
@@ -101,20 +109,18 @@ PowerShell, in the folder you downloaded it to:
 ```
 
 It should match, ignoring capitals. If it doesn't, delete the file and download it again.
+`install.ps1` checks the zip's SHA-256 for you the same way.
 
-Edge and Windows SmartScreen warn about the exe because it's new and isn't code-signed yet:
-
-- If Edge says it **isn't commonly downloaded**, choose **…** next to the file, then **Keep**,
-  **Show more** and **Keep anyway**.
-- If Windows says it **protected your PC**, choose **More info**, then **Run anyway**.
-
-If your organisation blocks the download or won't let you past the warnings, use the
-[PowerShell command](#from-powershell), or [run the installer with Node.js](#without-the-exe).
+A matching hash confirms the file is the one in the release. It doesn't confirm who published
+it: the exe and `install.ps1` aren't code-signed yet. On a PC your organisation doesn't manage,
+Edge may say the exe isn't commonly downloaded, and Windows SmartScreen may say it protected your
+PC. On a managed PC, if policy blocks the exe, use the [PowerShell one-liner](#from-powershell) or
+another route in the table at the top, or ask your IT team.
 
 ## From PowerShell
 
-If your organisation blocks downloaded exes, paste this into PowerShell (Windows PowerShell 5.1 or
-PowerShell 7) instead. It runs the same installer as the exe, with the same browser steps:
+Paste this into PowerShell (Windows PowerShell 5.1 or PowerShell 7). It runs the same installer
+as the exe, with the same browser steps:
 
 ```powershell
 irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
@@ -132,16 +138,14 @@ again to pick up a new version; it removes the old one.
 - **A fixed version.** Each release's notes give a command pinned to that release, such as
   `irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.2/install.ps1 | iex`.
   A pre-release is only reachable this way: `releases/latest` skips pre-releases.
-- **If `irm | iex` is blocked**, download `install.ps1` and `AnalyticsHubInstaller.zip` from the
-  [release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest) and run:
-
-  ```powershell
-  powershell -ExecutionPolicy Bypass -File .\install.ps1 -ZipPath .\AnalyticsHubInstaller.zip
-  ```
-
-  Anything after the options goes to the installer, for example `... -ZipPath .\AnalyticsHubInstaller.zip status`.
-  `-ExecutionPolicy Bypass` applies to that one command only. `install.ps1` isn't signed yet, so
-  under an `AllSigned` policy use `irm | iex`, which execution policy doesn't cover.
+- **Download and run.** To keep the files, download `install.ps1` and `AnalyticsHubInstaller.zip`
+  from the [release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest) and,
+  where your execution policy allows scripts, run
+  `.\install.ps1 -ZipPath .\AnalyticsHubInstaller.zip`. Anything after the options goes to the
+  installer, for example `... -ZipPath .\AnalyticsHubInstaller.zip status`.
+- **If policy blocks it.** If execution policy, endpoint protection or another control blocks
+  `irm | iex` or the script, don't work around it. Use another route in the table at the top, or
+  ask your IT team.
 - **Behind a proxy.** It uses the system proxy. To name one, signed in as you, run
   `$env:ANALYTICS_HUB_PROXY = 'http://proxy:8080'` first. If the proxy blocks GitHub's download host,
   download the zip in a browser and set `$env:ANALYTICS_HUB_ZIP` to its path, or use `-ZipPath`.
@@ -152,10 +156,35 @@ again to pick up a new version; it removes the old one.
   install record in `Documents\Analytics Hub`. To remove what's in your tenant, use **Uninstall**
   in the installer first.
 
-What it can't get past: AppLocker or Windows Defender Application Control rules that block
-programs under your profile stop the unpacked `node.exe` just as they stop the exe. Some
-endpoint protection products flag `irm | iex`; the download-and-run command above avoids it. If
-that's you, use [Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell).
+AppLocker or Windows Defender Application Control rules that block programs under your profile
+stop the unpacked `node.exe`, as they stop the exe. If your IT team has approved a Node.js
+install, use [IT-approved Node.js](#it-approved-nodejs). Otherwise use
+[Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell), or ask your IT team.
+
+## IT-approved Node.js
+
+If your organisation has installed an approved Node.js (22.13 or later, or 24; x64), the
+PowerShell launcher can run the installer with it instead of the `node.exe` in the zip:
+
+```powershell
+$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1'; irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+```
+
+Or, from the [download-and-run](#from-powershell) files, `.\install.ps1 -ZipPath .\AnalyticsHubInstaller.zip -UseInstalledNode`.
+
+- **Which Node.js.** The `node` on your PATH. It stops if that's missing, too old or not x64.
+- **What's still downloaded.** The same zip, checked the same way and unpacked to
+  `%LOCALAPPDATA%\AnalyticsHub`: the installer's JavaScript, the templates, and the prebuilt app
+  with the packages Rayfin needs to deploy it. The zip's `node.exe` is unpacked but not run.
+- **What still runs from your profile.** On a Fabric install, Rayfin loads two unsigned native
+  add-ons when it signs you in itself. See
+  [Unsigned files in the download](KNOWN-ISSUES.md#unsigned-files-in-the-download). If policy
+  blocks those too, use [Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell) or ask your IT
+  team. An Azure install loads none.
+- **Same install.** It uses the same folders and the same install record as the other Windows
+  routes, so you can switch routes without a second install. The command it leaves behind,
+  `analytics-hub.cmd`, keeps using the approved Node.js, and the update command the installer
+  shows keeps the setting.
 
 ## Locked-down tenant / Azure Cloud Shell
 
