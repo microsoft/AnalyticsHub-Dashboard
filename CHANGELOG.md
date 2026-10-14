@@ -20,15 +20,6 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
-**Fixed:**
-
-- **Installer, Azure Cloud Shell:** the plan before **Go ahead?** said to keep the PC plugged in
-  and awake; in Cloud Shell it now says to keep the Cloud Shell tab open. Without a storage
-  account, each run now ends by saying how to download the install record (**Manage files** >
-  **Download**, with the path to enter), and a record uploaded with **Manage files** > **Upload**
-  is moved from the home folder to where the installer looks, so running it again carries on
-  instead of setting up a second copy.
-
 **Docs:**
 
 - **Simpler prerequisites, and a page per step.** [Prerequisites](docs/PREREQUISITES.md) opens
@@ -41,6 +32,37 @@ Deployment instructions do **not** live here. They live in the READMEs:
   so existing links still land.
 - **The wiki.** docs/ is published to the
   [wiki](https://github.com/microsoft/AnalyticsHub-Dashboard/wiki) on every change to main.
+
+## 2026-10-14 — Analytics Hub installer 0.6.2
+
+**The current release.** 0.6.2 is the first release since 0.5.1 to be marked Latest, so the
+`releases/latest` links, including the PowerShell command, now serve it:
+
+```powershell
+irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+```
+
+To pin this version, use
+`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.2/install.ps1 | iex`.
+
+**Coming from 0.5.1:** 0.6.2 includes everything in the 0.6.0 and 0.6.1 pre-releases below: the
+PowerShell command and Azure Cloud Shell, the no-Key-Vault default for new Fabric installs, region
+preflight and private networking for Azure under policy, and the app's report packs, Ask,
+org-scoped access and delegation. Read those two sections before you update.
+
+**Update an existing install:** open installer 0.6.2 and choose **Repair or change**. On Azure it
+pulls the `0.6.2` images and runs any migrations the install hasn't had yet (V006 from 0.6.1).
+
+The tag also publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.2`.
+
+**Fixed in this release:**
+
+- **Installer, Azure Cloud Shell:** the plan before **Go ahead?** said to keep the PC plugged in
+  and awake; in Cloud Shell it now says to keep the Cloud Shell tab open. Without a storage
+  account, each run now ends by saying how to download the install record (**Manage files** >
+  **Download**, with the path to enter), and a record uploaded with **Manage files** > **Upload**
+  is moved from the home folder to where the installer looks, so running it again carries on
+  instead of setting up a second copy.
 
 ## 2026-10-13 — Analytics Hub installer 0.6.1 (pre-release)
 
