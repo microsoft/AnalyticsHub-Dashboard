@@ -8,7 +8,7 @@ import { fakeCtx, fakeUi, httpError } from './fakes.js';
 
 /**
  * A workspace with managed private endpoints that take a poll or two to go after they're deleted.
- * @param {{ endpoints?: string[], polls?: number, deleteFails?: Record<string, Error>, workspaceGone?: boolean }} [o]
+ * @param {{ endpoints?: string[], polls?: number, deleteFails?: Record<string, Error>, workspaceGone?: boolean, connectionFails?: Error }} [o]
  */
 function fakeWorkspace(o = {}) {
   /** @type {string[]} */
@@ -33,6 +33,11 @@ function fakeWorkspace(o = {}) {
       calls.push(`deleteWorkspace ${ws}`);
       if (live.length) throw httpError(400, 'WorkspaceHasManagedPrivateEndpoints');
       if (o.workspaceGone) throw httpError(404);
+      return null;
+    },
+    deleteConnection: async (/** @type {string} */ id) => {
+      calls.push(`deleteConnection ${id}`);
+      if (o.connectionFails) throw o.connectionFails;
       return null;
     },
   };
@@ -92,6 +97,44 @@ test('uninstall on Fabric: asks first, and by default keeps a workspace the inst
   const none = fakeCtx();
   delete none.config.fabric.workspaceId;
   await assert.rejects(fabricUninstall(none.ctx), /Nothing is installed/);
+});
+
+test('uninstall on Fabric: the model\'s SQL connection goes after the workspace; a failure only warns', async () => {
+  const fabric = fakeWorkspace();
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ fabric: fabric.api, ui: ui.ui });
+  config.fabric.createdWorkspace = true;
+  config.semanticModel.connectionId = 'conn-1';
+  config.semanticModel.connectionName = 'Analytics Hub SQL ws-1';
+  config.keyVault.mode = 'notebook';
+  assert.equal(await fabricUninstall(ctx), true);
+  assert.deepEqual(fabric.calls.slice(-2), ['deleteWorkspace ws-1', 'deleteConnection conn-1']);
+  assert.match(ui.text(), /Deleted the connection "Analytics Hub SQL ws-1"/);
+  assert.doesNotMatch(ui.text(), /Key Vault/);
+
+  const gone = fakeWorkspace({ connectionFails: httpError(404) });
+  const g = fakeUi();
+  const gc = fakeCtx({ fabric: gone.api, ui: g.ui });
+  gc.config.fabric.createdWorkspace = true;
+  gc.config.semanticModel.connectionId = 'conn-1';
+  assert.equal(await fabricUninstall(gc.ctx), true);
+  assert.match(g.text(), /was already gone/);
+
+  const denied = fakeWorkspace({ connectionFails: httpError(403, 'Forbidden') });
+  const d = fakeUi();
+  const dc = fakeCtx({ fabric: denied.api, ui: d.ui });
+  dc.config.fabric.createdWorkspace = true;
+  dc.config.semanticModel.connectionId = 'conn-1';
+  assert.equal(await fabricUninstall(dc.ctx), true);
+  assert.match(d.text(), /Couldn't delete the connection "conn-1"/);
+  assert.match(d.text(), /Key Vault and its secret/);
+
+  const none = fakeWorkspace();
+  const nc = fakeCtx({ fabric: none.api });
+  nc.config.fabric.createdWorkspace = true;
+  delete nc.config.semanticModel.connectionId;
+  await fabricUninstall(nc.ctx);
+  assert.ok(!none.calls.some((c) => c.startsWith('deleteConnection')));
 });
 
 test('web: uninstall is offered for a Fabric install too', () => {

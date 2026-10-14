@@ -1,8 +1,9 @@
 // @ts-check
 /**
  * Uninstall on Fabric: the workspace, after its managed private endpoints, which Fabric won't
- * delete a workspace without.
+ * delete a workspace without, then the model's SQL connection, which lives outside the workspace.
  */
+import { secretMode } from '../config.js';
 import { HttpError } from '../http.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
@@ -50,6 +51,25 @@ export async function deletePrivateEndpoints(ctx, workspaceId) {
 }
 
 /**
+ * Deletes the semantic model's SQL connection. Connections live outside the workspace, so deleting
+ * the workspace leaves it behind. A failure only warns: the workspace is already gone.
+ * @param {Ctx} ctx
+ */
+async function deleteModelConnection(ctx) {
+  const { ui, config, api } = ctx;
+  const sm = config.semanticModel;
+  if (!sm?.connectionId) return;
+  const label = sm.connectionName ?? sm.connectionId;
+  try {
+    await api.fabric.deleteConnection(sm.connectionId);
+    ui.ok(`Deleted the connection "${label}"`);
+  } catch (err) {
+    if (gone(err)) ui.ok(`The connection "${label}" was already gone`);
+    else ui.warn(`Couldn't delete the connection "${label}": ${/** @type {Error} */ (err).message}. Delete it under Manage connections and gateways.`);
+  }
+}
+
+/**
  * Deletes the Fabric workspace and everything in it, managed private endpoints first. Asks first,
  * and by default leaves a workspace the installer didn't create.
  * @param {Ctx} ctx
@@ -79,8 +99,9 @@ export async function fabricUninstall(ctx) {
     if (!gone(err)) throw err;
     ui.ok(`Workspace "${name}" was already gone`);
   }
+  await deleteModelConnection(ctx);
   ui.note(
-    `Left alone: the app registration ${config.app.displayName ?? config.app.appId ?? ''}, the Key Vault and its secret, any Power Automate flows, ` +
+    `Left alone: the app registration ${config.app.displayName ?? config.app.appId ?? ''}, ${secretMode(config) === 'notebook' ? '' : 'the Key Vault and its secret, '}any Power Automate flows, ` +
       'the app\'s access to Dataverse environments, and the roles it was given. Remove them yourself if nothing else uses them.',
   );
   ui.note('The install record still names the deleted workspace. Move it aside before installing again.');

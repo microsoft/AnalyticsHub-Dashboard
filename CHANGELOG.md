@@ -32,6 +32,9 @@ Deployment instructions do **not** live here. They live in the READMEs:
   separately from the special-character quoting fix.
 - **Contributing.** Pull requests into `main` now need passing checks and a code owner's
   approval, and only Keith creates release tags. See [Contributing](CONTRIBUTING.md#reviews-and-releases).
+- **Fabric uninstall deletes the model's SQL connection.** The connection lives outside the
+  workspace, so it was left behind. A failure to delete it only warns. The closing note no longer
+  mentions a Key Vault for installs that keep the secret in the notebook.
 
 ## 2026-10-14 — Analytics Hub installer 0.6.3 (pre-release)
 
