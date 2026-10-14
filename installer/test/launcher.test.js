@@ -38,3 +38,12 @@ test('launcher: stays awake while the installer runs, and lets the PC sleep agai
   assert.ok(off > start && /finally\s*\{\s*KeepAwake\(false\);/.test(run), 'reset in a finally block, after it exits');
   assert.match(src, /SetThreadExecutionState\(on \? AwakeFlags : EsContinuous\)/);
 });
+
+test('launcher: a node.exe blocked by device policy says what to do, with links that exist', () => {
+  const src = readFileSync(join(HERE, '..', 'packaging', 'launcher', 'Launcher.cs'), 'utf8');
+  assert.match(src, /try \{ started = Process\.Start\(psi\); \}\s*catch \(Win32Exception e\)\s*\{\s*if \(!BlockedByPolicy\(e\.NativeErrorCode\)\) throw;\s*throw new InvalidOperationException\(PolicyMessage\(psi\.FileName\)\);/);
+  const doc = readFileSync(join(HERE, '..', '..', 'docs', 'INSTALL.md'), 'utf8');
+  assert.match(doc, /^## IT-approved Node\.js$/m, '#it-approved-nodejs');
+  assert.match(doc, /^## Locked-down tenant \/ Azure Cloud Shell$/m, '#locked-down-tenant--azure-cloud-shell');
+  assert.doesNotMatch(src, /ExecutionPolicy|Bypass|Run anyway|Keep anyway|AllSigned/i);
+});

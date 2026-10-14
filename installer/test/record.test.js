@@ -99,6 +99,14 @@ test('record: any other rename error is not retried', () =>
     assert.equal(calls, 1);
   }));
 
+test("record: a save that doesn't read back as written fails, so no step counts as done", () =>
+  inDir((dir) => {
+    const file = join(dir, 'valuelens-install.json');
+    assert.throws(() => saveConfig(file, record(), { read: () => '{}\n' }), /didn't save: it reads back different/);
+    saveConfig(file, record(), { read: (f) => readFileSync(f, 'utf8') });
+    assert.equal(loadConfig(file).config.fabric.workspaceId, 'ws-1');
+  }));
+
 test('record: only a definite not-found, or another tenant, makes the workspace gone', async () => {
   const config = record();
   const gone = (/** @type {() => Promise<any>} */ get, tenantId = 'tenant-1') => recordWorkspaceGone({ config, fabric: fabricThat(get), tenantId });

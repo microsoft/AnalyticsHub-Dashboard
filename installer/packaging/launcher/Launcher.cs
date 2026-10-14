@@ -7,6 +7,7 @@
 // Compiled by packaging/build-exe.js with the C# 5 compiler in the .NET Framework, which every
 // supported Windows has, so keep to C# 5.
 using System;
+using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.IO.Compression;
@@ -97,7 +98,14 @@ internal static class Launcher
         KeepAwake(true);
         try
         {
-            using (Process p = Process.Start(psi))
+            Process started;
+            try { started = Process.Start(psi); }
+            catch (Win32Exception e)
+            {
+                if (!BlockedByPolicy(e.NativeErrorCode)) throw;
+                throw new InvalidOperationException(PolicyMessage(psi.FileName));
+            }
+            using (Process p = started)
             {
                 p.WaitForExit();
                 return p.ExitCode;
@@ -107,6 +115,23 @@ internal static class Launcher
         {
             KeepAwake(false);
         }
+    }
+
+    private const string Docs = "https://github.com/microsoft/AnalyticsHub-Dashboard/blob/main/docs/INSTALL.md";
+
+    /// <summary>ERROR_ACCESS_DISABLED_BY_POLICY (AppLocker, software restriction) or ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION (App Control).</summary>
+    internal static bool BlockedByPolicy(int code)
+    {
+        return code == 1260 || code == 4551;
+    }
+
+    /// <summary>What to do when a device policy blocks the unpacked node.exe.</summary>
+    internal static string PolicyMessage(string node)
+    {
+        return "your organisation's policy blocks the Node.js that comes with it (" + node + "). Don't work around it."
+            + " If your IT team offers Node.js, for example in Company Portal, install the x64 LTS version and use the PowerShell route with it: "
+            + Docs + "#it-approved-nodejs. Otherwise run the installer in Azure Cloud Shell ("
+            + Docs + "#locked-down-tenant--azure-cloud-shell), or ask your IT team.";
     }
 
     private static void Unpack(string root)

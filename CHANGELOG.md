@@ -20,6 +20,27 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**Installer robustness ([#88](https://github.com/microsoft/AnalyticsHub-Dashboard/issues/88)).**
+
+- **The first load is recorded as complete only once it's proven.** A first load whose pipeline
+  run succeeded but whose audit load didn't is now recorded as `Incomplete`, not `Completed`, so
+  the next run offers it again. `status` applies the same check when it syncs the record.
+- **"Partly set up" instead of "ready".** If the app deploy or a waited-for first load didn't
+  finish, the summary says Analytics Hub is partly set up, says to fix what's above and run the
+  installer again, and the installer exits non-zero.
+- **The install record is read back after it's saved**, and the installer stops with a clear
+  message if it doesn't match (a read-only or full folder), like the save retry in 0.6.5.
+- **Device policy that blocks `node.exe`.** When AppLocker or App Control blocks the Node.js the
+  installer runs, `install.ps1` and the exe now say what to do: install the x64 LTS Node.js from
+  your IT team (for example from Company Portal) and re-run with
+  `$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1'`, or use Azure Cloud Shell, or ask your IT team.
+  The launcher's cleanup falls back to `Remove-Item` when it can't run `node.exe`.
+- **A pinned `install.ps1` whose release has gone** now says that `installer-vX` is no longer
+  available and prints the `releases/latest` command to run instead, then exits non-zero. It
+  doesn't switch versions on its own. Other download failures keep the proxy advice.
+- Not changed: the installer never installs anything with winget, so there's no `--scope user`
+  fallback to add. Execution policy and Constrained Language Mode were already covered.
+
 ## 2026-10-14 — Analytics Hub installer 0.6.5
 
 **The current release.** 0.6.5 replaces 0.6.2 as Latest, so the `releases/latest` links, including

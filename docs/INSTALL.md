@@ -140,7 +140,9 @@ again to pick up a new version; it removes the old one.
   browser steps.
 - **A fixed version.** Each release's notes give a command pinned to that release, such as
   `irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.5/install.ps1 | iex`.
-  A pre-release is only reachable this way: `releases/latest` skips pre-releases.
+  A pre-release is only reachable this way: `releases/latest` skips pre-releases. If that
+  release's zip has since been removed, the command says so, prints the `releases/latest`
+  command to run instead and stops. It doesn't switch versions on its own.
 - **Download and run.** To keep the files, download `install.ps1` and `AnalyticsHubInstaller.zip`
   from the [release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest) and,
   where your execution policy allows scripts, run
@@ -160,8 +162,9 @@ again to pick up a new version; it removes the old one.
   in the installer first.
 
 AppLocker or Windows Defender Application Control rules that block programs under your profile
-stop the unpacked `node.exe`, as they stop the exe. If your IT team has approved a Node.js
-install, use [IT-approved Node.js](#it-approved-nodejs). Otherwise use
+stop the unpacked `node.exe`, as they stop the exe. The launcher and the exe spot this and say
+what to do instead of showing the raw error. If your IT team has approved a Node.js install, for
+example from Company Portal, use [IT-approved Node.js](#it-approved-nodejs). Otherwise use
 [Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell), or ask your IT team.
 
 ## IT-approved Node.js

@@ -377,9 +377,10 @@ export async function install(ctx, opts) {
     step('Viewer access');
     if (await ensureViewerGroup(ctx)) await grantModelAccess(ctx, fabricViewerModels(config));
   }
+  let appDeployed = true;
   if (withApp) {
     step('Analytics Hub app');
-    await tryDeployApp(ctx);
+    appDeployed = await tryDeployApp(ctx);
   }
   if (withShare) {
     step('Share the app');
@@ -404,6 +405,7 @@ export async function install(ctx, opts) {
         await runDataCheck(ctx);
         if (modelDeployed(config)) ok = (await verifyModel(ctx)).ok;
       }
+      if (opts.wait && config.firstRun?.status !== 'Completed') ok = false;
     }
   } else if (ctx.reloadHistoryDays) {
     step('Reload audit history');
@@ -431,7 +433,8 @@ export async function install(ctx, opts) {
     if (refreshed.ok && opts.wait) ok = (await verifyModel(ctx)).ok;
     else if (opts.wait) ok = false;
   }
-  await summary(ctx);
+  ok = ok && appDeployed;
+  await summary(ctx, { ok });
   return ok;
 }
 
@@ -509,13 +512,16 @@ async function refreshModels(ctx, opts) {
  * The app is the last thing before the data load, so a failure here shouldn't stop that.
  * @param {Ctx} ctx
  * @param {{ force?: boolean }} [opts]
+ * @returns {Promise<boolean>} Whether the app deployed.
  */
 async function tryDeployApp(ctx, opts = {}) {
   try {
     await (opts.force ? deployApp(ctx) : ensureFabricApp(ctx));
+    return true;
   } catch (err) {
     ctx.ui.fail(`The app wasn't deployed: ${/** @type {Error} */ (err).message}`);
     ctx.ui.info(`Fix the problem, then run "${commandLine('deploy-app')}".`);
+    return false;
   }
 }
 
@@ -730,8 +736,9 @@ export async function rotateSecret(ctx) {
 /**
  * Prints where everything is and what to do next.
  * @param {Ctx} ctx
+ * @param {{ ok?: boolean }} [opts]  ok false when a step above failed, so the heading doesn't say it is all set up.
  */
-export async function summary(ctx) {
+export async function summary(ctx, opts = {}) {
   const { ui, config, api } = ctx;
   const f = config.fabric;
   const ws = /** @type {string} */ (f.workspaceId);
@@ -739,7 +746,12 @@ export async function summary(ctx) {
   const lakehouse = await api.fabric.getLakehouse(ws, lhId).catch(() => null);
   const sql = lakehouse?.properties?.sqlEndpointProperties;
 
-  ui.heading('Analytics Hub is set up');
+  if (opts.ok === false) {
+    ui.heading('Analytics Hub is partly set up');
+    ui.warn('A step above didn\'t finish. Fix what it says, then run the installer again: it picks up where it stopped.');
+  } else {
+    ui.heading('Analytics Hub is set up');
+  }
   const left = nextSteps(config, ctx.user);
   if (left.length) ui.nextSteps(stepsLeftTitle(left), left);
   ui.info(`Workspace:  ${f.workspaceName}  ${c.dim(`https://app.fabric.microsoft.com/groups/${ws}`)}`);
