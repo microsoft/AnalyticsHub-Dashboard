@@ -1,7 +1,7 @@
 // @ts-check
 /** The install record when its workspace has gone, and what the launch and the wording say. */
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -56,6 +56,47 @@ test('record: archiving renames it beside itself with the date and time, and nev
     saveConfig(file, record());
     assert.equal(archiveConfig(file, at), join(dir, 'valuelens-install.20260507-090302-2.json'));
     assert.deepEqual(readdirSync(dir).sort(), ['valuelens-install.20260507-090302-2.json', 'valuelens-install.20260507-090302.json']);
+  }));
+
+/** @param {string} code */
+const locked = (code) => Object.assign(new Error(code), { code });
+
+test('record: a rename blocked for a moment (a synced folder) is retried', () =>
+  inDir((dir) => {
+    const file = join(dir, 'valuelens-install.json');
+    let calls = 0;
+    /** @type {number[]} */
+    const waits = [];
+    const rename = (/** @type {string} */ from, /** @type {string} */ to) => {
+      if (++calls < 3) throw locked('EPERM');
+      renameSync(from, to);
+    };
+    saveConfig(file, record(), { rename, wait: (ms) => waits.push(ms) });
+    assert.equal(calls, 3);
+    assert.deepEqual(waits, [100, 200]);
+    assert.equal(loadConfig(file).config.fabric.workspaceId, 'ws-1');
+    assert.deepEqual(readdirSync(dir), ['valuelens-install.json']);
+  }));
+
+test('record: a rename that stays blocked writes the record in place, so progress is kept', () =>
+  inDir((dir) => {
+    const file = join(dir, 'valuelens-install.json');
+    saveConfig(file, emptyConfig());
+    let calls = 0;
+    const rename = () => { calls++; throw locked('EBUSY'); };
+    saveConfig(file, record(), { rename, wait: () => {}, tries: 3 });
+    assert.equal(calls, 3);
+    assert.equal(loadConfig(file).config.fabric.workspaceId, 'ws-1');
+    assert.deepEqual(readdirSync(dir), ['valuelens-install.json']);
+  }));
+
+test('record: any other rename error is not retried', () =>
+  inDir((dir) => {
+    const file = join(dir, 'valuelens-install.json');
+    let calls = 0;
+    const rename = () => { calls++; throw locked('ENOSPC'); };
+    assert.throws(() => saveConfig(file, record(), { rename, wait: () => {} }), /ENOSPC/);
+    assert.equal(calls, 1);
   }));
 
 test('record: only a definite not-found, or another tenant, makes the workspace gone', async () => {
