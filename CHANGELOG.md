@@ -20,6 +20,21 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+## 2026-10-14 — Analytics Hub installer 0.6.3 (pre-release)
+
+**A pre-release, for testing.** 0.6.3 is a GitHub pre-release, so the `releases/latest` links still
+serve 0.6.2. To try it, download installer 0.6.3 from
+[its release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/tag/installer-v0.6.3),
+or run its pinned PowerShell command:
+
+```powershell
+irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.3/install.ps1 | iex
+```
+
+What the installer deploys is the same as 0.6.2. This release changes how you can run it, the
+docs and what's in the download. The tag also publishes the `valuelens-jobs` and `valuelens-web`
+images as `0.6.3`.
+
 **Docs:**
 
 - **Simpler prerequisites, and a page per step.** [Prerequisites](docs/PREREQUISITES.md) opens
