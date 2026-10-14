@@ -539,7 +539,7 @@ Task Breakdown only when none of those match ([§3.2](#step-1-base-behaviour)). 
 case and surrounding spaces.
 
 Microsoft doesn't publish a complete list of app host values, and new surfaces appear over time. The
-descriptions below say what ValueLens does with each value. Where a description says which product
+descriptions below say what Analytics Hub does with each value. Where a description says which product
 logs it, check it against your own data.
 
 #### Hosts that set a task

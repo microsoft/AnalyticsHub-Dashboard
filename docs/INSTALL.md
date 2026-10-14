@@ -1,5 +1,8 @@
 # Install
 
+The automatic path: the installer sets everything up. To set it up by hand instead, see
+[Manual install](MANUAL-INSTALL.md).
+
 Check the [Prerequisites](PREREQUISITES.md) first. Then start the installer one of these ways.
 They all run the same installer and ask the same questions.
 
