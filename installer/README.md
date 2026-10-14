@@ -591,8 +591,10 @@ Studio credits**, **Copilot Cowork credits** and **Azure AI costs**. Choose any 
 - **Copilot Cowork credits.** Choose **Connected (Dataflow)** where you can. Your Viva Insights
   analyst creates the query first: send them the
   [note in the checklist](../docs/PREREQUISITES.md#send-this-to-your-viva-insights-analyst-first).
-  In Viva Insights > **Analysis**, they build a query with the Copilot credit metrics and turn on
-  **Auto-refresh**. In **Analysis results**, the link icon copies its partition and query IDs. The
+  In Viva Insights > **Create analysis** > **Create custom query** > **Consumption query**, they
+  keep the preselected credit metrics, turn on **Auto-refresh** and run it. In **Analysis
+  results**, the link icon copies its partition and query IDs. Step by step:
+  [Running the Viva Insights query](../docs/VIVA-QUERY.md). The
   installer fills in the partition ID with your tenant ID, which is usually right. If you don't
   have the query ID yet, choose **Not yet** to add the query later: Cowork credits use the CSV
   export until then, and you add the IDs with **Repair or change**. With the IDs, the installer

@@ -138,7 +138,7 @@ export async function planCowork(ctx) {
   const { ui, config } = ctx;
   const cc = config.consumption;
   if (config.dataSources.coworkCredits !== 'api') return;
-  ui.note('A Dataflow reads Cowork credits from a Viva Insights query. A Viva Insights analyst (someone with the Insights Analyst role) builds it in Viva Insights > Analysis with the Copilot credit metrics and Auto-refresh on; then, in Analysis results, the link icon copies its partition and query IDs.');
+  ui.note('A Dataflow reads Cowork credits from a Viva Insights query. A Viva Insights analyst (someone with the Insights Analyst role) builds it in Viva Insights > Create analysis > Create custom query > Consumption query, with Auto-refresh on; then, in Analysis results, the link icon copies its partition and query IDs.');
   ui.note(`Guide: ${DATAFLOW_GUIDE}`);
   const toCsv = () => {
     config.dataSources.coworkCredits = 'csv';
