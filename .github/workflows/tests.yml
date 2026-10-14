@@ -72,10 +72,21 @@ jobs:
         shell: python
         run: |
           import json, os, sys
+          # Nested modules carry their own Bicep version and hash, which change with every
+          # Bicep release even when the template is the same.
+          def strip(node):
+              if isinstance(node, dict):
+                  meta = node.get("metadata")
+                  if isinstance(meta, dict):
+                      meta.pop("_generator", None)
+                  for value in node.values():
+                      strip(value)
+              elif isinstance(node, list):
+                  for value in node:
+                      strip(value)
+              return node
           def load(p):
-              d = json.load(open(p, encoding="utf-8"))
-              d.get("metadata", {}).pop("_generator", None)
-              return d
+              return strip(json.load(open(p, encoding="utf-8")))
           built = load(os.path.join(os.environ["RUNNER_TEMP"], "main.arm.json"))
           shipped = load("installer/src/azure/main.arm.json")
           if built != shipped:
