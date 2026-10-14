@@ -1,7 +1,7 @@
 // @ts-check
 /** The install record when its workspace has gone, and what the launch and the wording say. */
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
@@ -10,7 +10,8 @@ import { archiveConfig, emptyConfig, loadConfig, saveConfig } from '../src/confi
 import { HttpError } from '../src/http.js';
 import { confirmAzurePlan } from '../src/steps/azure/index.js';
 import { recordWorkspaceGone, staleRecordMessage } from '../src/steps/fabric.js';
-import { confirmPlan, KEEP_AWAKE } from '../src/steps/plan.js';
+import { adoptUploadedRecord, CLOUD_SHELL_ENV, cloudShellKeepsFiles, cloudShellRecordMessage } from '../src/launch.js';
+import { confirmPlan, KEEP_AWAKE, KEEP_CLOUD_SHELL_OPEN, keepAwake } from '../src/steps/plan.js';
 import { runPipeline } from '../src/steps/run.js';
 import { createUi } from '../src/ui.js';
 import { createWebUi } from '../src/web-ui.js';
@@ -239,6 +240,65 @@ test('wording: the plan says to keep the PC awake, just before Go ahead', async 
   a.config.azure = { ...a.config.azure, subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'ah' };
   assert.equal(await confirmAzurePlan(a.ctx), true);
   assert.match(az.text(), /Keep this PC plugged in and awake until setup finishes\./);
+});
+
+test('wording: in Cloud Shell the plan says to keep the tab open, not the PC awake', async () => {
+  const before = process.env[CLOUD_SHELL_ENV];
+  process.env[CLOUD_SHELL_ENV] = '1';
+  try {
+    const ui = fakeUi({ answers: [true] });
+    const t = fakeCtx({ ui: ui.ui });
+    assert.equal(await confirmPlan(t.ctx), true);
+    assert.match(ui.text(), new RegExp(`${KEEP_CLOUD_SHELL_OPEN.replace('.', '\\.')}\\n$`));
+    assert.doesNotMatch(ui.text(), /plugged in/);
+
+    const az = fakeUi({ answers: [true] });
+    const a = fakeCtx({ ui: az.ui });
+    a.config.target = 'azure';
+    a.config.azure = { ...a.config.azure, subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'ah' };
+    assert.equal(await confirmAzurePlan(a.ctx), true);
+    assert.match(az.text(), /Keep this Cloud Shell tab open until setup finishes\./);
+    assert.doesNotMatch(az.text(), /plugged in/);
+  } finally {
+    if (before === undefined) delete process.env[CLOUD_SHELL_ENV];
+    else process.env[CLOUD_SHELL_ENV] = before;
+  }
+  assert.equal(keepAwake({}), KEEP_AWAKE);
+});
+
+test('Cloud Shell: without a storage account, the end of a run says how to download the record', () => {
+  const home = mkdtempSync(join(tmpdir(), 'ah-cs-'));
+  try {
+    assert.equal(cloudShellKeepsFiles(home), false);
+    const msg = cloudShellRecordMessage(join(home, 'analytics-hub', 'valuelens-install.json'), home);
+    assert.match(msg, /Manage files > Download and enter analytics-hub[\\/]valuelens-install\.json\./);
+    assert.match(msg, /Manage files > Upload, then run the installer again\./);
+    mkdirSync(join(home, 'clouddrive'));
+    assert.equal(cloudShellKeepsFiles(home), true);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
+});
+
+test('Cloud Shell: an uploaded install record is moved to where the installer looks', () => {
+  const home = mkdtempSync(join(tmpdir(), 'ah-cs-'));
+  try {
+    const file = join(home, 'analytics-hub', 'valuelens-install.json');
+    assert.equal(adoptUploadedRecord(file, home), undefined);
+
+    writeFileSync(join(home, 'valuelens-install.json'), '{"installId":"up"}');
+    assert.equal(adoptUploadedRecord(file, home), join(home, 'valuelens-install.json'));
+    assert.equal(readFileSync(file, 'utf8'), '{"installId":"up"}');
+    assert.equal(existsSync(join(home, 'valuelens-install.json')), false);
+
+    // A record already in place wins over a later upload, which stays put.
+    writeFileSync(join(home, 'valuelens-install.json'), '{"installId":"old"}');
+    assert.equal(adoptUploadedRecord(file, home), undefined);
+    assert.equal(readFileSync(file, 'utf8'), '{"installId":"up"}');
+    assert.equal(existsSync(join(home, 'valuelens-install.json')), true);
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 });
 
 test('wording: a page that lost its link says to press Enter in the installer window', () => {

@@ -1,5 +1,8 @@
 // @ts-check
 /** How the installer was started, so messages name the command people actually run. */
+import { copyFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
+import { homedir } from 'node:os';
+import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { REPO } from './update-check.js';
 
 /** Set by AnalyticsHubInstaller.exe, which runs the installer with the Node.js it carries. */
@@ -29,6 +32,47 @@ export function inCloudShell(env = process.env) {
   if (env[CLOUD_SHELL_ENV] === '1') return true;
   if (env[CLOUD_SHELL_ENV] === '0') return false;
   return env[LAUNCHER_ENV] === 'cloudshell' || /^cloud-shell/i.test(env.AZUREPS_HOST_ENVIRONMENT ?? '') || !!env.ACC_CLOUD;
+}
+
+/**
+ * Whether Cloud Shell keeps files between sessions. It does only with a storage account, which
+ * mounts ~/clouddrive; without one (or when policy stops the mount) the session is ephemeral.
+ * @param {string} [home]
+ */
+export const cloudShellKeepsFiles = (home = homedir()) => existsSync(join(home, 'clouddrive'));
+
+/**
+ * Said at the end of a run in Cloud Shell without a storage account, where the install record goes
+ * when the session ends or times out.
+ * @param {string} file  The install record.
+ * @param {string} [home]
+ */
+export function cloudShellRecordMessage(file, home = homedir()) {
+  const rel = relative(home, file);
+  const path = rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : file;
+  return `This Cloud Shell has no storage account, so ${basename(file)} goes when the session ends or times out. Download it now: in Cloud Shell's toolbar choose Manage files > Download and enter ${path}. To carry on in a new session, upload it with Manage files > Upload, then run the installer again.`;
+}
+
+/**
+ * Cloud Shell's Manage files > Upload puts files in the home folder. When the install record isn't
+ * where the installer looks but an uploaded one is, move it there, so running the installer again
+ * carries on instead of setting up a second copy. Moved rather than copied, so an old upload isn't
+ * picked up again after uninstall.
+ * @param {string} file  Where the installer looks for the install record.
+ * @param {string} [home]
+ * @returns {string | undefined}  The uploaded file it moved.
+ */
+export function adoptUploadedRecord(file, home = homedir()) {
+  const uploaded = join(home, basename(file));
+  if (existsSync(file) || uploaded === file || !existsSync(uploaded)) return undefined;
+  mkdirSync(dirname(file), { recursive: true });
+  try {
+    renameSync(uploaded, file);
+  } catch {
+    copyFileSync(uploaded, file);
+    unlinkSync(uploaded);
+  }
+  return uploaded;
 }
 
 /**

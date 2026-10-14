@@ -10,7 +10,7 @@ import { allowsAction, armLocation, validateVaultName } from '../clients/azure.j
 import { TRANSCRIPT_ROLE } from '../clients/dataverse.js';
 import { APP_ROLES, CONSENT_ROLES } from '../clients/graph.js';
 import { HttpError } from '../http.js';
-import { commandLine } from '../launch.js';
+import { commandLine, inCloudShell } from '../launch.js';
 import { c } from '../ui.js';
 import { CURRENCIES, DEFAULT_CURRENCY, describeReporting, parseRate } from '../currency.js';
 import { AGENT_EVALUATOR_MODEL_NAME, CONSUMPTION_MODEL_NAME, DATA_AGENT_NAME, flowIdentity, MODEL_NAME, secretMode } from '../config.js';
@@ -1183,9 +1183,13 @@ export async function confirmPlan(ctx, pre) {
   if (ctx.runFirstLoad) ui.info(`First load:  ${config.history.days} days of history, straight after setup`);
   if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)} ${c.dim(`(${reloadDetail(ctx.reloadHistoryDays)})`)}`);
   ui.review(planReview(ctx, pre));
-  ui.note(KEEP_AWAKE);
+  ui.note(keepAwake());
   return ui.confirm('Go ahead?', true);
 }
 
 /** Said before Go ahead: a PC that sleeps stops the setup part way. */
 export const KEEP_AWAKE = 'Keep this PC plugged in and awake until setup finishes.';
+/** The same in Azure Cloud Shell, where closing the tab ends the session. */
+export const KEEP_CLOUD_SHELL_OPEN = 'Keep this Cloud Shell tab open until setup finishes.';
+/** @param {NodeJS.ProcessEnv} [env] */
+export const keepAwake = (env = process.env) => (inCloudShell(env) ? KEEP_CLOUD_SHELL_OPEN : KEEP_AWAKE);

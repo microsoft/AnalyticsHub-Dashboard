@@ -1,6 +1,6 @@
 // @ts-check
 /** Command-line entry point. */
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { AZ_LOGIN } from './auth.js';
@@ -8,7 +8,7 @@ import { orgUrl } from './clients/dataverse.js';
 import { archiveConfig, DEFAULT_CONFIG_FILE, loadConfig, normaliseResourceGraph } from './config.js';
 import { HttpError } from './http.js';
 import { connect, createCtx, preview, runCommand } from './install.js';
-import { commandLine, inCloudShell } from './launch.js';
+import { adoptUploadedRecord, cloudShellKeepsFiles, cloudShellRecordMessage, commandLine, inCloudShell } from './launch.js';
 import { runWizard } from './server.js';
 import { loadSources } from './sources.js';
 import { recordWorkspaceGone, staleRecordMessage } from './steps/fabric.js';
@@ -338,6 +338,7 @@ export async function main(argv) {
       return 0;
     }
     const ui = createUi({ yes: args.yes });
+    const uploaded = args.cloudShell && args.command !== 'prereqs' ? adoptUploadedRecord(args.configFile) : undefined;
     const loaded = loadConfig(args.configFile);
     let config = loaded.config;
     const existed = loaded.existed;
@@ -351,6 +352,7 @@ export async function main(argv) {
       return 0;
     }
     if (args.command !== 'install' && args.command !== 'prereqs' && !existed) throw new Error(`No install record at ${args.configFile}. Run the installer first, or pass --config.`);
+    if (uploaded) ui.note(`Moved the install record you uploaded from ${uploaded}.`);
     if (existed) ui.note(`Install record: ${args.configFile}`);
     if (args.cloudShell && args.command !== 'prereqs') {
       ui.note('Azure Cloud Shell signs you out after 20 minutes without input. If that stops the installer, run the same command again: it carries on from the install record. --no-wait saves waiting for the first load.');
@@ -374,8 +376,13 @@ export async function main(argv) {
     if (args.secretInNotebook) ctx.secretInNotebook = true;
     if (args.useKeyVault) ctx.useKeyVault = true;
     if (args.secretDays) config.app.secretDays = args.secretDays;
-    const ok = await runCommand(ctx, args.command, { wait: args.wait, backfillDays: args.backfillDays, files: args.files, run: args.run });
-    return ok ? 0 : 1;
+    try {
+      const ok = await runCommand(ctx, args.command, { wait: args.wait, backfillDays: args.backfillDays, files: args.files, run: args.run });
+      return ok ? 0 : 1;
+    } finally {
+      // Also after a failure part way: the record is what lets the next run carry on.
+      if (args.cloudShell && !cloudShellKeepsFiles() && existsSync(args.configFile)) ui.warn(cloudShellRecordMessage(args.configFile));
+    }
   } catch (err) {
     const e = /** @type {any} */ (err);
     if (e?.name === 'ExitPromptError') {
