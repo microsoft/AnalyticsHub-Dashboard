@@ -20,14 +20,9 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
-- **Installer:** an install in a OneDrive-synced folder (such as Documents) no longer stops with
-  `EPERM: operation not permitted, rename '…valuelens-install.json.tmp'`. Saving the install record
-  now retries while the sync client holds the file, and if it stays locked it writes the record in
-  place so the run's progress is kept.
+## 2026-10-14 — Analytics Hub installer 0.6.5
 
-## 2026-10-14 — Analytics Hub installer 0.6.4
-
-**The current release.** 0.6.4 replaces 0.6.2 as Latest, so the `releases/latest` links, including
+**The current release.** 0.6.5 replaces 0.6.2 as Latest, so the `releases/latest` links, including
 the PowerShell command, now serve it:
 
 ```powershell
@@ -35,11 +30,34 @@ irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download
 ```
 
 To pin this version, use
-`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.4/install.ps1 | iex`.
+`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.5/install.ps1 | iex`.
 
-**Coming from 0.6.2:** 0.6.4 includes everything in the 0.6.3 pre-release below: the PowerShell
-route as the default in the docs, `install.ps1 -UseInstalledNode` for an IT-approved Node.js, and
-a download with fewer unsigned native files. Read that section before you update.
+**Coming from 0.6.2:** 0.6.5 includes everything in the 0.6.3 and 0.6.4 pre-releases below: the
+PowerShell route as the default in the docs, `install.ps1 -UseInstalledNode` for an IT-approved
+Node.js, a download with fewer unsigned native files, the Windows command quoting fix and the
+Fabric uninstall connection cleanup. Read those sections before you update.
+
+**Update an existing install:** run the PowerShell command again, or open installer 0.6.5 and
+choose **Repair or change**. What the installer deploys is the same as 0.6.2. The tag also
+publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.5`.
+
+**Fixed in this release:**
+
+- **Installer:** an install in a OneDrive-synced folder (such as Documents) no longer stops with
+  `EPERM: operation not permitted, rename '…valuelens-install.json.tmp'`. Saving the install record
+  now retries while the sync client holds the file, and if it stays locked it writes the record in
+  place so the run's progress is kept.
+
+**Also:**
+
+- **Build checks.** The ARM drift check ignores the nested Bicep generator metadata, so a newer
+  Bicep CLI on the build machine no longer fails it. The deployed template is unchanged.
+
+## 2026-10-14 — Analytics Hub installer 0.6.4 (pre-release)
+
+**A pre-release, superseded by 0.6.5.** 0.6.4 stays a GitHub pre-release and was never Latest.
+Use 0.6.5, which includes all of it. To pin 0.6.4 anyway, use
+`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.4/install.ps1 | iex`.
 
 **Update an existing install:** run the PowerShell command again, or open installer 0.6.4 and
 choose **Repair or change**. What the installer deploys is the same as 0.6.2. The tag also
