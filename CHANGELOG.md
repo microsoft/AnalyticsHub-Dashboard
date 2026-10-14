@@ -30,6 +30,8 @@ Deployment instructions do **not** live here. They live in the READMEs:
 - **Known limitation:** the generated Windows management command still cannot preserve non-ASCII
   installed-Node or Documents paths. [Known issues](docs/KNOWN-ISSUES.md#installing) records this
   separately from the special-character quoting fix.
+- **Contributing.** Pull requests into `main` now need passing checks and a code owner's
+  approval, and only Keith creates release tags. See [Contributing](CONTRIBUTING.md#reviews-and-releases).
 
 ## 2026-10-14 — Analytics Hub installer 0.6.3 (pre-release)
 
