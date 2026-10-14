@@ -20,6 +20,11 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+- **Installer:** an install in a OneDrive-synced folder (such as Documents) no longer stops with
+  `EPERM: operation not permitted, rename '…valuelens-install.json.tmp'`. Saving the install record
+  now retries while the sync client holds the file, and if it stays locked it writes the record in
+  place so the run's progress is kept.
+
 ## 2026-10-14 — Analytics Hub installer 0.6.4
 
 **The current release.** 0.6.4 replaces 0.6.2 as Latest, so the `releases/latest` links, including
