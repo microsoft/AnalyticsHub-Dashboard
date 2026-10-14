@@ -312,7 +312,11 @@ test('messages keep -UseInstalledNode when install.ps1 ran the installer with th
   const installed = { [LAUNCHER_ENV]: 'pwsh', [INSTALLED_NODE_ENV]: '1' };
   assert.equal(INSTALLED_NODE_ENV, 'ANALYTICS_HUB_USE_INSTALLED_NODE');
   assert.equal(bundled(installed), true, "the app is still the zip's prebuilt one");
+  assert.ok(reopenHint(installed).includes(`"$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1'; ${SCRIPT_COMMAND}" again`));
   assert.ok(updateHint('https://example.test/r', installed).includes(`"$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1'; ${SCRIPT_COMMAND}" again in PowerShell`));
+  assert.doesNotMatch(reopenHint({ [LAUNCHER_ENV]: 'pwsh' }), /INSTALLED_NODE/);
+  assert.doesNotMatch(reopenHint({ [LAUNCHER_ENV]: 'cloudshell', [INSTALLED_NODE_ENV]: '1' }), /INSTALLED_NODE/);
+  assert.doesNotMatch(reopenHint({ [EXE_ENV]: '1', [INSTALLED_NODE_ENV]: '1' }), /INSTALLED_NODE/);
   assert.doesNotMatch(updateHint('https://example.test/r', { [LAUNCHER_ENV]: 'pwsh' }), /INSTALLED_NODE/);
   assert.doesNotMatch(updateHint('https://example.test/r', { [LAUNCHER_ENV]: 'cloudshell', [INSTALLED_NODE_ENV]: '1' }), /INSTALLED_NODE/);
 });

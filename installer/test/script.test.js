@@ -1,6 +1,9 @@
 // @ts-check
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { SCRIPT_NAME, ZIP_NAME, installScript, scriptCommand, scriptSha256, zipUrl } from '../packaging/script.js';
@@ -106,6 +109,74 @@ test('script: the command it leaves behind escapes the | in the install command 
   const win = TEMPLATE.slice(TEMPLATE.indexOf("if ($env:OS -ne 'Windows_NT')"));
   assert.match(win, /\$AgainCmd = \$Again -replace '\\\|', '\^\|'/);
   assert.doesNotMatch(win, /echo [^\r\n]*\$Again\b(?!Cmd)/);
+});
+
+test('script: generated Windows commands run and report missing files with special characters in Node paths', {
+  skip: process.platform !== 'win32' ? 'needs Windows PowerShell and cmd.exe' : false,
+}, () => {
+  const dir = mkdtempSync(join(realpathSync.native(tmpdir()), 'ahs-'));
+  try {
+    const start = TEMPLATE.indexOf('  $shimNode =');
+    const end = TEMPLATE.indexOf('  if (-not $Forward.Count)', start);
+    assert.ok(start >= 0 && end > start, 'finds the actual shim-generation block');
+    const powershell = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+    const again = 'irm https://example.test/install.ps1 | iex';
+    for (const installed of [false, true]) {
+      const root = join(dir, installed ? 'installed (Node) & tools' : 'bundled (Node) & tools');
+      const payload = join(root, 'payload');
+      const node = join(installed ? join(root, 'approved (Node) & tools') : join(payload, 'node'), 'node.exe');
+      const entry = join(payload, 'f', 'installer', 'bin', 'valuelens-install.js');
+      const work = join(root, 'work');
+      for (const folder of [dirname(node), dirname(entry), work]) mkdirSync(folder, { recursive: true });
+      copyFileSync(process.execPath, node);
+      writeFileSync(join(payload, '.unpacked'), 'fixture');
+      writeFileSync(entry, 'console.log(JSON.stringify({ args: process.argv.slice(2), node: process.execPath, cwd: process.cwd() })); if (process.argv.includes("--fail")) process.exitCode = 23;\n');
+      const generate = join(root, 'generate.ps1');
+      // Exercise only the real shim-generation block, without downloads or changes to the user's profile.
+      writeFileSync(generate, [
+        "$ErrorActionPreference = 'Stop'",
+        "$Id = 'payload'",
+        "$Shim = Join-Path $PSScriptRoot 'analytics-hub.cmd'",
+        "$Work = Join-Path $PSScriptRoot 'work'",
+        `$Again = '${again}'`,
+        '$Installed = $null',
+        "if ($env:SHIM_TEST_INSTALLED -eq '1') { $Installed = $env:SHIM_TEST_NODE }",
+        '$NodeDir = Split-Path $env:SHIM_TEST_NODE',
+        TEMPLATE.slice(start, end),
+      ].join('\r\n'), 'ascii');
+      const generated = spawnSync(powershell, ['-NoProfile', '-NonInteractive', '-File', generate], {
+        encoding: 'utf8', windowsHide: true, timeout: 30_000,
+        env: { ...process.env, SHIM_TEST_INSTALLED: installed ? '1' : '0', SHIM_TEST_NODE: node },
+      });
+      assert.equal(generated.status, 0, generated.error?.message ?? generated.stdout + generated.stderr);
+      const shim = join(root, 'analytics-hub.cmd');
+      /** @param {string} args */
+      const run = (args) => spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `""${shim}" ${args}"`], {
+        encoding: 'utf8', windowsHide: true, windowsVerbatimArguments: true, timeout: 30_000,
+      });
+      for (const args of ['', 'status "argument with spaces"']) {
+        const result = run(args);
+        assert.equal(result.status, 0, result.error?.message ?? result.stdout + result.stderr);
+        const output = JSON.parse(result.stdout);
+        assert.deepEqual(output.args, args ? ['status', 'argument with spaces'] : ['--ui']);
+        assert.equal(output.node, node);
+        assert.equal(output.cwd, work);
+      }
+      assert.equal(run('--fail').status, 23, 'preserves the installer exit code');
+      assert.ok(existsSync(node));
+      unlinkSync(node);
+      const missingNode = run('--version');
+      assert.equal(missingNode.status, 1, missingNode.stdout + missingNode.stderr);
+      assert.ok(missingNode.stdout.includes(`Can't find Node.js at "${node}".`));
+      assert.ok(missingNode.stdout.includes(again), 'prints the reinstall pipe literally');
+      unlinkSync(join(payload, '.unpacked'));
+      const missingPayload = run('--version');
+      assert.equal(missingPayload.status, 1, missingPayload.stdout + missingPayload.stderr);
+      assert.ok(missingPayload.stdout.includes(again));
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("script: doesn't tell people to get around their organisation's policy", () => {

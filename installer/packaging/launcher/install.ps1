@@ -395,7 +395,7 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
     ')'
     $shimNode
     'if not exist "%AH_NODE%" ('
-    "  echo Can't find Node.js at %AH_NODE%. In PowerShell, run: $AgainCmd"
+    "  echo Can't find Node.js at `"%AH_NODE%`". In PowerShell, run: $AgainCmd"
     '  exit /b 1'
     ')'
     'set "ANALYTICS_HUB_LAUNCHER=pwsh"'
