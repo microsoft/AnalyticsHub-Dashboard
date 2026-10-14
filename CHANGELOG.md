@@ -20,6 +20,28 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+## 2026-10-14 — Analytics Hub installer 0.6.4
+
+**The current release.** 0.6.4 replaces 0.6.2 as Latest, so the `releases/latest` links, including
+the PowerShell command, now serve it:
+
+```powershell
+irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+```
+
+To pin this version, use
+`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.4/install.ps1 | iex`.
+
+**Coming from 0.6.2:** 0.6.4 includes everything in the 0.6.3 pre-release below: the PowerShell
+route as the default in the docs, `install.ps1 -UseInstalledNode` for an IT-approved Node.js, and
+a download with fewer unsigned native files. Read that section before you update.
+
+**Update an existing install:** run the PowerShell command again, or open installer 0.6.4 and
+choose **Repair or change**. What the installer deploys is the same as 0.6.2. The tag also
+publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.4`.
+
+**Fixed in this release:**
+
 - **Fix: Windows installer command with special characters in Node.js paths.** The generated
   `analytics-hub.cmd` quotes the Node.js path in its missing-runtime message, so parentheses or
   ampersands in an installed Node.js path or user profile do not break the command before it
@@ -27,14 +49,19 @@ Deployment instructions do **not** live here. They live in the READMEs:
 - **Installed-Node recovery instructions** now give the command that keeps
   `ANALYTICS_HUB_USE_INSTALLED_NODE=1`, as the update instructions already do. Windows package
   checks also cover the installed-Node route in PowerShell 5.1 Constrained Language Mode.
-- **Known limitation:** the generated Windows management command still cannot preserve non-ASCII
-  installed-Node or Documents paths. [Known issues](docs/KNOWN-ISSUES.md#installing) records this
-  separately from the special-character quoting fix.
-- **Contributing.** Pull requests into `main` now need passing checks and a code owner's
-  approval, and only Keith creates release tags. See [Contributing](CONTRIBUTING.md#reviews-and-releases).
 - **Fabric uninstall deletes the model's SQL connection.** The connection lives outside the
   workspace, so it was left behind. A failure to delete it only warns. The closing note no longer
   mentions a Key Vault for installs that keep the secret in the notebook.
+
+**Also:**
+
+- **Known limitation:** the generated Windows management command still cannot preserve non-ASCII
+  installed-Node or Documents paths. [Known issues](docs/KNOWN-ISSUES.md#installing) records this
+  separately from the special-character quoting fix.
+- **Docs.** The README is shorter and separates the automatic and manual install paths, with a
+  [manual install](docs/MANUAL-INSTALL.md) page and an [FAQ](docs/FAQ.md).
+- **Contributing.** Pull requests into `main` now need passing checks and a code owner's
+  approval, and only Keith creates release tags. See [Contributing](CONTRIBUTING.md#reviews-and-releases).
 
 ## 2026-10-14 — Analytics Hub installer 0.6.3 (pre-release)
 
