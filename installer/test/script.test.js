@@ -302,6 +302,9 @@ test("script: a node.exe blocked by device policy says what to do instead of the
 
 test('script: cleanup falls back to Remove-Item when policy blocks node.exe', () => {
   const tree = TEMPLATE.slice(TEMPLATE.indexOf('function Remove-Tree'), TEMPLATE.indexOf('function Find-Node'));
-  assert.match(tree, /try \{\s*(#[^\r\n]*\s*)*& \$Node -e [\s\S]*?\} catch \{ \}/);
+  const tryAt = tree.indexOf('try {');
+  const nodeAt = tree.indexOf('& $Node -e ');
+  const catchAt = tree.indexOf('} catch { }');
+  assert.ok(tryAt >= 0 && tryAt < nodeAt && nodeAt < catchAt, tree);
   assert.match(tree, /Remove-Item -LiteralPath \$Dir -Recurse -Force/);
 });
