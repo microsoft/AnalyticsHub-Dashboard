@@ -11,6 +11,10 @@ Limits we know about, and what to do. For error messages, see [Troubleshooting](
 - **AppLocker or WDAC can block both the exe and the PowerShell one-liner.** Use
   [IT-approved Node.js](INSTALL.md#it-approved-nodejs) if your IT team has approved one, or
   [Azure Cloud Shell](INSTALL.md#locked-down-tenant--azure-cloud-shell).
+- **The Windows management command can lose non-ASCII paths.** `analytics-hub.cmd` is written as
+  ASCII. A non-ASCII installed Node.js path or Documents path can break later uses of that command,
+  even when the initial PowerShell launch works. Re-run the original approved launch command,
+  where policy permits, or ask your IT team. Unicode command generation remains a follow-up to #77.
 - **Cloud Shell can't sign in where Conditional Access blocks sign-in with a code.** Run the
   installer on a PC that's allowed.
 - **Cloud Shell ends a session after 20 minutes without input.** Run the same command again: it
