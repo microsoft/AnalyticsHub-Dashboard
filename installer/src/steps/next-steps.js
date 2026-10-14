@@ -167,7 +167,7 @@ function vivaQueryStep(config, user) {
   if (!config.modules.consumption || config.dataSources?.coworkCredits !== 'csv') return null;
   if (isVivaId(cc?.vivaPartition) && isVivaId(cc?.vivaQuery)) return null;
   const steps = [
-    'In Viva Insights > Analysis, build a query with the Copilot credit metrics, by person.',
+    'In Viva Insights > Create analysis > Create custom query, choose Consumption query and keep the preselected credit metrics.',
     'Turn on Auto-refresh, and run it.',
     'In Analysis results, choose the link icon next to it and copy the partition ID and the query ID.',
   ];

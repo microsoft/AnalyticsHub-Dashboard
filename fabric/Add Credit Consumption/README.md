@@ -56,9 +56,10 @@ runs never skip it. The staging items Fabric adds for Dataflows are expected; se
 
 By hand:
 
-1. Viva Insights → **Analysis** → build a query with the Copilot credit metrics → turn on
-   **Auto-refresh** → **Analysis results** → **link icon** → copy the **Partition** and **Query**
-   identifiers. You need the **Insights Analyst** role. The partition ID is usually your tenant ID.
+1. Viva Insights → **Create analysis** → **Create custom query** → **Consumption query** → turn on
+   **Auto-refresh** → **Run** → **Analysis results** → **link icon** → copy the **Partition** and
+   **Query** identifiers. You need the **Insights Analyst** role. The partition ID is usually your
+   tenant ID. [Step by step](../../docs/VIVA-QUERY.md)
 2. Fabric workspace → **New** → **Dataflow Gen2** → **Get data** → **Viva Insights**. Paste both
    identifiers and leave *Query Name* blank. Under **Advanced options** set **Schema Type = Pivoted** and
    **Data Granularity = Row-level data**.

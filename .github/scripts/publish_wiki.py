@@ -34,6 +34,7 @@ PAGES = {
     "docs/APP-GUIDE.md": "App-Guide",
     "docs/METHODOLOGY.md": "Methodology",
     "docs/DATA-DICTIONARY.md": "Data-Dictionary",
+    "docs/VIVA-QUERY.md": "Viva-Insights-Query",
 }
 
 MARKER = "<!-- published from docs/ by .github/workflows/wiki.yml -->"

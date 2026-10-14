@@ -32,5 +32,6 @@
 - [App guide](../APP-GUIDE.md)
 - [How the value is calculated](../METHODOLOGY.md)
 - [Data dictionary](../DATA-DICTIONARY.md)
+- [Viva Insights query](../VIVA-QUERY.md)
 - [Installer reference](../../installer/README.md)
 - [Repository](../../README.md)
