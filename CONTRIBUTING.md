@@ -15,6 +15,13 @@ compatibility, validation and any limitations. Follow the
 [Code of Conduct](CODE_OF_CONDUCT.md). Report vulnerabilities privately through the
 [security policy](SECURITY.md), not a public issue or pull request.
 
+## Reviews and releases
+
+- Every change reaches `main` through a pull request. It needs the `pytest`, `installer` and
+  `valuelens-web` checks to pass and an approval from the [code owner](.github/CODEOWNERS),
+  Keith, who reviews and merges it.
+- Only Keith creates `installer-v*` release tags. Releases are tagged from `main`.
+
 ## Run the tests
 
 Run from the repository root with **Python 3.12** (the CI version):

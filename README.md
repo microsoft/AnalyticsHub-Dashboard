@@ -208,6 +208,9 @@ To set Fabric up by hand instead, **[🎥 watch the manual setup](fabric/README.
 [Support](SUPPORT.md) · [Report a vulnerability](SECURITY.md) · [Contributing](CONTRIBUTING.md) ·
 [MIT licence](LICENSE)
 
+To contribute, open a pull request against `main`. Keith reviews and approves every change, and
+only Keith creates release tags. See [Contributing](CONTRIBUTING.md#reviews-and-releases).
+
 <details>
 <summary>Usage and compliance disclaimer</summary>
 

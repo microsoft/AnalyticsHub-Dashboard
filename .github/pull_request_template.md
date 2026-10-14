@@ -1,3 +1,6 @@
+<!-- Open pull requests against main. Keith (the code owner) reviews and approves every change,
+and only Keith creates installer-v* release tags. See CONTRIBUTING.md. -->
+
 ## Summary
 
 Describe what changed and why. Link the related issue, if any.

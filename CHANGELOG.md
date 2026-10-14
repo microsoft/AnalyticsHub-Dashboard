@@ -20,6 +20,9 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+- **Contributing.** Pull requests into `main` now need passing checks and a code owner's
+  approval, and only Keith creates release tags. See [Contributing](CONTRIBUTING.md#reviews-and-releases).
+
 ## 2026-10-14 — Analytics Hub installer 0.6.3 (pre-release)
 
 **A pre-release, for testing.** 0.6.3 is a GitHub pre-release, so the `releases/latest` links still
