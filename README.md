@@ -1,8 +1,8 @@
 # Analytics Hub for Microsoft Copilot
 
-An app that shows how your organisation uses Microsoft 365 Copilot and agents, and the hours and
-value they deliver. One installer sets it up in your tenant, on **Microsoft Fabric** or in **your
-own Azure subscription**.
+See how your organisation uses Microsoft 365 Copilot and agents, and the hours and value they
+deliver. One installer sets it up in your tenant, on **Microsoft Fabric** or in **your own Azure
+subscription**.
 
 [![Analytics Hub preview](media/AnalyticsHub-Preview.gif)](docs/APP-GUIDE.md)
 
@@ -12,33 +12,26 @@ https://github.com/user-attachments/assets/b415625d-c2ae-467f-9a91-59ef9adca6c8
 
 > Prefer to download it? [Get the demo video](media/AnalyticsHub-Demo.mp4).
 
-[![Download the Analytics Hub installer](https://img.shields.io/badge/Download-Analytics%20Hub%20installer-0078D4?style=for-the-badge)](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
-
-For Windows 10 or 11. Open it and follow the steps in your browser. If Edge or Windows warns about
-the download, see [Check the download](installer/README.md#check-the-download).
-
-Can't run downloaded exes? Paste this into PowerShell instead. It needs no admin rights and opens
-the same installer in your browser ([more](installer/README.md#from-powershell)):
-
-```powershell
-irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
-```
-
-If your PC can't run either, run the same command in
-[Azure Cloud Shell](installer/README.md#locked-down-tenant--azure-cloud-shell)'s PowerShell.
-
-**Before you start**, go through the **[checklist](docs/PREREQUISITES.md)**. It says what you need
-and what to ask other admins for (a Fabric admin, an Entra admin and, for some extras, a Power
-Platform admin or a Viva Insights analyst), with the costs. Allow about 5 minutes of questions and
-15 minutes of setup. The first data arrives about 25 minutes after you approve the plan, or about
-2 hours with 180 days of history. No Fabric capacity?
-[Start a free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager).
-
 > **Moved from ValueLens.** Analytics Hub used to live in
 > [ValueLens for Microsoft Copilot](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot)
 > as paths 1 (Fabric) and 2 (Azure). Installs from there keep working: download the installer from
 > here, open it and choose **Repair or change**. ValueLens still has the Power BI templates for
 > Power Automate + Dataverse, SharePoint and local CSV files.
+
+## Why it's more than the built-in reports
+
+The [Microsoft 365 admin center Copilot reports](https://learn.microsoft.com/en-us/microsoft-365/admin/activity-reports/microsoft-365-copilot-usage)
+and the [Viva Insights Copilot Dashboard](https://learn.microsoft.com/en-us/viva/insights/org-team-insights/copilot-dashboard)
+are the official numbers. Analytics Hub adds:
+
+| | What you get |
+|---|---|
+| **History** | Every Copilot interaction from the audit log, kept in your own Fabric or Azure store for as long as you choose |
+| **Your organisation** | Every page by department, job title, manager and location, from Entra ID or Workday |
+| **Agents** | Who uses each agent, who owns it, who can reach it and what needs a review |
+| **Value** | The hours saved and what they're worth, with task times you can change |
+| **Credits and cost** | Copilot Studio, Cowork and Azure AI spend in one place |
+| **Your data, your way** | An app, Power BI reports and models to build on, and questions in plain language on the Ask page |
 
 ## Disclaimer
 
@@ -52,7 +45,7 @@ Platform admin or a Viva Insights analyst), with the costs. Allow about 5 minute
   Purview, Microsoft 365, Entra ID and the other sources don't apply to those copies. Managing that
   data and meeting your organisation's requirements is up to you.
 
-## What each page answers
+## What you can do with it
 
 | Page | Answers | Data from |
 |---|---|---|
@@ -71,63 +64,24 @@ Platform admin or a Viva Insights analyst), with the costs. Allow about 5 minute
 
 Screenshots and every section, page by page: **[App guide](docs/APP-GUIDE.md)**.
 
-## Pick where it runs
+## What data is collected
 
-Both give you the same data, model, measures and app pages.
+Everything is read-only, and stays in your tenant.
 
-| Where | You need | Setup |
+| Source | What | |
 |---|---|---|
-| **[Fabric](fabric/)** (recommended) | Fabric capacity (F2 or larger, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager)) | Open the installer. It sets up everything and deploys the dashboard as an app in Fabric. To set it up by hand instead, **[🎥 watch the manual setup](fabric/README.md#set-it-up-by-hand)**. |
-| **[Azure](azure/)** | An Azure subscription (Contributor plus User Access Administrator) and Power BI Pro | Open the installer and pick **Your Azure subscription**. It runs the data collection in your Azure subscription (scheduled jobs in Azure Container Apps, with Azure SQL and the web app) and publishes to a Power BI workspace, with no Fabric. See [Azure target](installer/README.md#azure-target). |
+| Purview audit log | Each Copilot interaction: who, when, which app or agent | Always |
+| Microsoft 365 licences | Who has a Copilot licence | Always |
+| Entra ID, or a Workday export | Department, job title, manager and location | Always |
+| Microsoft 365 usage reports | Everyday Teams, Outlook, Word and other activity | On by default |
+| Agent 365 registry | Each agent, its owner and who can reach it | Optional |
+| Copilot Studio, Cowork and Azure AI | Credits used, and what they cost | Optional |
+| Microsoft Defender, Azure Resource Graph | AI apps in use, agent risk and configuration, Foundry | Optional |
+| Copilot Studio transcripts | How well agents answer | Optional, Fabric |
+| Product feedback export | What people say about Copilot | Optional, Fabric |
 
-**Update an existing install:** download the latest installer, open it and choose **Repair or
-change**. Your saved answers are kept.
-
-## Optional add-ons
-
-- **Credit consumption and cost:** on the installer's **Data sources** screen, choose any of the
-  **Copilot Studio credits**, **Copilot Cowork credits** and **Azure AI costs** cards, or
-  [set it up by hand](fabric/Add%20Credit%20Consumption/) in Fabric.
-- **Copilot Studio agent conversations:** in Fabric, choose *Agent Evaluator* in the installer, or
-  [set it up by hand](fabric/Add%20Agent%20Evaluator/).
-- **Shadow AI and agent risk:** in Fabric or Azure, choose *Defender (shadow AI and agent risk)* in
-  the installer. It reads Microsoft Defender, needs Defender for Endpoint P2 or Defender for Cloud
-  Apps, and fills the Shadow AI section of the app's Governance page
-  ([details](installer/README.md#defender-shadow-ai-and-agent-risk)).
-
-## Power BI reports
-
-The installer also publishes Power BI reports on the same models as the app, for anyone who prefers
-Power BI or wants to build their own ([details](installer/README.md#power-bi-reports)).
-
-| ValueLens | Consumption Central | Agent Evaluator |
-|---|---|---|
-| [![ValueLens report](media/powerbi/valuelens.png)](media/powerbi/valuelens.png) | [![Consumption Central report](media/powerbi/consumption-central.png)](media/powerbi/consumption-central.png) | [![Agent Evaluator report](media/powerbi/agent-evaluator.png)](media/powerbi/agent-evaluator.png) |
-| Adoption, value and governance. The app's main model. | Credits and cost. The *Credit consumption* add-on. | Copilot Studio agent quality. The *Agent Evaluator* add-on. |
-
-## What's here
-
-| Folder | What it is |
-|---|---|
-| [`installer/`](installer/) | `AnalyticsHubInstaller.exe`: sets up, repairs and updates Fabric or Azure installs |
-| [`app/`](app/) | The Analytics Hub app: a Fabric app item, and the web app's front end on Azure |
-| [`fabric/`](fabric/) | Notebooks, pipeline, flows and Power BI models the installer deploys to Fabric, and how to set them up by hand |
-| [`azure/`](azure/) | Bicep, Container Apps jobs, SQL schema, web app and Teams package for the Azure target |
-| [`core/`](core/) | `valuelens_core`, the Python core shared by the Azure jobs and the Fabric Defender notebook |
-| [`samples/`](samples/) | Synthetic sample data for demo mode |
-| [`docs/`](docs/) | App guide, methodology, prerequisites, permissions and data dictionary |
-| [`media/`](media/) | Screenshots and the demo video |
-
-## Reference
-
-- [App guide](docs/APP-GUIDE.md)
-- [How the value is calculated](docs/METHODOLOGY.md)
-- [Before you start](docs/PREREQUISITES.md)
-- [Permissions](docs/PERMISSIONS.md)
-- [Data dictionary](docs/DATA-DICTIONARY.md)
-- [Power BI report guide (PDF)](docs/ValueLens-Report-Interpretation-Guide.pdf)
-- [Installer reference](installer/README.md)
-- [What changed](CHANGELOG.md)
+Each table and column: [Data dictionary](docs/DATA-DICTIONARY.md). Each permission:
+[Prerequisites](docs/PREREQUISITES.md#permissions).
 
 <details>
 <summary>Which agents does the audit log cover?</summary>
@@ -141,6 +95,109 @@ Power BI or wants to build their own ([details](installer/README.md#power-bi-rep
 
 Source: [Audit logs for Copilot and AI applications](https://learn.microsoft.com/en-us/purview/audit-copilot)
 </details>
+
+## Getting started
+
+Pick where it runs. Both give you the same data, model, measures and app pages.
+
+| Where | You need |
+|---|---|
+| **[Fabric](fabric/)** (recommended) | A Fabric capacity, F2 or larger, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager) |
+| **[Azure](azure/)** | An Azure subscription or resource group, and a Power BI workspace. No Fabric |
+
+### 1. Prerequisites
+
+Check the **[Prerequisites](docs/PREREQUISITES.md)**: one table of who does what, and how long it
+takes. Send each admin their row before you start.
+
+### 2. Install
+
+[![Download the Analytics Hub installer](https://img.shields.io/badge/Download-Analytics%20Hub%20installer-0078D4?style=for-the-badge)](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
+
+For Windows 10 or 11. Open it and follow the steps in your browser. If Edge or Windows warns about
+the download, see [Check the download](docs/INSTALL.md#check-the-download). Can't run downloaded
+exes? Paste this into PowerShell, or into [Azure Cloud Shell](docs/INSTALL.md#locked-down-tenant--azure-cloud-shell).
+No admin rights needed:
+
+```powershell
+irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+```
+
+Allow about 20 minutes. See **[Install](docs/INSTALL.md)**.
+
+### 3. Verify
+
+The first data arrives about 25 minutes after you choose **Go ahead**. See **[Verify](docs/VERIFY.md)**.
+
+**Then:** [Update](docs/UPDATE.md) · [Uninstall](docs/UNINSTALL.md) ·
+[Troubleshooting](docs/TROUBLESHOOTING.md) · [Known issues](docs/KNOWN-ISSUES.md) ·
+[Release notes](CHANGELOG.md). These pages are also on the
+[wiki](https://github.com/microsoft/AnalyticsHub-Dashboard/wiki).
+
+## Architecture and running costs
+
+```mermaid
+flowchart LR
+  src["Microsoft 365, Entra ID,<br/>Power Platform, Azure, Defender"] -->|daily, read-only| load["Loads<br/>Fabric notebooks or Azure jobs"]
+  load --> store["Your store<br/>Lakehouse or Azure SQL"]
+  store --> model["Power BI models"]
+  model --> app["Analytics Hub app"]
+  model --> reports["Power BI reports"]
+```
+
+Everything runs in your tenant. Analytics Hub is free; you pay for the Fabric capacity, or about
+$5–40 a month of Azure for a small tenant. See **[Architecture and costs](docs/ARCHITECTURE.md)**.
+
+## Power BI reports
+
+The installer also publishes Power BI reports on the same models as the app, for anyone who prefers
+Power BI or wants to build their own ([details](installer/README.md#power-bi-reports)).
+
+| ValueLens | Consumption Central | Agent Evaluator |
+|---|---|---|
+| [![ValueLens report](media/powerbi/valuelens.png)](media/powerbi/valuelens.png) | [![Consumption Central report](media/powerbi/consumption-central.png)](media/powerbi/consumption-central.png) | [![Agent Evaluator report](media/powerbi/agent-evaluator.png)](media/powerbi/agent-evaluator.png) |
+| Adoption, value and governance. The app's main model. | Credits and cost. The *Credit consumption* add-on. | Copilot Studio agent quality. The *Agent Evaluator* add-on. |
+
+## Optional add-ons
+
+- **Credit consumption and cost:** on the installer's **Data sources** screen, choose any of the
+  **Copilot Studio credits**, **Copilot Cowork credits** and **Azure AI costs** cards, or
+  [set it up by hand](fabric/Add%20Credit%20Consumption/) in Fabric.
+- **Copilot Studio agent conversations:** in Fabric, choose *Agent Evaluator* in the installer, or
+  [set it up by hand](fabric/Add%20Agent%20Evaluator/).
+- **Shadow AI and agent risk:** in Fabric or Azure, choose *Defender (shadow AI and agent risk)* in
+  the installer. It reads Microsoft Defender, needs Defender for Endpoint P2 or Defender for Cloud
+  Apps, and fills the Shadow AI section of the app's Governance page
+  ([details](installer/README.md#defender-shadow-ai-and-agent-risk)).
+
+To set Fabric up by hand instead, **[🎥 watch the manual setup](fabric/README.md#set-it-up-by-hand)**.
+
+## Reference
+
+| Page | What it covers |
+|---|---|
+| [Prerequisites](docs/PREREQUISITES.md) | Who does what, permissions and costs |
+| [Install](docs/INSTALL.md) · [Verify](docs/VERIFY.md) · [Update](docs/UPDATE.md) · [Uninstall](docs/UNINSTALL.md) | Each step, in detail |
+| [Troubleshooting](docs/TROUBLESHOOTING.md) · [Known issues](docs/KNOWN-ISSUES.md) | When something's wrong |
+| [Architecture and costs](docs/ARCHITECTURE.md) | What it creates, and what it costs |
+| [Permissions](docs/PERMISSIONS.md) | The detail behind each permission and role |
+| [App guide](docs/APP-GUIDE.md) · [How the value is calculated](docs/METHODOLOGY.md) · [Data dictionary](docs/DATA-DICTIONARY.md) | Using the app and its data |
+| [Power BI report guide (PDF)](docs/ValueLens-Report-Interpretation-Guide.pdf) | Reading the ValueLens report |
+| [Installer reference](installer/README.md) | Every installer option and command |
+| [What changed](CHANGELOG.md) | Release notes |
+
+## What's here
+
+| Folder | What it is |
+|---|---|
+| [`installer/`](installer/) | `AnalyticsHubInstaller.exe`: sets up, repairs and updates Fabric or Azure installs |
+| [`app/`](app/) | The Analytics Hub app: a Fabric app item, and the web app's front end on Azure |
+| [`fabric/`](fabric/) | Notebooks, pipeline, flows and Power BI models the installer deploys to Fabric, and how to set them up by hand |
+| [`azure/`](azure/) | Bicep, Container Apps jobs, SQL schema, web app and Teams package for the Azure target |
+| [`core/`](core/) | `valuelens_core`, the Python core shared by the Azure jobs and the Fabric Defender notebook |
+| [`samples/`](samples/) | Synthetic sample data for demo mode |
+| [`docs/`](docs/) | The pages above. Published to the [wiki](https://github.com/microsoft/AnalyticsHub-Dashboard/wiki) on every change |
+| [`media/`](media/) | Screenshots and the demo video |
 
 ## Help
 

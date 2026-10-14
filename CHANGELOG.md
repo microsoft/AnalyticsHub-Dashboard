@@ -20,6 +20,19 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**Docs:**
+
+- **Simpler prerequisites, and a page per step.** [Prerequisites](docs/PREREQUISITES.md) opens
+  with one table of who does what, on Fabric and Azure, and how long it takes, then every
+  permission and role as **API | Permission | Reason** and **Scope | Role | Reason** tables. The
+  README follows Getting started: Prerequisites, [Install](docs/INSTALL.md) and
+  [Verify](docs/VERIFY.md), with [Update](docs/UPDATE.md), [Uninstall](docs/UNINSTALL.md),
+  [Troubleshooting](docs/TROUBLESHOOTING.md), [Known issues](docs/KNOWN-ISSUES.md) and
+  [Architecture and costs](docs/ARCHITECTURE.md) pages. The installer README keeps its old headings,
+  so existing links still land.
+- **The wiki.** docs/ is published to the
+  [wiki](https://github.com/microsoft/AnalyticsHub-Dashboard/wiki) on every change to main.
+
 ## 2026-10-14 — Analytics Hub installer 0.6.2
 
 **The current release.** 0.6.2 is the first release since 0.5.1 to be marked Latest, so the

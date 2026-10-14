@@ -54,7 +54,7 @@ portable Node.js into a small C# launcher, compiled with the `csc` that comes wi
 Framework. Run `npm ci` in the installer and in the app first. `--release` fails rather than warns
 when something a published download needs is missing; `--out <dir>` writes the exe somewhere else.
 Next to the exe it writes the same payload as `AnalyticsHubInstaller.zip` with its `.sha256`, and
-`install.ps1`, the [PowerShell launcher](installer/README.md#from-powershell), filled in from
+`install.ps1`, the [PowerShell launcher](docs/INSTALL.md#from-powershell), filled in from
 [`packaging/launcher/install.ps1`](installer/packaging/launcher/install.ps1) with the zip's
 version, URL and SHA-256. Keep that template plain ASCII, and to commands allowed in Constrained
 Language Mode, or guard what isn't with `$FullLanguage`.
