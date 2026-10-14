@@ -424,21 +424,24 @@ function pause(ms) {
  * Writes atomically so an interrupted run never leaves a half-written file.
  * In a OneDrive-synced folder the rename can fail for a moment while the file
  * is being synced, so it's retried. If it still fails, the record is written
- * in place so the run's progress isn't lost.
+ * in place so the run's progress isn't lost. Either way it is read back, so a
+ * step is only counted as done once its record is really on disk.
  * @param {string} file
  * @param {InstallConfig} config
- * @param {{ rename?: (from: string, to: string) => void, wait?: (ms: number) => void, tries?: number }} [io]
+ * @param {{ rename?: (from: string, to: string) => void, wait?: (ms: number) => void, tries?: number, read?: (file: string) => string }} [io]
  */
 export function saveConfig(file, config, io = {}) {
   assertNoSecrets(config);
-  const { rename = renameSync, wait = pause, tries = 8 } = io;
+  const { rename = renameSync, wait = pause, tries = 8, read = (/** @type {string} */ f) => readFileSync(f, 'utf8') } = io;
   const text = `${JSON.stringify(config, null, 2)}\n`;
   const tmp = `${file}.tmp`;
   writeFileSync(tmp, text, 'utf8');
+  let renamed = false;
   for (let attempt = 1; ; attempt++) {
     try {
       rename(tmp, file);
-      return;
+      renamed = true;
+      break;
     } catch (err) {
       const code = /** @type {NodeJS.ErrnoException} */ (err).code ?? '';
       if (!LOCKED.has(code)) throw err;
@@ -446,11 +449,16 @@ export function saveConfig(file, config, io = {}) {
       wait(Math.min(100 * attempt, 500));
     }
   }
-  writeFileSync(file, text, 'utf8');
-  try {
-    unlinkSync(tmp);
-  } catch {
-    // A leftover .tmp is harmless; the next save overwrites it.
+  if (!renamed) {
+    writeFileSync(file, text, 'utf8');
+    try {
+      unlinkSync(tmp);
+    } catch {
+      // A leftover .tmp is harmless; the next save overwrites it.
+    }
+  }
+  if (read(file) !== text) {
+    throw new Error(`The install record ${file} didn't save: it reads back different from what was written. Check the folder isn't read-only or full, then run the installer again.`);
   }
 }
 

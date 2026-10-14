@@ -1,7 +1,8 @@
 // @ts-check
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
@@ -182,4 +183,128 @@ test('script: generated Windows commands run and report missing files with speci
 test("script: doesn't tell people to get around their organisation's policy", () => {
   assert.doesNotMatch(TEMPLATE, /ExecutionPolicy|Bypass|Run anyway|Keep anyway|AllSigned/i);
   assert.match(TEMPLATE, /ask your IT team/);
+});
+
+const WIN_ONLY = { skip: process.platform !== 'win32' ? 'needs Windows PowerShell' : false };
+const POWERSHELL = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+/** Windows PowerShell 5.1, and PowerShell 7 when it's installed: their web errors differ. */
+const SHELLS = [POWERSHELL, ...(spawnSync('pwsh', ['-NoProfile', '-Command', '1'], { windowsHide: true }).status === 0 ? ['pwsh'] : [])];
+
+/**
+ * Runs a real block of the filled-in launcher after a prelude. Like `irm | iex`, it's a command rather than a
+ * script file, so the test machine's execution policy doesn't apply.
+ * @param {string} shell
+ * @param {string[]} prelude
+ * @param {string} block
+ * @returns {Promise<{ status: number | null, out: string }>}
+ */
+function runBlock(shell, prelude, block) {
+  const code = [
+    "$ErrorActionPreference = 'Stop'",
+    'try {',
+    ...prelude,
+    block,
+    "} catch { [Console]::Out.WriteLine('FAILED: ' + $_.Exception.Message); exit 1 }",
+  ].join('\r\n');
+  const encoded = Buffer.from(code, 'utf16le').toString('base64');
+  return new Promise((resolve) => {
+    const child = spawn(shell, ['-NoProfile', '-NonInteractive', '-EncodedCommand', encoded], { windowsHide: true });
+    let out = '';
+    child.stdout.on('data', (d) => { out += d; });
+    child.stderr.on('data', (d) => { out += d; });
+    child.on('close', (status) => resolve({ status, out: out.replace(/\s+/g, ' ') }));
+  });
+}
+
+test("script: a pinned release whose zip is gone says so and gives the current release's command", WIN_ONLY, async () => {
+  const s = installScript(TEMPLATE, V);
+  const start = s.indexOf('      $request = @{ Uri = $ZipUrl');
+  const end = s.lastIndexOf('}', s.indexOf('    # Get-FileHash'));
+  assert.ok(start >= 0 && end > start, 'finds the actual download block');
+  const block = s.slice(start, end);
+  assert.doesNotMatch(block, /\biex\b|Invoke-Expression|\[scriptblock\]::Create/i, "it doesn't run another release by itself");
+  const server = createServer((req, res) => {
+    res.statusCode = req.url?.includes('gone') ? 404 : 500;
+    res.end('no');
+  });
+  await new Promise((resolve) => server.listen(0, '127.0.0.1', () => resolve(undefined)));
+  const port = /** @type {import('node:net').AddressInfo} */ (server.address()).port;
+  const dir = mkdtempSync(join(realpathSync.native(tmpdir()), 'ahd-'));
+  try {
+    for (const shell of SHELLS) {
+      /** @param {string} path */
+      const prelude = (path) => [
+        "$Version = '1.2.3'",
+        `$ZipUrl = 'http://127.0.0.1:${port}/${path}'`,
+        `$ZipName = '${ZIP_NAME}'`,
+        `$zip = '${join(dir, 'x.zip.partial')}'`,
+        '$Proxy = $null',
+        "$Again = 'irm https://github.com/octo/hub/releases/latest/download/install.ps1 | iex'",
+      ];
+      const gone = await runBlock(shell, prelude('gone/AnalyticsHubInstaller.zip'), block);
+      assert.notEqual(gone.status, 0, `${shell}: ${gone.out}`);
+      assert.match(gone.out, /Release installer-v1\.2\.3 is no longer available/, `${shell}: ${gone.out}`);
+      assert.match(gone.out, /To install the current release instead, run: irm https:\/\/github\.com\/octo\/hub\/releases\/latest\/download\/install\.ps1 \| iex/);
+      assert.doesNotMatch(gone.out, /proxy/i);
+
+      const broken = await runBlock(shell, prelude('broken/AnalyticsHubInstaller.zip'), block);
+      assert.notEqual(broken.status, 0);
+      assert.match(broken.out, /Couldn't download .*If a proxy blocks it/, `${shell}: ${broken.out}`);
+      assert.doesNotMatch(broken.out, /no longer available/);
+    }
+  } finally {
+    server.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("script: a node.exe blocked by device policy says what to do instead of the raw error", WIN_ONLY, async () => {
+  const s = installScript(TEMPLATE, V);
+  const start = s.indexOf('  # AppLocker or App Control may block node.exe');
+  const end = s.indexOf('  # Remove what other versions unpacked', start);
+  assert.ok(start >= 0 && end > start, 'finds the actual probe');
+  const block = s.slice(start, end);
+  /** @param {string} node @param {boolean} [installed] */
+  const prelude = (node, installed = false) => [
+    "$Again = 'irm https://github.com/octo/hub/releases/latest/download/install.ps1 | iex'",
+    `$Installed = ${installed ? "'C:\\approved\\node.exe'" : '$null'}`,
+    `$node = ${node}`,
+  ];
+  const applocker = "{ throw 'Program ''node.exe'' failed to run: This program is blocked by group policy. For more information, contact your system administrator' }";
+  // App Control, spotted by its Win32 error code alone.
+  const wdac = "{ throw (New-Object Management.Automation.ApplicationFailedException 'Program failed to run', (New-Object ComponentModel.Win32Exception 4551, 'x')) }";
+  for (const shell of SHELLS) {
+    for (const blocked of [applocker, wdac]) {
+      const r = await runBlock(shell, prelude(blocked), block);
+      assert.notEqual(r.status, 0, r.out);
+      assert.match(r.out, /Your organisation's policy blocks the Node\.js that comes with the installer/, `${shell}: ${r.out}`);
+      assert.match(r.out, /Don't work around it/);
+      assert.match(r.out, /Company Portal/);
+      assert.match(r.out, /\$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1'; irm https:\/\/github\.com\/octo\/hub\/releases\/latest\/download\/install\.ps1 \| iex/);
+      assert.match(r.out, /docs\/INSTALL\.md#locked-down-tenant--azure-cloud-shell/);
+      assert.match(r.out, /ask your IT team/);
+    }
+    const approved = await runBlock(shell, prelude(applocker, true), block);
+    assert.notEqual(approved.status, 0);
+    assert.match(approved.out, /Your organisation's policy blocks .*so the installer can't run here.*Azure Cloud Shell/, `${shell}: ${approved.out}`);
+    assert.doesNotMatch(approved.out, /Company Portal/);
+
+    const other = await runBlock(shell, prelude("{ throw 'disk on fire' }"), block);
+    assert.notEqual(other.status, 0);
+    assert.match(other.out, /disk on fire/);
+    assert.doesNotMatch(other.out, /policy/);
+
+    const fine = await runBlock(shell, prelude("{ 'v24.11.1' }"), `${block}\r\nWrite-Host 'ran on'`);
+    assert.equal(fine.status, 0, fine.out);
+    assert.match(fine.out, /ran on/);
+  }
+});
+
+test('script: cleanup falls back to Remove-Item when policy blocks node.exe', () => {
+  const tree = TEMPLATE.slice(TEMPLATE.indexOf('function Remove-Tree'), TEMPLATE.indexOf('function Find-Node'));
+  const tryAt = tree.indexOf('try {');
+  const nodeAt = tree.indexOf('& $Node -e ');
+  const catchAt = tree.indexOf('} catch { }');
+  assert.ok(tryAt >= 0 && tryAt < nodeAt && nodeAt < catchAt, tree);
+  assert.match(tree, /Remove-Item -LiteralPath \$Dir -Recurse -Force/);
 });

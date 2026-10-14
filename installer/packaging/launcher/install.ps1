@@ -224,9 +224,12 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
   function Remove-Tree([string]$Dir, [string]$Node) {
     if (-not (Test-Path -LiteralPath $Dir)) { return }
     if ($Node -and (Test-Path -LiteralPath $Node)) {
-      # No double quotes: Windows PowerShell 5.1 drops them from a native command's arguments.
-      & $Node -e 'require(''fs'').rmSync(process.argv[1], { recursive: true, force: true })' $Dir
-      if ($LASTEXITCODE -eq 0) { return }
+      # A device policy may block node.exe; then Remove-Item does it.
+      try {
+        # No double quotes: Windows PowerShell 5.1 drops them from a native command's arguments.
+        & $Node -e 'require(''fs'').rmSync(process.argv[1], { recursive: true, force: true })' $Dir
+        if ($LASTEXITCODE -eq 0) { return }
+      } catch { }
     }
     Remove-Item -LiteralPath $Dir -Recurse -Force -ErrorAction SilentlyContinue
   }
@@ -243,7 +246,7 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
   $Installed = $null
   if ($UseInstalledNode) {
     $sys = Get-SystemNode
-    $routes = 'Install an approved Node.js, or use another route in https://github.com/{{REPO}}/blob/main/docs/INSTALL.md.'
+    $routes = 'Install an approved Node.js, for example from Company Portal, or use another route in https://github.com/{{REPO}}/blob/main/docs/INSTALL.md.'
     if (-not $sys) { throw "-UseInstalledNode needs Node.js on the PATH, and there's none that runs. $routes" }
     if (-not (($sys.Major -eq 22 -and $sys.Minor -ge 13) -or $sys.Major -eq 24)) { throw "$($sys.Path) is Node.js $($sys.Version). The installer needs 22.13 or later on 22.x, or 24.x. $routes" }
     $arch = ([string](& $sys.Path -p 'process.arch')).Trim()
@@ -297,6 +300,10 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
         Invoke-WebRequest @request
       } catch {
         Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+        $status = 0
+        try { $status = [int]$_.Exception.Response.StatusCode } catch { }
+        # A pinned install.ps1 whose release has gone. The current release has its own zip and SHA-256.
+        if ($status -eq 404) { throw "Release installer-v$Version is no longer available, so this copy of install.ps1 can't download its zip. To install the current release instead, run: $Again" }
         throw "Couldn't download $ZipUrl ($($_.Exception.Message)). If a proxy blocks it, download $ZipName from the release in a browser and run this again with -ZipPath, or set `$env:ANALYTICS_HUB_ZIP to its path."
       }
     }
@@ -354,6 +361,19 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
   if (-not $node) { $node = Join-Path $Root 'node\node.exe' }
   $NodeDir = Split-Path $node
   $script = Join-Path $Root 'f\installer\bin\valuelens-install.js'
+
+  # AppLocker or App Control may block node.exe. Say what to do instead of the raw error.
+  $ranNode = $null
+  try { & $node --version | Out-Null } catch { $ranNode = $_ }
+  if ($ranNode) {
+    $byPolicy = [string]$ranNode.Exception.Message -match 'group policy|Application Control|Device Guard|blocked by your administrator|software restriction'
+    $e = $ranNode.Exception
+    while ($e) { if ($e.NativeErrorCode -eq 1260 -or $e.NativeErrorCode -eq 4551) { $byPolicy = $true }; $e = $e.InnerException }
+    if (-not $byPolicy) { throw $ranNode }
+    $docs = 'https://github.com/{{REPO}}/blob/main/docs/INSTALL.md'
+    if ($Installed) { throw "Your organisation's policy blocks $node, so the installer can't run here. Don't work around it: run it in Azure Cloud Shell ($docs#locked-down-tenant--azure-cloud-shell), or ask your IT team." }
+    throw "Your organisation's policy blocks the Node.js that comes with the installer ($node). Don't work around it. If your IT team offers Node.js, for example in Company Portal, install the x64 LTS version, then run: `$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1'; $Again ($docs#it-approved-nodejs). Otherwise run the installer in Azure Cloud Shell ($docs#locked-down-tenant--azure-cloud-shell), or ask your IT team."
+  }
 
   # Remove what other versions unpacked, unless they're still running.
   foreach ($dir in @(Get-ChildItem -LiteralPath $AhHome -Directory -ErrorAction SilentlyContinue)) {

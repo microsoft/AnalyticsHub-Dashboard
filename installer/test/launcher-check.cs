@@ -76,6 +76,14 @@ internal static class LauncherCheck
         Check(Launcher.KeepAwake(true), "keep-awake turned on");
         Check(Launcher.KeepAwake(false), "keep-awake reset");
 
+        Check(Launcher.BlockedByPolicy(1260) && Launcher.BlockedByPolicy(4551), "AppLocker and App Control blocks are spotted");
+        Check(!Launcher.BlockedByPolicy(2), "a missing file isn't a policy block");
+        string policy = Launcher.PolicyMessage("C:\\x\\node.exe");
+        foreach (string part in new[] { "C:\\x\\node.exe", "Don't work around it", "Company Portal", "#it-approved-nodejs", "#locked-down-tenant--azure-cloud-shell", "ask your IT team" })
+        {
+            Check(policy.Contains(part), "policy message says " + part);
+        }
+
         Console.WriteLine(failures == 0 ? "ok" : failures + " failed");
         return failures == 0 ? 0 : 1;
     }
