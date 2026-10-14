@@ -1,6 +1,7 @@
 # Update
 
-Keep Analytics Hub current, change what it collects, and replace secrets before they expire.
+Keep Analytics Hub current, change what it collects, and replace secrets before they expire. Set
+it up by hand? See [Manual install: Update](MANUAL-INSTALL.md#update).
 
 ## Get a new version
 

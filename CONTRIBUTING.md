@@ -92,6 +92,9 @@ against a workspace or a local SQL database.
 - Put setup details in the relevant README (`fabric/`, `azure/`, `installer/`) and shared
   column contracts in the
   [data dictionary](docs/DATA-DICTIONARY.md).
+- User pages live in `docs/` and publish to the wiki: add a new page to `PAGES` in
+  `.github/scripts/publish_wiki.py`. Keep the two paths apart: installer steps in
+  [Install](docs/INSTALL.md), by-hand steps in [Manual install](docs/MANUAL-INSTALL.md).
 - Preserve existing names, formatting and README tone. Separate measured signals
   from estimates, and document optional sources, toggles and blank-data behaviour.
 - Use fabricated fixtures only. Never commit tenant exports, user identities,

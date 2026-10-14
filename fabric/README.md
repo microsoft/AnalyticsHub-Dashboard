@@ -141,8 +141,8 @@ Publish the report, then
 
 ## Set it up by hand
 
-If you can't use the installer, follow [Manual setup](MANUAL-SETUP.md). It uses the same
-files the installer does.
+If you can't use the installer, follow [Manual install](../docs/MANUAL-INSTALL.md): prerequisites,
+install and verify, step by step. It uses the same files the installer does.
 
 This video walks through the manual setup, from a fresh app registration to a saved,
 self-refreshing Power BI report. You don't need it if you use the installer.
