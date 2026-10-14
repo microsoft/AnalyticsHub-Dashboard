@@ -20,6 +20,16 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+- **Fix: Windows installer command with special characters in Node.js paths.** The generated
+  `analytics-hub.cmd` quotes the Node.js path in its missing-runtime message, so parentheses or
+  ampersands in an installed Node.js path or user profile do not break the command before it
+  starts. Applies to both bundled and IT-approved Node.js.
+- **Installed-Node recovery instructions** now give the command that keeps
+  `ANALYTICS_HUB_USE_INSTALLED_NODE=1`, as the update instructions already do. Windows package
+  checks also cover the installed-Node route in PowerShell 5.1 Constrained Language Mode.
+- **Known limitation:** the generated Windows management command still cannot preserve non-ASCII
+  installed-Node or Documents paths. [Known issues](docs/KNOWN-ISSUES.md#installing) records this
+  separately from the special-character quoting fix.
 - **Contributing.** Pull requests into `main` now need passing checks and a code owner's
   approval, and only Keith creates release tags. See [Contributing](CONTRIBUTING.md#reviews-and-releases).
 - **Fabric uninstall deletes the model's SQL connection.** The connection lives outside the

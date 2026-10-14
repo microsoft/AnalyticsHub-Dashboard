@@ -16,7 +16,7 @@ spec.loader.exec_module(publish_wiki)
 
 CHECKED = sorted(
     [*(ROOT / "docs").glob("*.md"), *(ROOT / "docs" / "wiki").glob("*.md")]
-    + [ROOT / p for p in ("README.md", "CONTRIBUTING.md", "fabric/README.md", "azure/README.md", "installer/README.md")]
+    + [ROOT / p for p in ("README.md", "CONTRIBUTING.md", "fabric/README.md", "azure/README.md", "installer/README.md", "fabric/MANUAL-SETUP.md")]
 )
 
 LINK = re.compile(r'!?\[(?:[^\[\]]|\[[^\]]*\])*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)')
@@ -70,6 +70,16 @@ def test_relative_links_and_anchors_resolve(path):
     "page, anchor",
     [
         ("README.md", "disclaimer"),
+        ("README.md", "getting-started"),
+        ("README.md", "power-bi-reports"),
+        ("README.md", "optional-add-ons"),
+        ("README.md", "reference"),
+        ("README.md", "whats-here"),
+        ("docs/MANUAL-INSTALL.md", "1-prerequisites"),
+        ("docs/MANUAL-INSTALL.md", "2-install"),
+        ("docs/MANUAL-INSTALL.md", "3-verify"),
+        ("fabric/README.md", "set-it-up-by-hand"),
+        ("fabric/MANUAL-SETUP.md", "steps"),
         ("docs/PREREQUISITES.md", "send-this-to-your-viva-insights-analyst-first"),
         ("docs/PREREQUISITES.md", "optional-extras"),
         ("docs/PREREQUISITES.md", "power-platform-admin-for-the-copilot-studio-credits-flow"),
@@ -88,6 +98,13 @@ def test_relative_links_and_anchors_resolve(path):
         ("installer/README.md", "after-it-finishes"),
         ("installer/README.md", "troubleshooting"),
         ("installer/README.md", "before-you-start"),
+        # Hard-coded in installer/packaging/signing.js and launcher/install.ps1.
+        ("docs/INSTALL.md", "without-the-exe"),
+        ("docs/INSTALL.md", "from-powershell"),
+        ("docs/INSTALL.md", "it-approved-nodejs"),
+        ("docs/INSTALL.md", "check-the-download"),
+        ("docs/INSTALL.md", "locked-down-tenant--azure-cloud-shell"),
+        ("docs/INSTALL.md", "run-it"),
     ],
 )
 def test_old_anchors_still_land(page, anchor):
