@@ -20,7 +20,29 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
-**Fixed:**
+## 2026-10-14 — Analytics Hub installer 0.6.2
+
+**The current release.** 0.6.2 is the first release since 0.5.1 to be marked Latest, so the
+`releases/latest` links, including the PowerShell command, now serve it:
+
+```powershell
+irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+```
+
+To pin this version, use
+`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.2/install.ps1 | iex`.
+
+**Coming from 0.5.1:** 0.6.2 includes everything in the 0.6.0 and 0.6.1 pre-releases below: the
+PowerShell command and Azure Cloud Shell, the no-Key-Vault default for new Fabric installs, region
+preflight and private networking for Azure under policy, and the app's report packs, Ask,
+org-scoped access and delegation. Read those two sections before you update.
+
+**Update an existing install:** open installer 0.6.2 and choose **Repair or change**. On Azure it
+pulls the `0.6.2` images and runs any migrations the install hasn't had yet (V006 from 0.6.1).
+
+The tag also publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.2`.
+
+**Fixed in this release:**
 
 - **Installer, Azure Cloud Shell:** the plan before **Go ahead?** said to keep the PC plugged in
   and awake; in Cloud Shell it now says to keep the Cloud Shell tab open. Without a storage
