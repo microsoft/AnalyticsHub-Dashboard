@@ -12,11 +12,11 @@ The design and the roadmap are in [`docs/plans/AZURE-HOSTED-PLAN.md`](../docs/pl
 
 ## Install it
 
-1. [Download the installer](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
+1. Start the installer with the [PowerShell one-liner](../docs/INSTALL.md#from-powershell), or
+   [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
    (0.3.0 or later) and open it, or run `npx valuelens-install --ui` from `installer` after
-   `npm install` (see [Without the exe](../docs/INSTALL.md#without-the-exe)). If Edge or
-   Windows warns about the download, see
-   [Check the download](../docs/INSTALL.md#check-the-download).
+   `npm install` (see [Without the exe](../docs/INSTALL.md#without-the-exe)). To check a
+   download, see [Check the download](../docs/INSTALL.md#check-the-download).
 2. Pick **Your Azure subscription** and tick the data to collect. **Change the advanced settings?**
    **No** takes the defaults that suit most organisations: see
    [Advanced settings](../installer/README.md#advanced-settings). With **Yes** you can also

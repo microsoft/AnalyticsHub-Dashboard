@@ -13,9 +13,10 @@ import { SCRIPT_NAME, ZIP_NAME, scriptCommand } from './script.js';
 export const PUBLISHER = 'Microsoft Corporation';
 
 /** Where the install steps live, relative to the repo's main branch. */
-export const INSTALL_DOCS = 'tree/main/fabric#install';
-export const WITHOUT_EXE_DOCS = 'blob/main/installer/README.md#without-the-exe';
-export const PWSH_DOCS = 'blob/main/installer/README.md#from-powershell';
+export const INSTALL_DOCS = 'blob/main/docs/INSTALL.md';
+export const WITHOUT_EXE_DOCS = 'blob/main/docs/INSTALL.md#without-the-exe';
+export const PWSH_DOCS = 'blob/main/docs/INSTALL.md#from-powershell';
+export const INSTALLED_NODE_DOCS = 'blob/main/docs/INSTALL.md#it-approved-nodejs';
 
 /** @param {string} file */
 export const sha256File = (file) => createHash('sha256').update(readFileSync(file)).digest('hex');
@@ -76,25 +77,26 @@ export function checkSignature(sig, { publisher = PUBLISHER } = {}) {
  */
 export function releaseNotes({ repo, sha256, signed, publisher = PUBLISHER, version }) {
   const base = `https://github.com/${repo}`;
-  const lines = [
-    `Download **${EXE_NAME}** and open it. Steps: ${base}/${INSTALL_DOCS}`,
-    '',
-  ];
+  const lines = [];
   if (version) {
     lines.push(
-      '### Or install from PowerShell',
+      '### Install from PowerShell',
       '',
-      'If your organisation blocks downloaded exes, paste this into PowerShell instead. It needs no admin rights: it downloads this release\'s installer as a zip, checks its SHA-256 and opens the installer in your browser.',
+      'Paste this into PowerShell. It needs no admin rights: it downloads this release\'s installer as a zip, checks its SHA-256 and opens the installer in your browser.',
       '',
       '```powershell',
       `${scriptCommand(repo, version)}`,
       '```',
       '',
-      `If \`irm | iex\` is blocked too, download \`${SCRIPT_NAME}\` and \`${ZIP_NAME}\` from this release and run \`powershell -ExecutionPolicy Bypass -File .\\${SCRIPT_NAME} -ZipPath .\\${ZIP_NAME}\`. More: ${base}/${PWSH_DOCS}`,
+      `To keep the files, download \`${SCRIPT_NAME}\` and \`${ZIP_NAME}\` from this release and, where your execution policy allows scripts, run \`.\\${SCRIPT_NAME} -ZipPath .\\${ZIP_NAME}\`. With a Node.js your IT team has approved, add \`-UseInstalledNode\`: ${base}/${INSTALLED_NODE_DOCS}. More: ${base}/${PWSH_DOCS}`,
+      '',
+      '### Or download the exe',
       '',
     );
   }
   lines.push(
+    `Download **${EXE_NAME}** and open it. Steps: ${base}/${INSTALL_DOCS}`,
+    '',
     '### Check the download',
     '',
     `SHA-256: \`${sha256.toLowerCase()}\``,
@@ -105,7 +107,7 @@ export function releaseNotes({ repo, sha256, signed, publisher = PUBLISHER, vers
     `(Get-FileHash .\\${EXE_NAME} -Algorithm SHA256).Hash`,
     '```',
     '',
-    `It should match the hash above, which is also in \`${EXE_NAME}.sha256\`. PowerShell prints it in capitals; that doesn't matter.`,
+    `It should match the hash above, which is also in \`${EXE_NAME}.sha256\`. PowerShell prints it in capitals; that doesn't matter. A match confirms the file is the one in this release, not who published it.`,
     '',
   );
   if (signed) {
@@ -115,14 +117,10 @@ export function releaseNotes({ repo, sha256, signed, publisher = PUBLISHER, vers
     );
   } else {
     lines.push(
-      '### If Edge or Windows warns you',
+      '### If your organisation blocks it',
       '',
-      'This build isn\'t code-signed yet, so Edge and Windows SmartScreen don\'t recognise it. Check the hash first, then:',
-      '',
-      '- If Edge says it **isn\'t commonly downloaded**, choose **…** next to the file, then **Keep**, **Show more** and **Keep anyway**.',
-      '- If Windows says it **protected your PC**, choose **More info**, then **Run anyway**.',
-      '',
-      `If your organisation blocks the download, ${version ? 'use the PowerShell command above, or ' : ''}run the installer with Node.js instead: ${base}/${WITHOUT_EXE_DOCS}`,
+      'This build isn\'t code-signed yet, so Edge and Windows SmartScreen may warn about it. If your organisation\'s policy blocks it, don\'t work around it.',
+      `${version ? 'Use the PowerShell command above, ' : 'Use '}another route in ${base}/${INSTALL_DOCS}, such as Azure Cloud Shell or running the installer with Node.js (${base}/${WITHOUT_EXE_DOCS}), or ask your IT team.`,
       '',
     );
   }

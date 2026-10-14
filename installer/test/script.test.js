@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { SCRIPT_NAME, ZIP_NAME, installScript, scriptCommand, scriptSha256, zipUrl } from '../packaging/script.js';
-import { CLOUD_SHELL_SHIM, SCRIPT_COMMAND, SCRIPT_SHIM, SCRIPT_URL } from '../src/launch.js';
+import { CLOUD_SHELL_SHIM, INSTALLED_NODE_ENV, SCRIPT_COMMAND, SCRIPT_SHIM, SCRIPT_URL } from '../src/launch.js';
 import { REPO } from '../src/update-check.js';
 
 const TEMPLATE = readFileSync(fileURLToPath(new URL('../packaging/launcher/install.ps1', import.meta.url)), 'utf8');
@@ -79,4 +79,36 @@ test('script: in Azure Cloud Shell, gets the pinned commit and runs the installe
   assert.doesNotMatch(cloud, /--ui/, 'Cloud Shell has no browser for the wizard');
   assert.ok(cloud.includes("$AhHome = Join-Path $HOME '.analytics-hub'") && cloud.includes("$Shim = Join-Path $AhHome 'analytics-hub'"));
   assert.equal(CLOUD_SHELL_SHIM, '~/.analytics-hub/analytics-hub');
+});
+test('script: -UseInstalledNode runs the installer with an installed Node.js and keeps the same folders and command', () => {
+  const win = TEMPLATE.slice(TEMPLATE.indexOf("if ($env:OS -ne 'Windows_NT')"));
+  assert.match(TEMPLATE, /\$UseInstalledNode = \$env:ANALYTICS_HUB_USE_INSTALLED_NODE -eq '1'/);
+  assert.match(TEMPLATE, /\$a -eq '-UseInstalledNode'\) \{ \$UseInstalledNode = \$true \}/);
+  assert.ok(TEMPLATE.includes(`$env:${INSTALLED_NODE_ENV}`), 'the launcher and the installer agree on the variable');
+  // The same Node.js check serves Cloud Shell and Windows.
+  assert.equal(TEMPLATE.match(/Get-Command node /g)?.length, 1);
+  assert.match(TEMPLATE.slice(TEMPLATE.indexOf('if ($CloudShell) {')), /\$sys = Get-SystemNode/);
+  assert.match(win, /\(\$sys\.Major -eq 22 -and \$sys\.Minor -ge 13\) -or \$sys\.Major -eq 24/, "rayfin supports Node.js 22 and 24");
+  assert.match(win, /-p 'process\.arch'[\s\S]*\$arch -ne 'x64'/, 'the native packages in the zip are x64');
+  // Same unpacked folder, install record and command, so either route finds the other's install.
+  assert.equal(win.match(/\$Root = Join-Path \$AhHome \$Id/g)?.length, 1);
+  assert.equal(win.match(/\$Work = Join-Path \$Docs 'Analytics Hub'/g)?.length, 1);
+  assert.match(win, /\$node = \$Installed\r?\n\s*if \(-not \$node\) \{ \$node = Join-Path \$Root 'node\\node\.exe' \}/);
+  assert.match(win, /& \$node \$script @Forward/);
+  assert.match(win, /set `"AH_NODE=\$Installed`"/);
+  assert.match(win, /'set "ANALYTICS_HUB_USE_INSTALLED_NODE=1"'/);
+  assert.match(win, /"%AH_NODE%" "%AH_ROOT%\\f\\installer\\bin\\valuelens-install\.js" %\*/);
+  assert.doesNotMatch(win, /"%AH_ROOT%\\node\\node\.exe" "%AH_ROOT%/, 'the command runs whichever Node.js install.ps1 used');
+  assert.match(win, /\$Again = "`\$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1'; \$Again"/);
+});
+
+test('script: the command it leaves behind escapes the | in the install command for cmd.exe', () => {
+  const win = TEMPLATE.slice(TEMPLATE.indexOf("if ($env:OS -ne 'Windows_NT')"));
+  assert.match(win, /\$AgainCmd = \$Again -replace '\\\|', '\^\|'/);
+  assert.doesNotMatch(win, /echo [^\r\n]*\$Again\b(?!Cmd)/);
+});
+
+test("script: doesn't tell people to get around their organisation's policy", () => {
+  assert.doesNotMatch(TEMPLATE, /ExecutionPolicy|Bypass|Run anyway|Keep anyway|AllSigned/i);
+  assert.match(TEMPLATE, /ask your IT team/);
 });

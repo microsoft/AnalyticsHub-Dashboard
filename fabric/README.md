@@ -33,19 +33,18 @@ you're responsible for the data once it's in your workspace.
 
 ## Install
 
-1. [Download the installer](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe).
-   If Edge says it isn't commonly downloaded, choose **…** next to the file, then **Keep**,
-   **Show more** and **Keep anyway**.
-2. Open it. If Windows says it protected your PC, choose **More info**, then **Run anyway**.
-   These warnings appear because the installer is new and isn't code-signed yet. To check the
-   file first, see [Check the download](../docs/INSTALL.md#check-the-download). If your
-   organisation blocks it, paste this into PowerShell instead and carry on from step 3:
+1. Start the installer. Paste this into PowerShell:
 
    ```powershell
    irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
    ```
 
-3. After about a minute, it opens in your browser. Keep the installer window open until you're
+   Or [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
+   and open it. Neither is code-signed yet; to check a download, see
+   [Check the download](../docs/INSTALL.md#check-the-download). If your organisation blocks
+   them, use another route in [Install](../docs/INSTALL.md) or ask your IT team.
+2. The first time, it takes about a minute to unpack.
+3. Then it opens in your browser. Keep the installer window open until you're
    done.
 4. Choose **Set up Analytics Hub** and sign in with your work account.
 5. Answer the questions. Under **Data sources**, choose the data you want: each source has a
@@ -57,7 +56,7 @@ you're responsible for the data once it's in your workspace.
    app.
 
 If admin consent isn't granted yet, the installer skips the first load. Once an admin has granted
-it, open the exe again and choose **Run now**.
+it, start the installer again and choose **Run now**.
 
 ## Where the client secret goes
 

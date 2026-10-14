@@ -22,6 +22,8 @@ export const SCRIPT_SHIM = '& $env:LOCALAPPDATA\\AnalyticsHub\\analytics-hub.cmd
 export const CLOUD_SHELL_SHIM = '~/.analytics-hub/analytics-hub';
 /** `1` makes the installer and install.ps1 treat this shell as Azure Cloud Shell, `0` as not. */
 export const CLOUD_SHELL_ENV = 'ANALYTICS_HUB_CLOUD_SHELL';
+/** `1` makes install.ps1 run the installer with the Node.js installed on the PC instead of the zip's. */
+export const INSTALLED_NODE_ENV = 'ANALYTICS_HUB_USE_INSTALLED_NODE';
 
 /**
  * Whether this runs in Azure Cloud Shell, which has no browser, signs in with a code, and ends a
@@ -141,7 +143,8 @@ export function reopenHint(env = process.env) {
 export function updateHint(url, env = process.env) {
   const how = launcher(env);
   if (how === 'cloudshell') return `Run "${SCRIPT_COMMAND}" again in Cloud Shell's PowerShell, then install to repair or change.`;
+  const command = env[INSTALLED_NODE_ENV] === '1' ? `$env:${INSTALLED_NODE_ENV} = '1'; ${SCRIPT_COMMAND}` : SCRIPT_COMMAND;
   return how === 'pwsh'
-    ? `Close the installer and run "${SCRIPT_COMMAND}" again in PowerShell, then choose Repair or change.`
+    ? `Close the installer and run "${command}" again in PowerShell, then choose Repair or change.`
     : `Download it from ${url}, then choose Repair or change.`;
 }

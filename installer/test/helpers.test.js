@@ -11,7 +11,7 @@ import { allowsAction, armLocation, parseResourceId, validateVaultName } from '.
 import { notebookDefinition, notebookJobParameters, scheduleBody } from '../src/clients/fabric.js';
 import { resolveAppRoles } from '../src/clients/graph.js';
 import { emptyConfig, loadConfig, saveConfig } from '../src/config.js';
-import { bundled, CLOUD_SHELL_ENV, commandLine, EXE_ENV, fromExe, inCloudShell, installerWindow, LAUNCHER_ENV, launcher, reopenHint, SCRIPT_COMMAND, SCRIPT_URL, updateHint } from '../src/launch.js';
+import { bundled, CLOUD_SHELL_ENV, commandLine, EXE_ENV, fromExe, inCloudShell, INSTALLED_NODE_ENV, installerWindow, LAUNCHER_ENV, launcher, reopenHint, SCRIPT_COMMAND, SCRIPT_URL, updateHint } from '../src/launch.js';
 import { describeSchedule, sameSchedule } from '../src/steps/fabric.js';
 import { addDays, addMonths, notebookSecretDays } from '../src/steps/identity.js';
 import { jobIdFrom, utc } from '../src/steps/run.js';
@@ -306,6 +306,15 @@ test('messages name the PowerShell command when install.ps1 started the installe
   assert.match(updateHint('https://example.test/r', pwsh), /irm https:\/\/github\.com\/microsoft\/AnalyticsHub-Dashboard\/releases\/latest\/download\/install\.ps1 \| iex/);
   assert.equal(updateHint('https://example.test/r', {}), 'Download it from https://example.test/r, then choose Repair or change.');
   assert.equal(SCRIPT_COMMAND, `irm ${SCRIPT_URL} | iex`);
+});
+
+test('messages keep -UseInstalledNode when install.ps1 ran the installer with the installed Node.js', () => {
+  const installed = { [LAUNCHER_ENV]: 'pwsh', [INSTALLED_NODE_ENV]: '1' };
+  assert.equal(INSTALLED_NODE_ENV, 'ANALYTICS_HUB_USE_INSTALLED_NODE');
+  assert.equal(bundled(installed), true, "the app is still the zip's prebuilt one");
+  assert.ok(updateHint('https://example.test/r', installed).includes(`"$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1'; ${SCRIPT_COMMAND}" again in PowerShell`));
+  assert.doesNotMatch(updateHint('https://example.test/r', { [LAUNCHER_ENV]: 'pwsh' }), /INSTALLED_NODE/);
+  assert.doesNotMatch(updateHint('https://example.test/r', { [LAUNCHER_ENV]: 'cloudshell', [INSTALLED_NODE_ENV]: '1' }), /INSTALLED_NODE/);
 });
 
 test('in Azure Cloud Shell: noticed from its environment, with commands for its shell', () => {

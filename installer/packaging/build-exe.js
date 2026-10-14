@@ -207,7 +207,7 @@ try {
   }
   copyFileSync(join(SOURCE, 'LICENSE'), join(stage, 'LICENSE.txt'));
 
-  step('Leaving out source maps');
+  step('Leaving out source maps and unused tools');
   let pruned = 0;
   for (const rel of walk(stage)) {
     if (!prunable(rel)) continue;
@@ -215,6 +215,11 @@ try {
     pruned++;
   }
   process.stdout.write(`  ${pruned} files left out\n`);
+  // Prove Rayfin still starts, signs in and compiles the schema without them.
+  run(process.execPath, ['--input-type=module', '-e', "await import('@azure/msal-node-extensions'); await import('@microsoft/rayfin-cli/auth');"], { cwd: stagedApp });
+  run(process.execPath, [join(stagedApp, 'node_modules', '@microsoft', 'rayfin-cli', 'scripts', 'main'), '--version'], { cwd: stagedApp });
+  run(process.execPath, [tsc, '-p', join('rayfin', 'tsconfig.json')], { cwd: stagedApp });
+  rmSync(join(stagedApp, 'rayfin', '.temp'), { recursive: true, force: true });
 
   step('Checking the payload');
   const files = walk(stage);

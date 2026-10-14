@@ -108,6 +108,27 @@ test('packaging: source maps in installed packages are left out', () => {
   }
 });
 
+test('packaging: esbuild, tsx and the native sign-in broker are left out; the token cache add-ons stay', () => {
+  for (const f of [
+    'f/app/node_modules/@esbuild/win32-x64/esbuild.exe',
+    'f/app/node_modules/esbuild/package.json',
+    'f/app/node_modules/tsx/dist/cli.mjs',
+    'f/app/node_modules/@azure/msal-node-runtime/dist/windows/x64/msal-node-runtime.node',
+    'f/app/node_modules/@azure/msal-node-runtime/dist/linux/x64/msalruntime.so',
+    'f/app/node_modules/@azure/msal-node-runtime/dist/macos/arm64/msal-node-runtime.node',
+  ]) assert.ok(prunable(f), f);
+  for (const f of [
+    'f/app/node_modules/@azure/msal-node-runtime/dist/index.js',
+    'f/app/node_modules/@azure/msal-node-runtime/package.json',
+    'f/app/node_modules/@azure/msal-node-extensions/bin/x64/dpapi.node',
+    'f/app/node_modules/keytar/build/Release/keytar.node',
+    'f/app/node_modules/typescript/lib/tsc.js',
+    'f/app/node_modules/esbuild-plugin-x/index.js',
+    'f/app/node_modules/tsx-helper/index.js',
+    'node/node.exe',
+  ]) assert.ok(!prunable(f), f);
+});
+
 test('packaging: IDs from local settings are caught, public ones are not', () => {
   const graph = '00000003-0000-0000-C000-000000000000';
   const ws = 'aaaa1111-1111-2222-3333-444455556666';

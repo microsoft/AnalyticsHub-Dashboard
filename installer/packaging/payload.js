@@ -136,12 +136,19 @@ export function fileVersion(version) {
 }
 
 /**
- * Whether an installed package's file can be left out of the payload. Source maps are a fifth of
- * the download, and nothing reads them when the installer runs.
+ * Whether an installed package's file can be left out of the payload. Nothing reads these when the
+ * installer runs:
+ * - source maps, a fifth of the download;
+ * - esbuild (an unsigned exe) and tsx, which needs it. Rayfin lists tsx but never imports it, and
+ *   compiles the data schema with TypeScript's tsc.js instead;
+ * - msal-node-runtime's native sign-in broker for each OS. Rayfin doesn't use the broker, and
+ *   msal-node-extensions carries on without it.
  * @param {string} rel  Relative to the payload root.
  */
 export function prunable(rel) {
-  return /(^|\/)node_modules\/.+\.map$/i.test(rel);
+  return /(^|\/)node_modules\/.+\.map$/i.test(rel)
+    || /(^|\/)node_modules\/(@esbuild|esbuild|tsx)\//i.test(rel)
+    || /(^|\/)node_modules\/@azure\/msal-node-runtime\/dist\/(windows|linux|macos)\//i.test(rel);
 }
 
 /**

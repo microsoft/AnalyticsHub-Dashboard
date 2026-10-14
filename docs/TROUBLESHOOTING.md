@@ -8,9 +8,9 @@ the installer's version.
 
 | Problem | What to do |
 |---|---|
-| Edge says the file isn't commonly downloaded | Choose **…** next to the file, then **Keep**, **Show more** and **Keep anyway**. The exe isn't code-signed yet. |
-| Windows says it protected your PC | Choose **More info**, then **Run anyway**. The exe isn't code-signed yet. |
-| Your PC blocks both the exe and the PowerShell command | Run the installer in Azure Cloud Shell. See [Locked-down tenant / Azure Cloud Shell](INSTALL.md#locked-down-tenant--azure-cloud-shell). |
+| Edge or Windows SmartScreen warns about the exe | It isn't code-signed yet. Check it against the release: see [Check the download](INSTALL.md#check-the-download). On a managed PC, if policy blocks it, use the [PowerShell one-liner](INSTALL.md#from-powershell) or ask your IT team. |
+| Your PC blocks both the exe and the PowerShell command | Use an [IT-approved Node.js](INSTALL.md#it-approved-nodejs) if you have one, or run the installer in Azure Cloud Shell. See [Locked-down tenant / Azure Cloud Shell](INSTALL.md#locked-down-tenant--azure-cloud-shell). |
+| `-UseInstalledNode needs Node.js on the PATH`, `The installer needs 22.13 or later`, or `needs x64 Node.js` | Ask your IT team for an approved x64 Node.js, 22.13 or later on 22.x, or 24.x. Or use another route in [Install](INSTALL.md). |
 | `The Azure CLI is on Cloud Shell's own sign-in` | Run `az login --use-device-code`, then run the installer again. Or leave out `--use-az`. See [Locked-down tenant / Azure Cloud Shell](INSTALL.md#locked-down-tenant--azure-cloud-shell). |
 | `The installer couldn't start` | Download the exe again. If that doesn't help, delete `%LOCALAPPDATA%\AnalyticsHub` and open it again. |
 | The page says it needs the installer's link, or the link has expired | Go back to the installer's window and press **Enter**. It opens the page again. |
