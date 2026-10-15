@@ -138,7 +138,8 @@ async function settleStoppedCreate(ctx, key, type) {
     }
     if (state === 'NotStarted' || state === 'Running') throw new Error(stillCreating(pending.name));
   }
-  if (state === 'Failed' || state === 'Undefined') return undefined;
+  // Only Failed says nothing is coming; 'Undefined' is treated as not known.
+  if (state === 'Failed') return undefined;
   if (state === 'Succeeded') {
     // The workspace's list can lag the operation.
     for (let i = 0; ; i++) {

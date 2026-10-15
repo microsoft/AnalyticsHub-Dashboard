@@ -755,9 +755,9 @@ test("a stopped run's create that Fabric gave an operation for: asked about, not
   assert.equal(old.t.config.fabric.pendingItems?.DataPipeline?.ref, 'ee55');
   assert.doesNotMatch(old.ui.text(), /created now/);
 
-  // Fabric can't say (the call fails, or it no longer knows the operation): as for no operation, it waits and then doesn't guess.
-  for (const unknown of [undefined, 'throws']) {
-    const u = await setup(unknown === 'throws' ? 'Running' : undefined);
+  // Fabric can't say (the call fails, it no longer knows the operation, or answers 'Undefined'): as for no operation, it waits and then doesn't guess.
+  for (const unknown of [undefined, 'throws', 'Undefined']) {
+    const u = await setup(unknown === 'throws' ? 'Running' : unknown);
     if (unknown === 'throws') u.fabric.failures.operationStatus = [httpError(500, 'boom')];
     await assert.rejects(ensurePipeline(u.t.ctx), /wasn't created again/);
     assert.deepEqual(u.fabric.calls.filter((c) => /Pipeline /.test(c)), []);
