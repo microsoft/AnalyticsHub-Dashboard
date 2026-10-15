@@ -462,6 +462,22 @@ class TranscriptStreamingTests(unittest.TestCase):
         self.assertEqual((2, "ok"), rows[0][4:6])
         self.assertEqual((0, "empty"), rows[1][4:6])
 
+    def test_one_unreadable_environment_does_not_fail_the_run_when_the_others_are_empty(self):
+        # A 403 in one environment and 0 transcripts in the rest is a status row, not "all pulls failed".
+        fetch = notebook_cell_source("def staged_transcript_record")
+        self.assertIn("if _tasks and len(_errs) == len(_tasks):", fetch)
+        self.assertNotIn("if _errs and not _tx_total", fetch)
+
+        class Forbidden(Exception):
+            response = type("R", (), {"status_code": 403})()
+
+        ns = exec_top_level("def evaluator_status_rows", {}, assigns=set())
+        rows = ns["evaluator_status_rows"](
+            ["https://a", "https://b"], {"https://a": set()}, {},
+            [(("https://b", None, None), Forbidden("HTTP 403"))], {}, {}, "now")
+        self.assertEqual((0, "empty"), rows[0][4:6])
+        self.assertEqual((0, "forbidden"), rows[1][4:6])
+
     def test_fetch_streams_pages_instead_of_holding_every_row(self):
         fetch = notebook_cell_source("def staged_transcript_record")
         text = NOTEBOOK.read_text(encoding="utf-8")
