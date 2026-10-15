@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { PIPELINE_TEMPLATE } from '../src/sources.js';
 import {
+  AGENT_EVALUATOR_ACTIVITY,
   AGENT_EVALUATOR_REFRESH_ACTIVITY,
   applyRetries,
   buildPipeline,
@@ -108,16 +109,18 @@ test('the first load defaults to 30 days of history', () => {
   assert.equal(doc.properties.parameters.BackfillDays.defaultValue, 30);
 });
 
-test('a standard tenant pulls day-long audit windows within a budget and keeps the template timeouts', () => {
+test('a standard tenant pulls day-long audit windows within a budget and keeps the template timeouts for the core loads', () => {
   const doc = buildPipeline(template, { workspaceId: WS, notebookIds: allIds, modules: allModules, semanticModelId: 'model-1', scale: 'standard' });
   const audit = findActivity(doc.properties.activities, 'Run_Audit_Log_Ingester');
   assert.deepEqual(audit.typeProperties.parameters.CHUNK_HOURS, { value: 24, type: 'int' });
   assert.deepEqual(audit.typeProperties.parameters.TIME_BUDGET_MIN, { value: 90, type: 'int' });
   assert.equal(audit.typeProperties.parameters.WINDOW_RETRIES, undefined);
   assert.equal(audit.typeProperties.parameters.LOOKBACK_DAYS, undefined);
+  const longer = Object.keys(SCALE_PROFILES.standard.timeouts);
+  assert.deepEqual(longer.sort(), ['Run_Agent365_Registry_Ingester', 'Run_Defender_Ingester']);
   for (const a of template.properties.activities.flatMap((/** @type {any} */ x) => [x, ...(x.typeProperties?.ifTrueActivities ?? [])])) {
     const built = findActivity(doc.properties.activities, a.name);
-    if (built && a.policy?.timeout) assert.equal(built.policy.timeout, a.policy.timeout, a.name);
+    if (built && a.policy?.timeout && !longer.includes(a.name)) assert.equal(built.policy.timeout, a.policy.timeout, a.name);
   }
   const refresh = findActivity(doc.properties.activities, 'Refresh_Semantic_Model');
   assert.equal(refresh.policy.timeout, '0.03:00:00');
@@ -158,6 +161,42 @@ test('a large tenant pulls short audit windows, splits a failing one fast and ge
     assert.equal(refresh.policy.timeout, '0.05:00:00', name);
     assert.ok(refresh.typeProperties.parameters.TIMEOUT_MINUTES.value < 300, name);
   }
+});
+
+test('the slow Graph loads get more time by tenant size, and the registry load a budget inside it', () => {
+  const minutes = (/** @type {string} */ t) => {
+    const [days, rest] = t.split('.');
+    const [h, m] = rest.split(':').map(Number);
+    return Number(days) * 1440 + h * 60 + m;
+  };
+  /** @type {Record<string, { registry: string, defender: string, transcripts: string, budget?: number, retry: number }>} */
+  const expected = {
+    unsized: { registry: '0.02:00:00', defender: '0.00:30:00', transcripts: '0.02:00:00', retry: 1 },
+    standard: { registry: '0.03:00:00', defender: '0.01:00:00', transcripts: '0.03:00:00', budget: 120, retry: 1 },
+    large: { registry: '0.06:00:00', defender: '0.02:00:00', transcripts: '0.06:00:00', budget: 270, retry: 2 },
+  };
+  for (const [size, want] of Object.entries(expected)) {
+    const scale = size === 'unsized' ? undefined : /** @type {'standard' | 'large'} */ (size);
+    const doc = buildPipeline(template, { workspaceId: WS, notebookIds: { ...allIds, defender: 'defender-1' }, modules: { ...allModules, defender: true }, agentTranscripts: true, scale });
+    const registry = findActivity(doc.properties.activities, 'Run_Agent365_Registry_Ingester');
+    assert.equal(registry.policy.timeout, want.registry, size);
+    assert.equal(registry.policy.retry, want.retry, size);
+    assert.equal(registry.policy.retryIntervalInSeconds, 60, `${size}: the fallback covers a failure, so it keeps its short wait`);
+    assert.deepEqual(registry.typeProperties.parameters?.TIME_BUDGET_MIN, want.budget === undefined ? undefined : { value: want.budget, type: 'int' }, size);
+    if (want.budget) assert.ok(want.budget + 45 <= minutes(want.registry), `${size}: the budget leaves time to write before the timeout`);
+    assert.equal(findActivity(doc.properties.activities, 'Run_Defender_Ingester').policy.timeout, want.defender, size);
+    const transcripts = findActivity(doc.properties.activities, AGENT_EVALUATOR_ACTIVITY);
+    assert.equal(transcripts.policy.timeout, want.transcripts, size);
+    assert.equal(transcripts.policy.retry, 2, size);
+  }
+});
+
+test('in CSV mode the Agent 365 lander gets neither the registry budget nor its time limit', () => {
+  const doc = buildPipeline(template, { workspaceId: WS, notebookIds: { ...allIds, agent365Lander: 'lander-1' }, modules: allModules, agent365Csv: true, scale: 'large' });
+  assert.equal(findActivity(doc.properties.activities, 'Run_Agent365_Registry_Ingester'), undefined);
+  const lander = findActivity(doc.properties.activities, 'Run_Agent365_Lander');
+  assert.equal(lander.typeProperties.parameters?.TIME_BUDGET_MIN, undefined);
+  assert.equal(lander.policy.timeout, '0.02:00:00');
 });
 
 const allModules = { orgData: true, m365Activity: true, agent365: true, productFeedback: true, consumption: true, agentEvaluator: true };

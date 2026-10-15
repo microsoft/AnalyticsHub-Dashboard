@@ -1146,8 +1146,9 @@ as it can inside Fabric, the image downloads as a PNG instead.
   counts test-pane, evaluation and autonomous runs, which are dropped here ([§2.1](#21-which-audit-records-count)),
   and an agent whose audit records carry no key the registry knows stays unlinked ([§2.2](#22-how-agents-are-linked-to-the-registry)).
 - **Registry usage fields can be up to a week old.** The registry ingester re-fetches an agent's
-  detail (usage, Bot Id, sharing) only when the agent is new or changed, or its cached detail is
-  older than `FULL_REFRESH_DAYS` (default 7). `Detail As Of` on each `agents_365` row shows when.
+  detail (usage, Bot Id, sharing) when the agent is new or changed, on the agent's own refresh day
+  each week (spread across the week), or when its cached detail is older than `FULL_REFRESH_DAYS`
+  (default 7). `Detail As Of` on each `agents_365` row shows when.
 - **Agent types are partly inferred, and only seen through Copilot interaction records.** The
   `T_` / `U_` / `P_` agent-ID prefixes behind three categories are not documented by Microsoft
   ([§3.3](#agent-type-classification)). The Fabric ingester pulls only the `copilotInteraction`

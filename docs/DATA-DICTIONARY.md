@@ -261,8 +261,12 @@ model is now **100% Lakehouse-sourced**.
 
 **Incremental pull.** The ingester lists every agent on every run, but calls the per-agent detail
 endpoint (Bot Id, usage, sharing, element types) only for agents that are new, whose
-`lastModifiedDateTime` changed, that have no cache entry, or whose cached detail is older than
-`FULL_REFRESH_DAYS` (default 7). Detail calls run in parallel (`DETAIL_WORKERS`, default 8) and retry
+`lastModifiedDateTime` changed, that have no cache entry, whose cached detail is older than
+`FULL_REFRESH_DAYS` (default 7), or whose refresh day it is. Each agent's refresh day comes from a
+hash of its ID, so the weekly refresh is spread across the week rather than falling on one run.
+New and changed agents are fetched first; the scheduled refreshes stop starting once
+`TIME_BUDGET_MIN` (default 75; `0` for no limit) runs out, and the rest wait for the next run.
+Detail calls run in parallel (`DETAIL_WORKERS`, default 8) and retry
 on 429, 500, 502, 503 and 504 and on network timeouts or dropped connections. `DETAIL_MODE = "full"`
 forces a full refresh. It keeps three tables:
 
