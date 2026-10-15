@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { REGISTRY } from "@/lib/filter-profiles";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { connection, FORMAT_WHOLE } from "../shared";
 import query from "./governance-summary.dax?raw";
@@ -36,5 +37,5 @@ const columnMetadata: ColumnMetadataMap = {
  * owner figures are missing rather than reporting that nobody has left.
  */
 export function governanceSummary() {
-    return { connection, query, columnMetadata };
+    return { connection, query, columnMetadata, filters: REGISTRY };
 }

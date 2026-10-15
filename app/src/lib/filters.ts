@@ -164,33 +164,30 @@ export function isFilterActive(state: FilterState, key: FilterKey): boolean {
     }
 }
 
+/**
+ * The DAX filter argument for one active filter on the ValueLens model, as
+ * the report's own slicer applies it. Call only for an active filter.
+ */
+export function filterExpression(state: FilterState, key: FilterKey): string {
+    switch (key) {
+        case "dateRange":
+            return dateBetween(FILTER_COLUMNS.date, state.dateRange!.from, state.dateRange!.to);
+        case "organizations":
+            return treatAs(orgColumnRef(state.orgAttribute), state.organizations);
+        case "licence":
+            return treatAs(FILTER_COLUMNS.licence, [state.licence === "licensed" ? "Licensed" : "Unlicensed"]);
+        case "audience":
+            return treatAs(FILTER_COLUMNS.audience, [AUDIENCE_VALUES[state.audience as Exclude<Audience, "all">]]);
+        case "agentTypes":
+            return treatAs(FILTER_COLUMNS.agentType, state.agentTypes);
+        case "agentNames":
+            return treatAs(FILTER_COLUMNS.agentName, state.agentNames);
+    }
+}
+
 /** DAX filter arguments for the active filters among `keys`. */
 export function filterExpressions(state: FilterState, keys: readonly FilterKey[]): string[] {
-    const expressions: string[] = [];
-    for (const key of keys) {
-        if (!isFilterActive(state, key)) continue;
-        switch (key) {
-            case "dateRange":
-                expressions.push(dateBetween(FILTER_COLUMNS.date, state.dateRange!.from, state.dateRange!.to));
-                break;
-            case "organizations":
-                expressions.push(treatAs(orgColumnRef(state.orgAttribute), state.organizations));
-                break;
-            case "licence":
-                expressions.push(treatAs(FILTER_COLUMNS.licence, [state.licence === "licensed" ? "Licensed" : "Unlicensed"]));
-                break;
-            case "audience":
-                expressions.push(treatAs(FILTER_COLUMNS.audience, [AUDIENCE_VALUES[state.audience as Exclude<Audience, "all">]]));
-                break;
-            case "agentTypes":
-                expressions.push(treatAs(FILTER_COLUMNS.agentType, state.agentTypes));
-                break;
-            case "agentNames":
-                expressions.push(treatAs(FILTER_COLUMNS.agentName, state.agentNames));
-                break;
-        }
-    }
-    return expressions;
+    return keys.filter((key) => isFilterActive(state, key)).map((key) => filterExpression(state, key));
 }
 
 const PRESET_WEEKS: Record<Exclude<DatePreset, "all" | "custom">, number> = { "4w": 4, "8w": 8, "12w": 12 };

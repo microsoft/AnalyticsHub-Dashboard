@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { EVALUATOR_METADATA } from "@/lib/filter-profiles";
 import type { QueryTable } from "@microsoft/fabric-app-data";
 import { readNumber, readText, toRecords } from "@/lib/summary-row";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
@@ -24,7 +25,7 @@ const columnMetadata: ColumnMetadataMap = {
  * model without the table fails this query alone.
  */
 export function evaluatorStatus() {
-    return { connection, query, columnMetadata };
+    return { connection, filters: EVALUATOR_METADATA, query, columnMetadata };
 }
 
 /** One environment the parser read: ok, empty, forbidden or error. */

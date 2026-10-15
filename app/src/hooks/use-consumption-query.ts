@@ -14,7 +14,8 @@ import {
     type TableResult,
     type TableSource,
 } from "@/hooks/use-table-query";
-import { FILTER_KEYS } from "@/lib/filters";
+import { CONSUMPTION_METADATA } from "@/lib/filter-profiles";
+import type { FilterKey } from "@/lib/filters";
 import { readsCommercialTerms, withCommercialTerms } from "@/queries/consumption/commercial-terms";
 
 /**
@@ -31,22 +32,41 @@ function usePricedQuery(query: string): string {
 }
 
 /**
- * A Consumption Central query with the stage's own slicers applied, as a
- * DataTable. The filter bar's are never applied: the model has none of the
- * columns they filter, so on a page that has a filter bar this reads the
- * whole of Consumption Central and the caller narrows it with `extra`.
+ * A Consumption Central query with the stage's own slicers (`extra`) and
+ * the filter bar applied, as a DataTable. The filter bar reaches it through
+ * the source's filter profile — the date on the reporting dates, an org on
+ * the people Consumption Central holds that attribute for, an agent on the
+ * agent bridge — and a source without one takes none of it. Filters in
+ * `ignore` are left off where the caller already narrows by them.
  */
-export function useConsumptionTable(source: TableSource, extra: readonly string[] = []): TableResult {
+export function useConsumptionTable(
+    source: TableSource,
+    extra: readonly string[] = [],
+    ignore: readonly FilterKey[] = [],
+): TableResult {
     const query = usePricedQuery(source.query);
     return useTableQuery(
-        { connection: source.connection, query, columnMetadata: source.columnMetadata },
+        {
+            connection: source.connection,
+            query,
+            columnMetadata: source.columnMetadata,
+            filters: source.filters ?? CONSUMPTION_METADATA,
+        },
         extra,
-        FILTER_KEYS,
+        ignore,
     );
 }
 
-/** A one-row Consumption Central query, keyed by DAX column name, without the filter bar's filters. */
-export function useConsumptionSummary(source: TableSource, extra: readonly string[] = []): SummaryResult {
+/** A one-row Consumption Central query, keyed by DAX column name, filtered as {@link useConsumptionTable}. */
+export function useConsumptionSummary(
+    source: TableSource,
+    extra: readonly string[] = [],
+    ignore: readonly FilterKey[] = [],
+): SummaryResult {
     const query = usePricedQuery(source.query);
-    return useSummaryQuery({ connection: source.connection, query }, extra, FILTER_KEYS);
+    return useSummaryQuery(
+        { connection: source.connection, query, filters: source.filters ?? CONSUMPTION_METADATA },
+        extra,
+        ignore,
+    );
 }

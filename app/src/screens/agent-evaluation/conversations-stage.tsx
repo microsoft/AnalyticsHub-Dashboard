@@ -9,6 +9,7 @@ import { useMemo } from "react";
 import { DataGrid, type GridColumnDef } from "@microsoft/fabric-datagrid";
 import { stageAnchor } from "@/components/destinations";
 import { KpiCard, KpiStat } from "@/components/kpi-card";
+import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { ChartPanel, KpiRowState, NoteCard, Panel, RollupGrid, type TreeColumn } from "@/components/report-panels";
 import { Section } from "@/components/section";
 import { useThemeContext } from "@/hooks/theme.context";
@@ -123,6 +124,7 @@ export function ConversationsStage({ extra }: { extra: readonly string[] }) {
             title="Conversations & topics"
             description="What people asked about, where agents found answers, and what people wrote back. Never the conversations themselves."
         >
+            <NotFilteredHint from={[summary.notFilteredBy]} />
             <KpiRowState
                 summary={summary}
                 count={4}

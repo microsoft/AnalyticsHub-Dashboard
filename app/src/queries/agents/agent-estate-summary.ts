@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { REGISTRY } from "@/lib/filter-profiles";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { readNumber, type SummaryRow } from "@/lib/summary-row";
 import { connection, FORMAT_WHOLE } from "../shared";
@@ -34,7 +35,7 @@ const columnMetadata: ColumnMetadataMap = {
  * registry are reported separately instead of being hidden in that blank.
  */
 export function agentEstateSummary() {
-    return { connection, query, columnMetadata };
+    return { connection, query, columnMetadata, filters: REGISTRY };
 }
 
 /** How far the audit log's agent sessions could be tied back to the registry. */

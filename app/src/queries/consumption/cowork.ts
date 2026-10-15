@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { CONSUMPTION_COWORK, CONSUMPTION_COWORK_REPORTING } from "@/lib/filter-profiles";
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { toRollupTree, type RollupTree } from "@/lib/rollup-tree";
@@ -50,7 +51,7 @@ const summaryColumns: ColumnMetadataMap = {
  * pay-as-you-go once the packs run out.
  */
 export function coworkCreditsSummary() {
-    return { connection, query: summaryQuery, columnMetadata: summaryColumns };
+    return { connection, filters: CONSUMPTION_COWORK, query: summaryQuery, columnMetadata: summaryColumns };
 }
 
 const weeklyColumns: ColumnMetadataMap = {
@@ -70,7 +71,7 @@ const weeklyColumns: ColumnMetadataMap = {
  */
 export function coworkWeekly(lens: ConsumptionLens = "consumption") {
     const spec = lens === "cost" ? weeklyCostSpec : weeklyCreditsSpec;
-    return { connection, query: weeklyQuery, columnMetadata: weeklyColumns, vegaLiteSpec: spec as VisualizationSpec };
+    return { connection, filters: CONSUMPTION_COWORK, query: weeklyQuery, columnMetadata: weeklyColumns, vegaLiteSpec: spec as VisualizationSpec };
 }
 
 const windowCostColumns: ColumnMetadataMap = {
@@ -85,7 +86,7 @@ const windowCostColumns: ColumnMetadataMap = {
  * rest at pay-as-you-go. The Combined page prices them all at pay-as-you-go.
  */
 export function coworkWindowCost() {
-    return { connection, query: windowCostQuery, columnMetadata: windowCostColumns };
+    return { connection, filters: CONSUMPTION_COWORK_REPORTING, query: windowCostQuery, columnMetadata: windowCostColumns };
 }
 
 const GROUP_COLUMN = "Group ByGroup";
@@ -127,7 +128,7 @@ const byGroupColumns: ColumnMetadataMap = {
  * allowance and cost.
  */
 export function coworkByGroup() {
-    return { connection, query: byGroupQuery, columnMetadata: byGroupColumns };
+    return { connection, filters: CONSUMPTION_COWORK, query: byGroupQuery, columnMetadata: byGroupColumns };
 }
 
 function named(value: unknown): string | undefined {

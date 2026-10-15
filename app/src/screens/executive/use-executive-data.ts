@@ -40,10 +40,10 @@ export interface ExecutiveData {
     /** Each month of the trend, with the rates the cards compare. */
     months: TableResult;
     monthsSource: Source<typeof executiveMonths>;
-    /** Credits each month of the trend, whole tenant. */
+    /** Credits each month of the trend; an org filter can't narrow Copilot Studio's tenant billing. */
     credits: TableResult;
     creditsSource: Source<typeof executiveCredits>;
-    /** Credits each month of the date range, whole tenant, for the card's total. */
+    /** Credits each month of the date range, for the card's total. */
     creditsInRange: TableResult;
     departments: TableResult;
 }
@@ -81,10 +81,12 @@ export function useExecutiveData(): ExecutiveData {
     const credits = useConsumptionTable(
         readCredits ? creditsSource : { ...creditsSource, ...SKIP },
         readCredits ? [reportingDateFilter(window.from, window.to)] : [],
+        TREND_IGNORES,
     );
     const creditsInRange = useConsumptionTable(
         readCredits ? totalSource : { ...totalSource, ...SKIP },
         readCredits ? [reportingDateFilter(start, end)] : [],
+        TREND_IGNORES,
     );
 
     const departmentsSource = useMemo(() => withOrgAttribute(executiveDepartments(), org), [org]);

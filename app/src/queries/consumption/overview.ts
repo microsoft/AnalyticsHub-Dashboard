@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { CONSUMPTION_METADATA, CONSUMPTION_REPORTING } from "@/lib/filter-profiles";
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { consumptionConnection as connection, FORMAT_CREDITS, FORMAT_MONEY, FORMAT_WHOLE } from "../shared";
@@ -21,7 +22,7 @@ const datesColumns: ColumnMetadataMap = {
 
 /** The span of the report's shared date table, which bounds the date presets. */
 export function consumptionDates() {
-    return { connection, query: datesQuery, columnMetadata: datesColumns };
+    return { connection, filters: CONSUMPTION_METADATA, query: datesQuery, columnMetadata: datesColumns };
 }
 
 const byProductColumns: ColumnMetadataMap = {
@@ -42,6 +43,7 @@ const byProductColumns: ColumnMetadataMap = {
 export function consumptionByProduct() {
     return {
         connection,
+        filters: CONSUMPTION_REPORTING,
         query: byProductQuery,
         columnMetadata: byProductColumns,
         vegaLiteSpec: productCostSpec as VisualizationSpec,
@@ -57,7 +59,7 @@ const notesColumns: ColumnMetadataMap = {
 
 /** The report's side cards: the date window, its caveat and the credit rates in use. */
 export function consumptionNotes() {
-    return { connection, query: notesQuery, columnMetadata: notesColumns };
+    return { connection, filters: CONSUMPTION_REPORTING, query: notesQuery, columnMetadata: notesColumns };
 }
 
 const sourcesColumns: ColumnMetadataMap = {
@@ -68,7 +70,7 @@ const sourcesColumns: ColumnMetadataMap = {
 
 /** How many rows each product's source holds, before any slicer. */
 export function consumptionSources() {
-    return { connection, query: sourcesQuery, columnMetadata: sourcesColumns };
+    return { connection, filters: CONSUMPTION_METADATA, query: sourcesQuery, columnMetadata: sourcesColumns };
 }
 
 /** Whether any product's source holds a row; the model answers BLANK for an empty table. */

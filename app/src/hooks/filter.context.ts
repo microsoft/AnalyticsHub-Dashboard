@@ -25,6 +25,12 @@ interface FilterContextValue {
     orgAttributes: readonly string[];
     /** Values of the org column in use; `undefined` while they load. */
     orgValues: readonly string[] | undefined;
+    /**
+     * The org attributes Consumption Central holds for people: `undefined`
+     * while they load (or when no provider supplies them), empty when the
+     * model isn't connected or can't say.
+     */
+    consumptionOrgAttributes?: readonly string[];
 }
 
 const noop = () => {};
@@ -44,6 +50,7 @@ export const FilterContext = createContext<FilterContextValue>({
     orgAttribute: describeOrgAttribute(DEFAULT_ORG_ATTRIBUTE),
     orgAttributes: [DEFAULT_ORG_ATTRIBUTE],
     orgValues: undefined,
+    consumptionOrgAttributes: undefined,
 });
 
 export function useFilterContext(): FilterContextValue {

@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { CONSUMPTION_REPORTING } from "@/lib/filter-profiles";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { consumptionConnection, FORMAT_CREDITS } from "../shared";
 import query from "./executive-credits.dax?raw";
@@ -25,6 +26,7 @@ const columnMetadata: ColumnMetadataMap = {
 export function executiveCredits(params?: MonthlyTrendParams) {
     return {
         connection: consumptionConnection,
+        filters: CONSUMPTION_REPORTING,
         query,
         columnMetadata,
         vegaLiteSpec: shapeMonthlyTrend(spec, params),

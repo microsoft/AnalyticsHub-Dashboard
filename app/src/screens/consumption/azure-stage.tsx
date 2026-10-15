@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import { DataGrid, type GridColumnDef } from "@microsoft/fabric-datagrid";
 import { stageAnchor } from "@/components/destinations";
 import { KpiCard, KpiStat } from "@/components/kpi-card";
+import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
 import { SegmentedControl } from "@/components/segmented-control";
@@ -114,6 +115,7 @@ function FoundryView({ currency }: { currency: string | undefined }) {
 
     return (
         <>
+            <NotFilteredHint from={[summary.notFilteredBy]} />
             <p className={`${SMALL} max-w-[68ch] text-muted-foreground`}>
                 No whole-solution Azure cost export is loaded, so this shows Azure AI Foundry model spend instead.
                 {currency ? ` Figures are in ${currency}.` : ""}
@@ -220,6 +222,7 @@ function SolutionView({ filters, prefix }: { filters: readonly string[]; prefix:
 
     return (
         <>
+            <NotFilteredHint from={[summary.notFilteredBy]} />
             <KpiRowState
                 summary={summary}
                 count={10}

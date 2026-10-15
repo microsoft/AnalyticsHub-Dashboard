@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { CONSUMPTION_METADATA } from "@/lib/filter-profiles";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { consumptionConnection } from "../shared";
 import query from "./consumption-freshness.dax?raw";
@@ -21,5 +22,5 @@ const columnMetadata: ColumnMetadataMap = {
  * start of the last week loaded.
  */
 export function consumptionFreshness() {
-    return { connection: consumptionConnection, query, columnMetadata };
+    return { connection: consumptionConnection, filters: CONSUMPTION_METADATA, query, columnMetadata };
 }

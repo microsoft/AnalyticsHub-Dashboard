@@ -6,6 +6,7 @@
 //-----------------------------------------------------------------------
 
 import { stageAnchor } from "@/components/destinations";
+import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { OpenDestinationFooter, OpenDestinationLink } from "@/components/open-destination-link";
 import { ChartPanel, NoteCard } from "@/components/report-panels";
 import { Section } from "@/components/section";
@@ -50,6 +51,7 @@ export function GrowingStage({ data }: { data: ExecutiveData }) {
                         emptyTitle="No work in these months"
                         emptyDescription="There's no Copilot activity in the six months to the end of the date range."
                     />
+                    {CONSUMPTION_CONFIGURED && <NotFilteredHint from={[credits.notFilteredBy]} />}
                     {CONSUMPTION_CONFIGURED && (
                         <ChartPanel
                             result={credits}

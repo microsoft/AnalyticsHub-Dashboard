@@ -14,6 +14,7 @@ import { useSummaryQuery, useTableQuery, type TableResult } from "@/hooks/use-ta
 import { useValueAssumptions, type Scenario } from "@/hooks/value-assumptions.context";
 import { isConnectionConfigured } from "@/lib/connections";
 import { dateBetween, treatAs } from "@/lib/dax-filters";
+import type { NotFiltered } from "@/lib/filter-profiles";
 import { FILTER_KEYS, type FilterKey } from "@/lib/filters";
 import { readNumber, readText } from "@/lib/summary-row";
 import { runtimeConfig } from "@/lib/runtime-config";
@@ -50,8 +51,17 @@ import {
     type PairLine,
 } from "@/queries/value";
 
-/** Costs are tenant-wide, so only the date filter narrows this stage. */
-export const COST_IGNORED_FILTERS: readonly FilterKey[] = FILTER_KEYS.filter((key) => key !== "dateRange");
+/** Costs aren't recorded by license, activity or agent, so only the date and org filters narrow this stage. */
+export const COST_IGNORED_FILTERS: readonly FilterKey[] = FILTER_KEYS.filter(
+    (key) => key !== "dateRange" && key !== "organizations",
+);
+
+/** The credit queries take the compared dates themselves, so the filter bar's dates aren't applied twice. */
+const CREDIT_IGNORES: readonly FilterKey[] = ["dateRange", ...COST_IGNORED_FILTERS];
+
+function orgReason(notFilteredBy: readonly NotFiltered[] | undefined): string | undefined {
+    return notFilteredBy?.find((entry) => entry.key === "organizations")?.reason;
+}
 
 /** Whether the install set up Consumption Central, where the credit costs come from. */
 export const CONSUMPTION_CONFIGURED = isConnectionConfigured(runtimeConfig().semanticModels, consumptionConnection);
@@ -121,6 +131,8 @@ export interface CostVsValue {
     summary: TableResult;
     /** The agents comparison. */
     agentResult: TableResult;
+    /** Costs left out because the org filter can't narrow them, and why. */
+    notFilteredBy: NotFiltered[];
 }
 
 /**
@@ -191,13 +203,44 @@ export function useCostVsValue(): CostVsValue {
 
     const creditExtra = useMemo(() => (ready && span ? [reportingDateFilter(span.from, span.to)] : []), [ready, span]);
     const byProductSource = consumptionByProduct();
-    const byProduct = useConsumptionTable(ready ? byProductSource : { ...byProductSource, ...SKIP }, creditExtra);
+    const byProduct = useConsumptionTable(
+        ready ? byProductSource : { ...byProductSource, ...SKIP },
+        creditExtra,
+        CREDIT_IGNORES,
+    );
     const coworkSource = coworkWindowCost();
-    const coworkCost = useConsumptionSummary(ready ? coworkSource : { ...coworkSource, ...SKIP }, creditExtra);
-    const notes = useConsumptionSummary(ready ? consumptionNotes() : { ...consumptionNotes(), ...SKIP }, creditExtra);
+    const coworkCost = useConsumptionSummary(
+        ready ? coworkSource : { ...coworkSource, ...SKIP },
+        creditExtra,
+        CREDIT_IGNORES,
+    );
+    const notes = useConsumptionSummary(
+        ready ? consumptionNotes() : { ...consumptionNotes(), ...SKIP },
+        creditExtra,
+        FILTER_KEYS,
+    );
     const studioSource = studioAgents();
     const agentExtraCredits = useMemo(() => [groupByFilter(undefined)], []);
-    const agentCredits = useConsumptionTable(ready ? studioSource : { ...studioSource, ...SKIP }, agentExtraCredits);
+    const agentCredits = useConsumptionTable(
+        ready ? studioSource : { ...studioSource, ...SKIP },
+        agentExtraCredits,
+        CREDIT_IGNORES,
+    );
+
+    // A cost the org filter can't narrow would be set against the org's value alone, so it is left out.
+    const studioReason = ready ? orgReason(byProduct.notFilteredBy) : undefined;
+    const coworkReason = ready ? orgReason(coworkCost.notFilteredBy) : undefined;
+    const notFilteredBy = useMemo<NotFiltered[]>(
+        () => [
+            ...(studioReason
+                ? [{ key: "organizations" as const, reason: "Copilot Studio is billed for the tenant, not per person, so its cost is left out." }]
+                : []),
+            ...(coworkReason
+                ? [{ key: "organizations" as const, reason: `${coworkReason.replace(/\.$/, "")}, so Cowork's cost is left out.` }]
+                : []),
+        ],
+        [studioReason, coworkReason],
+    );
 
     const saved = terms.saved;
     const licencePrice = saved?.licensePrice ?? LICENSE_LIST_PRICE;
@@ -207,10 +250,10 @@ export function useCostVsValue(): CostVsValue {
 
     const usd = useMemo(() => {
         const licences = users !== undefined && span ? licenceCost(users, licencePrice, span) : undefined;
-        const studio = ready ? productCost(byProduct.table, STUDIO) : undefined;
-        const cowork = ready ? readNumber(coworkCost.row, "[Cost]") : undefined;
+        const studio = ready && !studioReason ? productCost(byProduct.table, STUDIO) : undefined;
+        const cowork = ready && !coworkReason ? readNumber(coworkCost.row, "[Cost]") : undefined;
         return { licences, studio, cowork, total: sumKnown([licences, studio, cowork]) };
-    }, [users, span, licencePrice, ready, byProduct.table, coworkCost.row]);
+    }, [users, span, licencePrice, ready, byProduct.table, coworkCost.row, studioReason, coworkReason]);
 
     const costs = useMemo<Costs>(
         () => ({
@@ -223,7 +266,17 @@ export function useCostVsValue(): CostVsValue {
 
     const sourceValues = useMemo(() => readSourceValues(bySource.table), [bySource.table]);
     const comparison = useMemo(() => compare(sourceValues, costs, scenario, rate), [sourceValues, costs, scenario, rate]);
-    const pairIds = useMemo<PairId[]>(() => (ready ? ["licences", "studio", "cowork"] : ["licences"]), [ready]);
+    const pairIds = useMemo<PairId[]>(
+        () =>
+            ready
+                ? [
+                      "licences",
+                      ...(studioReason ? [] : (["studio"] as const)),
+                      ...(coworkReason ? [] : (["cowork"] as const)),
+                  ]
+                : ["licences"],
+        [ready, studioReason, coworkReason],
+    );
     const pairs = useMemo(() => pairLines(sourceValues, costs, scenario, pairIds), [sourceValues, costs, scenario, pairIds]);
     const agents = useMemo(
         () => matchAgents(readAgentValues(agentValues.table), readAgentCredits(agentCredits.table), costs.studio),
@@ -288,5 +341,6 @@ export function useCostVsValue(): CostVsValue {
         azure: { cost: ready ? productCost(byProduct.table, AZURE) : undefined, currency: readText(notes.row, "[Azure Currency]") },
         summary,
         agentResult,
+        notFilteredBy,
     };
 }

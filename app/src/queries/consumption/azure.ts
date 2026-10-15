@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { CONSUMPTION_AZURE, CONSUMPTION_METADATA } from "@/lib/filter-profiles";
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import { readNumber, readText, type SummaryRow } from "@/lib/summary-row";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
@@ -40,7 +41,7 @@ const sourceColumns: ColumnMetadataMap = {
 
 /** Which Azure feeds hold rows, so the page knows which one to read. */
 export function azureSource() {
-    return { connection, query: sourceQuery, columnMetadata: sourceColumns };
+    return { connection, filters: CONSUMPTION_METADATA, query: sourceQuery, columnMetadata: sourceColumns };
 }
 
 /**
@@ -85,7 +86,7 @@ const solutionSummaryColumns: ColumnMetadataMap = {
 
 /** The report's Azure headline: whole-solution cost, how much of it is models, and what it bought. */
 export function azureSolutionSummary() {
-    return { connection, query: solutionSummaryQuery, columnMetadata: solutionSummaryColumns };
+    return { connection, filters: CONSUMPTION_AZURE, query: solutionSummaryQuery, columnMetadata: solutionSummaryColumns };
 }
 
 const dailyColumns: ColumnMetadataMap = {
@@ -97,7 +98,7 @@ const dailyColumns: ColumnMetadataMap = {
 
 /** Daily solution cost split into models, AI services and supporting resources. */
 export function azureSolutionDaily() {
-    return { connection, query: solutionDailyQuery, columnMetadata: dailyColumns, vegaLiteSpec: trendSpec };
+    return { connection, filters: CONSUMPTION_AZURE, query: solutionDailyQuery, columnMetadata: dailyColumns, vegaLiteSpec: trendSpec };
 }
 
 const byItemColumns: ColumnMetadataMap = {
@@ -106,7 +107,7 @@ const byItemColumns: ColumnMetadataMap = {
 };
 
 export function azureSolutionByService() {
-    return { connection, query: solutionByServiceQuery, columnMetadata: byItemColumns, vegaLiteSpec: byItemSpec };
+    return { connection, filters: CONSUMPTION_AZURE, query: solutionByServiceQuery, columnMetadata: byItemColumns, vegaLiteSpec: byItemSpec };
 }
 
 const solutionResourcesColumns: ColumnMetadataMap = {
@@ -119,7 +120,7 @@ const solutionResourcesColumns: ColumnMetadataMap = {
 
 /** The report's resource table: each resource's cost and the department its tags allocate it to. */
 export function azureSolutionResources() {
-    return { connection, query: solutionResourcesQuery, columnMetadata: solutionResourcesColumns };
+    return { connection, filters: CONSUMPTION_AZURE, query: solutionResourcesQuery, columnMetadata: solutionResourcesColumns };
 }
 
 const foundrySummaryColumns: ColumnMetadataMap = {
@@ -139,12 +140,12 @@ const foundrySummaryColumns: ColumnMetadataMap = {
 
 /** Foundry model spend: what the tokens cost, how many there were, and the run rate. */
 export function foundrySummary() {
-    return { connection, query: foundrySummaryQuery, columnMetadata: foundrySummaryColumns };
+    return { connection, filters: CONSUMPTION_AZURE, query: foundrySummaryQuery, columnMetadata: foundrySummaryColumns };
 }
 
 /** Daily Foundry cost split into input and output tokens. */
 export function foundryDaily() {
-    return { connection, query: foundryDailyQuery, columnMetadata: dailyColumns, vegaLiteSpec: trendSpec };
+    return { connection, filters: CONSUMPTION_AZURE, query: foundryDailyQuery, columnMetadata: dailyColumns, vegaLiteSpec: trendSpec };
 }
 
 const foundryByModelColumns: ColumnMetadataMap = {
@@ -154,7 +155,7 @@ const foundryByModelColumns: ColumnMetadataMap = {
 };
 
 export function foundryByModel() {
-    return { connection, query: foundryByModelQuery, columnMetadata: foundryByModelColumns, vegaLiteSpec: byItemSpec };
+    return { connection, filters: CONSUMPTION_AZURE, query: foundryByModelQuery, columnMetadata: foundryByModelColumns, vegaLiteSpec: byItemSpec };
 }
 
 const foundryResourcesColumns: ColumnMetadataMap = {
@@ -168,5 +169,5 @@ const foundryResourcesColumns: ColumnMetadataMap = {
 
 /** Each Foundry resource and model, with its cost and the department its tags allocate it to. */
 export function foundryResources() {
-    return { connection, query: foundryResourcesQuery, columnMetadata: foundryResourcesColumns };
+    return { connection, filters: CONSUMPTION_AZURE, query: foundryResourcesQuery, columnMetadata: foundryResourcesColumns };
 }

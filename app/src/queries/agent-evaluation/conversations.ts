@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { EVALUATOR } from "@/lib/filter-profiles";
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { humanizeIdentifier, relabelColumn, withoutEmoji } from "@/lib/model-text";
@@ -47,7 +48,7 @@ const summaryColumns: ColumnMetadataMap = {
 
 /** The stage's headline figures, with the model's reads on topics, knowledge and feedback. */
 export function conversationsSummary() {
-    return { connection, query: summaryQuery, columnMetadata: summaryColumns };
+    return { connection, filters: EVALUATOR, query: summaryQuery, columnMetadata: summaryColumns };
 }
 
 const themeColumns: ColumnMetadataMap = {
@@ -59,7 +60,7 @@ const themeColumns: ColumnMetadataMap = {
 
 /** How conversations ended within each topic theme. */
 export function themeOutcomes() {
-    return { connection, query: themeQuery, columnMetadata: themeColumns, vegaLiteSpec: themeSpec as VisualizationSpec };
+    return { connection, filters: EVALUATOR, query: themeQuery, columnMetadata: themeColumns, vegaLiteSpec: themeSpec as VisualizationSpec };
 }
 
 const THEME_COLUMN = "Agent PerformanceTopic Theme";
@@ -85,7 +86,7 @@ const topicColumns: ColumnMetadataMap = {
 
 /** The report's topic health matrix: each theme, then its topics, the most failing first. */
 export function topicHealth() {
-    return { connection, query: topicsQuery, columnMetadata: topicColumns };
+    return { connection, filters: EVALUATOR, query: topicsQuery, columnMetadata: topicColumns };
 }
 
 /** Themes holding their topics, with topic identifiers written as words. */
@@ -108,7 +109,7 @@ const sourcesColumns: ColumnMetadataMap = {
 
 /** The ten knowledge sources agents cited most. */
 export function knowledgeSources() {
-    return { connection, query: sourcesQuery, columnMetadata: sourcesColumns, vegaLiteSpec: sourcesSpec as VisualizationSpec };
+    return { connection, filters: EVALUATOR, query: sourcesQuery, columnMetadata: sourcesColumns, vegaLiteSpec: sourcesSpec as VisualizationSpec };
 }
 
 const archetypesColumns: ColumnMetadataMap = {
@@ -120,6 +121,7 @@ const archetypesColumns: ColumnMetadataMap = {
 export function answerArchetypes() {
     return {
         connection,
+        filters: EVALUATOR,
         query: archetypesQuery,
         columnMetadata: archetypesColumns,
         vegaLiteSpec: archetypesSpec as VisualizationSpec,
@@ -142,5 +144,5 @@ const commentsColumns: ColumnMetadataMap = {
  * the feedback comment: the page never shows what was said in a conversation.
  */
 export function feedbackComments() {
-    return { connection, query: commentsQuery, columnMetadata: commentsColumns };
+    return { connection, filters: EVALUATOR, query: commentsQuery, columnMetadata: commentsColumns };
 }

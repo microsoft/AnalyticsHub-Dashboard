@@ -7,10 +7,12 @@
 
 import { useMemo } from "react";
 import { stageAnchor } from "@/components/destinations";
+import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { QueryError, QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
 import { useCommercialTerms } from "@/hooks/commercial-terms.context";
 import { budgetRunway, bulletLabel, bulletScale, runwayHeadline, shortDate, spreadWeeks, type Runway, type RunwayStatus } from "@/lib/budget-runway";
+import { FILTER_KEYS } from "@/lib/filters";
 import { formatKpi } from "@/lib/format-kpi";
 import { readNumber, type SummaryRow } from "@/lib/summary-row";
 import { cn } from "@/lib/utils";
@@ -54,6 +56,10 @@ const BAR_TONE: Record<RunwayStatus, string> = {
     "at-risk": "bg-caution",
     over: "bg-negative",
 };
+
+/** The runway tracks the tenant's whole month against its budget, so no filter narrows it. */
+const RUNWAY_IGNORES = FILTER_KEYS;
+const RUNWAY_REASON = "it tracks the tenant's latest month against its monthly budget.";
 
 function todayIso(): string {
     return new Date().toISOString().slice(0, 10);
@@ -181,8 +187,8 @@ export function BudgetRunwayStage({ options, azure, sources }: BudgetRunwayStage
     const coworkBudget = saved?.budgetCowork ?? undefined;
     const azureBudget = saved?.budgetAzure ?? undefined;
 
-    const studio = useConsumptionTable(studioDaily("cost"));
-    const cowork = useConsumptionTable(coworkWeekly("cost"));
+    const studio = useConsumptionTable(studioDaily("cost"), [], RUNWAY_IGNORES);
+    const cowork = useConsumptionTable(coworkWeekly("cost"), [], RUNWAY_IGNORES);
 
     const basis = options?.costBases[0];
     const currencies = azure.kind === "solution" ? azure.currencies : [];
@@ -195,8 +201,9 @@ export function BudgetRunwayStage({ options, azure, sources }: BudgetRunwayStage
     const solution = useConsumptionTable(
         waiting(azureSolutionDaily(), azure.kind === "solution" && options !== undefined),
         azureFilters,
+        RUNWAY_IGNORES,
     );
-    const foundry = useConsumptionTable(waiting(foundryDaily(), azure.kind === "foundry"));
+    const foundry = useConsumptionTable(waiting(foundryDaily(), azure.kind === "foundry"), [], RUNWAY_IGNORES);
     const azureResult = azure.kind === "foundry" ? foundry : solution;
     const azureCurrency = azure.kind === "solution" ? currencies[0] : azure.kind === "foundry" ? azure.currency : undefined;
     const azurePrefix = currencyPrefix(azureCurrency);
@@ -219,6 +226,7 @@ export function BudgetRunwayStage({ options, azure, sources }: BudgetRunwayStage
             title="Budget runway"
             description="This month's spend against the monthly budgets set under Monthly budgets, and where the month ends at the same daily pace. It reads the latest month in the data, whatever dates are chosen, in the currency each product is billed in."
         >
+            <NotFilteredHint ignored={RUNWAY_IGNORES} reason={RUNWAY_REASON} />
             <div className="grid gap-300 md:grid-cols-3">
                 <RunwayCard
                     label="Cowork / Work IQ"

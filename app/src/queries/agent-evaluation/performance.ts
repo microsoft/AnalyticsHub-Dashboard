@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { EVALUATOR } from "@/lib/filter-profiles";
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { humanizeIdentifier, relabelColumn, withoutEmoji } from "@/lib/model-text";
@@ -57,7 +58,7 @@ const summaryColumns: ColumnMetadataMap = {
  * column names match the by-group query, so it doubles as that table's total.
  */
 export function performanceSummary() {
-    return { connection, query: summaryQuery, columnMetadata: summaryColumns };
+    return { connection, filters: EVALUATOR, query: summaryQuery, columnMetadata: summaryColumns };
 }
 
 const weeklyColumns: ColumnMetadataMap = {
@@ -69,7 +70,7 @@ const weeklyColumns: ColumnMetadataMap = {
 
 /** How conversations ended, week by week, so a drift in either volume or outcome shows. */
 export function performanceWeekly() {
-    return { connection, query: weeklyQuery, columnMetadata: weeklyColumns, vegaLiteSpec: weeklySpec as VisualizationSpec };
+    return { connection, filters: EVALUATOR, query: weeklyQuery, columnMetadata: weeklyColumns, vegaLiteSpec: weeklySpec as VisualizationSpec };
 }
 
 /** The outcomes as the weekly and theme charts name them, best first. */
@@ -90,7 +91,7 @@ const byGroupColumns: ColumnMetadataMap = {
 
 /** Every headline rate for each group of a Group by column, largest group first. */
 export function performanceByGroup(group: GroupByColumn) {
-    return { connection, query: byGroupQuery.replaceAll("__GROUP__", group.column), columnMetadata: byGroupColumns };
+    return { connection, filters: EVALUATOR, query: byGroupQuery.replaceAll("__GROUP__", group.column), columnMetadata: byGroupColumns };
 }
 
 /** Group names as people read them: blanks named, and topic identifiers as words. */
@@ -118,7 +119,7 @@ const errorsColumns: ColumnMetadataMap = {
 
 /** The ten error codes behind the most errors, and whether the agent or the user hit them. */
 export function performanceErrors() {
-    return { connection, query: errorsQuery, columnMetadata: errorsColumns, vegaLiteSpec: errorsSpec as VisualizationSpec };
+    return { connection, filters: EVALUATOR, query: errorsQuery, columnMetadata: errorsColumns, vegaLiteSpec: errorsSpec as VisualizationSpec };
 }
 
 /** Error codes as words, and the cause without the model's emoji. */

@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import { ChoiceMenu } from "@/components/choice-menu";
 import { stageAnchor } from "@/components/destinations";
 import { KpiCard, KpiStat } from "@/components/kpi-card";
+import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { Section } from "@/components/section";
 import { SegmentedControl } from "@/components/segmented-control";
 import { readNumber, readText } from "@/lib/summary-row";
@@ -93,7 +94,8 @@ export function CoworkStage({ options, rates }: CoworkStageProps) {
     const row = summary.row;
     const cost = lens === "cost";
     // Azure's daily billing has no Cowork weeks to follow, so it reads every day it has.
-    const azure = readAzureBilling(useConsumptionSummary(studioAzureBilling()));
+    const azureBilling = useConsumptionSummary(studioAzureBilling());
+    const azure = readAzureBilling(azureBilling);
     const azureBilled = azure && billedText(azure, azure.coworkCost, azure.coworkCredits);
     const azureText = azureBilled && `${azureBilled} of pay-as-you-go, ${azure.window}, as Azure Cost Management recorded it.`;
     const { allowanceUsed, policyHeadroom, usersOverLimit, noLimitSet } = coworkLimitState(row);
@@ -140,6 +142,7 @@ export function CoworkStage({ options, rates }: CoworkStageProps) {
                 </div>
             }
         >
+            <NotFilteredHint from={[summary.notFilteredBy, weekly.notFilteredBy, byGroup.notFilteredBy, azure ? azureBilling.notFilteredBy : undefined]} />
             <KpiRowState
                 summary={summary}
                 count={5}

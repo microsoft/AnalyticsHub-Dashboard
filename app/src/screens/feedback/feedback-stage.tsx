@@ -11,6 +11,7 @@ import { VegaVisual, type VisualizationSpec } from "@/components/vega-visual";
 import { Headlined, HEADLINE_SPACE } from "@/components/headlined";
 import { stageAnchor } from "@/components/destinations";
 import { KpiCard } from "@/components/kpi-card";
+import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
 import { useSourceAvailability } from "@/hooks/source-availability.context";
@@ -153,13 +154,13 @@ function FeedbackContent() {
 
     const summary = useFilteredQuery(feedbackSummary(), ON_CALENDAR);
     const trend = feedbackTrend();
-    const trendResult = useFilteredQuery({ connection: trend.connection, query: trend.query }, ON_CALENDAR);
+    const trendResult = useFilteredQuery({ connection: trend.connection, query: trend.query, filters: trend.filters }, ON_CALENDAR);
     const category = feedbackCategory();
-    const categoryResult = useFilteredQuery({ connection: category.connection, query: category.query }, ON_CALENDAR);
+    const categoryResult = useFilteredQuery({ connection: category.connection, query: category.query, filters: category.filters }, ON_CALENDAR);
     const surface = feedbackSurface();
-    const surfaceResult = useFilteredQuery({ connection: surface.connection, query: surface.query }, ON_CALENDAR);
+    const surfaceResult = useFilteredQuery({ connection: surface.connection, query: surface.query, filters: surface.filters }, ON_CALENDAR);
     const comments = feedbackComments();
-    const commentsResult = useFilteredQuery({ connection: comments.connection, query: comments.query }, ON_CALENDAR);
+    const commentsResult = useFilteredQuery({ connection: comments.connection, query: comments.query, filters: comments.filters }, ON_CALENDAR);
 
     const summaryRow = useMemo(
         () => (summary.data?.status === "success" ? toSummaryRow(summary.data.table) : undefined),
@@ -234,6 +235,7 @@ function FeedbackContent() {
             title="Feedback"
             description="What people say after Copilot or an agent helps, misses, or gets in the way."
         >
+            <NotFilteredHint from={[summary.notFilteredBy]} />
             {summary.data?.status === "error" ? (
                 <QueryError message={summary.data.error.message} onRetry={summary.refetch} />
             ) : summary.isLoading || !summary.data ? (

@@ -41,6 +41,22 @@ Deployment instructions do **not** live here. They live in the READMEs:
 - Not changed: the installer never installs anything with winget, so there's no `--scope user`
   fallback to add. Execution policy and Constrained Language Mode were already covered.
 
+**App filters reach every page.**
+
+- **More of each page follows the filter bar.** Consumption now takes the date range, organization
+  and agent filters: Cowork and Copilot Studio per-person credits narrow to the people in the
+  chosen organizations, Studio agents to the chosen agents, and the All products overview to the
+  chosen dates. Feedback takes agent type and agent; Governance takes agent; Agent Evaluation takes
+  the date range and organization, and its own slicers narrow further.
+- **"Not filtered by …" hints.** Where a filter can't reach a card (the model has no matching
+  column, or the card is deliberately fixed, such as the budget runway or Copilot Studio's tenant
+  billing), the card now says so in one short line instead of silently ignoring it. Cost vs value
+  leaves out Copilot Studio and Cowork cost when an organization filter can't narrow them.
+- **Filter state stays shared across pages**, and each query states how it takes each filter, so
+  a test now checks that every query factory applies the active filters or gives a reason.
+- No model changes: every new filter is a `CALCULATETABLE` argument on columns the shipped
+  templates already hold, so the Fabric and Azure hosts both support it.
+
 **App: more varied visuals.** The app leaned almost entirely on bar charts. Five cards now use
 the chart that best fits their question, with the same palette, Vega-Lite and the existing
 performance budget. No new dependencies, and no query or install changes.

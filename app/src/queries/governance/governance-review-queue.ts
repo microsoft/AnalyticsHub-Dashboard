@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { REGISTRY } from "@/lib/filter-profiles";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { connection, FORMAT_WHOLE } from "../shared";
 import query from "./governance-review-queue.dax?raw";
@@ -40,5 +41,5 @@ export const FLAG_WEIGHTS = {
  * agent many people rely on is the one to sort out before it breaks.
  */
 export function governanceReviewQueue() {
-    return { connection, query, columnMetadata };
+    return { connection, query, columnMetadata, filters: REGISTRY };
 }

@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { CONSUMPTION_METADATA } from "@/lib/filter-profiles";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { dateBetween, treatAs } from "@/lib/dax-filters";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
@@ -19,7 +20,7 @@ const columnMetadata: ColumnMetadataMap = {
 
 /** Every slicer choice the report offers, read from the model so renamed periods stay in step. */
 export function consumptionOptions() {
-    return { connection, query, columnMetadata };
+    return { connection, filters: CONSUMPTION_METADATA, query, columnMetadata };
 }
 
 export interface ConsumptionOptions {

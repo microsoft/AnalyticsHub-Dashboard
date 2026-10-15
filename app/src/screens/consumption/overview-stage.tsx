@@ -10,12 +10,21 @@ import { DataGrid, type GridColumnDef } from "@microsoft/fabric-datagrid";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { stageAnchor } from "@/components/destinations";
 import { KpiCard, KpiStat } from "@/components/kpi-card";
+import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
 import { SegmentedControl } from "@/components/segmented-control";
+import { useFilterContext } from "@/hooks/filter.context";
 import { useThemeContext } from "@/hooks/theme.context";
 import { gridHeight, rowChartHeight } from "@/lib/chart-height";
-import { availablePresets, DATE_PRESET_LABELS, formatDateRange, presetRange, type DatePreset } from "@/lib/filters";
+import {
+    availablePresets,
+    DATE_PRESET_LABELS,
+    formatDateRange,
+    isFilterActive,
+    presetRange,
+    type DatePreset,
+} from "@/lib/filters";
 import { columnHeat, heatRenderer } from "@/lib/heat";
 import { readText, type SummaryRow } from "@/lib/summary-row";
 import { formatCell } from "@/lib/tree-grid";
@@ -101,16 +110,20 @@ function productTableHeight(result: TableResult): number {
 export function OverviewStage() {
     const { theme } = useThemeContext();
     const [preset, setPreset] = useState<OverviewPreset>("all");
+    const { filters, applicable } = useFilterContext();
+    // The filter bar's dates, when set, take over from this stage's own preset.
+    const barRange = applicable.includes("dateRange") && isFilterActive(filters, "dateRange") ? filters.dateRange : undefined;
 
     const dates = useConsumptionSummary(consumptionDates());
     const first = isoDate(dates.row?.["[First Date]"]);
     const last = isoDate(dates.row?.["[Last Date]"]);
     const presets = useMemo(() => (first && last ? availablePresets(first, last) : []), [first, last]);
-    const range = preset !== "all" && first && last ? presetRange(preset, first, last) : undefined;
+    const range = !barRange && preset !== "all" && first && last ? presetRange(preset, first, last) : undefined;
     const extra = useMemo(() => {
+        if (barRange) return [];
         const span = preset !== "all" && first && last ? presetRange(preset, first, last) : undefined;
         return span ? [reportingDateFilter(span.from, span.to)] : [];
-    }, [preset, first, last]);
+    }, [barRange, preset, first, last]);
 
     const notes = useConsumptionSummary(consumptionNotes(), extra);
     const byProductSource = consumptionByProduct();
@@ -162,16 +175,23 @@ export function OverviewStage() {
             title="All products"
             description="Where credit spend is going: each product's credits and cost over the same dates, as billed: credits in US dollars, Azure in its billing currency."
             actions={
-                presetOptions.length > 1 ? (
+                !barRange && presetOptions.length > 1 ? (
                     <SegmentedControl label="Date" options={presetOptions} value={preset} onChange={setPreset} />
                 ) : undefined
             }
         >
-            {range && (
+            {barRange ? (
                 <p className={`${SMALL} text-muted-foreground`}>
-                    Showing {formatDateRange(range.from, range.to)}, the {DATE_PRESET_LABELS[preset].toLowerCase()} with data.
+                    Showing {formatDateRange(barRange.from, barRange.to)}, the filter bar's dates.
                 </p>
+            ) : (
+                range && (
+                    <p className={`${SMALL} text-muted-foreground`}>
+                        Showing {formatDateRange(range.from, range.to)}, the {DATE_PRESET_LABELS[preset].toLowerCase()} with data.
+                    </p>
+                )
             )}
+            <NotFilteredHint from={[byProduct.notFilteredBy, notes.notFilteredBy]} />
 
             {byProduct.error === undefined &&
                 (byProduct.table === undefined ? (

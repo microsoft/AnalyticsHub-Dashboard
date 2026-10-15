@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { CONSUMPTION_AZURE } from "@/lib/filter-profiles";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { consumptionConnection as connection, FORMAT_MONEY, FORMAT_WHOLE } from "../shared";
@@ -30,7 +31,7 @@ const columnMetadata: ColumnMetadataMap = {
  * export at all, so a missing cost reads as a gap rather than as free.
  */
 export function foundryResourceSpend() {
-    return { connection, query, columnMetadata };
+    return { connection, filters: CONSUMPTION_AZURE, query, columnMetadata };
 }
 
 export interface FoundryInventory {
