@@ -59,6 +59,7 @@ import { askTarget, azureRefresh, azureRotateSecret, azureRun, azureStatus, azur
 import { accessCommand, ensureViewerGroup, grantModelAccess, myGroupsUrl, shareApp } from './steps/access.js';
 import { nextSteps, stepsLeftTitle } from './steps/next-steps.js';
 import { ensureOrgAccess, verifyOrgAccess } from './steps/org-access.js';
+import { reviewSetup } from './setup.js';
 
 /**
  * @typedef {object} Apis
@@ -102,6 +103,8 @@ import { ensureOrgAccess, verifyOrgAccess } from './steps/org-access.js';
  * @property {string[]} [csvFiles]  Exports named with --csv.
  * @property {string} [configFile]  The install record's path.
  * @property {(resource: import('./auth.js').Resource) => Promise<string>} [getToken]  The signed-in user's tokens, for tools the installer runs.
+ * @property {string} [setupSection] Open this settings category directly after a failure.
+ * @property {boolean} [setupRetry] Revalidate saved choices without reopening every question.
  */
 
 /**
@@ -274,14 +277,24 @@ export async function rewindable(ctx, fn) {
  */
 export async function install(ctx, opts) {
   const { ui, config } = ctx;
-  await askTarget(ctx);
-  const pre = await preflight(ctx);
-  const go = await rewindable(ctx, async () => {
-    if (config.target === 'azure') await planAzure(ctx, pre);
-    else await plan(ctx, pre);
-    ctx.save();
-    return config.target === 'azure' ? confirmAzurePlan(ctx) : confirmPlan(ctx, pre);
-  });
+  let go;
+  /** @type {import('./steps/plan.js').Preflight | undefined} */
+  let pre;
+  if (ui.web) {
+    go = await reviewSetup(ctx);
+    if (go && config.target !== 'azure') pre = await preflight(ctx);
+  }
+  else {
+    await askTarget(ctx);
+    pre = await preflight(ctx);
+    const checked = pre;
+    go = await rewindable(ctx, async () => {
+      if (config.target === 'azure') await planAzure(ctx, checked);
+      else await plan(ctx, checked);
+      ctx.save();
+      return config.target === 'azure' ? confirmAzurePlan(ctx) : confirmPlan(ctx, checked);
+    });
+  }
   if (!go) {
     ui.warn('Stopped before changing anything. Your answers are saved for next time.');
     return true;
@@ -330,7 +343,7 @@ export async function install(ctx, opts) {
   step('App registration');
   await ensureApp(ctx);
   step('Microsoft Graph permissions');
-  const consented = await ensureConsent(ctx, pre);
+  const consented = await ensureConsent(ctx, /** @type {import('./steps/plan.js').Preflight} */ (pre));
   step('Workspace and Lakehouse');
   await ensureWorkspace(ctx);
   await ensureLakehouse(ctx);

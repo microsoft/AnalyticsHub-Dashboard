@@ -6,6 +6,7 @@
  */
 import { checkStaged } from './staging.js';
 import { DATA_SOURCES, parseModes } from './uploads.js';
+import { parseForm } from './ui.js';
 
 /**
  * @typedef {'red' | 'green' | 'yellow' | 'cyan'} Colour
@@ -90,6 +91,7 @@ export function createWebUi(opts = {}) {
   // open one, which opens with the answer it had. A secret is recorded too, so it isn't pasted
   // twice, but it stays here: events only carry its mask.
   let recording = false;
+  let editingSection = false;
   let mark = 0;
   /** @type {Recorded[]} */
   let answers = [];
@@ -147,7 +149,7 @@ export function createWebUi(opts = {}) {
     }
     return new Promise((resolve, reject) => {
       pending.set(id, { kind, message: text, parse, resolve, reject });
-      emit({ type: 'prompt', id, kind, message: text, ...shown, ...(recording && answers.length ? { back: true } : {}) });
+      emit({ type: 'prompt', id, kind, message: text, ...shown, ...(recording && answers.length ? { back: true } : {}), ...(editingSection ? { settingsBack: true } : {}) });
     });
   }
 
@@ -164,6 +166,42 @@ export function createWebUi(opts = {}) {
   return {
     yes: false,
     web: true,
+    beginSection() { editingSection = true; },
+    endSection() { editingSection = false; },
+    cancelSection() {
+      if (!editingSection || !pending.size) return false;
+      for (const [id, p] of pending) {
+        pending.delete(id);
+        emit({ type: 'answered', id, display: 'Changes cancelled' });
+        p.reject(Object.assign(new Error('Changes cancelled'), { name: 'SettingsCancelled' }));
+      }
+      return true;
+    },
+    /**
+     * @param {import('./ui.js').SettingsCategory[]} categories
+     * @param {{ notice?: string, changes: string[] }} state
+     * @returns {Promise<string>}
+     */
+    settings(categories, state) {
+      return ask('settings', 'Review and fix setup', { categories, ...state }, (raw) =>
+        typeof raw === 'string' && (['deploy', 'close'].includes(raw) || categories.some((cat) => cat.id === raw))
+          ? { value: raw, display: categories.find((cat) => cat.id === raw)?.title ?? raw }
+          : { error: 'Choose a settings category or review the deployment.' });
+    },
+    /**
+     * @param {string} message
+     * @param {import('./ui.js').FormField[]} fields
+     * @returns {Promise<Record<string, string> | null>}
+     */
+    form(message, fields) {
+      return ask('form', message, { fields: fields.map(({ validate, ...field }) => field) }, (raw) => {
+        if (raw === null) return { value: null, display: 'Changes cancelled' };
+        const parsed = parseForm(raw, fields);
+        if (parsed.error !== undefined) return { error: parsed.error };
+        const values = parsed.value;
+        return { value: values, display: fields.map((f) => `${f.label}: ${values[f.id]}`).join(', ') };
+      });
+    },
     /** @param {string} [s] */
     line(s = '') {
       const text = plainText(s);

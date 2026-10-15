@@ -72,6 +72,10 @@ export async function ensureUploads(ctx) {
   if (routerWanted(ctx.config.dataSources) || pending.length) await ensureDropFolders(ctx);
   await uploadFiles(ctx, pending);
   ctx.pendingUploads = [];
+  if (ctx.config.setup?.uploads?.length) {
+    delete ctx.config.setup.uploads;
+    ctx.save();
+  }
 }
 
 /**

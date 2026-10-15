@@ -37,7 +37,7 @@ const COMMANDS = {
   install: {
     title: 'Set up Analytics Hub', short: 'Set up', icon: 'sliders',
     row: 'Repair or change set-up', button: 'Repair or change',
-    desc: 'Go through the questions again, starting from your saved answers. Nothing changes until you approve the plan.',
+    desc: 'Review your saved settings and edit only the category you need. Nothing deploys until you approve the plan.',
   },
   run: {
     title: 'Run the pipeline', short: 'Run now', icon: 'play', section: 'Pipeline run',
@@ -170,6 +170,7 @@ const byId = (id) => document.getElementById(id);
 const app = {
   state: null,
   run: null,
+  attempts: [],
   view: 'home',
   follow: true,
   replay: false,
@@ -639,7 +640,8 @@ function apply(e) {
       ensureRoot(run, e.at);
       const stage = target(run);
       const decide = e.kind === 'confirm' && stage.items.some((it) => it.t === 'review');
-      const item = { t: 'prompt', id: e.id, kind: e.kind, message: e.message, choices: e.choices ?? [], default: e.default, error: '', decide, back: !!e.back, keep: !!e.keep, cards: e.cards ?? [], lockModes: !!e.lockModes, staged: [] };
+      const item = { t: 'prompt', id: e.id, kind: e.kind, message: e.message, choices: e.choices ?? [], default: e.default, error: '', decide, back: !!e.back, keep: !!e.keep, cards: e.cards ?? [], lockModes: !!e.lockModes, staged: [],
+        fields: e.fields ?? [], categories: e.categories ?? [], notice: e.notice, changes: e.changes ?? [], settingsBack: !!e.settingsBack };
       run.prompts.set(e.id, item);
       app.openPrompt = item;
       add(run, item);
@@ -689,6 +691,9 @@ function apply(e) {
 
 function onCommand(e) {
   if (e.state === 'running') {
+    if (app.run?.command === 'install' && app.run.state !== 'running') {
+      app.attempts.push({ at: app.run.startedAt, state: app.run.state, error: app.run.error });
+    }
     app.run = createRun(e);
     app.openPrompt = null;
     app.follow = true;
@@ -700,6 +705,7 @@ function onCommand(e) {
   if (!run || run.state !== 'running') return;
   run.state = e.state;
   run.error = e.error ?? '';
+  run.recovery = e.recovery;
   run.paused = e.paused ?? '';
   run.endedAt = e.at;
   const status = e.state === 'done' ? 'done' : e.state === 'failed' ? 'failed' : 'stopped';
@@ -1103,6 +1109,15 @@ async function goBack(item) {
 }
 
 function backButton(item) {
+  if (item.settingsBack) return h('button', { type: 'button', class: 'btn quiet', onclick: async () => {
+    if (item.busy) return;
+    setBusy(item, true);
+    const response = await post('/api/section-cancel');
+    if (!response.ok) {
+      setBusy(item, false);
+      showError(item, response.body?.error ?? 'Could not return to settings.');
+    }
+  } }, icon('back'), 'Back to settings');
   return item.back ? h('button', { type: 'button', class: 'btn quiet', onclick: () => goBack(item) }, icon('back'), 'Back') : null;
 }
 
@@ -1122,7 +1137,37 @@ function renderPrompt(item) {
   let submit = () => {};
   let buttons = [h('button', { type: 'submit', class: 'btn primary' }, 'Continue')];
 
-  if (item.kind === 'select' || item.kind === 'checkbox') {
+  if (item.kind === 'settings') {
+    body = h('div', { class: 'ask-body' },
+      h('p', { class: 'hint' }, 'Open any category to edit its settings. Your other answers stay unchanged. Region and capacity checks cannot guarantee availability at deployment time.'),
+      item.notice ? h('p', { class: 'err', role: 'alert' }, item.notice) : null,
+      h('div', { class: 'settings-grid' }, item.categories.map((cat) =>
+        h('button', { type: 'button', class: 'settings-card', onclick: () => answer(item, cat.id) },
+          h('span', { class: 'opt-name' }, cat.title, h('span', { class: 'opt-tag' }, cat.complete ? 'Reviewed' : 'Needs review')),
+          h('span', { class: 'opt-desc' }, cat.summary), h('span', { class: 'hint' }, 'Edit settings')))),
+      item.changes.length ? h('details', { class: 'settings-changes', open: true }, h('summary', null, 'Changes in this session'),
+        h('ul', null, item.changes.map((text) => h('li', null, text)))) : null,
+      app.attempts.length ? h('details', { class: 'settings-changes' }, h('summary', null, 'Previous attempts in this session'),
+        app.attempts.map((attempt) => h('div', { class: 'settings-field' },
+          h('strong', null, `${new Date(attempt.at).toLocaleString()}: ${attempt.state}`),
+          attempt.error ? h('pre', null, attempt.error) : null))) : null);
+    buttons = [
+      h('button', { type: 'button', class: 'btn primary', onclick: () => answer(item, 'deploy') }, 'Review and deploy'),
+      h('button', { type: 'button', class: 'btn', onclick: () => answer(item, 'close') }, 'Save and close'),
+    ];
+  } else if (item.kind === 'form') {
+    const controls = item.fields.map((field) => {
+      const id = `f${item.id}-${field.id}`;
+      const control = field.choices
+        ? h('select', { id, class: 'field', disabled: !!field.readOnly, 'aria-describedby': errId }, field.choices.map((ch) =>
+          h('option', { value: ch.value, selected: ch.value === field.default, disabled: !!ch.disabled }, ch.name, typeof ch.disabled === 'string' ? ` (${ch.disabled})` : '')))
+        : h('input', { id, class: 'field', type: 'text', readonly: !!field.readOnly, value: field.default, autocomplete: 'off', 'aria-describedby': errId });
+      return { field, control, el: h('div', { class: 'settings-field' }, h('label', { class: 'label', for: id }, field.label), control, field.readOnly ? h('p', { class: 'hint' }, field.readOnly) : null) };
+    });
+    body = h('div', { class: 'ask-body' }, controls.map((x) => x.el));
+    buttons = [h('button', { type: 'submit', class: 'btn primary' }, 'Save changes')];
+    submit = () => answer(item, Object.fromEntries(controls.map(({ field, control }) => [field.id, control.value])));
+  } else if (item.kind === 'select' || item.kind === 'checkbox') {
     const radio = item.kind === 'select';
     const rows = item.choices.map((ch, i) => {
       const off = !!ch.disabled;
@@ -1329,8 +1374,8 @@ function renderOutcome(run) {
     done: ['ok', `Finished in ${took}`, [install ? 'Save a record of what was set up and the answers you gave. It holds no secrets.' : 'Save a record of this run if you want to keep it.']],
     held: ['', 'Nothing was created', ['Your answers are saved, so Set up starts from them next time.']],
     failed: ['fail', 'It stopped with an error', [
-      run.error,
-      install ? (built ? 'Fix the problem, then choose Repair or change set-up to carry on. It picks up from what is already there.' : 'Nothing was created. Fix the problem, then set up again.') : null,
+      run.error.split('\n')[0],
+      install ? 'Your saved choices are available below. Review a category or retry after fixing the problem. Resources already created are checked and reused where safe.' : null,
     ]],
     cancelled: run.paused
       ? ['', 'Paused', [run.paused, 'Your answers are saved, so it carries on from here next time.']]
@@ -1342,9 +1387,15 @@ function renderOutcome(run) {
     h('h2', { id: 'outcome-title' }, copy[1]),
     run.nextSteps?.steps.length ? renderNextSteps(run.nextSteps, run.todo) : null,
     copy[2].filter(Boolean).map((p) => h('p', null, p)),
+    r === 'failed' && run.error ? h('details', { class: 'settings-changes' }, h('summary', null, 'Technical details'), h('pre', null, run.error)) : null,
     run.todo && !todoInSteps ? renderTodo(run.todo) : null,
     rerun ? h('p', null, 'Some loads failed. Rerun failed runs just those again, and the steps that waited for them.') : null,
     h('div', { class: 'actions' },
+      install && r === 'failed' && run.recovery?.section ? h('button', { type: 'button', class: 'btn primary', onclick: () => start('install', { section: run.recovery.section }) }, run.recovery.label) : null,
+      install && r === 'failed' ? [
+        h('button', { type: 'button', class: 'btn primary', onclick: () => start('install') }, icon('sliders'), 'Edit all settings'),
+        h('button', { type: 'button', class: 'btn', onclick: () => start('install', { retry: true }) }, icon('refresh'), 'Retry saved configuration'),
+      ] : null,
       rerun ? h('button', { type: 'button', class: 'btn primary', onclick: () => start('rerun-failed') }, icon('refresh'), 'Rerun failed') : null,
       h('button', { type: 'button', class: rerun ? 'btn' : 'btn primary', onclick: () => saveRecord(run) }, icon('download'), 'Save a record'),
       h('button', { type: 'button', class: 'btn', onclick: () => show('home') }, 'Back to home')));

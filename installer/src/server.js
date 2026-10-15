@@ -232,6 +232,8 @@ export async function startServer(o) {
       }
       case '/api/cancel':
         return json(res, 200, { ok: ui.cancel() });
+      case '/api/section-cancel':
+        return ui.cancelSection() ? json(res, 200, { ok: true }) : json(res, 409, { error: 'No settings category is open.' });
       case '/api/back': {
         const ok = ui.back();
         return ok ? json(res, 200, { ok: true }) : json(res, 409, { error: 'There\'s no earlier question to go back to.' });

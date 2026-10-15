@@ -68,6 +68,20 @@ export function validateTime(v) {
   return m ? true : 'Use 24-hour HH:MM, e.g. 02:00.';
 }
 
+/** @param {Ctx} ctx */
+export async function editSchedule(ctx) {
+  const schedule = ctx.config.schedule;
+  const values = await ctx.ui.form('Schedule', [
+    { id: 'frequency', label: 'Frequency', default: schedule.frequency, choices: [{ name: 'Daily', value: 'daily' }, { name: 'Weekly', value: 'weekly' }] },
+    { id: 'weekday', label: 'Day (weekly schedules only)', default: schedule.weekday, choices: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((d) => ({ name: d, value: d })) },
+    { id: 'time', label: `Time (${schedule.timeZone}, 24-hour)`, default: schedule.time, validate: validateTime },
+  ]);
+  if (!values) throw Object.assign(new Error('Changes cancelled'), { name: 'SettingsCancelled' });
+  schedule.frequency = /** @type {'daily' | 'weekly'} */ (values.frequency);
+  schedule.weekday = values.weekday;
+  schedule.time = values.time;
+}
+
 /**
  * Premium Per User (PP), Embedded (A) and EM capacities can't host Fabric items.
  * @param {{ sku?: string }} capacity
@@ -326,49 +340,65 @@ export async function askMoreHistory(ctx) {
 /**
  * @param {Ctx} ctx
  * @param {Preflight} pre
+ * @param {string} [section]
  */
-export async function plan(ctx, pre) {
+export async function plan(ctx, pre, section) {
   const { ui, config, api } = ctx;
-  const advanced = () => asksAdvanced(ctx);
+  const advanced = () => !!section || asksAdvanced(ctx);
+  const editing = (/** @type {string} */ id) => !section || section === id;
 
-  await planDataSources(ctx);
-  await askAdvanced(
-    ctx,
-    'the model and app, who can view, audit history, tenant size, the Lakehouse name, the new Key Vault\'s details, the schedule, the first load, the Value page currency and where Resource Graph reads',
-  );
-  await planResourceGraph(ctx);
-  await planFlows(ctx);
-
-  await planPowerBi(ctx, pre);
-  if (config.semanticModel.enabled) await planAccess(ctx);
-  if (config.modules.consumption) {
-    await planConsumption(ctx, pre);
-    await planCowork(ctx);
+  if (editing('data')) {
+    await planDataSources(ctx);
+    if (!section) await askAdvanced(
+      ctx,
+      'the model and app, who can view, audit history, tenant size, the Lakehouse name, the new Key Vault\'s details, the schedule, the first load, the Value page currency and where Resource Graph reads',
+    );
   }
-  config.modules = modulesFromSources(config.dataSources);
-  if (config.modules.agentEvaluator) await planAgentEvaluator(ctx);
-
-  if (config.firstRun?.status !== 'Completed') {
-    delete ctx.reloadHistoryDays;
-    if (advanced()) config.history.days = await ui.select('How much audit history should the first load pull?', HISTORY_CHOICES, config.history.days);
-  } else {
-    await askMoreHistory(ctx);
+  if (editing('governance')) {
+    await planResourceGraph(ctx);
+    await planFlows(ctx);
   }
 
-  ui.heading('Fabric');
-  ui.note(CAPACITY_HINT);
-  const capacityChoices = pre.capacities.map((cap) => ({ name: capacityLabel(cap), value: cap.id }));
-  config.fabric.capacityId = await ui.select(
-    'Which capacity should run it?',
-    capacityChoices,
-    pre.capacities.some((cap) => cap.id === config.fabric.capacityId) ? config.fabric.capacityId : pre.capacities[0].id,
-  );
-  const capacity = pre.capacities.find((cap) => cap.id === config.fabric.capacityId);
-  await planDataAgent(ctx, pre, capacity, advanced());
-  const scale = config.scale ?? (capacity && largeCapacity(capacity) ? 'large' : 'standard');
-  config.scale = !advanced()
-    ? scale
-    : await ui.select(
+  if (editing('powerbi')) {
+    await planPowerBi(ctx, pre);
+  }
+  if (editing('access')) {
+    if (config.semanticModel.enabled) await planAccess(ctx);
+  }
+  if (editing('sources')) {
+    if (config.modules.consumption) {
+      await planConsumption(ctx, pre);
+      await planCowork(ctx);
+    }
+    config.modules = modulesFromSources(config.dataSources);
+    if (config.modules.agentEvaluator) await planAgentEvaluator(ctx);
+  }
+
+  if (editing('schedule')) {
+    if (config.firstRun?.status !== 'Completed') {
+      delete ctx.reloadHistoryDays;
+      if (advanced()) config.history.days = await ui.select('How much audit history should the first load pull?', HISTORY_CHOICES, config.history.days);
+    } else {
+      await askMoreHistory(ctx);
+    }
+  }
+
+  const currentCapacity = () => pre.capacities.find((cap) => cap.id === config.fabric.capacityId);
+  if (editing('placement')) {
+    ui.heading('Fabric');
+    ui.note(CAPACITY_HINT);
+    const capacityChoices = pre.capacities.map((cap) => ({ name: capacityLabel(cap), value: cap.id }));
+    config.fabric.capacityId = await ui.select(
+      'Which capacity should run it?',
+      capacityChoices,
+      pre.capacities.some((cap) => cap.id === config.fabric.capacityId) ? config.fabric.capacityId : pre.capacities[0].id,
+    );
+    const capacity = pre.capacities.find((cap) => cap.id === config.fabric.capacityId);
+    await planDataAgent(ctx, pre, capacity, advanced());
+    const scale = config.scale ?? (capacity && largeCapacity(capacity) ? 'large' : 'standard');
+    config.scale = !advanced()
+      ? scale
+      : await ui.select(
         'How many people are in the tenant?',
         [
           { name: 'Up to 10,000', value: 'standard' },
@@ -376,137 +406,145 @@ export async function plan(ctx, pre) {
         ],
         scale,
       );
-  if (config.fabric.workspaceId) {
-    ui.ok(`Workspace: ${config.fabric.workspaceName ?? config.fabric.workspaceId}`);
-  } else {
-    const workspaces = (await api.fabric.listWorkspaces()).filter((w) => w.type === 'Workspace');
-    const choice = await ui.select(
-      'Workspace',
-      [{ name: 'Create a new workspace', value: '' }, ...workspaces.map((w) => ({ name: `Use "${w.displayName}"`, value: w.id }))],
-      '',
-    );
-    if (choice) {
-      config.fabric.workspaceId = choice;
-      config.fabric.workspaceName = workspaces.find((w) => w.id === choice)?.displayName;
+    if (config.fabric.workspaceId) {
+      ui.ok(`Workspace: ${config.fabric.workspaceName ?? config.fabric.workspaceId}`);
     } else {
-      const taken = new Set(workspaces.map((w) => w.displayName.toLowerCase()));
-      config.fabric.workspaceName = await ui.input('New workspace name', {
-        default: config.fabric.workspaceName ?? uniqueName(DEFAULT_WORKSPACE_NAME, taken),
-        validate: (v) => (!v.trim() ? 'Required' : taken.has(v.trim().toLowerCase()) ? 'A workspace with that name exists.' : true),
-      });
+      const workspaces = (await api.fabric.listWorkspaces()).filter((w) => w.type === 'Workspace');
+      const choice = await ui.select(
+        'Workspace',
+        [{ name: 'Create a new workspace', value: '' }, ...workspaces.map((w) => ({ name: `Use "${w.displayName}"`, value: w.id }))],
+        '',
+      );
+      if (choice) {
+        config.fabric.workspaceId = choice;
+        config.fabric.workspaceName = workspaces.find((w) => w.id === choice)?.displayName;
+      } else {
+        const taken = new Set(workspaces.map((w) => w.displayName.toLowerCase()));
+        config.fabric.workspaceName = await ui.input('New workspace name', {
+          default: config.fabric.workspaceName ?? uniqueName(DEFAULT_WORKSPACE_NAME, taken),
+          validate: (v) => (!v.trim() ? 'Required' : taken.has(v.trim().toLowerCase()) ? 'A workspace with that name exists.' : true),
+        });
+      }
     }
-  }
-  if (!config.fabric.lakehouseId) {
-    const ws = config.fabric.workspaceId;
-    const taken = ws ? displayNames(await api.fabric.listItems(ws, 'Lakehouse')) : [];
-    const suggested = freeName(config.fabric.lakehouseName ?? DEFAULT_LAKEHOUSE_NAME, taken);
-    const typed = advanced() ? await ui.input('Lakehouse name', { default: suggested, validate: validateNewLakehouseName(taken) }) : suggested;
-    config.fabric.lakehouseName = lakehouseNameFrom(typed);
-    if (config.fabric.lakehouseName !== typed.trim()) ui.note(`Fabric doesn't allow spaces or hyphens in Lakehouse names, so it'll be called ${config.fabric.lakehouseName}.`);
-  }
-  await reserveNames(ctx);
-
-  ui.heading('App registration');
-  /** Ask for the secret of an app the user brought, once the Key Vault section says where it goes. */
-  let askSecret = false;
-  let packWanted = false;
-  if (config.app.appId) {
-    ui.ok(`Using ${config.app.displayName ?? 'app'} (${config.app.appId})`);
-  } else {
-    const blocked = pre.canCreateApps === false || !pre.canConsent || !!config.app.adminPack;
-    const mode = await ui.select(
-      'The notebooks sign in to Microsoft Graph as an app.',
-      [
-        { name: `Create "${APP_NAME}" (recommended)`, value: 'new' },
-        { name: 'Use an app registration I already have', value: 'existing' },
-        ...(blocked
-          ? [{ name: 'An admin will register the app for me', value: 'admin', description: 'You get an admin pack: a Cloud Shell script and portal steps for an admin, who sends you back the client ID.' }]
-          : []),
-      ],
-      config.app.adminPack || (pre.canCreateApps === false && !ui.yes) ? 'admin' : 'new',
-    );
-    if (mode === 'existing') {
-      config.app.existing = true;
-      await askAppId(ctx, pre);
-      askSecret = true;
-    } else if (mode === 'admin') {
-      config.app.existing = true;
-      packWanted = true;
-    } else {
-      config.app.existing = false;
+    if (!config.fabric.lakehouseId) {
+      const ws = config.fabric.workspaceId;
+      const taken = ws ? displayNames(await api.fabric.listItems(ws, 'Lakehouse')) : [];
+      const suggested = freeName(config.fabric.lakehouseName ?? DEFAULT_LAKEHOUSE_NAME, taken);
+      const typed = advanced() ? await ui.input('Lakehouse name', { default: suggested, validate: validateNewLakehouseName(taken) }) : suggested;
+      config.fabric.lakehouseName = lakehouseNameFrom(typed);
+      if (config.fabric.lakehouseName !== typed.trim()) ui.note(`Fabric doesn't allow spaces or hyphens in Lakehouse names, so it'll be called ${config.fabric.lakehouseName}.`);
     }
+    await reserveNames(ctx);
   }
 
-  ui.heading('Key Vault for the app secret');
-  if (config.keyVault.uri) {
-    ui.ok(`Using ${config.keyVault.name} (${config.keyVault.uri})`);
-  } else if (secretMode(config) === 'notebook' && !ctx.secretInNotebook && !ui.yes) {
-    const keep = await ui.select(
-      'Last time you chose no Key Vault: the client secret is in the notebooks.',
-      [
-        { name: 'Keep it in the notebooks', value: 'keep', description: 'No Key Vault. Anyone with a role in the workspace can read it.' },
-        { name: 'Use Key Vault instead', value: 'vault', description: 'The notebooks read it from the vault at run time, so workspace roles don\'t expose it.' },
-      ],
-      'keep',
-    );
-    if (keep === 'vault') {
-      delete config.keyVault.mode;
-      // The secret was in the notebooks, not a vault: the new vault needs one written.
-      delete config.keyVault.secretSetAt;
-      delete config.keyVault.handoff;
+  if (editing('identity')) {
+    const capacity = currentCapacity();
+    ui.heading('App registration');
+    /** Ask for the secret of an app the user brought, once the Key Vault section says where it goes. */
+    let askSecret = false;
+    let packWanted = false;
+    if (config.app.appId) {
+      ui.ok(`Using ${config.app.displayName ?? 'app'} (${config.app.appId})`);
+      askSecret = !!section && !!config.app.existing && !config.keyVault.secretSetAt && !ctx.pendingSecret;
+    } else {
+      const blocked = pre.canCreateApps === false || !pre.canConsent || !!config.app.adminPack;
+      const mode = await ui.select(
+        'The notebooks sign in to Microsoft Graph as an app.',
+        [
+          { name: `Create "${APP_NAME}" (recommended)`, value: 'new' },
+          { name: 'Use an app registration I already have', value: 'existing' },
+          ...(blocked
+            ? [{ name: 'An admin will register the app for me', value: 'admin', description: 'You get an admin pack: a Cloud Shell script and portal steps for an admin, who sends you back the client ID.' }]
+            : []),
+        ],
+        config.app.adminPack || (pre.canCreateApps === false && !ui.yes) ? 'admin' : 'new',
+      );
+      if (mode === 'existing') {
+        config.app.existing = true;
+        await askAppId(ctx, pre);
+        askSecret = true;
+      } else if (mode === 'admin') {
+        config.app.existing = true;
+        packWanted = true;
+      } else {
+        config.app.existing = false;
+      }
+    }
+
+    ui.heading('Key Vault for the app secret');
+    if (config.keyVault.uri) {
+      ui.ok(`Using ${config.keyVault.name} (${config.keyVault.uri})`);
+    } else if (secretMode(config) === 'notebook' && !ctx.secretInNotebook && !ui.yes) {
+      const keep = await ui.select(
+        'Last time you chose no Key Vault: the client secret is in the notebooks.',
+        [
+          { name: 'Keep it in the notebooks', value: 'keep', description: 'No Key Vault. Anyone with a role in the workspace can read it.' },
+          { name: 'Use Key Vault instead', value: 'vault', description: 'The notebooks read it from the vault at run time, so workspace roles don\'t expose it.' },
+        ],
+        'keep',
+      );
+      if (keep === 'vault') {
+        delete config.keyVault.mode;
+        // The secret was in the notebooks, not a vault: the new vault needs one written.
+        delete config.keyVault.secretSetAt;
+        delete config.keyVault.handoff;
+        await planKeyVault(ctx, pre, capacity ? armLocation(capacity.region) : 'westeurope');
+      }
+    } else if (secretMode(config) === 'notebook') {
+      ui.info('No Key Vault: the client secret is in the notebooks, where anyone with a role in the workspace can read it.');
+    } else if (defaultsToNoVault(ctx)) {
+      await chooseSecretHome(ctx, pre, capacity ? armLocation(capacity.region) : 'westeurope');
+    } else {
       await planKeyVault(ctx, pre, capacity ? armLocation(capacity.region) : 'westeurope');
     }
-  } else if (secretMode(config) === 'notebook') {
-    ui.info('No Key Vault: the client secret is in the notebooks, where anyone with a role in the workspace can read it.');
-  } else if (defaultsToNoVault(ctx)) {
-    await chooseSecretHome(ctx, pre, capacity ? armLocation(capacity.region) : 'westeurope');
-  } else {
-    await planKeyVault(ctx, pre, capacity ? armLocation(capacity.region) : 'westeurope');
-  }
-  if (secretMode(config) === 'notebook' && !config.app.existing && advanced()) {
-    const days = await ui.input(`Days before the client secret expires (1 to ${MAX_SECRET_DAYS}). Each install, repair or update replaces it.`, {
-      default: String(notebookSecretDays(config)),
-      validate: (v) => (/^\d+$/.test(v.trim()) && Number(v) >= 1 && Number(v) <= MAX_SECRET_DAYS ? true : `A whole number from 1 to ${MAX_SECRET_DAYS}.`),
-    });
-    if (Number(days) === NOTEBOOK_SECRET_DAYS) delete config.app.secretDays;
-    else config.app.secretDays = Number(days);
-  }
-  const skipped = flowsSkipped(config);
-  if (skipped.length) ui.note(`${skipped.join(' and ')} won't be set up: --flow-identity app reads the client secret from Key Vault. Run install --flow-identity user to have them sign in to OneLake instead.`);
+    if (secretMode(config) === 'notebook' && !config.app.existing && advanced()) {
+      const days = await ui.input(`Days before the client secret expires (1 to ${MAX_SECRET_DAYS}). Each install, repair or update replaces it.`, {
+        default: String(notebookSecretDays(config)),
+        validate: (v) => (/^\d+$/.test(v.trim()) && Number(v) >= 1 && Number(v) <= MAX_SECRET_DAYS ? true : `A whole number from 1 to ${MAX_SECRET_DAYS}.`),
+      });
+      if (Number(days) === NOTEBOOK_SECRET_DAYS) delete config.app.secretDays;
+      else config.app.secretDays = Number(days);
+    }
+    const skipped = flowsSkipped(config);
+    if (skipped.length) ui.note(`${skipped.join(' and ')} won't be set up: --flow-identity app reads the client secret from Key Vault. Run install --flow-identity user to have them sign in to OneLake instead.`);
 
-  if (packWanted) askSecret = await planAdminPack(ctx, pre);
-  if (askSecret && secretMode(config) !== 'keyvault-admin') {
-    ctx.pendingSecret = await ui.secret(
-      secretMode(config) === 'notebook'
-        ? 'Client secret value (not the secret ID). It is written into the notebooks.'
-        : 'Client secret value (not the secret ID). It goes straight to Key Vault.',
-    );
-  }
-
-  if (advanced()) {
-    ui.heading('Schedule');
-    const freq = await ui.select(
-      'How often should the pipeline run?',
-      [
-        { name: 'Daily (recommended)', value: 'daily' },
-        { name: 'Weekly', value: 'weekly' },
-      ],
-      config.schedule.frequency,
-    );
-    config.schedule.frequency = /** @type {'daily' | 'weekly'} */ (freq);
-    if (freq === 'weekly') {
-      config.schedule.weekday = await ui.select(
-        'Which day?',
-        ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((d) => ({ name: d, value: d })),
-        config.schedule.weekday,
+    if (packWanted) askSecret = await planAdminPack(ctx, pre);
+    if (askSecret && secretMode(config) !== 'keyvault-admin') {
+      ctx.pendingSecret = await ui.secret(
+        secretMode(config) === 'notebook'
+          ? 'Client secret value (not the secret ID). It is written into the notebooks.'
+          : 'Client secret value (not the secret ID). It goes straight to Key Vault.',
       );
     }
-    config.schedule.time = await ui.input(`Time (${config.schedule.timeZone}, 24-hour)`, { default: config.schedule.time, validate: validateTime });
   }
 
-  ctx.runFirstLoad = config.firstRun?.status === 'Completed' ? false : !advanced() || (await ui.confirm('Run the first load as soon as setup finishes?', true));
+  if (editing('schedule')) {
+    if (section && ui.web) await editSchedule(ctx);
+    else if (advanced()) {
+      ui.heading('Schedule');
+      const freq = await ui.select(
+        'How often should the pipeline run?',
+        [
+          { name: 'Daily (recommended)', value: 'daily' },
+          { name: 'Weekly', value: 'weekly' },
+        ],
+        config.schedule.frequency,
+      );
+      config.schedule.frequency = /** @type {'daily' | 'weekly'} */ (freq);
+      if (freq === 'weekly') {
+        config.schedule.weekday = await ui.select(
+          'Which day?',
+          ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'].map((d) => ({ name: d, value: d })),
+          config.schedule.weekday,
+        );
+      }
+      config.schedule.time = await ui.input(`Time (${config.schedule.timeZone}, 24-hour)`, { default: config.schedule.time, validate: validateTime });
+    }
 
-  if (advanced()) await askReportingCurrency(ctx);
+    ctx.runFirstLoad = config.firstRun?.status === 'Completed' ? false : !advanced() || (await ui.confirm('Run the first load as soon as setup finishes?', true));
+
+    if (advanced()) await askReportingCurrency(ctx);
+  }
 }
 
 /**

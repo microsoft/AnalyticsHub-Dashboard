@@ -4,6 +4,44 @@ Sets up the [Fabric path](../fabric/README.md) in your tenant: the app registrat
 Vault, a workspace and Lakehouse, the notebooks, the pipeline and its schedule, the semantic model
 and the Analytics Hub app. Then it loads the first data and checks it.
 
+## Editing setup and recovering from failures
+
+The browser installer opens **Review and fix setup**, with a summary card for each category.
+Choose **Edit settings** on just the category you need: placement, networking, Power BI, data
+collection, viewer access, module connections, governance, Ask / AI, identity (Fabric), or schedule
+and loading. There is no Advanced settings switch in this view. Azure placement, networking and
+schedules group related fields on one screen. **Back to settings** cancels the open category
+without changing its saved choices; **Save and close** keeps your draft for next time.
+
+After a failed deployment, use **Edit all settings**, the suggested category (for recognised
+region, capacity, model or policy errors), or **Retry saved configuration** directly from the
+error screen. You do not need to return Home or repeat unrelated questions. Previous attempts
+remain available under **Previous attempts in this session**. **Review and deploy** refreshes checks and shows the plan,
+access grants and costs before you approve another attempt. Availability and quota checks are
+best effort, not a reservation of Azure capacity.
+
+Unapproved answers are checkpointed beside the install record as
+`valuelens-install.json.draft.json` (or `<your-record-path>.draft.json`). The deployed-resource
+record is kept separately until you approve the plan. Neither file contains secrets. A pasted
+secret stays in memory only, so you may need to paste it again after closing the installer.
+Staged CSV selections survive commands in the same installer session. If the installer restarts
+or a staged file is removed, Data collection explicitly requires you to select that file again.
+If another command has updated the install record since the draft was saved, setup asks you to
+keep the latest deployed IDs and archive the older draft, or stop without changing either file.
+**Start fresh** archives both the record and its draft; it does not delete cloud resources.
+
+Retries reuse resources where safe. Before changing Azure placement or networking, the installer
+checks live resources, including resources left by a failed deployment that returned no outputs.
+You can change the SQL region independently while its server has not been created. Existing SQL
+servers cannot move regions, and existing Container Apps environments cannot switch networking
+in place. Such changes require a separate deployment and, where applicable, a data migration;
+the installer will not silently replace or delete resources. Turning Ask off leaves any existing
+AI account in place, so review its remaining charges.
+
+Terminal setup and `--yes` keep their existing sequential/default-answer behaviour.
+References to **Advanced settings** below apply to terminal setup; in the browser, open the
+corresponding settings category directly.
+
 ## Before you start
 
 Go through the **[Before you start checklist](../docs/PREREQUISITES.md)** first. It lists what you

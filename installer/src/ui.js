@@ -23,6 +23,32 @@ export const c = {
  * @template T
  * @typedef {{ name: string, value: T, description?: string, disabled?: boolean | string }} Choice
  */
+/**
+ * @typedef {{ id: string, label: string, default: string, choices?: Choice<string>[], validate?: (value: string) => true | string, readOnly?: string }} FormField
+ * @typedef {{ id: string, title: string, summary: string, complete: boolean }} SettingsCategory
+ */
+
+/**
+ * @param {unknown} raw
+ * @param {FormField[]} fields
+ * @returns {{ value: Record<string, string>, error?: undefined } | { error: string, value?: undefined }}
+ */
+export function parseForm(raw, fields) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { error: 'Fill in the settings.' };
+  const input = /** @type {Record<string, unknown>} */ (raw);
+  /** @type {Record<string, string>} */
+  const value = {};
+  for (const field of fields) {
+    const v = input[field.id];
+    if (typeof v !== 'string') return { error: `${field.label}: enter a value.` };
+    if (field.readOnly && v !== field.default) return { error: `${field.label}: ${field.readOnly}` };
+    if (field.choices && !field.choices.some((ch) => ch.value === v && !ch.disabled)) return { error: `${field.label}: choose one of the options.` };
+    const verdict = field.validate?.(v) ?? true;
+    if (verdict !== true) return { error: `${field.label}: ${verdict}` };
+    value[field.id] = v;
+  }
+  return { value };
+}
 
 /**
  * @param {{ yes?: boolean, write?: (s: string) => void }} [opts]
@@ -44,6 +70,37 @@ export function createUi(opts = {}) {
     yes,
     /** The browser wizard, rather than the terminal. */
     web: false,
+    beginSection() {},
+    endSection() {},
+    /**
+     * @param {string} message
+     * @param {FormField[]} fields
+     * @returns {Promise<Record<string, string> | null>}
+     */
+    async form(message, fields) {
+      line(message);
+      /** @type {Record<string, string>} */
+      const values = {};
+      for (const field of fields) {
+        values[field.id] = field.choices
+          ? await select({ message: field.label, choices: field.choices, default: field.default })
+          : await input({ message: field.label, default: field.default, validate: field.validate });
+      }
+      return values;
+    },
+    /**
+     * @param {SettingsCategory[]} categories
+     * @param {{ notice?: string, changes: string[] }} state
+     * @returns {Promise<string>}
+     */
+    async settings(categories, state) {
+      if (state.notice) line(state.notice);
+      return select({ message: 'Review and fix setup', choices: [
+        ...categories.map((cat) => ({ name: `${cat.title}: ${cat.summary}`, value: cat.id })),
+        { name: 'Review deployment', value: 'deploy' },
+        { name: 'Save and close', value: 'close' },
+      ] });
+    },
     line,
     /** @param {string} title */
     heading: (title) => line(`\n${c.bold(c.cyan(title))}`),

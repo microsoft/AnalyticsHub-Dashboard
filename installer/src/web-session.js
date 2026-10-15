@@ -13,6 +13,7 @@ import { loadSources } from './sources.js';
 import { coworkDataflowOn, describeSchedule, modelDeployed, recordWorkspaceGone, staleRecordMessage } from './steps/fabric.js';
 import { isResumeLater } from './steps/identity.js';
 import { routerWanted } from './uploads.js';
+import { SETUP_SECTIONS, setupRecovery } from './setup.js';
 
 export const WEB_COMMANDS = ['install', 'update', 'run', 'rerun-failed', 'load-cowork', 'check', 'refresh', 'deploy-app', 'status', 'rotate-secret', 'access', 'upload', 'uninstall', 'prereqs'];
 /** Commands that work before anything is installed. */
@@ -20,7 +21,7 @@ const NO_RECORD = ['install', 'prereqs'];
 const METHODS = ['browser', 'device-code', 'azure-cli'];
 
 /** @typedef {'browser' | 'device-code' | 'azure-cli'} Method */
-/** @typedef {{ command: string, method?: Method, tenant?: string, backfillDays?: number, wait?: boolean }} StartRequest */
+/** @typedef {{ command: string, method?: Method, tenant?: string, backfillDays?: number, wait?: boolean, section?: string, retry?: boolean }} StartRequest */
 
 /**
  * What the home page shows about an install record.
@@ -180,9 +181,12 @@ export function createSession(o) {
   async function execute(req, method) {
     const { ui } = o;
     const command = req.command;
+    /** @type {import('./config.js').InstallConfig | undefined} */
+    let currentConfig;
     ui.emit({ type: 'command', command, state: 'running' });
     try {
       const { config, existed } = loadConfig(o.configFile);
+      currentConfig = config;
       if (!NO_RECORD.includes(command) && !existed) throw new Error(`No install record at ${o.configFile}. Set up Analytics Hub first.`);
       const sources = loadSources(o.sourceDir);
       const tenant = (req.tenant ?? '').trim() || config.tenantId || '';
@@ -202,6 +206,8 @@ export function createSession(o) {
         return;
       }
       const ctx = createCtx({ ui, config, file: o.configFile, api: signedIn.api, user: signedIn.user, sources, getToken: signedIn.getToken });
+      ctx.setupSection = req.section;
+      ctx.setupRetry = req.retry;
       let ok = true;
       if (command === 'prereqs') {
         const items = await showPrereqs(ctx);
@@ -213,7 +219,8 @@ export function createSession(o) {
       else if (isResumeLater(err)) {
         ui.warn(/** @type {Error} */ (err).message);
         ui.emit({ type: 'command', command, state: 'cancelled', paused: /** @type {Error} */ (err).message });
-      } else ui.emit({ type: 'command', command, state: 'failed', error: describeError(err) });
+      } else ui.emit({ type: 'command', command, state: 'failed', error: describeError(err),
+        ...(command === 'install' && currentConfig ? { recovery: setupRecovery(err, currentConfig) } : {}) });
     } finally {
       running = null;
     }
@@ -245,6 +252,7 @@ export function createSession(o) {
       if (running) return { ok: false, status: 409, error: `"${running}" is still running.` };
       try {
         const archived = existsSync(o.configFile) ? archiveConfig(o.configFile) : null;
+        if (existsSync(`${o.configFile}.draft.json`)) archiveConfig(`${o.configFile}.draft.json`);
         stale = null;
         return { ok: true, archived };
       } catch (err) {
@@ -264,6 +272,8 @@ export function createSession(o) {
     start(req) {
       if (running) return { ok: false, status: 409, error: `"${running}" is still running.` };
       if (!WEB_COMMANDS.includes(req?.command)) return { ok: false, status: 400, error: 'Unknown command.' };
+      if (req.section !== undefined && (req.command !== 'install' || !SETUP_SECTIONS.includes(req.section))) return { ok: false, status: 400, error: 'Unknown settings category.' };
+      if (req.retry !== undefined && (req.command !== 'install' || typeof req.retry !== 'boolean')) return { ok: false, status: 400, error: 'Retry is only available for setup.' };
       const method = req.method ?? o.method ?? 'browser';
       if (!METHODS.includes(method)) return { ok: false, status: 400, error: 'Unknown sign-in method.' };
       if (req.tenant !== undefined && (typeof req.tenant !== 'string' || !/^[A-Za-z0-9.-]{0,253}$/.test(req.tenant.trim()))) {

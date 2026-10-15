@@ -35,6 +35,7 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {AgentEvaluatorConfig} agentEvaluator
  * @property {ResourceGraphConfig} resourceGraph
  * @property {DataAgentConfig} dataAgent
+ * @property {{ completed: string[], runFirstLoad?: boolean, reloadHistoryDays?: number, baseRevision?: string, uploads?: { token?: string, name: string }[] }} [setup] Browser setup draft progress; never contains secrets.
  */
 
 /**
@@ -257,6 +258,7 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {{ registry?: string, registryResourceId?: string, tag?: string }} [images] Optional image source override:
  *   a private registry (e.g. `myacr.azurecr.io/valuelens`), its ARM resource ID for AcrPull, and a pinned tag.
  * @property {any[]} [deployments]
+ * @property {{ subscriptionId?: string, resourceGroup?: string, namePrefix?: string, location?: string, sqlLocation?: string, publicNetworkAccess?: boolean }} [deploymentConfig] Placement approved before the first ARM attempt, including attempts that return no outputs.
  * @property {Record<string, any>} [outputs]
  * @property {{ clientId?: string, objectId?: string, servicePrincipalId?: string, created?: boolean, appIdUri?: string }} [webApp]
  * @property {{ clientId?: string, objectId?: string, servicePrincipalId?: string, secretKeyId?: string, secretExpiry?: string, created?: boolean }} [sqlReader]
