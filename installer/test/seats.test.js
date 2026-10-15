@@ -31,6 +31,16 @@ test('tenant size: more than 10,000 seats or an F64 starts a new install as larg
   assert.equal(defaultScale(undefined, 40_000), 'large');
 });
 
+test('tenant size: a trial capacity counts as the F size it matches, even with few seats', () => {
+  assert.equal(defaultScale({ sku: 'FTL64' }, 24), 'large');
+  assert.equal(defaultScale({ sku: 'FTL4' }, 24), 'standard');
+  assert.equal(defaultScale({ sku: 'FT1' }, 24), 'standard', 'a trial SKU without a size isn\'t assumed to be F64');
+
+  assert.deepEqual(sizingWarnings({ seats: 40_000, capacity: { sku: 'FTL64' }, scale: 'large' }), []);
+  const [small] = sizingWarnings({ seats: 40_000, capacity: { sku: 'FTL4', displayName: 'Trial' }, scale: 'large' });
+  assert.match(small, /the capacity Trial is FTL4, below F64/);
+});
+
 test('tenant size: warnings name the step to change and allow for policy', () => {
   assert.deepEqual(sizingWarnings({ seats: undefined, capacity: { sku: 'F2' }, scale: 'standard' }), []);
   assert.deepEqual(sizingWarnings({ seats: 5_000, capacity: { sku: 'F2' }, scale: 'standard' }), []);
