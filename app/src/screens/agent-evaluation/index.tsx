@@ -8,9 +8,11 @@
 import { useStageFilter } from "@/hooks/stage-filter.context";
 import { useMemo, useState } from "react";
 import { stageAnchor } from "@/components/destinations";
+import { QueryError } from "@/components/query-states";
 import { SourceEmpty, SourceError } from "@/components/source-states";
 import { useSemanticModelQuery } from "@/hooks/use-semantic-model-query";
 import { useTableQuery } from "@/hooks/use-table-query";
+import { isBusyMessage } from "@/lib/query-scheduler";
 import {
     describeEvaluatorStatus,
     evaluationFilters,
@@ -55,7 +57,8 @@ export function AgentEvaluationScreen() {
         [status.data],
     );
 
-    if (optionsResult.error !== undefined) {
+    const optionsBusy = isBusyMessage(optionsResult.error);
+    if (optionsResult.error !== undefined && !optionsBusy) {
         return (
             <SourceError
                 {...SOURCE}
@@ -81,7 +84,9 @@ export function AgentEvaluationScreen() {
 
     return (
         <div className="flex flex-col gap-800">
-            {!inPack && <EvaluationBar options={options} selection={selection} onChange={setSelection} />}
+            {/* Throttled slicer choices only cost the slicers: the stages read every conversation meanwhile. */}
+            {optionsBusy && optionsResult.error && <QueryError message={optionsResult.error} onRetry={optionsResult.refetch} />}
+            {!inPack && <EvaluationBar options={options} selection={selection}             onChange={setSelection} />}
             {show("agent-performance") && <PerformanceStage options={options} extra={extra} />}
             {show("agent-conversations") && <ConversationsStage extra={extra} />}
         </div>

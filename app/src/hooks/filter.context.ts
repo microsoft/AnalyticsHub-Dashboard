@@ -17,6 +17,8 @@ interface FilterContextValue {
     /** `undefined` until the option query returns. */
     options: FilterOptions | undefined;
     optionsError: Error | undefined;
+    /** Asks for the options again, after they failed. */
+    retryOptions?: () => void;
     /** The filters the current destination responds to. */
     applicable: readonly FilterKey[];
     /** The org column in use, named for display. */

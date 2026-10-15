@@ -8,6 +8,7 @@ import { SemanticModelMessageClient } from "@microsoft/fabric-app-data-embed-cli
 import { FabricClient, type FabricClientConfig } from "@microsoft/fabric-app-data";
 import { EmbedFabricApiProxy } from "@microsoft/fabric-app-data-proxy";
 import { HttpFabricProxy } from "@/lib/http-fabric-proxy";
+import { scheduledProxy } from "@/lib/query-scheduler";
 import { runtimeConfig } from "@/lib/runtime-config";
 import { getAccessToken } from "@/services/rayfin-auth.service";
 
@@ -19,15 +20,17 @@ let _messageClient: SemanticModelMessageClient | undefined;
  *
  * Fabric uses the iframe postMessage proxy. Azure uses the same SDK over the
  * legacy executeQueries JSON protocol, proxied by the same-origin API.
+ * Either way every request is paced, de-duplicated and retried when
+ * throttled by the query scheduler.
  *
  * @internal Used by `useSemanticModelQuery` — prefer the hook over direct client access.
  */
 export function getFabricClient(): FabricClient {
     if (!_client) {
         const config = runtimeConfig();
-        const proxy = config.host === "azure"
+        const proxy = scheduledProxy(config.host === "azure"
             ? new HttpFabricProxy(getAccessToken)
-            : fabricProxy();
+            : fabricProxy());
         _client = new FabricClient({
             proxy,
             semanticModels: config.semanticModels,

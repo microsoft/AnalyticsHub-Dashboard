@@ -72,6 +72,19 @@ describe("HttpFabricProxy", () => {
         expect(fetchMock.mock.calls[1][1].headers.authorization).toBe("Bearer fresh");
     });
 
+    it("carries Retry-After on a throttled response so the scheduler can wait it out", async () => {
+        vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response("Too many requests", {
+            status: 429,
+            headers: { "retry-after": "7" },
+        })));
+        const error = await new HttpFabricProxy(async () => "token").semanticModel
+            .executeDaxJson("ws", "model", "EVALUATE ROW()")
+            .catch((caught: unknown) => caught);
+
+        expect(error).toBeInstanceOf(FabricApiProxyError);
+        expect(error).toMatchObject({ status: 429, retryAfterMs: 7000 });
+    });
+
     it("throws FabricNetworkProxyError for fetch failures", async () => {
         vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("offline")));
         const proxy = new HttpFabricProxy(async () => "token");

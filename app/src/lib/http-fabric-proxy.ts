@@ -11,6 +11,7 @@ import {
     type IFabricApiProxy,
 } from "@microsoft/fabric-app-data";
 import { errorCode, reportAccessDenied } from "@/lib/access";
+import { parseRetryAfter } from "@/lib/query-scheduler";
 
 export type TokenFactory = (options?: { forceRefresh?: boolean }) => Promise<string>;
 
@@ -39,12 +40,16 @@ export class HttpFabricProxy implements IFabricApiProxy {
                 const body = await response.text();
                 if (response.status === 401 || response.status === 403)
                     reportAccessDenied(errorCode(body));
-                throw new FabricApiProxyError({
+                const error = new FabricApiProxyError({
                     status: response.status,
                     requestId: serviceRequestId,
                     sessionId: this.sessionId,
                     body,
                 });
+                // The query scheduler waits this long before it tries a throttled query again.
+                const retryAfterMs = parseRetryAfter(response.headers.get("retry-after"));
+                if (retryAfterMs !== undefined) Object.assign(error, { retryAfterMs });
+                throw error;
             }
 
             return { data: await response.json(), requestId: serviceRequestId };
