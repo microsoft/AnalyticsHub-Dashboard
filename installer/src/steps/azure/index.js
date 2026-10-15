@@ -276,6 +276,8 @@ export async function planAzure(ctx, pre, section) {
         az.resourceGroupMode = 'existing';
         az.resourceGroup = rgChoice;
       }
+      // Only a group this run creates is deleted by uninstall; never one picked from the list.
+      az.createdResourceGroup = false;
     }
     const subscriptionId = /** @type {string} */ (az.subscriptionId);
     const rg = az.resourceGroup ? await api.arm.getResourceGroup(subscriptionId, az.resourceGroup).catch(() => null) : null;

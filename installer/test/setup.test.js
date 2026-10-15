@@ -13,7 +13,8 @@ import { checkStaged, stageUpload, releaseStaged } from '../src/staging.js';
 import { parseForm } from '../src/ui.js';
 import { createWebUi } from '../src/web-ui.js';
 import { HttpError } from '../src/http.js';
-import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi } from './fakes.js';
+import { azureUninstall, planAzure } from '../src/steps/azure/index.js';
+import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi } from './fakes.js';
 
 /** @param {import('node:test').TestContext} t */
 function fixture(t) {
@@ -381,4 +382,27 @@ test('a locked draft after approval does not block the next deployment with a fa
   });
   assert.equal(await reviewSetup(ctx), true, 'no "install record changed" loop and no conflict prompt');
   assert.equal(existsSync(draft), false);
+});
+
+test('re-running setup into an existing resource group means uninstall deletes only tagged resources, never that group', async () => {
+  const arm = fakeArm();
+  const u = fakeUi();
+  const select = u.ui.select;
+  u.ui.select = async (message, choices, def) => message === 'Resource group' ? /** @type {any} */ ('rg-shared') : select(message, choices, def);
+  const { ctx, config } = fakeCtx({ ui: u.ui, arm: arm.api, fabric: fakeFabric().api, powerBi: fakePowerBi().api });
+  delete config.fabric.workspaceId;
+  config.target = 'azure';
+  // An earlier install created its own group.
+  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg-analytics-hub', resourceGroupMode: 'new', createdResourceGroup: true, location: 'uksouth', installId: 'install-1' };
+  await arm.api.ensureResourceGroup('sub-1', 'rg-analytics-hub', 'uksouth', { 'valuelens-install-id': 'install-1' });
+  await arm.api.ensureResourceGroup('sub-1', 'rg-shared', 'uksouth');
+  arm.resources.push({ id: '/subscriptions/sub-1/resourceGroups/rg-shared/providers/Microsoft.Storage/storageAccounts/ours', type: 'Microsoft.Storage/storageAccounts', tags: { 'valuelens-install-id': 'install-1' } });
+  arm.resources.push({ id: '/subscriptions/sub-1/resourceGroups/rg-shared/providers/Microsoft.Storage/storageAccounts/theirs', type: 'Microsoft.Storage/storageAccounts', tags: {} });
+  await planAzure(ctx, { subscriptions: [{ subscriptionId: 'sub-1', displayName: 'Sub' }], capacities: [] });
+  assert.equal(config.azure.resourceGroup, 'rg-shared');
+  assert.equal(config.azure.createdResourceGroup, false);
+  await azureUninstall(ctx);
+  assert.ok(!arm.calls.some((c) => c.startsWith('deleteResourceGroup')), 'the existing group is never deleted');
+  assert.ok(arm.calls.includes('deleteResource /subscriptions/sub-1/resourceGroups/rg-shared/providers/Microsoft.Storage/storageAccounts/ours'));
+  assert.ok(!arm.calls.some((c) => c.endsWith('/theirs')));
 });
