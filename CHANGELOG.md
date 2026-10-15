@@ -43,7 +43,9 @@ Deployment instructions do **not** live here. They live in the READMEs:
 - **The tenant size follows the Copilot seats as well as the capacity.** The prerequisite checks
   now report how many Microsoft 365 Copilot seats are assigned, and the plan shows them. A new
   install, or one with no size saved, is sized **More than 10,000** when more than 10,000 seats are
-  assigned, as well as on F64 or larger. An install that already has a size keeps it; the plan
+  assigned, as well as on F64 or larger. A trial capacity counts as the F size it matches, so an
+  FTL64 trial is sized large however few seats are assigned, and an FTL4 isn't. An install that
+  already has a size keeps it; the plan
   warns when the seats have outgrown it and says which step changes it. If the seats can't be read,
   sizing falls back to the capacity as before.
 - **Capacity warnings.** With 30,000 or more seats on a capacity below F64, the plan says to choose

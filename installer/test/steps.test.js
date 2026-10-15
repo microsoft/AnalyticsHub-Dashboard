@@ -680,8 +680,8 @@ test('status records a finished first load as Completed only when its loads prov
 });
 
 test('tenant size: a big capacity suggests a large tenant, and the first-load estimate and pipeline follow the size', () => {
-  for (const sku of ['F64', 'F128', 'P1', 'p3']) assert.equal(largeCapacity({ sku }), true, sku);
-  for (const sku of ['F2', 'F32', 'FT1', 'FTL64', 'Trial', 'A4', undefined]) assert.equal(largeCapacity({ sku }), false, String(sku));
+  for (const sku of ['F64', 'F128', 'P1', 'p3', 'FTL64', 'ftl128']) assert.equal(largeCapacity({ sku }), true, sku);
+  for (const sku of ['F2', 'F32', 'FT1', 'FTL4', 'FTL32', 'Trial', 'A4', 'PP3', undefined]) assert.equal(largeCapacity({ sku }), false, String(sku));
 
   assert.match(firstLoadEstimate(30, 'standard'), /under an hour/);
   assert.match(firstLoadEstimate(30, undefined), /under an hour/);

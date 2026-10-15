@@ -91,10 +91,11 @@ export const runsFabric = (capacity) => !/^(PP|A|EM)\d/i.test(String(capacity.sk
 
 /**
  * F64 and up, or a Premium P capacity: what a large tenant usually runs on, so the tenant size starts at large.
+ * A trial capacity (FTL<n>) counts as the F<n> it matches; a trial SKU without a size, such as FT1, doesn't.
  * @param {{ sku?: string }} capacity
  */
 export function largeCapacity(capacity) {
-  const m = /^([FP])(\d+)$/i.exec(String(capacity.sku ?? ''));
+  const m = /^(P|F|FTL)(\d+)$/i.exec(String(capacity.sku ?? ''));
   return !!m && (m[1].toUpperCase() === 'P' || Number(m[2]) >= 64);
 }
 

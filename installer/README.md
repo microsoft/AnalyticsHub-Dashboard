@@ -399,8 +399,8 @@ loads in under an hour. Later runs load only what's new.
 
 On a tenant with tens of thousands of people, choose **More than 10,000** when asked how many
 people are in the tenant, under [Advanced settings](#advanced-settings). A new install chooses it
-for you on an F64 or larger capacity, or when more than 10,000 Microsoft 365 Copilot seats are
-assigned. The installer reads the assigned seats in the prerequisite checks and shows them in the
+for you on an F64 or larger capacity (a trial counts as the F size it matches, so FTL64 does), or
+when more than 10,000 Microsoft 365 Copilot seats are assigned. The installer reads the assigned seats in the prerequisite checks and shows them in the
 plan. An install that already has a tenant size keeps it, but the plan warns when the seats have
 outgrown it. Then:
 
