@@ -1067,3 +1067,335 @@ def _enrich(f: Frame, ag_src, agent_type_overrides, ctx_src=None, ctx_cols=()):
     f.rename("UserStage", "User_Stage_Maturity")
     f.with_col("User_Stage", col("User_Stage_Maturity"))
     f.drop(*a365)
+    _slim(f)
+
+
+# ---------------------------------------------------------------------------
+# Model slimming: the model's remaining DAX calculated columns (notebook 10c).
+# ---------------------------------------------------------------------------
+# lower(Behavior) -> 'Human Time Estimates'[Category] for behaviours in both 'Behavior Value Map'
+# and 'Human Time Estimates' (the model's RELATED chain). Checked against the .pbit tables by
+# tests/test_model_slimming.py.
+BEHAVIOR_GROUP = {
+    "coaching": "Specialist Support",
+    "code analysis": "Coding & Technical",
+    "code writing": "Coding & Technical",
+    "compliance & policy": "Specialist Support",
+    "content generation": "Document Creation",
+    "coordination workflow": "Collaboration & Workflows",
+    "data & reporting": "Data & Analysis",
+    "data & reporting workflow": "Collaboration & Workflows",
+    "data querying": "Data & Analysis",
+    "document drafting": "Document Creation",
+    "document summarising": "Document Summarisation",
+    "document workflow": "Collaboration & Workflows",
+    "domain-specific agent": "Specialist Support",
+    "email drafting": "Email",
+    "email summarising": "Email",
+    "email workflow": "Collaboration & Workflows",
+    "enterprise searching": "Search & Research",
+    "excel assistance": "Data & Analysis",
+    "file retrieval": "Search & Research",
+    "form / survey work": "Collaboration & Workflows",
+    "general assistance": "General Chat & Q&A",
+    "general chat": "General Chat & Q&A",
+    "general workflow": "Collaboration & Workflows",
+    "hr & people": "Specialist Support",
+    "ideation & creative": "Creative & Design",
+    "image / media analysis": "Creative & Design",
+    "image generation": "Creative & Design",
+    "it & service desk": "Specialist Support",
+    "knowledge base": "Search & Research",
+    "meeting prep": "Meetings",
+    "meeting scheduling": "Meetings",
+    "meeting workflow": "Collaboration & Workflows",
+    "note taking": "Document Creation",
+    "pdf analysis": "Document Summarisation",
+    "people lookup": "Search & Research",
+    "presentation creation": "Presentations",
+    "presentation summarising": "Document Summarisation",
+    "real-time collaboration": "Collaboration & Workflows",
+    "research & analysis": "Search & Research",
+    "running a workflow": "Collaboration & Workflows",
+    "sales & customer": "Specialist Support",
+    "sharepoint access": "Search & Research",
+    "specialist / line-of-business workflow": "Collaboration & Workflows",
+    "spreadsheet review": "Data & Analysis",
+    "task management": "Collaboration & Workflows",
+    "teams messaging": "Collaboration & Workflows",
+    "video summarising": "Meetings",
+    "web searching": "Search & Research",
+}
+MATERIAL_TYPES = ["docx", "doc", "xlsx", "xlsm", "xls", "csv", "pptx", "ppt", "pdf", "txt", "md",
+                  "html", "htm", "json", "xml", "py", "zip", "png", "jpg", "jpeg", "gif", "mp4", "loop", "aspx",
+                  "sitepagemodern", "onepart", "page", "eml", "msg", "emailmessage", "teamsmessage", "event",
+                  "file", "external", "report"]
+SLIM_COLS = [
+    "Is_Cowork", "AppHost_Norm", "Agent Filter (Normalized)", "Session Turn Band",
+    "Session Turn Band Sort", "Model Cost Tier", "Model Cost Tier Sort", "Work Weight Grade",
+    "Work Weight Grade Sort", "Session Material Refs", "Session Material Types", "Cowork Task Category",
+    "Task Breakdown Category", "Is Prompt Row", "Is Observed Prompt", "Task Engagement Mode",
+    "Task Breakdown Group", "Fit Basis", "Work Shape", "Work Shape Sort", "Session Model Tier",
+    "Session Model Tier Sort", "Expertise Role (All Cohorts)", "Is Usage Row", "Thread_Key", "Message_Key",
+]
+ENRICHED_COLS = ENRICHED_COLS + SLIM_COLS
+
+THREAD_COLS = [
+    "Session Turn Band", "Session Turn Band Sort", "Session Material Refs",
+    "Session Material Types", "Work Weight Grade", "Work Weight Grade Sort",
+    "Fit Basis", "Work Shape", "Work Shape Sort", "Session Model Tier", "Session Model Tier Sort",
+]
+MESSAGE_COLS = [
+    "Cowork Task Category", "Task Breakdown Category", "Task Engagement Mode", "Task Breakdown Group",
+]
+
+
+def conversation_predicate_sql(changed: str, column: str, alias: str = "r") -> str:
+    """Null-safe, case-insensitive membership; changed includes old AND replacement rows."""
+    return (f"EXISTS (SELECT 1 FROM {changed} AS d WHERE "
+            f"lower(CAST({alias}.{q(column)} AS VARCHAR)) IS NOT DISTINCT FROM "
+            f"lower(CAST(d.{q(column)} AS VARCHAR)))")
+
+
+def update_conversations(con, current: Source, changed: Source, *, output: str):
+    """Return affected current rows and the months whose conversation values changed.
+
+    A row may share only one affected key. Its other group's columns must remain unchanged:
+    that group may be only partly present in this working set. Row-local/snapshot columns
+    are always retained, including on historical rows in a month that must be rewritten.
+    """
+    prefix = "__vl_conversation_" + uuid.uuid4().hex[:10]
+    src = _register(con, current, prefix + "_src")
+    delta = _register(con, changed, prefix + "_changed")
+    thread = conversation_predicate_sql(delta, "ThreadId")
+    message = conversation_predicate_sql(delta, "Message_Id")
+    f = Frame(con, f"(SELECT r.*, {thread} AS __vl_thread, {message} AS __vl_message "
+                   f"FROM {src} r WHERE {thread} OR {message})", prefix)
+    columns = [c for c in f.columns if c not in ("__vl_thread", "__vl_message")]
+    try:
+        if any(c.startswith("__vl_") for c in columns):
+            raise ValueError("Curated input contains reserved __vl_ conversation columns")
+        for i, name in enumerate(SLIM_COLS):
+            f.with_col(f"__vl_saved_{i}", col(name))
+        _slim(f)
+        selected, differences = [], []
+        for name in columns:
+            if name not in SLIM_COLS:
+                selected.append(q(name))
+                continue
+            saved = q(f"__vl_saved_{SLIM_COLS.index(name)}")
+            flag = "__vl_thread" if name in THREAD_COLS else "__vl_message" if name in MESSAGE_COLS else None
+            value = f"CASE WHEN {flag} THEN {q(name)} ELSE {saved} END" if flag else saved
+            selected.append(f"{value} AS {q(name)}")
+            if flag:
+                differences.append(f"({value}) IS DISTINCT FROM {saved}")
+        con.execute(f"CREATE OR REPLACE TEMP TABLE {q(output)} AS "
+                    f"SELECT {', '.join(selected)}, ({' OR '.join(differences)}) AS __vl_changed "
+                    f"FROM {q(f.name)}")
+        dirty_months = [r[0] for r in con.execute(
+            f"SELECT DISTINCT MonthStart FROM {q(output)} WHERE __vl_changed").fetchall()]
+    finally:
+        f.cleanup()
+        for name in (prefix + "_src", prefix + "_changed"):
+            con.execute(f"DROP VIEW IF EXISTS {q(name)}")
+    return con.sql(f"SELECT * EXCLUDE (__vl_changed) FROM {q(output)}"), dirty_months
+
+
+def _n(v: int) -> E:
+    return E(str(int(v)))
+
+
+def big(expr) -> E:
+    return E(f"CAST({expr} AS BIGINT)")
+
+
+def dax_trim(name: str) -> E:  # DAX TRIM: strip ends + collapse inner space runs; NULL -> ''
+    return E(f"regexp_replace({trim(coalesce(s_(col(name)), ''))}, ' {{2,}}', ' ', 'g')")
+
+
+def hash_key(name: str) -> E:  # first 60 bits of md5(lower(id)) as BIGINT; NULL id -> NULL key
+    return E(f"CAST('0x' || substr(md5(lower({s_(col(name))})), 1, 15) AS BIGINT)")
+
+
+def _slim(f: Frame):
+    f.with_col("_rt", E(f"lower({dax_trim('AccessedResource_Type')})"))
+    f.with_col("_ra", E(f"lower({dax_trim('AccessedResource_Action')})"))
+    rt, ra, cowork = col("_rt"), col("_ra"), col("Is_Cowork")
+    raw_type = E(f"lower({s_(col('AccessedResource_Type'))})")
+
+    # row-level
+    f.with_col("Is_Cowork", contains(E(f"lower({coalesce(s_(col('AppHost')), '')})"), "cowork"))
+    ah = dax_trim("AppHost")
+    f.with_col("AppHost_Norm", E(f"(CASE WHEN lower({ah}) = 'microsoft teams' THEN 'Teams' ELSE {ah} END)"))
+    f.with_col("Agent Filter (Normalized)", chain([
+        (cowork, "Cowork"),
+        (or_(f"({col('Is_Agent_Activity')} = TRUE)", notblank("AgentId")), "Agents"),
+    ], "Copilot"))
+    mdl = E(f"lower({s_(col('AI_Model'))})")
+    f.with_col("Model Cost Tier Sort", big(chain([
+        (or_(f"{col('AI_Model')} IS NULL", contains(mdl, "no model logged")), _n(8)),
+        (has(mdl, ["opus", "gpt-6"]), _n(0)),
+        (has(mdl, ["sonnet", "claude", "gpt-5", "gpt-4"]), _n(1)),
+    ], _n(9))))
+    mts = col("Model Cost Tier Sort")
+    f.with_col("Model Cost Tier", chain([
+        (eq(mts, _n(8)), "Not attributed"), (eq(mts, _n(0)), "Frontier (premium cost)"),
+        (eq(mts, _n(1)), "Workhorse (mid cost)"),
+    ], "Unclassified"))
+    prompt = isin(E(f"upper({dax_trim('Message_isPrompt')})"), ["TRUE", "1"])
+    f.with_col("Is Prompt Row", prompt)
+    f.with_col("Is Observed Prompt",
+               and_(prompt, notblank("Audit_UserId"), notblank("Message_Id"), notblank("ThreadId")))
+    f.with_col("Is Usage Row", or_(col("Is Prompt Row"), cowork))
+    active = has(ra, ["send", "draft", "create", "post", "invoke", "write", "patch", "execute"])
+    reader = and_(not_(active), eq(ra, "read"))
+    role = chain([
+        (isin(rt, ["message/rfc822", "application/vnd.ms-outlook"]),
+         when(active, "Communications Specialist", "Executive Assistant")),
+        (eq(rt, "message"), "Collaboration Lead"),
+        (isin(rt, ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-excel",
+                   "application/vnd.ms-excel.sheet.macroenabled.12", "text/csv"]), "Spreadsheet Specialist"),
+        (eq(rt, "application/pdf"), "Researcher"),
+        (isin(rt, ["application/json", "application/xml", "text/xml", "text/html", "text/plain"]),
+         "Software Engineer"),
+        (isin(rt, ["image/png", "image/jpeg", "image/gif"]), "Visual Designer"),
+        (isin(rt, ["application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                   "application/msword", "application/rtf"]),
+         when(reader, "Knowledge Navigator", "Content Writer")),
+        (isin(rt, ["application/vnd.openxmlformats-officedocument.presentationml.presentation",
+                   "application/vnd.ms-powerpoint"]),
+         when(reader, "Knowledge Navigator", "Presentation Designer")),
+    ], None)
+    f.with_col("Expertise Role (All Cohorts)",
+               E(f"(CASE WHEN NOT {cowork} THEN {col('Expertise_Role')} ELSE {role} END)"))
+    f.checkpoint()
+
+    # per-thread (DAX ALLEXCEPT(..., ThreadId))
+    over_t = f"OVER (PARTITION BY lower({s_(col('ThreadId'))}))"
+    f.with_col("_mat", E(f"(CASE WHEN {cowork} THEN {and_(notblank('AccessedResource_Type'), ne(rt, 'message'))} "
+                         f"ELSE {isin(rt, MATERIAL_TYPES)} END)"))
+    flags = {
+        "_xl": or_(has(rt, ["spreadsheetml", "ms-excel", "text/csv"]), isin(rt, ["xlsx", "xlsm", "xls", "csv"])),
+        "_wd": or_(has(rt, ["wordprocessingml", "msword"]), isin(rt, ["docx", "doc"])),
+        "_pp": or_(has(rt, ["presentationml", "ms-powerpoint"]), isin(rt, ["pptx", "ppt"])),
+        "_ol": or_(has(rt, ["rfc822", "ms-outlook"]), isin(rt, ["emailmessage", "eml", "msg", "event"])),
+        "_pd": or_(contains(rt, "application/pdf"), eq(rt, "pdf")),
+        "_tm": eq(rt, "teamsmessage"),
+        "_bd": or_(has(rt, ["application/zip", "application/gzip", "octet-stream", "text/html",
+                            "application/json", "application/xml"]),
+                   isin(rt, ["zip", "gz", "html", "htm", "json", "xml", "py", "ps1", "js", "ts", "ipynb", "sh"])),
+    }
+    refs = E(f"sum(CAST({col('_mat')} AS INTEGER)) {over_t}")
+    types = E(f"count(DISTINCT (CASE WHEN {col('_mat')} THEN {raw_type} END)) {over_t}")
+    f.with_col("_turns", E(f"count(*) {over_t}"))
+    f.with_col("Session Material Refs", E(f"CAST((CASE WHEN {refs} > 0 THEN {refs} END) AS BIGINT)"))
+    f.with_col("Session Material Types", E(f"CAST((CASE WHEN {types} > 0 THEN {types} END) AS BIGINT)"))
+    f.with_col("_reads", E(f"sum(CAST(({raw_type} = 'message') AS INTEGER)) {over_t}"))
+    for name, flag in flags.items():
+        f.with_col(name, E(f"max(CAST({flag} AS INTEGER)) {over_t}"))
+    f.with_col("_min_tier", E(f"min({col('Model Cost Tier Sort')}) {over_t}"))
+    f.checkpoint()
+
+    turns = col("_turns")
+    f.with_col("Session Turn Band Sort", big(chain([
+        (f"{col('ThreadId')} IS NULL", _n(9)), (f"{turns} = 1", _n(1)), (f"{turns} <= 3", _n(2)),
+        (f"{turns} <= 6", _n(3)),
+    ], _n(4))))
+    tbs = col("Session Turn Band Sort")
+    f.with_col("Session Turn Band", chain([
+        (eq(tbs, _n(9)), "Not recorded"), (eq(tbs, _n(1)), "1 turn"), (eq(tbs, _n(2)), "2-3 turns"),
+        (eq(tbs, _n(3)), "4-6 turns"),
+    ], "7+ turns"))
+    surf = E("(" + " + ".join(q(k) for k in ["_xl", "_wd", "_pp", "_ol", "_pd", "_tm"]) + ")")
+    labels = [("_xl", "Excel"), ("_wd", "Word"), ("_pp", "PowerPoint"), ("_ol", "Outlook"), ("_pd", "PDF"),
+              ("_tm", "Teams")]
+    surf_list = E("concat_ws(', ', " + ", ".join(
+        f"(CASE WHEN {q(k)} = 1 THEN {lit(v)} END)" for k, v in labels) + ")")
+    m0 = E(f"coalesce({col('Session Material Refs')}, 0)")
+    b0 = E(f"coalesce({col('Session Material Types')}, 0)")
+    rd = E(f"coalesce((CASE WHEN {cowork} THEN {col('_reads')} ELSE 0 END), 0)")
+    f.with_col("_step", chain([
+        (f"{surf} >= 2", _n(1)),
+        (f"{col('_bd')} = 1", _n(2)),
+        (or_(and_(f"{m0} >= 3", f"{b0} >= 2"), f"{m0} > 5"), _n(3)),
+        (and_(f"{m0} = 0", f"{rd} > 0"), _n(8)),
+        (f"{m0} = 0", _n(4)),
+        (or_(f"{b0} >= 2", f"{m0} >= 3"), _n(5)),
+        (f"{surf} = 1", _n(10)),
+    ], _n(7)))
+    step = col("_step")
+    in_step = lambda *v: E(f"({step} IN ({', '.join(str(x) for x in v)}))")
+    is_step = lambda v: E(f"({step} = {v})")
+    f.with_col("Work Weight Grade", chain([
+        (in_step(1, 2, 3), "Strong fit"), (is_step(4), "Worth a look"), (in_step(5, 8, 10), "Fair fit"),
+    ], "Unclassified"))
+    f.with_col("Work Weight Grade Sort", big(chain([
+        (in_step(1, 2, 3), _n(0)), (in_step(5, 8, 10), _n(1)), (is_step(4), _n(2)),
+    ], _n(3))))
+    f.with_col("Work Shape", chain([
+        (is_step(1), "Cross-app chain"), (is_step(2), "Builds an artifact"), (is_step(3), "Multi-source synthesis"),
+        (is_step(4), "Chat only"), (is_step(5), "Moderate sourcing"), (is_step(10), "Single-app task"),
+        (is_step(8), "Read messages"),
+    ], "Not enough detail"))
+    f.with_col("Work Shape Sort", big(chain([
+        (is_step(1), _n(0)), (is_step(2), _n(1)), (is_step(3), _n(2)), (is_step(5), _n(3)),
+        (is_step(10), _n(4)), (is_step(8), _n(5)), (is_step(4), _n(7)),
+    ], _n(8))))
+    f.with_col("Fit Basis", chain([
+        (is_step(1), concat("Spans ", surf_list)),
+        (is_step(2), "Built or packaged an artifact"),
+        (is_step(3), "Multi-source synthesis"),
+        (is_step(4), "Chat only - nothing attached"),
+        (is_step(5), "Mixed or repeated sources"),
+        (is_step(8), "Read messages - nothing attached"),
+        (is_step(10), concat("Worked in one app (", surf_list, ")")),
+    ], "Insufficient evidence"))
+    mt = col("_min_tier")
+    f.with_col("Session Model Tier Sort", big(chain([(f"{mt} = 0", _n(1)), (f"{mt} = 1", _n(2))], _n(3))))
+    f.with_col("Session Model Tier", chain([
+        (f"{mt} = 0", "Frontier (premium cost)"), (f"{mt} = 1", "Workhorse (mid cost)"),
+    ], "Not attributed"))
+
+    # per-message (DAX ALLEXCEPT(..., Message_Id))
+    over_m = f"OVER (PARTITION BY lower({s_(col('Message_Id'))}))"
+    mflags = {
+        "_m_email": ["rfc822", "ms-outlook"],
+        "_m_analysis": ["spreadsheetml", "text/csv", "application/json", "application/xml",
+                        "application/pdf", "application/zip", "application/gzip"],
+        "_m_doc": ["wordprocessingml", "presentationml", "ms-powerpoint", "text/markdown", "text/html", "image/"],
+        "_m_msg": ["message"],
+        "_m_md": ["text/markdown"],
+        "_m_consume": ["officedocument", "application/", "image/", "text/csv", "text/html", "text/plain",
+                       "rfc822", "ms-outlook", "ms-powerpoint"],
+    }
+    for name, subs in mflags.items():
+        f.with_col(name, E(f"(max(CAST({has(rt, subs)} AS INTEGER)) {over_m} = 1)"))
+    f.checkpoint()
+    category = chain([
+        (col("_m_email"), "Email workflows"),
+        (col("_m_analysis"), "Analysis & Research"),
+        (col("_m_doc"), "Document & content creation"),
+        (col("_m_msg"), "Communication workflows"),
+    ], "General assistance / Other")
+    f.with_col("Cowork Task Category", when(cowork, category))
+    mode = chain([
+        (col("_m_md"), "4 - Producing"), (col("_m_consume"), "3 - Consuming"), (col("_m_msg"), "2 - Finding"),
+    ], "1 - Asking")
+    f.with_col("Task Engagement Mode", when(cowork, mode, col("Usage_Mode")))
+    ctc = col("Cowork Task Category")
+    f.with_col("Task Breakdown Category",
+               E(f"(CASE WHEN {cowork} THEN {ctc} ELSE {col('Behavior_Enriched_Full')} END)"))
+    bef = E(f"lower({s_(col('Behavior_Enriched_Full'))})")
+    group = chain([(eq(bef, k), v) for k, v in BEHAVIOR_GROUP.items()], None)
+    cowork_group = chain([
+        (eq(ctc, "Email workflows"), "Email"),
+        (eq(ctc, "Analysis & Research"), "Data & Analysis"),
+        (eq(ctc, "Document & content creation"), "Document Creation"),
+        (eq(ctc, "Communication workflows"), "Collaboration & Workflows"),
+    ], "General Chat & Q&A")
+    f.with_col("Task Breakdown Group", when(cowork, cowork_group, group))
+
+    # compact join keys that replace the unique-per-row id text columns
+    f.with_col("Thread_Key", hash_key("ThreadId"))
+    f.with_col("Message_Key", hash_key("Message_Id"))
+    f.drop("_rt", "_ra", "_mat", "_turns", "_reads", *flags, "_min_tier", "_step", *mflags)

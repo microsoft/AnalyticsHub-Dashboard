@@ -57,11 +57,11 @@ CALENDAR = "\n".join((
     "// that table - so an empty or late-starting audit no longer collapses the",
     "// calendar to a single day and hides the M365 and feedback trends.",
     "// MINX / MAXX skip blank sources. With no dates anywhere (first refresh, or",
-    "// CreationDate failed to parse) it falls back to the last 365 days, because",
+    "// the audit dates failed to parse) it falls back to the last 365 days, because",
     "// CALENDAR(BLANK, BLANK) errors with \"start date can not be later than end date\".",
     "// VAR names must not be DAX function names (tests/test_dax_var_names.py).",
-    f"VAR AuditMin = MIN({A}[CreationDate])",
-    f"VAR AuditMax = MAX({A}[CreationDate])",
+    f"VAR AuditMin = MIN({A}[InteractionDate])",
+    f"VAR AuditMax = MAX({A}[InteractionDate])",
     "VAR FeedbackMin = MIN('ProductFeedback'[FeedbackDate])",
     "VAR FeedbackMax = MAX('ProductFeedback'[FeedbackDate])",
     "VAR MinDate = MINX({ AuditMin, FeedbackMin }, [Value])",
@@ -87,21 +87,9 @@ CALENDAR = "\n".join((
     ")",
 ))
 
+# [Is Usage Row] (Is Prompt Row || Is_Cowork) used to be a calculated column owned here.
+# The processor now writes it, and scripts/Update-Model-Slimming.py imports it.
 VALUELENS_OBJECTS = (
-    {
-        "kind": "column", "table": AUDIT, "name": "Is Usage Row",
-        "expression": f"{A}[Is Prompt Row] || {A}[Is_Cowork]",
-        "new": {
-            "dataType": "boolean", "isHidden": True, "summarizeBy": "none",
-            "description": [
-                "TRUE for rows that show a person used Copilot: every prompt row, plus",
-                "Cowork task rows. Scheduled and autonomous Cowork runs carry no prompt,",
-                "so the audit parsers keep each one as a single task row",
-                "(Message_isPrompt = FALSE). Drives the active-user counts only; prompt,",
-                "task and session measures stay prompt-based.",
-            ],
-        },
-    },
     {
         "kind": "measure", "table": AUDIT, "name": "Usage Rows",
         "expression": f"CALCULATE(COUNTROWS({A}), KEEPFILTERS({A}[Is Usage Row] = TRUE()))",

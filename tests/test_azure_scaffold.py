@@ -21,8 +21,10 @@ def test_migrations_match_curated_contract():
     sql = (migrations / "V001__init.sql").read_text(encoding="utf-8")
     body = re.search(r"CREATE TABLE dbo\.copilot_interactions_curated \((.*?)\n\);", sql, re.S).group(1)
     ddl = re.findall(r"^\s*\[([^\]]+)\] (\S+) NULL", body, re.M)
-    added = re.findall(r"ALTER TABLE dbo\.copilot_interactions_curated ADD \[([^\]]+)\] (\S+) NULL",
-                       (migrations / "V006__agent_columns.sql").read_text(encoding="utf-8"))
+    added = []
+    for path in sorted(migrations.glob("V*.sql")):
+        added += re.findall(r"ALTER TABLE dbo\.copilot_interactions_curated ADD \[([^\]]+)\] (\S+) NULL",
+                            path.read_text(encoding="utf-8"))
     columns = ddl + added
     assert len({name for name, _ in columns}) == len(columns)
     assert dict(columns) == {name: SQL_TYPES[kind] for name, kind in contract}

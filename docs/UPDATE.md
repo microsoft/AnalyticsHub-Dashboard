@@ -31,6 +31,13 @@ Both keep your install record and skip what's already done.
 To [load more audit history](../installer/README.md#load-more-audit-history), choose **Repair or
 change** once the first load has finished, or `run --backfill-days <n>`.
 
+When a version moves work from the semantic model into the processor, follow
+[Model slimming: Deploy order](MODEL-SLIMMING.md#deploy-order). Rebuild all curated months,
+publish the required physical columns, and refresh all model partitions before switching the
+app. The changed processor version also forces that rebuild on the next scheduled run.
+A model can refresh with typed-null compatibility columns before then, but this does not mean
+its data is ready. Keep the prior model available until the new model's results are verified.
+
 ## Editing a report
 
 A new version may bring a new version of a report. **Update** and **Repair or change** ask before

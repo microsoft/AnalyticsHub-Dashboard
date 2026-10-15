@@ -41,6 +41,7 @@ from valuelens_core import creation_timestamp_sql, curate
 from valuelens_core.incremental import (DEFAULT_INCREMENTAL_LOOKBACK_DAYS, NULL_MONTH, build_processor_state,
                                         parse_processor_state, plan_incremental_months,
                                         processor_config_fingerprint)
+from valuelens_core.processor import conversation_predicate_sql, update_conversations
 
 from .config import Settings
 from .storage import LocalStore, open_store
@@ -96,7 +97,9 @@ def process(store, *, exclude_agent_identities=True, include_raw_passthrough=Fal
     A month is recomputed when its parsed rows changed (row count + row hash) or it lies in the
     lookback window before the newest record (late-arriving audit data). A recomputed month is
     curated from all of its source rows, so it equals a full rebuild; the kept months supply the
-    history-wide context (schema-GUID agent links, Agent Last Used Date). New settings, new core
+    history-wide context (schema-GUID agent links, Agent Last Used Date). Changed thread/message
+    values also propagate to their historical rows, preserving unrelated snapshot values.
+    New settings, new core
     logic, a new source schema, the legacy single-file layout or `full_rebuild` rebuild everything.
     Returns the curated row count across all months.
     """
@@ -156,6 +159,7 @@ def _process(con, store, interactions, spill, exclude_agent_identities, include_
 
     compute = [k for k in months if k in source_months]
     written, removed = [], []
+    write_months = set(compute)
     if compute:
         keep = [context_files[k] for k in source_months if k not in months and k in context_files]
         context = (con.sql(f"SELECT * FROM read_parquet([{', '.join(q(store.path(r)) for r in keep)}], "
@@ -164,14 +168,43 @@ def _process(con, store, interactions, spill, exclude_agent_identities, include_
         curate(con, src, parquet_glob(store.root, PROCESS_INPUTS[1]), parquet_glob(store.root, PROCESS_INPUTS[2]),
                exclude_agent_identities=exclude_agent_identities, include_raw_passthrough=include_raw_passthrough,
                context=context, output="__vl_process_out")
-        for key in compute:
+    if not plan["full"] and months:
+        old_paths = ", ".join(q(store.path(r)) for r in curated_files.values())
+        con.execute(f"CREATE TEMP VIEW __vl_previous AS SELECT * FROM read_parquet([{old_paths}], "
+                    "union_by_name=true)")
+        if not compute:
+            con.execute("CREATE TEMP TABLE __vl_process_out AS SELECT * FROM __vl_previous WHERE FALSE")
+        changed_months = ", ".join(q_lit(k) for k in months)
+        old_month = f"coalesce(strftime(MonthStart, '%Y-%m'), '{NULL_MONTH}')"
+        con.execute(f"CREATE TEMP VIEW __vl_changed AS SELECT ThreadId, Message_Id FROM __vl_previous "
+                    f"WHERE {old_month} IN ({changed_months}) UNION ALL "
+                    "SELECT ThreadId, Message_Id FROM __vl_process_out")
+        con.execute(f"CREATE TEMP VIEW __vl_current AS SELECT * FROM __vl_previous "
+                    f"WHERE {old_month} NOT IN ({changed_months}) UNION ALL BY NAME "
+                    "SELECT * FROM __vl_process_out")
+        updated, dirty_months = update_conversations(con, "__vl_current", "__vl_changed", output="__vl_updated")
+        updated.create_view("__vl_updated_rows")
+        write_months.update(value.strftime("%Y-%m") if value is not None else NULL_MONTH for value in dirty_months)
+        if write_months:
+            targets = ", ".join(q_lit(k) for k in sorted(write_months))
+            thread = conversation_predicate_sql("__vl_changed", "ThreadId")
+            message = conversation_predicate_sql("__vl_changed", "Message_Id")
+            # Materialise before replacing any input file: later months must not read a
+            # mixture of old and already-updated Parquet files from this same run.
+            con.execute("CREATE TEMP TABLE __vl_complete_out AS "
+                        f"SELECT * FROM __vl_updated_rows WHERE {old_month} IN ({targets}) UNION ALL BY NAME "
+                        f"SELECT * FROM __vl_current r WHERE {old_month} IN ({targets}) "
+                        f"AND NOT ({thread} OR {message})")
+    output = "__vl_complete_out" if not plan["full"] and months else "__vl_process_out"
+    if write_months:
+        for key in sorted(write_months):
             where = ("MonthStart IS NULL" if key == NULL_MONTH
                      else f"strftime(MonthStart, '%Y-%m') = {q_lit(key)}")
             for rel, sql in (
-                    (_month_file(CURATED_PREFIX, key), f"SELECT * FROM __vl_process_out WHERE {where}"),
+                    (_month_file(CURATED_PREFIX, key), f"SELECT * FROM {output} WHERE {where}"),
                     # Enough of the month for later runs' history-wide values, without re-reading it.
                     (_month_file(PROCESS_CONTEXT, key),
-                     f"SELECT AgentId, AgentName, max(CreationDate) AS CreationDate FROM __vl_process_out "
+                     f"SELECT AgentId, AgentName, max(CreationDate) AS CreationDate FROM {output} "
                      f"WHERE {where} AND (AgentId IS NOT NULL OR AgentName IS NOT NULL) "
                      f"GROUP BY AgentId, AgentName")):
                 target = store.path(rel)
@@ -180,8 +213,7 @@ def _process(con, store, interactions, spill, exclude_agent_identities, include_
                 con.execute(f"COPY ({sql}) TO {q(tmp)} (FORMAT PARQUET)")
                 tmp.replace(target)
                 written.append(rel)
-            rows[key] = con.execute(f"SELECT count(*) FROM __vl_process_out WHERE {where}").fetchone()[0]
-        con.execute("DROP TABLE IF EXISTS __vl_process_out")
+            rows[key] = con.execute(f"SELECT count(*) FROM {output} WHERE {where}").fetchone()[0]
     store.push(written)
     # Months that left the source (a full rebuild's old files included) and the legacy single file.
     stale = [r for files in (curated_files, context_files) for k, r in files.items() if k not in source_months]
@@ -192,7 +224,8 @@ def _process(con, store, interactions, spill, exclude_agent_identities, include_
     rows = {k: v for k, v in rows.items() if k in source_months}
     store.write_json(PROCESS_STATE, {**json.loads(build_processor_state(config, source_months)), "rows": rows})
     total = sum(int(v) for v in rows.values())
-    log.info("process: wrote %s month(s); %s curated rows in total", len(compute), total)
+    log.info("process: wrote %s month(s), including conversation dependencies; %s curated rows in total",
+             len(write_months), total)
     return total
 
 

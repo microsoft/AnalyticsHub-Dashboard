@@ -180,6 +180,90 @@ def modern_rows():
     tail = list(rows[5])
     tail[0], tail[5] = "id-nulldate", None
     rows.append(tail)
+    return rows + slim_rows()
+
+
+# Model-slimming edge cases: Cowork sessions, per-thread / per-message grouping (case variants,
+# NULL and blank ids), every work-shape step, surface lists, model tiers and prompt flags.
+# They use their own users, threads and messages so the rows above keep their outputs.
+# (ThreadId, Message_Id, AppHost, ResType, ResAction, Model, isPrompt, AgentId)
+SLIM = [
+    ("cw-1", "cw-m1", "Cowork", "message/rfc822", "Send", None, None, None),
+    ("cw-1", "cw-m1", "Cowork", "application/vnd.ms-outlook", "Read", None, None, None),
+    ("cw-1", "cw-m2", "Cowork", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "Write", None, None, None),
+    ("cw-1", "cw-m2", "Cowork", "text/csv", "Read", None, None, None),
+    ("cw-1", "cw-m3", "Cowork", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "read", None, None, None),
+    ("cw-1", "cw-m3", "Cowork", "text/markdown", "Create", None, None, None),
+    ("cw-1", "cw-m4", "Cowork", "message", "Read", None, None, None),
+    ("cw-1", "cw-m4", "Cowork", "message", "Read", None, None, None),
+    ("CW-1", "cw-m5", "Cowork", None, None, None, None, None),
+    ("cw-1", "cw-m6", "cowork", "image/png", "Create", None, None, None),
+    ("cw-1", "CW-M6", "Cowork", "message", "Read", None, None, None),
+    ("cw-1", "cw-m7", "Cowork", "  Application/PDF  ", "Read", None, None, None),
+    ("cw-1", "cw-m8", "Cowork", "application/json", "Read", None, None, None),
+    ("cw-1", "cw-m9", "Cowork", "image/gif", "Read", None, None, None),
+    ("cw-1", "cw-m10", "Cowork", "application/vnd.ms-powerpoint", "Read", None, None, None),
+    ("cw-1", "cw-m11", "Cowork", "application/rtf", "Write", None, None, None),
+    ("cw-1", "cw-m12", "Cowork", "application/msword", "  read ", None, None, None),
+    ("cw-1", "cw-m13", "Cowork", "text/plain", "Read", None, None, None),
+    ("cw-1", "cw-m14", "Cowork", "application/zip", "Read", None, None, None),
+    ("cw-2", "cw-m20", "Cowork", "message", "Read", None, None, None),
+    ("cw-3", "cw-m30", "Cowork", None, None, None, None, None),
+    ("cw-3", "cw-m31", "Cowork", "text/html", "Read", None, None, None),
+    ("cw-4", "cw-m40", "Cowork", "application/vnd.openxmlformats-officedocument.presentationml.presentation", "Read", None, None, None),
+    ("cw-4", "cw-m41", "Cowork", "", "Read", None, None, None),
+    ("st-surf", "st-m1", "Word", "docx", "Read", "claude-opus-4.1", "TRUE", None),
+    ("st-surf", "st-m2", "Excel", "xlsx", "Write", "gpt-5", "1", None),
+    ("st-surf", "st-m3", "  Microsoft   Teams ", "teamsmessage", "Read", "gpt-6", " true ", None),
+    ("st-surf", "st-m4", "microsoft teams", "pdf", "Read", "claude-3-haiku", "false", None),
+    ("st-surf", "st-m5", "Outlook", "eml", "Read", "o3", None, None),
+    ("st-build", "st-m6", "BizChat", "zip", "Read", None, "True", None),
+    ("st-many", "st-m7", "Word", "docx", "Read", None, "true", None),
+    ("st-many", "st-m8", "Word", "docx", "Read", None, "true", None),
+    ("st-many", "st-m9", "Word", " DOCX", "Read", None, "true", None),
+    ("st-many", "st-m10", "Word", "docx", "Read", None, "true", None),
+    ("st-many", "st-m11", "Word", "docx", "Read", None, "true", None),
+    ("st-many", "st-m12", "Word", "docx", "Read", None, "true", None),
+    ("st-mod", "st-m13", "Word", "docx", "Read", None, "true", None),
+    ("st-mod", "st-m14", "Word", "docx", "Read", None, "true", None),
+    ("st-mod", "st-m15", "Word", "doc", "Read", None, "true", None),
+    ("st-one", "st-m16", "Word", "docx", "Read", None, "true", "   "),
+    ("st-chat", "st-m17", "BizChat", "ListItem", "Read", None, "true", None),
+    ("st-chat", "st-m18", "BizChat", "md", "Read", None, "true", None),
+    ("st-syn", "st-m19", "BizChat", "md", "Read", None, "true", None),
+    ("st-syn", "st-m20", "BizChat", "loop", "Read", None, "true", None),
+    ("st-syn", "st-m21", "BizChat", "aspx", "Read", None, "true", None),
+    ("Case-Thread", "st-m22", "BizChat", None, None, None, "true", None),
+    ("case-thread", "st-m23", "BizChat", None, None, None, "true", None),
+    ("", "st-m24", "BizChat", "docx", "Read", None, "true", None),
+    ("", "", "BizChat", "xlsx", "Read", None, "true", None),
+    (None, None, "BizChat", "pptx", "Read", None, "true", None),
+    (None, None, None, "pdf", "Read", None, "true", "T_slim.agent"),
+    ("st-mixed", "st-m25", "Cowork", "message", "Read", None, None, None),
+    ("st-mixed", "st-m26", "BizChat", None, None, None, "true", None),
+]
+
+
+def slim_rows():
+    rows = []
+    for i, (thread, msg, host, rtype, ract, model, prompt, aid) in enumerate(SLIM):
+        n = 9000 + i
+        created = datetime(2026, 9, 10 + i % 3, 10, i % 60, 0)
+        day_ = created.date()
+        rid = f"rec-{n:04d}"
+        rows.append([
+            f"id-{n:04d}", rid, f"rid:{rid}", f"msg:{n}",
+            "resource:none" if rtype is None else f"res:{n}",
+            iso(created), aid, None, None, None, None, None, None,
+            "slim@example.invalid" if i % 2 else "cowork@example.invalid",
+            "slim@example.invalid" if i % 2 else "cowork@example.invalid", "Copilot",
+            host, thread, None, None, None, None, model,
+            rtype, ract, None, None,
+            msg, prompt, 0, 0, 1 if rtype else 0,
+            day_.isoformat(), (day_ - timedelta(days=day_.weekday())).isoformat(),
+            day_.replace(day=1).isoformat(),
+            None, None,
+        ])
     return rows
 
 
