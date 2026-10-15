@@ -346,10 +346,19 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
       $tool = $Installed
       if (-not $tool) { $tool = Join-Path $partial 'node\node.exe' }
       if ((Test-Path -LiteralPath $Root) -and -not (Test-Path -LiteralPath (Join-Path $Root $Marker))) { Remove-Tree $Root $tool }
-      Rename-Item -LiteralPath $partial -NewName $Id
+      # Antivirus may still be scanning the files just unpacked, which blocks the move for a few seconds.
+      for ($try = 1; ; $try++) {
+        try { Rename-Item -LiteralPath $partial -NewName $Id; break } catch {
+          if ($try -ge 10 -or (Test-Path -LiteralPath (Join-Path $Root $Marker))) { throw }
+          Start-Sleep -Seconds 2
+        }
+      }
     } catch {
+      if (-not (Test-Path -LiteralPath (Join-Path $Root $Marker))) {
+        Remove-Tree $partial $Installed
+        throw "Couldn't finish unpacking the installer: $($_.Exception.Message) Run the command again. If it keeps failing, antivirus may be holding the files in $AhHome."
+      }
       # Another copy of the installer unpacked it first.
-      if (-not (Test-Path -LiteralPath (Join-Path $Root $Marker))) { throw }
       $tool = $Installed
       if (-not $tool) { $tool = Join-Path $Root 'node\node.exe' }
       Remove-Tree $partial $tool

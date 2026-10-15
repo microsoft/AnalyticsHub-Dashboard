@@ -300,6 +300,15 @@ test("script: a node.exe blocked by device policy says what to do instead of the
   }
 });
 
+test('script: moving the unpacked installer into place retries while antivirus holds the files', () => {
+  const win = TEMPLATE.slice(TEMPLATE.indexOf("Write-Host 'Unpacking it."));
+  const move = win.slice(0, win.indexOf('# The zip\'s node.exe stays unpacked'));
+  assert.match(move, /for \(\$try = 1; ; \$try\+\+\) \{\r?\n\s*try \{ Rename-Item -LiteralPath \$partial -NewName \$Id; break \} catch \{/);
+  assert.match(move, /if \(\$try -ge 10 -or \(Test-Path -LiteralPath \(Join-Path \$Root \$Marker\)\)\) \{ throw \}\r?\n\s*Start-Sleep -Seconds 2/);
+  assert.match(move, /Remove-Tree \$partial \$Installed\r?\n\s*throw "Couldn't finish unpacking the installer: .*Run the command again/, 'removes the half-unpacked folder and says what to do');
+  assert.equal(move.match(/Rename-Item -LiteralPath \$partial/g)?.length, 1);
+});
+
 test('script: cleanup falls back to Remove-Item when policy blocks node.exe', () => {
   const tree = TEMPLATE.slice(TEMPLATE.indexOf('function Remove-Tree'), TEMPLATE.indexOf('function Find-Node'));
   const tryAt = tree.indexOf('try {');
