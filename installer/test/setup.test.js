@@ -4,7 +4,9 @@ import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { emptyConfig, loadConfig, saveConfig } from '../src/config.js';
+import fs from 'node:fs';
+import { syncBuiltinESMExports } from 'node:module';
+import { archiveConfig, emptyConfig, loadConfig, removeFile, saveConfig } from '../src/config.js';
 import { install } from '../src/install.js';
 import { checkSetupChanges, restoreSetupDraft, reviewSetup, setupCategories, setupRecovery } from '../src/setup.js';
 import { checkStaged, stageUpload, releaseStaged } from '../src/staging.js';
@@ -325,4 +327,58 @@ test('selected uploads survive Save and close, and missing staged files explicit
     return 'close';
   });
   await reviewSetup(ctx);
+});
+
+const locked = () => Object.assign(new Error('EPERM: operation not permitted'), { code: 'EPERM' });
+
+test('draft delete and archive retry while a synced folder holds the file, and give up without throwing', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'installer-lock-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  const file = join(dir, 'record.json.draft.json');
+  let tries = 0;
+  /** @type {number[]} */
+  const waits = [];
+  const wait = (/** @type {number} */ ms) => { waits.push(ms); };
+  assert.equal(removeFile(file, { unlink: () => { if (++tries < 3) throw locked(); }, wait }), true);
+  assert.equal(tries, 3);
+  assert.equal(removeFile(file, { unlink: () => { throw locked(); }, wait, tries: 4 }), false);
+  assert.equal(removeFile(file), true, 'a file that is already gone is removed');
+  assert.throws(() => removeFile(file, { unlink: () => { throw Object.assign(new Error('EIO'), { code: 'EIO' }); } }), /EIO/);
+  tries = 0;
+  /** @type {string[]} */
+  const moved = [];
+  const to = archiveConfig(file, new Date(2026, 0, 2, 3, 4, 5), { rename: (_from, dest) => { if (++tries < 2) throw locked(); moved.push(dest); }, wait });
+  assert.deepEqual(moved, [to]);
+  assert.match(to, /record\.json\.draft\.20260102-030405\.json$/);
+});
+
+test('a locked draft after approval does not block the next deployment with a false record conflict', async (t) => {
+  const { ctx, ui, draft } = fixture(t);
+  ctx.setupRetry = true;
+  const realUnlink = fs.unlinkSync;
+  const lockDraft = t.mock.method(fs, 'unlinkSync', (/** @type {fs.PathLike} */ path) => {
+    if (String(path) === draft) throw locked();
+    return realUnlink(path);
+  });
+  syncBuiltinESMExports();
+  t.after(() => { lockDraft.mock.restore(); syncBuiltinESMExports(); });
+  respond(ui, (e) => {
+    if (e.kind === 'confirm' && e.message === 'Go ahead?') return true;
+    throw new Error(`Unexpected question: ${e.message}`);
+  });
+  assert.equal(await reviewSetup(ctx), true);
+  assert.equal(existsSync(draft), true, 'the locked draft stays behind');
+  assert.equal(loadConfig(draft).config.setup?.approved, true);
+  lockDraft.mock.restore();
+  syncBuiltinESMExports();
+
+  const nextUi = createWebUi();
+  ctx.ui = nextUi;
+  ctx.setupRetry = true;
+  respond(nextUi, (e) => {
+    if (e.kind === 'confirm' && e.message === 'Go ahead?') return true;
+    throw new Error(`Unexpected question: ${e.message}`);
+  });
+  assert.equal(await reviewSetup(ctx), true, 'no "install record changed" loop and no conflict prompt');
+  assert.equal(existsSync(draft), false);
 });

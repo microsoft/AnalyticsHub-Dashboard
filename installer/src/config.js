@@ -35,7 +35,7 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {AgentEvaluatorConfig} agentEvaluator
  * @property {ResourceGraphConfig} resourceGraph
  * @property {DataAgentConfig} dataAgent
- * @property {{ completed: string[], runFirstLoad?: boolean, reloadHistoryDays?: number, baseRevision?: string, uploads?: { token?: string, name: string }[] }} [setup] Browser setup draft progress; never contains secrets.
+ * @property {{ completed: string[], runFirstLoad?: boolean, reloadHistoryDays?: number, baseRevision?: string, approved?: boolean, uploads?: { token?: string, name: string }[] }} [setup] Browser setup draft progress; never contains secrets.
  */
 
 /**
@@ -467,18 +467,53 @@ export function saveConfig(file, config, io = {}) {
 /**
  * Sets an install record aside so the next install starts fresh. It's renamed beside itself, as
  * `valuelens-install.<yyyyMMdd-HHmmss>.json`, so nothing in it is lost.
+ * A synced folder can hold the file for a moment, so the rename is retried like saveConfig's.
  * @param {string} file
  * @param {Date} [now]
+ * @param {{ rename?: (from: string, to: string) => void, wait?: (ms: number) => void, tries?: number }} [io]
  * @returns {string} where the record went
  */
-export function archiveConfig(file, now = new Date()) {
+export function archiveConfig(file, now = new Date(), io = {}) {
+  const { rename = renameSync, wait = pause, tries = 8 } = io;
   const p = (/** @type {number} */ n) => String(n).padStart(2, '0');
   const stamp = `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}${p(now.getSeconds())}`;
   const base = file.replace(/\.json$/i, '');
   let to = `${base}.${stamp}.json`;
   for (let i = 2; existsSync(to); i++) to = `${base}.${stamp}-${i}.json`;
-  renameSync(file, to);
+  retryLocked(() => rename(file, to), wait, tries);
   return to;
+}
+
+/**
+ * Deletes a file, retrying while a sync client, indexer or antivirus holds it.
+ * @param {string} file
+ * @param {{ unlink?: (file: string) => void, wait?: (ms: number) => void, tries?: number }} [io]
+ * @returns {boolean} false if it is still locked; the caller can leave it for the next run
+ */
+export function removeFile(file, io = {}) {
+  const { unlink = unlinkSync, wait = pause, tries = 8 } = io;
+  try {
+    retryLocked(() => unlink(file), wait, tries);
+    return true;
+  } catch (err) {
+    const code = /** @type {NodeJS.ErrnoException} */ (err).code ?? '';
+    if (code === 'ENOENT') return true;
+    if (LOCKED.has(code)) return false;
+    throw err;
+  }
+}
+
+/** @param {() => void} fn @param {(ms: number) => void} wait @param {number} tries */
+function retryLocked(fn, wait, tries) {
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return fn();
+    } catch (err) {
+      const code = /** @type {NodeJS.ErrnoException} */ (err).code ?? '';
+      if (!LOCKED.has(code) || attempt >= tries) throw err;
+      wait(Math.min(100 * attempt, 500));
+    }
+  }
 }
 
 /** @param {unknown} config */

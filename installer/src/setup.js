@@ -1,8 +1,8 @@
 // @ts-check
 /** Category editing keeps unapproved choices separate from deployed IDs and checkpoints. */
-import { existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { archiveConfig, loadConfig, saveConfig } from './config.js';
+import { archiveConfig, loadConfig, removeFile, saveConfig } from './config.js';
 import { armErrors } from './clients/azure.js';
 import { plan, preflight, confirmPlan } from './steps/plan.js';
 import { askTarget, azurePreflight, confirmAzurePlan, planAzure, supportsVnetGateway } from './steps/azure/index.js';
@@ -73,6 +73,11 @@ export function restoreSetupDraft(ctx) {
   const file = draftFile(ctx.file);
   if (!existsSync(file)) return true;
   const { config } = loadConfig(file);
+  // An approved draft that a synced folder kept locked last time: the record already has its choices.
+  if (config.setup?.approved) {
+    removeFile(file);
+    return true;
+  }
   if (config.tenantId && config.tenantId !== ctx.user.tenantId) throw new Error('The saved setup draft belongs to a different tenant. Sign in to that tenant to resume it.');
   if (config.setup?.baseRevision !== recordRevision(ctx.file)) return false;
   replaceConfig(ctx.config, config);
@@ -175,7 +180,12 @@ export async function reviewSetup(ctx) {
       { name: 'Keep both files and stop', value: 'stop' },
     ], 'record');
     if (choice === 'stop') return false;
-    archiveConfig(draftFile(ctx.file));
+    try {
+      archiveConfig(draftFile(ctx.file));
+    } catch (err) {
+      // The next checkpoint replaces it with the latest record, so a locked draft can't block setup.
+      ctx.ui.warn(`Couldn't archive the older draft (${/** @type {Error} */ (err).message}). It will be replaced by a draft of the latest install record.`);
+    }
   }
   await askTarget(ctx);
   const baseRevision = recordRevision(ctx.file);
@@ -302,9 +312,11 @@ export async function reviewSetup(ctx) {
         const go = ctx.config.target === 'azure' ? await confirmAzurePlan(ctx) : await confirmPlan(ctx, pre);
         if (!go) continue;
         if (recordRevision(ctx.file) !== baseRevision) throw new Error('The install record changed while you edited this draft. Save and close, then reopen setup to keep the latest deployed IDs and resolve the draft conflict.');
+        // Marked first so a draft a synced folder keeps locked is cleaned up next run, not treated as a conflict.
+        saveConfig(draftFile(ctx.file), { ...ctx.config, setup: { ...ctx.config.setup, completed: ctx.config.setup?.completed ?? [], approved: true } });
         realSave();
-        unlinkSync(draftFile(ctx.file));
         approved = true;
+        if (!removeFile(draftFile(ctx.file))) ctx.ui.note('The approved setup draft is locked by another program; it will be cleaned up next time.');
         return true;
       } catch (err) {
         if (/** @type {Error} */ (err)?.name === 'ExitPromptError' || isResumeLater(err)) throw err;
