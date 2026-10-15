@@ -133,6 +133,10 @@ Deployment instructions do **not** live here. They live in the READMEs:
 - **A pinned `install.ps1` whose release has gone** now says that `installer-vX` is no longer
   available and prints the `releases/latest` command to run instead, then exits non-zero. It
   doesn't switch versions on its own. Other download failures keep the proxy advice.
+- **Unpacking survives a busy antivirus scan.** On Windows, `install.ps1` now retries moving the
+  freshly unpacked installer into place for up to 20 seconds when antivirus still holds the
+  files. If it still can't, it removes the half-unpacked folder and says to run the command
+  again, not a bare "Access denied".
 - Not changed: the installer never installs anything with winget, so there's no `--scope user`
   fallback to add. Execution policy and Constrained Language Mode were already covered.
 
