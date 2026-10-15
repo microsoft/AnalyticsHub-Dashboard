@@ -27,6 +27,7 @@ import { ensureOrgAccess, verifyOrgAccess } from '../org-access.js';
 import { askAdvanced, asksAdvanced } from '../advanced.js';
 import { askGrants, askLine, askMode, askParameters, ensureAzureAskAccess, planAzureAsk } from './ask.js';
 import { checkRegions, noRegionMessage, regionNotes, regionProblems, sqlProblem } from './regions.js';
+import { BIG_CAPACITY_SEATS, copilotSeats, LARGE_TENANT_SEATS, seatCount } from '../../seats.js';
 
 /** @typedef {import('../../install.js').Ctx} Ctx */
 
@@ -957,6 +958,46 @@ export function azurePlanReview(ctx) {
   };
 }
 
+/**
+ * What to tell someone whose Azure sizing looks too small for the seats assigned. Says which setting
+ * changes it, and how to carry on when policy rules the change out. Only warns: nothing is resized.
+ * @param {{ seats?: number, sampleData?: boolean, sqlFreeLimit?: boolean, sqlMaxVcores?: number, powerBiCapacityId?: string }} o
+ * @returns {string[]}
+ */
+export function azureSizingWarnings({ seats, sampleData, sqlFreeLimit, sqlMaxVcores, powerBiCapacityId }) {
+  if (!seats || sampleData || seats <= LARGE_TENANT_SEATS) return [];
+  const n = seatCount(seats);
+  /** @type {string[]} */
+  const out = [];
+  if (sqlFreeLimit !== false) {
+    out.push(
+      `${n} Copilot seats are assigned and Azure SQL uses the free offer (100,000 vCore seconds and 32 GB a month). A tenant this size will likely use that up, and the database then pauses until next month. ` +
+        'After setup, open the database\'s Compute + storage in the Azure portal and choose to continue using it for additional charges when the free limit is reached, or ask your Azure admin to. If your organisation\'s policy keeps the free limit, expect the jobs to stop when it runs out.',
+    );
+  }
+  if (seats >= BIG_CAPACITY_SEATS && (sqlMaxVcores ?? DEFAULT_SQL_MAX_VCORES) < 4) {
+    out.push(
+      `${n} Copilot seats are assigned and Azure SQL scales up to ${sqlMaxVcores ?? DEFAULT_SQL_MAX_VCORES} vCores. After setup, raise the database's max vCores to 4 or more in the Azure portal (Compute + storage), or ask your Azure admin to; a policy that caps vCores means slower loads.`,
+    );
+  }
+  if (seats >= BIG_CAPACITY_SEATS) {
+    out.push(
+      `${n} Copilot seats are assigned. Each run of the collector job has ${RUN_JOB_SIZE} and up to 4 hours, so a long first load may not fit in one run. In Schedule and loading, start with 30 days of history and reload more once the first load finishes.`,
+    );
+  }
+  if (!powerBiCapacityId) {
+    out.push(
+      `${n} Copilot seats are assigned and the Power BI workspace is on shared capacity, where a semantic model is limited to 1 GB. In Power BI, choose a Fabric (F) or Premium capacity, or ask your capacity admin for one. If policy keeps you on shared capacity, the model may stop refreshing as the data grows.`,
+    );
+  }
+  return out;
+}
+
+/** What the collector run job gets per run (azure/infra/modules/containerapps.bicep). */
+const RUN_JOB_SIZE = '4 vCPU and 8 GiB';
+/** azure/infra/modules/sql.bicep maxCapacity, used when the database doesn't exist yet. */
+const DEFAULT_SQL_MAX_VCORES = 2;
+
 /** @param {Ctx} ctx */
 export async function confirmAzurePlan(ctx) {
   const { ui, config } = ctx;
@@ -964,6 +1005,8 @@ export async function confirmAzurePlan(ctx) {
   ui.heading('Ready to set up');
   ui.info('Target:      Your Azure subscription');
   ui.info(`Data:        ${az.sampleData ? 'Demo mode (synthetic sample data)' : collectedLabels(config.modules).join(', ')}`);
+  const seats = await copilotSeats(ctx.api);
+  if (seats && !az.sampleData) ui.info(`Tenant:      ${seatCount(seats)} Microsoft 365 Copilot seats assigned`);
   ui.info(`Azure:       ${az.subscriptionName ?? az.subscriptionId} / ${az.resourceGroup} / ${az.location}`);
   if (az.sqlLocation) ui.info(`Azure SQL:   ${az.sqlLocation}`);
   ui.info(`Networking:  ${isPrivate(az) ? 'Private (VNet, private endpoints, Power BI VNet data gateway)' : 'Public endpoints'}`);
@@ -980,6 +1023,12 @@ export async function confirmAzurePlan(ctx) {
   if (azureResourceGraphOn(config)) ui.info(`Governance:  ${resourceGraphKinds(config)} from Azure Resource Graph, in ${scopeName(config)}`);
   ui.info(`Ask:         ${askLine(az)}`);
   if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)}`);
+  const liveSql = /** @type {{ capacity?: number, useFreeLimit?: boolean }} */ (await liveSqlSettings(ctx).catch(() => ({})));
+  const sizing = azureSizingWarnings({
+    seats, sampleData: az.sampleData, sqlFreeLimit: liveSql.useFreeLimit ?? az.sqlFreeOffer ?? true,
+    sqlMaxVcores: liveSql.capacity, powerBiCapacityId: az.powerBi?.capacityId,
+  });
+  for (const w of sizing) ui.warn(w);
   ui.review(azurePlanReview(ctx));
   ui.note(keepAwake());
   return ui.confirm('Go ahead?', true);

@@ -165,6 +165,12 @@ Re-runs are incremental and use the same
 resource with `valuelens-install-id` and stops rather than modifying untagged resources with colliding
 names.
 
+On a tenant with more than 10,000 Copilot seats, the plan warns when the Azure sizing looks small
+and says where to change it: the Azure SQL free offer's monthly limit (the database pauses when it
+runs out), fewer than 4 max vCores from 30,000 seats, the run job's 4 hours per run (start with 30
+days of history), and a Power BI workspace on shared capacity. It doesn't change the sizing for
+you. If your organisation's policy rules a change out, setup still works and the loads are slower.
+
 ### Demo mode
 
 Under [Advanced settings](#advanced-settings), the wizard asks which data the dashboard shows. **Demo mode (sample data)**
@@ -271,7 +277,7 @@ then **Yes**.
 | [Power BI](#power-bi-reports) | The semantic model, the Power BI reports and the app. Or the model and reports, the model and app, the model only, or neither. |
 | Who can view | A new **Analytics Hub Viewers** group. You're who people ask for access. **Manage access** changes it later. |
 | [Audit history](#load-more-audit-history) for the first load | 30 days. Or 90 or 180. |
-| [How many people are in the tenant](#a-large-tenant) | More than 10,000 on an F64 or larger capacity, otherwise up to 10,000. |
+| [How many people are in the tenant](#a-large-tenant) | More than 10,000 on an F64 or larger capacity or with more than 10,000 Copilot seats assigned, otherwise up to 10,000. An existing install keeps its size. |
 | Lakehouse name | `Analytics_Hub`, or the next free name (`ValueLens` on earlier installs, which keep it). Spaces and hyphens become underscores. |
 | A new Key Vault's resource group, region and name, and the secret's name | `rg-valuelens`, the capacity's region, `valuelens-` and six random characters, and the default secret name. If you can't use `rg-valuelens`, it asks. |
 | Schedule | Daily, at the default time. Or weekly, and the time (UTC). |
@@ -392,8 +398,11 @@ load's time grows with the days of history. With 30 days a tenant of up to 10,00
 loads in under an hour. Later runs load only what's new.
 
 On a tenant with tens of thousands of people, choose **More than 10,000** when asked how many
-people are in the tenant, under [Advanced settings](#advanced-settings). It's chosen for you on an
-F64 or larger capacity. Then:
+people are in the tenant, under [Advanced settings](#advanced-settings). A new install chooses it
+for you on an F64 or larger capacity, or when more than 10,000 Microsoft 365 Copilot seats are
+assigned. The installer reads the assigned seats in the prerequisite checks and shows them in the
+plan. An install that already has a tenant size keeps it, but the plan warns when the seats have
+outgrown it. Then:
 
 - The audit log is read in 2-hour windows instead of 24-hour ones. A long window can hold too many
   records, and the audit service fails it after an hour or more. A window that fails is split after
@@ -404,11 +413,30 @@ F64 or larger capacity. Then:
 - If a run can't finish the history in time, it stops before writing anything and the retry carries
   on from where it stopped. Windows already read aren't read again. `run` does the same.
 
+The slow Graph loads get longer time limits for both sizes than the pipeline template's:
+
+| Load | Template | Up to 10,000 | More than 10,000 |
+|---|---|---|---|
+| Agent 365 registry | 2 hours | 3 hours | 6 hours, retried twice |
+| Copilot Studio transcripts | 2 hours | 3 hours | 6 hours |
+| Defender | 30 minutes | 1 hour | 2 hours |
+
+The Agent 365 registry re-reads each agent's detail once a week, spread across the week: each agent
+has its own day, so a daily run refreshes about a seventh of them. New and changed agents are read
+first. Within a time budget set below the time limit (2 hours, or 4.5 hours for more than 10,000),
+the registry leaves any refreshes still to do to the next run and writes what it has; nothing is
+older than 7 days for long.
+
+With 30,000 or more seats on a capacity smaller than F64, the plan warns and says to choose an F64
+or larger capacity in **Fabric placement**. If your organisation's policy keeps you on the smaller
+capacity, setup still works, but the loads take longer and may hit their time limits.
+
 Expect the first load to take several hours. Start with 30 days, use an F64 or larger capacity,
 and [load more history](#load-more-audit-history) later. Don't run audit searches in the
 Purview portal while it loads. To change the tenant size, choose **Repair or change**, then **Yes**
 for the advanced settings. An install from an earlier version keeps its audit windows and time
-limits until you do.
+limits until you do. An install that has a tenant size gets the new time limits on its next
+**Update** or **Repair or change**, and keeps its data and settings.
 
 ### Load more audit history
 

@@ -42,20 +42,31 @@ const BINDINGS = {
 /** @typedef {'standard' | 'large'} TenantScale */
 
 /**
- * How the loads are sized for the tenant. Standard keeps every timeout from the template and pulls the
- * audit log in day-long windows, so a small tenant sends few queries. Large is for tens of thousands of
+ * How the loads are sized for the tenant. Standard keeps the template's timeouts for the core loads and
+ * pulls the audit log in day-long windows, so a small tenant sends few queries. Large is for tens of thousands of
  * users: the audit service fails long windows on busy tenants, so it pulls 2-hour windows, splits a
  * failing one after a single retry, re-reads 3 trailing days rather than 7 to keep the daily query count
  * down, and gives the Graph loads and the model refresh more time.
  *
  * `budget` is the audit load's TIME_BUDGET_MIN: it stops starting windows in time to write what it has
  * fetched before the activity timeout, and the retry carries on where it stopped.
- * @type {Record<TenantScale, { audit: Record<string, number>, timeouts: Record<string, string>, refresh: { timeout: string, minutes: number } }>}
+ *
+ * Both sizes give the slow Graph loads more time than the template: the Agent 365 registry reads every
+ * agent's detail, and on a large tenant its weekly refresh outgrew the template's 2 hours. `registry`
+ * sets that load's TIME_BUDGET_MIN, after which it leaves scheduled refreshes to the next run and writes
+ * what it has, and its retry count (the CSV fallback covers a failure, so it keeps its own).
+ * `transcripts` is the Copilot Studio transcript load's timeout.
+ * @type {Record<TenantScale, ScaleProfile>}
  */
 export const SCALE_PROFILES = {
   standard: {
     audit: { CHUNK_HOURS: 24, TIME_BUDGET_MIN: 90 },
-    timeouts: {},
+    timeouts: {
+      Run_Agent365_Registry_Ingester: '0.03:00:00',
+      Run_Defender_Ingester: '0.01:00:00',
+    },
+    registry: { budget: 120, retry: 1 },
+    transcripts: '0.03:00:00',
     refresh: { timeout: '0.03:00:00', minutes: 170 },
   },
   large: {
@@ -66,17 +77,32 @@ export const SCALE_PROFILES = {
       Run_Licensed_Users_Ingester: '0.00:30:00',
       Run_Org_Data_Ingester: '0.01:00:00',
       Run_M365_Activity_Ingester: '0.02:00:00',
+      Run_Agent365_Registry_Ingester: '0.06:00:00',
+      Run_Defender_Ingester: '0.02:00:00',
     },
+    registry: { budget: 270, retry: 2 },
+    transcripts: '0.06:00:00',
     refresh: { timeout: '0.05:00:00', minutes: 290 },
   },
 };
 
 /**
+ * @typedef {object} ScaleProfile
+ * @property {Record<string, number>} audit  The audit load's window size, retries and time budget.
+ * @property {Record<string, string>} timeouts  Activity timeouts that replace the template's.
+ * @property {{ budget: number, retry: number }} [registry]  The Agent 365 registry load's TIME_BUDGET_MIN and retry count.
+ * @property {string} transcripts  The Copilot Studio transcript load's timeout.
+ * @property {{ timeout: string, minutes: number }} refresh
+ */
+
+/**
  * An install from before tenant sizes keeps the template's windows and time limits until someone picks a
  * size, so a large tenant isn't moved to day-long windows by an update. It only gains the time budget,
- * so a long load that runs out of time is carried on by the retry.
+ * so a long load that runs out of time is carried on by the retry. The registry load keeps the
+ * notebook's own budget, which fits the template's 2 hours.
+ * @type {ScaleProfile}
  */
-export const UNSIZED_PROFILE = { audit: { TIME_BUDGET_MIN: 90 }, timeouts: {}, refresh: SCALE_PROFILES.standard.refresh };
+export const UNSIZED_PROFILE = { audit: { TIME_BUDGET_MIN: 90 }, timeouts: {}, transcripts: '0.02:00:00', refresh: SCALE_PROFILES.standard.refresh };
 
 /** @param {TenantScale | undefined} scale */
 export const scaleProfile = (scale) => (scale === 'large' || scale === 'standard' ? SCALE_PROFILES[scale] : UNSIZED_PROFILE);
@@ -160,10 +186,10 @@ export const SKIP_COWORK_PARAMETER = 'SkipCowork';
 export const RESOURCE_GRAPH_ACTIVITY = 'Run_Resource_Graph_Ingester';
 
 /** Bump when the pipeline's layout changes, so re-running the installer updates a pipeline an older version built. */
-export const PIPELINE_VERSION = 6;
+export const PIPELINE_VERSION = 7;
 /** What this version changed, for people whose pipeline an older version built. */
 export const PIPELINE_CHANGE =
-  'This version wraps the Cowork credits Dataflow refresh in a SkipCowork switch, so the installer\'s first load can leave it out until its connections are signed in. Scheduled runs always refresh it.';
+  'This version gives the Agent 365 registry, Defender and Copilot Studio transcript loads more time, sized by tenant size, and gives the registry load a time budget so a long weekly refresh finishes on the next run instead of timing out. Your data and settings are kept.';
 
 /** Notebooks with the same tag share one high-concurrency Spark session (letters, digits and underscores only). */
 export const SESSION_TAG = 'analytics_hub';
@@ -419,12 +445,13 @@ function consumptionRefreshActivity(activities, settings) {
 function agentTranscriptsActivity(settings) {
   const notebookId = settings.notebookIds.agentTranscripts;
   if (!notebookId) throw new Error('The Copilot Studio transcript notebook has not been deployed.');
+  const timeout = scaleProfile(settings.scale).transcripts;
   return {
     name: AGENT_EVALUATOR_ACTIVITY,
     description: 'Reads Copilot Studio conversation transcripts from each chosen Dataverse environment and merges them into agent_sessions, agent_turns and the other agent tables.',
     type: 'TridentNotebook',
     dependsOn: [],
-    policy: { timeout: '0.02:00:00', ...retryPolicy('0.02:00:00'), secureOutput: false, secureInput: false },
+    policy: { timeout, ...retryPolicy(timeout), secureOutput: false, secureInput: false },
     typeProperties: {
       notebookId,
       workspaceId: settings.workspaceId,
@@ -639,10 +666,11 @@ export function buildPipeline(template, settings) {
 }
 
 /**
- * Fixes the audit load's window size and budget, and lengthens the timeouts the profile names.
- * Runs before `applyRetries`, which reads the timeouts.
+ * Fixes the audit load's window size and budget, lengthens the timeouts the profile names, and sets the
+ * Agent 365 registry load's budget and retries. Runs before `applyRetries`, which reads the timeouts
+ * and leaves the registry load's retries alone.
  * @param {any[]} activities
- * @param {ReturnType<typeof scaleProfile>} profile
+ * @param {ScaleProfile} profile
  */
 function applyScale(activities, profile) {
   const audit = findActivity(activities, 'Run_Audit_Log_Ingester');
@@ -650,6 +678,11 @@ function applyScale(activities, profile) {
   for (const [name, timeout] of Object.entries(profile.timeouts)) {
     const activity = findActivity(activities, name);
     if (activity) activity.policy = { ...activity.policy, timeout };
+  }
+  const registry = profile.registry && findActivity(activities, AGENT365_REGISTRY);
+  if (registry && profile.registry) {
+    registry.typeProperties.parameters = { ...registry.typeProperties.parameters, TIME_BUDGET_MIN: { value: profile.registry.budget, type: 'int' } };
+    registry.policy = { ...registry.policy, retry: profile.registry.retry };
   }
 }
 

@@ -28,6 +28,7 @@ import { DATA_AGENT_TYPE, dataAgentWanted, planDataAgent } from './data-agent.js
 import { planDataSources } from './data-sources.js';
 import { accessReview, planAccess } from './access.js';
 import { DATA_SOURCES, modulesFromSources, routerWanted, UPLOAD_DIR } from '../uploads.js';
+import { BIG_CAPACITY_SEATS, copilotSeats, LARGE_TENANT_SEATS, seatCount } from '../seats.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 
@@ -105,7 +106,42 @@ export function largeCapacity(capacity) {
  * @property {boolean} canConsent
  * @property {boolean | undefined} canCreateApps  undefined when the policy can't be read.
  * @property {Record<string, { enabled?: boolean, delegateToCapacity?: boolean }>} [tenantSettings]  Only for Fabric administrators.
+ * @property {number} [seats]  Assigned Microsoft 365 Copilot seats; undefined when they can't be read.
  */
+
+/**
+ * The tenant size a new install, or one with no size saved, starts at: large on F64 or larger, or
+ * with more than 10,000 Copilot seats assigned.
+ * @param {{ sku?: string } | undefined} capacity
+ * @param {number} [seats]
+ * @returns {'standard' | 'large'}
+ */
+export const defaultScale = (capacity, seats) => ((capacity && largeCapacity(capacity)) || (seats ?? 0) > LARGE_TENANT_SEATS ? 'large' : 'standard');
+
+/**
+ * What to tell someone whose tenant size or capacity looks too small for the seats assigned. Says
+ * which step changes it, and how to carry on when policy rules the change out.
+ * @param {{ seats?: number, capacity?: { sku?: string, displayName?: string }, scale?: 'standard' | 'large' }} opts
+ * @returns {string[]}
+ */
+export function sizingWarnings({ seats, capacity, scale }) {
+  if (!seats) return [];
+  /** @type {string[]} */
+  const out = [];
+  const n = seatCount(seats);
+  if (seats >= BIG_CAPACITY_SEATS && capacity && !largeCapacity(capacity)) {
+    out.push(
+      `${n} Copilot seats are assigned and the capacity ${capacity.displayName ?? ''} is ${capacity.sku ?? 'an unknown size'}, below F64. ` +
+        'In Fabric placement, choose an F64 or larger capacity, or ask your capacity admin for one. If your organisation\'s policy keeps you on this capacity, setup still works, but loads take longer and may hit their time limits.',
+    );
+  }
+  if (seats > LARGE_TENANT_SEATS && scale === 'standard') {
+    out.push(
+      `${n} Copilot seats are assigned, but the tenant size is "Up to 10,000". In Fabric placement (in the terminal, under the advanced settings), choose "More than 10,000" so the pipeline reads the audit log in smaller windows and gives its slow steps longer.`,
+    );
+  }
+  return out.map((s) => s.replace(/ {2,}/g, ' '));
+}
 
 /**
  * Tenant settings the semantic model, the reports and the app rely on, and what breaks without them.
@@ -207,6 +243,9 @@ export async function preflight(ctx) {
   }
   if (subscriptions.length) ui.ok(`${subscriptions.length} Azure ${subscriptions.length === 1 ? 'subscription' : 'subscriptions'} for Key Vault`);
 
+  const seats = await copilotSeats(api);
+  if (seats) ui.ok(`${seatCount(seats)} Microsoft 365 Copilot ${seats === 1 ? 'seat' : 'seats'} assigned`);
+
   /** @type {Preflight['tenantSettings']} */
   let tenantSettings;
   try {
@@ -215,7 +254,7 @@ export async function preflight(ctx) {
     // Only Fabric administrators can read them.
   }
 
-  return { capacities, subscriptions, roles: roles.map((r) => r.displayName), canConsent, canCreateApps, tenantSettings };
+  return { capacities, subscriptions, roles: roles.map((r) => r.displayName), canConsent, canCreateApps, tenantSettings, seats };
 }
 
 /**
@@ -395,7 +434,7 @@ export async function plan(ctx, pre, section) {
     );
     const capacity = pre.capacities.find((cap) => cap.id === config.fabric.capacityId);
     await planDataAgent(ctx, pre, capacity, advanced());
-    const scale = config.scale ?? (capacity && largeCapacity(capacity) ? 'large' : 'standard');
+    const scale = config.scale ?? defaultScale(capacity, pre.seats);
     config.scale = !advanced()
       ? scale
       : await ui.select(
@@ -406,6 +445,7 @@ export async function plan(ctx, pre, section) {
         ],
         scale,
       );
+    for (const w of sizingWarnings({ seats: pre.seats, capacity, scale: config.scale })) ui.warn(w);
     if (config.fabric.workspaceId) {
       ui.ok(`Workspace: ${config.fabric.workspaceName ?? config.fabric.workspaceId}`);
     } else {
@@ -1195,7 +1235,10 @@ export async function confirmPlan(ctx, pre) {
   else if (kvMode === 'keyvault-admin') ui.info(`Key Vault:   ${config.keyVault.name} ${c.dim('(a vault admin adds the secret)')}`);
   else ui.info(`Key Vault:   ${config.keyVault.name} ${config.keyVault.existing || config.keyVault.uri ? '' : c.dim(`(new, ${config.keyVault.rbac ? 'Azure RBAC' : 'access policies'})`)}`);
   ui.info(`Schedule:    ${config.schedule.frequency === 'weekly' ? `${config.schedule.weekday}s` : 'Daily'} at ${config.schedule.time} ${config.schedule.timeZone}`);
-  ui.info(`Tenant size: ${config.scale === 'large' ? 'large (more than 10,000 people)' : 'standard (up to 10,000 people)'}`);
+  const seats = pre?.seats ? c.dim(` (${seatCount(pre.seats)} Copilot seats assigned)`) : '';
+  ui.info(`Tenant size: ${config.scale === 'large' ? 'large (more than 10,000 people)' : 'standard (up to 10,000 people)'}${seats}`);
+  const capacity = pre?.capacities.find((cap) => cap.id === config.fabric.capacityId);
+  for (const w of sizingWarnings({ seats: pre?.seats, capacity, scale: config.scale })) ui.warn(w);
   if (config.semanticModel.enabled) {
     const cm = config.consumption.model;
     const consumption = consumptionModelWanted(ctx) ? `, ${cm.name} ${cm.id ? '' : c.dim('(new)')}`.trimEnd() : '';

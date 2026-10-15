@@ -259,7 +259,7 @@ export const NOTEBOOKS = [
     displayName: 'Copilot_Agent365_Registry_Ingester',
     module: 'agent365',
     credentials: true,
-    parameters: [],
+    parameters: ['TIME_BUDGET_MIN'],
     placeholder: 'REPLACE_WITH_AGENT365_REGISTRY_NOTEBOOK_ID',
     registry: true,
   },

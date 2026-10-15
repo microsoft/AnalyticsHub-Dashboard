@@ -38,6 +38,33 @@ Deployment instructions do **not** live here. They live in the READMEs:
   above the stages and each stage loads on its own. On the Executive summary, Try again now
   reloads the dates.
 
+**Sizing for a large tenant.**
+
+- **The tenant size follows the Copilot seats as well as the capacity.** The prerequisite checks
+  now report how many Microsoft 365 Copilot seats are assigned, and the plan shows them. A new
+  install, or one with no size saved, is sized **More than 10,000** when more than 10,000 seats are
+  assigned, as well as on F64 or larger. An install that already has a size keeps it; the plan
+  warns when the seats have outgrown it and says which step changes it. If the seats can't be read,
+  sizing falls back to the capacity as before.
+- **Capacity warnings.** With 30,000 or more seats on a capacity below F64, the plan says to choose
+  an F64 or larger capacity in Fabric placement, or ask your capacity admin, and that setup still
+  works if policy keeps you on the smaller one. `--yes` installs print the same warnings and carry on.
+- **Azure sizing warnings.** On the Azure target, a tenant with more than 10,000 seats is warned
+  about the Azure SQL free offer's monthly limit, fewer than 4 max vCores (from 30,000 seats), the
+  run job's 4 hours per run, and a Power BI workspace on shared capacity, each with where to change
+  it. Nothing is resized for you.
+- **Longer time limits for the slow loads.** The Agent 365 registry (2 hours in the template, which a
+  large tenant ran out of) now gets 3 hours, or 6 hours with a second retry for more than 10,000.
+  Copilot Studio transcripts get 3 or 6 hours, and Defender 1 or 2 hours. **Update** and **Repair or
+  change** rebuild the pipeline with them and keep your data and settings. An install from before
+  tenant sizes keeps the template's limits until it's given a size.
+- **The Agent 365 registry's weekly refresh is spread across the week.** Each agent now has its own
+  refresh day, from a hash of its ID, so a run re-reads about a seventh of the agents rather than
+  every agent on the same day. New and changed agents are read first. A new `TIME_BUDGET_MIN`
+  (default 75 minutes; 120, or 270 for more than 10,000, from the installer) stops starting
+  scheduled refreshes when it runs out and leaves the rest to the next run; the 7-day ceiling still
+  applies.
+
 **Installer robustness ([#88](https://github.com/microsoft/AnalyticsHub-Dashboard/issues/88)).**
 
 - **The first load is recorded as complete only once it's proven.** A first load whose pipeline

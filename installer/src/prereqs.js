@@ -7,6 +7,7 @@
 import { allowsAction, ROLES } from './clients/azure.js';
 import { APP_ROLES, CONSENT_ROLES, FABRIC_ADMIN_ROLE, POWER_PLATFORM_ADMIN_ROLE } from './clients/graph.js';
 import { secretMode } from './config.js';
+import { copilotLicences } from './seats.js';
 import { canWriteSecrets } from './steps/identity.js';
 import { blockedSettings, runsFabric } from './steps/plan.js';
 
@@ -46,8 +47,7 @@ export const PREMIUM_FLOW_PLANS = {
   FLOW_P1_GOV: 'Power Automate Plan 1',
 };
 
-/** The service plan in every Microsoft 365 Copilot SKU (Microsoft_365_Copilot, M365_Copilot, the EDU and E7 SKUs, ...). */
-export const COPILOT_PLAN = 'M365_COPILOT_APPS';
+export { COPILOT_PLAN } from './seats.js';
 
 const PIM_URL = 'https://entra.microsoft.com/#view/Microsoft_Azure_PIMCommon/ActivationMenuBlade/~/aadmigratedroles';
 
@@ -269,11 +269,11 @@ export async function checkPrereqs(ctx) {
         optional: true,
       },
       async () => {
-        const copilot = (await skus()).filter((s) => (s.servicePlans ?? []).some((p) => p.servicePlanName === COPILOT_PLAN));
-        const names = [...new Set(copilot.map((s) => s.skuPartNumber).filter(Boolean))].join(', ');
-        const assigned = copilot.reduce((n, s) => n + (s.consumedUnits ?? 0), 0);
+        const licences = copilotLicences(await skus());
+        const names = licences.names.join(', ');
+        const { assigned } = licences;
         if (assigned) return { status: 'met', detail: `${assigned} assigned (${names}).` };
-        return copilot.length
+        return licences.found
           ? { status: 'missing', detail: `The tenant has ${names}, but none are assigned yet.` }
           : { status: 'missing', detail: 'No Microsoft 365 Copilot licences found in this tenant.' };
       },

@@ -107,9 +107,16 @@ a manual Purview search of the same 8h fails too. For more than about 10,000 peo
 - Start with the default 30 days. Load more later with a backfill run.
 - Use an F64 or larger capacity, and don't run audit searches in the Purview portal while it runs.
 
-The installer does this when you choose **More than 10,000** people. It also gives the loads and
-the model refresh longer time limits. For a smaller tenant it uses 24h windows, which need fewer
-queries each day.
+The installer does this when you choose **More than 10,000** people, which it chooses for a new
+install with more than 10,000 Copilot seats assigned. It also gives the loads and the model refresh
+longer time limits. For a smaller tenant it uses 24h windows, which need fewer queries each day.
+
+The Agent 365 registry ingester refreshes each agent's detail on its own day of the week (a hash of
+the agent ID picks it), so a daily run refreshes about a seventh of the agents, not all of them on
+one day. New and changed agents are always fetched first. `TIME_BUDGET_MIN` (default 75 minutes;
+the installer sets 120, or 270 for more than 10,000) caps the time spent on those scheduled
+refreshes: when it runs out, the ingester leaves the rest to the next run and writes what it has.
+`0` means no limit. Set it below the pipeline activity's timeout.
 
 ## People show as IDs
 
