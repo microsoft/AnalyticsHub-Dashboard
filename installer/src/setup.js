@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { archiveConfig, loadConfig, removeFile, saveConfig } from './config.js';
 import { armErrors } from './clients/azure.js';
 import { plan, preflight, confirmPlan } from './steps/plan.js';
-import { askTarget, azurePreflight, confirmAzurePlan, planAzure, supportsVnetGateway } from './steps/azure/index.js';
+import { askTarget, azurePreflight, confirmAzurePlan, deploymentPinned, planAzure, resourcesIn, supportsVnetGateway } from './steps/azure/index.js';
 import { checkRegions, regionProblems, sqlProblem, allowedFor, ASK_TYPE } from './steps/azure/regions.js';
 import { askModelIn } from './steps/azure/ask.js';
 import { isResumeLater } from './steps/identity.js';
@@ -105,11 +105,11 @@ export async function checkSetupChanges(ctx, before) {
   const baseline = old.deploymentConfig;
   if (!baseline && !old.outputs?.sqlServerFqdn && !old.deployments?.length) return;
   const deployed = baseline ?? old;
-  if (az.subscriptionId !== deployed.subscriptionId || az.resourceGroup !== deployed.resourceGroup || az.namePrefix !== deployed.namePrefix) {
+  const resources = await resourcesIn(ctx.api.arm, deployed.subscriptionId, deployed.resourceGroup);
+  const has = (/** @type {RegExp} */ type) => resources.some((r) => r.tags?.['valuelens-install-id'] === old.installId && type.test(r.type ?? ''));
+  if (deploymentPinned(old, resources) && (az.subscriptionId !== deployed.subscriptionId || az.resourceGroup !== deployed.resourceGroup || az.namePrefix !== deployed.namePrefix)) {
     throw new Error('Deployment has already been attempted here. Keep the subscription, resource group and name prefix to reuse its resources. Use a separate install record for a new deployment; existing resources are not deleted.');
   }
-  const resources = await ctx.api.arm.listResources(/** @type {string} */ (old.subscriptionId), /** @type {string} */ (old.resourceGroup));
-  const has = (/** @type {RegExp} */ type) => resources.some((r) => r.tags?.['valuelens-install-id'] === old.installId && type.test(r.type ?? ''));
   if (az.location !== deployed.location && (old.outputs?.storageAccountName || old.outputs?.environmentName || old.outputs?.webName || has(/Microsoft\.(App|Storage|OperationalInsights|ManagedIdentity)\//i))) {
     throw new Error('Resources already exist in the Azure region. They cannot be moved by retrying setup. Keep that region; change only the SQL region if its server has not been created. A new regional deployment needs a separate install record and explicit cleanup of the old resources.');
   }

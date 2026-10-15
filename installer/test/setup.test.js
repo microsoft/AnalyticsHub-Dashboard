@@ -14,7 +14,7 @@ import { parseForm } from '../src/ui.js';
 import { createWebUi } from '../src/web-ui.js';
 import { HttpError } from '../src/http.js';
 import { azureUninstall, planAzure } from '../src/steps/azure/index.js';
-import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi } from './fakes.js';
+import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi, httpError } from './fakes.js';
 
 /** @param {import('node:test').TestContext} t */
 function fixture(t) {
@@ -405,4 +405,70 @@ test('re-running setup into an existing resource group means uninstall deletes o
   assert.ok(!arm.calls.some((c) => c.startsWith('deleteResourceGroup')), 'the existing group is never deleted');
   assert.ok(arm.calls.includes('deleteResource /subscriptions/sub-1/resourceGroups/rg-shared/providers/Microsoft.Storage/storageAccounts/ours'));
   assert.ok(!arm.calls.some((c) => c.endsWith('/theirs')));
+});
+
+/** listResources as ARM answers it: 404 ResourceGroupNotFound until the group exists. @param {ReturnType<typeof fakeArm>} arm */
+function groupMustExist(arm) {
+  arm.api.listResources = async (_sub, rg) => {
+    if (!arm.groups[rg]) throw httpError(404, 'ResourceGroupNotFound');
+    return arm.resources;
+  };
+}
+
+/** Retry from the Placement category, moving to a new resource group. @param {import('../src/install.js').Ctx} ctx */
+function moveToNewGroup(ctx) {
+  ctx.setupSection = 'placement';
+  const ui = createWebUi();
+  ctx.ui = ui;
+  respond(ui, (e) => {
+    if (e.kind === 'settings') return 'deploy';
+    if (e.kind === 'input' && e.message === 'New resource group name') return 'rg-other';
+    if (e.kind === 'select' || e.kind === 'input') return e.default;
+    if (e.kind === 'form') return { location: 'uksouth', sqlLocation: '', namePrefix: 'vlens2', tags: '' };
+    if (e.kind === 'confirm') return e.message === 'Go ahead?';
+    throw new Error(`Unexpected question: ${e.message}`);
+  });
+}
+
+test('a first deploy that fails before its resource group exists leaves placement editable for the retry', async (t) => {
+  const { ctx, config, ui, arm } = fixture(t);
+  assert.ok(config.azure);
+  delete config.azure.deploymentConfig;
+  ctx.save();
+  groupMustExist(arm);
+  const ensure = arm.api.ensureResourceGroup;
+  let denied = true;
+  arm.api.ensureResourceGroup = async (...args) => {
+    if (denied) { denied = false; throw httpError(403, 'AuthorizationFailed'); }
+    return ensure(...args);
+  };
+  ctx.setupRetry = true;
+  respond(ui, (e) => {
+    if (e.kind === 'confirm' && e.message === 'Go ahead?') return true;
+    throw new Error(`Unexpected question: ${e.message}`);
+  });
+  await assert.rejects(install(ctx, { wait: false }), /AuthorizationFailed/);
+  assert.equal(loadConfig(ctx.file).config.azure?.deploymentConfig, undefined, 'nothing to reuse yet');
+
+  ctx.setupRetry = false;
+  moveToNewGroup(ctx);
+  assert.equal(await install(ctx, { wait: false }), true);
+  assert.equal(config.azure.resourceGroup, 'rg-other');
+  assert.equal(loadConfig(ctx.file).config.azure?.deploymentConfig?.resourceGroup, 'rg-other');
+  assert.equal(config.azure.namePrefix, 'vlens2');
+});
+
+test('a record whose deployment config outlived a missing resource group can still change placement', async (t) => {
+  const { ctx, config, arm } = fixture(t);
+  assert.ok(config.azure);
+  groupMustExist(arm);
+  const before = structuredClone(config);
+  config.azure.resourceGroup = 'rg-other';
+  await checkSetupChanges(ctx, before);
+  config.azure.resourceGroup = 'rg';
+
+  moveToNewGroup(ctx);
+  assert.equal(await install(ctx, { wait: false }), true);
+  assert.equal(config.azure.resourceGroup, 'rg-other');
+  assert.equal(config.azure.deploymentConfig?.resourceGroup, 'rg-other');
 });

@@ -223,6 +223,22 @@ export async function askTarget(ctx) {
   ], ctx.config.target);
 }
 
+/**
+ * The resources in a resource group, or none when the group doesn't exist (a first deploy can fail before creating it).
+ * @param {Ctx['api']['arm']} arm @param {string | undefined} subscriptionId @param {string | undefined} resourceGroup
+ */
+export async function resourcesIn(arm, subscriptionId, resourceGroup) {
+  if (!subscriptionId || !resourceGroup) return [];
+  return arm.listResources(subscriptionId, resourceGroup).catch((err) => (err instanceof HttpError && err.status === 404 ? [] : Promise.reject(err)));
+}
+
+/**
+ * Whether an earlier attempt left something to reuse, so subscription, resource group and prefix must stay.
+ * @param {import('../../config.js').AzureConfig} az @param {{ tags?: Record<string, string> }[]} resources
+ */
+export const deploymentPinned = (az, resources) =>
+  !!az.outputs?.sqlServerFqdn || !!az.deployments?.length || resources.some((r) => r.tags?.['valuelens-install-id'] === az.installId);
+
 /** @param {Ctx} ctx @param {any} pre @param {string} [section] */
 export async function planAzure(ctx, pre, section) {
   const { ui, config, api } = ctx;
@@ -253,7 +269,9 @@ export async function planAzure(ctx, pre, section) {
   const subs = pre.subscriptions.length ? pre.subscriptions : (await api.arm.listSubscriptions()).filter((s) => s.state === 'Enabled');
   if (editing('placement')) {
     ui.heading('Azure');
-    const pinned = section && ui.web && (!!az.deploymentConfig || !!az.outputs?.sqlServerFqdn);
+    const attempted = section && ui.web && (!!az.deploymentConfig || !!az.outputs?.sqlServerFqdn);
+    const existing = attempted ? await resourcesIn(api.arm, az.subscriptionId, az.resourceGroup) : [];
+    const pinned = attempted && deploymentPinned(az, existing);
     if (pinned) {
       ui.note(`Keeping subscription ${az.subscriptionName ?? az.subscriptionId} and resource group ${az.resourceGroup} to reuse this deployment's resources.`);
     } else {
@@ -292,7 +310,7 @@ export async function planAzure(ctx, pre, section) {
     const defaultLocation = [az.location, rg?.location, 'uksouth'].find((r) => r && offered.some((l) => l.name === r)) ?? offered[0]?.name ?? rg?.location ?? az.location ?? 'uksouth';
     const sqlNote = (/** @type {string} */ name) => (advanced && check && sqlProblem(check, name) ? { description: `${sqlProblem(check, name)}: pick another Azure SQL region next.` } : {});
     if (section && ui.web) {
-      const resources = pinned ? await api.arm.listResources(subscriptionId, /** @type {string} */ (az.resourceGroup)) : [];
+      const resources = pinned ? existing : [];
       const has = (/** @type {RegExp} */ type) => resources.some((r) => r.tags?.['valuelens-install-id'] === az.installId && type.test(r.type ?? ''));
       const regionLocked = !!(az.outputs?.storageAccountName || az.outputs?.environmentName || az.outputs?.webName) || has(/^Microsoft\.(App|Storage|OperationalInsights|ManagedIdentity)\//i);
       const sqlLocked = !!az.outputs?.sqlServerFqdn || has(/^Microsoft\.Sql\/servers$/i);
@@ -351,7 +369,7 @@ export async function planAzure(ctx, pre, section) {
     const sqlPolicy = sqlPrivate.map((n) => `"${n}"`).join(', ');
     if (sqlPrivate.length) az.publicNetworkAccess = false;
     if (section && ui.web) {
-      const resources = az.deploymentConfig ? await api.arm.listResources(/** @type {string} */ (az.subscriptionId), /** @type {string} */ (az.resourceGroup)) : [];
+      const resources = az.deploymentConfig ? await resourcesIn(api.arm, az.subscriptionId, az.resourceGroup) : [];
       const networkLocked = !!az.outputs?.environmentName || resources.some((r) => r.tags?.['valuelens-install-id'] === az.installId && /^Microsoft\.App\/managedEnvironments$/i.test(r.type ?? ''));
       if (networkLocked) az.publicNetworkAccess = previousAccess;
       const values = await ui.form('Networking', [
@@ -972,10 +990,6 @@ export async function installAzure(ctx, opts) {
   const { ui, config, api } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure ??= {});
   az.installId ??= randomUUID();
-  az.deploymentConfig = {
-    subscriptionId: az.subscriptionId, resourceGroup: az.resourceGroup, namePrefix: az.namePrefix,
-    location: az.location, sqlLocation: az.sqlLocation, publicNetworkAccess: az.publicNetworkAccess,
-  };
   ctx.save();
   az.imageTag = imageTag(az);
   const consumption = azureConsumptionOn(config);
@@ -999,6 +1013,11 @@ export async function installAzure(ctx, opts) {
     az.createdResourceGroup = true;
     ui.ok(`Created resource group ${az.resourceGroup}`);
   } else ui.ok(`Using resource group ${az.resourceGroup}`);
+  // Recorded once the group exists: a failure before this leaves nothing to reuse, so placement stays editable.
+  az.deploymentConfig = {
+    subscriptionId: az.subscriptionId, resourceGroup: az.resourceGroup, namePrefix: az.namePrefix,
+    location: az.location, sqlLocation: az.sqlLocation, publicNetworkAccess: az.publicNetworkAccess,
+  };
   ctx.save();
 
   step('Azure resources');
