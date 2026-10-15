@@ -9,6 +9,7 @@ import { useStageFilter } from "@/hooks/stage-filter.context";
 import { CommercialTermsProvider } from "@/components/commercial-terms-provider";
 import { QueryEmpty, QueryError } from "@/components/query-states";
 import { useFilterContext } from "@/hooks/filter.context";
+import { isBusyMessage } from "@/lib/query-scheduler";
 import { CONSUMPTION_CONFIGURED } from "@/screens/value/cost-vs-value-data";
 import { AttentionStage } from "./attention-stage";
 import { BottomLineStage } from "./bottom-line-stage";
@@ -18,11 +19,21 @@ import { useExecutiveData } from "./use-executive-data";
 
 function ExecutiveStages() {
     const data = useExecutiveData();
-    const { optionsError } = useFilterContext();
+    const { optionsError, retryOptions } = useFilterContext();
     const { show } = useStageFilter();
 
+    // Every stage here is held to the dates with activity, so without them there is nothing to show yet.
     if (optionsError) {
-        return <QueryError message={`The dates with Copilot activity couldn't be read: ${optionsError.message}`} />;
+        return (
+            <QueryError
+                message={
+                    isBusyMessage(optionsError.message)
+                        ? optionsError.message
+                        : `The dates with Copilot activity couldn't be read: ${optionsError.message}`
+                }
+                onRetry={retryOptions}
+            />
+        );
     }
     if (data.range.settled && !data.range.range) {
         return (

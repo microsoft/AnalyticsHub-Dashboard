@@ -96,6 +96,7 @@ function Themed({ children }: { children: ReactNode }) {
 function renderScreen(
     dates: Partial<FilterOptions> = { firstDate: "2026-05-08", lastDate: "2026-07-06" },
     stages?: StageFilter,
+    context: { optionsError?: Error; retryOptions?: () => void } = {},
 ) {
     const options = { agentTypes: [], agentNames: [], activities: [], firstDate: undefined, lastDate: undefined, ...dates };
     render(
@@ -109,6 +110,7 @@ function renderScreen(
                 orgAttribute: describeOrgAttribute(DEFAULT_ORG_ATTRIBUTE),
                 orgAttributes: [DEFAULT_ORG_ATTRIBUTE],
                 orgValues: undefined,
+                ...context,
             }}
         >
             <Themed>
@@ -189,5 +191,19 @@ describe("Executive summary", () => {
         renderScreen({ firstDate: undefined, lastDate: undefined });
         expect(await screen.findByText("No Copilot activity in this date range")).toBeTruthy();
         expect(screen.queryByRole("heading", { name: "The bottom line" })).toBeNull();
+    });
+
+    it("says Power BI is busy when the dates were throttled, and asks for them again", () => {
+        const retryOptions = vi.fn();
+        renderScreen(undefined, undefined, { optionsError: new Error("Power BI is busy: too many queries."), retryOptions });
+        expect(screen.getByText("Power BI is busy")).toBeTruthy();
+        screen.getByRole("button", { name: "Try again" }).click();
+        expect(retryOptions).toHaveBeenCalledOnce();
+    });
+
+    it("keeps naming the dates when they failed for another reason", () => {
+        renderScreen(undefined, undefined, { optionsError: new Error("Cannot find table 'Dates'.") });
+        expect(screen.getByText(/The dates with Copilot activity couldn't be read: Cannot find table/)).toBeTruthy();
+        expect(screen.queryByText("Power BI is busy")).toBeNull();
     });
 });

@@ -20,6 +20,24 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**App: queries paced so a busy Power BI doesn't empty a page.**
+
+- **Paced queries.** The app now keeps at most 4 semantic model queries in flight and starts
+  no more than 90 a minute per user, under Power BI's limit of 120. A page load used to send
+  about 25 queries at once.
+- **Retries.** A query that Power BI throttles (`429` or `503`) is retried up to 3 times. The
+  app waits as long as `Retry-After` asks, or else backs off exponentially with jitter. Every
+  other query waits too, so the app stops adding load while Power BI catches up. On Azure, the
+  app now reads the `Retry-After` header that the web proxy passes through.
+- **Shared requests.** Identical queries that are in flight at the same time share one
+  request.
+- **A clear message.** A query that is still throttled after its retries shows **Power BI is
+  busy** with a Try again button, not "This didn't load".
+- **Only the affected visual fails.** A throttled slicer-options query no longer replaces the
+  whole Agent Evaluation or Consumption page with a "didn't answer" error. The busy notice sits
+  above the stages and each stage loads on its own. On the Executive summary, Try again now
+  reloads the dates.
+
 **Installer robustness ([#88](https://github.com/microsoft/AnalyticsHub-Dashboard/issues/88)).**
 
 - **The first load is recorded as complete only once it's proven.** A first load whose pipeline

@@ -36,6 +36,31 @@ afterEach(() => {
     vi.clearAllMocks();
 });
 
+describe("AgentEvaluationScreen when its slicer choices fail", () => {
+    const status = { data: undefined, isLoading: false, error: undefined, refetch: vi.fn() };
+
+    it("keeps the page when Power BI is only busy, with a retry for the choices", () => {
+        const refetch = vi.fn();
+        useTableQuery.mockReturnValue({ table: undefined, error: "Power BI is busy: too many queries.", isLoading: false, refetch });
+        useSemanticModelQuery.mockReturnValue(status);
+        render(<AgentEvaluationScreen />);
+
+        expect(screen.getByText("Power BI is busy")).toBeTruthy();
+        expect(screen.queryByText(/didn't answer/)).toBeNull();
+        screen.getByRole("button", { name: "Try again" }).click();
+        expect(refetch).toHaveBeenCalledOnce();
+    });
+
+    it("still says the model didn't answer when the error is something else", () => {
+        useTableQuery.mockReturnValue({ table: undefined, error: "Cannot find table 'Conversations'.", isLoading: false, refetch: vi.fn() });
+        useSemanticModelQuery.mockReturnValue(status);
+        render(<AgentEvaluationScreen />);
+
+        expect(screen.queryByText("Power BI is busy")).toBeNull();
+        expect(screen.getByText(/didn't answer/)).toBeTruthy();
+    });
+});
+
 describe("AgentEvaluationScreen with no conversations", () => {
     it("says where the parser looked, and how to add environments", () => {
         useTableQuery.mockReturnValue(NO_DATA);

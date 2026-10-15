@@ -52,7 +52,7 @@ function consumptionAttributesConfig() {
  */
 export function FilterProvider({ applicable, children }: { applicable: readonly FilterKey[]; children: ReactNode }) {
     const [state, setFilters] = useState<FilterState>(defaultFilters);
-    const { data, error } = useSemanticModelQuery(optionsConfig);
+    const { data, error, refetch: retryOptions } = useSemanticModelQuery(optionsConfig);
     const attributesResult = useSemanticModelQuery(attributesConfig);
 
     const options = useMemo(() => (data?.status === "success" ? toFilterOptions(data.table) : undefined), [data]);
@@ -91,13 +91,14 @@ export function FilterProvider({ applicable, children }: { applicable: readonly 
             setFilters,
             options,
             optionsError: error,
+            retryOptions,
             applicable,
             orgAttribute,
             orgAttributes,
             orgValues,
             consumptionOrgAttributes,
         }),
-        [filters, options, error, applicable, orgAttribute, orgAttributes, orgValues, consumptionOrgAttributes],
+        [filters, options, error, retryOptions, applicable, orgAttribute, orgAttributes, orgValues, consumptionOrgAttributes],
     );
 
     return <FilterContext.Provider value={value}>{children}</FilterContext.Provider>;

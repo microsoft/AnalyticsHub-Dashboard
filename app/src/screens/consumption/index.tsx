@@ -9,7 +9,9 @@ import { useStageFilter } from "@/hooks/stage-filter.context";
 import { useMemo } from "react";
 import { CommercialTermsProvider } from "@/components/commercial-terms-provider";
 import { stageAnchor } from "@/components/destinations";
+import { QueryError } from "@/components/query-states";
 import { SourceEmpty, SourceError } from "@/components/source-states";
+import { isBusyMessage } from "@/lib/query-scheduler";
 import { readText } from "@/lib/summary-row";
 import {
     azureMode,
@@ -60,7 +62,8 @@ function ConsumptionPage() {
     const azureCurrency =
         azure.kind === "solution" ? azure.currencies[0] : azure.kind === "foundry" ? azure.currency : undefined;
 
-    if (optionsResult.error !== undefined) {
+    const optionsBusy = isBusyMessage(optionsResult.error);
+    if (optionsResult.error !== undefined && !optionsBusy) {
         return (
             <SourceError
                 {...SOURCE}
@@ -83,6 +86,8 @@ function ConsumptionPage() {
 
     return (
         <div className="flex flex-col gap-800">
+            {/* Throttled slicer choices only cost the slicers: each stage still loads, or fails, on its own. */}
+            {optionsBusy && optionsResult.error && <QueryError message={optionsResult.error} onRetry={optionsResult.refetch} />}
             {!inPack && <RatesBar azureCurrency={azureCurrency} />}
             {show("consumption-overview") && <OverviewStage />}
             {show("budget-runway") && <BudgetRunwayStage options={options} azure={azure} sources={sources.row} />}
