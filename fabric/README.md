@@ -6,12 +6,12 @@ as an app in Fabric, called **Analytics Hub**. You don't need a terminal or Powe
 [![Download the Analytics Hub installer](https://img.shields.io/badge/Download-Analytics%20Hub%20installer-0078D4?style=for-the-badge)](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
 
 For Windows 10 or 11. Check [what you need](#before-you-start) first. If your organisation blocks
-downloaded exes, use the [PowerShell command](../installer/README.md#from-powershell) instead. If
-your PC can't run either, use [Azure Cloud Shell](../installer/README.md#locked-down-tenant--azure-cloud-shell).
+downloaded exes, use the [PowerShell command](../docs/INSTALL.md#from-powershell) instead. If
+your PC can't run either, use [Azure Cloud Shell](../docs/INSTALL.md#locked-down-tenant--azure-cloud-shell).
 
 ## Before you start
 
-Go through the **[Before you start checklist](../docs/PREREQUISITES.md)**. It lists what you need
+Go through the **[Prerequisites](../docs/PREREQUISITES.md)**. It lists what you need
 and what to ask other admins for, by person, with the optional extras and the costs. In short:
 
 - A **Fabric capacity**, F2 or larger. No capacity?
@@ -19,7 +19,7 @@ and what to ask other admins for, by person, with the optional extras and the co
 - Optional: an **Azure subscription** or resource group where you can create a Key Vault. By
   default the app's client secret goes in the notebooks instead, with nothing in Azure. See
   [Where the client secret goes](#where-the-client-secret-goes).
-- A **Fabric admin** to turn on three tenant settings, and a **Global Administrator** or
+- A **Fabric admin** to turn on four tenant settings, and a **Global Administrator** or
   **Privileged Role Administrator** to grant admin consent. The installer gives you a link to send.
 - For Copilot Cowork credits, a **Viva Insights query** built first.
   [Send this to your Viva Insights analyst](../docs/PREREQUISITES.md#send-this-to-your-viva-insights-analyst-first).
@@ -33,19 +33,18 @@ you're responsible for the data once it's in your workspace.
 
 ## Install
 
-1. [Download the installer](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe).
-   If Edge says it isn't commonly downloaded, choose **…** next to the file, then **Keep**,
-   **Show more** and **Keep anyway**.
-2. Open it. If Windows says it protected your PC, choose **More info**, then **Run anyway**.
-   These warnings appear because the installer is new and isn't code-signed yet. To check the
-   file first, see [Check the download](../installer/README.md#check-the-download). If your
-   organisation blocks it, paste this into PowerShell instead and carry on from step 3:
+1. Start the installer. Paste this into PowerShell:
 
    ```powershell
    irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
    ```
 
-3. After about a minute, it opens in your browser. Keep the installer window open until you're
+   Or [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
+   and open it. Neither is code-signed yet; to check a download, see
+   [Check the download](../docs/INSTALL.md#check-the-download). If your organisation blocks
+   them, use another route in [Install](../docs/INSTALL.md) or ask your IT team.
+2. The first time, it takes about a minute to unpack.
+3. Then it opens in your browser. Keep the installer window open until you're
    done.
 4. Choose **Set up Analytics Hub** and sign in with your work account.
 5. Answer the questions. Under **Data sources**, choose the data you want: each source has a
@@ -57,7 +56,7 @@ you're responsible for the data once it's in your workspace.
    app.
 
 If admin consent isn't granted yet, the installer skips the first load. Once an admin has granted
-it, open the exe again and choose **Run now**.
+it, start the installer again and choose **Run now**.
 
 ## Where the client secret goes
 
@@ -142,8 +141,8 @@ Publish the report, then
 
 ## Set it up by hand
 
-If you can't use the installer, follow [Manual setup](MANUAL-SETUP.md). It uses the same
-files the installer does.
+If you can't use the installer, follow [Manual install](../docs/MANUAL-INSTALL.md): prerequisites,
+install and verify, step by step. It uses the same files the installer does.
 
 This video walks through the manual setup, from a fresh app registration to a saved,
 self-refreshing Power BI report. You don't need it if you use the installer.
@@ -154,4 +153,4 @@ https://github.com/user-attachments/assets/c834bed3-49fa-4f6a-bc7a-01bded2fd53e
 
 ## Problems
 
-See [Troubleshooting](../installer/README.md#troubleshooting).
+See [Troubleshooting](../docs/TROUBLESHOOTING.md) and [Known issues](../docs/KNOWN-ISSUES.md).

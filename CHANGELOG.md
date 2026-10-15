@@ -20,6 +20,166 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**Installer robustness ([#88](https://github.com/microsoft/AnalyticsHub-Dashboard/issues/88)).**
+
+- **The first load is recorded as complete only once it's proven.** A first load whose pipeline
+  run succeeded but whose audit load didn't is now recorded as `Incomplete`, not `Completed`, so
+  the next run offers it again. `status` applies the same check when it syncs the record.
+- **"Partly set up" instead of "ready".** If the app deploy or a waited-for first load didn't
+  finish, the summary says Analytics Hub is partly set up, says to fix what's above and run the
+  installer again, and the installer exits non-zero.
+- **The install record is read back after it's saved**, and the installer stops with a clear
+  message if it doesn't match (a read-only or full folder), like the save retry in 0.6.5.
+- **Device policy that blocks `node.exe`.** When AppLocker or App Control blocks the Node.js the
+  installer runs, `install.ps1` and the exe now say what to do: install the x64 LTS Node.js from
+  your IT team (for example from Company Portal) and re-run with
+  `$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1'`, or use Azure Cloud Shell, or ask your IT team.
+  The launcher's cleanup falls back to `Remove-Item` when it can't run `node.exe`.
+- **A pinned `install.ps1` whose release has gone** now says that `installer-vX` is no longer
+  available and prints the `releases/latest` command to run instead, then exits non-zero. It
+  doesn't switch versions on its own. Other download failures keep the proxy advice.
+- Not changed: the installer never installs anything with winget, so there's no `--scope user`
+  fallback to add. Execution policy and Constrained Language Mode were already covered.
+
+**App: more varied visuals.** The app leaned almost entirely on bar charts. Five cards now use
+the chart that best fits their question, with the same palette, Vega-Lite and the existing
+performance budget. No new dependencies, and no query or install changes.
+
+- **Bottom line:** each KPI tile shows a small sparkline of its full months under the arrow,
+  with a text description for screen readers.
+- **Budget runway:** the progress bar is a bullet: spend to date, a tick for even pace to date, a
+  tick for the budget and a lighter band for where this pace ends the month.
+- **Where it is landing:** a new scatter places each department (or other organization field) by
+  seats in use and expert hours per seat, sized by licensed seats, with median lines. It shows
+  when there are at least three groups.
+- **Feedback:** satisfaction by surface or agent is a diverging bar, thumbs down to the left of
+  zero and thumbs up to the right, instead of a single satisfaction bar.
+- **Copilot Studio:** the daily credits and cost chart adds a 7-day average line over the bars, so
+  the trend reads through spiky days. Days with no usage count as zero.
+
+## 2026-10-14 — Analytics Hub installer 0.6.5
+
+**The current release.** 0.6.5 replaces 0.6.2 as Latest, so the `releases/latest` links, including
+the PowerShell command, now serve it:
+
+```powershell
+irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+```
+
+To pin this version, use
+`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.5/install.ps1 | iex`.
+
+**Coming from 0.6.2:** 0.6.5 includes everything in the 0.6.3 and 0.6.4 pre-releases below: the
+PowerShell route as the default in the docs, `install.ps1 -UseInstalledNode` for an IT-approved
+Node.js, a download with fewer unsigned native files, the Windows command quoting fix and the
+Fabric uninstall connection cleanup. Read those sections before you update.
+
+**Update an existing install:** run the PowerShell command again, or open installer 0.6.5 and
+choose **Repair or change**. What the installer deploys is the same as 0.6.2. The tag also
+publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.5`.
+
+**Fixed in this release:**
+
+- **Installer:** an install in a OneDrive-synced folder (such as Documents) no longer stops with
+  `EPERM: operation not permitted, rename '…valuelens-install.json.tmp'`. Saving the install record
+  now retries while the sync client holds the file, and if it stays locked it writes the record in
+  place so the run's progress is kept.
+
+**Also:**
+
+- **Build checks.** The ARM drift check ignores the nested Bicep generator metadata, so a newer
+  Bicep CLI on the build machine no longer fails it. The deployed template is unchanged.
+
+## 2026-10-14 — Analytics Hub installer 0.6.4 (pre-release)
+
+**A pre-release, superseded by 0.6.5.** 0.6.4 stays a GitHub pre-release and was never Latest.
+Use 0.6.5, which includes all of it. To pin 0.6.4 anyway, use
+`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.4/install.ps1 | iex`.
+
+**Update an existing install:** run the PowerShell command again, or open installer 0.6.4 and
+choose **Repair or change**. What the installer deploys is the same as 0.6.2. The tag also
+publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.4`.
+
+**Fixed in this release:**
+
+- **Fix: Windows installer command with special characters in Node.js paths.** The generated
+  `analytics-hub.cmd` quotes the Node.js path in its missing-runtime message, so parentheses or
+  ampersands in an installed Node.js path or user profile do not break the command before it
+  starts. Applies to both bundled and IT-approved Node.js.
+- **Installed-Node recovery instructions** now give the command that keeps
+  `ANALYTICS_HUB_USE_INSTALLED_NODE=1`, as the update instructions already do. Windows package
+  checks also cover the installed-Node route in PowerShell 5.1 Constrained Language Mode.
+- **Fabric uninstall deletes the model's SQL connection.** The connection lives outside the
+  workspace, so it was left behind. A failure to delete it only warns. The closing note no longer
+  mentions a Key Vault for installs that keep the secret in the notebook.
+
+**Also:**
+
+- **Known limitation:** the generated Windows management command still cannot preserve non-ASCII
+  installed-Node or Documents paths. [Known issues](docs/KNOWN-ISSUES.md#installing) records this
+  separately from the special-character quoting fix.
+- **Docs.** The README is shorter and separates the automatic and manual install paths, with a
+  [manual install](docs/MANUAL-INSTALL.md) page and an [FAQ](docs/FAQ.md).
+- **Contributing.** Pull requests into `main` now need passing checks and a code owner's
+  approval, and only Keith creates release tags. See [Contributing](CONTRIBUTING.md#reviews-and-releases).
+
+## 2026-10-14 — Analytics Hub installer 0.6.3 (pre-release)
+
+**A pre-release, for testing.** 0.6.3 is a GitHub pre-release, so the `releases/latest` links still
+serve 0.6.2. To try it, download installer 0.6.3 from
+[its release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/tag/installer-v0.6.3),
+or run its pinned PowerShell command:
+
+```powershell
+irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.3/install.ps1 | iex
+```
+
+What the installer deploys is the same as 0.6.2. This release changes how you can run it, the
+docs and what's in the download. The tag also publishes the `valuelens-jobs` and `valuelens-web`
+images as `0.6.3`.
+
+**Docs:**
+
+- **Simpler prerequisites, and a page per step.** [Prerequisites](docs/PREREQUISITES.md) opens
+  with one table of who does what, on Fabric and Azure, and how long it takes, then every
+  permission and role as **API | Permission | Reason** and **Scope | Role | Reason** tables. The
+  README follows Getting started: Prerequisites, [Install](docs/INSTALL.md) and
+  [Verify](docs/VERIFY.md), with [Update](docs/UPDATE.md), [Uninstall](docs/UNINSTALL.md),
+  [Troubleshooting](docs/TROUBLESHOOTING.md), [Known issues](docs/KNOWN-ISSUES.md) and
+  [Architecture and costs](docs/ARCHITECTURE.md) pages. The installer README keeps its old headings,
+  so existing links still land.
+- **The wiki.** docs/ is published to the
+  [wiki](https://github.com/microsoft/AnalyticsHub-Dashboard/wiki) on every change to main.
+- **Install routes that don't rely on the exe** (part of #77). [Install](docs/INSTALL.md) leads
+  with the PowerShell one-liner and keeps the exe as an option. It adds routes for an IT-approved
+  Node.js, and for PCs that can't run anything locally: your IT team deploys it, or you run it
+  from an approved admin workstation. The docs, `install.ps1`'s help and the release notes no
+  longer suggest `-ExecutionPolicy Bypass`, `irm | iex` under `AllSigned`, or clicking past
+  SmartScreen. Where policy blocks a route, they point to another route or your IT team. They also
+  say what a matching SHA-256 proves: the file is the one in the release, not who published it.
+  [Known issues](docs/KNOWN-ISSUES.md#unsigned-files-in-the-download) lists the unsigned native
+  files still in the download, and when they load.
+
+**Installer:**
+
+- **`install.ps1 -UseInstalledNode`** runs the installer with the Node.js already on the PC (x64,
+  22.13 or later on 22.x, or 24.x), such as one your IT team has approved, instead of the
+  `node.exe` in the zip. For `irm | iex`, set `$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1'` first.
+  It downloads and checks the same zip, and uses the same folders and install record, so you can
+  switch routes without a second install. `analytics-hub.cmd` and the update command keep using
+  that Node.js. See [IT-approved Node.js](docs/INSTALL.md#it-approved-nodejs).
+- **Fix: the command `install.ps1` leaves behind** now prints the reinstall command with its `|`
+  intact, instead of cmd.exe treating it as a pipe.
+
+**Packaging:**
+
+- **Fewer unsigned files in the download.** The zip leaves out esbuild's `esbuild.exe`, `tsx` and
+  msal-node-runtime's native sign-in broker for Windows, Linux and macOS: 15 native files, about
+  19 MB of the zip and 54 MB unpacked.
+  Nothing loads them: Rayfin lists `tsx` but never imports it, compiles the schema with
+  TypeScript's `tsc.js`, and doesn't use the broker. The build checks Rayfin still starts and
+  compiles the schema without them.
+
 ## 2026-10-14 — Analytics Hub installer 0.6.2
 
 **The current release.** 0.6.2 is the first release since 0.5.1 to be marked Latest, so the

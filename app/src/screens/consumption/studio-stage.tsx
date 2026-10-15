@@ -32,6 +32,7 @@ import {
     STUDIO_LABEL_COLUMN,
     STUDIO_USER_COLUMN,
     toStudioUserTree,
+    withTrendLineColor,
     type ConsumptionLens,
     type ConsumptionOptions,
 } from "@/queries/consumption";
@@ -95,6 +96,10 @@ export function StudioStage({ options, rates }: StudioStageProps) {
     const summary = useConsumptionSummary(studioCreditsSummary(), extra);
     const dailySource = studioDaily(lens);
     const daily = useConsumptionTable(dailySource, extra);
+    const dailySpec = useMemo(
+        () => withTrendLineColor(dailySource.vegaLiteSpec, theme.foreground),
+        [dailySource.vegaLiteSpec, theme.foreground],
+    );
     const breakdownSource = studioBreakdown(lens);
     const breakdown = useConsumptionTable(breakdownSource, extra);
     const agents = useConsumptionTable(studioAgents(), extra);
@@ -236,12 +241,16 @@ export function StudioStage({ options, rates }: StudioStageProps) {
             <div className="grid grid-cols-1 gap-500 xl:grid-cols-[minmax(0,1fr)_320px]">
                 <ChartPanel
                     result={daily}
-                    spec={dailySource.vegaLiteSpec}
+                    spec={dailySpec}
                     capabilities={NO_STACK_LABELS}
                     height={340}
                     title={cost ? "Cost over time" : "Consumption over time"}
                     headline={cost ? STUDIO_COST_HEADLINE : STUDIO_CREDITS_HEADLINE}
-                    subtitle={cost ? "Tenant cost each day, prepaid then pay-as-you-go" : "Tenant credits each day, prepaid then pay-as-you-go"}
+                    subtitle={
+                        cost
+                            ? "Tenant cost each day, prepaid then pay-as-you-go. The line is the 7-day average."
+                            : "Tenant credits each day, prepaid then pay-as-you-go. The line is the 7-day average."
+                    }
                     emptyTitle={dailyEmpty.title}
                     emptyDescription={dailyEmpty.description}
                 />

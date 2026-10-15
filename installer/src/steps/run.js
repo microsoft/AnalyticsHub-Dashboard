@@ -199,7 +199,7 @@ export async function runPipeline(ctx, opts) {
     ui.note(`To see why, open ${f.pipelineName ?? 'the pipeline'} in Fabric and look at its latest run. Then run "${commandLine('run')}" again.`);
   }
   if (opts.first) {
-    config.firstRun = { ...config.firstRun, status: job?.status, finishedAt: TERMINAL.has(job?.status) ? ctx.now().toISOString() : undefined };
+    config.firstRun = { ...config.firstRun, status: firstRunStatus(config, job?.status, runs), finishedAt: TERMINAL.has(job?.status) ? ctx.now().toISOString() : undefined };
     ctx.save();
   }
   return { jobId, started: true, status: job?.status, ok: ok && !failed.length, failed: failed.map((r) => r.activity) };
@@ -318,6 +318,18 @@ export function loadedBy(config, runs) {
   if (modelDeployed(config)) needed.push(REFRESH_ACTIVITY);
   if (agentEvaluatorOn(config)) needed.push(AGENT_EVALUATOR_ACTIVITY);
   return needed.every((name) => runs.get(name)?.status === 'Succeeded');
+}
+
+/**
+ * The first load's status to record. A pipeline job can complete with failed loads, so 'Completed'
+ * is kept only when its activity runs prove the history loaded; otherwise it is 'Incomplete' and the
+ * next run offers the first load again.
+ * @param {import('../config.js').InstallConfig} config
+ * @param {string | undefined} status
+ * @param {Map<string, any> | null} runs
+ */
+export function firstRunStatus(config, status, runs) {
+  return status === 'Completed' && !(runs && loadedBy(config, runs)) ? 'Incomplete' : status;
 }
 
 /**
@@ -567,10 +579,11 @@ export async function status(ctx) {
     } else if (capacityBusy(latest.failureReason)) busyNote(ctx, 'run');
   }
 
-  if (config.firstRun?.jobId && !TERMINAL.has(config.firstRun.status ?? '')) {
+  if (config.firstRun?.jobId && !TERMINAL.has(config.firstRun.status ?? '') && config.firstRun.status !== 'Incomplete') {
     const job = jobs.find((j) => j.id === config.firstRun?.jobId);
     if (job && TERMINAL.has(job.status)) {
-      config.firstRun = { ...config.firstRun, status: job.status, finishedAt: utc(job.endTimeUtc)?.toISOString() };
+      const runs = job.status === 'Completed' ? await activityRuns(ctx, job.id, job) : null;
+      config.firstRun = { ...config.firstRun, status: firstRunStatus(config, job.status, runs), finishedAt: utc(job.endTimeUtc)?.toISOString() };
       ctx.save();
     }
   }

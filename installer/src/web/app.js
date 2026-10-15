@@ -133,7 +133,7 @@ const TARGET_STAGES = {
 };
 const stageTarget = (title) => Object.keys(TARGET_STAGES).find((k) => TARGET_STAGES[k].has(title));
 const applies = (run, s) => !s.only || s.only === run.platform;
-const DONE_HEADINGS = new Set(['Analytics Hub is set up', 'Connect Power BI']);
+const DONE_HEADINGS = new Set(['Analytics Hub is set up', 'Analytics Hub is partly set up', 'Connect Power BI']);
 
 const METHODS = [
   { value: 'browser', name: 'Browser', tag: 'Recommended', desc: 'A Microsoft sign-in window opens on this computer.' },

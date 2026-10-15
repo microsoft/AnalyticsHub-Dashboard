@@ -5,9 +5,11 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { connection, FORMAT_HOURS, FORMAT_PERCENT, FORMAT_RATE, FORMAT_WHOLE } from "../shared";
 import query from "./executive-departments.dax?raw";
+import mapSpec from "./executive-department-map.json";
 
 export const DEPARTMENT_COLUMN = "Chat + Agent Org DataOrganization";
 
@@ -32,4 +34,21 @@ const columnMetadata: ColumnMetadataMap = {
  */
 export function executiveDepartments() {
     return { connection, query, columnMetadata };
+}
+
+/** The fewest groups worth plotting against each other; below this the grid says it all. */
+export const DEPARTMENT_MAP_MIN = 3;
+
+/**
+ * The same rows as a map: how widely each group uses its seats against how
+ * much each seat delivers, sized by seats, with dashed lines at the median
+ * group so the quadrants read without a key. The largest six are labelled.
+ */
+export function departmentMapSpec(orgLabel: string): VisualizationSpec {
+    const built = structuredClone(mapSpec) as { layer: { encoding: { tooltip?: { title: string }[] } }[] };
+    for (const layer of built.layer) {
+        const name = layer.encoding.tooltip?.[0];
+        if (name) name.title = orgLabel;
+    }
+    return built as unknown as VisualizationSpec;
 }

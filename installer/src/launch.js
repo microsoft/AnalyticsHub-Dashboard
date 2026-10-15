@@ -22,6 +22,8 @@ export const SCRIPT_SHIM = '& $env:LOCALAPPDATA\\AnalyticsHub\\analytics-hub.cmd
 export const CLOUD_SHELL_SHIM = '~/.analytics-hub/analytics-hub';
 /** `1` makes the installer and install.ps1 treat this shell as Azure Cloud Shell, `0` as not. */
 export const CLOUD_SHELL_ENV = 'ANALYTICS_HUB_CLOUD_SHELL';
+/** `1` makes install.ps1 run the installer with the Node.js installed on the PC instead of the zip's. */
+export const INSTALLED_NODE_ENV = 'ANALYTICS_HUB_USE_INSTALLED_NODE';
 
 /**
  * Whether this runs in Azure Cloud Shell, which has no browser, signs in with a code, and ends a
@@ -122,13 +124,23 @@ export function installerWindow(env = process.env) {
 }
 
 /**
+ * The PowerShell install command, keeping the runtime selected by the launcher.
+ * @param {NodeJS.ProcessEnv} env
+ */
+const powerShellCommand = (env) =>
+  env[INSTALLED_NODE_ENV] === '1' ? `$env:${INSTALLED_NODE_ENV} = '1'; ${SCRIPT_COMMAND}` : SCRIPT_COMMAND;
+
+/**
  * How to start the installer again once it has stopped.
  * @param {NodeJS.ProcessEnv} [env]
  */
 export function reopenHint(env = process.env) {
   const how = launcher(env);
   if (how === 'exe') return `To open it again, run ${EXE_NAME}.`;
-  if (how === 'pwsh') return `To open it again, run ${SCRIPT_SHIM} in PowerShell, or the install command again.`;
+  if (how === 'pwsh') {
+    const again = env[INSTALLED_NODE_ENV] === '1' ? `"${powerShellCommand(env)}"` : 'the install command';
+    return `To open it again, run ${SCRIPT_SHIM} in PowerShell, or ${again} again.`;
+  }
   if (how === 'cloudshell') return `To run it again, run ${CLOUD_SHELL_SHIM} in Cloud Shell.`;
   return 'To open it again, run valuelens-install --ui in your terminal.';
 }
@@ -142,6 +154,6 @@ export function updateHint(url, env = process.env) {
   const how = launcher(env);
   if (how === 'cloudshell') return `Run "${SCRIPT_COMMAND}" again in Cloud Shell's PowerShell, then install to repair or change.`;
   return how === 'pwsh'
-    ? `Close the installer and run "${SCRIPT_COMMAND}" again in PowerShell, then choose Repair or change.`
+    ? `Close the installer and run "${powerShellCommand(env)}" again in PowerShell, then choose Repair or change.`
     : `Download it from ${url}, then choose Repair or change.`;
 }

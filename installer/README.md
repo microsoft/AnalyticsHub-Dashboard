@@ -1,8 +1,9 @@
 # Analytics Hub installer
 
-Sets up the [Fabric path](../fabric/README.md) in your tenant: the app registration and its secret in Key
-Vault, a workspace and Lakehouse, the notebooks, the pipeline and its schedule, the semantic model
-and the Analytics Hub app. Then it loads the first data and checks it.
+Sets up Analytics Hub in your tenant, on [Fabric](../fabric/README.md) or [Azure](../azure/README.md),
+loads the first data and checks it. This page is the reference. To get going, follow the
+[Getting started](../README.md#getting-started) steps:
+[Prerequisites](../docs/PREREQUISITES.md) → [Install](../docs/INSTALL.md) → [Verify](../docs/VERIFY.md).
 
 ## Editing setup and recovering from failures
 
@@ -44,25 +45,8 @@ corresponding settings category directly.
 
 ## Before you start
 
-Go through the **[Before you start checklist](../docs/PREREQUISITES.md)** first. It lists what you
-need and what to ask other admins for, by person, with each optional extra and the costs. In short,
-you need Windows 10 or 11 (or [Node.js](#without-the-exe)), a Fabric capacity, an Azure
-subscription or resource group for the Key Vault (or [another place for the secret](#where-the-secret-goes)),
-and permission to register apps (or [an admin who can](#if-you-cant-register-apps)). A Fabric admin
-turns on three tenant settings, and a Global Administrator or Privileged Role Administrator grants
-admin consent. If you want Copilot Cowork credits, ask your Viva Insights analyst for the query
-[before you start](../docs/PREREQUISITES.md#send-this-to-your-viva-insights-analyst-first).
-
-**Check what you have.** Once you sign in, the home page's **Prerequisites** panel checks most of
-the checklist for you, and says what each item is for and how to get it. It only reads; nothing is
-changed. Each one shows as met, missing, or couldn't check (for example, the Fabric tenant
-settings, which only a Fabric administrator can read). Only roles that are switched on count. Some
-organisations make admins switch a role on before they use it, in Privileged Identity Management.
-A role like that shows as **can be activated**: switch it on, then choose **Check again**.
-Azure access is checked for each subscription, and Power Platform access for each environment.
-Optional rows say whether the tenant has Microsoft 365 Copilot licences, whether you have Power
-Automate Premium (for the flows) and that the Viva Insights Insights Analyst role, which the
-installer can't check, is needed for the Cowork credits query. In the terminal, run `prereqs`.
+Moved to [Prerequisites](../docs/PREREQUISITES.md). Once you sign in, the **Prerequisites** panel
+(`prereqs` in the terminal) checks most of it, and changes nothing.
 
 ### Where the secret goes
 
@@ -273,78 +257,7 @@ Azure commands:
 
 ## Run it
 
-1. [Download the installer](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe).
-   This link always gets the newest version. If Edge says it isn't commonly downloaded, choose
-   **…** next to the file, then **Keep**, **Show more** and **Keep anyway**. To check the file,
-   see [Check the download](#check-the-download). If your organisation blocks downloaded exes,
-   use the [PowerShell command](#from-powershell) instead and carry on from step 3. If your PC
-   can't run either, use [Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell).
-2. Open it. If Windows says it protected your PC, choose **More info**, then **Run anyway**.
-3. The first time, it takes about a minute to unpack. Then it opens in your browser. Keep its
-   window open while you use the page, and keep the PC awake and plugged in until it finishes. If
-   you close the page, go back to that window and press **Enter** to open it again.
-4. Choose **Set up Analytics Hub** and sign in.
-5. Answer the questions. This takes about 5 minutes:
-   1. **Data sources.** Each source has a card: **Connected (API)**, **Upload CSV** or **Skip**.
-      Copilot usage, licences and org data are always connected. Microsoft 365 activity is
-      connected by default; the rest are skipped until you choose otherwise. The **Copilot Studio
-      credits**, **Copilot Cowork credits** and **Azure AI costs** cards make up
-      [Credit consumption](#credit-consumption). A CSV card says
-      where to export the file, and you can pick the exports to upload now. A source that needs
-      more to work asks for it next, such as the Power Platform environment for a flow. See
-      [Data sources and exports](#data-sources-and-exports).
-   2. **Change the advanced settings?** **No** (the default) takes the defaults that suit most
-      organisations. See [Advanced settings](#advanced-settings).
-   3. **Capacity and workspace.** A new workspace is named `Analytics Hub` and its Lakehouse
-      `Analytics_Hub`, or the next free name. F64 or larger is recommended for more than 10,000
-      people. An existing install keeps its names.
-   4. **App registration:** create one, use your own (it's checked first), or let an admin
-      register it. See [If you can't register apps](#if-you-cant-register-apps).
-   5. **Key Vault:** create one, or pick one you have. If you can't write to it, a vault admin
-      can add the secret. See [Where the secret goes](#where-the-secret-goes).
-6. Check the plan and approve it. Nothing is created until you do. The plan shows every setting,
-   including the defaults, and a **Costs** list of what's billed (the Fabric capacity, Power
-   Automate Premium for the flows, the Azure resources), with links to the pricing pages. The exe
-   stops Windows going to sleep while it runs.
-7. Wait for it to finish. Setting up takes about 15 minutes. The first data reaches the app about
-   25 minutes after you choose **Go ahead** with 30 days of history, or about 2 hours with 180 days
-   ([a large tenant](#a-large-tenant) takes longer). Copilot Studio credits arrive after the Studio
-   flow's first run: see [Load the Studio credits now](#power-automate-flows).
-8. When it finishes, open the link to the app.
-
-**Want to change an answer?** Choose **Back**, on any question or on the plan. It opens the
-previous question with your answer filled in, and the questions after it are asked again. If you
-go back to the client secret, leave the box empty to keep the one you pasted. If you go back
-further, you'll be asked for it again.
-
-It keeps your answers in `Documents\Analytics Hub`, in an install record named
-`valuelens-install.json`. Keep that folder. To run the pipeline, check status, update, or repair
-the set-up later, open the exe again. **Manage Analytics Hub** shows the record's full path. If
-OneDrive syncs your Documents folder, the record follows you to your other PCs.
-
-**The workspace has gone?** After you sign in, the installer checks that the record's workspace
-still exists. If Fabric says it doesn't, or the record is for another tenant, the home page says
-so. Choose **Start fresh** to set up again. The old record is kept beside the new one, renamed
-with the date and time, such as `valuelens-install.20260507-090302.json`. Or choose **Keep this
-record** to carry on with it. In the terminal, `install` asks whether to start fresh. If Fabric
-can't be reached, or you can't read the workspace, nothing changes.
-
-**Updates.** When it opens, the installer checks
-[the latest release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest). If
-there's a newer one, its window and the page say so. Download it, open it, and choose **Repair or
-change** to update your install. The check sends nothing about you or your tenant, and it's
-skipped if GitHub can't be reached. To turn it off, set the environment variable
-`ANALYTICS_HUB_NO_UPDATE_CHECK=1`. Installers up to 0.4.2 were released from
-[ValueLens](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/releases?q=installer-v).
-
-**Using a workspace that already has things in it?** The installer never changes anything it
-didn't create. If one of its names is taken, its own item gets the next free name, such as
-`AnalyticsHub_Pipeline_2` or `Analytics Hub 2`. The plan shows the names before you approve it.
-
-**Item names.** A new install names its items after Analytics Hub: `Analytics Hub Model`,
-`AnalyticsHub_Pipeline`, the `Analytics Hub SQL …` connection and the `Analytics Hub Data Collector`
-app registration. An install from an earlier version keeps the names it already has, such as
-`ValueLens Model`.
+Moved to [Run it](../docs/INSTALL.md#run-it).
 
 ### Advanced settings
 
@@ -380,51 +293,7 @@ The [Azure target](#azure-target) asks the same question. Its advanced settings 
 
 ## After it finishes
 
-- **What's left comes first.** The Done page (and the end of the terminal output) starts with
-  "N steps left": a card for each thing still to do, in order, with who does it, why, a link and
-  the steps. For a step another admin does, the card has a message to copy and send:
-  - **Share the app**, if you chose **Later** when asked.
-  - **Sign in to the Power Automate flows**, for you or a Power Platform administrator.
-  - **Sign in to the Cowork Dataflow.** Until then its refresh fails on each run. That's expected,
-    so the load shows it as waiting rather than failed.
-  - **Ask a Viva Insights analyst for the Cowork credits query** (optional), when Cowork credits
-    come from the CSV export.
-  - **Ask a Privileged Role Administrator for Global Reader** for **Analytics Hub Data
-    Collector**, when agent configuration comes from Azure Resource Graph. The message has the
-    app's IDs, the link to Roles & admins, and a Cloud Shell command.
-  - **Ask a Microsoft 365 admin to schedule the product feedback export**, when its flow is on.
-- **Admin consent.** If you couldn't grant it, send the link the installer gives you to an admin.
-  They select **Grant admin consent**. Then open the exe again and choose **Run now**.
-- **Share the app and reports.** The installer creates **Analytics Hub Viewers** (or uses a group
-  you name) with you as owner, and gives it **Build** on the models. Then:
-  1. **Once:** share the app with the group. Straight after the app is deployed, before the first
-     load, the installer asks you to, with a link to the app item in Fabric: choose **Share**, add
-     the group and choose **Grant**. (Or in the workspace, choose **…** next to the
-     **Analytics Hub** app, then **Share**.) Choose **I've shared it** and it isn't asked again.
-     Choose **Later** and it's a card on the Done page, and Repair asks again. Do the same for the
-     **ValueLens** report.
-  2. **To give someone access:** add them to the group in
-     [My Groups](https://myaccount.microsoft.com/groups). You can also run `access`
-     (**Manage access** in the browser) or use **Share** in the app.
-
-  Keep viewers off workspace roles. See [Viewing Analytics Hub](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
-- **Own reports.** Connect Power BI Desktop to `Analytics Hub Model`, or use **Save a copy** on a
-  published report.
-- **Flows and the Cowork Dataflow.** If you chose them, the end of the install lists what to sign
-  in to. See [Power Automate flows](#power-automate-flows) and
-  [Credit consumption](#credit-consumption).
-- **Someone else takes over the pipeline?** The notebooks run as the person who last changed the
-  pipeline, or the schedule's owner. Give them Key Vault Secrets User on the vault and Contributor
-  on the workspace first. With the secret in the notebooks, they only need Contributor.
-- **Secrets expire.** In Key Vault they last 12 months; in the notebooks, 90 days unless you chose
-  otherwise, and each install, repair or update replaces them. **Check status** warns you 30 days
-  before. Choose **Create new secrets** (`rotate-secret`). Where the secret goes decides what happens:
-  - **Key Vault, written by the installer:** it creates and stores a new secret.
-  - **A vault admin adds it:** it shows the admin the same steps again, then waits for you to
-    say it's done.
-  - **In the notebooks:** it creates a new secret, rewrites the notebooks and removes the old
-    one. If you brought the app, paste its new secret when asked. Add `--secret-days <n>` to
-    change how long the new one lasts.
+Moved to [After it finishes](../docs/VERIFY.md#after-it-finishes).
 
 ## Power BI reports
 
@@ -760,8 +629,10 @@ Studio credits**, **Copilot Cowork credits** and **Azure AI costs**. Choose any 
 - **Copilot Cowork credits.** Choose **Connected (Dataflow)** where you can. Your Viva Insights
   analyst creates the query first: send them the
   [note in the checklist](../docs/PREREQUISITES.md#send-this-to-your-viva-insights-analyst-first).
-  In Viva Insights > **Analysis**, they build a query with the Copilot credit metrics and turn on
-  **Auto-refresh**. In **Analysis results**, the link icon copies its partition and query IDs. The
+  In Viva Insights > **Create analysis** > **Create custom query** > **Consumption query**, they
+  keep the preselected credit metrics, turn on **Auto-refresh** and run it. In **Analysis
+  results**, the link icon copies its partition and query IDs. Step by step:
+  [Running the Viva Insights query](../docs/VIVA-QUERY.md). The
   installer fills in the partition ID with your tenant ID, which is usually right. If you don't
   have the query ID yet, choose **Not yet** to add the query later: Cowork credits use the CSV
   export until then, and you add the IDs with **Repair or change**. With the IDs, the installer
@@ -943,187 +814,20 @@ the endpoint, someone who manages the vault approves it under **Networking** >
 
 ## Troubleshooting
 
-| Problem | What to do |
-|---|---|
-| Edge says the file isn't commonly downloaded | Choose **…** next to the file, then **Keep**, **Show more** and **Keep anyway**. The exe isn't code-signed yet. |
-| Windows says it protected your PC | Choose **More info**, then **Run anyway**. The exe isn't code-signed yet. |
-| Your PC blocks both the exe and the PowerShell command | Run the installer in Azure Cloud Shell. See [Locked-down tenant / Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell). |
-| `The Azure CLI is on Cloud Shell's own sign-in` | Run `az login --use-device-code`, then run the installer again. Or leave out `--use-az`. See [Locked-down tenant / Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell). |
-| `The installer couldn't start` | Download the exe again. If that doesn't help, delete `%LOCALAPPDATA%\AnalyticsHub` and open it again. |
-| The page says it needs the installer's link, or the link has expired | Go back to the installer's window and press **Enter**. It opens the page again. |
-| `This workspace no longer exists` | The workspace in the install record was deleted, or the record is for another tenant. Choose **Start fresh**. The old record is kept, renamed with the date and time. See [Run it](#run-it). |
-| `No active Fabric capacity you can use` | Start a Fabric trial, or ask a capacity admin to make you a Contributor on a capacity. |
-| `No Azure subscription you can use` | Ask for Contributor on a subscription, on a resource group, or for read access to an existing vault a vault admin can add the secret to. Or choose [no Key Vault](#where-the-secret-goes) (`--no-key-vault`): anyone with a role in the workspace can then read the secret. |
-| `This workspace is connected to Git` | With no Key Vault, the installer won't write the client secret into a Git-connected workspace. Disconnect it under **Workspace settings** > **Git integration**, or run the installer again and choose Key Vault. |
-| `You can't write secrets to …` or `You can't change access policies on …` | Run the installer again without `--yes`, pick the vault, and choose **A vault admin will add the secret for me**. See [Where the secret goes](#where-the-secret-goes). |
-| `You can't create resource groups in this subscription` | Run the installer again and give the name of a resource group where you're a Contributor. |
-| `The subscription isn't registered for Microsoft.KeyVault` | Ask a subscription Owner or Contributor to register the `Microsoft.KeyVault` resource provider, then run the installer again. |
-| `Stopped until the vault admin has added the secret` | Send the admin the steps the installer showed (run `rotate-secret` to see them again). Once the secret is in the vault, run the installer again: it carries on from there. |
-| `Stopped until an admin has registered the app` | Send the admin `analytics-hub-admin-pack.md` from the install folder. Once they send you the client ID, run the installer again without `--yes`. |
-| `… isn't ready yet. It still needs:` | The app you brought is missing its service principal, Graph permissions or admin consent. Send the admin the link it shows, then choose **Check again**. |
-| A run fails with `AADSTS7000215` | The secret doesn't match the app. Choose **Create new secrets**. |
-| A run fails with `Forbidden` from Graph | Admin consent is missing or still applying. Choose **Repair or change**, then **Run now**. |
-| A run fails reading the secret | The person the run uses can't read it, or a vault admin hasn't added it yet. See **Someone else takes over the pipeline?** above. |
-| A run says Fabric's capacity was too busy (`TooManyRequestsForCapacity`) | Nothing is lost. Wait a few minutes, then choose **Rerun failed loads**. It happens most on trials and small capacities, and less once the notebooks share one Spark session. See [Load status and reruns](#load-status-and-reruns). |
-| `Couldn't turn on high concurrency for pipelines` | You need the workspace Admin role to change it. Ask a workspace admin to turn it on, or carry on: the notebooks start their own Spark sessions. See [Load status and reruns](#load-status-and-reruns). |
-| The model refresh fails with `Table '…' is not in database` | The Lakehouse's SQL endpoint hadn't caught up with tables the run had just written. The refresh notebook syncs the endpoint first, so this is rare. Wait a couple of minutes, then choose **Rerun failed loads** or **Refresh the models**. |
-| A run failed and you want to know which source | Its cards say. Or query `dbo.load_log` in the Lakehouse for the run: each row has the source, its status and the reason. |
-| Copilot interactions fails with `audit window(s) still failed` | Purview kept failing some audit queries, usually because too many ran at once. The ingester already resends and splits failing windows, and nothing was written. Wait, make sure no one is running audit searches in the Purview portal, then choose **Rerun failed loads**. Windows that succeeded are reused. If it keeps failing, see [An audit window keeps failing](../fabric/notebooks/README.md#an-audit-window-keeps-failing). |
-| Copilot interactions fails with `earlier audit range(s) failed and were never recovered` | An earlier load failed and was never rerun, and the usual run doesn't go back that far. Run `run --backfill-days <n>`, with `<n>` covering the listed dates. Windows that succeeded are reused. |
-| `Copilot interactions: 0 rows` after a successful run | Either the audit log had no Copilot activity in the window, or all of it was test or admin activity, such as Copilot Studio test runs (*Maker evaluation*), which the dashboard leaves out. The data check says which, with counts. People's own Copilot use appears after the next run. To keep some of the left-out activity, edit `DROP_EXCLUDE_REASONS` in the Audit Log Processor. |
-| `Fabric couldn't set up the model's connection` | Turn on *Service principals can call Fabric public APIs*, then choose **Repair or change**. |
-| `Couldn't connect Analytics Hub Model to …` | Open the link it shows. Under **Gateway and cloud connections**, pick `Analytics Hub SQL …` (`ValueLens SQL …` on earlier installs). Then choose **I've connected it myself**. |
-| A run notes that `Refresh_Cowork_Credits` failed, or *Needs sign-in* | Most often the Dataflow has no saved connections, or it hadn't finished publishing. The refresh then fails within seconds with "Job instance failed without detail error", even if the editor's preview shows rows. Open `AnalyticsHub_Cowork_Credits`. On each **Configure connection** banner (the Viva Insights source and the Lakehouse destination), choose **Configure connection**, sign in, then **Connect**. Then choose **Save**, wait until it has finished publishing, and choose **Load Cowork now** (or run `load-cowork`). Otherwise the Viva Insights query may have stopped refreshing. The rest of the run carries on either way. |
-| A flow doesn't save any files | Check it's turned on and all its connections are signed in. The Power Platform API connection must be a Power Platform, Billing or Global administrator, and the OneLake connection someone with Contributor or higher on the workspace. A 403 from OneLake usually means that person lacks the role, or the Fabric tenant setting for apps outside Fabric is off. |
-| A model refresh fails with `Login failed` | The connection's secret expired. Choose **Create new secrets**. |
-| `The app wasn't deployed` | Fix the cause it shows, then choose **Redeploy the app**. |
-| `The … report wasn't published` | Fix the cause it shows, then choose **Update**. The models and data aren't affected. |
-| A report's Tornado chart, Word cloud or Deneb visual is blank | Turn on the tenant setting *Allow visuals created using the Power BI SDK*. See [Power BI reports](#power-bi-reports). |
-| `You can't assign Azure roles in …` | See [Credit consumption](#credit-consumption). |
-| `You can't add … to …, so its transcripts are skipped` | See [Agent Evaluator](#agent-evaluator). |
-| Work patterns says the reports hide user names | See [Microsoft 365 activity](#microsoft-365-activity). |
-| An export isn't recognised, or is `set to Skip` | Check it's the export the card names, unedited. Or set its source to **Upload CSV** with **Repair or change**. Files the pipeline couldn't place are in `analytics_hub_uploads/_unrecognised`. |
-| A page is blank | Its source is skipped, or no export has arrived yet. See [Data sources and exports](#data-sources-and-exports). |
+Moved to [Troubleshooting](../docs/TROUBLESHOOTING.md#troubleshooting).
 
 ## Check the download
 
-Each [release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases) lists the
-exe's SHA-256, which is also in `AnalyticsHubInstaller.exe.sha256`. To check your copy, run this in
-PowerShell, in the folder you downloaded it to:
-
-```powershell
-(Get-FileHash .\AnalyticsHubInstaller.exe -Algorithm SHA256).Hash
-```
-
-It should match, ignoring capitals. If it doesn't, delete the file and download it again.
-
-Edge and Windows SmartScreen warn about the exe because it's new and isn't code-signed yet:
-
-- If Edge says it **isn't commonly downloaded**, choose **…** next to the file, then **Keep**,
-  **Show more** and **Keep anyway**.
-- If Windows says it **protected your PC**, choose **More info**, then **Run anyway**.
-
-If your organisation blocks the download or won't let you past the warnings, use the
-[PowerShell command](#from-powershell), or [run the installer with Node.js](#without-the-exe).
+Moved to [Check the download](../docs/INSTALL.md#check-the-download).
 
 ## From PowerShell
 
-If your organisation blocks downloaded exes, paste this into PowerShell (Windows PowerShell 5.1 or
-PowerShell 7) instead. It runs the same installer as the exe, with the same browser steps:
-
-```powershell
-irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
-```
-
-It downloads `AnalyticsHubInstaller.zip` from the latest release (about 120 MB: Node.js, the
-installer and the app, already built), checks its SHA-256 against the one written into
-`install.ps1`, unpacks it under `%LOCALAPPDATA%\AnalyticsHub` and opens the installer in your
-browser. It needs no admin rights, installs nothing system-wide and changes no settings. Run it
-again to pick up a new version; it removes the old one.
-
-- **Later commands.** It leaves a command behind for the version it unpacked, for example
-  `& $env:LOCALAPPDATA\AnalyticsHub\analytics-hub.cmd status`. With no arguments it opens the
-  browser steps.
-- **A fixed version.** Each release's notes give a command pinned to that release, such as
-  `irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.2/install.ps1 | iex`.
-  A pre-release is only reachable this way: `releases/latest` skips pre-releases.
-- **If `irm | iex` is blocked**, download `install.ps1` and `AnalyticsHubInstaller.zip` from the
-  [release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest) and run:
-
-  ```powershell
-  powershell -ExecutionPolicy Bypass -File .\install.ps1 -ZipPath .\AnalyticsHubInstaller.zip
-  ```
-
-  Anything after the options goes to the installer, for example `... -ZipPath .\AnalyticsHubInstaller.zip status`.
-  `-ExecutionPolicy Bypass` applies to that one command only. `install.ps1` isn't signed yet, so
-  under an `AllSigned` policy use `irm | iex`, which execution policy doesn't cover.
-- **Behind a proxy.** It uses the system proxy. To name one, signed in as you, run
-  `$env:ANALYTICS_HUB_PROXY = 'http://proxy:8080'` first. If the proxy blocks GitHub's download host,
-  download the zip in a browser and set `$env:ANALYTICS_HUB_ZIP` to its path, or use `-ZipPath`.
-- **Constrained Language Mode** works: the launcher only uses commands allowed there. It skips
-  keeping the PC awake, so keep it plugged in and awake yourself.
-- **Remove it** with `.\install.ps1 -Uninstall` (from the download-and-run steps above), or by
-  deleting `%LOCALAPPDATA%\AnalyticsHub`. That doesn't touch what's in your tenant, or your
-  install record in `Documents\Analytics Hub`. To remove what's in your tenant, use **Uninstall**
-  in the installer first.
-
-What it can't get past: AppLocker or Windows Defender Application Control rules that block
-programs under your profile stop the unpacked `node.exe` just as they stop the exe. Some
-endpoint protection products flag `irm | iex`; the download-and-run command above avoids it. If
-that's you, use [Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell).
+Moved to [From PowerShell](../docs/INSTALL.md#from-powershell).
 
 ## Locked-down tenant / Azure Cloud Shell
 
-If your PC can't run the exe or the PowerShell command (AppLocker, WDAC, or no local PowerShell at
-all), run the installer in [Azure Cloud Shell](https://shell.azure.com) instead. Nothing runs on
-your PC: the installer runs in Cloud Shell and asks its questions in the terminal. Choose
-**PowerShell** in Cloud Shell and paste the same command:
-
-```powershell
-irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
-```
-
-In Cloud Shell, `install.ps1` doesn't download the Windows zip. It fetches the release's source
-from GitHub at the commit written into `install.ps1`, checks it got that commit, and installs the
-installer's packages with `npm ci` from the lockfile. If Cloud Shell's Node.js is older than 22.13,
-it downloads the Node.js version the release was built with from nodejs.org and checks its SHA-256
-against the list nodejs.org publishes. It all goes in `~/.analytics-hub`. The first run takes a
-minute or two.
-
-- **Options.** To pass options or a command, run
-  `& ([scriptblock]::Create((irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1))) --use-az status`.
-  In Bash, run `pwsh -c "irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex"`.
-- **Later commands.** It leaves `~/.analytics-hub/analytics-hub` behind, which works from Bash or
-  PowerShell, for example `~/.analytics-hub/analytics-hub status`. To update, run the `irm` command
-  again.
-- **Terminal only.** Cloud Shell can't open the installer's page in your browser, so `--ui` isn't
-  available. The terminal asks the same questions.
-- **Signing in.** By default the installer signs you in with a code: it shows a code and a link,
-  and you sign in on any device. The tokens stay in memory, so each run asks again. Cloud Shell's
-  own sign-in, which the Azure CLI uses until you sign it in, can't get tokens for some of the APIs
-  the installer uses. To use `--use-az`, first run `az login --use-device-code`. The installer
-  checks the Azure CLI can reach every API it uses before it changes anything, and says which it
-  couldn't. The Azure CLI stays signed in between Cloud Shell sessions.
-- **If Conditional Access blocks sign-in with a code**, Cloud Shell can't run the installer:
-  both ways of signing in use a code there. Ask whoever manages Conditional Access, or run the
-  installer on a PC that's allowed.
-- **Keep the install record.** It's in `~/analytics-hub/valuelens-install.json`. Your home folder
-  is kept between sessions only if Cloud Shell has a storage account (it then has `~/clouddrive`);
-  `install.ps1` warns if it doesn't, and so may a tenant policy that changes new storage accounts
-  so Cloud Shell can't mount them. Without the record, running the installer again sets up a
-  second copy, so in that case download it before you close Cloud Shell: choose **Manage files** >
-  **Download** and enter `analytics-hub/valuelens-install.json`. The installer reminds you at the
-  end of each run. In a new session, upload it with **Manage files** > **Upload** and run the
-  installer again: it moves the uploaded record from your home folder to where it looks. To carry
-  on from a PC later, put the record in `Documents\Analytics Hub`.
-- **Idle timeout.** Cloud Shell ends a session after 20 minutes without input. If that stops the
-  installer, run the same command again: it reuses what's in the install record, skips finished
-  steps and doesn't create a second app. `--no-wait` saves waiting for the first load.
-- **The app.** The installer builds the app from source in Cloud Shell and deploys it with your
-  installer sign-in, so Rayfin doesn't open a browser. The build needs a few hundred MB in your
-  home folder (Cloud Shell gives you 5 GB). If deploying fails, copy the install record to a
-  Windows PC and run `deploy-app` there.
-- **Remove it** with
-  `& ([scriptblock]::Create((irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1))) -Uninstall`,
-  or by deleting `~/.analytics-hub`. Your install record stays.
-
-`install.ps1` spots Cloud Shell from the environment variables it sets. To force it either way,
-set `$env:ANALYTICS_HUB_CLOUD_SHELL` to `1` or `0` first. Cloud Shell is the PowerShell launcher's
-only Linux target; on other Linux or macOS machines, use [Without the exe](#without-the-exe).
+Moved to [Locked-down tenant / Azure Cloud Shell](../docs/INSTALL.md#locked-down-tenant--azure-cloud-shell).
 
 ## Without the exe
 
-If you can't run the exe, run the installer from a clone of this repo with Node.js 22.13 or later:
-
-```text
-cd "installer"
-npm install
-npx valuelens-install --ui
-```
-
-Leave out `--ui` to answer the questions in the terminal. Other commands: `run`, `check`,
-`refresh`, `status`, `update`, `deploy-app`, `rotate-secret`, `upload`, `prereqs` and `preview`. Add `--help` for
-options. The exe takes the same commands, for example `AnalyticsHubInstaller.exe status`.
-`install --yes` keeps the secret in the notebooks for a new Fabric install; read
-[the trade-off](#where-the-secret-goes) first, and add `--key-vault` to use Key Vault instead.
-`--secret-days <n>` sets how long the secret in the notebooks lasts.
+Moved to [Without the exe](../docs/INSTALL.md#without-the-exe).

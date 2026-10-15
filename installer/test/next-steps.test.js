@@ -177,3 +177,21 @@ test('summary: what is left comes first, as cards, before the next steps', async
   if (next >= 0) assert.ok(left < next, 'the cards lead');
   assert.match(text, /Copy and send:/);
 });
+
+test("summary: after a failed step it says the setup is partly done, not set up", async () => {
+  const t = installed();
+  await summary(t.ctx);
+  assert.match(t.text(), /Analytics Hub is set up/);
+  const p = installed();
+  await summary(p.ctx, { ok: false });
+  assert.match(p.text(), /Analytics Hub is partly set up/);
+  assert.doesNotMatch(p.text(), /Analytics Hub is set up/);
+  assert.match(p.text(), /run the installer again/);
+});
+
+test("install: a failed app deploy or unproven first load makes the install not ok", async () => {
+  const src = await readFile(new URL('../src/install.js', import.meta.url), 'utf8');
+  assert.match(src, /appDeployed = await tryDeployApp\(ctx\)/);
+  assert.match(src, /ok = ok && appDeployed;\r?\n\s*await summary\(ctx, \{ ok \}\)/);
+  assert.match(src, /if \(opts\.wait && config\.firstRun\?\.status !== 'Completed'\) ok = false;/);
+});

@@ -7,18 +7,25 @@ your browser. It needs no admin rights and installs nothing system-wide.
 
   irm https://github.com/{{REPO}}/releases/latest/download/install.ps1 | iex
 
-Or download this file and run it:
+Or download this file and run it where your execution policy allows scripts:
 
-  powershell -ExecutionPolicy Bypass -File .\install.ps1 [options] [installer command and options]
+  .\install.ps1 [options] [installer command and options]
+
+If your organisation's policy blocks this, don't work around it: use another route in
+https://github.com/{{REPO}}/blob/main/docs/INSTALL.md or ask your IT team.
 
 Options:
-  -ZipPath <file>  Use an AnalyticsHubInstaller.zip you downloaded yourself, for example when a
-                   proxy blocks GitHub's download host. It must be the zip from the same release.
-  -Proxy <url>     Download through this proxy, signed in as you.
-  -Uninstall       Remove the unpacked installer and its command. Your install record in
-                   Documents\Analytics Hub stays.
+  -ZipPath <file>    Use an AnalyticsHubInstaller.zip you downloaded yourself, for example when a
+                     proxy blocks GitHub's download host. It must be the zip from the same release.
+  -Proxy <url>       Download through this proxy, signed in as you.
+  -UseInstalledNode  Run the installer with the Node.js already on this PC, such as one your IT
+                     team approved, instead of the zip's. It needs x64 Node.js 22.13 or later on
+                     22.x, or 24.x. The zip is still downloaded: it holds the installer and the app.
+  -Uninstall         Remove the unpacked installer and its command. Your install record in
+                     Documents\Analytics Hub stays.
 Anything else goes to the installer, for example: status, or install --device-code.
-With irm | iex, set $env:ANALYTICS_HUB_ZIP or $env:ANALYTICS_HUB_PROXY instead.
+With irm | iex, set $env:ANALYTICS_HUB_ZIP, $env:ANALYTICS_HUB_PROXY or
+$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1' instead.
 
 In Azure Cloud Shell's PowerShell, for tenants where no PC may run the installer, the same command
 gets this release's commit from GitHub with git, installs the installer's packages with npm and
@@ -45,14 +52,26 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
   # Launcher options; the rest go to the installer as typed.
   $ZipPath = $env:ANALYTICS_HUB_ZIP
   $Proxy = $env:ANALYTICS_HUB_PROXY
+  $UseInstalledNode = $env:ANALYTICS_HUB_USE_INSTALLED_NODE -eq '1'
   $Uninstall = $false
   $Forward = @()
   for ($i = 0; $i -lt $args.Count; $i++) {
     $a = [string]$args[$i]
     if ($a -eq '-ZipPath' -and $i + 1 -lt $args.Count) { $i++; $ZipPath = [string]$args[$i] }
     elseif ($a -eq '-Proxy' -and $i + 1 -lt $args.Count) { $i++; $Proxy = [string]$args[$i] }
+    elseif ($a -eq '-UseInstalledNode') { $UseInstalledNode = $true }
     elseif ($a -eq '-Uninstall') { $Uninstall = $true }
     else { $Forward += $a }
+  }
+
+  # Node.js on the PATH and its version, or $null.
+  function Get-SystemNode {
+    $cmd = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
+    if (-not $cmd) { return $null }
+    $v = $null
+    try { $v = ([string](& $cmd.Source --version 2>$null)).Trim() } catch { return $null }
+    if ($v -notmatch '^v(\d+)\.(\d+)\.') { return $null }
+    @{ Path = $cmd.Source; Version = $v; Major = [int]$Matches[1]; Minor = [int]$Matches[2] }
   }
 
   # Azure Cloud Shell runs Linux, so the zip's Windows Node.js and packages are no use there.
@@ -84,11 +103,8 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
     # Building the app needs Node.js 22.13 or later. Cloud Shell's own is used when it's new enough.
     $NodeExe = $null
     $NodeDir = $null
-    $sys = Get-Command node -CommandType Application -ErrorAction SilentlyContinue | Select-Object -First 1
-    if ($sys) {
-      $v = [string](& $sys.Source --version 2>$null)
-      if ($v -match '^v(\d+)\.(\d+)\.' -and ([int]$Matches[1] -gt 22 -or ([int]$Matches[1] -eq 22 -and [int]$Matches[2] -ge 13))) { $NodeExe = $sys.Source }
-    }
+    $sys = Get-SystemNode
+    if ($sys -and ($sys.Major -gt 22 -or ($sys.Major -eq 22 -and $sys.Minor -ge 13))) { $NodeExe = $sys.Path }
     if (-not $NodeExe) {
       $NodeDir = Join-Path $AhHome "node-v$NodeVersion-linux-x64"
       $NodeExe = Join-Path $NodeDir 'bin/node'
@@ -196,7 +212,7 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
     return
   }
 
-  if ($env:OS -ne 'Windows_NT') { throw 'This launcher runs on Windows and in Azure Cloud Shell. Elsewhere, run the installer with Node.js: see "Without the exe" in installer/README.md.' }
+  if ($env:OS -ne 'Windows_NT') { throw 'This launcher runs on Windows and in Azure Cloud Shell. Elsewhere, run the installer with Node.js: see https://github.com/{{REPO}}/blob/main/docs/INSTALL.md#without-the-exe' }
   $FullLanguage = $ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage'
   $AhHome = Join-Path $env:LOCALAPPDATA 'AnalyticsHub'
   $Root = Join-Path $AhHome $Id
@@ -208,9 +224,12 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
   function Remove-Tree([string]$Dir, [string]$Node) {
     if (-not (Test-Path -LiteralPath $Dir)) { return }
     if ($Node -and (Test-Path -LiteralPath $Node)) {
-      # No double quotes: Windows PowerShell 5.1 drops them from a native command's arguments.
-      & $Node -e 'require(''fs'').rmSync(process.argv[1], { recursive: true, force: true })' $Dir
-      if ($LASTEXITCODE -eq 0) { return }
+      # A device policy may block node.exe; then Remove-Item does it.
+      try {
+        # No double quotes: Windows PowerShell 5.1 drops them from a native command's arguments.
+        & $Node -e 'require(''fs'').rmSync(process.argv[1], { recursive: true, force: true })' $Dir
+        if ($LASTEXITCODE -eq 0) { return }
+      } catch { }
     }
     Remove-Item -LiteralPath $Dir -Recurse -Force -ErrorAction SilentlyContinue
   }
@@ -222,10 +241,28 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
       Select-Object -First 1
   }
 
+  # An installed Node.js, such as one IT approved, runs the installer instead of the zip's. The
+  # unpacked folder, the command and the install record stay the same, so either way finds the install.
+  $Installed = $null
+  if ($UseInstalledNode) {
+    $sys = Get-SystemNode
+    $routes = 'Install an approved Node.js, for example from Company Portal, or use another route in https://github.com/{{REPO}}/blob/main/docs/INSTALL.md.'
+    if (-not $sys) { throw "-UseInstalledNode needs Node.js on the PATH, and there's none that runs. $routes" }
+    if (-not (($sys.Major -eq 22 -and $sys.Minor -ge 13) -or $sys.Major -eq 24)) { throw "$($sys.Path) is Node.js $($sys.Version). The installer needs 22.13 or later on 22.x, or 24.x. $routes" }
+    $arch = ([string](& $sys.Path -p 'process.arch')).Trim()
+    if ($arch -ne 'x64') { throw "$($sys.Path) is Node.js for $arch. The packages in the zip are for x64, so the installer needs x64 Node.js. $routes" }
+    $Installed = $sys.Path
+    $Again = "`$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1'; $Again"
+    Write-Host "Using Node.js $($sys.Version) from $Installed."
+  }
+
   if ($Uninstall) {
     if (-not (Test-Path -LiteralPath $AhHome)) { Write-Host 'Nothing to remove.'; return }
-    $node = Find-Node
-    if ($node) {
+    $node = $null
+    if (-not $Installed) { $node = Find-Node }
+    if ($Installed) {
+      Remove-Tree $AhHome $Installed
+    } elseif ($node) {
       # Node.js can't remove the folder it runs from, so run a copy.
       $copy = Join-Path $env:TEMP "analytics-hub-node-$PID.exe"
       Copy-Item -LiteralPath $node -Destination $copy -Force
@@ -263,6 +300,10 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
         Invoke-WebRequest @request
       } catch {
         Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue
+        $status = 0
+        try { $status = [int]$_.Exception.Response.StatusCode } catch { }
+        # A pinned install.ps1 whose release has gone. The current release has its own zip and SHA-256.
+        if ($status -eq 404) { throw "Release installer-v$Version is no longer available, so this copy of install.ps1 can't download its zip. To install the current release instead, run: $Again" }
         throw "Couldn't download $ZipUrl ($($_.Exception.Message)). If a proxy blocks it, download $ZipName from the release in a browser and run this again with -ZipPath, or set `$env:ANALYTICS_HUB_ZIP to its path."
       }
     }
@@ -302,17 +343,37 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
     }
     try {
       # Left half unpacked by an earlier run that was stopped.
-      if ((Test-Path -LiteralPath $Root) -and -not (Test-Path -LiteralPath (Join-Path $Root $Marker))) { Remove-Tree $Root (Join-Path $partial 'node\node.exe') }
+      $tool = $Installed
+      if (-not $tool) { $tool = Join-Path $partial 'node\node.exe' }
+      if ((Test-Path -LiteralPath $Root) -and -not (Test-Path -LiteralPath (Join-Path $Root $Marker))) { Remove-Tree $Root $tool }
       Rename-Item -LiteralPath $partial -NewName $Id
     } catch {
       # Another copy of the installer unpacked it first.
       if (-not (Test-Path -LiteralPath (Join-Path $Root $Marker))) { throw }
-      Remove-Tree $partial (Join-Path $Root 'node\node.exe')
+      $tool = $Installed
+      if (-not $tool) { $tool = Join-Path $Root 'node\node.exe' }
+      Remove-Tree $partial $tool
     }
   }
 
-  $node = Join-Path $Root 'node\node.exe'
+  # The zip's node.exe stays unpacked either way, so a later run without -UseInstalledNode reuses the folder.
+  $node = $Installed
+  if (-not $node) { $node = Join-Path $Root 'node\node.exe' }
+  $NodeDir = Split-Path $node
   $script = Join-Path $Root 'f\installer\bin\valuelens-install.js'
+
+  # AppLocker or App Control may block node.exe. Say what to do instead of the raw error.
+  $ranNode = $null
+  try { & $node --version | Out-Null } catch { $ranNode = $_ }
+  if ($ranNode) {
+    $byPolicy = [string]$ranNode.Exception.Message -match 'group policy|Application Control|Device Guard|blocked by your administrator|software restriction'
+    $e = $ranNode.Exception
+    while ($e) { if ($e.NativeErrorCode -eq 1260 -or $e.NativeErrorCode -eq 4551) { $byPolicy = $true }; $e = $e.InnerException }
+    if (-not $byPolicy) { throw $ranNode }
+    $docs = 'https://github.com/{{REPO}}/blob/main/docs/INSTALL.md'
+    if ($Installed) { throw "Your organisation's policy blocks $node, so the installer can't run here. Don't work around it: run it in Azure Cloud Shell ($docs#locked-down-tenant--azure-cloud-shell), or ask your IT team." }
+    throw "Your organisation's policy blocks the Node.js that comes with the installer ($node). Don't work around it. If your IT team offers Node.js, for example in Company Portal, install the x64 LTS version, then run: `$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1'; $Again ($docs#it-approved-nodejs). Otherwise run the installer in Azure Cloud Shell ($docs#locked-down-tenant--azure-cloud-shell), or ask your IT team."
+  }
 
   # Remove what other versions unpacked, unless they're still running.
   foreach ($dir in @(Get-ChildItem -LiteralPath $AhHome -Directory -ErrorAction SilentlyContinue)) {
@@ -338,24 +399,32 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
   $Work = Join-Path $Docs 'Analytics Hub'
   New-Item -ItemType Directory -Path $Work -Force | Out-Null
 
-  # A command for later, such as "analytics-hub.cmd status", that runs this version.
+  # A command for later, such as "analytics-hub.cmd status", that runs this version with the same Node.js.
+  $shimNode = @('set "AH_NODE=%AH_ROOT%\node\node.exe"', 'set "PATH=%AH_ROOT%\node;%PATH%"')
+  if ($Installed) { $shimNode = @("set `"AH_NODE=$Installed`"", "set `"PATH=$NodeDir;%PATH%`"", 'set "ANALYTICS_HUB_USE_INSTALLED_NODE=1"') }
+  # cmd.exe would read the | in the command as a pipe.
+  $AgainCmd = $Again -replace '\|', '^|'
   Set-Content -LiteralPath $Shim -Encoding Ascii -Value @(
     '@echo off'
     'rem Runs the Analytics Hub installer that install.ps1 unpacked. install.ps1 writes this file.'
     'setlocal'
     "set `"AH_ROOT=%~dp0$Id`""
     'if not exist "%AH_ROOT%\.unpacked" ('
-    "  echo This copy of the Analytics Hub installer has been removed or replaced. In PowerShell, run: $Again"
+    "  echo This copy of the Analytics Hub installer has been removed or replaced. In PowerShell, run: $AgainCmd"
+    '  exit /b 1'
+    ')'
+    $shimNode
+    'if not exist "%AH_NODE%" ('
+    "  echo Can't find Node.js at `"%AH_NODE%`". In PowerShell, run: $AgainCmd"
     '  exit /b 1'
     ')'
     'set "ANALYTICS_HUB_LAUNCHER=pwsh"'
-    'set "PATH=%AH_ROOT%\node;%PATH%"'
     "cd /d `"$Work`""
-    'if "%~1"=="" ("%AH_ROOT%\node\node.exe" "%AH_ROOT%\f\installer\bin\valuelens-install.js" --ui) else ("%AH_ROOT%\node\node.exe" "%AH_ROOT%\f\installer\bin\valuelens-install.js" %*)'
+    'if "%~1"=="" ("%AH_NODE%" "%AH_ROOT%\f\installer\bin\valuelens-install.js" --ui) else ("%AH_NODE%" "%AH_ROOT%\f\installer\bin\valuelens-install.js" %*)'
   )
 
   if (-not $Forward.Count) { $Forward = @('--ui') }
-  $saved = @{ Launcher = $env:ANALYTICS_HUB_LAUNCHER; Path = $env:PATH }
+  $saved = @{ Launcher = $env:ANALYTICS_HUB_LAUNCHER; Path = $env:PATH; Installed = $env:ANALYTICS_HUB_USE_INSTALLED_NODE }
   $awake = $false
   if ($FullLanguage) {
     # A PC that sleeps part way through setup stops it. Best effort: Add-Type may be blocked.
@@ -369,12 +438,15 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
   Push-Location -LiteralPath $Work
   try {
     $env:ANALYTICS_HUB_LAUNCHER = 'pwsh'
-    $env:PATH = (Join-Path $Root 'node') + ';' + $env:PATH
+    $env:ANALYTICS_HUB_USE_INSTALLED_NODE = $null
+    if ($Installed) { $env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1' }
+    $env:PATH = $NodeDir + ';' + $env:PATH
     & $node $script @Forward
     $global:LASTEXITCODE = $LASTEXITCODE
   } finally {
     Pop-Location
     $env:ANALYTICS_HUB_LAUNCHER = $saved.Launcher
+    $env:ANALYTICS_HUB_USE_INSTALLED_NODE = $saved.Installed
     $env:PATH = $saved.Path
     if ($awake) { try { [AnalyticsHub.Power]::SetThreadExecutionState([uint32]2147483648) | Out-Null } catch { } }
   }

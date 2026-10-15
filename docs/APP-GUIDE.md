@@ -9,6 +9,7 @@ Screenshots use synthetic data. Every name in them is invented.
 - **Optional** pages appear only once their data has loaded.
 - **How each figure is worked out** is in the [methodology](METHODOLOGY.md). Table and column names
   are in the [data dictionary](DATA-DICTIONARY.md).
+- **Prefer Power BI?** See [Power BI reports](#power-bi-reports).
 
 | Page | Answers |
 |---|---|
@@ -218,3 +219,16 @@ minutes.
 |---|---|
 | Glossary | Every metric, in the model's own words |
 | Signal → Impact | What the audit log shows, the task it is read as, and that task's human time |
+
+## Power BI reports
+
+The installer also publishes Power BI reports on the same models as the app, for anyone who
+prefers Power BI or wants to build their own. See
+[Power BI reports](../installer/README.md#power-bi-reports) in the installer reference.
+
+| ValueLens | Consumption Central | Agent Evaluator |
+|---|---|---|
+| [![ValueLens report](../media/powerbi/valuelens.png)](../media/powerbi/valuelens.png) | [![Consumption Central report](../media/powerbi/consumption-central.png)](../media/powerbi/consumption-central.png) | [![Agent Evaluator report](../media/powerbi/agent-evaluator.png)](../media/powerbi/agent-evaluator.png) |
+| Adoption, value and governance. The app's main model. | Credits and cost. The *Credit consumption* add-on. | Copilot Studio agent quality. The *Agent Evaluator* add-on. |
+
+To read the ValueLens report, see the [report guide (PDF)](ValueLens-Report-Interpretation-Guide.pdf).

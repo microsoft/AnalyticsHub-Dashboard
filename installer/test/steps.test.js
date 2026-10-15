@@ -8,7 +8,7 @@ import { ensureLakehouse, ensureNotebooks, ensurePipeline, ensureSchedule, freeN
 import { ensureConsent } from '../src/steps/identity.js';
 import { connectionName } from '../src/steps/model.js';
 import { APP_NAME, lakehouseNameFrom, largeCapacity, planCosts, planReview, reserveNames, validateNewLakehouseName } from '../src/steps/plan.js';
-import { BUSY_RETRIES, BUSY_WAIT_MS, capacityBusy, chooseLoad, firstLoadEstimate, historyLoaded, NETWORK_LOSSES, printDataCheck, ranSince, runDataCheck, runPipeline, status, waitForJob } from '../src/steps/run.js';
+import { BUSY_RETRIES, BUSY_WAIT_MS, capacityBusy, chooseLoad, firstLoadEstimate, firstRunStatus, historyLoaded, NETWORK_LOSSES, printDataCheck, ranSince, runDataCheck, runPipeline, status, waitForJob } from '../src/steps/run.js';
 import { DATA_CHECK_FILE } from '../src/transform/notebook.js';
 import { PIPELINE_CHANGE, PIPELINE_VERSION, REFRESH_ACTIVITY } from '../src/transform/pipeline.js';
 import { fakeCtx, fakeFabric, fakeGraph as fakeGraphApi, fakePowerBi, fakeUi } from './fakes.js';
@@ -452,6 +452,7 @@ test('waitForJob keeps watching through a network blip, and gives up on other er
 test('first run starts with a backfill, records the job and reports the result', async () => {
   const fabric = fakeFabric();
   fabric.jobs.push({ status: 'InProgress' }, { status: 'Completed', startTimeUtc: '2026-06-01T12:00:00', endTimeUtc: '2026-06-01T12:21:30' });
+  fabric.activityRuns['job-1'] = [activity('Run_Audit_Log_Ingester', 'Succeeded'), activity('Run_Audit_Log_Processor', 'Succeeded')];
   const ui = fakeUi();
   const { ctx, config } = fakeCtx({ fabric: fabric.api, ui: ui.ui });
   config.fabric.pipelineId = 'pipe-1';
@@ -636,7 +637,46 @@ test("run starts the first load again when the last one didn't load the history"
   assert.match(ui.text(), /Started the first load: 30 days of audit history/);
   assert.match(ui.text(), /usually takes under an hour/);
   assert.equal(config.firstRun?.jobId, 'job-1');
+  assert.equal(config.firstRun?.status, 'Incomplete', 'job-1 has no proof the history loaded');
+});
+
+test("a first load whose job completed but whose audit load failed is recorded as Incomplete, not Completed", async () => {
+  const fabric = fakeFabric();
+  fabric.jobs.push({ status: 'Completed' });
+  fabric.activityRuns['job-1'] = [
+    activity('Run_Audit_Log_Ingester', 'Failed', undefined, { error: { errorCode: '430', message: BUSY } }),
+    activity('Run_Licensed_Users_Ingester', 'Succeeded'),
+  ];
+  const { ctx, config } = fakeCtx({ fabric: fabric.api });
+  config.fabric.pipelineId = 'pipe-1';
+
+  const result = await runPipeline(ctx, { backfillDays: 30, wait: true, first: true });
+  assert.equal(result.status, 'Completed');
+  assert.equal(result.ok, false);
+  assert.equal(config.firstRun?.status, 'Incomplete');
+  assert.deepEqual(await chooseLoad(ctx, { wait: true }), { wait: true, backfillDays: 30, first: true }, 'the next run offers the first load again');
+
+  // Once a rerun of its failed loads succeeds, the same job proves the history loaded.
+  fabric.activityRuns['job-1'] = [activity('Run_Audit_Log_Ingester', 'Succeeded'), activity('Run_Audit_Log_Processor', 'Succeeded')];
+  assert.equal(await historyLoaded(ctx), true);
   assert.equal(config.firstRun?.status, 'Completed');
+});
+
+test('status records a finished first load as Completed only when its loads prove it', async () => {
+  const fabric = fakeFabric();
+  fabric.jobList.push({ id: 'job-7', status: 'Completed', startTimeUtc: '2026-06-01T12:00:00', endTimeUtc: '2026-06-01T12:30:00' });
+  fabric.activityRuns['job-7'] = [activity('Run_Audit_Log_Ingester', 'Failed')];
+  const { ctx, config } = fakeCtx({ fabric: fabric.api, oneLake: { readJson: async () => null } });
+  config.fabric.pipelineId = 'pipe-1';
+  config.firstRun = { jobId: 'job-7', status: 'InProgress' };
+
+  await status(ctx);
+  assert.equal(config.firstRun?.status, 'Incomplete');
+
+  assert.equal(firstRunStatus(config, 'Completed', null), 'Incomplete');
+  assert.equal(firstRunStatus(config, 'Failed', null), 'Failed');
+  const loaded = new Map([['Run_Audit_Log_Ingester', { status: 'Succeeded' }], ['Run_Audit_Log_Processor', { status: 'Succeeded' }]]);
+  assert.equal(firstRunStatus(config, 'Completed', loaded), 'Completed');
 });
 
 test('tenant size: a big capacity suggests a large tenant, and the first-load estimate and pipeline follow the size', () => {

@@ -1,8 +1,9 @@
-# Roles & permissions — one-page reference
+# Roles & permissions
 
-Everything you need to grant to stand up ValueLens, least-privilege. The **core source grants
-are the same on every path** — only the last section (Fabric workspace & capacity) is
-Fabric-specific. Three kinds of permission are involved:
+The detail behind each permission and role, least-privilege. For the short version, as
+**API | Permission | Reason** tables per identity, see
+[Prerequisites: Permissions](PREREQUISITES.md#permissions). The **core source grants are the same
+on Fabric and Azure**. Three kinds of permission are involved:
 
 - **App permission / role** — what an automated (unattended) pull needs.
 - **Export role** — the admin-portal role a person needs to download the data by hand.
@@ -23,7 +24,9 @@ Pulled automatically by the 3 core notebooks via one **Entra app registration** 
 | Licensed users (`copilot_licensed_users`) | `Reports.Read.All` | Global Reader or Reports Reader |
 | Org data (`copilot_org_data`) | `User.Read.All` | Global Reader or User Administrator |
 
-One app registration covers all three. Put the client secret in **Azure Key Vault**, not in a notebook.
+One app registration covers all three on Fabric; on Azure, the jobs' managed identity gets them as
+app roles. On Fabric the app's secret goes in the notebooks by default, or in a Key Vault if you
+choose: see [Where the secret goes](../installer/README.md#where-the-secret-goes).
 
 The optional **Microsoft 365 activity** notebook (Fabric path, `m365_activity_daily`) reads the
 Microsoft 365 usage reports with the same `Reports.Read.All`, so it needs no extra permission.
@@ -40,8 +43,7 @@ reports** is off (Microsoft 365 admin center → Settings → Org settings → S
 | **Copilot Studio credits** | ✅ Power Platform licensing API (installer flow, the default) | The flow's Power Platform API connection (**HTTP with Microsoft Entra ID**, resource `https://api.powerplatform.com`) signs in as a **Power Platform Administrator**, **Billing Administrator** or **Global Administrator**. Per-user figures come from an undocumented route, best effort. | Power Platform Administrator, for the optional PPAC Licensing exports |
 | **Cowork credits** | ✅ Viva Insights query via Dataflow Gen2 | The person who signs in to the Dataflow needs the Viva Insights **Insights Analyst** role, and the query on Auto-refresh. | Insights Analyst, for the Consumption Dashboard export |
 | **Agents 365** | ✅ Graph | `CopilotPackages.Read.All` + `Application.Read.All` (+ `User.Read.All` to resolve creators and, on Fabric, check whether each owner's account is still active), admin-consented, **and an Agent 365 licence** in the tenant (else `403`). Used by `Copilot_Agent365_Registry_Ingester` (Fabric) and `Get-Agents365Registry.ps1` (every other path). | Global Administrator or Reports Reader (with **AI Admin** in a Frontier-enrolled tenant), for the CSV fallback via the admin centre |
-
-| **Defender** (shadow AI and agent risk) | ? Graph | `ThreatHunting.Read.All` for advanced hunting (`POST /security/runHuntingQuery`: devices, installed software and AI agents), and `CloudApp-Discovery.Read.All` for Cloud Discovery, admin-consented. **Licences:** Defender for Endpoint P2 (or Microsoft Defender XDR) for the device and agent probes, Defender for Cloud Apps for Cloud Discovery. A probe without its permission or licence is skipped and logged in `defender_status`; the rest of the load carries on. Used by `Copilot_Defender_Ingester` (Fabric) and the `defender` module of the Azure jobs. | None: there is no export |
+| **Defender** (shadow AI and agent risk) | ✅ Graph | `ThreatHunting.Read.All` for advanced hunting (`POST /security/runHuntingQuery`: devices, installed software and AI agents), and `CloudApp-Discovery.Read.All` for Cloud Discovery, admin-consented. **Licences:** Defender for Endpoint P2 (or Microsoft Defender XDR) for the device and agent probes, Defender for Cloud Apps for Cloud Discovery. A probe without its permission or licence is skipped and logged in `defender_status`; the rest of the load carries on. Used by `Copilot_Defender_Ingester` (Fabric) and the `defender` module of the Azure jobs. | None: there is no export |
 
 For the **export-only** source, the only "permission" to automate landing is the automation's **OneLake write**
 right (next section) — the data itself must be exported by an admin (or a scheduled portal export) first.
@@ -220,7 +222,7 @@ Caveats:
 - **+ Feedback:** an admin exports the feedback CSV and lands it, by hand or with the flow. No extra API permission. With the installer, choose **Upload CSV** on its Data sources card, or drop it in `Files/analytics_hub_uploads`.
 - **+ Agents 365:** add `CopilotPackages.Read.All` + `Application.Read.All` (+ `User.Read.All`) to the same app reg, and confirm the tenant has an Agent 365 licence.
 
-See the README for the path you're following for the step-by-step:
-[Fabric](../fabric/README.md) · [Azure](../azure/README.md). The Power BI templates are in
-ValueLens: [3](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/blob/main/3.%20Power%20Automate%20+%20Dataverse/README.md) · [4](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/blob/main/4.%20SharePoint/README.md) ·
+For the step-by-step, see [Install](INSTALL.md), or the README for where it runs:
+[Fabric](../fabric/README.md) · [Azure](../azure/README.md). The Power BI templates for other
+paths are in ValueLens: [3](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/blob/main/3.%20Power%20Automate%20+%20Dataverse/README.md) · [4](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/blob/main/4.%20SharePoint/README.md) ·
 [5](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/blob/main/5.%20Local%20CSV/README.md).

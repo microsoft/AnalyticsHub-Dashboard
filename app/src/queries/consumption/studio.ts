@@ -76,6 +76,22 @@ export function studioDaily(lens: ConsumptionLens = "consumption") {
     return { connection, query: dailyQuery, columnMetadata: dailyColumns, vegaLiteSpec: spec as VisualizationSpec };
 }
 
+/**
+ * Draws the daily chart's 7-day average line in the given colour, so it reads
+ * against the bars in both light and dark themes. Other layers are untouched.
+ */
+export function withTrendLineColor(spec: VisualizationSpec, color: string): VisualizationSpec {
+    const layers = (spec as { layer?: Array<{ mark?: unknown }> }).layer;
+    if (!layers) return spec;
+    return {
+        ...spec,
+        layer: layers.map((layer) => {
+            const mark = layer.mark as { type?: string } | undefined;
+            return mark?.type === "line" ? { ...layer, mark: { ...mark, color } } : layer;
+        }),
+    } as VisualizationSpec;
+}
+
 const azureBillingColumns: ColumnMetadataMap = {
     "[Studio Cost]": { name: "Studio Cost", displayName: "Copilot Studio", format: FORMAT_MONEY },
     "[Studio Credits]": { name: "Studio Credits", displayName: "Copilot Studio credits", format: FORMAT_CREDITS },
