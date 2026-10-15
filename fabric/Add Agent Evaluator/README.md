@@ -57,6 +57,10 @@ Import `Copilot_Agent_Transcript_Parser.ipynb`, attach your Lakehouse, and set t
 | `STATUS_TABLE` | `'dbo.evaluator_status'`. Each run replaces it with one row per environment, giving how many days it read, how many transcripts it found, a `Status` of *ok*, *empty*, *forbidden* or *error*, and a plain `Reason`. |
 | `DATAVERSE_ENV_NAMES` | Optional: plain names by URL, for `evaluator_status`. The installer fills it in. |
 
+Transcripts aren't held in memory. Each page is written to JSONL files under
+`TRANSCRIPT_STAGING_DIR` (default `Files/_transcript_staging`, cleared each run) and parsed by
+Spark, `PARSE_CHUNK_ROWS` transcripts at a time, so a large environment needs no bigger driver.
+
 If a scheduled `merge` or `append` run finds no new transcripts, the notebook creates missing
 `agent_*` tables as empty string-schema tables and leaves existing tables unchanged.
 

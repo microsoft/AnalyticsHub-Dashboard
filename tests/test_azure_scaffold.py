@@ -65,7 +65,7 @@ def test_jobs_process_end_to_end(tmp_path):
     result = subprocess.run([sys.executable, "-m", "valuelens_jobs", "process", "--data-dir", str(tmp_path)],
                             env={**os.environ, **env}, capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
-    out = tmp_path / "curated" / "copilot_interactions_curated" / "part-0.parquet"
+    out = tmp_path / "curated" / "copilot_interactions_curated" / "month-202609.parquet"
     assert duckdb.sql(f"SELECT count(*) FROM read_parquet('{out.as_posix()}')").fetchone()[0] == 1
 
     clean = {k: v for k, v in os.environ.items() if not k.startswith("VALUELENS_")}

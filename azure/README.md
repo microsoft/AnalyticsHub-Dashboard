@@ -153,7 +153,8 @@ pip install duckdb
 $env:PYTHONPATH = "core;azure\jobs"
 # raw\copilot_interactions_parsed\*.parquet (and optionally copilot_licensed_users, agents_365)
 python -m valuelens_jobs process --data-dir .\data
-# -> data\curated\copilot_interactions_curated\part-0.parquet
+# -> data\curated\copilot_interactions_curated\month-YYYYMM.parquet (one file per month)
+# later runs recompute only changed months; add --full-rebuild to recompute them all
 ```
 
 Or run it on single files: `python -m valuelens_core --interactions in.csv --out curated.parquet`.
