@@ -13,7 +13,7 @@ import { compile } from "vega-lite";
 import type { TopLevelSpec } from "vega-lite";
 import { formatValue } from "@microsoft/fabric-visuals-core";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
-import { consumptionByProduct, coworkWeekly, foundryByModel, foundryDaily, studioAzureDaily, studioBreakdown, studioDaily } from "./index";
+import { consumptionByProduct, coworkWeekly, foundryByModel, foundryDaily, studioAzureDaily, studioBreakdown, studioDaily, studioDailyCalendar } from "./index";
 import productRows from "./__fixtures__/consumption-by-product.rows.json";
 import weeklyRows from "./__fixtures__/cowork-weekly.rows.json";
 import modelRows from "./__fixtures__/foundry-by-model.rows.json";
@@ -191,6 +191,66 @@ describe("studio daily renders", () => {
         const both = byDay.find((group) => group.length === 2)!;
         const [prepaid, payg] = ["Prepaid", "Pay-as-you-go"].map((billing) => both.find((bar) => bar.datum.Billing === billing)!);
         expect(payg.bounds.y2).toBeCloseTo(prepaid.bounds.y1, 0);
+    });
+});
+
+describe("studio daily calendar renders", () => {
+    const rows = studioDailyRows as Row[];
+    const { columnMetadata } = studioDaily("consumption");
+    const colors = { quiet: "#eeeeee", strong: "#0f6cbd", gap: "#ffffff" };
+    const dayOf = (cell: Mark) => new Date(cell.datum.Day as unknown as number);
+    // The legend's gradient is a rect too; the days are the rects with a datum.
+    const cellsOf = async (lens: "consumption" | "cost", palette?: typeof colors) =>
+        (await render(studioDailyCalendar(lens, palette), rows, columnMetadata, "rect")).filter((cell) => cell.datum?.Day !== undefined);
+
+    it.each(["consumption", "cost"] as const)("draws one cell per day with %s", async (lens) => {
+        const cells = await cellsOf(lens, colors);
+        expect(cells).toHaveLength(rows.length);
+        expectFinite(cells);
+    });
+
+    it("puts Monday at the top and each week in its own column, leaving empty weeks empty", async () => {
+        const cells = await cellsOf("consumption", colors);
+        const byDate = new Map(cells.map((cell) => [dayOf(cell).getDate() + "/" + (dayOf(cell).getMonth() + 1), cell]));
+        const [tue14, wed15, tue5, sun10, mon11] = ["14/4", "15/4", "5/5", "10/5", "11/5"].map((key) => byDate.get(key)!);
+
+        expect(tue14.datum.Weekday).toBe("Tue");
+        expect(sun10.datum.Weekday).toBe("Sun");
+        expect(mon11.datum.Weekday).toBe("Mon");
+        expect(mon11.bounds.y1).toBeLessThan(tue5.bounds.y1);
+        expect(tue5.bounds.y1).toBeLessThan(sun10.bounds.y1);
+        expect(tue14.bounds.y1).toBeCloseTo(tue5.bounds.y1, 0);
+
+        expect(wed15.bounds.x1).toBeCloseTo(tue14.bounds.x1, 0);
+        expect(sun10.bounds.x1).toBeCloseTo(tue5.bounds.x1, 0);
+        expect(mon11.bounds.x1).toBeGreaterThan(sun10.bounds.x2 - 4);
+        // Mid April to early May is three weeks with no usage: their columns stay blank.
+        const column = tue14.width!;
+        expect(tue5.bounds.x1 - tue14.bounds.x1).toBeCloseTo(column * 3, 0);
+    });
+
+    it("shades the busiest day strongest and sums prepaid and pay-as-you-go cost", async () => {
+        const credits = await cellsOf("consumption", colors);
+        const busiest = credits.reduce((top, cell) => ((cell.datum.Amount as number) > (top.datum.Amount as number) ? cell : top));
+        expect(busiest.datum.Amount).toBe(7699.9);
+        // The red channel falls from the quiet grey to the strong blue, so a busier day reads lower.
+        const redChannel = (cell: Mark) => {
+            const fill = String((cell as unknown as { fill: string }).fill);
+            return fill.startsWith("#") ? parseInt(fill.slice(1, 3), 16) : Number(/\d+/.exec(fill)![0]);
+        };
+        const byAmount = [...credits].sort((a, b) => (a.datum.Amount as number) - (b.datum.Amount as number));
+        byAmount.slice(1).forEach((cell, index) => expect(redChannel(cell)).toBeLessThanOrEqual(redChannel(byAmount[index])));
+        expect(redChannel(busiest)).toBeLessThan(redChannel(byAmount[0]));
+
+        const cost = await cellsOf("cost", colors);
+        const first = cost.find((cell) => dayOf(cell).getDate() === 14)!;
+        expect(first.datum.Amount).toBeCloseTo(55.04786 + 2.4012, 5);
+    });
+
+    it("falls back to a transparent gap before the theme is known", () => {
+        const spec = studioDailyCalendar("consumption") as { mark: { stroke: string }; encoding: { color: { scale: object } } };
+        expect(spec.mark.stroke).toBe("transparent");
+        expect(spec.encoding.color.scale).not.toHaveProperty("range");
     });
 });
 

@@ -28,6 +28,7 @@ import breakdownCostSpec from "./studio-breakdown-cost.json";
 import breakdownCreditsSpec from "./studio-breakdown-credits.json";
 import summaryQuery from "./studio-credits-summary.dax?raw";
 import dailyQuery from "./studio-daily.dax?raw";
+import dailyCalendarSpec from "./studio-daily-calendar.json";
 import dailyCostSpec from "./studio-daily-cost.json";
 import dailyCreditsSpec from "./studio-daily-credits.json";
 import usersQuery from "./studio-users.dax?raw";
@@ -74,6 +75,46 @@ const dailyColumns: ColumnMetadataMap = {
 export function studioDaily(lens: ConsumptionLens = "consumption") {
     const spec = lens === "cost" ? dailyCostSpec : dailyCreditsSpec;
     return { connection, query: dailyQuery, columnMetadata: dailyColumns, vegaLiteSpec: spec as VisualizationSpec };
+}
+
+/** How the daily calendar's cells are painted, read from the host theme. */
+export interface CalendarColors {
+    /** The fill for the quietest day. */
+    quiet: string;
+    /** The fill for the busiest day. */
+    strong: string;
+    /** The card behind the chart, drawn between cells so each day reads on its own. */
+    gap: string;
+}
+
+const CALENDAR_AMOUNT: Record<ConsumptionLens, { amount: string; title: string; format: string; legend: string }> = {
+    consumption: { amount: "datum['Credits']", title: "Credits", format: ",.0f", legend: ",.0f" },
+    cost: {
+        amount:
+            "isValid(datum['Prepaid Cost']) || isValid(datum['PAYG Cost']) ? (isValid(datum['Prepaid Cost']) ? datum['Prepaid Cost'] : 0) + (isValid(datum['PAYG Cost']) ? datum['PAYG Cost'] : 0) : null",
+        title: "Cost ($)",
+        format: "$,.2f",
+        legend: "$,.0f",
+    },
+};
+
+/**
+ * The same days as {@link studioDaily}, laid out as a calendar: one column per
+ * week, Monday at the top, each day shaded by its total. Weekly rhythm and
+ * quiet days show at a glance, where the bars show the trend.
+ */
+export function studioDailyCalendar(lens: ConsumptionLens = "consumption", colors?: CalendarColors): VisualizationSpec {
+    const amount = CALENDAR_AMOUNT[lens];
+    const spec = JSON.parse(
+        JSON.stringify(dailyCalendarSpec)
+            .replaceAll("__AMOUNT__", amount.amount.replaceAll('"', '\\"'))
+            .replaceAll("__TITLE__", amount.title)
+            .replaceAll("__FORMAT__", amount.format)
+            .replaceAll("__LEGEND__", amount.legend)
+            .replaceAll("__GAP__", colors?.gap ?? "transparent"),
+    ) as { encoding: { color: { scale: Record<string, unknown> } } };
+    if (colors) spec.encoding.color.scale = { ...spec.encoding.color.scale, range: [colors.quiet, colors.strong] };
+    return spec as unknown as VisualizationSpec;
 }
 
 const azureBillingColumns: ColumnMetadataMap = {

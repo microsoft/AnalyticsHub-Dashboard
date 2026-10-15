@@ -54,10 +54,12 @@ function collectFields(node: unknown, found: Set<string> = new Set()): Set<strin
     return found;
 }
 
-/** Every column a spec's own transforms add, such as a `toDate` result. */
+/** Every column a spec's own transforms add, such as a `toDate` result or a fold's key and value. */
 function derivedFields(spec: unknown): string[] {
     const transforms = (spec as { transform?: { as?: unknown }[] }).transform ?? [];
-    return transforms.flatMap((step) => (typeof step.as === "string" ? [step.as] : []));
+    return transforms.flatMap((step) =>
+        typeof step.as === "string" ? [step.as] : Array.isArray(step.as) ? step.as.filter((name) => typeof name === "string") : [],
+    );
 }
 
 describe("feedback query contract", () => {

@@ -157,6 +157,47 @@ function money(value: number, prefix: string): string {
     return `${prefix}${Math.round(value).toLocaleString("en-US")}`;
 }
 
+/**
+ * Where a runway's marks sit on its bullet bar, each as a share of the bar.
+ * The bar runs to whichever is largest of the budget, the spend and the
+ * projection, so spend past the budget shows past its mark instead of
+ * stopping at the end. `pace` marks what an even spread of the budget
+ * would have used by now.
+ */
+export interface BulletScale {
+    spent: number;
+    projected?: number;
+    budget: number;
+    pace: number;
+    /** The budget spread evenly over the month, to the day the data reaches. */
+    expectedByNow: number;
+}
+
+/** The bullet bar's marks, or nothing without a budget to measure against. */
+export function bulletScale(runway: Runway): BulletScale | undefined {
+    const budget = runway.budget;
+    if (budget === undefined || budget <= 0 || runway.daysInMonth <= 0) return undefined;
+    const expectedByNow = budget * Math.min(1, runway.daysElapsed / runway.daysInMonth);
+    const max = Math.max(budget, runway.spent, runway.projected ?? 0);
+    return {
+        spent: runway.spent / max,
+        projected: runway.projected === undefined ? undefined : runway.projected / max,
+        budget: budget / max,
+        pace: expectedByNow / max,
+        expectedByNow,
+    };
+}
+
+/** What the bullet bar shows, as plain sentences for a screen reader. */
+export function bulletLabel(runway: Runway, scale: BulletScale, prefix: string): string {
+    const parts = [
+        `Spent ${money(runway.spent, prefix)} of a ${money(runway.budget ?? 0, prefix)} budget.`,
+        `An even pace would have used ${money(scale.expectedByNow, prefix)} by now.`,
+    ];
+    if (runway.projected !== undefined) parts.push(`At this pace the month ends near ${money(runway.projected, prefix)}.`);
+    return parts.join(" ");
+}
+
 /** A short date such as "25 Apr", read from an ISO date without a time zone shift. */
 export function shortDate(date: string): string {
     return new Date(`${date}T00:00:00Z`).toLocaleDateString("en-GB", { day: "numeric", month: "short", timeZone: "UTC" });

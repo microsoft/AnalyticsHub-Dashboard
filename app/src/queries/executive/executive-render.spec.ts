@@ -13,8 +13,9 @@ import { describe, expect, it } from "vitest";
 import { compile, type TopLevelSpec } from "vega-lite";
 import { parse, View, type Scene, type SceneItem } from "vega";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
-import { executiveCredits, executiveMonths, executiveWorkKinds, FADED_OPACITY } from "./index";
+import { departmentMapSpec, executiveCredits, executiveDepartments, executiveMonths, executiveWorkKinds, FADED_OPACITY } from "./index";
 import creditRows from "./__fixtures__/executive-credits.rows.json";
+import departmentRows from "./__fixtures__/executive-departments.rows.json";
 import monthRows from "./__fixtures__/executive-months.rows.json";
 import workKindRows from "./__fixtures__/executive-work-kinds.rows.json";
 
@@ -43,18 +44,22 @@ async function render(spec: unknown, rows: Row[], columnMetadata: ColumnMetadata
 
     const bars: Mark[] = [];
     const labels: Mark[] = [];
+    const points: Mark[] = [];
+    const rules: Mark[] = [];
     const walk = (node: Scene | SceneItem) => {
         const scene = node as Scene;
         const role = (scene as unknown as { role?: string }).role;
         if (scene.marktype === "rect" && role === "mark") bars.push(...(scene.items as unknown as Mark[]));
         if (scene.marktype === "text" && role === "mark") labels.push(...(scene.items as unknown as Mark[]));
+        if (scene.marktype === "symbol" && role === "mark") points.push(...(scene.items as unknown as Mark[]));
+        if (scene.marktype === "rule" && role === "mark") rules.push(...(scene.items as unknown as Mark[]));
         for (const item of (scene.items ?? []) as (Scene | SceneItem)[]) {
             if ((item as Scene).marktype || (item as { items?: unknown }).items) walk(item);
         }
     };
     walk((view.scenegraph() as unknown as { root: Scene }).root);
     await view.finalize();
-    return { bars, labels };
+    return { bars, labels, points, rules };
 }
 
 function expectDrawable(bars: Mark[]) {
@@ -122,5 +127,49 @@ describe("the kinds of work chart renders", () => {
         expect(top.map((bar) => bar.datum.Hours)).toEqual([...workKindRows.map((row) => row["[Hours]"])].sort((a, b) => b - a));
         const widest = Math.max(...bars.map((bar) => bar.width));
         for (const bar of bars) expect(bar.width / widest).toBeCloseTo((bar.datum.Hours as number) / 438.5, 6);
+    });
+});
+
+describe("the departments map renders", () => {
+    const rows = departmentRows as Row[];
+    const { columnMetadata } = executiveDepartments();
+    const centre = (mark: Mark) => ({ x: (mark.bounds.x1 + mark.bounds.x2) / 2, y: (mark.bounds.y1 + mark.bounds.y2) / 2 });
+    const named = (marks: Mark[], name: string) => marks.find((mark) => mark.datum["Chat + Agent Org DataOrganization"] === name)!;
+
+    it("plots a circle per group, wider use to the right and more hours per seat higher up", async () => {
+        const { points, rules } = await render(departmentMapSpec("Department"), rows, columnMetadata);
+        expect(points).toHaveLength(rows.length);
+        expect(rules).toHaveLength(2);
+        const byUse = [...points].sort((a, b) => (a.datum["Seats In Use Pct"] as number) - (b.datum["Seats In Use Pct"] as number));
+        byUse.slice(1).forEach((point, index) => expect(centre(point).x).toBeGreaterThanOrEqual(centre(byUse[index]).x));
+        const byHours = [...points].sort((a, b) => (a.datum["Hours Per Seat Month"] as number) - (b.datum["Hours Per Seat Month"] as number));
+        byHours.slice(1).forEach((point, index) => expect(centre(point).y).toBeLessThanOrEqual(centre(byHours[index]).y));
+    });
+
+    it("sizes circles by licensed seats", async () => {
+        const { points } = await render(departmentMapSpec("Department"), rows, columnMetadata);
+        const bySeats = [...points].sort((a, b) => (a.datum["Licensed Seats"] as number) - (b.datum["Licensed Seats"] as number));
+        const width = (mark: Mark) => mark.bounds.x2 - mark.bounds.x1;
+        expect(width(bySeats[bySeats.length - 1])).toBeGreaterThan(width(bySeats[0]));
+    });
+
+    it("labels only the six largest groups, beside their circles", async () => {
+        const extra = Array.from({ length: 3 }, (_, index) => ({
+            ...rows[0],
+            "Chat + Agent Org Data[Organization]": `Small team ${index + 1}`,
+            "[Licensed Seats]": 1,
+        }));
+        const { points, labels } = await render(departmentMapSpec("Department"), [...rows, ...extra], columnMetadata);
+        expect(points).toHaveLength(rows.length + extra.length);
+        expect(labels).toHaveLength(6);
+        expect(labels.map((label) => label.text)).not.toContain("Small team 1");
+        const sales = named(labels, "Sales");
+        expect(sales.bounds.x1).toBeGreaterThan(centre(named(points, "Sales")).x);
+    });
+
+    it("titles the tooltip's first row with the chosen grouping", () => {
+        const spec = departmentMapSpec("Cost centre") as { layer: { encoding: { tooltip?: { title: string }[] } }[] };
+        const titles = spec.layer.flatMap((layer) => layer.encoding.tooltip?.[0]?.title ?? []);
+        expect(titles).toEqual(["Cost centre"]);
     });
 });

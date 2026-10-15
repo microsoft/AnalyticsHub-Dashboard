@@ -1,0 +1,59 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "width": "container",
+  "height": "container",
+  "transform": [
+    { "calculate": "toDate(datum['Usage Date'])", "as": "Day" },
+    { "calculate": "__AMOUNT__", "as": "Amount" },
+    { "filter": "isValid(datum['Amount'])" },
+    { "calculate": "(day(datum['Day']) + 6) % 7", "as": "Weekday Index" },
+    { "calculate": "['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][datum['Weekday Index']]", "as": "Weekday" },
+    {
+      "calculate": "toDate(datetime(year(datum['Day']), month(datum['Day']), date(datum['Day']) - datum['Weekday Index']))",
+      "as": "Week"
+    },
+    {
+      "calculate": "toDate(datetime(year(datum['Day']), month(datum['Day']), date(datum['Day']) - datum['Weekday Index'] + 7))",
+      "as": "Week End"
+    }
+  ],
+  "mark": { "type": "rect", "cornerRadius": 2, "stroke": "__GAP__", "strokeWidth": 2 },
+  "encoding": {
+    "x": {
+      "field": "Week",
+      "type": "temporal",
+      "title": null,
+      "scale": { "nice": false },
+      "axis": {
+        "orient": "top",
+        "format": "%b",
+        "tickCount": { "interval": "month", "step": 1 },
+        "labelAlign": "left",
+        "labelOverlap": true,
+        "grid": false,
+        "domain": false,
+        "ticks": false
+      }
+    },
+    "x2": { "field": "Week End" },
+    "y": {
+      "field": "Weekday",
+      "type": "ordinal",
+      "title": null,
+      "sort": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+      "axis": { "domain": false, "ticks": false }
+    },
+    "color": {
+      "field": "Amount",
+      "type": "quantitative",
+      "title": "__TITLE__",
+      "scale": { "zero": true, "nice": true },
+      "legend": { "orient": "bottom", "direction": "horizontal", "gradientLength": 160, "format": "__LEGEND__" }
+    },
+    "tooltip": [
+      { "field": "Day", "type": "temporal", "title": "Day", "format": "%a %d %b %Y" },
+      { "field": "Amount", "type": "quantitative", "title": "__TITLE__", "format": "__FORMAT__" }
+    ]
+  },
+  "config": { "view": { "stroke": null } }
+}
