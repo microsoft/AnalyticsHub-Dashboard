@@ -122,9 +122,13 @@ describe("governance flags", () => {
         expect(governanceReviewQueue().query).toMatch(/FILTER\(\s*'Agents 365',\s*NOT ISBLANK\('Agents 365'\[Governance Flags\]\)\s*\)/);
     });
 
-    it("puts the highest-priority, then most-flagged, most-used agents first", () => {
-        expect(governanceReviewQueue().query.trim()).toMatch(
-            /ORDER BY \[Priority\] DESC, \[Flag Count\] DESC, \[Users\] DESC, \[Agent\] ASC$/,
+    it("puts the highest-priority, then most-flagged, most-used agents first with a stable registry tie-breaker", () => {
+        const query = governanceReviewQueue().query.trim();
+        expect(query).toMatch(
+            /TOPN\(\s*1000,\s*_queue,\s*\[Priority\], DESC,\s*\[Flag Count\], DESC,\s*\[Users\], DESC,\s*\[Agent\], ASC,\s*\[Registry Id\], ASC\s*\)/,
+        );
+        expect(query).toMatch(
+            /ORDER BY \[Priority\] DESC, \[Flag Count\] DESC, \[Users\] DESC, \[Agent\] ASC, \[Registry Id\] ASC$/,
         );
     });
 

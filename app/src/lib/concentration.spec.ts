@@ -175,16 +175,16 @@ describe("concentration from the model", () => {
             expect(point.peopleShare).toBe(direct?.points[index].peopleShare);
             expect(point.totalShare).toBeCloseTo(direct?.points[index].totalShare ?? 0, 9);
         });
+    });
 
-        it("keeps decimal cutoff ties within a relative tolerance of 1e-9", () => {
-            const values = Array.from({ length: 10001 }, () => 0.00037);
-            const read = readConcentration(cutTable(daxCuts(values)))!;
-            const direct = concentration(values)!;
-            expect(read.people).toBe(10001);
-            read.points.forEach((point, index) => {
-                const expected = direct.points[index].totalShare;
-                expect(Math.abs(point.totalShare - expected)).toBeLessThanOrEqual(Math.abs(expected) * 1e-9);
-            });
+    it("keeps decimal cutoff ties within a relative tolerance of 1e-9", () => {
+        const values = Array.from({ length: 10001 }, () => 0.00037);
+        const read = readConcentration(cutTable(daxCuts(values)))!;
+        const direct = concentration(values)!;
+        expect(read.people).toBe(10001);
+        read.points.forEach((point, index) => {
+            const expected = direct.points[index].totalShare;
+            expect(Math.abs(point.totalShare - expected)).toBeLessThanOrEqual(Math.abs(expected) * 1e-9);
         });
     });
 

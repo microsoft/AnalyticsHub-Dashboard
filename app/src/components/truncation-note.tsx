@@ -37,7 +37,6 @@ export function TruncationNote({ shown, total, noun, by, rollup, className }: Tr
                 "flex items-start gap-200 text-[length:var(--text-200)] leading-200 text-muted-foreground",
                 className,
             )}
-            {rollup && " Group totals include everyone in the selection; a person may appear in more than one group."}
         >
             <Info className="icon-size-200 shrink-0" aria-hidden="true" />
             <span>
@@ -46,6 +45,7 @@ export function TruncationNote({ shown, total, noun, by, rollup, className }: Tr
                 ) : (
                     <>Showing the top {formatKpi(shown, "whole")} of {formatKpi(total, "whole")} {noun}{by ? ` ${by}` : ""}.</>
                 )}
+                {rollup && " Group totals include everyone in the selection; a person may appear in more than one group."}
             </span>
         </p>
     );

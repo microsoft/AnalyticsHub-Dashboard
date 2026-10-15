@@ -29,6 +29,13 @@ describe("TruncationNote", () => {
         expect(container.textContent).toContain("The full count is unavailable; this list may be incomplete.");
         expect(container.textContent).not.toContain("top");
     });
+
+    it.each([12345, undefined])("renders the rollup explanation as notice text with total %s", (total) => {
+        const { container } = render(<TruncationNote shown={1000} total={total} noun="people" rollup />);
+        expect(container.querySelector("p > span")?.textContent).toContain(
+            " Group totals include everyone in the selection; a person may appear in more than one group.",
+        );
+    });
 });
 
 describe("listTotal", () => {
