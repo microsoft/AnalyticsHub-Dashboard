@@ -4,6 +4,8 @@ from contextlib import contextmanager
 import datetime
 import json
 import re
+import subprocess
+import sys
 from types import SimpleNamespace
 import uuid
 
@@ -153,7 +155,7 @@ class Store:
             detail = {"properties": dict(self.properties), "partitionColumns": ["MonthStart"], "location": LOCATION}
             return SimpleNamespace(first=lambda: detail, collect=lambda: [detail])
         assert query.startswith("ALTER TABLE")
-        pairs = re.findall(r"'((?:\\.|[^'])*)' = '((?:\\.|[^'])*)'", query)
+        pairs = re.findall(r"'((?:\\.|[^'\\])*)' = '((?:\\.|[^'\\])*)'", query)
         values = {re.sub(r"\\(.)", r"\1", k): re.sub(r"\\(.)", r"\1", v) for k, v in pairs}
         assert values
         event = "prepare" if INTENT in values else "finalize" if READY in values else "state" if STATE in values else "ack"
@@ -448,6 +450,22 @@ def test_processor_property_escaping_round_trips_without_separate_publication():
         store.ns["save_processor_state"](state)
     assert store.properties[STATE] == state
     assert store.events == ["state-before", "state-after", "scope-exit"]
+
+
+@pytest.mark.parametrize("prefix", ["'", "'key' = '"])
+def test_property_parser_rejects_long_unclosed_escape_sequences_in_bounded_time(prefix):
+    import inspect
+    import textwrap
+
+    method = ast.parse(textwrap.dedent(inspect.getsource(Store.sql)))
+    pattern = next(node.args[0].value for node in ast.walk(method)
+                   if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                   and node.func.attr == "findall")
+    query = prefix + "\\&" * 100_000
+    subprocess.run(
+        [sys.executable, "-c", "import json,re,sys; p,q=json.load(sys.stdin); assert not re.findall(p,q)"],
+        input=json.dumps([pattern, query]), text=True, check=True, timeout=5,
+    )
 
 
 @pytest.mark.parametrize("bad", ["not-json", "[]", '{"version":2}', '{"version":1,"id":"bad"}'])
