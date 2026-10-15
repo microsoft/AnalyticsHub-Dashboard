@@ -245,7 +245,7 @@ export function fabricApi(http) {
     /** @param {any} body */
     createConnection: (body) => http.post('/connections', body, { once: true }),
     /** @param {string} id @param {any} body */
-    updateConnection: (id, body) => http.patch(`/connections/${id}`, body),
+    updateConnection: (id, body) => http.patch(`/connections/${id}`, body, { once: true }),
     /** @param {string} id */
     deleteConnection: (id) => http.del(`/connections/${id}`),
 

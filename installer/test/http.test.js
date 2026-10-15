@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createClient, HttpError, retryDelayMs } from '../src/http.js';
 import { fabricApi } from '../src/clients/fabric.js';
+import { armApi, keyVaultApi } from '../src/clients/azure.js';
 import { graphApi } from '../src/clients/graph.js';
 
 /**
@@ -142,6 +143,20 @@ test('the clients send each create once: Fabric items and connections, and Entra
   const g = fakeFetch([() => new Error('ECONNRESET'), () => ({ body: { keyId: 'k2' } })]);
   await assert.rejects(graphApi(client(g).http).addPassword('obj', new Date('2027-01-01T00:00:00Z'), 'x (ref r)'), /ECONNRESET/);
   assert.equal(g.calls.length, 1, 'addPassword is sent once');
+
+  // Writes that hand a new secret on: a retry's 4xx after a lost answer would look like a refusal
+  // and get a stored secret removed, so these are sent once too.
+  /** @type {Record<string, (h: any) => Promise<any>>} */
+  const secretWrites = {
+    updateConnection: (h) => fabricApi(h).updateConnection('c1', {}),
+    'arm.setSecret': (h) => armApi(h).setSecret('/subscriptions/s/resourceGroups/g/providers/Microsoft.KeyVault/vaults/v', 'n', 'v'),
+    'keyVault.setSecret': (h) => keyVaultApi(h).setSecret('https://v.vault.azure.net/', 'n', 'v'),
+  };
+  for (const [name, call] of Object.entries(secretWrites)) {
+    const f = fakeFetch([() => new Error('ECONNRESET'), () => ({ status: 409 })]);
+    await assert.rejects(call(client(f).http), /ECONNRESET/, name);
+    assert.equal(f.calls.length, 1, `${name} is sent once`);
+  }
 });
 
 test('a long-running operation is followed to its Location result', async () => {

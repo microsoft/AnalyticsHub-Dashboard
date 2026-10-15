@@ -493,7 +493,7 @@ export function armApi(http, opts = {}) {
           },
           tags: { app: 'ValueLens' },
         },
-        { query: { 'api-version': KEY_VAULT_API } },
+        { query: { 'api-version': KEY_VAULT_API }, once: true },
       ),
     /** Reads a secret's metadata (never its value) through Resource Manager. @param {string} vaultId @param {string} name */
     async secretExists(vaultId, name) {
@@ -625,7 +625,7 @@ export function keyVaultApi(http) {
           attributes: o.expires ? { exp: Math.floor(o.expires.getTime() / 1000) } : undefined,
           tags: { app: 'ValueLens' },
         },
-        { query: { 'api-version': '7.4' }, ...waitForRole },
+        { query: { 'api-version': '7.4' }, ...waitForRole, once: true },
       ),
     /** @param {string} vaultUri @param {string} name */
     async secretExists(vaultUri, name) {
