@@ -281,7 +281,7 @@ export function graphApi(http) {
     addPassword: (applicationObjectId, endDateTime, displayName = 'Analytics Hub installer') =>
       http.post(`/applications/${applicationObjectId}/addPassword`, {
         passwordCredential: { displayName, endDateTime: endDateTime.toISOString() },
-      }),
+      }, { once: true }),
     /**
      * The app's client secrets, without their values.
      * @param {string} applicationObjectId

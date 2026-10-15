@@ -15,7 +15,7 @@ import { rlsOn } from '../transform/access.js';
 import { INLINE_SECRET_NOTE, MARKER, prepareNotebook, pyString, serialiseNotebook } from '../transform/notebook.js';
 import { buildPipeline, PIPELINE_CHANGE, PIPELINE_VERSION } from '../transform/pipeline.js';
 import { addDays, notebookSecretDays } from './identity.js';
-import { dropAttempt, findAttempts, refused, SECRET_SETTLE_MS, withSecretRef } from './secrets.js';
+import { dropAttempt, findAttempts, refused, removeRetired, SECRET_SETTLE_MS, withSecretRef } from './secrets.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 
@@ -111,7 +111,8 @@ const SUCCEEDED_POLLS = 8;
  * one while the first may still appear:
  * - If Fabric gave that run an operation, asks it. Failed: a new one is made. Still running after
  *   a wait: stops with an error to run again later, keeping the record. Succeeded: uses the item,
- *   looking for it a little longer as the list can lag; if it's still not there, as below.
+ *   looking for it a little longer as the list can lag; if it's still not there, asks, and with
+ *   --yes or a no stops, however long ago it was.
  * - Otherwise waits until CREATE_SETTLE_MS after that run asked, then asks before making another,
  *   and with --yes, or a no, stops instead. A record with no time for the request starts the
  *   clock now. Only after CREATE_GIVE_UP_MS is one made without asking, with a warning.
@@ -166,12 +167,18 @@ async function settleStoppedCreate(ctx, key, type) {
       if (found) return found;
     }
   }
-  if (age >= CREATE_GIVE_UP_MS) {
+  if (age >= CREATE_GIVE_UP_MS && state !== 'Succeeded') {
     ctx.ui.warn(`The run that stopped had asked Fabric to create ${pending.name} over an hour ago, and it isn't in the workspace, so it's created now. If Fabric does still make the first one, there will be two, and the extra one is yours to delete.`);
     return undefined;
   }
   ctx.ui.warn(`The run that stopped had asked Fabric to create ${pending.name}, and it isn't in the workspace yet. It isn't known whether Fabric will still make it.`);
   if (await ctx.ui.confirm(`Create ${pending.name} again now? If Fabric does still make the first one, there will be two, and the extra one is yours to delete.`, false)) return undefined;
+  if (state === 'Succeeded') {
+    throw new Error(
+      `${pending.name} wasn't created again, so there won't be two. Check the workspace: if it's there, run the installer again and it's used. ` +
+        `If it was deleted, run the installer again without --yes and answer yes to create it.`,
+    );
+  }
   const after = new Date(Date.parse(/** @type {string} */ (pending.at)) + CREATE_GIVE_UP_MS);
   throw new Error(
     `${pending.name} wasn't created again, so there won't be two. Run the installer again later: it uses that item if Fabric made it, ` +
@@ -772,33 +779,16 @@ async function retireInlineSecrets(ctx) {
 
 /**
  * Removes app secrets by key ID. Each one stays in the install record's to-remove list until
- * Entra confirms it's gone, so a run that fails or stops part-way tries the rest again.
+ * Entra confirms it's gone, or the app no longer lists it, so a run that fails or stops part-way
+ * tries the rest again.
  * @param {Ctx} ctx
  * @param {string[]} keyIds
  */
 async function removeKeys(ctx, keyIds) {
-  const { ui, config, api } = ctx;
-  const app = config.app;
-  const objectId = /** @type {string} */ (app.objectId);
-  const ids = [...new Set(keyIds)];
-  app.retiredSecretKeyIds = [...new Set([...(app.retiredSecretKeyIds ?? []), ...ids])];
+  const app = ctx.config.app;
+  app.retiredSecretKeyIds = [...new Set([...(app.retiredSecretKeyIds ?? []), ...keyIds])];
   ctx.save();
-  for (const keyId of ids) {
-    const removed = await api.graph.removePassword(objectId, keyId).then(
-      () => true,
-      () => false,
-    );
-    if (!removed) {
-      ui.warn(`Couldn't remove a previous client secret (key ${keyId}). Delete it from the app's Certificates & secrets page, or run the update again.`);
-      continue;
-    }
-    app.retiredSecretKeyIds = app.retiredSecretKeyIds.filter((k) => k !== keyId);
-    ctx.save();
-  }
-  if (!app.retiredSecretKeyIds.length) {
-    delete app.retiredSecretKeyIds;
-    ctx.save();
-  }
+  await removeRetired(ctx, app, app.objectId);
 }
 
 /**

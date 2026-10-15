@@ -148,8 +148,11 @@ Deployment instructions do **not** live here. They live in the READMEs:
   is still working on it after that, the run stops and says to run it again in a few minutes. If
   it isn't known how the create went, or Fabric says it made the item but it isn't in the
   workspace, the run waits, then asks before creating the item again (with `--yes` it stops
-  instead) unless the first request was over an hour ago. A create that times out keeps its
-  pending record for the next run, rather than making another.
+  instead). If it isn't known and the first request is over an hour old, the item is created
+  without asking. If Fabric says it made the item, the run always asks first. A create that times out keeps its
+  pending record for the next run, rather than making another. Creates and new client secrets
+  are sent once: if the answer is lost or the service errors, the run stops rather than sending
+  the request again, and the next run finds what was made by its reference.
   Every client secret the installer adds — for the notebooks, the Key Vault, the model's
   connection and the Azure SQL reader — gets its own reference in its name, saved before Entra is
   asked, so the next run can find the exact secret even if the run stopped before saving its key

@@ -733,6 +733,13 @@ test("a stopped run's create that Fabric gave an operation for: asked about, not
   const agreed = await setup('Succeeded', { answers: [true] });
   await ensurePipeline(agreed.t.ctx);
   assert.deepEqual(pipelineCalls(agreed.fabric.calls), ['operationStatus op-x', 'createPipeline AnalyticsHub_Pipeline']);
+  // However long ago Fabric said it made it: still not made again without asking.
+  const old = await setup('Succeeded');
+  /** @type {any} */ (old.t.config.fabric.pendingItems).DataPipeline.at = new Date(old.t.ctx.now().getTime() - 2 * CREATE_GIVE_UP_MS).toISOString();
+  await assert.rejects(ensurePipeline(old.t.ctx), /wasn't created again, so there won't be two\. Check the workspace/);
+  assert.deepEqual(pipelineCalls(old.fabric.calls), ['operationStatus op-x']);
+  assert.equal(old.t.config.fabric.pendingItems?.DataPipeline?.ref, 'ee55');
+  assert.doesNotMatch(old.ui.text(), /so it's created now/);
 
   // Fabric can't say (the call fails, or it no longer knows the operation): as for no operation, it waits and then doesn't guess.
   for (const unknown of [undefined, 'throws']) {
@@ -966,6 +973,14 @@ test('notebook mode: old secrets stay in the record until Entra confirms they ar
   await ensureNotebooks(next.ctx, { force: true });
   assert.deepEqual(next.config.app.retiredSecretKeyIds, ['key-3']);
   assert.equal(next.config.app.secretKeyId, 'key-4');
+
+  // Entra answers 404 for one a stopped run already removed: cleared, as the app no longer lists it.
+  graph.api.removePassword = remove;
+  graph.passwords.splice(graph.passwords.findIndex((p) => p.keyId === 'key-3'), 1);
+  graph.failures.removePassword = [httpError(404, 'Not found')];
+  await ensureNotebooks(next.ctx, { force: true });
+  assert.equal(next.config.app.retiredSecretKeyIds, undefined);
+  assert.deepEqual(graph.passwords.map((p) => p.keyId), ['key-5']);
 });
 
 test('notebook mode: an unused secret that can\'t be removed is kept to remove later', async () => {

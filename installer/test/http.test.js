@@ -2,6 +2,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { createClient, HttpError, retryDelayMs } from '../src/http.js';
+import { fabricApi } from '../src/clients/fabric.js';
+import { graphApi } from '../src/clients/graph.js';
 
 /**
  * A fetch that answers from a script and records each call.
@@ -91,6 +93,55 @@ test('retryOn and retryIf retry statuses that are usually final', async () => {
 
   const h = fakeFetch([() => ({ status: 400, body: { error: { message: 'already exists' } } })]);
   await assert.rejects(client(h).http.get('/x', { retryIf: (s, d) => s === 400 && !/already exists/.test(JSON.stringify(d)) }), HttpError);
+});
+
+test('once: a create is sent once after a network or server error; throttling and the operation polls are still retried', async () => {
+  const f = fakeFetch([() => new Error('ECONNRESET')]);
+  await assert.rejects(client(f).http.post('/x', {}, { once: true }), /ECONNRESET/);
+  assert.equal(f.calls.length, 1, 'the request may have arrived, so it is not sent again');
+  for (const status of [408, 500, 502, 503, 504]) {
+    const g = fakeFetch([() => ({ status })]);
+    await assert.rejects(client(g).http.post('/x', {}, { once: true }), HttpError);
+    assert.equal(g.calls.length, 1, `${status} is not retried`);
+  }
+  const h = fakeFetch([() => ({ status: 429, headers: { 'Retry-After': '1' } }), () => ({ status: 201, body: { id: 'a' } })]);
+  assert.deepEqual(await client(h).http.post('/x', {}, { once: true }), { id: 'a' }, 'a throttled request was turned away, so it is retried');
+
+  const lro = fakeFetch([
+    () => ({ status: 202, headers: { Location: 'https://api.example.com/v1/operations/op1' } }),
+    () => ({ status: 503 }),
+    () => new Error('ECONNRESET'),
+    () => ({ body: { status: 'Succeeded' }, headers: { Location: 'https://api.example.com/v1/operations/op1/result' } }),
+    () => ({ body: { id: 'new-item' } }),
+  ]);
+  assert.deepEqual(await client(lro).http.requestLro('POST', '/items', { body: {}, once: true }), { id: 'new-item' });
+
+  // Without once, the same failures are retried.
+  const k = fakeFetch([() => ({ status: 503 }), () => new Error('ECONNRESET'), () => ({ body: 1 })]);
+  assert.equal(await client(k).http.post('/x', {}), 1);
+});
+
+test('the clients send each create once: Fabric items and connections, and Entra client secrets', async () => {
+  /** @type {Record<string, (api: any) => Promise<any>>} */
+  const fabricCreates = {
+    createItem: (a) => a.createItem('ws', 'AppBackend', 'x', { ref: 'r' }),
+    createSemanticModel: (a) => a.createSemanticModel('ws', 'x', {}, { ref: 'r' }),
+    createReport: (a) => a.createReport('ws', 'x', {}, { ref: 'r' }),
+    createConnection: (a) => a.createConnection({}),
+    createLakehouse: (a) => a.createLakehouse('ws', 'x', { ref: 'r' }),
+    createNotebook: (a) => a.createNotebook('ws', 'x', '{}', { ref: 'r' }),
+    createDataflow: (a) => a.createDataflow('ws', 'x', 'd', { ref: 'r' }),
+    createPipeline: (a) => a.createPipeline('ws', 'x', {}, { ref: 'r' }),
+    createDataAgent: (a) => a.createDataAgent('ws', 'x', {}, { ref: 'r' }),
+  };
+  for (const [name, call] of Object.entries(fabricCreates)) {
+    const f = fakeFetch([() => ({ status: 503 }), () => ({ status: 201, body: {} })]);
+    await assert.rejects(call(fabricApi(client(f).http)), HttpError, name);
+    assert.equal(f.calls.length, 1, `${name} is sent once`);
+  }
+  const g = fakeFetch([() => new Error('ECONNRESET'), () => ({ body: { keyId: 'k2' } })]);
+  await assert.rejects(graphApi(client(g).http).addPassword('obj', new Date('2027-01-01T00:00:00Z'), 'x (ref r)'), /ECONNRESET/);
+  assert.equal(g.calls.length, 1, 'addPassword is sent once');
 });
 
 test('a long-running operation is followed to its Location result', async () => {
