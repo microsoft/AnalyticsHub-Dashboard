@@ -57,6 +57,22 @@ Deployment instructions do **not** live here. They live in the READMEs:
 - No model changes: every new filter is a `CALCULATETABLE` argument on columns the shipped
   templates already hold, so the Fabric and Azure hosts both support it.
 
+**App: more varied visuals.** The app leaned almost entirely on bar charts. Five cards now use
+the chart that best fits their question, with the same palette, Vega-Lite and the existing
+performance budget. No new dependencies, and no query or install changes.
+
+- **Bottom line:** each KPI tile shows a small sparkline of its full months under the arrow,
+  with a text description for screen readers.
+- **Budget runway:** the progress bar is a bullet: spend to date, a tick for even pace to date, a
+  tick for the budget and a lighter band for where this pace ends the month.
+- **Where it is landing:** a new scatter places each department (or other organization field) by
+  seats in use and expert hours per seat, sized by licensed seats, with median lines. It shows
+  when there are at least three groups.
+- **Feedback:** satisfaction by surface or agent is a diverging bar, thumbs down to the left of
+  zero and thumbs up to the right, instead of a single satisfaction bar.
+- **Copilot Studio:** the daily credits and cost chart adds a 7-day average line over the bars, so
+  the trend reads through spiky days. Days with no usage count as zero.
+
 ## 2026-10-14 — Analytics Hub installer 0.6.5
 
 **The current release.** 0.6.5 replaces 0.6.2 as Latest, so the `releases/latest` links, including

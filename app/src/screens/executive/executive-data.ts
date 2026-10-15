@@ -6,10 +6,14 @@
 //-----------------------------------------------------------------------
 
 import type { DataTable } from "@microsoft/fabric-visuals-core";
-import type { KpiDelta } from "@/components/kpi-card";
+import type { KpiDelta, KpiTrend } from "@/components/kpi-card";
+import { MIN_SPARK_POINTS, type SparkPoint } from "@/lib/sparkline";
 import {
+    daysInMonth,
     monthDelta,
+    monthEnd,
     monthOverMonth,
+    shortMonth,
     trendWindow,
     type DeltaKind,
     type MonthPair,
@@ -88,6 +92,34 @@ export function cardDelta(
     if (!pair) return undefined;
     const delta = monthDelta(kind, pair, read(months.get(pair.current)), read(months.get(pair.previous)));
     return delta && (polarity ? { ...delta, polarity } : delta);
+}
+
+/**
+ * A card's sparkline: each full month the range covers, as the arrows count
+ * them, so a part month at either end never reads as a dip. Volumes are per
+ * day, as the arrows compare them. Nothing with fewer than three months.
+ */
+export function cardTrend(
+    kind: DeltaKind,
+    range: ExecutiveRange | undefined,
+    months: ReadonlyMap<string, SummaryRow>,
+    read: (row: SummaryRow | undefined) => number | undefined,
+): KpiTrend | undefined {
+    if (!range) return undefined;
+    const points: SparkPoint[] = [];
+    for (const month of range.window.months) {
+        if (month < range.start || monthEnd(month) > range.end) continue;
+        const value = read(months.get(month));
+        if (value === undefined || !Number.isFinite(value)) continue;
+        points.push({ label: shortMonth(month), value: kind === "volume" ? value / daysInMonth(month) : value });
+    }
+    if (points.length < MIN_SPARK_POINTS) return undefined;
+    const first = points[0];
+    const last = points[points.length - 1];
+    const change = first.value === 0 ? last.value - first.value : (last.value - first.value) / Math.abs(first.value);
+    const shape = Math.abs(change) < 0.01 ? "about level" : change > 0 ? "higher at the end" : "lower at the end";
+    const per = kind === "volume" ? ", per day" : "";
+    return { points, description: `Trend by full month${per}, ${first.label} to ${last.label}: ${shape}.` };
 }
 
 /** The figures the cards work out from the one-row summary, keyed by DAX name. */

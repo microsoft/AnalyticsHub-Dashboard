@@ -20,12 +20,13 @@ import { formatKpi } from "@/lib/format-kpi";
 import { columnFormat, columnHeat, heatRenderer } from "@/lib/heat";
 import { readNumber } from "@/lib/summary-row";
 import { coverageNote, departmentCoverage, orgEmptyDescription } from "@/lib/department-coverage";
-import { DEPARTMENT_COLUMN, executiveWorkKinds, WORK_KINDS_SHOWN } from "@/queries/executive";
+import { DEPARTMENT_COLUMN, DEPARTMENT_MAP_MIN, departmentMapSpec, executiveWorkKinds, WORK_KINDS_SHOWN } from "@/queries/executive";
 import { mostUsedAgent, workRates } from "./executive-data";
 import { WORK_KINDS_HEADLINE } from "./headlines";
 import type { ExecutiveData } from "./use-executive-data";
 
 const SORT_COLUMN = "Hours Per Seat Month";
+const DEPARTMENT_MAP_HEIGHT = 360;
 
 function heatColumn(table: DataTable | undefined, id: string, header: string, width: number): GridColumnDef {
     return {
@@ -67,6 +68,7 @@ export function LandingStage({ data }: { data: ExecutiveData }) {
     const workKinds = useTableQuery(workKindsSource);
 
     const columns = useMemo(() => departmentColumns(org.label, departments.table), [org.label, departments.table]);
+    const mapSpec = useMemo(() => departmentMapSpec(org.label), [org.label]);
     const groupCount = departments.table?.rows.length;
 
     const row = summary.row;
@@ -87,6 +89,18 @@ export function LandingStage({ data }: { data: ExecutiveData }) {
                 </OpenDestinationLink>
             }
         >
+            {groupCount !== undefined && groupCount >= DEPARTMENT_MAP_MIN && (
+                <ChartPanel
+                    result={departments}
+                    spec={mapSpec}
+                    height={DEPARTMENT_MAP_HEIGHT}
+                    title={`${groups} by reach and depth`}
+                    subtitle={`One circle per ${org.noun}, sized by seats. Right: more seats in use. Up: more hours per seat. Dashes: the median.`}
+                    emptyTitle={`No ${org.plural} to compare`}
+                    emptyDescription={`Nobody in the current selection has a license or a task with ${org.noun} recorded.`}
+                />
+            )}
+
             <Panel
                 result={departments}
                 height={gridHeight(groupCount ?? 6)}

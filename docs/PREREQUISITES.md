@@ -130,13 +130,16 @@ IDs, and building the query can take a while, so ask for it now. Copy this:
 > Hi, I'm setting up Analytics Hub, which reports Copilot Cowork credits from Viva Insights.
 > Could you build a query for it?
 >
-> 1. In [Viva Insights](https://analysis.insights.viva.office.com/), go to **Analysis** and build a
->    query with the **Copilot credit** metrics. Turn on **Auto-refresh**.
-> 2. Once it has run, go to **Analysis results**, choose the **link icon** next to the query, and
->    copy its **partition ID** and **query ID**.
+> 1. In [Viva Insights](https://analysis.insights.viva.office.com/), go to **Create analysis** >
+>    **Create custom query** > **Consumption query**. Keep the preselected credit metrics, add no
+>    conditions, and turn on **Auto-refresh**. Then select **Run**.
+> 2. Once it shows **Success**, go to **Analysis results**, choose the **link icon** next to the
+>    query, and copy its **partition ID** and **query ID**.
 > 3. Send me both IDs. Later, I'll ask you to sign in to a Fabric Dataflow that reads the query.
 >
-> You need the Viva Insights **Insights Analyst** role. Microsoft's guide:
+> You need the Viva Insights **Insights Analyst** role. Step by step:
+> [Running the Viva Insights query](https://github.com/microsoft/AnalyticsHub-Dashboard/blob/main/docs/VIVA-QUERY.md).
+> Microsoft's guide:
 > [Export query data to Microsoft Fabric](https://learn.microsoft.com/viva/insights/advanced/analyst/export-query-data-microsoft-fabric).
 
 The installer fills in the partition ID with your tenant ID, which is usually right. No query
@@ -214,7 +217,8 @@ Only if you want **Copilot Cowork credits** from Viva Insights. Send them
 
 - [ ] Has the [Insights Analyst](https://learn.microsoft.com/viva/insights/advanced/setup-maint/assign-user-roles)
       role.
-- [ ] Builds the query and sends you its partition ID and query ID, **before you start**.
+- [ ] Builds the query and sends you its partition ID and query ID, **before you start**. See
+      [Running the Viva Insights query](VIVA-QUERY.md).
 - [ ] After the install, signs in to the `AnalyticsHub_Cowork_Credits` Dataflow once. See
       [Credit consumption](../installer/README.md#credit-consumption).
 

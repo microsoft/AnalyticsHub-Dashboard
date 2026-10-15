@@ -11,7 +11,7 @@ import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { QueryError, QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
 import { useCommercialTerms } from "@/hooks/commercial-terms.context";
-import { budgetRunway, runwayHeadline, shortDate, spreadWeeks, type Runway, type RunwayStatus } from "@/lib/budget-runway";
+import { budgetRunway, bulletLabel, bulletScale, runwayHeadline, shortDate, spreadWeeks, type Runway, type RunwayStatus } from "@/lib/budget-runway";
 import { FILTER_KEYS } from "@/lib/filters";
 import { formatKpi } from "@/lib/format-kpi";
 import { readNumber, type SummaryRow } from "@/lib/summary-row";
@@ -86,8 +86,7 @@ function RunwayCard({ label, result, empty, runway, prefix, weekly }: RunwayCard
     const status: RunwayStatus = empty ? "no-data" : runway.status;
     const shown = empty ? { ...runway, status } : runway;
     const budget = runway.budget;
-    const share = budget ? Math.min(1, runway.spent / budget) : 0;
-    const projectedShare = budget && runway.projected !== undefined ? Math.min(1, runway.projected / budget) : 0;
+    const scale = bulletScale(runway);
 
     return (
         <article className="flex flex-col gap-300 rounded-xl border border-border bg-card p-500" aria-label={`${label} budget runway`}>
@@ -115,18 +114,46 @@ function RunwayCard({ label, result, empty, runway, prefix, weekly }: RunwayCard
                                   : "spent this month, no budget set"}
                         </span>
                     </div>
-                    {budget !== undefined && status !== "no-data" && (
-                        <div aria-hidden="true" className="relative h-200 overflow-hidden rounded-full bg-muted">
-                            {projectedShare > share && (
-                                <div
-                                    className={cn("absolute inset-y-0 left-0 rounded-full opacity-30", BAR_TONE[status])}
-                                    style={{ width: `${projectedShare * 100}%` }}
-                                />
-                            )}
-                            <div
-                                className={cn("absolute inset-y-0 left-0 rounded-full", BAR_TONE[status])}
-                                style={{ width: `${share * 100}%` }}
-                            />
+                    {scale && status !== "no-data" && (
+                        <div className="flex flex-col gap-200">
+                            <div role="img" aria-label={bulletLabel(runway, scale, prefix)} className="py-100">
+                                <div className="relative h-200 rounded-full bg-muted">
+                                    {scale.projected !== undefined && scale.projected > scale.spent && (
+                                        <div
+                                            className={cn("absolute inset-y-0 left-0 rounded-full opacity-30", BAR_TONE[status])}
+                                            style={{ width: `${scale.projected * 100}%` }}
+                                        />
+                                    )}
+                                    <div
+                                        className={cn("absolute inset-y-0 left-0 rounded-full", BAR_TONE[status])}
+                                        style={{ width: `${scale.spent * 100}%` }}
+                                    />
+                                    <span
+                                        className="absolute -top-100 -bottom-100 w-[2px] -translate-x-1/2 rounded-full bg-muted-foreground"
+                                        style={{ left: `${scale.pace * 100}%` }}
+                                    />
+                                    <span
+                                        className="absolute -top-100 -bottom-100 w-[2px] -translate-x-1/2 rounded-full bg-foreground"
+                                        style={{ left: `${scale.budget * 100}%` }}
+                                    />
+                                </div>
+                            </div>
+                            <div aria-hidden="true" className={cn(SMALL, "flex flex-wrap gap-x-300 gap-y-100 text-muted-foreground")}>
+                                <span className="inline-flex items-center gap-100">
+                                    <span className="h-300 w-[2px] rounded-full bg-foreground" />
+                                    Budget
+                                </span>
+                                <span className="inline-flex items-center gap-100">
+                                    <span className="h-300 w-[2px] rounded-full bg-muted-foreground" />
+                                    Even pace to date, {formatKpi(scale.expectedByNow, "currency", { prefix })}
+                                </span>
+                                {scale.projected !== undefined && scale.projected > scale.spent && (
+                                    <span className="inline-flex items-center gap-100">
+                                        <span className={cn("h-200 w-300 rounded-full opacity-30", BAR_TONE[status])} />
+                                        At this pace
+                                    </span>
+                                )}
+                            </div>
                         </div>
                     )}
                     <p className="text-[length:var(--text-300)] leading-300 text-foreground">{runwayHeadline(shown, prefix, weekly)}</p>

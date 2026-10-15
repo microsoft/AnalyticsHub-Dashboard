@@ -43,6 +43,7 @@ Two paths. Each is the same 3 steps. Not sure? Use **Automatic**.
 - [App guide](../APP-GUIDE.md)
 - [How the value is calculated](../METHODOLOGY.md)
 - [Data dictionary](../DATA-DICTIONARY.md)
+- [Running the Viva Insights query](../VIVA-QUERY.md), for Copilot Cowork credits
 - [Installer reference](../../installer/README.md)
 
 These pages are published from the repo's [docs](../) folder. To change one, open a pull request

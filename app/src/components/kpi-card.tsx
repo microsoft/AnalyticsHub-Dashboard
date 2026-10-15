@@ -6,6 +6,8 @@
 //-----------------------------------------------------------------------
 
 import type { ReactNode } from "react";
+import { Sparkline } from "@/components/sparkline";
+import type { SparkPoint } from "@/lib/sparkline";
 import { formatKpi, type KpiFormat } from "@/lib/format-kpi";
 import type { Delta } from "@/lib/month-over-month";
 import { cn } from "@/lib/utils";
@@ -16,6 +18,13 @@ export interface KpiDelta extends Delta {
     polarity?: "up-good" | "neutral";
 }
 
+/** The figure's recent run, drawn as a sparkline under the arrow. */
+export interface KpiTrend {
+    points: readonly SparkPoint[];
+    /** Read out in place of the line: "Per day, Jan to Jun: from 120 to 180". */
+    description: string;
+}
+
 interface KpiCardProps {
     label: string;
     value: number | undefined;
@@ -23,6 +32,8 @@ interface KpiCardProps {
     prefix?: string;
     /** Month-on-month change, shown under the figure. */
     delta?: KpiDelta;
+    /** Recent months as a sparkline, shown with three or more points. */
+    trend?: KpiTrend;
     /** Smaller supporting figure shown beneath the rule. */
     detail?: ReactNode;
     /** Text to show when the model returns BLANK for a deliberate, named state. */
@@ -36,7 +47,7 @@ interface KpiCardProps {
  * A single figure presented as the focus of its card — oversized tabular
  * numerals over a hairline rule, with the label subordinated above it.
  */
-export function KpiCard({ label, value, format = "whole", prefix, delta, detail, emptyValue, emphasis, className }: KpiCardProps) {
+export function KpiCard({ label, value, format = "whole", prefix, delta, trend, detail, emptyValue, emphasis, className }: KpiCardProps) {
     const isBlank = value === undefined;
 
     return (
@@ -62,6 +73,7 @@ export function KpiCard({ label, value, format = "whole", prefix, delta, detail,
                 {isBlank && emptyValue ? emptyValue : formatKpi(value, format, { prefix })}
             </span>
             {delta && !isBlank && <KpiDeltaLine delta={delta} />}
+            {trend && !isBlank && <Sparkline points={trend.points} description={trend.description} />}
             {detail && (
                 <div className="border-t border-border pt-200 text-[length:var(--text-200)] leading-300 text-muted-foreground">
                     {detail}

@@ -19,7 +19,7 @@ import { BODY } from "@/lib/type-scale";
 import { cn } from "@/lib/utils";
 import { BROAD_USER_SKILLS } from "@/queries/executive";
 import { CONSUMPTION_CONFIGURED } from "@/screens/value/cost-vs-value-data";
-import { byMonth, cardDelta, formatMonth, sumPresent, tableRecords, workRates } from "./executive-data";
+import { byMonth, cardDelta, cardTrend, formatMonth, sumPresent, tableRecords, workRates } from "./executive-data";
 import type { ExecutiveData } from "./use-executive-data";
 
 /** A label and a figure that isn't a single number, laid out as {@link KpiStat} lays out one that is. */
@@ -126,6 +126,7 @@ export function BottomLineStage({ data }: { data: ExecutiveData }) {
                             value={readNumber(row, "[Hours]")}
                             emphasis
                             delta={cardDelta("volume", pair, monthRows, read("Hours"))}
+                            trend={cardTrend("volume", range.range, monthRows, read("Hours"))}
                             detail={
                                 <Details>
                                     {conservative !== undefined && optimistic !== undefined && (
@@ -147,6 +148,7 @@ export function BottomLineStage({ data }: { data: ExecutiveData }) {
                             label="Tasks delivered"
                             value={readNumber(row, "[Tasks]")}
                             delta={cardDelta("volume", pair, monthRows, read("Tasks"))}
+                            trend={cardTrend("volume", range.range, monthRows, read("Tasks"))}
                             detail={
                                 <Details>
                                     <KpiStat label="Per person a week" value={rates.tasksPerPersonWeek} format="hours" />
@@ -159,6 +161,7 @@ export function BottomLineStage({ data }: { data: ExecutiveData }) {
                             value={readNumber(row, "[Skills Per Person]")}
                             format="rate"
                             delta={cardDelta("average", pair, monthRows, read("Skills Per Person"))}
+                            trend={cardTrend("average", range.range, monthRows, read("Skills Per Person"))}
                             detail={
                                 <Details>
                                     {skillsInUse !== undefined && skillsAvailable !== undefined && (
@@ -186,6 +189,7 @@ export function BottomLineStage({ data }: { data: ExecutiveData }) {
                                     value={creditTotals.total === undefined ? undefined : creditTotals.total / 1e6}
                                     format="millions"
                                     delta={cardDelta("volume", pair, creditMonths, readCredits, "neutral")}
+                                    trend={cardTrend("volume", range.range, creditMonths, readCredits)}
                                     detail={
                                         <Details>
                                             <KpiStat
@@ -213,6 +217,7 @@ export function BottomLineStage({ data }: { data: ExecutiveData }) {
                             value={readNumber(row, "[Seats In Use Pct]")}
                             format="percent"
                             delta={cardDelta("rate", pair, monthRows, read("Seats In Use Pct"))}
+                            trend={cardTrend("rate", range.range, monthRows, read("Seats In Use Pct"))}
                             detail={
                                 <Details>
                                     <KpiStat label="Licensed seats" value={readNumber(row, "[Licensed Seats]")} />
@@ -225,6 +230,7 @@ export function BottomLineStage({ data }: { data: ExecutiveData }) {
                             value={rates.habitRate}
                             format="percent"
                             delta={cardDelta("rate", pair, monthRows, read("Habit Pct"))}
+                            trend={cardTrend("rate", range.range, monthRows, read("Habit Pct"))}
                             detail={
                                 <Details>
                                     <KpiStat label="Habitual" value={readNumber(row, "[Habitual Pct]")} format="percent" />
@@ -238,6 +244,7 @@ export function BottomLineStage({ data }: { data: ExecutiveData }) {
                                 value={readNumber(row, "[Satisfaction]")}
                                 format="percent"
                                 delta={cardDelta("rate", pair, monthRows, read("Satisfaction"))}
+                                trend={cardTrend("rate", range.range, monthRows, read("Satisfaction"))}
                                 detail={
                                     <Details>
                                         <KpiStat label="Ratings" value={readNumber(row, "[Feedback]")} />

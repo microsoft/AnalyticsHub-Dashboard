@@ -123,13 +123,32 @@ describe("feedback category renders", () => {
 
 describe("feedback surface renders", () => {
     const rows = surfaceRows as Row[];
+    const segments = rows.reduce(
+        (count, row) => count + ((row["[Thumbs Up]"] as number) > 0 ? 1 : 0) + ((row["[Thumbs Down]"] as number) > 0 ? 1 : 0),
+        0,
+    );
 
-    it("draws one bar per surface, sized by satisfaction", async () => {
+    it("splits each surface into thumbs down to the left of zero and thumbs up to the right", async () => {
         const { vegaLiteSpec, columnMetadata } = feedbackSurface();
         const bars = await renderBars(vegaLiteSpec, rows, columnMetadata);
 
-        expectDrawable(bars, rows.length);
-        expectWidthsProportional(bars, "Satisfaction");
+        expectDrawable(bars, segments);
+        const ups = bars.filter((bar) => bar.datum["Feedback Type"] === "Thumbs Up");
+        const downs = bars.filter((bar) => bar.datum["Feedback Type"] === "Thumbs Down");
+        const zero = Math.min(...ups.map((bar) => bar.bounds.x1));
+        for (const bar of ups) expect(bar.bounds.x1).toBeCloseTo(zero, 6);
+        for (const bar of downs) expect(bar.bounds.x2).toBeCloseTo(zero, 6);
+    });
+
+    it("sizes each side by its share of the surface's ratings, on one fixed scale", async () => {
+        const { vegaLiteSpec, columnMetadata } = feedbackSurface();
+        const bars = await renderBars(vegaLiteSpec, rows, columnMetadata);
+        // The scale runs from -100% to 100%, so a whole side is half the plot.
+        const half = 620 / 2;
+
+        for (const bar of bars) expect(bar.width / half).toBeCloseTo(bar.datum.Share as number, 2);
+        const agentA = bars.filter((bar) => bar.datum["Surface / Agent"] === "Agent A");
+        expect(agentA.map((bar) => Math.round((bar.datum.Share as number) * 100)).sort()).toEqual([22, 78]);
     });
 
     it("puts the highest-satisfaction surface at the top", async () => {

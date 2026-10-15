@@ -204,6 +204,7 @@ function FeedbackContent() {
         () => withFeedbackColors(category.vegaLiteSpec, colorRange),
         [category.vegaLiteSpec, colorRange],
     );
+    const surfaceSpec = useMemo(() => withFeedbackColors(surface.vegaLiteSpec, colorRange), [surface.vegaLiteSpec, colorRange]);
     const columns = useMemo(() => commentColumns(colorRange), [colorRange]);
 
     const trendHeadline = useMemo(() => (trendTable ? FEEDBACK_TREND_HEADLINE(trendTable) : undefined), [trendTable]);
@@ -367,12 +368,14 @@ function FeedbackContent() {
                     ) : (
                         <Headlined text={surfaceHeadline}>
                             <VegaVisual
-                                spec={surface.vegaLiteSpec}
+                                spec={surfaceSpec}
                                 data={surfaceTable}
                                 theme={theme}
+                                capabilities={NO_STACK_LABELS}
                                 header={{
                                     title: "Satisfaction by surface or agent",
-                                    subtitle: "Ranked by satisfaction, with feedback count in the tooltip.",
+                                    subtitle:
+                                        "Each surface's ratings split at zero: thumbs down to the left, thumbs up to the right. Most satisfied first.",
                                 }}
                             />
                         </Headlined>
