@@ -54,8 +54,8 @@ performance budget. No new dependencies, and no query or install changes.
   when there are at least three groups.
 - **Feedback:** satisfaction by surface or agent is a diverging bar, thumbs down to the left of
   zero and thumbs up to the right, instead of a single satisfaction bar.
-- **Copilot Studio:** the daily chart has a Bars / Calendar switch. Calendar shows one column per
-  week and one row per weekday, so weekly rhythm and quiet days stand out.
+- **Copilot Studio:** the daily credits and cost chart adds a 7-day average line over the bars, so
+  the trend reads through spiky days. Days with no usage count as zero.
 
 ## 2026-10-14 — Analytics Hub installer 0.6.5
 

@@ -13,7 +13,7 @@ import { compile } from "vega-lite";
 import type { TopLevelSpec } from "vega-lite";
 import { formatValue } from "@microsoft/fabric-visuals-core";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
-import { consumptionByProduct, coworkWeekly, foundryByModel, foundryDaily, studioAzureDaily, studioBreakdown, studioDaily, studioDailyCalendar } from "./index";
+import { consumptionByProduct, coworkWeekly, foundryByModel, foundryDaily, studioAzureDaily, studioBreakdown, studioDaily, withTrendLineColor } from "./index";
 import productRows from "./__fixtures__/consumption-by-product.rows.json";
 import weeklyRows from "./__fixtures__/cowork-weekly.rows.json";
 import modelRows from "./__fixtures__/foundry-by-model.rows.json";
@@ -192,65 +192,51 @@ describe("studio daily renders", () => {
         const [prepaid, payg] = ["Prepaid", "Pay-as-you-go"].map((billing) => both.find((bar) => bar.datum.Billing === billing)!);
         expect(payg.bounds.y2).toBeCloseTo(prepaid.bounds.y1, 0);
     });
-});
 
-describe("studio daily calendar renders", () => {
-    const rows = studioDailyRows as Row[];
-    const { columnMetadata } = studioDaily("consumption");
-    const colors = { quiet: "#eeeeee", strong: "#0f6cbd", gap: "#ffffff" };
-    const dayOf = (cell: Mark) => new Date(cell.datum.Day as unknown as number);
-    // The legend's gradient is a rect too; the days are the rects with a datum.
-    const cellsOf = async (lens: "consumption" | "cost", palette?: typeof colors) =>
-        (await render(studioDailyCalendar(lens, palette), rows, columnMetadata, "rect")).filter((cell) => cell.datum?.Day !== undefined);
+    // Days without usage are missing from the query, so the average must count
+    // them as zero rather than averaging the last seven rows.
+    it.each([
+        ["consumption", ["[Prepaid Credits]", "[PAYG Credits]"]],
+        ["cost", ["[Prepaid Cost]", "[PAYG Cost]"]],
+    ] as const)("draws the 7-day %s average across calendar days, gaps as zero", async (lens, columns) => {
+        const { vegaLiteSpec, columnMetadata } = studioDaily(lens);
+        const dayNumber = (value: unknown) => Date.parse(String(value).slice(0, 10)) / 864e5;
+        const totals = new Map(
+            rows.map((row) => [dayNumber(row["[Usage Date]"]), columns.reduce((sum, column) => sum + (Number(row[column]) || 0), 0)]),
+        );
+        const first = Math.min(...totals.keys());
+        const last = Math.max(...totals.keys());
+        const expected = Array.from({ length: last - first - 5 }, (_, index) => {
+            const day = first + 6 + index;
+            let sum = 0;
+            for (let back = 0; back < 7; back++) sum += totals.get(day - back) ?? 0;
+            return { day, average: sum / 7 };
+        });
 
-    it.each(["consumption", "cost"] as const)("draws one cell per day with %s", async (lens) => {
-        const cells = await cellsOf(lens, colors);
-        expect(cells).toHaveLength(rows.length);
-        expectFinite(cells);
+        const points = (await render(vegaLiteSpec, rows, columnMetadata, "line")).sort(
+            (a, b) => Number(a.datum["Average Day Number"]) - Number(b.datum["Average Day Number"]),
+        );
+        expect(points.map((point) => point.datum["Average Day Number"])).toEqual(expected.map(({ day }) => day));
+        points.forEach((point, index) => expect(point.datum.Value).toBeCloseTo(expected[index].average, 6));
+        // Each point sits on the same local midnight as that day's bar.
+        const local = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+        points.forEach((point, index) =>
+            expect(local(point.datum.Day as unknown as Date)).toBe(new Date(expected[index].day * 864e5).toISOString().slice(0, 10)),
+        );
+        points.forEach((point) => expect((point.datum.Day as unknown as Date).getHours()).toBe(0));
+        // The 20-day gap in the fixture pulls the average to zero, not to the last busy day.
+        expect(expected.some(({ average }) => average === 0)).toBe(true);
+        expectFinite(points);
     });
 
-    it("puts Monday at the top and each week in its own column, leaving empty weeks empty", async () => {
-        const cells = await cellsOf("consumption", colors);
-        const byDate = new Map(cells.map((cell) => [dayOf(cell).getDate() + "/" + (dayOf(cell).getMonth() + 1), cell]));
-        const [tue14, wed15, tue5, sun10, mon11] = ["14/4", "15/4", "5/5", "10/5", "11/5"].map((key) => byDate.get(key)!);
-
-        expect(tue14.datum.Weekday).toBe("Tue");
-        expect(sun10.datum.Weekday).toBe("Sun");
-        expect(mon11.datum.Weekday).toBe("Mon");
-        expect(mon11.bounds.y1).toBeLessThan(tue5.bounds.y1);
-        expect(tue5.bounds.y1).toBeLessThan(sun10.bounds.y1);
-        expect(tue14.bounds.y1).toBeCloseTo(tue5.bounds.y1, 0);
-
-        expect(wed15.bounds.x1).toBeCloseTo(tue14.bounds.x1, 0);
-        expect(sun10.bounds.x1).toBeCloseTo(tue5.bounds.x1, 0);
-        expect(mon11.bounds.x1).toBeGreaterThan(sun10.bounds.x2 - 4);
-        // Mid April to early May is three weeks with no usage: their columns stay blank.
-        const column = tue14.width!;
-        expect(tue5.bounds.x1 - tue14.bounds.x1).toBeCloseTo(column * 3, 0);
-    });
-
-    it("shades the busiest day strongest and sums prepaid and pay-as-you-go cost", async () => {
-        const credits = await cellsOf("consumption", colors);
-        const busiest = credits.reduce((top, cell) => ((cell.datum.Amount as number) > (top.datum.Amount as number) ? cell : top));
-        expect(busiest.datum.Amount).toBe(7699.9);
-        // The red channel falls from the quiet grey to the strong blue, so a busier day reads lower.
-        const redChannel = (cell: Mark) => {
-            const fill = String((cell as unknown as { fill: string }).fill);
-            return fill.startsWith("#") ? parseInt(fill.slice(1, 3), 16) : Number(/\d+/.exec(fill)![0]);
-        };
-        const byAmount = [...credits].sort((a, b) => (a.datum.Amount as number) - (b.datum.Amount as number));
-        byAmount.slice(1).forEach((cell, index) => expect(redChannel(cell)).toBeLessThanOrEqual(redChannel(byAmount[index])));
-        expect(redChannel(busiest)).toBeLessThan(redChannel(byAmount[0]));
-
-        const cost = await cellsOf("cost", colors);
-        const first = cost.find((cell) => dayOf(cell).getDate() === 14)!;
-        expect(first.datum.Amount).toBeCloseTo(55.04786 + 2.4012, 5);
-    });
-
-    it("falls back to a transparent gap before the theme is known", () => {
-        const spec = studioDailyCalendar("consumption") as { mark: { stroke: string }; encoding: { color: { scale: object } } };
-        expect(spec.mark.stroke).toBe("transparent");
-        expect(spec.encoding.color.scale).not.toHaveProperty("range");
+    it("draws the average line in the theme colour and leaves the bars alone", () => {
+        const { vegaLiteSpec } = studioDaily("consumption");
+        const themed = withTrendLineColor(vegaLiteSpec, "#123456") as { layer: { mark: { type: string; color?: string } }[] };
+        const original = vegaLiteSpec as unknown as typeof themed;
+        expect(themed.layer.map((layer) => layer.mark.type)).toEqual(["bar", "line"]);
+        expect(themed.layer[1].mark.color).toBe("#123456");
+        expect(themed.layer[0]).toBe(original.layer[0]);
+        expect(original.layer[1].mark.color).not.toBe("#123456");
     });
 });
 

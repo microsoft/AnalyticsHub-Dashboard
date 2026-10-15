@@ -27,12 +27,12 @@ import {
     studioBreakdown,
     studioCreditsSummary,
     studioDaily,
-    studioDailyCalendar,
     studioPeriodFilter,
     studioUsers,
     STUDIO_LABEL_COLUMN,
     STUDIO_USER_COLUMN,
     toStudioUserTree,
+    withTrendLineColor,
     type ConsumptionLens,
     type ConsumptionOptions,
 } from "@/queries/consumption";
@@ -48,12 +48,6 @@ const money = moneyCell(CREDIT_CURRENCY);
 const BREAKDOWN_CHART = { perRow: 36, chrome: 130, min: 220 };
 // A label on each of ~90 daily bars can't fit; the tooltip carries the numbers.
 const NO_STACK_LABELS = { disableStackedDataLabels: true };
-
-type DailyView = "bars" | "calendar";
-const DAILY_VIEWS: readonly { id: DailyView; label: string }[] = [
-    { id: "bars", label: "Bars" },
-    { id: "calendar", label: "Calendar" },
-];
 
 // Each width fits its header beside the sort arrow, and Billing policy fits a
 // typical policy name on one line, so the agents and users tables both fit
@@ -89,7 +83,6 @@ export function StudioStage({ options, rates }: StudioStageProps) {
     const [lens, setLens] = useState<ConsumptionLens>("consumption");
     const [period, setPeriod] = useState<string>();
     const [groupBy, setGroupBy] = useState<string>();
-    const [dailyView, setDailyView] = useState<DailyView>("bars");
 
     const periods = useMemo(() => options?.studioPeriods ?? [], [options?.studioPeriods]);
     const allPeriods = defaultStudioPeriod(periods);
@@ -103,16 +96,10 @@ export function StudioStage({ options, rates }: StudioStageProps) {
     const summary = useConsumptionSummary(studioCreditsSummary(), extra);
     const dailySource = studioDaily(lens);
     const daily = useConsumptionTable(dailySource, extra);
-    const calendarSpec = useMemo(
-        () =>
-            studioDailyCalendar(lens, {
-                quiet: theme.backgroundHover || theme.backgroundSecondary,
-                strong: theme.brandBackground,
-                gap: theme.background,
-            }),
-        [lens, theme],
+    const dailySpec = useMemo(
+        () => withTrendLineColor(dailySource.vegaLiteSpec, theme.foreground),
+        [dailySource.vegaLiteSpec, theme.foreground],
     );
-    const calendar = dailyView === "calendar";
     const breakdownSource = studioBreakdown(lens);
     const breakdown = useConsumptionTable(breakdownSource, extra);
     const agents = useConsumptionTable(studioAgents(), extra);
@@ -252,34 +239,21 @@ export function StudioStage({ options, rates }: StudioStageProps) {
             </KpiRowState>
 
             <div className="grid grid-cols-1 gap-500 xl:grid-cols-[minmax(0,1fr)_320px]">
-                <div className="flex min-w-0 flex-col gap-200">
-                    <SegmentedControl
-                        label="Daily chart style"
-                        options={DAILY_VIEWS}
-                        value={dailyView}
-                        onChange={setDailyView}
-                        className="self-end"
-                    />
-                    <ChartPanel
-                        result={daily}
-                        spec={calendar ? calendarSpec : dailySource.vegaLiteSpec}
-                        capabilities={calendar ? undefined : NO_STACK_LABELS}
-                        height={340}
-                        title={cost ? "Cost over time" : "Consumption over time"}
-                        headline={cost ? STUDIO_COST_HEADLINE : STUDIO_CREDITS_HEADLINE}
-                        subtitle={
-                            calendar
-                                ? cost
-                                    ? "Tenant cost each day, one column per week, Monday at the top. Darker days cost more."
-                                    : "Tenant credits each day, one column per week, Monday at the top. Darker days used more."
-                                : cost
-                                  ? "Tenant cost each day, prepaid then pay-as-you-go"
-                                  : "Tenant credits each day, prepaid then pay-as-you-go"
-                        }
-                        emptyTitle={dailyEmpty.title}
-                        emptyDescription={dailyEmpty.description}
-                    />
-                </div>
+                <ChartPanel
+                    result={daily}
+                    spec={dailySpec}
+                    capabilities={NO_STACK_LABELS}
+                    height={340}
+                    title={cost ? "Cost over time" : "Consumption over time"}
+                    headline={cost ? STUDIO_COST_HEADLINE : STUDIO_CREDITS_HEADLINE}
+                    subtitle={
+                        cost
+                            ? "Tenant cost each day, prepaid then pay-as-you-go. The line is the 7-day average."
+                            : "Tenant credits each day, prepaid then pay-as-you-go. The line is the 7-day average."
+                    }
+                    emptyTitle={dailyEmpty.title}
+                    emptyDescription={dailyEmpty.description}
+                />
                 <NoteCard
                     title="About these figures"
                     notes={[
