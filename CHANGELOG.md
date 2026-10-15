@@ -143,8 +143,11 @@ Deployment instructions do **not** live here. They live in the READMEs:
   client secret, outside the install. The installer now saves each item's name and a one-off
   reference before creating it, and writes the reference into the item's description. The next
   run uses and updates an item only when both match, so an item someone else made with that name
-  is still left alone. A new notebook client secret is saved before it's used, and an old one stays
-  in the install record until Entra confirms it's removed, so a later run finishes the job.
+  is still left alone. A run started straight after one that stopped waits up to 10 minutes for an
+  item Fabric was still creating. A new notebook client secret gets its own reference in its name,
+  saved before Entra is asked, so a run that stops before saving the key ID still lets the next run
+  find and remove that exact secret. An old secret stays in the install record until Entra confirms
+  it's removed, so a later run finishes the job.
   Installs interrupted by an earlier version aren't tidied up automatically: look for an item
   beside a `_2` copy, and for an "Analytics Hub installer" secret on the app registration that
   isn't the one in the install record.

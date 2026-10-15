@@ -282,6 +282,13 @@ export function graphApi(http) {
       http.post(`/applications/${applicationObjectId}/addPassword`, {
         passwordCredential: { displayName, endDateTime: endDateTime.toISOString() },
       }),
+    /**
+     * The app's client secrets, without their values.
+     * @param {string} applicationObjectId
+     * @returns {Promise<{ keyId: string, displayName?: string, endDateTime?: string }[]>}
+     */
+    listPasswords: async (applicationObjectId) =>
+      (await http.get(`/applications/${applicationObjectId}`, { query: { $select: 'passwordCredentials' } })).passwordCredentials ?? [],
     /** @param {string} applicationObjectId @param {string} keyId */
     removePassword: (applicationObjectId, keyId) => http.post(`/applications/${applicationObjectId}/removePassword`, { keyId }),
 

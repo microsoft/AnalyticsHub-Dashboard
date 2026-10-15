@@ -64,12 +64,14 @@ export function noteRenamed(ctx, wanted, name) {
  * @param {any} created
  * @param {string} type
  * @param {string} name
+ * @param {string} [ref]  When given, only the item with this ref in its description counts, not another with the same name.
  * @returns {Promise<string>}
  */
-export async function createdId(ctx, created, type, name) {
+export async function createdId(ctx, created, type, name, ref) {
   if (created?.id) return created.id;
   const ws = /** @type {string} */ (ctx.config.fabric.workspaceId);
-  const found = byName(await ctx.api.fabric.listItems(ws, type), name);
+  const items = await ctx.api.fabric.listItems(ws, type);
+  const found = ref ? ownItem(items, name, ref) : byName(items, name);
   if (!found) throw new Error(`Fabric reported that ${name} was created, but it isn't in the workspace.`);
   return found.id;
 }
@@ -85,8 +87,44 @@ export async function createdId(ctx, created, type, name) {
 export function stoppedRunItem(f, key, items) {
   const pending = f.pendingItems?.[key];
   if (!pending?.name || !pending.ref) return undefined;
-  const found = byName(items, pending.name);
-  return found && String(found.description ?? '').includes(itemRef(pending.ref)) ? found : undefined;
+  return ownItem(items, pending.name, pending.ref);
+}
+
+/**
+ * The item called `name` with `ref` in its description, among any others with that name.
+ * @param {any[]} items
+ * @param {string} name
+ * @param {string} ref
+ */
+const ownItem = (items, name, ref) =>
+  items.find((i) => String(i.displayName).toLowerCase() === name.toLowerCase() && String(i.description ?? '').includes(itemRef(ref)));
+
+/** How long Fabric may still be creating an item after the run that asked for it stopped. */
+export const CREATE_SETTLE_MS = 10 * 60_000;
+const CREATE_POLL_MS = 15_000;
+
+/**
+ * A run that stopped moments ago may have left Fabric still creating its item, which then appears
+ * a little later. Waits for it, up to CREATE_SETTLE_MS from when that run asked, rather than
+ * creating a second one beside it.
+ * @param {Ctx} ctx
+ * @param {string} key
+ * @param {string} type
+ */
+async function awaitStoppedCreate(ctx, key, type) {
+  const f = ctx.config.fabric;
+  const pending = f.pendingItems?.[key];
+  if (!pending?.ref || !pending.at) return undefined;
+  const left = Date.parse(pending.at) + CREATE_SETTLE_MS - ctx.now().getTime();
+  if (!(left > 0)) return undefined;
+  const ws = /** @type {string} */ (f.workspaceId);
+  ctx.ui.info(`The run that stopped had asked Fabric to create ${pending.name}. Waiting up to ${Math.ceil(left / 60_000)} min for it to appear, so there aren't two.`);
+  for (let i = 0; i < Math.ceil(left / CREATE_POLL_MS); i++) {
+    await ctx.sleep(CREATE_POLL_MS);
+    const found = stoppedRunItem(f, key, await ctx.api.fabric.listItems(ws, type));
+    if (found) return found;
+  }
+  return undefined;
 }
 
 /** The text a create adds to the item's description, so a later run can tell the item is its own. @param {string} ref */
@@ -116,7 +154,7 @@ export const modelKey = (config, m) => (m === config.consumption?.model ? 'consu
  */
 export async function createItem(ctx, key, type, wanted, items, create) {
   const f = ctx.config.fabric;
-  const found = stoppedRunItem(f, key, items);
+  const found = stoppedRunItem(f, key, items) ?? (await awaitStoppedCreate(ctx, key, type));
   if (found) {
     clearPending(f, key);
     ctx.ui.note(`Using ${found.displayName}, which the run that stopped part-way created.`);
@@ -125,10 +163,10 @@ export async function createItem(ctx, key, type, wanted, items, create) {
   const name = freeName(wanted, displayNames(items));
   noteRenamed(ctx, wanted, name);
   const ref = randomBytes(6).toString('hex');
-  (f.pendingItems ??= {})[key] = { name, ref };
+  (f.pendingItems ??= {})[key] = { name, ref, at: ctx.now().toISOString() };
   ctx.save();
   const created = await create(name, itemRef(ref));
-  const id = await createdId(ctx, created, type, name);
+  const id = await createdId(ctx, created, type, name, ref);
   clearPending(f, key);
   return { id, name, resumed: false };
 }
@@ -638,6 +676,7 @@ export async function ensureNotebooks(ctx, opts = {}) {
 async function retireInlineSecrets(ctx) {
   const { ui, config } = ctx;
   const app = config.app;
+  await settleSecretAttempts(ctx);
   const keyIds = [...(app.retiredSecretKeyIds ?? []), ...(app.pendingSecretKeyIds ?? []), ...(app.secretKeyId ? [app.secretKeyId] : [])];
   if (!keyIds.length) {
     if (app.existing) ui.warn(`The client secret that was in the notebooks still works. Delete it from ${app.displayName ?? 'the app'}'s Certificates & secrets page.`);
@@ -721,10 +760,27 @@ export async function inlineSecret(ctx) {
     return {};
   }
   if (!app.objectId) throw new Error('No app registration to add a secret to.');
-  const credential = await api.graph.addPassword(app.objectId, addDays(ctx.now(), notebookSecretDays(config)));
+  await settleSecretAttempts(ctx);
+  // Saved before asking Entra, and in the secret's name, so a run that stops before the key ID is
+  // saved leaves a way to find that exact secret.
+  const ref = randomBytes(6).toString('hex');
+  app.secretAttempts = [...(app.secretAttempts ?? []), { ref, at: ctx.now().toISOString() }];
+  ctx.save();
+  let credential;
+  try {
+    credential = await api.graph.addPassword(app.objectId, addDays(ctx.now(), notebookSecretDays(config)), secretLabel(ref));
+  } catch (err) {
+    // Entra turned the request down, so there's no secret to look for later.
+    if (err instanceof HttpError && err.status >= 400 && err.status < 500 && err.status !== 408) {
+      dropAttempt(app, ref);
+      ctx.save();
+    }
+    throw err;
+  }
   ctx.pendingSecret = credential.secretText;
   // Saved before any notebook gets it, so a run that stops part-way still knows to remove it.
   app.pendingSecretKeyIds = [...new Set([...(app.pendingSecretKeyIds ?? []), credential.keyId])];
+  dropAttempt(app, ref);
   ctx.save();
   ui.ok(`Created a client secret for the notebooks (expires ${credential.endDateTime.slice(0, 10)})`);
   return { keyId: credential.keyId, endDateTime: credential.endDateTime, previousKeyId: app.secretKeyId };
@@ -784,6 +840,65 @@ async function settleInlineSecret(ctx, fresh, outcome) {
   if (!stale.length) return;
   await removeKeys(ctx, stale);
   if (!app.retiredSecretKeyIds?.length) ui.ok(`Removed the previous client secret${new Set(stale).size > 1 ? 's' : ''} from the app`);
+}
+
+/** The name a notebook secret gets on the app, with the ref of the run that asked for it. @param {string} ref */
+export const secretLabel = (ref) => `Analytics Hub installer (ref ${ref})`;
+
+/** How long after asking Entra for a secret a run that finds none takes it that none was made. */
+export const SECRET_SETTLE_MS = 10 * 60_000;
+
+/**
+ * Finds notebook secrets a run asked Entra for but stopped before saving the key ID. Their values
+ * were never saved, so no notebook has them: each is recorded to remove and removed. Matched only
+ * by the exact name with that run's ref. More than one match is left alone with a warning.
+ * @param {Ctx} ctx
+ */
+export async function settleSecretAttempts(ctx) {
+  const { ui, config, api } = ctx;
+  const app = config.app;
+  if (!app.secretAttempts?.length || !app.objectId) return;
+  /** @type {{ keyId: string, displayName?: string }[]} */
+  let creds;
+  try {
+    creds = await api.graph.listPasswords(app.objectId);
+  } catch (err) {
+    ui.warn(`Couldn't check the app for a client secret a stopped run may have added (${/** @type {Error} */ (err).message}). It's checked again next run.`);
+    return;
+  }
+  const tracked = new Set([app.secretKeyId, ...(app.pendingSecretKeyIds ?? []), ...(app.retiredSecretKeyIds ?? [])]);
+  /** @type {string[]} */
+  const remove = [];
+  for (const attempt of [...app.secretAttempts]) {
+    const name = secretLabel(attempt.ref);
+    const matches = creds.filter((c) => c.displayName === name);
+    if (matches.length > 1) {
+      ui.warn(`More than one client secret on the app is called "${name}" (keys ${matches.map((c) => c.keyId).join(', ')}), so none is removed. Check them on the app's Certificates & secrets page.`);
+      continue;
+    }
+    if (matches.length === 1) {
+      if (!tracked.has(matches[0].keyId)) remove.push(matches[0].keyId);
+      dropAttempt(app, attempt.ref);
+    } else if (ctx.now().getTime() - Date.parse(attempt.at) >= SECRET_SETTLE_MS) {
+      dropAttempt(app, attempt.ref);
+    }
+  }
+  // Recorded to remove in the same save that drops the attempts.
+  if (remove.length) app.retiredSecretKeyIds = [...new Set([...(app.retiredSecretKeyIds ?? []), ...remove])];
+  ctx.save();
+  if (!remove.length) return;
+  await removeKeys(ctx, remove);
+  if (!remove.some((k) => app.retiredSecretKeyIds?.includes(k))) ui.ok('Removed a client secret a stopped run added but never used');
+}
+
+/**
+ * @param {import('../config.js').InstallConfig['app']} app
+ * @param {string} ref
+ */
+function dropAttempt(app, ref) {
+  if (!app.secretAttempts) return;
+  app.secretAttempts = app.secretAttempts.filter((a) => a.ref !== ref);
+  if (!app.secretAttempts.length) delete app.secretAttempts;
 }
 
 /**

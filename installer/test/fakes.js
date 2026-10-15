@@ -431,6 +431,13 @@ export function fakeGraph() {
       passwords.push({ keyId, displayName });
       return { keyId, secretText: `secret-${n}`, endDateTime: end.toISOString() };
     },
+    /** @param {string} _objectId */
+    listPasswords: async (_objectId) => {
+      calls.push('listPasswords');
+      const err = failures.listPasswords?.shift();
+      if (err) throw err;
+      return passwords.map((p) => ({ ...p }));
+    },
     /** @param {string} _objectId @param {string} keyId */
     removePassword: async (_objectId, keyId) => {
       calls.push(`removePassword ${keyId}`);
@@ -643,6 +650,7 @@ export function fakeAzureGraph() {
       return fic;
     },
     addPassword: async (/** @type {string} */ _id, /** @type {Date} */ end) => ({ keyId: `key-${++n}`, secretText: `secret-${n}`, endDateTime: end.toISOString() }),
+    listPasswords: async (/** @type {string} */ _id) => [],
     removePassword: async (/** @type {string} */ _id, /** @type {string} */ keyId) => {
       calls.push(`removePassword ${keyId}`);
     },
