@@ -14,7 +14,7 @@ import { parseCli } from '../src/cli.js';
 import { secretMode } from '../src/config.js';
 import { HttpError } from '../src/http.js';
 import { rotateSecret } from '../src/install.js';
-import { CREATE_GIVE_UP_MS, CREATE_SETTLE_MS, createdId, ensureNotebooks, ensurePipeline, modelKey, SECRET_SETTLE_MS, secretLabel, settleSecretAttempts, stoppedRunItem } from '../src/steps/fabric.js';
+import { CREATE_SETTLE_MS, createdId, ensureNotebooks, ensurePipeline, modelKey, SECRET_SETTLE_MS, secretLabel, settleSecretAttempts, stoppedRunItem } from '../src/steps/fabric.js';
 import { flowsSkipped, flowsWanted } from '../src/steps/flows.js';
 import {
   ADMIN_PACK_FILE,
@@ -507,10 +507,12 @@ test('a run stopped before Fabric created the item: the next run creates it unde
   const t = fakeCtx({ fabric: fabric.api, graph: fakeGraph().api, ui: fakeUi().ui });
   await ensureNotebooks(t.ctx);
   fabric.calls.length = 0;
-  const hour = new Date(t.ctx.now().getTime() - CREATE_GIVE_UP_MS).toISOString();
-  t.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'aa11', at: hour } };
+  // Fabric says that create failed, so nothing is coming.
+  const failedOp = 'https://api.fabric.microsoft.com/v1/operations/op-f';
+  t.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'aa11', at: t.ctx.now().toISOString(), operation: failedOp } };
+  fabric.operations[failedOp] = 'Failed';
   await ensurePipeline(t.ctx);
-  assert.deepEqual(fabric.calls, ['createPipeline AnalyticsHub_Pipeline']);
+  assert.deepEqual(fabric.calls, ['operationStatus op-f', 'createPipeline AnalyticsHub_Pipeline']);
   assert.equal(t.config.fabric.pendingItems, undefined);
   assert.match(String(fabric.items.find((i) => i.type === 'DataPipeline')?.description), /^\(ref [0-9a-f]{12}\)$/, 'each create gets a fresh ref');
 
@@ -539,7 +541,8 @@ test('a run stopped before Fabric created the item: the next run creates it unde
   const k = fakeCtx({ fabric: taken.api, graph: fakeGraph().api, ui: fakeUi().ui });
   await ensureNotebooks(k.ctx);
   const theirs = taken.add('DataPipeline', 'AnalyticsHub_Pipeline', 'theirs', 'Analytics Hub daily load. (ref bb22)');
-  k.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'aa11', at: hour } };
+  k.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'aa11', at: k.ctx.now().toISOString(), operation: failedOp } };
+  taken.operations[failedOp] = 'Failed';
   taken.calls.length = 0;
   await ensurePipeline(k.ctx);
   assert.deepEqual(taken.calls.filter((c) => /Pipeline /.test(c)), ['createPipeline AnalyticsHub_Pipeline_2']);
@@ -569,12 +572,13 @@ test('a run stopped while Fabric creates a model: planning keeps its name and th
   const o = fakeCtx({ fabric: other.api, graph: fakeGraph().api, ui: fakeUi().ui });
   o.config.semanticModel.enabled = true;
   const theirs = other.add('SemanticModel', 'Analytics Hub Model', 'theirs');
-  const hour = new Date(o.ctx.now().getTime() - CREATE_GIVE_UP_MS).toISOString();
-  o.config.fabric.pendingItems = { 'SemanticModel:main': { name: 'Analytics Hub Model', ref: 'cc33', at: hour } };
+  const failedOp = 'https://api.fabric.microsoft.com/v1/operations/op-f';
+  o.config.fabric.pendingItems = { 'SemanticModel:main': { name: 'Analytics Hub Model', ref: 'cc33', at: o.ctx.now().toISOString(), operation: failedOp } };
+  other.operations[failedOp] = 'Failed';
   await reserveNames(o.ctx);
   assert.equal(o.config.semanticModel.name, 'Analytics Hub Model 2');
   await deployModel(o.ctx, o.config.semanticModel, { signature: 's', definition: () => ({ parts: [] }) });
-  assert.deepEqual(other.calls, ['createSemanticModel Analytics Hub Model 2']);
+  assert.deepEqual(other.calls.filter((c) => /SemanticModel /.test(c)), ['createSemanticModel Analytics Hub Model 2']);
   assert.equal(theirs.content, 'theirs');
   assert.equal(modelKey(o.config, o.config.consumption.model), 'consumption');
   assert.equal(modelKey(o.config, o.config.agentEvaluator.model), 'agentEvaluator');
@@ -609,7 +613,7 @@ test('a run stopped moments ago: waits for the item Fabric is still creating, ra
   l.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'ee55', at: old } };
   late.calls.length = 0;
   const sleeps = l.sleeps.length;
-  await assert.rejects(ensurePipeline(l.ctx), /wasn't created again, so there won't be two\. Run the installer again later: it uses that item if Fabric made it, and from 12:50 UTC creates it if not/);
+  await assert.rejects(ensurePipeline(l.ctx), /wasn't created again, so there won't be two\. Run the installer again later: it uses that item if Fabric made it\. If it never appears, run the installer again without --yes and answer yes to create it\./);
   assert.deepEqual(late.calls.filter((c) => /Pipeline /.test(c)), []);
   assert.equal(l.config.fabric.pendingItems?.DataPipeline?.ref, 'ee55', 'still pending, for the next run');
   assert.equal(l.sleeps.length, sleeps, 'no wait');
@@ -625,18 +629,19 @@ test('a run stopped moments ago: waits for the item Fabric is still creating, ra
   assert.deepEqual(sure.calls.filter((c) => /Pipeline /.test(c)), ['createPipeline AnalyticsHub_Pipeline']);
   assert.equal(s.config.fabric.pendingItems, undefined);
 
-  // An hour on, it isn't coming: made without asking.
+  // Days on, still not there: time alone doesn't show it isn't coming, so --yes still stops.
   const gone = fakeFabric();
   const goneUi = fakeUi({ yes: true });
   const g = fakeCtx({ fabric: gone.api, graph: fakeGraph().api, ui: goneUi.ui });
   await ensureNotebooks(g.ctx);
-  const hour = new Date(g.ctx.now().getTime() - CREATE_GIVE_UP_MS).toISOString();
-  g.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'ee55', at: hour } };
+  const days = new Date(g.ctx.now().getTime() - 3 * 24 * 60 * 60_000).toISOString();
+  g.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'ee55', at: days } };
   gone.calls.length = 0;
-  await ensurePipeline(g.ctx);
-  assert.deepEqual(gone.calls.filter((c) => /Pipeline /.test(c)), ['createPipeline AnalyticsHub_Pipeline']);
-  assert.match(goneUi.text(), /over an hour ago/);
-  assert.match(goneUi.text(), /the extra one is yours to delete/);
+  await assert.rejects(ensurePipeline(g.ctx), /wasn't created again, so there won't be two/);
+  assert.deepEqual(gone.calls.filter((c) => /Pipeline /.test(c)), []);
+  assert.equal(g.config.fabric.pendingItems?.DataPipeline?.ref, 'ee55');
+  assert.equal(g.config.fabric.pendingItems?.DataPipeline?.at, days, 'the record is kept as it was');
+  assert.match(goneUi.text(), /isn't known whether Fabric will still make it/);
 });
 
 test("a stopped run's create with no time in the record: the clock starts now, and nothing is made without asking", async () => {
@@ -649,11 +654,20 @@ test("a stopped run's create with no time in the record: the clock starts now, a
     fabric.calls.length = 0;
     const saves = t.saves();
     const sleeps = t.sleeps.length;
-    await assert.rejects(ensurePipeline(t.ctx), /wasn't created again, so there won't be two\. .*from 13:00 UTC creates it if not/);
+    await assert.rejects(ensurePipeline(t.ctx), /wasn't created again, so there won't be two\. .*without --yes and answer yes to create it/);
     assert.deepEqual(fabric.calls.filter((c) => /Pipeline /.test(c)), []);
     assert.equal(t.config.fabric.pendingItems?.DataPipeline?.at, t.ctx.now().toISOString(), 'stamped');
     assert.ok(t.saves() > saves, 'the stamp is saved');
     assert.equal(t.sleeps.length, sleeps, 'asks at once rather than waiting');
+
+    // A run days later, with the time it was given: still not made without asking.
+    const laterUi = fakeUi({ yes: true });
+    const later = fakeCtx({ fabric: fabric.api, graph: fakeGraph().api, ui: laterUi.ui, config: t.config, now: new Date(t.ctx.now().getTime() + 2 * 24 * 60 * 60_000) });
+    fabric.calls.length = 0;
+    await assert.rejects(ensurePipeline(later.ctx), /wasn't created again, so there won't be two/);
+    assert.deepEqual(fabric.calls.filter((c) => /Pipeline /.test(c)), []);
+    assert.equal(later.config.fabric.pendingItems?.DataPipeline?.ref, 'ab12', 'still pending');
+    assert.equal(later.config.fabric.pendingItems?.DataPipeline?.at, t.ctx.now().toISOString(), 'the first stamp is kept');
 
     // Told yes: made.
     const sure = fakeFabric();
@@ -735,11 +749,11 @@ test("a stopped run's create that Fabric gave an operation for: asked about, not
   assert.deepEqual(pipelineCalls(agreed.fabric.calls), ['operationStatus op-x', 'createPipeline AnalyticsHub_Pipeline']);
   // However long ago Fabric said it made it: still not made again without asking.
   const old = await setup('Succeeded');
-  /** @type {any} */ (old.t.config.fabric.pendingItems).DataPipeline.at = new Date(old.t.ctx.now().getTime() - 2 * CREATE_GIVE_UP_MS).toISOString();
+  /** @type {any} */ (old.t.config.fabric.pendingItems).DataPipeline.at = new Date(old.t.ctx.now().getTime() - 2 * 60 * 60_000).toISOString();
   await assert.rejects(ensurePipeline(old.t.ctx), /wasn't created again, so there won't be two\. Check the workspace/);
   assert.deepEqual(pipelineCalls(old.fabric.calls), ['operationStatus op-x']);
   assert.equal(old.t.config.fabric.pendingItems?.DataPipeline?.ref, 'ee55');
-  assert.doesNotMatch(old.ui.text(), /so it's created now/);
+  assert.doesNotMatch(old.ui.text(), /created now/);
 
   // Fabric can't say (the call fails, or it no longer knows the operation): as for no operation, it waits and then doesn't guess.
   for (const unknown of [undefined, 'throws']) {

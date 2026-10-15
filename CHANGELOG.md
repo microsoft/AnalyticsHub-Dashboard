@@ -148,8 +148,9 @@ Deployment instructions do **not** live here. They live in the READMEs:
   is still working on it after that, the run stops and says to run it again in a few minutes. If
   it isn't known how the create went, or Fabric says it made the item but it isn't in the
   workspace, the run waits, then asks before creating the item again (with `--yes` it stops
-  instead). If it isn't known and the first request is over an hour old, the item is created
-  without asking. If Fabric says it made the item, the run always asks first. A create that times
+  instead and keeps the pending record). However long ago the first request was, it is created
+  again only if Fabric says that create failed or someone answers yes, since time alone doesn't
+  show Fabric won't still make it. A create that times
   out keeps its pending record for the next run, rather than making another. Creates, new client
   secrets and the writes that store a new secret are sent once: if the answer is lost or the
   service errors, the run stops rather than sending the request again, and the next run finds

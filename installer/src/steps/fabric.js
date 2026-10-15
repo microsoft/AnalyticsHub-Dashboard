@@ -111,11 +111,11 @@ const SUCCEEDED_POLLS = 8;
  * one while the first may still appear:
  * - If Fabric gave that run an operation, asks it. Failed: a new one is made. Still running after
  *   a wait: stops with an error to run again later, keeping the record. Succeeded: uses the item,
- *   looking for it a little longer as the list can lag; if it's still not there, asks, and with
- *   --yes or a no stops, however long ago it was.
- * - Otherwise waits until CREATE_SETTLE_MS after that run asked, then asks before making another,
- *   and with --yes, or a no, stops instead. A record with no time for the request starts the
- *   clock now. Only after CREATE_GIVE_UP_MS is one made without asking, with a warning.
+ *   looking for it a little longer as the list can lag; if it's still not there, asks as below.
+ * - Otherwise waits until CREATE_SETTLE_MS after that run asked, then asks before making another.
+ *   A record with no time for the request starts the clock now and asks at once.
+ * Only Fabric saying the create failed, or the user agreeing, makes another; with --yes, or a no,
+ * the run stops with the record kept, however long ago it was.
  * Returns the item, or undefined when a new one should be made.
  * @param {Ctx} ctx
  * @param {string} key
@@ -167,27 +167,16 @@ async function settleStoppedCreate(ctx, key, type) {
       if (found) return found;
     }
   }
-  if (age >= CREATE_GIVE_UP_MS && state !== 'Succeeded') {
-    ctx.ui.warn(`The run that stopped had asked Fabric to create ${pending.name} over an hour ago, and it isn't in the workspace, so it's created now. If Fabric does still make the first one, there will be two, and the extra one is yours to delete.`);
-    return undefined;
-  }
-  ctx.ui.warn(`The run that stopped had asked Fabric to create ${pending.name}, and it isn't in the workspace yet. It isn't known whether Fabric will still make it.`);
+  // However long ago it was: time alone doesn't show Fabric won't still make it. Only Fabric
+  // saying it failed, or the user agreeing here, makes another.
+  if (state !== 'Succeeded') ctx.ui.warn(`The run that stopped had asked Fabric to create ${pending.name}, and it isn't in the workspace yet. It isn't known whether Fabric will still make it.`);
   if (await ctx.ui.confirm(`Create ${pending.name} again now? If Fabric does still make the first one, there will be two, and the extra one is yours to delete.`, false)) return undefined;
-  if (state === 'Succeeded') {
-    throw new Error(
-      `${pending.name} wasn't created again, so there won't be two. Check the workspace: if it's there, run the installer again and it's used. ` +
-        `If it was deleted, run the installer again without --yes and answer yes to create it.`,
-    );
-  }
-  const after = new Date(Date.parse(/** @type {string} */ (pending.at)) + CREATE_GIVE_UP_MS);
   throw new Error(
-    `${pending.name} wasn't created again, so there won't be two. Run the installer again later: it uses that item if Fabric made it, ` +
-      `and from ${after.toISOString().slice(11, 16)} UTC creates it if not.`,
+    `${pending.name} wasn't created again, so there won't be two. ` +
+      (state === 'Succeeded' ? 'Check the workspace: if it is there, run the installer again and it is used. ' : 'Run the installer again later: it uses that item if Fabric made it. ') +
+      `If it never appears, run the installer again without --yes and answer yes to create it.`,
   );
 }
-
-/** After this long, an item a stopped run asked for that still isn't there isn't coming. */
-export const CREATE_GIVE_UP_MS = 60 * 60_000;
 
 /** @param {string} name */
 const stillCreating = (name) => `Fabric is still creating ${name}. Run the installer again in a few minutes: it uses that item rather than making another.`;
