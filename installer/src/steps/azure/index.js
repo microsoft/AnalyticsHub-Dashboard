@@ -13,6 +13,7 @@ import { rlsOn, rlsSettings } from '../../transform/access.js';
 import { buildConsumptionModel, buildModel, loadTemplateModel, PBISM } from '../../transform/model.js';
 import { deployModel, modelSignature, REFRESH_POLL_MS } from '../model.js';
 import { addMonths, OPTIONAL_PERMISSION_EFFECTS, OPTIONAL_PERMISSIONS, SECRET_LIFETIME_MONTHS } from '../identity.js';
+import { addTrackedSecret, promoteSecret, removeRetired } from '../secrets.js';
 import { writeTeamsPackage } from '../../azure/teams.js';
 import { APP_ALIAS, CONSUMPTION_ALIAS } from '../app.js';
 import { AZURE_AI_ROLES, ensureAzureAiAccess, planConsumption } from '../consumption.js';
@@ -45,6 +46,8 @@ export const WEB_APP_NAME = 'Analytics Hub (Azure)';
 /** Delegated: lets admins and group owners add and remove viewers from the app. Graph still checks they own the group or are a directory admin. */
 export const GROUP_SCOPE = 'GroupMember.ReadWrite.All';
 export const SQL_READER_NAME = 'Analytics Hub SQL Reader';
+/** The SQL reader secret's name on its app, before the ref of the run that made it. */
+const SQL_READER_SECRET_LABEL = 'Power BI SQL credential';
 export const TEAMS_CLIENTS = ['1fec8e78-bce4-4aaf-ab1b-5451cc387264', '5e3ce6c0-2b1f-4285-8d4b-75ee78787346'];
 const ARM = JSON.parse(readFileSync(new URL('../../azure/main.arm.json', import.meta.url), 'utf8'));
 export const REQUIRED_ARM_PARAMETERS = [
@@ -1101,7 +1104,7 @@ export async function installAzure(ctx, opts) {
 
   step('Power BI model');
   await ensureAzurePowerBi(ctx, sqlSecret.value);
-  await retireSecret(ctx, sqlSecret.previousKeyId);
+  await useSqlSecret(ctx, sqlSecret);
   ctx.save();
 
   if (withAccess) {
@@ -1297,18 +1300,26 @@ async function ensureSqlReader(ctx) {
   let sp = az.sqlReader.servicePrincipalId ? await api.graph.findServicePrincipal(/** @type {string} */ (az.sqlReader.clientId)).catch(() => null) : null;
   if (!sp) sp = await api.graph.createServicePrincipal(/** @type {string} */ (az.sqlReader.clientId));
   az.sqlReader.servicePrincipalId = sp.id;
-  const previousKeyId = az.sqlReader.secretKeyId;
-  const cred = await api.graph.addPassword(app.id, addMonths(ctx.now(), SECRET_LIFETIME_MONTHS), 'Power BI SQL credential');
-  Object.assign(az.sqlReader, { secretKeyId: cred.keyId, secretExpiry: cred.endDateTime });
+  const r = az.sqlReader;
+  r.objectId = app.id;
+  await removeRetired(ctx, r, app.id);
+  // Tracked from before Entra is asked. It stays pending until Power BI's credential uses it, and
+  // the one it replaces is removed only then.
+  const cred = await addTrackedSecret(ctx, r, app.id, SQL_READER_SECRET_LABEL, addMonths(ctx.now(), SECRET_LIFETIME_MONTHS));
   ui.ok(`Created SQL reader secret expiring ${cred.endDateTime.slice(0, 10)}`);
-  return { value: cred.secretText, previousKeyId };
+  return { value: cred.secretText, keyId: cred.keyId, expires: cred.endDateTime };
 }
 
-/** Removes the SQL reader secret the Power BI credential used before, once the new one is bound. @param {Ctx} ctx @param {string | undefined} keyId */
-async function retireSecret(ctx, keyId) {
-  const r = ctx.config.azure?.sqlReader;
-  if (!keyId || !r?.objectId || keyId === r.secretKeyId) return;
-  await ctx.api.graph.removePassword(r.objectId, keyId).catch((err) => ctx.ui.warn(`Couldn't remove the previous SQL reader secret: ${err.message}`));
+/**
+ * Power BI's credential now uses the new SQL reader secret: it becomes the current one, and the
+ * one before and any a stopped run left pending are removed from the app.
+ * @param {Ctx} ctx
+ * @param {{ keyId: string, expires: string }} secret
+ */
+async function useSqlSecret(ctx, secret) {
+  const r = /** @type {NonNullable<import('../../config.js').AzureConfig['sqlReader']>} */ (ctx.config.azure?.sqlReader);
+  r.secretExpiry = secret.expires;
+  await promoteSecret(ctx, r, r.objectId, secret.keyId);
 }
 
 /** @param {Ctx} ctx */
@@ -1694,7 +1705,7 @@ export async function azureRotateSecret(ctx) {
   const secret = await ensureSqlReader(ctx);
   if (isPrivate(ctx.config.azure)) await bindThroughVnetGateway(ctx, secret.value);
   else await bindPowerBiCredentials(ctx, secret.value);
-  await retireSecret(ctx, secret.previousKeyId);
+  await useSqlSecret(ctx, secret);
   ctx.save();
   ctx.ui.ok('Rotated the SQL reader secret and rebound the Power BI data source credential.');
 }

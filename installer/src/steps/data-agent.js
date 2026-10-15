@@ -9,7 +9,7 @@ import { buildAgentEvaluatorModel, buildConsumptionModel, buildModel, loadTempla
 import { c } from '../ui.js';
 import { agentEvaluatorModelWanted } from './agent-evaluator.js';
 import { consumptionModelWanted } from './consumption.js';
-import { createdId, displayNames, freeName, noteRenamed } from './fabric.js';
+import { createItem } from './fabric.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 /** @typedef {import('../transform/data-agent.js').AgentSource} AgentSource */
@@ -140,14 +140,13 @@ export async function deployDataAgent(ctx) {
     delete da.publishedSignature;
   }
   if (!da.id) {
-    const name = freeName(da.name, displayNames(items));
-    noteRenamed(ctx, da.name, name);
-    const created = await api.fabric.createDataAgent(ws, name, definition);
-    da.id = await createdId(ctx, created, DATA_AGENT_TYPE, name);
-    da.name = name;
+    const made = await createItem(ctx, 'DataAgent', DATA_AGENT_TYPE, da.name, items, (name, ref) => api.fabric.createDataAgent(ws, name, definition, ref));
+    da.id = made.id;
+    da.name = made.name;
+    if (made.resumed) await api.fabric.updateDataAgent(ws, made.id, definition);
     da.signature = signature;
     ctx.save();
-    ui.ok(`Created the ${name} data agent, over ${models.map((m) => m.name).join(', ')}`);
+    ui.ok(`${made.resumed ? 'Updated' : 'Created'} the ${made.name} data agent, over ${models.map((m) => m.name).join(', ')}`);
   } else if (da.signature !== signature) {
     await api.fabric.updateDataAgent(ws, da.id, definition);
     da.signature = signature;

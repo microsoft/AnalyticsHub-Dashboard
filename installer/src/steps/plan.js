@@ -21,7 +21,7 @@ import { FLOW_NAMES, flowsSkipped, flowsWanted, planFlows } from './flows.js';
 import { adminPack, canWriteSecrets, checkExistingApp, MAX_SECRET_DAYS, NOTEBOOK_SECRET_DAYS, notebookSecretDays, reportAppCheck, ResumeLater, writeAdminPack } from './identity.js';
 import { planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from './resource-graph.js';
 import { askAdvanced, asksAdvanced } from './advanced.js';
-import { describeSchedule, displayNames, freeName, PIPELINE_NAME } from './fabric.js';
+import { describeSchedule, displayNames, freeName, modelKey, PIPELINE_NAME, stoppedRunItem } from './fabric.js';
 import { connectionName } from './model.js';
 import { reportsWanted } from './report.js';
 import { DATA_AGENT_TYPE, dataAgentWanted, planDataAgent } from './data-agent.js';
@@ -469,11 +469,16 @@ export async function plan(ctx, pre, section) {
     }
     if (!config.fabric.lakehouseId) {
       const ws = config.fabric.workspaceId;
-      const taken = ws ? displayNames(await api.fabric.listItems(ws, 'Lakehouse')) : [];
-      const suggested = freeName(config.fabric.lakehouseName ?? DEFAULT_LAKEHOUSE_NAME, taken);
-      const typed = advanced() ? await ui.input('Lakehouse name', { default: suggested, validate: validateNewLakehouseName(taken) }) : suggested;
-      config.fabric.lakehouseName = lakehouseNameFrom(typed);
-      if (config.fabric.lakehouseName !== typed.trim()) ui.note(`Fabric doesn't allow spaces or hyphens in Lakehouse names, so it'll be called ${config.fabric.lakehouseName}.`);
+      const lakehouses = ws ? await api.fabric.listItems(ws, 'Lakehouse') : [];
+      const resumed = stoppedRunItem(config.fabric, 'Lakehouse', lakehouses);
+      const taken = displayNames(lakehouses);
+      if (resumed) config.fabric.lakehouseName = String(resumed.displayName);
+      else {
+        const suggested = freeName(config.fabric.lakehouseName ?? DEFAULT_LAKEHOUSE_NAME, taken);
+        const typed = advanced() ? await ui.input('Lakehouse name', { default: suggested, validate: validateNewLakehouseName(taken) }) : suggested;
+        config.fabric.lakehouseName = lakehouseNameFrom(typed);
+        if (config.fabric.lakehouseName !== typed.trim()) ui.note(`Fabric doesn't allow spaces or hyphens in Lakehouse names, so it'll be called ${config.fabric.lakehouseName}.`);
+      }
     }
     await reserveNames(ctx);
   }
@@ -933,18 +938,24 @@ export async function reserveNames(ctx) {
   const cc = config.consumption;
   const ae = config.agentEvaluator;
   const ws = f.workspaceId;
-  const list = async (/** @type {string} */ type) => (ws ? displayNames(await api.fabric.listItems(ws, type)) : []);
-  const [notebookNames, pipelineNames, modelNames, reportNames, agentNames] = await Promise.all([
+  const list = async (/** @type {string} */ type) => (ws ? /** @type {any[]} */ (await api.fabric.listItems(ws, type)) : []);
+  const [notebookItems, pipelineItems, modelItems, reportItems, agentItems] = await Promise.all([
     list('Notebook'),
     list('DataPipeline'),
     list('SemanticModel'),
     list('Report'),
     dataAgentWanted(ctx) ? list(DATA_AGENT_TYPE) : [],
   ]);
+  const [notebookNames, pipelineNames, modelNames, reportNames, agentNames] = [notebookItems, pipelineItems, modelItems, reportItems, agentItems].map(displayNames);
   /** @type {string[]} */
   const renamed = [];
-  /** @param {string} wanted @param {string[]} taken */
-  const pick = (wanted, taken) => {
+  /**
+   * Keeps the name of an item a run that stopped part-way created, so it's used again, not renamed.
+   * @param {string} key @param {any[]} items @param {string} wanted @param {string[]} taken
+   */
+  const pick = (key, items, wanted, taken) => {
+    const resumed = stoppedRunItem(f, key, items);
+    if (resumed) return String(resumed.displayName);
     const name = freeName(wanted, taken);
     if (name !== wanted) renamed.push(wanted);
     taken.push(name);
@@ -960,17 +971,19 @@ export async function reserveNames(ctx) {
   });
   f.notebookNames ??= {};
   for (const nb of notebooks) {
-    if (!f.notebooks[nb.key]) f.notebookNames[nb.key] = pick(startFrom(f.notebookNames[nb.key], nb.displayName), notebookNames);
+    if (!f.notebooks[nb.key]) f.notebookNames[nb.key] = pick(`Notebook:${nb.key}`, notebookItems, startFrom(f.notebookNames[nb.key], nb.displayName), notebookNames);
   }
-  if (!f.pipelineId) f.pipelineName = pick(startFrom(f.pipelineName, PIPELINE_NAME), pipelineNames);
-  if (sm.enabled && !sm.id) sm.name = pick(startFrom(sm.name, MODEL_NAME), modelNames);
-  if (sm.enabled && consumptionModelWanted(ctx) && !cc.model.id) cc.model.name = pick(startFrom(cc.model.name, CONSUMPTION_MODEL_NAME), modelNames);
-  if (sm.enabled && agentEvaluatorModelWanted(ctx) && !ae.model.id) ae.model.name = pick(startFrom(ae.model.name, AGENT_EVALUATOR_MODEL_NAME), modelNames);
+  if (!f.pipelineId) f.pipelineName = pick('DataPipeline', pipelineItems, startFrom(f.pipelineName, PIPELINE_NAME), pipelineNames);
+  /** @param {import('../config.js').ModelConfig} m @param {string} base */
+  const model = (m, base) => pick(`SemanticModel:${modelKey(config, m)}`, modelItems, startFrom(m.name, base), modelNames);
+  if (sm.enabled && !sm.id) sm.name = model(sm, MODEL_NAME);
+  if (sm.enabled && consumptionModelWanted(ctx) && !cc.model.id) cc.model.name = model(cc.model, CONSUMPTION_MODEL_NAME);
+  if (sm.enabled && agentEvaluatorModelWanted(ctx) && !ae.model.id) ae.model.name = model(ae.model, AGENT_EVALUATOR_MODEL_NAME);
   for (const w of reportsWanted(ctx)) {
-    if (!w.model.report?.id) w.model.report = { ...w.model.report, name: pick(startFrom(w.model.report?.name, w.name), reportNames) };
+    if (!w.model.report?.id) w.model.report = { ...w.model.report, name: pick(`Report:${modelKey(config, w.model)}`, reportItems, startFrom(w.model.report?.name, w.name), reportNames) };
   }
   const da = config.dataAgent;
-  if (dataAgentWanted(ctx) && !da.id) da.name = pick(startFrom(da.name, DATA_AGENT_NAME), agentNames);
+  if (dataAgentWanted(ctx) && !da.id) da.name = pick('DataAgent', agentItems, startFrom(da.name, DATA_AGENT_NAME), agentNames);
 
   if (renamed.length) {
     ui.note(

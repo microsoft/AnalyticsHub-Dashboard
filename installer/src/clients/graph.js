@@ -281,7 +281,14 @@ export function graphApi(http) {
     addPassword: (applicationObjectId, endDateTime, displayName = 'Analytics Hub installer') =>
       http.post(`/applications/${applicationObjectId}/addPassword`, {
         passwordCredential: { displayName, endDateTime: endDateTime.toISOString() },
-      }),
+      }, { once: true }),
+    /**
+     * The app's client secrets, without their values.
+     * @param {string} applicationObjectId
+     * @returns {Promise<{ keyId: string, displayName?: string, endDateTime?: string }[]>}
+     */
+    listPasswords: async (applicationObjectId) =>
+      (await http.get(`/applications/${applicationObjectId}`, { query: { $select: 'passwordCredentials' } })).passwordCredentials ?? [],
     /** @param {string} applicationObjectId @param {string} keyId */
     removePassword: (applicationObjectId, keyId) => http.post(`/applications/${applicationObjectId}/removePassword`, { keyId }),
 

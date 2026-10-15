@@ -3,7 +3,7 @@
  * Workspace, Lakehouse, notebooks, pipeline and schedule. Re-runs reuse what the
  * install record points at; `update` pushes fresh notebook and pipeline content.
  */
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import { enabledModules, notebooksFor } from '../catalog.js';
 import { routedSources, routerSignaturesJson, routerWanted } from '../uploads.js';
 import { statusConfigJson } from '../loads.js';
@@ -15,6 +15,7 @@ import { rlsOn } from '../transform/access.js';
 import { INLINE_SECRET_NOTE, MARKER, prepareNotebook, pyString, serialiseNotebook } from '../transform/notebook.js';
 import { buildPipeline, PIPELINE_CHANGE, PIPELINE_VERSION } from '../transform/pipeline.js';
 import { addDays, notebookSecretDays } from './identity.js';
+import { dropAttempt, findAttempts, refused, removeRetired, SECRET_SETTLE_MS, withSecretRef } from './secrets.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 
@@ -64,14 +65,191 @@ export function noteRenamed(ctx, wanted, name) {
  * @param {any} created
  * @param {string} type
  * @param {string} name
+ * @param {string} [ref]  When given, only the item with this ref in its description counts, not another with the same name.
  * @returns {Promise<string>}
  */
-export async function createdId(ctx, created, type, name) {
+export async function createdId(ctx, created, type, name, ref) {
   if (created?.id) return created.id;
   const ws = /** @type {string} */ (ctx.config.fabric.workspaceId);
-  const found = byName(await ctx.api.fabric.listItems(ws, type), name);
+  const items = await ctx.api.fabric.listItems(ws, type);
+  const found = ref ? ownItem(items, name, ref) : byName(items, name);
   if (!found) throw new Error(`Fabric reported that ${name} was created, but it isn't in the workspace.`);
   return found.id;
+}
+
+/**
+ * The item a run that stopped part-way created for `key`: it has the name that run saved and that
+ * run's ref in its description. A name alone isn't enough, since someone else could have made an
+ * item with that name after the run stopped.
+ * @param {import('../config.js').InstallConfig['fabric']} f
+ * @param {string} key
+ * @param {any[]} items  The workspace's items of the type.
+ */
+export function stoppedRunItem(f, key, items) {
+  const pending = f.pendingItems?.[key];
+  if (!pending?.name || !pending.ref) return undefined;
+  return ownItem(items, pending.name, pending.ref);
+}
+
+/**
+ * The item called `name` with `ref` in its description, among any others with that name.
+ * @param {any[]} items
+ * @param {string} name
+ * @param {string} ref
+ */
+const ownItem = (items, name, ref) =>
+  items.find((i) => String(i.displayName).toLowerCase() === name.toLowerCase() && String(i.description ?? '').includes(itemRef(ref)));
+
+/** How long Fabric may still be creating an item after the run that asked for it stopped. */
+export const CREATE_SETTLE_MS = 10 * 60_000;
+const CREATE_POLL_MS = 15_000;
+/** How many more times a create Fabric says succeeded is looked for in the workspace. */
+const SUCCEEDED_POLLS = 8;
+
+/**
+ * A run that stopped part-way may have left Fabric still creating its item. Doesn't make a second
+ * one while the first may still appear:
+ * - If Fabric gave that run an operation, asks it. Failed: a new one is made. Still running after
+ *   a wait: stops with an error to run again later, keeping the record. Succeeded: uses the item,
+ *   looking for it a little longer as the list can lag; if it's still not there, asks as below.
+ * - Otherwise waits until CREATE_SETTLE_MS after that run asked, then asks before making another.
+ *   A record with no time for the request asks at once.
+ * Only Fabric saying the create failed, or the user agreeing, makes another; with --yes, or a no,
+ * the run stops with the record kept, however long ago it was.
+ * Returns the item, or undefined when a new one should be made.
+ * @param {Ctx} ctx
+ * @param {string} key
+ * @param {string} type
+ */
+async function settleStoppedCreate(ctx, key, type) {
+  const f = ctx.config.fabric;
+  const pending = f.pendingItems?.[key];
+  if (!pending?.ref) return undefined;
+  const ws = /** @type {string} */ (f.workspaceId);
+  const look = async () => stoppedRunItem(f, key, await ctx.api.fabric.listItems(ws, type));
+  const status = async () => (pending.operation ? await ctx.api.fabric.operationStatus(pending.operation).catch(() => undefined) : undefined);
+
+  let state = await status();
+  if (state === 'NotStarted' || state === 'Running') {
+    ctx.ui.info(`The run that stopped had asked Fabric to create ${pending.name}, and Fabric is still working on it. Waiting up to ${CREATE_SETTLE_MS / 60_000} min for it, so there aren't two.`);
+    for (let i = 0; i < CREATE_SETTLE_MS / CREATE_POLL_MS && (state === 'NotStarted' || state === 'Running'); i++) {
+      await ctx.sleep(CREATE_POLL_MS);
+      state = await status();
+    }
+    if (state === 'NotStarted' || state === 'Running') throw new Error(stillCreating(pending.name));
+  }
+  // Only Failed says nothing is coming; 'Undefined' is treated as not known.
+  if (state === 'Failed') return undefined;
+  if (state === 'Succeeded') {
+    // The workspace's list can lag the operation.
+    for (let i = 0; ; i++) {
+      const found = await look();
+      if (found) return found;
+      if (i === SUCCEEDED_POLLS) break;
+      await ctx.sleep(CREATE_POLL_MS);
+    }
+    ctx.ui.warn(`Fabric says it created ${pending.name} for the run that stopped, but it isn't in the workspace. Someone may have deleted it, or the workspace's list hasn't caught up.`);
+  }
+
+  // Not known how that create went: wait out the time Fabric may take, then ask. A record with no
+  // time for the request asks at once, and is left as it is.
+  const untimed = !pending.at || Number.isNaN(Date.parse(pending.at));
+  const left = state === 'Succeeded' || untimed ? 0 : CREATE_SETTLE_MS - (ctx.now().getTime() - Date.parse(/** @type {string} */ (pending.at)));
+  if (left > 0) {
+    ctx.ui.info(`The run that stopped had asked Fabric to create ${pending.name}. Waiting up to ${Math.ceil(left / 60_000)} min for it to appear, so there aren't two.`);
+    for (let i = 0; i < Math.ceil(left / CREATE_POLL_MS); i++) {
+      await ctx.sleep(CREATE_POLL_MS);
+      const found = await look();
+      if (found) return found;
+    }
+  }
+  // However long ago it was: time alone doesn't show Fabric won't still make it. Only Fabric
+  // saying it failed, or the user agreeing here, makes another.
+  if (state !== 'Succeeded') ctx.ui.warn(`The run that stopped had asked Fabric to create ${pending.name}, and it isn't in the workspace yet. It isn't known whether Fabric will still make it.`);
+  if (await ctx.ui.confirm(`Create ${pending.name} again now? If Fabric does still make the first one, there will be two, and the extra one is yours to delete.`, false)) return undefined;
+  throw new Error(
+    `${pending.name} wasn't created again, so there won't be two. ` +
+      (state === 'Succeeded' ? 'Check the workspace: if it is there, run the installer again and it is used. ' : 'Run the installer again later: it uses that item if Fabric made it. ') +
+      `If it never appears, run the installer again without --yes and answer yes to create it.`,
+  );
+}
+
+/** @param {string} name */
+const stillCreating = (name) => `Fabric is still creating ${name}. Run the installer again in a few minutes: it uses that item rather than making another.`;
+
+/** The text a create adds to the item's description, so a later run can tell the item is its own. @param {string} ref */
+export const itemRef = (ref) => `(ref ${ref})`;
+
+/**
+ * Which of the install's models `m` is, for keys that stay the same when the model's name changes.
+ * @param {import('../config.js').InstallConfig} config
+ * @param {import('../config.js').ModelConfig} m
+ */
+export const modelKey = (config, m) => (m === config.consumption?.model ? 'consumption' : m === config.agentEvaluator?.model ? 'agentEvaluator' : 'main');
+
+/**
+ * Creates a workspace item so that a run stopped part-way through doesn't leave a stray copy. The
+ * name and a random ref are saved as pending before the create, and the ref goes in the item's
+ * description. If the run stops before the ID is saved, the next run finds the item by both and
+ * uses it instead of making a second one. Any other clash still gets a new name, since the
+ * installer never takes over an item it didn't create.
+ * The caller saves the record with the ID it gets back, which also clears the pending entry.
+ * @param {Ctx} ctx
+ * @param {string} key  Unique per item in the install and stable between runs, e.g. `Notebook:auditIngester`.
+ * @param {string} type  The Fabric item type, for looking the item up by name.
+ * @param {string} wanted
+ * @param {any[]} items  The workspace's items of this type.
+ * If Fabric doesn't answer in time, the pending entry stays, with Fabric's operation if it gave
+ * one, and the next run waits for that create rather than making another.
+ * @param {(name: string, ref: import('../clients/fabric.js').ItemRef) => Promise<any>} create  `ref` goes at the end of the item's description.
+ * @returns {Promise<{ id: string, name: string, resumed: boolean }>}
+ */
+export async function createItem(ctx, key, type, wanted, items, create) {
+  const f = ctx.config.fabric;
+  const found = stoppedRunItem(f, key, items) ?? (await settleStoppedCreate(ctx, key, type));
+  if (found) {
+    clearPending(f, key);
+    ctx.ui.note(`Using ${found.displayName}, which the run that stopped part-way created.`);
+    return { id: found.id, name: String(found.displayName), resumed: true };
+  }
+  const fresh = f.pendingItems?.[key] ? await ctx.api.fabric.listItems(/** @type {string} */ (f.workspaceId), type) : items;
+  const name = freeName(wanted, displayNames(fresh));
+  noteRenamed(ctx, wanted, name);
+  const ref = randomBytes(6).toString('hex');
+  /** @type {NonNullable<typeof f.pendingItems>[string]} */
+  const pending = { name, ref, at: ctx.now().toISOString() };
+  (f.pendingItems ??= {})[key] = pending;
+  ctx.save();
+  let created;
+  try {
+    created = await create(name, {
+      text: itemRef(ref),
+      onAccepted: (url) => {
+        pending.operation = url;
+        ctx.save();
+      },
+    });
+  } catch (err) {
+    // Fabric turned the create down outright, so there's nothing to wait for next time.
+    if (!pending.operation && refused(err)) {
+      clearPending(f, key);
+      ctx.save();
+    }
+    throw err;
+  }
+  const id = await createdId(ctx, created, type, name, ref);
+  clearPending(f, key);
+  return { id, name, resumed: false };
+}
+
+/**
+ * @param {import('../config.js').InstallConfig['fabric']} f
+ * @param {string} key
+ */
+export function clearPending(f, key) {
+  if (!f.pendingItems) return;
+  delete f.pendingItems[key];
+  if (!Object.keys(f.pendingItems).length) delete f.pendingItems;
 }
 
 /**
@@ -156,12 +334,10 @@ export async function ensureLakehouse(ctx) {
     }
   }
   const wanted = f.lakehouseName ?? 'ValueLens';
-  const name = freeName(wanted, displayNames(await api.fabric.listItems(ws, 'Lakehouse')));
-  noteRenamed(ctx, wanted, name);
-  const created = await api.fabric.createLakehouse(ws, name);
-  f.lakehouseId = await createdId(ctx, created, 'Lakehouse', name);
-  f.lakehouseName = name;
-  ui.ok(`Created Lakehouse "${name}"`);
+  const made = await createItem(ctx, 'Lakehouse', 'Lakehouse', wanted, await api.fabric.listItems(ws, 'Lakehouse'), (name, ref) => api.fabric.createLakehouse(ws, name, ref));
+  f.lakehouseId = made.id;
+  f.lakehouseName = made.name;
+  ui.ok(`${made.resumed ? 'Found' : 'Created'} Lakehouse "${made.name}"`);
   ctx.save();
 }
 
@@ -518,14 +694,14 @@ export async function ensureNotebooks(ctx, opts = {}) {
         delete f.pipelineModules;
       }
       if (!id) {
-        const name = freeName(label, displayNames(items));
-        noteRenamed(ctx, label, name);
-        const created = await api.fabric.createNotebook(ws, name, content);
-        id = await createdId(ctx, created, 'Notebook', name);
-        items.push({ id, displayName: name });
-        f.notebookNames[nb.key] = name;
+        const made = await createItem(ctx, `Notebook:${nb.key}`, 'Notebook', label, items, (name, ref) => api.fabric.createNotebook(ws, name, content, ref));
+        id = made.id;
+        f.notebookNames[nb.key] = made.name;
+        // A notebook the stopped run created may hold its secret or older settings.
+        if (made.resumed) await api.fabric.updateNotebook(ws, id, content);
+        else items.push({ id, displayName: made.name });
         if (usesSecret(nb)) written++;
-        ui.ok(`Created ${name}`);
+        ui.ok(`${made.resumed ? 'Updated' : 'Created'} ${made.name}`);
       } else if (
         opts.force ||
         (inline && usesSecret(nb)) ||
@@ -571,41 +747,33 @@ export async function ensureNotebooks(ctx, opts = {}) {
 async function retireInlineSecrets(ctx) {
   const { ui, config } = ctx;
   const app = config.app;
-  const keyIds = [...(app.retiredSecretKeyIds ?? []), ...(app.secretKeyId ? [app.secretKeyId] : [])];
+  await settleSecretAttempts(ctx);
+  const keyIds = [...(app.retiredSecretKeyIds ?? []), ...(app.pendingSecretKeyIds ?? []), ...(app.secretKeyId ? [app.secretKeyId] : [])];
   if (!keyIds.length) {
     if (app.existing) ui.warn(`The client secret that was in the notebooks still works. Delete it from ${app.displayName ?? 'the app'}'s Certificates & secrets page.`);
     return;
   }
-  await removeKeys(ctx, keyIds);
+  // Saved as to-remove first, so a run that stops part-way still knows to remove them.
+  app.retiredSecretKeyIds = [...new Set(keyIds)];
+  delete app.pendingSecretKeyIds;
   delete app.secretKeyId;
+  ctx.save();
+  await removeKeys(ctx, keyIds);
   if (!app.retiredSecretKeyIds?.length) ui.ok('Removed the client secret that was in the notebooks from the app');
 }
 
 /**
- * Removes app secrets by key ID. Any that can't be removed are kept in the install record,
- * so the next run tries again.
+ * Removes app secrets by key ID. Each one stays in the install record's to-remove list until
+ * Entra confirms it's gone, or the app no longer lists it, so a run that fails or stops part-way
+ * tries the rest again.
  * @param {Ctx} ctx
  * @param {string[]} keyIds
  */
 async function removeKeys(ctx, keyIds) {
-  const { ui, config, api } = ctx;
-  const app = config.app;
-  const objectId = /** @type {string} */ (app.objectId);
-  /** @type {string[]} */
-  const left = [];
-  for (const keyId of new Set(keyIds)) {
-    const removed = await api.graph.removePassword(objectId, keyId).then(
-      () => true,
-      () => false,
-    );
-    if (!removed) {
-      left.push(keyId);
-      ui.warn(`Couldn't remove a previous client secret (key ${keyId}). Delete it from the app's Certificates & secrets page, or run the update again.`);
-    }
-  }
-  if (left.length) app.retiredSecretKeyIds = left;
-  else delete app.retiredSecretKeyIds;
+  const app = ctx.config.app;
+  app.retiredSecretKeyIds = [...new Set([...(app.retiredSecretKeyIds ?? []), ...keyIds])];
   ctx.save();
+  await removeRetired(ctx, app, app.objectId);
 }
 
 /**
@@ -646,8 +814,28 @@ export async function inlineSecret(ctx) {
     return {};
   }
   if (!app.objectId) throw new Error('No app registration to add a secret to.');
-  const credential = await api.graph.addPassword(app.objectId, addDays(ctx.now(), notebookSecretDays(config)));
+  await settleSecretAttempts(ctx);
+  // Saved before asking Entra, and in the secret's name, so a run that stops before the key ID is
+  // saved leaves a way to find that exact secret.
+  const ref = randomBytes(6).toString('hex');
+  app.secretAttempts = [...(app.secretAttempts ?? []), { ref, at: ctx.now().toISOString() }];
+  ctx.save();
+  let credential;
+  try {
+    credential = await api.graph.addPassword(app.objectId, addDays(ctx.now(), notebookSecretDays(config)), secretLabel(ref));
+  } catch (err) {
+    // Entra turned the request down, so there's no secret to look for later.
+    if (refused(err)) {
+      dropAttempt(app, ref);
+      ctx.save();
+    }
+    throw err;
+  }
   ctx.pendingSecret = credential.secretText;
+  // Saved before any notebook gets it, so a run that stops part-way still knows to remove it.
+  app.pendingSecretKeyIds = [...new Set([...(app.pendingSecretKeyIds ?? []), credential.keyId])];
+  dropAttempt(app, ref);
+  ctx.save();
   ui.ok(`Created a client secret for the notebooks (expires ${credential.endDateTime.slice(0, 10)})`);
   return { keyId: credential.keyId, endDateTime: credential.endDateTime, previousKeyId: app.secretKeyId };
 }
@@ -670,7 +858,17 @@ async function settleInlineSecret(ctx, fresh, outcome) {
     return;
   }
   if (outcome === 'unused') {
-    await api.graph.removePassword(objectId, fresh.keyId).catch(() => ui.warn(`Delete the unused client secret (key ${fresh.keyId}) from the app's Certificates & secrets page.`));
+    const removed = await api.graph.removePassword(objectId, fresh.keyId).then(
+      () => true,
+      () => false,
+    );
+    if (!removed) {
+      // No notebook has it, so it's kept to remove with the other old secrets on a later run.
+      ui.warn(`Delete the unused client secret (key ${fresh.keyId}) from the app's Certificates & secrets page, or run the update again.`);
+      app.retiredSecretKeyIds = [...new Set([...(app.retiredSecretKeyIds ?? []), fresh.keyId])];
+    }
+    dropPending(app, [fresh.keyId]);
+    ctx.save();
     return;
   }
   app.secretKeyId = fresh.keyId;
@@ -678,17 +876,62 @@ async function settleInlineSecret(ctx, fresh, outcome) {
   config.keyVault.secretSetAt = ctx.now().toISOString();
   const previous = fresh.previousKeyId && fresh.previousKeyId !== fresh.keyId ? fresh.previousKeyId : undefined;
   if (outcome === 'partial') {
-    // Kept in the record, so the run that finishes the notebooks removes it.
+    // Kept in the record, so the run that finishes the notebooks removes it. Secrets from runs
+    // that stopped earlier stay pending: some notebooks may still have them.
+    dropPending(app, [fresh.keyId]);
     if (previous) app.retiredSecretKeyIds = [...new Set([...(app.retiredSecretKeyIds ?? []), previous])];
     ctx.save();
     if (previous) ui.warn(`Some notebooks still use the previous client secret (key ${previous}), so it stays on the app. Run the update again to finish.`);
     return;
   }
+  // Every notebook now has the new secret, so the previous one and those from runs that stopped
+  // part-way can go. They move to the to-remove list in the same save that clears them as
+  // pending, and leave it only once Entra confirms each is removed.
+  const stale = [...(app.retiredSecretKeyIds ?? []), ...(previous ? [previous] : []), ...(app.pendingSecretKeyIds ?? [])].filter((k) => k !== fresh.keyId);
+  delete app.pendingSecretKeyIds;
+  if (stale.length) app.retiredSecretKeyIds = [...new Set(stale)];
   ctx.save();
-  const stale = [...(app.retiredSecretKeyIds ?? []), ...(previous ? [previous] : [])].filter((k) => k !== fresh.keyId);
   if (!stale.length) return;
   await removeKeys(ctx, stale);
-  if (!app.retiredSecretKeyIds?.length) ui.ok('Removed the previous client secret from the app');
+  if (!app.retiredSecretKeyIds?.length) ui.ok(`Removed the previous client secret${new Set(stale).size > 1 ? 's' : ''} from the app`);
+}
+
+/** What a notebook secret is called on the app, before the ref. */
+const NOTEBOOK_SECRET_LABEL = 'Analytics Hub installer';
+
+/** The name a notebook secret gets on the app, with the ref of the run that asked for it. @param {string} ref */
+export const secretLabel = (ref) => withSecretRef(NOTEBOOK_SECRET_LABEL, ref);
+
+export { SECRET_SETTLE_MS };
+
+/**
+ * Finds notebook secrets a run asked Entra for but stopped before saving the key ID. A notebook
+ * secret's key ID is saved before any notebook gets the value, so none has these: each is
+ * recorded to remove and removed. Matched only by the exact name with that run's ref. More than
+ * one match is left alone with a warning.
+ * @param {Ctx} ctx
+ */
+export async function settleSecretAttempts(ctx) {
+  const { ui, config } = ctx;
+  const app = config.app;
+  if (!app.secretAttempts?.length || !app.objectId) return;
+  const remove = await findAttempts(ctx, app, app.objectId, NOTEBOOK_SECRET_LABEL);
+  // Recorded to remove in the same save that drops the attempts.
+  if (remove.length) app.retiredSecretKeyIds = [...new Set([...(app.retiredSecretKeyIds ?? []), ...remove])];
+  ctx.save();
+  if (!remove.length) return;
+  await removeKeys(ctx, remove);
+  if (!remove.some((k) => app.retiredSecretKeyIds?.includes(k))) ui.ok('Removed a client secret a stopped run added but never used');
+}
+
+/**
+ * @param {import('../config.js').InstallConfig['app']} app
+ * @param {string[]} keyIds
+ */
+function dropPending(app, keyIds) {
+  if (!app.pendingSecretKeyIds) return;
+  app.pendingSecretKeyIds = app.pendingSecretKeyIds.filter((k) => !keyIds.includes(k));
+  if (!app.pendingSecretKeyIds.length) delete app.pendingSecretKeyIds;
 }
 
 /**
@@ -853,13 +1096,13 @@ export async function ensurePipeline(ctx, opts = {}) {
   }
 
   if (!f.pipelineId) {
-    const wanted = f.pipelineName ?? PIPELINE_NAME;
-    const name = freeName(wanted, displayNames(items));
-    noteRenamed(ctx, wanted, name);
-    const created = await api.fabric.createPipeline(ws, name, definition);
-    f.pipelineId = await createdId(ctx, created, 'DataPipeline', name);
-    ui.ok(`Created pipeline ${name}`);
-    f.pipelineName = name;
+    const made = await createItem(ctx, 'DataPipeline', 'DataPipeline', f.pipelineName ?? PIPELINE_NAME, items, (name, ref) => api.fabric.createPipeline(ws, name, definition, ref));
+    f.pipelineId = made.id;
+    f.pipelineName = made.name;
+    if (made.resumed) {
+      await api.fabric.updatePipeline(ws, made.id, definition);
+      ui.ok(`Updated pipeline ${made.name}`);
+    } else ui.ok(`Created pipeline ${made.name}`);
   } else if (opts.force || f.pipelineModules !== signature || f.pipelineVersion !== PIPELINE_VERSION) {
     if (f.pipelineVersion !== PIPELINE_VERSION) ui.note(PIPELINE_CHANGE);
     ui.note('This replaces the pipeline definition, including any activities you added to it yourself.');

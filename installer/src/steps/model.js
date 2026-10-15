@@ -11,8 +11,9 @@ import { commandLine } from '../launch.js';
 import { EVERYONE_ROLE, rlsSettings, SCOPED_ROLE } from '../transform/access.js';
 import { buildModel, datasourcePath, loadTemplateModel, PBISM } from '../transform/model.js';
 import { formatDuration } from '../ui.js';
-import { createdId, displayNames, freeName, noteRenamed } from './fabric.js';
+import { createItem, modelKey } from './fabric.js';
 import { addMonths, SECRET_LIFETIME_MONTHS } from './identity.js';
+import { addTrackedSecret, adoptAttempts, promoteSecret, removeRetired, settleFailedSecret } from './secrets.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 
@@ -117,12 +118,11 @@ export async function deployModel(ctx, m, o) {
   }
   const deployed = !m.id || !!o.force || m.signature !== signature;
   if (!m.id) {
-    const name = freeName(m.name, displayNames(items));
-    noteRenamed(ctx, m.name, name);
-    const created = await api.fabric.createSemanticModel(ws, name, definition);
-    m.id = await createdId(ctx, created, 'SemanticModel', name);
-    m.name = name;
-    ui.ok(`Created semantic model ${name}`);
+    const made = await createItem(ctx, `SemanticModel:${modelKey(ctx.config, m)}`, 'SemanticModel', m.name, items, (name, ref) => api.fabric.createSemanticModel(ws, name, definition, ref));
+    m.id = made.id;
+    m.name = made.name;
+    if (made.resumed) await api.fabric.updateSemanticModel(ws, made.id, definition);
+    ui.ok(`${made.resumed ? 'Updated' : 'Created'} semantic model ${made.name}`);
     m.bound = false;
   } else if (o.force || m.signature !== signature) {
     await api.fabric.updateSemanticModel(ws, m.id, definition);
@@ -170,20 +170,32 @@ const status = (err) => (err instanceof HttpError ? err.status : 0);
 
 /**
  * A secret for the connection: a new one on the app, or one the user pastes when they can't add one.
+ * A new one is tracked from before Entra is asked (see steps/secrets.js).
  * @param {Ctx} ctx
  * @returns {Promise<{ value: string, keyId?: string, expires?: string }>}
  */
 async function connectionSecret(ctx) {
-  const { ui, config, api } = ctx;
+  const { ui, config } = ctx;
   const app = config.app;
   try {
-    const cred = await api.graph.addPassword(/** @type {string} */ (app.objectId), addMonths(ctx.now(), SECRET_LIFETIME_MONTHS), CONNECTION_SECRET_NAME);
+    const cred = await addTrackedSecret(ctx, config.semanticModel, /** @type {string} */ (app.objectId), CONNECTION_SECRET_NAME, addMonths(ctx.now(), SECRET_LIFETIME_MONTHS));
     return { value: cred.secretText, keyId: cred.keyId, expires: cred.endDateTime };
   } catch (err) {
     if (status(err) !== 403) throw err;
   }
   ui.warn(`You can't add a client secret to ${app.displayName ?? app.appId}, and the model's connection needs one.`);
   return { value: await ui.secret(`A client secret for ${app.displayName ?? app.appId}. It is kept only in the Fabric connection.`) };
+}
+
+/**
+ * After Fabric didn't take the new secret: removed if Fabric turned it down, otherwise kept as
+ * pending, since the connection may hold it.
+ * @param {Ctx} ctx
+ * @param {{ keyId?: string }} secret
+ * @param {unknown} err
+ */
+async function settleConnectionSecret(ctx, secret, err) {
+  if (secret.keyId) await settleFailedSecret(ctx, ctx.config.semanticModel, ctx.config.app.objectId, secret.keyId, err);
 }
 
 /** @param {Ctx} ctx @param {string} clientSecret */
@@ -245,7 +257,10 @@ export async function ensureModelConnection(ctx) {
   const { ui, config, api } = ctx;
   const sm = config.semanticModel;
   const ws = /** @type {string} */ (config.fabric.workspaceId);
+  const objectId = config.app.objectId;
   await ensureViewer(ctx);
+  await removeRetired(ctx, sm, objectId);
+  await adoptAttempts(ctx, sm, objectId, CONNECTION_SECRET_NAME);
 
   /** @type {any} */
   let conn = sm.connectionId ? await api.fabric.getConnection(sm.connectionId).catch((err) => (status(err) === 404 ? null : Promise.reject(err))) : null;
@@ -253,6 +268,12 @@ export async function ensureModelConnection(ctx) {
     ui.warn(`The connection ${sm.connectionName ?? sm.connectionId} was deleted. Creating it again.`);
     delete sm.connectionId;
     sm.bound = false;
+  }
+  if (conn && sm.pendingSecretKeyIds?.length) {
+    // A stopped run may have given the connection a secret the record doesn't have as current.
+    // A new one makes it certain which the connection holds; then the others are removed.
+    ui.warn(`A run that stopped part-way added a client secret for the connection (key ${sm.pendingSecretKeyIds.join(', ')}) and may have given it to the connection. Giving the connection a new one, so it's certain which it holds.`);
+    await rotateModelSecret(ctx);
   }
   if (!conn) {
     const name = connectionName(ws);
@@ -270,15 +291,14 @@ export async function ensureModelConnection(ctx) {
         ui.ok(`Created the connection "${name}", signed in as ${config.app.displayName ?? 'the app'}`);
       }
     } catch (err) {
-      if (secret.keyId) await api.graph.removePassword(/** @type {string} */ (config.app.objectId), secret.keyId).catch(() => {});
+      await settleConnectionSecret(ctx, secret, err);
       throw new Error(`Fabric couldn't set up the model's connection: ${/** @type {Error} */ (err).message}`);
     }
-    const oldKey = sm.secretKeyId;
-    Object.assign(sm, { connectionId: conn.id, connectionName: name, secretKeyId: secret.keyId, secretExpires: secret.expires, bound: false });
+    Object.assign(sm, { connectionId: conn.id, connectionName: name, secretExpires: secret.expires, bound: false });
     if (config.consumption?.model) config.consumption.model.bound = false;
     if (config.agentEvaluator?.model) config.agentEvaluator.model.bound = false;
-    ctx.save();
-    if (oldKey && oldKey !== secret.keyId) await api.graph.removePassword(/** @type {string} */ (config.app.objectId), oldKey).catch(() => {});
+    // Saved with the record above; the secrets it replaces are then removed from the app.
+    await promoteSecret(ctx, sm, objectId, secret.keyId);
   }
 
   if (!sm.bound) await bindModel(ctx, sm);
@@ -468,7 +488,7 @@ export async function verifyModel(ctx) {
 export async function rotateModelSecret(ctx) {
   const { ui, config, api } = ctx;
   const sm = config.semanticModel;
-  const objectId = /** @type {string} */ (config.app.objectId);
+  const objectId = config.app.objectId;
   if (!sm.connectionId) return;
   const secret = await connectionSecret(ctx);
   try {
@@ -477,15 +497,12 @@ export async function rotateModelSecret(ctx) {
       credentialDetails: servicePrincipalCredentials(credentialsFor(ctx, secret.value)),
     });
   } catch (err) {
-    if (secret.keyId) await api.graph.removePassword(objectId, secret.keyId).catch(() => {});
+    await settleConnectionSecret(ctx, secret, err);
     throw new Error(`Fabric couldn't update the model's connection: ${/** @type {Error} */ (err).message}`);
   }
-  const oldKey = sm.secretKeyId;
-  Object.assign(sm, { secretKeyId: secret.keyId, secretExpires: secret.expires });
-  ctx.save();
+  sm.secretExpires = secret.expires;
+  if (!secret.expires) delete sm.secretExpires;
+  const replaced = await promoteSecret(ctx, sm, objectId, secret.keyId);
   ui.ok(`Gave "${sm.connectionName}" a new secret${secret.expires ? ` (expires ${secret.expires.slice(0, 10)})` : ''}`);
-  if (oldKey && oldKey !== secret.keyId) {
-    const removed = await api.graph.removePassword(objectId, oldKey).then(() => true, () => false);
-    if (removed) ui.ok('Removed the connection\'s old secret from the app');
-  }
+  if (replaced.length && !replaced.some((k) => sm.retiredSecretKeyIds?.includes(k))) ui.ok('Removed the connection\'s old secret from the app');
 }

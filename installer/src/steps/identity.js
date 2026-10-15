@@ -13,10 +13,14 @@ import { HttpError } from '../http.js';
 import { commandLine } from '../launch.js';
 import { c } from '../ui.js';
 import { APP_NAME } from './plan.js';
+import { addTrackedSecret, adoptAttempts, promoteSecret, settleFailedSecret } from './secrets.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 
 export const SECRET_LIFETIME_MONTHS = 12;
+
+/** The Key Vault secret's name on the app, before the ref of the run that made it. */
+const VAULT_SECRET_LABEL = 'Analytics Hub installer';
 
 /** Without Key Vault the secret is readable in the workspace, so it lasts days, not months, and every run of the installer replaces it. */
 export const NOTEBOOK_SECRET_DAYS = 90;
@@ -495,6 +499,17 @@ export async function ensureSecret(ctx) {
     return;
   }
 
+  if (!app.existing) {
+    await adoptAttempts(ctx, kv, app.objectId, VAULT_SECRET_LABEL);
+    // A stopped run may have put its secret in the vault after the one recorded there. A new one
+    // makes it certain which the vault has; the uncertain one is kept until then.
+    if (!ctx.pendingSecret && kv.secretSetAt && kv.pendingSecretKeyIds?.length) {
+      ui.warn(`A run that stopped part-way added a client secret (key ${kv.pendingSecretKeyIds.join(', ')}) and may have saved it to Key Vault. Making a new one, so it's certain which the vault has.`);
+      await newSecret(ctx);
+      return;
+    }
+  }
+
   if (!ctx.pendingSecret && kv.secretSetAt) {
     if (await secretExists(ctx)) {
       ui.ok(`Client secret is in Key Vault as ${kv.secretName}`);
@@ -645,28 +660,37 @@ export async function newSecret(ctx) {
   const objectId = /** @type {string} */ (app.objectId);
   await checkSecretAccess(ctx);
   if (claimsName(ctx)) await claimSecretName(ctx);
-  const credential = await api.graph.addPassword(objectId, addMonths(ctx.now(), SECRET_LIFETIME_MONTHS));
+  // Tracked from before Entra is asked, so a run that stops before the vault has it still knows
+  // about it. Not removed unless the vault turned it down: it may be stored there already.
+  const credential = await addTrackedSecret(ctx, kv, objectId, VAULT_SECRET_LABEL, addMonths(ctx.now(), SECRET_LIFETIME_MONTHS));
   try {
     await writeSecret(ctx, credential.secretText, {
       expires: new Date(credential.endDateTime),
       contentType: `Client secret for ${app.appId}`,
     });
   } catch (err) {
-    const removed = await api.graph.removePassword(objectId, credential.keyId).then(
-      () => true,
-      () => false,
-    );
+    const outcome = await settleFailedSecret(ctx, kv, objectId, credential.keyId, err);
     throw new Error(
       `The app's new client secret couldn't be saved to Key Vault (${/** @type {Error} */ (err).message}). ` +
-        (removed
+        (outcome === 'removed'
           ? 'It has been removed from the app again, and was never shown or stored anywhere else.'
-          : `It was not shown or stored anywhere else. Delete the unused one (key ${credential.keyId}) from the app's Certificates & secrets page.`),
+          : outcome === 'retired'
+            ? `It was not shown or stored anywhere else. It stays in the install record and the next run removes it, or delete it (key ${credential.keyId}) from the app's Certificates & secrets page.`
+            : 'Run the installer again: it makes a new one, and keeps track of this one.'),
     );
   }
   app.secretExpires = credential.endDateTime;
   kv.secretSetAt = ctx.now().toISOString();
-  ctx.save();
+  const unsure = (kv.pendingSecretKeyIds ?? []).filter((k) => k !== credential.keyId);
+  // Earlier secrets stay on the app until they expire, as a run already going may still use one.
+  await promoteSecret(ctx, kv, objectId, credential.keyId, { keepPrevious: true });
   ui.ok(`Created a client secret and saved it to Key Vault as ${kv.secretName} (expires ${credential.endDateTime.slice(0, 10)})`);
+  if (unsure.length) {
+    ui.warn(
+      `An earlier run added a client secret it couldn't confirm was saved to Key Vault (key ${unsure.join(', ')}). The vault now has the new one, so once this run has finished ` +
+        "and the pipeline has run, delete that key from the app's Certificates & secrets page. The install record lists it as replaced.",
+    );
+  }
 }
 
 /**

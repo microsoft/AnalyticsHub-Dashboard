@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { HttpError } from '../http.js';
 import { inCloudShell } from '../launch.js';
 import { publicAccess } from './access.js';
-import { agentEvaluatorModelDeployed, consumptionModelDeployed, createdId, displayNames, freeName, noteRenamed } from './fabric.js';
+import { agentEvaluatorModelDeployed, clearPending, consumptionModelDeployed, createItem, noteRenamed } from './fabric.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 
@@ -163,12 +163,23 @@ async function claimAppItem(ctx, dir, ws) {
   };
 
   const recorded = findDeployment(registry, ws);
+  // An app found by its ID is this install's, so a pending entry left by a run that stopped
+  // between saving the deployment and the install record no longer applies.
+  const settled = () => {
+    if (!config.fabric.pendingItems?.AppBackend) return;
+    clearPending(config.fabric, 'AppBackend');
+    ctx.save();
+  };
   if (fa.itemId && (await exists(fa.itemId))) {
     if (recorded?.fabricItemId !== fa.itemId) record(fa.itemId);
+    settled();
     return;
   }
   if (recorded?.fabricItemId) {
-    if (await exists(recorded.fabricItemId)) return;
+    if (await exists(recorded.fabricItemId)) {
+      settled();
+      return;
+    }
     delete registry.deployments[recorded.key];
     if (registry.active === recorded.key) delete registry.active;
     save();
@@ -176,11 +187,12 @@ async function claimAppItem(ctx, dir, ws) {
 
   const identity = appIdentity(dir);
   const apps = await api.fabric.listItems(ws, 'AppBackend');
-  const name = freeName(identity.name, displayNames(apps));
-  const created = await api.fabric.createItem(ws, 'AppBackend', name);
-  record(await createdId(ctx, created, 'AppBackend', name));
   const clash = clashingApp(apps, identity);
-  if (clash) noteRenamed(ctx, clash.displayName, name);
+  const made = await createItem(ctx, 'AppBackend', 'AppBackend', identity.name, apps, (name, ref) => api.fabric.createItem(ws, 'AppBackend', name, ref));
+  record(made.id);
+  ctx.save();
+  // createItem notes a clash with the app's own name; this covers one named like the project.
+  if (clash && !made.resumed && clash.displayName.toLowerCase() !== identity.name.toLowerCase()) noteRenamed(ctx, clash.displayName, made.name);
 }
 
 /**

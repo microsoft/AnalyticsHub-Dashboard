@@ -9,7 +9,7 @@ import { loadTemplateReport, reportDefinition, reportSignature } from '../transf
 import { c } from '../ui.js';
 import { agentEvaluatorModelWanted } from './agent-evaluator.js';
 import { consumptionModelWanted } from './consumption.js';
-import { createdId, displayNames, freeName, noteRenamed } from './fabric.js';
+import { createItem, modelKey } from './fabric.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 /** @typedef {import('../config.js').ModelConfig} ModelConfig */
@@ -71,12 +71,12 @@ export async function deployReport(ctx, w) {
     delete r.id;
   }
   if (!r.id) {
-    const name = freeName(r.name, displayNames(items));
-    noteRenamed(ctx, r.name, name);
-    const created = await api.fabric.createReport(ws, name, reportDefinition(parts, m.id));
-    r.id = await createdId(ctx, created, 'Report', name);
-    r.name = name;
-    ui.ok(`Published the ${name} report, on ${m.name}`);
+    const definition = reportDefinition(parts, m.id);
+    const made = await createItem(ctx, `Report:${modelKey(ctx.config, m)}`, 'Report', r.name, items, (name, ref) => api.fabric.createReport(ws, name, definition, ref));
+    r.id = made.id;
+    r.name = made.name;
+    if (made.resumed) await api.fabric.updateReport(ws, made.id, definition);
+    ui.ok(`Published the ${made.name} report, on ${m.name}`);
   } else if (r.signature !== signature) {
     const update = await ui.confirm(`There's a new version of the ${r.name} report. Update it? Changes made to it in Power BI are replaced.`, true);
     if (!update) {

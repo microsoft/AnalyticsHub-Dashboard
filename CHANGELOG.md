@@ -137,6 +137,40 @@ Deployment instructions do **not** live here. They live in the READMEs:
   freshly unpacked installer into place for up to 20 seconds when antivirus still holds the
   files. If it still can't, it removes the half-unpacked folder and says to run the command
   again, not a bare "Access denied".
+- **A run stopped part-way no longer leaves a second copy behind.** If the installer was closed
+  while Fabric was creating a notebook, the pipeline, a model, a report, the data agent, the
+  Dataflow or the app, the next run made a `_2` copy beside the first and left the first, with its
+  client secret, outside the install. The installer now saves each item's name and a one-off
+  reference before creating it, and writes the reference into the item's description. The next
+  run uses and updates an item only when both match, so an item someone else made with that name
+  is still left alone. A run started straight after one that stopped asks Fabric how that create
+  went, if Fabric had answered it, and waits up to 10 minutes for one still in progress; if Fabric
+  is still working on it after that, the run stops and says to run it again in a few minutes. If
+  it isn't known how the create went, or Fabric says it made the item but it isn't in the
+  workspace, the run waits, then asks before creating the item again (with `--yes` it stops
+  instead and keeps the pending record). However long ago the first request was, it is created
+  again only if Fabric says that create failed or someone answers yes, since time alone doesn't
+  show Fabric won't still make it. A create that times
+  out keeps its pending record for the next run, rather than making another. Creates, new client
+  secrets and the writes that store a new secret are sent once: if the answer is lost or the
+  service errors, the run stops rather than sending the request again, and the next run finds
+  what was made by its reference.
+  Every client secret the installer adds — for the notebooks, the Key Vault, the model's
+  connection and the Azure SQL reader — gets its own reference in its name, saved before Entra is
+  asked, so the next run can find the exact secret even if the run stopped before saving its key
+  ID. The install record keeps looking for that secret until it's found, and from 10 minutes on
+  each run says it hasn't appeared yet. A secret whose value may already be stored (in the Key
+  Vault, the Fabric connection or the Power BI credential) stays on the app and in the install
+  record until a newer one is in use.
+  Then the connection's and the SQL reader's are removed; Key Vault secrets stay until they
+  expire, as before, since a pipeline run already going may still use one, and the run names any
+  it couldn't confirm so they can be deleted by hand. One that was turned down is removed straight
+  away. If two secrets carry the same reference, neither is touched and the run says so. An old
+  secret stays in the install record until Entra confirms it's removed, or the app no longer lists
+  it, so a later run finishes the job.
+  Installs interrupted by an earlier version aren't tidied up automatically: look for an item
+  beside a `_2` copy, and for an installer-named secret on the app registration that isn't the one
+  in the install record.
 - Not changed: the installer never installs anything with winget, so there's no `--scope user`
   fallback to add. Execution policy and Constrained Language Mode were already covered.
 

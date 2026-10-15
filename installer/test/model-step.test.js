@@ -145,7 +145,8 @@ test('connection: the app gets Viewer and its own secret; the model is bound to 
   const sm = t.config.semanticModel;
   const name = connectionName('ws-1');
   assert.deepEqual(t.fabric.calls, ['addRoleAssignment sp-1 Viewer', `createConnection ${name}`, `bindConnection Analytics Hub Model ${sm.connectionId} abc.datawarehouse.fabric.microsoft.com;ValueLens`]);
-  assert.deepEqual(t.graph.calls, [`addPassword ${CONNECTION_SECRET_NAME}`]);
+  assert.deepEqual(unref(t.graph.calls), [`addPassword ${CONNECTION_SECRET_NAME}`]);
+  assert.match(t.graph.passwords[0].displayName, new RegExp(`^${CONNECTION_SECRET_NAME} \\(ref [0-9a-f]{12}\\)$`), 'named with the ref saved before Entra was asked');
   const body = /** @type {any} */ (t.fabric.connections[0].body);
   assert.equal(body.connectivityType, 'ShareableCloud');
   assert.deepEqual(body.connectionDetails.parameters.map((/** @type {any} */ p) => p.value), ['abc.datawarehouse.fabric.microsoft.com', 'ValueLens']);
@@ -304,6 +305,103 @@ test('rotate: the connection gets a new secret and the old one leaves the app', 
   assert.equal(t.config.semanticModel.secretExpires?.slice(0, 10), '2027-06-01');
 });
 
+/** Graph calls without the per-run ref in a new secret's name. @param {string[]} calls */
+const unref = (calls) => calls.map((c) => c.replace(/ \(ref [0-9a-f]{12}\)$/, ''));
+
+test('connection secret: one Entra made before a stopped run saved its key is found by its ref, replaced, then removed', async () => {
+  const t = setup();
+  await withModel(t);
+  await ensureModelConnection(t.ctx);
+  const sm = t.config.semanticModel;
+  // The stopped run had saved its ref and Entra had made the secret; then it stopped.
+  t.graph.passwords.push({ keyId: 'key-lost', displayName: `${CONNECTION_SECRET_NAME} (ref aaaaaaaaaaaa)` }, { keyId: 'key-other', displayName: CONNECTION_SECRET_NAME });
+  sm.secretAttempts = [{ ref: 'aaaaaaaaaaaa', at: '2026-06-01T11:59:00Z' }];
+  t.graph.calls.length = 0;
+  t.fabric.calls.length = 0;
+  await ensureModelConnection(t.ctx);
+  assert.deepEqual(unref(t.graph.calls), ['listPasswords', `addPassword ${CONNECTION_SECRET_NAME}`, 'removePassword key-1', 'removePassword key-lost']);
+  assert.deepEqual(t.fabric.calls, [`updateConnection ${sm.connectionId}`], 'the connection gets the new one before any is removed');
+  assert.equal(sm.secretKeyId, 'key-2');
+  assert.deepEqual(t.graph.passwords.map((p) => p.keyId).sort(), ['key-2', 'key-other'], "one without the ref isn't touched");
+  for (const f of /** @type {const} */ (['secretAttempts', 'pendingSecretKeyIds', 'retiredSecretKeyIds'])) assert.equal(sm[f], undefined, f);
+  assert.match(t.ui.text(), /without recording it/);
+});
+
+test("connection secret: a failed update keeps the new key tracked unless Fabric turned it down; the next run settles it", async () => {
+  const t = setup();
+  await withModel(t);
+  await ensureModelConnection(t.ctx);
+  const sm = t.config.semanticModel;
+
+  // Fabric may have stored it before the error: kept, and the one in use stays.
+  t.fabric.failures.updateConnection = [httpError(500, 'Internal')];
+  await assert.rejects(rotateModelSecret(t.ctx), /Internal/);
+  assert.equal(sm.secretKeyId, 'key-1');
+  assert.deepEqual(sm.pendingSecretKeyIds, ['key-2']);
+  assert.deepEqual(t.graph.passwords.map((p) => p.keyId), ['key-1', 'key-2']);
+
+  // The next run gives the connection a newer one, then removes both.
+  t.graph.calls.length = 0;
+  await ensureModelConnection(t.ctx);
+  assert.deepEqual(unref(t.graph.calls), [`addPassword ${CONNECTION_SECRET_NAME}`, 'removePassword key-1', 'removePassword key-2']);
+  assert.equal(sm.secretKeyId, 'key-3');
+  assert.equal(sm.pendingSecretKeyIds, undefined);
+  assert.match(t.ui.text(), /may have given it to the connection/);
+
+  // Turned down: nothing holds it, so it's removed and the one in use stays.
+  t.fabric.failures.updateConnection = [httpError(400, 'Bad request')];
+  t.graph.calls.length = 0;
+  await assert.rejects(rotateModelSecret(t.ctx), /Bad request/);
+  assert.deepEqual(unref(t.graph.calls), [`addPassword ${CONNECTION_SECRET_NAME}`, 'removePassword key-4']);
+  assert.equal(sm.secretKeyId, 'key-3');
+  assert.equal(sm.pendingSecretKeyIds, undefined);
+  assert.equal(sm.retiredSecretKeyIds, undefined);
+
+  // Entra won't remove an old one: it stays listed and is tried again next run.
+  t.graph.failures.removePassword = [httpError(500, 'busy')];
+  await rotateModelSecret(t.ctx);
+  assert.deepEqual(sm.retiredSecretKeyIds, ['key-3']);
+  t.graph.calls.length = 0;
+  await ensureModelConnection(t.ctx);
+  assert.deepEqual(t.graph.calls, ['removePassword key-3']);
+  assert.equal(sm.retiredSecretKeyIds, undefined);
+});
+
+test('connection secret: if Entra may have made the secret before an error, its ref is kept and the next run looks for it', async () => {
+  const t = setup();
+  await withModel(t);
+  await ensureModelConnection(t.ctx);
+  const sm = /** @type {any} */ (t.config.semanticModel);
+  t.graph.failures.addPassword = [httpError(400, 'Bad request')];
+  await assert.rejects(rotateModelSecret(t.ctx), /Bad request/);
+  assert.equal(sm.secretAttempts, undefined, 'turned down: nothing was made');
+  t.graph.failures.addPassword = [new Error('socket hang up')];
+  await assert.rejects(rotateModelSecret(t.ctx), /socket hang up/);
+  assert.equal(sm.secretAttempts?.length, 1, 'may have been made: the ref stays');
+  // Entra had made it after all.
+  t.graph.passwords.push({ keyId: 'key-made', displayName: `${CONNECTION_SECRET_NAME} (ref ${sm.secretAttempts?.[0].ref})` });
+  await rotateModelSecret(t.ctx);
+  assert.ok(!t.graph.passwords.some((p) => p.keyId === 'key-made'), 'found, then removed once the new one is in use');
+  assert.equal(sm.secretAttempts, undefined);
+  assert.equal(sm.pendingSecretKeyIds, undefined);
+});
+
+test('connection secret: a stopped run that made the connection but not the record: found by name, given a new secret, and the old ones removed', async () => {
+  const t = setup();
+  await withModel(t);
+  const sm = t.config.semanticModel;
+  // Stopped after Fabric created the connection with key-1 but before its ID was saved.
+  t.fabric.failures.createConnection = [httpError(500, 'Internal')];
+  await assert.rejects(ensureModelConnection(t.ctx), /Internal/);
+  assert.deepEqual(sm.pendingSecretKeyIds, ['key-1']);
+  t.fabric.connections.push({ id: 'conn-made', displayName: connectionName('ws-1') });
+  await ensureModelConnection(t.ctx);
+  assert.equal(sm.connectionId, 'conn-made');
+  assert.equal(sm.secretKeyId, 'key-2');
+  assert.deepEqual(t.graph.passwords.map((p) => p.keyId), ['key-2']);
+  assert.equal(sm.pendingSecretKeyIds, undefined);
+});
+
 test('tenant settings: only a setting that is off and not delegated is flagged; app settings only with the app', () => {
   const settings = {
     ServicePrincipalAccessPermissionAPIs: { enabled: false },
@@ -437,6 +535,20 @@ test('app: an app already deployed is left alone unless asked; a deleted one is 
     await ensureFabricApp(t.ctx);
     assert.equal(t.runs.length, 4);
     assert.notEqual(t.config.fabricApp.itemId, item.id);
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('app: a deploy that finds its app by ID drops a create a stopped run left pending', async () => {
+  const t = appSetup();
+  try {
+    const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
+    t.config.fabricApp.itemId = item.id;
+    t.config.fabric.pendingItems = { AppBackend: { name: 'Analytics Hub', ref: 'dd44' } };
+    await deployApp(t.ctx);
+    assert.equal(t.config.fabric.pendingItems, undefined);
+    assert.ok(!t.fabric.calls.some((c) => c.startsWith('createItem')));
   } finally {
     t.cleanup();
   }

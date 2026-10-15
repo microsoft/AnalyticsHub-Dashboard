@@ -15,7 +15,7 @@ import { rlsSettings } from '../transform/access.js';
 import { buildConsumptionModel, loadTemplateModel, PBISM } from '../transform/model.js';
 import { c } from '../ui.js';
 import { UPLOAD_DIR, modeLabel } from '../uploads.js';
-import { azureAiOn, coworkDataflowOn, createdId, displayNames, freeName, noteRenamed } from './fabric.js';
+import { azureAiOn, coworkDataflowOn, createItem } from './fabric.js';
 import { bindModel, deployModel, modelUrl, waitForSqlEndpoint } from './model.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
@@ -195,14 +195,12 @@ export async function ensureCoworkDataflow(ctx) {
       delete cc.dataflowSignature;
     }
     if (!cc.dataflowId) {
-      const wanted = name;
-      name = freeName(wanted, displayNames(items));
-      noteRenamed(ctx, wanted, name);
-      const created = await api.fabric.createDataflow(ws, name, 'Cowork Copilot credits from Viva Insights, for Analytics Hub. The pipeline refreshes it before loading them.');
-      cc.dataflowId = await createdId(ctx, created, 'Dataflow', name);
+      const made = await createItem(ctx, 'Dataflow', 'Dataflow', name, items, (n, ref) => api.fabric.createDataflow(ws, n, 'Cowork Copilot credits from Viva Insights, for Analytics Hub. The pipeline refreshes it before loading them.', ref));
+      name = made.name;
+      cc.dataflowId = made.id;
       cc.dataflowName = name;
       ctx.save();
-      ui.ok(`Created Dataflow ${name}`);
+      ui.ok(`${made.resumed ? 'Found' : 'Created'} Dataflow ${name}`);
     }
     if (cc.dataflowSignature === signature) {
       ui.ok(`Dataflow ${name} reads Viva Insights query ${cc.vivaQuery}`);
