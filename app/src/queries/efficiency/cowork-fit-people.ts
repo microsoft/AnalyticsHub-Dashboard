@@ -14,7 +14,7 @@ import {
 } from "@/lib/org-attribute";
 import { toRollupTree, type RollupTree } from "@/lib/rollup-tree";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
-import { connection, FORMAT_PERCENT, FORMAT_WHOLE } from "../shared";
+import { connection, FORMAT_PERCENT, FORMAT_WHOLE, TOTAL_COLUMN } from "../shared";
 import query from "./cowork-fit-people.dax?raw";
 
 const ORG_COLUMN = "Chat + Agent Org DataOrganization";
@@ -35,6 +35,7 @@ const columnMetadata: ColumnMetadataMap = {
     "[Fair]": { name: "Fair", displayName: "Fair", format: FORMAT_PERCENT },
     "[Worth A Look]": { name: "Worth A Look", displayName: "Worth a look", format: FORMAT_PERCENT },
     "[Flagged People]": { name: "Flagged People", displayName: "Flagged", format: FORMAT_WHOLE },
+    ...TOTAL_COLUMN,
 };
 
 /**

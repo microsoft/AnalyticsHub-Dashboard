@@ -84,6 +84,18 @@ class ModelRefreshFixes(unittest.TestCase):
                 self.assertRegex(text, r"Raw = let r = GetTable\(\"\w+\"\) in if r = null then null else Table\.Buffer\(r\),",
                                  (member, name))
 
+    def test_unused_agent_evaluator_columns_are_gone(self):
+        script = load_script()
+        model, _ = members(AGENT_EVALUATOR)
+        tables = {t["name"]: {c["name"] for c in t.get("columns", [])} for t in model["tables"]}
+        for table_name, column_name in script.UNUSED_COLUMNS:
+            self.assertIn(table_name, tables)
+            self.assertNotIn(column_name, tables[table_name])
+        app = "\n".join(p.read_text(encoding="utf-8", errors="ignore")
+                        for p in (ROOT / "app" / "src").rglob("*") if p.suffix in (".ts", ".tsx", ".dax"))
+        for _, column_name in script.UNUSED_COLUMNS:
+            self.assertNotIn(f"[{column_name}]", app)
+
     def test_response_seconds_does_not_use_allexcept(self):
         model, _ = members(AGENT_EVALUATOR)
         turns = next(t for t in model["tables"] if t["name"] == "Agent Turns")

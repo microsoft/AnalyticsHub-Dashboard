@@ -15,11 +15,13 @@ import { leaderHeadline } from "@/lib/headline";
 import { KpiCard } from "@/components/kpi-card";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
+import { TruncationNote } from "@/components/truncation-note";
 import { useThemeContext } from "@/hooks/theme.context";
 import { useOrgAttribute } from "@/hooks/filter.context";
 import { useFilteredQuery } from "@/hooks/use-filtered-query";
 import { rowChartHeight } from "@/lib/chart-height";
 import { formatKpi } from "@/lib/format-kpi";
+import { listCount, listTotal } from "@/lib/list-total";
 import { columnFormat, columnHeat, heatRenderer } from "@/lib/heat";
 import { withOrgAttribute } from "@/lib/org-attribute";
 import { readNumber, toSummaryRow } from "@/lib/summary-row";
@@ -201,11 +203,14 @@ export function CoworkReadinessStage() {
                         theme={theme}
                         header={{
                             title: "Who to offer Cowork next",
-                            subtitle: `${formatKpi(candidatesTable.rows.length, "whole")} people, readiest first`,
+                            subtitle: `${formatKpi(listCount(candidatesTable), "whole")} people, readiest first`,
                         }}
                     />
                 )}
             </div>
+            {candidatesTable && !candidatesResult.isLoading && candidatesResult.data?.status === "success" && (
+                <TruncationNote shown={candidatesTable.rows.length} total={listTotal(candidatesTable)} noun="people" by="by readiness" />
+            )}
         </Section>
     );
 }

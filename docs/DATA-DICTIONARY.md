@@ -56,7 +56,7 @@ parameter.
 All other model tables (Calendar, legends, ranking/summary, glossary, value maps, etc.) are
 **calculated/DAX or static** — they have no external source and are version-independent.
 
-> **`Calendar`** runs from the earliest to the latest date across the audit (`CreationDate`) and
+> **`Calendar`** runs from the earliest to the latest date across the audit (`InteractionDate`) and
 > product feedback (`FeedbackDate`). On Fabric installs made by the Analytics Hub installer it also
 > covers `M365 Activity[ActivityDate]`. With no dates in any of them it holds the last 365 days up
 > to the refresh date, so date slicers still work before the first audit load.
@@ -153,6 +153,12 @@ Agent_Key, Agent_Type, Agent_Type_Basis, Agent_Publisher, Agent_Is_Published,
 Agent_Consolidated_Name
 ```
 
+It also writes the 24 columns the model used to compute as DAX calculated columns (`Is_Cowork`,
+`AppHost_Norm`, `Agent Filter (Normalized)`, `Is Prompt Row`, `Is Observed Prompt`, `Is Usage Row`,
+`Task Breakdown Group`, `Work Shape` and the like), plus `Thread_Key` and `Message_Key`: 60-bit
+integer hashes of `ThreadId` and `Message_Id` that the model imports in place of the id text. See
+[Model slimming](MODEL-SLIMMING.md).
+
 **Names in the report.** The report and the Fabric App show `Behavior_Enriched_Full` as **Task
 Breakdown**, and the 12 groups it rolls up to (the model's `Task Breakdown Group` column) as **Task
 Category**. Each task's plain-English description comes from the static `Behavior Value Map` table
@@ -172,13 +178,15 @@ before LOB/Shared copies are merged) and `Agent_LinkMethod` (`Title ID`, `Bot Id
 > `RELATED` — the baselines are **not** materialised into this Delta table.
 >
 > Use `WRITE_MODE = "overwrite"` for the first backfill, then `"merge"` for daily runs. The notebook
-> asserts all 32 columns are present before writing, so a partial enrichment fails loudly rather than
-> silently shipping an incomplete fact table.
+> asserts all 32 enrichment columns and the 26 model columns are present before writing, so a partial
+> enrichment fails loudly rather than silently shipping an incomplete fact table.
 
 > **Stored by `MonthStart`; daily runs recompute only some months.** A `"merge"` run recomputes the
 > months whose source rows changed, plus the months within `INCREMENTAL_LOOKBACK_DAYS` (default 14)
-> of the newest record, and replaces only those months. A recomputed month equals a full rebuild.
-> Months that aren't recomputed keep the `License Status` and agent-registry values (such as
+> of the newest record. Thread/message-dependent values also update affected conversations in
+> earlier months, including when a source row is removed or changes IDs. These dependent updates
+> preserve unrelated snapshots. Source-recomputed months equal a full rebuild; untouched rows keep
+> the `License Status` and agent-registry values (such as
 > `Agent_Type`, `Agent_Publisher` and `Agent_Consolidated_Name`) from when they were last processed.
 > `"overwrite"` refreshes every month. A change to the processor's settings, logic or source schema
 > also rebuilds every month, automatically. On Azure the same table is one parquet file per month

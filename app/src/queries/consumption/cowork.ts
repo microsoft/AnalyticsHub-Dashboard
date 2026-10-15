@@ -16,6 +16,7 @@ import {
     FORMAT_MONEY,
     FORMAT_PERCENT,
     FORMAT_WHOLE,
+    TOTAL_COLUMN,
 } from "../shared";
 import byGroupQuery from "./cowork-by-group.dax?raw";
 import summaryQuery from "./cowork-credits-summary.dax?raw";
@@ -120,6 +121,7 @@ const byGroupColumns: ColumnMetadataMap = {
     "[Total Cost]": { name: "Total Cost", displayName: "Total cost", format: FORMAT_MONEY },
     "[Policy]": { name: "Policy", displayName: "Policy" },
     "[Billing Name]": { name: BILLING_NAME_COLUMN },
+    ...TOTAL_COLUMN,
 };
 
 /**

@@ -6,7 +6,7 @@
 //-----------------------------------------------------------------------
 
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
-import { connection, FORMAT_RATE, FORMAT_WHOLE } from "../shared";
+import { connection, FORMAT_RATE, FORMAT_WHOLE, TOTAL_COLUMN } from "../shared";
 import query from "./license-candidates-m365.dax?raw";
 
 const columnMetadata: ColumnMetadataMap = {
@@ -29,6 +29,7 @@ const columnMetadata: ColumnMetadataMap = {
         displayName: "Workloads per day",
         format: FORMAT_RATE,
     },
+    ...TOTAL_COLUMN,
 };
 
 /** Workloads per active day that earn the breadth part of the score in full. */

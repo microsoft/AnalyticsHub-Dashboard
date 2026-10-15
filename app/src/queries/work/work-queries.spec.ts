@@ -10,6 +10,7 @@ import { describeOrgAttribute } from "@/lib/org-attribute";
 import {
     cohortTaskField,
     leaderboardCohorts,
+    leaderboardConcentration,
     leaderboardMeasures,
     leaderboardPeople,
     leaderboardSummary,
@@ -39,6 +40,11 @@ const modules = [
         name: `leaderboardPeople (${id})`,
         factory: () => leaderboardPeople(id),
         columns: liveColumns.leaderboardPeople,
+    })),
+    ...leaderboardCohorts.map(({ id }) => ({
+        name: `leaderboardConcentration (${id})`,
+        factory: () => leaderboardConcentration(id),
+        columns: liveColumns.leaderboardConcentration,
     })),
     ...leaderboardCohorts.map(({ id }) => ({
         name: `leaderboardTasks (${id})`,
@@ -209,10 +215,24 @@ describe("leaderboard queries", () => {
         { name: `people (${id})`, cohort: id, query: leaderboardPeople(id).query },
         { name: `tasks (${id})`, cohort: id, query: leaderboardTasks(id).query },
     ]);
-    const everyQuery = [{ name: "summary", query: leaderboardSummary().query }, ...cohortQueries];
+    const concentrationQueries = leaderboardCohorts.map(({ id }) => ({
+        name: `concentration (${id})`,
+        cohort: id,
+        query: leaderboardConcentration(id).query,
+    }));
+    const everyQuery = [{ name: "summary", query: leaderboardSummary().query }, ...cohortQueries, ...concentrationQueries];
 
-    it.each(cohortQueries)("$name leaves no unsubstituted placeholders", ({ query }) => {
+    it.each([...cohortQueries, ...concentrationQueries])("$name leaves no unsubstituted placeholders", ({ query }) => {
         expect(query).not.toMatch(/__[A-Z_]+__/);
+    });
+
+    // The curve sums the sessions the people list sorts by, for the same people.
+    it.each(concentrationQueries)("$name sums its own cohort's sessions per person", ({ cohort, query }) => {
+        expect(query).toContain(`"@Sessions", [${leaderboardMeasures(cohort).sessions}]`);
+        expect(query).toContain(`'Chat + Agent Interactions (Audit Logs)'[Audit_UserId]`);
+        expect(leaderboardConcentration(cohort, describeOrgAttribute("Department")).query).toContain(
+            "'Chat + Agent Org Data'[Department]",
+        );
     });
 
     // The report's bookmarks each bind their own cohort's measures, so a

@@ -16,11 +16,11 @@ import { treatAs } from "@/lib/dax-filters";
 import { MIN_PEOPLE } from "@/lib/headline";
 import { SMALL } from "@/lib/type-scale";
 import { cn } from "@/lib/utils";
-import { valuePerPerson } from "@/queries/value";
+import { valueByHabit } from "@/queries/value";
 import { monthLabel } from "@/screens/readiness/habit-licence";
-import { cohortValueHeadline, hiddenHabits, ladderSpec, ladderTable, readValueByHabit } from "./cohort-value";
+import { cohortValueHeadline, hiddenHabits, ladderSpec, ladderTable, readValueByHabit, valueByHabitIncomplete } from "./cohort-value";
 
-const source = valuePerPerson();
+const source = valueByHabit();
 const spec = ladderSpec();
 
 /**
@@ -39,7 +39,11 @@ export function ValueByHabitStage() {
     const headline = useCallback(() => (value ? cohortValueHeadline(value) : undefined), [value]);
     const month = monthLabel(value?.month);
     const hidden = value ? hiddenHabits(value) : [];
-    const active = (value?.hoursByPerson.length ?? 0) > 0;
+    const active = value?.cohorts.some((cohort) => cohort.people > 0) ?? false;
+    const incomplete = useMemo(() => valueByHabitIncomplete(result.table), [result.table]);
+    const checkedResult = incomplete && !result.isLoading && result.error === undefined
+        ? { ...result, error: "The habit totals are incomplete. Retry to load the full result." }
+        : result;
 
     return (
         <Section
@@ -49,7 +53,7 @@ export function ValueByHabitStage() {
         >
             <div className="grid grid-cols-1 items-start gap-500 xl:grid-cols-2">
                 <ChartPanel
-                    result={result}
+                    result={checkedResult}
                     table={ladder}
                     spec={spec}
                     height={260}
@@ -64,14 +68,14 @@ export function ValueByHabitStage() {
                     }
                 />
                 <ConcentrationPanel
-                    result={result}
-                    values={value?.hoursByPerson}
+                    result={checkedResult}
+                    summary={value?.concentration}
                     noun="expert hours"
                     height={260}
                     title="How concentrated expert hours are"
                     subtitle={`Each person's share of expert hours in ${month}, busiest first`}
-                    emptyTitle="No activity last month"
-                    emptyDescription="Nobody used Copilot in the last full month the selected dates reach."
+                    emptyTitle="No expert hours last month"
+                    emptyDescription="No positive expert-equivalent hours were recorded in the last full month the selected dates reach."
                 />
             </div>
             <p className={cn(SMALL, "max-w-[90ch] text-muted-foreground")}>

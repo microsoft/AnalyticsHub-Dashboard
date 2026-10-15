@@ -16,6 +16,8 @@
  * rollups over non-Cowork measures.
  */
 export const liveColumns = {
+    // Recovery additions (keys, totals and spotlight summaries) are authored
+    // contracts, not newly captured live-query evidence.
     agentActivitySummary: [
         "[Agent Users]",
         "[Agent User Share]",
@@ -35,6 +37,7 @@ export const liveColumns = {
     agentLeaderboard: [
         "[Agent]",
         "[Registry Id]",
+        "[Agent Key]",
         "[In Registry]",
         "[Type]",
         "[Creator]",
@@ -48,6 +51,15 @@ export const liveColumns = {
         "[Lifecycle]",
         "[Adoption]",
         "[Description]",
+        "[Top Sessions]",
+        "[Session Leaders]",
+        "[Session Leader Count]",
+        "[Top Orgs]",
+        "[Org Leaders]",
+        "[Org Leader Count]",
+        "[In Use]",
+        "[Registered]",
+        "[Total]",
     ],
     coworkReadinessSummary: [
         "[Eligible Users]",
@@ -69,6 +81,8 @@ export const liveColumns = {
         "[Surfaces Per Day]",
         "[Prompts Per Session]",
         "[Uses Agents]",
+        "[Depths]",
+        "[Total]",
     ],
     coworkFitSummary: [
         "[Cowork Sessions]",
@@ -81,5 +95,5 @@ export const liveColumns = {
     ],
     // Authored from the model's measure definitions, not captured live: no published model was
     // reachable when these were written.
-    agentFunctions: ["[Agent]", "[Registry Id]", "[Functions]"],
+    agentFunctions: ["[Agent]", "[Registry Id]", "[Agent Key]", "[Functions]", "[Leader Count]"],
 } as const;

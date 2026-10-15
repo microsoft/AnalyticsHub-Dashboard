@@ -43,7 +43,8 @@ class TemplatesAreCurrent(unittest.TestCase):
 
     def test_patcher_refuses_to_replace_an_imported_column(self):
         model = {"tables": [{"name": AUDIT, "columns": [{"name": "Is Usage Row", "sourceColumn": "x"}]}]}
-        spec = next(s for s in PATCHER.VALUELENS_OBJECTS if s["name"] == "Is Usage Row")
+        # No shipped spec owns a column any more; the guard still protects imported ones.
+        spec = {"kind": "column", "table": AUDIT, "name": "Is Usage Row", "expression": "TRUE()"}
         with self.assertRaises(ValueError):
             PATCHER.apply(model, spec)
 
@@ -62,12 +63,12 @@ class CoworkScheduledRuns(unittest.TestCase):
     def test_usage_row_is_prompt_rows_plus_cowork_task_rows(self):
         for relative in PATCHER.VALUELENS:
             _, measures, columns = objects(load(relative), AUDIT)
+            # The processor writes the flag (Is Prompt Row OR Is_Cowork): see test_model_slimming.
             usage = columns["Is Usage Row"]
-            self.assertEqual(usage["type"], "calculated")
+            self.assertNotEqual(usage.get("type"), "calculated")
+            self.assertEqual(usage["sourceColumn"], "Is Usage Row")
             self.assertEqual(usage["dataType"], "boolean")
             self.assertTrue(usage["isHidden"])
-            self.assertIn("[Is Prompt Row]", text(usage["expression"]))
-            self.assertIn("[Is_Cowork]", text(usage["expression"]))
             self.assertIn("[Is Usage Row] = TRUE()", text(measures["Usage Rows"]["expression"]))
             self.assertTrue(measures["Usage Rows"]["isHidden"])
 
@@ -102,7 +103,8 @@ class CalendarRange(unittest.TestCase):
             model = load(relative)
             table = PATCHER.find_table(model, "Calendar")
             expression = text(table["partitions"][0]["source"]["expression"])
-            self.assertIn(f"MIN('{AUDIT}'[CreationDate])", expression)
+            self.assertIn(f"MIN('{AUDIT}'[InteractionDate])", expression)
+            self.assertIn(f"MAX('{AUDIT}'[InteractionDate])", expression)
             self.assertIn("MIN('ProductFeedback'[FeedbackDate])", expression)
             self.assertIn("MINX({ AuditMin, FeedbackMin }, [Value])", expression)
             self.assertIn("MAXX({ AuditMax, FeedbackMax }, [Value])", expression)

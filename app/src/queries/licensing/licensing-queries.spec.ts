@@ -92,10 +92,18 @@ describe("licensing query contract", () => {
 
     it("ranks license candidates at user grain", () => {
         const { query } = licenseCandidates();
-        const grouping = query.slice(query.indexOf("SUMMARIZECOLUMNS("), query.indexOf('"@Score"'));
+        const grouping = query.slice(query.indexOf("VALUES("), query.indexOf('"@Score"'));
         expect(grouping).toContain("[Audit_UserId]");
         expect(grouping).not.toContain("[Organization]");
         expect(query).toContain("LOOKUPVALUE(");
+    });
+
+    // The model's dynamic rank scores every user again for each user it ranks.
+    it("ranks license candidates in the query, scoring each user once", () => {
+        const { query } = licenseCandidates();
+        expect(query).not.toContain("[License Priority Rank (Dynamic)]");
+        expect(query).toContain("COUNTROWS(FILTER(__Scores, [@Value] > __Score)) + 1");
+        expect(query).toContain('[License Status] = "Unlicensed"');
     });
 
     it("keeps dormancy ordered by the model bucket order", () => {
@@ -109,14 +117,15 @@ describe("license candidates with Microsoft 365 activity", () => {
     const { query, columnMetadata } = licenseCandidatesM365();
 
     it("returns the model's candidate columns plus workload breadth", () => {
-        expect(Object.keys(columnMetadata)).toEqual([...Object.keys(licenseCandidates().columnMetadata), "[Workloads Per Day]"]);
+        const base = Object.keys(licenseCandidates().columnMetadata).filter((key) => key !== "[Total]");
+        expect(Object.keys(columnMetadata)).toEqual([...base, "[Workloads Per Day]", "[Total]"]);
     });
 
     it("ranks at user grain, like the model's list", () => {
         const grouping = query.slice(query.indexOf("SUMMARIZECOLUMNS("), query.indexOf('"@Tasks"'));
         expect(grouping).toContain("[Audit_UserId]");
         expect(grouping).not.toContain("[Organization]");
-        expect(query).toContain("RANKX(_scored, [@Score], , DESC, DENSE)");
+        expect(query).toContain("COUNTROWS(FILTER(_scores, [@Value] > _score)) + 1");
         expect(query).toContain("LOOKUPVALUE(");
     });
 

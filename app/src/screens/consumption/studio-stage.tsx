@@ -14,9 +14,11 @@ import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { KpiCard, KpiStat } from "@/components/kpi-card";
 import { Section } from "@/components/section";
 import { SegmentedControl } from "@/components/segmented-control";
+import { TruncationNote } from "@/components/truncation-note";
 import { useThemeContext } from "@/hooks/theme.context";
 import { gridHeight, rowChartHeight } from "@/lib/chart-height";
-import { personValues } from "@/lib/concentration";
+import { readConcentration } from "@/lib/concentration";
+import { listTotal } from "@/lib/list-total";
 import { columnHeat, heatRenderer } from "@/lib/heat";
 import { readNumber, readText } from "@/lib/summary-row";
 import { formatCell } from "@/lib/tree-grid";
@@ -26,12 +28,12 @@ import {
     groupByFilter,
     studioAgents,
     studioBreakdown,
+    studioConcentration,
     studioCreditsSummary,
     studioDaily,
     studioPeriodFilter,
     studioUsers,
     STUDIO_LABEL_COLUMN,
-    STUDIO_USER_COLUMN,
     toStudioUserTree,
     withTrendLineColor,
     type ConsumptionLens,
@@ -105,11 +107,9 @@ export function StudioStage({ options, rates }: StudioStageProps) {
     const breakdown = useConsumptionTable(breakdownSource, extra);
     const agents = useConsumptionTable(studioAgents(), extra);
     const users = useConsumptionTable(studioUsers(), extra);
-    const userCredits = useMemo(
-        () => personValues(users.table, STUDIO_USER_COLUMN, "Credits Used", ["Is Grand Total", "Is Group Total"]),
-        [users.table],
-    );
-    const hasUserCredits = (userCredits ?? []).some((value) => value > 0);
+    const spread = useConsumptionTable(studioConcentration(), extra);
+    const spreadSummary = useMemo(() => readConcentration(spread.table), [spread.table]);
+    const hasUserCredits = (spreadSummary?.people ?? 0) > 0;
     const totalsEmpty = studioTotalsEmpty(hasUserCredits);
     const dailyEmpty = studioDailyEmpty(hasUserCredits);
 
@@ -297,25 +297,30 @@ export function StudioStage({ options, rates }: StudioStageProps) {
 
             {/* The users table is the wider of the two, so it takes a little more of the row. */}
             <div className="grid grid-cols-1 items-start gap-500 2xl:grid-cols-[minmax(0,6fr)_minmax(0,7fr)]">
-                <Panel
-                    result={agents}
-                    height={gridHeight(agents.table?.rows.length ?? 6)}
-                    emptyTitle="No agents in the snapshot"
-                    emptyDescription="The user snapshot has no agents with credits."
-                >
-                    {(table) => (
-                        <DataGrid
-                            key={lens}
-                            columns={agentColumns}
-                            data={table}
-                            theme={theme}
-                            header={{
-                                title: cost ? "Agents — estimated cost" : "Agents in the user snapshot",
-                                subtitle: cost ? "Billable credits and what they cost" : "Credits and each agent's share of them",
-                            }}
-                        />
+                <div className="flex flex-col gap-200">
+                    <Panel
+                        result={agents}
+                        height={gridHeight(agents.table?.rows.length ?? 6)}
+                        emptyTitle="No agents in the snapshot"
+                        emptyDescription="The user snapshot has no agents with credits."
+                    >
+                        {(table) => (
+                            <DataGrid
+                                key={lens}
+                                columns={agentColumns}
+                                data={table}
+                                theme={theme}
+                                header={{
+                                    title: cost ? "Agents — estimated cost" : "Agents in the user snapshot",
+                                    subtitle: cost ? "Billable credits and what they cost" : "Credits and each agent's share of them",
+                                }}
+                            />
+                        )}
+                    </Panel>
+                    {agents.table && !agents.isLoading && agents.error === undefined && (
+                        <TruncationNote shown={agents.table.rows.length} total={listTotal(agents.table)} noun="agents" by="by credits" />
                     )}
-                </Panel>
+                </div>
                 <RollupGrid
                     result={users}
                     toTree={toStudioUserTree}
@@ -328,13 +333,14 @@ export function StudioStage({ options, rates }: StudioStageProps) {
                     subtitle="From the user snapshot, largest first"
                     emptyTitle="No users in the snapshot"
                     emptyDescription="The user snapshot has no one with Copilot Studio credits."
+                    truncation={{ noun: "user", by: "by credits" }}
                 />
             </div>
 
             <div className="max-w-[960px]">
                 <ConcentrationPanel
-                    result={users}
-                    values={userCredits}
+                    result={spread}
+                    summary={spreadSummary}
                     noun="credits"
                     title="How concentrated credits are"
                     subtitle="Each user's share of credits, busiest first, from the month-to-date user snapshot"

@@ -9,6 +9,7 @@ import { describe, expect, it } from "vitest";
 import { compile, type TopLevelSpec } from "vega-lite";
 import {
     concentration,
+    concentrationIncomplete,
     concentrationHeadline,
     EQUAL_SHARE,
     MAX_POINTS,
@@ -16,11 +17,15 @@ import {
     paretoSpec,
     paretoTable,
     personValues,
+    readConcentration,
     sliceLabel,
     TOTAL_SHARE,
 } from "./concentration";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { CAUSAL_WORDS } from "./headline";
+import leaderboardQuery from "@/queries/work/leaderboard-concentration.dax?raw";
+import studioQuery from "@/queries/consumption/studio-concentration.dax?raw";
+import habitQuery from "@/queries/value/value-by-habit.dax?raw";
 
 /** Every `field` reference anywhere in a Vega-Lite spec. */
 function collectFields(node: unknown, found: Set<string> = new Set()): Set<string> {
@@ -98,6 +103,146 @@ describe("concentration", () => {
     });
 });
 
+const CUT_COLUMNS = ["Count", "Cumulative", "People", "Total"];
+
+function cutTable(rows: unknown[][]): DataTable {
+    return { columns: CUT_COLUMNS.map((name) => ({ name, displayName: name })), rows } as unknown as DataTable;
+}
+
+/**
+ * The cut rows the concentration queries return, worked out as their DAX
+ * does: the counts each slice and curve point could round to, and for each
+ * the sum of TOPN's rows, which keeps every tie at the cut, less the ties
+ * past it. Sum strict winners plus the required boundary ties to avoid
+ * cancellation when a large tied population shares a small decimal value.
+ */
+function daxCuts(input: readonly number[]): unknown[][] {
+    const values = input.filter((value) => value > 0);
+    const people = values.length;
+    const total = values.reduce((sum, value) => sum + value, 0);
+    const steps = Math.min(people, 100);
+    const quotient = (a: number, b: number) => Math.trunc(a / b);
+    const counts = new Set<number>();
+    for (const pct of [1, 5, 25]) counts.add(quotient(people * pct + 99, 100));
+    for (let step = 1; step <= steps; step++) {
+        counts.add(quotient(step * people, steps));
+        counts.add(quotient(step * people + steps - 1, steps));
+    }
+    const sorted = [...values].sort((a, b) => b - a);
+    return [...counts]
+        .filter((count) => count >= 1)
+        .map((count) => {
+            const top = values.filter((value) => value >= sorted[count - 1]);
+            const boundary = Math.min(...top);
+            const higher = top.filter((value) => value > boundary);
+            return [count, higher.reduce((sum, value) => sum + value, 0) + (count - higher.length) * boundary, people, total];
+        });
+}
+
+/** A repeatable stream of numbers from 0 to 1. */
+function random(seed: number): () => number {
+    let state = seed;
+    return () => {
+        state = (state * 1103515245 + 12345) % 2147483648;
+        return state / 2147483648;
+    };
+}
+
+describe("concentration from the model", () => {
+    it("matches the figures from every person's value, ties and all", () => {
+        const next = random(7);
+        const sizes = [1, 2, 3, 4, 5, 19, 20, 21, 99, 100, 101, 140, 150, 199, 200, 201, 333, 700, 1001, 5000];
+        for (let size = 1; size <= 3000; size += 37) sizes.push(size);
+        for (const size of sizes) {
+            const spread = 1 + Math.floor(next() * 40);
+            const values = Array.from({ length: size }, () => Math.floor(next() * spread) - 1);
+            const rows = daxCuts(values);
+            expect(rows.length).toBeLessThanOrEqual(203);
+            expect(readConcentration(cutTable(rows)), `${size} people`).toEqual(concentration(values));
+        }
+    });
+
+    it("matches to rounding for fractional values", () => {
+        const next = random(11);
+        const values = Array.from({ length: 2345 }, () => Math.round(next() * next() * 1000) / 8);
+        const read = readConcentration(cutTable(daxCuts(values)));
+        const direct = concentration(values);
+        expect(read?.people).toBe(direct?.people);
+        expect(read?.slices.map((slice) => slice.people)).toEqual(direct?.slices.map((slice) => slice.people));
+        read?.slices.forEach((slice, index) => expect(slice.share).toBeCloseTo(direct?.slices[index].share ?? 0, 9));
+        expect(read?.points.length).toBe(direct?.points.length);
+        read?.points.forEach((point, index) => {
+            expect(point.peopleShare).toBe(direct?.points[index].peopleShare);
+            expect(point.totalShare).toBeCloseTo(direct?.points[index].totalShare ?? 0, 9);
+        });
+    });
+
+    it("keeps decimal cutoff ties within a relative tolerance of 1e-9", () => {
+        const values = Array.from({ length: 10001 }, () => 0.00037);
+        const read = readConcentration(cutTable(daxCuts(values)))!;
+        const direct = concentration(values)!;
+        expect(read.people).toBe(10001);
+        read.points.forEach((point, index) => {
+            const expected = direct.points[index].totalShare;
+            expect(Math.abs(point.totalShare - expected)).toBeLessThanOrEqual(Math.abs(expected) * 1e-9);
+        });
+    });
+
+    it("says nothing without people, or when a cut is missing", () => {
+        expect(readConcentration(undefined)).toBeUndefined();
+        expect(readConcentration(cutTable([]))).toBeUndefined();
+        const rows = daxCuts([5, 4, 3, 2, 1]);
+        expect(readConcentration(cutTable(rows.filter((row) => row[0] !== 5)))).toBeUndefined();
+        expect(readConcentration({ columns: [], rows } as unknown as DataTable)).toBeUndefined();
+    });
+
+    it("does not round an exact five-percent cut up because of binary floating point", () => {
+        const values = Array.from({ length: 140 }, () => 1);
+        expect(concentration(values)?.slices.find((slice) => slice.pct === 0.05)?.people).toBe(7);
+        expect(readConcentration(cutTable(daxCuts(values)))).toEqual(concentration(values));
+    });
+
+    it.each([
+        [1, NaN, 2, 3],
+        [1, Infinity, 2, 3],
+        [1.5, 2, 2, 3],
+        [1, 4, 2, 3],
+        [1, 2, 2.5, 3],
+        [1, 2, 2, Infinity],
+        [1, 2, 3, 3],
+    ])("rejects malformed cuts instead of drawing plausible partial figures (%s)", (...row) => {
+        const table = cutTable([row, [2, 3, 2, 3]]);
+        expect(readConcentration(table)).toBeUndefined();
+        expect(concentrationIncomplete(table, undefined)).toBe(true);
+    });
+
+    it("distinguishes no activity from missing data, and permits zero-hour habit rows", () => {
+        expect(concentrationIncomplete(cutTable([]), undefined)).toBe(false);
+        expect(concentrationIncomplete(cutTable([[1, 2, 2, 3]]), undefined)).toBe(true);
+        const table = {
+            columns: [...CUT_COLUMNS, "Cohort", "Hours"].map((name) => ({ name })),
+            rows: [[null, null, 5, null, "Beginner", 0]],
+        };
+        expect(concentrationIncomplete(table, undefined)).toBe(false);
+        expect(concentrationIncomplete({ ...table, rows: [[null, null, 5, null, "Beginner", 1]] }, undefined)).toBe(true);
+    });
+
+    it("skips rows without a count beside the cuts", () => {
+        const rows = [[null, null, 9, null], ...daxCuts([3, 1, 2])];
+        expect(readConcentration(cutTable(rows))).toEqual(concentration([3, 1, 2]));
+    });
+
+    it("works the cuts out the same way in every query", () => {
+        const tail = (query: string) => {
+            const text = query.replace(/\r\n/g, "\n").replace(/^(\/\/|--)/gm, "");
+            return text.slice(text.indexOf(" The cuts lib/concentration.ts reads"), text.lastIndexOf("RETURN"));
+        };
+        expect(tail(leaderboardQuery)).toMatch(/^ The cuts[\s\S]*TOPN\(\[@Count\], __Values, \[@Value\], DESC\)/);
+        expect(tail(studioQuery)).toBe(tail(leaderboardQuery));
+        expect(tail(habitQuery)).toBe(tail(leaderboardQuery));
+    });
+});
+
 describe("person values", () => {
     const table = {
         columns: ["Group", "User", "Is Grand Total", "Is Group Total", "Sessions"].map((name) => ({ name, displayName: name })),
@@ -113,6 +258,16 @@ describe("person values", () => {
 
     it("sums each person's rows and skips totals", () => {
         expect(personValues(table, "User", "Sessions", ["Is Grand Total", "Is Group Total"])).toEqual([16, 8]);
+    });
+
+    it("treats blank and empty person keys as one person, like the aggregate queries", () => {
+        const blankRows = {
+            columns: [{ name: "User" }, { name: "Sessions" }],
+            rows: [[null, 3], ["", 2], ["named", 4]],
+        } as unknown as DataTable;
+        expect(personValues(blankRows, "User", "Sessions")).toEqual([5, 4]);
+        expect(leaderboardQuery).toContain(`"@Person", COALESCE('Chat + Agent Interactions (Audit Logs)'[Audit_UserId], "")`);
+        expect(studioQuery).toContain(`"@Person", COALESCE('Credit Consumption (User)'[User Name], "")`);
     });
 
     it("waits for a table and tolerates missing columns", () => {

@@ -1,5 +1,5 @@
 EVALUATE
-SELECTCOLUMNS(
+VAR _all = SELECTCOLUMNS(
     FILTER(
         SUMMARIZECOLUMNS(
             'Agent Bridge'[Agent Name],
@@ -16,4 +16,10 @@ SELECTCOLUMNS(
     "Billable Credits", [@Billable],
     "Estimated Cost", [@Cost]
 )
-ORDER BY [Credits Used] DESC
+VAR _total = COUNTROWS(_all)
+RETURN
+    ADDCOLUMNS(
+        TOPN(1000, _all, [Credits Used], DESC, [Agent], ASC),
+        "Total", _total
+    )
+ORDER BY [Credits Used] DESC, [Agent] ASC

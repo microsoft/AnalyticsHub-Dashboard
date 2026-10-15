@@ -9,7 +9,7 @@ import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { describe, expect, it } from "vitest";
 import { CAUSAL_WORDS } from "@/lib/headline";
 import type { AgentEntry } from "@/queries/agents";
-import { agentSpotlights, namesText, readAgentFunctions } from "./agent-spotlights";
+import { agentSpotlights, namesText, readAgentFunctions, readRegistrySpotlights } from "./agent-spotlights";
 
 function agent(name: string, sessions: number, orgsReached: number): AgentEntry {
     return { key: name, name, inRegistry: false, users: sessions, sessions, orgsReached };
@@ -51,6 +51,33 @@ describe("agent spotlights", () => {
         expect(namesText(["A", "B", "C"])).toBe("A, B and 1 other");
     });
 
+    it("keeps exact winners and ties even when none are in the returned 1,000 agents", () => {
+        const summary = readRegistrySpotlights({
+            columns: ["Top Sessions", "Session Leaders", "Session Leader Count", "Top Orgs", "Org Leaders", "Org Leader Count"].map((name) => ({ name })),
+            rows: [[9000, "A, B and 1498 others", 1500, 27, "Z", 1]],
+        });
+        const cards = agentSpotlights([agent("Listed", 3, 2)], [], summary);
+        expect(cards[0]).toMatchObject({ names: "A, B and 1498 others", value: 9000 });
+        expect(cards[1]).toMatchObject({ names: "Z", value: 27 });
+        expect(cards[0].sentence).toContain("each had");
+        expect(agentSpotlights(entries, [], readRegistrySpotlights(undefined))).toEqual([]);
+    });
+
+    it("does not deduplicate different agents with the same display name", () => {
+        expect(agentSpotlights([agent("Same", 3, 2), agent("Same", 3, 2)])[0].sentence)
+            .toBe("Same and Same each had 3 sessions, the most of any agent.");
+    });
+
+    it("accepts empty winner names when the full population has no use", () => {
+        const summary = readRegistrySpotlights({
+            columns: ["Top Sessions", "Session Leader Count", "Top Orgs", "Org Leader Count"].map((name) => ({ name })),
+            rows: [[0, 0, 0, 0]],
+        });
+        expect(summary.sessions).toEqual({ top: 0, count: 0, names: "" });
+        expect(summary.orgs).toEqual({ top: 0, count: 0, names: "" });
+        expect(agentSpotlights([], [], summary)).toEqual([]);
+    });
+
     it("hides cards whose winning figure singles nothing out", () => {
         expect(agentSpotlights([agent("A", 0, 0)])).toEqual([]);
         expect(agentSpotlights([agent("A", 1, 1)], [{ name: "A", functions: 1 }]).map((card) => card.id)).toEqual(["sessions"]);
@@ -81,20 +108,31 @@ describe("agent spotlights", () => {
 });
 
 describe("agent functions reader", () => {
-    it("reads one count per agent, treating blanks as zero", () => {
+    it("reads two winners with their full tie count and labels blank names", () => {
         const table = {
-            columns: ["Agent", "Registry Id", "Functions"].map((name) => ({ name, displayName: name })),
+            columns: ["Agent", "Registry Id", "Functions", "Leader Count"].map((name) => ({ name, displayName: name })),
             rows: [
-                ["HR Helper", "T_1", 4],
-                ["", null, 2],
-                ["Quiet", null, null],
+                ["HR Helper", "T_1", 4, 3],
+                ["", null, 4, 3],
             ],
         } as unknown as DataTable;
         expect(readAgentFunctions(table)).toEqual([
-            { name: "HR Helper", functions: 4 },
-            { name: "Unnamed agent", functions: 2 },
-            { name: "Quiet", functions: 0 },
+            { name: "HR Helper", functions: 4, leaderCount: 3 },
+            { name: "Unnamed agent", functions: 4, leaderCount: 3 },
         ]);
+    });
+
+    it("counts thousands of tied winners from two names, not two returned rows", () => {
+        const functions = readAgentFunctions({
+            columns: ["Agent", "Functions", "Leader Count"].map((name) => ({ name })),
+            rows: [["A", 8, 2001], ["B", 8, 2001]],
+        });
+        expect(agentSpotlights([], functions)[0].names).toBe("A, B and 1999 others");
+        expect(readAgentFunctions({ columns: [{ name: "Agent" }, { name: "Functions" }], rows: [["A", 8]] })).toEqual([]);
+        expect(readAgentFunctions({
+            columns: ["Agent", "Functions", "Leader Count"].map((name) => ({ name })),
+            rows: [["A", 8, 2001]],
+        })).toEqual([]);
     });
 
     it("reads nothing when the columns are missing", () => {

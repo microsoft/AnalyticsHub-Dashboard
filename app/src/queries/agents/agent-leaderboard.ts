@@ -7,12 +7,13 @@
 
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
-import { connection, FORMAT_PERCENT, FORMAT_RATE, FORMAT_WHOLE } from "../shared";
+import { connection, FORMAT_PERCENT, FORMAT_RATE, FORMAT_WHOLE, TOTAL_COLUMN } from "../shared";
 import query from "./agent-leaderboard.dax?raw";
 
 const columnMetadata: ColumnMetadataMap = {
     "[Agent]": { name: "Agent", displayName: "Agent" },
     "[Registry Id]": { name: "Registry Id", displayName: "Registry ID" },
+    "[Agent Key]": { name: "Agent Key" },
     "[In Registry]": { name: "In Registry", displayName: "In registry" },
     "[Type]": { name: "Type", displayName: "Type" },
     "[Creator]": { name: "Creator", displayName: "Creator" },
@@ -26,6 +27,15 @@ const columnMetadata: ColumnMetadataMap = {
     "[Lifecycle]": { name: "Lifecycle", displayName: "Lifecycle stage" },
     "[Adoption]": { name: "Adoption", displayName: "Adoption" },
     "[Description]": { name: "Description", displayName: "Description" },
+    "[Top Sessions]": { name: "Top Sessions", format: FORMAT_WHOLE },
+    "[Session Leaders]": { name: "Session Leaders" },
+    "[Session Leader Count]": { name: "Session Leader Count", format: FORMAT_WHOLE },
+    "[Top Orgs]": { name: "Top Orgs", format: FORMAT_WHOLE },
+    "[Org Leaders]": { name: "Org Leaders" },
+    "[Org Leader Count]": { name: "Org Leader Count", format: FORMAT_WHOLE },
+    "[In Use]": { name: "In Use", displayName: "In use", format: FORMAT_WHOLE },
+    "[Registered]": { name: "Registered", displayName: "Registered", format: FORMAT_WHOLE },
+    ...TOTAL_COLUMN,
 };
 
 /**
@@ -34,7 +44,10 @@ const columnMetadata: ColumnMetadataMap = {
  * not anyone used it, plus the agents the audit log names that no registry
  * entry matches. Usage respects every filter; the registry list itself only
  * follows the agent type filter, and the agent filter keeps just the agents
- * used under it. Read the rows with {@link toAgentEntries}.
+ * used under it. The list stops at the top `LIST_LIMIT` by users; `Total`,
+ * `In Use` and `Registered` count every agent. Spotlight maxima, names and
+ * tie counts cover the full population without returning extra agent rows.
+ * Read the rows with {@link toAgentEntries}.
  */
 export function agentLeaderboard() {
     return { connection, query, columnMetadata };
@@ -112,7 +125,7 @@ export function toAgentEntries(table: DataTable): AgentEntry[] {
         const features = text(cell("Features"));
 
         // Registered agents can share a name, and two blank audit names both read "Unnamed agent".
-        const base = registryId ?? `audit:${name}`;
+        const base = typeof cell("Agent Key") === "string" ? cell("Agent Key") as string : registryId ?? `audit:${name}`;
         const repeat = seen.get(base) ?? 0;
         seen.set(base, repeat + 1);
 

@@ -17,6 +17,7 @@ import { downloadTableCsv } from "@/lib/table-csv";
 import { cn } from "@/lib/utils";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { TreeFrame } from "@/components/tree-frame";
+import { TruncationNote } from "@/components/truncation-note";
 import { Headlined, HEADLINE_SPACE } from "@/components/headlined";
 import { useDataTo } from "@/hooks/data-to.context";
 import { useThemeContext } from "@/hooks/theme.context";
@@ -24,6 +25,7 @@ import { useRowToggles } from "@/hooks/use-row-toggles";
 import { gridHeight } from "@/lib/chart-height";
 import type { Headline } from "@/lib/headline";
 import { heatDomain, heatRenderer, type HeatDomain } from "@/lib/heat";
+import { leafCount, listTotal } from "@/lib/list-total";
 import { isGroupRow, visibleRowCount, type RollupTree } from "@/lib/rollup-tree";
 import { textCell, totalsRow, TREE_GRID, withExpansion } from "@/lib/tree-grid";
 import type { SummaryResult, TableResult } from "@/hooks/use-table-query";
@@ -264,6 +266,8 @@ interface RollupGridProps {
     subtitle: string;
     emptyTitle: string;
     emptyDescription: ReactNode;
+    /** For a query that caps its people, what to call them in the note under the grid. */
+    truncation?: { noun: string; by?: string };
 }
 
 type LevelHeat = Record<string, { group: HeatDomain | undefined; leaf: HeatDomain | undefined }>;
@@ -284,6 +288,7 @@ export function RollupGrid({
     subtitle,
     emptyTitle,
     emptyDescription,
+    truncation,
 }: RollupGridProps) {
     const { theme } = useThemeContext();
     const tree = useMemo(() => (result.table ? toTree(result.table) : undefined), [result.table, toTree]);
@@ -347,7 +352,7 @@ export function RollupGrid({
     );
     const visible = visibleRowCount(rows ?? [], (row) => (open ? !ids.has(row._id as string) : ids.has(row._id as string)));
 
-    return (
+    const grid = (
         <TreeFrame
             tree={tree}
             error={result.error}
@@ -367,5 +372,20 @@ export function RollupGrid({
                 header={{ title, subtitle }}
             />
         </TreeFrame>
+    );
+    if (!truncation) return grid;
+    return (
+        <div className="flex flex-col gap-200">
+            {grid}
+            {result.table && !result.isLoading && result.error === undefined && (
+                <TruncationNote
+                    shown={leafCount(result.table)}
+                    total={listTotal(result.table)}
+                    noun={`${truncation.noun} rows`}
+                    by={truncation.by}
+                    rollup
+                />
+            )}
+        </div>
     );
 }

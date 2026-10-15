@@ -4,8 +4,9 @@ EVALUATE
 // The org directory relates to the audit log by person, as the Orgs Reached
 // figure on the leaderboard does, and only agent activity counts.
 // Agents are named as on the leaderboard: registered agents by their registry
-// name, the rest by the name the audit log gives them. Only agents with
-// sessions under the current filters are returned.
+// name, the rest by the name the audit log gives them. Only the agents with
+// the most functions are returned (none when that is zero): the spotlight
+// reads nothing else, and a large tenant can have thousands of agents.
 VAR _catalogue =
     CALCULATETABLE(
         SUMMARIZE(
@@ -40,6 +41,7 @@ VAR _registered =
         ),
         "Agent", 'Agents 365'[Agent name],
         "Registry Id", 'Agents 365'[Title ID],
+        "Agent Key", "registry:" & 'Agents 365'[Title ID],
         "Functions", [@Functions] + 0
     )
 // "Draft as 1P Agent" is left out, as on the leaderboard.
@@ -68,8 +70,15 @@ VAR _unregistered =
             VAR _name = 'Chat + Agent Interactions (Audit Logs)'[AgentName]
             RETURN IF(LEN(TRIM(_name)) = 0, "Unnamed agent", _name),
         "Registry Id", BLANK(),
+        "Agent Key", "audit:" & IF(ISBLANK('Chat + Agent Interactions (Audit Logs)'[AgentName]), "blank", "text:" & 'Chat + Agent Interactions (Audit Logs)'[AgentName]),
         "Functions", [@Functions] + 0
     )
+VAR _all = UNION(_registered, _unregistered)
+VAR _max = MAXX(_all, [Functions])
+VAR _leaders = FILTER(_all, _max > 0 && [Functions] = _max)
 RETURN
-    UNION(_registered, _unregistered)
-ORDER BY [Functions] DESC, [Agent] ASC
+    ADDCOLUMNS(
+        TOPN(2, _leaders, [Agent], ASC, [Agent Key], ASC),
+        "Leader Count", COUNTROWS(_leaders)
+    )
+ORDER BY [Functions] DESC, [Agent] ASC, [Agent Key] ASC

@@ -15,11 +15,13 @@ import { KpiCard, KpiStat } from "@/components/kpi-card";
 import { OpenDestinationLink } from "@/components/open-destination-link";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
+import { TruncationNote } from "@/components/truncation-note";
 import { useThemeContext } from "@/hooks/theme.context";
 import { useSourceAvailability } from "@/hooks/source-availability.context";
 import { useFilteredQuery } from "@/hooks/use-filtered-query";
 import { formatKpi } from "@/lib/format-kpi";
 import { heatDomain, heatRenderer } from "@/lib/heat";
+import { listTotal } from "@/lib/list-total";
 import { isAbsent } from "@/lib/optional-sources";
 import { prefersReducedMotion } from "@/lib/scroll-to-anchor";
 import { readNumber, toSummaryRow } from "@/lib/summary-row";
@@ -302,13 +304,11 @@ function AgentLeaderboard({ registry }: { registry: boolean }) {
     const gridRef = useRef<HTMLDivElement>(null);
     const detailRef = useRef<HTMLElement>(null);
 
-    const entries = useMemo(
-        () =>
-            result.data?.status === "success"
-                ? toAgentEntries(toDataTable(result.data.table, board.columnMetadata))
-                : undefined,
+    const table = useMemo(
+        () => (result.data?.status === "success" ? toDataTable(result.data.table, board.columnMetadata) : undefined),
         [result.data, board.columnMetadata],
     );
+    const entries = useMemo(() => (table ? toAgentEntries(table) : undefined), [table]);
     const rows = useMemo(() => entries?.map(toRow), [entries]);
     const usersDomain = useMemo(
         () => heatDomain((entries ?? []).filter((entry) => entry.users > 0).map((entry) => entry.users)),
@@ -443,12 +443,12 @@ function AgentLeaderboard({ registry }: { registry: boolean }) {
         );
     }
 
-    const inUse = entries.filter((entry) => entry.users > 0).length;
-    const registered = entries.filter((entry) => entry.inRegistry).length;
+    const inUse = listTotal(table, "In Use");
+    const registered = listTotal(table, "Registered");
 
     return (
         <div className="flex flex-col gap-400">
-            <AgentSpotlightCards entries={entries} />
+            <AgentSpotlightCards table={table} />
             <div className="grid grid-cols-1 items-start gap-400 2xl:grid-cols-[minmax(0,1fr)_320px]">
                 <div
                     ref={gridRef}
@@ -474,6 +474,10 @@ function AgentLeaderboard({ registry }: { registry: boolean }) {
                 </div>
                 <AgentDetail ref={detailRef} entries={entries} selected={selected} onSelect={setSelectedKey} />
             </div>
+            <TruncationNote shown={entries.length} total={listTotal(table)} noun="agents" by="by users" />
+            {(inUse === undefined || (registry && registered === undefined)) && (
+                <p className={`${SMALL} text-muted-foreground`}>Overall agent counts are unavailable. The listed agents are not a substitute for these totals.</p>
+            )}
         </div>
     );
 }

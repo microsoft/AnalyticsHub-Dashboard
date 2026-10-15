@@ -42,6 +42,35 @@ jobs:
       - run: npm test
       - run: npm run typecheck
 
+  app:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: 'app'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - name: Use the public npm registry
+        run: node "../installer/packaging/public-registry.js" package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - name: Generate the tracked Fabric data contract
+        run: npx --no-install fabric-app-data generate -o src/fabric.generated.ts
+      - run: npm test
+      - run: npm run lint
+      - run: npx --no-install tsc -b
+      # The Fabric build avoids the deployment-oriented rayfin env prebuild hook.
+      - run: npm run build:fabric
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: app-${{ github.event.pull_request.head.sha || github.sha }}
+          path: app/dist
+          if-no-files-found: error
+
   valuelens-web:
     runs-on: ubuntu-latest
     timeout-minutes: 10

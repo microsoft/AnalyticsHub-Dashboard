@@ -317,7 +317,7 @@ export const NOTEBOOKS = [
     displayName: 'AnalyticsHub_Refresh_Model',
     module: 'core',
     credentials: false,
-    parameters: ['WORKSPACE_ID', 'SEMANTIC_MODEL_ID', 'WRITE_MODE'],
+    parameters: ['WORKSPACE_ID', 'SEMANTIC_MODEL_ID', 'WRITE_MODE', 'CHECK_AUDIT_STATE'],
     placeholder: null,
     semanticModel: true,
   },

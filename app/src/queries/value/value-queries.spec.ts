@@ -21,7 +21,7 @@ import {
     toValueTaskTree,
     valueByTask,
     valueSummary,
-    valuePerPerson,
+    valueByHabit,
 } from "./index";
 import { liveColumns } from "./live-columns.fixture";
 import { toDataTable } from "@/lib/to-data-table";
@@ -35,7 +35,7 @@ const modules = [
     { name: "costValueWindow", factory: () => costValueWindow(), columns: liveColumns.costValueWindow },
     { name: "costValueBySource", factory: () => costValueBySource(), columns: liveColumns.costValueBySource },
     { name: "costValueAgents", factory: () => costValueAgents(), columns: liveColumns.costValueAgents },
-    { name: "valuePerPerson", factory: () => valuePerPerson(), columns: liveColumns.valuePerPerson },
+    { name: "valueByHabit", factory: () => valueByHabit(), columns: liveColumns.valueByHabit },
 ];
 
 const specModules = [{ name: "valueByTask", factory: () => valueByTask() }];
@@ -97,7 +97,7 @@ describe("value query contract", () => {
     });
 
     it("reads hours and habit per person for the same last full month", () => {
-        const { query } = valuePerPerson();
+        const { query } = valueByHabit();
         expect(query).toContain("[Last Full Month Start]");
         expect(query).toContain("[Expert Equivalent Hours]");
         expect(query).toMatch(/\[MonthStart\] = __Month/);
@@ -107,7 +107,17 @@ describe("value query contract", () => {
         expect(query).toMatch(/\[@Days\] >= 6, "Developing"/);
         expect(query).toMatch(/"Beginner"/);
         // A column named after the measure would clash with the task-time overrides.
-        expect(Object.keys(valuePerPerson().columnMetadata)).not.toContain("[Expert Equivalent Hours]");
+        expect(Object.keys(valueByHabit().columnMetadata)).not.toContain("[Expert Equivalent Hours]");
+    });
+
+    // A person's row never leaves the model: each habit comes back as one
+    // row, and the concentration as its cut rows.
+    it("returns habits and concentration cuts rather than people", () => {
+        const { query, columnMetadata } = valueByHabit();
+        expect(Object.keys(columnMetadata)).not.toContain("[User]");
+        expect(query).toMatch(/GROUPBY\(\s*ADDCOLUMNS\(\s*__People,/);
+        expect(query).toContain('"@HabitHours", SUMX(CURRENTGROUP(), IF([@Hours] > 0, [@Hours], 0))');
+        expect(query).toContain("VAR __Values = ADDCOLUMNS(FILTER(__People, [@Hours] > 0), \"@Value\", [@Hours])");
     });
 });
 

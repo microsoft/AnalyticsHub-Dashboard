@@ -336,6 +336,7 @@ function refreshStep(settings, o) {
         WORKSPACE_ID: { value: settings.workspaceId, type: 'string' },
         SEMANTIC_MODEL_ID: { value: o.modelId, type: 'string' },
         WRITE_MODE: { value: o.writeMode, type: 'string' },
+        CHECK_AUDIT_STATE: { value: o.name === REFRESH_ACTIVITY, type: 'bool' },
         TIMEOUT_MINUTES: { value: refresh.minutes, type: 'int' },
       },
     },
@@ -356,7 +357,7 @@ function refreshActivity(activities, settings) {
   }
   return refreshStep(settings, {
     name: REFRESH_ACTIVITY,
-    description: 'Refreshes the ValueLens semantic model. After a backfill it reloads every partition of the audit table.',
+    description: 'Refreshes ValueLens, including historical audit partitions changed by processing or conversation updates.',
     modelId: /** @type {string} */ (settings.semanticModelId),
     dependsOn,
     writeMode: { value: '@pipeline().parameters.ProcessorWriteMode', type: 'Expression' },

@@ -11,12 +11,14 @@ import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { toRollupTree, type RollupTree } from "@/lib/rollup-tree";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import {
+    CONCENTRATION_COLUMNS,
     consumptionConnection as connection,
     FORMAT_CREDITS,
     FORMAT_MONEY,
     FORMAT_PERCENT,
     FORMAT_RATE,
     FORMAT_WHOLE,
+    TOTAL_COLUMN,
 } from "../shared";
 import type { ConsumptionLens } from "./cowork";
 import agentsQuery from "./studio-agents.dax?raw";
@@ -27,6 +29,7 @@ import azureDailyCreditsSpec from "./studio-azure-daily-credits.json";
 import breakdownQuery from "./studio-breakdown.dax?raw";
 import breakdownCostSpec from "./studio-breakdown-cost.json";
 import breakdownCreditsSpec from "./studio-breakdown-credits.json";
+import concentrationQuery from "./studio-concentration.dax?raw";
 import summaryQuery from "./studio-credits-summary.dax?raw";
 import dailyQuery from "./studio-daily.dax?raw";
 import dailyCostSpec from "./studio-daily-cost.json";
@@ -167,9 +170,10 @@ const agentsColumns: ColumnMetadataMap = {
     "[Credit Share]": { name: "Credit Share", displayName: "Share", format: FORMAT_PERCENT },
     "[Billable Credits]": { name: "Billable Credits", displayName: "Billable credits", format: FORMAT_CREDITS },
     "[Estimated Cost]": { name: "Estimated Cost", displayName: "Estimated cost", format: FORMAT_MONEY },
+    ...TOTAL_COLUMN,
 };
 
-/** Each agent in the user snapshot, with its share of the snapshot's credits and their estimated cost. */
+/** Top 1,000 agents in the user snapshot; shares and Total still cover the full snapshot. */
 export function studioAgents() {
     return { connection, filters: CONSUMPTION_STUDIO_PEOPLE, query: agentsQuery, columnMetadata: agentsColumns };
 }
@@ -194,11 +198,21 @@ const usersColumns: ColumnMetadataMap = {
     "[Billable Credits]": { name: "Billable Credits", displayName: "Billable credits", format: FORMAT_CREDITS },
     "[Estimated Cost]": { name: "Estimated Cost", displayName: "Estimated cost", format: FORMAT_MONEY },
     "[Policy]": { name: "Policy", displayName: "Billing policy" },
+    ...TOTAL_COLUMN,
 };
 
 /** The report's top-users table: each group, then its users, from the user snapshot. */
 export function studioUsers() {
     return { connection, filters: CONSUMPTION_STUDIO_PEOPLE, query: usersQuery, columnMetadata: usersColumns };
+}
+
+/**
+ * How much of the user snapshot's credits the busiest users account for,
+ * worked out over every user in the top-users table rather than the top of
+ * it. Read the rows with `readConcentration`.
+ */
+export function studioConcentration() {
+    return { connection, filters: CONSUMPTION_STUDIO_PEOPLE, query: concentrationQuery, columnMetadata: CONCENTRATION_COLUMNS };
 }
 
 export function toStudioUserTree(table: DataTable): RollupTree {
