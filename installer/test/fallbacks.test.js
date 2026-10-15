@@ -644,30 +644,27 @@ test('a run stopped moments ago: waits for the item Fabric is still creating, ra
   assert.match(goneUi.text(), /isn't known whether Fabric will still make it/);
 });
 
-test("a stopped run's create with no time in the record: the clock starts now, and nothing is made without asking", async () => {
+test("a stopped run's create with no time in the record: asked about at once, the record left as it is, and nothing made without asking", async () => {
   for (const at of [undefined, 'not a time']) {
     const fabric = fakeFabric();
     const ui = fakeUi({ yes: true });
     const t = fakeCtx({ fabric: fabric.api, graph: fakeGraph().api, ui: ui.ui });
     await ensureNotebooks(t.ctx);
     t.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'ab12', ...(at ? { at } : {}) } };
+    const before = JSON.stringify(t.config.fabric.pendingItems);
     fabric.calls.length = 0;
-    const saves = t.saves();
     const sleeps = t.sleeps.length;
     await assert.rejects(ensurePipeline(t.ctx), /wasn't created again, so there won't be two\. .*without --yes and answer yes to create it/);
     assert.deepEqual(fabric.calls.filter((c) => /Pipeline /.test(c)), []);
-    assert.equal(t.config.fabric.pendingItems?.DataPipeline?.at, t.ctx.now().toISOString(), 'stamped');
-    assert.ok(t.saves() > saves, 'the stamp is saved');
+    assert.equal(JSON.stringify(t.config.fabric.pendingItems), before, 'the record is unchanged');
     assert.equal(t.sleeps.length, sleeps, 'asks at once rather than waiting');
 
-    // A run days later, with the time it was given: still not made without asking.
-    const laterUi = fakeUi({ yes: true });
-    const later = fakeCtx({ fabric: fabric.api, graph: fakeGraph().api, ui: laterUi.ui, config: t.config, now: new Date(t.ctx.now().getTime() + 2 * 24 * 60 * 60_000) });
+    // A run days later: still not made without asking, and the record still unchanged.
+    const later = fakeCtx({ fabric: fabric.api, graph: fakeGraph().api, ui: fakeUi({ yes: true }).ui, config: t.config, now: new Date(t.ctx.now().getTime() + 2 * 24 * 60 * 60_000) });
     fabric.calls.length = 0;
     await assert.rejects(ensurePipeline(later.ctx), /wasn't created again, so there won't be two/);
     assert.deepEqual(fabric.calls.filter((c) => /Pipeline /.test(c)), []);
-    assert.equal(later.config.fabric.pendingItems?.DataPipeline?.ref, 'ab12', 'still pending');
-    assert.equal(later.config.fabric.pendingItems?.DataPipeline?.at, t.ctx.now().toISOString(), 'the first stamp is kept');
+    assert.equal(JSON.stringify(later.config.fabric.pendingItems), before, 'still pending, unchanged');
 
     // Told yes: made.
     const sure = fakeFabric();

@@ -113,7 +113,7 @@ const SUCCEEDED_POLLS = 8;
  *   a wait: stops with an error to run again later, keeping the record. Succeeded: uses the item,
  *   looking for it a little longer as the list can lag; if it's still not there, asks as below.
  * - Otherwise waits until CREATE_SETTLE_MS after that run asked, then asks before making another.
- *   A record with no time for the request starts the clock now and asks at once.
+ *   A record with no time for the request asks at once.
  * Only Fabric saying the create failed, or the user agreeing, makes another; with --yes, or a no,
  * the run stops with the record kept, however long ago it was.
  * Returns the item, or undefined when a new one should be made.
@@ -151,15 +151,10 @@ async function settleStoppedCreate(ctx, key, type) {
     ctx.ui.warn(`Fabric says it created ${pending.name} for the run that stopped, but it isn't in the workspace. Someone may have deleted it, or the workspace's list hasn't caught up.`);
   }
 
-  // Not known how that create went: wait out the time Fabric may take, then ask.
+  // Not known how that create went: wait out the time Fabric may take, then ask. A record with no
+  // time for the request asks at once, and is left as it is.
   const untimed = !pending.at || Number.isNaN(Date.parse(pending.at));
-  if (untimed) {
-    // No time for that request in the record: the clock starts now, and this run asks.
-    pending.at = ctx.now().toISOString();
-    ctx.save();
-  }
-  const age = ctx.now().getTime() - Date.parse(/** @type {string} */ (pending.at));
-  const left = state === 'Succeeded' || untimed ? 0 : CREATE_SETTLE_MS - age;
+  const left = state === 'Succeeded' || untimed ? 0 : CREATE_SETTLE_MS - (ctx.now().getTime() - Date.parse(/** @type {string} */ (pending.at)));
   if (left > 0) {
     ctx.ui.info(`The run that stopped had asked Fabric to create ${pending.name}. Waiting up to ${Math.ceil(left / 60_000)} min for it to appear, so there aren't two.`);
     for (let i = 0; i < Math.ceil(left / CREATE_POLL_MS); i++) {
