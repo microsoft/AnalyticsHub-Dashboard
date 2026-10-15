@@ -93,6 +93,16 @@ function replaceConfig(target, source) {
 }
 
 /**
+ * First-load and history-reload choices apply to one deployment, so they stay out of the install record.
+ * @param {NonNullable<InstallConfig['setup']>} setup
+ */
+function oneOff(setup) {
+  delete setup.runFirstLoad;
+  delete setup.reloadHistoryDays;
+  return setup;
+}
+
+/**
  * Detect partial ARM success even when the deployment returned no outputs.
  * No resources are moved, replaced or deleted by editing settings.
  * @param {Ctx} ctx
@@ -192,8 +202,10 @@ export async function reviewSetup(ctx) {
   const baseline = structuredClone(ctx.config);
   const deployed = ctx.config.target === 'azure' ? !!ctx.config.azure?.deploymentConfig || !!ctx.config.azure?.outputs?.sqlServerFqdn : !!ctx.config.fabric.lakehouseId;
   ctx.config.setup ??= { completed: deployed ? setupCategories(ctx.config).map((cat) => cat.id) : [] };
-  ctx.runFirstLoad ??= ctx.config.setup.runFirstLoad ?? !deployed;
-  ctx.reloadHistoryDays ??= ctx.config.setup.reloadHistoryDays;
+  // One-off answers: a restored draft carries them for this session; the install record never does.
+  oneOff(ctx.config.setup);
+  ctx.runFirstLoad ??= ctx.config.target === 'azure' ? !ctx.reloadHistoryDays : ctx.config.firstRun?.status !== 'Completed';
+  baseline.setup = { ...(baseline.setup ?? { completed: [] }), runFirstLoad: ctx.runFirstLoad, reloadHistoryDays: ctx.reloadHistoryDays };
   if (ctx.config.app.existing && !ctx.config.keyVault.secretSetAt && !ctx.pendingSecret && ctx.config.target !== 'azure') {
     ctx.config.setup.completed = ctx.config.setup.completed.filter((id) => id !== 'identity');
   }
@@ -314,6 +326,7 @@ export async function reviewSetup(ctx) {
         if (recordRevision(ctx.file) !== baseRevision) throw new Error('The install record changed while you edited this draft. Save and close, then reopen setup to keep the latest deployed IDs and resolve the draft conflict.');
         // Marked first so a draft a synced folder keeps locked is cleaned up next run, not treated as a conflict.
         saveConfig(draftFile(ctx.file), { ...ctx.config, setup: { ...ctx.config.setup, completed: ctx.config.setup?.completed ?? [], approved: true } });
+        ctx.config.setup = oneOff({ ...ctx.config.setup, completed: ctx.config.setup?.completed ?? [] });
         realSave();
         approved = true;
         if (!removeFile(draftFile(ctx.file))) ctx.ui.note('The approved setup draft is locked by another program; it will be cleaned up next time.');

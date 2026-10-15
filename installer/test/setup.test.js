@@ -472,3 +472,66 @@ test('a record whose deployment config outlived a missing resource group can sti
   assert.equal(config.azure.resourceGroup, 'rg-other');
   assert.equal(config.azure.deploymentConfig?.resourceGroup, 'rg-other');
 });
+
+/** A new session (fresh ctx) on the same install record, as the next repair would start. @param {ReturnType<typeof fixture>} f */
+function reopen(f) {
+  const config = loadConfig(f.ctx.file).config;
+  const ui = createWebUi();
+  const { ctx } = fakeCtx({ config, ui, arm: f.arm.api, fabric: f.fabric.api, graph: f.ctx.api.graph, powerBi: f.powerBi.api });
+  ctx.file = f.ctx.file;
+  ctx.save = () => saveConfig(ctx.file, config);
+  respond(ui, (e) => {
+    if (e.kind === 'settings') return 'close';
+    throw new Error(`Unexpected question: ${e.message}`);
+  });
+  return { ctx, config };
+}
+
+test('an approved deployment keeps its first-load and reload choices out of the install record', async (t) => {
+  const f = fixture(t);
+  f.ctx.setupRetry = true;
+  f.ctx.reloadHistoryDays = 90;
+  respond(f.ui, (e) => {
+    if (e.kind === 'confirm' && e.message === 'Go ahead?') return true;
+    throw new Error(`Unexpected question: ${e.message}`);
+  });
+  assert.equal(await reviewSetup(f.ctx), true);
+  assert.equal(f.ctx.reloadHistoryDays, 90, 'this deployment still runs the reload');
+  const saved = loadConfig(f.ctx.file).config.setup;
+  assert.ok(saved);
+  assert.equal('runFirstLoad' in saved, false);
+  assert.equal('reloadHistoryDays' in saved, false);
+
+  const next = reopen(f);
+  assert.equal(await reviewSetup(next.ctx), false);
+  assert.equal(next.ctx.reloadHistoryDays, undefined, 'a later repair does not repeat the reload');
+});
+
+test('a new session ignores first-load and reload choices an install record saved earlier', async (t) => {
+  const f = fixture(t);
+  f.config.target = 'fabric';
+  f.config.firstRun = { status: 'Completed' };
+  f.config.setup = { completed: setupCategories(f.config).map((cat) => cat.id), runFirstLoad: true, reloadHistoryDays: 90 };
+  f.ctx.save();
+  const done = reopen(f);
+  await reviewSetup(done.ctx);
+  assert.equal(done.ctx.runFirstLoad, false, 'the first load already completed');
+  assert.equal(done.ctx.reloadHistoryDays, undefined);
+  assert.equal(loadConfig(`${f.ctx.file}.draft.json`).config.setup?.reloadHistoryDays, undefined);
+
+  rmSync(`${f.ctx.file}.draft.json`);
+  f.config.firstRun = { status: 'Incomplete' };
+  delete f.config.setup;
+  f.ctx.save();
+  const incomplete = reopen(f);
+  await reviewSetup(incomplete.ctx);
+  assert.equal(incomplete.ctx.runFirstLoad, true, 'a record from before browser setup still finishes its first load');
+
+  rmSync(`${f.ctx.file}.draft.json`);
+  f.config.target = 'azure';
+  f.config.setup = { completed: setupCategories(f.config).map((cat) => cat.id), runFirstLoad: false };
+  f.ctx.save();
+  const azure = reopen(f);
+  await reviewSetup(azure.ctx);
+  assert.equal(azure.ctx.runFirstLoad, true, 'Azure runs the load on each setup, as before');
+});
