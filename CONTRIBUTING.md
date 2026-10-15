@@ -39,6 +39,9 @@ not certify Fabric execution, tenant permissions or Desktop / Service refresh.
 
 CI runs the full suite with no exclusions, plus the installer and web app tests below and a
 check that `installer/src/azure/main.arm.json` matches `azure/infra/main.bicep`.
+The app job generates its Fabric data contract, runs tests, lint and TypeScript checks, and
+builds with `npm run build:fabric` without tenant configuration or the deployment-oriented
+`rayfin env` prebuild hook. Its commit-labelled artifact is a validation build, not a deployment.
 
 The Power BI templates in [ValueLens](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot)
 share the Fabric model's measures and report. Its CI checks them against a pinned release of this
