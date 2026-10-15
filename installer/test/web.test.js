@@ -459,6 +459,26 @@ test('server: a page without the link says to press Enter in the installer windo
   assert.equal(opened, 1);
 });
 
+test('server: Back to settings cancels only an open category and keeps the installer session available', async () => {
+  const { ui, server, post } = await serve();
+  try {
+    assert.equal((await post('/api/section-cancel', {})).status, 409);
+    ui.beginSection();
+    const asked = ui.form('Networking', [{ id: 'mode', label: 'Mode', default: 'private' }]);
+    const cancelled = assert.rejects(asked, { name: 'SettingsCancelled' });
+    assert.equal((await post('/api/section-cancel', {})).status, 200);
+    await cancelled;
+    ui.endSection();
+    assert.equal((await post('/api/section-cancel', {})).status, 409);
+    const next = ui.confirm('Continue?', true);
+    assert.equal((await post('/api/answer', { id: latest(ui).id, value: true })).status, 200);
+    assert.equal(await next, true);
+  } finally {
+    server.close();
+    await server.done;
+  }
+});
+
 test('server: Back works once there is an earlier question', async () => {
   const { ui, server, post } = await serve();
   try {

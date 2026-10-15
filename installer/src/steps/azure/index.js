@@ -18,7 +18,7 @@ import { APP_ALIAS, CONSUMPTION_ALIAS } from '../app.js';
 import { AZURE_AI_ROLES, ensureAzureAiAccess, planConsumption } from '../consumption.js';
 import { AZURE_LANDING_DIRS, azureDropLabel, azureDropsToSharePoint, ensureFlows, flowsSummary, flowsWanted, offerStudioRun, planFlows } from '../flows.js';
 import { DEFAULT_CURRENCY } from '../../currency.js';
-import { askMoreHistory, askReportingCurrency, HISTORY_CHOICES, keepAwake, planCosts, reloadDetail, reloadLine } from '../plan.js';
+import { askMoreHistory, askReportingCurrency, editSchedule, HISTORY_CHOICES, keepAwake, planCosts, reloadDetail, reloadLine } from '../plan.js';
 import { ensureResourceGraphAccess, planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from '../resource-graph.js';
 import { DATA_SOURCES } from '../../uploads.js';
 import { normaliseResourceGraph } from '../../config.js';
@@ -223,135 +223,238 @@ export async function askTarget(ctx) {
   ], ctx.config.target);
 }
 
-/** @param {Ctx} ctx @param {any} pre */
-export async function planAzure(ctx, pre) {
+/**
+ * The resources in a resource group, or none when the group doesn't exist (a first deploy can fail before creating it).
+ * @param {Ctx['api']['arm']} arm @param {string | undefined} subscriptionId @param {string | undefined} resourceGroup
+ */
+export async function resourcesIn(arm, subscriptionId, resourceGroup) {
+  if (!subscriptionId || !resourceGroup) return [];
+  return arm.listResources(subscriptionId, resourceGroup).catch((err) => (err instanceof HttpError && err.status === 404 ? [] : Promise.reject(err)));
+}
+
+/**
+ * Whether an earlier attempt left something to reuse, so subscription, resource group and prefix must stay.
+ * @param {import('../../config.js').AzureConfig} az @param {{ tags?: Record<string, string> }[]} resources
+ */
+export const deploymentPinned = (az, resources) =>
+  !!az.outputs?.sqlServerFqdn || !!az.deployments?.length || resources.some((r) => r.tags?.['valuelens-install-id'] === az.installId);
+
+/** @param {Ctx} ctx @param {any} pre @param {string} [section] */
+export async function planAzure(ctx, pre, section) {
   const { ui, config, api } = ctx;
   const az = (config.azure ??= {});
   config.target = 'azure';
 
-  ui.heading('What to collect');
-  const picked = await ui.checkbox('Tick the data you want. Unsupported modules are coming soon on Azure.', azureModuleChoices(config.modules));
-  config.modules = /** @type {import('../../catalog.js').ModuleChoice} */ ({ orgData: true, m365Activity: picked.includes('m365Activity'), agent365: false, productFeedback: false, consumption: picked.includes('consumption'), agentEvaluator: false, defender: picked.includes('defender') });
-  config.dataSources.productFeedback = 'skip';
-  config.dataSources.defender = config.modules.defender ? 'api' : 'skip';
-  await askAdvanced(
-    ctx,
-    'demo mode, the Azure SQL region, the name prefix, tags, networking, who can view, audit history, the schedule, where credits come from, agent configuration and Foundry, the first load and the Value page currency',
-  );
-  const advanced = asksAdvanced(ctx);
-  az.sampleData = !advanced
-    ? az.sampleData === true
-    : await ui.select('Which data should the dashboard show?', [
+  const editing = (/** @type {string} */ id) => !section || section === id;
+  if (editing('data')) {
+    ui.heading('What to collect');
+    const picked = await ui.checkbox('Tick the data you want. Unsupported modules are coming soon on Azure.', azureModuleChoices(config.modules));
+    config.modules = /** @type {import('../../catalog.js').ModuleChoice} */ ({ orgData: true, m365Activity: picked.includes('m365Activity'), agent365: false, productFeedback: false, consumption: picked.includes('consumption'), agentEvaluator: false, defender: picked.includes('defender') });
+    config.dataSources.productFeedback = 'skip';
+    config.dataSources.defender = config.modules.defender ? 'api' : 'skip';
+    if (!section) await askAdvanced(
+      ctx,
+      'demo mode, the Azure SQL region, the name prefix, tags, networking, who can view, audit history, the schedule, where credits come from, agent configuration and Foundry, the first load and the Value page currency',
+    );
+  }
+  const advanced = !!section || asksAdvanced(ctx);
+  if (editing('data')) {
+    az.sampleData = !advanced
+      ? az.sampleData === true
+      : await ui.select('Which data should the dashboard show?', [
         { name: "Your tenant's data", value: false, description: 'Collect from the audit log, Microsoft Graph and the modules you ticked.' },
         { name: 'Demo mode (sample data)', value: true, description: 'Show a synthetic sample, moved forward to end last week, to try Analytics Hub before connecting tenant data. Run the installer again and pick your tenant\'s data to switch.' },
       ], az.sampleData === true);
-
-  ui.heading('Azure');
+  }
   const subs = pre.subscriptions.length ? pre.subscriptions : (await api.arm.listSubscriptions()).filter((s) => s.state === 'Enabled');
-  az.subscriptionId = await ui.select('Azure subscription', subs.map((s) => ({ name: `${s.displayName} (${s.subscriptionId})`, value: s.subscriptionId })), az.subscriptionId ?? subs[0]?.subscriptionId);
-  az.subscriptionName = subs.find((s) => s.subscriptionId === az.subscriptionId)?.displayName;
-  const subscriptionId = /** @type {string} */ (az.subscriptionId);
-  const rgs = await api.arm.listResourceGroups(subscriptionId).catch(() => []);
-  const rgChoice = await ui.select('Resource group', [{ name: 'Create a new resource group', value: 'new' }, ...rgs.map((g) => ({ name: `Use existing "${g.name}" (${g.location})`, value: g.name }))], az.resourceGroupMode === 'existing' && az.resourceGroup ? az.resourceGroup : 'new');
-  if (rgChoice === 'new') {
-    az.resourceGroupMode = 'new';
-    const base = az.resourceGroup ?? 'rg-analytics-hub';
-    let name = base;
-    for (let i = 2; ; i++) {
-      const existing = await api.arm.getResourceGroup(subscriptionId, name).catch(() => null);
-      if (!existing || existing.tags?.['valuelens-install-id']) break;
-      name = `${base}-${i}`;
+  if (editing('placement')) {
+    ui.heading('Azure');
+    const attempted = section && ui.web && (!!az.deploymentConfig || !!az.outputs?.sqlServerFqdn);
+    const existing = attempted ? await resourcesIn(api.arm, az.subscriptionId, az.resourceGroup) : [];
+    const pinned = attempted && deploymentPinned(az, existing);
+    if (pinned) {
+      ui.note(`Keeping subscription ${az.subscriptionName ?? az.subscriptionId} and resource group ${az.resourceGroup} to reuse this deployment's resources.`);
+    } else {
+      az.subscriptionId = await ui.select('Azure subscription', subs.map((s) => ({ name: `${s.displayName} (${s.subscriptionId})`, value: s.subscriptionId })), az.subscriptionId ?? subs[0]?.subscriptionId);
+      az.subscriptionName = subs.find((s) => s.subscriptionId === az.subscriptionId)?.displayName;
+      const subscriptionId = /** @type {string} */ (az.subscriptionId);
+      const rgs = await api.arm.listResourceGroups(subscriptionId).catch(() => []);
+      const rgChoice = await ui.select('Resource group', [{ name: 'Create a new resource group', value: 'new' }, ...rgs.map((g) => ({ name: `Use existing "${g.name}" (${g.location})`, value: g.name }))], az.resourceGroupMode === 'existing' && az.resourceGroup ? az.resourceGroup : 'new');
+      if (rgChoice === 'new') {
+        az.resourceGroupMode = 'new';
+        const base = az.resourceGroup ?? 'rg-analytics-hub';
+        let name = base;
+        for (let i = 2; ; i++) {
+          const existing = await api.arm.getResourceGroup(subscriptionId, name).catch(() => null);
+          if (!existing || existing.tags?.['valuelens-install-id']) break;
+          name = `${base}-${i}`;
+        }
+        az.resourceGroup = await ui.input('New resource group name', { default: name, validate: (v) => (v.trim() ? true : 'Required') });
+      } else {
+        az.resourceGroupMode = 'existing';
+        az.resourceGroup = rgChoice;
+      }
+      // Only a group this run creates is deleted by uninstall; never one picked from the list.
+      az.createdResourceGroup = false;
     }
-    az.resourceGroup = await ui.input('New resource group name', { default: name, validate: (v) => (v.trim() ? true : 'Required') });
-  } else {
-    az.resourceGroupMode = 'existing';
-    az.resourceGroup = rgChoice;
-  }
-  az.createdResourceGroup = false;
-  const rg = az.resourceGroup ? await api.arm.getResourceGroup(subscriptionId, az.resourceGroup).catch(() => null) : null;
-  const locations = await api.arm.listLocations(subscriptionId).catch(() => []);
-  // A first install offers only the regions policy allows and everything is offered in; a re-run keeps its resources where they are.
-  const check = az.outputs?.sqlServerFqdn ? undefined : await checkRegions(api.arm, { subscriptionId, scope: `/subscriptions/${subscriptionId}${rg ? `/resourceGroups/${az.resourceGroup}` : ''}`, newResourceGroup: !rg, locations });
-  ctx.azureRegions = check;
-  const sqlApart = advanced || !!az.sqlLocation;
-  const offered = check ? check.regions.filter((l) => !regionProblems(check, l.name, { sql: !sqlApart }).length) : locations;
-  if (check) for (const line of regionNotes(check, offered.map((l) => l.name), { sql: !sqlApart })) ui.note(line);
-  if (check?.regions.length && !offered.length) throw new Error(noRegionMessage(check, { sql: !sqlApart }));
-  const defaultLocation = [rg?.location, az.location, 'uksouth'].find((r) => r && offered.some((l) => l.name === r)) ?? offered[0]?.name ?? rg?.location ?? az.location ?? 'uksouth';
-  const sqlNote = (/** @type {string} */ name) => (advanced && check && sqlProblem(check, name) ? { description: `${sqlProblem(check, name)}: pick another Azure SQL region next.` } : {});
-  az.location = await ui.select('Azure region', offered.length ? offered.map((l) => ({ name: l.displayName ?? l.name, value: l.name, ...sqlNote(l.name) })) : [{ name: defaultLocation, value: defaultLocation }], defaultLocation);
-  // With SQL's public access off (a deny, or a modify that switches it off after create), its firewall
-  // can't take the rule that lets Azure services in, so public endpoints fail with DenyPublicEndpointEnabled.
-  const sqlPrivate = check?.sqlPrivate ?? [];
-  const sqlPolicy = sqlPrivate.map((n) => `"${n}"`).join(', ');
-  if (sqlPrivate.length && az.publicNetworkAccess !== false) {
-    ui.note(`Azure Policy ${sqlPolicy} keeps public network access off on Azure SQL, so the installer uses Private networking: the jobs reach SQL through a private endpoint and Power BI through a VNet data gateway.`);
-    az.publicNetworkAccess = false;
-  }
-  if (advanced) {
-    const sameOk = !check || !sqlProblem(check, /** @type {string} */ (az.location));
-    const sqlChoices = [...(sameOk ? [{ name: 'Same as above', value: '' }] : []), ...(check ? check.regions.filter((l) => !sqlProblem(check, l.name)) : locations).filter((l) => l.name !== az.location).map((l) => ({ name: l.displayName ?? l.name, value: l.name }))];
-    if (check && !sqlChoices.length) throw new Error(noRegionMessage(check, { sql: true }));
-    const sqlChoice = await ui.select('Azure SQL region', sqlChoices, sqlChoices.some((c) => c.value === (az.sqlLocation ?? '')) ? az.sqlLocation ?? '' : sqlChoices[0].value);
-    az.sqlLocation = sqlChoice || undefined;
-    az.namePrefix = await ui.input('Name prefix', { default: az.namePrefix ?? 'vlens', validate: (v) => (/^[a-z][a-z0-9-]{1,9}$/.test(v) ? true : 'Use 2-10 lowercase letters, digits or hyphens, starting with a letter.') });
-    az.tags = parseTags(await ui.input('Extra tags (key=value, comma-separated)', { default: Object.entries(az.tags ?? {}).map(([k, v]) => `${k}=${v}`).join(', ') }));
-    az.publicNetworkAccess = await ui.select('Networking', [
-      { name: 'Public endpoints', value: true, description: sqlPrivate.length ? `Azure Policy ${sqlPolicy} keeps Azure SQL's public access off, so this deployment would fail.` : 'Azure SQL and Storage accept connections from Azure services only (firewall + Entra auth).' },
-      { name: 'Private networking', value: false, description: 'VNet, private endpoints and a Power BI VNet data gateway. Needed where policy keeps public access off. Needs a Fabric or Premium capacity.' },
-    ], az.publicNetworkAccess !== false);
-    if (az.publicNetworkAccess === false) {
-      const mode = /** @type {'create' | 'existing' | 'none'} */ (await ui.select('Private DNS zones', [
-        { name: 'Create them in this resource group', value: 'create', description: 'privatelink zones for SQL, Storage and Ask, linked to the new VNet.' },
-        { name: 'Use existing zones in another resource group', value: 'existing', description: 'For Azure Landing Zones that keep privatelink zones in a hub. Links the VNet to them; needs Private DNS Zone Contributor there.' },
-        { name: 'Leave DNS to Azure Policy or the network team', value: 'none', description: 'No zones, links or DNS zone groups. The jobs can\'t reach SQL and Storage until policy or your network team adds them.' },
-      ], az.privateDns?.mode ?? 'create'));
-      az.privateDns = mode === 'existing'
-        ? { mode, resourceGroupId: (await ui.input('Resource ID of the resource group holding the privatelink zones', { default: az.privateDns?.resourceGroupId ?? '', validate: (v) => (/^\/subscriptions\/[^/]+\/resourceGroups\/[^/]+$/i.test(v.trim()) ? true : 'Use /subscriptions/<id>/resourceGroups/<name>.') })).trim() }
-        : { mode };
+    const subscriptionId = /** @type {string} */ (az.subscriptionId);
+    const rg = az.resourceGroup ? await api.arm.getResourceGroup(subscriptionId, az.resourceGroup).catch(() => null) : null;
+    const locations = await api.arm.listLocations(subscriptionId).catch(() => []);
+    // A first install offers only the regions policy allows and everything is offered in; a re-run keeps its resources where they are.
+    const check = az.outputs?.sqlServerFqdn ? undefined : await checkRegions(api.arm, { subscriptionId, scope: `/subscriptions/${subscriptionId}${rg ? `/resourceGroups/${az.resourceGroup}` : ''}`, newResourceGroup: !rg, locations });
+    ctx.azureRegions = check;
+    const sqlApart = advanced || !!az.sqlLocation;
+    const offered = check ? check.regions.filter((l) => !regionProblems(check, l.name, { sql: !sqlApart }).length) : locations;
+    if (check) for (const line of regionNotes(check, offered.map((l) => l.name), { sql: !sqlApart })) ui.note(line);
+    if (check?.regions.length && !offered.length) throw new Error(noRegionMessage(check, { sql: !sqlApart }));
+    const defaultLocation = [az.location, rg?.location, 'uksouth'].find((r) => r && offered.some((l) => l.name === r)) ?? offered[0]?.name ?? rg?.location ?? az.location ?? 'uksouth';
+    const sqlNote = (/** @type {string} */ name) => (advanced && check && sqlProblem(check, name) ? { description: `${sqlProblem(check, name)}: pick another Azure SQL region next.` } : {});
+    if (section && ui.web) {
+      const resources = pinned ? existing : [];
+      const has = (/** @type {RegExp} */ type) => resources.some((r) => r.tags?.['valuelens-install-id'] === az.installId && type.test(r.type ?? ''));
+      const regionLocked = !!(az.outputs?.storageAccountName || az.outputs?.environmentName || az.outputs?.webName) || has(/^Microsoft\.(App|Storage|OperationalInsights|ManagedIdentity)\//i);
+      const sqlLocked = !!az.outputs?.sqlServerFqdn || has(/^Microsoft\.Sql\/servers$/i);
+      const regionChoices = offered.map((l) => ({ name: l.displayName ?? l.name, value: l.name }));
+      if (regionLocked && az.location && !regionChoices.some((l) => l.value === az.location)) regionChoices.push({ name: az.location, value: az.location });
+      const sqlChoices = (check ? check.regions.filter((l) => !sqlProblem(check, l.name)) : locations).map((l) => ({ name: l.displayName ?? l.name, value: l.name }));
+      if (sqlLocked && az.sqlLocation && !sqlChoices.some((l) => l.value === az.sqlLocation)) sqlChoices.push({ name: az.sqlLocation, value: az.sqlLocation });
+      const values = await ui.form('Azure placement', [
+        { id: 'location', label: 'Azure region', default: regionLocked ? /** @type {string} */ (az.location) : defaultLocation, choices: regionChoices,
+          ...(regionLocked ? { readOnly: 'Existing resources cannot be moved to another region.' } : {}) },
+        { id: 'sqlLocation', label: 'Azure SQL region', default: az.sqlLocation ?? '', ...(sqlLocked ? { readOnly: 'The SQL server already exists and cannot move regions.' } : {}), choices: [
+            { name: 'Same as Azure region (checked before deployment)', value: '' },
+            ...sqlChoices,
+          ] },
+        { id: 'namePrefix', label: 'Name prefix', default: az.namePrefix ?? 'vlens', ...(pinned ? { readOnly: 'Keep the prefix to reuse existing resources.' } : {}), validate: (v) => /^[a-z][a-z0-9-]{1,9}$/.test(v) ? true : 'Use 2-10 lowercase letters, digits or hyphens, starting with a letter.' },
+        { id: 'tags', label: 'Extra tags (key=value, comma-separated)', default: Object.entries(az.tags ?? {}).map(([k, v]) => `${k}=${v}`).join(', '), validate: (v) => {
+            try { parseTags(v); return true; } catch (err) { return /** @type {Error} */ (err).message; }
+          } },
+      ]);
+      if (!values) throw Object.assign(new Error('Changes cancelled'), { name: 'SettingsCancelled' });
+      az.location = values.location;
+      az.sqlLocation = values.sqlLocation || undefined;
+      az.namePrefix = values.namePrefix;
+      az.tags = parseTags(values.tags);
+    } else {
+      az.location = await ui.select('Azure region', offered.length ? offered.map((l) => ({ name: l.displayName ?? l.name, value: l.name, ...sqlNote(l.name) })) : [{ name: defaultLocation, value: defaultLocation }], defaultLocation);
     }
-  } else {
-    if (az.sqlLocation === az.location) az.sqlLocation = undefined;
-    az.namePrefix ??= 'vlens';
-    az.tags ??= {};
-    az.publicNetworkAccess = az.publicNetworkAccess !== false;
+    // With SQL's public access off (a deny, or a modify that switches it off after create), its firewall
+    // can't take the rule that lets Azure services in, so public endpoints fail with DenyPublicEndpointEnabled.
+    const sqlPrivate = check?.sqlPrivate ?? [];
+    const sqlPolicy = sqlPrivate.map((n) => `"${n}"`).join(', ');
+    if (sqlPrivate.length && az.publicNetworkAccess !== false) {
+      if (section && ui.web) ui.warn(`Azure Policy ${sqlPolicy} keeps Azure SQL's public access off. Review the Networking category before deployment; changing placement does not change your networking choice.`);
+      else {
+        ui.note(`Azure Policy ${sqlPolicy} keeps public network access off on Azure SQL, so the installer uses Private networking: the jobs reach SQL through a private endpoint and Power BI through a VNet data gateway.`);
+        az.publicNetworkAccess = false;
+      }
+    }
+    if (advanced && !(section && ui.web)) {
+      const sameOk = !check || !sqlProblem(check, /** @type {string} */ (az.location));
+      const sqlChoices = [...(sameOk ? [{ name: 'Same as above', value: '' }] : []), ...(check ? check.regions.filter((l) => !sqlProblem(check, l.name)) : locations).filter((l) => l.name !== az.location).map((l) => ({ name: l.displayName ?? l.name, value: l.name }))];
+      if (check && !sqlChoices.length) throw new Error(noRegionMessage(check, { sql: true }));
+      const sqlChoice = await ui.select('Azure SQL region', sqlChoices, sqlChoices.some((c) => c.value === (az.sqlLocation ?? '')) ? az.sqlLocation ?? '' : sqlChoices[0].value);
+      az.sqlLocation = sqlChoice || undefined;
+      az.namePrefix = await ui.input('Name prefix', { default: az.namePrefix ?? 'vlens', validate: (v) => (/^[a-z][a-z0-9-]{1,9}$/.test(v) ? true : 'Use 2-10 lowercase letters, digits or hyphens, starting with a letter.') });
+      az.tags = parseTags(await ui.input('Extra tags (key=value, comma-separated)', { default: Object.entries(az.tags ?? {}).map(([k, v]) => `${k}=${v}`).join(', ') }));
+    } else if (!advanced) {
+      if (az.sqlLocation === az.location) az.sqlLocation = undefined;
+      az.namePrefix ??= 'vlens';
+      az.tags ??= {};
+    }
+  }
+  if (editing('networking')) {
+    const previousAccess = az.publicNetworkAccess;
+    const sqlPrivate = ctx.azureRegions?.sqlPrivate ?? [];
+    const sqlPolicy = sqlPrivate.map((n) => `"${n}"`).join(', ');
+    if (sqlPrivate.length) az.publicNetworkAccess = false;
+    if (section && ui.web) {
+      const resources = az.deploymentConfig ? await resourcesIn(api.arm, az.subscriptionId, az.resourceGroup) : [];
+      const networkLocked = !!az.outputs?.environmentName || resources.some((r) => r.tags?.['valuelens-install-id'] === az.installId && /^Microsoft\.App\/managedEnvironments$/i.test(r.type ?? ''));
+      if (networkLocked) az.publicNetworkAccess = previousAccess;
+      const values = await ui.form('Networking', [
+        { id: 'access', label: 'Networking', default: az.publicNetworkAccess === false ? 'private' : 'public',
+          ...(networkLocked ? { readOnly: 'The Container Apps environment already exists; networking cannot change in place.' } : {}), choices: [
+            { name: 'Public endpoints', value: 'public', disabled: sqlPrivate.length && !networkLocked ? `Blocked by Azure Policy ${sqlPolicy}` : false },
+            { name: 'Private networking (requires Fabric or Premium capacity)', value: 'private' },
+          ] },
+        { id: 'dns', label: 'Private DNS zones (used with private networking)', default: az.privateDns?.mode ?? 'create', choices: [
+            { name: 'Create in this resource group', value: 'create' },
+            { name: 'Use existing zones', value: 'existing' },
+            { name: 'Leave DNS to Azure Policy or the network team', value: 'none' },
+          ] },
+        { id: 'dnsGroup', label: 'Existing DNS resource group ID (only for existing zones)', default: az.privateDns?.resourceGroupId ?? '' },
+      ]);
+      if (!values) throw Object.assign(new Error('Changes cancelled'), { name: 'SettingsCancelled' });
+      if (values.access === 'private' && values.dns === 'existing' && !/^\/subscriptions\/[^/]+\/resourceGroups\/[^/]+$/i.test(values.dnsGroup.trim())) throw new Error('Existing DNS zones need /subscriptions/<id>/resourceGroups/<name>.');
+      az.publicNetworkAccess = values.access === 'public';
+      az.privateDns = { mode: /** @type {'create' | 'existing' | 'none'} */ (values.dns), ...(values.dns === 'existing' ? { resourceGroupId: values.dnsGroup.trim() } : {}) };
+    } else if (advanced) {
+      az.publicNetworkAccess = await ui.select('Networking', [
+        { name: 'Public endpoints', value: true, description: sqlPrivate.length ? `Azure Policy ${sqlPolicy} keeps Azure SQL's public access off, so this deployment would fail.` : 'Azure SQL and Storage accept connections from Azure services only (firewall + Entra auth).' },
+        { name: 'Private networking', value: false, description: 'VNet, private endpoints and a Power BI VNet data gateway. Needed where policy keeps public access off. Needs a Fabric or Premium capacity.' },
+      ], az.publicNetworkAccess !== false);
+      if (az.publicNetworkAccess === false) {
+        const mode = /** @type {'create' | 'existing' | 'none'} */ (await ui.select('Private DNS zones', [
+          { name: 'Create them in this resource group', value: 'create', description: 'privatelink zones for SQL, Storage and Ask, linked to the new VNet.' },
+          { name: 'Use existing zones in another resource group', value: 'existing', description: 'For Azure Landing Zones that keep privatelink zones in a hub. Links the VNet to them; needs Private DNS Zone Contributor there.' },
+          { name: 'Leave DNS to Azure Policy or the network team', value: 'none', description: 'No zones, links or DNS zone groups. The jobs can\'t reach SQL and Storage until policy or your network team adds them.' },
+        ], az.privateDns?.mode ?? 'create'));
+        az.privateDns = mode === 'existing'
+          ? { mode, resourceGroupId: (await ui.input('Resource ID of the resource group holding the privatelink zones', { default: az.privateDns?.resourceGroupId ?? '', validate: (v) => (/^\/subscriptions\/[^/]+\/resourceGroups\/[^/]+$/i.test(v.trim()) ? true : 'Use /subscriptions/<id>/resourceGroups/<name>.') })).trim() }
+          : { mode };
+      }
+    } else az.publicNetworkAccess = az.publicNetworkAccess !== false;
   }
 
-  ui.heading('Power BI');
-  az.powerBi ??= {};
-  const capacities = (await api.fabric.listCapacities().catch(() => [])).filter((cap) => cap.state === 'Active' && (!isPrivate(az) || supportsVnetGateway(cap)));
-  if (isPrivate(az) && !capacities.length) throw new Error(`${sqlPrivate.length && az.publicNetworkAccess === false ? `Azure Policy ${sqlPolicy} keeps Azure SQL's public access off, so Analytics Hub needs Private networking here. ` : ''}Private networking needs an active Fabric (F or trial) or Power BI Premium (P, A4+) capacity you can assign workspaces to, to host the VNet data gateway. Start a Fabric trial or ask a capacity admin, then run the installer again.`);
-  const capacityChoices = capacities.map((cap) => ({ name: `${cap.displayName} (${cap.sku}, ${cap.region})`, value: cap.id }));
-  az.powerBi.capacityId = await ui.select(
-    isPrivate(az) ? 'Capacity for the Power BI workspace and VNet data gateway' : 'Capacity for the Power BI workspace',
-    isPrivate(az) ? capacityChoices : [...capacityChoices, { name: 'None (shared capacity, Pro)', value: '' }],
-    capacities.some((cap) => cap.id === az.powerBi?.capacityId) ? az.powerBi.capacityId : (capacityChoices[0]?.value ?? ''),
-  ) || undefined;
-  const groups = await api.powerBi.groups().catch(() => []);
-  const wsChoice = await ui.select('Power BI workspace', [{ name: 'Create a new workspace', value: 'new' }, ...groups.map((g) => ({ name: `Use "${g.name}"`, value: g.id }))], az.powerBi?.workspaceId ?? 'new');
-  if (wsChoice === 'new') az.workspaceName = await ui.input('New Power BI workspace name', { default: az.workspaceName ?? 'Analytics Hub' });
-  else az.powerBi.workspaceId = wsChoice;
-  await planAccess(ctx);
+  if (editing('powerbi')) {
+    ui.heading('Power BI');
+    az.powerBi ??= {};
+    const sqlPrivate = ctx.azureRegions?.sqlPrivate ?? [];
+    const sqlPolicy = sqlPrivate.map((n) => `"${n}"`).join(', ');
+    const capacities = (await api.fabric.listCapacities().catch(() => [])).filter((cap) => cap.state === 'Active' && (!isPrivate(az) || supportsVnetGateway(cap)));
+    if (isPrivate(az) && !capacities.length) throw new Error(`${sqlPrivate.length ? `Azure Policy ${sqlPolicy} keeps Azure SQL's public access off, so Analytics Hub needs Private networking here. ` : ''}Private networking needs an active Fabric (F or trial) or Power BI Premium (P, A4+) capacity you can assign workspaces to, to host the VNet data gateway. Start a Fabric trial or ask a capacity admin, then try again.`);
+    const capacityChoices = capacities.map((cap) => ({ name: `${cap.displayName} (${cap.sku}, ${cap.region})`, value: cap.id }));
+    az.powerBi.capacityId = await ui.select(
+      isPrivate(az) ? 'Capacity for the Power BI workspace and VNet data gateway' : 'Capacity for the Power BI workspace',
+      isPrivate(az) ? capacityChoices : [...capacityChoices, { name: 'None (shared capacity, Pro)', value: '' }],
+      capacities.some((cap) => cap.id === az.powerBi?.capacityId) ? az.powerBi.capacityId : (capacityChoices[0]?.value ?? ''),
+    ) || undefined;
+    const groups = await api.powerBi.groups().catch(() => []);
+    const wsChoice = await ui.select('Power BI workspace', [{ name: 'Create a new workspace', value: 'new' }, ...groups.map((g) => ({ name: `Use "${g.name}"`, value: g.id }))], az.powerBi?.workspaceId ?? 'new');
+    if (wsChoice === 'new') {
+      if (az.powerBi.workspaceId && (az.deploymentConfig || az.powerBi.datasetId || az.powerBi.gatewayId)) throw new Error('The workspace is already in use by this install. Keep it; use a separate install record for a different workspace.');
+      delete az.powerBi.workspaceId;
+      az.workspaceName = await ui.input('New Power BI workspace name', { default: az.workspaceName ?? 'Analytics Hub' });
+    }
+    else az.powerBi.workspaceId = wsChoice;
+  }
+  if (editing('access')) {
+    await planAccess(ctx);
+  }
 
-  if (azureHistoryLoaded(az)) await askMoreHistory(ctx);
-  else {
-    delete ctx.reloadHistoryDays;
-    if (advanced) config.history.days = await ui.select('How much audit history should the first load pull?', HISTORY_CHOICES, config.history.days);
+  if (editing('schedule')) {
+    if (azureHistoryLoaded(az)) await askMoreHistory(ctx);
+    else {
+      delete ctx.reloadHistoryDays;
+      if (advanced) config.history.days = await ui.select('How much audit history should the first load pull?', HISTORY_CHOICES, config.history.days);
+    }
+    config.schedule.timeZone = 'UTC';
+    if (section && ui.web) await editSchedule(ctx);
+    else if (advanced) {
+      ui.heading('Schedule');
+      config.schedule.frequency = await ui.select('How often should the job run?', [{ name: 'Daily', value: 'daily' }, { name: 'Weekly', value: 'weekly' }], config.schedule.frequency);
+      if (config.schedule.frequency === 'weekly') config.schedule.weekday = await ui.select('Which day?', ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((d) => ({ name: d, value: d })), config.schedule.weekday);
+      config.schedule.time = await ui.input('Time (UTC, 24-hour)', { default: config.schedule.time, validate: (v) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? true : 'Use HH:MM.') });
+    }
+    // A reload runs the job straight after setup anyway.
+    ctx.runFirstLoad = ctx.reloadHistoryDays ? false : !advanced || (await ui.confirm('Run the first load as soon as setup finishes?', true));
+    if (advanced) await askReportingCurrency(ctx);
   }
-  config.schedule.timeZone = 'UTC';
-  if (advanced) {
-    ui.heading('Schedule');
-    config.schedule.frequency = await ui.select('How often should the job run?', [{ name: 'Daily', value: 'daily' }, { name: 'Weekly', value: 'weekly' }], config.schedule.frequency);
-    if (config.schedule.frequency === 'weekly') config.schedule.weekday = await ui.select('Which day?', ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'].map((d) => ({ name: d, value: d })), config.schedule.weekday);
-    config.schedule.time = await ui.input('Time (UTC, 24-hour)', { default: config.schedule.time, validate: (v) => (/^([01]\d|2[0-3]):[0-5]\d$/.test(v) ? true : 'Use HH:MM.') });
-  }
-  await planAzureConsumption(ctx, subs);
-  await planAzureResourceGraph(ctx);
-  await planAzureAsk(ctx);
-  // A reload runs the job straight after setup anyway.
-  ctx.runFirstLoad = ctx.reloadHistoryDays ? false : !advanced || (await ui.confirm('Run the first load as soon as setup finishes?', true));
-  if (advanced) await askReportingCurrency(ctx);
-  await azurePreflight(ctx);
+  if (editing('sources')) await planAzureConsumption(ctx, subs);
+  if (editing('governance')) await planAzureResourceGraph(ctx);
+  if (editing('ask')) await planAzureAsk(ctx);
+  if (!section) await azurePreflight(ctx);
 }
 
 /**
@@ -887,6 +990,7 @@ export async function installAzure(ctx, opts) {
   const { ui, config, api } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure ??= {});
   az.installId ??= randomUUID();
+  ctx.save();
   az.imageTag = imageTag(az);
   const consumption = azureConsumptionOn(config);
   const resourceGraph = azureResourceGraphOn(config);
@@ -909,6 +1013,11 @@ export async function installAzure(ctx, opts) {
     az.createdResourceGroup = true;
     ui.ok(`Created resource group ${az.resourceGroup}`);
   } else ui.ok(`Using resource group ${az.resourceGroup}`);
+  // Recorded once the group exists: a failure before this leaves nothing to reuse, so placement stays editable.
+  az.deploymentConfig = {
+    subscriptionId: az.subscriptionId, resourceGroup: az.resourceGroup, namePrefix: az.namePrefix,
+    location: az.location, sqlLocation: az.sqlLocation, publicNetworkAccess: az.publicNetworkAccess,
+  };
   ctx.save();
 
   step('Azure resources');

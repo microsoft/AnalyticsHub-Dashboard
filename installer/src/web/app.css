@@ -65,6 +65,13 @@ h1, h2, h3, p { margin: 0; }
 a { color: var(--accent-fg); text-underline-offset: 2px; }
 a:hover { color: var(--primary); }
 button, input { font: inherit; color: inherit; }
+.settings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); gap: 12px; }
+.settings-card { display: flex; flex-direction: column; gap: 8px; padding: 16px; text-align: left; border: 1px solid var(--border); border-radius: 8px; background: var(--card); cursor: pointer; }
+.settings-card:hover { border-color: var(--primary); background: var(--accent); }
+.settings-card .opt-name { display: flex; flex-wrap: wrap; gap: 8px; }
+.settings-field { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+.settings-field select { font: inherit; color: inherit; }
+.settings-changes { margin-top: 16px; overflow-wrap: anywhere; }
 :focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .sr { position: absolute; top: 0; left: 0; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .noscript { margin: 48px; font-size: 16px; }
