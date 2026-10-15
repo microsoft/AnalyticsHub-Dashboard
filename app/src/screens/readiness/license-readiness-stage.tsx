@@ -16,6 +16,7 @@ import { leaderHeadline } from "@/lib/headline";
 import { KpiCard, KpiStat } from "@/components/kpi-card";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
+import { TruncationNote } from "@/components/truncation-note";
 import { useThemeContext } from "@/hooks/theme.context";
 import { useOrgAttribute } from "@/hooks/filter.context";
 import { useFilteredQuery } from "@/hooks/use-filtered-query";
@@ -23,6 +24,7 @@ import { useM365Activity } from "@/hooks/use-m365-activity";
 import { rowChartHeight } from "@/lib/chart-height";
 import type { FilterKey } from "@/lib/filters";
 import { formatKpi } from "@/lib/format-kpi";
+import { listCount, listTotal } from "@/lib/list-total";
 import { columnFormat, columnHeat, heatRenderer } from "@/lib/heat";
 import { withOrgAttribute } from "@/lib/org-attribute";
 import { readNumber, readText, toSummaryRow } from "@/lib/summary-row";
@@ -288,7 +290,7 @@ export function LicenseReadinessStage() {
                         theme={theme}
                         header={{
                             title: "Who to license next",
-                            subtitle: `${formatKpi(candidatesTable.rows.length, "whole")} unlicensed users, ranked by priority score${
+                            subtitle: `${formatKpi(listCount(candidatesTable), "whole")} unlicensed users, ranked by priority score${
                                 withBreadth
                                     ? ": how much they use Copilot, and how many Microsoft 365 workloads they use a day"
                                     : ""
@@ -297,6 +299,14 @@ export function LicenseReadinessStage() {
                     />
                 )}
             </div>
+            {candidatesTable && !candidatesResult.isLoading && candidatesResult.data?.status === "success" && (
+                <TruncationNote
+                    shown={candidatesTable.rows.length}
+                    total={listTotal(candidatesTable)}
+                    noun="unlicensed users"
+                    by="by priority score"
+                />
+            )}
 
             <div
                 className="h-[340px]"

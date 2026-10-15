@@ -7,6 +7,7 @@
 
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
+import { readConcentration, type Concentration } from "@/lib/concentration";
 import { MIN_PEOPLE } from "@/lib/headline";
 import { monthLabel } from "@/screens/readiness/habit-licence";
 
@@ -47,29 +48,30 @@ export interface ValueByHabit {
     month: string | undefined;
     /** Every habit, Beginner first, including those nobody fell into. */
     cohorts: CohortValue[];
-    /** One figure per person active in the month, for the concentration curve. */
-    hoursByPerson: number[];
+    /** How much of the month's hours the busiest people account for. */
+    concentration: Concentration | undefined;
 }
 
 function hours(value: unknown): number {
     return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0;
 }
 
-/** Reads the per-person query into the four habits, Beginner first, and each person's hours. */
+function whole(value: unknown): number {
+    return typeof value === "number" && Number.isFinite(value) && value > 0 ? Math.round(value) : 0;
+}
+
+/** Reads the habit rows into the four habits, Beginner first, and the cut rows into the concentration. */
 export function readValueByHabit(table: DataTable): ValueByHabit {
     const at = (name: string) => table.columns.findIndex((column) => column.name === name);
-    const [monthAt, habitAt, hoursAt] = [at("Month"), at("Cohort"), at("Hours")];
+    const [monthAt, habitAt, peopleAt, hoursAt] = [at("Month"), at("Cohort"), at("People"), at("Hours")];
 
     const totals = new Map<string, { people: number; hours: number }>();
-    const hoursByPerson: number[] = [];
     let month: string | undefined;
     for (const row of table.rows) {
         const habit = String(row[habitAt] ?? "");
         if (!(LADDER as readonly string[]).includes(habit)) continue;
-        const value = hours(row[hoursAt]);
         const total = totals.get(habit) ?? { people: 0, hours: 0 };
-        totals.set(habit, { people: total.people + 1, hours: total.hours + value });
-        hoursByPerson.push(value);
+        totals.set(habit, { people: total.people + whole(row[peopleAt]), hours: total.hours + hours(row[hoursAt]) });
         const date = monthAt >= 0 ? row[monthAt] : undefined;
         if (!month && typeof date === "string" && /^\d{4}-\d{2}-\d{2}/.test(date)) month = date.slice(0, 10);
     }
@@ -78,7 +80,38 @@ export function readValueByHabit(table: DataTable): ValueByHabit {
         const { people, hours: sum } = totals.get(habit) ?? { people: 0, hours: 0 };
         return { habit, people, hours: sum, perPerson: people >= MIN_PEOPLE ? sum / people : undefined };
     });
-    return { month, cohorts, hoursByPerson };
+    return { month, cohorts, concentration: readConcentration(table) };
+}
+
+/** An incomplete aggregate must not look like a month with no activity. */
+export function valueByHabitIncomplete(table: DataTable | undefined): boolean {
+    if (!table || table.rows.length === 0) return false;
+    const at = (name: string) => table.columns.findIndex((column) => column.name === name);
+    if (["Month", "Cohort", "People", "Hours", "Count", "Cumulative", "Total"].some((name) => at(name) < 0)) return true;
+    const seen = new Set<string>();
+    let month: string | undefined;
+    for (const row of table.rows) {
+        if (row[at("Cohort")] == null) continue;
+        const habit = String(row[at("Cohort")]);
+        const people = row[at("People")];
+        const sum = row[at("Hours")];
+        const date = row[at("Month")];
+        if (!(LADDER as readonly string[]).includes(habit) || seen.has(habit) ||
+            typeof people !== "number" || !Number.isSafeInteger(people) || people <= 0 ||
+            (sum != null && (typeof sum !== "number" || !Number.isFinite(sum) || sum < 0)) ||
+            typeof date !== "string" || !/^\d{4}-\d{2}-\d{2}/.test(date) ||
+            (month !== undefined && date.slice(0, 10) !== month)) return true;
+        seen.add(habit);
+        month = date.slice(0, 10);
+    }
+    if (seen.size === 0) return true;
+    const value = readValueByHabit(table);
+    if (value.concentration) {
+        const sum = value.cohorts.reduce((total, cohort) => total + cohort.hours, 0);
+        const people = value.cohorts.reduce((total, cohort) => total + cohort.people, 0);
+        return Math.abs(sum - value.concentration.total) > Math.abs(sum) * 1e-9 || value.concentration.people > people;
+    }
+    return false;
 }
 
 const oneDecimal = new Intl.NumberFormat("en-GB", { minimumFractionDigits: 1, maximumFractionDigits: 1 });

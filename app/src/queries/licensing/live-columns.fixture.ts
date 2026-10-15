@@ -11,6 +11,7 @@
  * model before wiring the stage.
  */
 export const liveColumns = {
+    // The recovery's Total column is an authored contract, not live validation.
     licenseDemandSummary: [
         "[Active Unlicensed Users]",
         "[Unlicensed Share]",
@@ -37,6 +38,7 @@ export const liveColumns = {
         "[Priority Score]",
         "[Sessions Per Week]",
         "[Active Days Per Week]",
+        "[Total]",
     ],
     // Ran cleanly on the live model on 2026-10-03 but returned no rows (no Copilot
     // interactions on that tenant yet), so these columns are as authored.
@@ -48,6 +50,7 @@ export const liveColumns = {
         "[Sessions Per Week]",
         "[Active Days Per Week]",
         "[Workloads Per Day]",
+        "[Total]",
     ],
     licenseDormancy: ["[Dormancy Bucket Order]", "[Dormancy Bucket]", "[Licensed Users]"],
     // Authored, not yet captured live: no published model was reachable when these were written.

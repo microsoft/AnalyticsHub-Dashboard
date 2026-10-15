@@ -13,6 +13,7 @@
  * carries those columns.
  */
 export const liveColumns = {
+    // The recovery's Total column is an authored contract, not live validation.
     governanceSummary: [
         "[Tenant Agents]",
         "[Needs Review]",
@@ -45,6 +46,7 @@ export const liveColumns = {
         "[Flag Count]",
         "[Priority]",
         "[Flags]",
+        "[Total]",
     ],
     // Shadow AI reads the optional Defender tables and measures.
     shadowAiSummary: [

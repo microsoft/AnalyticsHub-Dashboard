@@ -41,18 +41,39 @@ DEFINE
                 NOT ISEMPTY(Agents), "(No billing policy)"
             )
 EVALUATE
-SUMMARIZECOLUMNS(
-    ROLLUPADDISSUBTOTAL(
-        'Group By'[Group], "Is Grand Total",
-        'Credit Consumption (User)'[User Name], "Is Group Total"
+// Every group row is kept, so the totals stay whole; the people under them
+// stop at the top 1,000, and "Total" counts them all.
+VAR _all =
+    SUMMARIZECOLUMNS(
+        ROLLUPADDISSUBTOTAL(
+            'Group By'[Group], "Is Grand Total",
+            'Credit Consumption (User)'[User Name], "Is Group Total"
+        ),
+        "Credits Used", [Studio Total Credits Used],
+        "Credit Share", [Group Credit Share %],
+        "Billable Credits", [Total Billable Credits Used],
+        "Estimated Cost", [Billable Credit Cost (User)],
+        "Policy", [ValueLens Studio Billing Policy]
+    )
+VAR _people = FILTER(_all, NOT [Is Group Total])
+VAR _total = COUNTROWS(_people) + 0
+RETURN
+ADDCOLUMNS(
+    UNION(
+        FILTER(_all, [Is Group Total]),
+        TOPN(
+            1000,
+            _people,
+            [Credits Used], DESC,
+            'Credit Consumption (User)'[User Name], ASC,
+            'Group By'[Group], ASC
+        )
     ),
-    "Credits Used", [Studio Total Credits Used],
-    "Credit Share", [Group Credit Share %],
-    "Billable Credits", [Total Billable Credits Used],
-    "Estimated Cost", [Billable Credit Cost (User)],
-    "Policy", [ValueLens Studio Billing Policy]
+    "Total", _total
 )
 ORDER BY
     [Is Grand Total] DESC,
     [Is Group Total] DESC,
-    [Credits Used] DESC
+    [Credits Used] DESC,
+    'Credit Consumption (User)'[User Name] ASC,
+    'Group By'[Group] ASC

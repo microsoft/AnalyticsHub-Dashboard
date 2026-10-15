@@ -14,7 +14,7 @@ import {
 } from "@/lib/org-attribute";
 import { toRollupTree, type RollupTree } from "@/lib/rollup-tree";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
-import { connection, FORMAT_RATE, FORMAT_WHOLE } from "../shared";
+import { connection, FORMAT_RATE, FORMAT_WHOLE, TOTAL_COLUMN } from "../shared";
 import { withCohortMeasures, type LeaderboardCohort } from "./leaderboard-cohorts";
 import template from "./leaderboard-people.dax?raw";
 
@@ -44,6 +44,7 @@ const columnMetadata: ColumnMetadataMap = {
     "Chat + Agent Org Data[Organization]": { name: ORG_COLUMN, displayName: "Organization" },
     "Chat + Agent Interactions (Audit Logs)[Audit_UserId]": { name: USER_COLUMN, displayName: "User" },
     ...measureMetadata,
+    ...TOTAL_COLUMN,
 };
 
 /** Shared with the tasks query, which returns the same rollup flags and measures. */

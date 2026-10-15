@@ -15,31 +15,57 @@ import {
     ladderSpec,
     ladderTable,
     readValueByHabit,
+    valueByHabitIncomplete,
     type LadderHabit,
 } from "./cohort-value";
 
-const COLUMNS = ["Month", "User", "Active Days", "Cohort", "Hours"];
+const COLUMNS = ["Month", "Cohort", "People", "Hours", "Count", "Cumulative", "Total"];
+const MONTH = "2025-03-01T00:00:00";
 
 function table(rows: unknown[][]): DataTable {
     return { columns: COLUMNS.map((name) => ({ name, displayName: name })), rows } as unknown as DataTable;
 }
 
-/** `count` people in a habit, each with `hours`. */
+/** A habit's row for `count` people, each with `hours`. */
 function people(habit: LadderHabit, count: number, hours: number): unknown[][] {
-    return Array.from({ length: count }, (_, index) => ["2025-03-01T00:00:00", `${habit}-${index}`, 1, habit, hours]);
+    return [[MONTH, habit, count, count * hours, null, null, null]];
+}
+
+/** The cut rows the query returns for these values, one per count from 1 to all of them. */
+function cuts(values: number[]): unknown[][] {
+    const sorted = [...values].sort((a, b) => b - a);
+    const total = sorted.reduce((sum, value) => sum + value, 0);
+    let running = 0;
+    return sorted.map((value, index) => {
+        running += value;
+        return [MONTH, null, sorted.length, null, index + 1, running, total];
+    });
 }
 
 describe("value by habit", () => {
-    it("totals each habit, Beginner first, and keeps every person's hours", () => {
+    it("totals each habit, Beginner first, and reads the concentration from the cut rows", () => {
         const read = readValueByHabit(
-            table([...people("Power", 5, 6), ...people("Beginner", 10, 1), ["2025-03-01T00:00:00", "x", 7, "Developing", null]]),
+            table([
+                ...people("Power", 5, 6),
+                ...people("Beginner", 10, 1),
+                [MONTH, "Developing", 1, null, null, null, null],
+                ...cuts([...Array(5).fill(6), ...Array(10).fill(1)]),
+            ]),
         );
         expect(read.month).toBe("2025-03-01");
         expect(read.cohorts.map((cohort) => cohort.habit)).toEqual(["Beginner", "Developing", "Habitual", "Power"]);
         expect(read.cohorts[0]).toEqual({ habit: "Beginner", people: 10, hours: 10, perPerson: 1 });
         expect(read.cohorts[3]).toEqual({ habit: "Power", people: 5, hours: 30, perPerson: 6 });
         expect(read.cohorts[2]).toEqual({ habit: "Habitual", people: 0, hours: 0, perPerson: undefined });
-        expect(read.hoursByPerson).toHaveLength(16);
+        expect(read.cohorts[1]).toEqual({ habit: "Developing", people: 1, hours: 0, perPerson: undefined });
+        expect(read.concentration).toMatchObject({ people: 15, total: 40 });
+        expect(read.concentration?.slices).toEqual([]);
+        expect(read.concentration?.points).toHaveLength(16);
+        expect(read.concentration?.points[5]).toEqual({ peopleShare: 5 / 15, totalShare: 30 / 40 });
+    });
+
+    it("has no concentration without cut rows", () => {
+        expect(readValueByHabit(table(people("Power", 5, 6))).concentration).toBeUndefined();
     });
 
     it("leaves hours per person out for a habit of fewer than five people", () => {
@@ -50,7 +76,19 @@ describe("value by habit", () => {
     });
 
     it("ignores habits it doesn't know", () => {
-        expect(readValueByHabit(table([["2025-03-01", "x", 0, "Inactive", 9]])).hoursByPerson).toEqual([]);
+        const read = readValueByHabit(table([["2025-03-01", "Inactive", 9, 9, null, null, null]]));
+        expect(read.cohorts.every((cohort) => cohort.people === 0)).toBe(true);
+        expect(read.month).toBeUndefined();
+    });
+
+    it("flags missing, fractional, duplicate and inconsistent totals instead of claiming no activity", () => {
+        expect(valueByHabitIncomplete(table([]))).toBe(false);
+        expect(valueByHabitIncomplete(table(people("Power", 5, 0)))).toBe(false);
+        expect(valueByHabitIncomplete({ columns: [], rows: [[5]] } as unknown as DataTable)).toBe(true);
+        expect(valueByHabitIncomplete(table(people("Power", 5.5, 1)))).toBe(true);
+        expect(valueByHabitIncomplete(table([...people("Power", 5, 1), ...people("Power", 5, 1)]))).toBe(true);
+        expect(valueByHabitIncomplete(table([...people("Power", 5, 1), ...cuts([1, 1, 1, 1, 2])]))).toBe(true);
+        expect(valueByHabitIncomplete(table([...people("Power", 5, 1), ...cuts([1, 1, 1, 1, 1])]))).toBe(false);
     });
 });
 

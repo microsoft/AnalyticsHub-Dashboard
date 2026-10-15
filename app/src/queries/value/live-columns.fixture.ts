@@ -11,6 +11,7 @@
  * Scenario filters applied.
  */
 export const liveColumns = {
+    // Recovered valueByHabit aggregates are authored contracts, not live validation.
     valueSummary: [
         "[Expert Equivalent Hours Per Week]",
         "[AI Assisted Value]",
@@ -45,5 +46,5 @@ export const liveColumns = {
     costValueAgents: ["[Agent]", "[Sessions]", "[Hours]", "[Value]"],
     // Authored from the model's measure definitions, not captured live: no published model was
     // reachable when these were written.
-    valuePerPerson: ["[Month]", "[User]", "[Active Days]", "[Cohort]", "[Hours]"],
+    valueByHabit: ["[Month]", "[Cohort]", "[People]", "[Hours]", "[Count]", "[Cumulative]", "[Total]"],
 } as const;

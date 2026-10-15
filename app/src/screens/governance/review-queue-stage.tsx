@@ -10,10 +10,12 @@ import { DataGrid, type GridColumnDef } from "@microsoft/fabric-datagrid";
 import { stageAnchor } from "@/components/destinations";
 import { Panel } from "@/components/report-panels";
 import { Section } from "@/components/section";
+import { TruncationNote } from "@/components/truncation-note";
 import { useThemeContext } from "@/hooks/theme.context";
 import { useTableQuery } from "@/hooks/use-table-query";
 import { gridHeight } from "@/lib/chart-height";
 import { columnHeat, heatRenderer } from "@/lib/heat";
+import { listTotal } from "@/lib/list-total";
 import { formatCell, textCell } from "@/lib/tree-grid";
 import { governanceReviewQueue } from "@/queries/governance";
 
@@ -30,6 +32,7 @@ export function ReviewQueueStage() {
     const { theme } = useThemeContext();
     const queue = useTableQuery(REVIEW_QUEUE);
     const rows = queue.table?.rows.length ?? 0;
+    const total = listTotal(queue.table);
 
     const columns = useMemo<GridColumnDef[]>(
         () => [
@@ -68,10 +71,11 @@ export function ReviewQueueStage() {
                         columns={columns}
                         data={table}
                         theme={theme}
-                        header={{ title: "Agents to review", subtitle: `${rows.toLocaleString()} flagged` }}
+                        header={{ title: "Agents to review", subtitle: total === undefined ? "Full flagged count unavailable" : `${total.toLocaleString()} flagged` }}
                     />
                 )}
             </Panel>
+            {!queue.isLoading && queue.error === undefined && <TruncationNote shown={rows} total={total} noun="flagged agents" />}
         </Section>
     );
 }

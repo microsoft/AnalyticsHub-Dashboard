@@ -11,6 +11,7 @@
  * names their DAX declares.
  */
 export const liveColumns = {
+    // Recovery totals and concentration columns are authored contracts, not live validation.
     consumptionDates: ["[First Date]", "[Last Date]"],
     consumptionByProduct: ["[Product]", "[Product Sort]", "[Credits]", "[Cost]", "[Cost Basis]", "[Coverage]"],
     consumptionNotes: ["[Reporting Window]", "[Reporting Caveat]", "[Rates In Use]", "[Azure Currency]"],
@@ -57,6 +58,7 @@ export const liveColumns = {
         "[Total Cost]",
         "[Policy]",
         "[Billing Name]",
+        "[Total]",
     ],
     studioCreditsSummary: [
         "[Credits Consumed]",
@@ -95,7 +97,8 @@ export const liveColumns = {
         "[Rows]",
     ],
     studioAzureDaily: ["[Usage Date]", "[Product]", "[Product Sort]", "[Cost]", "[Credits]"],
-    studioAgents: ["[Agent]", "[Credits Used]", "[Credit Share]", "[Billable Credits]", "[Estimated Cost]"],
+    studioAgents: ["[Agent]", "[Credits Used]", "[Credit Share]", "[Billable Credits]", "[Estimated Cost]", "[Total]"],
+    studioConcentration: ["[Count]", "[Cumulative]", "[People]", "[Total]"],
     studioUsers: [
         "Group By[Group]",
         "Credit Consumption (User)[User Name]",
@@ -106,6 +109,7 @@ export const liveColumns = {
         "[Billable Credits]",
         "[Estimated Cost]",
         "[Policy]",
+        "[Total]",
     ],
     azureSource: ["[Solution Rows]", "[Solution Currencies]", "[Foundry Rows]", "[Foundry Currency]"],
     azureSolutionSummary: [

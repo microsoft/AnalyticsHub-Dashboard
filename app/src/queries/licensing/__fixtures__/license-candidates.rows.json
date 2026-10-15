@@ -5,7 +5,8 @@
     "[Organization]": "IT",
     "[Priority Score]": 26,
     "[Sessions Per Week]": 3,
-    "[Active Days Per Week]": 2.5
+    "[Active Days Per Week]": 2.5,
+    "[Total]": 10
   },
   {
     "[Rank]": 2,
@@ -13,7 +14,8 @@
     "[Organization]": "Sales",
     "[Priority Score]": 20,
     "[Sessions Per Week]": 2,
-    "[Active Days Per Week]": 2
+    "[Active Days Per Week]": 2,
+    "[Total]": 10
   },
   {
     "[Rank]": 3,
@@ -21,7 +23,8 @@
     "[Organization]": "Marketing",
     "[Priority Score]": 17,
     "[Sessions Per Week]": 1.6666666666666667,
-    "[Active Days Per Week]": 1.6666666666666667
+    "[Active Days Per Week]": 1.6666666666666667,
+    "[Total]": 10
   },
   {
     "[Rank]": 3,
@@ -29,7 +32,8 @@
     "[Organization]": "Finance",
     "[Priority Score]": 17,
     "[Sessions Per Week]": 1.6666666666666667,
-    "[Active Days Per Week]": 1.6666666666666667
+    "[Active Days Per Week]": 1.6666666666666667,
+    "[Total]": 10
   },
   {
     "[Rank]": 4,
@@ -37,7 +41,8 @@
     "[Organization]": "Legal",
     "[Priority Score]": 16,
     "[Sessions Per Week]": 2,
-    "[Active Days Per Week]": 1.5
+    "[Active Days Per Week]": 1.5,
+    "[Total]": 10
   },
   {
     "[Rank]": 4,
@@ -45,7 +50,8 @@
     "[Organization]": "Sales",
     "[Priority Score]": 16,
     "[Sessions Per Week]": 1.8,
-    "[Active Days Per Week]": 1.6
+    "[Active Days Per Week]": 1.6,
+    "[Total]": 10
   },
   {
     "[Rank]": 5,
@@ -53,7 +59,8 @@
     "[Organization]": "Marketing",
     "[Priority Score]": 15,
     "[Sessions Per Week]": 1.5,
-    "[Active Days Per Week]": 1.5
+    "[Active Days Per Week]": 1.5,
+    "[Total]": 10
   },
   {
     "[Rank]": 5,
@@ -61,7 +68,8 @@
     "[Organization]": "Legal",
     "[Priority Score]": 15,
     "[Sessions Per Week]": 1.5,
-    "[Active Days Per Week]": 1.5
+    "[Active Days Per Week]": 1.5,
+    "[Total]": 10
   },
   {
     "[Rank]": 5,
@@ -69,7 +77,8 @@
     "[Organization]": "HR",
     "[Priority Score]": 15,
     "[Sessions Per Week]": 1.5,
-    "[Active Days Per Week]": 1.5
+    "[Active Days Per Week]": 1.5,
+    "[Total]": 10
   },
   {
     "[Rank]": 6,
@@ -77,6 +86,7 @@
     "[Organization]": "IT",
     "[Priority Score]": 13,
     "[Sessions Per Week]": 1.6,
-    "[Active Days Per Week]": 1.2
+    "[Active Days Per Week]": 1.2,
+    "[Total]": 10
   }
 ]

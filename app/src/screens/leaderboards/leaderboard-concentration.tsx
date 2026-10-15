@@ -9,26 +9,24 @@ import { useMemo } from "react";
 import { ConcentrationPanel } from "@/components/concentration-panel";
 import { useOrgAttribute } from "@/hooks/filter.context";
 import { useTableQuery } from "@/hooks/use-table-query";
-import { personValues } from "@/lib/concentration";
-import { LEADERBOARD_USER_COLUMN, leaderboardPeople, type LeaderboardCohort } from "@/queries/work";
+import { readConcentration } from "@/lib/concentration";
+import { leaderboardConcentration, type LeaderboardCohort } from "@/queries/work";
 
 /**
  * How much of the ranked cohort's sessions the busiest people account for,
- * read from the same per-person rows as the user breakdown.
+ * over the same per-person rows as the user breakdown, worked out in the
+ * model so it covers people beyond the breakdown's cap.
  */
 export function LeaderboardConcentration({ cohort, noun }: { cohort: LeaderboardCohort; noun: string }) {
     const org = useOrgAttribute();
-    const source = useMemo(() => leaderboardPeople(cohort, org), [cohort, org]);
+    const source = useMemo(() => leaderboardConcentration(cohort, org), [cohort, org]);
     const result = useTableQuery(source);
-    const values = useMemo(
-        () => personValues(result.table, LEADERBOARD_USER_COLUMN, "Sessions", ["Is Grand Total", "Is Group Total"]),
-        [result.table],
-    );
+    const summary = useMemo(() => readConcentration(result.table), [result.table]);
 
     return (
         <ConcentrationPanel
             result={result}
-            values={values}
+            summary={summary}
             noun={noun}
             title={`How concentrated ${noun} are`}
             subtitle={`Each person's share of ${noun}, busiest first, for the dates and filters selected`}

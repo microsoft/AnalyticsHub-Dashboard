@@ -55,25 +55,46 @@ export function concentration(values: readonly number[]): Concentration | undefi
     const total = sorted.reduce((sum, value) => sum + value, 0);
     if (sorted.length === 0 || total <= 0) return undefined;
 
-    const people = sorted.length;
     const cumulative: number[] = [];
     let running = 0;
     for (const value of sorted) {
         running += value;
         cumulative.push(running);
     }
+    return summarize(sorted.length, total, (count) => cumulative[count - 1]);
+}
 
-    const slices = TOP_SLICES.map((pct) => {
-        const size = Math.ceil(pct * people);
-        return { pct, people: size, share: cumulative[size - 1] / total };
-    }).filter((slice) => slice.people >= MIN_PEOPLE);
+/**
+ * The slices and curve from the number of people, their total and the sum of
+ * the busiest `count` people's values, for whichever counts are needed.
+ * Undefined when a needed sum is missing.
+ */
+function summarize(
+    people: number,
+    total: number,
+    cumulativeAt: (count: number) => number | undefined,
+): Concentration | undefined {
+    if (!Number.isSafeInteger(people) || people <= 0 || !Number.isFinite(total) || total <= 0) return undefined;
 
-    return { total, people, slices, points: paretoPoints(cumulative, total) };
+    const slices: ConcentrationSlice[] = [];
+    for (const pct of TOP_SLICES) {
+        // Integer percentages agree with DAX's integer cut arithmetic, including 0.05 * 140.
+        const size = Math.ceil(((pct * 100) * people) / 100);
+        const cumulative = cumulativeAt(size);
+        if (cumulative === undefined) return undefined;
+        if (size >= MIN_PEOPLE) slices.push({ pct, people: size, share: cumulative / total });
+    }
+
+    const points = paretoPoints(people, total, cumulativeAt);
+    return points && { total, people, slices, points };
 }
 
 /** The curve from (0, 0) to (1, 1), thinned evenly but always keeping both ends. */
-function paretoPoints(cumulative: readonly number[], total: number): ParetoPoint[] {
-    const people = cumulative.length;
+function paretoPoints(
+    people: number,
+    total: number,
+    cumulativeAt: (count: number) => number | undefined,
+): ParetoPoint[] | undefined {
     const steps = Math.min(people, MAX_POINTS - 1);
     const points: ParetoPoint[] = [{ peopleShare: 0, totalShare: 0 }];
     let last = 0;
@@ -81,9 +102,70 @@ function paretoPoints(cumulative: readonly number[], total: number): ParetoPoint
         const count = step === steps ? people : Math.round((step * people) / steps);
         if (count <= last) continue;
         last = count;
-        points.push({ peopleShare: count / people, totalShare: cumulative[count - 1] / total });
+        const cumulative = cumulativeAt(count);
+        if (cumulative === undefined) return undefined;
+        points.push({ peopleShare: count / people, totalShare: cumulative / total });
     }
     return points;
+}
+
+/** The columns of a concentration query's cut rows, as {@link readConcentration} reads them. */
+export const CUT_COUNT = "Count";
+export const CUT_CUMULATIVE = "Cumulative";
+export const CUT_PEOPLE = "People";
+export const CUT_TOTAL = "Total";
+
+/**
+ * The same figures as {@link concentration}, from a query that worked them
+ * out in the model: one row per cut, with the cut's `Count` of busiest people
+ * and the `Cumulative` sum of their values, and the `People` with a value
+ * and their `Total` repeated on each. The query returns every count the
+ * slices and curve need, so no person's value has to leave the model. Rows
+ * without a count are skipped, so a query can return cut rows beside others.
+ */
+export function readConcentration(table: DataTable | undefined): Concentration | undefined {
+    if (!table) return undefined;
+    const at = (name: string) => table.columns.findIndex((column) => column.name === name);
+    const [countAt, cumulativeAt, peopleAt, totalAt] = [CUT_COUNT, CUT_CUMULATIVE, CUT_PEOPLE, CUT_TOTAL].map(at);
+    if ([countAt, cumulativeAt, peopleAt, totalAt].some((index) => index < 0)) return undefined;
+
+    const sums = new Map<number, number>();
+    let people = 0;
+    let total = 0;
+    for (const row of table.rows) {
+        const [count, cumulative] = [row[countAt], row[cumulativeAt]];
+        if (count === null || count === undefined) continue;
+        if (typeof count !== "number" || !Number.isSafeInteger(count) || count <= 0 ||
+            typeof cumulative !== "number" || !Number.isFinite(cumulative) || cumulative <= 0) return undefined;
+        const rowPeople = row[peopleAt];
+        const rowTotal = row[totalAt];
+        if (typeof rowPeople !== "number" || !Number.isSafeInteger(rowPeople) || rowPeople < count ||
+            typeof rowTotal !== "number" || !Number.isFinite(rowTotal) || rowTotal <= 0) return undefined;
+        if (people && (rowPeople !== people || rowTotal !== total)) return undefined;
+        if (sums.has(count) && sums.get(count) !== cumulative) return undefined;
+        if (cumulative > rowTotal + Math.abs(rowTotal) * 1e-9) return undefined;
+        sums.set(count, cumulative);
+        people = rowPeople;
+        total = rowTotal;
+    }
+    const final = sums.get(people);
+    if (final === undefined || Math.abs(final - total) > Math.abs(total) * 1e-9) return undefined;
+    let previous = 0;
+    for (const [, sum] of [...sums].sort(([a], [b]) => a - b)) {
+        if (sum < previous - Math.abs(total) * 1e-9) return undefined;
+        previous = sum;
+    }
+    return summarize(people, total, (count) => sums.get(count));
+}
+
+/** Distinguishes a broken aggregate response from a genuinely empty population. */
+export function concentrationIncomplete(table: DataTable | undefined, summary: Concentration | undefined): boolean {
+    if (!table || summary || table.rows.length === 0) return false;
+    const at = (name: string) => table.columns.findIndex((column) => column.name === name);
+    if ([CUT_COUNT, CUT_CUMULATIVE, CUT_PEOPLE, CUT_TOTAL].some((name) => at(name) < 0)) return true;
+    // Habit rows can legitimately exist with no positive hours and thus no cuts.
+    return table.rows.some((row) => row[at(CUT_COUNT)] != null ||
+        Number(row[at(CUT_TOTAL)]) > 0 || Number(row[at("Hours")]) > 0 || at("Cohort") < 0);
 }
 
 /**

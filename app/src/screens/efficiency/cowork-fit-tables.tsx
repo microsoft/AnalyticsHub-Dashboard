@@ -10,6 +10,7 @@ import { Flag } from "lucide-react";
 import { DataGrid, type CellValue, type GridColumnDef, type Row } from "@microsoft/fabric-datagrid";
 import { GradeMark, GradeMix } from "@/components/grade-mark";
 import { TreeFrame } from "@/components/tree-frame";
+import { TruncationNote } from "@/components/truncation-note";
 import { useOrgAttribute } from "@/hooks/filter.context";
 import { useThemeContext } from "@/hooks/theme.context";
 import { useFilteredQuery } from "@/hooks/use-filtered-query";
@@ -20,6 +21,7 @@ import { formatKpi } from "@/lib/format-kpi";
 import type { FilterKey } from "@/lib/filters";
 import { workWeightGrade } from "@/lib/grading-method";
 import { heatDomain, heatRenderer, type HeatDomain } from "@/lib/heat";
+import { leafCount, listTotal } from "@/lib/list-total";
 import { isGroupRow, visibleRowCount } from "@/lib/rollup-tree";
 import { toDataTable } from "@/lib/to-data-table";
 import { asNumber, formatCell, textCell, totalsRow, TREE_GRID, withExpansion } from "@/lib/tree-grid";
@@ -179,13 +181,11 @@ export function PeopleTable({ ignore }: CoworkTableProps) {
     const source = useMemo(() => coworkFitPeople(org), [org]);
     const result = useFilteredQuery({ connection: source.connection, query: source.query }, { ignore });
     const blankLabel = `Unassigned ${org.noun}`;
-    const tree = useMemo(
-        () =>
-            result.data?.status === "success"
-                ? toPeopleTree(toDataTable(result.data.table, source.columnMetadata), blankLabel)
-                : undefined,
-        [result.data, source.columnMetadata, blankLabel],
+    const table = useMemo(
+        () => (result.data?.status === "success" ? toDataTable(result.data.table, source.columnMetadata) : undefined),
+        [result.data, source.columnMetadata],
     );
+    const tree = useMemo(() => (table ? toPeopleTree(table, blankLabel) : undefined), [table, blankLabel]);
 
     const gridKey = `${org.column}|${tree?.rows.map((row) => row._id).join("|") ?? ""}`;
     const rows = useMemo(() => withExpansion(tree, false), [tree]);
@@ -251,28 +251,33 @@ export function PeopleTable({ ignore }: CoworkTableProps) {
     const visible = visibleRowCount(rows ?? [], (row) => ids.has(row._id as string));
 
     return (
-        <TreeFrame
-            tree={tree}
-            error={result.data?.status === "error" ? result.data.error.message : undefined}
-            onRetry={result.refetch}
-            isLoading={result.isLoading}
-            height={tree ? gridHeight(visible + (total ? 1 : 0), TREE_GRID) : undefined}
-            emptyTitle="Nobody with enough graded sessions"
-            emptyDescription={`A person or ${org.noun} appears here once they have five graded Cowork sessions in this selection.`}
-        >
-            <DataGrid
-                key={gridKey}
-                columns={columns}
-                data={rows}
-                defaultSort={[{ columnId: "Sessions", direction: "desc" }]}
-                grandTotals={total ? { position: "bottom", data: total } : undefined}
-                onRowToggle={onRowToggle}
-                theme={theme}
-                header={{
-                    title: "Who is doing it",
-                    subtitle: `Each ${org.noun}, then its people. Shares are of graded sessions; a flag marks half or more at Worth a look.`,
-                }}
-            />
-        </TreeFrame>
+        <div className="flex flex-col gap-200">
+            <TreeFrame
+                tree={tree}
+                error={result.data?.status === "error" ? result.data.error.message : undefined}
+                onRetry={result.refetch}
+                isLoading={result.isLoading}
+                height={tree ? gridHeight(visible + (total ? 1 : 0), TREE_GRID) : undefined}
+                emptyTitle="Nobody with enough graded sessions"
+                emptyDescription={`A person or ${org.noun} appears here once they have five graded Cowork sessions in this selection.`}
+            >
+                <DataGrid
+                    key={gridKey}
+                    columns={columns}
+                    data={rows}
+                    defaultSort={[{ columnId: "Sessions", direction: "desc" }]}
+                    grandTotals={total ? { position: "bottom", data: total } : undefined}
+                    onRowToggle={onRowToggle}
+                    theme={theme}
+                    header={{
+                        title: "Who is doing it",
+                        subtitle: `Each ${org.noun}, then its people. Shares are of graded sessions; a flag marks half or more at Worth a look.`,
+                    }}
+                />
+            </TreeFrame>
+            {table && (
+                <TruncationNote shown={leafCount(table)} total={listTotal(table)} noun="person rows" by="by graded sessions" rollup />
+            )}
+        </div>
     );
 }

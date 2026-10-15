@@ -7,6 +7,7 @@
 
 /** Column names returned by the live semantic model on 2026-09-29. */
 export const liveColumns = {
+    // The recovery's Total column is an authored contract, not live validation.
     modelFitSummary: [
         "[Sessions]",
         "[Logged Share]",
@@ -85,5 +86,6 @@ export const liveColumns = {
         "[Fair]",
         "[Worth A Look]",
         "[Flagged People]",
+        "[Total]",
     ],
 } as const;

@@ -16,6 +16,7 @@ import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states"
 import { Section } from "@/components/section";
 import { SegmentedControl } from "@/components/segmented-control";
 import { TreeFrame } from "@/components/tree-frame";
+import { TruncationNote } from "@/components/truncation-note";
 import { useFilterContext, useOrgAttribute } from "@/hooks/filter.context";
 import { useThemeContext } from "@/hooks/theme.context";
 import { useFilteredQuery } from "@/hooks/use-filtered-query";
@@ -24,6 +25,7 @@ import { gridHeight } from "@/lib/chart-height";
 import { selectedCohort, unlicensedOnly } from "@/lib/filters";
 import { formatKpi, type KpiFormat } from "@/lib/format-kpi";
 import { heatDomain, heatRenderer } from "@/lib/heat";
+import { leafCount, listTotal } from "@/lib/list-total";
 import { isGroupRow, visibleRowCount, type RollupTree } from "@/lib/rollup-tree";
 import { scrollToAnchor } from "@/lib/scroll-to-anchor";
 import { readNumber, readText, toSummaryRow, type SummaryRow } from "@/lib/summary-row";
@@ -241,10 +243,11 @@ function LeaderboardBreakdown({ cohort, view }: { cohort: LeaderboardCohort; vie
     }, [cohort, view, org]);
 
     const result = useFilteredQuery({ connection: source.connection, query: source.query });
-    const tree = useMemo(() => {
+    const table = useMemo(() => {
         if (result.data?.status !== "success" || !isShapedFor(result.data.table, source.columnMetadata)) return undefined;
-        return source.toTree(toDataTable(result.data.table, source.columnMetadata));
+        return toDataTable(result.data.table, source.columnMetadata);
     }, [result.data, source]);
+    const tree = useMemo(() => (table ? source.toTree(table) : undefined), [table, source]);
 
     const gridKey = `${cohort}|${view}|${org.column}|${tree?.rows.map((row) => row._id).join("|") ?? ""}`;
     const rows = useMemo(() => withExpansion(tree, false), [tree]);
@@ -311,26 +314,31 @@ function LeaderboardBreakdown({ cohort, view }: { cohort: LeaderboardCohort; vie
 
     return (
         <div className="grid grid-cols-1 items-start gap-500 2xl:grid-cols-[minmax(0,1fr)_300px]">
-            <TreeFrame
-                tree={tree}
-                error={result.data?.status === "error" ? result.data.error.message : undefined}
-                onRetry={result.refetch}
-                isLoading={result.isLoading}
-                height={tree ? gridHeight(visible + (total ? 1 : 0), TREE_GRID) : undefined}
-                emptyTitle={source.emptyTitle}
-                emptyDescription={source.emptyDescription}
-            >
-                <DataGrid
-                    key={gridKey}
-                    columns={columns}
-                    data={rows}
-                    defaultSort={[{ columnId: "Sessions", direction: "desc" }]}
-                    grandTotals={total ? { position: "bottom", data: total } : undefined}
-                    onRowToggle={onRowToggle}
-                    theme={theme}
-                    header={{ title: source.title, subtitle: source.subtitle(tree?.rows.length ?? 0) }}
-                />
-            </TreeFrame>
+            <div className="flex flex-col gap-200">
+                <TreeFrame
+                    tree={tree}
+                    error={result.data?.status === "error" ? result.data.error.message : undefined}
+                    onRetry={result.refetch}
+                    isLoading={result.isLoading}
+                    height={tree ? gridHeight(visible + (total ? 1 : 0), TREE_GRID) : undefined}
+                    emptyTitle={source.emptyTitle}
+                    emptyDescription={source.emptyDescription}
+                >
+                    <DataGrid
+                        key={gridKey}
+                        columns={columns}
+                        data={rows}
+                        defaultSort={[{ columnId: "Sessions", direction: "desc" }]}
+                        grandTotals={total ? { position: "bottom", data: total } : undefined}
+                        onRowToggle={onRowToggle}
+                        theme={theme}
+                        header={{ title: source.title, subtitle: source.subtitle(tree?.rows.length ?? 0) }}
+                    />
+                </TreeFrame>
+                {source.peopleLeaves && table && (
+                    <TruncationNote shown={leafCount(table)} total={listTotal(table)} noun="person rows" by="by sessions" rollup />
+                )}
+            </div>
             <RankingNotes cohort={cohort} unassigned={unassigned} />
         </div>
     );

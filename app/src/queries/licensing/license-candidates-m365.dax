@@ -34,11 +34,22 @@ VAR _scored =
                     0
                 )
     )
-VAR _ranked = ADDCOLUMNS(_scored, "@Rank", RANKX(_scored, [@Score], , DESC, DENSE))
+-- A dense rank is one more than the number of distinct higher scores; scores
+-- are whole numbers from 0 to 100, so this stays cheap however many people rank.
+VAR _scores = DISTINCT(SELECTCOLUMNS(_scored, "@Value", [@Score]))
+VAR _total = COUNTROWS(_scored)
 RETURN
 SELECTCOLUMNS(
-    _ranked,
-    "Rank", [@Rank],
+    TOPN(
+        1000,
+        _scored,
+        [@Score], DESC,
+        [@Sessions], DESC,
+        'Chat + Agent Interactions (Audit Logs)'[Audit_UserId], ASC
+    ),
+    "Rank",
+        VAR _score = [@Score]
+        RETURN COUNTROWS(FILTER(_scores, [@Value] > _score)) + 1,
     "User", 'Chat + Agent Interactions (Audit Logs)'[Audit_UserId],
     "Organization",
         LOOKUPVALUE(
@@ -48,6 +59,7 @@ SELECTCOLUMNS(
     "Priority Score", [@Score],
     "Sessions Per Week", [@Sessions],
     "Active Days Per Week", [@Days],
-    "Workloads Per Day", [@Breadth]
+    "Workloads Per Day", [@Breadth],
+    "Total", _total
 )
 ORDER BY [Rank], [Priority Score] DESC, [Sessions Per Week] DESC, [User]

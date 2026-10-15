@@ -7,6 +7,28 @@ The app keeps no copy of your data. Each page queries the semantic model live, a
 viewing it, so row-level security applies. How each figure is worked out is in the
 [methodology](../docs/METHODOLOGY.md).
 
+## Bounded detail lists
+
+Person and registry detail lists return the top 1,000 rows, with deterministic
+tie-breakers. Consumption's Studio agent list follows the same limit. Sorting
+or filtering inside a grid acts on those returned rows; use the page filters
+to query another selection. Truncation notices identify omitted rows and flag
+unavailable full counts rather than substituting the displayed row count.
+
+Group and grand totals still cover the full filtered population, including
+groups whose people are outside the cap. Person-row counts can include the
+same person under multiple groups. Leaderboard and Studio concentration are
+computed separately across all person rows, combining repeat person keys
+before selecting positive values. Value by habit returns whole-population
+habit totals and concentration cuts, not a truncated person list. Agent
+spotlights return full-population maxima and tie counts with two named
+winners; separate agents with the same display name still count separately.
+
+These payload limits are not proof of lower model latency. Query-shape and
+synthetic tests do not establish live DAX equivalence. Validate against the
+same model, data, filters and assumptions before deployment; the request
+scheduler's concurrency, pacing and retry protections must stay unchanged.
+
 ## Deploy it by hand
 
 You need:
