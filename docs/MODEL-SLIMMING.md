@@ -77,6 +77,26 @@ unchanged. Additional months are rewritten only when their conversation values a
 Null IDs form a group, matching the existing calculation contract, so a changed null-ID group can
 legitimately affect several months. This is not an approximation or a fixed lookback for threads.
 
+**Fabric materialization.** Incremental conversation updates write and reread run-owned Parquet
+snapshots in `Files/_valuelens_conversations/<run-uuid>/` in the **output table's** lakehouse.
+The processor derives its shared ABFSS path from `DESCRIBE DETAIL OUT_TABLE`, supporting both
+`Tables/<table>` and `Tables/<schema>/<table>` locations, including custom output tables. Other
+locations fail explicitly; there is no fallback to driver-local storage or the default lakehouse.
+The run identity needs write/delete access to that lakehouse's `Files` area as well as the table.
+Full rebuilds and unchanged runs need no conversation staging.
+This materialization fix does not change curated values or column types, so processor logic
+version 2 is retained and no additional one-time full rebuild is required.
+
+These snapshots sever source/target lineage before Delta replacement and remain readable after
+executor cache loss. Executor-local checkpoints and `persist` plus `count` are not substitutes:
+the former can lose their only copy, and the latter can recompute against replaced source files.
+No shared dynamic-allocation or Spark checkpoint-directory settings are changed. Snapshots live
+through historical-change detection, the atomic Delta write and refresh/state marking; no staged
+frame is returned from publishing. Normal success/failure removes only that run's UUID directory,
+including partial writes. A retry uses fresh paths. Cleanup errors are reported. A terminated
+driver can leave an orphan directory: remove only its specific run directory after confirming that
+the run and all readers have ended, never the staging root or another active run's files.
+
 If older curated dates changed, refresh historical semantic-model partitions, not only the recent
 refresh window. Azure's publish fingerprint and refresh logic request an all-partition refresh for
 older changed days. On Fabric, the processor compares old-day output fingerprints and records a
@@ -91,7 +111,13 @@ with the correct default lakehouse, or explicitly refresh all historical partiti
 snapshot preservation and full-rebuild equality on Azure/DuckDB and the Spark notebook functions.
 `tests/conversation_parity.py` is also runnable with `run_spark(spark)` on Fabric using temporary
 parsed-input views. It performs no production writes. Delta replacement and live DAX are separate
-checks. A generator that supplies curated tables directly cannot validate the parsing pipeline:
+checks. The fixture's `run_materialization_regression(spark)` first reproduces the unsafe
+local-checkpoint failure by removing only its own checkpoint RDD. It then evicts its own cached input/output,
+replaces its source files, checks the original snapshot plus nullable/complex schemas and empty
+frames, and confirms cleanup cannot remove another active run's snapshot. Both routines clean
+their own temporary Parquet files (`Files/_valuelens_conversation_tests` on Fabric); neither
+disables dynamic allocation nor clears other sessions' caches.
+A generator that supplies curated tables directly cannot validate the parsing pipeline:
 use the parsed fixture for that check and verify input coverage before backfilling model columns.
 
 ## The integer keys
