@@ -11,7 +11,7 @@ import { commandLine } from '../launch.js';
 import { EVERYONE_ROLE, rlsSettings, SCOPED_ROLE } from '../transform/access.js';
 import { buildModel, datasourcePath, loadTemplateModel, PBISM } from '../transform/model.js';
 import { formatDuration } from '../ui.js';
-import { createItem } from './fabric.js';
+import { createItem, modelKey } from './fabric.js';
 import { addMonths, SECRET_LIFETIME_MONTHS } from './identity.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
@@ -117,7 +117,7 @@ export async function deployModel(ctx, m, o) {
   }
   const deployed = !m.id || !!o.force || m.signature !== signature;
   if (!m.id) {
-    const made = await createItem(ctx, `SemanticModel:${m.name}`, 'SemanticModel', m.name, items, (name) => api.fabric.createSemanticModel(ws, name, definition));
+    const made = await createItem(ctx, `SemanticModel:${modelKey(ctx.config, m)}`, 'SemanticModel', m.name, items, (name, ref) => api.fabric.createSemanticModel(ws, name, definition, ref));
     m.id = made.id;
     m.name = made.name;
     if (made.resumed) await api.fabric.updateSemanticModel(ws, made.id, definition);

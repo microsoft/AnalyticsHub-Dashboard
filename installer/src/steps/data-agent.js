@@ -140,7 +140,7 @@ export async function deployDataAgent(ctx) {
     delete da.publishedSignature;
   }
   if (!da.id) {
-    const made = await createItem(ctx, 'DataAgent', DATA_AGENT_TYPE, da.name, items, (name) => api.fabric.createDataAgent(ws, name, definition));
+    const made = await createItem(ctx, 'DataAgent', DATA_AGENT_TYPE, da.name, items, (name, ref) => api.fabric.createDataAgent(ws, name, definition, ref));
     da.id = made.id;
     da.name = made.name;
     if (made.resumed) await api.fabric.updateDataAgent(ws, made.id, definition);

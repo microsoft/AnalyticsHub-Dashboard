@@ -9,7 +9,7 @@ import { loadTemplateReport, reportDefinition, reportSignature } from '../transf
 import { c } from '../ui.js';
 import { agentEvaluatorModelWanted } from './agent-evaluator.js';
 import { consumptionModelWanted } from './consumption.js';
-import { createItem } from './fabric.js';
+import { createItem, modelKey } from './fabric.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 /** @typedef {import('../config.js').ModelConfig} ModelConfig */
@@ -72,7 +72,7 @@ export async function deployReport(ctx, w) {
   }
   if (!r.id) {
     const definition = reportDefinition(parts, m.id);
-    const made = await createItem(ctx, `Report:${r.name}`, 'Report', r.name, items, (name) => api.fabric.createReport(ws, name, definition));
+    const made = await createItem(ctx, `Report:${modelKey(ctx.config, m)}`, 'Report', r.name, items, (name, ref) => api.fabric.createReport(ws, name, definition, ref));
     r.id = made.id;
     r.name = made.name;
     if (made.resumed) await api.fabric.updateReport(ws, made.id, definition);

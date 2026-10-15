@@ -195,7 +195,7 @@ export async function ensureCoworkDataflow(ctx) {
       delete cc.dataflowSignature;
     }
     if (!cc.dataflowId) {
-      const made = await createItem(ctx, 'Dataflow', 'Dataflow', name, items, (n) => api.fabric.createDataflow(ws, n, 'Cowork Copilot credits from Viva Insights, for Analytics Hub. The pipeline refreshes it before loading them.'));
+      const made = await createItem(ctx, 'Dataflow', 'Dataflow', name, items, (n, ref) => api.fabric.createDataflow(ws, n, 'Cowork Copilot credits from Viva Insights, for Analytics Hub. The pipeline refreshes it before loading them.', ref));
       name = made.name;
       cc.dataflowId = made.id;
       cc.dataflowName = name;

@@ -127,7 +127,7 @@ export function fakeConnections(o = {}) {
 /** A Fabric workspace held in memory. */
 export function fakeFabric() {
   let n = 0;
-  /** @type {{ id: string, type: string, displayName: string, content?: any }[]} */
+  /** @type {{ id: string, type: string, displayName: string, content?: any, description?: string }[]} */
   const items = [];
   /** @type {any[]} */
   const schedules = [];
@@ -161,8 +161,8 @@ export function fakeFabric() {
     const err = failures[method]?.shift();
     if (err) throw err;
   };
-  const add = (/** @type {string} */ type, /** @type {string} */ displayName, /** @type {any} */ content) => {
-    const item = { id: `${type.toLowerCase()}-${++n}`, type, displayName, content };
+  const add = (/** @type {string} */ type, /** @type {string} */ displayName, /** @type {any} */ content, /** @type {string} */ description = '') => {
+    const item = { id: `${type.toLowerCase()}-${++n}`, type, displayName, content, description };
     items.push(item);
     return item;
   };
@@ -173,11 +173,11 @@ export function fakeFabric() {
   };
   const api = {
     /** @param {string} _ws @param {string} type */
-    listItems: async (_ws, type) => items.filter((i) => i.type === type).map(({ id, type: t, displayName }) => ({ id, type: t, displayName })),
-    /** @param {string} _ws @param {string} name @param {string} content */
-    createNotebook: async (_ws, name, content) => {
+    listItems: async (_ws, type) => items.filter((i) => i.type === type).map(({ id, type: t, displayName, description }) => ({ id, type: t, displayName, description })),
+    /** @param {string} _ws @param {string} name @param {string} content @param {string} [ref] */
+    createNotebook: async (_ws, name, content, ref) => {
       calls.push(`createNotebook ${name}`);
-      return { id: add('Notebook', name, content).id };
+      return { id: add('Notebook', name, content, ref).id };
     },
     /** @param {string} _ws @param {string} id @param {string} content */
     updateNotebook: async (_ws, id, content) => {
@@ -185,11 +185,11 @@ export function fakeFabric() {
       find(id).content = content;
       return null;
     },
-    /** @param {string} _ws @param {string} name */
-    createDataflow: async (_ws, name) => {
+    /** @param {string} _ws @param {string} name @param {string} [_description] @param {string} [ref] */
+    createDataflow: async (_ws, name, _description, ref) => {
       calls.push(`createDataflow ${name}`);
       fail('createDataflow');
-      return { id: add('Dataflow', name, null).id };
+      return { id: add('Dataflow', name, null, ref).id };
     },
     /** @param {string} _ws @param {string} id @param {any} def */
     updateDataflow: async (_ws, id, def) => {
@@ -205,11 +205,11 @@ export function fakeFabric() {
       const connections = dataflowConnections.length > 1 ? dataflowConnections.shift() : (dataflowConnections[0] ?? []);
       return { 'queryMetadata.json': JSON.stringify({ name: items.find((i) => i.id === id)?.displayName, connections }), 'mashup.pq': 'section Section1;' };
     },
-    /** @param {string} _ws @param {string} name @param {any} def */
-    createPipeline: async (_ws, name, def) => {
+    /** @param {string} _ws @param {string} name @param {any} def @param {string} [ref] */
+    createPipeline: async (_ws, name, def, ref) => {
       calls.push(`createPipeline ${name}`);
       // Fabric may answer 202 with no body; the step then finds the item by name.
-      add('DataPipeline', name, def);
+      add('DataPipeline', name, def, ref);
       return null;
     },
     /** @param {string} _ws @param {string} id @param {any} def */
@@ -277,22 +277,22 @@ export function fakeFabric() {
       find(id).displayName = name;
       return null;
     },
-    /** @param {string} _ws @param {string} name */
-    createLakehouse: async (_ws, name) => {
+    /** @param {string} _ws @param {string} name @param {string} [ref] */
+    createLakehouse: async (_ws, name, ref) => {
       calls.push(`createLakehouse ${name}`);
-      return { id: add('Lakehouse', name, null).id };
+      return { id: add('Lakehouse', name, null, ref).id };
     },
-    /** @param {string} _ws @param {string} type @param {string} name */
-    createItem: async (_ws, type, name) => {
+    /** @param {string} _ws @param {string} type @param {string} name @param {string} [ref] */
+    createItem: async (_ws, type, name, ref) => {
       calls.push(`createItem ${type} ${name}`);
-      const item = add(type, name, null);
+      const item = add(type, name, null, ref);
       return { id: item.id, type, displayName: name };
     },
-    /** @param {string} _ws @param {string} name @param {any} def */
-    createSemanticModel: async (_ws, name, def) => {
+    /** @param {string} _ws @param {string} name @param {any} def @param {string} [ref] */
+    createSemanticModel: async (_ws, name, def, ref) => {
       calls.push(`createSemanticModel ${name}`);
       fail('createSemanticModel');
-      return { id: add('SemanticModel', name, def).id };
+      return { id: add('SemanticModel', name, def, ref).id };
     },
     /** @param {string} _ws @param {string} id @param {any} def */
     updateSemanticModel: async (_ws, id, def) => {
@@ -300,11 +300,11 @@ export function fakeFabric() {
       find(id).content = def;
       return null;
     },
-    /** @param {string} _ws @param {string} name @param {any} def */
-    createReport: async (_ws, name, def) => {
+    /** @param {string} _ws @param {string} name @param {any} def @param {string} [ref] */
+    createReport: async (_ws, name, def, ref) => {
       calls.push(`createReport ${name}`);
       fail('createReport');
-      return { id: add('Report', name, def).id };
+      return { id: add('Report', name, def, ref).id };
     },
     /** @param {string} _ws @param {string} id @param {any} def */
     updateReport: async (_ws, id, def) => {
@@ -312,11 +312,11 @@ export function fakeFabric() {
       find(id).content = def;
       return null;
     },
-    /** @param {string} _ws @param {string} name @param {any} def */
-    createDataAgent: async (_ws, name, def) => {
+    /** @param {string} _ws @param {string} name @param {any} def @param {string} [ref] */
+    createDataAgent: async (_ws, name, def, ref) => {
       calls.push(`createDataAgent ${name}`);
       fail('createDataAgent');
-      return { id: add('DataAgent', name, def).id };
+      return { id: add('DataAgent', name, def, ref).id };
     },
     /** @param {string} _ws @param {string} id @param {any} def */
     updateDataAgent: async (_ws, id, def) => {

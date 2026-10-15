@@ -140,10 +140,14 @@ Deployment instructions do **not** live here. They live in the READMEs:
 - **A run stopped part-way no longer leaves a second copy behind.** If the installer was closed
   while Fabric was creating a notebook, the pipeline, a model, a report, the data agent, the
   Dataflow or the app, the next run made a `_2` copy beside the first and left the first, with its
-  client secret, outside the install. The installer now saves each item's name before creating it
-  and, on the next run, uses and updates the item the stopped run made. The notebook client secret
-  is saved too, so the next run that rewrites the notebooks removes it from the app registration.
-  Items you made yourself with the same name are still left alone.
+  client secret, outside the install. The installer now saves each item's name and a one-off
+  reference before creating it, and writes the reference into the item's description. The next
+  run uses and updates an item only when both match, so an item someone else made with that name
+  is still left alone. A new notebook client secret is saved before it's used, and an old one stays
+  in the install record until Entra confirms it's removed, so a later run finishes the job.
+  Installs interrupted by an earlier version aren't tidied up automatically: look for an item
+  beside a `_2` copy, and for an "Analytics Hub installer" secret on the app registration that
+  isn't the one in the install record.
 - Not changed: the installer never installs anything with winget, so there's no `--scope user`
   fallback to add. Execution policy and Constrained Language Mode were already covered.
 

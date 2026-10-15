@@ -14,7 +14,7 @@ import { parseCli } from '../src/cli.js';
 import { secretMode } from '../src/config.js';
 import { HttpError } from '../src/http.js';
 import { rotateSecret } from '../src/install.js';
-import { ensureNotebooks, ensurePipeline } from '../src/steps/fabric.js';
+import { ensureNotebooks, ensurePipeline, modelKey } from '../src/steps/fabric.js';
 import { flowsSkipped, flowsWanted } from '../src/steps/flows.js';
 import {
   ADMIN_PACK_FILE,
@@ -30,7 +30,8 @@ import {
   secretHandoff,
   writeAdminPack,
 } from '../src/steps/identity.js';
-import { askAppId, confirmPlan, planAdminPack, planKeyVault, planReview } from '../src/steps/plan.js';
+import { deployModel } from '../src/steps/model.js';
+import { askAppId, confirmPlan, planAdminPack, planKeyVault, planReview, reserveNames } from '../src/steps/plan.js';
 import { fakeCtx, fakeFabric, fakeGraph, fakeUi, httpError } from './fakes.js';
 
 const VAULT_ID = '/subscriptions/sub-1/resourceGroups/rg-valuelens/providers/Microsoft.KeyVault/vaults/kv-test';
@@ -466,8 +467,8 @@ test('a run stopped while Fabric creates a notebook: the next run uses that note
   };
   const create = fabric.api.createNotebook;
   let creates = 0;
-  fabric.api.createNotebook = async (/** @type {string} */ ws, /** @type {string} */ name, /** @type {string} */ content) => {
-    const created = await create(ws, name, content);
+  fabric.api.createNotebook = async (/** @type {string} */ ws, /** @type {string} */ name, /** @type {string} */ content, /** @type {string | undefined} */ ref) => {
+    const created = await create(ws, name, content, ref);
     if (++creates === 2) {
       stopped = true;
       throw new Error('stopped');
@@ -502,10 +503,11 @@ test('a run stopped before Fabric created the item: the next run creates it unde
   const t = fakeCtx({ fabric: fabric.api, graph: fakeGraph().api, ui: fakeUi().ui });
   await ensureNotebooks(t.ctx);
   fabric.calls.length = 0;
-  t.config.fabric.pendingItems = { DataPipeline: 'AnalyticsHub_Pipeline' };
+  t.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'aa11' } };
   await ensurePipeline(t.ctx);
   assert.deepEqual(fabric.calls, ['createPipeline AnalyticsHub_Pipeline']);
   assert.equal(t.config.fabric.pendingItems, undefined);
+  assert.match(String(fabric.items.find((i) => i.type === 'DataPipeline')?.description), /^\(ref [0-9a-f]{12}\)$/, 'each create gets a fresh ref');
 
   // Not pending: a same-name item is someone else's and is left alone.
   const other = fakeFabric();
@@ -515,17 +517,120 @@ test('a run stopped before Fabric created the item: the next run creates it unde
   await ensurePipeline(o.ctx);
   assert.equal(o.config.fabric.pipelineName, 'AnalyticsHub_Pipeline_2');
 
-  // Pending and there: the stopped run's pipeline is used and brought up to date.
+  // Pending and there with the stopped run's ref: that pipeline is used and brought up to date.
   const resumed = fakeFabric();
   const r = fakeCtx({ fabric: resumed.api, graph: fakeGraph().api, ui: fakeUi().ui });
   await ensureNotebooks(r.ctx);
-  const theirs = resumed.add('DataPipeline', 'AnalyticsHub_Pipeline', 'half-made');
-  r.config.fabric.pendingItems = { DataPipeline: 'AnalyticsHub_Pipeline' };
+  const ours = resumed.add('DataPipeline', 'AnalyticsHub_Pipeline', 'half-made', 'Analytics Hub daily load. (ref aa11)');
+  r.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'aa11' } };
   resumed.calls.length = 0;
   await ensurePipeline(r.ctx);
   assert.deepEqual(resumed.calls, ['updatePipeline AnalyticsHub_Pipeline']);
-  assert.equal(r.config.fabric.pipelineId, theirs.id);
-  assert.notEqual(theirs.content, 'half-made');
+  assert.equal(r.config.fabric.pipelineId, ours.id);
+  assert.notEqual(ours.content, 'half-made');
+
+  // The saved name but not the ref: someone made it after the run stopped, so it's left alone.
+  const taken = fakeFabric();
+  const k = fakeCtx({ fabric: taken.api, graph: fakeGraph().api, ui: fakeUi().ui });
+  await ensureNotebooks(k.ctx);
+  const theirs = taken.add('DataPipeline', 'AnalyticsHub_Pipeline', 'theirs', 'Analytics Hub daily load. (ref bb22)');
+  k.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'aa11' } };
+  taken.calls.length = 0;
+  await ensurePipeline(k.ctx);
+  assert.deepEqual(taken.calls.filter((c) => /Pipeline /.test(c)), ['createPipeline AnalyticsHub_Pipeline_2']);
+  assert.equal(theirs.content, 'theirs');
+  assert.notEqual(k.config.fabric.pipelineId, theirs.id);
+});
+
+test('a run stopped while Fabric creates a model: planning keeps its name and the next run updates it, by the model, not its name', async () => {
+  const fabric = fakeFabric();
+  const ui = fakeUi();
+  const t = fakeCtx({ fabric: fabric.api, graph: fakeGraph().api, ui: ui.ui });
+  t.config.semanticModel.enabled = true;
+  const ours = fabric.add('SemanticModel', 'Analytics Hub Model', 'half-made', 'ValueLens. (ref cc33)');
+  t.config.fabric.pendingItems = { 'SemanticModel:main': { name: 'Analytics Hub Model', ref: 'cc33' } };
+
+  await reserveNames(t.ctx);
+  assert.equal(t.config.semanticModel.name, 'Analytics Hub Model', 'not renamed to "… 2"');
+  assert.doesNotMatch(ui.text(), /not from this install/);
+  fabric.calls.length = 0;
+  await deployModel(t.ctx, t.config.semanticModel, { signature: 's', definition: () => ({ parts: [] }) });
+  assert.deepEqual(fabric.calls, ['updateSemanticModel Analytics Hub Model']);
+  assert.equal(t.config.semanticModel.id, ours.id);
+  assert.equal(t.config.fabric.pendingItems, undefined);
+
+  // Someone else's model with that name and no ref: a new name, and theirs is left alone.
+  const other = fakeFabric();
+  const o = fakeCtx({ fabric: other.api, graph: fakeGraph().api, ui: fakeUi().ui });
+  o.config.semanticModel.enabled = true;
+  const theirs = other.add('SemanticModel', 'Analytics Hub Model', 'theirs');
+  o.config.fabric.pendingItems = { 'SemanticModel:main': { name: 'Analytics Hub Model', ref: 'cc33' } };
+  await reserveNames(o.ctx);
+  assert.equal(o.config.semanticModel.name, 'Analytics Hub Model 2');
+  await deployModel(o.ctx, o.config.semanticModel, { signature: 's', definition: () => ({ parts: [] }) });
+  assert.deepEqual(other.calls, ['createSemanticModel Analytics Hub Model 2']);
+  assert.equal(theirs.content, 'theirs');
+  assert.equal(modelKey(o.config, o.config.consumption.model), 'consumption');
+  assert.equal(modelKey(o.config, o.config.agentEvaluator.model), 'agentEvaluator');
+});
+
+test('notebook mode: old secrets stay in the record until Entra confirms they are removed', async () => {
+  const fabric = fakeFabric();
+  const graph = fakeGraph();
+  const first = fakeCtx({ fabric: fabric.api, graph: graph.api, ui: fakeUi().ui });
+  first.config.keyVault = { secretName: 'valuelens-client-secret', mode: 'notebook' };
+  await ensureNotebooks(first.ctx);
+  assert.equal(first.config.app.secretKeyId, 'key-1');
+
+  // Stopped as the previous secret is being removed: the record still lists it.
+  let saved = structuredClone(first.config);
+  let stopped = false;
+  first.ctx.save = () => {
+    if (!stopped) saved = structuredClone(first.config);
+  };
+  const remove = graph.api.removePassword;
+  graph.api.removePassword = async () => {
+    stopped = true;
+    throw new Error('stopped');
+  };
+  await ensureNotebooks(first.ctx, { force: true });
+  assert.equal(saved.app.secretKeyId, 'key-2');
+  assert.deepEqual(saved.app.retiredSecretKeyIds, ['key-1']);
+  assert.equal(saved.app.pendingSecretKeyIds, undefined);
+  assert.deepEqual(graph.passwords.map((p) => p.keyId), ['key-1', 'key-2']);
+
+  graph.api.removePassword = remove;
+  const next = fakeCtx({ fabric: fabric.api, graph: graph.api, ui: fakeUi().ui, config: saved });
+  await ensureNotebooks(next.ctx, { force: true });
+  assert.deepEqual(graph.passwords.map((p) => p.keyId), ['key-3']);
+  assert.equal(next.config.app.retiredSecretKeyIds, undefined);
+
+  // One that can't be removed stays listed; the one that was removed doesn't.
+  graph.api.removePassword = async (/** @type {string} */ id, /** @type {string} */ keyId) => {
+    if (keyId === 'key-3') throw new Error('Forbidden');
+    return remove(id, keyId);
+  };
+  next.config.app.retiredSecretKeyIds = ['key-0'];
+  await ensureNotebooks(next.ctx, { force: true });
+  assert.deepEqual(next.config.app.retiredSecretKeyIds, ['key-3']);
+  assert.equal(next.config.app.secretKeyId, 'key-4');
+});
+
+test('notebook mode: an unused secret that can\'t be removed is kept to remove later', async () => {
+  const fabric = fakeFabric();
+  const graph = fakeGraph();
+  const t = fakeCtx({ fabric: fabric.api, graph: graph.api, ui: fakeUi().ui });
+  t.config.keyVault = { secretName: 'valuelens-client-secret', mode: 'notebook' };
+  fabric.api.createNotebook = async () => {
+    throw new Error('Fabric is busy');
+  };
+  graph.api.removePassword = async () => {
+    throw new Error('Forbidden');
+  };
+  await assert.rejects(ensureNotebooks(t.ctx), /Fabric is busy/);
+  assert.equal(t.config.app.secretKeyId, undefined);
+  assert.equal(t.config.app.pendingSecretKeyIds, undefined);
+  assert.deepEqual(t.config.app.retiredSecretKeyIds, ['key-1']);
 });
 
 test('notebook mode: moving to Key Vault rewrites the notebooks and removes the secret they held', async () => {

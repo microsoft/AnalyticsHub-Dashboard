@@ -442,6 +442,20 @@ test('app: an app already deployed is left alone unless asked; a deleted one is 
   }
 });
 
+test('app: a deploy that finds its app by ID drops a create a stopped run left pending', async () => {
+  const t = appSetup();
+  try {
+    const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
+    t.config.fabricApp.itemId = item.id;
+    t.config.fabric.pendingItems = { AppBackend: { name: 'Analytics Hub', ref: 'dd44' } };
+    await deployApp(t.ctx);
+    assert.equal(t.config.fabric.pendingItems, undefined);
+    assert.ok(!t.fabric.calls.some((c) => c.startsWith('createItem')));
+  } finally {
+    t.cleanup();
+  }
+});
+
 test('app: a source build carries fabric.config.json with the viewer access, then the checkout is left clean', async () => {
   const t = appSetup();
   try {
