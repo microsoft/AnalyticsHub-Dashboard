@@ -75,6 +75,49 @@ export async function createdId(ctx, created, type, name) {
 }
 
 /**
+ * Creates a workspace item so that a run stopped part-way through doesn't leave a stray copy. The
+ * name is saved as pending before the create; if the run stops before the ID is saved, the next
+ * run finds the item by that name and uses it instead of making a second one. Any other clash
+ * still gets a new name, since the installer never takes over an item it didn't create.
+ * The caller saves the record with the ID it gets back, which also clears the pending name.
+ * @param {Ctx} ctx
+ * @param {string} key  Unique per item in the install, e.g. `Notebook:auditIngester`.
+ * @param {string} type  The Fabric item type, for looking the item up by name.
+ * @param {string} wanted
+ * @param {any[]} items  The workspace's items of this type.
+ * @param {(name: string) => Promise<any>} create
+ * @returns {Promise<{ id: string, name: string, resumed: boolean }>}
+ */
+export async function createItem(ctx, key, type, wanted, items, create) {
+  const f = ctx.config.fabric;
+  const pending = f.pendingItems?.[key];
+  const found = pending ? byName(items, pending) : undefined;
+  if (found) {
+    clearPending(f, key);
+    ctx.ui.note(`Using ${found.displayName}, which the run that stopped part-way created.`);
+    return { id: found.id, name: String(found.displayName), resumed: true };
+  }
+  const name = freeName(wanted, displayNames(items));
+  noteRenamed(ctx, wanted, name);
+  (f.pendingItems ??= {})[key] = name;
+  ctx.save();
+  const created = await create(name);
+  const id = await createdId(ctx, created, type, name);
+  clearPending(f, key);
+  return { id, name, resumed: false };
+}
+
+/**
+ * @param {import('../config.js').InstallConfig['fabric']} f
+ * @param {string} key
+ */
+function clearPending(f, key) {
+  if (!f.pendingItems) return;
+  delete f.pendingItems[key];
+  if (!Object.keys(f.pendingItems).length) delete f.pendingItems;
+}
+
+/**
  * Whether the workspace an install record points at is gone, so the record is stale. Only a
  * definite answer counts: Fabric says it isn't there, or the record is for another tenant. A 403,
  * a network error or anything else returns null, and the record is used as it is.
@@ -156,12 +199,10 @@ export async function ensureLakehouse(ctx) {
     }
   }
   const wanted = f.lakehouseName ?? 'ValueLens';
-  const name = freeName(wanted, displayNames(await api.fabric.listItems(ws, 'Lakehouse')));
-  noteRenamed(ctx, wanted, name);
-  const created = await api.fabric.createLakehouse(ws, name);
-  f.lakehouseId = await createdId(ctx, created, 'Lakehouse', name);
-  f.lakehouseName = name;
-  ui.ok(`Created Lakehouse "${name}"`);
+  const made = await createItem(ctx, 'Lakehouse', 'Lakehouse', wanted, await api.fabric.listItems(ws, 'Lakehouse'), (name) => api.fabric.createLakehouse(ws, name));
+  f.lakehouseId = made.id;
+  f.lakehouseName = made.name;
+  ui.ok(`${made.resumed ? 'Found' : 'Created'} Lakehouse "${made.name}"`);
   ctx.save();
 }
 
@@ -518,14 +559,14 @@ export async function ensureNotebooks(ctx, opts = {}) {
         delete f.pipelineModules;
       }
       if (!id) {
-        const name = freeName(label, displayNames(items));
-        noteRenamed(ctx, label, name);
-        const created = await api.fabric.createNotebook(ws, name, content);
-        id = await createdId(ctx, created, 'Notebook', name);
-        items.push({ id, displayName: name });
-        f.notebookNames[nb.key] = name;
+        const made = await createItem(ctx, `Notebook:${nb.key}`, 'Notebook', label, items, (name) => api.fabric.createNotebook(ws, name, content));
+        id = made.id;
+        f.notebookNames[nb.key] = made.name;
+        // A notebook the stopped run created may hold its secret or older settings.
+        if (made.resumed) await api.fabric.updateNotebook(ws, id, content);
+        else items.push({ id, displayName: made.name });
         if (usesSecret(nb)) written++;
-        ui.ok(`Created ${name}`);
+        ui.ok(`${made.resumed ? 'Updated' : 'Created'} ${made.name}`);
       } else if (
         opts.force ||
         (inline && usesSecret(nb)) ||
@@ -571,11 +612,12 @@ export async function ensureNotebooks(ctx, opts = {}) {
 async function retireInlineSecrets(ctx) {
   const { ui, config } = ctx;
   const app = config.app;
-  const keyIds = [...(app.retiredSecretKeyIds ?? []), ...(app.secretKeyId ? [app.secretKeyId] : [])];
+  const keyIds = [...(app.retiredSecretKeyIds ?? []), ...(app.pendingSecretKeyIds ?? []), ...(app.secretKeyId ? [app.secretKeyId] : [])];
   if (!keyIds.length) {
     if (app.existing) ui.warn(`The client secret that was in the notebooks still works. Delete it from ${app.displayName ?? 'the app'}'s Certificates & secrets page.`);
     return;
   }
+  delete app.pendingSecretKeyIds;
   await removeKeys(ctx, keyIds);
   delete app.secretKeyId;
   if (!app.retiredSecretKeyIds?.length) ui.ok('Removed the client secret that was in the notebooks from the app');
@@ -648,6 +690,9 @@ export async function inlineSecret(ctx) {
   if (!app.objectId) throw new Error('No app registration to add a secret to.');
   const credential = await api.graph.addPassword(app.objectId, addDays(ctx.now(), notebookSecretDays(config)));
   ctx.pendingSecret = credential.secretText;
+  // Saved before any notebook gets it, so a run that stops part-way still knows to remove it.
+  app.pendingSecretKeyIds = [...new Set([...(app.pendingSecretKeyIds ?? []), credential.keyId])];
+  ctx.save();
   ui.ok(`Created a client secret for the notebooks (expires ${credential.endDateTime.slice(0, 10)})`);
   return { keyId: credential.keyId, endDateTime: credential.endDateTime, previousKeyId: app.secretKeyId };
 }
@@ -671,6 +716,8 @@ async function settleInlineSecret(ctx, fresh, outcome) {
   }
   if (outcome === 'unused') {
     await api.graph.removePassword(objectId, fresh.keyId).catch(() => ui.warn(`Delete the unused client secret (key ${fresh.keyId}) from the app's Certificates & secrets page.`));
+    dropPending(app, [fresh.keyId]);
+    ctx.save();
     return;
   }
   app.secretKeyId = fresh.keyId;
@@ -678,17 +725,32 @@ async function settleInlineSecret(ctx, fresh, outcome) {
   config.keyVault.secretSetAt = ctx.now().toISOString();
   const previous = fresh.previousKeyId && fresh.previousKeyId !== fresh.keyId ? fresh.previousKeyId : undefined;
   if (outcome === 'partial') {
-    // Kept in the record, so the run that finishes the notebooks removes it.
+    // Kept in the record, so the run that finishes the notebooks removes it. Secrets from runs
+    // that stopped earlier stay pending: some notebooks may still have them.
+    dropPending(app, [fresh.keyId]);
     if (previous) app.retiredSecretKeyIds = [...new Set([...(app.retiredSecretKeyIds ?? []), previous])];
     ctx.save();
     if (previous) ui.warn(`Some notebooks still use the previous client secret (key ${previous}), so it stays on the app. Run the update again to finish.`);
     return;
   }
+  // Every notebook now has the new secret, so those from runs that stopped part-way can go too.
+  const interrupted = app.pendingSecretKeyIds ?? [];
+  delete app.pendingSecretKeyIds;
   ctx.save();
-  const stale = [...(app.retiredSecretKeyIds ?? []), ...(previous ? [previous] : [])].filter((k) => k !== fresh.keyId);
+  const stale = [...(app.retiredSecretKeyIds ?? []), ...(previous ? [previous] : []), ...interrupted].filter((k) => k !== fresh.keyId);
   if (!stale.length) return;
   await removeKeys(ctx, stale);
-  if (!app.retiredSecretKeyIds?.length) ui.ok('Removed the previous client secret from the app');
+  if (!app.retiredSecretKeyIds?.length) ui.ok(`Removed the previous client secret${new Set(stale).size > 1 ? 's' : ''} from the app`);
+}
+
+/**
+ * @param {import('../config.js').InstallConfig['app']} app
+ * @param {string[]} keyIds
+ */
+function dropPending(app, keyIds) {
+  if (!app.pendingSecretKeyIds) return;
+  app.pendingSecretKeyIds = app.pendingSecretKeyIds.filter((k) => !keyIds.includes(k));
+  if (!app.pendingSecretKeyIds.length) delete app.pendingSecretKeyIds;
 }
 
 /**
@@ -853,13 +915,13 @@ export async function ensurePipeline(ctx, opts = {}) {
   }
 
   if (!f.pipelineId) {
-    const wanted = f.pipelineName ?? PIPELINE_NAME;
-    const name = freeName(wanted, displayNames(items));
-    noteRenamed(ctx, wanted, name);
-    const created = await api.fabric.createPipeline(ws, name, definition);
-    f.pipelineId = await createdId(ctx, created, 'DataPipeline', name);
-    ui.ok(`Created pipeline ${name}`);
-    f.pipelineName = name;
+    const made = await createItem(ctx, 'DataPipeline', 'DataPipeline', f.pipelineName ?? PIPELINE_NAME, items, (name) => api.fabric.createPipeline(ws, name, definition));
+    f.pipelineId = made.id;
+    f.pipelineName = made.name;
+    if (made.resumed) {
+      await api.fabric.updatePipeline(ws, made.id, definition);
+      ui.ok(`Updated pipeline ${made.name}`);
+    } else ui.ok(`Created pipeline ${made.name}`);
   } else if (opts.force || f.pipelineModules !== signature || f.pipelineVersion !== PIPELINE_VERSION) {
     if (f.pipelineVersion !== PIPELINE_VERSION) ui.note(PIPELINE_CHANGE);
     ui.note('This replaces the pipeline definition, including any activities you added to it yourself.');

@@ -137,6 +137,13 @@ Deployment instructions do **not** live here. They live in the READMEs:
   freshly unpacked installer into place for up to 20 seconds when antivirus still holds the
   files. If it still can't, it removes the half-unpacked folder and says to run the command
   again, not a bare "Access denied".
+- **A run stopped part-way no longer leaves a second copy behind.** If the installer was closed
+  while Fabric was creating a notebook, the pipeline, a model, a report, the data agent, the
+  Dataflow or the app, the next run made a `_2` copy beside the first and left the first, with its
+  client secret, outside the install. The installer now saves each item's name before creating it
+  and, on the next run, uses and updates the item the stopped run made. The notebook client secret
+  is saved too, so the next run that rewrites the notebooks removes it from the app registration.
+  Items you made yourself with the same name are still left alone.
 - Not changed: the installer never installs anything with winget, so there's no `--scope user`
   fallback to add. Execution policy and Constrained Language Mode were already covered.
 

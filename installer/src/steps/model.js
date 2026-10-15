@@ -11,7 +11,7 @@ import { commandLine } from '../launch.js';
 import { EVERYONE_ROLE, rlsSettings, SCOPED_ROLE } from '../transform/access.js';
 import { buildModel, datasourcePath, loadTemplateModel, PBISM } from '../transform/model.js';
 import { formatDuration } from '../ui.js';
-import { createdId, displayNames, freeName, noteRenamed } from './fabric.js';
+import { createItem } from './fabric.js';
 import { addMonths, SECRET_LIFETIME_MONTHS } from './identity.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
@@ -117,12 +117,11 @@ export async function deployModel(ctx, m, o) {
   }
   const deployed = !m.id || !!o.force || m.signature !== signature;
   if (!m.id) {
-    const name = freeName(m.name, displayNames(items));
-    noteRenamed(ctx, m.name, name);
-    const created = await api.fabric.createSemanticModel(ws, name, definition);
-    m.id = await createdId(ctx, created, 'SemanticModel', name);
-    m.name = name;
-    ui.ok(`Created semantic model ${name}`);
+    const made = await createItem(ctx, `SemanticModel:${m.name}`, 'SemanticModel', m.name, items, (name) => api.fabric.createSemanticModel(ws, name, definition));
+    m.id = made.id;
+    m.name = made.name;
+    if (made.resumed) await api.fabric.updateSemanticModel(ws, made.id, definition);
+    ui.ok(`${made.resumed ? 'Updated' : 'Created'} semantic model ${made.name}`);
     m.bound = false;
   } else if (o.force || m.signature !== signature) {
     await api.fabric.updateSemanticModel(ws, m.id, definition);

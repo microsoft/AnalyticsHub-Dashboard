@@ -14,7 +14,7 @@ import { parseCli } from '../src/cli.js';
 import { secretMode } from '../src/config.js';
 import { HttpError } from '../src/http.js';
 import { rotateSecret } from '../src/install.js';
-import { ensureNotebooks } from '../src/steps/fabric.js';
+import { ensureNotebooks, ensurePipeline } from '../src/steps/fabric.js';
 import { flowsSkipped, flowsWanted } from '../src/steps/flows.js';
 import {
   ADMIN_PACK_FILE,
@@ -451,6 +451,81 @@ test('notebook mode: a rotation that stops part-way removes the old secret on th
   assert.equal(t.config.app.secretKeyId, 'key-3');
   assert.equal(t.config.app.retiredSecretKeyIds, undefined);
   assert.doesNotMatch(JSON.stringify(t.config), /secret-\d/);
+});
+
+test('a run stopped while Fabric creates a notebook: the next run uses that notebook and removes the secret it made', async () => {
+  const fabric = fakeFabric();
+  const graph = fakeGraph();
+  const first = fakeCtx({ fabric: fabric.api, graph: graph.api, ui: fakeUi().ui });
+  first.config.keyVault = { secretName: 'valuelens-client-secret', mode: 'notebook' };
+  // The record on disk is what the last save wrote; a stopped process saves nothing more.
+  let saved = structuredClone(first.config);
+  let stopped = false;
+  first.ctx.save = () => {
+    if (!stopped) saved = structuredClone(first.config);
+  };
+  const create = fabric.api.createNotebook;
+  let creates = 0;
+  fabric.api.createNotebook = async (/** @type {string} */ ws, /** @type {string} */ name, /** @type {string} */ content) => {
+    const created = await create(ws, name, content);
+    if (++creates === 2) {
+      stopped = true;
+      throw new Error('stopped');
+    }
+    return created;
+  };
+  await assert.rejects(ensureNotebooks(first.ctx), /stopped/);
+  assert.equal(Object.keys(saved.fabric.pendingItems ?? {}).length, 1, 'the notebook being created is in the record');
+  assert.deepEqual(saved.app.pendingSecretKeyIds, ['key-1'], 'so is the secret it was given');
+  const count = fabric.items.length;
+
+  fabric.api.createNotebook = create;
+  graph.calls.length = 0;
+  const ui = fakeUi();
+  const next = fakeCtx({ fabric: fabric.api, graph: graph.api, ui: ui.ui, config: saved });
+  await ensureNotebooks(next.ctx);
+  const names = fabric.items.map((i) => String(i.displayName));
+  assert.ok(names.every((n) => !/_2$/.test(n)), `no second copy: ${names.join(', ')}`);
+  assert.equal(new Set(names).size, names.length);
+  assert.ok(fabric.items.length > count, 'the rest are created');
+  assert.ok(fabric.items.every((i) => !String(i.content).includes('secret-1')), 'the stopped run\'s notebook is rewritten');
+  assert.deepEqual(graph.calls, ['addPassword Analytics Hub installer', 'removePassword key-1']);
+  assert.equal(next.config.app.secretKeyId, 'key-2');
+  assert.equal(next.config.app.pendingSecretKeyIds, undefined);
+  assert.equal(next.config.fabric.pendingItems, undefined);
+  assert.match(ui.text(), /which the run that stopped part-way created/);
+  assert.doesNotMatch(ui.text(), /isn't from this install/);
+});
+
+test('a run stopped before Fabric created the item: the next run creates it under the saved name; others still get a new name', async () => {
+  const fabric = fakeFabric();
+  const t = fakeCtx({ fabric: fabric.api, graph: fakeGraph().api, ui: fakeUi().ui });
+  await ensureNotebooks(t.ctx);
+  fabric.calls.length = 0;
+  t.config.fabric.pendingItems = { DataPipeline: 'AnalyticsHub_Pipeline' };
+  await ensurePipeline(t.ctx);
+  assert.deepEqual(fabric.calls, ['createPipeline AnalyticsHub_Pipeline']);
+  assert.equal(t.config.fabric.pendingItems, undefined);
+
+  // Not pending: a same-name item is someone else's and is left alone.
+  const other = fakeFabric();
+  other.add('DataPipeline', 'AnalyticsHub_Pipeline', 'theirs');
+  const o = fakeCtx({ fabric: other.api, graph: fakeGraph().api, ui: fakeUi().ui });
+  await ensureNotebooks(o.ctx);
+  await ensurePipeline(o.ctx);
+  assert.equal(o.config.fabric.pipelineName, 'AnalyticsHub_Pipeline_2');
+
+  // Pending and there: the stopped run's pipeline is used and brought up to date.
+  const resumed = fakeFabric();
+  const r = fakeCtx({ fabric: resumed.api, graph: fakeGraph().api, ui: fakeUi().ui });
+  await ensureNotebooks(r.ctx);
+  const theirs = resumed.add('DataPipeline', 'AnalyticsHub_Pipeline', 'half-made');
+  r.config.fabric.pendingItems = { DataPipeline: 'AnalyticsHub_Pipeline' };
+  resumed.calls.length = 0;
+  await ensurePipeline(r.ctx);
+  assert.deepEqual(resumed.calls, ['updatePipeline AnalyticsHub_Pipeline']);
+  assert.equal(r.config.fabric.pipelineId, theirs.id);
+  assert.notEqual(theirs.content, 'half-made');
 });
 
 test('notebook mode: moving to Key Vault rewrites the notebooks and removes the secret they held', async () => {

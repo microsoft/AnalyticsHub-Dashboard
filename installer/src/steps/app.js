@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { HttpError } from '../http.js';
 import { inCloudShell } from '../launch.js';
 import { publicAccess } from './access.js';
-import { agentEvaluatorModelDeployed, consumptionModelDeployed, createdId, displayNames, freeName, noteRenamed } from './fabric.js';
+import { agentEvaluatorModelDeployed, consumptionModelDeployed, createItem, noteRenamed } from './fabric.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 
@@ -176,11 +176,12 @@ async function claimAppItem(ctx, dir, ws) {
 
   const identity = appIdentity(dir);
   const apps = await api.fabric.listItems(ws, 'AppBackend');
-  const name = freeName(identity.name, displayNames(apps));
-  const created = await api.fabric.createItem(ws, 'AppBackend', name);
-  record(await createdId(ctx, created, 'AppBackend', name));
   const clash = clashingApp(apps, identity);
-  if (clash) noteRenamed(ctx, clash.displayName, name);
+  const made = await createItem(ctx, 'AppBackend', 'AppBackend', identity.name, apps, (name) => api.fabric.createItem(ws, 'AppBackend', name));
+  record(made.id);
+  ctx.save();
+  // createItem notes a clash with the app's own name; this covers one named like the project.
+  if (clash && !made.resumed && clash.displayName.toLowerCase() !== identity.name.toLowerCase()) noteRenamed(ctx, clash.displayName, made.name);
 }
 
 /**
