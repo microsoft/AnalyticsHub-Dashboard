@@ -108,6 +108,9 @@ Deployment instructions do **not** live here. They live in the READMEs:
   from a multi-environment run now include `source_environment`. An agent's catalogue name comes
   from its latest session. A MERGE source with duplicate keys keeps one row per key. Run messages
   say `writes=` instead of `chunks=`.
+- **One unreadable environment no longer fails the run.** If one environment refused access
+  and the others had no transcripts, the run stopped with *All window pulls failed* before it
+  recorded the refusal in `evaluator_status`. It now stops only when every window pull fails.
 - There is no transcript collector on Azure, so nothing changes there.
 
 **Installer robustness ([#88](https://github.com/microsoft/AnalyticsHub-Dashboard/issues/88)).**
