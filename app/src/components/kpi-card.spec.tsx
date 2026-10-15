@@ -8,6 +8,7 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import { KpiCard } from "./kpi-card";
+import { sparkPath } from "@/lib/sparkline";
 
 const comparison = "Jun vs May, per day";
 
@@ -51,5 +52,42 @@ describe("KpiCard delta", () => {
     it("can name a deliberate blank value", () => {
         render(<KpiCard label="Allowance used" value={undefined} emptyValue="No limit set" />);
         expect(screen.getByText("No limit set")).toBeTruthy();
+    });
+});
+
+describe("KpiCard trend", () => {
+    const points = [
+        { label: "Apr", value: 10 },
+        { label: "May", value: 14 },
+        { label: "Jun", value: 21 },
+    ];
+
+    it("draws a sparkline with its months and a spoken summary", () => {
+        render(<KpiCard label="Hours" value={1500} trend={{ points, description: "Trend by full month, Apr to Jun: higher at the end." }} />);
+        expect(screen.getByTestId("sparkline").getAttribute("aria-hidden")).toBe("true");
+        expect(screen.getByText("Apr–Jun")).toBeTruthy();
+        expect(screen.getByText("Trend by full month, Apr to Jun: higher at the end.").className).toContain("sr-only");
+    });
+
+    it("draws nothing below three points or without a figure", () => {
+        render(<KpiCard label="Hours" value={1500} trend={{ points: points.slice(0, 2), description: "Two months" }} />);
+        render(<KpiCard label="Tasks" value={undefined} trend={{ points, description: "Blank" }} />);
+        expect(screen.queryByTestId("sparkline")).toBeNull();
+    });
+});
+
+describe("sparkPath", () => {
+    it("fills the box from the lowest to the highest value, oldest on the left", () => {
+        const coords = sparkPath([5, 10, 0]);
+        expect(coords.map((point) => point.x)).toEqual([3, 60, 117]);
+        expect(coords[2].y).toBe(25);
+        expect(coords[1].y).toBe(3);
+        expect(coords[0].y).toBe(14);
+    });
+
+    it("lays a flat run at mid-height and skips gaps", () => {
+        expect(sparkPath([4, 4, 4]).map((point) => point.y)).toEqual([14, 14, 14]);
+        expect(sparkPath([1, Number.NaN, 3])).toHaveLength(2);
+        expect(sparkPath([])).toEqual([]);
     });
 });

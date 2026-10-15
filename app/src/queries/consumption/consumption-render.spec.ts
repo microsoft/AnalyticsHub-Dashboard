@@ -13,7 +13,7 @@ import { compile } from "vega-lite";
 import type { TopLevelSpec } from "vega-lite";
 import { formatValue } from "@microsoft/fabric-visuals-core";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
-import { consumptionByProduct, coworkWeekly, foundryByModel, foundryDaily, studioAzureDaily, studioBreakdown, studioDaily } from "./index";
+import { consumptionByProduct, coworkWeekly, foundryByModel, foundryDaily, studioAzureDaily, studioBreakdown, studioDaily, withTrendLineColor } from "./index";
 import productRows from "./__fixtures__/consumption-by-product.rows.json";
 import weeklyRows from "./__fixtures__/cowork-weekly.rows.json";
 import modelRows from "./__fixtures__/foundry-by-model.rows.json";
@@ -191,6 +191,52 @@ describe("studio daily renders", () => {
         const both = byDay.find((group) => group.length === 2)!;
         const [prepaid, payg] = ["Prepaid", "Pay-as-you-go"].map((billing) => both.find((bar) => bar.datum.Billing === billing)!);
         expect(payg.bounds.y2).toBeCloseTo(prepaid.bounds.y1, 0);
+    });
+
+    // Days without usage are missing from the query, so the average must count
+    // them as zero rather than averaging the last seven rows.
+    it.each([
+        ["consumption", ["[Prepaid Credits]", "[PAYG Credits]"]],
+        ["cost", ["[Prepaid Cost]", "[PAYG Cost]"]],
+    ] as const)("draws the 7-day %s average across calendar days, gaps as zero", async (lens, columns) => {
+        const { vegaLiteSpec, columnMetadata } = studioDaily(lens);
+        const dayNumber = (value: unknown) => Date.parse(String(value).slice(0, 10)) / 864e5;
+        const totals = new Map(
+            rows.map((row) => [dayNumber(row["[Usage Date]"]), columns.reduce((sum, column) => sum + (Number(row[column]) || 0), 0)]),
+        );
+        const first = Math.min(...totals.keys());
+        const last = Math.max(...totals.keys());
+        const expected = Array.from({ length: last - first - 5 }, (_, index) => {
+            const day = first + 6 + index;
+            let sum = 0;
+            for (let back = 0; back < 7; back++) sum += totals.get(day - back) ?? 0;
+            return { day, average: sum / 7 };
+        });
+
+        const points = (await render(vegaLiteSpec, rows, columnMetadata, "line")).sort(
+            (a, b) => Number(a.datum["Average Day Number"]) - Number(b.datum["Average Day Number"]),
+        );
+        expect(points.map((point) => point.datum["Average Day Number"])).toEqual(expected.map(({ day }) => day));
+        points.forEach((point, index) => expect(point.datum.Value).toBeCloseTo(expected[index].average, 6));
+        // Each point sits on the same local midnight as that day's bar.
+        const local = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+        points.forEach((point, index) =>
+            expect(local(point.datum.Day as unknown as Date)).toBe(new Date(expected[index].day * 864e5).toISOString().slice(0, 10)),
+        );
+        points.forEach((point) => expect((point.datum.Day as unknown as Date).getHours()).toBe(0));
+        // The 20-day gap in the fixture pulls the average to zero, not to the last busy day.
+        expect(expected.some(({ average }) => average === 0)).toBe(true);
+        expectFinite(points);
+    });
+
+    it("draws the average line in the theme colour and leaves the bars alone", () => {
+        const { vegaLiteSpec } = studioDaily("consumption");
+        const themed = withTrendLineColor(vegaLiteSpec, "#123456") as { layer: { mark: { type: string; color?: string } }[] };
+        const original = vegaLiteSpec as unknown as typeof themed;
+        expect(themed.layer.map((layer) => layer.mark.type)).toEqual(["bar", "line"]);
+        expect(themed.layer[1].mark.color).toBe("#123456");
+        expect(themed.layer[0]).toBe(original.layer[0]);
+        expect(original.layer[1].mark.color).not.toBe("#123456");
     });
 });
 

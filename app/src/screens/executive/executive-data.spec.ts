@@ -15,6 +15,7 @@ import summaryRows from "@/queries/executive/__fixtures__/executive-summary.rows
 import {
     byMonth,
     cardDelta,
+    cardTrend,
     executiveRange,
     formatDay,
     formatMonth,
@@ -112,6 +113,46 @@ describe("cardDelta on the demo months", () => {
     });
 });
 
+describe("cardTrend", () => {
+    const read = (row: SummaryRow | undefined) => {
+        const value = row?.Hours;
+        return typeof value === "number" ? value : undefined;
+    };
+    const months = new Map<string, SummaryRow>([
+        ["2026-03-01", { Hours: 310 }],
+        ["2026-04-01", { Hours: 300 }],
+        ["2026-05-01", { Hours: 620 }],
+        ["2026-06-01", { Hours: 900 }],
+    ]);
+
+    it("draws one point per full month, volumes per day", () => {
+        const range = executiveRange("2026-03-01", "2026-06-30", "2026-03-01", "2026-06-30");
+        const trend = cardTrend("volume", range, months, read);
+        expect(trend?.points).toEqual([
+            { label: "Mar", value: 10 },
+            { label: "Apr", value: 10 },
+            { label: "May", value: 20 },
+            { label: "Jun", value: 30 },
+        ]);
+        expect(trend?.description).toBe("Trend by full month, per day, Mar to Jun: higher at the end.");
+    });
+
+    it("keeps rates as they are and calls a flat run level", () => {
+        const flat = new Map<string, SummaryRow>(["2026-03-01", "2026-04-01", "2026-05-01"].map((month) => [month, { Hours: 0.4 }]));
+        const range = executiveRange("2026-03-01", "2026-05-31", "2026-03-01", "2026-05-31");
+        const trend = cardTrend("rate", range, flat, read);
+        expect(trend?.points.map((point) => point.value)).toEqual([0.4, 0.4, 0.4]);
+        expect(trend?.description).toBe("Trend by full month, Mar to May: about level.");
+    });
+
+    it("leaves out part months and draws nothing below three points", () => {
+        const partial = executiveRange("2026-03-15", "2026-06-30", "2026-03-01", "2026-06-30");
+        expect(cardTrend("volume", partial, months, read)?.points.map((point) => point.label)).toEqual(["Apr", "May", "Jun"]);
+        const short = executiveRange("2026-04-15", "2026-06-30", "2026-03-01", "2026-06-30");
+        expect(cardTrend("volume", short, months, read)).toBeUndefined();
+        expect(cardTrend("volume", undefined, months, read)).toBeUndefined();
+    });
+});
 describe("workRates on the demo summary", () => {
     it("works out the per-person, per-task and agent figures", () => {
         const rates = workRates(summary);

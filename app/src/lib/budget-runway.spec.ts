@@ -6,7 +6,7 @@
 //-----------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
-import { budgetRunway, runwayHeadline, spreadWeeks, type DailySpend } from "./budget-runway";
+import { budgetRunway, bulletLabel, bulletScale, runwayHeadline, spreadWeeks, type DailySpend } from "./budget-runway";
 
 function daily(from: string, count: number, cost: number): DailySpend[] {
     const start = Date.UTC(Number(from.slice(0, 4)), Number(from.slice(5, 7)) - 1, Number(from.slice(8, 10)));
@@ -136,5 +136,36 @@ describe("spreadWeeks", () => {
         const runway = budgetRunway(spreadWeeks([{ start: "2025-03-29", cost: 70 }]), undefined);
         expect(runway.asOf).toBe("2025-04-04");
         expect(runway.spent).toBe(40);
+    });
+});
+
+describe("bulletScale", () => {
+    it("measures spend, projection and even pace against the budget when the budget is largest", () => {
+        const runway = budgetRunway(daily("2025-04-01", 10, 10), 600);
+        const scale = bulletScale(runway)!;
+        expect(scale.budget).toBe(1);
+        expect(scale.spent).toBeCloseTo(100 / 600, 6);
+        expect(scale.projected).toBeCloseTo(300 / 600, 6);
+        expect(scale.expectedByNow).toBeCloseTo(200, 6);
+        expect(scale.pace).toBeCloseTo(200 / 600, 6);
+    });
+
+    it("runs the bar to the projection once it passes the budget, so overspend shows past the mark", () => {
+        const runway = budgetRunway(daily("2025-04-01", 10, 10), 150);
+        const scale = bulletScale(runway)!;
+        expect(scale.projected).toBe(1);
+        expect(scale.budget).toBeCloseTo(150 / 300, 6);
+        expect(scale.spent).toBeCloseTo(100 / 300, 6);
+    });
+
+    it("has no bar without a budget", () => {
+        expect(bulletScale(budgetRunway(daily("2025-04-01", 10, 10), undefined))).toBeUndefined();
+    });
+
+    it("reads the bar out as sentences", () => {
+        const runway = budgetRunway(daily("2025-04-01", 10, 10), 600);
+        expect(bulletLabel(runway, bulletScale(runway)!, "$")).toBe(
+            "Spent $100 of a $600 budget. An even pace would have used $200 by now. At this pace the month ends near $300.",
+        );
     });
 });
