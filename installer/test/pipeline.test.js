@@ -221,6 +221,15 @@ const everything = () =>
     agentEvaluatorModelId: 'ae-1',
   });
 
+test('only ValueLens refresh checks the processor historical-change marker', () => {
+  const activities = everything().properties.activities;
+  for (const name of [REFRESH_ACTIVITY, CONSUMPTION_REFRESH_ACTIVITY, AGENT_EVALUATOR_REFRESH_ACTIVITY]) {
+    const refresh = activities.find((a) => a.name === name);
+    assert.deepEqual(refresh.typeProperties.parameters.CHECK_AUDIT_STATE,
+      { value: name === REFRESH_ACTIVITY, type: 'bool' });
+  }
+});
+
 /** Each top-level activity's dependencies, as "activity:conditions". @param {any} doc @returns {Record<string, string[]>} */
 const deps = (doc) =>
   Object.fromEntries(

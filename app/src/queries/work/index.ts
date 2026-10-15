@@ -13,4 +13,5 @@ export * from "./surface-usage";
 export * from "./leaderboard-cohorts";
 export * from "./leaderboard-summary";
 export * from "./leaderboard-people";
+export * from "./leaderboard-concentration";
 export * from "./leaderboard-tasks";

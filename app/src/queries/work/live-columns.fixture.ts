@@ -17,6 +17,7 @@
  * live first; these fixtures are what stops that confirmation going stale.
  */
 export const liveColumns = {
+    // Recovery totals and concentration columns are authored contracts, not live validation.
     workSummary: [
         "[All Tasks]",
         "[Licensed Tasks]",
@@ -71,6 +72,7 @@ export const liveColumns = {
         "[Cowork Per Week]",
         "[Cowork Tasks]",
     ],
+    leaderboardConcentration: ["[Count]", "[Cumulative]", "[People]", "[Total]"],
     leaderboardPeople: [
         "Chat + Agent Org Data[Organization]",
         "Chat + Agent Interactions (Audit Logs)[Audit_UserId]",
@@ -79,6 +81,7 @@ export const liveColumns = {
         "[Active Users]",
         "[Sessions]",
         "[Sessions Per User Per Week]",
+        "[Total]",
     ],
     leaderboardTasks: [
         "Chat + Agent Interactions (Audit Logs)[AppHost]",

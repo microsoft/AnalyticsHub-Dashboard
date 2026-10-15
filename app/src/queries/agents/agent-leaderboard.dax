@@ -43,6 +43,7 @@ VAR _registered =
         ),
         "Agent", 'Agents 365'[Agent name],
         "Registry Id", 'Agents 365'[Title ID],
+        "Agent Key", "registry:" & 'Agents 365'[Title ID],
         "In Registry", TRUE(),
         "Type", 'Agents 365'[Agent Type Label],
         "Creator", 'Agents 365'[Creator],
@@ -81,6 +82,7 @@ VAR _unregistered =
             VAR _name = 'Chat + Agent Interactions (Audit Logs)'[AgentName]
             RETURN IF(LEN(TRIM(_name)) = 0, "Unnamed agent", _name),
         "Registry Id", BLANK(),
+        "Agent Key", "audit:" & IF(ISBLANK('Chat + Agent Interactions (Audit Logs)'[AgentName]), "blank", "text:" & 'Chat + Agent Interactions (Audit Logs)'[AgentName]),
         "In Registry", FALSE(),
         "Type", "Not in registry",
         "Creator", BLANK(),
@@ -95,6 +97,57 @@ VAR _unregistered =
         "Adoption", BLANK(),
         "Description", BLANK()
     )
+VAR _all = UNION(_registered, _unregistered)
+VAR _inUse = COUNTROWS(FILTER(_all, [Users] > 0)) + 0
+VAR _registeredCount = COUNTROWS(FILTER(_all, [In Registry])) + 0
+VAR _total = COUNTROWS(_all)
+// Only list rows leave the model. Spotlight maxima and tie counts cover all
+// agents, even if thousands tie beyond the cap; only two names are spelled out.
+VAR _listed =
+    TOPN(
+        1000,
+        _all,
+        [Users], DESC,
+        [Sessions], DESC,
+        [Agent], ASC,
+        [Registry Id], ASC,
+        [Type], ASC,
+        [Creator], ASC,
+        [Agent Key], ASC
+    )
+VAR _maxSessions = MAXX(_all, [Sessions])
+VAR _maxOrgs = MAXX(_all, [Orgs Reached])
+VAR _sessionLeaders = FILTER(_all, _maxSessions > 0 && [Sessions] = _maxSessions)
+VAR _orgLeaders = FILTER(_all, _maxOrgs > 0 && [Orgs Reached] = _maxOrgs)
+VAR _sessionCount = COUNTROWS(_sessionLeaders) + 0
+VAR _orgCount = COUNTROWS(_orgLeaders) + 0
+VAR _sessionNames =
+    CONCATENATEX(
+        TOPN(2, _sessionLeaders, [Users], DESC, [Sessions], DESC, [Agent], ASC, [Agent Key], ASC),
+        IF(LEN(TRIM([Agent])) = 0, "Unnamed agent", TRIM([Agent])),
+        IF(_sessionCount = 2, " and ", ", "),
+        [Users], DESC, [Sessions], DESC, [Agent], ASC, [Agent Key], ASC
+    )
+    & IF(_sessionCount > 2, " and " & FORMAT(_sessionCount - 2, "0") & IF(_sessionCount = 3, " other", " others"), "")
+VAR _orgNames =
+    CONCATENATEX(
+        TOPN(2, _orgLeaders, [Users], DESC, [Sessions], DESC, [Agent], ASC, [Agent Key], ASC),
+        IF(LEN(TRIM([Agent])) = 0, "Unnamed agent", TRIM([Agent])),
+        IF(_orgCount = 2, " and ", ", "),
+        [Users], DESC, [Sessions], DESC, [Agent], ASC, [Agent Key], ASC
+    )
+    & IF(_orgCount > 2, " and " & FORMAT(_orgCount - 2, "0") & IF(_orgCount = 3, " other", " others"), "")
 RETURN
-    UNION(_registered, _unregistered)
-ORDER BY [Users] DESC, [Sessions] DESC, [Agent] ASC
+    ADDCOLUMNS(
+        _listed,
+        "In Use", _inUse,
+        "Registered", _registeredCount,
+        "Total", _total,
+        "Top Sessions", _maxSessions + 0,
+        "Session Leaders", _sessionNames,
+        "Session Leader Count", _sessionCount,
+        "Top Orgs", _maxOrgs + 0,
+        "Org Leaders", _orgNames,
+        "Org Leader Count", _orgCount
+    )
+ORDER BY [Users] DESC, [Sessions] DESC, [Agent] ASC, [Registry Id] ASC, [Type] ASC, [Creator] ASC, [Agent Key] ASC

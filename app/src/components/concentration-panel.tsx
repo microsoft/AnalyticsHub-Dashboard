@@ -9,8 +9,8 @@ import { useCallback, useMemo, type ReactNode } from "react";
 import { ChartPanel } from "@/components/report-panels";
 import type { TableResult } from "@/hooks/use-table-query";
 import {
-    concentration,
     concentrationHeadline,
+    concentrationIncomplete,
     paretoSpec,
     paretoTable,
     sliceLabel,
@@ -23,10 +23,10 @@ import { SMALL } from "@/lib/type-scale";
 import { cn } from "@/lib/utils";
 
 interface ConcentrationPanelProps {
-    /** The query the values come from, for its loading and error states. */
+    /** The query the figures come from, for its loading and error states. */
     result: TableResult;
-    /** One value per person, read from the result's table. */
-    values: readonly number[] | undefined;
+    /** The figures read from the result's table, undefined when nobody has a value. */
+    summary: Concentration | undefined;
     /** What the values are, mid-sentence: "sessions", "credits". */
     noun: string;
     title: string;
@@ -66,7 +66,7 @@ function SliceFigures({ result }: { result: Concentration }) {
  */
 export function ConcentrationPanel({
     result,
-    values,
+    summary,
     noun,
     title,
     subtitle,
@@ -74,15 +74,17 @@ export function ConcentrationPanel({
     emptyDescription,
     height = 320,
 }: ConcentrationPanelProps) {
-    const summary = useMemo(() => (values ? concentration(values) : undefined), [values]);
     const table = useMemo(() => (result.table ? paretoTable(summary) : undefined), [result.table, summary]);
     const spec = useMemo(() => paretoSpec(noun), [noun]);
     const headline = useCallback(() => concentrationHeadline(summary, noun), [summary, noun]);
+    const checkedResult = !result.isLoading && result.error === undefined && concentrationIncomplete(result.table, summary)
+        ? { ...result, error: "The concentration totals are incomplete. Retry to load the full result." }
+        : result;
 
     return (
         <div className="flex flex-col gap-300">
             <ChartPanel
-                result={result}
+                result={checkedResult}
                 table={table}
                 height={height}
                 spec={spec}
@@ -92,7 +94,7 @@ export function ConcentrationPanel({
                 emptyTitle={emptyTitle}
                 emptyDescription={emptyDescription}
             />
-            {summary && <SliceFigures result={summary} />}
+            {!result.isLoading && result.error === undefined && summary && <SliceFigures result={summary} />}
         </div>
     );
 }

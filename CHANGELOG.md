@@ -172,6 +172,45 @@ performance budget. No new dependencies, and no query or install changes.
 - **Copilot Studio:** the daily credits and cost chart adds a 7-day average line over the bars, so
   the trend reads through spiky days. Days with no usage count as zero.
 
+**Models: less refresh-time calculation and smaller ID columns.** See
+[Model slimming](docs/MODEL-SLIMMING.md). Deployed size and latency improvements require
+same-data measurements; these changes alone do not establish a performance result.
+
+- **No calculated columns on the ValueLens audit fact.** The processor (Fabric notebook section
+  10c, the DuckDB core and the Azure process job) now writes the 24 columns the report reads, for
+  example `Is Prompt Row`, `Is Usage Row`, `Task Breakdown Group`, `Work Shape` and
+  `Session Turn Band`. The model imports them instead of computing them in memory at every
+  refresh, and drops 7 helper columns, removing the fact's calculated-column obstacle to Direct
+  Lake. A test
+  checks the output against a reference written from the original DAX; live equality is a
+  separate validation gate.
+- **Integer message and thread bindings.** `ThreadId` and `Message_Id` keep their names but now import the
+  processor's 60-bit integer `Thread_Key` and `Message_Key` instead of the id text, so session and
+  prompt counts must pass old/new equality checks. `CreationDate` is no longer imported; the Calendar and agent
+  last-activity measures read `InteractionDate`, the same day. Incremental refresh still filters
+  on `CreationDate` at the source.
+- **Migration before model readiness.** Fabric processor version 2 and the changed Azure
+  fingerprint force a one-time full rebuild. On Azure, migration `V007` adds the columns.
+  Typed-null model fallbacks are transitional compatibility, not successful data validation:
+  publish the populated columns and refresh every model partition before switching the app.
+- **Cross-month conversations stay correct on incremental runs.** Added, changed and deleted
+  thread/message rows update dependent historical values while retaining unrelated snapshots.
+  Fabric records older changed days durably, and its refresh notebook reloads historical audit
+  partitions before acknowledging the change. Failed refreshes remain pending for retry.
+- **Agent Evaluator:** drops five unused calculated columns, including
+  `Knowledge Citations[Topic (conversation)]`, which scanned every activity event for each
+  citation.
+- Applied by the new `scripts/Update-Model-Slimming.py` (`--check` reports stale templates) and
+  `scripts/Update-Model-Refresh-Fixes.py`. Desktop refresh checks are listed in the doc.
+
+**Bounded dashboard detail with full-population summaries.** Person and agent lists return at
+most 1,000 rows with explicit tie breakers and truncation notices. Totals and agent spotlights
+are calculated over the full filtered population, not the visible sample. Value/cohort and
+Studio concentration summaries are calculated server-side rather than downloading every
+person. Missing or inconsistent required totals show an error instead of a sample-based
+fallback. Query pacing and retry protections are unchanged. App build validation and live
+old/new DAX equality remain delivery gates; no latency improvement is claimed here.
+
 ## 2026-10-14 — Analytics Hub installer 0.6.5
 
 **The current release.** 0.6.5 replaces 0.6.2 as Latest, so the `releases/latest` links, including

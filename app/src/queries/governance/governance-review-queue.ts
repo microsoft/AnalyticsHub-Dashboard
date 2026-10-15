@@ -7,7 +7,7 @@
 
 import { REGISTRY } from "@/lib/filter-profiles";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
-import { connection, FORMAT_WHOLE } from "../shared";
+import { connection, FORMAT_WHOLE, TOTAL_COLUMN } from "../shared";
 import query from "./governance-review-queue.dax?raw";
 
 const columnMetadata: ColumnMetadataMap = {
@@ -22,6 +22,7 @@ const columnMetadata: ColumnMetadataMap = {
     "[Flag Count]": { name: "Flag Count", displayName: "Flags raised", format: FORMAT_WHOLE },
     "[Priority]": { name: "Priority", displayName: "Priority", format: FORMAT_WHOLE },
     "[Flags]": { name: "Flags", displayName: "Why it's here" },
+    ...TOTAL_COLUMN,
 };
 
 /** How much each flag weighs in the queue's `Priority`, matching the query. */
@@ -38,7 +39,8 @@ export const FLAG_WEIGHTS = {
  * `Priority`, the sum of its flags' weights, so an agent anyone can reach
  * without signing in, or one nobody answers for, comes before one that is
  * merely unused. Ties go to the most flags and then the most users, since an
- * agent many people rely on is the one to sort out before it breaks.
+ * agent many people rely on is the one to sort out before it breaks. The
+ * queue stops at the top `LIST_LIMIT`; `Total` counts every flagged agent.
  */
 export function governanceReviewQueue() {
     return { connection, query, columnMetadata, filters: REGISTRY };

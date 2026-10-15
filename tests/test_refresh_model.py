@@ -36,6 +36,7 @@ class FakeApi:
         self.sync = sync or (lambda endpoint_id: Response(200, {"value": []}))
         self.refresh = refresh or {"status": "Completed"}
         self.calls = []
+        self.refresh_bodies = []
 
     def get(self, url, headers=None, params=None, timeout=None):
         self.calls.append(("GET", url))
@@ -51,10 +52,24 @@ class FakeApi:
         self.calls.append(("POST", url))
         if url.endswith("/refreshMetadata"):
             return self.sync(url.split("/")[-2])
+        self.refresh_bodies.append(json)
         return Response(202, headers={"Location": url + "/r1"})
 
 
-def run_notebook(api):
+class AuditState:
+    def __init__(self, pending="generation-2", completed="generation-1"):
+        self.properties = {"valuelens.audit_data_version": pending,
+                           "valuelens.audit_refreshed.model": completed}
+        self.acknowledgements = []
+
+    def sql(self, statement):
+        if statement.startswith("DESCRIBE DETAIL"):
+            return types.SimpleNamespace(collect=lambda: [{"properties": dict(self.properties)}])
+        self.acknowledgements.append(statement)
+        return None
+
+
+def run_notebook(api, audit=None):
     cells = ["".join(c["source"]) for c in json.loads(NOTEBOOK.read_text(encoding="utf-8"))["cells"] if c["cell_type"] == "code"]
     notebookutils = types.ModuleType("notebookutils")
     notebookutils.credentials = types.SimpleNamespace(getToken=lambda audience: "token")
@@ -64,7 +79,8 @@ def run_notebook(api):
     with mock.patch.dict(sys.modules, {"notebookutils": notebookutils, "requests": requests}), \
             mock.patch("time.sleep"), mock.patch("builtins.print"):
         exec(cells[0], scope)
-        scope.update(WORKSPACE_ID=WS, SEMANTIC_MODEL_ID="model")
+        scope.update(WORKSPACE_ID=WS, SEMANTIC_MODEL_ID="model",
+                     CHECK_AUDIT_STATE=audit is not None, spark=audit)
         exec(cells[1], scope)
     return [(method, url) for method, url in api.calls if method == "POST"]
 
@@ -121,6 +137,53 @@ class RefreshModelTests(unittest.TestCase):
         info = {"type": "Information", "message": "Partition processed."}
         posts = run_notebook(FakeApi([], refresh={"status": "Completed", "messages": [info]}))
         self.assertTrue(posts[-1][1].endswith("/datasets/model/refreshes"))
+
+    def test_pending_history_reloads_audit_partitions_and_acknowledges_after_success(self):
+        state, api = AuditState(), FakeApi([])
+        run_notebook(api, state)
+        self.assertEqual(len(api.refresh_bodies), 2)
+        self.assertFalse(api.refresh_bodies[-1]["applyRefreshPolicy"])
+        self.assertEqual(api.refresh_bodies[-1]["objects"], [{"table": "Chat + Agent Interactions (Audit Logs)"}])
+        self.assertEqual(len(state.acknowledgements), 1)
+        self.assertIn("'valuelens.audit_refreshed.model' = 'generation-2'", state.acknowledgements[0])
+        self.assertNotIn("audit_data_version", state.acknowledgements[0])
+
+    def test_acknowledged_history_does_not_force_another_full_refresh(self):
+        state, api = AuditState(completed="generation-2"), FakeApi([])
+        run_notebook(api, state)
+        self.assertEqual(len(api.refresh_bodies), 1)
+        self.assertEqual(state.acknowledgements, [])
+
+    def test_failed_refresh_keeps_history_pending_for_retry(self):
+        state = AuditState()
+        with self.assertRaises(RuntimeError):
+            run_notebook(FakeApi([], refresh={"status": "Failed"}), state)
+        self.assertEqual(state.acknowledgements, [])
+        api = FakeApi([])
+        run_notebook(api, state)
+        self.assertEqual(len(api.refresh_bodies), 2)
+
+    def test_missing_requested_audit_state_is_an_error_not_success(self):
+        state = AuditState()
+        state.sql = mock.Mock(side_effect=RuntimeError("default lakehouse unavailable"))
+        api = FakeApi([])
+        with self.assertRaisesRegex(RuntimeError, "default lakehouse unavailable"):
+            run_notebook(api, state)
+        self.assertEqual(api.refresh_bodies, [])
+
+    def test_acknowledgement_cannot_clear_a_concurrent_processor_generation(self):
+        state, api = AuditState(), FakeApi([])
+        original_post = api.post
+
+        def post(*args, **kwargs):
+            result = original_post(*args, **kwargs)
+            state.properties["valuelens.audit_data_version"] = "generation-3"
+            return result
+
+        api.post = post
+        run_notebook(api, state)
+        self.assertIn("'generation-2'", state.acknowledgements[0])
+        self.assertEqual(state.properties["valuelens.audit_data_version"], "generation-3")
 
 
 if __name__ == "__main__":

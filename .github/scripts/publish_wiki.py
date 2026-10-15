@@ -33,6 +33,7 @@ PAGES = {
     "docs/PERMISSIONS.md": "Permissions",
     "docs/APP-GUIDE.md": "App-Guide",
     "docs/METHODOLOGY.md": "Methodology",
+    "docs/MODEL-SLIMMING.md": "Model-Slimming",
     "docs/DATA-DICTIONARY.md": "Data-Dictionary",
     "docs/VIVA-QUERY.md": "Viva-Insights-Query",
 }

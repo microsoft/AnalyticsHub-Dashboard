@@ -252,6 +252,7 @@ export function CoworkStage({ options, rates }: CoworkStageProps) {
                     }
                     emptyTitle="Nobody consumed credits"
                     emptyDescription="No one in this period and service used Cowork or Work IQ credits."
+                    truncation={{ noun: "person", by: "by credits" }}
                 />
                 <NoteCard
                     title="How it is billed"

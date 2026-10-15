@@ -14,7 +14,11 @@
     "[Features]": null,
     "[Lifecycle]": null,
     "[Adoption]": null,
-    "[Description]": null
+    "[Description]": null,
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "Copilot for Excel",
@@ -31,7 +35,11 @@
     "[Features]": null,
     "[Lifecycle]": null,
     "[Adoption]": null,
-    "[Description]": null
+    "[Description]": null,
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "Copilot for Teams",
@@ -48,7 +56,11 @@
     "[Features]": null,
     "[Lifecycle]": null,
     "[Adoption]": null,
-    "[Description]": null
+    "[Description]": null,
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "Legal Document Agent",
@@ -65,7 +77,11 @@
     "[Features]": null,
     "[Lifecycle]": null,
     "[Adoption]": null,
-    "[Description]": null
+    "[Description]": null,
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "HR Copilot Studio",
@@ -82,7 +98,11 @@
     "[Features]": null,
     "[Lifecycle]": null,
     "[Adoption]": null,
-    "[Description]": null
+    "[Description]": null,
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "IT Helpdesk Agent",
@@ -99,7 +119,11 @@
     "[Features]": null,
     "[Lifecycle]": null,
     "[Adoption]": null,
-    "[Description]": null
+    "[Description]": null,
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "Copilot for Outlook",
@@ -116,7 +140,11 @@
     "[Features]": null,
     "[Lifecycle]": null,
     "[Adoption]": null,
-    "[Description]": null
+    "[Description]": null,
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "Sales Agent 365",
@@ -133,7 +161,11 @@
     "[Features]": null,
     "[Lifecycle]": null,
     "[Adoption]": null,
-    "[Description]": null
+    "[Description]": null,
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "Copilot for Word",
@@ -150,7 +182,11 @@
     "[Features]": null,
     "[Lifecycle]": null,
     "[Adoption]": null,
-    "[Description]": null
+    "[Description]": null,
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "1Task",
@@ -167,7 +203,11 @@
     "[Features]": "🤖 in Copilot",
     "[Lifecycle]": "Catalogue listing",
     "[Adoption]": "No usage recorded",
-    "[Description]": "Manage personal tasks in Microsoft 365 Copilot."
+    "[Description]": "Manage personal tasks in Microsoft 365 Copilot.",
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "2do Uniconta AI Agent",
@@ -184,7 +224,11 @@
     "[Features]": "🤖 in Copilot 💬 in Teams",
     "[Lifecycle]": "Catalogue listing",
     "[Adoption]": "No usage recorded",
-    "[Description]": "Ask questions about your Uniconta ERP data in plain language — invoices, debtors, orders, inventory"
+    "[Description]": "Ask questions about your Uniconta ERP data in plain language — invoices, debtors, orders, inventory",
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "Abe",
@@ -201,7 +245,11 @@
     "[Features]": "🤖 in Copilot 💬 in Teams 📧 in Outlook 📄 in Office",
     "[Lifecycle]": "Catalogue listing",
     "[Adoption]": "No usage recorded",
-    "[Description]": "Abe is an AI assistant that maximizes productivity with intuitive reminders and time optimization"
+    "[Description]": "Abe is an AI assistant that maximizes productivity with intuitive reminders and time optimization",
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "Agent",
@@ -218,7 +266,11 @@
     "[Features]": "Unknown / insufficient capability evidence",
     "[Lifecycle]": "Tenant-built, not deployed",
     "[Adoption]": "No usage recorded",
-    "[Description]": ""
+    "[Description]": "",
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "Agent",
@@ -235,7 +287,11 @@
     "[Features]": "Unknown / insufficient capability evidence",
     "[Lifecycle]": "Tenant-built, not deployed",
     "[Adoption]": "No usage recorded",
-    "[Description]": ""
+    "[Description]": "",
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "Agent",
@@ -252,7 +308,11 @@
     "[Features]": "Unknown / insufficient capability evidence",
     "[Lifecycle]": "Tenant-built, not deployed",
     "[Adoption]": "No usage recorded",
-    "[Description]": "Built using Microsoft Copilot Studio."
+    "[Description]": "Built using Microsoft Copilot Studio.",
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "Agent",
@@ -269,7 +329,11 @@
     "[Features]": "Unknown / insufficient capability evidence",
     "[Lifecycle]": "Tenant-built, not deployed",
     "[Adoption]": "No usage recorded",
-    "[Description]": ""
+    "[Description]": "",
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "Agent",
@@ -286,7 +350,11 @@
     "[Features]": "Unknown / insufficient capability evidence",
     "[Lifecycle]": "Tenant-built, not deployed",
     "[Adoption]": "No usage recorded",
-    "[Description]": ""
+    "[Description]": "",
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "Employee Self-Service (P)",
@@ -303,7 +371,11 @@
     "[Features]": "🤖 in Copilot 💬 in Teams",
     "[Lifecycle]": "Blocked by admin",
     "[Adoption]": "No usage recorded",
-    "[Description]": "Built using Microsoft Copilot Studio."
+    "[Description]": "Built using Microsoft Copilot Studio.",
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "Hardware Advisor",
@@ -320,7 +392,11 @@
     "[Features]": "💬 in Teams",
     "[Lifecycle]": "Tenant-built, not deployed",
     "[Adoption]": "No usage recorded",
-    "[Description]": "Built using Microsoft Copilot Studio"
+    "[Description]": "Built using Microsoft Copilot Studio",
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   },
   {
     "[Agent]": "Hardware Advisor",
@@ -337,6 +413,10 @@
     "[Features]": "Unknown / insufficient capability evidence",
     "[Lifecycle]": "Tenant-built, not deployed",
     "[Adoption]": "No usage recorded",
-    "[Description]": ""
+    "[Description]": "",
+    "[Listed]": true,
+    "[In Use]": 9,
+    "[Registered]": 11,
+    "[Total]": 20
   }
 ]

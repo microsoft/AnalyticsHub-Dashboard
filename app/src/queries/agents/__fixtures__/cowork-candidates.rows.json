@@ -5,7 +5,9 @@
     "[Organization]": "Sales",
     "[Surfaces Per Day]": 4.6,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 2,
@@ -13,7 +15,9 @@
     "[Organization]": "IT",
     "[Surfaces Per Day]": 3.6166666666666667,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 3,
@@ -21,7 +25,9 @@
     "[Organization]": "Marketing",
     "[Surfaces Per Day]": 3.1,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 4,
@@ -29,7 +35,9 @@
     "[Organization]": "Finance",
     "[Surfaces Per Day]": 2.5,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 5,
@@ -37,7 +45,9 @@
     "[Organization]": "HR",
     "[Surfaces Per Day]": 2.152542372881356,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 6,
@@ -45,7 +55,9 @@
     "[Organization]": "Legal",
     "[Surfaces Per Day]": 1.896551724137931,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 7,
@@ -53,7 +65,9 @@
     "[Organization]": "Sales",
     "[Surfaces Per Day]": 1.7962962962962963,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 7,
@@ -61,7 +75,9 @@
     "[Organization]": "Marketing",
     "[Surfaces Per Day]": 1.8518518518518519,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 8,
@@ -69,7 +85,9 @@
     "[Organization]": "Finance",
     "[Surfaces Per Day]": 1.673913043478261,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 8,
@@ -77,7 +95,9 @@
     "[Organization]": "IT",
     "[Surfaces Per Day]": 1.6226415094339623,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 9,
@@ -85,7 +105,9 @@
     "[Organization]": "HR",
     "[Surfaces Per Day]": 1.5555555555555556,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 9,
@@ -93,7 +115,9 @@
     "[Organization]": "Sales",
     "[Surfaces Per Day]": 1.5128205128205128,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 9,
@@ -101,7 +125,9 @@
     "[Organization]": "IT",
     "[Surfaces Per Day]": 1.5238095238095237,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 10,
@@ -109,7 +135,9 @@
     "[Organization]": "Legal",
     "[Surfaces Per Day]": 1.434782608695652,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 10,
@@ -117,7 +145,9 @@
     "[Organization]": "HR",
     "[Surfaces Per Day]": 1.4411764705882353,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 10,
@@ -125,7 +155,9 @@
     "[Organization]": "Legal",
     "[Surfaces Per Day]": 1.4,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 11,
@@ -133,7 +165,9 @@
     "[Organization]": "Marketing",
     "[Surfaces Per Day]": 1.3142857142857143,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 11,
@@ -141,7 +175,9 @@
     "[Organization]": "Sales",
     "[Surfaces Per Day]": 1.28125,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 11,
@@ -149,7 +185,9 @@
     "[Organization]": "IT",
     "[Surfaces Per Day]": 1.28125,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 11,
@@ -157,7 +195,9 @@
     "[Organization]": "Finance",
     "[Surfaces Per Day]": 1.28,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 11,
@@ -165,7 +205,9 @@
     "[Organization]": "HR",
     "[Surfaces Per Day]": 1.2857142857142858,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 11,
@@ -173,7 +215,9 @@
     "[Organization]": "Finance",
     "[Surfaces Per Day]": 1.28,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 11,
@@ -181,7 +225,9 @@
     "[Organization]": "Finance",
     "[Surfaces Per Day]": 1.2857142857142858,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 11,
@@ -189,7 +235,9 @@
     "[Organization]": "HR",
     "[Surfaces Per Day]": 1.3043478260869565,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 12,
@@ -197,7 +245,9 @@
     "[Organization]": "Finance",
     "[Surfaces Per Day]": 1.2162162162162162,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 12,
@@ -205,7 +255,9 @@
     "[Organization]": "Legal",
     "[Surfaces Per Day]": 1.2285714285714286,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 12,
@@ -213,7 +265,9 @@
     "[Organization]": "Sales",
     "[Surfaces Per Day]": 1.25,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 12,
@@ -221,7 +275,9 @@
     "[Organization]": "Marketing",
     "[Surfaces Per Day]": 1.2592592592592593,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 12,
@@ -229,7 +285,9 @@
     "[Organization]": "HR",
     "[Surfaces Per Day]": 1.2380952380952381,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   },
   {
     "[Rank]": 12,
@@ -237,6 +295,8 @@
     "[Organization]": "Sales",
     "[Surfaces Per Day]": 1.2,
     "[Prompts Per Session]": 1,
-    "[Uses Agents]": "Yes"
+    "[Uses Agents]": "Yes",
+    "[Depths]": 1,
+    "[Total]": 30
   }
 ]

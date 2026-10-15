@@ -7,6 +7,9 @@ Consumption Central (Fabric):
 Agent Evaluator:
   * 'Agent Turns'[Response Seconds] scans its own conversation with FILTER(ALL(...)) instead of
     CALCULATE(..., ALLEXCEPT(...)), which ran out of memory on large transcript tables.
+  * Calculated columns that no measure, visual, sort-by, hierarchy, relationship or app query
+    reads are dropped (UNUSED_COLUMNS). 'Knowledge Citations'[Topic (conversation)] scanned
+    every activity event once per citation at refresh; the others were per-row text copies.
   * In Fabric mode the credit tables read credit_consumption_<name> when it has rows, else the
     Consumption Central add-on's studio_* tables (FabricCreditTable). Nothing in Fabric writes
     credit_consumption_*, so the Credit Consumption page used to stay empty.
@@ -377,6 +380,60 @@ def edit_response_seconds(document):
     return [f"{TURNS}[Response Seconds]"]
 
 
+def model_references(model, table_name, column_name):
+    """Where the model still uses a column: DAX text, sort-by, hierarchies, relationships."""
+    ref = f"[{column_name}]".lower()
+    uses = []
+    for table in model["tables"]:
+        for kind in ("columns", "measures"):
+            for item in table.get(kind, []):
+                if (table["name"], item["name"]) == (table_name, column_name):
+                    continue
+                if ref in joined(item.get("expression", "")).lower():
+                    uses.append(f"{table['name']}[{item['name']}]")
+                if kind == "columns" and table["name"] == table_name and item.get("sortByColumn") == column_name:
+                    uses.append(f"{table['name']}[{item['name']}] sort-by")
+        for partition in table.get("partitions", []):
+            if partition["source"].get("type") == "calculated" and ref in joined(
+                    partition["source"].get("expression", "")).lower():
+                uses.append(table["name"])
+        for hierarchy in table.get("hierarchies", []):
+            if table["name"] == table_name and any(level["column"] == column_name for level in hierarchy["levels"]):
+                uses.append(f"{table['name']} hierarchy {hierarchy['name']}")
+    for rel in model.get("relationships", []):
+        if (rel["fromTable"], rel["fromColumn"]) == (table_name, column_name) or (
+                rel["toTable"], rel["toColumn"]) == (table_name, column_name):
+            uses.append(f"relationship {rel['name']}")
+    return uses
+
+
+def edit_unused_columns(document):
+    changed = []
+    model = document["model"]
+    for table_name, column_name in UNUSED_COLUMNS:
+        table = one(model["tables"], table_name, "DataModelSchema tables")
+        hits = [c for c in table.get("columns", []) if c["name"] == column_name]
+        if not hits:
+            continue
+        if hits[0].get("type") != "calculated":
+            raise ValueError(f"{table_name}[{column_name}] is not a calculated column")
+        uses = model_references(model, table_name, column_name)
+        if uses:
+            raise ValueError(f"{table_name}[{column_name}] is still used by {', '.join(uses)}")
+        table["columns"] = [c for c in table["columns"] if c["name"] != column_name]
+        changed.append(f"drop {table_name}[{column_name}]")
+    return changed
+
+
+UNUSED_COLUMNS = (
+    ("Knowledge Citations", "Topic (conversation)"),
+    ("Activity Events", "Topic + Action"),
+    ("Activity Events", "Topic + Category"),
+    ("Agent Performance", "ConversationComplexity"),
+    ("Agent Turns", "From"),
+)
+
+
 def owned_mask_model(document, queries, functions, response_seconds):
     result = copy.deepcopy(document)
     model = result["model"]
@@ -387,6 +444,9 @@ def owned_mask_model(document, queries, functions, response_seconds):
         model["expressions"] = [e for e in model["expressions"] if e["name"] not in names]
     if response_seconds:
         one(one(model["tables"], TURNS, "tables")["columns"], "Response Seconds", TURNS)["expression"] = "<owned>"
+        for table_name, column_name in UNUSED_COLUMNS:
+            table = one(model["tables"], table_name, "tables")
+            table["columns"] = [c for c in table["columns"] if c["name"] != column_name]
     return result
 
 
@@ -451,6 +511,7 @@ def build(original, queries, functions, response_seconds):
         edits += edit_functions_model(model)
     if response_seconds:
         edits += edit_response_seconds(model)
+        edits += edit_unused_columns(model)
     if edits:
         if owned_mask_model(before, queries, functions, response_seconds) != owned_mask_model(
                 model, queries, functions, response_seconds):

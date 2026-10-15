@@ -327,6 +327,110 @@
   [
    "User_Stage",
    "string"
+  ],
+  [
+   "Is_Cowork",
+   "boolean"
+  ],
+  [
+   "AppHost_Norm",
+   "string"
+  ],
+  [
+   "Agent Filter (Normalized)",
+   "string"
+  ],
+  [
+   "Model Cost Tier Sort",
+   "bigint"
+  ],
+  [
+   "Model Cost Tier",
+   "string"
+  ],
+  [
+   "Is Prompt Row",
+   "boolean"
+  ],
+  [
+   "Is Observed Prompt",
+   "boolean"
+  ],
+  [
+   "Is Usage Row",
+   "boolean"
+  ],
+  [
+   "Expertise Role (All Cohorts)",
+   "string"
+  ],
+  [
+   "Session Material Refs",
+   "bigint"
+  ],
+  [
+   "Session Material Types",
+   "bigint"
+  ],
+  [
+   "Session Turn Band Sort",
+   "bigint"
+  ],
+  [
+   "Session Turn Band",
+   "string"
+  ],
+  [
+   "Work Weight Grade",
+   "string"
+  ],
+  [
+   "Work Weight Grade Sort",
+   "bigint"
+  ],
+  [
+   "Work Shape",
+   "string"
+  ],
+  [
+   "Work Shape Sort",
+   "bigint"
+  ],
+  [
+   "Fit Basis",
+   "string"
+  ],
+  [
+   "Session Model Tier Sort",
+   "bigint"
+  ],
+  [
+   "Session Model Tier",
+   "string"
+  ],
+  [
+   "Cowork Task Category",
+   "string"
+  ],
+  [
+   "Task Engagement Mode",
+   "string"
+  ],
+  [
+   "Task Breakdown Category",
+   "string"
+  ],
+  [
+   "Task Breakdown Group",
+   "string"
+  ],
+  [
+   "Thread_Key",
+   "bigint"
+  ],
+  [
+   "Message_Key",
+   "bigint"
   ]
  ],
  "rows": []

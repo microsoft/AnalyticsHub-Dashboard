@@ -117,10 +117,17 @@ describe("agents query contract", () => {
     // rank; the organization has to be looked up per person instead.
     it("ranks Cowork candidates organization-wide", () => {
         const { query } = coworkCandidates();
-        const grouping = query.slice(query.indexOf("SUMMARIZECOLUMNS("), query.indexOf('"@Rank"'));
+        const grouping = query.slice(query.indexOf("VALUES("), query.indexOf('"@b"'));
         expect(grouping).toContain("[Audit_UserId]");
         expect(grouping).not.toContain("[Organization]");
         expect(query).toContain("LOOKUPVALUE(");
+    });
+
+    // The model's dynamic rank rebuilds the scored table for each person it ranks.
+    it("ranks Cowork candidates in the query, scoring each person once", () => {
+        const { query } = coworkCandidates();
+        expect(query).not.toContain("[Cowork Readiness Rank (Dynamic)]");
+        expect(query).toContain("COUNTROWS(FILTER(__Scores, [@Value] > __Score)) + 1");
     });
 });
 
@@ -189,7 +196,7 @@ describe("agent leaderboard", () => {
     });
 
     it("ranks by users, then sessions", () => {
-        expect(query.trim()).toMatch(/ORDER BY \[Users\] DESC, \[Sessions\] DESC, \[Agent\] ASC$/);
+        expect(query.trim()).toMatch(/ORDER BY \[Users\] DESC, \[Sessions\] DESC, \[Agent\] ASC, \[Registry Id\] ASC, \[Type\] ASC, \[Creator\] ASC, \[Agent Key\] ASC$/);
     });
 
     it("leaves out the draft placeholder agent, as the report's Leaderboard page does", () => {
@@ -200,6 +207,22 @@ describe("agent leaderboard", () => {
         const keys = entries.map((entry) => entry.key);
         expect(new Set(keys).size).toBe(keys.length);
         expect(entries.filter((entry) => entry.name === "Agent").length).toBeGreaterThan(1);
+    });
+
+    it("keeps exact spotlight summaries without returning extra leaves or cutoff ties", () => {
+        expect(query).toMatch(/TOPN\(\s*1000,\s*_all,/);
+        expect(query).toContain("_maxSessions > 0 && [Sessions] = _maxSessions");
+        expect(query).toContain("_maxOrgs > 0 && [Orgs Reached] = _maxOrgs");
+        expect(query).toContain('"Session Leader Count", _sessionCount');
+        expect(query).toContain('"Org Leader Count", _orgCount');
+        expect(query).not.toContain('"Listed"');
+        expect(query).toContain('[Agent Key], ASC');
+        const read = toAgentEntries(toDataTable(asQueryTable([
+            { ...rows[0], "[Agent]": "Unnamed agent", "[Agent Key]": "audit:blank" },
+            { ...rows[0], "[Agent]": "Unnamed agent", "[Agent Key]": "audit:text:" },
+            { ...rows[0], "[Agent]": "Unnamed agent", "[Agent Key]": "audit:text:Unnamed agent" },
+        ]), columnMetadata));
+        expect(read.map((entry) => entry.key)).toEqual(["audit:blank", "audit:text:", "audit:text:Unnamed agent"]);
     });
 
     it("reads usage and the last active day for an agent the registry lacks", () => {
@@ -261,6 +284,12 @@ describe("agent functions", () => {
         expect(query).toContain("[Agent Filter (Normalized)] = \"Agents\"");
         expect(query).toMatch(/NOT ISBLANK\(\[@Sessions\]\)/);
     });
+
+    it("returns only the agents tied for the most functions", () => {
+        expect(query).toContain('FILTER(_all, _max > 0 && [Functions] = _max)');
+        expect(query).toContain('TOPN(2, _leaders, [Agent], ASC, [Agent Key], ASC)');
+        expect(query).toContain('"Leader Count", COUNTROWS(_leaders)');
+    });
 });
 
 describe("agent surfaces", () => {
@@ -291,7 +320,7 @@ describe("cowork candidates", () => {
 
     it("does not call depth uniform once candidates differ", () => {
         const rows = (candidateRows as Row[]).map((row, index) =>
-            index === 0 ? { ...row, "[Prompts Per Session]": 2.5 } : row,
+            index === 0 ? { ...row, "[Prompts Per Session]": 2.5, "[Depths]": 2 } : row,
         );
         expect(isDepthUniform(toDataTable(asQueryTable(rows), columnMetadata))).toBe(false);
     });

@@ -5,6 +5,8 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import type { ColumnMetadataMap } from "@/lib/to-data-table";
+
 /** Connection alias declared in `fabric.yaml`. */
 export const connection = "vl";
 
@@ -33,3 +35,29 @@ export const FORMAT_HOURS = "#,0.0";
 export const FORMAT_MONEY = "#,0.00";
 /** Credits, which the products report to fractions nobody bills by. */
 export const FORMAT_CREDITS = "#,0";
+
+/**
+ * The most rows a per-person or per-agent list returns. Large tenants have
+ * tens of thousands of people, and Power BI's executeQueries API stops at
+ * 100,000 rows or 1,000,000 values. The queries write the number into their
+ * `TOPN(1000, …)` calls themselves, so the DAX still runs as it is; a spec
+ * keeps the two in step.
+ */
+export const LIST_LIMIT = 1000;
+
+/** How many rows a capped list would have held, repeated on every row it returns. */
+export const TOTAL_COLUMN: ColumnMetadataMap = {
+    "[Total]": { name: "Total", displayName: "Total", format: FORMAT_WHOLE },
+};
+
+/**
+ * The cut rows of a concentration query: how many of the busiest people a
+ * cut takes, the sum of their values, and the people with a value and their
+ * total, repeated on each row. `readConcentration` in lib/concentration reads them.
+ */
+export const CONCENTRATION_COLUMNS: ColumnMetadataMap = {
+    "[Count]": { name: "Count", displayName: "Busiest people", format: FORMAT_WHOLE },
+    "[Cumulative]": { name: "Cumulative", displayName: "Their total" },
+    "[People]": { name: "People", displayName: "People", format: FORMAT_WHOLE },
+    "[Total]": { name: "Total", displayName: "Total" },
+};
