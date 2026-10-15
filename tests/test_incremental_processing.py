@@ -211,7 +211,7 @@ PROCESSOR_NB = ROOT / "fabric" / "notebooks" / "Copilot_Audit_Log_Processor.ipyn
 # (refactor, logging) only needs the hash updated.
 PROCESSOR_LOGIC_HASHES = {
     1: "e10f273b3ab216ebdacbb5b04e8b7e5eb933504fa26b0c7887e48dffbe3fe09d",
-    2: "6074bad5d35f80b0322a2b17f38e20265cf1aace0de43b5c979ade3a48c575ae",
+    2: "da6b7eb2789754085c1e6b4d7e7fba50292b0f94aa67c658fec0e4eb13ff0902",
 }
 
 
@@ -252,9 +252,11 @@ def test_processor_notebook_is_incremental_and_skew_free():
     # The AgentName window put every row without an agent into one task.
     assert 'Window.partitionBy("AgentName")' not in code[14]
     assert 'F.broadcast(_alu)' in code[14]
-    assert "update_conversation_history(fact, spark.table(OUT_TABLE)" in code[14]
-    assert 'PROCESS_PLAN = {**PROCESS_PLAN, "months": _conversation_months}' in code[14]
     writer = code[15]
+    assert "update_conversation_history(df, spark.table(OUT_TABLE)" in writer
+    assert 'plan = {**plan, "months": months}' in writer
+    assert "localCheckpoint" not in "\n".join(code)
+    assert "write_strategy, PROCESS_PLAN = publish_curated_output(fact, PROCESS_PLAN)" in writer
     assert ".partitionBy(PARTITION_COLUMN)" in writer
     assert '.option("replaceWhere", month_predicate_sql(PARTITION_COLUMN, plan["months"]))' in writer
     assert "save_processor_state(build_processor_state(PROCESSOR_CONFIG, SOURCE_MONTHS))" in writer
