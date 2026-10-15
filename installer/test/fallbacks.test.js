@@ -31,6 +31,7 @@ import {
   writeAdminPack,
 } from '../src/steps/identity.js';
 import { deployModel } from '../src/steps/model.js';
+import { removeRetired } from '../src/steps/secrets.js';
 import { askAppId, confirmPlan, planAdminPack, planKeyVault, planReview, reserveNames } from '../src/steps/plan.js';
 import { fakeCtx, fakeFabric, fakeGraph, fakeUi, httpError } from './fakes.js';
 
@@ -506,7 +507,8 @@ test('a run stopped before Fabric created the item: the next run creates it unde
   const t = fakeCtx({ fabric: fabric.api, graph: fakeGraph().api, ui: fakeUi().ui });
   await ensureNotebooks(t.ctx);
   fabric.calls.length = 0;
-  t.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'aa11' } };
+  const hour = new Date(t.ctx.now().getTime() - CREATE_GIVE_UP_MS).toISOString();
+  t.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'aa11', at: hour } };
   await ensurePipeline(t.ctx);
   assert.deepEqual(fabric.calls, ['createPipeline AnalyticsHub_Pipeline']);
   assert.equal(t.config.fabric.pendingItems, undefined);
@@ -537,7 +539,7 @@ test('a run stopped before Fabric created the item: the next run creates it unde
   const k = fakeCtx({ fabric: taken.api, graph: fakeGraph().api, ui: fakeUi().ui });
   await ensureNotebooks(k.ctx);
   const theirs = taken.add('DataPipeline', 'AnalyticsHub_Pipeline', 'theirs', 'Analytics Hub daily load. (ref bb22)');
-  k.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'aa11' } };
+  k.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'aa11', at: hour } };
   taken.calls.length = 0;
   await ensurePipeline(k.ctx);
   assert.deepEqual(taken.calls.filter((c) => /Pipeline /.test(c)), ['createPipeline AnalyticsHub_Pipeline_2']);
@@ -567,7 +569,8 @@ test('a run stopped while Fabric creates a model: planning keeps its name and th
   const o = fakeCtx({ fabric: other.api, graph: fakeGraph().api, ui: fakeUi().ui });
   o.config.semanticModel.enabled = true;
   const theirs = other.add('SemanticModel', 'Analytics Hub Model', 'theirs');
-  o.config.fabric.pendingItems = { 'SemanticModel:main': { name: 'Analytics Hub Model', ref: 'cc33' } };
+  const hour = new Date(o.ctx.now().getTime() - CREATE_GIVE_UP_MS).toISOString();
+  o.config.fabric.pendingItems = { 'SemanticModel:main': { name: 'Analytics Hub Model', ref: 'cc33', at: hour } };
   await reserveNames(o.ctx);
   assert.equal(o.config.semanticModel.name, 'Analytics Hub Model 2');
   await deployModel(o.ctx, o.config.semanticModel, { signature: 's', definition: () => ({ parts: [] }) });
@@ -633,6 +636,34 @@ test('a run stopped moments ago: waits for the item Fabric is still creating, ra
   await ensurePipeline(g.ctx);
   assert.deepEqual(gone.calls.filter((c) => /Pipeline /.test(c)), ['createPipeline AnalyticsHub_Pipeline']);
   assert.match(goneUi.text(), /over an hour ago/);
+  assert.match(goneUi.text(), /the extra one is yours to delete/);
+});
+
+test("a stopped run's create with no time in the record: the clock starts now, and nothing is made without asking", async () => {
+  for (const at of [undefined, 'not a time']) {
+    const fabric = fakeFabric();
+    const ui = fakeUi({ yes: true });
+    const t = fakeCtx({ fabric: fabric.api, graph: fakeGraph().api, ui: ui.ui });
+    await ensureNotebooks(t.ctx);
+    t.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'ab12', ...(at ? { at } : {}) } };
+    fabric.calls.length = 0;
+    const saves = t.saves();
+    const sleeps = t.sleeps.length;
+    await assert.rejects(ensurePipeline(t.ctx), /wasn't created again, so there won't be two\. .*from 13:00 UTC creates it if not/);
+    assert.deepEqual(fabric.calls.filter((c) => /Pipeline /.test(c)), []);
+    assert.equal(t.config.fabric.pendingItems?.DataPipeline?.at, t.ctx.now().toISOString(), 'stamped');
+    assert.ok(t.saves() > saves, 'the stamp is saved');
+    assert.equal(t.sleeps.length, sleeps, 'asks at once rather than waiting');
+
+    // Told yes: made.
+    const sure = fakeFabric();
+    const s = fakeCtx({ fabric: sure.api, graph: fakeGraph().api, ui: fakeUi({ answers: [true] }).ui });
+    await ensureNotebooks(s.ctx);
+    s.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'ab12', ...(at ? { at } : {}) } };
+    sure.calls.length = 0;
+    await ensurePipeline(s.ctx);
+    assert.deepEqual(sure.calls.filter((c) => /Pipeline /.test(c)), ['createPipeline AnalyticsHub_Pipeline']);
+  }
 });
 
 test("a stopped run's create that Fabric gave an operation for: asked about, not guessed", async () => {
@@ -680,10 +711,28 @@ test("a stopped run's create that Fabric gave an operation for: asked about, not
   assert.equal(done.fabric.items.filter((i) => i.type === 'DataPipeline').length, 1);
   assert.equal(done.t.config.fabric.pendingItems, undefined);
 
-  // Succeeded but not there (deleted since): made again.
+  // Succeeded but not there: looked for a little longer, as the list can lag.
+  const lag = await setup('Succeeded');
+  const lagList = lag.fabric.api.listItems;
+  let lagLists = 0;
+  lag.fabric.api.listItems = async (/** @type {string} */ ws, /** @type {string} */ type) => {
+    if (type === 'DataPipeline' && ++lagLists === 3) lag.fabric.add('DataPipeline', 'AnalyticsHub_Pipeline', 'half-made', 'Analytics Hub daily load. (ref ee55)');
+    return lagList(ws, type);
+  };
+  await ensurePipeline(lag.t.ctx);
+  assert.deepEqual(lag.fabric.calls.filter((c) => /Pipeline /.test(c)), ['updatePipeline AnalyticsHub_Pipeline']);
+  assert.equal(lag.fabric.items.filter((i) => i.type === 'DataPipeline').length, 1);
+
+  // Succeeded but never there (deleted since, or still lagging): not made again without asking.
   const deleted = await setup('Succeeded');
-  await ensurePipeline(deleted.t.ctx);
-  assert.deepEqual(pipelineCalls(deleted.fabric.calls), ['operationStatus op-x', 'createPipeline AnalyticsHub_Pipeline']);
+  await assert.rejects(ensurePipeline(deleted.t.ctx), /wasn't created again, so there won't be two/);
+  assert.deepEqual(pipelineCalls(deleted.fabric.calls), ['operationStatus op-x']);
+  assert.equal(deleted.t.sleeps.length, 8, 'looked for it for two minutes');
+  assert.match(deleted.ui.text(), /Fabric says it created AnalyticsHub_Pipeline for the run that stopped, but it isn't in the workspace/);
+  assert.equal(deleted.t.config.fabric.pendingItems?.DataPipeline?.ref, 'ee55');
+  const agreed = await setup('Succeeded', { answers: [true] });
+  await ensurePipeline(agreed.t.ctx);
+  assert.deepEqual(pipelineCalls(agreed.fabric.calls), ['operationStatus op-x', 'createPipeline AnalyticsHub_Pipeline']);
 
   // Fabric can't say (the call fails, or it no longer knows the operation): as for no operation, it waits and then doesn't guess.
   for (const unknown of [undefined, 'throws']) {
@@ -822,10 +871,47 @@ test('notebook mode: a secret attempt that matches more than one secret, or none
   assert.equal(t.config.app.secretAttempts?.length, 4, 'kept when the app could not be read');
 
   await settleSecretAttempts(t.ctx);
-  assert.deepEqual(t.config.app.secretAttempts?.map((a) => a.ref), ['aaaaaaaaaaaa', 'bbbbbbbbbbbb'], 'two matches: left alone; none yet: checked again; old with none: dropped; already tracked: dropped');
+  assert.deepEqual(
+    t.config.app.secretAttempts?.map((a) => a.ref),
+    ['aaaaaaaaaaaa', 'bbbbbbbbbbbb', 'cccccccccccc'],
+    'two matches: left alone; none yet: checked again; old with none: kept, with a warning; already tracked: dropped',
+  );
+  assert.match(ui.text(), /asked Entra for a client secret called "Analytics Hub installer \(ref cccccccccccc\)" .*the app has none by that name\. The install record keeps watching for it/);
+  assert.doesNotMatch(ui.text(), /ref bbbbbbbbbbbb\)" .*has none by that name/, 'no warning while Entra may still be catching up');
   assert.deepEqual(t.config.app.pendingSecretKeyIds, ['d-1']);
+
+  // The old one appears later: still caught, and removed as untracked.
+  graph.passwords.push({ keyId: 'c-1', displayName: secretLabel('cccccccccccc') });
+  await settleSecretAttempts(t.ctx);
+  assert.deepEqual(t.config.app.secretAttempts?.map((a) => a.ref), ['aaaaaaaaaaaa', 'bbbbbbbbbbbb']);
+  assert.ok(graph.calls.includes('removePassword c-1'));
   assert.match(ui.text(), /More than one client secret on the app is called "Analytics Hub installer \(ref aaaaaaaaaaaa\)" \(keys a-1, a-2\), so none is removed/);
   assert.ok(!graph.calls.some((c) => /removePassword (a-|d-1)/.test(c)), 'neither the ambiguous ones nor a tracked one is removed by the check');
+});
+
+test('a retired secret Entra errors on removing is cleared only once the app no longer lists it', async () => {
+  const graph = fakeGraph();
+  const ui = fakeUi();
+  const t = fakeCtx({ graph: graph.api, ui: ui.ui });
+  graph.passwords.push({ keyId: 'gone', displayName: 'x' }, { keyId: 'stuck', displayName: 'x' }, { keyId: 'fine', displayName: 'x' });
+  /** @type {any} */
+  const slot = { retiredSecretKeyIds: ['gone', 'stuck', 'fine'] };
+  // 'gone' was removed by a run that then stopped: Entra now answers 404.
+  graph.passwords.splice(0, 1);
+  graph.failures.removePassword = [httpError(404, 'Not found'), httpError(500, 'busy')];
+  await removeRetired(t.ctx, slot, 'obj');
+  assert.deepEqual(slot.retiredSecretKeyIds, ['stuck'], "gone from the app: cleared; still listed: kept; removed: cleared");
+  assert.equal(graph.calls.filter((c) => c === 'listPasswords').length, 1, 'the app is listed once');
+  assert.match(ui.text(), /Couldn't remove a previous client secret \(key stuck\)/);
+  assert.doesNotMatch(ui.text(), /key gone/);
+
+  // The list can't be read either: kept.
+  graph.failures.removePassword = [httpError(500, 'busy')];
+  graph.failures.listPasswords = [new Error('Forbidden')];
+  await removeRetired(t.ctx, slot, 'obj');
+  assert.deepEqual(slot.retiredSecretKeyIds, ['stuck']);
+  await removeRetired(t.ctx, slot, 'obj');
+  assert.equal(slot.retiredSecretKeyIds, undefined);
 });
 
 test('notebook mode: a secret Entra turned down leaves nothing to look for', async () => {

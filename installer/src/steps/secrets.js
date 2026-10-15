@@ -26,7 +26,7 @@ import { HttpError } from '../http.js';
  * @property {string[]} [previousSecretKeyIds]  Replaced, but kept on the app because a run may still use it (Key Vault).
  */
 
-/** How long after asking Entra for a secret a run that finds none takes it that none was made. */
+/** How long after asking Entra for a secret a run waits before saying none by that name is on the app. */
 export const SECRET_SETTLE_MS = 10 * 60_000;
 
 /** A secret's name on the app, with the ref of the run that asked for it. @param {string} label @param {string} ref */
@@ -53,8 +53,9 @@ export function dropAttempt(slot, ref) {
 /**
  * Looks on the app for the secrets runs that stopped part-way asked for, by the exact name with
  * each run's ref. Returns those the record doesn't track yet, and drops their attempts; the caller
- * records them in the same save. An attempt with no match is dropped once SECRET_SETTLE_MS has
- * passed. More than one match, or a failed lookup, keeps the attempt and warns.
+ * records them in the same save. An attempt with no match is kept, since Entra may still show
+ * the secret later, and from SECRET_SETTLE_MS on each run says so. More than one match, or a
+ * failed lookup, keeps the attempt and warns.
  * @param {Ctx} ctx
  * @param {SecretSlot} slot
  * @param {string | undefined} objectId  The app registration's object ID.
@@ -85,8 +86,8 @@ export async function findAttempts(ctx, slot, objectId, label) {
     if (matches.length === 1) {
       if (!tracked.has(matches[0].keyId)) found.push(matches[0].keyId);
       dropAttempt(slot, attempt.ref);
-    } else if (ctx.now().getTime() - Date.parse(attempt.at) >= SECRET_SETTLE_MS) {
-      dropAttempt(slot, attempt.ref);
+    } else if (!(ctx.now().getTime() - Date.parse(attempt.at) < SECRET_SETTLE_MS)) {
+      ui.warn(`A run that stopped part-way asked Entra for a client secret called "${name}" (at ${attempt.at}), and the app has none by that name. The install record keeps watching for it in case Entra did make it, and a later run removes or adopts it if it appears. Nothing needs doing otherwise.`);
     }
   }
   return found;
@@ -207,11 +208,21 @@ export async function settleFailedSecret(ctx, slot, objectId, keyId, err) {
  */
 export async function removeRetired(ctx, slot, objectId) {
   if (!slot.retiredSecretKeyIds?.length || !objectId) return;
+  /** @type {Set<string> | undefined} */
+  let onApp;
   for (const keyId of [...slot.retiredSecretKeyIds]) {
-    const removed = await ctx.api.graph.removePassword(objectId, keyId).then(
+    let removed = await ctx.api.graph.removePassword(objectId, keyId).then(
       () => true,
       () => false,
     );
+    if (!removed) {
+      // A run that stopped after removing it gets an error now; the app's own list says if it's gone.
+      onApp ??= await ctx.api.graph.listPasswords(objectId).then(
+        (creds) => new Set(creds.map((c) => c.keyId)),
+        () => undefined,
+      );
+      removed = !!onApp && !onApp.has(keyId);
+    }
     if (!removed) {
       ctx.ui.warn(`Couldn't remove a previous client secret (key ${keyId}) from the app. It stays in the install record and the next run tries again, or delete it from the app's Certificates & secrets page.`);
       continue;

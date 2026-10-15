@@ -103,14 +103,18 @@ const ownItem = (items, name, ref) =>
 /** How long Fabric may still be creating an item after the run that asked for it stopped. */
 export const CREATE_SETTLE_MS = 10 * 60_000;
 const CREATE_POLL_MS = 15_000;
+/** How many more times a create Fabric says succeeded is looked for in the workspace. */
+const SUCCEEDED_POLLS = 8;
 
 /**
  * A run that stopped part-way may have left Fabric still creating its item. Doesn't make a second
  * one while the first may still appear:
  * - If Fabric gave that run an operation, asks it. Failed: a new one is made. Still running after
- *   a wait: stops with an error to run again later, keeping the record. Succeeded: uses the item.
+ *   a wait: stops with an error to run again later, keeping the record. Succeeded: uses the item,
+ *   looking for it a little longer as the list can lag; if it's still not there, as below.
  * - Otherwise waits until CREATE_SETTLE_MS after that run asked, then asks before making another,
- *   and with --yes, or a no, stops instead.
+ *   and with --yes, or a no, stops instead. A record with no time for the request starts the
+ *   clock now. Only after CREATE_GIVE_UP_MS is one made without asking, with a warning.
  * Returns the item, or undefined when a new one should be made.
  * @param {Ctx} ctx
  * @param {string} key
@@ -134,11 +138,26 @@ async function settleStoppedCreate(ctx, key, type) {
     if (state === 'NotStarted' || state === 'Running') throw new Error(stillCreating(pending.name));
   }
   if (state === 'Failed' || state === 'Undefined') return undefined;
-  if (state === 'Succeeded') return look();
+  if (state === 'Succeeded') {
+    // The workspace's list can lag the operation.
+    for (let i = 0; ; i++) {
+      const found = await look();
+      if (found) return found;
+      if (i === SUCCEEDED_POLLS) break;
+      await ctx.sleep(CREATE_POLL_MS);
+    }
+    ctx.ui.warn(`Fabric says it created ${pending.name} for the run that stopped, but it isn't in the workspace. Someone may have deleted it, or the workspace's list hasn't caught up.`);
+  }
 
   // Not known how that create went: wait out the time Fabric may take, then ask.
-  const age = pending.at ? ctx.now().getTime() - Date.parse(pending.at) : Infinity;
-  const left = CREATE_SETTLE_MS - age;
+  const untimed = !pending.at || Number.isNaN(Date.parse(pending.at));
+  if (untimed) {
+    // No time for that request in the record: the clock starts now, and this run asks.
+    pending.at = ctx.now().toISOString();
+    ctx.save();
+  }
+  const age = ctx.now().getTime() - Date.parse(/** @type {string} */ (pending.at));
+  const left = state === 'Succeeded' || untimed ? 0 : CREATE_SETTLE_MS - age;
   if (left > 0) {
     ctx.ui.info(`The run that stopped had asked Fabric to create ${pending.name}. Waiting up to ${Math.ceil(left / 60_000)} min for it to appear, so there aren't two.`);
     for (let i = 0; i < Math.ceil(left / CREATE_POLL_MS); i++) {
@@ -148,7 +167,7 @@ async function settleStoppedCreate(ctx, key, type) {
     }
   }
   if (age >= CREATE_GIVE_UP_MS) {
-    ctx.ui.warn(`The run that stopped had asked Fabric to create ${pending.name} over an hour ago, and it isn't in the workspace, so it's created now.`);
+    ctx.ui.warn(`The run that stopped had asked Fabric to create ${pending.name} over an hour ago, and it isn't in the workspace, so it's created now. If Fabric does still make the first one, there will be two, and the extra one is yours to delete.`);
     return undefined;
   }
   ctx.ui.warn(`The run that stopped had asked Fabric to create ${pending.name}, and it isn't in the workspace yet. It isn't known whether Fabric will still make it.`);
