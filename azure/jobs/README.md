@@ -16,14 +16,24 @@ in step with the Fabric notebooks by the golden tests in `tests/`. No Spark or J
 | | Microsoft 365 daily activity reports (`Reports.Read.All`) | m365Activity |
 | | Copilot Studio credits and Viva (Copilot Chat) credits from the drop folder; Azure AI spend, tokens and Copilot pay-as-you-go from Azure Resource Manager | consumption |
 | | Shadow AI and agent risk from Microsoft Defender (`ThreatHunting.Read.All`, `CloudApp-Discovery.Read.All`) | defender |
-| process | Curates interactions with `valuelens_core.curate()` into `curated/copilot_interactions_curated` | core |
+| process | Curates interactions with `valuelens_core.curate()` into `curated/copilot_interactions_curated`, recomputing only the months that changed or fall in the lookback window | core |
 | publish | Loads curated and raw tables into Azure SQL, rewriting only the days that changed | per module |
 | refresh | Refreshes the configured Power BI semantic models and waits for them to finish | — |
 
 The other commands are:
 
 - `migrate` applies `azure/sql/migrations/V*.sql` and grants the app's reader identity `db_datareader`. The installer runs it on every deploy.
-- `process --data-dir <dir>` runs only the processing step, on local files.
+- `process --data-dir <dir>` runs only the processing step, on local files. Add `--full-rebuild` to recompute every month.
+
+**Incremental processing.** `process` saves a fingerprint of each month's source rows. Each run
+recomputes only the months whose rows changed, plus the months within
+`VALUELENS_PROCESS_LOOKBACK_DAYS` (default 14) of the newest record, for audit records that arrive
+late. It rewrites only those monthly files. A recomputed month is curated from all of its source
+rows, so it equals a full rebuild. Every month is recomputed when the settings, the
+`valuelens_core` code or the source columns change, on the first run after the old single
+`part-0.parquet` layout (which that run removes), and with `--full-rebuild` or
+`VALUELENS_PROCESS_FULL_REBUILD=true`. Months that aren't recomputed keep the licence and
+agent-registry values from when they were last processed.
 
 Any failure is logged and the job exits with code 1, so Container Apps records the run as failed.
 
@@ -148,6 +158,9 @@ The job reads its settings from environment variables. Bicep sets them.
 | `VALUELENS_PAYG_SUBSCRIPTIONS` | consumption: other subscriptions, as a comma list, whose Copilot pay-as-you-go costs are read |
 | `VALUELENS_DROP_SITE_ID`, `VALUELENS_DROP_DRIVE_ID`, `VALUELENS_DROP_FOLDER` | consumption, private networking: the SharePoint drop folder (see above). When unset, the job reads the `landing` container. |
 | `VALUELENS_AUDIT_HISTORY_DAYS` / `VALUELENS_AUDIT_LOOKBACK_DAYS` | The first-run backfill (default 30) and the re-read window on later runs (default 7) |
+| `VALUELENS_PROCESS_LOOKBACK_DAYS` | Days before the newest audit record whose months `process` always recomputes (default 14) |
+| `VALUELENS_PROCESS_FULL_REBUILD` | `true` makes `process` recompute every month. Set it on a single execution, not on the job. |
+| `VALUELENS_DUCKDB_MEMORY_LIMIT` | Optional DuckDB memory cap for `process`, for example `4GB` |
 | `VALUELENS_AUDIT_BACKFILL_DAYS` | A one-off reload of this many days of audit history, even after the first run. The installer sets it on a single execution when **Repair or change** loads more history; don't set it on the job itself, or every run reloads. |
 | `VALUELENS_POWERBI_WORKSPACE_ID`, `VALUELENS_SEMANTIC_MODELS` | The Power BI workspace, and a JSON object of the models to refresh |
 | `VALUELENS_SQL_READER_NAME`, `VALUELENS_SQL_READER_CLIENT_ID` | The web app's identity, granted read access by `migrate` |
@@ -161,7 +174,8 @@ The job reads its settings from environment variables. Bicep sets them.
 | `raw/copilot_interactions_parsed/` | Flattened audit records, one parquet file per day |
 | `raw/_audit_staging/`, `raw/_state/audit.json` | Audit queries that are still running, and the high-water mark |
 | `raw/copilot_licensed_users/`, `raw/copilot_org_data/`, `raw/m365_activity_daily/` | Collector snapshots |
-| `curated/copilot_interactions_curated/part-0.parquet` | The curated fact. It is written atomically. |
+| `curated/copilot_interactions_curated/month-YYYYMM.parquet` | The curated fact, one file per month (`month-none` for rows without a date). Each file is written atomically. |
+| `curated/_valuelens_process/` | process: the per-month source fingerprints (`state.json`) and the per-month context that incremental runs reuse |
 | `curated/studio_*/`, `curated/viva_*/` | consumption: the merged Studio and Viva tables, rewritten atomically each run |
 | `raw/azure_ai_*/`, `raw/copilot_payg_spend/`, `raw/azure_deployment_health/`, `raw/azure_solution_spend/`, `raw/azure_billing_reconciliation/` | consumption: Azure AI snapshots |
 | `landing/studio/`, `landing/viva/` | consumption: the drop folder in public networking. It is read only. |

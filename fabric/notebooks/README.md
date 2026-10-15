@@ -66,6 +66,9 @@ Run these before the processor.
 | `INCLUDE_RAW_PASSTHROUGH` | Processor, registry ingester | `True` to keep the raw payloads. They can hold names, file names and URLs, so review privacy first. Then run the processor once with `WRITE_MODE = 'overwrite'`. |
 | `MAX_CONCURRENT_QUERIES`, `CHUNK_HOURS` | Audit ingester | Lower them if audit windows fail on a large tenant. See [A large tenant](#a-large-tenant). |
 | `WINDOW_RETRIES`, `MIN_CHUNK_HOURS` | Audit ingester | How often a failing audit window is resent (default `3`), and the smallest size it is split down to (default `1` hour). |
+| `INCREMENTAL_LOOKBACK_DAYS` | Processor | Days before the newest audit record whose months each `merge` run recomputes (default `14`), for records that arrive late. Other months are recomputed only when their rows change. |
+| `WRITE_MODE` | Processor | `'overwrite'` once to rebuild every month of `copilot_interactions_curated`, for example after a large licence or agent-registry change. Months a `merge` run doesn't recompute keep the licence and agent values from when they were processed. |
+| `TRANSCRIPT_STAGING_DIR`, `PARSE_CHUNK_ROWS` | Agent Evaluator | Where transcript pages are staged as JSONL (default `Files/_transcript_staging`), and how many transcripts each Spark task parses at a time (default `200`). |
 | `TIME_BUDGET_MIN` | Audit ingester | Minutes to spend fetching before the run stops and leaves the rest to the next run (default `0`, no limit). Set it below the pipeline activity's timeout. |
 
 ## An audit window keeps failing

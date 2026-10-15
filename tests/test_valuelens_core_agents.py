@@ -7,7 +7,8 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 NOTEBOOK = ROOT / "fabric" / "notebooks" / "Copilot_Audit_Log_Processor.ipynb"
-MODULES = [ROOT / "core" / "valuelens_core" / name for name in ("agent_link.py", "agent_type.py")]
+MODULES = [ROOT / "core" / "valuelens_core" / name
+           for name in ("agent_link.py", "agent_type.py", "incremental.py")]
 
 
 def _notebook_code() -> str:

@@ -65,6 +65,51 @@ Deployment instructions do **not** live here. They live in the READMEs:
   scheduled refreshes when it runs out and leaves the rest to the next run; the 7-day ceiling still
   applies.
 
+**Daily processing handles only new days, so its cost no longer grows with history.**
+
+- **The audit processor is incremental.** `copilot_interactions_curated` is now stored by
+  `MonthStart`. With `WRITE_MODE = "merge"` (the scheduled pipeline's mode) the processor keeps
+  a fingerprint of each month's source rows and recomputes only the months that changed, plus
+  the months within `INCREMENTAL_LOOKBACK_DAYS` (default 14) of the newest record, so audit
+  records that arrive late are still picked up. It replaces only those months
+  (`replaceWhere`). A recomputed month is rebuilt from all of its source rows, so it equals a
+  full rebuild, and the table's columns don't change.
+- **Full rebuilds.** `WRITE_MODE = "overwrite"` still rebuilds everything. The processor also
+  rebuilds everything by itself when its settings, its logic (`PROCESSOR_LOGIC_VERSION`) or the
+  source schema change, and on the first `"merge"` run against a table that isn't stored by
+  month yet. That run is the one-time migration for existing installs, and needs no action.
+- **Known limitation.** Months that aren't recomputed keep the licence and agent-registry values
+  from when they were last processed. Run `"overwrite"` once to refresh them, for example after
+  a large licence change.
+- **One slow step is fixed.** `Agent Last Used Date` was computed with a window over every row
+  grouped by agent name, so every row without an agent, which is most of them, went to a single
+  Spark task. It is now an aggregate joined back, with the same values.
+- **The audit ingester stores `copilot_interactions_parsed` by month**, and its daily MERGE
+  reads only the months in the batch instead of the whole table. On its first merge run, an
+  existing unpartitioned table is rewritten by month once.
+- **Azure.** `process` works the same way. The curated fact is now one file per month
+  (`curated/copilot_interactions_curated/month-YYYYMM.parquet`, `month-none` for rows without a
+  date), and the old `part-0.parquet` is removed by the first run. Force a full rebuild with
+  `process --full-rebuild` or `VALUELENS_PROCESS_FULL_REBUILD=true`. The lookback is
+  `VALUELENS_PROCESS_LOOKBACK_DAYS` (default 14), and `VALUELENS_DUCKDB_MEMORY_LIMIT` caps
+  DuckDB's memory. Publish to Azure SQL already rewrote only the days that changed, so it's
+  unchanged.
+
+**The Agent Evaluator reads transcripts with bounded memory.**
+
+- **Transcripts no longer sit in driver memory.** Each page from Dataverse is written as it
+  arrives to JSONL files under `TRANSCRIPT_STAGING_DIR` (default `Files/_transcript_staging`),
+  and Spark reads them back. The parse runs inside Spark tasks, `PARSE_CHUNK_ROWS` (default
+  200) transcripts at a time, and every table is written in one Spark write.
+  `PANDAS_TO_SPARK_CHUNK_ROWS` and `RAW_TABLE_CHUNK_ROWS` are gone. The staging folder is
+  cleared at the start of each run and after a successful write.
+- **Small format differences in the `agent_*` tables.** Whole numbers no longer end in `.0`.
+  The raw table's bot lookup column holds JSON instead of a Python representation. Empty tables
+  from a multi-environment run now include `source_environment`. An agent's catalogue name comes
+  from its latest session. A MERGE source with duplicate keys keeps one row per key. Run messages
+  say `writes=` instead of `chunks=`.
+- There is no transcript collector on Azure, so nothing changes there.
+
 **Installer robustness ([#88](https://github.com/microsoft/AnalyticsHub-Dashboard/issues/88)).**
 
 - **The first load is recorded as complete only once it's proven.** A first load whose pipeline

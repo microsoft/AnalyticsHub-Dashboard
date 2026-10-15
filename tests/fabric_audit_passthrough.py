@@ -180,24 +180,26 @@ def verification():
         assert on.where(F.col("Id").isin("row-3", "row-4", "row-5") & F.col("Has license").isNotNull()).count() == 0
         report["checks"].append("resource explosion, empty-resource survival, duplicate and canonical/link preservation")
 
-        # Test merge/upsert and both flag transitions on a source with UNIQUE curated keys.
+        # Full rebuild, then an incremental month replace, on a source with UNIQUE curated keys.
         for ns, frame in [(off_ns, off), (on_ns, on)]:
             unique = frame.dropDuplicates(["Id"])
-            ns["WRITE_MODE"] = "overwrite"
-            assert ns["write_curated_output"](unique) == "overwrite"
-            ns["WRITE_MODE"] = "merge"
-            assert ns["write_curated_output"](unique) == "merge"
+            months = sorted({r[0] for r in unique.select(F.date_format("MonthStart", "yyyy-MM")).distinct().collect()})
+            assert ns["write_curated_output"](unique, {"full": True, "months": months}) == "overwrite"
+            assert ns["write_curated_output"](unique, {"full": False, "months": months}) == "incremental"
             assert signature(spark.table(ns["OUT_TABLE"]), unique.columns) == signature(unique, unique.columns)
-        # Enabling requires deliberate schema widening; disabling with merge does NOT erase old raw columns.
-        off_ns["WRITE_MODE"] = "overwrite"
-        off_ns["write_curated_output"](on.dropDuplicates(["Id"]))
-        off_ns["WRITE_MODE"] = "merge"
-        off_ns["write_curated_output"](off.dropDuplicates(["Id"]))
+            assert ns["write_curated_output"](unique, {"full": False, "months": []}) == "unchanged"
+        # Enabling requires a full rebuild; an incremental run never mixes column sets.
+        off_ns["write_curated_output"](on.dropDuplicates(["Id"]), {"full": True, "months": months})
+        try:
+            off_ns["write_curated_output"](off.dropDuplicates(["Id"]), {"full": False, "months": months})
+        except RuntimeError:
+            pass
+        else:
+            raise AssertionError("Incremental write with different columns was not rejected")
         assert "AccessedResources_Raw" in spark.table(off_ns["OUT_TABLE"]).columns
-        off_ns["WRITE_MODE"] = "overwrite"
-        off_ns["write_curated_output"](off.dropDuplicates(["Id"]))
+        off_ns["write_curated_output"](off.dropDuplicates(["Id"]), {"full": True, "months": months})
         assert "AccessedResources_Raw" not in spark.table(off_ns["OUT_TABLE"]).columns
-        report["checks"].append("unique-key merge idempotence in both modes; ON/OFF overwrite and retained-schema merge")
+        report["checks"].append("full rebuild and incremental month replace in both modes; column-change guard")
 
         minimal = spark.createDataFrame(
             [("minimal", "2026-09-02T12:00:00Z", "unlicensed@example.invalid")],

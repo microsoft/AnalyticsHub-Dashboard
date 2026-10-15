@@ -820,7 +820,7 @@ def test_run_publishes_then_fails_when_a_source_failed(monkeypatch):
     ran = []
     monkeypatch.setattr(jobs_main, "open_store", lambda *a: object())
     monkeypatch.setattr(jobs_main, "collect", lambda *a: ran.append("collect") or {"errors": {"audit": "boom"}})
-    monkeypatch.setattr(jobs_main, "process", lambda *a: ran.append("process"))
+    monkeypatch.setattr(jobs_main, "process", lambda *a, **k: ran.append("process"))
     monkeypatch.setattr(jobs_main, "publish_step", lambda *a: ran.append("publish") or [{"oldest_day": "2020-01-01"}])
     monkeypatch.setattr(jobs_main, "refresh_step", lambda *a, **kw: ran.append(("refresh", kw)))
     monkeypatch.setattr(jobs_main.Settings, "from_env", classmethod(lambda cls, env=None: settings()))

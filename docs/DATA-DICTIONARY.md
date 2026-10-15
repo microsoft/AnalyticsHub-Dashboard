@@ -175,6 +175,15 @@ before LOB/Shared copies are merged) and `Agent_LinkMethod` (`Title ID`, `Bot Id
 > asserts all 32 columns are present before writing, so a partial enrichment fails loudly rather than
 > silently shipping an incomplete fact table.
 
+> **Stored by `MonthStart`; daily runs recompute only some months.** A `"merge"` run recomputes the
+> months whose source rows changed, plus the months within `INCREMENTAL_LOOKBACK_DAYS` (default 14)
+> of the newest record, and replaces only those months. A recomputed month equals a full rebuild.
+> Months that aren't recomputed keep the `License Status` and agent-registry values (such as
+> `Agent_Type`, `Agent_Publisher` and `Agent_Consolidated_Name`) from when they were last processed.
+> `"overwrite"` refreshes every month. A change to the processor's settings, logic or source schema
+> also rebuilds every month, automatically. On Azure the same table is one parquet file per month
+> (`curated/copilot_interactions_curated/month-YYYYMM.parquet`).
+
 ### 2. `copilot_licensed_users` — licensed user list
 The producer sanitizes spaces→underscores, writing `User_Principal_Name` and `Has_license`; the
 model's variant lists accept both those and the spaced/camel forms (see finding **B** below — resolved).

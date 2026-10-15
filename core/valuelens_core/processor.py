@@ -306,6 +306,31 @@ def _columns(con, source: Optional[str]):
         return None   # Spark: spark.table() raised -> dimension treated as absent
 
 
+def _creation_ts(ctype: str) -> E:
+    # CreationDate as a UTC TIMESTAMP, whatever type the parsed source stored it as.
+    if ctype == "TIMESTAMP":
+        return col("CreationDate")
+    if ctype.startswith("TIMESTAMP WITH TIME ZONE"):
+        return E(f"timezone('UTC', {col('CreationDate')})")
+    if ctype == "DATE":
+        return E(f"CAST({col('CreationDate')} AS TIMESTAMP)")
+    return E(f"CAST(TRY_CAST({s_(col('CreationDate'))} AS TIMESTAMPTZ) AS TIMESTAMP)")
+
+
+def creation_timestamp_sql(con, source: str) -> Optional[str]:
+    """SQL for each source row's CreationDate as a UTC TIMESTAMP, exactly as curate() reads it.
+
+    curate() derives InteractionDate/MonthStart from this value, so an incremental run can
+    bucket source rows by month the same way. Sets the connection's TimeZone to UTC, as
+    curate() does. None when the source has no CreationDate column.
+    """
+    con.execute("SET TimeZone = 'UTC'")
+    rel = con.sql(f"SELECT * FROM {source} LIMIT 0")
+    if "CreationDate" not in rel.columns:
+        return None
+    return str(_creation_ts(str(rel.types[rel.columns.index("CreationDate")])))
+
+
 def _as_text(f: "Frame", name: str) -> E:
     t = f.type_of(name)
     if t.startswith(("STRUCT", "MAP")) or t.endswith("]"):
@@ -353,6 +378,7 @@ def curate(con: duckdb.DuckDBPyConnection,
            include_raw_passthrough: bool = False,
            drop_exclude_reasons: Iterable[str] = DEFAULT_DROP_EXCLUDE_REASONS,
            agent_type_overrides: Union[Mapping, Iterable, None] = None,
+           context: Source = None,
            output: Optional[str] = None) -> duckdb.DuckDBPyRelation:
     """Build the curated table. Sources are table/view names or DuckDB relations.
 
@@ -363,6 +389,11 @@ def curate(con: duckdb.DuckDBPyConnection,
     `drop_exclude_reasons` lists the Exclude_Reason values whose rows are dropped
     (notebook DROP_EXCLUDE_REASONS). `agent_type_overrides` maps an agent id, agent
     name or AppIdentity to an Agent_Type (a mapping or (key, Agent_Type) rows).
+
+    `context` holds already-curated rows that are not being recomputed (the kept
+    months of an incremental run). Their AgentId and per-AgentName latest
+    CreationDate feed the two history-wide values, the schema-GUID agent link and
+    `Agent Last Used Date`, so recomputed rows equal a full rebuild.
     """
     if agent_type_overrides is None:
         overrides = {}
@@ -375,22 +406,24 @@ def curate(con: duckdb.DuckDBPyConnection,
     src = _register(con, interactions, prefix + "_src")
     lic_src = _register(con, licensed, prefix + "_lic")
     ag_src = _register(con, agents, prefix + "_ag")
+    ctx_src = _register(con, context, prefix + "_ctx")
     out = output or (prefix + "_curated")
     f = Frame(con, src, prefix)
     try:
         _curate(f, lic_src, ag_src, exclude_agent_identities, agent_identity_patterns,
-                include_raw_passthrough, list(drop_exclude_reasons or []), overrides)
+                include_raw_passthrough, list(drop_exclude_reasons or []), overrides, ctx_src)
         con.execute(f"CREATE OR REPLACE TEMP TABLE {q(out)} AS SELECT * FROM {q(f.name)}")
     finally:
         f.cleanup()
-        for name in (prefix + "_src", prefix + "_lic", prefix + "_ag"):
+        for name in (prefix + "_src", prefix + "_lic", prefix + "_ag", prefix + "_ctx"):
             con.execute(f"DROP VIEW IF EXISTS {q(name)}")
     return con.sql(f"SELECT * FROM {q(out)}")
 
 
 def _curate(f: Frame, lic_src, ag_src, exclude_agents, agent_patterns, passthrough,
-            drop_exclude_reasons, agent_type_overrides):
+            drop_exclude_reasons, agent_type_overrides, ctx_src=None):
     con = f.con
+    ctx_cols = _columns(con, ctx_src) or []
 
     # 1. RAW FACT (+ optional raw payload copies) ---------------------------------
     if passthrough:
@@ -484,16 +517,7 @@ def _curate(f: Frame, lic_src, ag_src, exclude_agents, agent_patterns, passthrou
     f.checkpoint()
 
     # 5. DATES + RESOURCE COUNT -------------------------------------------------------------
-    ctype = f.type_of("CreationDate")
-    if ctype == "TIMESTAMP":
-        cd = col("CreationDate")
-    elif ctype.startswith("TIMESTAMP WITH TIME ZONE"):
-        cd = E(f"timezone('UTC', {col('CreationDate')})")
-    elif ctype == "DATE":
-        cd = E(f"CAST({col('CreationDate')} AS TIMESTAMP)")
-    else:
-        cd = E(f"CAST(TRY_CAST({s_(col('CreationDate'))} AS TIMESTAMPTZ) AS TIMESTAMP)")
-    f.with_col("CreationDate", cd)
+    f.with_col("CreationDate", _creation_ts(f.type_of("CreationDate")))
     f.drop("InteractionDate", "WeekStart", "MonthStart")
     f.with_col("InteractionDate", f"CAST({col('CreationDate')} AS DATE)")
     # Power Query used Day.Monday as the week start (ISO week truncation).
@@ -579,10 +603,13 @@ def _curate(f: Frame, lic_src, ag_src, exclude_agents, agent_patterns, passthrou
         names = [d[0] for d in cur.description]
         registry_rows = [dict(zip(names, r)) for r in cur.fetchall()]
     maps = build_agent_link_maps(registry_rows)
+    schema_sql = (f"SELECT DISTINCT {s_(col('AgentId'))} FROM {q(f.name)} "
+                  f"WHERE regexp_matches({s_(col('AgentId'))}, {lit(TITLE_SCHEMA_PATTERN)})")
+    if "AgentId" in ctx_cols:
+        schema_sql += (f" UNION SELECT DISTINCT {s_(col('AgentId'))} FROM {ctx_src} "
+                       f"WHERE regexp_matches({s_(col('AgentId'))}, {lit(TITLE_SCHEMA_PATTERN)})")
     schema_titles = build_schema_title_map(
-        r[0] for r in con.execute(
-            f"SELECT DISTINCT {s_(col('AgentId'))} FROM {q(f.name)} "
-            f"WHERE regexp_matches({s_(col('AgentId'))}, {lit(TITLE_SCHEMA_PATTERN)})").fetchall()
+        r[0] for r in con.execute(schema_sql).fetchall()
     ) if f.has("AgentId") else {}
 
     links = []
@@ -611,12 +638,12 @@ def _curate(f: Frame, lic_src, ag_src, exclude_agents, agent_patterns, passthrou
     f.with_col("Resource_Count", f"CAST({col('Resource_Count')} AS BIGINT)")
     f.checkpoint()
 
-    _enrich(f, ag_src, agent_type_overrides)
+    _enrich(f, ag_src, agent_type_overrides, ctx_src, ctx_cols)
     missing = [c for c in ENRICHED_COLS if not f.has(c)]
     assert not missing, f"enrichment incomplete, missing: {missing}"
 
 
-def _enrich(f: Frame, ag_src, agent_type_overrides):
+def _enrich(f: Frame, ag_src, agent_type_overrides, ctx_src=None, ctx_cols=()):
     con = f.con
     appHost, ctxType = low("AppHost"), low("Context_Type")
     resType, resAction = low("AccessedResource_Type"), low("AccessedResource_Action")
@@ -1005,10 +1032,17 @@ def _enrich(f: Frame, ag_src, agent_type_overrides):
         coalesce(clean("AgentName"), clean("Workflow_Action"), clean("AppHost"), "unknown-workflow")))
     f.with_col("ActivityDate", f"CAST({col('InteractionDate')} AS TIMESTAMP)")
 
-    # Agent Last Used Date (max CreationDate per raw AgentName)
+    # Agent Last Used Date (max CreationDate per raw AgentName; kept months via `context`)
+    alu_sql = (f"SELECT {col('AgentName')} AS __alu_name, {col('CreationDate')} AS __alu_cd "
+               f"FROM {q(f.name)} WHERE {notblank('AgentName')}")
+    if {"AgentName", "CreationDate"} <= set(ctx_cols):
+        alu_sql += (f" UNION ALL SELECT {col('AgentName')}, CAST({col('CreationDate')} AS TIMESTAMP) "
+                    f"FROM {ctx_src} WHERE {notblank('AgentName')}")
+    f.left_join(f"SELECT __alu_name, max(__alu_cd) AS __alu FROM ({alu_sql}) GROUP BY __alu_name",
+                "AgentName", "__alu_name", ["__alu"])
     f.with_col("Agent Last Used Date",
-               f"(CASE WHEN {notblank('AgentName')} THEN max({col('CreationDate')}) "
-               f"OVER (PARTITION BY {col('AgentName')}) ELSE CAST(NULL AS TIMESTAMP) END)")
+               f"(CASE WHEN {notblank('AgentName')} THEN __alu ELSE CAST(NULL AS TIMESTAMP) END)")
+    f.drop("__alu")
     f.checkpoint()
 
     # User_Stage_Maturity / User_Stage (UserMonthMetrics). Like Spark, NULL and ''

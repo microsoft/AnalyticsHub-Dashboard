@@ -171,25 +171,32 @@ def helper_namespace(spark):
     return ns
 
 
+class FakeOutputFrame:
+    """Stands in for one of the parsed Spark DataFrames the writer cell receives."""
+
+    def __init__(self, columns, rows=0):
+        self.columns = list(columns)
+        self.rows = rows
+
+    def count(self):
+        return self.rows
+
+
 def run_agent_writer_cell(write_mode, existing=()):
     spark = FakeSpark(existing)
     ns = helper_namespace(spark)
     ns.update({
         "spark": spark,
-        "pd": pd,
-        "re": re,
         "WRITE_MODE": write_mode,
         "OUTPUT_PREFIX": "dbo",
-        "PANDAS_TO_SPARK_CHUNK_ROWS": 20000,
-        "parsed": pd.DataFrame(columns=["conversationtranscriptid"]),
-        "sessions": pd.DataFrame(columns=["conversation_id", "agent_name"]),
-        "turns": pd.DataFrame(columns=["turn_id"]),
-        "errors": pd.DataFrame(columns=["conversation_id", "error_timestamp_utc", "error_code"]),
-        "subagents": pd.DataFrame(columns=[
+        "sessions": FakeOutputFrame(["conversation_id", "agent_name"]),
+        "turns": FakeOutputFrame(["turn_id"]),
+        "errors": FakeOutputFrame(["conversation_id", "error_timestamp_utc", "error_code"]),
+        "subagents": FakeOutputFrame([
             "conversation_id", "invocation_timestamp_utc", "connected_agent_schema", "plan_step_id",
         ]),
-        "agent_dim": pd.DataFrame(columns=["agent_schema"]),
-        "agent_performance": pd.DataFrame(columns=["ConversationTranscriptId"]),
+        "agent_dim": FakeOutputFrame(["agent_schema"]),
+        "agent_performance": FakeOutputFrame(["ConversationTranscriptId"]),
     })
     source = notebook_cell_source("for name, pdf in outputs.items():")
     output = io.StringIO()
@@ -241,6 +248,241 @@ class AgentEvaluatorNotebookWriteTests(unittest.TestCase):
         self.assertIn("created empty (no rows)", text)
         self.assertIn("unchanged (no rows)", text)
         self.assertIn("overwritten empty", text)
+
+
+def exec_top_level(needle, ns, assigns=None):
+    """Run a cell's imports, function definitions and (optionally only the named) assignments."""
+    tree = ast.parse(notebook_cell_source(needle))
+    keep = []
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef):
+            keep.append(node)
+        elif isinstance(node, ast.Import):
+            if not any(alias.name.startswith("pyspark") for alias in node.names):
+                keep.append(node)
+        elif isinstance(node, ast.ImportFrom):
+            if not (node.module or "").startswith("pyspark"):
+                keep.append(node)
+        elif isinstance(node, ast.Assign):
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+            if assigns is None or (names and all(n in assigns for n in names)):
+                keep.append(node)
+    exec(compile(ast.Module(body=keep, type_ignores=[]), f"agent-evaluator:{needle}", "exec"), ns)
+    return ns
+
+
+def transcript_parse_namespace():
+    ns = {"TEXT_TRUNCATE": 500}
+    exec_top_level("def parsed_transcript_frame", ns, assigns={"_TRANSCRIPT_ID_RE"})
+    for needle in ("def keep_user_id", "def build_sessions", "def build_turns", "def build_errors",
+                   "def build_agent_dim", "def build_agent_performance"):
+        exec_top_level(needle, ns)
+    exec_top_level("def transcript_output_rows", ns, assigns={"_OUTPUT_BUILDERS", "_OUT_WS"})
+    exec_top_level("def staged_transcript_record", ns, assigns=set())
+    return ns
+
+
+USER_A = "11111111-1111-1111-1111-111111111111"
+USER_B = "22222222-2222-2222-2222-222222222222"
+USER_C = "33333333-3333-3333-3333-333333333333"
+
+
+def dataverse_transcript(n, user, *, env_bot="crb_helpdesk", error=False, connected=None, text="hello"):
+    """One conversationtranscripts row as the Dataverse Web API returns it."""
+    start = 1_700_000_000_000 + n * 60_000
+    acts = [
+        {"type": "message", "timestampMs": start, "text": f"{text}\nline two\t{n}",
+         "from": {"role": 0, "aadObjectId": user}, "recipient": {"name": "Helpdesk", "id": "bot-1"}},
+        {"type": "message", "timestampMs": start + 1500, "text": "Here you go.",
+         "from": {"role": 1, "name": "Helpdesk", "id": "bot-1"}},
+    ]
+    if error:
+        acts.append({"type": "trace", "valueType": "ErrorTraceData", "timestampMs": start + 2000,
+                     "value": {"errorCode": "SystemError", "errorMessage": "boom"}})
+    if connected:
+        acts.append({"type": "trace", "valueType": "ConnectedAgentInitializeTraceData", "timestampMs": start + 2500,
+                     "value": {"connectedAgentBotSchemaName": connected, "parentBotSchemaName": env_bot}})
+    return {
+        "@odata.etag": f'W/"{n}"',
+        "conversationtranscriptid": f"00000000-0000-0000-0000-{n:012d}",
+        "content": json.dumps({"activities": acts}),
+        "conversationstarttime": "2024-01-01T00:00:00Z",
+        "schemaversion": "1",
+        "schematype": "",
+        "name": "",
+        "metadata": None,
+        "statecode": 0,
+        "statuscode": 1,
+        "createdon": "2024-01-01T00:00:00Z",
+        "_bot_conversationtranscriptid_value": "bot-guid",
+        "bot_conversationtranscriptid": {"schemaname": env_bot, "name": "Helpdesk", "botid": "bot-1"},
+    }
+
+
+def transcript_fixture(ns):
+    """Staged records from two environments: a returning user, one-off users, an error, a sub-agent call and one
+    structurally-corrupt row (non-GUID id)."""
+    stage = ns["staged_transcript_record"]
+    env_a, env_b = "https://a.crm.dynamics.com", "https://b.crm.dynamics.com"
+    records = [
+        stage(dataverse_transcript(1, USER_A, error=True), env_a),
+        stage(dataverse_transcript(2, USER_B, connected="crb_hr"), env_a),
+        stage(dataverse_transcript(3, USER_A, text="again"), env_a),
+        stage(dataverse_transcript(4, USER_C, env_bot="crb_finance"), env_b),
+        stage(dataverse_transcript(5, USER_A, env_bot="crb_finance"), env_b),
+    ]
+    corrupt = stage(dataverse_transcript(6, USER_B), env_b)
+    corrupt["conversationtranscriptid"] = 'role":0}'
+    records.append(corrupt)
+    return records
+
+
+def whole_frame_outputs(ns, records):
+    """What the notebook produced before: every builder run once over every transcript."""
+    parsed, _ = ns["parsed_transcript_frame"](records, "content", "conversationtranscriptid", True)
+    env_by_conv = dict(zip(parsed["conversationtranscriptid"], parsed["SourceEnvironment"]))
+    out = {}
+    for table, build in ns["_OUTPUT_BUILDERS"].items():
+        key = "ConversationTranscriptId" if table == "agent_performance" else "conversation_id"
+        rows = []
+        for row in build(parsed).to_dict("records"):
+            row = {k: ns["_out_str"](v) for k, v in row.items()}
+            row["source_environment"] = env_by_conv[row[key]]
+            rows.append(row)
+        out[table] = rows
+    return out
+
+
+def chunked_outputs(ns, records, chunk_rows):
+    parse = ns["transcript_partition_parser"](chunk_rows, "content", "conversationtranscriptid", True, True)
+    out, stats = {}, None
+    for table, payload in parse(iter(records)):
+        if table == "_stats":
+            stats = json.loads(payload)
+        else:
+            out.setdefault(table, []).append(json.loads(payload))
+    # Cell 8d works out is_returning_user over every session once the chunks are parsed.
+    counts = {}
+    for row in out.get("agent_sessions", []):
+        counts[row["user_id_hash"]] = counts.get(row["user_id_hash"], 0) + 1
+    for row in out.get("agent_sessions", []):
+        uid = row["user_id_hash"]
+        row["is_returning_user"] = "True" if uid and counts[uid] > 1 else "False"
+    return out, stats
+
+
+def canonical(rows):
+    return sorted(json.dumps(r, sort_keys=True) for r in rows)
+
+
+class TranscriptStreamingTests(unittest.TestCase):
+    def test_staged_record_is_flat_strings_without_annotations(self):
+        ns = transcript_parse_namespace()
+        rec = ns["staged_transcript_record"]({
+            "@odata.etag": 'W/"1"',
+            "ConversationTranscriptId": "abc",
+            "_bot_conversationtranscriptid_value": "x",
+            "statecode": 0,
+            "metadata": None,
+            "bot_conversationtranscriptid": {"schemaname": "crb_hr", "name": "HR"},
+        }, "https://env")
+        self.assertEqual({
+            "conversationtranscriptid": "abc",
+            "statecode": "0",
+            "metadata": "",
+            "bot_conversationtranscriptid": '{"name": "HR", "schemaname": "crb_hr"}',
+            "SourceEnvironment": "https://env",
+        }, rec)
+        self.assertNotIn("SourceEnvironment", ns["staged_transcript_record"]({"a": 1}))
+
+    def test_bot_lookup_survives_staging(self):
+        ns = transcript_parse_namespace()
+        records = [ns["staged_transcript_record"](dataverse_transcript(1, USER_A, env_bot="crb_payroll"))]
+        parsed, stats = ns["parsed_transcript_frame"](records, "content", "conversationtranscriptid", True)
+        self.assertEqual(["crb_payroll"], list(parsed["agent_schema_hint"]))
+        self.assertEqual({"rows": 1, "valid": 1, "corrupt": 0, "hint": 1}, stats)
+
+    def test_chunked_parse_matches_a_single_whole_frame_parse(self):
+        ns = transcript_parse_namespace()
+        records = transcript_fixture(ns)
+        expected = whole_frame_outputs(ns, records)
+        self.assertEqual(5, len(expected["agent_sessions"]))
+        self.assertTrue(expected["agent_errors"] and expected["agent_subagents"])
+        for chunk_rows in (1, 2, 4, 200):
+            with self.subTest(chunk_rows=chunk_rows):
+                actual, stats = chunked_outputs(ns, records, chunk_rows)
+                self.assertEqual({"rows": 6, "valid": 6, "corrupt": 1, "hint": 5}, stats)
+                for table, rows in expected.items():
+                    self.assertEqual(canonical(rows), canonical(actual.get(table, [])), table)
+
+    def test_returning_user_is_worked_out_across_chunks(self):
+        ns = transcript_parse_namespace()
+        actual, _ = chunked_outputs(ns, transcript_fixture(ns), 1)
+        returning = {r["user_id_hash"]: r["is_returning_user"] for r in actual["agent_sessions"]}
+        self.assertEqual({USER_A: "True", USER_B: "False", USER_C: "False"}, returning)
+
+    def test_output_values_are_strings_like_the_old_writer(self):
+        out = transcript_parse_namespace()["_out_str"]
+        self.assertIsNone(out(None))
+        self.assertIsNone(out(float("nan")))
+        self.assertEqual("True", out(True))
+        self.assertEqual("3", out(3))
+        self.assertEqual("3", out(3.0))
+        self.assertEqual("2.5", out(2.5))
+        self.assertEqual("a b", out(" a\r\n\tb "))
+
+    def test_empty_input_gives_every_builder_column(self):
+        ns = transcript_parse_namespace()
+        parsed, stats = ns["parsed_transcript_frame"]([], None, None)
+        self.assertEqual(0, stats["rows"])
+        for table, build in ns["_OUTPUT_BUILDERS"].items():
+            self.assertTrue(len(build(parsed).columns) > 0, table)
+        self.assertEqual([], [t for t, _ in ns["transcript_output_rows"]([], "content", None, False) if t != "_stats"])
+
+    def test_staging_writes_jsonl_pages_and_clears_them(self):
+        import tempfile
+        ns = exec_top_level("def _tx_stage_page", {}, assigns=set())
+        with tempfile.TemporaryDirectory() as tmp:
+            root = ns["_tx_stage_dir"](str(Path(tmp) / "stage"))
+            run = ns["_tx_join"](root, "run_1")
+            ns["_tx_make_dir"](run)
+            page = ns["_tx_join"](run, "part_0000_00000.jsonl")
+            ns["_tx_stage_page"](page, [{"a": "1"}, {"a": "é"}])
+            self.assertEqual([{"a": "1"}, {"a": "é"}],
+                             [json.loads(line) for line in Path(page).read_text(encoding="utf-8").splitlines()])
+            ns["_tx_clear_stage"](root)
+            self.assertFalse(Path(root).exists())
+        self.assertEqual("Files/_transcript_staging", ns["_tx_stage_dir"]("Files/_transcript_staging/"))
+        self.assertEqual("Files/x", ns["_tx_stage_dir"]("/lakehouse/default/Files/x"))
+
+    def test_status_counts_distinct_ids_per_environment(self):
+        ns = exec_top_level("def evaluator_status_rows", {}, assigns=set())
+        rows = ns["evaluator_status_rows"](
+            ["https://a/", "https://b"], {"https://a": {"1", "2"}}, {}, [], {"https://a": 7}, {}, "now")
+        self.assertEqual((2, "ok"), rows[0][4:6])
+        self.assertEqual((0, "empty"), rows[1][4:6])
+
+    def test_fetch_streams_pages_instead_of_holding_every_row(self):
+        fetch = notebook_cell_source("def staged_transcript_record")
+        text = NOTEBOOK.read_text(encoding="utf-8")
+        self.assertNotIn("rows.extend", fetch)
+        self.assertNotIn("pd.DataFrame(_rows)", fetch)
+        self.assertNotIn("import pandas", fetch)
+        self.assertIn("on_page(page)", fetch)
+        self.assertIn("spark.read.schema(_tx_schema).json(_tx_run_dir)", fetch)
+        self.assertNotIn("PANDAS_TO_SPARK_CHUNK_ROWS", text)
+        self.assertNotIn("RAW_TABLE_CHUNK_ROWS", text)
+        self.assertNotIn("toPandas().fillna", text)
+        parse = notebook_cell_source("def transcript_partition_parser")
+        self.assertIn("mapPartitions(_parser)", parse)
+        self.assertIn("StorageLevel.DISK_ONLY", parse)
+        # The builders run inside Spark tasks now, so no cell calls them over every transcript.
+        for needle in ("def build_sessions", "def build_turns", "def build_errors",
+                       "def build_agent_dim", "def build_agent_performance"):
+            calls = [node for node in ast.parse(notebook_cell_source(needle)).body
+                     if isinstance(node, ast.Assign) and isinstance(node.value, ast.Call)
+                     and getattr(node.value.func, "id", "").startswith("build_")]
+            self.assertEqual([], calls, needle)
 
 
 if __name__ == "__main__":
