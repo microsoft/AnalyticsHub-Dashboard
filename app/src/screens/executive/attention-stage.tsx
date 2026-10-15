@@ -9,6 +9,7 @@ import { useMemo } from "react";
 import { CircleAlert, TriangleAlert } from "lucide-react";
 import { stageAnchor } from "@/components/destinations";
 import { FilterNote } from "@/components/filter-note";
+import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { OpenDestinationLink } from "@/components/open-destination-link";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { NoteCard } from "@/components/report-panels";
@@ -35,11 +36,7 @@ import type { ExecutiveData } from "./use-executive-data";
 
 /** The license roster as it stands today, for the whole tenant. */
 const ESTATE_IGNORES: FilterKey[] = ["dateRange", "organizations"];
-/** Feedback isn't linked to people. */
-const FEEDBACK_IGNORES: FilterKey[] = ["organizations"];
 const FEEDBACK_EXTRA = [FEEDBACK_ON_CALENDAR];
-/** The registry is a catalogue, not activity. */
-const CATALOGUE_IGNORES: FilterKey[] = ["dateRange", "organizations", "licence", "audience"];
 const SKIP = { connection: "", query: "" };
 
 const TONE = {
@@ -123,10 +120,10 @@ export function AttentionStage({ data }: { data: ExecutiveData }) {
 
     const dormancy = useTableQuery(dormancySource, [], ESTATE_IGNORES);
     const estate = useSummaryQuery(licenseEstateSummary(), [], ESTATE_IGNORES);
-    const themes = useTableQuery(themesSource, FEEDBACK_EXTRA, FEEDBACK_IGNORES);
+    const themes = useTableQuery(themesSource, FEEDBACK_EXTRA);
     const cowork = useConsumptionSummary(coworkSource);
     const creditDates = useConsumptionSummary(creditDatesSource);
-    const registry = useSummaryQuery(agentEstateSummary(), [], CATALOGUE_IGNORES);
+    const registry = useSummaryQuery(agentEstateSummary());
 
     const ruleInputs = [summary, departments, dormancy, estate, themes, ...(CONSUMPTION_CONFIGURED ? [cowork] : [])];
     const error = firstError(ruleInputs);
@@ -163,12 +160,11 @@ export function AttentionStage({ data }: { data: ExecutiveData }) {
         >
             <FilterNote
                 ignored={ESTATE_IGNORES}
-                scope={CONSUMPTION_CONFIGURED ? "to idle seats or Cowork allowances" : "to idle seats"}
-                reason={
-                    CONSUMPTION_CONFIGURED
-                        ? "they describe the license roster and Cowork's current billing period as they stand, for the whole tenant."
-                        : "they describe the license roster as it stands, for the whole tenant."
-                }
+                scope="to idle seats"
+                reason="they describe the license roster as it stands, for the whole tenant."
+            />
+            <NotFilteredHint
+                from={[themes.notFilteredBy, CONSUMPTION_CONFIGURED ? cowork.notFilteredBy : undefined, registry.notFilteredBy]}
             />
             <div className="grid grid-cols-1 gap-500 xl:grid-cols-[minmax(0,1fr)_320px]">
                 <div className="min-w-0">

@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { EVALUATOR_METADATA } from "@/lib/filter-profiles";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { evaluatorConnection } from "../shared";
 import query from "./evaluator-freshness.dax?raw";
@@ -15,5 +16,5 @@ const columnMetadata: ColumnMetadataMap = {
 
 /** The last day Agent Evaluator has agent interactions for, whatever the filters say. */
 export function evaluatorFreshness() {
-    return { connection: evaluatorConnection, query, columnMetadata };
+    return { connection: evaluatorConnection, filters: EVALUATOR_METADATA, query, columnMetadata };
 }

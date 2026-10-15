@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { SHADOW_AI } from "@/lib/filter-profiles";
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
@@ -49,7 +50,7 @@ const statusColumns: ColumnMetadataMap = {
  * onboarded devices and the tools on the watchlist.
  */
 export function shadowAiSummary() {
-    return { connection, query: summaryQuery, columnMetadata: summaryColumns };
+    return { connection, query: summaryQuery, columnMetadata: summaryColumns, filters: SHADOW_AI };
 }
 
 /**
@@ -58,12 +59,12 @@ export function shadowAiSummary() {
  * or used in Cloud Discovery. One row per tool and layer.
  */
 export function shadowAiTools() {
-    return { connection, query: toolsQuery, columnMetadata: toolColumns, vegaLiteSpec: toolsSpec as VisualizationSpec };
+    return { connection, query: toolsQuery, columnMetadata: toolColumns, vegaLiteSpec: toolsSpec as VisualizationSpec, filters: SHADOW_AI };
 }
 
 /** One row per Defender probe on the last run, so the page can say what loaded and what was refused. */
 export function shadowAiStatus() {
-    return { connection, query: statusQuery, columnMetadata: statusColumns };
+    return { connection, query: statusQuery, columnMetadata: statusColumns, filters: SHADOW_AI };
 }
 
 /** The postures a shadow AI tool can have; Sanctioned tools are not shadow AI, so the query leaves them out. */

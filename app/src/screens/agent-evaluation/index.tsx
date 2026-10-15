@@ -34,8 +34,9 @@ const SOURCE = { anchor: stageAnchor("agent-performance"), page: "Agent Evaluati
 /**
  * The Agent Evaluator report's pages for Copilot Studio agents: how they
  * perform, then what people asked them and where answers came from. It reads
- * its own model, so it brings its own slicers rather than the filter bar's,
- * and it never shows what was said in a conversation.
+ * its own model: the filter bar's dates and organisations reach it, and its
+ * own slicers narrow that further, by period, department or agent. It never
+ * shows what was said in a conversation.
  */
 export function AgentEvaluationScreen() {
     const optionsResult = useTableQuery(OPTIONS);

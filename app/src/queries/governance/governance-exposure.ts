@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { REGISTRY } from "@/lib/filter-profiles";
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { contrastingTextColor } from "@/lib/color-scale";
@@ -29,7 +30,7 @@ const columnMetadata: ColumnMetadataMap = {
  * them. The order columns keep both axes in risk order, widest first.
  */
 export function governanceExposure() {
-    return { connection, query, columnMetadata, vegaLiteSpec: spec as VisualizationSpec };
+    return { connection, query, columnMetadata, vegaLiteSpec: spec as VisualizationSpec, filters: REGISTRY };
 }
 
 /** Every data access column, in risk order, so the grid keeps its shape whatever the filters leave. */

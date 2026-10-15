@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { REGISTRY } from "@/lib/filter-profiles";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { connection } from "../shared";
 import { EXPOSURE_ACCESS, governanceExposure } from "./governance-exposure";
@@ -23,7 +24,7 @@ export const EXPOSURE_ACCESS_WITH_WEB = [...EXPOSURE_ACCESS, PUBLIC_WEB] as cons
  * them. Its own query, as only models with Resource Graph have the table.
  */
 export function governancePublicWeb() {
-    return { connection, query, columnMetadata: governanceExposure().columnMetadata };
+    return { connection, query, columnMetadata: governanceExposure().columnMetadata, filters: REGISTRY };
 }
 
 /** Adds the public web cells to the exposure grid, matching columns by name. */

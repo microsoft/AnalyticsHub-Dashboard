@@ -5,8 +5,10 @@
 // </copyright>
 //-----------------------------------------------------------------------
 import type { QueryTable } from "@microsoft/fabric-app-data";
+import { CONSUMPTION_METADATA } from "@/lib/filter-profiles";
 import { pickOrgAttributes, withOrgAttribute, type OrgAttribute, type OrgColumnStatistic } from "@/lib/org-attribute";
-import { connection } from "../shared";
+import { connection, consumptionConnection } from "../shared";
+import consumptionOrgAttributesQuery from "./consumption-org-attributes.dax?raw";
 import query from "./filter-options.dax?raw";
 import orgAttributesQuery from "./org-attributes.dax?raw";
 import orgValuesQuery from "./org-values.dax?raw";
@@ -93,6 +95,21 @@ export function toOrgAttributes(table: QueryTable): string[] {
 /** The distinct, non-blank values of one org attribute. */
 export function orgValueOptions(attribute: OrgAttribute) {
     return withOrgAttribute({ connection, query: orgValuesQuery }, attribute);
+}
+
+/**
+ * The org attributes Consumption Central holds for people, so the org
+ * filter applies there only when the attribute in use is one of them.
+ */
+export function consumptionOrgAttributeOptions() {
+    return { connection: consumptionConnection, query: consumptionOrgAttributesQuery, filters: CONSUMPTION_METADATA };
+}
+
+export function toConsumptionOrgAttributes(table: QueryTable): string[] {
+    const attribute = columnIndex(table, "[Attribute]");
+    return table.rows
+        .map((row) => row[attribute])
+        .filter((entry): entry is string => typeof entry === "string" && entry.trim() !== "");
 }
 
 export function toOrgValues(table: QueryTable): string[] {

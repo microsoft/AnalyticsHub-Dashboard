@@ -11,6 +11,7 @@ import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { ChoiceMenu } from "@/components/choice-menu";
 import { stageAnchor } from "@/components/destinations";
 import { KpiCard, KpiStat } from "@/components/kpi-card";
+import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { ChartPanel, KpiRowState, NoteCard, Panel } from "@/components/report-panels";
 import { Section } from "@/components/section";
 import { useThemeContext } from "@/hooks/theme.context";
@@ -163,6 +164,7 @@ export function PerformanceStage({ options, extra }: PerformanceStageProps) {
                 )
             }
         >
+            <NotFilteredHint from={[summary.notFilteredBy]} />
             <KpiRowState
                 summary={summary}
                 count={5}

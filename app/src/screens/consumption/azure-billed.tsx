@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { ChartPanel, NoteCard } from "@/components/report-panels";
 import { studioAzureBilling, studioAzureDaily, type ConsumptionLens } from "@/queries/consumption";
 import { billedText, readAzureBilling, subscriptionText } from "./azure-billing";
@@ -39,38 +40,41 @@ export function AzureBilledPanel({ lens, extra }: AzureBilledPanelProps) {
         .join(" · ");
 
     return (
-        <div className="grid grid-cols-1 gap-500 xl:grid-cols-[minmax(0,1fr)_320px]">
-            <ChartPanel
-                result={daily}
-                spec={source.vegaLiteSpec}
-                capabilities={NO_STACK_LABELS}
-                height={300}
-                title={cost ? "Pay-as-you-go billed in Azure" : "Pay-as-you-go credits billed in Azure"}
-                headline={headline}
-                subtitle={subtitle}
-                emptyTitle="Nothing billed in Azure"
-                emptyDescription="Azure Cost Management has no Copilot pay-as-you-go charges in this period."
-            />
-            <NoteCard
-                title="What Azure billed"
-                notes={[
-                    { term: "Copilot Studio", text: billedText(billing, billing.studioCost, billing.studioCredits) },
-                    { term: "Cowork", text: billedText(billing, billing.coworkCost, billing.coworkCredits) },
-                    { term: "Other Copilot meters", text: billing.otherCost ? billedText(billing, billing.otherCost) : undefined },
-                    {
-                        term: "Total",
-                        text: billing.totalCost === undefined ? undefined : `${billedText(billing, billing.totalCost)} across ${subscriptionText(billing.subscriptions)}`,
-                    },
-                    {
-                        term: "Currencies",
-                        text: billing.currency ? undefined : `Billed in ${billing.currencies}. The totals add them as billed, unconverted.`,
-                    },
-                    {
-                        term: "Versus the export",
-                        text: "The figures above price the export's credits at the app's rate. These are the charges Azure Cost Management recorded, so timing and rates can differ.",
-                    },
-                ]}
-            />
+        <div className="flex flex-col gap-300">
+            <NotFilteredHint from={[summary.notFilteredBy]} />
+            <div className="grid grid-cols-1 gap-500 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <ChartPanel
+                    result={daily}
+                    spec={source.vegaLiteSpec}
+                    capabilities={NO_STACK_LABELS}
+                    height={300}
+                    title={cost ? "Pay-as-you-go billed in Azure" : "Pay-as-you-go credits billed in Azure"}
+                    headline={headline}
+                    subtitle={subtitle}
+                    emptyTitle="Nothing billed in Azure"
+                    emptyDescription="Azure Cost Management has no Copilot pay-as-you-go charges in this period."
+                />
+                <NoteCard
+                    title="What Azure billed"
+                    notes={[
+                        { term: "Copilot Studio", text: billedText(billing, billing.studioCost, billing.studioCredits) },
+                        { term: "Cowork", text: billedText(billing, billing.coworkCost, billing.coworkCredits) },
+                        { term: "Other Copilot meters", text: billing.otherCost ? billedText(billing, billing.otherCost) : undefined },
+                        {
+                            term: "Total",
+                            text: billing.totalCost === undefined ? undefined : `${billedText(billing, billing.totalCost)} across ${subscriptionText(billing.subscriptions)}`,
+                        },
+                        {
+                            term: "Currencies",
+                            text: billing.currency ? undefined : `Billed in ${billing.currencies}. The totals add them as billed, unconverted.`,
+                        },
+                        {
+                            term: "Versus the export",
+                            text: "The figures above price the export's credits at the app's rate. These are the charges Azure Cost Management recorded, so timing and rates can differ.",
+                        },
+                    ]}
+                />
+            </div>
         </div>
     );
 }

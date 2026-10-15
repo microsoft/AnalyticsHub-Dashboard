@@ -10,6 +10,7 @@ import { DataGrid, type GridColumnDef } from "@microsoft/fabric-datagrid";
 import { ChoiceMenu } from "@/components/choice-menu";
 import { ConcentrationPanel } from "@/components/concentration-panel";
 import { stageAnchor } from "@/components/destinations";
+import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { KpiCard, KpiStat } from "@/components/kpi-card";
 import { Section } from "@/components/section";
 import { SegmentedControl } from "@/components/segmented-control";
@@ -179,6 +180,7 @@ export function StudioStage({ options, rates }: StudioStageProps) {
                 </div>
             }
         >
+            <NotFilteredHint from={[summary.notFilteredBy, daily.notFilteredBy, breakdown.notFilteredBy, agents.notFilteredBy, users.notFilteredBy]} />
             <KpiRowState
                 summary={summary}
                 count={5}

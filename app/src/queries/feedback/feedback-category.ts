@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { FEEDBACK } from "@/lib/filter-profiles";
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { connection, FORMAT_PERCENT, FORMAT_WHOLE } from "../shared";
@@ -27,5 +28,5 @@ const columnMetadata: ColumnMetadataMap = {
  * those prefixes before the chart sees them, while preserving the topic name.
  */
 export function feedbackCategory() {
-    return { connection, query, columnMetadata, vegaLiteSpec: spec as VisualizationSpec };
+    return { connection, query, columnMetadata, vegaLiteSpec: spec as VisualizationSpec, filters: FEEDBACK };
 }

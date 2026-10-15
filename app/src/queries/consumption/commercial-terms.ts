@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { CONSUMPTION_METADATA } from "@/lib/filter-profiles";
 import { addQueryDefinitions } from "@/lib/dax-filters";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { consumptionConnection as connection, FORMAT_CREDITS } from "../shared";
@@ -244,5 +245,5 @@ const modelTermsColumns: ColumnMetadataMap = {
  * columns.
  */
 export function modelCommercialTerms() {
-    return { connection, query: modelTermsQuery, columnMetadata: modelTermsColumns };
+    return { connection, filters: CONSUMPTION_METADATA, query: modelTermsQuery, columnMetadata: modelTermsColumns };
 }

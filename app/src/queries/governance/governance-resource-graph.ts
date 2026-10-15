@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { RESOURCE_GRAPH } from "@/lib/filter-profiles";
 import { isMissingFromModelError } from "@/lib/model-errors";
 import type { SourceState } from "@/lib/optional-sources";
 import { readNumber, readText, type SummaryRow } from "@/lib/summary-row";
@@ -34,7 +35,7 @@ const columnMetadata: ColumnMetadataMap = {
  * leaves every other governance figure alone.
  */
 export function governanceResourceGraph() {
-    return { connection, query, columnMetadata };
+    return { connection, query, columnMetadata, filters: RESOURCE_GRAPH };
 }
 
 /** The load's probe outcomes, as `Resource Graph Status` records them. */

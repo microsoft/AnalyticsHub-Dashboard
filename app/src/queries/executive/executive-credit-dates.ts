@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { CONSUMPTION_METADATA } from "@/lib/filter-profiles";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { consumptionConnection } from "../shared";
 import query from "./executive-credit-dates.dax?raw";
@@ -19,5 +20,5 @@ const columnMetadata: ColumnMetadataMap = {
  * last date can't say that.
  */
 export function executiveCreditDates() {
-    return { connection: consumptionConnection, query, columnMetadata };
+    return { connection: consumptionConnection, filters: CONSUMPTION_METADATA, query, columnMetadata };
 }

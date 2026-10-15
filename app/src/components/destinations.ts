@@ -47,7 +47,9 @@ import { consumptionConnection, evaluatorConnection } from "@/queries/shared";
  * A `reference` destination holds definitions rather than activity, so it has
  * no filters and sits apart in the sidebar. Ask takes no filters either: the
  * question says what period and organisations it is about. It is
- * `conversational`, so it can't go in a report pack.
+ * `conversational`, so it can't go in a report pack. A destination on
+ * another model lists the filters its queries' profiles can take (see
+ * `filter-profiles.ts`); a card that still can't take one says so.
  *
  * The executive summary comes first and is where the app opens: one page
  * drawing on the others, each of its panels linking to the destination
@@ -109,7 +111,7 @@ export const destinations = [
         label: "Agent Evaluation",
         blurb: "How well your agents answer, and where they fall short",
         icon: BotMessageSquare as LucideIcon,
-        filters: [] as FilterKey[],
+        filters: ["dateRange", "organizations"] as FilterKey[],
         connection: evaluatorConnection,
         stages: [
             { id: "agent-performance", label: "Performance", ready: true },
@@ -121,7 +123,7 @@ export const destinations = [
         label: "Governance",
         blurb: "Who owns your agents, who can reach them, and what needs a review",
         icon: ShieldCheck as LucideIcon,
-        filters: ["agentTypes"] as FilterKey[],
+        filters: ["agentTypes", "agentNames"] as FilterKey[],
         stages: [
             { id: "estate-health", label: "Estate health", ready: true },
             { id: "exposure", label: "Exposure", ready: true },
@@ -147,7 +149,7 @@ export const destinations = [
         label: "Consumption",
         blurb: "Credits used, and what they cost",
         icon: Coins as LucideIcon,
-        filters: [] as FilterKey[],
+        filters: ["dateRange", "organizations", "agentNames"] as FilterKey[],
         connection: consumptionConnection,
         stages: [
             { id: "consumption-overview", label: "All products", ready: true },
@@ -187,7 +189,7 @@ export const destinations = [
         label: "Feedback",
         blurb: "What people say about it",
         icon: MessageSquareQuote as LucideIcon,
-        filters: ["dateRange"] as FilterKey[],
+        filters: ["dateRange", "agentTypes", "agentNames"] as FilterKey[],
         source: "productFeedback",
         stages: [{ id: "feedback", label: "Feedback", ready: true }],
     },

@@ -87,7 +87,7 @@ describe("packRuns", () => {
 describe("packFilters and packSources", () => {
     it("unions the runs' slicers in filter bar order and their sources", () => {
         const { runs } = packRuns(["budget-runway", "estate-health", "the-bottom-line"], all);
-        expect(packFilters(runs)).toEqual(["dateRange", "organizations", "agentTypes"]);
+        expect(packFilters(runs)).toEqual(["dateRange", "organizations", "agentTypes", "agentNames"]);
         expect(packSources(runs)).toEqual(["cowork", "copilotStudio", "azure", "agentRegistry", "auditLog"]);
     });
 });

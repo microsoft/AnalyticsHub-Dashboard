@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { REGISTRY } from "@/lib/filter-profiles";
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { connection, FORMAT_WHOLE } from "../shared";
@@ -33,5 +34,5 @@ export const OWNER_STATUSES = [
  * ingester's owner-account check, such as a CSV export.
  */
 export function governanceOwners() {
-    return { connection, query, columnMetadata, vegaLiteSpec: spec as VisualizationSpec };
+    return { connection, query, columnMetadata, vegaLiteSpec: spec as VisualizationSpec, filters: REGISTRY };
 }

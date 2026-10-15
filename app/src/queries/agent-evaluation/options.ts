@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { EVALUATOR_METADATA } from "@/lib/filter-profiles";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { dateBetween, treatAs } from "@/lib/dax-filters";
 import { availablePresets, presetRange, type DatePreset, type DateRange } from "@/lib/filters";
@@ -55,6 +56,7 @@ const columnMetadata: ColumnMetadataMap = {
 export function evaluationOptions() {
     return {
         connection,
+        filters: EVALUATOR_METADATA,
         query: query.replace("__GROUP_COUNTS__", GROUP_BY_COLUMNS.map(groupCount).join(",\n    ")),
         columnMetadata,
     };

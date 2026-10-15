@@ -11,6 +11,7 @@ import { stageAnchor } from "@/components/destinations";
 import { FilterMenu } from "@/components/filter-menu";
 import { FilterNote } from "@/components/filter-note";
 import { KpiCard, KpiStat } from "@/components/kpi-card";
+import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { ChartPanel, NoteCard, Panel, type Note } from "@/components/report-panels";
 import { Section } from "@/components/section";
@@ -382,7 +383,8 @@ export function CostVsValueStage() {
                 </div>
             }
         >
-            <FilterNote ignored={COST_IGNORED_FILTERS} reason="costs aren't recorded that way, so this compares the whole tenant." />
+            <FilterNote ignored={COST_IGNORED_FILTERS} reason="costs aren't recorded that way, so they don't narrow this comparison." />
+            <NotFilteredHint from={[data.notFilteredBy]} />
 
             {body ?? (
                 <>

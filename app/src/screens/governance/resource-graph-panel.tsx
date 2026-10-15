@@ -7,6 +7,7 @@
 
 import { ShieldAlert } from "lucide-react";
 import { KpiCard, KpiStat } from "@/components/kpi-card";
+import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { readNumber } from "@/lib/summary-row";
 import { BODY } from "@/lib/type-scale";
@@ -54,6 +55,7 @@ export function ResourceGraphPanel({ summary, className }: { summary: ResourceGr
             const foundryEmpty = view.forbidden.foundry ? NOT_COLLECTED : "Not read";
             return (
                 <>
+                    <NotFilteredHint from={[result.notFilteredBy]} />
                     <div className={className}>
                         <KpiCard
                             label="No sign-in required"

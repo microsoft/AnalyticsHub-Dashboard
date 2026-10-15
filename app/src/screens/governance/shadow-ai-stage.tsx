@@ -9,6 +9,7 @@ import { useMemo, useState } from "react";
 import { TriangleAlert } from "lucide-react";
 import { stageAnchor } from "@/components/destinations";
 import { KpiCard, KpiStat } from "@/components/kpi-card";
+import { NotFilteredHint } from "@/components/not-filtered-hint";
 import { QueryEmpty, QueryLoading } from "@/components/query-states";
 import { ChartPanel, KpiRowState, NoteCard } from "@/components/report-panels";
 import { Section } from "@/components/section";
@@ -18,7 +19,6 @@ import { useOutcomeColors } from "@/hooks/use-palette-theme";
 import { useSummaryQuery, useTableQuery } from "@/hooks/use-table-query";
 import { rowChartHeight } from "@/lib/chart-height";
 import { outcomePalette, withColorScale } from "@/lib/color-scale";
-import type { FilterKey } from "@/lib/filters";
 import type { SourceState } from "@/lib/optional-sources";
 import { readNumber } from "@/lib/summary-row";
 import { BODY } from "@/lib/type-scale";
@@ -46,9 +46,6 @@ const SUMMARY = shadowAiSummary();
 const TOOLS = shadowAiTools();
 const STATUS = shadowAiStatus();
 
-/** Defender has no agent type, so the page's one filter is left off these queries. */
-const IGNORE: readonly FilterKey[] = ["agentTypes"];
-const NONE: readonly string[] = [];
 
 const KPI_GRID = "grid gap-300 md:grid-cols-2 xl:grid-cols-4";
 
@@ -108,9 +105,9 @@ function ShadowAiFindings() {
     const { theme } = useThemeContext();
     const outcomeColors = useOutcomeColors();
     const palette = useMemo(() => outcomePalette(outcomeColors, theme), [outcomeColors, theme]);
-    const summary = useSummaryQuery(SUMMARY, NONE, IGNORE);
-    const tools = useTableQuery(TOOLS, NONE, IGNORE);
-    const status = useTableQuery(STATUS, NONE, IGNORE);
+    const summary = useSummaryQuery(SUMMARY);
+    const tools = useTableQuery(TOOLS);
+    const status = useTableQuery(STATUS);
     const [layer, setLayer] = useState<ShadowAiLayer>("Ran");
 
     const statuses = useMemo(() => probeStatuses(status.table), [status.table]);
@@ -147,6 +144,7 @@ function ShadowAiFindings() {
 
     return (
         <Section id={stageAnchor("shadow-ai")} title={TITLE} description={DESCRIPTION}>
+            <NotFilteredHint from={[summary.notFilteredBy]} />
             {state?.kind === "partial" && (
                 <p role="status" className={`flex max-w-[80ch] items-start gap-200 ${BODY} text-muted-foreground`}>
                     <TriangleAlert className="icon-size-200 mt-[2px] shrink-0 text-caution" aria-hidden="true" />

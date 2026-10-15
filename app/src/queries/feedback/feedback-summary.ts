@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { FEEDBACK } from "@/lib/filter-profiles";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { connection, FORMAT_PERCENT, FORMAT_WHOLE } from "../shared";
 import query from "./feedback-summary.dax?raw";
@@ -32,5 +33,5 @@ export const FEEDBACK_ON_CALENDAR = "FILTER(ALL('Calendar'[Date]), NOT ISBLANK('
  * before reading any breakdown.
  */
 export function feedbackSummary() {
-    return { connection, query, columnMetadata };
+    return { connection, query, columnMetadata, filters: FEEDBACK };
 }

@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { CONSUMPTION_AZURE, CONSUMPTION_STUDIO_AGENT, CONSUMPTION_STUDIO_PEOPLE, CONSUMPTION_STUDIO_TENANT } from "@/lib/filter-profiles";
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { toRollupTree, type RollupTree } from "@/lib/rollup-tree";
@@ -58,7 +59,7 @@ const summaryColumns: ColumnMetadataMap = {
  * snapshot, which the snapshot note says in the model's own words.
  */
 export function studioCreditsSummary() {
-    return { connection, query: summaryQuery, columnMetadata: summaryColumns };
+    return { connection, filters: CONSUMPTION_STUDIO_TENANT, query: summaryQuery, columnMetadata: summaryColumns };
 }
 
 const dailyColumns: ColumnMetadataMap = {
@@ -73,7 +74,7 @@ const dailyColumns: ColumnMetadataMap = {
 /** Tenant credits and cost for each day with usage, split into prepaid and pay-as-you-go. */
 export function studioDaily(lens: ConsumptionLens = "consumption") {
     const spec = lens === "cost" ? dailyCostSpec : dailyCreditsSpec;
-    return { connection, query: dailyQuery, columnMetadata: dailyColumns, vegaLiteSpec: spec as VisualizationSpec };
+    return { connection, filters: CONSUMPTION_STUDIO_TENANT, query: dailyQuery, columnMetadata: dailyColumns, vegaLiteSpec: spec as VisualizationSpec };
 }
 
 const azureBillingColumns: ColumnMetadataMap = {
@@ -97,7 +98,7 @@ const azureBillingColumns: ColumnMetadataMap = {
  * screen leaves the panel out.
  */
 export function studioAzureBilling() {
-    return { connection, query: azureBillingQuery, columnMetadata: azureBillingColumns };
+    return { connection, filters: CONSUMPTION_AZURE, query: azureBillingQuery, columnMetadata: azureBillingColumns };
 }
 
 const azureDailyColumns: ColumnMetadataMap = {
@@ -111,7 +112,7 @@ const azureDailyColumns: ColumnMetadataMap = {
 /** Each day's pay-as-you-go billed in Azure, by product. */
 export function studioAzureDaily(lens: ConsumptionLens = "consumption") {
     const spec = lens === "cost" ? azureDailyCostSpec : azureDailyCreditsSpec;
-    return { connection, query: azureDailyQuery, columnMetadata: azureDailyColumns, vegaLiteSpec: spec as VisualizationSpec };
+    return { connection, filters: CONSUMPTION_AZURE, query: azureDailyQuery, columnMetadata: azureDailyColumns, vegaLiteSpec: spec as VisualizationSpec };
 }
 
 export type StudioBreakdown = "Model" | "Feature";
@@ -131,6 +132,7 @@ export function studioBreakdown(lens: ConsumptionLens = "consumption") {
     const spec = lens === "cost" ? breakdownCostSpec : breakdownCreditsSpec;
     return {
         connection,
+        filters: CONSUMPTION_STUDIO_AGENT,
         query: breakdownQuery,
         columnMetadata: breakdownColumns,
         vegaLiteSpec: spec as VisualizationSpec,
@@ -153,7 +155,7 @@ const agentsColumns: ColumnMetadataMap = {
 
 /** Each agent in the user snapshot, with its share of the snapshot's credits and their estimated cost. */
 export function studioAgents() {
-    return { connection, query: agentsQuery, columnMetadata: agentsColumns };
+    return { connection, filters: CONSUMPTION_STUDIO_PEOPLE, query: agentsQuery, columnMetadata: agentsColumns };
 }
 
 const GROUP_COLUMN = "Group ByGroup";
@@ -180,7 +182,7 @@ const usersColumns: ColumnMetadataMap = {
 
 /** The report's top-users table: each group, then its users, from the user snapshot. */
 export function studioUsers() {
-    return { connection, query: usersQuery, columnMetadata: usersColumns };
+    return { connection, filters: CONSUMPTION_STUDIO_PEOPLE, query: usersQuery, columnMetadata: usersColumns };
 }
 
 export function toStudioUserTree(table: DataTable): RollupTree {

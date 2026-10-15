@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { FEEDBACK } from "@/lib/filter-profiles";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { connection } from "../shared";
 import query from "./feedback-comments.dax?raw";
@@ -25,5 +26,5 @@ const columnMetadata: ColumnMetadataMap = {
  * while tests use invented fixture text only.
  */
 export function feedbackComments() {
-    return { connection, query, columnMetadata };
+    return { connection, query, columnMetadata, filters: FEEDBACK };
 }

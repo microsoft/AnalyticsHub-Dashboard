@@ -8,20 +8,38 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { FilterContext } from "@/hooks/filter.context";
 import { useSemanticModelQuery } from "@/hooks/use-semantic-model-query";
+import { isConnectionConfigured } from "@/lib/connections";
 import { defaultFilters, type FilterKey, type FilterState } from "@/lib/filters";
 import { DEFAULT_ORG_ATTRIBUTE, describeOrgAttribute } from "@/lib/org-attribute";
+import { runtimeConfig } from "@/lib/runtime-config";
 import {
+    consumptionOrgAttributeOptions,
     filterOptions,
     orgAttributeOptions,
     orgValueOptions,
+    toConsumptionOrgAttributes,
     toFilterOptions,
     toOrgAttributes,
     toOrgValues,
 } from "@/queries/filters";
+import { consumptionConnection } from "@/queries/shared";
 
 const optionsConfig = filterOptions();
 const attributesConfig = orgAttributeOptions();
 const FALLBACK_ATTRIBUTES = [DEFAULT_ORG_ATTRIBUTE];
+const NONE: readonly string[] = [];
+
+function consumptionConfigured(): boolean {
+    return isConnectionConfigured(runtimeConfig().semanticModels, consumptionConnection);
+}
+
+const consumptionAttributes = consumptionOrgAttributeOptions();
+const NO_QUERY = { connection: consumptionConnection, query: "" };
+
+/** Asks Consumption Central only when the app is connected to it. */
+function consumptionAttributesConfig() {
+    return consumptionConfigured() ? consumptionAttributes : NO_QUERY;
+}
 
 /**
  * Holds the filter bar's state for the whole app and loads its choices once.
@@ -60,6 +78,13 @@ export function FilterProvider({ applicable, children }: { applicable: readonly 
         [state, resolvedColumn],
     );
 
+    const consumptionResult = useSemanticModelQuery(consumptionAttributesConfig());
+    const consumptionOrgAttributes = useMemo(() => {
+        if (!consumptionConfigured()) return NONE;
+        if (consumptionResult.data?.status === "success") return toConsumptionOrgAttributes(consumptionResult.data.table);
+        return consumptionResult.data?.status === "error" ? NONE : undefined;
+    }, [consumptionResult.data]);
+
     const value = useMemo(
         () => ({
             filters,
@@ -70,8 +95,9 @@ export function FilterProvider({ applicable, children }: { applicable: readonly 
             orgAttribute,
             orgAttributes,
             orgValues,
+            consumptionOrgAttributes,
         }),
-        [filters, options, error, applicable, orgAttribute, orgAttributes, orgValues],
+        [filters, options, error, applicable, orgAttribute, orgAttributes, orgValues, consumptionOrgAttributes],
     );
 
     return <FilterContext.Provider value={value}>{children}</FilterContext.Provider>;
