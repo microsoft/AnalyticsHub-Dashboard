@@ -371,7 +371,7 @@ test('connection secret: if Entra may have made the secret before an error, its 
   const t = setup();
   await withModel(t);
   await ensureModelConnection(t.ctx);
-  const sm = t.config.semanticModel;
+  const sm = /** @type {any} */ (t.config.semanticModel);
   t.graph.failures.addPassword = [httpError(400, 'Bad request')];
   await assert.rejects(rotateModelSecret(t.ctx), /Bad request/);
   assert.equal(sm.secretAttempts, undefined, 'turned down: nothing was made');
