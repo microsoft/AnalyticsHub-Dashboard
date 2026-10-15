@@ -211,7 +211,7 @@ PROCESSOR_NB = ROOT / "fabric" / "notebooks" / "Copilot_Audit_Log_Processor.ipyn
 # (refactor, logging) only needs the hash updated.
 PROCESSOR_LOGIC_HASHES = {
     1: "e10f273b3ab216ebdacbb5b04e8b7e5eb933504fa26b0c7887e48dffbe3fe09d",
-    2: "da6b7eb2789754085c1e6b4d7e7fba50292b0f94aa67c658fec0e4eb13ff0902",
+    2: "bfe5e2dca281c8bb305092ffe9f7ca6bc3a84b009cbf4889873de99f0e20b96e",
 }
 
 
@@ -259,7 +259,7 @@ def test_processor_notebook_is_incremental_and_skew_free():
     assert "write_strategy, PROCESS_PLAN = publish_curated_output(fact, PROCESS_PLAN)" in writer
     assert ".partitionBy(PARTITION_COLUMN)" in writer
     assert '.option("replaceWhere", month_predicate_sql(PARTITION_COLUMN, plan["months"]))' in writer
-    assert "save_processor_state(build_processor_state(PROCESSOR_CONFIG, SOURCE_MONTHS))" in writer
+    assert "save_processor_state(build_processor_state(PROCESSOR_CONFIG, SOURCE_MONTHS), intent)" in writer
     assert ".merge(" not in writer and "tgt.delete(" not in writer
     # Month keys must be derived exactly as MonthStart is in the dates cell.
     assert 'F.trunc(F.to_date(F.to_timestamp(F.col("CreationDate"))), "month")' in code[3]

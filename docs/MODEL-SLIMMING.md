@@ -100,12 +100,49 @@ the run and all readers have ended, never the staging root or another active run
 If older curated dates changed, refresh historical semantic-model partitions, not only the recent
 refresh window. Azure's publish fingerprint and refresh logic request an all-partition refresh for
 older changed days. On Fabric, the processor compares old-day output fingerprints and records a
-durable `valuelens.audit_data_version` table property when needed. The updated pipeline enables
+durable `valuelens.audit_data_version` table property when needed. Before replacing an existing
+table's data it saves a separate `valuelens.audit_refresh_intent` property: a unique intent ID,
+the source months to recompute, and the expanded historical write coverage. This preparation is
+**not** a generation that a refresh may acknowledge. Only after the atomic Delta write succeeds
+does one atomic table-property update publish a fresh ready generation, advance source state and
+record `valuelens.audit_refresh_completed_intent`. It does not clear the prepared property;
+an intent whose ID differs from the completed ID remains unfinished.
+
+If publication fails after the data commit, a retry still requests historical refresh even when
+the rewritten data now compares equal or a dependency month no longer needs rewriting. It replays
+the original source months, including when their fingerprints revert, but not dependency-only
+months from parsed source: those keep their licence/registry snapshots through the conversation
+history update. Invalid intent fails explicitly rather than being discarded. First table creation
+cannot save a property before the table exists; missing processor state is its durable full-replay
+sentinel until ready generation and state are published together. An existing model can refresh
+during that gap, but there is no new generation to acknowledge; successful producer retry still
+publishes a pending generation. Legacy or manually populated tables without processor state are
+not automatically certified by a model refresh: the next processor run performs a full rebuild.
+Unchanged runs and current-window rewrites with no old-day changes do not rotate the generation.
+
+**Serialize processor runs for each output table.** The data overwrite and source-state protocol
+do not provide a multi-producer lock. Delayed finalization records only its captured intent ID and
+cannot erase a newer prepared intent, but this is not a guarantee for overlapping producers'
+source snapshots, preparation or data writes. Model refreshes may overlap processing safely with
+respect to generation acknowledgement: they capture only committed tokens, before SQL endpoint
+synchronization, and never resolve an in-flight preparation.
+
+The updated pipeline enables
 `CHECK_AUDIT_STATE` on the ValueLens refresh notebook (not Consumption Central or Agent Evaluator).
-It refreshes every audit partition and acknowledges that generation only after success. A failed
-refresh leaves it pending; a newer concurrent processor generation cannot be cleared by an older
-refresh. By-hand installations must update the refresh notebook and enable `CHECK_AUDIT_STATE`
+It refreshes every audit partition and acknowledges that generation for that model only after
+success, even when the service history looks like a first refresh. A failed refresh leaves it
+pending; a newer concurrent processor generation cannot be cleared by an older refresh. By-hand
+installations must update both processor and refresh notebooks and enable `CHECK_AUDIT_STATE`
 with the correct default lakehouse, or explicitly refresh all historical partitions.
+This correction does not recover already-lost markers from older processor runs. Recovery requires
+separately verified all-audit-partition model refresh and historical metric checks after processing
+is reconciled; an ordinary incremental retry or `WRITE_MODE` setting alone is not evidence of recovery.
+
+`tests/test_historical_refresh_intent.py` executes the notebook's planner, publisher, Delta writer
+ordering and refresh consumer with injected storage. It covers failures before/after data and
+property commits, first creation, source fingerprint reversion, retained dependency snapshots,
+concurrent acknowledgement, per-model generations and unchanged tokens. These are offline
+control-flow tests, not positive live Fabric durability or performance evidence.
 
 `tests/test_conversation_incremental.py` covers append, ID changes, deletion, independent months,
 snapshot preservation and full-rebuild equality on Azure/DuckDB and the Spark notebook functions.

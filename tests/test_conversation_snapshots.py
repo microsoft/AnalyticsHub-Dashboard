@@ -146,14 +146,14 @@ def test_full_and_noop_publish_do_not_allocate_storage(plan):
     ns = snapshot_helpers()
     ns.update(spark=fake_spark(FakeFS()), PROCESSOR_CONFIG="config", SOURCE_MONTHS={},
               build_processor_state=lambda *args: "state", historical_audit_changed=lambda *args: False,
-              write_curated_output=lambda *args: "result", save_processor_state=lambda state: None)
+              write_curated_output=lambda *args: "result", save_processor_state=lambda *args: None)
     code = "".join(json.loads(NOTEBOOK.read_text(encoding="utf-8"))["cells"][15]["source"])
     fn = next(n for n in ast.parse(code).body if isinstance(n, ast.FunctionDef) and n.name == "publish_curated_output")
     exec(compile(ast.Module(body=[fn], type_ignores=[]), "processor:publish", "exec"), ns)
     assert ns["publish_curated_output"]("frame", plan) == ("result", plan)
 
 
-@pytest.mark.parametrize("failure", [None, "history", "refresh-check", "write", "mark", "state"])
+@pytest.mark.parametrize("failure", [None, "history", "refresh-check", "prepare", "write", "state"])
 def test_publish_keeps_snapshots_through_all_consumers_and_cleans_on_failure(failure):
     fs = FakeFS()
     spark = fake_spark(fs)
@@ -189,7 +189,7 @@ def test_publish_keeps_snapshots_through_all_consumers_and_cleans_on_failure(fai
         return call
 
     ns.update(update_conversation_history=history, historical_audit_changed=step("refresh-check", True),
-              write_curated_output=step("write", "incremental"), mark_audit_refresh_pending=step("mark"),
+              write_curated_output=step("write", "incremental"), prepare_audit_refresh_intent=step("prepare", {}),
               save_processor_state=step("state"))
     code = "".join(json.loads(NOTEBOOK.read_text(encoding="utf-8"))["cells"][15]["source"])
     fn = next(n for n in ast.parse(code).body if isinstance(n, ast.FunctionDef) and n.name == "publish_curated_output")
@@ -201,11 +201,11 @@ def test_publish_keeps_snapshots_through_all_consumers_and_cleans_on_failure(fai
     else:
         assert ns["publish_curated_output"]("replacement", plan) == (
             "incremental", {"full": False, "months": ["2026-07", "2026-10"]})
-        assert events == ["history", "refresh-check", "write", "mark", "state"]
+        assert events == ["history", "refresh-check", "prepare", "write", "state"]
     assert sql_calls == [f"DESCRIBE DETAIL {table}"]
     assert not fs.paths
     assert len(fs.deleted) == 1
-    if failure in ("history", "refresh-check", "write", "mark"):
+    if failure in ("history", "refresh-check", "prepare", "write"):
         assert "state" not in events
 
 

@@ -31,10 +31,11 @@ class Response:
 class FakeApi:
     """Answers the Fabric and Power BI calls the notebook makes and records them in order."""
 
-    def __init__(self, endpoints, sync=None, refresh=None):
+    def __init__(self, endpoints, sync=None, refresh=None, history=None):
         self.endpoints = endpoints
         self.sync = sync or (lambda endpoint_id: Response(200, {"value": []}))
         self.refresh = refresh or {"status": "Completed"}
+        self.history = [{"status": "Completed"}] if history is None else history
         self.calls = []
         self.refresh_bodies = []
 
@@ -45,7 +46,7 @@ class FakeApi:
         if url.startswith("https://operations/"):
             return Response(200, {"status": "Succeeded"})
         if url.endswith("/refreshes"):
-            return Response(200, {"value": [{"status": "Completed"}]})
+            return Response(200, {"value": self.history})
         return Response(200, self.refresh)
 
     def post(self, url, headers=None, json=None, timeout=None):
@@ -69,7 +70,7 @@ class AuditState:
         return None
 
 
-def run_notebook(api, audit=None):
+def run_notebook(api, audit=None, model="model"):
     cells = ["".join(c["source"]) for c in json.loads(NOTEBOOK.read_text(encoding="utf-8"))["cells"] if c["cell_type"] == "code"]
     notebookutils = types.ModuleType("notebookutils")
     notebookutils.credentials = types.SimpleNamespace(getToken=lambda audience: "token")
@@ -79,7 +80,7 @@ def run_notebook(api, audit=None):
     with mock.patch.dict(sys.modules, {"notebookutils": notebookutils, "requests": requests}), \
             mock.patch("time.sleep"), mock.patch("builtins.print"):
         exec(cells[0], scope)
-        scope.update(WORKSPACE_ID=WS, SEMANTIC_MODEL_ID="model",
+        scope.update(WORKSPACE_ID=WS, SEMANTIC_MODEL_ID=model,
                      CHECK_AUDIT_STATE=audit is not None, spark=audit)
         exec(cells[1], scope)
     return [(method, url) for method, url in api.calls if method == "POST"]
@@ -184,6 +185,42 @@ class RefreshModelTests(unittest.TestCase):
         run_notebook(api, state)
         self.assertIn("'generation-2'", state.acknowledgements[0])
         self.assertEqual(state.properties["valuelens.audit_data_version"], "generation-3")
+
+    def test_committed_token_is_captured_before_sql_endpoint_sync(self):
+        state = AuditState()
+
+        def sync(_):
+            state.properties["valuelens.audit_data_version"] = "generation-3"
+            return Response(200, {"value": []})
+
+        api = FakeApi([{"id": "lh"}], sync=sync)
+        run_notebook(api, state)
+        self.assertIn("'generation-2'", state.acknowledgements[0])
+        self.assertEqual(state.properties["valuelens.audit_data_version"], "generation-3")
+
+    def test_pending_token_always_requires_explicit_all_partition_success(self):
+        for history in ([], [{"status": "Failed"}]):
+            with self.subTest(history=history):
+                state, api = AuditState(), FakeApi([], history=history)
+                run_notebook(api, state)
+                self.assertEqual(len(api.refresh_bodies), 2)
+                self.assertFalse(api.refresh_bodies[-1]["applyRefreshPolicy"])
+                self.assertEqual(len(state.acknowledgements), 1)
+
+    def test_failed_all_partition_refresh_does_not_acknowledge_first_refresh(self):
+        state, api = AuditState(), FakeApi([], history=[])
+        original_get = api.get
+
+        def get(*args, **kwargs):
+            response = original_get(*args, **kwargs)
+            if len(api.refresh_bodies) == 2:
+                return Response(200, {"status": "Failed"})
+            return response
+
+        api.get = get
+        with self.assertRaisesRegex(RuntimeError, "Failed"):
+            run_notebook(api, state)
+        self.assertEqual(state.acknowledgements, [])
 
 
 if __name__ == "__main__":
