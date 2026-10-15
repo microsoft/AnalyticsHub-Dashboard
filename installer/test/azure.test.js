@@ -444,6 +444,46 @@ test('Azure apply is idempotent enough against fakes and records key outputs', a
   assert.equal(config.azure?.webApp?.servicePrincipalId, webSp);
 });
 
+test('SQL reader secret: kept tracked while Power BI may hold it, found by its ref after a stop, and removed only once a newer one is in use', async () => {
+  const arm = fakeArm();
+  const graph = fakeAzureGraph();
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds', connectionDetails: { server: 'vlens-sql.database.windows.net', database: 'valuelens' } }]);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui });
+  Object.assign(config, {
+    target: 'azure',
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+  });
+  ctx.runFirstLoad = false;
+  await installAzure(ctx, { wait: true });
+  const r = /** @type {any} */ (config.azure).sqlReader;
+  const first = r.secretKeyId;
+  const keys = () => graph.passwords.map((p) => p.keyId);
+  assert.deepEqual(keys(), [first]);
+  assert.match(graph.passwords[0].displayName, /^Power BI SQL credential \(ref [0-9a-f]{12}\)$/);
+
+  // Power BI may have stored it before the error: kept pending, and the one in use stays.
+  powerBi.failures.updateDatasource = [new HttpError('Internal', { status: 500, method: 'PATCH', url: 'https://x' })];
+  await assert.rejects(azureRotateSecret(ctx), /Internal/);
+  const maybe = keys()[1];
+  assert.equal(r.secretKeyId, first);
+  assert.deepEqual(r.pendingSecretKeyIds, [maybe]);
+  assert.equal(r.secretAttempts, undefined);
+
+  // A stopped run: Entra made a secret but the run never saved its key.
+  graph.passwords.push({ keyId: 'key-lost', displayName: 'Power BI SQL credential (ref bbbbbbbbbbbb)' }, { keyId: 'key-foreign', displayName: 'Power BI SQL credential' });
+  r.secretAttempts = [{ ref: 'bbbbbbbbbbbb', at: '2026-06-01T11:59:00Z' }];
+
+  graph.calls.length = 0;
+  await azureRotateSecret(ctx);
+  const now = r.secretKeyId;
+  assert.ok(![first, maybe, 'key-lost'].includes(now));
+  assert.deepEqual(graph.calls.filter((c) => c.startsWith('removePassword')).sort(), [`removePassword ${first}`, `removePassword ${maybe}`, 'removePassword key-lost'].sort(), 'removed only after the new one is bound');
+  assert.deepEqual(keys().sort(), [now, 'key-foreign'].sort(), "one without the ref isn't touched");
+  for (const f of ['secretAttempts', 'pendingSecretKeyIds', 'retiredSecretKeyIds']) assert.equal(r[f], undefined, f);
+});
+
 test('a failed migration stops the install before the first load', async () => {
   const arm = fakeArm();
   const graph = fakeAzureGraph();

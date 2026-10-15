@@ -4,8 +4,20 @@
 /** @param {string} text */
 const b64 = (text) => Buffer.from(text, 'utf8').toString('base64');
 
-/** An item's description, with the ref the installer uses to recognise it after a stopped run. @param {string} description @param {string} [ref] */
-const withRef = (description, ref) => (ref ? `${description} ${ref}` : description);
+/**
+ * The ref a create puts in the item's description, so the installer can recognise the item after a
+ * stopped run. As an object, onAccepted is told Fabric's operation URL if Fabric answers 202.
+ * @typedef {string | { text: string, onAccepted?: (operationUrl: string) => void }} ItemRef
+ */
+
+/** An item's description, with the ref the installer uses to recognise it after a stopped run. @param {string} description @param {ItemRef} [ref] */
+const withRef = (description, ref) => {
+  const text = typeof ref === 'string' ? ref : ref?.text;
+  return text ? `${description} ${text}` : description;
+};
+
+/** @param {ItemRef} [ref] */
+const accepted = (ref) => (typeof ref === 'object' ? ref.onAccepted : undefined);
 
 /** @param {string} ipynb */
 export function notebookDefinition(ipynb) {
@@ -154,11 +166,22 @@ export function fabricApi(http) {
     listItems: (workspaceId, type) => http.list(`/workspaces/${workspaceId}/items`, { query: { type } }),
     /** @param {string} workspaceId @param {string} itemId */
     getItem: (workspaceId, itemId) => http.get(`/workspaces/${workspaceId}/items/${itemId}`),
+    /**
+     * How a long-running operation is going: NotStarted, Running, Succeeded, Failed or Undefined.
+     * Undefined for a URL that isn't Fabric's, as it comes from the install record.
+     * @param {string} url  The operation URL Fabric answered a create with.
+     * @returns {Promise<string | undefined>}
+     */
+    operationStatus: async (url) => {
+      const host = URL.canParse(url) ? new URL(url) : undefined;
+      if (host?.protocol !== 'https:' || !/(^|\.)(fabric\.microsoft\.com|analysis\.windows\.net)$/i.test(host.hostname)) return undefined;
+      return (await http.get(url))?.status;
+    },
     /** @param {string} workspaceId @param {string} itemId @param {string} displayName */
     renameItem: (workspaceId, itemId, displayName) => http.patch(`/workspaces/${workspaceId}/items/${itemId}`, { displayName }),
-    /** An empty item, for types such as AppBackend that rayfin fills in. @param {string} workspaceId @param {string} type @param {string} displayName @param {string} [ref] */
+    /** An empty item, for types such as AppBackend that rayfin fills in. @param {string} workspaceId @param {string} type @param {string} displayName @param {ItemRef} [ref] */
     createItem: (workspaceId, type, displayName, ref) =>
-      http.requestLro('POST', `/workspaces/${workspaceId}/items`, { body: { type, displayName, ...(ref ? { description: withRef('Deployed by the Analytics Hub installer.', ref) } : {}) }, lroResult: true }),
+      http.requestLro('POST', `/workspaces/${workspaceId}/items`, { body: { type, displayName, ...(ref ? { description: withRef('Deployed by the Analytics Hub installer.', ref) } : {}) }, lroResult: true, onAccepted: accepted(ref) }),
 
     /** @param {string} workspaceId @returns {Promise<any[]>} */
     listRoleAssignments: (workspaceId) => http.list(`/workspaces/${workspaceId}/roleAssignments`),
@@ -180,19 +203,21 @@ export function fabricApi(http) {
     /** Tenant settings. Needs a Fabric administrator; others get 401 or 403. */
     tenantSettings: async () => /** @type {any[]} */ ((await http.get('/admin/tenantsettings'))?.tenantSettings ?? []),
 
-    /** @param {string} workspaceId @param {string} displayName @param {any} definition @param {string} [ref] */
+    /** @param {string} workspaceId @param {string} displayName @param {any} definition @param {ItemRef} [ref] */
     createSemanticModel: (workspaceId, displayName, definition, ref) =>
       http.requestLro('POST', `/workspaces/${workspaceId}/semanticModels`, {
         body: { displayName, description: withRef('ValueLens: Copilot usage and value. Deployed by the Analytics Hub installer.', ref), definition },
+        onAccepted: accepted(ref),
         lroResult: true,
       }),
     /** @param {string} workspaceId @param {string} id @param {any} definition */
     updateSemanticModel: (workspaceId, id, definition) =>
       http.requestLro('POST', `/workspaces/${workspaceId}/semanticModels/${id}/updateDefinition`, { body: { definition } }),
-    /** @param {string} workspaceId @param {string} displayName @param {any} definition @param {string} [ref] */
+    /** @param {string} workspaceId @param {string} displayName @param {any} definition @param {ItemRef} [ref] */
     createReport: (workspaceId, displayName, definition, ref) =>
       http.requestLro('POST', `/workspaces/${workspaceId}/reports`, {
         body: { displayName, description: withRef('Published by the Analytics Hub installer from its Power BI template.', ref), definition },
+        onAccepted: accepted(ref),
         lroResult: true,
       }),
     /** @param {string} workspaceId @param {string} id @param {any} definition */
@@ -240,26 +265,28 @@ export function fabricApi(http) {
 
     /** @param {string} workspaceId @param {string} id */
     getLakehouse: (workspaceId, id) => http.get(`/workspaces/${workspaceId}/lakehouses/${id}`),
-    /** @param {string} workspaceId @param {string} displayName @param {string} [ref] */
+    /** @param {string} workspaceId @param {string} displayName @param {ItemRef} [ref] */
     createLakehouse: (workspaceId, displayName, ref) =>
       http.requestLro('POST', `/workspaces/${workspaceId}/lakehouses`, {
         body: { displayName, description: withRef('Analytics Hub tables.', ref), creationPayload: { enableSchemas: true } },
+        onAccepted: accepted(ref),
         lroResult: true,
       }),
 
-    /** @param {string} workspaceId @param {string} displayName @param {string} ipynb @param {string} [ref] */
+    /** @param {string} workspaceId @param {string} displayName @param {string} ipynb @param {ItemRef} [ref] */
     createNotebook: (workspaceId, displayName, ipynb, ref) =>
       http.requestLro('POST', `/workspaces/${workspaceId}/notebooks`, {
         body: { displayName, description: withRef('Deployed by the Analytics Hub installer.', ref), definition: notebookDefinition(ipynb) },
+        onAccepted: accepted(ref),
         lroResult: true,
       }),
     /** @param {string} workspaceId @param {string} id @param {string} ipynb */
     updateNotebook: (workspaceId, id, ipynb) =>
       http.requestLro('POST', `/workspaces/${workspaceId}/notebooks/${id}/updateDefinition`, { body: { definition: notebookDefinition(ipynb) } }),
 
-    /** @param {string} workspaceId @param {string} displayName @param {string} description @param {string} [ref] */
+    /** @param {string} workspaceId @param {string} displayName @param {string} description @param {ItemRef} [ref] */
     createDataflow: (workspaceId, displayName, description, ref) =>
-      http.requestLro('POST', `/workspaces/${workspaceId}/dataflows`, { body: { displayName, description: withRef(description, ref) }, lroResult: true }),
+      http.requestLro('POST', `/workspaces/${workspaceId}/dataflows`, { body: { displayName, description: withRef(description, ref) }, lroResult: true, onAccepted: accepted(ref) }),
     /** @param {string} workspaceId @param {string} id @param {any} definition */
     updateDataflow: (workspaceId, id, definition) =>
       http.requestLro('POST', `/workspaces/${workspaceId}/dataflows/${id}/updateDefinition`, {
@@ -280,10 +307,11 @@ export function fabricApi(http) {
       return Object.fromEntries(parts.map((/** @type {any} */ p) => [p.path, Buffer.from(String(p.payload ?? ''), 'base64').toString('utf8')]));
     },
 
-    /** @param {string} workspaceId @param {string} displayName @param {any} pipeline @param {string} [ref] */
+    /** @param {string} workspaceId @param {string} displayName @param {any} pipeline @param {ItemRef} [ref] */
     createPipeline: (workspaceId, displayName, pipeline, ref) =>
       http.requestLro('POST', `/workspaces/${workspaceId}/dataPipelines`, {
         body: { displayName, description: withRef('Analytics Hub daily load.', ref), definition: pipelineDefinition(pipeline) },
+        onAccepted: accepted(ref),
         lroResult: true,
       }),
     /** @param {string} workspaceId @param {string} id @param {any} pipeline */
@@ -355,10 +383,11 @@ export function fabricApi(http) {
       return JSON.parse(Buffer.from(part.payload, 'base64').toString('utf8'));
     },
 
-    /** @param {string} workspaceId @param {string} displayName @param {any} definition @param {string} [ref] */
+    /** @param {string} workspaceId @param {string} displayName @param {any} definition @param {ItemRef} [ref] */
     createDataAgent: (workspaceId, displayName, definition, ref) =>
       http.requestLro('POST', `/workspaces/${workspaceId}/dataAgents`, {
         body: { displayName, description: withRef('Answers questions about Copilot and agents from the Analytics Hub models. Deployed by the Analytics Hub installer.', ref), definition },
+        onAccepted: accepted(ref),
         lroResult: true,
       }),
     /** @param {string} workspaceId @param {string} id @param {any} definition */

@@ -81,20 +81,27 @@ test('Key Vault waits out a new role assignment but fails fast on a network bloc
   assert.deepEqual(fresh.calls, ['GET /secrets/s', 'GET /secrets/s']);
 });
 
-/** @param {{ blocked?: boolean, canWriteArm?: boolean, armFails?: boolean, existing?: Record<string, string | undefined> }} [o] */
+/** @param {{ blocked?: boolean, canWriteArm?: boolean, armFails?: boolean | number, existing?: Record<string, string | undefined>, passwords?: { keyId: string, displayName: string }[] }} [o] */
 function fakeSecretApis(o = {}) {
   /** @type {string[]} */
   const calls = [];
   const existing = o.existing ?? {};
   /** @param {string} name */
   const info = (name) => (name in existing ? { contentType: existing[name] } : null);
+  let keys = 0;
   const graph = {
-    addPassword: async () => {
+    addPassword: async (/** @type {string} */ _id, /** @type {Date} */ _end, /** @type {string} */ name) => {
       calls.push('addPassword');
-      return { secretText: 's3cret-value', endDateTime: '2027-06-01T12:00:00Z', keyId: 'key-1' };
+      const keyId = `key-${++keys}`;
+      (o.passwords ??= []).push({ keyId, displayName: name });
+      return { secretText: 's3cret-value', endDateTime: '2027-06-01T12:00:00Z', keyId };
     },
     removePassword: async (/** @type {string} */ _id, /** @type {string} */ keyId) => {
       calls.push(`removePassword ${keyId}`);
+    },
+    listPasswords: async () => {
+      calls.push('listPasswords');
+      return o.passwords ?? [];
     },
   };
   const keyVault = {
@@ -119,6 +126,7 @@ function fakeSecretApis(o = {}) {
     },
     setSecret: async (/** @type {string} */ _id, /** @type {string} */ name) => {
       calls.push(`arm.setSecret ${name}`);
+      if (typeof o.armFails === 'number') throw httpError(o.armFails);
       if (o.armFails) throw new Error('boom');
     },
     secretInfo: async (/** @type {string} */ _id, /** @type {string} */ name) => {
@@ -158,14 +166,75 @@ test('new secret: a vault that blocks public access is written through Resource 
   assert.doesNotMatch(ui.text() + JSON.stringify(config), /s3cret-value/);
 });
 
-test('new secret: without write access none is made; a failed write takes it off the app again', async () => {
+test('new secret: without write access none is made; a failed write keeps it tracked unless the vault turned it down', async () => {
   const denied = fakeSecretApis({ canWriteArm: false });
   await assert.rejects(newSecret(secretCtx(denied, { private: true }).ctx), /needs Contributor or Key Vault Contributor/);
   assert.deepEqual(denied.calls, ['arm.permissions']);
 
+  // It may have reached the vault before the error: kept on the app and in the record.
   const failing = fakeSecretApis({ armFails: true });
-  await assert.rejects(newSecret(secretCtx(failing, { private: true }).ctx), /removed from the app again/);
-  assert.deepEqual(failing.calls, ['arm.permissions', 'addPassword', 'arm.setSecret valuelens-client-secret', 'removePassword key-1']);
+  const f = secretCtx(failing, { private: true });
+  await assert.rejects(newSecret(f.ctx), /Run the installer again: it makes a new one, and keeps track of this one/);
+  assert.deepEqual(failing.calls, ['arm.permissions', 'addPassword', 'arm.setSecret valuelens-client-secret']);
+  assert.deepEqual(f.config.keyVault.pendingSecretKeyIds, ['key-1']);
+  assert.equal(f.config.keyVault.secretAttempts, undefined);
+  assert.equal(f.config.keyVault.secretSetAt, undefined);
+
+  // The vault said no, so nothing holds it: removed.
+  const refusedApis = fakeSecretApis({ armFails: 400 });
+  const r = secretCtx(refusedApis, { private: true });
+  await assert.rejects(newSecret(r.ctx), /removed from the app again/);
+  assert.deepEqual(refusedApis.calls, ['arm.permissions', 'addPassword', 'arm.setSecret valuelens-client-secret', 'removePassword key-1']);
+  assert.equal(r.config.keyVault.pendingSecretKeyIds, undefined);
+  assert.equal(r.config.keyVault.retiredSecretKeyIds, undefined);
+});
+
+test('new secret: one a stopped run may have put in the vault is replaced, then kept as previous, never removed unseen', async () => {
+  // The run stopped after the vault write may have happened: the key is pending and the record says the vault has a secret.
+  const apis = fakeSecretApis();
+  const ui = fakeUi();
+  const t = secretCtx(apis, { ui: ui.ui });
+  Object.assign(t.config.keyVault, { secretSetAt: '2026-05-01T00:00:00Z', secretKeyId: 'key-old', pendingSecretKeyIds: ['key-maybe'] });
+  t.config.app.existing = false;
+  await ensureSecret(t.ctx);
+  assert.deepEqual(apis.calls, ['kv.waitForAccess', 'addPassword', 'kv.setSecret valuelens-client-secret']);
+  assert.equal(t.config.keyVault.secretKeyId, 'key-1');
+  assert.equal(t.config.keyVault.pendingSecretKeyIds, undefined);
+  assert.deepEqual(t.config.keyVault.previousSecretKeyIds, ['key-old', 'key-maybe'], 'left on the app, as a run already going may use either');
+  assert.match(ui.text(), /may have saved it to Key Vault\. Making a new one/);
+  assert.match(ui.text(), /couldn't confirm was saved to Key Vault \(key key-maybe\)/);
+});
+
+test('new secret: a stopped run that Entra gave a secret before its key was saved: found by its ref and tracked', async () => {
+  // Stopped between addPassword and saving the key: only the attempt is in the record.
+  const apis = fakeSecretApis({ passwords: [{ keyId: 'key-lost', displayName: 'Analytics Hub installer (ref aaaaaaaaaaaa)' }, { keyId: 'key-theirs', displayName: 'Analytics Hub installer' }] });
+  const ui = fakeUi();
+  const t = secretCtx(apis, { ui: ui.ui });
+  t.config.app.existing = false;
+  t.config.keyVault.secretSetAt = '2026-05-01T00:00:00Z';
+  t.config.keyVault.secretAttempts = [{ ref: 'aaaaaaaaaaaa', at: '2026-06-01T11:59:00Z' }];
+  await ensureSecret(t.ctx);
+  assert.equal(t.config.keyVault.secretAttempts, undefined);
+  assert.deepEqual(t.config.keyVault.previousSecretKeyIds, ['key-lost'], 'tracked, and only the one with its ref');
+  assert.ok(!apis.calls.some((c) => c.startsWith('removePassword')), 'nothing removed');
+  assert.match(ui.text(), /added a client secret to the app \(key key-lost\) without recording it/);
+
+  // Two with the same ref: neither is adopted or removed, and the attempt stays.
+  const twice = fakeSecretApis({
+    passwords: [
+      { keyId: 'k1', displayName: 'Analytics Hub installer (ref bbbbbbbbbbbb)' },
+      { keyId: 'k2', displayName: 'Analytics Hub installer (ref bbbbbbbbbbbb)' },
+    ],
+  });
+  const tw = fakeUi();
+  const d = secretCtx(twice, { ui: tw.ui });
+  d.config.app.existing = false;
+  d.config.keyVault.secretAttempts = [{ ref: 'bbbbbbbbbbbb', at: '2026-06-01T11:59:00Z' }];
+  await ensureSecret(d.ctx);
+  assert.deepEqual(d.config.keyVault.secretAttempts?.map((a) => a.ref), ['bbbbbbbbbbbb']);
+  assert.ok(!twice.calls.some((c) => c.startsWith('removePassword')));
+  assert.ok(![d.config.keyVault.secretKeyId, ...(d.config.keyVault.previousSecretKeyIds ?? [])].some((k) => k === 'k1' || k === 'k2'));
+  assert.match(tw.text(), /More than one client secret on the app is called/);
 });
 
 test('secret name: an existing vault keeps another install\'s secret and the new one takes a free name', async () => {

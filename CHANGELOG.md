@@ -143,14 +143,26 @@ Deployment instructions do **not** live here. They live in the READMEs:
   client secret, outside the install. The installer now saves each item's name and a one-off
   reference before creating it, and writes the reference into the item's description. The next
   run uses and updates an item only when both match, so an item someone else made with that name
-  is still left alone. A run started straight after one that stopped waits up to 10 minutes for an
-  item Fabric was still creating. A new notebook client secret gets its own reference in its name,
-  saved before Entra is asked, so a run that stops before saving the key ID still lets the next run
-  find and remove that exact secret. An old secret stays in the install record until Entra confirms
-  it's removed, so a later run finishes the job.
+  is still left alone. A run started straight after one that stopped asks Fabric how that create
+  went, if Fabric had answered it, and waits up to 10 minutes for one still in progress; if Fabric
+  is still working on it after that, the run stops and says to run it again in a few minutes. If
+  it isn't known how the create went, the run waits, then asks before creating the item again
+  (with `--yes` it stops instead) unless the first request was over an hour ago. A create that
+  times out keeps its pending record for the next run, rather than making another.
+  Every client secret the installer adds — for the notebooks, the Key Vault, the model's
+  connection and the Azure SQL reader — gets its own reference in its name, saved before Entra is
+  asked, so the next run can find the exact secret even if the run stopped before saving its key
+  ID. A secret whose value may already be stored (in the Key Vault, the Fabric connection or the
+  Power BI credential) stays on the app and in the install record until a newer one is in use.
+  Then the connection's and the SQL reader's are removed; Key Vault secrets stay until they
+  expire, as before, since a pipeline run already going may still use one, and the run names any
+  it couldn't confirm so they can be deleted by hand. One that was turned down is removed straight
+  away. If two secrets carry the same reference, neither is touched and the run says so. An old
+  secret stays in the install record until Entra confirms it's removed, so a later run finishes
+  the job.
   Installs interrupted by an earlier version aren't tidied up automatically: look for an item
-  beside a `_2` copy, and for an "Analytics Hub installer" secret on the app registration that
-  isn't the one in the install record.
+  beside a `_2` copy, and for an installer-named secret on the app registration that isn't the one
+  in the install record.
 - Not changed: the installer never installs anything with winget, so there's no `--scope user`
   fallback to add. Execution policy and Constrained Language Mode were already covered.
 

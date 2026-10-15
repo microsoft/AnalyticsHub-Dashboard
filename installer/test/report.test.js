@@ -93,7 +93,7 @@ test('deployReport: publishes on the model, then leaves it alone', async () => {
   assert.equal(r?.id, item.id);
   assert.equal(r?.modelId, t.model.id);
   assert.ok(r?.signature);
-  assert.equal(t.saves(), 2, 'the name being created, then the report');
+  assert.equal(t.saves(), 3, "the name being created, Fabric's operation for it, then the report");
 
   await deployReport(t.ctx, w);
   assert.deepEqual(t.fabric.calls, ['createReport ValueLens']);

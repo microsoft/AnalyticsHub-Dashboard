@@ -8,6 +8,8 @@ import { HttpError } from '../src/http.js';
 import { loadSources } from '../src/sources.js';
 import { createUi } from '../src/ui.js';
 
+/** @typedef {import('../src/clients/fabric.js').ItemRef} ItemRef */
+
 /** Where fake installs keep their record, so files written beside it (the Teams package) stay out of the repo. */
 const TEST_RECORD_DIR = mkdtempSync(join(tmpdir(), 'valuelens-installer-test-'));
 
@@ -161,8 +163,15 @@ export function fakeFabric() {
     const err = failures[method]?.shift();
     if (err) throw err;
   };
-  const add = (/** @type {string} */ type, /** @type {string} */ displayName, /** @type {any} */ content, /** @type {string} */ description = '') => {
-    const item = { id: `${type.toLowerCase()}-${++n}`, type, displayName, content, description };
+  /** Fabric operations creates answered 202 with, and what operationStatus says of them. @type {Record<string, string>} */
+  const operations = {};
+  const add = (/** @type {string} */ type, /** @type {string} */ displayName, /** @type {any} */ content, /** @type {ItemRef} */ ref = '') => {
+    const item = { id: `${type.toLowerCase()}-${++n}`, type, displayName, content, description: typeof ref === 'string' ? ref : ref.text };
+    if (typeof ref === 'object' && ref.onAccepted) {
+      const url = `https://api.fabric.microsoft.com/v1/operations/op-${n}`;
+      operations[url] = 'Succeeded';
+      ref.onAccepted(url);
+    }
     items.push(item);
     return item;
   };
@@ -172,9 +181,15 @@ export function fakeFabric() {
     return item;
   };
   const api = {
+    /** @param {string} url */
+    operationStatus: async (url) => {
+      calls.push(`operationStatus ${url.split('/').pop()}`);
+      fail('operationStatus');
+      return operations[url];
+    },
     /** @param {string} _ws @param {string} type */
     listItems: async (_ws, type) => items.filter((i) => i.type === type).map(({ id, type: t, displayName, description }) => ({ id, type: t, displayName, description })),
-    /** @param {string} _ws @param {string} name @param {string} content @param {string} [ref] */
+    /** @param {string} _ws @param {string} name @param {string} content @param {ItemRef} [ref] */
     createNotebook: async (_ws, name, content, ref) => {
       calls.push(`createNotebook ${name}`);
       return { id: add('Notebook', name, content, ref).id };
@@ -185,7 +200,7 @@ export function fakeFabric() {
       find(id).content = content;
       return null;
     },
-    /** @param {string} _ws @param {string} name @param {string} [_description] @param {string} [ref] */
+    /** @param {string} _ws @param {string} name @param {string} [_description] @param {ItemRef} [ref] */
     createDataflow: async (_ws, name, _description, ref) => {
       calls.push(`createDataflow ${name}`);
       fail('createDataflow');
@@ -205,7 +220,7 @@ export function fakeFabric() {
       const connections = dataflowConnections.length > 1 ? dataflowConnections.shift() : (dataflowConnections[0] ?? []);
       return { 'queryMetadata.json': JSON.stringify({ name: items.find((i) => i.id === id)?.displayName, connections }), 'mashup.pq': 'section Section1;' };
     },
-    /** @param {string} _ws @param {string} name @param {any} def @param {string} [ref] */
+    /** @param {string} _ws @param {string} name @param {any} def @param {ItemRef} [ref] */
     createPipeline: async (_ws, name, def, ref) => {
       calls.push(`createPipeline ${name}`);
       // Fabric may answer 202 with no body; the step then finds the item by name.
@@ -277,18 +292,18 @@ export function fakeFabric() {
       find(id).displayName = name;
       return null;
     },
-    /** @param {string} _ws @param {string} name @param {string} [ref] */
+    /** @param {string} _ws @param {string} name @param {ItemRef} [ref] */
     createLakehouse: async (_ws, name, ref) => {
       calls.push(`createLakehouse ${name}`);
       return { id: add('Lakehouse', name, null, ref).id };
     },
-    /** @param {string} _ws @param {string} type @param {string} name @param {string} [ref] */
+    /** @param {string} _ws @param {string} type @param {string} name @param {ItemRef} [ref] */
     createItem: async (_ws, type, name, ref) => {
       calls.push(`createItem ${type} ${name}`);
       const item = add(type, name, null, ref);
       return { id: item.id, type, displayName: name };
     },
-    /** @param {string} _ws @param {string} name @param {any} def @param {string} [ref] */
+    /** @param {string} _ws @param {string} name @param {any} def @param {ItemRef} [ref] */
     createSemanticModel: async (_ws, name, def, ref) => {
       calls.push(`createSemanticModel ${name}`);
       fail('createSemanticModel');
@@ -300,7 +315,7 @@ export function fakeFabric() {
       find(id).content = def;
       return null;
     },
-    /** @param {string} _ws @param {string} name @param {any} def @param {string} [ref] */
+    /** @param {string} _ws @param {string} name @param {any} def @param {ItemRef} [ref] */
     createReport: async (_ws, name, def, ref) => {
       calls.push(`createReport ${name}`);
       fail('createReport');
@@ -312,7 +327,7 @@ export function fakeFabric() {
       find(id).content = def;
       return null;
     },
-    /** @param {string} _ws @param {string} name @param {any} def @param {string} [ref] */
+    /** @param {string} _ws @param {string} name @param {any} def @param {ItemRef} [ref] */
     createDataAgent: async (_ws, name, def, ref) => {
       calls.push(`createDataAgent ${name}`);
       fail('createDataAgent');
@@ -405,7 +420,7 @@ export function fakeFabric() {
       return { ...git };
     },
   };
-  return { api, items, schedules, calls, jobs, jobList, activityRuns, roles, connections, gateways, workspaceCapacities, failures, sqlStates, spark, dataflowConnections, git, add };
+  return { api, items, schedules, calls, jobs, jobList, activityRuns, roles, connections, gateways, workspaceCapacities, failures, sqlStates, spark, dataflowConnections, git, add, operations };
 }
 
 /** @param {number} [status] @param {string} [message] */
@@ -441,6 +456,8 @@ export function fakeGraph() {
     /** @param {string} _objectId @param {string} keyId */
     removePassword: async (_objectId, keyId) => {
       calls.push(`removePassword ${keyId}`);
+      const err = failures.removePassword?.shift();
+      if (err) throw err;
       const at = passwords.findIndex((p) => p.keyId === keyId);
       if (at >= 0) passwords.splice(at, 1);
       return null;
@@ -604,6 +621,8 @@ export function fakeAzureGraph() {
   const servicePrincipals = [];
   /** @type {any[]} */
   const roleAssignments = [];
+  /** @type {{ keyId: string, displayName: string }[]} */
+  const passwords = [];
   const graphSp = { id: 'graph-sp', appId: '00000003-0000-0000-c000-000000000000', appRoles: [
     { id: 'r-audit', value: 'AuditLogsQuery.Read.All' },
     { id: 'r-reports', value: 'Reports.Read.All' },
@@ -649,10 +668,17 @@ export function fakeAzureGraph() {
       calls.push(`fic ${id} ${fic.subject}`);
       return fic;
     },
-    addPassword: async (/** @type {string} */ _id, /** @type {Date} */ end) => ({ keyId: `key-${++n}`, secretText: `secret-${n}`, endDateTime: end.toISOString() }),
-    listPasswords: async (/** @type {string} */ _id) => [],
+    addPassword: async (/** @type {string} */ _id, /** @type {Date} */ end, /** @type {string} */ displayName = 'Analytics Hub installer') => {
+      calls.push(`addPassword ${displayName}`);
+      const keyId = `key-${++n}`;
+      passwords.push({ keyId, displayName });
+      return { keyId, secretText: `secret-${n}`, endDateTime: end.toISOString() };
+    },
+    listPasswords: async (/** @type {string} */ _id) => passwords.map((p) => ({ ...p })),
     removePassword: async (/** @type {string} */ _id, /** @type {string} */ keyId) => {
       calls.push(`removePassword ${keyId}`);
+      const at = passwords.findIndex((p) => p.keyId === keyId);
+      if (at >= 0) passwords.splice(at, 1);
     },
     assignPrincipalToAppRole: async (/** @type {string} */ principal, /** @type {string} */ resource, /** @type {string} */ role) => {
       calls.push(`assign ${principal} ${role}`);
@@ -672,7 +698,7 @@ export function fakeAzureGraph() {
       if (err) throw err;
     },
   };
-  return { api, calls, applications, servicePrincipals, siteGrantFailures };
+  return { api, calls, applications, servicePrincipals, siteGrantFailures, passwords };
 }
 
 /** Power BI refreshes. `states` scripts what each poll of a refresh returns. */
@@ -705,6 +731,8 @@ export function fakePowerBi() {
     },
     updateDatasource: async (/** @type {string} */ gw, /** @type {string} */ ds, /** @type {any} */ body) => {
       calls.push(`updateDatasource ${gw} ${ds} ${body.credentialDetails.credentialType}`);
+      const err = failures.updateDatasource?.shift();
+      if (err) throw err;
     },
     bindToGateway: async (/** @type {string} */ _ws, /** @type {string} */ dataset, /** @type {any} */ body) => {
       calls.push(`bindToGateway ${dataset} ${body.gatewayObjectId} ${body.datasourceObjectIds.join(',')}`);

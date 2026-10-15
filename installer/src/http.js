@@ -31,6 +31,7 @@ export class HttpError extends Error {
  * @property {number} [maxRetries]
  * @property {number} [maxWaitMs]  Cap for the total time spent retrying `retryOn` statuses.
  * @property {boolean} [lroResult]  For a 202, fetch the operation's result when it succeeds (creates, getDefinition).
+ * @property {(stateUrl: string) => void} [onAccepted]  For a 202, called with the operation's URL before it's followed, so a caller can record it.
  *
  * @typedef {{ status: number, headers: Headers, data: any }} HttpResponse
  *
@@ -156,6 +157,13 @@ export function createClient(options) {
     }
   }
 
+  /** Where to ask how a Fabric long-running operation is going. @param {HttpResponse} accepted  The 202 response. */
+  function operationUrl(accepted) {
+    const location = accepted.headers.get('location');
+    const operationId = accepted.headers.get('x-ms-operation-id');
+    return location ?? (operationId ? resolve(`/operations/${operationId}`) : undefined);
+  }
+
   /**
    * Follows a Fabric long-running operation to completion.
    * Returns the operation result for creates and getDefinition, or null when there is none.
@@ -163,9 +171,7 @@ export function createClient(options) {
    * @param {{ timeoutMs?: number, result?: boolean }} [opts]  `result` fetches `/result` even without a Location header.
    */
   async function waitForOperation(accepted, opts = {}) {
-    const location = accepted.headers.get('location');
-    const operationId = accepted.headers.get('x-ms-operation-id');
-    const stateUrl = location ?? (operationId ? resolve(`/operations/${operationId}`) : undefined);
+    const stateUrl = operationUrl(accepted);
     if (!stateUrl) throw new Error('Fabric accepted the request but returned no operation to follow.');
     const deadline = Date.now() + (opts.timeoutMs ?? 15 * 60_000);
     let delay = retryDelayMs(accepted.headers, 0);
@@ -196,7 +202,11 @@ export function createClient(options) {
    */
   async function requestLro(method, path, opts) {
     const res = await request(method, path, opts);
-    if (res.status === 202) return waitForOperation(res, { result: opts?.lroResult });
+    if (res.status === 202) {
+      const url = operationUrl(res);
+      if (url) opts?.onAccepted?.(url);
+      return waitForOperation(res, { result: opts?.lroResult });
+    }
     return res.data;
   }
 

@@ -15,6 +15,7 @@ import { rlsOn } from '../transform/access.js';
 import { INLINE_SECRET_NOTE, MARKER, prepareNotebook, pyString, serialiseNotebook } from '../transform/notebook.js';
 import { buildPipeline, PIPELINE_CHANGE, PIPELINE_VERSION } from '../transform/pipeline.js';
 import { addDays, notebookSecretDays } from './identity.js';
+import { dropAttempt, findAttempts, refused, SECRET_SETTLE_MS, withSecretRef } from './secrets.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 
@@ -104,28 +105,66 @@ export const CREATE_SETTLE_MS = 10 * 60_000;
 const CREATE_POLL_MS = 15_000;
 
 /**
- * A run that stopped moments ago may have left Fabric still creating its item, which then appears
- * a little later. Waits for it, up to CREATE_SETTLE_MS from when that run asked, rather than
- * creating a second one beside it.
+ * A run that stopped part-way may have left Fabric still creating its item. Doesn't make a second
+ * one while the first may still appear:
+ * - If Fabric gave that run an operation, asks it. Failed: a new one is made. Still running after
+ *   a wait: stops with an error to run again later, keeping the record. Succeeded: uses the item.
+ * - Otherwise waits until CREATE_SETTLE_MS after that run asked, then asks before making another,
+ *   and with --yes, or a no, stops instead.
+ * Returns the item, or undefined when a new one should be made.
  * @param {Ctx} ctx
  * @param {string} key
  * @param {string} type
  */
-async function awaitStoppedCreate(ctx, key, type) {
+async function settleStoppedCreate(ctx, key, type) {
   const f = ctx.config.fabric;
   const pending = f.pendingItems?.[key];
-  if (!pending?.ref || !pending.at) return undefined;
-  const left = Date.parse(pending.at) + CREATE_SETTLE_MS - ctx.now().getTime();
-  if (!(left > 0)) return undefined;
+  if (!pending?.ref) return undefined;
   const ws = /** @type {string} */ (f.workspaceId);
-  ctx.ui.info(`The run that stopped had asked Fabric to create ${pending.name}. Waiting up to ${Math.ceil(left / 60_000)} min for it to appear, so there aren't two.`);
-  for (let i = 0; i < Math.ceil(left / CREATE_POLL_MS); i++) {
-    await ctx.sleep(CREATE_POLL_MS);
-    const found = stoppedRunItem(f, key, await ctx.api.fabric.listItems(ws, type));
-    if (found) return found;
+  const look = async () => stoppedRunItem(f, key, await ctx.api.fabric.listItems(ws, type));
+  const status = async () => (pending.operation ? await ctx.api.fabric.operationStatus(pending.operation).catch(() => undefined) : undefined);
+
+  let state = await status();
+  if (state === 'NotStarted' || state === 'Running') {
+    ctx.ui.info(`The run that stopped had asked Fabric to create ${pending.name}, and Fabric is still working on it. Waiting up to ${CREATE_SETTLE_MS / 60_000} min for it, so there aren't two.`);
+    for (let i = 0; i < CREATE_SETTLE_MS / CREATE_POLL_MS && (state === 'NotStarted' || state === 'Running'); i++) {
+      await ctx.sleep(CREATE_POLL_MS);
+      state = await status();
+    }
+    if (state === 'NotStarted' || state === 'Running') throw new Error(stillCreating(pending.name));
   }
-  return undefined;
+  if (state === 'Failed' || state === 'Undefined') return undefined;
+  if (state === 'Succeeded') return look();
+
+  // Not known how that create went: wait out the time Fabric may take, then ask.
+  const age = pending.at ? ctx.now().getTime() - Date.parse(pending.at) : Infinity;
+  const left = CREATE_SETTLE_MS - age;
+  if (left > 0) {
+    ctx.ui.info(`The run that stopped had asked Fabric to create ${pending.name}. Waiting up to ${Math.ceil(left / 60_000)} min for it to appear, so there aren't two.`);
+    for (let i = 0; i < Math.ceil(left / CREATE_POLL_MS); i++) {
+      await ctx.sleep(CREATE_POLL_MS);
+      const found = await look();
+      if (found) return found;
+    }
+  }
+  if (age >= CREATE_GIVE_UP_MS) {
+    ctx.ui.warn(`The run that stopped had asked Fabric to create ${pending.name} over an hour ago, and it isn't in the workspace, so it's created now.`);
+    return undefined;
+  }
+  ctx.ui.warn(`The run that stopped had asked Fabric to create ${pending.name}, and it isn't in the workspace yet. It isn't known whether Fabric will still make it.`);
+  if (await ctx.ui.confirm(`Create ${pending.name} again now? If Fabric does still make the first one, there will be two, and the extra one is yours to delete.`, false)) return undefined;
+  const after = new Date(Date.parse(/** @type {string} */ (pending.at)) + CREATE_GIVE_UP_MS);
+  throw new Error(
+    `${pending.name} wasn't created again, so there won't be two. Run the installer again later: it uses that item if Fabric made it, ` +
+      `and from ${after.toISOString().slice(11, 16)} UTC creates it if not.`,
+  );
 }
+
+/** After this long, an item a stopped run asked for that still isn't there isn't coming. */
+export const CREATE_GIVE_UP_MS = 60 * 60_000;
+
+/** @param {string} name */
+const stillCreating = (name) => `Fabric is still creating ${name}. Run the installer again in a few minutes: it uses that item rather than making another.`;
 
 /** The text a create adds to the item's description, so a later run can tell the item is its own. @param {string} ref */
 export const itemRef = (ref) => `(ref ${ref})`;
@@ -149,23 +188,44 @@ export const modelKey = (config, m) => (m === config.consumption?.model ? 'consu
  * @param {string} type  The Fabric item type, for looking the item up by name.
  * @param {string} wanted
  * @param {any[]} items  The workspace's items of this type.
- * @param {(name: string, ref: string) => Promise<any>} create  `ref` goes at the end of the item's description.
+ * If Fabric doesn't answer in time, the pending entry stays, with Fabric's operation if it gave
+ * one, and the next run waits for that create rather than making another.
+ * @param {(name: string, ref: import('../clients/fabric.js').ItemRef) => Promise<any>} create  `ref` goes at the end of the item's description.
  * @returns {Promise<{ id: string, name: string, resumed: boolean }>}
  */
 export async function createItem(ctx, key, type, wanted, items, create) {
   const f = ctx.config.fabric;
-  const found = stoppedRunItem(f, key, items) ?? (await awaitStoppedCreate(ctx, key, type));
+  const found = stoppedRunItem(f, key, items) ?? (await settleStoppedCreate(ctx, key, type));
   if (found) {
     clearPending(f, key);
     ctx.ui.note(`Using ${found.displayName}, which the run that stopped part-way created.`);
     return { id: found.id, name: String(found.displayName), resumed: true };
   }
-  const name = freeName(wanted, displayNames(items));
+  const fresh = f.pendingItems?.[key] ? await ctx.api.fabric.listItems(/** @type {string} */ (f.workspaceId), type) : items;
+  const name = freeName(wanted, displayNames(fresh));
   noteRenamed(ctx, wanted, name);
   const ref = randomBytes(6).toString('hex');
-  (f.pendingItems ??= {})[key] = { name, ref, at: ctx.now().toISOString() };
+  /** @type {NonNullable<typeof f.pendingItems>[string]} */
+  const pending = { name, ref, at: ctx.now().toISOString() };
+  (f.pendingItems ??= {})[key] = pending;
   ctx.save();
-  const created = await create(name, itemRef(ref));
+  let created;
+  try {
+    created = await create(name, {
+      text: itemRef(ref),
+      onAccepted: (url) => {
+        pending.operation = url;
+        ctx.save();
+      },
+    });
+  } catch (err) {
+    // Fabric turned the create down outright, so there's nothing to wait for next time.
+    if (!pending.operation && refused(err)) {
+      clearPending(f, key);
+      ctx.save();
+    }
+    throw err;
+  }
   const id = await createdId(ctx, created, type, name, ref);
   clearPending(f, key);
   return { id, name, resumed: false };
@@ -771,7 +831,7 @@ export async function inlineSecret(ctx) {
     credential = await api.graph.addPassword(app.objectId, addDays(ctx.now(), notebookSecretDays(config)), secretLabel(ref));
   } catch (err) {
     // Entra turned the request down, so there's no secret to look for later.
-    if (err instanceof HttpError && err.status >= 400 && err.status < 500 && err.status !== 408) {
+    if (refused(err)) {
       dropAttempt(app, ref);
       ctx.save();
     }
@@ -842,63 +902,32 @@ async function settleInlineSecret(ctx, fresh, outcome) {
   if (!app.retiredSecretKeyIds?.length) ui.ok(`Removed the previous client secret${new Set(stale).size > 1 ? 's' : ''} from the app`);
 }
 
-/** The name a notebook secret gets on the app, with the ref of the run that asked for it. @param {string} ref */
-export const secretLabel = (ref) => `Analytics Hub installer (ref ${ref})`;
+/** What a notebook secret is called on the app, before the ref. */
+const NOTEBOOK_SECRET_LABEL = 'Analytics Hub installer';
 
-/** How long after asking Entra for a secret a run that finds none takes it that none was made. */
-export const SECRET_SETTLE_MS = 10 * 60_000;
+/** The name a notebook secret gets on the app, with the ref of the run that asked for it. @param {string} ref */
+export const secretLabel = (ref) => withSecretRef(NOTEBOOK_SECRET_LABEL, ref);
+
+export { SECRET_SETTLE_MS };
 
 /**
- * Finds notebook secrets a run asked Entra for but stopped before saving the key ID. Their values
- * were never saved, so no notebook has them: each is recorded to remove and removed. Matched only
- * by the exact name with that run's ref. More than one match is left alone with a warning.
+ * Finds notebook secrets a run asked Entra for but stopped before saving the key ID. A notebook
+ * secret's key ID is saved before any notebook gets the value, so none has these: each is
+ * recorded to remove and removed. Matched only by the exact name with that run's ref. More than
+ * one match is left alone with a warning.
  * @param {Ctx} ctx
  */
 export async function settleSecretAttempts(ctx) {
-  const { ui, config, api } = ctx;
+  const { ui, config } = ctx;
   const app = config.app;
   if (!app.secretAttempts?.length || !app.objectId) return;
-  /** @type {{ keyId: string, displayName?: string }[]} */
-  let creds;
-  try {
-    creds = await api.graph.listPasswords(app.objectId);
-  } catch (err) {
-    ui.warn(`Couldn't check the app for a client secret a stopped run may have added (${/** @type {Error} */ (err).message}). It's checked again next run.`);
-    return;
-  }
-  const tracked = new Set([app.secretKeyId, ...(app.pendingSecretKeyIds ?? []), ...(app.retiredSecretKeyIds ?? [])]);
-  /** @type {string[]} */
-  const remove = [];
-  for (const attempt of [...app.secretAttempts]) {
-    const name = secretLabel(attempt.ref);
-    const matches = creds.filter((c) => c.displayName === name);
-    if (matches.length > 1) {
-      ui.warn(`More than one client secret on the app is called "${name}" (keys ${matches.map((c) => c.keyId).join(', ')}), so none is removed. Check them on the app's Certificates & secrets page.`);
-      continue;
-    }
-    if (matches.length === 1) {
-      if (!tracked.has(matches[0].keyId)) remove.push(matches[0].keyId);
-      dropAttempt(app, attempt.ref);
-    } else if (ctx.now().getTime() - Date.parse(attempt.at) >= SECRET_SETTLE_MS) {
-      dropAttempt(app, attempt.ref);
-    }
-  }
+  const remove = await findAttempts(ctx, app, app.objectId, NOTEBOOK_SECRET_LABEL);
   // Recorded to remove in the same save that drops the attempts.
   if (remove.length) app.retiredSecretKeyIds = [...new Set([...(app.retiredSecretKeyIds ?? []), ...remove])];
   ctx.save();
   if (!remove.length) return;
   await removeKeys(ctx, remove);
   if (!remove.some((k) => app.retiredSecretKeyIds?.includes(k))) ui.ok('Removed a client secret a stopped run added but never used');
-}
-
-/**
- * @param {import('../config.js').InstallConfig['app']} app
- * @param {string} ref
- */
-function dropAttempt(app, ref) {
-  if (!app.secretAttempts) return;
-  app.secretAttempts = app.secretAttempts.filter((a) => a.ref !== ref);
-  if (!app.secretAttempts.length) delete app.secretAttempts;
 }
 
 /**
