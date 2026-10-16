@@ -150,7 +150,7 @@ export function M365SuiteStage() {
                     height={platformHeight}
                     headline={platformHeadline}
                     title="Where people work from"
-                    subtitle="Share of active people on each platform, with days per week in the tooltip."
+                    subtitle="Share of active people on each platform"
                     empty={appReportEmpty("platforms", othersActive)}
                 />
                 <div className="xl:self-start">

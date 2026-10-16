@@ -277,7 +277,7 @@ export function PerformanceStage({ options, extra }: PerformanceStageProps) {
                     height={rowChartHeight(errorsTable?.rows.length ?? 6, { perRow: 36, chrome: 148 })}
                     headline={ERROR_HEADLINE}
                     title="What went wrong"
-                    subtitle="The most common errors, and whether the agent or the person hit them"
+                    subtitle="The ten most common errors, and whether the agent or the person hit them"
                     emptyTitle="No errors"
                     emptyDescription="No conversation in these slicers hit an error."
                 />

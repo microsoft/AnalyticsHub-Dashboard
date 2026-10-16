@@ -24,6 +24,8 @@ export interface Spotlight {
     label: string;
     /** The winning agent, or the tied agents, as one phrase. */
     names: string;
+    /** What the card shows large: the winner, two tied names, or how many tie. */
+    headline: string;
     value: number;
     sentence: string;
 }
@@ -97,7 +99,8 @@ function card(
     sentence: (names: string, value: string, tied: boolean) => string,
 ): Spotlight {
     const names = found.names;
-    return { id, label, names, value: found.top, sentence: sentence(names, whole.format(found.top), found.count > 1) };
+    const headline = found.count > NAMED ? `${whole.format(found.count)} agents tie` : names;
+    return { id, label, names, headline, value: found.top, sentence: sentence(names, whole.format(found.top), found.count > 1) };
 }
 
 /**

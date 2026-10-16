@@ -88,7 +88,7 @@ function MatrixTable({ matrix }: { matrix: HabitLicenceMatrix }) {
 }
 
 const LIST_COLUMNS = (orgLabel: string): GridColumnDef[] => [
-    { id: "User", header: "User", minWidth: 240 },
+    { id: "User", header: "User", width: 260 },
     { id: "Organization", header: orgLabel, minWidth: 160 },
     { id: "Cohort", header: "Habit", width: 112 },
     { id: "Active Days", header: "Active days", width: 116, numericStyling: true },

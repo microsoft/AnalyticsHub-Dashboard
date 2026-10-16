@@ -7,6 +7,8 @@
 
 import { describe, expect, it } from "vitest";
 import {
+    AGENT_VALUE_LIMIT,
+    ORGANIZATION_VALUE_LIMIT,
     agentTable,
     agentValue,
     AGENT_NAME_COLUMN,
@@ -250,5 +252,14 @@ describe("value task tree", () => {
         const labels = new Map(tree.tasks.columns.map((column) => [column.name, column.displayName]));
         expect(labels.get("Chat + Agent Interactions (Audit Logs)Task Breakdown Group")).toBe("Task Category");
         expect(labels.get("Chat + Agent Interactions (Audit Logs)Task Breakdown Category")).toBe("Task Breakdown");
+    });
+});
+
+describe("value list caps", () => {
+    it.each([
+        { name: "agentValue", query: () => agentValue().query, limit: AGENT_VALUE_LIMIT },
+        { name: "organizationValue", query: () => organizationValue().query, limit: ORGANIZATION_VALUE_LIMIT },
+    ])("$name caps its rows at the limit the subtitle names", ({ query, limit }) => {
+        expect(query()).toMatch(new RegExp(`TOPN\\(\\s*${limit},`));
     });
 });

@@ -40,7 +40,7 @@ export function AgentSpotlightCards({ table }: { table: DataTable | undefined })
                 <li key={card.id} className="flex flex-col gap-100 rounded-xl border border-border bg-card p-400">
                     <span className="text-[length:var(--text-200)] leading-200 text-muted-foreground">{card.label}</span>
                     <span className="truncate text-[length:var(--text-500)] font-semibold leading-500 text-card-foreground" title={card.names}>
-                        {card.names}
+                        {card.headline}
                     </span>
                     <span className="text-[length:var(--text-200)] leading-300 text-muted-foreground">{card.sentence}</span>
                 </li>

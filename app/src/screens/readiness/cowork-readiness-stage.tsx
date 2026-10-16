@@ -54,7 +54,7 @@ function candidateColumns(orgLabel: string, table: DataTable | undefined): GridC
                 format: columnFormat(table, "Rank"),
             }),
         },
-        { id: "User", header: "User", minWidth: 240 },
+        { id: "User", header: "User", width: 260 },
         { id: "Organization", header: orgLabel, minWidth: 160 },
         { id: "Surfaces Per Day", header: "Apps per active day", numericStyling: true },
         { id: "Prompts Per Session", header: "Prompts per session", numericStyling: true },

@@ -9,6 +9,9 @@ import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { connection, FORMAT_HOURS, FORMAT_WHOLE } from "../shared";
 import query from "./agent-value.dax?raw";
 
+/** The query's TOPN: the agents with the most estimated value. */
+export const AGENT_VALUE_LIMIT = 100;
+
 export const AGENT_NAME_COLUMN = "Chat + Agent Interactions (Audit Logs)AgentName";
 
 const columnMetadata: ColumnMetadataMap = {

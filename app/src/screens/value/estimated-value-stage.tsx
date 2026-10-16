@@ -28,8 +28,10 @@ import { readNumber, readText, toSummaryRow } from "@/lib/summary-row";
 import { orgEmptyDescription } from "@/lib/department-coverage";
 import { toDataTable } from "@/lib/to-data-table";
 import {
+    AGENT_VALUE_LIMIT,
     agentValue,
     AGENT_NAME_COLUMN,
+    ORGANIZATION_VALUE_LIMIT,
     organizationValue,
     ORGANIZATION_COLUMN,
     valueSummary,
@@ -261,7 +263,10 @@ export function EstimatedValueStage() {
                         theme={theme}
                         header={{
                             title: "Agents",
-                            subtitle: "Named agents, highest estimated value first",
+                            subtitle:
+                                agentTable.rows.length >= AGENT_VALUE_LIMIT
+                                    ? `Top ${AGENT_VALUE_LIMIT} agents by estimated value`
+                                    : "Named agents, highest estimated value first",
                         }}
                     />
                 )}
@@ -364,7 +369,10 @@ function OrganizationValue({
                     theme={theme}
                     header={{
                         title: org.plural.charAt(0).toUpperCase() + org.plural.slice(1),
-                        subtitle: "Users, weekly hours and value in one view",
+                        subtitle:
+                            organizationTable.rows.length >= ORGANIZATION_VALUE_LIMIT
+                                ? `Top ${ORGANIZATION_VALUE_LIMIT} ${org.plural} by estimated value`
+                                : "Users, weekly hours and value in one view",
                     }}
                 />
             )}

@@ -53,7 +53,7 @@ const DORMANCY_HEADLINE = leaderHeadline({ label: "Dormancy Bucket", value: "Lic
 function candidateColumns(orgLabel: string, table: DataTable | undefined, withBreadth: boolean): GridColumnDef[] {
     const columns: GridColumnDef[] = [
         { id: "Rank", header: "Rank", width: 88, numericStyling: true },
-        { id: "User", header: "User", minWidth: 240 },
+        { id: "User", header: "User", width: 260 },
         { id: "Organization", header: orgLabel, minWidth: 160 },
         // Short headers, each wide enough for its sort arrow; the subtitle says sessions and active days are per week.
         // The user and organization share the rest.
@@ -228,7 +228,7 @@ export function LicenseReadinessStage() {
                             <KpiStat
                                 label="Avg days since last active"
                                 value={readNumber(estateRow, "[Avg Days Since Last Active]")}
-                                format="hours"
+                                format="whole"
                             />
                         }
                     />

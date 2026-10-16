@@ -41,6 +41,7 @@ describe("agent spotlights", () => {
     it("names both agents when two tie", () => {
         const cards = agentSpotlights([agent("A", 50, 3), agent("B", 50, 3)]);
         expect(cards[0].names).toBe("A and B");
+        expect(cards[0].headline).toBe("A and B");
         expect(cards[0].sentence).toBe("A and B each had 50 sessions, the most of any agent.");
         expect(cards[1].sentence).toBe("A and B each reached people in 3 organizations, the most of any agent.");
     });
@@ -48,6 +49,8 @@ describe("agent spotlights", () => {
     it("names two and counts the rest when more tie", () => {
         const cards = agentSpotlights([agent("A", 5, 1), agent("B", 5, 1), agent("C", 5, 1), agent("D", 5, 1)]);
         expect(cards[0].names).toBe("A, B and 2 others");
+        expect(cards[0].headline).toBe("4 agents tie");
+        expect(cards[0].sentence).toBe("A, B and 2 others each had 5 sessions, the most of any agent.");
         expect(namesText(["A", "B", "C"])).toBe("A, B and 1 other");
     });
 
@@ -57,7 +60,7 @@ describe("agent spotlights", () => {
             rows: [[9000, "A, B and 1498 others", 1500, 27, "Z", 1]],
         });
         const cards = agentSpotlights([agent("Listed", 3, 2)], [], summary);
-        expect(cards[0]).toMatchObject({ names: "A, B and 1498 others", value: 9000 });
+        expect(cards[0]).toMatchObject({ names: "A, B and 1498 others", headline: "1,500 agents tie", value: 9000 });
         expect(cards[1]).toMatchObject({ names: "Z", value: 27 });
         expect(cards[0].sentence).toContain("each had");
         expect(agentSpotlights(entries, [], readRegistrySpotlights(undefined))).toEqual([]);
