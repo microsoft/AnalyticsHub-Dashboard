@@ -20,6 +20,7 @@ describe("formatKpi", () => {
 
     it("keeps existing formats available without options", () => {
         expect(formatKpi(154.153, "hours")).toBe("154.2");
+        expect(formatKpi(412_345.6, "hours")).toBe("412,346");
         expect(formatKpi(0.1234, "percent")).toBe("12.3%");
         expect(formatKpi(1.2, "rate")).toBe("1.20");
     });
@@ -62,5 +63,41 @@ describe("formatKpi", () => {
         expect(compact(400.27476784)).toBe("400.3M");
         expect(formatKpi(0, "millions")).toBe("0");
         expect(formatKpi(undefined, "millions")).toBe("—");
+    });
+});
+
+describe("formatKpi compact", () => {
+    it("shortens a count or amount of a million or more", () => {
+        expect(formatKpi(5_906_850, "whole", { compact: true })).toBe("5.9M");
+        expect(formatKpi(59_068_500, "whole", { compact: true })).toBe("59.1M");
+        expect(formatKpi(1_480_000_000, "whole", { compact: true })).toBe("1.5B");
+        expect(formatKpi(4_812_345, "currency", { compact: true, prefix: "$" })).toBe("$4.8M");
+        expect(formatKpi(4_123_456.7, "hours", { compact: true })).toBe("4.1M");
+    });
+
+    it("moves up a scale rather than show a thousand millions", () => {
+        expect(formatKpi(999_960_000, "whole", { compact: true })).toBe("1B");
+        expect(formatKpi(-2_500_000, "currency", { compact: true, prefix: "$" })).toBe("$-2.5M");
+    });
+
+    it("leaves every digit of a smaller figure", () => {
+        expect(formatKpi(15_447, "whole", { compact: true })).toBe("15,447");
+        expect(formatKpi(999_999, "whole", { compact: true })).toBe("999,999");
+    });
+
+    it("drops the cents from money in the thousands, and keeps them below", () => {
+        expect(formatKpi(845_210.4, "money", { compact: true, prefix: "$" })).toBe("$845,210");
+        expect(formatKpi(845_210.4, "money", { prefix: "$" })).toBe("$845,210.40");
+        expect(formatKpi(12.5, "money", { compact: true, prefix: "$" })).toBe("$12.50");
+    });
+
+    it("never shortens a share, rate, multiple or price", () => {
+        expect(formatKpi(0.734, "percent", { compact: true })).toBe("73.4%");
+        expect(formatKpi(1_234_567.891, "rate", { compact: true })).toBe("1,234,567.89");
+        expect(formatKpi(12.3, "multiple", { compact: true })).toBe("12.3×");
+    });
+
+    it("still shows a blank as a dash", () => {
+        expect(formatKpi(undefined, "whole", { compact: true })).toBe("—");
     });
 });

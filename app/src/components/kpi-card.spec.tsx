@@ -7,7 +7,7 @@
 
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { KpiCard } from "./kpi-card";
+import { KpiCard, KpiStat } from "./kpi-card";
 import { sparkPath } from "@/lib/sparkline";
 
 const comparison = "Jun vs May, per day";
@@ -52,6 +52,30 @@ describe("KpiCard delta", () => {
     it("can name a deliberate blank value", () => {
         render(<KpiCard label="Allowance used" value={undefined} emptyValue="No limit set" />);
         expect(screen.getByText("No limit set")).toBeTruthy();
+    });
+});
+
+describe("KpiCard large figures", () => {
+    it("shortens a figure of a million or more, and keeps the exact figure", () => {
+        const { container } = render(<KpiCard label="Tasks" value={5_906_850} />);
+        const figure = container.querySelector("[data-kpi-value]")!;
+        expect(figure.getAttribute("title")).toBe("5,906,850");
+        expect(screen.getByText("5.9M").getAttribute("aria-hidden")).toBe("true");
+        expect(screen.getByText("5,906,850").className).toContain("sr-only");
+    });
+
+    it("never wraps the figure, and sizes it to the card", () => {
+        const { container } = render(<KpiCard label="Seats" value={15_447} />);
+        const figure = container.querySelector("[data-kpi-value]")!;
+        expect(figure.className).toContain("whitespace-nowrap");
+        expect(figure.parentElement!.className).toContain("[container-type:inline-size]");
+        expect(figure.textContent).toBe("15,447");
+        expect(figure.hasAttribute("title")).toBe(false);
+    });
+
+    it("shortens a detail figure the same way", () => {
+        render(<KpiStat label="Hours lost" value={2_345_678} format="hours" />);
+        expect(screen.getByText("2.3M").parentElement!.getAttribute("title")).toBe("2,345,678");
     });
 });
 

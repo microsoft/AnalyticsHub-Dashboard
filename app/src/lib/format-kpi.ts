@@ -11,6 +11,31 @@ export type KpiFormat = "whole" | "percent" | "rate" | "hours" | "currency" | "m
 interface FormatKpiOptions {
     /** Symbol or short unit printed directly before a present value. */
     prefix?: string;
+    /**
+     * Shortens a count or amount of a million or more to 5.9M, for a card or
+     * a sentence, and drops the cents from money of a thousand or more. Show
+     * the exact figure beside it, as a tooltip.
+     */
+    compact?: boolean;
+}
+
+/** Where a compact figure starts to shorten: below it, every digit fits a card. */
+export const COMPACT_FROM = 1_000_000;
+/** Figures that stay small whatever the tenant's size, so never shorten. */
+const BOUNDED: ReadonlySet<KpiFormat> = new Set(["percent", "rate", "multiple", "price"]);
+const oneDecimal = new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 });
+const SCALES: ReadonlyArray<readonly [number, string]> = [[1e6, "M"], [1e9, "B"], [1e12, "T"]];
+
+/**
+ * 5.9M, 154.5M, 1.5B: the same letters whatever the browser's language,
+ * which would otherwise give "5.9m", "5,9 Mio." or lakh.
+ */
+function shorten(value: number): string {
+    for (const [index, [size, suffix]] of SCALES.entries()) {
+        const scaled = Math.round((value / size) * 10) / 10;
+        if (Math.abs(scaled) < 1000 || index === SCALES.length - 1) return `${oneDecimal.format(scaled)}${suffix}`;
+    }
+    return oneDecimal.format(value);
 }
 
 const formatters: Record<KpiFormat, Intl.NumberFormat> = {
@@ -45,5 +70,10 @@ export function formatKpi(value: number | undefined, format: KpiFormat, options:
     if (format === "multiple" && value >= 0 && value < 1 && Math.round(value * 10) >= 10) {
         return `${prefix}${formatters.rate.format(Math.floor(value * 100) / 100)}×`;
     }
-    return `${prefix}${formatters[format].format(shown)}${format === "multiple" ? "×" : ""}`;
+    if (options.compact && !BOUNDED.has(format) && Math.abs(shown) >= COMPACT_FROM) {
+        return `${prefix}${shorten(shown)}`;
+    }
+    // A tenth of an hour, or a cent, is noise on a figure in the thousands.
+    const whole = (format === "hours" || (format === "money" && options.compact)) && Math.abs(shown) >= 1000;
+    return `${prefix}${(whole ? formatters.whole : formatters[format]).format(shown)}${format === "multiple" ? "×" : ""}`;
 }
