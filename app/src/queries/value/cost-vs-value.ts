@@ -8,6 +8,7 @@
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
+import { TOP_N } from "@/lib/top-n";
 import { connection, FORMAT_HOURS, FORMAT_MONEY, FORMAT_PERCENT, FORMAT_WHOLE } from "../shared";
 import agentsQuery from "./cost-vs-value-agents.dax?raw";
 import bySourceQuery from "./cost-vs-value-by-source.dax?raw";
@@ -345,6 +346,30 @@ export function matchAgents(values: readonly AgentValue[], credits: readonly Age
     }
     lines.sort((a, b) => (b.value ?? 0) - (a.value ?? 0) || a.name.localeCompare(b.name));
     return { lines, unmatched, total: credits.length };
+}
+
+/**
+ * The first `n` agents, and the rest as one Other line holding their summed
+ * share, cost, sessions and value, so the chart stays readable and still adds up.
+ */
+export function topAgentLines(lines: readonly AgentLine[], n = TOP_N): AgentLine[] {
+    if (lines.length <= n) return [...lines];
+    const rest = lines.slice(n);
+    const total = (pick: (line: AgentLine) => number | undefined) =>
+        rest.some((line) => pick(line) !== undefined) ? rest.reduce((sum, line) => sum + (pick(line) ?? 0), 0) : undefined;
+    const cost = total((line) => line.cost);
+    const value = total((line) => line.value);
+    return [
+        ...lines.slice(0, n),
+        {
+            name: `Other (${rest.length.toLocaleString("en-US")})`,
+            share: total((line) => line.share) ?? 0,
+            cost,
+            sessions: total((line) => line.sessions),
+            value,
+            ratio: returnOn(value, cost),
+        },
+    ];
 }
 
 export const AGENT_TABLE_COLUMNS = ["Pair", "Share", "Cost", "Sessions", "Value", "Return", "Sort"] as const;

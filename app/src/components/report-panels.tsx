@@ -99,11 +99,13 @@ interface ChartPanelProps extends Omit<PanelProps, "children"> {
     capabilities?: ComponentProps<typeof VegaVisual>["capabilities"];
     /** One plain sentence above the chart, worked out from its rows; see `lib/headline`. */
     headline?: Headline;
+    /** The rows the headline reads, when the chart draws only some of them. */
+    headlineTable?: DataTable;
 }
 
-export function ChartPanel({ spec, title, subtitle, capabilities, headline, ...panel }: ChartPanelProps) {
+export function ChartPanel({ spec, title, subtitle, capabilities, headline, headlineTable, ...panel }: ChartPanelProps) {
     const { theme } = useThemeContext();
-    const shown = panel.table ?? panel.result.table;
+    const shown = headlineTable ?? panel.table ?? panel.result.table;
     const text = useMemo(() => (headline && shown ? headline(shown) : undefined), [headline, shown]);
     return (
         <Panel {...panel} height={panel.height + (text ? HEADLINE_SPACE : 0)}>

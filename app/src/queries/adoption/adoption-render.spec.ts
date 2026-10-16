@@ -13,7 +13,8 @@ import { parse, View, type Scene, type SceneItem } from "vega";
 import "@/test/vega-formats";
 import type { TopLevelSpec } from "vega-lite";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
-import { applyTrendHeatmapTheme, trendHeatmap } from "./trend-heatmap";
+import { activationByOrg } from "./activation-by-org";
+import { applyTrendHeatmapTheme, trendHeatmap, withoutCellLabels } from "./trend-heatmap";
 import heatmapRows from "./__fixtures__/trend-heatmap.rows.json";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -129,5 +130,47 @@ describe("adoption trend heatmap renders", () => {
 
         expect(labels.find((label) => label.datum["Active Users"] === Math.max(...values))?.fill).toBe(colors.page);
         expect(labels.find((label) => label.datum["Active Users"] === Math.min(...values))?.fill).toBe(colors.text);
+    });
+});
+
+describe("adoption trend heatmap at scale", () => {
+    const rows = heatmapRows as Row[];
+    const colors = { quiet: "#f5f5f5", strong: "#0f6cbd", quietText: "#242424", strongText: "#fafafa" };
+
+    it("drops the cell numbers for long ranges but keeps every cell", async () => {
+        const { vegaLiteSpec, columnMetadata } = trendHeatmap();
+        const spec = withoutCellLabels(applyTrendHeatmapTheme(vegaLiteSpec, colors));
+
+        expect(await renderRects(spec, rows, columnMetadata, "Active Users", "text")).toHaveLength(0);
+        expectDrawable(await renderRects(spec, rows, columnMetadata, "Active Users"), rows.length);
+    });
+
+    it("writes large counts compactly so they fit a cell", async () => {
+        const { vegaLiteSpec, columnMetadata } = trendHeatmap();
+        const spec = applyTrendHeatmapTheme(vegaLiteSpec, colors);
+        const large = rows.map((row, index) => ({ ...row, "[Active Users]": index === 0 ? 12345 : 950 }));
+        const labels = (await renderRects(spec, large, columnMetadata, "Active Users", "text")) as unknown as { text: string }[];
+
+        expect(labels.map((label) => label.text)).toContain("12.3K");
+        expect(labels.map((label) => label.text)).toContain("950");
+    });
+});
+
+describe("activation by organization renders", () => {
+    it("draws organizations in the order given, so Other stays last", async () => {
+        const { vegaLiteSpec, organization } = activationByOrg();
+        const rows: Row[] = [
+            { [organization]: "Sales", "All Active": 50, "All Inactive": 5 },
+            { [organization]: "Finance", "All Active": 40, "All Inactive": 2 },
+            { [organization]: "Other (3)", "All Active": 90, "All Inactive": 9 },
+        ];
+        const bars = await renderRects(vegaLiteSpec, rows, {}, "Signed");
+
+        const tops = new Map<string, number>();
+        for (const bar of bars) {
+            const name = String(bar.datum[organization]);
+            tops.set(name, Math.min(tops.get(name) ?? Infinity, bar.bounds.y1));
+        }
+        expect([...tops.entries()].sort((a, b) => a[1] - b[1]).map(([name]) => name)).toEqual(["Sales", "Finance", "Other (3)"]);
     });
 });

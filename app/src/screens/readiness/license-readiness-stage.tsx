@@ -29,6 +29,7 @@ import { columnFormat, columnHeat, heatRenderer } from "@/lib/heat";
 import { withOrgAttribute } from "@/lib/org-attribute";
 import { readNumber, readText, toSummaryRow } from "@/lib/summary-row";
 import { toDataTable } from "@/lib/to-data-table";
+import { topNote, topRows } from "@/lib/top-n";
 import { SMALL } from "@/lib/type-scale";
 import { cn } from "@/lib/utils";
 import {
@@ -139,8 +140,13 @@ export function LicenseReadinessStage() {
         [dormancyResult.data, dormancy.columnMetadata],
     );
 
+    // The headline reads every organization; the chart shows the fifteen with the most unlicensed people.
     const byOrgHeadline = useMemo(
         () => (byOrgTable ? BY_ORG_HEADLINE(byOrgTable) : undefined),
+        [byOrgTable],
+    );
+    const byOrgTop = useMemo(
+        () => (byOrgTable ? topRows(byOrgTable, { label: "Organization", by: "Active Unlicensed Users" }) : undefined),
         [byOrgTable],
     );
     const dormancyHeadline = useMemo(
@@ -236,7 +242,7 @@ export function LicenseReadinessStage() {
 
             <div
                 className="h-[340px]"
-                style={byOrgTable ? { height: rowChartHeight(byOrgTable.rows.length, { perRow: 40, chrome: 100 }) + (byOrgHeadline ? HEADLINE_SPACE : 0) } : undefined}
+                style={byOrgTop ? { height: rowChartHeight(byOrgTop.table.rows.length, { perRow: 40, chrome: 100 }) + (byOrgHeadline ? HEADLINE_SPACE : 0) } : undefined}
             >
                 {byOrgResult.data?.status === "error" ? (
                     <QueryError
@@ -244,9 +250,9 @@ export function LicenseReadinessStage() {
                         message={byOrgResult.data.error.message}
                         onRetry={byOrgResult.refetch}
                     />
-                ) : byOrgResult.isLoading || !byOrgTable ? (
+                ) : byOrgResult.isLoading || !byOrgTop ? (
                     <QueryLoading className="h-full" />
-                ) : byOrgTable.rows.length === 0 ? (
+                ) : byOrgTop.table.rows.length === 0 ? (
                     <QueryEmpty
                         className="h-full"
                         title={`No unlicensed demand by ${org.noun}`}
@@ -256,11 +262,13 @@ export function LicenseReadinessStage() {
                     <Headlined text={byOrgHeadline}>
                         <VegaVisual
                             spec={byOrg.vegaLiteSpec}
-                            data={byOrgTable}
+                            data={byOrgTop.table}
                             theme={theme}
                             header={{
                                 title: `Priority by ${org.noun}`,
-                                subtitle: "Sessions per user per week among active unlicensed users",
+                                subtitle:
+                                    topNote(byOrgTop, org.plural, "active unlicensed users") ??
+                                    "Sessions per user per week among active unlicensed users",
                             }}
                         />
                     </Headlined>

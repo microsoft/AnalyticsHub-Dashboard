@@ -15,6 +15,9 @@ import spec from "./trend-heatmap.json";
 export const TREND_HEATMAP_ORGANIZATION_FIELD = "Chat + Agent Org DataOrganization";
 export const TREND_HEATMAP_WEEK_FIELD = "Chat + Agent Interactions (Audit Logs)WeekStart";
 
+/** Beyond this many weeks the cells are too narrow for a number, so the legend carries the scale alone. */
+export const TREND_HEATMAP_LABELLED_WEEKS = 16;
+
 const columnMetadata: ColumnMetadataMap = {
     "Chat + Agent Org Data[Organization]": {
         name: TREND_HEATMAP_ORGANIZATION_FIELD,
@@ -144,6 +147,13 @@ export function applyTrendHeatmapTheme(
     cellColor.scale = { ...(cellColor.scale ?? {}), range: [colors.quiet, colors.strong] };
     themed.layer[1].encoding.color = contrastingTextColor(cellColor.field, colors.quietText, colors.strongText);
     return themed as unknown as VisualizationSpec;
+}
+
+/** The heatmap without its cell numbers, for ranges too long to label each week. */
+export function withoutCellLabels(themedSpec: VisualizationSpec): VisualizationSpec {
+    const spec = structuredClone(themedSpec) as unknown as { layer: unknown[] };
+    spec.layer = spec.layer.slice(0, 1);
+    return spec as unknown as VisualizationSpec;
 }
 
 interface MutableHeatmapSpec {

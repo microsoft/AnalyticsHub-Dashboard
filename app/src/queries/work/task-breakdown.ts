@@ -55,7 +55,8 @@ interface TaskBreakdownParams {
 }
 
 /**
- * Task volume by category, drawn as a sorted horizontal bar.
+ * Task volume by category, drawn as a horizontal bar in the order given, so the
+ * screen can rank the categories and put Other last.
  *
  * The report gives each lens its own treemap on its own bookmark. Unioning all
  * three into one 27-row result means switching lens filters rows already in

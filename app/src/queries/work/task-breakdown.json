@@ -9,7 +9,7 @@
       "field": "Category",
       "type": "nominal",
       "title": null,
-      "sort": "-x",
+      "sort": null,
       "axis": { "labelLimit": 220 }
     },
     "x": {

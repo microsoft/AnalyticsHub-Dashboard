@@ -27,6 +27,7 @@ import { columnFormat, columnHeat, heatRenderer } from "@/lib/heat";
 import { withOrgAttribute } from "@/lib/org-attribute";
 import { readNumber, toSummaryRow } from "@/lib/summary-row";
 import { toDataTable } from "@/lib/to-data-table";
+import { topNote, topRows } from "@/lib/top-n";
 import {
     coworkCandidates,
     coworkReadinessByOrg,
@@ -150,15 +151,20 @@ function CoworkReadinessByOrg() {
                 : undefined,
         [byOrgResult.data, byOrg.columnMetadata],
     );
+    // The headline reads every organization; the chart shows the fifteen with the most eligible people.
     const byOrgHeadline = useMemo(() => (byOrgTable ? BY_ORG_HEADLINE(byOrgTable) : undefined), [byOrgTable]);
+    const top = useMemo(
+        () => (byOrgTable ? topRows(byOrgTable, { label: "Organization", by: "Eligible Users" }) : undefined),
+        [byOrgTable],
+    );
 
     return (
-        <div className="h-[340px]" style={byOrgTable ? { height: rowChartHeight(byOrgTable.rows.length, { perRow: 40, chrome: 100 }) + (byOrgHeadline ? HEADLINE_SPACE : 0) } : undefined}>
+        <div className="h-[340px]" style={top ? { height: rowChartHeight(top.table.rows.length, { perRow: 40, chrome: 100 }) + (byOrgHeadline ? HEADLINE_SPACE : 0) } : undefined}>
             {byOrgResult.data?.status === "error" ? (
                 <QueryError className="h-full" message={byOrgResult.data.error.message} onRetry={byOrgResult.refetch} />
-            ) : byOrgResult.isLoading || !byOrgTable ? (
+            ) : byOrgResult.isLoading || !top ? (
                 <QueryLoading className="h-full" />
-            ) : byOrgTable.rows.length === 0 ? (
+            ) : top.table.rows.length === 0 ? (
                 <QueryEmpty
                     className="h-full"
                     title={`No ${org.plural} to compare`}
@@ -168,11 +174,13 @@ function CoworkReadinessByOrg() {
                 <Headlined text={byOrgHeadline}>
                     <VegaVisual
                         spec={byOrg.vegaLiteSpec}
-                        data={byOrgTable}
+                        data={top.table}
                         theme={theme}
                         header={{
                             title: `Breadth of use by ${org.noun}`,
-                            subtitle: "Apps used per active day, among people who have not tried Cowork",
+                            subtitle:
+                                topNote(top, org.plural, "eligible users") ??
+                                "Apps used per active day, among people who have not tried Cowork",
                         }}
                     />
                 </Headlined>

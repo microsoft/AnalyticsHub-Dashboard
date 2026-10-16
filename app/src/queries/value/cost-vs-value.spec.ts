@@ -25,8 +25,10 @@ import {
     returnOn,
     scenarioValue,
     spanDays,
+    topAgentLines,
     toValueCurrency,
     UNLICENSED_CHAT,
+    type AgentLine,
     type Costs,
 } from "./cost-vs-value";
 
@@ -283,6 +285,44 @@ describe("agents", () => {
         const table = agentTable(matchAgents(values, credits, 1000).lines);
         expect(table.columns.map((column) => column.name)).toEqual(["Pair", "Share", "Cost", "Sessions", "Value", "Return", "Sort"]);
         expect(table.rows[0][0]).toBe("ServiceNow Assistant");
+    });
+
+    it("charts the first agents and folds the rest into one Other line that still adds up", () => {
+        const lines: AgentLine[] = Array.from({ length: 20 }, (_, index) => ({
+            name: `Agent ${index + 1}`,
+            share: 0.05,
+            cost: 100,
+            sessions: 10,
+            value: 2000 - index * 50,
+            ratio: (2000 - index * 50) / 100,
+        }));
+        const top = topAgentLines(lines, 15);
+        expect(top).toHaveLength(16);
+        expect(top.slice(0, 15)).toEqual(lines.slice(0, 15));
+        const other = top[15];
+        expect(other.name).toBe("Other (5)");
+        expect(other.share).toBeCloseTo(0.25, 9);
+        expect(other.cost).toBe(500);
+        expect(other.sessions).toBe(50);
+        expect(other.value).toBe(1250 + 1200 + 1150 + 1100 + 1050);
+        expect(other.ratio).toBeCloseTo(5750 / 500, 9);
+        expect(top.reduce((sum, line) => sum + (line.value ?? 0), 0)).toBe(lines.reduce((sum, line) => sum + (line.value ?? 0), 0));
+        expect(agentTable(top).rows.at(-1)?.[6]).toBe(15);
+    });
+
+    it("keeps every agent, and no Other, when they all fit", () => {
+        const lines = matchAgents(values, credits, 1000).lines;
+        expect(topAgentLines(lines)).toEqual(lines);
+    });
+
+    it("leaves Other's cost and return blank while Copilot Studio's cost is unknown", () => {
+        const lines: AgentLine[] = Array.from({ length: 3 }, (_, index) => ({
+            name: `Agent ${index}`, share: 0.1, cost: undefined, sessions: 1, value: 10, ratio: undefined,
+        }));
+        const other = topAgentLines(lines, 1)[1];
+        expect(other.cost).toBeUndefined();
+        expect(other.ratio).toBeUndefined();
+        expect(other.value).toBe(20);
     });
 });
 

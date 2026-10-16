@@ -23,7 +23,8 @@ import { withIndefiniteArticle, withOrgAttribute } from "@/lib/org-attribute";
 import { readNumber, readText, toSummaryRow } from "@/lib/summary-row";
 import { orgEmptyDescription } from "@/lib/department-coverage";
 import { toDataTable } from "@/lib/to-data-table";
-import { activationByOrg, activationSummary, type ActivationCohort } from "@/queries/adoption";
+import { topNote, topWithOther } from "@/lib/top-n";
+import { ACTIVATION_COUNT_COLUMNS, activationByOrg, activationSummary, type ActivationCohort } from "@/queries/adoption";
 
 /**
  * The cohort cards already split licensed, unlicensed and agent use, so these
@@ -198,13 +199,20 @@ function ActivationByOrg({ cohort, label }: { cohort: ActivationCohort; label: s
     const org = useOrgAttribute();
     const byOrg = useMemo(() => withOrgAttribute(activationByOrg({ cohort }), org), [cohort, org]);
     const orgResult = useFilteredQuery({ connection: byOrg.connection, query: byOrg.query }, { ignore: IGNORED });
-    const orgTable = useMemo(
+    // The largest fifteen by the cohort's active users, and everyone else in one Other bar.
+    const top = useMemo(
         () =>
             orgResult.data?.status === "success"
-                ? toDataTable(orgResult.data.table, byOrg.columnMetadata)
+                ? topWithOther(toDataTable(orgResult.data.table, byOrg.columnMetadata), {
+                      label: byOrg.organization,
+                      by: byOrg.active,
+                      sum: ACTIVATION_COUNT_COLUMNS,
+                      other: (count) => `Other (${count.toLocaleString("en-US")})`,
+                  })
                 : undefined,
-        [orgResult.data, byOrg.columnMetadata],
+        [orgResult.data, byOrg],
     );
+    const orgTable = top?.table;
 
     return (
         <div className="h-[420px]" style={orgTable ? { height: rowChartHeight(orgTable.rows.length, { chrome: 156 }) } : undefined}>
@@ -228,7 +236,9 @@ function ActivationByOrg({ cohort, label }: { cohort: ActivationCohort; label: s
                     theme={theme}
                     header={{
                         title: `${label} activation by ${org.noun}`,
-                        subtitle: "Active and inactive users, sharing a baseline",
+                        subtitle: top && top.shown < top.of
+                            ? `${topNote(top, org.plural, cohort === "agents" ? "agent users" : "active users")}, the rest as Other`
+                            : "Active and inactive users, sharing a baseline",
                     }}
                 />
             )}
