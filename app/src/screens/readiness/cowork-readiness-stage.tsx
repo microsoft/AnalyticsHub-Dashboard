@@ -13,6 +13,7 @@ import { stageAnchor } from "@/components/destinations";
 import { HEADLINE_SPACE, Headlined } from "@/components/headlined";
 import { leaderHeadline } from "@/lib/headline";
 import { KpiCard } from "@/components/kpi-card";
+import { OnDemand } from "@/components/on-demand";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
 import { TruncationNote } from "@/components/truncation-note";
@@ -26,6 +27,7 @@ import { columnFormat, columnHeat, heatRenderer } from "@/lib/heat";
 import { withOrgAttribute } from "@/lib/org-attribute";
 import { readNumber, toSummaryRow } from "@/lib/summary-row";
 import { toDataTable } from "@/lib/to-data-table";
+import { topNote, topRows } from "@/lib/top-n";
 import {
     coworkCandidates,
     coworkReadinessByOrg,
@@ -52,7 +54,7 @@ function candidateColumns(orgLabel: string, table: DataTable | undefined): GridC
                 format: columnFormat(table, "Rank"),
             }),
         },
-        { id: "User", header: "User", minWidth: 240 },
+        { id: "User", header: "User", width: 260 },
         { id: "Organization", header: orgLabel, minWidth: 160 },
         { id: "Surfaces Per Day", header: "Apps per active day", numericStyling: true },
         { id: "Prompts Per Session", header: "Prompts per session", numericStyling: true },
@@ -67,40 +69,15 @@ function candidateColumns(orgLabel: string, table: DataTable | undefined): GridC
  * The model's readiness score weighs breadth of everyday use most, then
  * depth, then whether someone already uses agents. The report plots breadth
  * against depth as a scatter; here breadth takes the chart and the ranked
- * list does the rest.
+ * list does the rest. Both wait for a click, so the cards load first.
  */
 export function CoworkReadinessStage() {
-    const { theme } = useThemeContext();
     const org = useOrgAttribute();
-
     const summary = useFilteredQuery(coworkReadinessSummary());
-    const byOrg = useMemo(() => withOrgAttribute(coworkReadinessByOrg(), org), [org]);
-    const byOrgResult = useFilteredQuery({ connection: byOrg.connection, query: byOrg.query });
-    const candidates = useMemo(() => withOrgAttribute(coworkCandidates(), org), [org]);
-    const candidatesResult = useFilteredQuery({ connection: candidates.connection, query: candidates.query });
-
     const summaryRow = useMemo(
         () => (summary.data?.status === "success" ? toSummaryRow(summary.data.table) : undefined),
         [summary.data],
     );
-    const byOrgTable = useMemo(
-        () =>
-            byOrgResult.data?.status === "success"
-                ? toDataTable(byOrgResult.data.table, byOrg.columnMetadata)
-                : undefined,
-        [byOrgResult.data, byOrg.columnMetadata],
-    );
-    const candidatesTable = useMemo(
-        () =>
-            candidatesResult.data?.status === "success"
-                ? toDataTable(candidatesResult.data.table, candidates.columnMetadata)
-                : undefined,
-        [candidatesResult.data, candidates.columnMetadata],
-    );
-    const columns = useMemo(() => candidateColumns(org.label, candidatesTable), [org.label, candidatesTable]);
-
-    const depthUniform = candidatesTable ? isDepthUniform(candidatesTable) : false;
-    const byOrgHeadline = useMemo(() => (byOrgTable ? BY_ORG_HEADLINE(byOrgTable) : undefined), [byOrgTable]);
 
     return (
         <Section
@@ -143,42 +120,98 @@ export function CoworkReadinessStage() {
                 </div>
             )}
 
+            <OnDemand
+                id="cowork-readiness-by-org"
+                label={`Show by ${org.noun}`}
+                note={`Breadth of everyday use for each ${org.noun}, among people yet to try Cowork.`}
+            >
+                <CoworkReadinessByOrg />
+            </OnDemand>
+
+            <OnDemand
+                id="cowork-candidates"
+                label="Show the people"
+                note="Everyone yet to try Cowork, readiest first."
+            >
+                <CoworkCandidates />
+            </OnDemand>
+        </Section>
+    );
+}
+
+function CoworkReadinessByOrg() {
+    const { theme } = useThemeContext();
+    const org = useOrgAttribute();
+    const byOrg = useMemo(() => withOrgAttribute(coworkReadinessByOrg(), org), [org]);
+    const byOrgResult = useFilteredQuery({ connection: byOrg.connection, query: byOrg.query });
+    const byOrgTable = useMemo(
+        () =>
+            byOrgResult.data?.status === "success"
+                ? toDataTable(byOrgResult.data.table, byOrg.columnMetadata)
+                : undefined,
+        [byOrgResult.data, byOrg.columnMetadata],
+    );
+    // The headline reads every organization; the chart shows the fifteen with the most eligible people.
+    const byOrgHeadline = useMemo(() => (byOrgTable ? BY_ORG_HEADLINE(byOrgTable) : undefined), [byOrgTable]);
+    const top = useMemo(
+        () => (byOrgTable ? topRows(byOrgTable, { label: "Organization", by: "Eligible Users" }) : undefined),
+        [byOrgTable],
+    );
+
+    return (
+        <div className="h-[340px]" style={top ? { height: rowChartHeight(top.table.rows.length, { perRow: 40, chrome: 100 }) + (byOrgHeadline ? HEADLINE_SPACE : 0) } : undefined}>
+            {byOrgResult.data?.status === "error" ? (
+                <QueryError className="h-full" message={byOrgResult.data.error.message} onRetry={byOrgResult.refetch} />
+            ) : byOrgResult.isLoading || !top ? (
+                <QueryLoading className="h-full" />
+            ) : top.table.rows.length === 0 ? (
+                <QueryEmpty
+                    className="h-full"
+                    title={`No ${org.plural} to compare`}
+                    description="Nobody without Cowork has recorded Copilot use in this period."
+                />
+            ) : (
+                <Headlined text={byOrgHeadline}>
+                    <VegaVisual
+                        spec={byOrg.vegaLiteSpec}
+                        data={top.table}
+                        theme={theme}
+                        header={{
+                            title: `Breadth of use by ${org.noun}`,
+                            subtitle:
+                                topNote(top, org.plural, "eligible users") ??
+                                "Apps used per active day, among people who have not tried Cowork",
+                        }}
+                    />
+                </Headlined>
+            )}
+        </div>
+    );
+}
+
+function CoworkCandidates() {
+    const { theme } = useThemeContext();
+    const org = useOrgAttribute();
+    const candidates = useMemo(() => withOrgAttribute(coworkCandidates(), org), [org]);
+    const candidatesResult = useFilteredQuery({ connection: candidates.connection, query: candidates.query });
+    const candidatesTable = useMemo(
+        () =>
+            candidatesResult.data?.status === "success"
+                ? toDataTable(candidatesResult.data.table, candidates.columnMetadata)
+                : undefined,
+        [candidatesResult.data, candidates.columnMetadata],
+    );
+    const columns = useMemo(() => candidateColumns(org.label, candidatesTable), [org.label, candidatesTable]);
+    const depthUniform = candidatesTable ? isDepthUniform(candidatesTable) : false;
+
+    return (
+        <>
             {depthUniform && (
                 <p className="max-w-[80ch] text-[length:var(--text-300)] leading-300 text-muted-foreground">
                     Every candidate averages the same number of prompts per session, so depth does not separate
                     anyone yet. Breadth of everyday use and agent use decide the ranking.
                 </p>
             )}
-
-            <div className="h-[340px]" style={byOrgTable ? { height: rowChartHeight(byOrgTable.rows.length, { perRow: 40, chrome: 100 }) + (byOrgHeadline ? HEADLINE_SPACE : 0) } : undefined}>
-                {byOrgResult.data?.status === "error" ? (
-                    <QueryError
-                        className="h-full"
-                        message={byOrgResult.data.error.message}
-                        onRetry={byOrgResult.refetch}
-                    />
-                ) : byOrgResult.isLoading || !byOrgTable ? (
-                    <QueryLoading className="h-full" />
-                ) : byOrgTable.rows.length === 0 ? (
-                    <QueryEmpty
-                        className="h-full"
-                        title={`No ${org.plural} to compare`}
-                        description="Nobody without Cowork has recorded Copilot use in this period."
-                    />
-                ) : (
-                    <Headlined text={byOrgHeadline}>
-                        <VegaVisual
-                            spec={byOrg.vegaLiteSpec}
-                            data={byOrgTable}
-                            theme={theme}
-                            header={{
-                                title: `Breadth of use by ${org.noun}`,
-                                subtitle: "Apps used per active day, among people who have not tried Cowork",
-                            }}
-                        />
-                    </Headlined>
-                )}
-            </div>
 
             <div className="flex h-[560px] flex-col">
                 {candidatesResult.data?.status === "error" ? (
@@ -211,6 +244,6 @@ export function CoworkReadinessStage() {
             {candidatesTable && !candidatesResult.isLoading && candidatesResult.data?.status === "success" && (
                 <TruncationNote shown={candidatesTable.rows.length} total={listTotal(candidatesTable)} noun="people" by="by readiness" />
             )}
-        </Section>
+        </>
     );
 }

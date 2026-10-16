@@ -11,6 +11,9 @@ import query from "./organization-value.dax?raw";
 
 export const ORGANIZATION_COLUMN = "Chat + Agent Org DataOrganization";
 
+/** The query's TOPN: the organizations with the most estimated value. */
+export const ORGANIZATION_VALUE_LIMIT = 100;
+
 const columnMetadata: ColumnMetadataMap = {
     "Chat + Agent Org Data[Organization]": { name: ORGANIZATION_COLUMN, displayName: "Organization" },
     "[Active Users]": { name: "Active Users", displayName: "Active users", format: FORMAT_WHOLE },
@@ -26,9 +29,9 @@ const columnMetadata: ColumnMetadataMap = {
  * Organization contribution to the estimate, kept as a grid rather than a
  * second bar chart.
  *
- * There are only six organizations in the model; the grid keeps users, weekly
- * hours and value visible together instead of asking the reader to reconcile a
- * duplicate ranked bar with the task-group chart above it.
+ * The grid keeps users, weekly hours and value visible together instead of
+ * asking the reader to reconcile a duplicate ranked bar with the task-group
+ * chart above it. The query keeps the organizations with the most value.
  */
 export function organizationValue() {
     return { connection, query, columnMetadata };

@@ -26,6 +26,7 @@ import {
     breakdownRows,
     groupByChoices,
     groupByFilter,
+    offeredGroupBy,
     studioAgents,
     studioBreakdown,
     studioConcentration,
@@ -85,11 +86,12 @@ export function StudioStage({ options, rates }: StudioStageProps) {
     const { theme } = useThemeContext();
     const [lens, setLens] = useState<ConsumptionLens>("consumption");
     const [period, setPeriod] = useState<string>();
-    const [groupBy, setGroupBy] = useState<string>();
+    const [chosenGroupBy, setGroupBy] = useState<string>();
 
     const periods = useMemo(() => options?.studioPeriods ?? [], [options?.studioPeriods]);
     const allPeriods = defaultStudioPeriod(periods);
     const groupChoices = useMemo(() => groupByChoices(options?.groupBy ?? [], "Studio"), [options?.groupBy]);
+    const groupBy = offeredGroupBy(groupChoices, chosenGroupBy);
 
     const extra = useMemo(
         () => [groupByFilter(groupBy), ...(period ? [studioPeriodFilter(period)] : [])],

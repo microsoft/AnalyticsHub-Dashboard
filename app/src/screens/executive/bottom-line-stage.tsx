@@ -17,7 +17,6 @@ import { isAbsent } from "@/lib/optional-sources";
 import { readNumber, readText, type SummaryRow } from "@/lib/summary-row";
 import { BODY } from "@/lib/type-scale";
 import { cn } from "@/lib/utils";
-import { BROAD_USER_SKILLS } from "@/queries/executive";
 import { CONSUMPTION_CONFIGURED } from "@/screens/value/cost-vs-value-data";
 import { byMonth, cardDelta, cardTrend, formatMonth, sumPresent, tableRecords, workRates } from "./executive-data";
 import type { ExecutiveData } from "./use-executive-data";
@@ -51,7 +50,7 @@ const read = (column: string) => (row: SummaryRow | undefined) => readNumber(row
 const readCredits = (row: SummaryRow | undefined) =>
     sumPresent(readNumber(row, "Studio Credits"), readNumber(row, "Cowork Credits"));
 
-const WORK_GRID = CONSUMPTION_CONFIGURED ? "grid gap-300 md:grid-cols-2 xl:grid-cols-4" : "grid gap-300 md:grid-cols-3";
+const WORK_GRID = CONSUMPTION_CONFIGURED ? "grid gap-300 md:grid-cols-3" : "grid gap-300 md:grid-cols-2";
 
 /** Without product feedback the habit row loses its satisfaction card, and the filter note its reason. */
 function feedbackNote(hasFeedback: boolean): { scope: string; reason: string } | undefined {
@@ -92,8 +91,6 @@ export function BottomLineStage({ data }: { data: ExecutiveData }) {
     const habitMonth = formatMonth(readText(row, "[Habit Month]"));
     const conservative = readNumber(row, "[Hours Conservative]");
     const optimistic = readNumber(row, "[Hours Optimistic]");
-    const skillsInUse = readNumber(row, "[Skills In Use]");
-    const skillsAvailable = readNumber(row, "[Skills Available]");
 
     const comparison = pair
         ? `Arrows compare ${formatMonth(pair.current)}, the last full month, with ${formatMonth(pair.previous)}; totals are compared per day so month length doesn't skew them.`
@@ -109,7 +106,7 @@ export function BottomLineStage({ data }: { data: ExecutiveData }) {
                 <QueryError message={summary.error} onRetry={summary.refetch} />
             ) : !summary.loaded ? (
                 <div className={WORK_GRID}>
-                    {Array.from({ length: CONSUMPTION_CONFIGURED ? 4 : 3 }, (_, index) => (
+                    {Array.from({ length: CONSUMPTION_CONFIGURED ? 3 : 2 }, (_, index) => (
                         <QueryLoading key={index} />
                     ))}
                 </div>
@@ -153,28 +150,6 @@ export function BottomLineStage({ data }: { data: ExecutiveData }) {
                                 <Details>
                                     <KpiStat label="Per person a week" value={rates.tasksPerPersonWeek} format="hours" />
                                     <KpiStat label="Expert minutes per task" value={rates.minutesPerTask} format="hours" />
-                                </Details>
-                            }
-                        />
-                        <KpiCard
-                            label="Unique skills · kinds of work per person"
-                            value={readNumber(row, "[Skills Per Person]")}
-                            format="rate"
-                            delta={cardDelta("average", pair, monthRows, read("Skills Per Person"))}
-                            trend={cardTrend("average", range.range, monthRows, read("Skills Per Person"))}
-                            detail={
-                                <Details>
-                                    {skillsInUse !== undefined && skillsAvailable !== undefined && (
-                                        <Stat
-                                            label="Kinds of work in use"
-                                            value={`${formatKpi(skillsInUse, "whole")} of ${formatKpi(skillsAvailable, "whole")}`}
-                                        />
-                                    )}
-                                    <KpiStat
-                                        label={`People using ${BROAD_USER_SKILLS} or more`}
-                                        value={readNumber(row, "[Broad Users Pct]")}
-                                        format="percent"
-                                    />
                                 </Details>
                             }
                         />

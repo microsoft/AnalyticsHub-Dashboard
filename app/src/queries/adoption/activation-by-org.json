@@ -21,14 +21,14 @@
       "field": "__ORG__",
       "type": "nominal",
       "title": null,
-      "sort": { "field": "__ACTIVE__", "order": "descending" },
+      "sort": null,
       "axis": { "labelLimit": 120 }
     },
     "x": {
       "field": "Signed",
       "type": "quantitative",
       "title": "Inactive  ←     users     →  Active",
-      "axis": { "labelExpr": "abs(datum.value)" }
+      "axis": { "labelExpr": "compactFormat(abs(datum.value), '#,0')" }
     },
     "color": {
       "field": "Segment",

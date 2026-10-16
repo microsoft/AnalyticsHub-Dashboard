@@ -7,7 +7,7 @@
 
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
-import { connection, FORMAT_PERCENT, FORMAT_WHOLE } from "../shared";
+import { connection, FORMAT_WHOLE } from "../shared";
 import query from "./agent-usage.dax?raw";
 import spec from "./agent-usage.json";
 
@@ -15,7 +15,6 @@ const columnMetadata: ColumnMetadataMap = {
     "[Agent]": { name: "Agent", displayName: "Agent" },
     "[Sessions]": { name: "Sessions", displayName: "Sessions", format: FORMAT_WHOLE },
     "[Users]": { name: "Users", displayName: "Users", format: FORMAT_WHOLE },
-    "[Return Rate]": { name: "Return Rate", displayName: "Came back", format: FORMAT_PERCENT },
     "[Organizations]": { name: "Organizations", displayName: "Organizations", format: FORMAT_WHOLE },
 };
 

@@ -153,21 +153,19 @@ function enablementGap({ departments, orgPlural }: AttentionInputs): AttentionIt
             name: readText(row, DEPARTMENT_COLUMN),
             seats: readNumber(row, "Licensed Seats") ?? 0,
             hours: readNumber(row, "Hours Per Seat Month"),
-            skills: readNumber(row, "Skills Per Person"),
         }))
         .filter(
-            (row): row is { name: string; seats: number; hours: number; skills: number } =>
-                row.name !== undefined && row.seats > 0 && row.hours !== undefined && row.skills !== undefined,
+            (row): row is { name: string; seats: number; hours: number } =>
+                row.name !== undefined && row.seats > 0 && row.hours !== undefined,
         );
     if (rows.length < MIN_DEPARTMENTS) return undefined;
 
     const hoursQuartile = lowerQuartile(rows.map((row) => row.hours)) ?? 0;
-    const skillsQuartile = lowerQuartile(rows.map((row) => row.skills)) ?? 0;
     const seats = rows.reduce((sum, row) => sum + row.seats, 0);
     const average = rows.reduce((sum, row) => sum + row.hours * row.seats, 0) / seats;
 
     const behind = rows
-        .filter((row) => row.hours <= hoursQuartile && row.skills <= skillsQuartile && row.hours < average)
+        .filter((row) => row.hours <= hoursQuartile && row.hours < average)
         .sort((a, b) => a.hours - b.hours || a.name.localeCompare(b.name));
     // Expert hours a quarter if each closed part of its gap to the average hours per seat.
     const gain = behind.reduce((sum, row) => sum + GAP_CLOSED * (average - row.hours) * row.seats * 3, 0);
@@ -181,7 +179,7 @@ function enablementGap({ departments, orgPlural }: AttentionInputs): AttentionIt
         rule: "enablement-gap",
         tone: "caution",
         title: `Focus enablement on ${names}`,
-        evidence: `${one ? "It is" : "They are"} in the bottom quarter of ${orgPlural} for both expert hours per seat and kinds of work per person. Closing half ${one ? "its" : "their"} gap to the average of ${formatKpi(average, "hours")} hours per seat a month would add about ${formatKpi(gain, "whole")} expert hours a quarter.`,
+        evidence: `${one ? "It is" : "They are"} in the bottom quarter of ${orgPlural} for expert hours per seat. Closing half ${one ? "its" : "their"} gap to the average of ${formatKpi(average, "hours")} hours per seat a month would add about ${formatKpi(gain, "whole")} expert hours a quarter.`,
         reach,
         stake: `+${formatKpi(gain, "whole")} hours a quarter`,
         link: { destination: "adoption", label: "Open Adoption" },

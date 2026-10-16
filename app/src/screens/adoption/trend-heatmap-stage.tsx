@@ -18,12 +18,16 @@ import { useFilteredQuery } from "@/hooks/use-filtered-query";
 import { DEFAULT_ORG_ATTRIBUTE, withOrgAttribute } from "@/lib/org-attribute";
 import { readText, toSummaryRow } from "@/lib/summary-row";
 import { toDataTable } from "@/lib/to-data-table";
+import { topNote, topRows } from "@/lib/top-n";
 import {
     applyTrendHeatmapTheme,
+    TREND_HEATMAP_LABELLED_WEEKS,
     TREND_HEATMAP_ORGANIZATION_FIELD,
+    TREND_HEATMAP_WEEK_FIELD,
     trendHeatmap,
     trendHeatmapHeadline,
     trendHeatmapMetrics,
+    withoutCellLabels,
     type TrendHeatmapMetric,
 } from "@/queries/adoption";
 
@@ -51,13 +55,20 @@ export function TrendHeatmapStage() {
     const headline = useMemo(() => trendHeatmapHeadline(), []);
     const headlineResult = useFilteredQuery({ connection: headline.connection, query: headline.query });
 
-    const heatmapTable = useMemo(
+    // The fifteen organizations with the most people across the range. Every metric but the first is a
+    // rate, so the rest are left out rather than averaged into an Other row.
+    const top = useMemo(
         () =>
             heatmapResult.data?.status === "success"
-                ? toDataTable(heatmapResult.data.table, heatmap.columnMetadata)
+                ? topRows(toDataTable(heatmapResult.data.table, heatmap.columnMetadata), {
+                      label: TREND_HEATMAP_ORGANIZATION_FIELD,
+                      by: "Active Users",
+                  })
                 : undefined,
         [heatmapResult.data, heatmap.columnMetadata],
     );
+    const heatmapTable = top?.table;
+    const weeks = distinctValueCount(heatmapTable, TREND_HEATMAP_WEEK_FIELD);
 
     const headlineRow = useMemo(
         () => (headlineResult.data?.status === "success" ? toSummaryRow(headlineResult.data.table) : undefined),
@@ -65,17 +76,18 @@ export function TrendHeatmapStage() {
     );
 
     const selected = trendHeatmapMetrics.find((entry) => entry.id === metric) ?? trendHeatmapMetrics[0];
-    const chartHeight = Math.max(240, distinctValueCount(heatmapTable, TREND_HEATMAP_ORGANIZATION_FIELD) * 36 + 80);
-    const themedSpec = useMemo(
-        () =>
-            applyTrendHeatmapTheme(heatmap.vegaLiteSpec, {
-                quiet: theme.backgroundHover || theme.backgroundSecondary,
-                strong: theme.brandBackground,
-                quietText: theme.foreground,
-                strongText: theme.background,
-            }),
-        [heatmap.vegaLiteSpec, theme],
-    );
+    const chartHeight = Math.max(240, distinctValueCount(heatmapTable, TREND_HEATMAP_ORGANIZATION_FIELD) * 36 + 120);
+    const labelled = weeks <= TREND_HEATMAP_LABELLED_WEEKS;
+    const themedSpec = useMemo(() => {
+        const themed = applyTrendHeatmapTheme(heatmap.vegaLiteSpec, {
+            quiet: theme.backgroundHover || theme.backgroundSecondary,
+            strong: theme.brandBackground,
+            quietText: theme.foreground,
+            strongText: theme.background,
+        });
+        return labelled ? themed : withoutCellLabels(themed);
+    }, [heatmap.vegaLiteSpec, theme, labelled]);
+    const subtitle = (top && topNote(top, org.plural, "active users")) ?? "Darker cells mean more";
     // The model writes this headline about organizations, whatever the Group by says.
     const headlineText = org.column === DEFAULT_ORG_ATTRIBUTE ? readText(headlineRow, selected.headlineColumn) : undefined;
 
@@ -132,7 +144,7 @@ export function TrendHeatmapStage() {
                                 theme={theme}
                                 header={{
                                     title: `${selected.label} by ${org.noun} and week`,
-                                    subtitle: "Darker cells mark the strongest concentration in the current selection",
+                                    subtitle,
                                 }}
                             />
                         </div>

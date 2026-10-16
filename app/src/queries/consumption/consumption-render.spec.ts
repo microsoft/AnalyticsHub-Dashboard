@@ -8,10 +8,10 @@
 // @vitest-environment node
 
 import { describe, expect, it } from "vitest";
-import { expressionFunction, parse, View, type Scene, type SceneItem } from "vega";
+import { parse, View, type Scene, type SceneItem } from "vega";
+import "@/test/vega-formats";
 import { compile } from "vega-lite";
 import type { TopLevelSpec } from "vega-lite";
-import { formatValue } from "@microsoft/fabric-visuals-core";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { consumptionByProduct, coworkWeekly, foundryByModel, foundryDaily, studioAzureDaily, studioBreakdown, studioDaily, withTrendLineColor } from "./index";
 import productRows from "./__fixtures__/consumption-by-product.rows.json";
@@ -62,8 +62,6 @@ async function valueAxisLabels(spec: unknown, rows: Row[], columnMetadata: Colum
     return labels.filter((text) => /^[\d.,]+[KMB]?$/.test(text));
 }
 
-expressionFunction("vbaFormat", (value: unknown, format: string) => String(formatValue(value, format)));
-expressionFunction("compactFormat", (value: unknown, format: string) => String(formatValue(value, format, { compact: true })));
 
 type AxisDef = Record<string, unknown>;
 type Encoding = Record<string, { field?: string; type?: string; axis?: AxisDef | null }>;

@@ -155,7 +155,7 @@ describe("Executive summary", () => {
     it("leads with the work done, each figure once", async () => {
         renderScreen();
         const text = await pageText();
-        for (const figure of ["1,542", "695 – 2,258", "51 min", "6,300", "15 of 47", "66.7%", "21.7%", "62.2%"]) {
+        for (const figure of ["1,542", "695 – 2,258", "51 min", "6,300", "66.7%", "21.7%", "62.2%"]) {
             expect(text.split(figure)).toHaveLength(2);
         }
         expect(screen.getByText("Habit rate · June")).toBeTruthy();

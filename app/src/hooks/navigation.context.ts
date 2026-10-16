@@ -6,12 +6,14 @@
 //-----------------------------------------------------------------------
 
 import { createContext, useContext } from "react";
-import { availableDestinations, type DestinationId, type StageId } from "@/components/destinations";
+import { availableDestinations, stageAnchor, type DestinationId, type StageId } from "@/components/destinations";
 import { runtimeConfig } from "@/lib/runtime-config";
+import { scrollToAnchor } from "@/lib/scroll-to-anchor";
 import { useSourceAvailability } from "./source-availability.context";
+import { useStageFilter } from "./stage-filter.context";
 
 interface NavigationContextValue {
-    /** Opens a destination, then brings one of its stages into view once it has rendered. */
+    /** Opens a destination, at one of its stages if given. */
     navigate: (destination: DestinationId, stage?: StageId) => void;
 }
 
@@ -34,4 +36,14 @@ export function useOpenDestination(destination: DestinationId): ((stage?: StageI
     const shown = availableDestinations(runtimeConfig().semanticModels, sources).some(({ id }) => id === destination);
     if (!shown) return undefined;
     return (stage) => navigation.navigate(destination, stage);
+}
+
+/**
+ * Shows another stage of the same page: its tab on a destination, or where
+ * it sits in a report pack, which lays its stages out one after another.
+ */
+export function useShowStage(destination: DestinationId, stage: StageId): () => void {
+    const { inPack } = useStageFilter();
+    const open = useOpenDestination(destination);
+    return inPack || !open ? () => scrollToAnchor(stageAnchor(stage)) : () => open(stage);
 }

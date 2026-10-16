@@ -77,6 +77,27 @@ off into `fabric.config.json`; those pages stay hidden without probing until the
 module on. Everything shows while the check runs, or if it fails, and a page comes back on the next
 open once its data loads.
 
+## How pages load
+
+The app is built to stay quick for a large tenant (about 20,000 people):
+
+- **One tab at a time.** Each page shows one section at a time, as tabs, and opening a tab runs
+  only that tab's queries. Downloads and report packs still include every section.
+- **Long lists wait for a click.** The leaderboard ranking and the by-organization and by-person
+  lists load when you choose **Show …**. The cards above them still count everyone, and downloads
+  and report packs still print the lists in full.
+- **Other pages load in the background.** Once the page on screen has loaded, the app fetches the
+  first tab of each other page, one query at a time, and waits whenever the page on screen is
+  loading. If you open a page while its query is waiting, the query starts at once.
+  `PREFETCH` in `src/components/prefetcher.tsx` turns this off.
+- **Results last for the visit.** The app holds up to 1,000 results in memory, each for up to an
+  hour, so a page you've seen opens again without asking the model. Nothing is kept between opens.
+  A preview build stored results in IndexedDB (`analytics-hub-results`); the app deletes that
+  database as it starts.
+- **Cowork and Copilot Studio credits by group** don't offer per-person groupings (User, User Key,
+  id, employee Id, Hierarchy Path, Level5_User Key), which took one to two and a half minutes each
+  at 20,000 people. A saved grouping that is no longer offered shows **All users**.
+
 ## Settings in the app
 
 Anyone who can open the app can change these, and the change applies for everyone. Share the item

@@ -15,6 +15,7 @@ const mockSemanticModelClearCache = vi.fn();
 const mockQuery = vi.fn();
 
 vi.mock("@/lib/fabric-client", () => ({
+    QUERY_CACHE_MAX_AGE_MS: 60 * 60 * 1000,
     getFabricClient: () => ({
         clearCache: mockClearCache,
         semanticModel: () => ({
@@ -97,6 +98,38 @@ describe("useSemanticModelQuery", () => {
         });
 
         expect(mockQuery).toHaveBeenCalledTimes(2);
+    });
+});
+
+describe("useSemanticModelQuery's cache age", () => {
+    const hourAndASecond = 60 * 60 * 1000 + 1000;
+    const fresh = { status: "success" as const, table: { columns: [], rows: [[1]] }, fromCache: false };
+
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it("uses a result the SDK has held for less than an hour", async () => {
+        const held = { ...fresh, fromCache: true, cachedAt: new Date(Date.now() - 60_000) };
+        mockQuery.mockResolvedValue(held);
+
+        const { result } = renderHook(() => useSemanticModelQuery({ connection: "vl", query: "Q" }));
+
+        await waitFor(() => expect(result.current.isLoading).toBe(false));
+        expect(result.current.data).toEqual(held);
+        expect(mockQuery).toHaveBeenCalledOnce();
+    });
+
+    it("asks the model again for a result held longer than an hour", async () => {
+        const old = { ...fresh, table: { columns: [], rows: [[0]] }, fromCache: true, cachedAt: new Date(Date.now() - hourAndASecond) };
+        mockQuery.mockResolvedValueOnce(old).mockResolvedValueOnce(fresh);
+
+        const { result } = renderHook(() => useSemanticModelQuery({ connection: "vl", query: "Q" }));
+
+        await waitFor(() => expect(result.current.isLoading).toBe(false));
+        expect(result.current.data).toEqual(fresh);
+        expect(mockQuery).toHaveBeenNthCalledWith(1, "Q", { bypassCache: undefined });
+        expect(mockQuery).toHaveBeenNthCalledWith(2, "Q", { bypassCache: true });
     });
 });
 

@@ -16,7 +16,7 @@
       "field": "Credits",
       "type": "quantitative",
       "title": "Credits",
-      "axis": { "labelExpr": "format(datum.value, '~s')" }
+      "axis": { "labelExpr": "compactFormat(datum.value, '#,0')" }
     },
     "tooltip": [
       { "field": "Item", "type": "nominal", "title": "Item" },

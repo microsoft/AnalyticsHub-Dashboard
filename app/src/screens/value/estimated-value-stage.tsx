@@ -5,10 +5,11 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { useMemo, useState, type CSSProperties, type KeyboardEvent } from "react";
+import { useMemo, useState, type KeyboardEvent } from "react";
 import { DataGrid, type GridColumnDef } from "@microsoft/fabric-datagrid";
 import { stageAnchor } from "@/components/destinations";
 import { KpiCard } from "@/components/kpi-card";
+import { OnDemand } from "@/components/on-demand";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
 import { SegmentedControl } from "@/components/segmented-control";
@@ -27,8 +28,10 @@ import { readNumber, readText, toSummaryRow } from "@/lib/summary-row";
 import { orgEmptyDescription } from "@/lib/department-coverage";
 import { toDataTable } from "@/lib/to-data-table";
 import {
+    AGENT_VALUE_LIMIT,
     agentValue,
     AGENT_NAME_COLUMN,
+    ORGANIZATION_VALUE_LIMIT,
     organizationValue,
     ORGANIZATION_COLUMN,
     valueSummary,
@@ -40,13 +43,6 @@ const scenarios = SCENARIOS.map((id) => ({ id, label: id }));
 const clampRate = (value: number): number => Math.min(1000, Math.max(0, value));
 
 const TABLE_MAX_HEIGHT = 520;
-
-// Stacked, each grid fits its own list; side by side, both take the row's height.
-const TABLE_FRAME = "flex h-[var(--table-height)] flex-col 2xl:h-[var(--row-height)]";
-
-function tableFrameStyle(tableHeight: number, rowHeight: number): CSSProperties {
-    return { "--table-height": `${tableHeight}px`, "--row-height": `${rowHeight}px` } as CSSProperties;
-}
 
 function asNumber(value: unknown): number | undefined {
     return typeof value === "number" && Number.isFinite(value) ? value : undefined;
@@ -89,11 +85,6 @@ export function EstimatedValueStage() {
     const summaryResult = useFilteredQuery({ connection: summary.connection, query: summary.query }, { extra });
     const agents = agentValue();
     const agentResult = useFilteredQuery({ connection: agents.connection, query: agents.query }, { extra });
-    const organizations = useMemo(() => withOrgAttribute(organizationValue(), org), [org]);
-    const organizationResult = useFilteredQuery(
-        { connection: organizations.connection, query: organizations.query },
-        { extra },
-    );
 
     const summaryRow = useMemo(
         () => (summaryResult.data?.status === "success" ? toSummaryRow(summaryResult.data.table) : undefined),
@@ -106,22 +97,10 @@ export function EstimatedValueStage() {
                 : undefined,
         [agentResult.data, agents.columnMetadata],
     );
-    const organizationTable = useMemo(
-        () =>
-            organizationResult.data?.status === "success"
-                ? toDataTable(organizationResult.data.table, organizations.columnMetadata)
-                : undefined,
-        [organizationResult.data, organizations.columnMetadata],
-    );
 
     const currency = useReportingCurrency(readText(summaryRow, "[Currency Symbol]"));
     const prefix = currency.prefix;
     const agentHeight = agentTable ? gridHeight(agentTable.rows.length, { max: TABLE_MAX_HEIGHT }) : TABLE_MAX_HEIGHT;
-    const organizationHeight = organizationTable
-        ? gridHeight(organizationTable.rows.length, { max: TABLE_MAX_HEIGHT })
-        : TABLE_MAX_HEIGHT;
-    // Side by side, both grids fill the same row, so size them to the longer list.
-    const tablesHeight = Math.max(agentHeight, organizationHeight);
     const assumption = `At ${prefix}${formatKpi(rate, "whole")} an hour, ${scenario.toLowerCase()} effort`;
 
     const commitRate = () => {
@@ -178,37 +157,6 @@ export function EstimatedValueStage() {
             },
         ],
         [prefix, currency.code, agentTable],
-    );
-
-    const organizationColumns: GridColumnDef[] = useMemo(
-        () => [
-            { id: ORGANIZATION_COLUMN, header: org.label, minWidth: 180 },
-            {
-                id: "Active Users",
-                header: "Active users",
-                width: 120,
-                numericStyling: true,
-                cellRenderer: formatWholeCell,
-            },
-            {
-                id: "Expert Equivalent Hours Per Week",
-                header: "Hours per week",
-                width: 136,
-                numericStyling: true,
-                cellRenderer: formatHoursCell,
-            },
-            {
-                id: "AI Assisted Value",
-                header: `Value (${currencySymbol(currency.code)})`,
-                width: 112,
-                numericStyling: true,
-                cellRenderer: heatRenderer({
-                    domain: columnHeat(organizationTable, "AI Assisted Value"),
-                    format: (value) => formatCurrencyCell(value, prefix),
-                }),
-            },
-        ],
-        [prefix, currency.code, org.label, organizationTable],
     );
 
     return (
@@ -292,68 +240,142 @@ export function EstimatedValueStage() {
 
             <TaskValueBreakdown extra={extra} prefix={prefix} assumption={assumption} />
 
-            <div className="grid gap-300 2xl:grid-cols-2">
-                <div className={TABLE_FRAME} style={tableFrameStyle(agentHeight, tablesHeight)}>
-                    {agentResult.data?.status === "error" ? (
-                        <QueryError
-                            className="h-full"
-                            message={agentResult.data.error.message}
-                            onRetry={agentResult.refetch}
-                        />
-                    ) : agentResult.isLoading || !agentTable ? (
-                        <QueryLoading className="h-full" />
-                    ) : agentTable.rows.length === 0 ? (
-                        <QueryEmpty
-                            className="h-full"
-                            title="No agent value in this slice"
-                            description="The agents table is empty when the Activity filter is set to Copilot chat, or when no named agents have recorded sessions."
-                        />
-                    ) : (
-                        <DataGrid
-                            columns={agentColumns}
-                            data={agentTable}
-                            defaultSort={[{ columnId: "AI Assisted Value", direction: "desc" }]}
-                            theme={theme}
-                            header={{
-                                title: "Agents",
-                                subtitle: "Named agents, highest estimated value first",
-                            }}
-                        />
-                    )}
-                </div>
-
-                <div className={TABLE_FRAME} style={tableFrameStyle(organizationHeight, tablesHeight)}>
-                    {organizationResult.data?.status === "error" ? (
-                        <QueryError
-                            className="h-full"
-                            message={organizationResult.data.error.message}
-                            onRetry={organizationResult.refetch}
-                        />
-                    ) : organizationResult.isLoading || !organizationTable ? (
-                        <QueryLoading className="h-full" />
-                    ) : organizationTable.rows.length === 0 ? (
-                        <QueryEmpty
-                            className="h-full"
-                            title={`No ${org.plural} to compare`}
-                            description={orgEmptyDescription(
-                                `No rows carry both ${withIndefiniteArticle(org.noun)} and an estimated value for this slice.`,
-                                org,
-                            )}
-                        />
-                    ) : (
-                        <DataGrid
-                            columns={organizationColumns}
-                            data={organizationTable}
-                            defaultSort={[{ columnId: "AI Assisted Value", direction: "desc" }]}
-                            theme={theme}
-                            header={{
-                                title: org.plural.charAt(0).toUpperCase() + org.plural.slice(1),
-                                subtitle: "Users, weekly hours and value in one view",
-                            }}
-                        />
-                    )}
-                </div>
+            <div className="flex flex-col" style={{ height: agentHeight }}>
+                {agentResult.data?.status === "error" ? (
+                    <QueryError
+                        className="h-full"
+                        message={agentResult.data.error.message}
+                        onRetry={agentResult.refetch}
+                    />
+                ) : agentResult.isLoading || !agentTable ? (
+                    <QueryLoading className="h-full" />
+                ) : agentTable.rows.length === 0 ? (
+                    <QueryEmpty
+                        className="h-full"
+                        title="No agent value in this slice"
+                        description="The agents table is empty when the Activity filter is set to Copilot chat, or when no named agents have recorded sessions."
+                    />
+                ) : (
+                    <DataGrid
+                        columns={agentColumns}
+                        data={agentTable}
+                        defaultSort={[{ columnId: "AI Assisted Value", direction: "desc" }]}
+                        theme={theme}
+                        header={{
+                            title: "Agents",
+                            subtitle:
+                                agentTable.rows.length >= AGENT_VALUE_LIMIT
+                                    ? `Top ${AGENT_VALUE_LIMIT} agents by estimated value`
+                                    : "Named agents, highest estimated value first",
+                        }}
+                    />
+                )}
             </div>
+
+            <OnDemand
+                id="value-by-org"
+                label={`Show by ${org.noun}`}
+                note={`Active users, weekly hours and value for each ${org.noun}.`}
+            >
+                <OrganizationValue extra={extra} prefix={prefix} currencyCode={currency.code} />
+            </OnDemand>
         </Section>
+    );
+}
+
+/** Value for each organization, summed across the whole population per org, so it waits for a click. */
+function OrganizationValue({
+    extra,
+    prefix,
+    currencyCode,
+}: {
+    extra: readonly string[];
+    prefix: string;
+    currencyCode: string | undefined;
+}) {
+    const { theme } = useThemeContext();
+    const org = useOrgAttribute();
+    const organizations = useMemo(() => withOrgAttribute(organizationValue(), org), [org]);
+    const organizationResult = useFilteredQuery(
+        { connection: organizations.connection, query: organizations.query },
+        { extra },
+    );
+    const organizationTable = useMemo(
+        () =>
+            organizationResult.data?.status === "success"
+                ? toDataTable(organizationResult.data.table, organizations.columnMetadata)
+                : undefined,
+        [organizationResult.data, organizations.columnMetadata],
+    );
+    const organizationHeight = organizationTable
+        ? gridHeight(organizationTable.rows.length, { max: TABLE_MAX_HEIGHT })
+        : TABLE_MAX_HEIGHT;
+
+    const organizationColumns: GridColumnDef[] = useMemo(
+        () => [
+            { id: ORGANIZATION_COLUMN, header: org.label, minWidth: 180 },
+            {
+                id: "Active Users",
+                header: "Active users",
+                width: 120,
+                numericStyling: true,
+                cellRenderer: formatWholeCell,
+            },
+            {
+                id: "Expert Equivalent Hours Per Week",
+                header: "Hours per week",
+                width: 136,
+                numericStyling: true,
+                cellRenderer: formatHoursCell,
+            },
+            {
+                id: "AI Assisted Value",
+                header: `Value (${currencySymbol(currencyCode)})`,
+                width: 112,
+                numericStyling: true,
+                cellRenderer: heatRenderer({
+                    domain: columnHeat(organizationTable, "AI Assisted Value"),
+                    format: (value) => formatCurrencyCell(value, prefix),
+                }),
+            },
+        ],
+        [prefix, currencyCode, org.label, organizationTable],
+    );
+
+    return (
+        <div className="flex flex-col" style={{ height: organizationHeight }}>
+            {organizationResult.data?.status === "error" ? (
+                <QueryError
+                    className="h-full"
+                    message={organizationResult.data.error.message}
+                    onRetry={organizationResult.refetch}
+                />
+            ) : organizationResult.isLoading || !organizationTable ? (
+                <QueryLoading className="h-full" />
+            ) : organizationTable.rows.length === 0 ? (
+                <QueryEmpty
+                    className="h-full"
+                    title={`No ${org.plural} to compare`}
+                    description={orgEmptyDescription(
+                        `No rows carry both ${withIndefiniteArticle(org.noun)} and an estimated value for this slice.`,
+                        org,
+                    )}
+                />
+            ) : (
+                <DataGrid
+                    columns={organizationColumns}
+                    data={organizationTable}
+                    defaultSort={[{ columnId: "AI Assisted Value", direction: "desc" }]}
+                    theme={theme}
+                    header={{
+                        title: org.plural.charAt(0).toUpperCase() + org.plural.slice(1),
+                        subtitle:
+                            organizationTable.rows.length >= ORGANIZATION_VALUE_LIMIT
+                                ? `Top ${ORGANIZATION_VALUE_LIMIT} ${org.plural} by estimated value`
+                                : "Users, weekly hours and value in one view",
+                    }}
+                />
+            )}
+        </div>
     );
 }

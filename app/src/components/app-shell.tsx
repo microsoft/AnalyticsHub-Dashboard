@@ -15,11 +15,11 @@ import { ThemeContext, useThemeContext } from "@/hooks/theme.context";
 import { AuthContext } from "@/hooks/auth.context";
 import { useSourceAvailability } from "@/hooks/source-availability.context";
 import { useAccessScope } from "@/hooks/use-access-scope";
+import { pageStages, StageFilterContext } from "@/hooks/stage-filter.context";
 import { useIsRefreshing } from "@/lib/refresh-tracker";
 import { PAGE_SOURCES } from "@/lib/freshness";
 import { earliestDate, newPackId, packFilters, packSources, stageLabel, type PackRun, type ReportPack } from "@/lib/report-pack";
 import { runtimeConfig } from "@/lib/runtime-config";
-import { scrollToAnchor } from "@/lib/scroll-to-anchor";
 import { cn } from "@/lib/utils";
 import { getAccessToken } from "@/services/rayfin-auth.service";
 import {
@@ -28,7 +28,6 @@ import {
     isDestinationReady,
     isPackable,
     isReference,
-    stageAnchor,
     type Destination,
     type DestinationId,
     type StageId,
@@ -40,6 +39,7 @@ import { PackActions } from "./report-pack-actions";
 import { ReportPackEditor } from "./report-pack-editor";
 import { ReportsNav } from "./reports-nav";
 import { SharePanel } from "./share-panel";
+import { StageTabs } from "./stage-tabs";
 
 interface VersionResponse {
     latest?: string;
@@ -77,26 +77,24 @@ function UpdateNotice() {
     );
 }
 
-/** What the canvas shows: one destination, or a report pack's stages from any of them. */
+/** What the canvas shows: one destination at one of its stages, or a report pack's stages from any of them. */
 export type AppView =
-    | { kind: "destination"; id: DestinationId }
+    | { kind: "destination"; id: DestinationId; stage?: StageId }
     | { kind: "pack"; pack: ReportPack; runs: readonly PackRun[]; missing: readonly StageId[] };
 
 interface AppShellProps {
     view: AppView;
-    onNavigate: (id: DestinationId) => void;
+    onNavigate: (id: DestinationId, stage?: StageId) => void;
     onOpenPack: (id: string) => void;
     children: ReactNode;
 }
 
-/** How far down the canvas a stage's heading has to pass before it counts as the one being read. */
-const READING_LINE = 0.3;
-
 /**
  * Sidebar-and-canvas frame. The sidebar is the whole navigation model — the
  * destinations replacing the report's pages and bookmark bars, with the
- * active destination's stages listed beneath it and tracked as you scroll,
- * and the report's appendix set apart below them as reference.
+ * active destination's stages listed beneath it as tabs, and the report's
+ * appendix set apart below them as reference. A destination shows one stage
+ * at a time, so a page only waits for, and queries, what is on screen.
  *
  * Each destination carries its own palette: the sidebar shows every hue at
  * once so they read as distinct places, and the canvas — chrome and charts
@@ -106,6 +104,7 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
     const themeContext = useThemeContext();
     const { isDark, toggleTheme } = themeContext;
     const active = view.kind === "destination" ? view.id : undefined;
+    const activeStage = view.kind === "destination" ? view.stage : undefined;
     // A pack takes on the hue of the destination it opens with.
     const palette: DestinationId = active ?? (view.kind === "pack" ? view.runs[0]?.destination.id : undefined) ?? "executive";
     const paletteTheme = usePaletteTheme(palette);
@@ -122,6 +121,17 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
         setEditing(undefined);
         onOpenPack(saved.id);
     };
+    // A page's download holds every stage, so they all render while it is drawn.
+    const [wholePage, setWholePage] = useState(false);
+    const stageFilter = useMemo(
+        () => pageStages(wholePage || !activeStage ? "all" : activeStage),
+        [wholePage, activeStage],
+    );
+    const tabs = useMemo(() => (current?.stages ?? []).filter((stage) => stage.ready), [current]);
+    const showWholePage = useCallback(() => {
+        setWholePage(true);
+        return () => setWholePage(false);
+    }, []);
 
     const headerSources = useMemo(
         () => (view.kind === "pack" ? packSources(view.runs) : PAGE_SOURCES[view.id]),
@@ -134,7 +144,6 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
         [view, current],
     );
     const title = view.kind === "pack" ? view.pack.name : current?.label;
-    const [readingStage, setReadingStage] = useState<StageId>();
     const sources = useSourceAvailability();
     const accessScope = useAccessScope();
     const noScope = accessScope.kind === "none";
@@ -142,43 +151,8 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
     const available = useMemo(() => availableDestinations(runtimeConfig().semanticModels, sources), [sources]);
 
     useEffect(() => {
-        const main = mainRef.current;
-        if (!main) return;
-        main.scrollTop = 0;
-
-        const built = (destinations.find((destination) => destination.id === active)?.stages ?? []).filter(
-            (stage) => stage.ready,
-        );
-        let frame = 0;
-
-        // Screens load their data after mounting and grow as they do, so stage
-        // positions are read on every scroll rather than cached.
-        const update = () => {
-            frame = 0;
-            const line = main.getBoundingClientRect().top + main.clientHeight * READING_LINE;
-            let reading: StageId | undefined = built[0]?.id;
-            for (const stage of built) {
-                const element = document.getElementById(stageAnchor(stage.id));
-                if (element && element.getBoundingClientRect().top <= line) reading = stage.id;
-            }
-            // A short last stage can never reach the reading line, so hitting the end selects it.
-            const atEnd = main.scrollTop > 0 && main.scrollTop + main.clientHeight >= main.scrollHeight - 1;
-            if (atEnd && built.length > 0) reading = built[built.length - 1].id;
-            setReadingStage(reading);
-        };
-        const onScroll = () => {
-            if (!frame) frame = requestAnimationFrame(update);
-        };
-
-        frame = requestAnimationFrame(update);
-        main.addEventListener("scroll", onScroll, { passive: true });
-        return () => {
-            main.removeEventListener("scroll", onScroll);
-            cancelAnimationFrame(frame);
-        };
-    }, [active, viewKey]);
-
-    const goToStage = (id: StageId) => scrollToAnchor(stageAnchor(id));
+        if (mainRef.current) mainRef.current.scrollTop = 0;
+    }, [viewKey, activeStage]);
 
     const renderDestination = (destination: Destination) => {
         const Icon = destination.icon;
@@ -217,18 +191,18 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                         className="mt-100 mb-200 ml-500 flex flex-col border-l border-border"
                     >
                         {destination.stages.map((stage) => {
-                            const isReading = stage.id === readingStage;
+                            const isOpen = stage.id === activeStage;
                             return (
                                 <li key={stage.id}>
                                     {stage.ready ? (
                                         <button
                                             type="button"
-                                            onClick={() => goToStage(stage.id)}
-                                            aria-current={isReading ? "location" : undefined}
+                                            onClick={() => onNavigate(destination.id, stage.id)}
+                                            aria-current={isOpen ? "location" : undefined}
                                             className={cn(
                                                 "-ml-px flex w-full border-l-2 py-100 pr-200 pl-[18px] text-left text-[length:var(--text-200)] leading-200 transition-colors",
                                                 "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                                                isReading
+                                                isOpen
                                                     ? "border-primary font-semibold text-foreground"
                                                     : "border-transparent text-muted-foreground hover:text-foreground",
                                             )}
@@ -351,6 +325,7 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                                 dates={dates}
                                 filterKeys={filterKeys}
                                 contentRef={contentRef}
+                                prepareExport={showWholePage}
                                 meta={<AccessScopeChip state={accessScope} />}
                                 downloadable={isPackable(current) && !noScope}
                             />
@@ -361,6 +336,14 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                     ) : (
                         <>
                             {title && filterKeys.length > 0 && <FilterBar destinationLabel={title} />}
+                            {current && tabs.length > 1 && (
+                                <StageTabs
+                                    label={`${current.label} stages`}
+                                    stages={tabs}
+                                    open={activeStage}
+                                    onOpen={(stage) => onNavigate(current.id, stage)}
+                                />
+                            )}
                             <ThemeContext.Provider value={{ ...themeContext, theme: paletteTheme }}>
                                 <DataToContext.Provider value={dataTo}>
                                     <div
@@ -369,7 +352,11 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                                         data-refreshing={refreshing || undefined}
                                         className="flex flex-col gap-700 transition-opacity duration-200 data-[refreshing]:opacity-55 data-[refreshing]:delay-150"
                                     >
-                                        {children}
+                                        {view.kind === "destination" ? (
+                                            <StageFilterContext.Provider value={stageFilter}>{children}</StageFilterContext.Provider>
+                                        ) : (
+                                            children
+                                        )}
                                     </div>
                                 </DataToContext.Provider>
                             </ThemeContext.Provider>

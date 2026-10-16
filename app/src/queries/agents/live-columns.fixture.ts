@@ -23,9 +23,8 @@ export const liveColumns = {
         "[Agent User Share]",
         "[Agent Sessions]",
         "[Sessions Per User]",
-        "[Return Rate]",
     ],
-    agentUsage: ["[Agent]", "[Sessions]", "[Users]", "[Return Rate]", "[Organizations]"],
+    agentUsage: ["[Agent]", "[Sessions]", "[Users]", "[Organizations]"],
     agentEstateSummary: [
         "[Registry Agents]",
         "[Tenant Built]",
@@ -44,7 +43,6 @@ export const liveColumns = {
         "[Users]",
         "[Sessions]",
         "[Sessions Per User]",
-        "[Return Rate]",
         "[Orgs Reached]",
         "[Last Activity]",
         "[Features]",

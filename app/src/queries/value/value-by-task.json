@@ -16,7 +16,7 @@
       "type": "quantitative",
       "stack": null,
       "title": "Expert-equivalent hours per week",
-      "axis": { "labelExpr": "format(datum.value, ',.0f')" }
+      "axis": { "labelExpr": "compactFormat(datum.value, '#,0')" }
     },
     "color": {
       "field": "Chat + Agent Interactions (Audit Logs)Task Breakdown Group",

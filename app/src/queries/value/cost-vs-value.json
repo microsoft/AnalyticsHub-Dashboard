@@ -20,7 +20,7 @@
           "field": "Cost",
           "type": "quantitative",
           "title": null,
-          "axis": { "labelExpr": "'__CURRENCY__' + format(datum.value, '~s')" }
+          "axis": { "labelExpr": "'__CURRENCY__' + compactFormat(datum.value, '#,0')" }
         },
         "x2": { "field": "Value" }
       }
@@ -39,7 +39,7 @@
           "field": "Amount",
           "type": "quantitative",
           "title": null,
-          "axis": { "labelExpr": "'__CURRENCY__' + format(datum.value, '~s')" }
+          "axis": { "labelExpr": "'__CURRENCY__' + compactFormat(datum.value, '#,0')" }
         },
         "color": {
           "field": "Measure",

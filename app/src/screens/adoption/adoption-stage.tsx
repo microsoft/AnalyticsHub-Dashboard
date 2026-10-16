@@ -143,13 +143,6 @@ export function AdoptionStage() {
                                                 value={readNumber(summaryRow, "[Overall Sessions]")}
                                             />
                                         )}
-                                        {surface.id === "agents" && (
-                                            <KpiStat
-                                                label="Return rate"
-                                                value={readNumber(summaryRow, "[Agent Return Rate]")}
-                                                format="percent"
-                                            />
-                                        )}
                                     </div>
                                 }
                             />

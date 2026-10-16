@@ -16,7 +16,7 @@
       "type": "quantitative",
       "title": "Agents",
       "stack": "zero",
-      "axis": { "labelExpr": "format(datum.value, ',.0f')" }
+      "axis": { "labelExpr": "compactFormat(datum.value, '#,0')" }
     },
     "color": {
       "field": "Type",

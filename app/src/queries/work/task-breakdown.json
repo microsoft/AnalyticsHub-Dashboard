@@ -9,14 +9,14 @@
       "field": "Category",
       "type": "nominal",
       "title": null,
-      "sort": "-x",
+      "sort": null,
       "axis": { "labelLimit": 220 }
     },
     "x": {
       "field": "Tasks",
       "type": "quantitative",
       "title": "Tasks",
-      "axis": { "labelExpr": "format(datum.value, ',.0f')" }
+      "axis": { "labelExpr": "compactFormat(datum.value, '#,0')" }
     },
     "tooltip": [
       { "field": "Category", "type": "nominal", "title": "__TITLE__" },

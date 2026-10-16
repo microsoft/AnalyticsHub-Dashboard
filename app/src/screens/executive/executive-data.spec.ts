@@ -20,7 +20,6 @@ import {
     formatDay,
     formatMonth,
     joinNames,
-    mostUsedAgent,
     ratio,
     sumPresent,
     tableRecords,
@@ -95,7 +94,11 @@ describe("cardDelta on the demo months", () => {
 
     it("compares rates in percentage points and averages as a plain difference", () => {
         expect(cardDelta("rate", pair, months, read("Habit Pct"))).toMatchObject({ direction: "up", amount: "6.4 pp" });
-        expect(cardDelta("average", pair, months, read("Skills Per Person"))).toMatchObject({
+        const averages = new Map<string, SummaryRow>([
+            ["2026-05-01", { Average: 6.2 }],
+            ["2026-06-01", { Average: 5.4 }],
+        ]);
+        expect(cardDelta("average", pair, averages, read("Average"))).toMatchObject({
             direction: "down",
             amount: "0.8",
             comparison: "Jun vs May",
@@ -187,11 +190,9 @@ describe("small helpers", () => {
         expect(sumPresent(undefined, undefined)).toBeUndefined();
     });
 
-    it("names the most used agent, or every agent tied for it", () => {
-        expect(mostUsedAgent(summary)).toBe("Copilot for Excel, Copilot for Teams and Finance Analyst Bot, tied on users");
-        expect(mostUsedAgent({ "[Agent With Most Users]": "Finance Analyst Bot" })).toBe("Finance Analyst Bot");
-        expect(mostUsedAgent({ "[Agent With Most Users]": null })).toBeUndefined();
+    it("joins names the way the page writes them", () => {
         expect(joinNames(["A", "B"])).toBe("A and B");
+        expect(joinNames(["A", "B", "C"])).toBe("A, B and C");
     });
 
     it("prints days and months the way the page does", () => {

@@ -81,10 +81,6 @@ export function GrowingStage({ data }: { data: ExecutiveData }) {
                                         : `Copilot interactions, sorted into ${formatKpi(kinds, "whole")} kinds of work.`,
                             },
                             {
-                                term: "Unique skills",
-                                text: "How many different kinds of work a person used Copilot for in the date range. General Chat and General Assistance don't count.",
-                            },
-                            {
                                 term: "Credits",
                                 text: CONSUMPTION_CONFIGURED
                                     ? "Copilot Studio and Cowork credits from Consumption Central, for the whole tenant."

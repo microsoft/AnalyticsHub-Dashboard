@@ -14,6 +14,7 @@ import { useCommercialTerms } from "@/hooks/commercial-terms.context";
 import { budgetRunway, bulletLabel, bulletScale, runwayHeadline, shortDate, spreadWeeks, type Runway, type RunwayStatus } from "@/lib/budget-runway";
 import { FILTER_KEYS } from "@/lib/filters";
 import { formatKpi } from "@/lib/format-kpi";
+import { fitFontSize } from "@/lib/kpi-fit";
 import { readNumber, type SummaryRow } from "@/lib/summary-row";
 import { cn } from "@/lib/utils";
 import {
@@ -87,6 +88,9 @@ function RunwayCard({ label, result, empty, runway, prefix, weekly }: RunwayCard
     const shown = empty ? { ...runway, status } : runway;
     const budget = runway.budget;
     const scale = bulletScale(runway);
+    const spent = status === "no-data" ? undefined : runway.spent;
+    const spentShown = formatKpi(spent, "currency", { prefix, compact: true });
+    const spentExact = formatKpi(spent, "currency", { prefix });
 
     return (
         <article className="flex flex-col gap-300 rounded-xl border border-border bg-card p-500" aria-label={`${label} budget runway`}>
@@ -102,9 +106,14 @@ function RunwayCard({ label, result, empty, runway, prefix, weekly }: RunwayCard
                 <QueryLoading className="min-h-[160px]" />
             ) : (
                 <>
-                    <div className="flex flex-col gap-100">
-                        <span className="font-numeric text-[length:var(--text-hero-800)] leading-hero-800 font-semibold tabular-nums text-card-foreground">
-                            {formatKpi(status === "no-data" ? undefined : runway.spent, "currency", { prefix })}
+                    <div className="flex flex-col gap-100 [container-type:inline-size]">
+                        <span
+                            data-kpi-value=""
+                            title={spentExact !== spentShown ? spentExact : undefined}
+                            style={{ fontSize: fitFontSize(spentShown, "--text-hero-800") }}
+                            className="block whitespace-nowrap font-numeric leading-hero-800 font-semibold tabular-nums text-card-foreground"
+                        >
+                            {spentShown}
                         </span>
                         <span className={cn(SMALL, "text-muted-foreground")}>
                             {budget

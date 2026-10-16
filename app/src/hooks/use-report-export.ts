@@ -29,6 +29,11 @@ export interface ExportRequest {
     freshness?: string;
     dataTo?: string;
     missing?: readonly string[];
+    /**
+     * Readies `root` for capture, such as drawing every stage of a page that
+     * shows one at a time, and returns how to put it back.
+     */
+    prepare?: () => () => void;
 }
 
 export interface ReportExport {
@@ -65,7 +70,10 @@ export function useReportExport(): ReportExport {
         setMessage("Waiting for the charts to finish loading…");
         // By the time it is restored the page has re-rendered, so `theme.current` holds the light theme's toggle.
         let swapped = theme.current.isDark;
+        let unprepare = request.prepare?.();
         const restore = () => {
+            unprepare?.();
+            unprepare = undefined;
             if (!swapped) return;
             swapped = false;
             theme.current.toggleTheme();

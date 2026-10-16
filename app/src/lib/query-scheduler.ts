@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 import { FabricApiProxyError, type IFabricApiProxy } from "@microsoft/fabric-app-data";
+import { currentPriority, type QueryPriority } from "@/lib/query-priority";
 
 /**
  * What a card says when Power BI keeps throttling a query after every retry.
@@ -17,6 +18,12 @@ const WINDOW_MS = 60_000;
 export interface QuerySchedulerOptions {
     /** Queries in flight at once. */
     concurrency?: number;
+    /**
+     * Background queries in flight at once, on top of `concurrency` so what is
+     * on screen keeps every slot; they start only while nothing on screen is
+     * running or waiting.
+     */
+    lowConcurrency?: number;
     /** Queries started in any 60 seconds, held under Power BI's 120 per user. */
     perMinute?: number;
     /** Retries for a throttled query before it gives up. */
@@ -28,6 +35,15 @@ export interface QuerySchedulerOptions {
     now?: () => number;
     random?: () => number;
 }
+
+/** Queries in flight or queued, by lane, and how many have finished since the app opened. */
+export interface SchedulerActivity {
+    foreground: number;
+    background: number;
+    finished: number;
+}
+
+type Admit = (lane: QueryPriority) => void;
 
 interface Throttle {
     status: number;
@@ -83,8 +99,6 @@ function busyError(error: unknown, throttle: Throttle): FabricApiProxyError {
     });
 }
 
-const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
 /**
  * Paces the app's semantic model queries so a page load can't trip Power
  * BI's per-user limit or swamp a busy capacity: a few in flight at once,
@@ -92,9 +106,17 @@ const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve,
  * throttled query waits — as long as Retry-After asks, else an exponential
  * backoff with jitter — and every other query waits with it, so the app
  * stops sending while Power BI is catching up.
+ *
+ * Background queries — pages fetched ahead of a visit — run in a lane of
+ * their own: one at a time in a slot of its own, only while nothing on
+ * screen is running or waiting, and on half the per-minute budget. Asking
+ * for one in the foreground moves it to the front lane, even while it waits
+ * for budget. One that waited checks again that the screen is quiet before
+ * it starts, and if not, gives its slot back and queues again.
  */
 export class QueryScheduler {
     private readonly concurrency: number;
+    private readonly lowConcurrency: number;
     private readonly perMinute: number;
     private readonly maxRetries: number;
     private readonly baseDelayMs: number;
@@ -103,13 +125,20 @@ export class QueryScheduler {
     private readonly random: () => number;
 
     private active = 0;
-    private readonly waiting: Array<() => void> = [];
+    private lowActive = 0;
+    private readonly waiting: Admit[] = [];
+    private readonly lowWaiting: Array<{ key: string; admit: Admit }> = [];
+    private readonly lanes = new Map<string, QueryPriority>();
+    private readonly listeners = new Set<() => void>();
+    private finished = 0;
     private readonly starts: number[] = [];
     private pausedUntil = 0;
     private readonly inFlight = new Map<string, Promise<unknown>>();
+    private readonly naps = new Map<string, () => void>();
 
     constructor(options: QuerySchedulerOptions = {}) {
         this.concurrency = options.concurrency ?? 4;
+        this.lowConcurrency = options.lowConcurrency ?? 1;
         this.perMinute = options.perMinute ?? 90;
         this.maxRetries = options.maxRetries ?? 3;
         this.baseDelayMs = options.baseDelayMs ?? 1000;
@@ -119,24 +148,67 @@ export class QueryScheduler {
     }
 
     /** Runs `task`, or joins the identical one already in flight under `key`. */
-    run<T>(key: string, task: () => Promise<T>): Promise<T> {
+    run<T>(key: string, task: () => Promise<T>, priority: QueryPriority = "normal"): Promise<T> {
         const existing = this.inFlight.get(key);
-        if (existing) return existing as Promise<T>;
-        const promise = this.attempt(task).finally(() => this.inFlight.delete(key));
+        if (existing) {
+            if (priority === "normal") this.promote(key);
+            return existing as Promise<T>;
+        }
+        this.lanes.set(key, priority);
+        const promise = this.attempt(key, task).finally(() => {
+            this.inFlight.delete(key);
+            this.lanes.delete(key);
+            this.finished++;
+            this.notify();
+        });
         this.inFlight.set(key, promise);
+        this.notify();
         return promise;
     }
 
-    private async attempt<T>(task: () => Promise<T>): Promise<T> {
+    /** Queries in flight or queued in each lane. */
+    activity(): SchedulerActivity {
+        let background = 0;
+        for (const lane of this.lanes.values()) if (lane === "low") background++;
+        return { foreground: this.lanes.size - background, background, finished: this.finished };
+    }
+
+    /** Calls `listener` whenever a query starts, finishes or changes lane. */
+    subscribe(listener: () => void): () => void {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    }
+
+    private notify(): void {
+        for (const listener of this.listeners) listener();
+    }
+
+    /** Someone is now looking at what a background query fetches, so it joins the front lane. */
+    private promote(key: string): void {
+        if (this.lanes.get(key) !== "low") return;
+        this.lanes.set(key, "normal");
+        const index = this.lowWaiting.findIndex((entry) => entry.key === key);
+        if (index >= 0) {
+            const [entry] = this.lowWaiting.splice(index, 1);
+            if (this.waiting.length === 0 && this.active < this.concurrency) {
+                this.active++;
+                entry.admit("normal");
+            } else this.waiting.push(entry.admit);
+        }
+        this.naps.get(key)?.();
+        this.notify();
+    }
+
+    private async attempt<T>(key: string, task: () => Promise<T>): Promise<T> {
         for (let retry = 0; ; retry++) {
-            await this.acquire();
+            const lane = await this.acquire(key);
             let failure: unknown;
             try {
                 return await task();
             } catch (error) {
                 failure = error;
             } finally {
-                this.release();
+                this.release(lane);
             }
             const throttle = throttleOf(failure);
             if (!throttle) throw failure;
@@ -152,33 +224,92 @@ export class QueryScheduler {
         return Math.round(backoff / 2 + this.random() * (backoff / 2));
     }
 
-    private async acquire(): Promise<void> {
-        if (this.active < this.concurrency) this.active++;
-        else await new Promise<void>((resolve) => this.waiting.push(resolve));
-        await this.takeStart();
+    private async acquire(key: string): Promise<QueryPriority> {
+        for (let again = false; ; again = true) {
+            const lane = await (this.lanes.get(key) === "low" ? this.admitLow(key, again) : this.admitNormal());
+            if (await this.takeStart(key, lane)) return lane;
+            // Asked for on screen, or the screen got busy while it waited: give the background slot back.
+            this.lowActive--;
+        }
+    }
+
+    private admitNormal(): Promise<QueryPriority> {
+        if (this.active < this.concurrency) {
+            this.active++;
+            return Promise.resolve("normal");
+        }
+        return new Promise((resolve) => this.waiting.push(resolve));
+    }
+
+    private admitLow(key: string, front = false): Promise<QueryPriority> {
+        if (this.lowCanStart()) {
+            this.lowActive++;
+            return Promise.resolve("low");
+        }
+        return new Promise((resolve) => {
+            if (front) this.lowWaiting.unshift({ key, admit: resolve });
+            else this.lowWaiting.push({ key, admit: resolve });
+        });
+    }
+
+    /** Background work starts only when nothing on screen is running or waiting. */
+    private lowCanStart(): boolean {
+        return this.active === 0 && this.waiting.length === 0 && this.lowActive < this.lowConcurrency;
     }
 
     /** Hands the slot straight to the next query in line, so it can't be taken past it. */
-    private release(): void {
-        const next = this.waiting.shift();
-        if (next) next();
+    private release(lane: QueryPriority): void {
+        if (lane === "low") this.lowActive--;
         else this.active--;
+        while (this.waiting.length > 0 && this.active < this.concurrency) {
+            this.active++;
+            this.waiting.shift()!("normal");
+        }
+        while (this.lowWaiting.length > 0 && this.lowCanStart()) {
+            this.lowActive++;
+            this.lowWaiting.shift()!.admit("low");
+        }
     }
 
-    private async takeStart(): Promise<void> {
+    /**
+     * Takes a start from the per-minute budget. A background query says no
+     * instead, at every wake, once it is asked for on screen or the screen is
+     * no longer quiet.
+     */
+    private async takeStart(key: string, lane: QueryPriority): Promise<boolean> {
+        // Background work leaves half the per-minute budget for what is on screen.
+        const budget = lane === "low" ? Math.max(1, Math.floor(this.perMinute / 2)) : this.perMinute;
         for (;;) {
+            if (lane === "low" && !this.backgroundMayStart(key)) return false;
             const now = this.now();
             if (now < this.pausedUntil) {
-                await sleep(this.pausedUntil - now);
+                await this.nap(key, this.pausedUntil - now);
                 continue;
             }
             while (this.starts.length > 0 && now - this.starts[0] >= WINDOW_MS) this.starts.shift();
-            if (this.starts.length < this.perMinute) {
+            if (this.starts.length < budget) {
                 this.starts.push(now);
-                return;
+                return true;
             }
-            await sleep(this.starts[0] + WINDOW_MS - now);
+            await this.nap(key, this.starts[0] + WINDOW_MS - now);
         }
+    }
+
+    private backgroundMayStart(key: string): boolean {
+        return this.lanes.get(key) === "low" && this.active === 0 && this.waiting.length === 0;
+    }
+
+    /** Sleeps, or wakes early when `key` moves to the front lane. */
+    private nap(key: string, ms: number): Promise<void> {
+        return new Promise((resolve) => {
+            const wake = () => {
+                clearTimeout(timer);
+                if (this.naps.get(key) === wake) this.naps.delete(key);
+                resolve();
+            };
+            const timer = setTimeout(wake, ms);
+            this.naps.set(key, wake);
+        });
     }
 }
 
@@ -190,12 +321,16 @@ export function scheduledProxy(inner: IFabricApiProxy, scheduler = new QuerySche
     return {
         semanticModel: {
             executeDax: (workspaceId, itemId, query, options) =>
-                scheduler.run(["arrow", workspaceId, itemId, query, JSON.stringify(options ?? {})].join("\0"), () =>
-                    inner.semanticModel.executeDax(workspaceId, itemId, query, options),
+                scheduler.run(
+                    ["arrow", workspaceId, itemId, query, JSON.stringify(options ?? {})].join("\0"),
+                    () => inner.semanticModel.executeDax(workspaceId, itemId, query, options),
+                    currentPriority(),
                 ),
             executeDaxJson: (workspaceId, itemId, query) =>
-                scheduler.run(["json", workspaceId, itemId, query].join("\0"), () =>
-                    inner.semanticModel.executeDaxJson(workspaceId, itemId, query),
+                scheduler.run(
+                    ["json", workspaceId, itemId, query].join("\0"),
+                    () => inner.semanticModel.executeDaxJson(workspaceId, itemId, query),
+                    currentPriority(),
                 ),
         },
         lakehouse: inner.lakehouse,

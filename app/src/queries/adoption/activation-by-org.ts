@@ -31,6 +31,18 @@ const columnMetadata: ColumnMetadataMap = {
 /** The four activation cohorts the report breaks organizations down by. */
 export type ActivationCohort = "licensed" | "unlicensed" | "all" | "agents";
 
+/** Every count column; each adds up across organizations. */
+export const ACTIVATION_COUNT_COLUMNS = [
+    "Licensed Active",
+    "Licensed Inactive",
+    "Unlicensed Active",
+    "Unlicensed Inactive",
+    "All Active",
+    "All Inactive",
+    "Agent Active",
+    "Agent NotUsing",
+] as const;
+
 const fieldsByCohort: Record<ActivationCohort, { active: string; inactive: string }> = {
     licensed: { active: "Licensed Active", inactive: "Licensed Inactive" },
     unlicensed: { active: "Unlicensed Active", inactive: "Unlicensed Inactive" },
@@ -46,7 +58,9 @@ interface ActivationByOrgParams {
 /**
  * Active versus inactive users per organization, drawn as a diverging bar so
  * the two halves share a baseline. One query serves all four cohorts; the
- * cohort parameter only selects which columns the spec binds to.
+ * cohort parameter only selects which columns the spec binds to. Every
+ * organization comes back, so the screen can rank the cohort's own active
+ * users and fold the rest into Other; the spec draws rows in the order given.
  */
 export function activationByOrg(params?: ActivationByOrgParams) {
     const { active, inactive } = fieldsByCohort[params?.cohort ?? "all"];
@@ -58,5 +72,5 @@ export function activationByOrg(params?: ActivationByOrgParams) {
             .replaceAll("__ORG__", ORGANIZATION_COLUMN),
     ) as VisualizationSpec;
 
-    return { connection, query, columnMetadata, vegaLiteSpec };
+    return { connection, query, columnMetadata, vegaLiteSpec, organization: ORGANIZATION_COLUMN, active };
 }

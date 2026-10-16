@@ -14,9 +14,5 @@ ROW(
     "All Active Pct", [% Active Users (of Total)],
     "Agent Active", [Active Agent Users],
     "Agent NotUsing", [Using Copilot / Not Using Agents],
-    "Agent Active Pct", [% Active Users Using Agents],
-    "Headline Overall", [Activation Overall Headline],
-    "Headline Licensed", [Activation Licensed Headline],
-    "Headline Unlicensed", [Activation Unlicensed Headline],
-    "Headline Agents", [Activation Agents Headline]
+    "Agent Active Pct", [% Active Users Using Agents]
 )

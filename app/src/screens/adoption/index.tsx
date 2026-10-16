@@ -12,16 +12,15 @@ import { HabitStage } from "./habit-stage";
 import { TrendHeatmapStage } from "./trend-heatmap-stage";
 
 /**
- * The adoption funnel, read top to bottom: did people start, do they come
- * back, has it become a habit, and where is that momentum concentrating.
- * Four report pages, more than one hundred visuals and eight queries.
+ * The adoption funnel: how many people use Copilot, did they start, do they
+ * come back, has it become a habit, and where is that momentum concentrating.
  */
 export function AdoptionScreen() {
     const { show } = useStageFilter();
     return (
         <div className="flex flex-col gap-800">
-            {show("activation") && <ActivationStage />}
             {show("adoption") && <AdoptionStage />}
+            {show("activation") && <ActivationStage />}
             {show("habit-formation") && <HabitStage />}
             {show("trend-heatmap") && <TrendHeatmapStage />}
         </div>

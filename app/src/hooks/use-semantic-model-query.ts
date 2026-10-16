@@ -7,7 +7,9 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { type CachedQueryResult } from "@microsoft/fabric-app-data";
-import { getFabricClient } from "@/lib/fabric-client";
+import { getFabricClient, QUERY_CACHE_MAX_AGE_MS } from "@/lib/fabric-client";
+import { withPriority } from "@/lib/query-priority";
+import { useIsPrefetch } from "./prefetch.context";
 
 interface UseSemanticModelQueryOptions {
     /** Connection alias from fabric.yaml (e.g., "salesModel"). */
@@ -27,7 +29,8 @@ interface UseSemanticModelQueryResult {
 
 /**
  * React hook that executes a DAX query against a Power BI semantic model
- * via the Fabric SDK. Results are cached by the SDK's built-in LRU cache.
+ * via the Fabric SDK. Results are cached by the SDK's built-in LRU cache for
+ * the rest of the visit, up to an hour each (`QUERY_CACHE_MAX_AGE_MS`).
  *
  * The connection alias is resolved from `fabric.generated.ts`
  * (managed by `npx fabric-app-data`).
@@ -73,6 +76,7 @@ export function useSemanticModelQuery(
     const [error, setError] = useState<Error | undefined>();
 
     const canExecute = Boolean(connection && query);
+    const priority = useIsPrefetch() ? "low" : "normal";
 
     const execute = useCallback(async () => {
         if (!canExecute) return;
@@ -80,9 +84,11 @@ export function useSemanticModelQuery(
         setError(undefined);
 
         try {
-            const result = await getFabricClient()
-                .semanticModel(connection)
-                .query(query, { bypassCache });
+            const model = getFabricClient().semanticModel(connection);
+            let result = await withPriority(priority, () => model.query(query, { bypassCache }));
+            if (result.fromCache && result.cachedAt && Date.now() - result.cachedAt.getTime() > QUERY_CACHE_MAX_AGE_MS) {
+                result = await withPriority(priority, () => model.query(query, { bypassCache: true }));
+            }
 
             setData(result);
 
@@ -94,7 +100,7 @@ export function useSemanticModelQuery(
         } finally {
             setIsLoading(false);
         }
-    }, [connection, query, bypassCache, canExecute]);
+    }, [connection, query, bypassCache, canExecute, priority]);
 
     useEffect(() => {
         // Starts a fetch from the semantic model; the loading flag must flip as it starts.

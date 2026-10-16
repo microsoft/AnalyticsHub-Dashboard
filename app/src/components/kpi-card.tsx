@@ -9,6 +9,7 @@ import type { ReactNode } from "react";
 import { Sparkline } from "@/components/sparkline";
 import type { SparkPoint } from "@/lib/sparkline";
 import { formatKpi, type KpiFormat } from "@/lib/format-kpi";
+import { fitFontSize } from "@/lib/kpi-fit";
 import type { Delta } from "@/lib/month-over-month";
 import { cn } from "@/lib/utils";
 
@@ -46,9 +47,14 @@ interface KpiCardProps {
 /**
  * A single figure presented as the focus of its card — oversized tabular
  * numerals over a hairline rule, with the label subordinated above it.
+ * A figure of a million or more reads 5.9M, with the exact figure on hover
+ * and for screen readers, and it never wraps: if it would still be wider
+ * than the card it is drawn smaller to fit.
  */
 export function KpiCard({ label, value, format = "whole", prefix, delta, trend, detail, emptyValue, emphasis, className }: KpiCardProps) {
     const isBlank = value === undefined;
+    const shown = isBlank && emptyValue ? emptyValue : formatKpi(value, format, { prefix, compact: true });
+    const exact = formatKpi(value, format, { prefix });
 
     return (
         <div
@@ -61,17 +67,20 @@ export function KpiCard({ label, value, format = "whole", prefix, delta, trend, 
             <span className="text-[length:var(--text-200)] leading-200 text-muted-foreground">
                 {label}
             </span>
-            <span
-                className={cn(
-                    "font-numeric font-semibold tabular-nums leading-hero-800 text-card-foreground",
-                    emphasis
-                        ? "text-[length:var(--text-hero-900)] leading-hero-900"
-                        : "text-[length:var(--text-hero-800)]",
-                    isBlank && "text-muted-foreground",
-                )}
-            >
-                {isBlank && emptyValue ? emptyValue : formatKpi(value, format, { prefix })}
-            </span>
+            <div className="[container-type:inline-size]">
+                <span
+                    data-kpi-value=""
+                    title={!isBlank && exact !== shown ? exact : undefined}
+                    style={{ fontSize: fitFontSize(shown, emphasis ? "--text-hero-900" : "--text-hero-800") }}
+                    className={cn(
+                        "block whitespace-nowrap font-numeric font-semibold tabular-nums leading-hero-800 text-card-foreground",
+                        emphasis && "leading-hero-900",
+                        isBlank && "text-muted-foreground",
+                    )}
+                >
+                    <Figure shown={shown} exact={isBlank ? shown : exact} />
+                </span>
+            </div>
             {delta && !isBlank && <KpiDeltaLine delta={delta} />}
             {trend && !isBlank && <Sparkline points={trend.points} description={trend.description} />}
             {detail && (
@@ -124,12 +133,28 @@ interface KpiStatProps {
 
 /** A compact label/figure pair for use inside a card's detail area. */
 export function KpiStat({ label, value, format = "whole", prefix }: KpiStatProps) {
+    const shown = formatKpi(value, format, { prefix, compact: true });
+    const exact = formatKpi(value, format, { prefix });
     return (
         <div className="flex items-baseline justify-between gap-200">
             <span>{label}</span>
-            <span className="font-numeric font-semibold tabular-nums text-[length:var(--text-300)] text-foreground">
-                {formatKpi(value, format, { prefix })}
+            <span
+                title={exact !== shown ? exact : undefined}
+                className="shrink-0 whitespace-nowrap font-numeric font-semibold tabular-nums text-[length:var(--text-300)] text-foreground"
+            >
+                <Figure shown={shown} exact={exact} />
             </span>
         </div>
+    );
+}
+
+/** A shortened figure, read out in full. */
+export function Figure({ shown, exact }: { shown: string; exact: string }) {
+    if (shown === exact) return <>{shown}</>;
+    return (
+        <>
+            <span aria-hidden="true">{shown}</span>
+            <span className="sr-only">{exact}</span>
+        </>
     );
 }

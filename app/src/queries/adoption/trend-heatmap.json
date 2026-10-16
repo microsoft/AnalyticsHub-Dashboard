@@ -12,7 +12,7 @@
       "as": "Week Label"
     },
     {
-      "calculate": "isValid(datum['__VALUE__']) ? format(datum['__VALUE__'], '__FORMAT__') : ''",
+      "calculate": "!isValid(datum['__VALUE__']) ? '' : abs(datum['__VALUE__']) >= 1000 ? compactFormat(datum['__VALUE__'], '#,0') : format(datum['__VALUE__'], '__FORMAT__')",
       "as": "Heatmap Label"
     }
   ],
@@ -44,9 +44,14 @@
         "color": {
           "field": "__VALUE__",
           "type": "quantitative",
-          "title": null,
+          "title": "__TITLE__",
           "scale": { "nice": true },
-          "legend": null
+          "legend": {
+            "orient": "top",
+            "direction": "horizontal",
+            "gradientLength": 200,
+            "labelExpr": "abs(datum.value) >= 1000 ? compactFormat(datum.value, '#,0') : format(datum.value, '__FORMAT__')"
+          }
         }
       }
     },

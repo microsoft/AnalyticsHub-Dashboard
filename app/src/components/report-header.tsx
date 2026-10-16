@@ -31,6 +31,8 @@ interface ReportHeaderProps {
     missing?: readonly string[];
     /** The rendered page or pack the downloads capture. */
     contentRef: RefObject<HTMLElement | null>;
+    /** Readies the content for a download and returns how to put it back. */
+    prepareExport?: () => () => void;
     /** Further actions after the downloads, such as editing a pack. */
     actions?: ReactNode;
     /** Offer the downloads and actions; off for a conversation like Ask, which can't be exported. */
@@ -55,6 +57,7 @@ export function ReportHeader({
     filterKeys,
     missing,
     contentRef,
+    prepareExport,
     actions,
     downloadable = true,
     meta,
@@ -71,6 +74,7 @@ export function ReportHeader({
             freshness: describeFreshness(sources, dates),
             dataTo: earliestDate(sources.map((source) => dates[source])),
             missing,
+            prepare: prepareExport,
         });
 
     return (

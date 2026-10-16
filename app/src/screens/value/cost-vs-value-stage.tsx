@@ -18,6 +18,7 @@ import { Section } from "@/components/section";
 import { SegmentedControl } from "@/components/segmented-control";
 import { TermsForm, type TermField } from "@/components/terms-form";
 import { useCommercialTerms } from "@/hooks/commercial-terms.context";
+import { useShowStage } from "@/hooks/navigation.context";
 import { useThemeContext } from "@/hooks/theme.context";
 import { SCENARIOS, useValueAssumptions } from "@/hooks/value-assumptions.context";
 import { gridHeight, rowChartHeight } from "@/lib/chart-height";
@@ -29,7 +30,8 @@ import { runtimeConfig } from "@/lib/runtime-config";
 import { SMALL } from "@/lib/type-scale";
 import { cn } from "@/lib/utils";
 import { LICENSE_LIST_PRICE } from "@/queries/consumption";
-import { agentTable, costValueSpec, pairTable, spanDays, spanMonths, type DateSpan } from "@/queries/value";
+import { TOP_N } from "@/lib/top-n";
+import { agentTable, costValueSpec, pairTable, spanDays, spanMonths, topAgentLines, type DateSpan } from "@/queries/value";
 import { COST_IGNORED_FILTERS, useCostVsValue, type CostVsValue } from "./cost-vs-value-data";
 import { agentCoverageHeadline, pairReturnHeadline } from "./headlines";
 
@@ -281,11 +283,14 @@ export function CostVsValueStage() {
     const data = useCostVsValue();
     const { setScenario } = useValueAssumptions();
     const { theme } = useThemeContext();
+    const showEstimatedValue = useShowStage("value", "estimated-value");
     const { prefix, code, rate, scenario, span, comparison, costs, usd, convertible, credits, summary, agents } = data;
     const counted = credits.kind === "ready";
 
     const products = useMemo(() => pairTable(data.pairs), [data.pairs]);
     const agentRows = useMemo(() => agentTable(agents.lines), [agents.lines]);
+    // The chart draws the fifteen agents with the most value and the rest as Other; the grid below lists them all.
+    const agentChartRows = useMemo(() => agentTable(topAgentLines(agents.lines)), [agents.lines]);
     const spec = useMemo(() => costValueSpec(prefix), [prefix]);
 
     const productColumns: GridColumnDef[] = useMemo(
@@ -344,7 +349,7 @@ export function CostVsValueStage() {
 
     const needRate = "Needs an exchange rate, set below.";
     const productsHeight = rowChartHeight(data.pairs.length, { perRow: 56, chrome: 140, min: 220 });
-    const agentsChartHeight = rowChartHeight(agents.lines.length, { perRow: 40, chrome: 140, min: 240 });
+    const agentsChartHeight = rowChartHeight(agentChartRows.rows.length, { perRow: 40, chrome: 140, min: 240 });
 
     const body = (() => {
         if (summary.error !== undefined && !data.activity) {
@@ -391,12 +396,13 @@ export function CostVsValueStage() {
                     <p className={cn(SMALL, "text-muted-foreground")}>
                         {span ? `${formatDateRange(span.from, span.to)} · ` : ""}
                         {`At ${prefix}${formatKpi(rate, "whole")} an hour, as set under `}
-                        <a
-                            href={`#${stageAnchor("estimated-value")}`}
-                            className="text-foreground underline underline-offset-2 hover:text-primary"
+                        <button
+                            type="button"
+                            onClick={showEstimatedValue}
+                            className="text-foreground underline underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                         >
                             Estimated value
-                        </a>
+                        </button>
                         {`, ${scenario.toLowerCase()} effort`}
                         {!data.dollar && data.exchangeRate !== undefined ? ` · $1 = ${prefix}${data.exchangeRate}` : ""}
                     </p>
@@ -526,12 +532,17 @@ export function CostVsValueStage() {
                                 <div className="min-w-0">
                                     <ChartPanel
                                         result={data.agentResult}
-                                        table={agentRows}
+                                        table={agentChartRows}
                                         spec={spec}
                                         height={agentsChartHeight}
                                         title="Copilot Studio agents"
                                         headline={agentCoverageHeadline}
-                                        subtitle="Each agent's share of the credit cost and the value of its work"
+                                        headlineTable={agentRows}
+                                        subtitle={
+                                            agents.lines.length > TOP_N
+                                                ? `Top ${TOP_N} of ${formatKpi(agents.lines.length, "whole")} agents by value, the rest as Other`
+                                                : "Each agent's share of the credit cost and the value of its work"
+                                        }
                                         emptyTitle="No agents found by name"
                                         emptyDescription="None of the agents with Copilot Studio credits has activity under the same name in ValueLens over these dates."
                                     />

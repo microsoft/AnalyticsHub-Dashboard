@@ -10,6 +10,7 @@ import { VegaVisual } from "@/components/vega-visual";
 import { stageAnchor } from "@/components/destinations";
 import { FilterNote } from "@/components/filter-note";
 import { KpiCard, KpiStat } from "@/components/kpi-card";
+import { OnDemand } from "@/components/on-demand";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
 import { useThemeContext } from "@/hooks/theme.context";
@@ -17,12 +18,12 @@ import { useFilterContext, useOrgAttribute } from "@/hooks/filter.context";
 import { useFilteredQuery } from "@/hooks/use-filtered-query";
 import { selectedCohort, unshownActivity, type FilterKey } from "@/lib/filters";
 import { rowChartHeight } from "@/lib/chart-height";
-import { plainText } from "@/lib/model-text";
 import { withIndefiniteArticle, withOrgAttribute } from "@/lib/org-attribute";
-import { readNumber, readText, toSummaryRow } from "@/lib/summary-row";
+import { readNumber, toSummaryRow } from "@/lib/summary-row";
 import { orgEmptyDescription } from "@/lib/department-coverage";
 import { toDataTable } from "@/lib/to-data-table";
-import { activationByOrg, activationSummary, type ActivationCohort } from "@/queries/adoption";
+import { topNote, topWithOther } from "@/lib/top-n";
+import { ACTIVATION_COUNT_COLUMNS, activationByOrg, activationSummary, type ActivationCohort } from "@/queries/adoption";
 
 /**
  * The cohort cards already split licensed, unlicensed and agent use, so these
@@ -43,7 +44,6 @@ const cohorts: {
     inactiveColumn: string;
     totalColumn?: string;
     percentColumn: string;
-    headlineColumn: string;
     activeLabel: string;
     inactiveLabel: string;
 }[] = [
@@ -54,7 +54,6 @@ const cohorts: {
         inactiveColumn: "[All Inactive]",
         totalColumn: "[All Total]",
         percentColumn: "[All Active Pct]",
-        headlineColumn: "[Headline Overall]",
         activeLabel: "Active",
         inactiveLabel: "Inactive",
     },
@@ -65,7 +64,6 @@ const cohorts: {
         inactiveColumn: "[Licensed Inactive]",
         totalColumn: "[Licensed Total]",
         percentColumn: "[Licensed Active Pct]",
-        headlineColumn: "[Headline Licensed]",
         activeLabel: "Active",
         inactiveLabel: "Inactive",
     },
@@ -76,7 +74,6 @@ const cohorts: {
         inactiveColumn: "[Unlicensed Inactive]",
         totalColumn: "[Unlicensed Total]",
         percentColumn: "[Unlicensed Active Pct]",
-        headlineColumn: "[Headline Unlicensed]",
         activeLabel: "Observed",
         inactiveLabel: "Not observed",
     },
@@ -86,7 +83,6 @@ const cohorts: {
         activeColumn: "[Agent Active]",
         inactiveColumn: "[Agent NotUsing]",
         percentColumn: "[Agent Active Pct]",
-        headlineColumn: "[Headline Agents]",
         activeLabel: "Using agents",
         inactiveLabel: "Not using agents",
     },
@@ -97,33 +93,21 @@ const cohorts: {
  *
  * Power BI spends thirty-one visuals on this page. Here it is two queries —
  * one for every headline figure across all four cohorts, one for the
- * per-organization split that all four cohorts share.
+ * per-organization split that all four cohorts share, which waits for a click.
  */
 export function ActivationStage() {
     const { filters, applicable } = useFilterContext();
     const cohort: ActivationCohort = selectedCohort(filters, applicable, PICKABLE);
-    const { theme } = useThemeContext();
     const org = useOrgAttribute();
 
     const summary = useFilteredQuery(activationSummary(), { ignore: IGNORED });
-    const byOrg = useMemo(() => withOrgAttribute(activationByOrg({ cohort }), org), [cohort, org]);
-    const orgResult = useFilteredQuery({ connection: byOrg.connection, query: byOrg.query }, { ignore: IGNORED });
 
     const summaryRow = useMemo(
         () => (summary.data?.status === "success" ? toSummaryRow(summary.data.table) : undefined),
         [summary.data],
     );
 
-    const orgTable = useMemo(
-        () =>
-            orgResult.data?.status === "success"
-                ? toDataTable(orgResult.data.table, byOrg.columnMetadata)
-                : undefined,
-        [orgResult.data, byOrg.columnMetadata],
-    );
-
     const selected = cohorts.find((entry) => entry.id === cohort) ?? cohorts[0];
-    const headline = plainText(readText(summaryRow, selected.headlineColumn));
     const unmatched = unshownActivity(filters, applicable, PICKABLE);
     const cohortReason = unmatched
         ? `${unmatched} has no activation figure of its own, so ${selected.label} is highlighted and charted below.`
@@ -185,42 +169,66 @@ export function ActivationStage() {
                 </div>
             )}
 
-            {headline && (
-                <p className="border-l-2 border-primary pl-400 text-[length:var(--text-400)] leading-400 text-foreground">
-                    {headline}
-                </p>
-            )}
-
-            <div className="h-[420px]" style={orgTable ? { height: rowChartHeight(orgTable.rows.length, { chrome: 156 }) } : undefined}>
-                {orgResult.data?.status === "error" ? (
-                    <QueryError
-                        className="h-full"
-                        message={orgResult.data.error.message}
-                        onRetry={orgResult.refetch}
-                    />
-                ) : orgResult.isLoading || !orgTable ? (
-                    <QueryLoading className="h-full" />
-                ) : orgTable.rows.length === 0 ? (
-                    <QueryEmpty
-                        className="h-full"
-                        title={`No ${org.plural} to compare`}
-                        description={orgEmptyDescription(
-                            `No rows carry ${withIndefiniteArticle(org.noun)} value. Populate that column in the org data in the lakehouse to break activation down by team.`,
-                            org,
-                        )}
-                    />
-                ) : (
-                    <VegaVisual
-                        spec={byOrg.vegaLiteSpec}
-                        data={orgTable}
-                        theme={theme}
-                        header={{
-                            title: `${selected.label} activation by ${org.noun}`,
-                            subtitle: "Active and inactive users, sharing a baseline",
-                        }}
-                    />
-                )}
-            </div>
+            <OnDemand
+                id="activation-by-org"
+                label={`Show by ${org.noun}`}
+                note={`${selected.label} activation for each ${org.noun}, active and inactive side by side.`}
+            >
+                <ActivationByOrg cohort={cohort} label={selected.label} />
+            </OnDemand>
         </Section>
+    );
+}
+
+/** The per-organization split, which counts the whole population per org and so is the slowest part of the page. */
+function ActivationByOrg({ cohort, label }: { cohort: ActivationCohort; label: string }) {
+    const { theme } = useThemeContext();
+    const org = useOrgAttribute();
+    const byOrg = useMemo(() => withOrgAttribute(activationByOrg({ cohort }), org), [cohort, org]);
+    const orgResult = useFilteredQuery({ connection: byOrg.connection, query: byOrg.query }, { ignore: IGNORED });
+    // The largest fifteen by the cohort's active users, and everyone else in one Other bar.
+    const top = useMemo(
+        () =>
+            orgResult.data?.status === "success"
+                ? topWithOther(toDataTable(orgResult.data.table, byOrg.columnMetadata), {
+                      label: byOrg.organization,
+                      by: byOrg.active,
+                      sum: ACTIVATION_COUNT_COLUMNS,
+                      other: (count) => `Other (${count.toLocaleString("en-US")})`,
+                  })
+                : undefined,
+        [orgResult.data, byOrg],
+    );
+    const orgTable = top?.table;
+
+    return (
+        <div className="h-[420px]" style={orgTable ? { height: rowChartHeight(orgTable.rows.length, { chrome: 156 }) } : undefined}>
+            {orgResult.data?.status === "error" ? (
+                <QueryError className="h-full" message={orgResult.data.error.message} onRetry={orgResult.refetch} />
+            ) : orgResult.isLoading || !orgTable ? (
+                <QueryLoading className="h-full" />
+            ) : orgTable.rows.length === 0 ? (
+                <QueryEmpty
+                    className="h-full"
+                    title={`No ${org.plural} to compare`}
+                    description={orgEmptyDescription(
+                        `No rows carry ${withIndefiniteArticle(org.noun)} value. Populate that column in the org data in the lakehouse to break activation down by team.`,
+                        org,
+                    )}
+                />
+            ) : (
+                <VegaVisual
+                    spec={byOrg.vegaLiteSpec}
+                    data={orgTable}
+                    theme={theme}
+                    header={{
+                        title: `${label} activation by ${org.noun}`,
+                        subtitle: top && top.shown < top.of
+                            ? `${topNote(top, org.plural, cohort === "agents" ? "agent users" : "active users")}, the rest as Other`
+                            : "Active and inactive users, sharing a baseline",
+                    }}
+                />
+            )}
+        </div>
     );
 }

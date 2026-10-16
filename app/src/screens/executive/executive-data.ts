@@ -19,7 +19,7 @@ import {
     type MonthPair,
     type TrendWindow,
 } from "@/lib/month-over-month";
-import { readNumber, readText, type SummaryRow } from "@/lib/summary-row";
+import { readNumber, type SummaryRow } from "@/lib/summary-row";
 
 /**
  * The arithmetic behind the Executive summary's cards, kept apart from the
@@ -158,16 +158,6 @@ const listFormat = new Intl.ListFormat("en-GB", { style: "long", type: "conjunct
 /** "A, B and C" */
 export function joinNames(names: readonly string[]): string {
     return listFormat.format(names);
-}
-
-/** The agent with the most users, or every agent tied for it. */
-export function mostUsedAgent(summary: SummaryRow | undefined): string | undefined {
-    const names = (readText(summary, "[Agent With Most Users]") ?? "")
-        .split("\n")
-        .map((name) => name.trim())
-        .filter(Boolean);
-    if (names.length === 0) return undefined;
-    return names.length === 1 ? names[0] : `${joinNames(names)}, tied on users`;
 }
 
 const dayFormat = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" });

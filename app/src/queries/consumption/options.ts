@@ -56,11 +56,21 @@ export function readConsumptionOptions(table: DataTable): ConsumptionOptions {
 export const ALL_USERS = "All users";
 
 /**
- * Group By attributes worth offering. Identifier columns and single-person
- * groupings repeat the people table, and each product only offers its own
- * usage intensity.
+ * Group By attributes worth offering. Per-person groupings put each person in
+ * a group of one, so they repeat the people table, and on a large tenant they
+ * take one to two and a half minutes. Each product only offers its own usage
+ * intensity.
  */
-const HIDDEN_ATTRIBUTES = new Set(["id", "user id", "manager_user id", "user"]);
+const HIDDEN_ATTRIBUTES = new Set([
+    "id",
+    "user id",
+    "manager_user id",
+    "user",
+    "user key",
+    "employee id",
+    "hierarchy path",
+    "level5_user key",
+]);
 
 const ATTRIBUTE_LABELS: Record<string, string> = {
     "Job Family": "Job family",
@@ -80,7 +90,17 @@ export function groupByChoices(attributes: readonly string[], product: "Cowork" 
             const intensity = /^Usage Intensity \((.+)\)$/i.exec(attribute);
             return !intensity || intensity[1].toLowerCase() === product.toLowerCase();
         })
-        .map((attribute) => ({ value: attribute, label: ATTRIBUTE_LABELS[attribute] ?? attribute }));
+        .map((attribute) => ({ value: attribute, label: attributeLabel(attribute) }));
+}
+
+/** The chosen grouping while it is still offered, otherwise All users. */
+export function offeredGroupBy(choices: readonly GroupByChoice[], value: string | undefined): string | undefined {
+    return choices.some((choice) => choice.value === value) ? value : undefined;
+}
+
+function attributeLabel(attribute: string): string {
+    const level = /^level\s*_?(\d+)_?\s*name$/i.exec(attribute);
+    return ATTRIBUTE_LABELS[attribute] ?? (level ? `Org level ${level[1]}` : attribute);
 }
 
 /** Always applied: without it every attribute's groups would be listed together. */

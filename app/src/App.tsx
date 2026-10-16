@@ -5,16 +5,17 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { Suspense, useMemo, useRef, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { AppShell, type AppView } from "./components/app-shell";
 import {
     availableDestinations,
     destinations,
-    stageAnchor,
+    openStage,
     type DestinationId,
     type StageId,
 } from "./components/destinations";
 import { FilterProvider } from "./components/filter-provider";
+import { Prefetcher } from "./components/prefetcher";
 import { QueryLoading } from "./components/query-states";
 import { ReportPackView } from "./components/report-pack-view";
 import { ReportPacksProvider } from "./components/report-packs-provider";
@@ -25,15 +26,14 @@ import { SourceAvailabilityContext, useSourceAvailability } from "./hooks/source
 import { useSourceProbes } from "./hooks/use-source-probes";
 import { packFilters, packRuns } from "./lib/report-pack";
 import { runtimeConfig } from "./lib/runtime-config";
-import { scrollToAnchorWhenReady } from "./lib/scroll-to-anchor";
 import { SCREENS } from "./screens/registry";
 
-type Selection = { kind: "destination"; id: DestinationId } | { kind: "pack"; id: string };
+type Selection = { kind: "destination"; id: DestinationId; stage?: StageId } | { kind: "pack"; id: string };
 
 /**
- * The open destination or report pack, its slicers and the shell around it.
- * A page whose source turns out to have no data, or a pack that has been
- * deleted, gives way to the Executive summary.
+ * The open destination and stage, or report pack, its slicers and the shell
+ * around it. A page whose source turns out to have no data, or a pack that
+ * has been deleted, gives way to the Executive summary.
  */
 function Workspace() {
     const [selected, setSelected] = useState<Selection>({ kind: "destination", id: "executive" });
@@ -46,8 +46,10 @@ function Workspace() {
             const pack = packs.find(({ id }) => id === selected.id);
             if (pack) return { kind: "pack", pack, ...packRuns(pack.stages, available) };
         }
-        const id = selected.kind === "destination" && available.some((candidate) => candidate.id === selected.id) ? selected.id : "executive";
-        return { kind: "destination", id };
+        const destination = selected.kind === "destination" ? available.find((candidate) => candidate.id === selected.id) : undefined;
+        const id = destination?.id ?? "executive";
+        const stage = destination && selected.kind === "destination" ? selected.stage : undefined;
+        return { kind: "destination", id, stage: openStage(destinations.find((candidate) => candidate.id === id)!, stage) };
     }, [selected, packs, available]);
 
     const applicable = useMemo(
@@ -57,23 +59,14 @@ function Workspace() {
                 : (destinations.find((candidate) => candidate.id === view.id)?.filters ?? []),
         [view],
     );
-    const stopWaiting = useRef<() => void>(undefined);
 
     const navigation = useMemo(
         () => ({
-            navigate: (id: DestinationId, stage?: StageId) => {
-                stopWaiting.current?.();
-                setSelected({ kind: "destination", id });
-                stopWaiting.current = stage ? scrollToAnchorWhenReady(stageAnchor(stage)) : undefined;
-            },
+            navigate: (id: DestinationId, stage?: StageId) => setSelected({ kind: "destination", id, stage }),
         }),
         [],
     );
-    const openPack = (id: string) => {
-        stopWaiting.current?.();
-        stopWaiting.current = undefined;
-        setSelected({ kind: "pack", id });
-    };
+    const openPack = (id: string) => setSelected({ kind: "pack", id });
 
     const Screen = view.kind === "destination" ? SCREENS[view.id] : undefined;
 
@@ -92,6 +85,13 @@ function Workspace() {
                         )
                     )}
                 </AppShell>
+                {/* Outside the shell, so a page fetched ahead never lands in a download. */}
+                <Prefetcher
+                    available={available}
+                    current={view.kind === "destination" ? view.id : undefined}
+                    stage={view.kind === "destination" ? view.stage : undefined}
+                    screens={SCREENS}
+                />
             </NavigationContext.Provider>
         </FilterProvider>
     );

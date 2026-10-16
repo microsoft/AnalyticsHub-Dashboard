@@ -151,7 +151,7 @@
             "query": "agents/agent-usage.dax",
             "filters": ["dateRange", "organizations"],
             "people": ["Users"],
-            "description": "The 15 most used agents: sessions, users, return rate and how many organizations use each."
+            "description": "The 15 most used agents: sessions, users and how many organizations use each."
         },
         {
             "name": "agent_estate",

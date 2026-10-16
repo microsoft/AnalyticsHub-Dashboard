@@ -44,8 +44,8 @@ export function habitTrend(params?: HabitTrendParams) {
 
     if (params?.scale === "count") {
         vegaLiteSpec.encoding.y.stack = "zero";
-        vegaLiteSpec.encoding.y.title = "Users";
-        vegaLiteSpec.encoding.y.axis = { labelExpr: "format(datum.value, ',.0f')" };
+        vegaLiteSpec.encoding.y.title = "People";
+        vegaLiteSpec.encoding.y.axis = { labelExpr: "compactFormat(datum.value, '#,0')" };
     }
     if (params?.colors?.length === vegaLiteSpec.encoding.color.scale.domain.length) {
         vegaLiteSpec.encoding.color.scale.range = [...params.colors];

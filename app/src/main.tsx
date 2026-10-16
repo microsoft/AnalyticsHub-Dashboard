@@ -5,12 +5,14 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { forgetKeptResults } from './lib/forget-kept-results';
 import { reloadOnStaleBuild } from './lib/reload-on-stale-build';
 import { loadRuntimeConfig } from './lib/runtime-config';
 
 import "./global.css"
 
 reloadOnStaleBuild();
+forgetKeptResults();
 
 const container = document.getElementById('root')!;
 

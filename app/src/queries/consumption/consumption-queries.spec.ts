@@ -36,6 +36,7 @@ import {
     foundryResourceSpend,
     foundrySummary,
     groupByChoices,
+    offeredGroupBy,
     groupByFilter,
     hasConsumptionData,
     isFullCoverage,
@@ -201,12 +202,22 @@ describe("consumption slicers", () => {
             ["Group by", "Department", 0],
             ["Group by", "id", 0],
             ["Group by", "Job Family", 0],
+            ["Group by", "Level2_Name", 0],
+            ["Group by", "Level2_User Key", 0],
+            ["Group by", "Level4_Name", 0],
+            ["Group by", "Level5_Name", 0],
+            ["Group by", "Level5_User Key", 0],
+            ["Group by", "Level12_Name", 0],
+            ["Group by", "Manager", 0],
             ["Group by", "Manager_User Id", 0],
             ["Group by", "Usage Intensity (Cowork)", 0],
             ["Group by", "Usage Intensity (GitHub)", 0],
             ["Group by", "Usage Intensity (Studio)", 0],
             ["Group by", "User", 0],
             ["Group by", "User Id", 0],
+            ["Group by", "User Key", 0],
+            ["Group by", "employee Id", 0],
+            ["Group by", "Hierarchy Path", 0],
             ["Service", "Cowork", 0],
             ["Service", "WorkIQ", 0],
             ["Studio period", "Last 7 days", 1],
@@ -221,16 +232,29 @@ describe("consumption slicers", () => {
         expect(options.costBases).toEqual(["Actual"]);
     });
 
-    it("offers each product its own usage intensity and hides identifier groupings", () => {
+    it("offers each product its own usage intensity and hides per-person groupings", () => {
         expect(groupByChoices(options.groupBy, "Cowork")).toEqual([
             { value: "City", label: "City" },
             { value: "Department", label: "Department" },
             { value: "Job Family", label: "Job family" },
+            { value: "Level2_Name", label: "Org level 2" },
+            { value: "Level2_User Key", label: "Level2_User Key" },
+            { value: "Level4_Name", label: "Org level 4" },
+            { value: "Level5_Name", label: "Org level 5" },
+            { value: "Level12_Name", label: "Org level 12" },
+            { value: "Manager", label: "Manager" },
             { value: "Usage Intensity (Cowork)", label: "Usage intensity" },
         ]);
         expect(groupByChoices(options.groupBy, "Studio").map((choice) => choice.value)).toContain(
             "Usage Intensity (Studio)",
         );
+    });
+
+    it("falls back to All users when a grouping is no longer offered", () => {
+        const choices = groupByChoices(options.groupBy, "Cowork");
+        expect(offeredGroupBy(choices, "Manager")).toBe("Manager");
+        expect(offeredGroupBy(choices, "User Key")).toBeUndefined();
+        expect(groupByFilter(offeredGroupBy(choices, "User Key"))).toBe(`TREATAS({"All users"}, 'Group By'[Attribute])`);
     });
 
     it("always narrows Group By to one attribute, All users by default", () => {

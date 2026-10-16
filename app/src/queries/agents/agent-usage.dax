@@ -7,7 +7,6 @@ TOPN(
                 'Chat + Agent Interactions (Audit Logs)'[AgentName],
                 "@Sessions", [Observed Agent Sessions],
                 "@Users", [Active Agent Users],
-                "@ReturnRate", [Agent Return Rate],
                 "@Orgs", [Agent Orgs]
             ),
             NOT ISBLANK([@Sessions])
@@ -17,7 +16,6 @@ TOPN(
             RETURN IF(ISBLANK(_name) || TRIM(_name) = "", "Unnamed agent", _name),
         "Sessions", [@Sessions],
         "Users", [@Users],
-        "Return Rate", [@ReturnRate],
         "Organizations", [@Orgs]
     ),
     [Sessions], DESC

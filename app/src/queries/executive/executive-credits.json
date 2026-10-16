@@ -33,7 +33,7 @@
           "type": "quantitative",
           "title": null,
           "stack": "zero",
-          "axis": { "labelExpr": "format(datum.value, '~s')", "minExtent": 48, "tickCount": 4 }
+          "axis": { "labelExpr": "compactFormat(datum.value, '#,0')", "minExtent": 48, "tickCount": 4 }
         },
         "color": {
           "field": "Source",
@@ -63,12 +63,13 @@
             { "op": "max", "field": "Emphasis", "as": "Emphasis" }
           ],
           "groupby": ["Month"]
-        }
+        },
+        { "calculate": "abs(datum.Total) < 1000 ? format(datum.Total, ',.0f') : compactFormat(datum.Total, '#,0')", "as": "Total Label" }
       ],
       "mark": { "type": "text", "baseline": "bottom", "dy": -4, "fontWeight": 600 },
       "encoding": {
         "y": { "field": "Total", "type": "quantitative", "title": null },
-        "text": { "field": "Total", "type": "quantitative", "format": ".3~s" },
+        "text": { "field": "Total Label", "type": "nominal" },
         "opacity": { "field": "Emphasis", "type": "quantitative", "scale": null, "legend": null }
       }
     }

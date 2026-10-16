@@ -25,7 +25,7 @@ describe("work delivered by month", () => {
                 ["2026-04-01T00:00:00", 500, 100, 20, 620, 1500],
             ]),
         );
-        expect(text).toBe(`Expert-equivalent hours peaked in March 2026, at ${(1240.3).toLocaleString()}.`);
+        expect(text).toBe(`Expert-equivalent hours peaked in March 2026, at ${(1240).toLocaleString()}.`);
         expect(text).not.toMatch(CAUSAL_WORDS);
     });
 

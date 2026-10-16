@@ -68,8 +68,9 @@ export interface FigureOptions {
     prefix?: string;
 }
 
+/** A figure in a sentence: 5.9M rather than 5,906,850, which can't be read at a glance. */
 function figure(value: number, options: FigureOptions): string {
-    return formatKpi(value, options.format ?? "whole", { prefix: options.prefix });
+    return formatKpi(value, options.format ?? "whole", { prefix: options.prefix, compact: true });
 }
 
 export interface LeaderOptions extends FigureOptions {

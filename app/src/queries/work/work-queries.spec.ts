@@ -35,7 +35,11 @@ const modules = [
         factory: () => surfaceUsage({ lens: "surface" }),
         columns: liveColumns.surfaceUsage,
     },
-    { name: "leaderboardSummary", factory: () => leaderboardSummary(), columns: liveColumns.leaderboardSummary },
+    ...leaderboardCohorts.map(({ id }) => ({
+        name: `leaderboardSummary (${id})`,
+        factory: () => leaderboardSummary(id),
+        columns: liveColumns.leaderboardSummary[id],
+    })),
     ...leaderboardCohorts.map(({ id }) => ({
         name: `leaderboardPeople (${id})`,
         factory: () => leaderboardPeople(id),
@@ -214,13 +218,14 @@ describe("leaderboard queries", () => {
     const cohortQueries = leaderboardCohorts.flatMap(({ id }) => [
         { name: `people (${id})`, cohort: id, query: leaderboardPeople(id).query },
         { name: `tasks (${id})`, cohort: id, query: leaderboardTasks(id).query },
+        { name: `summary (${id})`, cohort: id, query: leaderboardSummary(id).query },
     ]);
     const concentrationQueries = leaderboardCohorts.map(({ id }) => ({
         name: `concentration (${id})`,
         cohort: id,
         query: leaderboardConcentration(id).query,
     }));
-    const everyQuery = [{ name: "summary", query: leaderboardSummary().query }, ...cohortQueries, ...concentrationQueries];
+    const everyQuery = [...cohortQueries, ...concentrationQueries];
 
     it.each([...cohortQueries, ...concentrationQueries])("$name leaves no unsubstituted placeholders", ({ query }) => {
         expect(query).not.toMatch(/__[A-Z_]+__/);
@@ -269,11 +274,22 @@ describe("leaderboard queries", () => {
         expect(leaderboardTasks("cowork").levels.groupNoun).toBe("Task Category");
     });
 
-    it("names every cohort's cards in the summary", () => {
-        const available = new Set<string>(liveColumns.leaderboardSummary);
+    it("names every cohort's cards in its summary", () => {
         for (const { id } of leaderboardCohorts) {
+            const available = new Set<string>(liveColumns.leaderboardSummary[id]);
             for (const column of Object.values(leaderboardSummaryColumns(id))) {
                 expect(available, `cohort "${id}"`).toContain(column);
+            }
+        }
+    });
+
+    // All five cohorts' cards in one row took about twice as long as one at 20,000 people.
+    it("asks the summary for the chosen cohort's cards only", () => {
+        for (const { id } of leaderboardCohorts) {
+            const query = leaderboardSummary(id).query;
+            for (const { id: other } of leaderboardCohorts) {
+                if (other === id) continue;
+                expect(query, `cohort "${id}" asks for "${other}"`).not.toContain(`[${leaderboardMeasures(other).sessions}]`);
             }
         }
     });

@@ -58,7 +58,7 @@ export function ValueByHabitStage() {
                     spec={spec}
                     height={260}
                     title="Expert hours per person, by habit"
-                    subtitle={`${month}, ${scenario.toLowerCase()} effort. Habits count active days that month, as on the Adoption page.`}
+                    subtitle={`${month}, ${scenario.toLowerCase()} effort, habits by active days`}
                     headline={headline}
                     emptyTitle={active ? "Too few people in each habit" : "No activity last month"}
                     emptyDescription={

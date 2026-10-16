@@ -6,6 +6,7 @@
 //-----------------------------------------------------------------------
 import { FabricApiProxyError, FabricGenericProxyError, type IFabricApiProxy } from "@microsoft/fabric-app-data";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { withPriority } from "@/lib/query-priority";
 import {
     BUSY_MESSAGE,
     isBusyMessage,
@@ -235,6 +236,180 @@ describe("QueryScheduler", () => {
     });
 });
 
+describe("QueryScheduler background lane", () => {
+    it("waits until nothing on screen is running or waiting", async () => {
+        const scheduler = new QueryScheduler();
+        const front = deferred();
+        const back = vi.fn(async () => "back");
+        const foreground = scheduler.run("front", () => front.promise);
+        const background = scheduler.run("back", back, "low");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(back).not.toHaveBeenCalled();
+        expect(scheduler.activity()).toEqual({ foreground: 1, background: 1, finished: 0 });
+
+        front.resolve("front");
+        await expect(foreground).resolves.toBe("front");
+        await expect(background).resolves.toBe("back");
+        expect(scheduler.activity()).toEqual({ foreground: 0, background: 0, finished: 2 });
+    });
+
+    it("runs one at a time in a slot of its own, so the page on screen keeps all four", async () => {
+        const scheduler = new QueryScheduler();
+        const slow = deferred();
+        let backRunning = 0;
+        let backPeak = 0;
+        const backs = [0, 1].map((index) =>
+            scheduler.run(
+                `back${index}`,
+                async () => {
+                    backRunning++;
+                    backPeak = Math.max(backPeak, backRunning);
+                    try {
+                        return await slow.promise;
+                    } finally {
+                        backRunning--;
+                    }
+                },
+                "low",
+            ),
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(backRunning).toBe(1);
+
+        const gates = Array.from({ length: 4 }, () => deferred());
+        let frontRunning = 0;
+        const fronts = gates.map((gate, index) =>
+            scheduler.run(`front${index}`, async () => {
+                frontRunning++;
+                try {
+                    return await gate.promise;
+                } finally {
+                    frontRunning--;
+                }
+            }),
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(frontRunning).toBe(4);
+
+        // The first background query finishes; the second waits for the page on screen.
+        slow.resolve("slow");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(backRunning).toBe(0);
+        expect(scheduler.activity()).toMatchObject({ foreground: 4, background: 1 });
+
+        for (const gate of gates) gate.resolve("front");
+        await Promise.all(fronts);
+        await Promise.all(backs);
+        expect(backPeak).toBe(1);
+    });
+
+    it("moves a background query to the front when someone opens what it fetches", async () => {
+        const scheduler = new QueryScheduler();
+        const front = deferred();
+        const busy = scheduler.run("front", () => front.promise);
+        const task = vi.fn(async () => "answer");
+        const background = scheduler.run("q", task, "low");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(task).not.toHaveBeenCalled();
+
+        const joined = scheduler.run("q", task);
+        expect(joined).toBe(background);
+        await expect(joined).resolves.toBe("answer");
+        expect(task).toHaveBeenCalledTimes(1);
+        expect(scheduler.activity()).toMatchObject({ foreground: 1, background: 0 });
+
+        front.resolve("front");
+        await busy;
+    });
+
+    it("starts at most half the per-minute budget, leaving the rest for the page on screen", async () => {
+        const scheduler = new QueryScheduler({ perMinute: 10, lowConcurrency: 100 });
+        const started: number[] = [];
+        const backs = Array.from({ length: 6 }, (_, index) =>
+            scheduler.run(
+                `back${index}`,
+                async () => {
+                    started.push(index);
+                    return index;
+                },
+                "low",
+            ),
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(started).toHaveLength(5);
+        await expect(scheduler.run("front", async () => "front")).resolves.toBe("front");
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(started).toHaveLength(6);
+        await Promise.all(backs);
+    });
+
+    it("moves a background query waiting on its budget to the front lane, which has budget to spare", async () => {
+        const scheduler = new QueryScheduler({ perMinute: 10 });
+        for (let index = 0; index < 5; index++) await scheduler.run(`seed${index}`, async () => index);
+        const task = vi.fn(async () => "answer");
+        const background = scheduler.run("q", task, "low");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(task).not.toHaveBeenCalled();
+
+        const asked = scheduler.run("q", task);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(task).toHaveBeenCalledTimes(1);
+        await expect(asked).resolves.toBe("answer");
+        await expect(background).resolves.toBe("answer");
+        expect(Date.now()).toBe(new Date("2026-07-01T10:00:00Z").getTime());
+    });
+
+    it("checks the screen is still quiet when a background query wakes from its budget wait", async () => {
+        const scheduler = new QueryScheduler({ perMinute: 10 });
+        for (let index = 0; index < 5; index++) await scheduler.run(`seed${index}`, async () => index);
+        const back = vi.fn(async () => "back");
+        const background = scheduler.run("back", back, "low");
+        await vi.advanceTimersByTimeAsync(0);
+        const front = deferred();
+        const foreground = scheduler.run("front", () => front.promise);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(back).not.toHaveBeenCalled();
+        expect(scheduler.activity()).toMatchObject({ foreground: 1, background: 1 });
+
+        front.resolve("front");
+        await expect(foreground).resolves.toBe("front");
+        await expect(background).resolves.toBe("back");
+    });
+
+    it("gives a background slot back when a throttle pause ends with the screen busy", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const back = vi.fn(async () => {
+            if (back.mock.calls.length === 1) throw apiError(429);
+            return "back";
+        });
+        const background = scheduler.run("back", back, "low");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(back).toHaveBeenCalledTimes(1);
+        const front = deferred();
+        const foreground = scheduler.run("front", () => front.promise);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(back).toHaveBeenCalledTimes(1);
+        expect(scheduler.activity()).toMatchObject({ foreground: 1, background: 1 });
+
+        front.resolve("front");
+        await foreground;
+        await expect(background).resolves.toBe("back");
+        expect(back).toHaveBeenCalledTimes(2);
+    });
+
+    it("tells subscribers when work starts and finishes", async () => {
+        const scheduler = new QueryScheduler();
+        const listener = vi.fn();
+        const stop = scheduler.subscribe(listener);
+        await scheduler.run("q", async () => 1);
+        expect(listener).toHaveBeenCalledTimes(2);
+        stop();
+        await scheduler.run("r", async () => 1);
+        expect(listener).toHaveBeenCalledTimes(2);
+    });
+});
+
 describe("scheduledProxy", () => {
     function fakeProxy() {
         const executeDax = vi.fn(async () => ({ data: new ArrayBuffer(0), requestId: "r" }));
@@ -258,6 +433,16 @@ describe("scheduledProxy", () => {
         ]);
         expect(executeDax).toHaveBeenCalledTimes(2);
         expect(executeDaxJson).toHaveBeenCalledTimes(1);
+    });
+
+    it("sends a request started in the background lane there", async () => {
+        const { inner, executeDax } = fakeProxy();
+        const scheduler = new QueryScheduler();
+        const proxy = scheduledProxy(inner, scheduler);
+        const result = withPriority("low", () => proxy.semanticModel.executeDax("ws", "m", "EVALUATE A"));
+        expect(scheduler.activity()).toMatchObject({ foreground: 0, background: 1 });
+        await result;
+        expect(executeDax).toHaveBeenCalledTimes(1);
     });
 
     it("passes the lakehouse and warehouse through untouched", () => {

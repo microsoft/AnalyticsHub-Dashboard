@@ -20,7 +20,7 @@
       "type": "quantitative",
       "title": "Devices",
       "axis": {
-        "labelExpr": "format(datum.value, ',.0f')"
+        "labelExpr": "compactFormat(datum.value, '#,0')"
       }
     },
     "color": {

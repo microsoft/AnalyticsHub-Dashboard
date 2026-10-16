@@ -20,6 +20,36 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**App: less on each page, so it stays quick for a large tenant.**
+
+Measured on F64 with 20,000 synthetic people, the slowest queries took 13 to 20 seconds each and
+opening the app took about 40 seconds.
+
+- **One tab at a time.** Each page shows one section at a time, as tabs, and runs only the open
+  tab's queries. The result cache holds 1,000 results instead of 64, each for up to an hour,
+  so a page you've visited opens again without asking the model.
+- **Slowest cards removed.** The executive summary no longer shows kinds of work per person, broad
+  users or the agent with most users. The agent return rate is gone from Adoption and the
+  Leaderboards agents, and the Leaderboards summary drops the agent with most users and the top
+  Agent Builder creator and asks only for the group on screen. The sentence under the Activation
+  cards, which repeated their figures, is gone.
+- **Long lists wait for a click.** The leaderboard ranking, activation by organization, Cowork
+  readiness by organization and its candidates, value by organization, Cowork fit by person and
+  Cowork credits by group load on **Show …**. The cards above them still count everyone, and
+  downloads and report packs still print them.
+- **Other pages load in the background** after the page on screen has loaded, one query at a
+  time, so their first view is usually ready. Opening a page starts its waiting query at once.
+- **No per-person Group by** on Cowork and Copilot Studio credits. User, User Key, id, employee Id,
+  Hierarchy Path and Level5_User Key took 73 to 148 seconds each. A saved choice falls back to All
+  users.
+- **Large figures fit.** A figure of a million or more reads 5.9M, with the exact figure on hover
+  and for screen readers, and shrinks to fit its card. Hours of a thousand or more drop the
+  decimal. Chart axes and totals are compact too.
+- **Long charts show the top 15.** Activation by organization, task breakdown and the cost vs
+  value agents draw the top 15 and one Other bar. Rate charts keep the 15 largest and say so.
+- **Clearer at scale.** Capped lists say they are capped, more than two tied agents read "N agents
+  tie", the agent name column is wider, and two long captions are shorter.
+
 **App: queries paced so a busy Power BI doesn't empty a page.**
 
 - **Paced queries.** The app now keeps at most 4 semantic model queries in flight and starts

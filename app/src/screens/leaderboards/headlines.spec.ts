@@ -10,7 +10,7 @@ import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { CAUSAL_WORDS } from "@/lib/headline";
 import { AGENT_USAGE_HEADLINE } from "./headlines";
 
-const COLUMNS = ["Agent", "Sessions", "Users", "Return Rate", "Organizations"];
+const COLUMNS = ["Agent", "Sessions", "Users", "Organizations"];
 
 function table(rows: unknown[][]): DataTable {
     return { columns: COLUMNS.map((name) => ({ name, displayName: name })), rows } as unknown as DataTable;
@@ -20,9 +20,9 @@ describe("AGENT_USAGE_HEADLINE", () => {
     it("names the busiest of the agents shown", () => {
         const text = AGENT_USAGE_HEADLINE(
             table([
-                ["Researcher", 620, 140, 0.6, 9],
-                ["Analyst", 250, 60, 0.4, 5],
-                ["HR helper", 130, 40, 0.3, 4],
+                ["Researcher", 620, 140, 9],
+                ["Analyst", 250, 60, 5],
+                ["HR helper", 130, 40, 4],
             ]),
         );
         expect(text).toBe("Researcher is the largest, at 62% of sessions across the agents shown.");
@@ -31,12 +31,12 @@ describe("AGENT_USAGE_HEADLINE", () => {
 
     it("says nothing for no agents, one agent or a tie", () => {
         expect(AGENT_USAGE_HEADLINE(table([]))).toBeUndefined();
-        expect(AGENT_USAGE_HEADLINE(table([["Researcher", 620, 140, 0.6, 9]]))).toBeUndefined();
+        expect(AGENT_USAGE_HEADLINE(table([["Researcher", 620, 140, 9]]))).toBeUndefined();
         expect(
             AGENT_USAGE_HEADLINE(
                 table([
-                    ["Researcher", 3, 1, 0, 1],
-                    ["Analyst", 3, 2, 0, 1],
+                    ["Researcher", 3, 1, 1],
+                    ["Analyst", 3, 2, 1],
                 ]),
             ),
         ).toBeUndefined();

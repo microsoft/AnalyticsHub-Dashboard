@@ -18,13 +18,12 @@ import { useFilterContext } from "@/hooks/filter.context";
 import { useThemeContext } from "@/hooks/theme.context";
 import { useFilteredQuery } from "@/hooks/use-filtered-query";
 import { selectedCohort, unshownActivity, type FilterKey } from "@/lib/filters";
+import { rowChartHeight } from "@/lib/chart-height";
 import { readNumber, readText, toSummaryRow } from "@/lib/summary-row";
 import { toDataTable } from "@/lib/to-data-table";
+import { topNote, topWithOther } from "@/lib/top-n";
 import { taskBreakdown, taskDimensions, topOutcome, workSummary, type TaskDimension } from "@/queries/work";
 import { TASK_BREAKDOWN_HEADLINES } from "./headlines";
-
-/** The breakdown chart's plot height; a headline adds its own room above. */
-const BREAKDOWN_HEIGHT = 460;
 
 /** Which summary columns each cohort card reads. */
 const cards = [
@@ -84,6 +83,19 @@ export function TasksStage() {
                 : undefined,
         [breakdownResult.data, breakdown.columnMetadata],
     );
+
+    // The chosen lens's fifteen largest categories, and the rest as Other so the bars still add up to every task.
+    const top = useMemo(() => {
+        if (!breakdownTable) return undefined;
+        const at = breakdownTable.columns.findIndex((column) => column.name === "Dimension");
+        const lens = { ...breakdownTable, rows: breakdownTable.rows.filter((row) => row[at] === breakdown.dimension) };
+        return topWithOther(lens, {
+            label: "Category",
+            by: "Tasks",
+            sum: ["Tasks", "Share"],
+            other: (count) => `Other (${count.toLocaleString("en-US")})`,
+        });
+    }, [breakdownTable, breakdown.dimension]);
 
     const benefit = useMemo(
         () => (outcome.data?.status === "success" ? readText(toSummaryRow(outcome.data.table), "[Top Value Outcome]") : undefined),
@@ -161,16 +173,22 @@ export function TasksStage() {
                     />
                 </div>
 
-                <div style={{ height: BREAKDOWN_HEIGHT + (breakdownHeadline ? HEADLINE_SPACE : 0) }}>
+                <div
+                    style={{
+                        height:
+                            rowChartHeight(top?.table.rows.length ?? 12, { perRow: 28, chrome: 100, min: 240 }) +
+                            (breakdownHeadline ? HEADLINE_SPACE : 0),
+                    }}
+                >
                     {breakdownResult.data?.status === "error" ? (
                         <QueryError
                             className="h-full"
                             message={breakdownResult.data.error.message}
                             onRetry={breakdownResult.refetch}
                         />
-                    ) : breakdownResult.isLoading || !breakdownTable ? (
+                    ) : breakdownResult.isLoading || !top ? (
                         <QueryLoading className="h-full" />
-                    ) : breakdownTable.rows.length === 0 ? (
+                    ) : top.table.rows.length === 0 ? (
                         <QueryEmpty
                             className="h-full"
                             title="Nothing to break down"
@@ -180,11 +198,13 @@ export function TasksStage() {
                         <Headlined text={breakdownHeadline}>
                             <VegaVisual
                                 spec={breakdown.vegaLiteSpec}
-                                data={breakdownTable}
+                                data={top.table}
                                 theme={theme}
                                 header={{
                                     title: breakdown.title,
-                                    subtitle: breakdown.subtitle,
+                                    subtitle: top.shown < top.of
+                                        ? `${topNote(top, "categories", "tasks")}, the rest as Other`
+                                        : breakdown.subtitle,
                                 }}
                             />
                         </Headlined>
