@@ -640,6 +640,14 @@ test('workspace capacity assignment polls the workspace instead of a missing ope
   assert.equal(gets, 2);
 });
 
+test('semantic model updates allow Fabric to purge data the new definition cannot keep', async () => {
+  /** @type {any[]} */ const sent = [];
+  const f = fabricApi(/** @type {any} */ ({ requestLro: async (/** @type {string} */ m, /** @type {string} */ p, /** @type {any} */ o) => (sent.push({ m, p, body: o.body }), null) }));
+  const definition = { parts: [{ path: 'model.bim', payload: 'e30=', payloadType: 'InlineBase64' }] };
+  await f.updateSemanticModel('ws', 'sm', definition);
+  assert.deepEqual(sent, [{ m: 'POST', p: '/workspaces/ws/semanticModels/sm/updateDefinition', body: { definition, options: { allowPurgeData: true } } }]);
+});
+
 test('Power BI connection calls retry while serverless Azure SQL resumes from auto-pause', async () => {
   const resuming = new Error("Database 'valuelens' on server 'x' is not currently available. (40613)");
   let n = 0;

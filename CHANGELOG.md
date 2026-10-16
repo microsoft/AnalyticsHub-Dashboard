@@ -171,6 +171,11 @@ Deployment instructions do **not** live here. They live in the READMEs:
   Installs interrupted by an earlier version aren't tidied up automatically: look for an item
   beside a `_2` copy, and for an installer-named secret on the app registration that isn't the one
   in the install record.
+- **Model updates that change the schema work again.** Fabric now refuses a semantic model
+  update that has to clear data, with `RequiredOptionsMissing`, unless the request allows it.
+  `update` failed that way after a new version added model columns, as did `install` or `repair`
+  run again from such a version. The installer now allows it; it already refreshes the model
+  after every update.
 - Not changed: the installer never installs anything with winget, so there's no `--scope user`
   fallback to add. Execution policy and Constrained Language Mode were already covered.
 

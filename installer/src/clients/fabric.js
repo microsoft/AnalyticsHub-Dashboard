@@ -210,9 +210,14 @@ export function fabricApi(http) {
         onAccepted: accepted(ref), once: true,
         lroResult: true,
       }),
-    /** @param {string} workspaceId @param {string} id @param {any} definition */
+    /**
+     * Replaces the model's definition. The installer always refreshes after an update, so it lets
+     * Fabric purge data the new definition can't keep; without that, schema changes fail with
+     * RequiredOptionsMissing.
+     * @param {string} workspaceId @param {string} id @param {any} definition
+     */
     updateSemanticModel: (workspaceId, id, definition) =>
-      http.requestLro('POST', `/workspaces/${workspaceId}/semanticModels/${id}/updateDefinition`, { body: { definition } }),
+      http.requestLro('POST', `/workspaces/${workspaceId}/semanticModels/${id}/updateDefinition`, { body: { definition, options: { allowPurgeData: true } } }),
     /** @param {string} workspaceId @param {string} displayName @param {any} definition @param {ItemRef} [ref] */
     createReport: (workspaceId, displayName, definition, ref) =>
       http.requestLro('POST', `/workspaces/${workspaceId}/reports`, {
