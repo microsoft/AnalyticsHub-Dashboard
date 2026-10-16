@@ -69,9 +69,11 @@ opening the app took about 40 seconds.
   request.
 - **A clear message.** A query that is still throttled after a minute shows **Power BI is
   busy** with a Try again button, not "This didn't load". Try again asks Power BI, not the cache.
+  A query error that only quotes those words, as a name, shows as that error.
 - **Busy cards clear by themselves.** Once the model answers any query again, every card that
-  showed busy on it, and the filter choices, ask again with no click or page change. A page
-  opened after a throttle sends its queries instead of giving up at once.
+  showed busy on it, and the filter choices, ask again with no click or page change, even if
+  the answer came as the card gave up. A page opened after a throttle sends its queries instead
+  of giving up at once.
 - **Background loading pauses.** After a throttle, background loading from that model waits at
   least a minute, and until a query to it on screen succeeds. Pages still load when you open them.
 - **Only the affected visual fails.** A throttled slicer-options query no longer replaces the

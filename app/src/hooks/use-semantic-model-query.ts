@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { type CachedQueryResult } from "@microsoft/fabric-app-data";
 import { getFabricClient, QUERY_CACHE_MAX_AGE_MS } from "@/lib/fabric-client";
 import { withPriority } from "@/lib/query-priority";
-import { isBusyMessage, onModelRecovered } from "@/lib/query-scheduler";
+import { isBusyMessage, onModelRecovered, recoveriesOf } from "@/lib/query-scheduler";
 import { useIsPrefetch } from "./prefetch.context";
 
 interface UseSemanticModelQueryOptions {
@@ -87,31 +87,39 @@ export function useSemanticModelQuery(
     const controller = useRef<AbortController | undefined>(undefined);
     /** The model the card's last request asked, as the scheduler names it. */
     const asked = useRef<string | undefined>(undefined);
+    /** How many times that model had recovered when the request began. */
+    const askedAt = useRef(0);
     /** The card shows "Power BI is busy" and isn't asking again yet. */
     const busy = useRef(false);
 
     const canExecute = Boolean(connection && query);
     const priority = useIsPrefetch() ? "low" : "normal";
 
-    // `signal` aborts when the card unmounts or its query changes: what is still queued stops, and the answer is ignored.
-    const execute = useCallback(async (fresh = false, signal?: AbortSignal) => {
+    // Asks once. True when it ended busy but its model answered again meanwhile, before the card could hear it.
+    const ask = useCallback(async (fresh: boolean, signal?: AbortSignal): Promise<boolean> => {
         busy.current = false;
         if (!canExecute) {
             setIsLoading(false);
-            return;
+            return false;
         }
         setIsLoading(true);
         setError(undefined);
-        const caller = { signal, asking: (model: string) => { asked.current = model; } };
+        const caller = {
+            signal,
+            asking: (model: string) => {
+                asked.current = model;
+                askedAt.current = recoveriesOf(model);
+            },
+        };
 
         try {
             const model = getFabricClient().semanticModel(connection);
             let result = await withPriority(priority, () => model.query(query, { bypassCache: fresh || bypassCache }), caller);
-            if (signal?.aborted) return;
+            if (signal?.aborted) return false;
             const stale = result.fromCache && result.cachedAt && Date.now() - result.cachedAt.getTime() > QUERY_CACHE_MAX_AGE_MS;
             if (stale || cachedBusy(result)) {
                 result = await withPriority(priority, () => model.query(query, { bypassCache: true }), caller);
-                if (signal?.aborted) return;
+                if (signal?.aborted) return false;
             }
 
             latest.current = result;
@@ -122,7 +130,7 @@ export function useSemanticModelQuery(
                 setError(new Error(result.error.message));
             }
         } catch (err) {
-            if (signal?.aborted) return;
+            if (signal?.aborted) return false;
             latest.current = undefined;
             const failure = err instanceof Error ? err : new Error(String(err));
             busy.current = isBusyMessage(failure.message);
@@ -130,7 +138,16 @@ export function useSemanticModelQuery(
         } finally {
             if (!signal?.aborted) setIsLoading(false);
         }
+        const missed = busy.current && asked.current !== undefined && recoveriesOf(asked.current) !== askedAt.current;
+        if (missed) busy.current = false;
+        return missed;
     }, [connection, query, bypassCache, canExecute, priority]);
+
+    // `signal` aborts when the card unmounts or its query changes: what is still queued stops, and the answer is ignored.
+    const execute = useCallback(async (fresh = false, signal?: AbortSignal) => {
+        let again = await ask(fresh, signal);
+        while (again && !signal?.aborted) again = await ask(true, signal);
+    }, [ask]);
 
     useEffect(() => {
         const run = new AbortController();

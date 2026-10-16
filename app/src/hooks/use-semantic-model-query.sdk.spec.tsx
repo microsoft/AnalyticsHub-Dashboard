@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryError } from "@/components/query-states";
 import { PrefetchContext } from "@/hooks/prefetch.context";
 import { useSemanticModelQuery } from "@/hooks/use-semantic-model-query";
-import { BUSY_MESSAGE, QueryScheduler, scheduledProxy } from "@/lib/query-scheduler";
+import { BUSY_MESSAGE, QueryScheduler, onModelRecovered, scheduledProxy, type QuerySchedulerOptions } from "@/lib/query-scheduler";
 
 const state = vi.hoisted(() => ({ client: undefined as unknown }));
 
@@ -25,8 +25,8 @@ const THROTTLED = { error: { code: "TooManyRequests", message: "Too many request
 const ANSWER = { results: [{ tables: [{ rows: [{ "[Value]": 1 }] }] }] };
 
 /** The real SDK and scheduler, with Power BI replaced by `reply`. */
-function setup(reply: (model: string, query: string) => unknown) {
-    const scheduler = new QueryScheduler({ random: () => 0, log: () => {} });
+function setup(reply: (model: string, query: string) => unknown, options: QuerySchedulerOptions = {}) {
+    const scheduler = new QueryScheduler({ random: () => 0, log: () => {}, ...options });
     const executeDaxJson = vi.fn(async (_workspace: string, model: string, query: string) => ({
         requestId: "r",
         data: await reply(model, query),
@@ -43,7 +43,7 @@ function setup(reply: (model: string, query: string) => unknown) {
         semanticModels: { vl: { workspaceId: "ws", itemId: "model-a" }, cc: { workspaceId: "ws", itemId: "model-b" } },
     } as FabricClientConfig);
     const sent = (query: string) => executeDaxJson.mock.calls.filter((call) => call[2] === query).length;
-    return { scheduler, executeDaxJson, sent };
+    return { scheduler, executeDaxJson, sent, client: state.client as FabricClient };
 }
 
 const tick = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
@@ -165,6 +165,68 @@ describe("useSemanticModelQuery after Power BI was busy", () => {
         expect(fine.result.current.data).toMatchObject({ status: "success" });
         expect(sent("FINE")).toBe(before.fine);
         expect(sent("GONE")).toBe(before.gone);
+    });
+
+    it("asks again when its model answers in the same moment the card gives up", async () => {
+        let release!: (data: unknown) => void;
+        const probe = new Promise((resolve) => {
+            release = resolve;
+        });
+        const { client, sent } = setup((_model, query) => (query === "SEED" ? THROTTLED : query === "PROBE" ? probe : ANSWER), {
+            maxRetries: 0,
+        });
+        await client.semanticModel("vl").query("SEED");
+        await tick(500);
+        const probing = client.semanticModel("vl").query("PROBE");
+        await tick(0);
+        const card = renderHook(() => useSemanticModelQuery({ connection: "vl", query: "WAITING" }));
+        await tick(0);
+        expect(sent("WAITING")).toBe(0);
+
+        // The card's wait runs out as the probe's answer arrives: the model recovers before the card shows busy.
+        await act(async () => {
+            vi.advanceTimersByTime(60_000);
+            release(ANSWER);
+            await Promise.resolve();
+        });
+        await tick(0);
+        await probing;
+        await tick(0);
+
+        expect(sent("WAITING")).toBe(1);
+        expect(card.result.current.data).toMatchObject({ status: "success", fromCache: false });
+        expect(card.result.current.error).toBeUndefined();
+    });
+
+    it("shows a query error that only quotes the busy wording as that error, and doesn't send it again when the model recovers", async () => {
+        const message = "Query (5, 59) Cannot find table '<oii>Power BI is busy</oii>'.";
+        let throttling = false;
+        const { client, sent } = setup(
+            (_model, query) => (query === "MISSING" ? { error: { code: "3241803779", message } } : throttling ? THROTTLED : ANSWER),
+            { maxRetries: 0 },
+        );
+        function Card() {
+            const missing = useSemanticModelQuery({ connection: "vl", query: "MISSING" });
+            return missing.error ? <QueryError message={missing.error.message} onRetry={missing.refetch} /> : <p>Loading</p>;
+        }
+        render(<Card />);
+        await tick(0);
+        expect(screen.queryByText("Power BI is busy")).toBeNull();
+        expect(screen.getByText(message)).toBeTruthy();
+
+        const notices: string[] = [];
+        const stop = onModelRecovered((model) => notices.push(model));
+        throttling = true;
+        await act(async () => void (await client.semanticModel("vl").query("TRIGGER")));
+        throttling = false;
+        await tick(60_000);
+        await act(async () => void (await client.semanticModel("vl").query("HEALTH")));
+        await tick(0);
+        stop();
+
+        expect(notices).toEqual(["ws/model-a"]);
+        expect(sent("MISSING")).toBe(1);
+        expect(screen.queryByText("Power BI is busy")).toBeNull();
     });
 });
 

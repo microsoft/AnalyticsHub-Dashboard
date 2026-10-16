@@ -98,7 +98,8 @@ The app is built to stay quick for a large tenant (about 20,000 people):
   that showed busy, and the filter choices, ask again by themselves, with no click; a page you
   open after a throttle sends its queries rather than giving up at once. Background loading from
   that model stops for at least a minute, and until a query to it on screen succeeds. Other query
-  errors aren't retried, even one about a table called `Rate Limit`. A card you leave stops
+  errors aren't retried or shown as busy, even one about a table called `Rate Limit` or
+  `Power BI is busy`. A card you leave stops
   waiting; a query already sent still finishes. The browser console logs each step
   (`Analytics Hub: …`).
 - **Results last for the visit.** The app holds up to 1,000 results in memory, each for up to an

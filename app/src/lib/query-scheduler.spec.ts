@@ -211,6 +211,13 @@ describe("isBusyMessage", () => {
         expect(isBusyMessage("You've hit the rate limit; we're throttling")).toBe(true);
         expect(isBusyMessage('{"errors":["Too many requests"]}')).toBe(true);
     });
+
+    it("doesn't show the busy card for a query error that quotes the busy wording", () => {
+        expect(isBusyMessage("Query (5, 59) Cannot find table '<oii>Power BI is busy</oii>'.")).toBe(false);
+        expect(isBusyMessage(`Cannot find table '${BUSY_MESSAGE.replace(/'/g, "")}'.`)).toBe(false);
+        expect(isBusyMessage("The column [Power BI is busy] cannot be found")).toBe(false);
+        expect(isBusyMessage(`The licences couldn't be read: ${BUSY_MESSAGE}`)).toBe(true);
+    });
 });
 
 describe("QueryScheduler", () => {

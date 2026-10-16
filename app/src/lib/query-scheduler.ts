@@ -171,10 +171,11 @@ export function throttleOf(error: unknown): Throttle | undefined {
     return undefined;
 }
 
-/** Whether a card's error is throttling rather than a broken connection or query. */
+/** Whether a card's error is throttling rather than a broken connection or query, outside any name it quotes or a query error. */
 export function isBusyMessage(message: string | undefined): boolean {
-    if (!message) return false;
-    return message.includes("Power BI is busy") || saysThrottle(message);
+    if (!message || QUERY_POSITION.test(message)) return false;
+    const text = message.replace(NAMES, " ");
+    return text.includes("Power BI is busy") || THROTTLE_TEXT.test(text);
 }
 
 /** Why a query stopped: every card that asked for it has gone. The SDK doesn't cache it. */
@@ -247,6 +248,7 @@ export function throttledReply(found: ReplyError | undefined, requestId: string)
 const seconds = (ms: number) => (ms / 1000).toFixed(ms < 10_000 ? 1 : 0);
 
 const recoveryListeners = new Set<(model: string) => void>();
+const recoveries = new Map<string, number>();
 
 /**
  * Calls `listener` with a model's id (`workspaceId/itemId`) when the model
@@ -259,6 +261,15 @@ export function onModelRecovered(listener: (model: string) => void): () => void 
     return () => {
         recoveryListeners.delete(listener);
     };
+}
+
+/**
+ * How many times a model has answered again after a query to it gave up busy.
+ * A card that sees it change while it asks heard too early to act on it, so
+ * asks again once it shows busy.
+ */
+export function recoveriesOf(model: string): number {
+    return recoveries.get(model) ?? 0;
 }
 
 /**
@@ -575,6 +586,7 @@ export class QueryScheduler {
             return;
         }
         model.owed = false;
+        recoveries.set(model.id, recoveriesOf(model.id) + 1);
         this.log("info", `Analytics Hub: cards that showed "Power BI is busy" ask model ${model.label} again.`);
         for (const listener of [...recoveryListeners]) listener(model.id);
     }
