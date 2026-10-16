@@ -28,7 +28,7 @@
       "field": "Signed",
       "type": "quantitative",
       "title": "Inactive  ←     users     →  Active",
-      "axis": { "labelExpr": "abs(datum.value)" }
+      "axis": { "labelExpr": "compactFormat(abs(datum.value), '#,0')" }
     },
     "color": {
       "field": "Segment",

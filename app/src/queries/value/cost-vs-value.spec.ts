@@ -288,12 +288,12 @@ describe("agents", () => {
 
 describe("cost and value chart", () => {
     it("labels its axis in the value's currency", () => {
-        expect(JSON.stringify(costValueSpec("£"))).toContain("'£' + format(datum.value");
+        expect(JSON.stringify(costValueSpec("£"))).toContain("'£' + compactFormat(datum.value");
         expect(JSON.stringify(costValueSpec("£"))).not.toContain("__CURRENCY__");
     });
 
     it("can't be broken out of its expression by the symbol", () => {
         const text = JSON.stringify(costValueSpec(`£'"\\`));
-        expect(text).toContain("'£' + format(datum.value");
+        expect(text).toContain("'£' + compactFormat(datum.value");
     });
 });

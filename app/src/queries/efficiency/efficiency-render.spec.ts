@@ -9,6 +9,7 @@
 
 import { describe, expect, it } from "vitest";
 import { parse, View, type Scene, type SceneItem } from "vega";
+import "@/test/vega-formats";
 import { compile } from "vega-lite";
 import type { TopLevelSpec } from "vega-lite";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";

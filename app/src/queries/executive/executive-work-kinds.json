@@ -15,7 +15,7 @@
       "field": "Hours",
       "type": "quantitative",
       "title": "Expert-equivalent hours",
-      "axis": { "labelExpr": "format(datum.value, ',.0f')", "tickCount": 4 }
+      "axis": { "labelExpr": "compactFormat(datum.value, '#,0')", "tickCount": 4 }
     },
     "tooltip": [
       {

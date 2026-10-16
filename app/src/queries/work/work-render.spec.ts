@@ -12,6 +12,7 @@
 import { describe, expect, it } from "vitest";
 import { compile } from "vega-lite";
 import { parse, View, type Scene, type SceneItem } from "vega";
+import "@/test/vega-formats";
 import type { TopLevelSpec } from "vega-lite";
 import type { QueryTable } from "@microsoft/fabric-app-data";
 import type { Row as GridRow } from "@microsoft/fabric-datagrid";

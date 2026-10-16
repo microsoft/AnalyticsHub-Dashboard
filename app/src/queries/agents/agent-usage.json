@@ -15,7 +15,7 @@
       "field": "Sessions",
       "type": "quantitative",
       "title": "Sessions",
-      "axis": { "labelExpr": "format(datum.value, ',.0f')" }
+      "axis": { "labelExpr": "compactFormat(datum.value, '#,0')" }
     },
     "tooltip": [
       { "field": "Agent", "type": "nominal", "title": "Agent" },

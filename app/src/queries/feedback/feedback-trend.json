@@ -20,7 +20,7 @@
       "field": "Signed Count",
       "type": "quantitative",
       "title": "Feedback items",
-      "axis": { "labelExpr": "format(abs(datum.value), ',.0f')" }
+      "axis": { "labelExpr": "compactFormat(abs(datum.value), '#,0')" }
     },
     "color": {
       "field": "Feedback Type",

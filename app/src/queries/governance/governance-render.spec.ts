@@ -11,6 +11,7 @@
 import { describe, expect, it } from "vitest";
 import { compile } from "vega-lite";
 import { parse, View, type Scene, type SceneItem } from "vega";
+import "@/test/vega-formats";
 import type { TopLevelSpec } from "vega-lite";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import type { DataTable } from "@microsoft/fabric-visuals-core";

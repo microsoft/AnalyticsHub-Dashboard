@@ -15,7 +15,7 @@
       "field": "Licensed Users",
       "type": "quantitative",
       "title": "Licensed users",
-      "axis": { "format": ",.0f" }
+      "axis": { "labelExpr": "compactFormat(datum.value, '#,0')" }
     },
     "tooltip": [
       { "field": "Dormancy Bucket", "type": "nominal", "title": "Dormancy bucket" },

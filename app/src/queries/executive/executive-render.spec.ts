@@ -12,6 +12,7 @@
 import { describe, expect, it } from "vitest";
 import { compile, type TopLevelSpec } from "vega-lite";
 import { parse, View, type Scene, type SceneItem } from "vega";
+import "@/test/vega-formats";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { departmentMapSpec, executiveCredits, executiveDepartments, executiveMonths, executiveWorkKinds, FADED_OPACITY } from "./index";
 import creditRows from "./__fixtures__/executive-credits.rows.json";
@@ -112,7 +113,7 @@ describe("the credits trend renders", () => {
 
         expect(bars).toHaveLength(drawn.length);
         expectDrawable(bars);
-        expect(labels.map((label) => label.text)).toEqual(["14.7k", "485k", "814k", "710k"]);
+        expect(labels.map((label) => label.text)).toEqual(["14.7K", "485K", "814.4K", "710.4K"]);
     });
 });
 
