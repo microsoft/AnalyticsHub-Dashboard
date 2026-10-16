@@ -5,10 +5,11 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { type CachedQueryResult } from "@microsoft/fabric-app-data";
 import { getFabricClient, QUERY_CACHE_MAX_AGE_MS } from "@/lib/fabric-client";
 import { withPriority } from "@/lib/query-priority";
+import { isBusyMessage } from "@/lib/query-scheduler";
 import { useIsPrefetch } from "./prefetch.context";
 
 interface UseSemanticModelQueryOptions {
@@ -24,7 +25,13 @@ interface UseSemanticModelQueryResult {
     data: CachedQueryResult | undefined;
     isLoading: boolean;
     error: Error | undefined;
+    /** Runs the query again; after an error it asks Power BI rather than the cache. */
     refetch: () => Promise<void>;
+}
+
+/** A busy error the cache kept: Power BI was only asking the app to slow down, so ask again. */
+function cachedBusy(result: CachedQueryResult): boolean {
+    return result.fromCache && result.status === "error" && isBusyMessage(result.error.message);
 }
 
 /**
@@ -74,28 +81,32 @@ export function useSemanticModelQuery(
     const [data, setData] = useState<CachedQueryResult | undefined>();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<Error | undefined>();
+    const latest = useRef<CachedQueryResult | undefined>(undefined);
 
     const canExecute = Boolean(connection && query);
     const priority = useIsPrefetch() ? "low" : "normal";
 
-    const execute = useCallback(async () => {
+    const execute = useCallback(async (fresh = false) => {
         if (!canExecute) return;
         setIsLoading(true);
         setError(undefined);
 
         try {
             const model = getFabricClient().semanticModel(connection);
-            let result = await withPriority(priority, () => model.query(query, { bypassCache }));
-            if (result.fromCache && result.cachedAt && Date.now() - result.cachedAt.getTime() > QUERY_CACHE_MAX_AGE_MS) {
+            let result = await withPriority(priority, () => model.query(query, { bypassCache: fresh || bypassCache }));
+            const stale = result.fromCache && result.cachedAt && Date.now() - result.cachedAt.getTime() > QUERY_CACHE_MAX_AGE_MS;
+            if (stale || cachedBusy(result)) {
                 result = await withPriority(priority, () => model.query(query, { bypassCache: true }));
             }
 
+            latest.current = result;
             setData(result);
 
             if (result.status === "error") {
                 setError(new Error(result.error.message));
             }
         } catch (err) {
+            latest.current = undefined;
             setError(err instanceof Error ? err : new Error(String(err)));
         } finally {
             setIsLoading(false);
@@ -108,7 +119,10 @@ export function useSemanticModelQuery(
         execute();
     }, [execute]);
 
-    return { data, isLoading, error, refetch: execute };
+    // "Try again" after an error asks Power BI, not the cache that kept it; after a success the cache is right.
+    const refetch = useCallback(() => execute(latest.current?.status !== "success"), [execute]);
+
+    return { data, isLoading, error, refetch };
 }
 
 /**

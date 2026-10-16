@@ -8,6 +8,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { renderHook, act, waitFor } from "@testing-library/react";
 import { useSemanticModelQuery, clearQueryCache } from "@/hooks/use-semantic-model-query";
+import { BUSY_MESSAGE } from "@/lib/query-scheduler";
 
 // Mock the Fabric client module so tests run offline.
 const mockClearCache = vi.fn();
@@ -98,6 +99,43 @@ describe("useSemanticModelQuery", () => {
         });
 
         expect(mockQuery).toHaveBeenCalledTimes(2);
+        expect(mockQuery).toHaveBeenNthCalledWith(2, "EVALUATE ROW()", { bypassCache: undefined });
+    });
+
+    it("asks Power BI, not the cache, when Try again follows an error", async () => {
+        const busy = { status: "error" as const, error: { category: "api", message: BUSY_MESSAGE }, fromCache: false };
+        const answer = { status: "success" as const, table: { columns: [], rows: [[1]] }, fromCache: false };
+        mockQuery.mockResolvedValueOnce(busy).mockResolvedValueOnce(answer);
+
+        const { result } = renderHook(() => useSemanticModelQuery({ connection: "model", query: "EVALUATE ROW()" }));
+        await waitFor(() => expect(result.current.isLoading).toBe(false));
+        expect(result.current.error?.message).toBe(BUSY_MESSAGE);
+
+        await act(async () => {
+            await result.current.refetch();
+        });
+
+        expect(mockQuery).toHaveBeenNthCalledWith(2, "EVALUATE ROW()", { bypassCache: true });
+        expect(result.current.data).toEqual(answer);
+        expect(result.current.error).toBeUndefined();
+    });
+
+    it("asks again when the cache kept a busy error, but not a real query error", async () => {
+        const kept = { status: "error" as const, error: { category: "query", message: "Too many requests" }, fromCache: true, cachedAt: new Date() };
+        const answer = { status: "success" as const, table: { columns: [], rows: [[1]] }, fromCache: false };
+        mockQuery.mockResolvedValueOnce(kept).mockResolvedValueOnce(answer);
+
+        const { result } = renderHook(() => useSemanticModelQuery({ connection: "model", query: "Q" }));
+        await waitFor(() => expect(result.current.data).toEqual(answer));
+        expect(mockQuery).toHaveBeenNthCalledWith(2, "Q", { bypassCache: true });
+
+        mockQuery.mockReset();
+        const wrong = { ...kept, error: { category: "query", message: "Cannot find table 'X'." } };
+        mockQuery.mockResolvedValue(wrong);
+        const second = renderHook(() => useSemanticModelQuery({ connection: "model", query: "R" }));
+        await waitFor(() => expect(second.result.current.isLoading).toBe(false));
+        expect(second.result.current.error?.message).toBe("Cannot find table 'X'.");
+        expect(mockQuery).toHaveBeenCalledOnce();
     });
 });
 
