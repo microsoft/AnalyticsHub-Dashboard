@@ -10,6 +10,7 @@ import { ChoiceMenu } from "@/components/choice-menu";
 import { stageAnchor } from "@/components/destinations";
 import { KpiCard, KpiStat } from "@/components/kpi-card";
 import { NotFilteredHint } from "@/components/not-filtered-hint";
+import { OnDemand } from "@/components/on-demand";
 import { Section } from "@/components/section";
 import { SegmentedControl } from "@/components/segmented-control";
 import { readNumber, readText } from "@/lib/summary-row";
@@ -90,7 +91,6 @@ export function CoworkStage({ options, rates }: CoworkStageProps) {
     const summary = useConsumptionSummary(coworkCreditsSummary(), extra);
     const weeklySource = coworkWeekly(lens);
     const weekly = useConsumptionTable(weeklySource, extra);
-    const byGroup = useConsumptionTable(coworkByGroup(), extra);
     const row = summary.row;
     const cost = lens === "cost";
     // Azure's daily billing has no Cowork weeks to follow, so it reads every day it has.
@@ -142,7 +142,7 @@ export function CoworkStage({ options, rates }: CoworkStageProps) {
                 </div>
             }
         >
-            <NotFilteredHint from={[summary.notFilteredBy, weekly.notFilteredBy, byGroup.notFilteredBy, azure ? azureBilling.notFilteredBy : undefined]} />
+            <NotFilteredHint from={[summary.notFilteredBy, weekly.notFilteredBy, azure ? azureBilling.notFilteredBy : undefined]} />
             <KpiRowState
                 summary={summary}
                 count={5}
@@ -236,24 +236,13 @@ export function CoworkStage({ options, rates }: CoworkStageProps) {
             />
 
             <div className="grid grid-cols-1 gap-500 xl:grid-cols-[minmax(0,1fr)_320px]">
-                <RollupGrid
-                    result={byGroup}
-                    toTree={toCoworkGroupTree}
-                    labelColumn={COWORK_LABEL_COLUMN}
-                    labelHeader={`${groupLabel ?? "Group"} / person`}
-                    labelWidth={232}
-                    columns={cost ? COST_COLUMNS : CONSUMPTION_COLUMNS}
-                    variant={lens}
-                    title={cost ? "Cost by group" : "Credits by group"}
-                    subtitle={
-                        cost
-                            ? "Each group, then its people. Pay-as-you-go is only allocated to the tenant total."
-                            : "Each group, then its people, largest first"
-                    }
-                    emptyTitle="Nobody consumed credits"
-                    emptyDescription="No one in this period and service used Cowork or Work IQ credits."
-                    truncation={{ noun: "person", by: "by credits" }}
-                />
+                <OnDemand
+                    id="cowork-by-group"
+                    label={cost ? "Show cost by group" : "Show credits by group"}
+                    note="Each group, then its people. The slowest list on this page."
+                >
+                    <CoworkByGroup extra={extra} cost={cost} lens={lens} groupLabel={groupLabel} />
+                </OnDemand>
                 <NoteCard
                     title="How it is billed"
                     notes={[
@@ -265,5 +254,43 @@ export function CoworkStage({ options, rates }: CoworkStageProps) {
                 />
             </div>
         </Section>
+    );
+}
+
+/** Credits for every group and person; at scale the slowest query on the page, so it waits for a click. */
+function CoworkByGroup({
+    extra,
+    cost,
+    lens,
+    groupLabel,
+}: {
+    extra: readonly string[];
+    cost: boolean;
+    lens: ConsumptionLens;
+    groupLabel: string | undefined;
+}) {
+    const byGroup = useConsumptionTable(coworkByGroup(), extra);
+    return (
+        <div className="flex flex-col gap-300">
+            <NotFilteredHint from={[byGroup.notFilteredBy]} />
+            <RollupGrid
+                result={byGroup}
+                toTree={toCoworkGroupTree}
+                labelColumn={COWORK_LABEL_COLUMN}
+                labelHeader={`${groupLabel ?? "Group"} / person`}
+                labelWidth={232}
+                columns={cost ? COST_COLUMNS : CONSUMPTION_COLUMNS}
+                variant={lens}
+                title={cost ? "Cost by group" : "Credits by group"}
+                subtitle={
+                    cost
+                        ? "Each group, then its people. Pay-as-you-go is only allocated to the tenant total."
+                        : "Each group, then its people, largest first"
+                }
+                emptyTitle="Nobody consumed credits"
+                emptyDescription="No one in this period and service used Cowork or Work IQ credits."
+                truncation={{ noun: "person", by: "by credits" }}
+            />
+        </div>
     );
 }

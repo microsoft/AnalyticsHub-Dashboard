@@ -13,9 +13,10 @@ import { stageAnchor } from "@/components/destinations";
 import { FilterNote } from "@/components/filter-note";
 import { GradeMark } from "@/components/grade-mark";
 import { KpiCard } from "@/components/kpi-card";
+import { OnDemand } from "@/components/on-demand";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
-import { useFilterContext } from "@/hooks/filter.context";
+import { useFilterContext, useOrgAttribute } from "@/hooks/filter.context";
 import { useShowStage } from "@/hooks/navigation.context";
 import { useThemeContext } from "@/hooks/theme.context";
 import { useFilteredQuery } from "@/hooks/use-filtered-query";
@@ -169,6 +170,7 @@ function FitRules({ notice }: { notice: string | undefined }) {
  */
 export function CoworkFitStage() {
     const { filters, applicable } = useFilterContext();
+    const org = useOrgAttribute();
     const summary = useFilteredQuery(coworkFitSummary(), { ignore: COWORK_ONLY });
     const unlicensed = unlicensedOnly(filters, applicable);
 
@@ -223,7 +225,13 @@ export function CoworkFitStage() {
                     </div>
 
                     <WorkShapeTable ignore={COWORK_ONLY} />
-                    <PeopleTable ignore={COWORK_ONLY} />
+                    <OnDemand
+                        id="cowork-fit-people"
+                        label={`Show by ${org.noun} and person`}
+                        note={`Graded sessions and the fit mix for each ${org.noun}, opening to its people.`}
+                    >
+                        <PeopleTable ignore={COWORK_ONLY} />
+                    </OnDemand>
                 </>
             )}
         </Section>
