@@ -7,7 +7,7 @@
 
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
-import { connection, FORMAT_PERCENT, FORMAT_RATE, FORMAT_WHOLE, TOTAL_COLUMN } from "../shared";
+import { connection, FORMAT_RATE, FORMAT_WHOLE, TOTAL_COLUMN } from "../shared";
 import query from "./agent-leaderboard.dax?raw";
 
 const columnMetadata: ColumnMetadataMap = {
@@ -20,7 +20,6 @@ const columnMetadata: ColumnMetadataMap = {
     "[Users]": { name: "Users", displayName: "Users", format: FORMAT_WHOLE },
     "[Sessions]": { name: "Sessions", displayName: "Sessions", format: FORMAT_WHOLE },
     "[Sessions Per User]": { name: "Sessions Per User", displayName: "Sessions / user", format: FORMAT_RATE },
-    "[Return Rate]": { name: "Return Rate", displayName: "Return rate", format: FORMAT_PERCENT },
     "[Orgs Reached]": { name: "Orgs Reached", displayName: "Orgs reached", format: FORMAT_WHOLE },
     "[Last Activity]": { name: "Last Activity", displayName: "Last activity" },
     "[Features]": { name: "Features", displayName: "Available in" },
@@ -67,7 +66,6 @@ export interface AgentEntry {
     sessions: number;
     orgsReached: number;
     sessionsPerUser?: number;
-    returnRate?: number;
     /** The day of the latest session, as `yyyy-mm-dd`. */
     lastActivity?: string;
     /** The registry's own wording, emoji and all. */
@@ -140,7 +138,6 @@ export function toAgentEntries(table: DataTable): AgentEntry[] {
             sessions: number(cell("Sessions")) ?? 0,
             orgsReached: number(cell("Orgs Reached")) ?? 0,
             sessionsPerUser: number(cell("Sessions Per User")),
-            returnRate: number(cell("Return Rate")),
             lastActivity: day(cell("Last Activity")),
             features,
             surfaces: agentSurfaces(features),

@@ -243,7 +243,6 @@ describe("agent leaderboard", () => {
         const unused = entries.find((entry) => entry.inRegistry);
         expect(unused).toMatchObject({ users: 0, sessions: 0, orgsReached: 0 });
         expect(unused?.sessionsPerUser).toBeUndefined();
-        expect(unused?.returnRate).toBeUndefined();
         expect(unused?.lastActivity).toBeUndefined();
         expect(unused?.registryId).toMatch(/^[A-Z]_/);
     });

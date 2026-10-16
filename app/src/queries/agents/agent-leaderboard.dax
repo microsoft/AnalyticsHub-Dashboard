@@ -32,7 +32,6 @@ VAR _registered =
                 "@Users", [Active Agent Users],
                 "@Sessions", [Observed Agent Sessions],
                 "@PerUser", [Observed Agent Sessions per User],
-                "@ReturnRate", [Agent Return Rate],
                 "@Orgs", [Agent Orgs],
                 "@LastSeen", [Agent Last Observed Activity]
             ),
@@ -50,7 +49,6 @@ VAR _registered =
         "Users", [@Users],
         "Sessions", [@Sessions],
         "Sessions Per User", [@PerUser],
-        "Return Rate", [@ReturnRate],
         "Orgs Reached", [@Orgs],
         "Last Activity", [@LastSeen],
         "Features", 'Agents 365'[Agent Features],
@@ -71,7 +69,6 @@ VAR _unregistered =
                 "@Users", [Active Agent Users],
                 "@Sessions", [Observed Agent Sessions],
                 "@PerUser", [Observed Agent Sessions per User],
-                "@ReturnRate", [Agent Return Rate],
                 "@Orgs", [Agent Orgs],
                 "@LastSeen", [Agent Last Observed Activity]
             ),
@@ -89,7 +86,6 @@ VAR _unregistered =
         "Users", [@Users],
         "Sessions", [@Sessions],
         "Sessions Per User", [@PerUser],
-        "Return Rate", [@ReturnRate],
         "Orgs Reached", [@Orgs],
         "Last Activity", [@LastSeen],
         "Features", BLANK(),

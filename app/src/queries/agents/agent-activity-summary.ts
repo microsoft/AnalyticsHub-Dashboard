@@ -22,7 +22,6 @@ const columnMetadata: ColumnMetadataMap = {
         displayName: "Sessions per agent user",
         format: FORMAT_RATE,
     },
-    "[Return Rate]": { name: "Return Rate", displayName: "Came back", format: FORMAT_PERCENT },
 };
 
 /**

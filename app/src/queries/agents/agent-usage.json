@@ -21,7 +21,6 @@
       { "field": "Agent", "type": "nominal", "title": "Agent" },
       { "field": "Sessions", "type": "quantitative", "title": "Sessions", "format": ",.0f" },
       { "field": "Users", "type": "quantitative", "title": "Users", "format": ",.0f" },
-      { "field": "Return Rate", "type": "quantitative", "title": "Came back", "format": ".0%" },
       { "field": "Organizations", "type": "quantitative", "title": "Organizations", "format": ",.0f" }
     ]
   }

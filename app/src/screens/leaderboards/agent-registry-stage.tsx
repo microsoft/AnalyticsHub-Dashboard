@@ -77,7 +77,6 @@ function toRow(entry: AgentEntry): Row {
         Users: entry.users,
         "Orgs Reached": entry.orgsReached,
         Sessions: entry.sessions,
-        "Return Rate": entry.returnRate ?? 0,
         "Last Activity": entry.lastActivity ?? "",
         "Available In": entry.surfaces?.join(", ") ?? entry.features ?? "",
         Lifecycle: entry.lifecycle ?? "",
@@ -182,7 +181,6 @@ function AgentDetail({ entries, selected, onSelect, ref }: AgentDetailProps) {
         { term: "Users", value: formatKpi(selected.users, "whole") },
         { term: "Sessions", value: formatKpi(selected.sessions, "whole") },
         { term: "Sessions / user", value: formatKpi(selected.sessionsPerUser, "rate") },
-        { term: "Return rate", value: formatKpi(selected.returnRate, "percent") },
         { term: "Orgs reached", value: formatKpi(selected.orgsReached, "whole") },
         { term: "Last activity", value: formatDay(selected.lastActivity) ?? "—" },
     ];
@@ -323,7 +321,7 @@ function AgentLeaderboard({ registry }: { registry: boolean }) {
             {
                 id: "Agent",
                 header: "Agent",
-                width: 220,
+                width: 340,
                 cellRenderer: (value, row) => {
                     const current = row._id === selected?.key;
                     const name = textCell(value);
@@ -378,14 +376,6 @@ function AgentLeaderboard({ registry }: { registry: boolean }) {
                 numericStyling: true,
                 filterable: false,
                 cellRenderer: usageCell(formatCell("whole")),
-            },
-            {
-                id: "Return Rate",
-                header: "Return rate",
-                width: 116,
-                numericStyling: true,
-                filterable: false,
-                cellRenderer: usageCell(formatCell("percent")),
             },
             {
                 id: "Last Activity",
@@ -543,18 +533,11 @@ export function AgentRegistryStage() {
                         label="Agent sessions"
                         value={readNumber(activityRow, "[Agent Sessions]")}
                         detail={
-                            <div className="flex flex-col gap-100">
-                                <KpiStat
-                                    label="Per agent user"
-                                    value={readNumber(activityRow, "[Sessions Per User]")}
-                                    format="rate"
-                                />
-                                <KpiStat
-                                    label="Came back for another"
-                                    value={readNumber(activityRow, "[Return Rate]")}
-                                    format="percent"
-                                />
-                            </div>
+                            <KpiStat
+                                label="Per agent user"
+                                value={readNumber(activityRow, "[Sessions Per User]")}
+                                format="rate"
+                            />
                         }
                     />
                 </div>
