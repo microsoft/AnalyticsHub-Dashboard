@@ -56,15 +56,22 @@ opening the app took about 40 seconds.
   no more than 90 a minute per user, under Power BI's limit of 120. A page load used to send
   about 25 queries at once.
 - **Retries.** A query that Power BI throttles is retried with jittered backoff (1, 2, 4, 8,
-  then 15 seconds), or after as long as `Retry-After` asks, for up to a minute in all. That
-  includes a throttle sent inside a normal HTTP 200 reply, as an error table, which the app used
-  to keep in its cache. Only the throttled model waits, and it gets one query at a time until it
-  answers; queries to other models carry on. Other query errors aren't retried. On Azure, the
-  app now reads the `Retry-After` header that the web proxy passes through.
+  then 15 seconds), for up to a minute in all. A `Retry-After` is kept in full: if it asks for
+  longer than the query can still wait, the card shows busy at once, and nothing goes to that
+  model until it ends. That includes a throttle sent inside a normal HTTP 200 reply, as an error
+  table, which the app used to keep in its cache. Only the throttled model waits, and it gets one
+  query at a time until it answers; queries to other models carry on. Other query errors aren't
+  retried, even when they name a table such as `Rate Limit`. On Azure, the app now reads the
+  `Retry-After` header that the web proxy passes through.
+- **Closed cards stop asking.** When you leave a card, its waiting and retries stop. A query
+  already sent still finishes, and its answer is kept.
 - **Shared requests.** Identical queries that are in flight at the same time share one
   request.
 - **A clear message.** A query that is still throttled after a minute shows **Power BI is
   busy** with a Try again button, not "This didn't load". Try again asks Power BI, not the cache.
+- **Busy cards clear by themselves.** Once the model answers any query again, every card that
+  showed busy on it, and the filter choices, ask again with no click or page change. A page
+  opened after a throttle sends its queries instead of giving up at once.
 - **Background loading pauses.** After a throttle, background loading from that model waits at
   least a minute, and until a query to it on screen succeeds. Pages still load when you open them.
 - **Only the affected visual fails.** A throttled slicer-options query no longer replaces the

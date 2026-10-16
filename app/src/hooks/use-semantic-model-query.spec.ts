@@ -137,6 +137,18 @@ describe("useSemanticModelQuery", () => {
         expect(second.result.current.error?.message).toBe("Cannot find table 'X'.");
         expect(mockQuery).toHaveBeenCalledOnce();
     });
+
+    it("stops loading when its query is cleared while one is still loading", async () => {
+        mockQuery.mockReturnValue(new Promise(() => {}));
+        const { result, rerender } = renderHook(({ query }) => useSemanticModelQuery({ connection: "model", query }), {
+            initialProps: { query: "Q" },
+        });
+        expect(result.current.isLoading).toBe(true);
+
+        rerender({ query: "" });
+        await waitFor(() => expect(result.current.isLoading).toBe(false));
+        expect(mockQuery).toHaveBeenCalledOnce();
+    });
 });
 
 describe("useSemanticModelQuery's cache age", () => {

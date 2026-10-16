@@ -8,24 +8,42 @@
 /** `low` waits until nothing on screen is loading; `normal` is everything a person is looking at. */
 export type QueryPriority = "normal" | "low";
 
+/** The card starting a request. */
+export interface QueryCaller {
+    /** Aborts once the card has gone. */
+    signal?: AbortSignal;
+    /** Told the semantic model the request asks, as the scheduler names it. */
+    asking?: (model: string) => void;
+}
+
 let current: QueryPriority = "normal";
+let currentFrom: QueryCaller | undefined;
 
 /**
- * Starts the requests `start` makes in `priority`'s lane. The SDK checks its
- * cache and calls the scheduled proxy synchronously inside `query()`, so the
- * lane is read before `start` returns; anything later runs as `normal`.
+ * Starts the requests `start` makes in `priority`'s lane, on behalf of
+ * `caller`. The SDK checks its cache and calls the scheduled proxy
+ * synchronously inside `query()`, so both are read before `start` returns;
+ * anything later runs as `normal`, for no caller.
  */
-export function withPriority<T>(priority: QueryPriority, start: () => T): T {
+export function withPriority<T>(priority: QueryPriority, start: () => T, caller?: QueryCaller): T {
     const previous = current;
+    const previousFrom = currentFrom;
     current = priority;
+    currentFrom = caller;
     try {
         return start();
     } finally {
         current = previous;
+        currentFrom = previousFrom;
     }
 }
 
 /** The lane of the request being started right now. */
 export function currentPriority(): QueryPriority {
     return current;
+}
+
+/** The card starting the request right now, if one said so. */
+export function currentCaller(): QueryCaller | undefined {
+    return currentFrom;
 }

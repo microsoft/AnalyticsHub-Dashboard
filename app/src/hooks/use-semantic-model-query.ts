@@ -9,7 +9,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { type CachedQueryResult } from "@microsoft/fabric-app-data";
 import { getFabricClient, QUERY_CACHE_MAX_AGE_MS } from "@/lib/fabric-client";
 import { withPriority } from "@/lib/query-priority";
-import { isBusyMessage } from "@/lib/query-scheduler";
+import { isBusyMessage, onModelRecovered } from "@/lib/query-scheduler";
 import { useIsPrefetch } from "./prefetch.context";
 
 interface UseSemanticModelQueryOptions {
@@ -37,7 +37,9 @@ function cachedBusy(result: CachedQueryResult): boolean {
 /**
  * React hook that executes a DAX query against a Power BI semantic model
  * via the Fabric SDK. Results are cached by the SDK's built-in LRU cache for
- * the rest of the visit, up to an hour each (`QUERY_CACHE_MAX_AGE_MS`).
+ * the rest of the visit, up to an hour each (`QUERY_CACHE_MAX_AGE_MS`). A card
+ * left showing "Power BI is busy" asks again by itself once its model answers
+ * another query.
  *
  * The connection alias is resolved from `fabric.generated.ts`
  * (managed by `npx fabric-app-data`).
@@ -82,45 +84,75 @@ export function useSemanticModelQuery(
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<Error | undefined>();
     const latest = useRef<CachedQueryResult | undefined>(undefined);
+    const controller = useRef<AbortController | undefined>(undefined);
+    /** The model the card's last request asked, as the scheduler names it. */
+    const asked = useRef<string | undefined>(undefined);
+    /** The card shows "Power BI is busy" and isn't asking again yet. */
+    const busy = useRef(false);
 
     const canExecute = Boolean(connection && query);
     const priority = useIsPrefetch() ? "low" : "normal";
 
-    const execute = useCallback(async (fresh = false) => {
-        if (!canExecute) return;
+    // `signal` aborts when the card unmounts or its query changes: what is still queued stops, and the answer is ignored.
+    const execute = useCallback(async (fresh = false, signal?: AbortSignal) => {
+        busy.current = false;
+        if (!canExecute) {
+            setIsLoading(false);
+            return;
+        }
         setIsLoading(true);
         setError(undefined);
+        const caller = { signal, asking: (model: string) => { asked.current = model; } };
 
         try {
             const model = getFabricClient().semanticModel(connection);
-            let result = await withPriority(priority, () => model.query(query, { bypassCache: fresh || bypassCache }));
+            let result = await withPriority(priority, () => model.query(query, { bypassCache: fresh || bypassCache }), caller);
+            if (signal?.aborted) return;
             const stale = result.fromCache && result.cachedAt && Date.now() - result.cachedAt.getTime() > QUERY_CACHE_MAX_AGE_MS;
             if (stale || cachedBusy(result)) {
-                result = await withPriority(priority, () => model.query(query, { bypassCache: true }));
+                result = await withPriority(priority, () => model.query(query, { bypassCache: true }), caller);
+                if (signal?.aborted) return;
             }
 
             latest.current = result;
             setData(result);
 
             if (result.status === "error") {
+                busy.current = isBusyMessage(result.error.message);
                 setError(new Error(result.error.message));
             }
         } catch (err) {
+            if (signal?.aborted) return;
             latest.current = undefined;
-            setError(err instanceof Error ? err : new Error(String(err)));
+            const failure = err instanceof Error ? err : new Error(String(err));
+            busy.current = isBusyMessage(failure.message);
+            setError(failure);
         } finally {
-            setIsLoading(false);
+            if (!signal?.aborted) setIsLoading(false);
         }
     }, [connection, query, bypassCache, canExecute, priority]);
 
     useEffect(() => {
+        const run = new AbortController();
+        controller.current = run;
         // Starts a fetch from the semantic model; the loading flag must flip as it starts.
         // eslint-disable-next-line react-hooks/set-state-in-effect
-        execute();
+        execute(false, run.signal);
+        return () => run.abort();
     }, [execute]);
 
+    // A card that gave up with "Power BI is busy" asks again once its model answers another query.
+    useEffect(() => onModelRecovered((model) => {
+        const run = controller.current;
+        if (!busy.current || model !== asked.current || !run || run.signal.aborted) return;
+        void execute(true, run.signal);
+    }), [execute]);
+
     // "Try again" after an error asks Power BI, not the cache that kept it; after a success the cache is right.
-    const refetch = useCallback(() => execute(latest.current?.status !== "success"), [execute]);
+    const refetch = useCallback(
+        () => execute(latest.current?.status !== "success", controller.current?.signal),
+        [execute],
+    );
 
     return { data, isLoading, error, refetch };
 }

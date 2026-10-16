@@ -25,13 +25,14 @@ import {
     Utf8,
     vectorFromArray,
 } from "apache-arrow";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { withPriority } from "@/lib/query-priority";
 import {
     arrowErrorOf,
     BUSY_MESSAGE,
     isBusyMessage,
     jsonErrorOf,
+    onModelRecovered,
     parseRetryAfter,
     QueryScheduler,
     scheduledProxy,
@@ -152,6 +153,14 @@ describe("throttleOf", () => {
         expect(throttleOf(Object.assign(apiError(429), { errorCode: "3238002688" }))?.code).toBe("3238002688");
         expect(throttleOf(Object.assign(apiError(429), { errorCode: "<b>not a code</b>" }))?.code).toBeUndefined();
     });
+
+    it("doesn't take a name a query error quotes, or the error itself, for a throttle", () => {
+        expect(throttleOf(apiError(400, "", "Query (5, 59) Cannot find table '<oii>Rate Limit</oii>'."))).toBeUndefined();
+        expect(throttleOf(apiError(400, "", "Cannot find table 'Throttle Log'."))).toBeUndefined();
+        expect(throttleOf(new Error("The column 'Usage'[Rate Limit] cannot be found"))).toBeUndefined();
+        expect(throttleOf(new Error("Query (1, 8) The function RATELIMIT doesn't exist."))).toBeUndefined();
+        expect(throttleOf(new Error("You've hit the rate limit; we're throttling"))?.status).toBe(429);
+    });
 });
 
 describe("reading a throttle sent in an HTTP 200", () => {
@@ -194,6 +203,13 @@ describe("isBusyMessage", () => {
         expect(isBusyMessage("The dates with Copilot activity couldn't be read: Power BI is busy: …")).toBe(true);
         expect(isBusyMessage("The column 'X'[Y] cannot be found")).toBe(false);
         expect(isBusyMessage(undefined)).toBe(false);
+    });
+
+    it("doesn't show the busy card for a query error that names a rate limit", () => {
+        expect(isBusyMessage("Query (5, 59) Cannot find table '<oii>Rate Limit</oii>'.")).toBe(false);
+        expect(isBusyMessage("The licences couldn't be read: Cannot find table 'Throttle Log'.")).toBe(false);
+        expect(isBusyMessage("You've hit the rate limit; we're throttling")).toBe(true);
+        expect(isBusyMessage('{"errors":["Too many requests"]}')).toBe(true);
     });
 });
 
@@ -367,10 +383,171 @@ describe("QueryScheduler", () => {
         expect(log).toHaveBeenLastCalledWith("info", "Analytics Hub: background loading from model bde54d4a resumed.");
     });
 
+    it("says HTTP 200 for a throttle Power BI sent as an error table", async () => {
+        const log = vi.fn();
+        const scheduler = new QueryScheduler({ random: () => 0, log });
+        const task = vi.fn().mockRejectedValueOnce(throttledReply({ code: "3238002688", message: THROTTLED }, "r")).mockResolvedValueOnce("ok");
+        const result = scheduler.run("q", task, "normal", "ws/bde54d4a");
+        await vi.advanceTimersByTimeAsync(500);
+        await expect(result).resolves.toBe("ok");
+        expect(log.mock.calls[0]).toEqual([
+            "warn",
+            "Analytics Hub: Power BI throttled a query to model bde54d4a (HTTP 200, 3238002688), 1 in a row. Its queries wait 0.5 s, then try it one at a time.",
+        ]);
+    });
+
+    it("says once when a model that left a card busy answers again, naming only that model", async () => {
+        const log = vi.fn();
+        const scheduler = new QueryScheduler({ random: () => 0, log });
+        const recovered = vi.fn();
+        onTestFinished(onModelRecovered(recovered));
+        let throttling = true;
+        const task = vi.fn(async () => {
+            if (throttling) throw apiError(429);
+            return "ok";
+        });
+        const busy = scheduler.run("a", task, "normal", "ws/bde54d4a");
+        const settled = expect(busy).rejects.toMatchObject({ message: BUSY_MESSAGE });
+        await expect(scheduler.run("c", async () => "other", "normal", "ws/648411c2")).resolves.toBe("other");
+        await vi.advanceTimersByTimeAsync(60_000);
+        await settled;
+        expect(recovered).not.toHaveBeenCalled();
+
+        throttling = false;
+        await vi.advanceTimersByTimeAsync(15_000);
+        await expect(scheduler.run("b", task, "normal", "ws/bde54d4a")).resolves.toBe("ok");
+        expect(recovered.mock.calls).toEqual([["ws/bde54d4a"]]);
+        expect(log).toHaveBeenCalledWith("info", 'Analytics Hub: cards that showed "Power BI is busy" ask model bde54d4a again.');
+
+        await expect(scheduler.run("d", task, "normal", "ws/bde54d4a")).resolves.toBe("ok");
+        expect(recovered).toHaveBeenCalledTimes(1);
+    });
+
+    it("says a model answers again once the pause it asked for ends, not before", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0, log: () => {} });
+        const recovered = vi.fn();
+        onTestFinished(onModelRecovered(recovered));
+        const sentBefore = deferred();
+        const early = scheduler.run("early", () => sentBefore.promise, "normal", "ws/vl");
+        const throttled = vi.fn().mockRejectedValue(Object.assign(apiError(429), { retryAfterMs: 120_000 }));
+        await expect(scheduler.run("a", throttled, "normal", "ws/vl")).rejects.toMatchObject({ message: BUSY_MESSAGE });
+        sentBefore.resolve("early");
+        await expect(early).resolves.toBe("early");
+        await vi.advanceTimersByTimeAsync(119_999);
+        expect(recovered).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(1);
+        expect(recovered.mock.calls).toEqual([["ws/vl"]]);
+        await expect(scheduler.run("b", async () => "ok", "normal", "ws/vl")).resolves.toBe("ok");
+        expect(recovered).toHaveBeenCalledTimes(1);
+    });
+
+    it("doesn't say a model answers again when it throttles once more before its pause ends", async () => {
+        const scheduler = new QueryScheduler({ maxRetries: 0, random: () => 0, log: () => {} });
+        const recovered = vi.fn();
+        onTestFinished(onModelRecovered(recovered));
+        const sentBefore = deferred();
+        const alsoBefore = deferred();
+        const early = scheduler.run("early", () => sentBefore.promise, "normal", "ws/vl");
+        const late = scheduler.run("late", () => alsoBefore.promise, "normal", "ws/vl");
+        const throttled = vi.fn().mockRejectedValue(Object.assign(apiError(429), { retryAfterMs: 120_000 }));
+        await expect(scheduler.run("a", throttled, "normal", "ws/vl")).rejects.toMatchObject({ message: BUSY_MESSAGE });
+        sentBefore.resolve("early");
+        await expect(early).resolves.toBe("early");
+        alsoBefore.reject(apiError(429));
+        await expect(late).rejects.toMatchObject({ message: BUSY_MESSAGE });
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(recovered).not.toHaveBeenCalled();
+
+        await expect(scheduler.run("b", async () => "ok", "normal", "ws/vl")).resolves.toBe("ok");
+        expect(recovered.mock.calls).toEqual([["ws/vl"]]);
+    });
+
+    it("sends a background query asked for on screen long after its model's throttle: its wait counts from then", async () => {
+        const log = vi.fn();
+        const scheduler = new QueryScheduler({ random: () => 0, log });
+        const back = vi.fn().mockRejectedValueOnce(apiError(429)).mockResolvedValue("back");
+        const background = scheduler.run("back", back, "low", "ws/vl");
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(back).toHaveBeenCalledTimes(1);
+
+        // Another card on screen tries the model first, and is still waiting for its answer.
+        const probe = deferred();
+        const first = scheduler.run("first", () => probe.promise, "normal", "ws/vl");
+        await vi.advanceTimersByTimeAsync(0);
+        const asked = scheduler.run("back", back, "normal", "ws/vl");
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(back).toHaveBeenCalledTimes(1);
+
+        probe.resolve("first");
+        await expect(first).resolves.toBe("first");
+        await expect(asked).resolves.toBe("back");
+        expect(background).toBe(asked);
+        expect(back).toHaveBeenCalledTimes(2);
+        expect(log.mock.calls.some(([, message]) => String(message).includes("still throttling"))).toBe(false);
+    });
+
     it("gives up at once when Retry-After asks for longer than a minute", async () => {
         const scheduler = new QueryScheduler();
         const task = vi.fn().mockRejectedValue(Object.assign(apiError(429), { retryAfterMs: 120_000 }));
         await expect(scheduler.run("q", task)).rejects.toMatchObject({ message: BUSY_MESSAGE });
+        expect(task).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps all of a long Retry-After: nothing goes to the model before it ends", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const sent: Array<[string, number]> = [];
+        const start = Date.now();
+        const task = (name: string, retryAfterMs?: number) => async () => {
+            sent.push([name, Date.now() - start]);
+            if (retryAfterMs) throw Object.assign(apiError(429), { retryAfterMs });
+            return name;
+        };
+        await expect(scheduler.run("a", task("a", 120_000), "normal", "ws/vl")).rejects.toMatchObject({ message: BUSY_MESSAGE });
+        // It can't wait two minutes, so it gives up now rather than ask the model early.
+        await expect(scheduler.run("b", task("b"), "normal", "ws/vl")).rejects.toMatchObject({ message: BUSY_MESSAGE });
+        await expect(scheduler.run("c", task("c"), "normal", "ws/cc")).resolves.toBe("c");
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        const late = scheduler.run("d", task("d"), "normal", "ws/vl");
+        await vi.advanceTimersByTimeAsync(59_999);
+        expect(sent.map(([name]) => name)).toEqual(["a", "c"]);
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(late).resolves.toBe("d");
+        expect(sent).toEqual([
+            ["a", 0],
+            ["c", 0],
+            ["d", 120_000],
+        ]);
+    });
+
+    it("keeps the longest Retry-After from replies to queries already sent", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const gate = deferred();
+        const short = vi.fn().mockRejectedValueOnce(Object.assign(apiError(429), { retryAfterMs: 1000 })).mockResolvedValue("short");
+        const long = vi.fn(async () => {
+            await gate.promise;
+            throw Object.assign(apiError(429), { retryAfterMs: 120_000 });
+        });
+        const first = scheduler.run("a", short, "normal", "ws/vl");
+        const second = scheduler.run("b", long, "normal", "ws/vl");
+        const settled = Promise.all([
+            expect(first).rejects.toMatchObject({ message: BUSY_MESSAGE }),
+            expect(second).rejects.toMatchObject({ message: BUSY_MESSAGE }),
+        ]);
+        await vi.advanceTimersByTimeAsync(0);
+        gate.resolve("");
+        await vi.advanceTimersByTimeAsync(0);
+        await settled;
+        expect(short).toHaveBeenCalledTimes(1);
+        expect(long).toHaveBeenCalledTimes(1);
+    });
+
+    it("doesn't retry a query error whose message names a rate limit", async () => {
+        const scheduler = new QueryScheduler({ maxRetries: 2 });
+        const bad = apiError(400, "", "Query (5, 59) Cannot find table '<oii>Rate Limit</oii>'.");
+        const task = vi.fn().mockRejectedValue(bad);
+        await expect(scheduler.run("q", task)).rejects.toBe(bad);
         expect(task).toHaveBeenCalledTimes(1);
     });
 
@@ -617,6 +794,142 @@ describe("QueryScheduler background lane", () => {
     });
 });
 
+describe("QueryScheduler when a card goes", () => {
+    const gone = { name: "AbortError" };
+
+    it("stops a throttled query nobody waits for: nothing more is sent, and the model's pause stands", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const task = vi.fn().mockRejectedValue(apiError(429));
+        const card = new AbortController();
+        const result = scheduler.run("q", task, "normal", "ws/vl", card.signal);
+        const settled = expect(result).rejects.toMatchObject(gone);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(task).toHaveBeenCalledTimes(1);
+
+        card.abort();
+        await settled;
+        expect(scheduler.activity()).toMatchObject({ foreground: 0, background: 0 });
+        expect(throttleOf(await result.catch((error: unknown) => error))).toBeUndefined();
+
+        const next = vi.fn(async () => "next");
+        const asked = scheduler.run("r", next, "normal", "ws/vl");
+        await vi.advanceTimersByTimeAsync(499);
+        expect(next).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(asked).resolves.toBe("next");
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(task).toHaveBeenCalledTimes(1);
+    });
+
+    it("carries on for a card still waiting on the same query", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const task = vi.fn().mockRejectedValueOnce(apiError(429)).mockResolvedValue("ok");
+        const [one, two] = [new AbortController(), new AbortController()];
+        const first = scheduler.run("q", task, "normal", "", one.signal);
+        const second = scheduler.run("q", task, "normal", "", two.signal);
+        await vi.advanceTimersByTimeAsync(0);
+        one.abort();
+        await vi.advanceTimersByTimeAsync(500);
+        await expect(second).resolves.toBe("ok");
+        await expect(first).resolves.toBe("ok");
+        expect(task).toHaveBeenCalledTimes(2);
+    });
+
+    it("runs to the end for a caller that can't say it has gone", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const task = vi.fn().mockRejectedValueOnce(apiError(429)).mockResolvedValue("ok");
+        const card = new AbortController();
+        const kept = scheduler.run("q", task);
+        scheduler.run("q", task, "normal", "", card.signal);
+        await vi.advanceTimersByTimeAsync(0);
+        card.abort();
+        await vi.advanceTimersByTimeAsync(500);
+        await expect(kept).resolves.toBe("ok");
+        expect(task).toHaveBeenCalledTimes(2);
+    });
+
+    it("lets a query already sent finish and keeps its answer, but doesn't retry its throttle", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const answer = deferred();
+        const card = new AbortController();
+        const answered = scheduler.run("a", () => answer.promise, "normal", "", card.signal);
+        await vi.advanceTimersByTimeAsync(0);
+        card.abort();
+        expect(scheduler.activity()).toMatchObject({ foreground: 1 });
+        answer.resolve("answer");
+        await expect(answered).resolves.toBe("answer");
+
+        const reply = deferred();
+        const throttled = vi.fn(() => reply.promise);
+        const other = new AbortController();
+        const result = scheduler.run("b", throttled, "normal", "ws/vl", other.signal);
+        const settled = expect(result).rejects.toMatchObject(gone);
+        await vi.advanceTimersByTimeAsync(0);
+        other.abort();
+        reply.reject(apiError(429));
+        await settled;
+        const next = vi.fn(async () => "next");
+        const asked = scheduler.run("c", next, "normal", "ws/vl");
+        await vi.advanceTimersByTimeAsync(499);
+        expect(next).not.toHaveBeenCalled();
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(asked).resolves.toBe("next");
+        expect(throttled).toHaveBeenCalledTimes(1);
+    });
+
+    it("gives a queued query's place to the next in line, and sends it afresh if asked again", async () => {
+        const scheduler = new QueryScheduler({ concurrency: 1 });
+        const gate = deferred();
+        const running = scheduler.run("a", () => gate.promise);
+        const dropped = vi.fn(async () => "b");
+        const card = new AbortController();
+        const queued = scheduler.run("b", dropped, "normal", "", card.signal);
+        const next = vi.fn(async () => "c");
+        const waiting = scheduler.run("c", next);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(scheduler.activity()).toMatchObject({ foreground: 3 });
+
+        card.abort();
+        await expect(queued).rejects.toMatchObject(gone);
+        expect(scheduler.activity()).toMatchObject({ foreground: 2 });
+        gate.resolve("a");
+        await expect(Promise.all([running, waiting])).resolves.toEqual(["a", "c"]);
+        expect(dropped).not.toHaveBeenCalled();
+
+        await expect(scheduler.run("b", dropped)).resolves.toBe("b");
+        expect(scheduler.activity()).toMatchObject({ foreground: 0, background: 0 });
+    });
+
+    it("drops a background query when its hidden page goes, so the next can start", async () => {
+        const scheduler = new QueryScheduler();
+        const front = deferred();
+        const foreground = scheduler.run("front", () => front.promise);
+        const page = new AbortController();
+        const dropped = vi.fn(async () => "dropped");
+        const background = scheduler.run("back", dropped, "low", "", page.signal);
+        const settled = expect(background).rejects.toMatchObject(gone);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(scheduler.activity()).toMatchObject({ foreground: 1, background: 1 });
+
+        page.abort();
+        await settled;
+        expect(scheduler.activity()).toMatchObject({ foreground: 1, background: 0 });
+        const later = scheduler.run("later", async () => "later", "low");
+        front.resolve("front");
+        await foreground;
+        await expect(later).resolves.toBe("later");
+        expect(dropped).not.toHaveBeenCalled();
+    });
+
+    it("refuses at once for a caller that has already gone", async () => {
+        const scheduler = new QueryScheduler();
+        const task = vi.fn(async () => "never");
+        await expect(scheduler.run("q", task, "normal", "", AbortSignal.abort())).rejects.toMatchObject(gone);
+        expect(task).not.toHaveBeenCalled();
+        expect(scheduler.activity()).toEqual({ foreground: 0, background: 0, finished: 0 });
+    });
+});
+
 describe("scheduledProxy", () => {
     function fakeProxy() {
         const executeDax = vi.fn(async () => ({ data: new ArrayBuffer(0), requestId: "r" }));
@@ -657,6 +970,18 @@ describe("scheduledProxy", () => {
         const proxy = scheduledProxy(inner);
         expect(proxy.lakehouse).toBe(inner.lakehouse);
         expect(proxy.warehouse).toBe(inner.warehouse);
+    });
+
+    it("tells the card starting a request which model it asks, and stops for a card that has gone", async () => {
+        const { inner, executeDax } = fakeProxy();
+        const proxy = scheduledProxy(inner, new QueryScheduler());
+        const asking = vi.fn();
+        const gone = new AbortController();
+        gone.abort();
+        const result = withPriority("normal", () => proxy.semanticModel.executeDax("ws", "m", "EVALUATE A"), { signal: gone.signal, asking });
+        expect(asking).toHaveBeenCalledWith("ws/m");
+        await expect(result).rejects.toMatchObject({ name: "AbortError" });
+        expect(executeDax).not.toHaveBeenCalled();
     });
 });
 
@@ -753,6 +1078,20 @@ describe("a throttle sent in an HTTP 200, through the SDK", () => {
         expect(executeDax).toHaveBeenCalledTimes(1);
         await expect(model.query("EVALUATE 'Access Scope'", { bypassCache: true })).resolves.toMatchObject({ fromCache: false });
         expect(executeDax).toHaveBeenCalledTimes(2);
+    });
+
+    it("leaves a query error that names a rate limit as it was: sent once, cached, its message intact", async () => {
+        const message = "Query (5, 59) Cannot find table '<oii>Rate Limit</oii>'.";
+        const { model, executeDax } = clientWith(() => ({ data: errorTable("3241803779", message), requestId: "r" }));
+        const result = await model.query("EVALUATE 'Rate Limit'");
+        expect(result).toMatchObject({ status: "error", fromCache: false, error: { category: "query", message } });
+        expect(executeDax).toHaveBeenCalledTimes(1);
+        await expect(model.query("EVALUATE 'Rate Limit'")).resolves.toMatchObject({ fromCache: true });
+        expect(executeDax).toHaveBeenCalledTimes(1);
+
+        const json = clientWith(() => ({ data: { results: [{ error: { code: "DAX", message: "Cannot find table 'Throttle Log'." } }] }, requestId: "r" }), "json");
+        await expect(json.model.query("EVALUATE 'Throttle Log'")).resolves.toMatchObject({ status: "error", error: { category: "query" } });
+        expect(json.executeDaxJson).toHaveBeenCalledTimes(1);
     });
 
     it("retries a throttle in a JSON reply, and leaves a JSON query error alone", async () => {
