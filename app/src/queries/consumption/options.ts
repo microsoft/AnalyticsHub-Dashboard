@@ -62,6 +62,13 @@ export const ALL_USERS = "All users";
  */
 const HIDDEN_ATTRIBUTES = new Set(["id", "user id", "manager_user id", "user"]);
 
+/**
+ * Groupings that split a large tenant into thousands of small groups: a
+ * person's key, each manager, or an org level below the third. Their group
+ * table takes 20 to 90 seconds, so only the coarse groupings are offered.
+ */
+const SLOW_ATTRIBUTE = /user\s*_?key|^manager|^level\s*_?([4-9]|\d{2})/i;
+
 const ATTRIBUTE_LABELS: Record<string, string> = {
     "Job Family": "Job family",
     "Usage Intensity (Cowork)": "Usage intensity",
@@ -76,11 +83,17 @@ export interface GroupByChoice {
 export function groupByChoices(attributes: readonly string[], product: "Cowork" | "Studio"): GroupByChoice[] {
     return attributes
         .filter((attribute) => attribute !== ALL_USERS && !HIDDEN_ATTRIBUTES.has(attribute.toLowerCase()))
+        .filter((attribute) => !SLOW_ATTRIBUTE.test(attribute))
         .filter((attribute) => {
             const intensity = /^Usage Intensity \((.+)\)$/i.exec(attribute);
             return !intensity || intensity[1].toLowerCase() === product.toLowerCase();
         })
-        .map((attribute) => ({ value: attribute, label: ATTRIBUTE_LABELS[attribute] ?? attribute }));
+        .map((attribute) => ({ value: attribute, label: attributeLabel(attribute) }));
+}
+
+function attributeLabel(attribute: string): string {
+    const level = /^level\s*_?(\d+)_?\s*name$/i.exec(attribute);
+    return ATTRIBUTE_LABELS[attribute] ?? (level ? `Org level ${level[1]}` : attribute);
 }
 
 /** Always applied: without it every attribute's groups would be listed together. */

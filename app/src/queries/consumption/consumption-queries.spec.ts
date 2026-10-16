@@ -201,6 +201,13 @@ describe("consumption slicers", () => {
             ["Group by", "Department", 0],
             ["Group by", "id", 0],
             ["Group by", "Job Family", 0],
+            ["Group by", "Level2_Name", 0],
+            ["Group by", "Level2_User Key", 0],
+            ["Group by", "Level4_Name", 0],
+            ["Group by", "Level5_Name", 0],
+            ["Group by", "Level5_User Key", 0],
+            ["Group by", "Level12_Name", 0],
+            ["Group by", "Manager", 0],
             ["Group by", "Manager_User Id", 0],
             ["Group by", "Usage Intensity (Cowork)", 0],
             ["Group by", "Usage Intensity (GitHub)", 0],
@@ -221,11 +228,12 @@ describe("consumption slicers", () => {
         expect(options.costBases).toEqual(["Actual"]);
     });
 
-    it("offers each product its own usage intensity and hides identifier groupings", () => {
+    it("offers each product its own usage intensity and hides identifier and slow groupings", () => {
         expect(groupByChoices(options.groupBy, "Cowork")).toEqual([
             { value: "City", label: "City" },
             { value: "Department", label: "Department" },
             { value: "Job Family", label: "Job family" },
+            { value: "Level2_Name", label: "Org level 2" },
             { value: "Usage Intensity (Cowork)", label: "Usage intensity" },
         ]);
         expect(groupByChoices(options.groupBy, "Studio").map((choice) => choice.value)).toContain(
