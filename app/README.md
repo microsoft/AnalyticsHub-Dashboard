@@ -90,6 +90,11 @@ The app is built to stay quick for a large tenant (about 20,000 people):
   first tab of each other page, one query at a time, and waits whenever the page on screen is
   loading. If you open a page while its query is waiting, the query starts at once.
   `PREFETCH` in `src/components/prefetcher.tsx` turns this off.
+- **A busy model slows down on its own.** If Power BI throttles a model, even inside a normal
+  reply, only that model's queries wait: 1, 2, 4, 8, then 15 seconds, one query at a time, for
+  up to a minute. Then the card shows **Power BI is busy**, and **Try again** asks the model, not
+  the cache. Background loading from that model stops for at least a minute, and until a query
+  to it on screen succeeds. The browser console logs each step (`Analytics Hub: …`).
 - **Results last for the visit.** The app holds up to 1,000 results in memory, each for up to an
   hour, so a page you've seen opens again without asking the model. Nothing is kept between opens.
   A preview build stored results in IndexedDB (`analytics-hub-results`); the app deletes that
