@@ -7,6 +7,7 @@
 
 import { useState, type ReactNode } from "react";
 import { ChevronDown } from "lucide-react";
+import { KeepResultsContext } from "@/hooks/keep-results.context";
 import { useStageFilter } from "@/hooks/stage-filter.context";
 import { cn } from "@/lib/utils";
 
@@ -28,11 +29,12 @@ interface OnDemandProps {
  * Holds back a long list or slow detail on a live page until it is asked for,
  * so the page's headline figures load first. Its queries start only when the
  * children mount. A download or report pack shows the children at once.
+ * The lists name people, so their results are never kept on the device.
  */
 export function OnDemand({ id, label, note, children, className }: OnDemandProps) {
     const { deferDetail } = useStageFilter();
     const [open, setOpen] = useState(() => opened.has(id));
-    if (!deferDetail || open) return <>{children}</>;
+    if (!deferDetail || open) return <KeepResultsContext.Provider value={false}>{children}</KeepResultsContext.Provider>;
 
     return (
         <div

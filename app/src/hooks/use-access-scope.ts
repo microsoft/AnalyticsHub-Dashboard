@@ -17,7 +17,8 @@ import { useSemanticModelQuery } from "./use-semantic-model-query";
  * look exactly as before.
  */
 export function useAccessScope(): AccessScopeState {
-    const { data, error } = useSemanticModelQuery({ connection, query: ACCESS_SCOPE_QUERY });
+    // Read afresh each visit: it is part of what decides whether kept results still hold.
+    const { data, error } = useSemanticModelQuery({ connection, query: ACCESS_SCOPE_QUERY, keep: false });
     return useMemo(
         () =>
             readAccessScope({
