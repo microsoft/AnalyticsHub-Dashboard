@@ -77,6 +77,28 @@ off into `fabric.config.json`; those pages stay hidden without probing until the
 module on. Everything shows while the check runs, or if it fails, and a page comes back on the next
 open once its data loads.
 
+## How pages load
+
+The app is built to stay quick for a large tenant (about 20,000 people):
+
+- **One tab at a time.** Each page shows one section at a time, as tabs, and opening a tab runs
+  only that tab's queries. Downloads and report packs still include every section.
+- **Long lists wait for a click.** The leaderboard ranking and the by-organization and by-person
+  lists load when you choose **Show …**. The cards above them still count everyone, and downloads
+  and report packs still print the lists in full.
+- **Other pages load in the background.** Once the page on screen has loaded, the app fetches the
+  first tab of each other page, one query at a time, and waits whenever the page on screen is
+  loading. `PREFETCH` in `src/components/prefetcher.tsx` turns this off.
+- **Results are kept on this device until the data refreshes.** Summaries from the ValueLens model
+  are stored in the browser's IndexedDB (`analytics-hub-results`). They're filed under a version
+  made of the person signed in, the latest pipeline run, the audit log's size and latest date, and
+  the person's access, and are fetched again when the version changes or after a day. Lists that
+  name people, long results and errors are never stored. `KEEP` in `src/lib/kept-results.ts`
+  turns this off.
+- **Cowork and Copilot Studio credits by group** don't offer per-person groupings (User, User Key,
+  id, employee Id, Hierarchy Path, Level5_User Key), which took one to two and a half minutes each
+  at 20,000 people. A saved grouping that is no longer offered shows **All users**.
+
 ## Settings in the app
 
 Anyone who can open the app can change these, and the change applies for everyone. Share the item
