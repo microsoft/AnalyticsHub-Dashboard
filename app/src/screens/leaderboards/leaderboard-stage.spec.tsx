@@ -22,7 +22,7 @@ vi.mock("@/hooks/use-filtered-query", async () => {
         useFilteredQuery: ({ query }: { query: string }) => {
             asked.push(query);
             const table =
-                query === summary().query
+                query === summary("all").query
                     ? { columns: [{ name: "[All Users]" }, { name: "[All Sessions]" }], rows: [[15447, 5906850]] }
                     : { columns: [], rows: [] };
             return { data: { status: "success", table }, isLoading: false, refetch: () => undefined };
@@ -41,7 +41,8 @@ describe("LeaderboardStage on a live page", () => {
         );
         const ranking = leaderboardPeople("all", describeOrgAttribute(DEFAULT_ORG_ATTRIBUTE)).query;
 
-        expect(asked).toContain(leaderboardSummary().query);
+        expect(asked).toContain(leaderboardSummary("all").query);
+        expect(asked).not.toContain(leaderboardSummary("licensed").query);
         expect(asked).not.toContain(ranking);
         expect(screen.queryByText("Agent with most users")).toBeNull();
 

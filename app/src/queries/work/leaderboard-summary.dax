@@ -1,31 +1,10 @@
 EVALUATE
-// Every cohort's cards at once, so changing License or Activity never waits on a query.
+// One cohort's cards, the one License and Activity pick (they filter this
+// query too): its four figures and the bookmark's extra card, if it has one.
+// leaderboard-summary.ts fills in the cards.
 CALCULATETABLE(
     ROW(
-        "All Users", [All Active Users],
-        "All Sessions", [Observed Sessions],
-        "All Per User", [Observed Sessions per User],
-        "All Per Week", [Observed Sessions per User per Week],
-        "Licensed Users", [Active Licensed Users],
-        "Licensed Sessions", [Observed Licensed Sessions],
-        "Licensed Per User", [Observed Licensed Sessions per User],
-        "Licensed Per Week", [Observed Licensed Sessions per User per Week],
-        "Licence Utilisation", [% Active Licensed Users],
-        "Unlicensed Users", [Active Unlicensed Users],
-        "Unlicensed Sessions", [Observed Unlicensed Sessions],
-        "Unlicensed Per User", [Observed Unlicensed Sessions per User],
-        "Unlicensed Per Week", [Observed Unlicensed Sessions per User per Week],
-        "Unlicensed Tasks", [Unlicensed AI Tasks],
-        "Agent Users", [Active Agent Users],
-        "Agent Sessions", [Observed Agent Sessions],
-        "Agent Per User", [Observed Agent Sessions per User],
-        "Agent Per Week", [Observed Agent Sessions per User per Week],
-        "Agent Tasks", [Agent AI Tasks],
-        "Cowork Users", [Cowork Users],
-        "Cowork Sessions", [Observed Cowork Sessions],
-        "Cowork Per User", [Observed Cowork Sessions per User],
-        "Cowork Per Week", [Observed Cowork Sessions per User per Week],
-        "Cowork Tasks", [Cowork AI Tasks]
+        __CARDS__
     ),
     // As on the report's Leaderboard page: Security Copilot's automated
     // sessions would otherwise top every ranking.

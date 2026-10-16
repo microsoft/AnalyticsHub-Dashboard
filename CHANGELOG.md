@@ -31,8 +31,8 @@ opening the app took about 40 seconds.
 - **Slowest cards removed.** The executive summary no longer shows kinds of work per person, broad
   users or the agent with most users. The agent return rate is gone from Adoption and the
   Leaderboards agents, and the Leaderboards summary drops the agent with most users and the top
-  Agent Builder creator. The sentence under the Activation cards, which repeated their figures, is
-  gone.
+  Agent Builder creator and asks only for the group on screen. The sentence under the Activation
+  cards, which repeated their figures, is gone.
 - **Long lists wait for a click.** The leaderboard ranking, activation by organization, Cowork
   readiness by organization and its candidates, value by organization, Cowork fit by person and
   Cowork credits by group load on **Show …**. The cards above them still count everyone, and

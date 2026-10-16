@@ -317,7 +317,7 @@ export function LeaderboardStage() {
     const cohort: LeaderboardCohort = selectedCohort(filters, applicable, RANKED_COHORTS);
     const [view, setView] = useState<Breakdown>("people");
 
-    const summary = useFilteredQuery(leaderboardSummary());
+    const summary = useFilteredQuery(leaderboardSummary(cohort));
     const row = useMemo(
         () => (summary.data?.status === "success" ? toSummaryRow(summary.data.table) : undefined),
         [summary.data],
