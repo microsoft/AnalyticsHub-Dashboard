@@ -29,19 +29,14 @@ const columnMetadata: ColumnMetadataMap = Object.fromEntries([
     entry("[Licence Utilisation]", "License utilization", FORMAT_PERCENT),
     entry("[Unlicensed Tasks]", "AI tasks", FORMAT_WHOLE),
     entry("[Agent Tasks]", "AI tasks", FORMAT_WHOLE),
-    entry("[Agent Return Rate]", "Return rate (2+ sessions)", FORMAT_PERCENT),
-    entry("[Agent With Most Users]", "Agent with most users"),
-    entry("[Top Agent Builder Creator]", "Top Agent Builder creator (by users)"),
     entry("[Cowork Tasks]", "AI tasks", FORMAT_WHOLE),
 ]);
 
 /**
  * The cards above the Leaderboard for every cohort in one row: active users,
  * sessions, sessions per user and per user per week, plus each bookmark's
- * extra cards — license utilization, AI tasks, the agent return rate, the
- * agent with most users and the top Agent Builder creator. Read it with
- * `toSummaryRow`; `leaderboardSummaryColumns` names one cohort's columns.
- * The two named cards list every name on a tie, one per line.
+ * extra card — license utilization or AI tasks. Read it with `toSummaryRow`;
+ * `leaderboardSummaryColumns` names one cohort's columns.
  */
 export function leaderboardSummary() {
     return { connection, query, columnMetadata };

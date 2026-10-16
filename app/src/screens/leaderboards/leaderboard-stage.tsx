@@ -12,6 +12,7 @@ import { DataGrid, type GridColumnDef, type Row } from "@microsoft/fabric-datagr
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { stageAnchor } from "@/components/destinations";
 import { KpiCard, KpiStat } from "@/components/kpi-card";
+import { OnDemand } from "@/components/on-demand";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
 import { SegmentedControl } from "@/components/segmented-control";
@@ -28,7 +29,7 @@ import { formatKpi, type KpiFormat } from "@/lib/format-kpi";
 import { heatDomain, heatRenderer } from "@/lib/heat";
 import { leafCount, listTotal } from "@/lib/list-total";
 import { isGroupRow, visibleRowCount, type RollupTree } from "@/lib/rollup-tree";
-import { readNumber, readText, toSummaryRow, type SummaryRow } from "@/lib/summary-row";
+import { readNumber, toSummaryRow, type SummaryRow } from "@/lib/summary-row";
 import { toDataTable, type ColumnMetadataMap } from "@/lib/to-data-table";
 import { formatCell, textCell, totalsRow, TREE_GRID, withExpansion } from "@/lib/tree-grid";
 import {
@@ -65,10 +66,7 @@ const CARD_EXTRAS: Record<LeaderboardCohort, { users?: CardExtra; sessions?: Car
     all: {},
     licensed: { users: { label: "License utilization", column: "[Licence Utilisation]", format: "percent" } },
     unlicensed: { sessions: { label: "AI tasks", column: "[Unlicensed Tasks]", format: "whole" } },
-    agents: {
-        sessions: { label: "AI tasks", column: "[Agent Tasks]", format: "whole" },
-        perUser: { label: "Return rate (2+ sessions)", column: "[Agent Return Rate]", format: "percent" },
-    },
+    agents: { sessions: { label: "AI tasks", column: "[Agent Tasks]", format: "whole" } },
     cowork: { sessions: { label: "AI tasks", column: "[Cowork Tasks]", format: "whole" } },
 };
 
@@ -88,44 +86,6 @@ function extraStat(extra: CardExtra | undefined, row: SummaryRow | undefined): R
     return extra ? <KpiStat label={extra.label} value={readNumber(row, extra.column)} format={extra.format} /> : undefined;
 }
 
-/** The named cards list every name on a tie, one per line. */
-function names(row: SummaryRow | undefined, column: string): string[] {
-    return (readText(row, column) ?? "")
-        .split("\n")
-        .map((name) => name.trim())
-        .filter(Boolean);
-}
-
-/** The Agents bookmark's two named cards, shown only when the model can name someone. */
-function AgentHighlights({ row }: { row: SummaryRow | undefined }) {
-    const agents = names(row, "[Agent With Most Users]");
-    const creators = names(row, "[Top Agent Builder Creator]");
-    const highlights = [
-        {
-            label: agents.length > 1 ? "Agents with most users (tied)" : "Agent with most users",
-            names: agents,
-        },
-        {
-            label: creators.length > 1 ? "Top Agent Builder creators (by users, tied)" : "Top Agent Builder creator (by users)",
-            names: creators,
-        },
-    ].filter((highlight) => highlight.names.length > 0);
-    if (highlights.length === 0) return null;
-
-    return (
-        <dl className="grid gap-300 md:grid-cols-2">
-            {highlights.map((highlight) => (
-                <div key={highlight.label} className="flex flex-col gap-100 rounded-xl border border-border bg-card px-500 py-400">
-                    <dt className={`${SMALL} text-muted-foreground`}>{highlight.label}</dt>
-                    <dd className="text-[length:var(--text-400)] leading-400 font-semibold text-card-foreground">
-                        {highlight.names.join(", ")}
-                    </dd>
-                </div>
-            ))}
-        </dl>
-    );
-}
-
 /** The report's footnote, set beside the table: how the ranking counts, and what it leaves out. */
 function RankingNotes({ cohort, unassigned }: { cohort: LeaderboardCohort; unassigned: string | undefined }) {
     const headingId = useId();
@@ -134,9 +94,6 @@ function RankingNotes({ cohort, unassigned }: { cohort: LeaderboardCohort; unass
         { term: "Session", definition: "One conversation, counted per user and per app." },
         { term: "Active user", definition: "Someone with at least one AI task in the period." },
         { term: "Sessions / user / week", definition: "Averaged over the weeks each person was active." },
-        ...(cohort === "agents"
-            ? [{ term: "Return rate (2+ sessions)", definition: "The share of agent users who came back for a second agent session." }]
-            : []),
         ...(cohort === "cowork"
             ? [{ term: "Cowork", definition: "Sessions in the Cowork surface. Break down by Tasks to see what the work was." }]
             : []),
@@ -356,6 +313,7 @@ function LeaderboardBreakdown({ cohort, view }: { cohort: LeaderboardCohort; vie
  */
 export function LeaderboardStage() {
     const { filters, applicable } = useFilterContext();
+    const org = useOrgAttribute();
     const cohort: LeaderboardCohort = selectedCohort(filters, applicable, RANKED_COHORTS);
     const [view, setView] = useState<Breakdown>("people");
 
@@ -402,32 +360,35 @@ export function LeaderboardStage() {
                     }
                 />
             ) : (
-                <>
-                    <div className="grid gap-300 md:grid-cols-2 xl:grid-cols-4">
-                        <KpiCard label="Active users" value={users} emphasis detail={extraStat(extras.users, row)} />
-                        <KpiCard label="Sessions" value={sessions} detail={extraStat(extras.sessions, row)} />
-                        <KpiCard
-                            label="Sessions / user"
-                            value={readNumber(row, columns.perUser)}
-                            format="rate"
-                            detail={extraStat(extras.perUser, row)}
-                        />
-                        <KpiCard label="Sessions / user / week" value={readNumber(row, columns.perWeek)} format="rate" />
-                    </div>
-                    {cohort === "agents" && <AgentHighlights row={row} />}
-                </>
+                <div className="grid gap-300 md:grid-cols-2 xl:grid-cols-4">
+                    <KpiCard label="Active users" value={users} emphasis detail={extraStat(extras.users, row)} />
+                    <KpiCard label="Sessions" value={sessions} detail={extraStat(extras.sessions, row)} />
+                    <KpiCard
+                        label="Sessions / user"
+                        value={readNumber(row, columns.perUser)}
+                        format="rate"
+                        detail={extraStat(extras.perUser, row)}
+                    />
+                    <KpiCard label="Sessions / user / week" value={readNumber(row, columns.perWeek)} format="rate" />
+                </div>
             )}
 
             {!isEmpty && (
-                <div className="flex flex-col gap-300">
-                    <div className="flex flex-wrap items-center gap-300">
-                        <span aria-hidden="true" className="text-[length:var(--text-300)] leading-300 font-semibold text-foreground">
-                            Break down by
-                        </span>
-                        <SegmentedControl label="Break down by" options={breakdowns} value={view} onChange={setView} />
+                <OnDemand
+                    id="leaderboard-ranking"
+                    label="Show the ranking"
+                    note={`Every ${org.noun} and person, or every app and task, ranked by sessions.`}
+                >
+                    <div className="flex flex-col gap-300">
+                        <div className="flex flex-wrap items-center gap-300">
+                            <span aria-hidden="true" className="text-[length:var(--text-300)] leading-300 font-semibold text-foreground">
+                                Break down by
+                            </span>
+                            <SegmentedControl label="Break down by" options={breakdowns} value={view} onChange={setView} />
+                        </div>
+                        <LeaderboardBreakdown cohort={cohort} view={view} />
                     </div>
-                    <LeaderboardBreakdown cohort={cohort} view={view} />
-                </div>
+                </OnDemand>
             )}
 
             {!isEmpty && (
