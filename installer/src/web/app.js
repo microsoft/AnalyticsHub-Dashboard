@@ -77,7 +77,7 @@ const COMMANDS = {
   update: {
     title: 'Update Analytics Hub', short: 'Update', icon: 'upload', section: 'Update', adopt: true,
     row: 'Update', button: 'Update',
-    desc: 'Push the notebooks, pipeline and semantic model from this checkout to Fabric.',
+    desc: 'Push the notebooks, pipeline and semantic model from this checkout to Fabric, then refresh the models. If Fabric can\'t update a model and keep its data, the page asks before the data is cleared and reloaded.',
     off: 'Nothing is installed yet.',
   },
   'deploy-app': {

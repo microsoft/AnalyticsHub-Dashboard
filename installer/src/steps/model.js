@@ -96,11 +96,84 @@ export function definitionRoles(definition) {
 /** @param {unknown} definition */
 export const definitionHash = (definition) => createHash('sha256').update(JSON.stringify(definition)).digest('hex').slice(0, 16);
 
+/** Models whose definition this run replaced, by ID. */
+const REPLACED = new WeakMap();
+
+/** What the plan says about a model that's already deployed. */
+export const MODEL_UPDATE_NOTE = 'Updated in place if this version changed it, keeping its data. If Fabric can\'t keep the data, you\'re asked before it\'s cleared and reloaded; reports on it show no data until then.';
+
+/**
+ * The models whose definition this run replaced, by ID. `cleared`: Fabric was allowed to clear
+ * their data, so they show nothing until a refresh reloads it.
+ * @param {Ctx} ctx
+ * @returns {Map<string, { name: string, cleared: boolean }>}
+ */
+export function replacedModels(ctx) {
+  let m = REPLACED.get(ctx);
+  if (!m) REPLACED.set(ctx, (m = new Map()));
+  return m;
+}
+
+/**
+ * Whether Fabric turned an update down because it can't make it without clearing the model's data.
+ * A failed operation surfaces as a plain Error that carries the code in its message.
+ * @param {unknown} err
+ */
+export function needsDataReset(err) {
+  const code = err instanceof HttpError ? err.code : undefined;
+  return code === 'RequiredOptionsMissing' || /\(RequiredOptionsMissing\)/.test(String(/** @type {any} */ (err)?.message ?? ''));
+}
+
+/**
+ * Asks before Fabric may clear a model's data. --allow-model-reset says yes for unattended runs;
+ * --yes alone doesn't.
+ * @param {Ctx} ctx
+ * @param {string} name
+ */
+async function allowDataReset(ctx, name) {
+  const { ui } = ctx;
+  ui.warn(`Fabric can't apply this version of ${name} and keep its data. To apply it, Fabric clears the data and the installer reloads it ` +
+    `from the ${ctx.config.target === 'azure' ? 'Azure SQL database' : 'Lakehouse'}, which isn't changed. Until that reload finishes, reports and the app on ${name} show no data, ` +
+    'which can take an hour or more with a lot of history.');
+  if (ctx.allowModelReset) {
+    ui.note('Clearing it, as --allow-model-reset allows.');
+    return true;
+  }
+  if (ui.yes) return false;
+  return ui.confirm(`Clear ${name}'s data and reload it now?`, false);
+}
+
+/**
+ * Replaces a model's definition, keeping its data unless Fabric can't and the user agrees to clear it.
+ * @param {Ctx} ctx
+ * @param {string} ws
+ * @param {string} id
+ * @param {string} name
+ * @param {any} definition
+ */
+async function replaceDefinition(ctx, ws, id, name, definition) {
+  const { api } = ctx;
+  try {
+    await api.fabric.updateSemanticModel(ws, id, definition);
+    replacedModels(ctx).set(id, { name, cleared: false });
+    return;
+  } catch (err) {
+    if (!needsDataReset(err)) throw err;
+  }
+  if (!(await allowDataReset(ctx, name))) {
+    throw new Error(`${name} wasn't changed, so this run stopped before finishing: its new version needs its data cleared and reloaded. ` +
+      `When reports can show no data while it reloads, run it again and answer yes${ctx.ui.web ? '' : ', or add --allow-model-reset'}.`);
+  }
+  await api.fabric.updateSemanticModel(ws, id, definition, { allowPurgeData: true });
+  replacedModels(ctx).set(id, { name, cleared: true });
+}
+
 /**
  * Creates a semantic model item, or updates it when its inputs or its definition changed, or
  * `force` is set. The definition's hash is part of the signature, so running the installer again
  * from a newer checkout redeploys a model whose template changed. An update clears the model's
- * data, its connection binding and any role members.
+ * connection binding and any role members. Fabric keeps its data where it can; when it can't, it
+ * clears the data only once the user agrees, and the caller must refresh it (see replacedModels).
  * @param {Ctx} ctx
  * @param {import('../config.js').ModelConfig} m
  * @param {{ signature: string, definition: () => any, force?: boolean }} o
@@ -121,11 +194,11 @@ export async function deployModel(ctx, m, o) {
     const made = await createItem(ctx, `SemanticModel:${modelKey(ctx.config, m)}`, 'SemanticModel', m.name, items, (name, ref) => api.fabric.createSemanticModel(ws, name, definition, ref));
     m.id = made.id;
     m.name = made.name;
-    if (made.resumed) await api.fabric.updateSemanticModel(ws, made.id, definition);
+    if (made.resumed) await replaceDefinition(ctx, ws, made.id, made.name, definition);
     ui.ok(`${made.resumed ? 'Updated' : 'Created'} semantic model ${made.name}`);
     m.bound = false;
   } else if (o.force || m.signature !== signature) {
-    await api.fabric.updateSemanticModel(ws, m.id, definition);
+    await replaceDefinition(ctx, ws, m.id, m.name, definition);
     m.bound = false;
     ui.ok(`Updated semantic model ${m.name}`);
   } else {

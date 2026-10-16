@@ -38,7 +38,7 @@ import {
   notebookSettings,
   PIPELINE_NAME,
 } from './steps/fabric.js';
-import { ensureModelConnection, ensureSemanticModel, modelUrl, refreshModel, rotateModelSecret, verifyModel } from './steps/model.js';
+import { ensureModelConnection, ensureSemanticModel, modelUrl, refreshModel, replacedModels, rotateModelSecret, verifyModel } from './steps/model.js';
 import { confirmPlan, plan, preflight } from './steps/plan.js';
 import { checkPrereqs } from './prereqs.js';
 import { ensureReports, reportsOn, reportsSummary } from './steps/report.js';
@@ -92,6 +92,7 @@ import { reviewSetup } from './setup.js';
  * @property {string} [pendingSecret]  A secret the user pasted, held in memory until it is in Key Vault or the notebooks.
  * @property {boolean} [secretInNotebook]  --no-key-vault (or --secret-in-notebook): keep the secret in the notebooks instead of Key Vault.
  * @property {boolean} [useKeyVault]  --key-vault: keep the secret in Key Vault, not the notebooks (the default for a new Fabric install).
+ * @property {boolean} [allowModelReset]  --allow-model-reset: when Fabric can't update a model and keep its data, clear it and reload it without asking. --yes alone never does.
  * @property {Apis} [liveApi]  While the plan's answers can be rewound, the clients without the cache, for checks the user repeats.
  * @property {boolean} [runFirstLoad]
  * @property {boolean} [advanced]  The plan's "Change the advanced settings?" answer. With false, those settings keep their saved value or default.
@@ -300,10 +301,7 @@ export async function install(ctx, opts) {
     return true;
   }
 
-  if (config.target === 'azure') {
-    await installAzure(ctx, opts);
-    return true;
-  }
+  if (config.target === 'azure') return installAzure(ctx, opts);
 
   const sm = config.semanticModel;
   const withModel = !!sm.enabled;
@@ -404,12 +402,16 @@ export async function install(ctx, opts) {
   if (withUploads) await offerStudioRun(ctx, { pipelineNext: !!(ctx.runFirstLoad || ctx.reloadHistoryDays) && consented && vaultReachable, quietWhenOff: true });
 
   let ok = true;
+  // The pipeline refreshes the models as its last step. When it can't run, a model this run replaced is refreshed on its own.
+  let loadSkipped = false;
   if (ctx.runFirstLoad) {
     step('First load');
     if (!consented) {
       ui.warn(`Skipped until admin consent is granted. Then run: ${commandLine(`run --backfill-days ${config.history.days}`)}`);
+      loadSkipped = true;
     } else if (!vaultReachable) {
       ui.warn(`Skipped until the private endpoint to ${config.keyVault.name} is approved. Then run: ${commandLine(`run --backfill-days ${config.history.days}`)}`);
+      loadSkipped = true;
     } else {
       if (modelDeployed(config)) ui.note(`The pipeline refreshes ${joinNames(deployedModels(config).map((m) => m.name))} as its last step.`);
       const skipCowork = await coworkSkipForFirstLoad(ctx);
@@ -426,8 +428,10 @@ export async function install(ctx, opts) {
     const later = commandLine(`run --backfill-days ${days}`);
     if (!consented) {
       ui.warn(`Skipped until admin consent is granted. Then run: ${later}`);
+      loadSkipped = true;
     } else if (!vaultReachable) {
       ui.warn(`Skipped until the private endpoint to ${config.keyVault.name} is approved. Then run: ${later}`);
+      loadSkipped = true;
     } else {
       if (modelDeployed(config)) ui.note(`The pipeline refreshes ${joinNames(deployedModels(config).map((m) => m.name))} as its last step.`);
       const result = await runPipeline(ctx, { backfillDays: days, wait: opts.wait });
@@ -442,10 +446,9 @@ export async function install(ctx, opts) {
     }
   } else if (withModel) {
     step('Model refresh');
-    const refreshed = await refreshModels(ctx, { wait: opts.wait });
-    if (refreshed.ok && opts.wait) ok = (await verifyModel(ctx)).ok;
-    else if (opts.wait) ok = false;
+    ok = await restoreModels(ctx, { wait: opts.wait });
   }
+  ok = (await restoreReplaced(ctx, { wait: opts.wait, loadSkipped })) && ok;
   ok = ok && appDeployed;
   await summary(ctx, { ok });
   return ok;
@@ -522,6 +525,43 @@ async function refreshModels(ctx, opts) {
 }
 
 /**
+ * Refreshes the models and, when it waits, checks ValueLens answers queries. Not waiting, it's
+ * enough that the refreshes started, unless a model this run replaced couldn't be refreshed.
+ * @param {Ctx} ctx
+ * @param {{ wait: boolean }} opts
+ * @returns {Promise<boolean>}
+ */
+async function restoreModels(ctx, opts) {
+  const refreshed = await refreshModels(ctx, { wait: opts.wait });
+  if (!refreshed.ok) return !opts.wait && !replacedModels(ctx).size;
+  return opts.wait ? (await verifyModel(ctx)).ok : true;
+}
+
+/**
+ * After an install's load step: a model this run replaced must be reloaded. The pipeline does
+ * that, so when it was skipped, they're refreshed here. False when one can't be refreshed or its
+ * refresh failed.
+ * @param {Ctx} ctx
+ * @param {{ wait: boolean, loadSkipped: boolean }} opts
+ */
+export async function restoreReplaced(ctx, opts) {
+  const { ui, config } = ctx;
+  const replaced = replacedModels(ctx);
+  let ok = true;
+  if (opts.loadSkipped && config.semanticModel.enabled && replaced.size) {
+    ui.info(`This run replaced ${joinNames([...replaced.values()].map((m) => m.name))}, so refreshing ${replaced.size === 1 ? 'it' : 'them'} from the Lakehouse now.`);
+    ok = await restoreModels(ctx, { wait: opts.wait });
+  }
+  const stranded = unrefreshable(ctx);
+  if (stranded.length) {
+    ui.fail(`This run replaced ${joinNames(stranded)}, but ${stranded.length === 1 ? 'it isn\'t' : 'they aren\'t'} connected to the Lakehouse, so ${stranded.length === 1 ? 'it' : 'they'} can't be refreshed yet.`);
+    ok = false;
+  }
+  if (!ok) notFinished(ctx, 'install');
+  return ok;
+}
+
+/**
  * The app is the last thing before the data load, so a failure here shouldn't stop that.
  * @param {Ctx} ctx
  * @param {{ force?: boolean }} [opts]
@@ -545,10 +585,7 @@ async function tryDeployApp(ctx, opts = {}) {
  */
 export async function update(ctx, opts = {}) {
   const { ui, config } = ctx;
-  if (config.target === 'azure') {
-    await azureUpdate(ctx);
-    return;
-  }
+  if (config.target === 'azure') return azureUpdate(ctx);
   if (!config.fabric.workspaceId || !config.fabric.lakehouseId) throw new Error('Nothing is installed yet. Run the installer first.');
   const sm = config.semanticModel;
   ui.heading('Updating Analytics Hub');
@@ -579,14 +616,54 @@ export async function update(ctx, opts = {}) {
     if (await ui.confirm('Rebuild and redeploy the Analytics Hub app too?', true)) await tryDeployApp(ctx, { force: true });
     else await ensureAppName(ctx);
   }
+  return finishUpdate(ctx, opts);
+}
+
+/**
+ * The end of a Fabric update: refreshes the models so they load their data with the new
+ * definitions. Only "Up to date" when every model this run replaced was reloaded.
+ * @param {Ctx} ctx
+ * @param {{ wait?: boolean }} [opts]
+ * @returns {Promise<boolean>}
+ */
+export async function finishUpdate(ctx, opts = {}) {
+  const { ui, config } = ctx;
+  const stranded = unrefreshable(ctx);
+  let ok = true;
   if (modelDeployed(config)) {
-    ui.note('Updating a model clears its data, so it refreshes now.');
-    const refreshed = await refreshModels(ctx, { wait: opts.wait ?? true });
-    if (refreshed.ok && (opts.wait ?? true) && !(await verifyModel(ctx)).ok) return false;
-    if (refreshed.ok && (opts.wait ?? true)) await verifyOrgAccess(ctx);
+    const wait = opts.wait ?? true;
+    ui.note('The models refresh now, to load their data with the new definitions.');
+    const refreshed = await refreshModels(ctx, { wait });
+    if (!refreshed.ok) ok = false;
+    else if (wait && !(await verifyModel(ctx)).ok) return false;
+    else if (wait) await verifyOrgAccess(ctx);
+  }
+  if (stranded.length) {
+    ui.fail(`${joinNames(stranded)} ${stranded.length === 1 ? 'isn\'t' : 'aren\'t'} connected to the Lakehouse, so ${stranded.length === 1 ? 'it' : 'they'} couldn't be refreshed after the update.`);
+    ok = false;
+  }
+  if (!ok) {
+    notFinished(ctx, 'update');
+    return false;
   }
   ui.ok('Up to date. The next scheduled run uses the new versions.');
   return true;
+}
+
+/**
+ * Names of the models this run replaced that a refresh can't reach, because they aren't bound to the Lakehouse.
+ * @param {Ctx} ctx
+ */
+function unrefreshable(ctx) {
+  const reachable = new Set(deployedModels(ctx.config).map((m) => m.id));
+  return [...replacedModels(ctx)].filter(([id]) => !reachable.has(id)).map(([, m]) => m.name);
+}
+
+/** @param {Ctx} ctx @param {'install' | 'update'} what */
+function notFinished(ctx, what) {
+  const cleared = [...replacedModels(ctx).values()].filter((m) => m.cleared).map((m) => m.name);
+  if (cleared.length) ctx.ui.warn(`${joinNames(cleared)} ${cleared.length === 1 ? 'has' : 'have'} no data until a refresh finishes.`);
+  ctx.ui.fail(`The ${what} isn't finished: the models weren't reloaded. Fix the problem above, then run "${commandLine('refresh')}", or "${commandLine(what)}" again.`);
 }
 
 /**
@@ -687,14 +764,20 @@ export async function runCommand(ctx, command, opts) {
     case 'access': {
       const azure = ctx.config.target === 'azure';
       const before = ctx.config.access?.groupId;
-      await accessCommand(ctx, azure ? azureViewerModels(ctx.config) : fabricViewerModels(ctx.config), (c2) => update(c2));
+      // Turning org-scoped access on or off runs an update; one that didn't finish fails the command.
+      let finished = true;
+      await accessCommand(ctx, azure ? azureViewerModels(ctx.config) : fabricViewerModels(ctx.config), async (c2) => {
+        const ok = await update(c2);
+        if (ok === false) finished = false;
+        return ok;
+      });
       const after = ctx.config.access?.groupId;
       if (after && after !== before) {
         ctx.ui.note(azure
           ? `Run "${commandLine('install')}" so the web app lets the group in and shows who to ask for access.`
           : `Run "${commandLine('deploy-app')}" so the app shows who to ask for access and links to the group.`);
       }
-      return true;
+      return finished;
     }
     default:
       throw new Error(`Unknown command "${command}".`);

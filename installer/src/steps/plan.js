@@ -22,7 +22,7 @@ import { adminPack, canWriteSecrets, checkExistingApp, MAX_SECRET_DAYS, NOTEBOOK
 import { planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from './resource-graph.js';
 import { askAdvanced, asksAdvanced } from './advanced.js';
 import { describeSchedule, displayNames, freeName, modelKey, PIPELINE_NAME, stoppedRunItem } from './fabric.js';
-import { connectionName } from './model.js';
+import { connectionName, MODEL_UPDATE_NOTE } from './model.js';
 import { reportsWanted } from './report.js';
 import { DATA_AGENT_TYPE, dataAgentWanted, planDataAgent } from './data-agent.js';
 import { planDataSources } from './data-sources.js';
@@ -1116,9 +1116,10 @@ export function planReview(ctx, pre) {
     });
   }
   if (sm.enabled) {
-    creates.push({ kind: 'Semantic model', name: sm.name, isNew: !sm.id });
-    if (consumptionModelWanted(ctx)) creates.push({ kind: 'Semantic model', name: cc.model.name, isNew: !cc.model.id });
-    if (agentEvaluatorModelWanted(ctx)) creates.push({ kind: 'Semantic model', name: ae.model.name, isNew: !ae.model.id });
+    const modelItem = (/** @type {{ name: string, id?: string }} */ m) => ({ kind: 'Semantic model', name: m.name, isNew: !m.id, ...(m.id ? { detail: MODEL_UPDATE_NOTE } : {}) });
+    creates.push(modelItem(sm));
+    if (consumptionModelWanted(ctx)) creates.push(modelItem(cc.model));
+    if (agentEvaluatorModelWanted(ctx)) creates.push(modelItem(ae.model));
     creates.push({
       kind: 'Connection',
       name: sm.connectionName ?? (f.workspaceId ? connectionName(f.workspaceId) : 'Analytics Hub SQL connection'),

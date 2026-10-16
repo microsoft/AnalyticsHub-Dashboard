@@ -310,8 +310,9 @@ export function fakeFabric() {
       return { id: add('SemanticModel', name, def, ref).id };
     },
     /** @param {string} _ws @param {string} id @param {any} def */
-    updateSemanticModel: async (_ws, id, def) => {
-      calls.push(`updateSemanticModel ${find(id).displayName}`);
+    updateSemanticModel: async (_ws, id, def, opts) => {
+      calls.push(`updateSemanticModel ${find(id).displayName}${opts?.allowPurgeData ? ' allowPurgeData' : ''}`);
+      fail('updateSemanticModel');
       find(id).content = def;
       return null;
     },

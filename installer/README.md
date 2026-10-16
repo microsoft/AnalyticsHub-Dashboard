@@ -301,6 +301,21 @@ The [Azure target](#azure-target) asks the same question. Its advanced settings 
 
 Moved to [After it finishes](../docs/VERIFY.md#after-it-finishes).
 
+### When an update has to clear a model's data
+
+`update`, and `install` or **Repair or change** run from a newer version, update each semantic
+model in place and keep its data. Some changes, such as new columns, can't keep it: Fabric then
+turns the update down and changes nothing. The installer names the model, says reports on it show
+no data until it's reloaded from the Lakehouse or Azure SQL (which isn't changed), and asks before
+clearing it. Answer no, and the run stops with that model unchanged.
+
+`--yes` alone never clears a model's data: the run stops instead. For an unattended run that
+may clear it, add `--allow-model-reset`. In the browser setup, the page asks.
+
+After clearing a model, the installer reloads it. If that reload fails or can't run, `update` and
+`install` end as failed and say which models have no data. Run `refresh`, or run the same
+command again.
+
 ## Power BI reports
 
 The installer publishes the reports from the Power BI templates to the workspace, already
