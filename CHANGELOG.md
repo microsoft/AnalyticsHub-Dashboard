@@ -178,10 +178,10 @@ Deployment instructions do **not** live here. They live in the READMEs:
   can't, it names the model, warns that reports on it show no data until it's reloaded, and asks
   before clearing it. `--yes` alone stops instead; `--allow-model-reset` is the unattended
   equivalent. A changed model is then reloaded: the install record keeps that it's owed a reload
-  until a refresh that started after the change was applied finishes cleanly, by its own details
-  as well as the refresh history, so a run that stops or fails part way reloads it next time.
-  Refreshes already listed when the change was applied, or one that reported problems, never
-  count. If the installer can't tell whether a change was applied, the next run applies it again
+  until a whole-model refresh the installer requested after the change was applied finishes
+  cleanly by its own details, so a run that stops or fails part way reloads it next time.
+  Refreshes it didn't request, such as the pipeline's, which may cover only some tables, and ones
+  that reported problems never count. If the installer can't tell whether a change was applied, the next run applies it again
   before reloading. `update` and `install` end as failed when that reload fails or can't run,
   and say "still reloading" rather than "Up to date" when they don't wait for it. On Azure the
   model is reloaded before the first load starts, and a job run Azure gives no name for is no

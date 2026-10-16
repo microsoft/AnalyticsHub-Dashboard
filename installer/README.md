@@ -313,9 +313,10 @@ clearing it. Answer no, and the run stops with that model unchanged.
 may clear it, add `--allow-model-reset`. In the browser setup, the page asks.
 
 After a model's definition changes, the installer reloads it, and only says it's done once a
-refresh that started after the change was applied has finished cleanly: Completed, with no
-warnings or errors in its details. Refreshes that were already listed when the change was applied
-don't count, nor does one that reported problems, or one whose details can't be read. Until then
+whole-model refresh that it requested after the change was applied has finished cleanly:
+Completed, with no warnings or errors in its details. A refresh it didn't request, such as the
+pipeline's or one already running that it had to wait behind, never counts, because it may cover
+only some tables; nor does one that reported problems, or one whose details can't be read. Until then
 the install record notes that the model is owed a reload, so if the run stops, fails or can't
 tell, the next `install`, `update` or **Repair or change** reloads it, even with nothing else to
 change. If the installer can't tell whether the change itself was applied, the next run applies

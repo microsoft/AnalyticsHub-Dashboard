@@ -114,9 +114,6 @@ export function pendingReloads(config) {
   ].filter((m) => !!m && !!m.id && !!m.reload).map((m) => /** @type {import('../config.js').ModelConfig} */ (m));
 }
 
-/** How many of a model's latest refreshes a reload is checked against. */
-const RECENT_REFRESHES = 3;
-
 /**
  * Records, before a request that can change a model, that it's owed a reload and that the change
  * hasn't settled. `cleared` stays set until the reload finishes.
@@ -130,54 +127,34 @@ function oweReload(ctx, m, cleared) {
 }
 
 /**
- * Records that the request changing a model finished, so only a refresh that starts after this
- * can reload it. The refreshes Fabric already lists may have read the old definition, so none of
- * them count; when they can't be listed, only a refresh the installer starts from now on does.
+ * Records that the request changing a model finished. From now on, a whole-model refresh the
+ * installer requests can be its reload; nothing that ran before, or that it didn't request, is.
  * @param {Ctx} ctx
- * @param {string} ws
  * @param {import('../config.js').ModelConfig} m
  */
-async function changeSettled(ctx, ws, m) {
-  const since = ctx.now().toISOString();
-  const seen = await Promise.resolve()
-    .then(() => ctx.api.powerBi.refreshes(ws, /** @type {string} */ (m.id), RECENT_REFRESHES))
-    .then((rows) => rows.slice(0, RECENT_REFRESHES).map((r) => r.requestId).filter(Boolean), () => undefined);
-  m.reload = { since, ...(m.reload?.cleared ? { cleared: true } : {}), ...(seen ? { seen } : {}) };
+function changeSettled(ctx, m) {
+  m.reload = { since: ctx.now().toISOString(), ...(m.reload?.cleared ? { cleared: true } : {}) };
   ctx.save();
 }
 
 /**
- * Whether a refresh started after the change to a model settled: the installer started it then,
- * or it started after that and wasn't already listed then.
+ * Whether a refresh is the reload a model is owed: the whole-model refresh the installer requested
+ * after the change settled. A refresh someone else started, such as the pipeline's or one it
+ * followed because it was already running, may cover only some tables, so it never is.
  * @param {import('../config.js').ModelConfig} m
  * @param {string | undefined} requestId
- * @param {string | undefined} startedAt
  */
-function afterChange(m, requestId, startedAt) {
-  const r = m.reload;
-  if (!r || r.unsettled || !requestId) return false;
-  if (requestId === r.ours) return true;
-  return !!r.seen && !r.seen.includes(requestId) && Date.parse(startedAt ?? '') >= Date.parse(r.since);
-}
+const isOurReload = (m, requestId) => !!m.reload && !m.reload.unsettled && !!requestId && requestId === m.reload.ours;
 
 /**
- * Whether a refresh can be the reload a model is owed: it started after the change settled (see
- * afterChange) and hasn't failed.
- * @param {import('../config.js').ModelConfig} m
- * @param {string | undefined} requestId
- * @param {string | undefined} startedAt
- */
-const countsAsReload = (m, requestId, startedAt) => afterChange(m, requestId, startedAt) && !m.reload?.failed?.includes(/** @type {string} */ (requestId));
-
-/**
- * Remembers a refresh that ended badly, so it can't later be taken as the model's reload.
+ * Forgets the installer's reload refresh once it ended badly, so the next run requests another.
  * @param {Ctx} ctx
  * @param {import('../config.js').ModelConfig} m
  * @param {string} requestId
  */
 function reloadFailed(ctx, m, requestId) {
-  if (!m.reload || m.reload.failed?.includes(requestId)) return;
-  m.reload.failed = [...(m.reload.failed ?? []), requestId].slice(-RECENT_REFRESHES);
+  if (!isOurReload(m, requestId)) return;
+  delete m.reload?.ours;
   ctx.save();
 }
 
@@ -228,7 +205,7 @@ async function replaceDefinition(ctx, ws, m, definition) {
   oweReload(ctx, m, false);
   try {
     await api.fabric.updateSemanticModel(ws, id, definition);
-    await changeSettled(ctx, ws, m);
+    changeSettled(ctx, m);
     return;
   } catch (err) {
     if (!needsDataReset(err)) throw err;
@@ -248,7 +225,7 @@ async function replaceDefinition(ctx, ws, m, definition) {
     ui.warn(`${name}'s data may have been cleared. Run the installer again once the problem below is fixed: it applies the update again and then reloads the data.`);
     throw err;
   }
-  await changeSettled(ctx, ws, m);
+  changeSettled(ctx, m);
 }
 
 /**
@@ -280,7 +257,7 @@ export async function deployModel(ctx, m, o) {
     m.name = made.name;
     if (made.resumed) await replaceDefinition(ctx, ws, m, definition);
     // Made again after it was deleted while owed a reload: the new one still needs loading.
-    else if (m.reload) await changeSettled(ctx, ws, m);
+    else if (m.reload) changeSettled(ctx, m);
     ui.ok(`${made.resumed ? 'Updated' : 'Created'} semantic model ${made.name}`);
     m.bound = false;
   } else if (deployed) {
@@ -530,15 +507,14 @@ async function startRefresh(ctx, m) {
 }
 
 /**
- * Takes back a model's reload obligation after a refresh that counts as its reload (see
- * countsAsReload) finished cleanly.
+ * Takes back a model's reload obligation after the installer's own reload refresh (see
+ * isOurReload) finished cleanly.
  * @param {Ctx} ctx
  * @param {import('../config.js').ModelConfig} m
  * @param {string} requestId
- * @param {string} [startedAt]  When it started, for one the installer didn't start.
  */
-export function reloaded(ctx, m, requestId, startedAt) {
-  if (!countsAsReload(m, requestId, startedAt)) return false;
+export function reloaded(ctx, m, requestId) {
+  if (!isOurReload(m, requestId)) return false;
   delete m.reload;
   ctx.save();
   return true;
@@ -553,41 +529,22 @@ const refreshProblems = (r) => (r?.messages ?? []).filter((/** @type {any} */ m)
 const refreshState = (r) => r?.extendedStatus ?? r?.status;
 
 /**
- * Whether the model has reloaded since its definition changed, judged from its latest refreshes
- * (the pipeline's, after a run this command waited for). Every refresh since the change (see
- * afterChange) has to have finished cleanly by its own details, by the same rule a refresh the
- * installer waits for is held to; one that failed, even under a later one that didn't, means not.
+ * Whether the model has reloaded since its definition changed: the whole-model refresh the
+ * installer requested for it (see isOurReload), in this run or an earlier one, finished cleanly
+ * by its own details, by the same rule a refresh it waits for is held to. A refresh it didn't
+ * request, such as the pipeline's, never counts, however it ended: it may cover only some tables.
  * @param {Ctx} ctx
  * @param {import('../config.js').ModelConfig} m
  */
 export async function confirmReloaded(ctx, m) {
   if (!m.reload || !m.id) return !m.reload;
-  if (m.reload.unsettled) return false;
-  const { api } = ctx;
+  const ours = m.reload.ours;
+  if (!ours || !isOurReload(m, ours)) return false;
   const ws = /** @type {string} */ (ctx.config.fabric.workspaceId);
-  const rows = (await api.powerBi.refreshes(ws, m.id, RECENT_REFRESHES).catch(() => [])).slice(0, RECENT_REFRESHES);
-  /** @type {any[]} */
-  const since = [];
-  for (const row of rows) {
-    if (!afterChange(m, row?.requestId, row?.startTime)) break;
-    since.push(row);
-  }
-  if (!since.length) return false;
-  for (const row of since) {
-    if (m.reload.failed?.includes(row.requestId)) return false;
-    if (row.status !== 'Completed') {
-      if (REFRESH_FINAL.has(row.status)) reloadFailed(ctx, m, row.requestId);
-      return false;
-    }
-    const detail = await api.powerBi.getRefresh(ws, m.id, row.requestId).catch(() => null);
-    if (refreshState(detail) !== 'Completed' || refreshProblems(detail).length) {
-      if (REFRESH_FINAL.has(refreshState(detail))) reloadFailed(ctx, m, row.requestId);
-      return false;
-    }
-  }
-  delete m.reload;
-  ctx.save();
-  return true;
+  const detail = await ctx.api.powerBi.getRefresh(ws, m.id, ours).catch(() => null);
+  if (refreshState(detail) === 'Completed' && !refreshProblems(detail).length) return reloaded(ctx, m, ours);
+  if (REFRESH_FINAL.has(refreshState(detail))) reloadFailed(ctx, m, ours);
+  return false;
 }
 
 /**
@@ -598,11 +555,12 @@ export async function confirmReloaded(ctx, m) {
  */
 
 /**
- * Reloads the models still owed one (see pendingReloads), whichever command replaced them. Only a
- * clean refresh that counts as the reload (see countsAsReload) takes an obligation back, and a
- * change that may not have finished has to be applied again first. Not ok when one can't be
- * refreshed, its refresh failed, or `wait` is set and it hasn't finished yet; `pending` names the
- * ones still reloading.
+ * Reloads the models still owed one (see pendingReloads), whichever command replaced them. Only
+ * the installer's own whole-model refresh, requested after the change settled and finished
+ * cleanly, takes an obligation back (see isOurReload), so after a load such as the pipeline's it
+ * refreshes the model once more. A change that may not have finished has to be applied again
+ * first. Not ok when one can't be refreshed, its refresh failed, or `wait` is set and it hasn't
+ * finished yet; `pending` names the ones still reloading.
  * @param {Ctx} ctx
  * @param {{ wait: boolean, load: LoadState, reachable: (m: import('../config.js').ModelConfig) => boolean }} opts
  * @returns {Promise<{ ok: boolean, pending: string[] }>}
@@ -620,14 +578,14 @@ export async function settleReloads(ctx, opts) {
     } else if (!opts.reachable(m)) {
       ui.fail(`${m.name} needs reloading after its update, but isn't connected to its data, so it can't be refreshed yet.`);
       ok = false;
-    } else if (opts.load === 'running') {
+    } else if (opts.load === 'running' || (opts.load === 'refreshed' && !opts.wait)) {
+      // A load, or its refresh this run, is still going and wasn't waited for.
       pending.push(m.name);
     } else if (await confirmReloaded(ctx, m)) {
       continue;
     } else if (opts.load === 'refreshed') {
-      // Its refresh this run failed, or wasn't waited for.
-      if (opts.wait) ok = false;
-      else pending.push(m.name);
+      // Its refresh this run failed or didn't finish.
+      ok = false;
     } else {
       ui.info(`${m.name} ${m.reload?.cleared ? 'has no data' : 'may show old data or miss new columns'} until it reloads after its update, so refreshing it now.`);
       const r = await refreshModel(ctx, { model: m, wait: opts.wait });
@@ -646,10 +604,12 @@ export async function settleReloads(ctx, opts) {
 const joinList = (names) => (names.length < 3 ? names.join(' and ') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
 
 /**
- * Refreshes a model, the ValueLens one unless `model` says otherwise. Waiting, a refresh that
- * finishes cleanly takes back the model's reload obligation; not waiting, it stays.
+ * Refreshes a model, the ValueLens one unless `model` says otherwise. Waiting, a refresh it
+ * requested that finishes cleanly takes back the model's reload obligation; not waiting, it stays
+ * until a later run finds it finished cleanly. When it has to follow a refresh that was already
+ * running, it refreshes once more for a model owed a reload.
  * @param {Ctx} ctx
- * @param {{ wait?: boolean, timeoutMs?: number, model?: import('../config.js').ModelConfig }} [opts]
+ * @param {{ wait?: boolean, timeoutMs?: number, model?: import('../config.js').ModelConfig, followed?: boolean }} [opts]
  * @returns {Promise<{ ok: boolean, status?: string }>}  `status` 'Unknown' when it didn't wait.
  */
 export async function refreshModel(ctx, opts = {}) {
@@ -693,7 +653,12 @@ export async function refreshModel(ctx, opts = {}) {
   const problems = refreshProblems(r);
   if (state === 'Completed' && !problems.length) {
     ui.ok(`${sm.name} refreshed in ${formatDuration(took)}`);
-    reloaded(ctx, sm, requestId, startedAt);
+    if (reloaded(ctx, sm, requestId)) return { ok: true, status: state };
+    // It followed a refresh that was already running, which may not have reloaded the whole model.
+    if (startedAt !== undefined && sm.reload && !sm.reload.unsettled && !opts.followed) {
+      ui.info(`${sm.name} still needs a full reload after its update, so refreshing it again.`);
+      return refreshModel(ctx, { ...opts, followed: true });
+    }
     return { ok: true, status: state };
   }
   if (REFRESH_FINAL.has(state)) {

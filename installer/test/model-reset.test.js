@@ -8,6 +8,7 @@ import { parseCli } from '../src/cli.js';
 import { fabricApi } from '../src/clients/fabric.js';
 import { loadConfig, saveConfig } from '../src/config.js';
 import { createClient, HttpError } from '../src/http.js';
+import { powerBiApi } from '../src/clients/powerbi.js';
 import { finishUpdate, loadState } from '../src/install.js';
 import { confirmReloaded, deployModel, MODEL_UPDATE_NOTE, needsDataReset, refreshModel, settleReloads } from '../src/steps/model.js';
 import { planReview } from '../src/steps/plan.js';
@@ -39,7 +40,7 @@ test('a model update keeps its data by default: no purge option unless Fabric as
   await t.deploy();
   assert.deepEqual(t.fabric.calls.filter((c) => c.startsWith('updateSemanticModel')), ['updateSemanticModel Analytics Hub Model']);
   assert.equal(t.item.content, 'v2');
-  assert.deepEqual(t.sm.reload, { since: '2026-06-01T12:00:00.000Z', seen: [] }, 'owed a reload, data kept; no refresh listed yet');
+  assert.deepEqual(t.sm.reload, { since: '2026-06-01T12:00:00.000Z' }, 'owed a reload, data kept');
   assert.deepEqual(t.ui.asked, []);
 });
 
@@ -76,7 +77,7 @@ for (const [kind, reset] of Object.entries(RESETS)) {
     assert.deepEqual(asked.fabric.calls.filter((c) => c.startsWith('updateSemanticModel')), ['updateSemanticModel Analytics Hub Model', 'updateSemanticModel Analytics Hub Model allowPurgeData']);
     assert.equal(asked.item.content, 'v2');
     assert.equal(asked.sm.bound, false);
-    assert.deepEqual(asked.sm.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true, seen: [] });
+    assert.deepEqual(asked.sm.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true });
 
     const flag = deployed({ yes: true });
     flag.ctx.allowModelReset = true;
@@ -219,23 +220,36 @@ test('update with nothing replaced still refreshes, and is up to date', async ()
   assert.ok(t.powerBi.calls.some((c) => c.startsWith(`refresh ${t.sm.id}`)));
 });
 
-test('refresh: only a finished refresh that started after the change takes the obligation back', async () => {
+test('refresh: only the installer\'s own refresh, finished cleanly, takes the obligation back', async () => {
   const failed = await replacedAndBound();
   failed.powerBi.states.push({ status: 'Unknown' }, { status: 'Failed', extendedStatus: 'Failed' });
   assert.equal((await refreshModel(failed.ctx, { wait: true })).ok, false);
-  assert.equal(failed.sm.reload?.cleared, true);
+  assert.deepEqual(failed.sm.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true }, 'its failed refresh is forgotten, so the next run requests another');
 
   const done = await replacedAndBound();
   done.powerBi.states.push({ status: 'Unknown' }, { status: 'Completed', extendedStatus: 'Completed' });
   assert.equal((await refreshModel(done.ctx, { wait: true })).ok, true);
   assert.equal(done.sm.reload, undefined);
 
-  // Following a refresh that was already running when the definition changed: it may have loaded the old one.
-  const older = await replacedAndBound();
-  older.powerBi.failures.refresh = [httpError(409, 'A refresh is in progress')];
-  older.powerBi.history.push({ requestId: 'earlier', status: 'Unknown', startTime: '2026-06-01T11:59:00Z' });
-  assert.equal((await refreshModel(older.ctx, { wait: true })).ok, true);
-  assert.equal(older.sm.reload?.cleared, true);
+  // Following a refresh someone else started, which may load only some tables: then its own.
+  const followed = await replacedAndBound();
+  followed.powerBi.failures.refresh = [httpError(409, 'A refresh is in progress')];
+  followed.powerBi.history.push({ requestId: 'theirs', status: 'Unknown', startTime: '2026-06-01T12:30:00Z' });
+  assert.equal((await refreshModel(followed.ctx, { wait: true })).ok, true);
+  assert.deepEqual(followed.powerBi.calls.filter((c) => /^(refresh|getRefresh) /.test(c)), [`refresh ${followed.sm.id} full`, 'getRefresh theirs', `refresh ${followed.sm.id} full`, 'getRefresh request-1']);
+  assert.match(followed.ui.text(), /still needs a full reload after its update, so refreshing it again/);
+  assert.equal(followed.sm.reload, undefined);
+
+  // Busy again: once only, and the model stays owed.
+  const busy = await replacedAndBound();
+  busy.powerBi.failures.refresh = [httpError(409, 'A refresh is in progress'), httpError(409, 'A refresh is in progress')];
+  busy.powerBi.history.push({ requestId: 'theirs', status: 'Unknown', startTime: '2026-06-01T12:30:00Z' });
+  assert.equal((await refreshModel(busy.ctx, { wait: true })).ok, true);
+  assert.equal(busy.powerBi.calls.filter((c) => c.startsWith('refresh ')).length, 2);
+  assert.deepEqual(busy.sm.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true });
+  busy.powerBi.failures.refresh = [httpError(409, 'A refresh is in progress'), httpError(409, 'A refresh is in progress')];
+  assert.deepEqual(await settleReloads(busy.ctx, { wait: true, load: 'none', reachable: () => true }), { ok: false, pending: ['Analytics Hub Model'] });
+  assert.equal(busy.sm.reload?.cleared, true);
 });
 
 test('settleReloads: a load still running leaves the models pending; waiting, that is not finished', async () => {
@@ -247,23 +261,17 @@ test('settleReloads: a load still running leaves the models pending; waiting, th
   assert.match(t.ui.text(), /still reloading, so this couldn't confirm it finished/);
 });
 
-test('settleReloads after a finished load: its refresh counts only if it started after the change and completed', async () => {
+test('settleReloads after a finished load: the load\'s refreshes never count, so the installer reloads the model itself', async () => {
   const reachable = () => true;
   const loaded = await replacedAndBound();
   loaded.powerBi.history.push({ requestId: 'pipeline', status: 'Completed', startTime: '2026-06-01T12:30:00Z' });
   assert.deepEqual(await settleReloads(loaded.ctx, { wait: true, load: 'done', reachable }), { ok: true, pending: [] });
-  assert.equal(loaded.powerBi.calls.filter((c) => c.startsWith('refresh ')).length, 0);
+  assert.deepEqual(loaded.powerBi.calls.filter((c) => /^(refresh|getRefresh) /.test(c)), [`refresh ${loaded.sm.id} full`, 'getRefresh request-1'], 'the pipeline\'s refresh is never even checked');
+  assert.match(loaded.ui.text(), /has no data until it reloads after its update, so refreshing it now/);
   assert.equal(loaded.sm.reload, undefined);
 
-  // An earlier refresh's success says nothing about this change: refreshed now.
-  const earlier = await replacedAndBound();
-  earlier.powerBi.history.push({ requestId: 'yesterday', status: 'Completed', startTime: '2026-05-31T02:00:00Z' });
-  assert.deepEqual(await settleReloads(earlier.ctx, { wait: true, load: 'done', reachable }), { ok: true, pending: [] });
-  assert.equal(earlier.powerBi.calls.filter((c) => c.startsWith('refresh ')).length, 1);
-  assert.equal(earlier.sm.reload, undefined);
-
   const failed = await replacedAndBound();
-  failed.powerBi.history.push({ requestId: 'pipeline', status: 'Failed', startTime: '2026-06-01T12:30:00Z' });
+  failed.powerBi.history.push({ requestId: 'pipeline', status: 'Completed', startTime: '2026-06-01T12:30:00Z' });
   failed.powerBi.states.push({ status: 'Failed', extendedStatus: 'Failed' });
   assert.equal((await settleReloads(failed.ctx, { wait: true, load: 'done', reachable })).ok, false);
   assert.equal(failed.sm.reload?.cleared, true);
@@ -298,7 +306,7 @@ test('a reload owed after a failed refresh survives the record being saved and r
     assert.equal(await finishUpdate(t.ctx), false);
 
     const { config } = loadConfig(record.file);
-    assert.deepEqual(config.semanticModel.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true, seen: [], ours: 'request-1', failed: ['request-1'] });
+    assert.deepEqual(config.semanticModel.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true }, 'its failed refresh is forgotten');
     const powerBi = t.powerBi;
     powerBi.calls.length = 0;
     // Its own record of the failed request is the only history: that never counts as the reload.
@@ -379,7 +387,7 @@ test('a refresh that ran before the change settled never counts as its reload, e
     t.sm.bound = true;
     t.ctx.save();
     // The clock didn't move, so by start time alone the old refresh would count.
-    assert.deepEqual(loadConfig(record.file).config.semanticModel.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true, seen: ['old-definition'] });
+    assert.deepEqual(loadConfig(record.file).config.semanticModel.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true });
     assert.equal(await confirmReloaded(t.ctx, t.sm), false);
     assert.ok(loadConfig(record.file).config.semanticModel.reload);
     t.powerBi.calls.length = 0;
@@ -391,19 +399,18 @@ test('a refresh that ran before the change settled never counts as its reload, e
   }
 });
 
-test('when the refreshes can\'t be listed as the change settles, only a refresh the installer starts counts', async () => {
+test('a refresh the installer didn\'t request never counts, even when its start is after the change', async () => {
   const t = deployed({ answers: [true] });
-  const list = t.powerBi.api.refreshes;
-  t.powerBi.api.refreshes = async () => { throw httpError(500, 'Unavailable'); };
   t.fabric.failures.updateSemanticModel = [RESETS.http()];
   await t.deploy();
   t.sm.bound = true;
-  t.powerBi.api.refreshes = list;
   assert.deepEqual(t.sm.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true });
   t.powerBi.history.push({ requestId: 'pipeline', status: 'Completed', startTime: '2026-06-01T12:30:00Z' });
   assert.equal(await confirmReloaded(t.ctx, t.sm), false);
+  assert.deepEqual(t.powerBi.calls, [], 'not even listed or checked');
   assert.deepEqual(await settleReloads(t.ctx, { wait: true, load: 'done', reachable: () => true }), { ok: true, pending: [] });
-  assert.equal(t.powerBi.calls.filter((c) => c.startsWith('refresh ')).length, 1);
+  const calls = /** @type {string[]} */ (t.powerBi.calls);
+  assert.equal(calls.filter((c) => c.startsWith('refresh ')).length, 1);
   assert.equal(t.sm.reload, undefined);
 });
 
@@ -427,7 +434,7 @@ test('a refresh whose details report problems never counts as the reload, even w
     assert.doesNotMatch(t.ui.text(), /Up to date/);
     const saved = loadConfig(record.file).config.semanticModel.reload;
     assert.equal(saved?.cleared, true);
-    assert.deepEqual(saved?.failed, ['request-1']);
+    assert.equal(saved?.ours, undefined, 'its refresh with problems is forgotten, so never counts');
 
     // A new run: that refresh still doesn't count, so it refreshes again and checks the details.
     const { config } = loadConfig(record.file);
@@ -448,41 +455,191 @@ test('a refresh whose details report problems never counts as the reload, even w
   }
 });
 
-test('a finished load counts only when every refresh since the change is clean by its own details', async () => {
-  const row = { requestId: 'pipeline', status: 'Completed', startTime: '2026-06-01T12:30:00Z' };
-  const warned = await replacedAndBound();
-  warned.powerBi.history.push(row);
-  warned.powerBi.states.push(WARNED);
-  assert.equal(await confirmReloaded(warned.ctx, warned.sm), false);
-  assert.deepEqual(warned.sm.reload?.failed, ['pipeline']);
+test('only the installer\'s own refresh, by its own details, is checked as the reload', async () => {
+  // Clean whole-model and table refreshes from a load: none of them is the installer's.
+  const theirs = await replacedAndBound();
+  theirs.powerBi.history.push({ requestId: 'table', status: 'Completed', startTime: '2026-06-01T12:40:00Z' }, { requestId: 'pipeline', status: 'Completed', startTime: '2026-06-01T12:30:00Z' });
+  assert.equal(await confirmReloaded(theirs.ctx, theirs.sm), false);
+  assert.deepEqual(theirs.powerBi.calls, []);
 
-  const missing = await replacedAndBound();
-  missing.powerBi.history.push(row);
+  /** A model whose own reload refresh was started and not waited for. @param {any} [state] */
+  const started = async (state) => {
+    const t = await replacedAndBound();
+    assert.equal((await refreshModel(t.ctx, { wait: false })).ok, true);
+    assert.equal(t.sm.reload?.ours, 'request-1');
+    if (state) t.powerBi.states.push(state);
+    return t;
+  };
+  const warned = await started(WARNED);
+  assert.equal(await confirmReloaded(warned.ctx, warned.sm), false);
+  assert.deepEqual(warned.sm.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true }, 'forgotten, so the next run requests another');
+
+  const running = await started({ status: 'Unknown' });
+  assert.equal(await confirmReloaded(running.ctx, running.sm), false);
+  assert.equal(running.sm.reload?.ours, 'request-1', 'still running: checked again later');
+
+  const missing = await started();
   missing.powerBi.api.getRefresh = async () => { throw httpError(404, 'Not found'); };
   assert.equal(await confirmReloaded(missing.ctx, missing.sm), false, 'no details, no proof');
-  assert.equal(missing.sm.reload?.failed, undefined);
-  assert.equal(missing.sm.reload?.cleared, true);
+  assert.equal(missing.sm.reload?.ours, 'request-1');
 
-  // The pipeline reloads the whole model and then one table: both have to be clean.
-  const table = { requestId: 'table', status: 'Failed', startTime: '2026-06-01T12:40:00Z' };
-  const partly = await replacedAndBound();
-  partly.powerBi.history.push(table, row);
-  assert.equal(await confirmReloaded(partly.ctx, partly.sm), false);
-
-  const clean = await replacedAndBound();
-  clean.powerBi.history.push({ ...table, status: 'Completed' }, row);
+  const clean = await started();
   assert.equal(await confirmReloaded(clean.ctx, clean.sm), true);
-  assert.deepEqual(clean.powerBi.calls.filter((c) => c.startsWith('getRefresh ')), ['getRefresh table', 'getRefresh pipeline']);
+  assert.deepEqual(clean.powerBi.calls.filter((c) => c.startsWith('getRefresh ')), ['getRefresh request-1']);
   assert.equal(clean.sm.reload, undefined);
-
-  // The whole-model refresh failed and only the table one after it was clean: not reloaded.
-  const fullFailed = await replacedAndBound();
-  fullFailed.powerBi.history.push({ ...table, status: 'Completed' }, { ...row, status: 'Failed' });
-  assert.equal(await confirmReloaded(fullFailed.ctx, fullFailed.sm), false);
-  assert.deepEqual(fullFailed.sm.reload?.failed, ['pipeline']);
-  assert.equal(await confirmReloaded(fullFailed.ctx, fullFailed.sm), false, 'still not, once it is remembered as failed');
 });
 
+/**
+ * Power BI behind the real client: a model of two tables, cleared by the update, that a refresh
+ * loads, all of them or only the `objects` it names, when it finishes cleanly.
+ * @param {{ ctx: any, powerBi: any }} t
+ */
+function powerBiService(t) {
+  /** @type {Record<string, boolean>} */
+  const tables = { FactAlpha: false, FactBeta: false };
+  /** @type {Map<string, { status: string, objects?: string[], messages: any[] }>} */
+  const runs = new Map();
+  /** @type {string[]} newest first */
+  const order = [];
+  /** @type {any[]} */
+  const posts = [];
+  /** @type {any[]} What the installer's next refreshes end as. */
+  const outcomes = [];
+  let n = 0;
+  let busy = 0;
+  /** A refresh someone else ran. @param {string} id @param {{ status?: string, objects?: string[], messages?: any[] }} [o] */
+  const ran = (id, o = {}) => {
+    const r = { status: o.status ?? 'Completed', objects: o.objects, messages: o.messages ?? [] };
+    runs.set(id, r);
+    order.unshift(id);
+    if (r.status === 'Completed' && !r.messages.length) for (const k of r.objects ?? Object.keys(tables)) tables[k] = true;
+  };
+  const json = (/** @type {any} */ body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+  const http = createClient({
+    baseUrl: 'https://powerbi.invalid/v1.0/myorg',
+    getToken: async () => 'offline',
+    sleep: async () => {},
+    fetchImpl: /** @type {any} */ (async (/** @type {string} */ url, /** @type {any} */ options) => {
+      const path = new URL(url).pathname;
+      if (options.method === 'POST') {
+        posts.push(JSON.parse(options.body));
+        if (busy > 0) {
+          busy--;
+          return json({ error: { code: 'Conflict', message: 'A refresh is in progress' } }, 409);
+        }
+        const id = `own-${++n}`;
+        ran(id, outcomes.shift() ?? {});
+        return new Response(null, { status: 202, headers: { location: `${path}/${id}` } });
+      }
+      const id = path.split('/').pop() ?? '';
+      if (id === 'refreshes') return json({ value: order.map((requestId) => ({ requestId, status: runs.get(requestId)?.status, startTime: '2026-06-01T12:30:00Z' })) });
+      const r = runs.get(id);
+      if (!r) return json({ error: { code: 'NotFound', message: 'Not found' } }, 404);
+      return json({ requestId: id, type: 'Full', status: r.status, extendedStatus: r.status, objects: (r.objects ?? []).map((table) => ({ table })), messages: r.messages });
+    }),
+  });
+  const api = powerBiApi(http);
+  Object.assign(t.powerBi.api, { refresh: api.refresh, getRefresh: api.getRefresh, refreshes: api.refreshes });
+  t.ctx.sleep = async () => {};
+  return { tables, posts, outcomes, ran, setBusy: (/** @type {number} */ k) => { busy = k; } };
+}
+
+const WHOLE_MODEL = { type: 'full', commitMode: 'transactional', applyRefreshPolicy: true, retryCount: 1 };
+
+test('scope: a clean refresh of one table after the change never retires the reload; the installer reloads the whole model', async () => {
+  const t = await replacedAndBound();
+  const record = persisted(t);
+  try {
+    const pbi = powerBiService(t);
+    pbi.ran('table-only', { objects: ['FactAlpha'] });
+    assert.equal(await confirmReloaded(t.ctx, t.sm), false);
+    assert.deepEqual(pbi.posts, []);
+    assert.ok(loadConfig(record.file).config.semanticModel.reload, 'still owed on disk');
+    assert.deepEqual(await settleReloads(t.ctx, { wait: true, load: 'done', reachable: () => true }), { ok: true, pending: [] });
+    assert.deepEqual(pbi.posts, [WHOLE_MODEL], 'one whole-model request, no objects');
+    assert.deepEqual(pbi.tables, { FactAlpha: true, FactBeta: true });
+    assert.equal(loadConfig(record.file).config.semanticModel.reload, undefined);
+  } finally {
+    record.cleanup();
+  }
+});
+
+test('scope: after its own full refresh fails, later clean table refreshes never retire the reload, in a new run either', async () => {
+  const t = await replacedAndBound();
+  const record = persisted(t);
+  try {
+    const pbi = powerBiService(t);
+    pbi.outcomes.push({ messages: [{ type: 'Warning', message: 'A calculated table could not be calculated.' }] });
+    assert.equal(await finishUpdate(t.ctx), false);
+    for (const id of ['a1', 'a2', 'a3']) pbi.ran(id, { objects: ['FactAlpha'] });
+    assert.deepEqual(pbi.tables, { FactAlpha: true, FactBeta: false });
+
+    const { config } = loadConfig(record.file);
+    assert.deepEqual(config.semanticModel.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true });
+    const next = fakeCtx({ config, fabric: t.fabric.api, graph: fakeGraph().api, powerBi: t.powerBi.api, ui: fakeUi().ui });
+    next.ctx.save = () => saveConfig(record.file, config);
+    next.ctx.sleep = async () => {};
+    assert.equal(await confirmReloaded(next.ctx, config.semanticModel), false);
+    assert.ok(loadConfig(record.file).config.semanticModel.reload);
+    assert.deepEqual(await settleReloads(next.ctx, { wait: true, load: 'none', reachable: () => true }), { ok: true, pending: [] });
+    assert.deepEqual(pbi.posts, [WHOLE_MODEL, WHOLE_MODEL]);
+    assert.deepEqual(pbi.tables, { FactAlpha: true, FactBeta: true });
+    assert.equal(loadConfig(record.file).config.semanticModel.reload, undefined);
+  } finally {
+    record.cleanup();
+  }
+});
+
+test('scope: following a busy table refresh never retires the reload; its own whole-model refresh does, or it stays owed', async () => {
+  const t = await replacedAndBound();
+  const record = persisted(t);
+  try {
+    const pbi = powerBiService(t);
+    pbi.ran('table-only', { objects: ['FactAlpha'] });
+    pbi.setBusy(1);
+    assert.equal((await refreshModel(t.ctx, { wait: true })).ok, true);
+    assert.deepEqual(pbi.posts, [WHOLE_MODEL, WHOLE_MODEL], 'followed, then its own');
+    assert.deepEqual(pbi.tables, { FactAlpha: true, FactBeta: true });
+    assert.equal(loadConfig(record.file).config.semanticModel.reload, undefined);
+
+    const busy = await replacedAndBound();
+    const saved = persisted(busy);
+    try {
+      const svc = powerBiService(busy);
+      svc.ran('table-only', { objects: ['FactAlpha'] });
+      svc.setBusy(2);
+      assert.equal(await finishUpdate(busy.ctx), false);
+      assert.match(busy.ui.text(), /The update isn't finished: the models weren't reloaded/);
+      assert.doesNotMatch(busy.ui.text(), /Up to date/);
+      assert.deepEqual(svc.tables, { FactAlpha: true, FactBeta: false });
+      assert.deepEqual(loadConfig(saved.file).config.semanticModel.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true });
+    } finally {
+      saved.cleanup();
+    }
+  } finally {
+    record.cleanup();
+  }
+});
+
+test('scope: its own refresh, not waited for, retires the reload in a later run once its details are clean', async () => {
+  const t = await replacedAndBound();
+  const record = persisted(t);
+  try {
+    const pbi = powerBiService(t);
+    assert.equal(await finishUpdate(t.ctx, { wait: false }), true);
+    assert.match(t.ui.text(), /still reloading/);
+    const { config } = loadConfig(record.file);
+    assert.equal(config.semanticModel.reload?.ours, 'own-1');
+    pbi.ran('table-only', { objects: ['FactAlpha'] });
+    const next = fakeCtx({ config, fabric: t.fabric.api, graph: fakeGraph().api, powerBi: t.powerBi.api, ui: fakeUi().ui });
+    next.ctx.save = () => saveConfig(record.file, config);
+    assert.deepEqual(await settleReloads(next.ctx, { wait: true, load: 'none', reachable: () => true }), { ok: true, pending: [] });
+    assert.deepEqual(pbi.posts, [WHOLE_MODEL], 'no second refresh');
+    assert.equal(loadConfig(record.file).config.semanticModel.reload, undefined);
+  } finally {
+    record.cleanup();
+  }
+});
 test('a change that may not have finished is applied again before anything counts as its reload', async () => {
   const t = deployed({ answers: [true] });
   await t.deploy();
@@ -503,7 +660,7 @@ test('a change that may not have finished is applied again before anything count
   await t.deploy();
   assert.deepEqual(t.fabric.calls.filter((c) => c.startsWith('updateSemanticModel')), ['updateSemanticModel Analytics Hub Model']);
   assert.match(t.ui.text(), /last update may not have finished, so applying it again/);
-  assert.deepEqual(t.sm.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true, seen: ['later'] });
+  assert.deepEqual(t.sm.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true });
   t.sm.bound = true;
   assert.deepEqual(await settleReloads(t.ctx, { wait: true, load: 'none', reachable: () => true }), { ok: true, pending: [] });
   assert.equal(t.sm.reload, undefined);
