@@ -321,7 +321,9 @@ the install record notes that the model is owed a reload, so if the run stops, f
 tell, the next `install`, `update` or **Repair or change** reloads it, even with nothing else to
 change. If the installer can't tell whether the change itself was applied, the next run applies
 it again before reloading. If that reload fails or can't run, `update` and `install` end as failed
-and say which models have no data. Run `refresh`, or run the same command again. Run without
+and say which models have no data. Run `refresh`, or run the same command again. If other
+refreshes keep running so the installer can't start its own, a waited `refresh` fails and says so
+rather than reporting the model refreshed. Run without
 waiting, the refresh is only started, so the run says the model is still reloading rather than
 "Up to date". On the Azure target, the model is reloaded before any first load or history reload
 starts, rather than assuming that load reloads it.

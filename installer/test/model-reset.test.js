@@ -9,7 +9,7 @@ import { fabricApi } from '../src/clients/fabric.js';
 import { loadConfig, saveConfig } from '../src/config.js';
 import { createClient, HttpError } from '../src/http.js';
 import { powerBiApi } from '../src/clients/powerbi.js';
-import { finishUpdate, loadState } from '../src/install.js';
+import { finishUpdate, loadState, runCommand } from '../src/install.js';
 import { confirmReloaded, deployModel, MODEL_UPDATE_NOTE, needsDataReset, refreshModel, settleReloads } from '../src/steps/model.js';
 import { planReview } from '../src/steps/plan.js';
 import { createWebUi } from '../src/web-ui.js';
@@ -240,15 +240,16 @@ test('refresh: only the installer\'s own refresh, finished cleanly, takes the ob
   assert.match(followed.ui.text(), /still needs a full reload after its update, so refreshing it again/);
   assert.equal(followed.sm.reload, undefined);
 
-  // Busy again: once only, and the model stays owed.
+  // Busy again: once only, and the model stays owed, so the waited refresh isn't a success.
   const busy = await replacedAndBound();
   busy.powerBi.failures.refresh = [httpError(409, 'A refresh is in progress'), httpError(409, 'A refresh is in progress')];
   busy.powerBi.history.push({ requestId: 'theirs', status: 'Unknown', startTime: '2026-06-01T12:30:00Z' });
-  assert.equal((await refreshModel(busy.ctx, { wait: true })).ok, true);
+  assert.equal((await refreshModel(busy.ctx, { wait: true })).ok, false);
+  assert.match(busy.ui.text(), /still needs a full reload after its update, but other refreshes kept running/);
   assert.equal(busy.powerBi.calls.filter((c) => c.startsWith('refresh ')).length, 2);
   assert.deepEqual(busy.sm.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true });
   busy.powerBi.failures.refresh = [httpError(409, 'A refresh is in progress'), httpError(409, 'A refresh is in progress')];
-  assert.deepEqual(await settleReloads(busy.ctx, { wait: true, load: 'none', reachable: () => true }), { ok: false, pending: ['Analytics Hub Model'] });
+  assert.deepEqual(await settleReloads(busy.ctx, { wait: true, load: 'none', reachable: () => true }), { ok: false, pending: [] });
   assert.equal(busy.sm.reload?.cleared, true);
 });
 
@@ -615,6 +616,21 @@ test('scope: following a busy table refresh never retires the reload; its own wh
       assert.deepEqual(loadConfig(saved.file).config.semanticModel.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true });
     } finally {
       saved.cleanup();
+    }
+
+    // The refresh command, waiting, busy twice: not a success, and the model stays owed.
+    const cmd = await replacedAndBound();
+    const cmdSaved = persisted(cmd);
+    try {
+      const svc = powerBiService(cmd);
+      svc.ran('table-only', { objects: ['FactAlpha'] });
+      svc.setBusy(2);
+      assert.equal(await runCommand(cmd.ctx, 'refresh', { wait: true }), false);
+      assert.match(cmd.ui.text(), /other refreshes kept running, so it couldn't start one/);
+      assert.deepEqual(svc.tables, { FactAlpha: true, FactBeta: false });
+      assert.deepEqual(loadConfig(cmdSaved.file).config.semanticModel.reload, { since: '2026-06-01T12:00:00.000Z', cleared: true });
+    } finally {
+      cmdSaved.cleanup();
     }
   } finally {
     record.cleanup();

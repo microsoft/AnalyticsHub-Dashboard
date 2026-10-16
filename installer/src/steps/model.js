@@ -655,9 +655,14 @@ export async function refreshModel(ctx, opts = {}) {
     ui.ok(`${sm.name} refreshed in ${formatDuration(took)}`);
     if (reloaded(ctx, sm, requestId)) return { ok: true, status: state };
     // It followed a refresh that was already running, which may not have reloaded the whole model.
-    if (startedAt !== undefined && sm.reload && !sm.reload.unsettled && !opts.followed) {
-      ui.info(`${sm.name} still needs a full reload after its update, so refreshing it again.`);
-      return refreshModel(ctx, { ...opts, followed: true });
+    if (startedAt !== undefined && sm.reload && !sm.reload.unsettled) {
+      if (!opts.followed) {
+        ui.info(`${sm.name} still needs a full reload after its update, so refreshing it again.`);
+        return refreshModel(ctx, { ...opts, followed: true });
+      }
+      // Another refresh was running again, so its own full reload still hasn't run.
+      ui.fail(`${sm.name} still needs a full reload after its update, but other refreshes kept running, so it couldn't start one. Run "${commandLine('refresh')}" again once they finish.`);
+      return { ok: false, status: state };
     }
     return { ok: true, status: state };
   }

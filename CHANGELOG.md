@@ -183,7 +183,9 @@ Deployment instructions do **not** live here. They live in the READMEs:
   Refreshes it didn't request, such as the pipeline's, which may cover only some tables, and ones
   that reported problems never count. If the installer can't tell whether a change was applied, the next run applies it again
   before reloading. `update` and `install` end as failed when that reload fails or can't run,
-  and say "still reloading" rather than "Up to date" when they don't wait for it. On Azure the
+  and say "still reloading" rather than "Up to date" when they don't wait for it. A waited
+  `refresh` that other refreshes keep from starting its own reload fails rather than reporting
+  success. On Azure the
   model is reloaded before the first load starts, and a job run Azure gives no name for is no
   longer counted as finished.
 - Not changed: the installer never installs anything with winget, so there's no `--scope user`
