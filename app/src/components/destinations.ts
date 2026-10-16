@@ -267,7 +267,10 @@ export function stageAnchor(id: StageId): string {
  * stages, otherwise its first. A destination shows one stage at a time, so
  * opening a page only queries what is on screen.
  */
-export function openStage(destination: Destination, wanted?: StageId): StageId | undefined {
+export function openStage(
+    destination: { readonly stages: readonly { readonly id: StageId; readonly ready: boolean }[] },
+    wanted?: StageId,
+): StageId | undefined {
     const built = destination.stages.filter((stage) => stage.ready);
     return (built.find((stage) => stage.id === wanted) ?? built[0])?.id;
 }

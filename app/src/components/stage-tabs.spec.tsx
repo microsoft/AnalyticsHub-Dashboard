@@ -85,7 +85,7 @@ describe("openStage", () => {
     });
 
     it("has nothing to open when no stage is built", () => {
-        expect(openStage({ ...adoption, stages: adoption.stages.map((stage) => ({ ...stage, ready: false })) })).toBeUndefined();
+        expect(openStage({ stages: adoption.stages.map((stage) => ({ ...stage, ready: false })) })).toBeUndefined();
     });
 });
 
