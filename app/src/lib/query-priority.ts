@@ -14,6 +14,8 @@ export interface QueryCaller {
     signal?: AbortSignal;
     /** Told the semantic model the request asks, as the scheduler names it. */
     asking?: (model: string) => void;
+    /** Told, when the request gives up busy, the model's recovery count the busy answer is from. */
+    gaveUp?: (model: string, recoveries: number) => void;
 }
 
 let current: QueryPriority = "normal";

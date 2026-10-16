@@ -35,6 +35,7 @@ import {
     onModelRecovered,
     parseRetryAfter,
     QueryScheduler,
+    recoveriesOf,
     scheduledProxy,
     throttledReply,
     throttleOf,
@@ -468,6 +469,44 @@ describe("QueryScheduler", () => {
 
         await expect(scheduler.run("b", async () => "ok", "normal", "ws/vl")).resolves.toBe("ok");
         expect(recovered.mock.calls).toEqual([["ws/vl"]]);
+    });
+
+    it("dates a busy answer by the recoveries its model had when the query began to wait, for every caller sharing it", async () => {
+        const scheduler = new QueryScheduler({ maxRetries: 0, random: () => 0, log: () => {} });
+        await expect(scheduler.run("seed", vi.fn().mockRejectedValue(apiError(429)), "normal", "ws/dated")).rejects.toThrow(BUSY_MESSAGE);
+        const before = recoveriesOf("ws/dated");
+        const probe = deferred();
+        const probing = scheduler.run("probe", () => probe.promise, "normal", "ws/dated");
+        const waiting = scheduler.run("q", async () => "q", "normal", "ws/dated");
+        const settled = expect(waiting).rejects.toMatchObject({ message: BUSY_MESSAGE, recoveries: before });
+        await vi.advanceTimersByTimeAsync(30_000);
+        const joined = scheduler.run("q", async () => "q", "normal", "ws/dated");
+        const joinedSettled = expect(joined).rejects.toMatchObject({ message: BUSY_MESSAGE, recoveries: before });
+        await vi.advanceTimersByTimeAsync(30_000);
+
+        // The model answers after the wait ran out: the busy answer predates it, whoever holds it.
+        probe.resolve("probe");
+        await expect(probing).resolves.toBe("probe");
+        await settled;
+        await joinedSettled;
+        expect(recoveriesOf("ws/dated")).toBe(before + 1);
+    });
+
+    it("dates a busy answer by the recoveries its model had when the query was sent", async () => {
+        const scheduler = new QueryScheduler({ maxRetries: 0, random: () => 0, log: () => {} });
+        await expect(scheduler.run("seed", vi.fn().mockRejectedValue(apiError(429)), "normal", "ws/sent")).rejects.toThrow(BUSY_MESSAGE);
+        const probe = deferred();
+        const probing = scheduler.run("probe", () => probe.promise, "normal", "ws/sent");
+        const waiting = scheduler.run("q", vi.fn().mockRejectedValue(apiError(429)), "normal", "ws/sent");
+        const before = recoveriesOf("ws/sent");
+        const settled = expect(waiting).rejects.toMatchObject({ message: BUSY_MESSAGE, recoveries: before + 1 });
+        await vi.advanceTimersByTimeAsync(1_000);
+
+        // It waited through the recovery, then was throttled once sent: its busy answer is current.
+        probe.resolve("probe");
+        await expect(probing).resolves.toBe("probe");
+        await settled;
+        expect(recoveriesOf("ws/sent")).toBe(before + 1);
     });
 
     it("sends a background query asked for on screen long after its model's throttle: its wait counts from then", async () => {
@@ -989,6 +1028,21 @@ describe("scheduledProxy", () => {
         expect(asking).toHaveBeenCalledWith("ws/m");
         await expect(result).rejects.toMatchObject({ name: "AbortError" });
         expect(executeDax).not.toHaveBeenCalled();
+    });
+
+    it("tells every card sharing a request that gave up busy which recovery the busy answer is from", async () => {
+        const { inner, executeDax } = fakeProxy();
+        executeDax.mockRejectedValue(apiError(429));
+        const proxy = scheduledProxy(inner, new QueryScheduler({ maxRetries: 0, random: () => 0, log: () => {} }));
+        const first = { asking: vi.fn(), gaveUp: vi.fn() };
+        const second = { asking: vi.fn(), gaveUp: vi.fn() };
+        const one = withPriority("normal", () => proxy.semanticModel.executeDax("ws", "shared", "EVALUATE A"), first);
+        const two = withPriority("normal", () => proxy.semanticModel.executeDax("ws", "shared", "EVALUATE A"), second);
+        await expect(one).rejects.toThrow(BUSY_MESSAGE);
+        await expect(two).rejects.toThrow(BUSY_MESSAGE);
+        expect(executeDax).toHaveBeenCalledTimes(1);
+        expect(first.gaveUp.mock.calls).toEqual([["ws/shared", recoveriesOf("ws/shared")]]);
+        expect(second.gaveUp.mock.calls).toEqual(first.gaveUp.mock.calls);
     });
 });
 

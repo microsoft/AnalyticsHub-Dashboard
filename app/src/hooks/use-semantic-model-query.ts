@@ -34,6 +34,11 @@ function cachedBusy(result: CachedQueryResult): boolean {
     return result.fromCache && result.status === "error" && isBusyMessage(result.error.message);
 }
 
+/** The model has answered again since the busy answer the card holds, which `seen` dates. */
+function outdated(model: string | undefined, seen: number): boolean {
+    return model !== undefined && recoveriesOf(model) > seen;
+}
+
 /**
  * React hook that executes a DAX query against a Power BI semantic model
  * via the Fabric SDK. Results are cached by the SDK's built-in LRU cache for
@@ -87,15 +92,15 @@ export function useSemanticModelQuery(
     const controller = useRef<AbortController | undefined>(undefined);
     /** The model the card's last request asked, as the scheduler names it. */
     const asked = useRef<string | undefined>(undefined);
-    /** How many times that model had recovered when the request began. */
-    const askedAt = useRef(0);
+    /** That model's recovery count as of the answer the card holds. */
+    const seen = useRef(0);
     /** The card shows "Power BI is busy" and isn't asking again yet. */
     const busy = useRef(false);
 
     const canExecute = Boolean(connection && query);
     const priority = useIsPrefetch() ? "low" : "normal";
 
-    // Asks once. True when it ended busy but its model answered again meanwhile, before the card could hear it.
+    // Asks once. True when it ended busy on an answer from before its model last answered again.
     const ask = useCallback(async (fresh: boolean, signal?: AbortSignal): Promise<boolean> => {
         busy.current = false;
         if (!canExecute) {
@@ -108,7 +113,12 @@ export function useSemanticModelQuery(
             signal,
             asking: (model: string) => {
                 asked.current = model;
-                askedAt.current = recoveriesOf(model);
+                seen.current = recoveriesOf(model);
+            },
+            // The query it joined may have begun before a recovery this card was told of.
+            gaveUp: (model: string, recoveries: number) => {
+                asked.current = model;
+                seen.current = recoveries;
             },
         };
 
@@ -138,7 +148,7 @@ export function useSemanticModelQuery(
         } finally {
             if (!signal?.aborted) setIsLoading(false);
         }
-        const missed = busy.current && asked.current !== undefined && recoveriesOf(asked.current) !== askedAt.current;
+        const missed = busy.current && outdated(asked.current, seen.current);
         if (missed) busy.current = false;
         return missed;
     }, [connection, query, bypassCache, canExecute, priority]);
@@ -161,7 +171,7 @@ export function useSemanticModelQuery(
     // A card that gave up with "Power BI is busy" asks again once its model answers another query.
     useEffect(() => onModelRecovered((model) => {
         const run = controller.current;
-        if (!busy.current || model !== asked.current || !run || run.signal.aborted) return;
+        if (!busy.current || model !== asked.current || !outdated(model, seen.current) || !run || run.signal.aborted) return;
         void execute(true, run.signal);
     }), [execute]);
 

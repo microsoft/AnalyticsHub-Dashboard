@@ -107,6 +107,8 @@ interface Job {
     nap: (() => void) | undefined;
     unlisten: Array<() => void>;
     wait: Wait;
+    /** Its model's recovery count when it last began to wait or was sent, which a busy answer from it carries. */
+    recoveries: number;
 }
 
 /** When one query on screen first had to wait on its model, for the cap on how long it waits. */
@@ -183,15 +185,16 @@ function goneError(): Error {
     return Object.assign(new Error("Nothing on the page is waiting for this query any more."), { name: "AbortError" });
 }
 
-function busyError(error: unknown, throttle: Throttle): FabricApiProxyError {
+function busyError(error: unknown, throttle: Throttle, recoveries: number): FabricApiProxyError {
     const source = (error ?? {}) as { requestId?: string; sessionId?: string; body?: string };
-    return new FabricApiProxyError({
+    const busy = new FabricApiProxyError({
         status: throttle.status,
         requestId: source.requestId ?? "",
         sessionId: source.sessionId ?? "",
         body: source.body ?? "",
         message: BUSY_MESSAGE,
     });
+    return Object.assign(busy, { recoveries });
 }
 
 /** The error Power BI sends in place of an answer, still with HTTP 200. */
@@ -265,8 +268,9 @@ export function onModelRecovered(listener: (model: string) => void): () => void 
 
 /**
  * How many times a model has answered again after a query to it gave up busy.
- * A card that sees it change while it asks heard too early to act on it, so
- * asks again once it shows busy.
+ * A busy answer carries the count from when its query last began to wait or
+ * was sent; once the count has moved past it, the answer is out of date,
+ * whichever card it reached and whenever that card joined the query.
  */
 export function recoveriesOf(model: string): number {
     return recoveries.get(model) ?? 0;
@@ -285,6 +289,9 @@ export function recoveriesOf(model: string): number {
  * afresh once it is asked for on screen — or can't wait out its pause, gives
  * up with the busy message; once the model next answers, and any pause it
  * asked for has ended, `onModelRecovered` says so, so those cards ask again.
+ * The busy message carries the model's recovery count from when its query
+ * last began to wait or was sent, so every card sharing it can tell whether
+ * the model has answered since, whenever it joined or heard.
  * Only a throttle is retried: a query error is passed
  * on as it came, even if a name it quotes says "rate limit".
  *
@@ -365,6 +372,7 @@ export class QueryScheduler {
             nap: undefined,
             unlisten: [],
             wait: { since: undefined },
+            recoveries: recoveriesOf(model),
         };
         this.join(job, signal);
         this.jobs.set(key, job);
@@ -481,11 +489,13 @@ export class QueryScheduler {
     private async attempt<T>(job: Job, task: () => Promise<T>): Promise<T> {
         const wait = job.wait;
         for (let retry = 0; ; retry++) {
+            job.recoveries = recoveriesOf(job.model.id);
             const lane = await this.acquire(job, wait);
             if (job.abandoned) {
                 this.sent(job, lane);
                 throw this.quit(job);
             }
+            job.recoveries = recoveriesOf(job.model.id);
             let failure: unknown;
             let throttle: Throttle | undefined;
             try {
@@ -507,7 +517,7 @@ export class QueryScheduler {
             wait.since ??= now;
             const left = wait.since + this.maxWaitMs - now;
             if (retry >= this.maxRetries || left <= 0 || (throttle.retryAfterMs ?? 0) > left)
-                throw this.giveUp(job.model, wait, failure, throttle);
+                throw this.giveUp(job, wait, failure, throttle);
         }
     }
 
@@ -519,14 +529,15 @@ export class QueryScheduler {
         this.wakeModel(job.model);
     }
 
-    private giveUp(model: ModelState, wait: Wait, failure: unknown, throttle: Throttle): FabricApiProxyError {
+    private giveUp(job: Job, wait: Wait, failure: unknown, throttle: Throttle): FabricApiProxyError {
+        const model = job.model;
         const now = this.now();
         model.owed = true;
         this.log(
             "warn",
             `Analytics Hub: model ${model.label} is still throttling after ${seconds(now - (wait.since ?? now))} s, so a card shows "Power BI is busy".`,
         );
-        return busyError(failure, throttle);
+        return busyError(failure, throttle, job.recoveries);
     }
 
     /** A throttled reply pauses its model and holds its background queries. */
@@ -645,7 +656,7 @@ export class QueryScheduler {
             wait.since ??= now;
             const left = wait.since + this.maxWaitMs - now;
             const pause = model.pausedUntil - now;
-            if (left <= 0 || pause > left) throw this.giveUp(model, wait, undefined, { status: 429, retryAfterMs: undefined });
+            if (left <= 0 || pause > left) throw this.giveUp(job, wait, undefined, { status: 429, retryAfterMs: undefined });
             // Until the pause ends, or until the query trying the model settles and wakes it.
             await this.nap(job, pause > 0 ? pause : left);
         }
@@ -769,7 +780,14 @@ export function scheduledProxy(inner: IFabricApiProxy, scheduler = new QuerySche
     const run = <T>(key: string[], model: string, task: () => Promise<T>): Promise<T> => {
         const caller = currentCaller();
         caller?.asking?.(model);
-        return scheduler.run(key.join("\0"), task, currentPriority(), model, caller?.signal);
+        const answer = scheduler.run(key.join("\0"), task, currentPriority(), model, caller?.signal);
+        if (!caller?.gaveUp) return answer;
+        // Each caller learns which recovery the busy answer predates, not just when it joined the query.
+        return answer.catch((error: unknown) => {
+            const seen = (error as { recoveries?: unknown } | undefined)?.recoveries;
+            if (typeof seen === "number") caller.gaveUp?.(model, seen);
+            throw error;
+        });
     };
     return {
         semanticModel: {

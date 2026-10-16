@@ -24,13 +24,21 @@ vi.mock("@/lib/fabric-client", async (original) => ({
 const THROTTLED = { error: { code: "TooManyRequests", message: "Too many requests" } };
 const ANSWER = { results: [{ tables: [{ rows: [{ "[Value]": 1 }] }] }] };
 
-/** The real SDK and scheduler, with Power BI replaced by `reply`. */
-function setup(reply: (model: string, query: string) => unknown, options: QuerySchedulerOptions = {}) {
+type Transport = "async" | "direct";
+
+/** The real SDK and scheduler, with Power BI replaced by `reply`, answering in an async function or a bare promise. */
+function setup(
+    reply: (model: string, query: string) => unknown,
+    options: QuerySchedulerOptions = {},
+    transport: Transport = "async",
+) {
     const scheduler = new QueryScheduler({ random: () => 0, log: () => {}, ...options });
-    const executeDaxJson = vi.fn(async (_workspace: string, model: string, query: string) => ({
-        requestId: "r",
-        data: await reply(model, query),
-    }));
+    const answer = (data: unknown) => ({ requestId: "r", data });
+    const executeDaxJson = vi.fn((_workspace: string, model: string, query: string): Promise<unknown> => {
+        if (transport === "async") return (async () => answer(await reply(model, query)))();
+        const out = reply(model, query);
+        return out instanceof Promise ? out.then(answer) : Promise.resolve(answer(out));
+    });
     const inner = {
         semanticModel: { executeDax: vi.fn(), executeDaxJson },
         lakehouse: { executeSql: vi.fn() },
@@ -228,6 +236,130 @@ describe("useSemanticModelQuery after Power BI was busy", () => {
         expect(sent("MISSING")).toBe(1);
         expect(screen.queryByText("Power BI is busy")).toBeNull();
     });
+});
+
+describe("useSemanticModelQuery when several cards share a query their model was busy for", () => {
+    const transports: Transport[] = ["async", "direct"];
+    const timings = ["before", "at", "after"] as const;
+    const shapes = [
+        { busy: 1, waiting: 1 },
+        { busy: 2, waiting: 1 },
+        { busy: 1, waiting: 2 },
+    ];
+    const probes = ["client", "card"] as const;
+    const cases = transports.flatMap((transport) =>
+        timings.flatMap((timing) => shapes.flatMap((shape) => probes.map((probe) => ({ transport, timing, probe, ...shape })))),
+    );
+
+    it.each(cases)(
+        "clears $busy busy and $waiting waiting cards once the model answers a $probe $timing their wait runs out ($transport)",
+        async ({ transport, timing, probe, busy, waiting }) => {
+            let release!: (data: unknown) => void;
+            const gate = new Promise((resolve) => {
+                release = resolve;
+            });
+            let healthy = false;
+            const { client, sent } = setup(
+                (_model, query) => (query === "PROBE" ? gate : healthy ? ANSWER : THROTTLED),
+                { maxRetries: 0 },
+                transport,
+            );
+            const mount = () => renderHook(() => useSemanticModelQuery({ connection: "vl", query: "Q" }));
+            const cards = Array.from({ length: busy }, mount);
+            await tick(0);
+            for (const card of cards) expect(card.result.current.error?.message).toBe(BUSY_MESSAGE);
+
+            // Another query tries the model, and new cards for the same query wait behind it.
+            await tick(500);
+            const probing =
+                probe === "client"
+                    ? client.semanticModel("vl").query("PROBE")
+                    : renderHook(() => useSemanticModelQuery({ connection: "vl", query: "PROBE" }));
+            await tick(0);
+            cards.push(...Array.from({ length: waiting }, mount));
+            await tick(0);
+            expect(sent("Q")).toBe(1);
+
+            const answer = () => {
+                healthy = true;
+                release(ANSWER);
+            };
+            if (timing === "before") {
+                await tick(58_000);
+                await act(async () => {
+                    answer();
+                    await Promise.resolve();
+                });
+            } else if (timing === "at") {
+                await act(async () => {
+                    vi.advanceTimersByTime(60_000);
+                    answer();
+                    await Promise.resolve();
+                });
+            } else {
+                await tick(61_000);
+                for (const card of cards) expect(card.result.current.error?.message).toBe(BUSY_MESSAGE);
+                await act(async () => {
+                    answer();
+                    await Promise.resolve();
+                });
+            }
+            await tick(0);
+            if (probe === "client") await probing;
+            await tick(60_000);
+
+            for (const card of cards) {
+                expect(card.result.current.data).toMatchObject({ status: "success" });
+                expect(card.result.current.error).toBeUndefined();
+                expect(card.result.current.isLoading).toBe(false);
+            }
+            expect(sent("Q")).toBeLessThanOrEqual(1 + cards.length);
+            const settled = sent("Q");
+            await tick(180_000);
+            expect(sent("Q")).toBe(settled);
+        },
+    );
+
+    it.each(transports)(
+        "sends a waiting card's query once when its model answers another first but throttles it again, and clears it at the next recovery (%s)",
+        async (transport) => {
+            let release!: (data: unknown) => void;
+            const gate = new Promise((resolve) => {
+                release = resolve;
+            });
+            let throttling = true;
+            const { client, sent } = setup(
+                (_model, query) => (query === "PROBE" ? gate : query === "HEALTH" || !throttling ? ANSWER : THROTTLED),
+                { maxRetries: 0 },
+                transport,
+            );
+            await client.semanticModel("vl").query("SEED");
+            await tick(500);
+            const probing = client.semanticModel("vl").query("PROBE");
+            await tick(0);
+            const card = renderHook(() => useSemanticModelQuery({ connection: "vl", query: "Q" }));
+            await tick(0);
+            expect(sent("Q")).toBe(0);
+
+            // The model answers while the card waits, then throttles the card's query: that busy answer is current.
+            await act(async () => {
+                release(ANSWER);
+                await Promise.resolve();
+            });
+            await tick(0);
+            await probing;
+            await tick(180_000);
+            expect(sent("Q")).toBe(1);
+            expect(card.result.current.error?.message).toBe(BUSY_MESSAGE);
+
+            throttling = false;
+            await act(async () => void (await client.semanticModel("vl").query("HEALTH")));
+            await tick(0);
+            expect(sent("Q")).toBe(2);
+            expect(card.result.current.data).toMatchObject({ status: "success" });
+            expect(card.result.current.error).toBeUndefined();
+        },
+    );
 });
 
 describe("useSemanticModelQuery on a page fetched ahead while Power BI was busy", () => {

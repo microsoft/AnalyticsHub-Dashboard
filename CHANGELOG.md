@@ -72,8 +72,8 @@ opening the app took about 40 seconds.
   A query error that only quotes those words, as a name, shows as that error.
 - **Busy cards clear by themselves.** Once the model answers any query again, every card that
   showed busy on it, and the filter choices, ask again with no click or page change, even if
-  the answer came as the card gave up. A page opened after a throttle sends its queries instead
-  of giving up at once.
+  the answer came as the card gave up, or the card shares its query with others. A page opened
+  after a throttle sends its queries instead of giving up at once.
 - **Background loading pauses.** After a throttle, background loading from that model waits at
   least a minute, and until a query to it on screen succeeds. Pages still load when you open them.
 - **Only the affected visual fails.** A throttled slicer-options query no longer replaces the
