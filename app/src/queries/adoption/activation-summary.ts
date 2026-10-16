@@ -29,10 +29,6 @@ const columnMetadata: ColumnMetadataMap = {
     "[Agent Active]": { name: "Agent Active", displayName: "Users with agent activity", format: FORMAT_WHOLE },
     "[Agent NotUsing]": { name: "Agent NotUsing", displayName: "Copilot users not using agents", format: FORMAT_WHOLE },
     "[Agent Active Pct]": { name: "Agent Active Pct", displayName: "% using agents", format: FORMAT_PERCENT },
-    "[Headline Overall]": { name: "Headline Overall", displayName: "Overall" },
-    "[Headline Licensed]": { name: "Headline Licensed", displayName: "Licensed" },
-    "[Headline Unlicensed]": { name: "Headline Unlicensed", displayName: "Unlicensed" },
-    "[Headline Agents]": { name: "Headline Agents", displayName: "Agents" },
 };
 
 /**

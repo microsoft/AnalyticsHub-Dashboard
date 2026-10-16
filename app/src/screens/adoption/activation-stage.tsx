@@ -18,9 +18,8 @@ import { useFilterContext, useOrgAttribute } from "@/hooks/filter.context";
 import { useFilteredQuery } from "@/hooks/use-filtered-query";
 import { selectedCohort, unshownActivity, type FilterKey } from "@/lib/filters";
 import { rowChartHeight } from "@/lib/chart-height";
-import { plainText } from "@/lib/model-text";
 import { withIndefiniteArticle, withOrgAttribute } from "@/lib/org-attribute";
-import { readNumber, readText, toSummaryRow } from "@/lib/summary-row";
+import { readNumber, toSummaryRow } from "@/lib/summary-row";
 import { orgEmptyDescription } from "@/lib/department-coverage";
 import { toDataTable } from "@/lib/to-data-table";
 import { topNote, topWithOther } from "@/lib/top-n";
@@ -45,7 +44,6 @@ const cohorts: {
     inactiveColumn: string;
     totalColumn?: string;
     percentColumn: string;
-    headlineColumn: string;
     activeLabel: string;
     inactiveLabel: string;
 }[] = [
@@ -56,7 +54,6 @@ const cohorts: {
         inactiveColumn: "[All Inactive]",
         totalColumn: "[All Total]",
         percentColumn: "[All Active Pct]",
-        headlineColumn: "[Headline Overall]",
         activeLabel: "Active",
         inactiveLabel: "Inactive",
     },
@@ -67,7 +64,6 @@ const cohorts: {
         inactiveColumn: "[Licensed Inactive]",
         totalColumn: "[Licensed Total]",
         percentColumn: "[Licensed Active Pct]",
-        headlineColumn: "[Headline Licensed]",
         activeLabel: "Active",
         inactiveLabel: "Inactive",
     },
@@ -78,7 +74,6 @@ const cohorts: {
         inactiveColumn: "[Unlicensed Inactive]",
         totalColumn: "[Unlicensed Total]",
         percentColumn: "[Unlicensed Active Pct]",
-        headlineColumn: "[Headline Unlicensed]",
         activeLabel: "Observed",
         inactiveLabel: "Not observed",
     },
@@ -88,7 +83,6 @@ const cohorts: {
         activeColumn: "[Agent Active]",
         inactiveColumn: "[Agent NotUsing]",
         percentColumn: "[Agent Active Pct]",
-        headlineColumn: "[Headline Agents]",
         activeLabel: "Using agents",
         inactiveLabel: "Not using agents",
     },
@@ -114,7 +108,6 @@ export function ActivationStage() {
     );
 
     const selected = cohorts.find((entry) => entry.id === cohort) ?? cohorts[0];
-    const headline = plainText(readText(summaryRow, selected.headlineColumn));
     const unmatched = unshownActivity(filters, applicable, PICKABLE);
     const cohortReason = unmatched
         ? `${unmatched} has no activation figure of its own, so ${selected.label} is highlighted and charted below.`
@@ -174,12 +167,6 @@ export function ActivationStage() {
                         />
                     ))}
                 </div>
-            )}
-
-            {headline && (
-                <p className="border-l-2 border-primary pl-400 text-[length:var(--text-400)] leading-400 text-foreground">
-                    {headline}
-                </p>
             )}
 
             <OnDemand

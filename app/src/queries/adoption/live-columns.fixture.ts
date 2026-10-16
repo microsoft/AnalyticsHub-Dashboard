@@ -33,10 +33,6 @@ export const liveColumns = {
         "[Agent Active]",
         "[Agent NotUsing]",
         "[Agent Active Pct]",
-        "[Headline Overall]",
-        "[Headline Licensed]",
-        "[Headline Unlicensed]",
-        "[Headline Agents]",
     ],
     activationByOrg: [
         "Chat + Agent Org Data[Organization]",
