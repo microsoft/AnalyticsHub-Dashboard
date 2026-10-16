@@ -1018,16 +1018,48 @@ describe("scheduledProxy", () => {
         expect(proxy.warehouse).toBe(inner.warehouse);
     });
 
-    it("tells the card starting a request which model it asks, and stops for a card that has gone", async () => {
+    it("tells the card starting a request which model it asks", async () => {
         const { inner, executeDax } = fakeProxy();
         const proxy = scheduledProxy(inner, new QueryScheduler());
         const asking = vi.fn();
+        await withPriority("normal", () => proxy.semanticModel.executeDax("ws", "m", "EVALUATE A"), { signal: new AbortController().signal, asking });
+        expect(asking.mock.calls).toEqual([["ws/m"]]);
+        expect(executeDax).toHaveBeenCalledTimes(1);
+    });
+
+    it("tells a card that has gone nothing, and sends nothing for it", async () => {
+        const { inner, executeDax } = fakeProxy();
+        const proxy = scheduledProxy(inner, new QueryScheduler());
+        const asking = vi.fn();
+        const gaveUp = vi.fn();
         const gone = new AbortController();
         gone.abort();
-        const result = withPriority("normal", () => proxy.semanticModel.executeDax("ws", "m", "EVALUATE A"), { signal: gone.signal, asking });
-        expect(asking).toHaveBeenCalledWith("ws/m");
+        const result = withPriority("normal", () => proxy.semanticModel.executeDax("ws", "m", "EVALUATE A"), { signal: gone.signal, asking, gaveUp });
         await expect(result).rejects.toMatchObject({ name: "AbortError" });
+        expect(asking).not.toHaveBeenCalled();
+        expect(gaveUp).not.toHaveBeenCalled();
         expect(executeDax).not.toHaveBeenCalled();
+    });
+
+    it("tells a card that left a shared request nothing when it gives up, and still tells the card that stayed", async () => {
+        const { inner, executeDax } = fakeProxy();
+        let fail: (error: unknown) => void = () => {};
+        executeDax.mockImplementation(() => new Promise((_, reject) => { fail = reject; }));
+        const proxy = scheduledProxy(inner, new QueryScheduler({ maxRetries: 0, random: () => 0, log: () => {} }));
+        const leaving = new AbortController();
+        const left = { signal: leaving.signal, asking: vi.fn(), gaveUp: vi.fn() };
+        const stayed = { signal: new AbortController().signal, asking: vi.fn(), gaveUp: vi.fn() };
+        const one = withPriority("normal", () => proxy.semanticModel.executeDax("ws", "left", "EVALUATE A"), left);
+        const two = withPriority("normal", () => proxy.semanticModel.executeDax("ws", "left", "EVALUATE A"), stayed);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(executeDax).toHaveBeenCalledTimes(1);
+        leaving.abort();
+        fail(apiError(429));
+        await expect(one).rejects.toThrow(BUSY_MESSAGE);
+        await expect(two).rejects.toThrow(BUSY_MESSAGE);
+        expect(left.asking.mock.calls).toEqual([["ws/left"]]);
+        expect(left.gaveUp).not.toHaveBeenCalled();
+        expect(stayed.gaveUp.mock.calls).toEqual([["ws/left", recoveriesOf("ws/left")]]);
     });
 
     it("tells every card sharing a request that gave up busy which recovery the busy answer is from", async () => {

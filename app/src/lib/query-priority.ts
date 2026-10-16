@@ -8,9 +8,9 @@
 /** `low` waits until nothing on screen is loading; `normal` is everything a person is looking at. */
 export type QueryPriority = "normal" | "low";
 
-/** The card starting a request. */
+/** The card starting a request. Once `signal` aborts, it is told nothing more about the request. */
 export interface QueryCaller {
-    /** Aborts once the card has gone. */
+    /** Aborts once the card has gone, or has moved on to another query or model. */
     signal?: AbortSignal;
     /** Told the semantic model the request asks, as the scheduler names it. */
     asking?: (model: string) => void;

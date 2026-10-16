@@ -779,13 +779,15 @@ export class QueryScheduler {
 export function scheduledProxy(inner: IFabricApiProxy, scheduler = new QueryScheduler()): IFabricApiProxy {
     const run = <T>(key: string[], model: string, task: () => Promise<T>): Promise<T> => {
         const caller = currentCaller();
-        caller?.asking?.(model);
+        // A card that has gone, or moved on to another query, is told nothing more about this one.
+        const present = () => !caller?.signal?.aborted;
+        if (present()) caller?.asking?.(model);
         const answer = scheduler.run(key.join("\0"), task, currentPriority(), model, caller?.signal);
         if (!caller?.gaveUp) return answer;
         // Each caller learns which recovery the busy answer predates, not just when it joined the query.
         return answer.catch((error: unknown) => {
             const seen = (error as { recoveries?: unknown } | undefined)?.recoveries;
-            if (typeof seen === "number") caller.gaveUp?.(model, seen);
+            if (typeof seen === "number" && present()) caller.gaveUp?.(model, seen);
             throw error;
         });
     };

@@ -5,8 +5,9 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { StrictMode, type ReactNode } from "react";
 import { act, cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
-import { FabricClient, type FabricClientConfig, type IFabricApiProxy } from "@microsoft/fabric-app-data";
+import { FabricClient, type CachedQueryResult, type FabricClientConfig, type IFabricApiProxy } from "@microsoft/fabric-app-data";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { QueryError } from "@/components/query-states";
 import { PrefetchContext } from "@/hooks/prefetch.context";
@@ -397,4 +398,153 @@ describe("useSemanticModelQuery on a page fetched ahead while Power BI was busy"
         expect(ahead.result.current.data).toMatchObject({ status: "success" });
         expect(sent("Q")).toBe(2);
     });
+});
+
+describe("useSemanticModelQuery once a card has moved on from a query", () => {
+    const OLD_ANSWER = { results: [{ tables: [{ rows: [{ "[Value]": 7777 }] }] }] };
+    const NEW_ANSWER = { results: [{ tables: [{ rows: [{ "[Value]": 1111 }] }] }] };
+    const OLD_ERROR = { error: { code: "3241803779", message: "Query (1, 1) Cannot find table 'Old'." } };
+    const Strict = ({ children }: { children: ReactNode }) => <StrictMode>{children}</StrictMode>;
+    const holds = (result: CachedQueryResult | undefined, value: number) =>
+        result?.status === "success" && JSON.stringify(result.table).includes(String(value));
+    type Props = { connection: string; query: string };
+
+    const changes = ["model", "query", "remount", "strict"] as const;
+    const positions = ["sent", "waiting"] as const;
+    const lates = ["busy", "success", "error"] as const;
+    const sharings = ["shared", "alone"] as const;
+    const cases = (["async", "direct"] as Transport[]).flatMap((transport) =>
+        changes.flatMap((change) =>
+            positions.flatMap((position) =>
+                lates.flatMap((late) => sharings.map((sharing) => ({ change, position, late, sharing, transport }))),
+            ),
+        ),
+    );
+
+    it.each(cases)(
+        "keeps to its new query after a $change change while the old one was $position, which then ends $late ($sharing, $transport)",
+        async ({ change, position, late, sharing, transport }) => {
+            let healthy = false;
+            let releaseOld!: (data: unknown) => void;
+            const oldGate = new Promise((resolve) => {
+                releaseOld = resolve;
+            });
+            let releaseProbe!: (data: unknown) => void;
+            const probeGate = new Promise((resolve) => {
+                releaseProbe = resolve;
+            });
+            const lateReply = late === "busy" ? THROTTLED : late === "success" ? OLD_ANSWER : OLD_ERROR;
+            let olds = 0;
+            const { client, sent } = setup(
+                (_model, query) => {
+                    if (query === "SEED") return THROTTLED;
+                    if (query === "PROBE") return probeGate;
+                    if (query === "HEALTH") return ANSWER;
+                    if (query === "OLD") {
+                        olds++;
+                        if (olds === 1 && !healthy) return position === "sent" ? oldGate : lateReply;
+                        return healthy ? OLD_ANSWER : THROTTLED;
+                    }
+                    return healthy ? NEW_ANSWER : THROTTLED;
+                },
+                { maxRetries: 0 },
+                transport,
+            );
+
+            // Waiting: the model throttled, and another query is trying it, so the old query is never sent before the change.
+            if (position === "waiting") {
+                await client.semanticModel("vl").query("SEED");
+                await tick(500);
+                void client.semanticModel("vl").query("PROBE");
+                await tick(0);
+            }
+            const peer = sharing === "shared" ? renderHook(() => useSemanticModelQuery({ connection: "vl", query: "OLD" })) : undefined;
+            const history: Array<{ query: string; data: CachedQueryResult | undefined; error: string | undefined }> = [];
+            const mount = (initialProps: Props) =>
+                renderHook(
+                    (props: Props) => {
+                        const out = useSemanticModelQuery(props);
+                        history.push({ query: props.query, data: out.data, error: out.error?.message });
+                        return out;
+                    },
+                    { initialProps, wrapper: change === "strict" ? Strict : undefined },
+                );
+            let card = mount({ connection: "vl", query: "OLD" });
+            await tick(0);
+            expect(sent("OLD")).toBe(position === "sent" ? 1 : 0);
+
+            const to = change === "query" ? { connection: "vl", query: "NEW" } : { connection: "cc", query: "NEW" };
+            const changed = history.length;
+            if (change === "remount") {
+                card.unmount();
+                card = mount(to);
+            } else {
+                card.rerender(to);
+            }
+            await tick(0);
+
+            // The old query ends after the change: its answer, or its busy give-up, comes late.
+            if (position === "sent") {
+                await act(async () => {
+                    releaseOld(lateReply);
+                    await Promise.resolve();
+                });
+                await tick(0);
+            } else if (late === "busy") {
+                await tick(61_000);
+            } else {
+                await act(async () => {
+                    releaseProbe(ANSWER);
+                    await Promise.resolve();
+                });
+                await tick(0);
+            }
+
+            // Both models answer again, the new query's first: that alone must clear the card.
+            healthy = true;
+            const recover = async (connection: string) => {
+                if (connection === "vl") {
+                    await act(async () => {
+                        releaseProbe(ANSWER);
+                        await Promise.resolve();
+                    });
+                }
+                let check!: Promise<unknown>;
+                act(() => {
+                    check = client.semanticModel(connection).query("HEALTH");
+                });
+                await tick(30_000);
+                await act(async () => void (await check));
+                await tick(60_000);
+            };
+            await recover(to.connection);
+
+            const now = card.result.current;
+            expect(holds(now.data, 1111)).toBe(true);
+            expect(now.error).toBeUndefined();
+            expect(now.isLoading).toBe(false);
+            for (const shown of history.slice(changed).filter(({ query }) => query === "NEW")) {
+                expect(JSON.stringify(shown.data ?? null)).not.toContain("7777");
+                expect(shown.error ?? "").not.toContain("'Old'");
+            }
+
+            if (to.connection !== "vl") await recover("vl");
+            if (peer) {
+                if (late === "error") {
+                    expect(peer.result.current.error?.message).toContain("'Old'");
+                } else {
+                    expect(holds(peer.result.current.data, 7777)).toBe(true);
+                    expect(peer.result.current.error).toBeUndefined();
+                }
+                expect(peer.result.current.isLoading).toBe(false);
+            }
+
+            expect(sent("NEW")).toBeLessThanOrEqual(2);
+            expect(sent("OLD")).toBeLessThanOrEqual(peer ? 2 : 1);
+            if (!peer && position === "waiting") expect(sent("OLD")).toBe(0);
+            const settled = { old: sent("OLD"), new: sent("NEW") };
+            await tick(180_000);
+            expect({ old: sent("OLD"), new: sent("NEW") }).toEqual(settled);
+        },
+    );
 });
