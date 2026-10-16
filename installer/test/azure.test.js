@@ -18,8 +18,7 @@ import { ROLES } from '../src/clients/azure.js';
 import { buildModel, mParameter } from '../src/transform/model.js';
 import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi } from './fakes.js';
 import { readScopes } from '../src/steps/org-access.js';
-import { replacedModels } from '../src/steps/model.js';
-import { saveConfig } from '../src/config.js';
+import { loadConfig, saveConfig } from '../src/config.js';
 import { createWebUi } from '../src/web-ui.js';
 import { createSession } from '../src/web-session.js';
 
@@ -456,7 +455,9 @@ async function azureModelChanged(o = {}) {
   const powerBi = fakePowerBi();
   powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds', connectionDetails: { server: 'vlens-sql.database.windows.net', database: 'valuelens' } }]);
   const ui = fakeUi({ yesTo: o.yesTo });
-  const { ctx, config } = fakeCtx({ arm: fakeArm().api, graph: fakeAzureGraph().api, fabric: fabric.api, powerBi: powerBi.api, ui: ui.ui });
+  const arm = fakeArm();
+  const graph = fakeAzureGraph();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fabric.api, powerBi: powerBi.api, ui: ui.ui });
   Object.assign(config, {
     target: 'azure',
     azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
@@ -466,7 +467,7 @@ async function azureModelChanged(o = {}) {
   config.semanticModel.signature = 'from an older version';
   powerBi.calls.length = 0;
   fabric.calls.length = 0;
-  return { ctx, config, fabric, powerBi, ui, refreshes: () => powerBi.calls.filter((c) => c.startsWith(`refresh ${config.semanticModel.id}`)) };
+  return { ctx, config, fabric, powerBi, arm, graph, ui, refreshes: () => powerBi.calls.filter((c) => c.startsWith(`refresh ${config.semanticModel.id}`)) };
 }
 
 test('Azure repair or update without a load: a replaced model is refreshed, and a failed refresh is not reported as set up', async () => {
@@ -474,7 +475,7 @@ test('Azure repair or update without a load: a replaced model is refreshed, and 
   assert.equal(await installAzure(t.ctx, { wait: true }), true);
   assert.deepEqual(t.fabric.calls.filter((c) => c.startsWith('updateSemanticModel')), ['updateSemanticModel Analytics Hub Model']);
   assert.equal(t.refreshes().length, 1);
-  assert.match(t.ui.text(), /This run replaced Analytics Hub Model, so refreshing it from the Azure SQL database now/);
+  assert.match(t.ui.text(), /Analytics Hub Model may show old data or miss new columns until it reloads after its update, so refreshing it now/);
 
   const failed = await azureModelChanged();
   failed.powerBi.states.push({ status: 'Failed', extendedStatus: 'Failed' });
@@ -492,7 +493,6 @@ test('Azure repair or update without a load: a replaced model is refreshed, and 
   const same = await azureModelChanged();
   same.config.semanticModel.signature = undefined;
   await installAzure(same.ctx, { wait: true });
-  replacedModels(same.ctx).clear();
   same.powerBi.calls.length = 0;
   assert.equal(await installAzure(same.ctx, { wait: true }), true);
   assert.equal(same.refreshes().length, 0);
@@ -511,6 +511,89 @@ test('Azure: a model update Fabric can only make by clearing its data waits for 
   assert.equal(await installAzure(agreed.ctx, { wait: true }), true);
   assert.ok(agreed.fabric.calls.includes('updateSemanticModel Analytics Hub Model allowPurgeData'));
   assert.equal(agreed.refreshes().length, 1);
+});
+
+/** The record as the next run reads it, saved and read back through the installer's own files. */
+function readBack(/** @type {any} */ config) {
+  const dir = mkdtempSync(join(tmpdir(), 'ah-azure-reload-'));
+  try {
+    const file = join(dir, 'valuelens-install.json');
+    saveConfig(file, config);
+    return loadConfig(file).config;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+for (const interruption of ['a failed refresh', 'an error after the model was replaced']) {
+  test(`Azure: after ${interruption}, the next run reloads the model before it says set up`, async () => {
+    const reset = () => new HttpError('Requires options', { status: 400, method: 'POST', url: 'https://x', code: 'RequiredOptionsMissing' });
+    const t = await azureModelChanged({ yesTo: ["Clear Analytics Hub Model's data and reload it now?"] });
+    t.fabric.failures.updateSemanticModel = [reset()];
+    if (interruption === 'a failed refresh') {
+      t.powerBi.states.push({ status: 'Failed', extendedStatus: 'Failed' });
+      assert.equal(await installAzure(t.ctx, { wait: true }), false);
+    } else {
+      const deploy = t.arm.api.deployTemplate;
+      let calls = 0;
+      t.arm.api.deployTemplate = async (/** @type {any[]} */ ...args) => {
+        if (++calls === 2) throw new Error('Injected deployment failure');
+        return /** @type {any} */ (deploy)(...args);
+      };
+      await assert.rejects(installAzure(t.ctx, { wait: true }), /Injected deployment failure/);
+      t.arm.api.deployTemplate = deploy;
+    }
+    const config = readBack(t.config);
+    assert.equal(config.semanticModel.reload?.cleared, true, 'the record says the model is owed a reload');
+
+    const ui = fakeUi();
+    const next = fakeCtx({ config, arm: t.arm.api, graph: t.graph.api, fabric: t.fabric.api, powerBi: t.powerBi.api, ui: ui.ui });
+    next.ctx.runFirstLoad = false;
+    t.powerBi.calls.length = 0;
+    t.fabric.calls.length = 0;
+    assert.equal(await installAzure(next.ctx, { wait: true }), true);
+    assert.deepEqual(t.fabric.calls.filter((c) => c.startsWith('updateSemanticModel')), [], 'the definition is already in place');
+    assert.equal(t.refreshes().length, 1, 'reloaded, not reported as set up with no data');
+    assert.match(ui.text(), /Analytics Hub Model has no data until it reloads after its update, so refreshing it now/);
+    assert.equal(config.semanticModel.reload, undefined);
+
+    // Once reloaded, a further run has nothing owed.
+    t.powerBi.calls.length = 0;
+    assert.equal(await installAzure(next.ctx, { wait: true }), true);
+    assert.equal(t.refreshes().length, 0);
+  });
+}
+
+test('Azure with a first load, waiting: a replaced model is reloaded before the load starts, not assumed reloaded by it', async () => {
+  const t = await azureModelChanged();
+  t.ctx.runFirstLoad = true;
+  const order = /** @type {string[]} */ ([]);
+  const refresh = t.powerBi.api.refresh;
+  t.powerBi.api.refresh = async (/** @type {any[]} */ ...args) => { order.push('refresh'); return /** @type {any} */ (refresh)(...args); };
+  const start = t.arm.api.startContainerAppJob;
+  t.arm.api.startContainerAppJob = async (/** @type {any[]} */ ...args) => { order.push(`start ${args[2]}`); return /** @type {any} */ (start)(...args); };
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  const run = t.config.azure?.outputs?.runJobName;
+  assert.ok(order.indexOf('refresh') >= 0 && order.indexOf('refresh') < order.indexOf(`start ${run}`), order.join(', '));
+  assert.equal(t.config.semanticModel.reload, undefined);
+  assert.match(t.ui.text(), /Analytics Hub is set up/);
+
+  const failed = await azureModelChanged();
+  failed.ctx.runFirstLoad = true;
+  failed.powerBi.states.push({ status: 'Failed', extendedStatus: 'Failed' });
+  assert.equal(await installAzure(failed.ctx, { wait: true }), false);
+  assert.match(failed.ui.text(), /set up, but not finished/);
+  assert.ok(failed.config.semanticModel.reload);
+});
+
+test('Azure: a job run with no execution name is not counted as finished', async () => {
+  const t = await azureModelChanged();
+  t.arm.api.startContainerAppJob = async () => /** @type {any} */ ({});
+  const { startAndWaitJob } = await import('../src/steps/azure/index.js');
+  assert.deepEqual(await startAndWaitJob(t.ctx, 'run', { wait: true, steps: 'access,refresh' }), { ok: false, status: 'Unknown' });
+  assert.match(t.ui.text(), /Azure didn't say which run of the run job \(access,refresh\) this is, so the installer can't follow it to the end/);
+  // Not waiting, it is only started, which is all that is claimed.
+  assert.deepEqual(await startAndWaitJob(t.ctx, 'run', { wait: false }), { ok: true, status: 'Running' });
 });
 
 test('Azure update from the page: a declined reset or a failed reload ends as failed, not done', async () => {

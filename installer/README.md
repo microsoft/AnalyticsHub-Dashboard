@@ -312,9 +312,14 @@ clearing it. Answer no, and the run stops with that model unchanged.
 `--yes` alone never clears a model's data: the run stops instead. For an unattended run that
 may clear it, add `--allow-model-reset`. In the browser setup, the page asks.
 
-After clearing a model, the installer reloads it. If that reload fails or can't run, `update` and
-`install` end as failed and say which models have no data. Run `refresh`, or run the same
-command again.
+After a model's definition changes, the installer reloads it, and only says it's done once a
+refresh that started after the change has finished. Until then the install record notes that the
+model is owed a reload, so if the run stops, fails or can't tell, the next `install`, `update` or
+**Repair or change** reloads it, even with nothing else to change. If that reload fails or can't
+run, `update` and `install` end as failed and say which models have no data. Run `refresh`, or
+run the same command again. Run without waiting, the refresh is only started, so the run says the
+model is still reloading rather than "Up to date". On the Azure target, the model is reloaded
+before any first load or history reload starts, rather than assuming that load reloads it.
 
 ## Power BI reports
 

@@ -177,8 +177,12 @@ Deployment instructions do **not** live here. They live in the READMEs:
   `repair` run again from such a version. The installer still tries to keep the data. When it
   can't, it names the model, warns that reports on it show no data until it's reloaded, and asks
   before clearing it. `--yes` alone stops instead; `--allow-model-reset` is the unattended
-  equivalent. A cleared or replaced model is then reloaded, and `update` and `install` end as
-  failed when that reload fails or can't run, rather than reporting "Up to date".
+  equivalent. A changed model is then reloaded: the install record keeps that it's owed a reload
+  until a refresh that started after the change finishes, so a run that stops or fails part way
+  reloads it next time. `update` and `install` end as failed when that reload fails or can't run,
+  and say "still reloading" rather than "Up to date" when they don't wait for it. On Azure the
+  model is reloaded before the first load starts, and a job run Azure gives no name for is no
+  longer counted as finished.
 - Not changed: the installer never installs anything with winget, so there's no `--scope user`
   fallback to add. Execution policy and Constrained Language Mode were already covered.
 

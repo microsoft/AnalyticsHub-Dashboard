@@ -96,22 +96,34 @@ export function definitionRoles(definition) {
 /** @param {unknown} definition */
 export const definitionHash = (definition) => createHash('sha256').update(JSON.stringify(definition)).digest('hex').slice(0, 16);
 
-/** Models whose definition this run replaced, by ID. */
-const REPLACED = new WeakMap();
-
 /** What the plan says about a model that's already deployed. */
 export const MODEL_UPDATE_NOTE = 'Updated in place if this version changed it, keeping its data. If Fabric can\'t keep the data, you\'re asked before it\'s cleared and reloaded; reports on it show no data until then.';
 
 /**
- * The models whose definition this run replaced, by ID. `cleared`: Fabric was allowed to clear
- * their data, so they show nothing until a refresh reloads it.
- * @param {Ctx} ctx
- * @returns {Map<string, { name: string, cleared: boolean }>}
+ * The installer's models that are owed a reload: their definition was, or may have been, replaced
+ * and no refresh has finished since. Kept in the install record, so a later run still reloads them.
+ * @param {import('../config.js').InstallConfig} config
+ * @returns {import('../config.js').ModelConfig[]}
  */
-export function replacedModels(ctx) {
-  let m = REPLACED.get(ctx);
-  if (!m) REPLACED.set(ctx, (m = new Map()));
-  return m;
+export function pendingReloads(config) {
+  const azure = config.target === 'azure';
+  return [
+    config.semanticModel,
+    (azure || config.modules?.consumption) && config.consumption?.model,
+    !azure && config.modules?.agentEvaluator && config.agentEvaluator?.model,
+  ].filter((m) => !!m && !!m.id && !!m.reload).map((m) => /** @type {import('../config.js').ModelConfig} */ (m));
+}
+
+/**
+ * Records, before a request that can change a model, that it's owed a reload. `cleared` stays
+ * set until the reload finishes.
+ * @param {Ctx} ctx
+ * @param {import('../config.js').ModelConfig} m
+ * @param {boolean} cleared
+ */
+function oweReload(ctx, m, cleared) {
+  m.reload = { since: ctx.now().toISOString(), ...(cleared || m.reload?.cleared ? { cleared: true } : {}) };
+  ctx.save();
 }
 
 /**
@@ -144,28 +156,41 @@ async function allowDataReset(ctx, name) {
 }
 
 /**
- * Replaces a model's definition, keeping its data unless Fabric can't and the user agrees to clear it.
+ * Replaces a model's definition, keeping its data unless Fabric can't and the user agrees to clear
+ * it. The model is recorded as owed a reload before each request that could change it, and stays
+ * so if the outcome is unknown; only a refusal that changed nothing takes that back.
  * @param {Ctx} ctx
  * @param {string} ws
- * @param {string} id
- * @param {string} name
+ * @param {import('../config.js').ModelConfig} m
  * @param {any} definition
  */
-async function replaceDefinition(ctx, ws, id, name, definition) {
-  const { api } = ctx;
+async function replaceDefinition(ctx, ws, m, definition) {
+  const { api, ui } = ctx;
+  const id = /** @type {string} */ (m.id);
+  const name = m.name;
+  const owed = m.reload && { ...m.reload };
+  oweReload(ctx, m, false);
   try {
     await api.fabric.updateSemanticModel(ws, id, definition);
-    replacedModels(ctx).set(id, { name, cleared: false });
     return;
   } catch (err) {
     if (!needsDataReset(err)) throw err;
   }
+  // Fabric turned it down and changed nothing.
+  if (owed) m.reload = owed;
+  else delete m.reload;
+  ctx.save();
   if (!(await allowDataReset(ctx, name))) {
     throw new Error(`${name} wasn't changed, so this run stopped before finishing: its new version needs its data cleared and reloaded. ` +
-      `When reports can show no data while it reloads, run it again and answer yes${ctx.ui.web ? '' : ', or add --allow-model-reset'}.`);
+      `When reports can show no data while it reloads, run it again and answer yes${ui.web ? '' : ', or add --allow-model-reset'}.`);
   }
-  await api.fabric.updateSemanticModel(ws, id, definition, { allowPurgeData: true });
-  replacedModels(ctx).set(id, { name, cleared: true });
+  oweReload(ctx, m, true);
+  try {
+    await api.fabric.updateSemanticModel(ws, id, definition, { allowPurgeData: true });
+  } catch (err) {
+    ui.warn(`${name}'s data may have been cleared. The installer reloads it the next time it runs, or run "${commandLine('refresh')}" once the problem below is fixed.`);
+    throw err;
+  }
 }
 
 /**
@@ -173,7 +198,7 @@ async function replaceDefinition(ctx, ws, id, name, definition) {
  * `force` is set. The definition's hash is part of the signature, so running the installer again
  * from a newer checkout redeploys a model whose template changed. An update clears the model's
  * connection binding and any role members. Fabric keeps its data where it can; when it can't, it
- * clears the data only once the user agrees, and the caller must refresh it (see replacedModels).
+ * clears the data only once the user agrees. Either way the model is owed a reload (see pendingReloads).
  * @param {Ctx} ctx
  * @param {import('../config.js').ModelConfig} m
  * @param {{ signature: string, definition: () => any, force?: boolean }} o
@@ -194,11 +219,11 @@ export async function deployModel(ctx, m, o) {
     const made = await createItem(ctx, `SemanticModel:${modelKey(ctx.config, m)}`, 'SemanticModel', m.name, items, (name, ref) => api.fabric.createSemanticModel(ws, name, definition, ref));
     m.id = made.id;
     m.name = made.name;
-    if (made.resumed) await replaceDefinition(ctx, ws, made.id, made.name, definition);
+    if (made.resumed) await replaceDefinition(ctx, ws, m, definition);
     ui.ok(`${made.resumed ? 'Updated' : 'Created'} semantic model ${made.name}`);
     m.bound = false;
   } else if (o.force || m.signature !== signature) {
-    await replaceDefinition(ctx, ws, m.id, m.name, definition);
+    await replaceDefinition(ctx, ws, m, definition);
     m.bound = false;
     ui.ok(`Updated semantic model ${m.name}`);
   } else {
@@ -424,40 +449,120 @@ export async function bindModel(ctx, m) {
  * Starts a refresh, or follows one that is already running.
  * @param {Ctx} ctx
  * @param {import('../config.js').ModelConfig} m
- * @returns {Promise<string>}
+ * @returns {Promise<{ requestId: string, startedAt?: string }>}  `startedAt`, for one it follows: when that one started.
  */
 async function startRefresh(ctx, m) {
   const { api, config } = ctx;
   const ws = /** @type {string} */ (config.fabric.workspaceId);
   const id = /** @type {string} */ (m.id);
   try {
-    return await api.powerBi.refresh(ws, id, { type: 'full', commitMode: 'transactional', applyRefreshPolicy: true, retryCount: 1 });
+    return { requestId: await api.powerBi.refresh(ws, id, { type: 'full', commitMode: 'transactional', applyRefreshPolicy: true, retryCount: 1 }) };
   } catch (err) {
     const busy = status(err) === 409 || /in progress/i.test(/** @type {Error} */ (err).message);
     if (!busy) throw err;
     const running = (await api.powerBi.refreshes(ws, id, 1))[0];
     if (!running?.requestId) throw err;
     ctx.ui.note('A refresh is already running, so following that one.');
-    return running.requestId;
+    return { requestId: running.requestId, startedAt: running.startTime ?? '' };
   }
 }
 
 /**
- * Refreshes a model, the ValueLens one unless `model` says otherwise.
+ * Takes back a model's reload obligation once a refresh that started after its definition changed has finished.
+ * @param {Ctx} ctx
+ * @param {import('../config.js').ModelConfig} m
+ * @param {string | undefined} startedAt  When the refresh started; undefined for one this run started, which is after.
+ */
+export function reloaded(ctx, m, startedAt) {
+  if (!m.reload) return false;
+  if (startedAt !== undefined && !(Date.parse(startedAt) >= Date.parse(m.reload.since))) return false;
+  delete m.reload;
+  ctx.save();
+  return true;
+}
+
+/**
+ * Whether the model's latest refresh started after its definition changed and finished. That's the
+ * pipeline's, after a run this command waited for.
+ * @param {Ctx} ctx
+ * @param {import('../config.js').ModelConfig} m
+ */
+export async function confirmReloaded(ctx, m) {
+  if (!m.reload || !m.id) return !m.reload;
+  const latest = (await ctx.api.powerBi.refreshes(/** @type {string} */ (ctx.config.fabric.workspaceId), m.id, 1).catch(() => []))[0];
+  if (latest?.status !== 'Completed' || !latest.startTime) return false;
+  return reloaded(ctx, m, latest.startTime);
+}
+
+/**
+ * How far this command got with reloading the models' data: nothing reloads them (`none`); it
+ * refreshed them already (`refreshed`); a load that refreshes them is still going (`running`); or
+ * such a load finished (`done`).
+ * @typedef {'none' | 'refreshed' | 'running' | 'done'} LoadState
+ */
+
+/**
+ * Reloads the models still owed one (see pendingReloads), whichever command replaced them. Only a
+ * finished refresh that started after the change takes an obligation back. Not ok when one can't be
+ * refreshed, its refresh failed, or `wait` is set and it hasn't finished yet; `pending` names the
+ * ones still reloading.
+ * @param {Ctx} ctx
+ * @param {{ wait: boolean, load: LoadState, reachable: (m: import('../config.js').ModelConfig) => boolean }} opts
+ * @returns {Promise<{ ok: boolean, pending: string[] }>}
+ */
+export async function settleReloads(ctx, opts) {
+  const { ui, config } = ctx;
+  const owed = pendingReloads(config);
+  /** @type {string[]} */
+  const pending = [];
+  let ok = true;
+  for (const m of owed) {
+    if (!opts.reachable(m)) {
+      ui.fail(`${m.name} needs reloading after its update, but isn't connected to its data, so it can't be refreshed yet.`);
+      ok = false;
+    } else if (opts.load === 'running') {
+      pending.push(m.name);
+    } else if (await confirmReloaded(ctx, m)) {
+      continue;
+    } else if (opts.load === 'refreshed') {
+      // Its refresh this run failed, or wasn't waited for.
+      if (opts.wait) ok = false;
+      else pending.push(m.name);
+    } else {
+      ui.info(`${m.name} ${m.reload?.cleared ? 'has no data' : 'may show old data or miss new columns'} until it reloads after its update, so refreshing it now.`);
+      const r = await refreshModel(ctx, { model: m, wait: opts.wait });
+      if (!r.ok) ok = false;
+      else if (m.reload) pending.push(m.name);
+    }
+  }
+  if (pending.length && opts.wait) {
+    ui.fail(`${joinList(pending)} ${pending.length === 1 ? 'is' : 'are'} still reloading, so this couldn't confirm ${pending.length === 1 ? 'it' : 'they'} finished.`);
+    ok = false;
+  }
+  return { ok, pending };
+}
+
+/** @param {string[]} names */
+const joinList = (names) => (names.length < 3 ? names.join(' and ') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+
+/**
+ * Refreshes a model, the ValueLens one unless `model` says otherwise. Waiting, a refresh that
+ * finishes cleanly takes back the model's reload obligation; not waiting, it stays.
  * @param {Ctx} ctx
  * @param {{ wait?: boolean, timeoutMs?: number, model?: import('../config.js').ModelConfig }} [opts]
- * @returns {Promise<{ ok: boolean, status?: string }>}
+ * @returns {Promise<{ ok: boolean, status?: string }>}  `status` 'Unknown' when it didn't wait.
  */
 export async function refreshModel(ctx, opts = {}) {
   const { ui, config, api } = ctx;
   const sm = opts.model ?? config.semanticModel;
   const ws = /** @type {string} */ (config.fabric.workspaceId);
   if (!sm.id) throw new Error('There is no semantic model yet. Run the installer first.');
-  if (!sm.bound) {
+  // Azure models read the database through their data source credentials, not a Fabric connection.
+  if (!sm.bound && config.target !== 'azure') {
     ui.warn(`${sm.name} isn't connected to the Lakehouse yet, so it can't refresh. Run the installer again to connect it.`);
     return { ok: false };
   }
-  const requestId = await startRefresh(ctx, sm);
+  const { requestId, startedAt } = await startRefresh(ctx, sm);
   ui.ok(`Started a refresh of ${sm.name}`);
   if (opts.wait === false) return { ok: true, status: 'Unknown' };
 
@@ -483,6 +588,7 @@ export async function refreshModel(ctx, opts = {}) {
   const problems = (r?.messages ?? []).filter((/** @type {any} */ m) => m?.type === 'Warning' || m?.type === 'Error');
   if (state === 'Completed' && !problems.length) {
     ui.ok(`${sm.name} refreshed in ${formatDuration(took)}`);
+    reloaded(ctx, sm, startedAt);
     return { ok: true, status: state };
   }
   if (REFRESH_FINAL.has(state)) {

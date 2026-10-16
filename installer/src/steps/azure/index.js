@@ -11,7 +11,7 @@ import { HttpError } from '../../http.js';
 import { commandLine } from '../../launch.js';
 import { rlsOn, rlsSettings } from '../../transform/access.js';
 import { buildConsumptionModel, buildModel, loadTemplateModel, PBISM } from '../../transform/model.js';
-import { deployModel, MODEL_UPDATE_NOTE, modelSignature, refreshModel, REFRESH_POLL_MS, replacedModels } from '../model.js';
+import { deployModel, MODEL_UPDATE_NOTE, modelSignature, REFRESH_POLL_MS, settleReloads } from '../model.js';
 import { addMonths, OPTIONAL_PERMISSION_EFFECTS, OPTIONAL_PERMISSIONS, SECRET_LIFETIME_MONTHS } from '../identity.js';
 import { addTrackedSecret, promoteSecret, removeRetired } from '../secrets.js';
 import { writeTeamsPackage } from '../../azure/teams.js';
@@ -24,7 +24,7 @@ import { ensureResourceGraphAccess, planResourceGraph, resourceGraphGrants, reso
 import { DATA_SOURCES } from '../../uploads.js';
 import { normaliseResourceGraph } from '../../config.js';
 import { accessReview, accessSummaryLines, ensureViewerGroup, grantModelAccess, planAccess, publicAccess } from '../access.js';
-import { ensureOrgAccess, orgAccessPending, verifyOrgAccess } from '../org-access.js';
+import { ensureOrgAccess, verifyOrgAccess } from '../org-access.js';
 import { askAdvanced, asksAdvanced } from '../advanced.js';
 import { askGrants, askLine, askMode, askParameters, ensureAzureAskAccess, planAzureAsk } from './ask.js';
 import { checkRegions, noRegionMessage, regionNotes, regionProblems, sqlProblem } from './regions.js';
@@ -1040,7 +1040,7 @@ export async function confirmAzurePlan(ctx) {
 
 /**
  * @param {Ctx} ctx @param {{ wait: boolean }} opts
- * @returns {Promise<boolean>} false when a model this run replaced wasn't reloaded, or its reload didn't start.
+ * @returns {Promise<boolean>} false when a model owed a reload couldn't be reloaded, or (waiting) didn't finish.
  */
 export async function installAzure(ctx, opts) {
   const { ui, config, api } = ctx;
@@ -1129,17 +1129,15 @@ export async function installAzure(ctx, opts) {
   }
 
   const loads = !!(ctx.runFirstLoad || ctx.reloadHistoryDays);
-  // The run job refreshes the models as its last step. Without a load, a model this run replaced is refreshed here.
-  let restored = loads;
   if (rlsOn(config)) {
     step('Org-scoped access');
     // A first load refreshes the models itself, after loading the scopes into SQL.
     const refresh = !loads;
-    const refreshes = refresh && orgAccessPending(config);
     const applied = await ensureOrgAccess(ctx, { refresh });
     if (applied && refresh) await verifyOrgAccess(ctx);
-    if (applied && refreshes) restored = true;
   }
+  // A model owed a reload is reloaded from the database now, rather than trusting a load that runs on after setup.
+  const reloads = await restoreAzureModels(ctx, opts);
 
   if (flows) {
     step('Power Automate flow');
@@ -1160,34 +1158,25 @@ export async function installAzure(ctx, opts) {
     } catch (err) {
       ui.fail(`The history reload didn't start: ${/** @type {Error} */ (err).message}`);
       ui.info(`Try again with "${commandLine(`run --backfill-days ${days}`)}".`);
-      restored = false;
     }
   } else if (ctx.runFirstLoad) {
     step('First load');
     await startAndWaitJob(ctx, 'run', { wait: false });
   }
-  const ok = restored || (await restoreAzureModels(ctx, opts));
-  await azureSummary(ctx, { ok });
-  return ok;
+  await azureSummary(ctx, reloads);
+  return reloads.ok;
 }
 
 /**
- * Refreshes the models this run replaced, from Azure SQL. True when there were none, or each
- * refresh finished (or started, when not waiting).
+ * Refreshes the models owed a reload from the Azure SQL database, unless a refresh that started
+ * after their update already finished (the org-scoped access job's, say).
  * @param {Ctx} ctx @param {{ wait: boolean }} opts
+ * @returns {Promise<{ ok: boolean, pending: string[] }>}
  */
 async function restoreAzureModels(ctx, opts) {
-  const { ui, config } = ctx;
-  const replaced = [...replacedModels(ctx)];
-  if (!replaced.length) return true;
-  ui.info(`This run replaced ${replaced.map(([, m]) => m.name).join(' and ')}, so refreshing ${replaced.length === 1 ? 'it' : 'them'} from the Azure SQL database now.`);
-  let ok = true;
-  for (const [id, { name }] of replaced) {
-    const model = [config.semanticModel, config.consumption?.model].find((m) => m?.id === id) ?? { name, id };
-    ok = (await refreshModel(ctx, { model: { ...model, bound: true }, wait: opts.wait })).ok && ok;
-  }
-  if (!ok) ui.fail(`The models weren't reloaded, so reports show no data or the old version until they are. Fix the problem above, then run "${commandLine('refresh')}", or "${commandLine('update')}" again.`);
-  return ok;
+  const result = await settleReloads(ctx, { wait: opts.wait, load: 'none', reachable: (m) => !!m.id });
+  if (!result.ok) ctx.ui.fail(`The models weren't reloaded, so reports show no data or the old version until they are. Fix the problem above, then run "${commandLine('refresh')}", or "${commandLine('update')}" again.`);
+  return result;
 }
 
 /** @param {Ctx} ctx @param {{ pass: 1 | 2 }} o */
@@ -1639,7 +1628,11 @@ export async function startAndWaitJob(ctx, kind, opts) {
   az.status ??= {};
   az.status[key] = { name: executionName, status: 'Running', startedAt: ctx.now().toISOString() };
   ctx.save();
-  if (!opts.wait || !executionName) return { ok: true, status: 'Running' };
+  if (!opts.wait) return { ok: true, status: 'Running' };
+  if (!executionName) {
+    ctx.ui.warn(`Azure didn't say which run of the ${label} this is, so the installer can't follow it to the end. Check it in the portal, or with "${commandLine('status')}".`);
+    return { ok: false, status: 'Unknown' };
+  }
   const progress = ctx.ui.progress(kind === 'run' ? 'Run job' : 'Migrate job');
   const deadline = Date.now() + (opts.timeoutMs ?? 15 * 60_000);
   /** @type {any} */
@@ -1774,11 +1767,15 @@ export async function azureUninstall(ctx) {
   for (const app of [az.webApp, az.sqlReader]) if (app?.created && app.objectId) await api.graph.deleteApplication(app.objectId).catch((err) => ui.warn(`Couldn't delete app registration ${app.clientId}: ${err.message}`));
 }
 
-/** @param {Ctx} ctx @param {{ ok?: boolean }} [opts] */
+/** @param {Ctx} ctx @param {{ ok?: boolean, pending?: string[] }} [opts]  pending: models still reloading after their update. */
 export async function azureSummary(ctx, opts = {}) {
   const { ui, config } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
-  ui.heading(opts.ok === false ? 'Analytics Hub is set up, but not finished' : 'Analytics Hub is set up');
+  const pending = opts.pending ?? [];
+  ui.heading(opts.ok === false ? 'Analytics Hub is set up, but not finished' : pending.length ? 'Analytics Hub is set up, still reloading' : 'Analytics Hub is set up');
+  if (opts.ok !== false && pending.length) {
+    ui.warn(`${pending.join(' and ')} ${pending.length === 1 ? 'is' : 'are'} still reloading: reports on ${pending.length === 1 ? 'it' : 'them'} can show no data or miss new columns until that finishes.`);
+  }
   ui.info(`Azure:      ${az.resourceGroup} in ${az.location}`);
   if (az.outputs?.webUrl) ui.info(`App:        ${az.outputs.webUrl}`);
   if (az.powerBi?.workspaceId) ui.info(`Power BI:   workspace ${az.powerBi.workspaceId}, model ${az.powerBi.datasetId ?? 'not deployed'}`);
