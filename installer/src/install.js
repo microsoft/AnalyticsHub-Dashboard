@@ -38,7 +38,7 @@ import {
   notebookSettings,
   PIPELINE_NAME,
 } from './steps/fabric.js';
-import { ensureModelConnection, ensureSemanticModel, modelUrl, refreshModel, rotateModelSecret, verifyModel } from './steps/model.js';
+import { ensureModelConnection, ensureSemanticModel, modelUrl, pendingReloads, refreshModel, rotateModelSecret, settleReloads, verifyModel } from './steps/model.js';
 import { confirmPlan, plan, preflight } from './steps/plan.js';
 import { checkPrereqs } from './prereqs.js';
 import { ensureReports, reportsOn, reportsSummary } from './steps/report.js';
@@ -47,7 +47,7 @@ import { dataSourcesSummary, ensureUploads, uploadCommand } from './steps/data-s
 import { ensureFlows, FLOW_FILES, flowDefinitions, flowsSummary, flowsWanted, offerStudioRun } from './steps/flows.js';
 import { ensureAppResourceGraphAccess, resourceGraphOn } from './steps/resource-graph.js';
 import { routerWanted } from './uploads.js';
-import { checkData, chooseLoad, coworkSkipForFirstLoad, runDataCheck, runPipeline, status } from './steps/run.js';
+import { checkData, chooseLoad, coworkSkipForFirstLoad, runDataCheck, runPipeline, status, TERMINAL } from './steps/run.js';
 import { loadCoworkNow, rerunFailed } from './steps/rerun.js';
 import { prepareNotebook, serialiseNotebook } from './transform/notebook.js';
 import { rlsOn, rlsSettings } from './transform/access.js';
@@ -92,6 +92,7 @@ import { reviewSetup } from './setup.js';
  * @property {string} [pendingSecret]  A secret the user pasted, held in memory until it is in Key Vault or the notebooks.
  * @property {boolean} [secretInNotebook]  --no-key-vault (or --secret-in-notebook): keep the secret in the notebooks instead of Key Vault.
  * @property {boolean} [useKeyVault]  --key-vault: keep the secret in Key Vault, not the notebooks (the default for a new Fabric install).
+ * @property {boolean} [allowModelReset]  --allow-model-reset: when Fabric can't update a model and keep its data, clear it and reload it without asking. --yes alone never does.
  * @property {Apis} [liveApi]  While the plan's answers can be rewound, the clients without the cache, for checks the user repeats.
  * @property {boolean} [runFirstLoad]
  * @property {boolean} [advanced]  The plan's "Change the advanced settings?" answer. With false, those settings keep their saved value or default.
@@ -300,10 +301,7 @@ export async function install(ctx, opts) {
     return true;
   }
 
-  if (config.target === 'azure') {
-    await installAzure(ctx, opts);
-    return true;
-  }
+  if (config.target === 'azure') return installAzure(ctx, opts);
 
   const sm = config.semanticModel;
   const withModel = !!sm.enabled;
@@ -404,6 +402,9 @@ export async function install(ctx, opts) {
   if (withUploads) await offerStudioRun(ctx, { pipelineNext: !!(ctx.runFirstLoad || ctx.reloadHistoryDays) && consented && vaultReachable, quietWhenOff: true });
 
   let ok = true;
+  // The pipeline refreshes the models as its last step. When it can't, a model owed a reload is refreshed on its own.
+  /** @type {import('./steps/model.js').LoadState} */
+  let load = 'none';
   if (ctx.runFirstLoad) {
     step('First load');
     if (!consented) {
@@ -414,6 +415,7 @@ export async function install(ctx, opts) {
       if (modelDeployed(config)) ui.note(`The pipeline refreshes ${joinNames(deployedModels(config).map((m) => m.name))} as its last step.`);
       const skipCowork = await coworkSkipForFirstLoad(ctx);
       const result = await runPipeline(ctx, { backfillDays: config.history.days, wait: opts.wait, first: true, skipCowork });
+      load = loadState(result);
       if (result.status === 'Completed') {
         await runDataCheck(ctx);
         if (modelDeployed(config)) ok = (await verifyModel(ctx)).ok;
@@ -431,6 +433,7 @@ export async function install(ctx, opts) {
     } else {
       if (modelDeployed(config)) ui.note(`The pipeline refreshes ${joinNames(deployedModels(config).map((m) => m.name))} as its last step.`);
       const result = await runPipeline(ctx, { backfillDays: days, wait: opts.wait });
+      load = loadState(result);
       if (result.started) {
         config.history.days = days;
         ctx.save();
@@ -442,13 +445,27 @@ export async function install(ctx, opts) {
     }
   } else if (withModel) {
     step('Model refresh');
-    const refreshed = await refreshModels(ctx, { wait: opts.wait });
-    if (refreshed.ok && opts.wait) ok = (await verifyModel(ctx)).ok;
-    else if (opts.wait) ok = false;
+    ok = await restoreModels(ctx, { wait: opts.wait });
+    load = 'refreshed';
   }
-  ok = ok && appDeployed;
-  await summary(ctx, { ok });
+  const reloads = await settleReloads(ctx, { wait: opts.wait, load, reachable: fabricReachable(config) });
+  if (!reloads.ok) notFinished(ctx, 'install');
+  ok = reloads.ok && ok && appDeployed;
+  await summary(ctx, { ok, pending: reloads.pending });
   return ok;
+}
+
+/**
+ * How far a pipeline run got with reloading the models it refreshes as its last step.
+ * @param {import('./steps/run.js').RunResult} result
+ * @returns {import('./steps/model.js').LoadState}
+ */
+export function loadState(result) {
+  if (result.status === 'Completed') return 'done';
+  // Failed, cancelled and the like: it won't refresh them.
+  if (TERMINAL.has(/** @type {string} */ (result.status))) return 'none';
+  // Started and not waited for, or another run is going: either refreshes them when it finishes.
+  return 'running';
 }
 
 /**
@@ -522,6 +539,28 @@ async function refreshModels(ctx, opts) {
 }
 
 /**
+ * Refreshes the models and, when it waits, checks ValueLens answers queries. Not waiting, it's
+ * enough that the refreshes started; a model owed a reload is settled after (see settleReloads).
+ * @param {Ctx} ctx
+ * @param {{ wait: boolean }} opts
+ * @returns {Promise<boolean>}
+ */
+async function restoreModels(ctx, opts) {
+  const refreshed = await refreshModels(ctx, { wait: opts.wait });
+  if (!refreshed.ok) return !opts.wait;
+  return opts.wait ? (await verifyModel(ctx)).ok : true;
+}
+
+/**
+ * Whether a refresh can reach a Fabric model: deployed and reading the Lakehouse.
+ * @param {import('./config.js').InstallConfig} config
+ */
+function fabricReachable(config) {
+  const ids = new Set(deployedModels(config).map((m) => m.id));
+  return (/** @type {import('./config.js').ModelConfig} */ m) => ids.has(m.id);
+}
+
+/**
  * The app is the last thing before the data load, so a failure here shouldn't stop that.
  * @param {Ctx} ctx
  * @param {{ force?: boolean }} [opts]
@@ -545,10 +584,7 @@ async function tryDeployApp(ctx, opts = {}) {
  */
 export async function update(ctx, opts = {}) {
   const { ui, config } = ctx;
-  if (config.target === 'azure') {
-    await azureUpdate(ctx);
-    return;
-  }
+  if (config.target === 'azure') return azureUpdate(ctx);
   if (!config.fabric.workspaceId || !config.fabric.lakehouseId) throw new Error('Nothing is installed yet. Run the installer first.');
   const sm = config.semanticModel;
   ui.heading('Updating Analytics Hub');
@@ -579,14 +615,51 @@ export async function update(ctx, opts = {}) {
     if (await ui.confirm('Rebuild and redeploy the Analytics Hub app too?', true)) await tryDeployApp(ctx, { force: true });
     else await ensureAppName(ctx);
   }
+  return finishUpdate(ctx, opts);
+}
+
+/**
+ * The end of a Fabric update: refreshes the models so they load their data with the new
+ * definitions. "Up to date" only once every model owed a reload has finished reloading; not
+ * waiting, the refreshes started is success, but said as such.
+ * @param {Ctx} ctx
+ * @param {{ wait?: boolean }} [opts]
+ * @returns {Promise<boolean>}
+ */
+export async function finishUpdate(ctx, opts = {}) {
+  const { ui, config } = ctx;
+  const wait = opts.wait ?? true;
+  let ok = true;
   if (modelDeployed(config)) {
-    ui.note('Updating a model clears its data, so it refreshes now.');
-    const refreshed = await refreshModels(ctx, { wait: opts.wait ?? true });
-    if (refreshed.ok && (opts.wait ?? true) && !(await verifyModel(ctx)).ok) return false;
-    if (refreshed.ok && (opts.wait ?? true)) await verifyOrgAccess(ctx);
+    ui.note('The models refresh now, to load their data with the new definitions.');
+    const refreshed = await refreshModels(ctx, { wait });
+    if (!refreshed.ok) ok = false;
+    else if (wait && !(await verifyModel(ctx)).ok) return false;
+    else if (wait) await verifyOrgAccess(ctx);
+  }
+  const reloads = await settleReloads(ctx, { wait, load: modelDeployed(config) ? 'refreshed' : 'none', reachable: fabricReachable(config) });
+  if (!ok || !reloads.ok) {
+    notFinished(ctx, 'update');
+    return false;
+  }
+  if (reloads.pending.length) {
+    ui.ok(`Updated. ${reloadingNote(reloads.pending)}`);
+    return true;
   }
   ui.ok('Up to date. The next scheduled run uses the new versions.');
   return true;
+}
+
+/** @param {string[]} names */
+function reloadingNote(names) {
+  return `${joinNames(names)} ${names.length === 1 ? 'is' : 'are'} still reloading: reports on ${names.length === 1 ? 'it' : 'them'} can show no data or miss new columns until that finishes. Check with "${commandLine('status')}".`;
+}
+
+/** @param {Ctx} ctx @param {'install' | 'update'} what */
+function notFinished(ctx, what) {
+  const cleared = pendingReloads(ctx.config).filter((m) => m.reload?.cleared).map((m) => m.name);
+  if (cleared.length) ctx.ui.warn(`${joinNames(cleared)} ${cleared.length === 1 ? 'has' : 'have'} no data until a refresh finishes.`);
+  ctx.ui.fail(`The ${what} isn't finished: the models weren't reloaded. Fix the problem above, then run "${commandLine('refresh')}", or "${commandLine(what)}" again.`);
 }
 
 /**
@@ -687,14 +760,20 @@ export async function runCommand(ctx, command, opts) {
     case 'access': {
       const azure = ctx.config.target === 'azure';
       const before = ctx.config.access?.groupId;
-      await accessCommand(ctx, azure ? azureViewerModels(ctx.config) : fabricViewerModels(ctx.config), (c2) => update(c2));
+      // Turning org-scoped access on or off runs an update; one that didn't finish fails the command.
+      let finished = true;
+      await accessCommand(ctx, azure ? azureViewerModels(ctx.config) : fabricViewerModels(ctx.config), async (c2) => {
+        const ok = await update(c2);
+        if (ok === false) finished = false;
+        return ok;
+      });
       const after = ctx.config.access?.groupId;
       if (after && after !== before) {
         ctx.ui.note(azure
           ? `Run "${commandLine('install')}" so the web app lets the group in and shows who to ask for access.`
           : `Run "${commandLine('deploy-app')}" so the app shows who to ask for access and links to the group.`);
       }
-      return true;
+      return finished;
     }
     default:
       throw new Error(`Unknown command "${command}".`);
@@ -749,7 +828,8 @@ export async function rotateSecret(ctx) {
 /**
  * Prints where everything is and what to do next.
  * @param {Ctx} ctx
- * @param {{ ok?: boolean }} [opts]  ok false when a step above failed, so the heading doesn't say it is all set up.
+ * @param {{ ok?: boolean, pending?: string[] }} [opts]  ok false when a step above failed, so the heading doesn't say it is all set up;
+ *   pending: models still reloading after their update.
  */
 export async function summary(ctx, opts = {}) {
   const { ui, config, api } = ctx;
@@ -762,6 +842,9 @@ export async function summary(ctx, opts = {}) {
   if (opts.ok === false) {
     ui.heading('Analytics Hub is partly set up');
     ui.warn('A step above didn\'t finish. Fix what it says, then run the installer again: it picks up where it stopped.');
+  } else if (opts.pending?.length) {
+    ui.heading('Analytics Hub is set up, still reloading');
+    ui.warn(reloadingNote(opts.pending));
   } else {
     ui.heading('Analytics Hub is set up');
   }

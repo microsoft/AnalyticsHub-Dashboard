@@ -135,7 +135,18 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {string} name
  * @property {string} [signature]  What the deployed definition was built from.
  * @property {boolean} [bound]  Reads the Lakehouse through the installer's connection.
+ * @property {ModelReload} [reload]  Owed a reload: its definition was, or may have been, replaced and no refresh has finished since.
  * @property {ReportConfig} [report]  The report published on the model.
+ */
+
+/**
+ * Recorded before a request that can change a model's definition; taken back only once the
+ * installer's own whole-model refresh, requested after the change settled, finishes cleanly.
+ * @typedef {object} ModelReload
+ * @property {string} since  When the change last settled, or, while `unsettled`, when the request was made.
+ * @property {boolean} [cleared]  Fabric was allowed to clear its data, so it shows nothing until then.
+ * @property {boolean} [unsettled]  The request may or may not have changed the model; the next run applies it again before reloading.
+ * @property {string} [ours]  The whole-model refresh the installer requested after the change settled, which can be its reload. Cleared when it ends badly.
  */
 
 /**
@@ -207,6 +218,7 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {string[]} [pendingSecretKeyIds]  Connection secrets made but not yet confirmed in use.
  * @property {string[]} [retiredSecretKeyIds]  Replaced connection secrets still to remove from the app.
  * @property {boolean} [bound]
+ * @property {ModelReload} [reload]  Owed a reload: its definition was, or may have been, replaced and no refresh has finished since.
  * @property {boolean} [reports]  Publish the Power BI reports on the models. Records from before the choice was offered leave it unset, meaning no.
  * @property {ReportConfig} [report]  The ValueLens report.
  */

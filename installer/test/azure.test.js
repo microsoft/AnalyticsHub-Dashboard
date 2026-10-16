@@ -2,7 +2,9 @@ import { fabricApi } from '../src/clients/fabric.js';
 import { graphApi } from '../src/clients/graph.js';
 // @ts-check
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { MODULES, azureGraphRolesFor } from '../src/catalog.js';
 import { HttpError } from '../src/http.js';
@@ -16,6 +18,9 @@ import { ROLES } from '../src/clients/azure.js';
 import { buildModel, mParameter } from '../src/transform/model.js';
 import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi } from './fakes.js';
 import { readScopes } from '../src/steps/org-access.js';
+import { loadConfig, saveConfig } from '../src/config.js';
+import { createWebUi } from '../src/web-ui.js';
+import { createSession } from '../src/web-session.js';
 
 test('Azure target gates modules and mirrors Graph roles', () => {
   const choices = azureModuleChoices({ orgData: true, m365Activity: true, agent365: true, productFeedback: true, consumption: true, agentEvaluator: true });
@@ -444,6 +449,210 @@ test('Azure apply is idempotent enough against fakes and records key outputs', a
   assert.equal(config.azure?.webApp?.servicePrincipalId, webSp);
 });
 
+/** An Azure install with no first load, whose model the next run has to replace. @param {{ yesTo?: string[] }} [o] */
+async function azureModelChanged(o = {}) {
+  const fabric = fakeFabric();
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds', connectionDetails: { server: 'vlens-sql.database.windows.net', database: 'valuelens' } }]);
+  const ui = fakeUi({ yesTo: o.yesTo });
+  const arm = fakeArm();
+  const graph = fakeAzureGraph();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fabric.api, powerBi: powerBi.api, ui: ui.ui });
+  Object.assign(config, {
+    target: 'azure',
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+  });
+  ctx.runFirstLoad = false;
+  assert.equal(await installAzure(ctx, { wait: true }), true);
+  config.semanticModel.signature = 'from an older version';
+  powerBi.calls.length = 0;
+  fabric.calls.length = 0;
+  return { ctx, config, fabric, powerBi, arm, graph, ui, refreshes: () => powerBi.calls.filter((c) => c.startsWith(`refresh ${config.semanticModel.id}`)) };
+}
+
+test('Azure repair or update without a load: a replaced model is refreshed, and a failed refresh is not reported as set up', async () => {
+  const t = await azureModelChanged();
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.deepEqual(t.fabric.calls.filter((c) => c.startsWith('updateSemanticModel')), ['updateSemanticModel Analytics Hub Model']);
+  assert.equal(t.refreshes().length, 1);
+  assert.match(t.ui.text(), /Analytics Hub Model may show old data or miss new columns until it reloads after its update, so refreshing it now/);
+
+  const failed = await azureModelChanged();
+  failed.powerBi.states.push({ status: 'Failed', extendedStatus: 'Failed' });
+  assert.equal(await installAzure(failed.ctx, { wait: true }), false);
+  assert.match(failed.ui.text(), /The models weren't reloaded/);
+  assert.match(failed.ui.text(), /set up, but not finished/);
+
+  // The update command passes that on, so the CLI exits non-zero and the page shows it failed.
+  const viaUpdate = await azureModelChanged({ yesTo: ['Go ahead?'] });
+  viaUpdate.powerBi.states.push({ status: 'Failed', extendedStatus: 'Failed' });
+  assert.equal(await runCommand(viaUpdate.ctx, 'update', { wait: true }), false);
+  assert.equal(viaUpdate.refreshes().length, 1);
+
+  // Nothing replaced, in the next run: no extra refresh.
+  const same = await azureModelChanged();
+  same.config.semanticModel.signature = undefined;
+  await installAzure(same.ctx, { wait: true });
+  same.powerBi.calls.length = 0;
+  assert.equal(await installAzure(same.ctx, { wait: true }), true);
+  assert.equal(same.refreshes().length, 0);
+});
+
+test('Azure: a model update Fabric can only make by clearing its data waits for a yes', async () => {
+  const reset = () => new HttpError('Requires options', { status: 400, method: 'POST', url: 'https://x', code: 'RequiredOptionsMissing' });
+  const declined = await azureModelChanged();
+  declined.fabric.failures.updateSemanticModel = [reset()];
+  await assert.rejects(installAzure(declined.ctx, { wait: true }), /Analytics Hub Model wasn't changed/);
+  assert.equal(declined.fabric.calls.filter((c) => c.includes('allowPurgeData')).length, 0);
+  assert.match(declined.ui.text(), /reloads it from the Azure SQL database, which isn't changed/);
+
+  const agreed = await azureModelChanged({ yesTo: ["Clear Analytics Hub Model's data and reload it now?"] });
+  agreed.fabric.failures.updateSemanticModel = [reset()];
+  assert.equal(await installAzure(agreed.ctx, { wait: true }), true);
+  assert.ok(agreed.fabric.calls.includes('updateSemanticModel Analytics Hub Model allowPurgeData'));
+  assert.equal(agreed.refreshes().length, 1);
+});
+
+/** The record as the next run reads it, saved and read back through the installer's own files. */
+function readBack(/** @type {any} */ config) {
+  const dir = mkdtempSync(join(tmpdir(), 'ah-azure-reload-'));
+  try {
+    const file = join(dir, 'valuelens-install.json');
+    saveConfig(file, config);
+    return loadConfig(file).config;
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+for (const interruption of ['a failed refresh', 'a refresh Completed with warnings', 'an error after the model was replaced']) {
+  test(`Azure: after ${interruption}, the next run reloads the model before it says set up`, async () => {
+    const reset = () => new HttpError('Requires options', { status: 400, method: 'POST', url: 'https://x', code: 'RequiredOptionsMissing' });
+    const t = await azureModelChanged({ yesTo: ["Clear Analytics Hub Model's data and reload it now?"] });
+    t.fabric.failures.updateSemanticModel = [reset()];
+    // The history shows each refresh only as Completed; its details say whether it was clean.
+    const refresh = t.powerBi.api.refresh;
+    t.powerBi.api.refresh = async (/** @type {any[]} */ ...args) => {
+      const id = await /** @type {any} */ (refresh)(...args);
+      t.powerBi.history.unshift({ requestId: id, status: 'Completed', startTime: '2026-06-01T12:00:01Z' });
+      return id;
+    };
+    const warned = { status: 'Completed', extendedStatus: 'Completed', messages: [{ type: 'Warning', message: 'A calculated table could not be calculated.' }] };
+    if (interruption === 'a failed refresh') {
+      t.powerBi.states.push({ status: 'Failed', extendedStatus: 'Failed' });
+      assert.equal(await installAzure(t.ctx, { wait: true }), false);
+    } else if (interruption === 'a refresh Completed with warnings') {
+      t.powerBi.states.push(warned);
+      assert.equal(await installAzure(t.ctx, { wait: true }), false);
+      assert.match(t.ui.text(), /The models weren't reloaded/);
+    } else {
+      const deploy = t.arm.api.deployTemplate;
+      let calls = 0;
+      t.arm.api.deployTemplate = async (/** @type {any[]} */ ...args) => {
+        if (++calls === 2) throw new Error('Injected deployment failure');
+        return /** @type {any} */ (deploy)(...args);
+      };
+      await assert.rejects(installAzure(t.ctx, { wait: true }), /Injected deployment failure/);
+      t.arm.api.deployTemplate = deploy;
+    }
+    const config = readBack(t.config);
+    assert.equal(config.semanticModel.reload?.cleared, true, 'the record says the model is owed a reload');
+
+    const ui = fakeUi();
+    const next = fakeCtx({ config, arm: t.arm.api, graph: t.graph.api, fabric: t.fabric.api, powerBi: t.powerBi.api, ui: ui.ui });
+    next.ctx.runFirstLoad = false;
+    t.powerBi.calls.length = 0;
+    t.fabric.calls.length = 0;
+    if (interruption === 'a refresh Completed with warnings') {
+      // Warned again: still not set up, still owed, however the history reads.
+      t.powerBi.states.push(warned);
+      assert.equal(await installAzure(next.ctx, { wait: true }), false);
+      assert.equal(t.refreshes().length, 1);
+      assert.equal(readBack(config).semanticModel.reload?.cleared, true);
+      t.powerBi.calls.length = 0;
+    }
+    assert.equal(await installAzure(next.ctx, { wait: true }), true);
+    assert.deepEqual(t.fabric.calls.filter((c) => c.startsWith('updateSemanticModel')), [], 'the definition is already in place');
+    assert.equal(t.refreshes().length, 1, 'reloaded, not reported as set up with no data');
+    assert.match(ui.text(), /Analytics Hub Model has no data until it reloads after its update, so refreshing it now/);
+    assert.equal(config.semanticModel.reload, undefined);
+
+    // Once reloaded, a further run has nothing owed.
+    t.powerBi.calls.length = 0;
+    assert.equal(await installAzure(next.ctx, { wait: true }), true);
+    assert.equal(t.refreshes().length, 0);
+  });
+}
+
+test('Azure with a first load, waiting: a replaced model is reloaded before the load starts, not assumed reloaded by it', async () => {
+  const t = await azureModelChanged();
+  t.ctx.runFirstLoad = true;
+  const order = /** @type {string[]} */ ([]);
+  const refresh = t.powerBi.api.refresh;
+  t.powerBi.api.refresh = async (/** @type {any[]} */ ...args) => { order.push('refresh'); return /** @type {any} */ (refresh)(...args); };
+  const start = t.arm.api.startContainerAppJob;
+  t.arm.api.startContainerAppJob = async (/** @type {any[]} */ ...args) => { order.push(`start ${args[2]}`); return /** @type {any} */ (start)(...args); };
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  const run = t.config.azure?.outputs?.runJobName;
+  assert.ok(order.indexOf('refresh') >= 0 && order.indexOf('refresh') < order.indexOf(`start ${run}`), order.join(', '));
+  assert.equal(t.config.semanticModel.reload, undefined);
+  assert.match(t.ui.text(), /Analytics Hub is set up/);
+
+  const failed = await azureModelChanged();
+  failed.ctx.runFirstLoad = true;
+  failed.powerBi.states.push({ status: 'Failed', extendedStatus: 'Failed' });
+  assert.equal(await installAzure(failed.ctx, { wait: true }), false);
+  assert.match(failed.ui.text(), /set up, but not finished/);
+  assert.ok(failed.config.semanticModel.reload);
+});
+
+test('Azure: a job run with no execution name is not counted as finished', async () => {
+  const t = await azureModelChanged();
+  t.arm.api.startContainerAppJob = async () => /** @type {any} */ ({});
+  const { startAndWaitJob } = await import('../src/steps/azure/index.js');
+  assert.deepEqual(await startAndWaitJob(t.ctx, 'run', { wait: true, steps: 'access,refresh' }), { ok: false, status: 'Unknown' });
+  assert.match(t.ui.text(), /Azure didn't say which run of the run job \(access,refresh\) this is, so the installer can't follow it to the end/);
+  // Not waiting, it is only started, which is all that is claimed.
+  assert.deepEqual(await startAndWaitJob(t.ctx, 'run', { wait: false }), { ok: true, status: 'Running' });
+});
+
+test('Azure update from the page: a declined reset or a failed reload ends as failed, not done', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'ah-reset-'));
+  try {
+    for (const scenario of ['declined', 'refresh failed']) {
+      const t = await azureModelChanged();
+      if (scenario === 'declined') t.fabric.failures.updateSemanticModel = [new HttpError('Requires options', { status: 400, method: 'POST', url: 'https://x', code: 'RequiredOptionsMissing' })];
+      else t.powerBi.states.push({ status: 'Failed', extendedStatus: 'Failed' });
+      const configFile = join(dir, `${scenario.replace(' ', '-')}.json`);
+      saveConfig(configFile, t.config);
+      const ui = createWebUi({ now: () => 1000 });
+      /** @type {string[]} */
+      const asked = [];
+      ui.subscribe((/** @type {any} */ e) => {
+        if (e.type !== 'prompt') return;
+        asked.push(e.message);
+        setImmediate(() => ui.answer(e.id, e.kind === 'confirm' ? e.message === 'Go ahead?' : e.default));
+      });
+      const connect = async () => ({ api: t.ctx.api, user: t.ctx.user });
+      const s = createSession({ ui, configFile, version: '0.0.0', connect: /** @type {any} */ (connect) });
+      s.start({ command: 'update' });
+      await s.settled();
+      const ended = ui.history().filter((/** @type {any} */ e) => e.type === 'command' && e.state !== 'running');
+      assert.deepEqual(ended.map((/** @type {any} */ e) => e.state), ['failed'], scenario);
+      if (scenario === 'declined') {
+        assert.ok(asked.includes("Clear Analytics Hub Model's data and reload it now?"));
+        assert.match(String(ended[0].error), /Analytics Hub Model wasn't changed/);
+        assert.doesNotMatch(String(ended[0].error), /--allow-model-reset/, 'the page asks instead');
+        assert.equal(t.fabric.calls.filter((c) => c.includes('allowPurgeData')).length, 0);
+      } else {
+        assert.equal(t.refreshes().length, 1);
+      }
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('SQL reader secret: kept tracked while Power BI may hold it, found by its ref after a stop, and removed only once a newer one is in use', async () => {
   const arm = fakeArm();
   const graph = fakeAzureGraph();
@@ -638,6 +847,21 @@ test('workspace capacity assignment polls the workspace instead of a missing ope
   }));
   await f.assignToCapacity('ws', 'cap-f');
   assert.equal(gets, 2);
+});
+
+test('semantic model updates keep data unless the caller allows Fabric to purge it', async () => {
+  /** @type {any[]} */ const sent = [];
+  const f = fabricApi(/** @type {any} */ ({ requestLro: async (/** @type {string} */ m, /** @type {string} */ p, /** @type {any} */ o) => (sent.push({ m, p, body: o.body }), null) }));
+  const definition = { parts: [{ path: 'model.bim', payload: 'e30=', payloadType: 'InlineBase64' }] };
+  await f.updateSemanticModel('ws', 'sm', definition);
+  await f.updateSemanticModel('ws', 'sm', definition, { allowPurgeData: false });
+  await f.updateSemanticModel('ws', 'sm', definition, { allowPurgeData: true });
+  const p = '/workspaces/ws/semanticModels/sm/updateDefinition';
+  assert.deepEqual(sent, [
+    { m: 'POST', p, body: { definition } },
+    { m: 'POST', p, body: { definition } },
+    { m: 'POST', p, body: { definition, options: { allowPurgeData: true } } },
+  ]);
 });
 
 test('Power BI connection calls retry while serverless Azure SQL resumes from auto-pause', async () => {

@@ -210,9 +210,17 @@ export function fabricApi(http) {
         onAccepted: accepted(ref), once: true,
         lroResult: true,
       }),
-    /** @param {string} workspaceId @param {string} id @param {any} definition */
-    updateSemanticModel: (workspaceId, id, definition) =>
-      http.requestLro('POST', `/workspaces/${workspaceId}/semanticModels/${id}/updateDefinition`, { body: { definition } }),
+    /**
+     * Replaces the model's definition. By default Fabric keeps the model's data, and turns down
+     * (RequiredOptionsMissing) a change it can't make without clearing some. `allowPurgeData` lets
+     * it clear that data; only pass it once the user has agreed (see steps/model.js).
+     * @param {string} workspaceId @param {string} id @param {any} definition
+     * @param {{ allowPurgeData?: boolean }} [opts]
+     */
+    updateSemanticModel: (workspaceId, id, definition, opts = {}) =>
+      http.requestLro('POST', `/workspaces/${workspaceId}/semanticModels/${id}/updateDefinition`, {
+        body: opts.allowPurgeData ? { definition, options: { allowPurgeData: true } } : { definition },
+      }),
     /** @param {string} workspaceId @param {string} displayName @param {any} definition @param {ItemRef} [ref] */
     createReport: (workspaceId, displayName, definition, ref) =>
       http.requestLro('POST', `/workspaces/${workspaceId}/reports`, {

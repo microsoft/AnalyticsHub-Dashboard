@@ -538,6 +538,18 @@ export async function applyOrgAccess(ctx, opts = {}) {
 }
 
 /**
+ * Whether org-scoped access is on and a deployed model still needs its role members applied, so
+ * ensureOrgAccess applies them (and refreshes, when asked).
+ * @param {import('../config.js').InstallConfig} config
+ */
+export function orgAccessPending(config) {
+  if (!rlsOn(config)) return false;
+  const applied = new Set(config.access?.rls?.applied ?? []);
+  const models = rlsModels(config);
+  return !(models.length && models.every((m) => applied.has(m.datasetId)));
+}
+
+/**
  * After a deploy: applies role members to any model that was redeployed since they were last
  * applied. Nothing to do when org-scoped access is off.
  * @param {Ctx} ctx
@@ -546,9 +558,7 @@ export async function applyOrgAccess(ctx, opts = {}) {
 export async function ensureOrgAccess(ctx, opts = {}) {
   const { ui, config } = ctx;
   if (!rlsOn(config)) return true;
-  const applied = new Set(config.access?.rls?.applied ?? []);
-  const models = rlsModels(config);
-  if (models.length && models.every((m) => applied.has(m.datasetId))) {
+  if (!orgAccessPending(config)) {
     ui.ok('Org-scoped access is in place');
     return true;
   }

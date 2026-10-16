@@ -171,6 +171,23 @@ Deployment instructions do **not** live here. They live in the READMEs:
   Installs interrupted by an earlier version aren't tidied up automatically: look for an item
   beside a `_2` copy, and for an installer-named secret on the app registration that isn't the one
   in the install record.
+- **Model updates that change the schema can go ahead, once you agree.** Fabric now turns down a
+  semantic model update that has to clear data, with `RequiredOptionsMissing`, and changes
+  nothing. `update` failed that way after a new version added model columns, as did `install` or
+  `repair` run again from such a version. The installer still tries to keep the data. When it
+  can't, it names the model, warns that reports on it show no data until it's reloaded, and asks
+  before clearing it. `--yes` alone stops instead; `--allow-model-reset` is the unattended
+  equivalent. A changed model is then reloaded: the install record keeps that it's owed a reload
+  until a whole-model refresh the installer requested after the change was applied finishes
+  cleanly by its own details, so a run that stops or fails part way reloads it next time.
+  Refreshes it didn't request, such as the pipeline's, which may cover only some tables, and ones
+  that reported problems never count. If the installer can't tell whether a change was applied, the next run applies it again
+  before reloading. `update` and `install` end as failed when that reload fails or can't run,
+  and say "still reloading" rather than "Up to date" when they don't wait for it. A waited
+  `refresh` that other refreshes keep from starting its own reload fails rather than reporting
+  success. On Azure the
+  model is reloaded before the first load starts, and a job run Azure gives no name for is no
+  longer counted as finished.
 - Not changed: the installer never installs anything with winget, so there's no `--scope user`
   fallback to add. Execution policy and Constrained Language Mode were already covered.
 

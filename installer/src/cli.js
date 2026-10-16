@@ -98,7 +98,11 @@ Options:
   --secret-days <n>    With install or rotate-secret, and no Key Vault: how many days the secret in
                        the notebooks lasts, 1 to ${MAX_SECRET_DAYS} (default ${NOTEBOOK_SECRET_DAYS}). Each install, repair or update
                        replaces it.
-  --yes                Take saved answers and defaults without asking
+  --yes                Take saved answers and defaults without asking. It never lets Fabric clear a
+                       model's data: add --allow-model-reset for that
+  --allow-model-reset  With install, update or access: when Fabric can't update a model and keep its
+                       data, clear the data and reload it without asking. Reports on that model show
+                       no data until the reload finishes
   --no-wait            Don't wait for the first load or a refresh to finish
   --verbose            Print each API call
   -h, --help           Show this help
@@ -146,6 +150,7 @@ export function parseCli(argv, env = process.env) {
       'no-key-vault': { type: 'boolean' },
       'key-vault': { type: 'boolean' },
       'secret-days': { type: 'string' },
+      'allow-model-reset': { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' },
     },
@@ -211,6 +216,8 @@ export function parseCli(argv, env = process.env) {
   if (values.ui && values.yes) throw new Error('Choose one of --ui and --yes.');
   if (values.ui && (values.currency !== undefined || values['exchange-rate'] !== undefined)) throw new Error('With --ui, choose the currency under Advanced settings.');
   if (values.ui && (values.data?.length || values.csv?.length || installOnly.length)) throw new Error('With --ui, choose data sources and exports on the Data sources page.');
+  if (values['allow-model-reset'] && !['install', 'update', 'access'].includes(command)) throw new Error('--allow-model-reset goes with install, update or access.');
+  if (values.ui && values['allow-model-reset']) throw new Error('With --ui, the page asks before a model\'s data is cleared. Leave out --allow-model-reset.');
   /** @type {number | undefined} */
   let backfillDays;
   if (values['backfill-days'] !== undefined) {
@@ -251,6 +258,7 @@ export function parseCli(argv, env = process.env) {
     secretInNotebook: !!noVaultFlag,
     useKeyVault: !!values['key-vault'],
     secretDays,
+    allowModelReset: !!values['allow-model-reset'],
     help: !!values.help,
     version: !!values.version,
   };
@@ -375,6 +383,7 @@ export async function main(argv) {
     ctx.csvFiles = args.csvFiles;
     if (args.secretInNotebook) ctx.secretInNotebook = true;
     if (args.useKeyVault) ctx.useKeyVault = true;
+    if (args.allowModelReset) ctx.allowModelReset = true;
     if (args.secretDays) config.app.secretDays = args.secretDays;
     try {
       const ok = await runCommand(ctx, args.command, { wait: args.wait, backfillDays: args.backfillDays, files: args.files, run: args.run });

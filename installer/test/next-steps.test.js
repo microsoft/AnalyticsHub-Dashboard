@@ -192,6 +192,6 @@ test("summary: after a failed step it says the setup is partly done, not set up"
 test("install: a failed app deploy or unproven first load makes the install not ok", async () => {
   const src = await readFile(new URL('../src/install.js', import.meta.url), 'utf8');
   assert.match(src, /appDeployed = await tryDeployApp\(ctx\)/);
-  assert.match(src, /ok = ok && appDeployed;\r?\n\s*await summary\(ctx, \{ ok \}\)/);
+  assert.match(src, /ok = reloads\.ok && ok && appDeployed;\r?\n\s*await summary\(ctx, \{ ok, pending: reloads\.pending \}\)/);
   assert.match(src, /if \(opts\.wait && config\.firstRun\?\.status !== 'Completed'\) ok = false;/);
 });
