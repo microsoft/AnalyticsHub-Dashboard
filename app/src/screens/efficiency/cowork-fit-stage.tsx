@@ -6,7 +6,7 @@
 //-----------------------------------------------------------------------
 
 import { useId, useMemo } from "react";
-import { ArrowDown } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { VegaVisual } from "@/components/vega-visual";
 import { Headlined, HEADLINE_SPACE } from "@/components/headlined";
 import { stageAnchor } from "@/components/destinations";
@@ -16,6 +16,7 @@ import { KpiCard } from "@/components/kpi-card";
 import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
 import { useFilterContext } from "@/hooks/filter.context";
+import { useShowStage } from "@/hooks/navigation.context";
 import { useThemeContext } from "@/hooks/theme.context";
 import { useFilteredQuery } from "@/hooks/use-filtered-query";
 import { useOutcomeColors } from "@/hooks/use-palette-theme";
@@ -23,7 +24,6 @@ import { rowChartHeight } from "@/lib/chart-height";
 import { outcomePalette, withColorScale } from "@/lib/color-scale";
 import { type FilterKey, unlicensedOnly } from "@/lib/filters";
 import { parseFitNotice } from "@/lib/fit-notice";
-import { scrollToAnchor } from "@/lib/scroll-to-anchor";
 import { readNumber, readText, toSummaryRow, type SummaryRow } from "@/lib/summary-row";
 import { toDataTable } from "@/lib/to-data-table";
 import { coworkFitSummary } from "@/queries/agents";
@@ -117,6 +117,7 @@ function FitByTaskChart() {
 function FitRules({ notice }: { notice: string | undefined }) {
     const headingId = useId();
     const { grades, notes } = useMemo(() => parseFitNotice(notice), [notice]);
+    const showGrading = useShowStage("efficiency", "grading-method");
     return (
         <article aria-labelledby={headingId} className="flex flex-col rounded-xl border border-border bg-card">
             <h3
@@ -146,11 +147,11 @@ function FitRules({ notice }: { notice: string | undefined }) {
                 ))}
                 <button
                     type="button"
-                    onClick={() => scrollToAnchor(stageAnchor("grading-method"))}
+                    onClick={showGrading}
                     className={`inline-flex w-fit items-center gap-100 ${SMALL} font-semibold text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring`}
                 >
                     How grading works, and the research behind it
-                    <ArrowDown className="icon-size-100" aria-hidden="true" />
+                    <ArrowRight className="icon-size-100" aria-hidden="true" />
                 </button>
             </div>
         </article>

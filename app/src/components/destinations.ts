@@ -76,8 +76,8 @@ export const destinations = [
         icon: TrendingUp as LucideIcon,
         filters: ["dateRange", "organizations", "licence", "audience", "agentTypes", "agentNames"] as FilterKey[],
         stages: [
-            { id: "activation", label: "Activation", ready: true },
             { id: "adoption", label: "Adoption", ready: true },
+            { id: "activation", label: "Activation", ready: true },
             { id: "habit-formation", label: "Habit formation", ready: true },
             { id: "trend-heatmap", label: "Trend heatmap", ready: true },
         ],
@@ -257,7 +257,17 @@ export function availableDestinations(models: ModelReferences, sources?: SourceA
     );
 }
 
-/** The DOM id a stage's section carries, so the sidebar can scroll to it. */
+/** The DOM id a stage's section carries, so a link can bring it into view. */
 export function stageAnchor(id: StageId): string {
     return `stage-${id}`;
+}
+
+/**
+ * The stage a destination shows: `wanted` when it is one of its built
+ * stages, otherwise its first. A destination shows one stage at a time, so
+ * opening a page only queries what is on screen.
+ */
+export function openStage(destination: Destination, wanted?: StageId): StageId | undefined {
+    const built = destination.stages.filter((stage) => stage.ready);
+    return (built.find((stage) => stage.id === wanted) ?? built[0])?.id;
 }

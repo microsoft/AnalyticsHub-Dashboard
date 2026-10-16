@@ -18,6 +18,7 @@ import { Section } from "@/components/section";
 import { SegmentedControl } from "@/components/segmented-control";
 import { TermsForm, type TermField } from "@/components/terms-form";
 import { useCommercialTerms } from "@/hooks/commercial-terms.context";
+import { useShowStage } from "@/hooks/navigation.context";
 import { useThemeContext } from "@/hooks/theme.context";
 import { SCENARIOS, useValueAssumptions } from "@/hooks/value-assumptions.context";
 import { gridHeight, rowChartHeight } from "@/lib/chart-height";
@@ -281,6 +282,7 @@ export function CostVsValueStage() {
     const data = useCostVsValue();
     const { setScenario } = useValueAssumptions();
     const { theme } = useThemeContext();
+    const showEstimatedValue = useShowStage("value", "estimated-value");
     const { prefix, code, rate, scenario, span, comparison, costs, usd, convertible, credits, summary, agents } = data;
     const counted = credits.kind === "ready";
 
@@ -391,12 +393,13 @@ export function CostVsValueStage() {
                     <p className={cn(SMALL, "text-muted-foreground")}>
                         {span ? `${formatDateRange(span.from, span.to)} · ` : ""}
                         {`At ${prefix}${formatKpi(rate, "whole")} an hour, as set under `}
-                        <a
-                            href={`#${stageAnchor("estimated-value")}`}
-                            className="text-foreground underline underline-offset-2 hover:text-primary"
+                        <button
+                            type="button"
+                            onClick={showEstimatedValue}
+                            className="text-foreground underline underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
                         >
                             Estimated value
-                        </a>
+                        </button>
                         {`, ${scenario.toLowerCase()} effort`}
                         {!data.dollar && data.exchangeRate !== undefined ? ` · $1 = ${prefix}${data.exchangeRate}` : ""}
                     </p>

@@ -7,6 +7,7 @@
 
 import { useMemo } from "react";
 import { useOrgAttribute } from "@/hooks/filter.context";
+import { useStageFilter } from "@/hooks/stage-filter.context";
 import { useConsumptionTable } from "@/hooks/use-consumption-query";
 import { useHueColors } from "@/hooks/use-palette-theme";
 import { useSummaryQuery, useTableQuery, type SummaryResult, type TableResult } from "@/hooks/use-table-query";
@@ -49,15 +50,19 @@ export interface ExecutiveData {
 }
 
 /**
- * The queries more than one stage reads, run once for the page. The trend
- * waits for the activity's dates so it never asks for months it then drops.
+ * The queries more than one stage reads, run once for the page, and only for
+ * the stages on show. The trend waits for the activity's dates so it never
+ * asks for months it then drops.
  */
 export function useExecutiveData(): ExecutiveData {
     const range = useExecutiveRange();
     const { window, start, end } = range.range ?? {};
     const org = useOrgAttribute();
+    const { show } = useStageFilter();
     const hoursColors = useHueColors(HOURS_HUES);
     const creditColors = useHueColors(CREDIT_HUES);
+    const trend = window && (show("the-bottom-line") || show("is-it-growing"));
+    const byOrg = show("where-it-is-landing") || show("what-needs-attention");
 
     const params = useMemo(
         () => (window ? { months: window.months.map(monthLabel), rangeMonth: window.rangeMonth } : undefined),
@@ -71,26 +76,27 @@ export function useExecutiveData(): ExecutiveData {
 
     const summary = useSummaryQuery(executiveSummary());
     const months = useTableQuery(
-        window ? monthsSource : { ...monthsSource, ...SKIP },
-        window ? [dateBetween("'Calendar'[Date]", window.from, window.to)] : [],
+        trend ? monthsSource : { ...monthsSource, ...SKIP },
+        trend ? [dateBetween("'Calendar'[Date]", window.from, window.to)] : [],
         TREND_IGNORES,
     );
 
     const totalSource = useMemo(() => executiveCredits(), []);
-    const readCredits = CONSUMPTION_CONFIGURED && window && start && end;
+    const readCredits = CONSUMPTION_CONFIGURED && trend && start && end;
+    const readTotal = readCredits && show("the-bottom-line");
     const credits = useConsumptionTable(
         readCredits ? creditsSource : { ...creditsSource, ...SKIP },
         readCredits ? [reportingDateFilter(window.from, window.to)] : [],
         TREND_IGNORES,
     );
     const creditsInRange = useConsumptionTable(
-        readCredits ? totalSource : { ...totalSource, ...SKIP },
-        readCredits ? [reportingDateFilter(start, end)] : [],
+        readTotal ? totalSource : { ...totalSource, ...SKIP },
+        readTotal ? [reportingDateFilter(start, end)] : [],
         TREND_IGNORES,
     );
 
     const departmentsSource = useMemo(() => withOrgAttribute(executiveDepartments(), org), [org]);
-    const departments = useTableQuery(departmentsSource);
+    const departments = useTableQuery(byOrg ? departmentsSource : { ...departmentsSource, ...SKIP });
 
     return { range, summary, months, monthsSource, credits, creditsSource, creditsInRange, departments };
 }

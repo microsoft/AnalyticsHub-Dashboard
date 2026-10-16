@@ -16,6 +16,13 @@ let _client: FabricClient | undefined;
 let _messageClient: SemanticModelMessageClient | undefined;
 
 /**
+ * Results the SDK keeps for the session. The app has about 180 distinct
+ * queries, and with the SDK's default of 64 a page visited earlier had already
+ * been pushed out, so going back to it ran every query again.
+ */
+export const QUERY_CACHE_ENTRIES = 1000;
+
+/**
  * Returns the pre-configured FabricClient singleton.
  *
  * Fabric uses the iframe postMessage proxy. Azure uses the same SDK over the
@@ -35,6 +42,7 @@ export function getFabricClient(): FabricClient {
             proxy,
             semanticModels: config.semanticModels,
             daxProtocol: config.host === "azure" ? "json" : undefined,
+            cache: { maxEntries: QUERY_CACHE_ENTRIES },
         } as FabricClientConfig);
     }
     return _client;

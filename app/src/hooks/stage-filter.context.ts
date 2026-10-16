@@ -22,8 +22,9 @@ export interface StageFilter {
 const ALL: StageFilter = { show: () => true, inPack: false };
 
 /**
- * Which of a screen's stages to render. A destination page shows them all; a
- * report pack mounts the same screen and shows only the stages it holds.
+ * Which of a screen's stages to render. A destination page shows the stage
+ * whose tab is open; a report pack mounts the same screen and shows only the
+ * stages it holds. Outside either, a screen shows them all.
  */
 export const StageFilterContext = createContext<StageFilter>(ALL);
 
@@ -35,4 +36,9 @@ export function useStageFilter(): StageFilter {
 export function onlyStages(stages: readonly StageId[]): StageFilter {
     const wanted = new Set(stages);
     return { show: (stage) => wanted.has(stage), inPack: true };
+}
+
+/** A filter showing one destination stage, or every stage, as when a whole page is downloaded. */
+export function pageStages(stage: StageId | "all"): StageFilter {
+    return stage === "all" ? ALL : { show: (id) => id === stage, inPack: false };
 }

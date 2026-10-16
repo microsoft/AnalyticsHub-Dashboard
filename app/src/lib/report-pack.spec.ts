@@ -63,9 +63,9 @@ describe("parsePack", () => {
 
 describe("packRuns", () => {
     it("groups consecutive stages by destination, keeping pack order", () => {
-        const { runs, missing } = packRuns(["activation", "adoption", "leaderboard", "habit-formation"], all);
+        const { runs, missing } = packRuns(["adoption", "activation", "leaderboard", "habit-formation"], all);
         expect(runs.map((run) => [run.destination.id, run.stages])).toEqual([
-            ["adoption", ["activation", "adoption"]],
+            ["adoption", ["adoption", "activation"]],
             ["leaderboards", ["leaderboard"]],
             ["adoption", ["habit-formation"]],
         ]);

@@ -6,7 +6,7 @@
 //-----------------------------------------------------------------------
 
 import { useId, useMemo, useState, type ReactNode } from "react";
-import { ArrowDown } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import type { QueryTable } from "@microsoft/fabric-app-data";
 import { DataGrid, type GridColumnDef, type Row } from "@microsoft/fabric-datagrid";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
@@ -18,6 +18,7 @@ import { SegmentedControl } from "@/components/segmented-control";
 import { TreeFrame } from "@/components/tree-frame";
 import { TruncationNote } from "@/components/truncation-note";
 import { useFilterContext, useOrgAttribute } from "@/hooks/filter.context";
+import { useShowStage } from "@/hooks/navigation.context";
 import { useThemeContext } from "@/hooks/theme.context";
 import { useFilteredQuery } from "@/hooks/use-filtered-query";
 import { useRowToggles } from "@/hooks/use-row-toggles";
@@ -27,7 +28,6 @@ import { formatKpi, type KpiFormat } from "@/lib/format-kpi";
 import { heatDomain, heatRenderer } from "@/lib/heat";
 import { leafCount, listTotal } from "@/lib/list-total";
 import { isGroupRow, visibleRowCount, type RollupTree } from "@/lib/rollup-tree";
-import { scrollToAnchor } from "@/lib/scroll-to-anchor";
 import { readNumber, readText, toSummaryRow, type SummaryRow } from "@/lib/summary-row";
 import { toDataTable, type ColumnMetadataMap } from "@/lib/to-data-table";
 import { formatCell, textCell, totalsRow, TREE_GRID, withExpansion } from "@/lib/tree-grid";
@@ -129,6 +129,7 @@ function AgentHighlights({ row }: { row: SummaryRow | undefined }) {
 /** The report's footnote, set beside the table: how the ranking counts, and what it leaves out. */
 function RankingNotes({ cohort, unassigned }: { cohort: LeaderboardCohort; unassigned: string | undefined }) {
     const headingId = useId();
+    const showAgents = useShowStage("leaderboards", "agents");
     const terms = [
         { term: "Session", definition: "One conversation, counted per user and per app." },
         { term: "Active user", definition: "Someone with at least one AI task in the period." },
@@ -167,11 +168,11 @@ function RankingNotes({ cohort, unassigned }: { cohort: LeaderboardCohort; unass
                 {cohort === "agents" && (
                     <button
                         type="button"
-                        onClick={() => scrollToAnchor(stageAnchor("agents"))}
+                        onClick={showAgents}
                         className={`inline-flex w-fit items-center gap-100 ${SMALL} font-semibold text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring`}
                     >
                         Every agent, ranked by its users
-                        <ArrowDown className="icon-size-100" aria-hidden="true" />
+                        <ArrowRight className="icon-size-100" aria-hidden="true" />
                     </button>
                 )}
             </div>
