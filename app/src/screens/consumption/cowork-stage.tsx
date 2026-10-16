@@ -23,6 +23,7 @@ import {
     COWORK_LABEL_COLUMN,
     groupByChoices,
     groupByFilter,
+    offeredGroupBy,
     serviceFilter,
     serviceLabel,
     studioAzureBilling,
@@ -69,7 +70,7 @@ export function CoworkStage({ options, rates }: CoworkStageProps) {
     const [lens, setLens] = useState<ConsumptionLens>("consumption");
     const [period, setPeriod] = useState<string>();
     const [service, setService] = useState<string>();
-    const [groupBy, setGroupBy] = useState<string>();
+    const [chosenGroupBy, setGroupBy] = useState<string>();
 
     const periods = options?.coworkPeriods ?? [];
     const services = useMemo(
@@ -77,6 +78,7 @@ export function CoworkStage({ options, rates }: CoworkStageProps) {
         [options?.services],
     );
     const groupChoices = useMemo(() => groupByChoices(options?.groupBy ?? [], "Cowork"), [options?.groupBy]);
+    const groupBy = offeredGroupBy(groupChoices, chosenGroupBy);
     const groupLabel = groupChoices.find((choice) => choice.value === groupBy)?.label;
 
     const extra = useMemo(

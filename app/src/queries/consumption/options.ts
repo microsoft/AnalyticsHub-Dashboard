@@ -56,18 +56,21 @@ export function readConsumptionOptions(table: DataTable): ConsumptionOptions {
 export const ALL_USERS = "All users";
 
 /**
- * Group By attributes worth offering. Identifier columns and single-person
- * groupings repeat the people table, and each product only offers its own
- * usage intensity.
+ * Group By attributes worth offering. Per-person groupings put each person in
+ * a group of one, so they repeat the people table, and on a large tenant they
+ * take one to two and a half minutes. Each product only offers its own usage
+ * intensity.
  */
-const HIDDEN_ATTRIBUTES = new Set(["id", "user id", "manager_user id", "user"]);
-
-/**
- * Groupings that split a large tenant into thousands of small groups: a
- * person's key, each manager, or an org level below the third. Their group
- * table takes 20 to 90 seconds, so only the coarse groupings are offered.
- */
-const SLOW_ATTRIBUTE = /user\s*_?key|^manager|^level\s*_?([4-9]|\d{2})/i;
+const HIDDEN_ATTRIBUTES = new Set([
+    "id",
+    "user id",
+    "manager_user id",
+    "user",
+    "user key",
+    "employee id",
+    "hierarchy path",
+    "level5_user key",
+]);
 
 const ATTRIBUTE_LABELS: Record<string, string> = {
     "Job Family": "Job family",
@@ -83,12 +86,16 @@ export interface GroupByChoice {
 export function groupByChoices(attributes: readonly string[], product: "Cowork" | "Studio"): GroupByChoice[] {
     return attributes
         .filter((attribute) => attribute !== ALL_USERS && !HIDDEN_ATTRIBUTES.has(attribute.toLowerCase()))
-        .filter((attribute) => !SLOW_ATTRIBUTE.test(attribute))
         .filter((attribute) => {
             const intensity = /^Usage Intensity \((.+)\)$/i.exec(attribute);
             return !intensity || intensity[1].toLowerCase() === product.toLowerCase();
         })
         .map((attribute) => ({ value: attribute, label: attributeLabel(attribute) }));
+}
+
+/** The chosen grouping while it is still offered, otherwise All users. */
+export function offeredGroupBy(choices: readonly GroupByChoice[], value: string | undefined): string | undefined {
+    return choices.some((choice) => choice.value === value) ? value : undefined;
 }
 
 function attributeLabel(attribute: string): string {
