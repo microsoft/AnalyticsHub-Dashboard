@@ -7,13 +7,8 @@
 
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { useKeepsResults } from "@/hooks/keep-results.context";
 import { onlyStages, pageStages, StageFilterContext, type StageFilter } from "@/hooks/stage-filter.context";
 import { OnDemand } from "./on-demand";
-
-function Keeps() {
-    return <p>{useKeepsResults() ? "kept" : "not kept"}</p>;
-}
 
 function renderList(id: string, filter?: StageFilter) {
     const list = (
@@ -45,21 +40,6 @@ describe("OnDemand", () => {
         cleanup();
         renderList("another", pageStages("leaderboard"));
         expect(screen.queryByText("The ranking")).toBeNull();
-    });
-
-    it("never keeps a list's results on the device", () => {
-        for (const filter of [pageStages("all"), undefined]) {
-            render(
-                <StageFilterContext.Provider value={filter ?? pageStages("all")}>
-                    <Keeps />
-                    <OnDemand id="kept" label="Show" note="People.">
-                        <Keeps />
-                    </OnDemand>
-                </StageFilterContext.Provider>,
-            );
-            expect(screen.getAllByText(/kept/).map((p) => p.textContent)).toEqual(["kept", "not kept"]);
-            cleanup();
-        }
     });
 
     it("shows the list at once in a download, a report pack or outside a page", () => {

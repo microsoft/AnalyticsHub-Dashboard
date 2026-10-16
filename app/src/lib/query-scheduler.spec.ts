@@ -344,6 +344,60 @@ describe("QueryScheduler background lane", () => {
         await Promise.all(backs);
     });
 
+    it("moves a background query waiting on its budget to the front lane, which has budget to spare", async () => {
+        const scheduler = new QueryScheduler({ perMinute: 10 });
+        for (let index = 0; index < 5; index++) await scheduler.run(`seed${index}`, async () => index);
+        const task = vi.fn(async () => "answer");
+        const background = scheduler.run("q", task, "low");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(task).not.toHaveBeenCalled();
+
+        const asked = scheduler.run("q", task);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(task).toHaveBeenCalledTimes(1);
+        await expect(asked).resolves.toBe("answer");
+        await expect(background).resolves.toBe("answer");
+        expect(Date.now()).toBe(new Date("2026-07-01T10:00:00Z").getTime());
+    });
+
+    it("checks the screen is still quiet when a background query wakes from its budget wait", async () => {
+        const scheduler = new QueryScheduler({ perMinute: 10 });
+        for (let index = 0; index < 5; index++) await scheduler.run(`seed${index}`, async () => index);
+        const back = vi.fn(async () => "back");
+        const background = scheduler.run("back", back, "low");
+        await vi.advanceTimersByTimeAsync(0);
+        const front = deferred();
+        const foreground = scheduler.run("front", () => front.promise);
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(back).not.toHaveBeenCalled();
+        expect(scheduler.activity()).toMatchObject({ foreground: 1, background: 1 });
+
+        front.resolve("front");
+        await expect(foreground).resolves.toBe("front");
+        await expect(background).resolves.toBe("back");
+    });
+
+    it("gives a background slot back when a throttle pause ends with the screen busy", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const back = vi.fn(async () => {
+            if (back.mock.calls.length === 1) throw apiError(429);
+            return "back";
+        });
+        const background = scheduler.run("back", back, "low");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(back).toHaveBeenCalledTimes(1);
+        const front = deferred();
+        const foreground = scheduler.run("front", () => front.promise);
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(back).toHaveBeenCalledTimes(1);
+        expect(scheduler.activity()).toMatchObject({ foreground: 1, background: 1 });
+
+        front.resolve("front");
+        await foreground;
+        await expect(background).resolves.toBe("back");
+        expect(back).toHaveBeenCalledTimes(2);
+    });
+
     it("tells subscribers when work starts and finishes", async () => {
         const scheduler = new QueryScheduler();
         const listener = vi.fn();

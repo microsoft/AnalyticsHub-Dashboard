@@ -88,13 +88,12 @@ The app is built to stay quick for a large tenant (about 20,000 people):
   and report packs still print the lists in full.
 - **Other pages load in the background.** Once the page on screen has loaded, the app fetches the
   first tab of each other page, one query at a time, and waits whenever the page on screen is
-  loading. `PREFETCH` in `src/components/prefetcher.tsx` turns this off.
-- **Results are kept on this device until the data refreshes.** Summaries from the ValueLens model
-  are stored in the browser's IndexedDB (`analytics-hub-results`). They're filed under a version
-  made of the person signed in, the latest pipeline run, the audit log's size and latest date, and
-  the person's access, and are fetched again when the version changes or after a day. Lists that
-  name people, long results and errors are never stored. `KEEP` in `src/lib/kept-results.ts`
-  turns this off.
+  loading. If you open a page while its query is waiting, the query starts at once.
+  `PREFETCH` in `src/components/prefetcher.tsx` turns this off.
+- **Results last for the visit.** The app holds up to 1,000 results in memory, each for up to an
+  hour, so a page you've seen opens again without asking the model. Nothing is kept between opens.
+  A preview build stored results in IndexedDB (`analytics-hub-results`); the app deletes that
+  database as it starts.
 - **Cowork and Copilot Studio credits by group** don't offer per-person groupings (User, User Key,
   id, employee Id, Hierarchy Path, Level5_User Key), which took one to two and a half minutes each
   at 20,000 people. A saved grouping that is no longer offered shows **All users**.

@@ -26,8 +26,8 @@ Measured on F64 with 20,000 synthetic people, the slowest queries took 13 to 20 
 opening the app took about 40 seconds.
 
 - **One tab at a time.** Each page shows one section at a time, as tabs, and runs only the open
-  tab's queries. The result cache holds 1,000 results instead of 64, so a page you've visited
-  opens again without asking the model.
+  tab's queries. The result cache holds 1,000 results instead of 64, each for up to an hour,
+  so a page you've visited opens again without asking the model.
 - **Slowest cards removed.** The executive summary no longer shows kinds of work per person, broad
   users or the agent with most users. The agent return rate is gone from Adoption and the
   Leaderboards agents, and the Leaderboards summary drops the agent with most users and the top
@@ -38,10 +38,7 @@ opening the app took about 40 seconds.
   Cowork credits by group load on **Show …**. The cards above them still count everyone, and
   downloads and report packs still print them.
 - **Other pages load in the background** after the page on screen has loaded, one query at a
-  time, so their first view is usually ready.
-- **Results are kept on the device until the data refreshes.** ValueLens summaries are stored in
-  the browser, under a version that changes with each data load and with the person's access, and
-  expire after a day. Lists that name people are never stored.
+  time, so their first view is usually ready. Opening a page starts its waiting query at once.
 - **No per-person Group by** on Cowork and Copilot Studio credits. User, User Key, id, employee Id,
   Hierarchy Path and Level5_User Key took 73 to 148 seconds each. A saved choice falls back to All
   users.

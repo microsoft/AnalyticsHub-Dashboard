@@ -24,6 +24,12 @@ let _messageClient: SemanticModelMessageClient | undefined;
 export const QUERY_CACHE_ENTRIES = 1000;
 
 /**
+ * A result the SDK has held longer than this is fetched again, so a page left
+ * open doesn't keep showing figures from before the model's next refresh.
+ */
+export const QUERY_CACHE_MAX_AGE_MS = 60 * 60 * 1000;
+
+/**
  * Returns the pre-configured FabricClient singleton.
  *
  * Fabric uses the iframe postMessage proxy. Azure uses the same SDK over the
