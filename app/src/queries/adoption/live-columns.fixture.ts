@@ -61,7 +61,6 @@ export const liveColumns = {
         "[Unlicensed SPUW]",
         "[Agent Users]",
         "[Agent SPUW]",
-        "[Agent Return Rate]",
         "[Cowork Users]",
         "[Cowork SPUW]",
         "[Cowork Hours Wk]",
