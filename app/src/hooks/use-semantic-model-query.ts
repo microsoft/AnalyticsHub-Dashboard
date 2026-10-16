@@ -8,6 +8,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { type CachedQueryResult } from "@microsoft/fabric-app-data";
 import { getFabricClient } from "@/lib/fabric-client";
+import { withPriority } from "@/lib/query-priority";
+import { useIsPrefetch } from "./prefetch.context";
 
 interface UseSemanticModelQueryOptions {
     /** Connection alias from fabric.yaml (e.g., "salesModel"). */
@@ -73,6 +75,7 @@ export function useSemanticModelQuery(
     const [error, setError] = useState<Error | undefined>();
 
     const canExecute = Boolean(connection && query);
+    const priority = useIsPrefetch() ? "low" : "normal";
 
     const execute = useCallback(async () => {
         if (!canExecute) return;
@@ -80,9 +83,9 @@ export function useSemanticModelQuery(
         setError(undefined);
 
         try {
-            const result = await getFabricClient()
-                .semanticModel(connection)
-                .query(query, { bypassCache });
+            const result = await withPriority(priority, () =>
+                getFabricClient().semanticModel(connection).query(query, { bypassCache }),
+            );
 
             setData(result);
 
@@ -94,7 +97,7 @@ export function useSemanticModelQuery(
         } finally {
             setIsLoading(false);
         }
-    }, [connection, query, bypassCache, canExecute]);
+    }, [connection, query, bypassCache, canExecute, priority]);
 
     useEffect(() => {
         // Starts a fetch from the semantic model; the loading flag must flip as it starts.

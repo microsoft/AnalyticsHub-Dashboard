@@ -7,6 +7,7 @@
 import type { ComponentProps } from "react";
 import { VegaVisual as EvalVegaVisual } from "@microsoft/fabric-visuals";
 import { EmbeddableVegaVisual } from "@microsoft/fabric-visuals/embeddable";
+import { useIsPrefetch } from "@/hooks/prefetch.context";
 import { rowCountKey } from "@/lib/chart-height";
 
 export type { VegaVisualHandle, VisualizationSpec } from "@microsoft/fabric-visuals";
@@ -37,5 +38,8 @@ export type VegaVisualProps = ComponentProps<typeof HostVegaVisual>;
  * Remounting on a new row count draws the chart fresh at its new size.
  */
 export function VegaVisual(props: VegaVisualProps) {
+    // A page fetched ahead of a visit only wants its data; drawing it would cost the open page.
+    const prefetching = useIsPrefetch();
+    if (prefetching) return null;
     return <HostVegaVisual key={rowCountKey(props.data)} {...props} />;
 }

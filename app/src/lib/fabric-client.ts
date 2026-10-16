@@ -8,11 +8,12 @@ import { SemanticModelMessageClient } from "@microsoft/fabric-app-data-embed-cli
 import { FabricClient, type FabricClientConfig } from "@microsoft/fabric-app-data";
 import { EmbedFabricApiProxy } from "@microsoft/fabric-app-data-proxy";
 import { HttpFabricProxy } from "@/lib/http-fabric-proxy";
-import { scheduledProxy } from "@/lib/query-scheduler";
+import { QueryScheduler, scheduledProxy } from "@/lib/query-scheduler";
 import { runtimeConfig } from "@/lib/runtime-config";
 import { getAccessToken } from "@/services/rayfin-auth.service";
 
 let _client: FabricClient | undefined;
+let _scheduler: QueryScheduler | undefined;
 let _messageClient: SemanticModelMessageClient | undefined;
 
 /**
@@ -37,7 +38,7 @@ export function getFabricClient(): FabricClient {
         const config = runtimeConfig();
         const proxy = scheduledProxy(config.host === "azure"
             ? new HttpFabricProxy(getAccessToken)
-            : fabricProxy());
+            : fabricProxy(), getQueryScheduler());
         _client = new FabricClient({
             proxy,
             semanticModels: config.semanticModels,
@@ -46,6 +47,12 @@ export function getFabricClient(): FabricClient {
         } as FabricClientConfig);
     }
     return _client;
+}
+
+/** The scheduler every semantic model request goes through, for watching how busy it is. */
+export function getQueryScheduler(): QueryScheduler {
+    _scheduler ??= new QueryScheduler();
+    return _scheduler;
 }
 
 /** Back-compatible alias for the query client seam. */

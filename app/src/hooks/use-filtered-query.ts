@@ -13,6 +13,7 @@ import { beginRefresh } from "@/lib/refresh-tracker";
 import { readsTaskTimes, withTaskTimes } from "@/queries/assumptions/task-times";
 import { connection as valueLensConnection } from "@/queries/shared";
 import { useFilterContext } from "./filter.context";
+import { useIsPrefetch } from "./prefetch.context";
 import { useTaskTimes } from "./task-times.context";
 import { useSemanticModelQuery } from "./use-semantic-model-query";
 
@@ -80,9 +81,12 @@ export function useFilteredQuery(config: FilteredQueryConfig, options: FilteredQ
 
     const result = useSemanticModelQuery({ connection: config.connection, query });
     const waiting = Boolean(config.query) && !timed;
+    const prefetching = useIsPrefetch();
     const isRefreshing = result.isLoading && result.data !== undefined;
+    // A page fetched ahead of a visit is off screen, so it doesn't show the refreshing bar.
+    const signalsRefresh = isRefreshing && !prefetching;
 
-    useEffect(() => (isRefreshing ? beginRefresh() : undefined), [isRefreshing]);
+    useEffect(() => (signalsRefresh ? beginRefresh() : undefined), [signalsRefresh]);
 
     return {
         ...result,

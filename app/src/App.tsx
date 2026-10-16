@@ -15,6 +15,7 @@ import {
     type StageId,
 } from "./components/destinations";
 import { FilterProvider } from "./components/filter-provider";
+import { Prefetcher } from "./components/prefetcher";
 import { QueryLoading } from "./components/query-states";
 import { ReportPackView } from "./components/report-pack-view";
 import { ReportPacksProvider } from "./components/report-packs-provider";
@@ -84,6 +85,13 @@ function Workspace() {
                         )
                     )}
                 </AppShell>
+                {/* Outside the shell, so a page fetched ahead never lands in a download. */}
+                <Prefetcher
+                    available={available}
+                    current={view.kind === "destination" ? view.id : undefined}
+                    stage={view.kind === "destination" ? view.stage : undefined}
+                    screens={SCREENS}
+                />
             </NavigationContext.Provider>
         </FilterProvider>
     );
