@@ -141,10 +141,14 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
 
 /**
  * Recorded before a request that can change a model's definition; taken back once a refresh that
- * started after it finishes.
+ * counts as its reload finishes cleanly.
  * @typedef {object} ModelReload
- * @property {string} since  When the definition last changed, or may have.
+ * @property {string} since  When the change last settled, or, while `unsettled`, when the request was made.
  * @property {boolean} [cleared]  Fabric was allowed to clear its data, so it shows nothing until then.
+ * @property {boolean} [unsettled]  The request may or may not have changed the model; the next run applies it again before reloading.
+ * @property {string[]} [seen]  The refreshes already listed when the change settled, which may have read the old definition. Unset when they couldn't be listed, so only `ours` counts.
+ * @property {string} [ours]  A refresh the installer started after the change settled.
+ * @property {string[]} [failed]  Refreshes since the change that ended badly, so don't count.
  */
 
 /**

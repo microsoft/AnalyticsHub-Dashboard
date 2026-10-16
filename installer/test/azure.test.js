@@ -525,14 +525,26 @@ function readBack(/** @type {any} */ config) {
   }
 }
 
-for (const interruption of ['a failed refresh', 'an error after the model was replaced']) {
+for (const interruption of ['a failed refresh', 'a refresh Completed with warnings', 'an error after the model was replaced']) {
   test(`Azure: after ${interruption}, the next run reloads the model before it says set up`, async () => {
     const reset = () => new HttpError('Requires options', { status: 400, method: 'POST', url: 'https://x', code: 'RequiredOptionsMissing' });
     const t = await azureModelChanged({ yesTo: ["Clear Analytics Hub Model's data and reload it now?"] });
     t.fabric.failures.updateSemanticModel = [reset()];
+    // The history shows each refresh only as Completed; its details say whether it was clean.
+    const refresh = t.powerBi.api.refresh;
+    t.powerBi.api.refresh = async (/** @type {any[]} */ ...args) => {
+      const id = await /** @type {any} */ (refresh)(...args);
+      t.powerBi.history.unshift({ requestId: id, status: 'Completed', startTime: '2026-06-01T12:00:01Z' });
+      return id;
+    };
+    const warned = { status: 'Completed', extendedStatus: 'Completed', messages: [{ type: 'Warning', message: 'A calculated table could not be calculated.' }] };
     if (interruption === 'a failed refresh') {
       t.powerBi.states.push({ status: 'Failed', extendedStatus: 'Failed' });
       assert.equal(await installAzure(t.ctx, { wait: true }), false);
+    } else if (interruption === 'a refresh Completed with warnings') {
+      t.powerBi.states.push(warned);
+      assert.equal(await installAzure(t.ctx, { wait: true }), false);
+      assert.match(t.ui.text(), /The models weren't reloaded/);
     } else {
       const deploy = t.arm.api.deployTemplate;
       let calls = 0;
@@ -551,6 +563,14 @@ for (const interruption of ['a failed refresh', 'an error after the model was re
     next.ctx.runFirstLoad = false;
     t.powerBi.calls.length = 0;
     t.fabric.calls.length = 0;
+    if (interruption === 'a refresh Completed with warnings') {
+      // Warned again: still not set up, still owed, however the history reads.
+      t.powerBi.states.push(warned);
+      assert.equal(await installAzure(next.ctx, { wait: true }), false);
+      assert.equal(t.refreshes().length, 1);
+      assert.equal(readBack(config).semanticModel.reload?.cleared, true);
+      t.powerBi.calls.length = 0;
+    }
     assert.equal(await installAzure(next.ctx, { wait: true }), true);
     assert.deepEqual(t.fabric.calls.filter((c) => c.startsWith('updateSemanticModel')), [], 'the definition is already in place');
     assert.equal(t.refreshes().length, 1, 'reloaded, not reported as set up with no data');

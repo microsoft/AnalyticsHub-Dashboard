@@ -114,15 +114,70 @@ export function pendingReloads(config) {
   ].filter((m) => !!m && !!m.id && !!m.reload).map((m) => /** @type {import('../config.js').ModelConfig} */ (m));
 }
 
+/** How many of a model's latest refreshes a reload is checked against. */
+const RECENT_REFRESHES = 3;
+
 /**
- * Records, before a request that can change a model, that it's owed a reload. `cleared` stays
- * set until the reload finishes.
+ * Records, before a request that can change a model, that it's owed a reload and that the change
+ * hasn't settled. `cleared` stays set until the reload finishes.
  * @param {Ctx} ctx
  * @param {import('../config.js').ModelConfig} m
  * @param {boolean} cleared
  */
 function oweReload(ctx, m, cleared) {
-  m.reload = { since: ctx.now().toISOString(), ...(cleared || m.reload?.cleared ? { cleared: true } : {}) };
+  m.reload = { since: ctx.now().toISOString(), unsettled: true, ...(cleared || m.reload?.cleared ? { cleared: true } : {}) };
+  ctx.save();
+}
+
+/**
+ * Records that the request changing a model finished, so only a refresh that starts after this
+ * can reload it. The refreshes Fabric already lists may have read the old definition, so none of
+ * them count; when they can't be listed, only a refresh the installer starts from now on does.
+ * @param {Ctx} ctx
+ * @param {string} ws
+ * @param {import('../config.js').ModelConfig} m
+ */
+async function changeSettled(ctx, ws, m) {
+  const since = ctx.now().toISOString();
+  const seen = await Promise.resolve()
+    .then(() => ctx.api.powerBi.refreshes(ws, /** @type {string} */ (m.id), RECENT_REFRESHES))
+    .then((rows) => rows.slice(0, RECENT_REFRESHES).map((r) => r.requestId).filter(Boolean), () => undefined);
+  m.reload = { since, ...(m.reload?.cleared ? { cleared: true } : {}), ...(seen ? { seen } : {}) };
+  ctx.save();
+}
+
+/**
+ * Whether a refresh started after the change to a model settled: the installer started it then,
+ * or it started after that and wasn't already listed then.
+ * @param {import('../config.js').ModelConfig} m
+ * @param {string | undefined} requestId
+ * @param {string | undefined} startedAt
+ */
+function afterChange(m, requestId, startedAt) {
+  const r = m.reload;
+  if (!r || r.unsettled || !requestId) return false;
+  if (requestId === r.ours) return true;
+  return !!r.seen && !r.seen.includes(requestId) && Date.parse(startedAt ?? '') >= Date.parse(r.since);
+}
+
+/**
+ * Whether a refresh can be the reload a model is owed: it started after the change settled (see
+ * afterChange) and hasn't failed.
+ * @param {import('../config.js').ModelConfig} m
+ * @param {string | undefined} requestId
+ * @param {string | undefined} startedAt
+ */
+const countsAsReload = (m, requestId, startedAt) => afterChange(m, requestId, startedAt) && !m.reload?.failed?.includes(/** @type {string} */ (requestId));
+
+/**
+ * Remembers a refresh that ended badly, so it can't later be taken as the model's reload.
+ * @param {Ctx} ctx
+ * @param {import('../config.js').ModelConfig} m
+ * @param {string} requestId
+ */
+function reloadFailed(ctx, m, requestId) {
+  if (!m.reload || m.reload.failed?.includes(requestId)) return;
+  m.reload.failed = [...(m.reload.failed ?? []), requestId].slice(-RECENT_REFRESHES);
   ctx.save();
 }
 
@@ -157,8 +212,9 @@ async function allowDataReset(ctx, name) {
 
 /**
  * Replaces a model's definition, keeping its data unless Fabric can't and the user agrees to clear
- * it. The model is recorded as owed a reload before each request that could change it, and stays
- * so if the outcome is unknown; only a refusal that changed nothing takes that back.
+ * it. The model is recorded as owed a reload, with the change unsettled, before each request that
+ * could change it; it stays unsettled if the outcome is unknown, and only a refusal that changed
+ * nothing takes that back.
  * @param {Ctx} ctx
  * @param {string} ws
  * @param {import('../config.js').ModelConfig} m
@@ -168,10 +224,11 @@ async function replaceDefinition(ctx, ws, m, definition) {
   const { api, ui } = ctx;
   const id = /** @type {string} */ (m.id);
   const name = m.name;
-  const owed = m.reload && { ...m.reload };
+  const owed = m.reload && structuredClone(m.reload);
   oweReload(ctx, m, false);
   try {
     await api.fabric.updateSemanticModel(ws, id, definition);
+    await changeSettled(ctx, ws, m);
     return;
   } catch (err) {
     if (!needsDataReset(err)) throw err;
@@ -188,9 +245,10 @@ async function replaceDefinition(ctx, ws, m, definition) {
   try {
     await api.fabric.updateSemanticModel(ws, id, definition, { allowPurgeData: true });
   } catch (err) {
-    ui.warn(`${name}'s data may have been cleared. The installer reloads it the next time it runs, or run "${commandLine('refresh')}" once the problem below is fixed.`);
+    ui.warn(`${name}'s data may have been cleared. Run the installer again once the problem below is fixed: it applies the update again and then reloads the data.`);
     throw err;
   }
+  await changeSettled(ctx, ws, m);
 }
 
 /**
@@ -214,15 +272,19 @@ export async function deployModel(ctx, m, o) {
     ui.warn(`${m.name} was deleted. Deploying it again.`);
     delete m.id;
   }
-  const deployed = !m.id || !!o.force || m.signature !== signature;
+  const unsettled = !!m.id && !!m.reload?.unsettled;
+  const deployed = !m.id || !!o.force || m.signature !== signature || unsettled;
   if (!m.id) {
     const made = await createItem(ctx, `SemanticModel:${modelKey(ctx.config, m)}`, 'SemanticModel', m.name, items, (name, ref) => api.fabric.createSemanticModel(ws, name, definition, ref));
     m.id = made.id;
     m.name = made.name;
     if (made.resumed) await replaceDefinition(ctx, ws, m, definition);
+    // Made again after it was deleted while owed a reload: the new one still needs loading.
+    else if (m.reload) await changeSettled(ctx, ws, m);
     ui.ok(`${made.resumed ? 'Updated' : 'Created'} semantic model ${made.name}`);
     m.bound = false;
-  } else if (o.force || m.signature !== signature) {
+  } else if (deployed) {
+    if (unsettled && !o.force && m.signature === signature) ui.note(`${m.name}'s last update may not have finished, so applying it again.`);
     await replaceDefinition(ctx, ws, m, definition);
     m.bound = false;
     ui.ok(`Updated semantic model ${m.name}`);
@@ -468,30 +530,64 @@ async function startRefresh(ctx, m) {
 }
 
 /**
- * Takes back a model's reload obligation once a refresh that started after its definition changed has finished.
+ * Takes back a model's reload obligation after a refresh that counts as its reload (see
+ * countsAsReload) finished cleanly.
  * @param {Ctx} ctx
  * @param {import('../config.js').ModelConfig} m
- * @param {string | undefined} startedAt  When the refresh started; undefined for one this run started, which is after.
+ * @param {string} requestId
+ * @param {string} [startedAt]  When it started, for one the installer didn't start.
  */
-export function reloaded(ctx, m, startedAt) {
-  if (!m.reload) return false;
-  if (startedAt !== undefined && !(Date.parse(startedAt) >= Date.parse(m.reload.since))) return false;
+export function reloaded(ctx, m, requestId, startedAt) {
+  if (!countsAsReload(m, requestId, startedAt)) return false;
   delete m.reload;
   ctx.save();
   return true;
 }
 
 /**
- * Whether the model's latest refresh started after its definition changed and finished. That's the
- * pipeline's, after a run this command waited for.
+ * A refresh's Warning and Error messages, from its details.
+ * @param {any} r
+ */
+const refreshProblems = (r) => (r?.messages ?? []).filter((/** @type {any} */ m) => m?.type === 'Warning' || m?.type === 'Error');
+/** @param {any} r */
+const refreshState = (r) => r?.extendedStatus ?? r?.status;
+
+/**
+ * Whether the model has reloaded since its definition changed, judged from its latest refreshes
+ * (the pipeline's, after a run this command waited for). Every refresh since the change (see
+ * afterChange) has to have finished cleanly by its own details, by the same rule a refresh the
+ * installer waits for is held to; one that failed, even under a later one that didn't, means not.
  * @param {Ctx} ctx
  * @param {import('../config.js').ModelConfig} m
  */
 export async function confirmReloaded(ctx, m) {
   if (!m.reload || !m.id) return !m.reload;
-  const latest = (await ctx.api.powerBi.refreshes(/** @type {string} */ (ctx.config.fabric.workspaceId), m.id, 1).catch(() => []))[0];
-  if (latest?.status !== 'Completed' || !latest.startTime) return false;
-  return reloaded(ctx, m, latest.startTime);
+  if (m.reload.unsettled) return false;
+  const { api } = ctx;
+  const ws = /** @type {string} */ (ctx.config.fabric.workspaceId);
+  const rows = (await api.powerBi.refreshes(ws, m.id, RECENT_REFRESHES).catch(() => [])).slice(0, RECENT_REFRESHES);
+  /** @type {any[]} */
+  const since = [];
+  for (const row of rows) {
+    if (!afterChange(m, row?.requestId, row?.startTime)) break;
+    since.push(row);
+  }
+  if (!since.length) return false;
+  for (const row of since) {
+    if (m.reload.failed?.includes(row.requestId)) return false;
+    if (row.status !== 'Completed') {
+      if (REFRESH_FINAL.has(row.status)) reloadFailed(ctx, m, row.requestId);
+      return false;
+    }
+    const detail = await api.powerBi.getRefresh(ws, m.id, row.requestId).catch(() => null);
+    if (refreshState(detail) !== 'Completed' || refreshProblems(detail).length) {
+      if (REFRESH_FINAL.has(refreshState(detail))) reloadFailed(ctx, m, row.requestId);
+      return false;
+    }
+  }
+  delete m.reload;
+  ctx.save();
+  return true;
 }
 
 /**
@@ -503,7 +599,8 @@ export async function confirmReloaded(ctx, m) {
 
 /**
  * Reloads the models still owed one (see pendingReloads), whichever command replaced them. Only a
- * finished refresh that started after the change takes an obligation back. Not ok when one can't be
+ * clean refresh that counts as the reload (see countsAsReload) takes an obligation back, and a
+ * change that may not have finished has to be applied again first. Not ok when one can't be
  * refreshed, its refresh failed, or `wait` is set and it hasn't finished yet; `pending` names the
  * ones still reloading.
  * @param {Ctx} ctx
@@ -517,7 +614,10 @@ export async function settleReloads(ctx, opts) {
   const pending = [];
   let ok = true;
   for (const m of owed) {
-    if (!opts.reachable(m)) {
+    if (m.reload?.unsettled) {
+      ui.fail(`${m.name}'s last update may not have finished, so it can't be reloaded yet. Run the installer again to apply it and then reload it.`);
+      ok = false;
+    } else if (!opts.reachable(m)) {
       ui.fail(`${m.name} needs reloading after its update, but isn't connected to its data, so it can't be refreshed yet.`);
       ok = false;
     } else if (opts.load === 'running') {
@@ -564,6 +664,11 @@ export async function refreshModel(ctx, opts = {}) {
   }
   const { requestId, startedAt } = await startRefresh(ctx, sm);
   ui.ok(`Started a refresh of ${sm.name}`);
+  // One it started after the change settled can be the model's reload, whenever it's checked.
+  if (startedAt === undefined && sm.reload && !sm.reload.unsettled) {
+    sm.reload.ours = requestId;
+    ctx.save();
+  }
   if (opts.wait === false) return { ok: true, status: 'Unknown' };
 
   const progress = ui.progress('Refresh');
@@ -574,7 +679,7 @@ export async function refreshModel(ctx, opts = {}) {
   try {
     for (;;) {
       r = await api.powerBi.getRefresh(ws, sm.id, requestId).catch((err) => (status(err) === 404 ? null : Promise.reject(err)));
-      const state = r?.extendedStatus ?? r?.status ?? 'NotStarted';
+      const state = refreshState(r) ?? 'NotStarted';
       progress.update(state);
       if (REFRESH_FINAL.has(state) || Date.now() > deadline) break;
       await ctx.sleep(REFRESH_POLL_MS);
@@ -582,16 +687,17 @@ export async function refreshModel(ctx, opts = {}) {
   } finally {
     took = progress.done();
   }
-  const state = r?.extendedStatus ?? r?.status;
+  const state = refreshState(r);
   // A calculated table whose DAX doesn't parse is only a Warning, and the refresh still ends
   // Completed. Nothing that depends on it is calculated and report pages fail, so it's a failure.
-  const problems = (r?.messages ?? []).filter((/** @type {any} */ m) => m?.type === 'Warning' || m?.type === 'Error');
+  const problems = refreshProblems(r);
   if (state === 'Completed' && !problems.length) {
     ui.ok(`${sm.name} refreshed in ${formatDuration(took)}`);
-    reloaded(ctx, sm, startedAt);
+    reloaded(ctx, sm, requestId, startedAt);
     return { ok: true, status: state };
   }
   if (REFRESH_FINAL.has(state)) {
+    reloadFailed(ctx, sm, requestId);
     ui.fail(state === 'Completed' ? `${sm.name} refreshed, but Power BI reported problems, so parts of it weren't calculated` : `The refresh ended as ${state}`);
     for (const m of (problems.length ? problems : r?.messages ?? []).slice(0, 3)) ui.info(String(m.message ?? m).slice(0, 600));
     if (r?.serviceExceptionJson) ui.info(String(r.serviceExceptionJson).slice(0, 600));
