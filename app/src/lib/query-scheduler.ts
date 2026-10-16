@@ -5,6 +5,8 @@
 // </copyright>
 //-----------------------------------------------------------------------
 import { FabricApiProxyError, type IFabricApiProxy } from "@microsoft/fabric-app-data";
+// The copy of Arrow the SDK reads answers with, so its codecs apply here too.
+import { RecordBatchReader, tableFromIPC } from "apache-arrow";
 import { currentPriority, type QueryPriority } from "@/lib/query-priority";
 
 /**
@@ -26,12 +28,21 @@ export interface QuerySchedulerOptions {
     lowConcurrency?: number;
     /** Queries started in any 60 seconds, held under Power BI's 120 per user. */
     perMinute?: number;
-    /** Retries for a throttled query before it gives up. */
+    /** Throttled tries of one query before it gives up, if `maxWaitMs` hasn't run out first. */
     maxRetries?: number;
-    /** The first backoff, doubled for each retry when Power BI sends no Retry-After. */
+    /** The first backoff, doubled for each throttled reply in a row when Power BI sends no Retry-After. */
     baseDelayMs?: number;
-    /** The longest Retry-After worth waiting for; longer gives up at once. */
-    maxRetryAfterMs?: number;
+    /** The longest backoff between two tries. */
+    maxDelayMs?: number;
+    /**
+     * How long a query waits on a throttled model before it gives up with the
+     * busy message. A Retry-After longer than what is left gives up at once.
+     */
+    maxWaitMs?: number;
+    /** How long background queries to a model wait after its last throttled reply. */
+    backgroundHoldMs?: number;
+    /** Where the scheduler says what it does about throttling; the browser console by default. */
+    log?: (level: "info" | "warn", message: string) => void;
     now?: () => number;
     random?: () => number;
 }
@@ -48,6 +59,30 @@ type Admit = (lane: QueryPriority) => void;
 interface Throttle {
     status: number;
     retryAfterMs: number | undefined;
+    /** Power BI's error code, when the throttle came as an error table. */
+    code?: string;
+}
+
+/** What the scheduler knows about one semantic model's limit. Power BI throttles each model on its own. */
+interface ModelState {
+    /** The start of the model's id, for the console. */
+    label: string;
+    /** No query to the model starts before this. */
+    pausedUntil: number;
+    /** Throttled replies in a row. While above zero, one query at a time tries the model. */
+    strikes: number;
+    running: number;
+    /** Background queries to the model wait until this... */
+    heldUntil: number;
+    /** ...and until a query on screen to it succeeds. */
+    awaitingSuccess: boolean;
+    holding: boolean;
+    timer: ReturnType<typeof setTimeout> | undefined;
+}
+
+/** When one query first had to wait on its model, for the cap on how long it waits. */
+interface Wait {
+    since: number | undefined;
 }
 
 /** A Retry-After header or field as milliseconds: seconds, or an HTTP date. */
@@ -61,6 +96,8 @@ export function parseRetryAfter(value: string | null | undefined, now = Date.now
 
 const RETRY_AFTER_TEXT = /retry[-_\s]?after["'\s:=]*(\d+(?:\.\d+)?)/i;
 const THROTTLE_TEXT = /too many requests|rate[-\s]?limit|throttl/i;
+/** An error code short and plain enough to print. */
+const CODE_TEXT = /^[\w.-]{1,64}$/;
 
 function retryAfterOf(error: unknown): number | undefined {
     const carried = (error as { retryAfterMs?: unknown }).retryAfterMs;
@@ -70,15 +107,23 @@ function retryAfterOf(error: unknown): number | undefined {
     return match ? Math.round(Number(match[1]) * 1000) : undefined;
 }
 
+function throttle(status: number, error: unknown): Throttle {
+    const found: Throttle = { status, retryAfterMs: retryAfterOf(error) };
+    const code = (error as { errorCode?: unknown }).errorCode;
+    if (typeof code === "string" && CODE_TEXT.test(code)) found.code = code;
+    return found;
+}
+
 /** Whether a proxy error is Power BI or the capacity asking the app to slow down. */
 export function throttleOf(error: unknown): Throttle | undefined {
     if (error instanceof FabricApiProxyError) {
-        if (error.status === 429 || error.status === 503) return { status: error.status, retryAfterMs: retryAfterOf(error) };
-        return undefined;
+        if (error.status === 429 || error.status === 503) return throttle(error.status, error);
+        // A rate limit says so, whatever status it came with.
+        return THROTTLE_TEXT.test(error.message) ? throttle(429, error) : undefined;
     }
     if (!(error instanceof Error)) return undefined;
     const cause = (error as { cause?: { code?: unknown } }).cause;
-    if (cause?.code === "RATE_LIMITED" || THROTTLE_TEXT.test(error.message)) return { status: 429, retryAfterMs: retryAfterOf(error) };
+    if (cause?.code === "RATE_LIMITED" || THROTTLE_TEXT.test(error.message)) return throttle(429, error);
     return undefined;
 }
 
@@ -89,7 +134,7 @@ export function isBusyMessage(message: string | undefined): boolean {
 }
 
 function busyError(error: unknown, throttle: Throttle): FabricApiProxyError {
-    const source = error as { requestId?: string; sessionId?: string; body?: string };
+    const source = (error ?? {}) as { requestId?: string; sessionId?: string; body?: string };
     return new FabricApiProxyError({
         status: throttle.status,
         requestId: source.requestId ?? "",
@@ -99,20 +144,77 @@ function busyError(error: unknown, throttle: Throttle): FabricApiProxyError {
     });
 }
 
+/** The error Power BI sends in place of an answer, still with HTTP 200. */
+export interface ReplyError {
+    code: string;
+    message: string;
+}
+
+const ERROR_COLUMNS = ["ErrorCode", "ErrorMessage", "ErrorDescription"];
+/** An error table is a few kilobytes, so a larger answer isn't read twice. */
+const ERROR_TABLE_MAX_BYTES = 64 * 1024;
+
+/** Reads an Arrow answer's error table the way the SDK does: the three error columns, first row. */
+export function arrowErrorOf(data: ArrayBuffer | undefined): ReplyError | undefined {
+    const size = data?.byteLength;
+    if (typeof size !== "number" || size === 0 || size > ERROR_TABLE_MAX_BYTES) return undefined;
+    try {
+        const bytes = new Uint8Array(data!);
+        const reader = RecordBatchReader.from(bytes);
+        reader.open();
+        const names = new Set((reader.schema?.fields ?? []).map((field) => field.name));
+        if (!ERROR_COLUMNS.every((column) => names.has(column))) return undefined;
+        const row = (tableFromIPC(bytes).get(0)?.toJSON() ?? {}) as Record<string, unknown>;
+        return { code: String(row.ErrorCode ?? ""), message: String(row.ErrorMessage ?? "") };
+    } catch {
+        // Not something this can read: the SDK reports it as it always has.
+        return undefined;
+    }
+}
+
+interface JsonError {
+    code?: unknown;
+    message?: unknown;
+}
+
+/** Reads a JSON answer's error the way the SDK does: the body's, the result's, then the table's. */
+export function jsonErrorOf(data: unknown): ReplyError | undefined {
+    const body = data as { error?: JsonError; results?: Array<{ error?: JsonError; tables?: Array<{ error?: JsonError }> }> } | null;
+    const result = body?.results?.[0];
+    const error = [body?.error, result?.error, result?.tables?.[0]?.error].find((found) => found?.message || found?.code);
+    return error ? { code: String(error.code ?? ""), message: String(error.message ?? "") } : undefined;
+}
+
+/** A throttle sent as an error in an HTTP 200, as the 429 it means, so it is retried and never cached. */
+export function throttledReply(found: ReplyError | undefined, requestId: string): FabricApiProxyError | undefined {
+    if (!found || !THROTTLE_TEXT.test(`${found.code} ${found.message}`)) return undefined;
+    const message = found.message || found.code;
+    return Object.assign(new FabricApiProxyError({ status: 429, requestId, sessionId: "", body: message, message }), {
+        errorCode: found.code,
+    });
+}
+
+const seconds = (ms: number) => (ms / 1000).toFixed(ms < 10_000 ? 1 : 0);
+
 /**
  * Paces the app's semantic model queries so a page load can't trip Power
  * BI's per-user limit or swamp a busy capacity: a few in flight at once,
- * under 90 a minute, and identical queries in flight share one request. A
- * throttled query waits — as long as Retry-After asks, else an exponential
- * backoff with jitter — and every other query waits with it, so the app
- * stops sending while Power BI is catching up.
+ * under 90 a minute, and identical queries in flight share one request.
+ *
+ * Power BI throttles each model on its own, so a throttle pauses only the
+ * model that sent it; queries to other models carry on. Its queries wait —
+ * as long as Retry-After asks, else an exponential backoff with jitter —
+ * then one at a time tries the model until it answers. A query that has
+ * waited on the model for `maxWaitMs` gives up with the busy message.
  *
  * Background queries — pages fetched ahead of a visit — run in a lane of
  * their own: one at a time in a slot of its own, only while nothing on
  * screen is running or waiting, and on half the per-minute budget. Asking
  * for one in the foreground moves it to the front lane, even while it waits
  * for budget. One that waited checks again that the screen is quiet before
- * it starts, and if not, gives its slot back and queues again.
+ * it starts, and if not, gives its slot back and queues again. After a
+ * throttle, background queries to that model wait `backgroundHoldMs`, and
+ * until a query on screen to it succeeds.
  */
 export class QueryScheduler {
     private readonly concurrency: number;
@@ -120,7 +222,10 @@ export class QueryScheduler {
     private readonly perMinute: number;
     private readonly maxRetries: number;
     private readonly baseDelayMs: number;
-    private readonly maxRetryAfterMs: number;
+    private readonly maxDelayMs: number;
+    private readonly maxWaitMs: number;
+    private readonly backgroundHoldMs: number;
+    private readonly log: (level: "info" | "warn", message: string) => void;
     private readonly now: () => number;
     private readonly random: () => number;
 
@@ -129,10 +234,11 @@ export class QueryScheduler {
     private readonly waiting: Admit[] = [];
     private readonly lowWaiting: Array<{ key: string; admit: Admit }> = [];
     private readonly lanes = new Map<string, QueryPriority>();
+    private readonly keyModels = new Map<string, ModelState>();
+    private readonly models = new Map<string, ModelState>();
     private readonly listeners = new Set<() => void>();
     private finished = 0;
     private readonly starts: number[] = [];
-    private pausedUntil = 0;
     private readonly inFlight = new Map<string, Promise<unknown>>();
     private readonly naps = new Map<string, () => void>();
 
@@ -140,24 +246,35 @@ export class QueryScheduler {
         this.concurrency = options.concurrency ?? 4;
         this.lowConcurrency = options.lowConcurrency ?? 1;
         this.perMinute = options.perMinute ?? 90;
-        this.maxRetries = options.maxRetries ?? 3;
+        this.maxRetries = options.maxRetries ?? 10;
         this.baseDelayMs = options.baseDelayMs ?? 1000;
-        this.maxRetryAfterMs = options.maxRetryAfterMs ?? 60_000;
+        this.maxDelayMs = options.maxDelayMs ?? 15_000;
+        // Power BI has sent no Retry-After, and how soon a throttled model recovers hasn't been
+        // measured; a minute is a guess to tune once it is.
+        this.maxWaitMs = options.maxWaitMs ?? 60_000;
+        this.backgroundHoldMs = options.backgroundHoldMs ?? 60_000;
+        this.log = options.log ?? ((level, message) => console[level](message));
         this.now = options.now ?? Date.now;
         this.random = options.random ?? Math.random;
     }
 
-    /** Runs `task`, or joins the identical one already in flight under `key`. */
-    run<T>(key: string, task: () => Promise<T>, priority: QueryPriority = "normal"): Promise<T> {
+    /**
+     * Runs `task`, or joins the identical one already in flight under `key`.
+     * `model` names the semantic model it asks, which a throttle pauses on its own.
+     */
+    run<T>(key: string, task: () => Promise<T>, priority: QueryPriority = "normal", model = ""): Promise<T> {
         const existing = this.inFlight.get(key);
         if (existing) {
             if (priority === "normal") this.promote(key);
             return existing as Promise<T>;
         }
+        const state = this.modelState(model);
         this.lanes.set(key, priority);
-        const promise = this.attempt(key, task).finally(() => {
+        this.keyModels.set(key, state);
+        const promise = this.attempt(key, task, state).finally(() => {
             this.inFlight.delete(key);
             this.lanes.delete(key);
+            this.keyModels.delete(key);
             this.finished++;
             this.notify();
         });
@@ -183,6 +300,24 @@ export class QueryScheduler {
         for (const listener of this.listeners) listener();
     }
 
+    private modelState(id: string): ModelState {
+        let state = this.models.get(id);
+        if (!state) {
+            state = {
+                label: id.split("/").pop()!.slice(0, 8) || "default",
+                pausedUntil: 0,
+                strikes: 0,
+                running: 0,
+                heldUntil: 0,
+                awaitingSuccess: false,
+                holding: false,
+                timer: undefined,
+            };
+            this.models.set(id, state);
+        }
+        return state;
+    }
+
     /** Someone is now looking at what a background query fetches, so it joins the front lane. */
     private promote(key: string): void {
         if (this.lanes.get(key) !== "low") return;
@@ -199,38 +334,145 @@ export class QueryScheduler {
         this.notify();
     }
 
-    private async attempt<T>(key: string, task: () => Promise<T>): Promise<T> {
+    private async attempt<T>(key: string, task: () => Promise<T>, model: ModelState): Promise<T> {
+        const wait: Wait = { since: undefined };
         for (let retry = 0; ; retry++) {
-            const lane = await this.acquire(key);
+            const lane = await this.acquire(key, model, wait);
             let failure: unknown;
+            let throttle: Throttle | undefined;
             try {
-                return await task();
+                const result = await task();
+                this.answered(key, model);
+                return result;
             } catch (error) {
                 failure = error;
+                throttle = throttleOf(error);
+                // Before the slot goes back, so no query to the model starts in between.
+                if (throttle) this.throttled(model, throttle);
             } finally {
+                model.running--;
                 this.release(lane);
+                this.wakeModel(model);
             }
-            const throttle = throttleOf(failure);
             if (!throttle) throw failure;
-            if (retry >= this.maxRetries || (throttle.retryAfterMs ?? 0) > this.maxRetryAfterMs)
-                throw busyError(failure, throttle);
-            this.pausedUntil = Math.max(this.pausedUntil, this.now() + this.delay(retry, throttle.retryAfterMs));
+            const now = this.now();
+            wait.since ??= now;
+            const left = wait.since + this.maxWaitMs - now;
+            if (retry >= this.maxRetries || left <= 0 || (throttle.retryAfterMs ?? 0) > left)
+                throw this.giveUp(model, wait, failure, throttle);
         }
     }
 
-    private delay(retry: number, retryAfterMs: number | undefined): number {
-        if (retryAfterMs !== undefined) return retryAfterMs + Math.round(this.random() * 250);
-        const backoff = this.baseDelayMs * 2 ** retry;
+    private giveUp(model: ModelState, wait: Wait, failure: unknown, throttle: Throttle): FabricApiProxyError {
+        const now = this.now();
+        this.log(
+            "warn",
+            `Analytics Hub: model ${model.label} is still throttling after ${seconds(now - (wait.since ?? now))} s, so a card shows "Power BI is busy".`,
+        );
+        return busyError(failure, throttle);
+    }
+
+    /** A throttled reply pauses its model and holds its background queries. */
+    private throttled(model: ModelState, throttle: Throttle): void {
+        const now = this.now();
+        if (now >= model.pausedUntil) {
+            const pause = this.delay(model.strikes, throttle.retryAfterMs);
+            model.strikes++;
+            model.pausedUntil = now + pause;
+            const code = throttle.code ? `, ${throttle.code}` : "";
+            this.log(
+                "warn",
+                `Analytics Hub: Power BI throttled a query to model ${model.label} (HTTP ${throttle.status}${code}), ${model.strikes} in a row. ` +
+                    `Its queries wait ${seconds(pause)} s, then try it one at a time.`,
+            );
+        } else if (throttle.retryAfterMs !== undefined) {
+            // A reply to a query sent before the pause began may ask for longer.
+            model.pausedUntil = Math.max(model.pausedUntil, now + Math.min(throttle.retryAfterMs, this.maxWaitMs));
+        }
+        model.heldUntil = Math.max(model.heldUntil, now + this.backgroundHoldMs);
+        model.awaitingSuccess = true;
+        if (!model.holding) {
+            model.holding = true;
+            this.log(
+                "info",
+                `Analytics Hub: background loading from model ${model.label} paused for at least ${seconds(this.backgroundHoldMs)} s, and until it answers a query on screen.`,
+            );
+        }
+        clearTimeout(model.timer);
+        model.timer = setTimeout(() => {
+            model.timer = undefined;
+            this.resumeIfClear(model);
+        }, model.heldUntil - now);
+    }
+
+    private answered(key: string, model: ModelState): void {
+        if (model.strikes > 0) {
+            model.strikes = 0;
+            this.log("info", `Analytics Hub: model ${model.label} is answering again.`);
+        }
+        if (this.lanes.get(key) !== "low") model.awaitingSuccess = false;
+        this.resumeIfClear(model);
+    }
+
+    private resumeIfClear(model: ModelState): void {
+        if (!model.holding || this.held(model)) return;
+        model.holding = false;
+        this.log("info", `Analytics Hub: background loading from model ${model.label} resumed.`);
+        this.drainLow();
+    }
+
+    /** Background queries to the model wait. */
+    private held(model: ModelState): boolean {
+        return model.awaitingSuccess || this.now() < model.heldUntil;
+    }
+
+    /** No query to the model may start: it is paused, or a query is already trying it. */
+    private blocked(model: ModelState, now = this.now()): boolean {
+        return now < model.pausedUntil || (model.strikes > 0 && model.running > 0);
+    }
+
+    /** Wakes every query napping on the model, to look at it again. */
+    private wakeModel(model: ModelState): void {
+        for (const [key, state] of this.keyModels) if (state === model) this.naps.get(key)?.();
+    }
+
+    private delay(strikes: number, retryAfterMs: number | undefined): number {
+        if (retryAfterMs !== undefined) return Math.min(retryAfterMs, this.maxWaitMs) + Math.round(this.random() * 250);
+        const backoff = Math.min(this.maxDelayMs, this.baseDelayMs * 2 ** strikes);
         return Math.round(backoff / 2 + this.random() * (backoff / 2));
     }
 
-    private async acquire(key: string): Promise<QueryPriority> {
+    private async acquire(key: string, model: ModelState, wait: Wait): Promise<QueryPriority> {
         for (let again = false; ; again = true) {
+            if (this.blocked(model)) await this.modelClear(key, model, wait);
             const lane = await (this.lanes.get(key) === "low" ? this.admitLow(key, again) : this.admitNormal());
-            if (await this.takeStart(key, lane)) return lane;
-            // Asked for on screen, or the screen got busy while it waited: give the background slot back.
-            this.lowActive--;
+            if (await this.takeStart(key, lane, model)) return lane;
+            this.giveBack(key, lane);
         }
+    }
+
+    /** Waits, holding no slot, until the model may be tried; gives up once the query has waited too long. */
+    private async modelClear(key: string, model: ModelState, wait: Wait): Promise<void> {
+        for (;;) {
+            const now = this.now();
+            if (!this.blocked(model, now)) return;
+            wait.since ??= now;
+            const left = wait.since + this.maxWaitMs - now;
+            if (left <= 0) throw this.giveUp(model, wait, undefined, { status: 429, retryAfterMs: undefined });
+            // Until the pause ends, or until the query trying the model settles and wakes it.
+            await this.nap(key, now < model.pausedUntil ? Math.min(left, model.pausedUntil - now) : left);
+        }
+    }
+
+    /** Gives back a slot taken for a start that didn't happen. */
+    private giveBack(key: string, lane: QueryPriority): void {
+        if (lane === "normal") {
+            this.release("normal");
+            return;
+        }
+        this.lowActive--;
+        // Not once it is asked for on screen, so no background query starts ahead of it.
+        if (this.lanes.get(key) === "low") this.drainLow();
     }
 
     private admitNormal(): Promise<QueryPriority> {
@@ -242,7 +484,7 @@ export class QueryScheduler {
     }
 
     private admitLow(key: string, front = false): Promise<QueryPriority> {
-        if (this.lowCanStart()) {
+        if (this.lowCanStart(key)) {
             this.lowActive++;
             return Promise.resolve("low");
         }
@@ -252,9 +494,13 @@ export class QueryScheduler {
         });
     }
 
-    /** Background work starts only when nothing on screen is running or waiting. */
-    private lowCanStart(): boolean {
-        return this.active === 0 && this.waiting.length === 0 && this.lowActive < this.lowConcurrency;
+    private screenQuiet(): boolean {
+        return this.active === 0 && this.waiting.length === 0;
+    }
+
+    /** Background work starts only when nothing on screen is running or waiting, and its model isn't held. */
+    private lowCanStart(key: string): boolean {
+        return this.screenQuiet() && this.lowActive < this.lowConcurrency && !this.held(this.keyModels.get(key)!);
     }
 
     /** Hands the slot straight to the next query in line, so it can't be taken past it. */
@@ -265,30 +511,41 @@ export class QueryScheduler {
             this.active++;
             this.waiting.shift()!("normal");
         }
-        while (this.lowWaiting.length > 0 && this.lowCanStart()) {
+        this.drainLow();
+    }
+
+    /** Starts the background queries first in line whose model isn't held. */
+    private drainLow(): void {
+        let index = 0;
+        while (index < this.lowWaiting.length && this.screenQuiet() && this.lowActive < this.lowConcurrency) {
+            const entry = this.lowWaiting[index];
+            if (this.held(this.keyModels.get(entry.key)!)) {
+                index++;
+                continue;
+            }
+            this.lowWaiting.splice(index, 1);
             this.lowActive++;
-            this.lowWaiting.shift()!.admit("low");
+            entry.admit("low");
         }
     }
 
     /**
-     * Takes a start from the per-minute budget. A background query says no
-     * instead, at every wake, once it is asked for on screen or the screen is
-     * no longer quiet.
+     * Takes a start from the per-minute budget. It says no instead, at every
+     * wake, once the model is paused or being tried; a background query also
+     * says no once it is asked for on screen, the screen is no longer quiet,
+     * or its model is held.
      */
-    private async takeStart(key: string, lane: QueryPriority): Promise<boolean> {
+    private async takeStart(key: string, lane: QueryPriority, model: ModelState): Promise<boolean> {
         // Background work leaves half the per-minute budget for what is on screen.
         const budget = lane === "low" ? Math.max(1, Math.floor(this.perMinute / 2)) : this.perMinute;
         for (;;) {
             if (lane === "low" && !this.backgroundMayStart(key)) return false;
             const now = this.now();
-            if (now < this.pausedUntil) {
-                await this.nap(key, this.pausedUntil - now);
-                continue;
-            }
+            if (this.blocked(model, now)) return false;
             while (this.starts.length > 0 && now - this.starts[0] >= WINDOW_MS) this.starts.shift();
             if (this.starts.length < budget) {
                 this.starts.push(now);
+                model.running++;
                 return true;
             }
             await this.nap(key, this.starts[0] + WINDOW_MS - now);
@@ -296,10 +553,10 @@ export class QueryScheduler {
     }
 
     private backgroundMayStart(key: string): boolean {
-        return this.lanes.get(key) === "low" && this.active === 0 && this.waiting.length === 0;
+        return this.lanes.get(key) === "low" && this.screenQuiet() && !this.held(this.keyModels.get(key)!);
     }
 
-    /** Sleeps, or wakes early when `key` moves to the front lane. */
+    /** Sleeps, or wakes early when `key` moves to the front lane or its model may have cleared. */
     private nap(key: string, ms: number): Promise<void> {
         return new Promise((resolve) => {
             const wake = () => {
@@ -315,7 +572,9 @@ export class QueryScheduler {
 
 /**
  * The SDK's proxy with every DAX request paced by `scheduler`. It sits under
- * the SDK's result cache, so a cached answer costs nothing against the limit.
+ * the SDK's result cache, so a cached answer costs nothing against the limit,
+ * and a throttle Power BI sends as an error in an HTTP 200 is retried here
+ * rather than cached.
  */
 export function scheduledProxy(inner: IFabricApiProxy, scheduler = new QueryScheduler()): IFabricApiProxy {
     return {
@@ -323,14 +582,26 @@ export function scheduledProxy(inner: IFabricApiProxy, scheduler = new QuerySche
             executeDax: (workspaceId, itemId, query, options) =>
                 scheduler.run(
                     ["arrow", workspaceId, itemId, query, JSON.stringify(options ?? {})].join("\0"),
-                    () => inner.semanticModel.executeDax(workspaceId, itemId, query, options),
+                    async () => {
+                        const response = await inner.semanticModel.executeDax(workspaceId, itemId, query, options);
+                        const throttled = throttledReply(arrowErrorOf(response?.data), response?.requestId ?? "");
+                        if (throttled) throw throttled;
+                        return response;
+                    },
                     currentPriority(),
+                    `${workspaceId}/${itemId}`,
                 ),
             executeDaxJson: (workspaceId, itemId, query) =>
                 scheduler.run(
                     ["json", workspaceId, itemId, query].join("\0"),
-                    () => inner.semanticModel.executeDaxJson(workspaceId, itemId, query),
+                    async () => {
+                        const response = await inner.semanticModel.executeDaxJson(workspaceId, itemId, query);
+                        const throttled = throttledReply(jsonErrorOf(response?.data), response?.requestId ?? "");
+                        if (throttled) throw throttled;
+                        return response;
+                    },
                     currentPriority(),
+                    `${workspaceId}/${itemId}`,
                 ),
         },
         lakehouse: inner.lakehouse,

@@ -4,17 +4,41 @@
 //        Licensed under the MIT license. See LICENSE file in the project root for full license information.
 // </copyright>
 //-----------------------------------------------------------------------
-import { FabricApiProxyError, FabricGenericProxyError, type IFabricApiProxy } from "@microsoft/fabric-app-data";
+import {
+    FabricApiProxyError,
+    FabricClient,
+    FabricGenericProxyError,
+    type FabricClientConfig,
+    type IFabricApiProxy,
+} from "@microsoft/fabric-app-data";
+import {
+    Bool,
+    CompressionType,
+    Field,
+    Int64,
+    RecordBatch,
+    RecordBatchStreamWriter,
+    Schema,
+    Table,
+    tableFromArrays,
+    tableToIPC,
+    Utf8,
+    vectorFromArray,
+} from "apache-arrow";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { withPriority } from "@/lib/query-priority";
 import {
+    arrowErrorOf,
     BUSY_MESSAGE,
     isBusyMessage,
+    jsonErrorOf,
     parseRetryAfter,
     QueryScheduler,
     scheduledProxy,
+    throttledReply,
     throttleOf,
 } from "@/lib/query-scheduler";
+import realErrorTable from "@/lib/__fixtures__/power-bi-error-table.json";
 
 function apiError(status: number, body = "", message = `HTTP ${status}`) {
     return new FabricApiProxyError({ status, requestId: "r", sessionId: "s", body, message });
@@ -31,13 +55,56 @@ function deferred<T = string>() {
     return { promise, resolve, reject };
 }
 
+/**
+ * An error table as Power BI sends one in an HTTP 200: the error columns
+ * first, the fault in the schema's metadata, LZ4-compressed.
+ */
+function errorTable(code: string, message: string): ArrayBuffer {
+    const schema = new Schema(
+        [
+            new Field("ErrorCode", new Utf8()),
+            new Field("ErrorMessage", new Utf8()),
+            new Field("ErrorDescription", new Utf8()),
+            new Field("ErrorType", new Int64()),
+            new Field("IsPrimaryErrorCode", new Bool()),
+        ],
+        new Map([
+            ["IsError", "true"],
+            ["FaultString", message],
+        ]),
+    );
+    const columns = new Table({
+        ErrorCode: vectorFromArray([code], new Utf8()),
+        ErrorMessage: vectorFromArray([message], new Utf8()),
+        ErrorDescription: vectorFromArray([message], new Utf8()),
+        ErrorType: vectorFromArray([1n], new Int64()),
+        IsPrimaryErrorCode: vectorFromArray([true], new Bool()),
+    });
+    const table = new Table(schema, columns.batches.map((batch) => new RecordBatch(schema, batch.data)));
+    const bytes = new RecordBatchStreamWriter({ compressionType: CompressionType.LZ4_FRAME }).writeAll(table).toUint8Array(true);
+    return bytes.slice().buffer;
+}
+
+const THROTTLED = "Too many requests were sent to this model. Try again later.";
+
+function answerTable(value = 1): ArrayBuffer {
+    return tableToIPC(tableFromArrays({ Value: Int32Array.of(value) }), "stream").slice().buffer;
+}
+
+function fromBase64(text: string): ArrayBuffer {
+    return Uint8Array.from(atob(text), (char) => char.charCodeAt(0)).buffer;
+}
+
 beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-07-01T10:00:00Z"));
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.spyOn(console, "info").mockImplementation(() => {});
 });
 
 afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
 });
 
 describe("parseRetryAfter", () => {
@@ -78,6 +145,45 @@ describe("throttleOf", () => {
         const limited = new FabricGenericProxyError({ message: "Request failed", cause: { code: "RATE_LIMITED" } });
         expect(throttleOf(limited)?.status).toBe(429);
         expect(throttleOf(new Error("Too many requests"))?.status).toBe(429);
+    });
+
+    it("spots a rate limit by what it says, whatever its status, and keeps a printable code", () => {
+        expect(throttleOf(apiError(400, "", "Rate limit exceeded"))?.status).toBe(429);
+        expect(throttleOf(Object.assign(apiError(429), { errorCode: "3238002688" }))?.code).toBe("3238002688");
+        expect(throttleOf(Object.assign(apiError(429), { errorCode: "<b>not a code</b>" }))?.code).toBeUndefined();
+    });
+});
+
+describe("reading a throttle sent in an HTTP 200", () => {
+    it("reads Power BI's error table, compressed as it sends it", () => {
+        const found = arrowErrorOf(errorTable("3238002688", THROTTLED));
+        expect(found).toEqual({ code: "3238002688", message: THROTTLED });
+        expect(throttledReply(found, "req")).toMatchObject({ status: 429, requestId: "req", message: THROTTLED, errorCode: "3238002688" });
+    });
+
+    it("reads a real error table, and leaves a real query error alone", () => {
+        const found = arrowErrorOf(fromBase64(realErrorTable.base64));
+        expect(found?.code).toBe("3241803779");
+        expect(found?.message).toMatch(/^Query \(5, 59\) Cannot find table/);
+        expect(throttledReply(found, "req")).toBeUndefined();
+    });
+
+    it("leaves answers, empty replies and what it can't read to the SDK", () => {
+        expect(arrowErrorOf(answerTable())).toBeUndefined();
+        expect(arrowErrorOf(new ArrayBuffer(0))).toBeUndefined();
+        expect(arrowErrorOf(new Uint8Array([1, 2, 3, 4, 5, 6, 7, 8]).buffer)).toBeUndefined();
+        expect(arrowErrorOf(new ArrayBuffer(64 * 1024 + 1))).toBeUndefined();
+        expect(arrowErrorOf(undefined)).toBeUndefined();
+    });
+
+    it("reads a JSON error where the SDK does", () => {
+        expect(jsonErrorOf({ error: { code: "TooManyRequests", message: THROTTLED } })).toEqual({ code: "TooManyRequests", message: THROTTLED });
+        expect(jsonErrorOf({ results: [{ error: { message: THROTTLED } }] })).toEqual({ code: "", message: THROTTLED });
+        expect(jsonErrorOf({ results: [{ tables: [{ error: { code: "Throttled" } }] }] })).toEqual({ code: "Throttled", message: "" });
+        expect(jsonErrorOf({ results: [{ tables: [{ rows: [{ "[Value]": 1 }] }] }] })).toBeUndefined();
+        expect(jsonErrorOf(null)).toBeUndefined();
+        expect(throttledReply({ code: "Throttled", message: "" }, "req")).toMatchObject({ status: 429, message: "Throttled" });
+        expect(throttledReply({ code: "DAX", message: "The column 'X'[Y] cannot be found" }, "req")).toBeUndefined();
     });
 });
 
@@ -164,7 +270,7 @@ describe("QueryScheduler", () => {
         expect(calls.map((time) => time - calls[0])).toEqual([0, 500, 1500]);
     });
 
-    it("waits as long as Retry-After asks, and holds every other query meanwhile", async () => {
+    it("waits as long as Retry-After asks, and holds every other query to the model meanwhile", async () => {
         const scheduler = new QueryScheduler({ random: () => 0 });
         const throttled = vi
             .fn()
@@ -184,15 +290,81 @@ describe("QueryScheduler", () => {
         await expect(second).resolves.toBe("second");
     });
 
-    it("gives up with the busy message after three retries", async () => {
+    it("gives up with the busy message once a query has waited a minute on its model", async () => {
         const scheduler = new QueryScheduler({ random: () => 1 });
-        const task = vi.fn().mockRejectedValue(apiError(429, "Too many requests"));
+        const calls: number[] = [];
+        const task = vi.fn(async () => {
+            calls.push(Date.now());
+            throw apiError(429, "Too many requests");
+        });
         const result = scheduler.run("q", task);
         const settled = expect(result).rejects.toMatchObject({ status: 429, message: BUSY_MESSAGE });
-        await vi.advanceTimersByTimeAsync(1000 + 2000 + 4000);
+        await vi.advanceTimersByTimeAsync(60_000);
         await settled;
-        expect(task).toHaveBeenCalledTimes(4);
+        // Backoffs of 1, 2, 4 and 8 seconds, then never more than 15.
+        expect(calls.map((time) => (time - calls[0]) / 1000)).toEqual([0, 1, 3, 7, 15, 30, 45, 60]);
         await expect(result).rejects.toBeInstanceOf(FabricApiProxyError);
+    });
+
+    it("pauses only the model that throttled; queries to other models carry on", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const throttled = vi
+            .fn()
+            .mockRejectedValueOnce(Object.assign(apiError(429), { retryAfterMs: 5000 }))
+            .mockResolvedValueOnce("first");
+        const first = scheduler.run("a", throttled, "normal", "ws/vl");
+        await vi.advanceTimersByTimeAsync(0);
+
+        const same = vi.fn(async () => "same");
+        const other = vi.fn(async () => "other");
+        const sameModel = scheduler.run("b", same, "normal", "ws/vl");
+        await expect(scheduler.run("c", other, "normal", "ws/cc")).resolves.toBe("other");
+        expect(same).not.toHaveBeenCalled();
+
+        await vi.advanceTimersByTimeAsync(5000);
+        await expect(first).resolves.toBe("first");
+        await expect(sameModel).resolves.toBe("same");
+    });
+
+    it("tries a throttled model with one query at a time until it answers", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const gates = [deferred(), deferred(), deferred()];
+        const tasks = gates.map((gate) => vi.fn(() => gate.promise));
+        tasks[0].mockRejectedValueOnce(apiError(429));
+        const first = scheduler.run("a", tasks[0]);
+        await vi.advanceTimersByTimeAsync(0);
+        const rest = [scheduler.run("b", tasks[1]), scheduler.run("c", tasks[2])];
+        const sent = () => tasks.reduce((sum, task) => sum + task.mock.calls.length, 0) - 1;
+
+        await vi.advanceTimersByTimeAsync(499);
+        expect(sent()).toBe(0);
+        await vi.advanceTimersByTimeAsync(1);
+        await vi.advanceTimersByTimeAsync(5000);
+        expect(sent()).toBe(1);
+
+        for (const [index, gate] of gates.entries()) gate.resolve(`answer${index}`);
+        await expect(Promise.all([first, ...rest])).resolves.toEqual(["answer0", "answer1", "answer2"]);
+        expect(sent()).toBe(3);
+    });
+
+    it("says in the console what it does about a throttle", async () => {
+        const log = vi.fn();
+        const scheduler = new QueryScheduler({ random: () => 0, log });
+        const task = vi.fn().mockRejectedValueOnce(Object.assign(apiError(429), { errorCode: "3238002688" })).mockResolvedValueOnce("ok");
+        const result = scheduler.run("q", task, "normal", "ws/bde54d4a-2321-41e4-83aa-7a2b5a830457");
+        await vi.advanceTimersByTimeAsync(500);
+        await expect(result).resolves.toBe("ok");
+        expect(log.mock.calls).toEqual([
+            [
+                "warn",
+                "Analytics Hub: Power BI throttled a query to model bde54d4a (HTTP 429, 3238002688), 1 in a row. Its queries wait 0.5 s, then try it one at a time.",
+            ],
+            ["info", "Analytics Hub: background loading from model bde54d4a paused for at least 60 s, and until it answers a query on screen."],
+            ["info", "Analytics Hub: model bde54d4a is answering again."],
+        ]);
+
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(log).toHaveBeenLastCalledWith("info", "Analytics Hub: background loading from model bde54d4a resumed.");
     });
 
     it("gives up at once when Retry-After asks for longer than a minute", async () => {
@@ -377,7 +549,7 @@ describe("QueryScheduler background lane", () => {
         await expect(background).resolves.toBe("back");
     });
 
-    it("gives a background slot back when a throttle pause ends with the screen busy", async () => {
+    it("keeps a throttled background query out of the way until its model's hold ends", async () => {
         const scheduler = new QueryScheduler({ random: () => 0 });
         const back = vi.fn(async () => {
             if (back.mock.calls.length === 1) throw apiError(429);
@@ -394,8 +566,43 @@ describe("QueryScheduler background lane", () => {
 
         front.resolve("front");
         await foreground;
+        await vi.advanceTimersByTimeAsync(58_999);
+        expect(back).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
         await expect(background).resolves.toBe("back");
         expect(back).toHaveBeenCalledTimes(2);
+    });
+
+    it("holds a throttled model's background queries until one on screen succeeds; other models' carry on", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const vl = vi.fn().mockRejectedValueOnce(apiError(429)).mockResolvedValue("vl");
+        const held = scheduler.run("vl-back", vl, "low", "ws/vl");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(vl).toHaveBeenCalledTimes(1);
+
+        await expect(scheduler.run("cc-back", async () => "cc", "low", "ws/cc")).resolves.toBe("cc");
+
+        await vi.advanceTimersByTimeAsync(120_000);
+        expect(vl).toHaveBeenCalledTimes(1);
+        expect(scheduler.activity()).toMatchObject({ foreground: 0, background: 1 });
+
+        await expect(scheduler.run("vl-front", async () => "front", "normal", "ws/vl")).resolves.toBe("front");
+        await expect(held).resolves.toBe("vl");
+        expect(vl).toHaveBeenCalledTimes(2);
+    });
+
+    it("lets someone on screen ask for a held background query at once", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const vl = vi.fn().mockRejectedValueOnce(apiError(429)).mockResolvedValue("vl");
+        const held = scheduler.run("vl-back", vl, "low", "ws/vl");
+        await vi.advanceTimersByTimeAsync(1000);
+        expect(vl).toHaveBeenCalledTimes(1);
+
+        const asked = scheduler.run("vl-back", vl, "normal", "ws/vl");
+        expect(asked).toBe(held);
+        await vi.advanceTimersByTimeAsync(0);
+        await expect(asked).resolves.toBe("vl");
+        expect(vl).toHaveBeenCalledTimes(2);
     });
 
     it("tells subscribers when work starts and finishes", async () => {
@@ -450,5 +657,117 @@ describe("scheduledProxy", () => {
         const proxy = scheduledProxy(inner);
         expect(proxy.lakehouse).toBe(inner.lakehouse);
         expect(proxy.warehouse).toBe(inner.warehouse);
+    });
+});
+
+describe("a throttle sent in an HTTP 200, through the SDK", () => {
+    type Reply = { data: unknown; requestId: string };
+
+    function clientWith(replies: () => Reply, daxProtocol?: "json") {
+        const executeDax = vi.fn(async () => replies());
+        const executeDaxJson = vi.fn(async () => replies());
+        const inner = {
+            semanticModel: { executeDax, executeDaxJson },
+            lakehouse: { executeSql: vi.fn() },
+            warehouse: { executeSql: vi.fn() },
+        } as unknown as IFabricApiProxy;
+        const client = new FabricClient({
+            proxy: scheduledProxy(inner, new QueryScheduler({ random: () => 1 })),
+            semanticModels: { model: { workspaceId: "ws", itemId: "bde54d4a" } },
+            daxProtocol,
+        } as FabricClientConfig);
+        return { model: client.semanticModel("model"), executeDax, executeDaxJson };
+    }
+
+    it("retries it, and caches only the answer", async () => {
+        const replies = [errorTable("3238002688", THROTTLED), answerTable(7)];
+        const { model, executeDax } = clientWith(() => ({ data: replies.shift() ?? answerTable(), requestId: "r" }));
+        const result = model.query("EVALUATE A");
+        await vi.advanceTimersByTimeAsync(1000);
+        await expect(result).resolves.toMatchObject({ status: "success", fromCache: false });
+        expect(executeDax).toHaveBeenCalledTimes(2);
+
+        await expect(model.query("EVALUATE A")).resolves.toMatchObject({ status: "success", fromCache: true });
+        expect(executeDax).toHaveBeenCalledTimes(2);
+    });
+
+    it("shows the busy message after a minute, never caches it, and the next ask sends a real query", async () => {
+        let throttling = true;
+        const { model, executeDax } = clientWith(() => ({
+            data: throttling ? errorTable("3238002688", THROTTLED) : answerTable(),
+            requestId: "r",
+        }));
+        const result = model.query("EVALUATE A");
+        await vi.advanceTimersByTimeAsync(60_000);
+        const busy = await result;
+        expect(busy).toMatchObject({ status: "error", fromCache: false, error: { category: "api", message: BUSY_MESSAGE } });
+        expect(isBusyMessage(busy.status === "error" ? busy.error.message : "")).toBe(true);
+        expect(executeDax).toHaveBeenCalledTimes(8);
+
+        // The model stays paused for one more backoff, at most 15 s.
+        throttling = false;
+        const again = model.query("EVALUATE A");
+        await vi.advanceTimersByTimeAsync(15_000);
+        await expect(again).resolves.toMatchObject({ status: "success", fromCache: false });
+        expect(executeDax).toHaveBeenCalledTimes(9);
+    });
+
+    it("pauses only the model that throttled; another model's queries carry on", async () => {
+        let throttle = true;
+        const executeDax = vi.fn(async (_workspaceId: string, itemId: string) => {
+            const throttled = itemId === "bde54d4a" && throttle;
+            throttle &&= !throttled;
+            return { data: throttled ? errorTable("3238002688", THROTTLED) : answerTable(), requestId: "r" };
+        });
+        const inner = {
+            semanticModel: { executeDax, executeDaxJson: vi.fn() },
+            lakehouse: { executeSql: vi.fn() },
+            warehouse: { executeSql: vi.fn() },
+        } as unknown as IFabricApiProxy;
+        const client = new FabricClient({
+            proxy: scheduledProxy(inner, new QueryScheduler({ random: () => 1 })),
+            semanticModels: { vl: { workspaceId: "ws", itemId: "bde54d4a" }, cc: { workspaceId: "ws", itemId: "648411c2" } },
+        } as FabricClientConfig);
+        const sentTo = (itemId: string) => executeDax.mock.calls.filter((call) => call[1] === itemId).length;
+
+        const first = client.semanticModel("vl").query("EVALUATE A");
+        await vi.advanceTimersByTimeAsync(0);
+        const second = client.semanticModel("vl").query("EVALUATE B");
+        await expect(client.semanticModel("cc").query("EVALUATE A")).resolves.toMatchObject({ status: "success" });
+        expect(sentTo("648411c2")).toBe(1);
+        expect(sentTo("bde54d4a")).toBe(1);
+
+        await vi.advanceTimersByTimeAsync(1000);
+        await expect(Promise.all([first, second])).resolves.toMatchObject([{ status: "success" }, { status: "success" }]);
+        expect(sentTo("bde54d4a")).toBe(3);
+    });
+
+    it("leaves a real query error as it was: sent once, and cached", async () => {
+        const { model, executeDax } = clientWith(() => ({ data: fromBase64(realErrorTable.base64), requestId: "r" }));
+        const result = await model.query("EVALUATE 'Access Scope'");
+        expect(result).toMatchObject({ status: "error", fromCache: false, error: { category: "query" } });
+        expect(result.status === "error" && result.error.message).toMatch(/Cannot find table/);
+        expect(executeDax).toHaveBeenCalledTimes(1);
+
+        await expect(model.query("EVALUATE 'Access Scope'")).resolves.toMatchObject({ fromCache: true });
+        expect(executeDax).toHaveBeenCalledTimes(1);
+        await expect(model.query("EVALUATE 'Access Scope'", { bypassCache: true })).resolves.toMatchObject({ fromCache: false });
+        expect(executeDax).toHaveBeenCalledTimes(2);
+    });
+
+    it("retries a throttle in a JSON reply, and leaves a JSON query error alone", async () => {
+        const replies: unknown[] = [
+            { error: { code: "TooManyRequests", message: THROTTLED } },
+            { results: [{ tables: [{ rows: [{ "[Value]": 1 }] }] }] },
+            { results: [{ error: { code: "DAX", message: "The column 'X'[Y] cannot be found" } }] },
+        ];
+        const { model, executeDaxJson } = clientWith(() => ({ data: replies.shift(), requestId: "r" }), "json");
+        const result = model.query("EVALUATE A");
+        await vi.advanceTimersByTimeAsync(1000);
+        await expect(result).resolves.toMatchObject({ status: "success", table: { rows: [[1]] } });
+        expect(executeDaxJson).toHaveBeenCalledTimes(2);
+
+        await expect(model.query("EVALUATE B")).resolves.toMatchObject({ status: "error", error: { category: "query" } });
+        expect(executeDaxJson).toHaveBeenCalledTimes(3);
     });
 });
