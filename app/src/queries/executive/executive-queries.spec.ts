@@ -7,7 +7,6 @@
 
 import { describe, expect, it } from "vitest";
 import {
-    BROAD_USER_SKILLS,
     EXCLUDED_KINDS,
     executiveCreditDates,
     executiveCredits,
@@ -140,9 +139,9 @@ describe("executive spec field references", () => {
 });
 
 describe("the excluded kinds of work", () => {
-    const queries = [executiveSummary(), executiveMonths(), executiveDepartments(), executiveWorkKinds()];
+    const queries = [executiveSummary(), executiveWorkKinds()];
 
-    it("are left out by every query that counts skills or ranks work", () => {
+    it("are left out by every query that counts or ranks kinds of work", () => {
         for (const { query } of queries) {
             for (const kind of EXCLUDED_KINDS) expect(query).toContain(`"${kind}"`);
         }
@@ -157,9 +156,16 @@ describe("the excluded kinds of work", () => {
         expect(executiveWorkKinds().query).toContain(`TOPN(${WORK_KINDS_SHOWN},`);
         expect(workKindRows.length).toBeLessThanOrEqual(WORK_KINDS_SHOWN);
     });
+});
 
-    it("count a broad user at the documented threshold", () => {
-        expect(executiveSummary().query).toContain(`[ValueLens Skills In Use] >= ${BROAD_USER_SKILLS}`);
+describe("the per-person breadth measures", () => {
+    // A per-person average over every user is the slowest query on a large tenant, so the start-up queries leave it out.
+    it.each([
+        ["executiveSummary", executiveSummary().query],
+        ["executiveMonths", executiveMonths().query],
+        ["executiveDepartments", executiveDepartments().query],
+    ])("are not in %s", (_, query) => {
+        expect(query).not.toMatch(/Skills Per Person|Broad Users|Agent With Most Users/);
     });
 });
 

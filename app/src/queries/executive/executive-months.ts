@@ -6,7 +6,7 @@
 //-----------------------------------------------------------------------
 
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
-import { connection, FORMAT_HOURS, FORMAT_PERCENT, FORMAT_RATE, FORMAT_WHOLE } from "../shared";
+import { connection, FORMAT_HOURS, FORMAT_PERCENT, FORMAT_WHOLE } from "../shared";
 import query from "./executive-months.dax?raw";
 import spec from "./executive-hours.json";
 import { shapeMonthlyTrend, type MonthlyTrendParams } from "./monthly-trend";
@@ -18,7 +18,6 @@ const columnMetadata: ColumnMetadataMap = {
     "[Cowork Hours]": { name: "Cowork Hours", displayName: "Cowork", format: FORMAT_HOURS },
     "[Hours]": { name: "Hours", displayName: "Expert-equivalent hours", format: FORMAT_HOURS },
     "[Tasks]": { name: "Tasks", displayName: "Tasks delivered", format: FORMAT_WHOLE },
-    "[Skills Per Person]": { name: "Skills Per Person", displayName: "Unique skills per person", format: FORMAT_RATE },
     "[Seats In Use Pct]": { name: "Seats In Use Pct", displayName: "Licensed seats in use", format: FORMAT_PERCENT },
     "[Habit Pct]": { name: "Habit Pct", displayName: "Habit rate", format: FORMAT_PERCENT },
     "[Satisfaction]": { name: "Satisfaction", displayName: "Satisfaction", format: FORMAT_PERCENT },

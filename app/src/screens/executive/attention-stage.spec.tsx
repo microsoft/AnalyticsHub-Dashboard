@@ -85,15 +85,15 @@ describe("What needs attention", () => {
         renderStage();
         expect(items().map((item) => within(item).getByRole("heading").textContent)).toEqual([
             "Opportunity: Teams & Remote Work is the least liked theme",
+            "Opportunity: Focus enablement on HR and Finance",
             "Opportunity: Reassign 49 idle seats",
-            "Opportunity: Focus enablement on HR",
         ]);
-        expect(within(items()[1]).getByText("22% of seats")).toBeTruthy();
+        expect(within(items()[2]).getByText("22% of seats")).toBeTruthy();
     });
 
     it("opens the page behind each decision at the right stage", () => {
         const navigate = renderStage();
-        fireEvent.click(within(items()[1]).getByRole("button", { name: /Open Readiness/ }));
+        fireEvent.click(within(items()[2]).getByRole("button", { name: /Open Readiness/ }));
         expect(navigate).toHaveBeenCalledWith("readiness", "license-readiness");
     });
 

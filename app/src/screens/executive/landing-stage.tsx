@@ -21,7 +21,7 @@ import { columnFormat, columnHeat, heatRenderer } from "@/lib/heat";
 import { readNumber } from "@/lib/summary-row";
 import { coverageNote, departmentCoverage, orgEmptyDescription } from "@/lib/department-coverage";
 import { DEPARTMENT_COLUMN, DEPARTMENT_MAP_MIN, departmentMapSpec, executiveWorkKinds, WORK_KINDS_SHOWN } from "@/queries/executive";
-import { mostUsedAgent, workRates } from "./executive-data";
+import { workRates } from "./executive-data";
 import { WORK_KINDS_HEADLINE } from "./headlines";
 import type { ExecutiveData } from "./use-executive-data";
 
@@ -44,7 +44,6 @@ function departmentColumns(orgLabel: string, table: DataTable | undefined): Grid
         { id: "Licensed Seats", header: "Licensed seats", width: 132, numericStyling: true },
         heatColumn(table, "Seats In Use Pct", "Seats in use", 124),
         heatColumn(table, "Habit Pct", "Habit rate", 116),
-        heatColumn(table, "Skills Per Person", "Unique skills", 132),
         { id: "Hours", header: "Expert hours", width: 128, numericStyling: true },
         heatColumn(table, SORT_COLUMN, "Hours per seat", 136),
     ];
@@ -163,7 +162,6 @@ export function LandingStage({ data }: { data: ExecutiveData }) {
                                                   : `, ${formatKpi(Math.round(rates.agentShare * 100) / 100, "percent")} of the total`
                                           }`,
                             },
-                            { term: "Most used agent", text: mostUsedAgent(row) },
                         ]}
                     >
                         <OpenDestinationFooter destination="leaderboards" stage="leaderboard">

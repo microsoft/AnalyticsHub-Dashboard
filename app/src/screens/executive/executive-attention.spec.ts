@@ -56,8 +56,8 @@ describe("attentionItems on the demo tenant", () => {
     it("raises all four rules, the most seats, people or ratings first", () => {
         expect(items.map((entry) => [entry.rule, entry.reach])).toEqual([
             ["weakest-theme", 69],
+            ["enablement-gap", 68],
             ["idle-seats", 49],
-            ["enablement-gap", 32],
             ["cowork-over-allowance", 24],
         ]);
     });
@@ -86,10 +86,10 @@ describe("attentionItems on the demo tenant", () => {
         });
     });
 
-    it("names the organizations in the bottom quarter for both hours per seat and kinds of work", () => {
+    it("names the organizations in the bottom quarter for expert hours per seat, fewest hours first", () => {
         const gap = item(items, "enablement-gap");
-        expect(gap?.title).toBe("Focus enablement on HR");
-        expect(gap?.stake).toBe("+37 hours a quarter");
+        expect(gap?.title).toBe("Focus enablement on HR and Finance");
+        expect(gap?.stake).toBe("+62 hours a quarter");
         expect(gap?.evidence).toContain("bottom quarter of organizations");
         expect(gap?.evidence).toContain("average of 3.5 hours per seat a month");
         expect(gap?.link).toEqual({ destination: "adoption", label: "Open Adoption" });
