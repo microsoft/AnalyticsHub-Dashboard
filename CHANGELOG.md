@@ -38,6 +38,8 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 Existing Azure installs get this on their next upgrade or **Repair or change**. Fabric is unchanged.
 
+**App: Value, Consumption and Efficiency now come straight after the Executive summary.**
+
 ## 2026-10-17 — Analytics Hub installer 0.6.6 (pre-release)
 
 **A pre-release, for testing.** 0.6.5 stays Latest, so the `releases/latest` links still serve it.

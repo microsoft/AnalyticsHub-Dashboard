@@ -664,12 +664,12 @@ The Fabric App gathers the report's pages into eight of its thirteen pages:
 
 | App page | Report pages it holds |
 |---|---|
-| Adoption | Activation, Adoption, Habit Formation, Trend Heatmap |
-| Leaderboards | Leaderboard, plus the most-used agents |
-| Governance | Agent Registry, plus exposure, accountability, a review queue and Shadow AI from the optional Defender source, which are app only ([Governance](#governance-which-agents-need-a-review), [Shadow AI](#shadow-ai-what-other-ai-tools-are-in-use)) |
-| Readiness | License Readiness, License Allocation, Cowork Readiness |
 | Value | Task Breakdown, Estimated Value, plus Cost vs value, which is app only ([§8.3](#83-cost-vs-value)) |
 | Efficiency | Cowork Fit, Model Fit |
+| Adoption | Activation, Adoption, Habit Formation, Trend Heatmap |
+| Leaderboards | Leaderboard, plus the most-used agents |
+| Readiness | License Readiness, License Allocation, Cowork Readiness |
+| Governance | Agent Registry, plus exposure, accountability, a review queue and Shadow AI from the optional Defender source, which are app only ([Governance](#governance-which-agents-need-a-review), [Shadow AI](#shadow-ai-what-other-ai-tools-are-in-use)) |
 | Feedback | User Feedback |
 | Appendix | Glossary, Signal → Impact |
 | Consumption, Agent Evaluation, Work patterns | App only ([§8](#8-fabric-app-only-consumption-agent-evaluation-cost-vs-value-and-work-patterns)) |
