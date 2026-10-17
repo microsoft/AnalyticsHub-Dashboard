@@ -1203,3 +1203,23 @@ test('Azure plan: the admin can go ahead without publishing the Teams app, and t
   assert.match(out, /Teams app: not published to your org's app catalog\. You chose to upload it by hand\./);
   assert.match(out, /Teams: +Not published yet\. A Teams Administrator needs to upload /);
 });
+
+test("Azure install: a Teams app the installer can't publish only warns, so the install still ends set up", async () => {
+  const refused = teamsCatalogInstall();
+  refused.catalog.failures.publish = [new HttpError('POST /v1.0/appCatalogs/teamsApps returned 403', { status: 403, method: 'POST', url: 'https://graph.microsoft.com/v1.0/appCatalogs/teamsApps' })];
+  const consent = teamsCatalogInstall();
+  consent.catalog.failures.signIn = [new Error('AADSTS90094: Admin consent is required for the permissions requested by this application.')];
+  for (const [label, s, reason] of /** @type {const} */ ([
+    ['Graph refuses the upload', refused, /! Teams app: not published to your org's app catalog\. Microsoft Graph refused it \(403\)\./],
+    ['the sign-in needs admin consent', consent, /! Teams app: not published to your org's app catalog\. The app catalog permission, .*, needs admin consent\./],
+  ])) {
+    assert.equal(await installAzure(s.ctx, { wait: true }), true, `${label}: set up, so the installer exits 0`);
+    assert.equal(teamsPending(s.az()).length, 1, `${label}: the upload steps are a pending admin action`);
+    const out = s.ui.text();
+    assert.match(out, reason, label);
+    assert.doesNotMatch(out, /✗/, label);
+    assert.match(out, /Analytics Hub is set up/, label);
+    assert.doesNotMatch(out, /not finished/, label);
+    assert.match(out, /Teams: +Not published yet\. A Teams Administrator needs to upload /, label);
+  }
+});
