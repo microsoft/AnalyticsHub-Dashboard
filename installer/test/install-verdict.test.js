@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { loadConfig, saveConfig } from '../src/config.js';
 import { createCtx, install, update } from '../src/install.js';
+import { COWORK_DATAFLOW_ACTIVITY } from '../src/transform/pipeline.js';
 import { fakeAzureGraph, fakeFabric, fakePowerBi, fakeUi, realSources } from './fakes.js';
 
 const forbidden = async () => {
@@ -26,6 +27,10 @@ const failed = (message) => ({ status: 'Failed', failureReason: { errorCode: 'No
 const M365 = 'Run_M365_Activity_Ingester';
 /** A load the source turned away. */
 const refused = { status: 'Failed', error: { errorCode: '403', message: 'Forbidden' } };
+/** A load Fabric didn't start because the capacity was busy. */
+const turnedAway = { status: 'Failed', error: { errorCode: 'TooManyRequestsForCapacity', message: 'The capacity is too busy.' } };
+/** How the Cowork Dataflow's refresh fails until someone signs in to its connections. */
+const unsigned = { status: 'Failed', error: { errorCode: 'JobInstanceFailed', message: 'Job instance failed without detail error' } };
 
 /**
  * @typedef {object} Run
@@ -38,6 +43,8 @@ const refused = { status: 'Failed', error: { errorCode: '403', message: 'Forbidd
  * @property {boolean} [noDropFolder]  The drop folder can't be made.
  * @property {object[]} [access]  Org-scoped access is on, and the access notebook's runs end like these, then Completed.
  * @property {object[]} [check]  The data check's runs end like these, then Completed.
+ * @property {boolean} [cowork]  Cowork credits come from the Dataflow, which the install makes. Fabric lists its
+ *   connections, so the first load refreshes it too.
  * @property {Record<string, { status: string, error?: object }[]>} [loads]  Loads that don't simply succeed: each one's
  *   attempts in the pipeline run, in order. The run itself completes.
  * @property {number} [reload]  Reload this many days of audit history instead of the first load.
@@ -64,6 +71,11 @@ async function runInstall(t, o = {}) {
   if (o.access) {
     config.access = /** @type {any} */ ({ groupId: 'group-1', groupName: 'Analytics Hub Viewers', rls: { enabled: true, orgAttribute: 'department', applied: [] } });
   }
+  if (o.cowork) {
+    config.modules.consumption = true;
+    config.dataSources.coworkCredits = 'api';
+    Object.assign(config.consumption, { vivaPartition: '11111111-1111-4111-8111-111111111111', vivaQuery: '22222222-2222-4222-8222-222222222222' });
+  }
   // A reload is a repair or change, once the first load has completed.
   if (o.reload) config.firstRun = { jobId: 'job-0', status: 'Completed' };
   /** @type {string[]} */
@@ -87,6 +99,7 @@ async function runInstall(t, o = {}) {
   fabric.api.listCapacities = async () => [{ id: 'cap-f', displayName: 'Analytics', sku: 'F64', region: 'West US 3', state: 'Active' }];
   if (o.report) fabric.failures.createReport = [new Error('Report publish failed')];
   if (o.agent) fabric.failures.createDataAgent = [new Error('Data agent create failed')];
+  if (o.cowork) fabric.dataflowConnections.push([{ path: 'VivaInsights', kind: 'VivaInsights' }, { path: 'Lakehouse', kind: 'Lakehouse' }]);
   const accessRuns = [...(o.access ?? [])];
   const checkRuns = [...(o.check ?? [])];
   const completed = { status: 'Completed', startTimeUtc: '2026-06-01T12:01:00Z', endTimeUtc: '2026-06-01T14:00:00Z' };
@@ -180,6 +193,10 @@ async function runInstall(t, o = {}) {
     assert.match(text, /Reload audit history/);
     assert.equal(config.history.days, o.reload);
   } else assert.equal(config.firstRun?.status, 'Completed', 'the history loaded, whatever else failed');
+  if (o.cowork) {
+    assert.match(text, /✓ Created Dataflow /);
+    assert.doesNotMatch(text, /left out of this first load/, 'the run refreshed the Dataflow');
+  }
   if (late) {
     assert.match(text, /The app wasn't deployed: .*missing its deploy tools/);
     assert.equal(deployed, true, 'deploy-app ran while the install waited on the pipeline');
@@ -282,7 +299,7 @@ test("install: a load that fails in a run that completes leaves it partly set up
 });
 
 test("install: a load that failed on a busy capacity counts; one that loads when it's tried again doesn't", async (t) => {
-  const run = await runInstall(t, { app: 'off', loads: { [M365]: [{ status: 'Failed', error: { errorCode: 'TooManyRequestsForCapacity', message: 'The capacity is too busy.' } }] } });
+  const run = await runInstall(t, { app: 'off', loads: { [M365]: [turnedAway] } });
   assert.match(run.text, /✗ Microsoft 365 activity: failed/);
   assert.match(run.text, /Fabric's capacity was too busy to start it\./);
   partlySetUp(run);
@@ -292,6 +309,23 @@ test("install: a load that failed on a busy capacity counts; one that loads when
     assert.match(retried.text, /✓ Microsoft 365 activity \(2 attempts\)/);
     assert.doesNotMatch(retried.text, /✗ Microsoft 365 activity/);
     setUp(retried);
+  }
+});
+
+test("install: the Cowork Dataflow failing while its sign-in is still to do doesn't count; failing on a busy capacity does", async (t) => {
+  for (const reload of [undefined, 90]) {
+    const run = await runInstall(t, { cowork: true, loads: { [COWORK_DATAFLOW_ACTIVITY]: [unsigned] }, reload });
+    assert.match(run.text, /✗ Cowork credits \(Viva Insights\): failed/);
+    assert.match(run.text, /To do: sign in to the Cowork Dataflow/);
+    setUp(run);
+  }
+
+  for (const reload of [undefined, 90]) {
+    const run = await runInstall(t, { cowork: true, loads: { [COWORK_DATAFLOW_ACTIVITY]: [turnedAway] }, reload });
+    assert.match(run.text, /✗ Cowork credits \(Viva Insights\): failed/);
+    assert.match(run.text, /Fabric's capacity was too busy to start it\./);
+    assert.doesNotMatch(run.text, /To do: sign in to the Cowork Dataflow/);
+    partlySetUp(run);
   }
 });
 
