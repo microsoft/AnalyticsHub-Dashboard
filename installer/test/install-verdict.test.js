@@ -2,7 +2,7 @@
 /**
  * The install's verdict. A step that fails (✗) and lets the install carry on leaves it partly set up; one that only
  * warns, or recovers when it's tried again, doesn't. An app that deploy-app deployed while the install waited on the
- * first load makes up for the app step, and only when that was the only failure.
+ * pipeline makes up for the app step, and only when that was the only failure.
  */
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -23,10 +23,14 @@ const busy = { status: 'Failed', failureReason: { errorCode: 'TooManyRequestsFor
 /** @param {string} message A notebook run that failed. */
 const failed = (message) => ({ status: 'Failed', failureReason: { errorCode: 'NotebookFailed', message } });
 
+const M365 = 'Run_M365_Activity_Ingester';
+/** A load the source turned away. */
+const refused = { status: 'Failed', error: { errorCode: '403', message: 'Forbidden' } };
+
 /**
  * @typedef {object} Run
  * @property {'late' | 'off'} [app]  late (the default): the app step fails, as the app has no deploy tools, and while
- *   the install waits on the first load deploy-app deploys the app from another window, as the step says to.
+ *   the install waits on the pipeline deploy-app deploys the app from another window, as the step says to.
  *   off: no app.
  * @property {boolean} [report]  Publishing the report fails.
  * @property {boolean} [agent]  Making the data agent fails.
@@ -34,10 +38,13 @@ const failed = (message) => ({ status: 'Failed', failureReason: { errorCode: 'No
  * @property {boolean} [noDropFolder]  The drop folder can't be made.
  * @property {object[]} [access]  Org-scoped access is on, and the access notebook's runs end like these, then Completed.
  * @property {object[]} [check]  The data check's runs end like these, then Completed.
+ * @property {Record<string, { status: string, error?: object }[]>} [loads]  Loads that don't simply succeed: each one's
+ *   attempts in the pipeline run, in order. The run itself completes.
+ * @property {number} [reload]  Reload this many days of audit history instead of the first load.
  */
 
 /**
- * A new Fabric install, run to the end through the real install record, waiting on the first load.
+ * A new Fabric install, run to the end through the real install record, waiting on the first load or the reload.
  * @param {import('node:test').TestContext} t
  * @param {Run} [o]
  */
@@ -57,6 +64,8 @@ async function runInstall(t, o = {}) {
   if (o.access) {
     config.access = /** @type {any} */ ({ groupId: 'group-1', groupName: 'Analytics Hub Viewers', rls: { enabled: true, orgAttribute: 'department', applied: [] } });
   }
+  // A reload is a repair or change, once the first load has completed.
+  if (o.reload) config.firstRun = { jobId: 'job-0', status: 'Completed' };
   /** @type {string[]} */
   const csvFiles = [];
   if (o.upload) {
@@ -99,16 +108,30 @@ async function runInstall(t, o = {}) {
       return { id: 'job-1', ...completed };
     }
   );
-  fabric.api.queryActivityRuns = async () =>
-    (fabric.items.find((i) => i.type === 'DataPipeline')?.content.properties.activities ?? []).map((/** @type {{ name: string }} */ a) => ({
+  const loads = Object.entries(o.loads ?? {});
+  const failing = new Set(loads.filter(([, attempts]) => attempts.at(-1)?.status !== 'Succeeded').map(([name]) => name));
+  fabric.api.queryActivityRuns = async () => [
+    ...(fabric.items.find((i) => i.type === 'DataPipeline')?.content.properties.activities ?? []).map((/** @type {any} */ a) => ({
       activityName: a.name,
-      status: 'Succeeded',
+      // An If fails with the load in it.
+      status: [...(a.typeProperties?.ifTrueActivities ?? []), ...(a.typeProperties?.ifFalseActivities ?? [])].some((/** @type {{ name: string }} */ i) => failing.has(i.name))
+        ? 'Failed'
+        : 'Succeeded',
       activityRunStart: '2026-06-01T12:01:00Z',
-    }));
+    })),
+    ...loads.flatMap(([activityName, attempts]) => attempts.map((a, i) => ({ activityName, activityRunStart: `2026-06-01T12:0${i + 2}:00Z`, ...a }))),
+  ];
   const graph = fakeAzureGraph();
   graph.applications.push({ id: 'obj-1', appId: 'app-1', displayName: 'Analytics Hub' });
   const powerBi = fakePowerBi();
   const ui = fakeUi();
+  if (o.reload) {
+    const select = ui.ui.select;
+    ui.ui.select = /** @type {any} */ (
+      async (/** @type {string} */ message, /** @type {any[]} */ choices, /** @type {any} */ def) =>
+        message.startsWith('Load more audit history?') ? o.reload : select(message, choices, def)
+    );
+  }
   let sleeps = 0;
   const ctx = createCtx({
     ui: ui.ui,
@@ -149,14 +172,17 @@ async function runInstall(t, o = {}) {
     },
     now: () => new Date('2026-06-01T12:00:00Z'),
   });
-  ctx.runFirstLoad = true;
+  if (!o.reload) ctx.runFirstLoad = true;
   ctx.csvFiles = csvFiles;
   const ok = await install(ctx, { wait: true });
   const text = ui.text();
-  assert.equal(config.firstRun?.status, 'Completed');
+  if (o.reload) {
+    assert.match(text, /Reload audit history/);
+    assert.equal(config.history.days, o.reload);
+  } else assert.equal(config.firstRun?.status, 'Completed', 'the history loaded, whatever else failed');
   if (late) {
     assert.match(text, /The app wasn't deployed: .*missing its deploy tools/);
-    assert.equal(deployed, true, 'deploy-app ran while the install waited on the first load');
+    assert.equal(deployed, true, 'deploy-app ran while the install waited on the pipeline');
     assert.equal(loadConfig(file).config.fabricApp.itemId, 'app-item-1', "the install's saves keep deploy-app's app");
     assert.match(text, /The app step above failed, but the app was deployed afterwards \(2026-06-01 13:00 UTC\)/);
     assert.doesNotMatch(text, /Deploy the Analytics Hub app/, 'the app is deployed, so there is no card to deploy it');
@@ -243,6 +269,30 @@ test('install: a data check that fails leaves it partly set up; one that only wa
   assert.match(retried.text, /✓ Data check finished/);
   assert.doesNotMatch(retried.text, /✗/);
   setUp(retried);
+});
+
+test("install: a load that fails in a run that completes leaves it partly set up, and a late app doesn't make up for it", async (t) => {
+  for (const reload of [undefined, 90]) {
+    const run = await runInstall(t, { loads: { [M365]: [refused] }, reload });
+    assert.match(run.text, /✗ Microsoft 365 activity: failed/);
+    assert.match(run.text, /then run ".*rerun-failed"\./);
+    partlySetUp(run);
+  }
+  partlySetUp(await runInstall(t, { app: 'off', loads: { [M365]: [refused] } }));
+});
+
+test("install: a load that failed on a busy capacity counts; one that loads when it's tried again doesn't", async (t) => {
+  const run = await runInstall(t, { app: 'off', loads: { [M365]: [{ status: 'Failed', error: { errorCode: 'TooManyRequestsForCapacity', message: 'The capacity is too busy.' } }] } });
+  assert.match(run.text, /✗ Microsoft 365 activity: failed/);
+  assert.match(run.text, /Fabric's capacity was too busy to start it\./);
+  partlySetUp(run);
+
+  for (const reload of [undefined, 90]) {
+    const retried = await runInstall(t, { loads: { [M365]: [refused, { status: 'Succeeded' }] }, reload });
+    assert.match(retried.text, /✓ Microsoft 365 activity \(2 attempts\)/);
+    assert.doesNotMatch(retried.text, /✗ Microsoft 365 activity/);
+    setUp(retried);
+  }
 });
 
 test('update: a step that fails leaves it not finished, never "Up to date"', async (t) => {

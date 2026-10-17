@@ -128,6 +128,7 @@ function reportJob(ctx, job, what, again) {
  * @property {string} [status]  The job's status. NotStarted when it didn't wait.
  * @property {boolean} [ok]  The run completed and none of its loads failed.
  * @property {string[]} [failed]  The activities that failed.
+ * @property {string[]} [counted]  Those that leave an install partly set up: see {@link countedFailures}.
  */
 
 /**
@@ -193,7 +194,8 @@ export async function runPipeline(ctx, opts) {
   const job = await waitForJob(ctx, url, 'Pipeline');
   const ok = reportJob(ctx, job, 'Pipeline');
   const runs = TERMINAL.has(job?.status) ? await activityRuns(ctx, jobId, { startTimeUtc: job.startTimeUtc ?? startedAt, endTimeUtc: job.endTimeUtc }) : null;
-  const failed = runs ? failedCards(await reportLoads(ctx, runs)) : [];
+  const cards = runs ? await reportLoads(ctx, runs) : [];
+  const failed = failedCards(cards);
   if (!failed.length && capacityBusy(job?.failureReason)) busyNote(ctx, 'run');
   else if (!failed.length && job?.status === 'Failed') {
     ui.note(`To see why, open ${f.pipelineName ?? 'the pipeline'} in Fabric and look at its latest run. Then run "${commandLine('run')}" again.`);
@@ -202,7 +204,14 @@ export async function runPipeline(ctx, opts) {
     config.firstRun = { ...config.firstRun, status: firstRunStatus(config, job?.status, runs), finishedAt: TERMINAL.has(job?.status) ? ctx.now().toISOString() : undefined };
     ctx.save();
   }
-  return { jobId, started: true, status: job?.status, ok: ok && !failed.length, failed: failed.map((r) => r.activity) };
+  return {
+    jobId,
+    started: true,
+    status: job?.status,
+    ok: ok && !failed.length,
+    failed: failed.map((r) => r.activity),
+    counted: countedFailures(config, cards).map((r) => r.activity),
+  };
 }
 
 /**
@@ -241,6 +250,17 @@ export async function reportLoads(ctx, runs, activities) {
   if (cards.length) ctx.ui.loads(cards);
   if (todo) ctx.ui.todo(todo);
   return cards;
+}
+
+/**
+ * The failed loads that leave an install partly set up: all of them except the Cowork credits Dataflow while signing it
+ * in is still to do, which is a next step. Failing for another reason, such as a busy capacity, counts.
+ * @param {import('../config.js').InstallConfig} config
+ * @param {LoadCard[]} cards
+ */
+export function countedFailures(config, cards) {
+  const signInToDo = !!coworkNextStep(config, cards);
+  return failedCards(cards).filter((c) => !(signInToDo && c.activity === COWORK_DATAFLOW_ACTIVITY));
 }
 
 /**

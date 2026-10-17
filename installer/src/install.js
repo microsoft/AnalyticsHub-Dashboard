@@ -425,6 +425,8 @@ export async function install(ctx, opts) {
       const result = await runPipeline(ctx, { backfillDays: config.history.days, wait: opts.wait, first: true, skipCowork });
       load = loadState(result);
       if (result.status === 'Completed') {
+        // A run completes even when a load in it failed.
+        if (result.counted?.length) stepsOk = false;
         if ((await runDataCheck(ctx)) === false) stepsOk = false;
         if (modelDeployed(config)) ok = (await verifyModel(ctx)).ok;
       }
@@ -447,6 +449,7 @@ export async function install(ctx, opts) {
         ctx.save();
       }
       if (result.status === 'Completed') {
+        if (result.counted?.length) stepsOk = false;
         if ((await runDataCheck(ctx)) === false) stepsOk = false;
         if (modelDeployed(config)) ok = (await verifyModel(ctx)).ok;
       } else if (opts.wait) ok = false;

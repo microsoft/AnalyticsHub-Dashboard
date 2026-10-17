@@ -48,13 +48,14 @@ Existing Azure installs get this on their next upgrade or **Repair or change**. 
   app step was the only one that failed.
 - **A step that fails leaves the install "partly set up".** Before, an install could end "Analytics
   Hub is set up", and exit 0, after a step failed (✗) and it carried on: a Power BI report, the Ask
-  data agent, an upload, org-scoped access, or the data check after the first load. Now any of
-  those ends it "partly set up": the installer exits 1, and its page shows the install didn't
-  finish. On Azure, org-scoped access or a history reload that doesn't start ends it "set up, but
-  not finished", also with exit 1. Each failed step says how to try it again. A step that only
-  warns (⚠), or works when it's tried again, still ends "set up", unless a load or refresh the
-  installer waited for hasn't finished, as before. `update` says it isn't finished, instead of
-  "Up to date", after a step that failed.
+  data agent, an upload, org-scoped access, the data check after the first load, or a source that
+  failed to load in a pipeline run that still completed (except the Cowork credits Dataflow while
+  signing it in is still to do, which is a next step). Now any of those ends it "partly set up":
+  the installer exits 1, and its page shows the install didn't finish. On Azure, org-scoped access
+  or a history reload that doesn't start ends it "set up, but not finished", also with exit 1. Each
+  failed step says how to try it again. A step that only warns (⚠), or works when it's tried
+  again, still ends "set up", unless a load or refresh the installer waited for hasn't finished, as
+  before. `update` says it isn't finished, instead of "Up to date", after a step that failed.
 - **The summary says how to deploy the app.** When the app step fails, the "partly set up"
   summary's next steps now start with fixing the problem and running `deploy-app`, or choosing
   **Redeploy the app**.

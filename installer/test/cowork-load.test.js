@@ -6,7 +6,7 @@ import { emptyConfig } from '../src/config.js';
 import { classifyFailure, loadCards, statusConfigJson, VIVA_ACTIVITY } from '../src/loads.js';
 import { coworkConnections, coworkNextStep, STAGING_ITEMS_NOTE, VIVA_LOAD_FILE } from '../src/steps/consumption.js';
 import { DOWNSTREAM_READERS, evaluate, loadCoworkNow, PUBLISH_POLL_MS, PUBLISH_RETRY_MS, rerunSteps, runParameters } from '../src/steps/rerun.js';
-import { coworkSkipForFirstLoad, runPipeline } from '../src/steps/run.js';
+import { countedFailures, coworkSkipForFirstLoad, runPipeline } from '../src/steps/run.js';
 import {
   buildPipeline,
   CONSUMPTION_REFRESH_ACTIVITY,
@@ -183,6 +183,22 @@ test('coworkNextStep: the sign-in to-do, with the real names, only when the Data
   assert.equal(coworkNextStep(config, todo), null, 'no Dataflow, no to-do');
 });
 
+test('countedFailures: every failed load, except the Cowork Dataflow while signing it in is to do', () => {
+  const config = coworkConfig();
+  /** @param {string} activity @param {import('../src/loads.js').LoadCard['state']} state @param {import('../src/loads.js').ReasonKind} [kind] */
+  const card = (activity, state, kind) => ({ activity, name: activity, state, kind, fix: [] });
+  /** @param {import('../src/loads.js').LoadCard[]} cards */
+  const counted = (cards) => countedFailures(config, cards).map((c) => c.activity);
+  assert.deepEqual(counted([card(COWORK_DATAFLOW_ACTIVITY, 'failed', 'signIn')]), [], 'its sign-in is a next step');
+  assert.deepEqual(counted([card(COWORK_DATAFLOW_ACTIVITY, 'failed', 'other')]), [], 'which a failure that gives no reason points to as well');
+  assert.deepEqual(counted([card(COWORK_DATAFLOW_ACTIVITY, 'failed', 'capacity')]), [COWORK_DATAFLOW_ACTIVITY], 'a busy capacity is not a sign-in');
+  assert.deepEqual(counted([card(COWORK_DATAFLOW_ACTIVITY, 'failed', 'timeout')]), [COWORK_DATAFLOW_ACTIVITY]);
+  assert.deepEqual(counted([card(COWORK_DATAFLOW_ACTIVITY, 'failed', 'signIn'), card(STUDIO, 'failed', 'signIn')]), [STUDIO], 'any other load counts');
+  assert.deepEqual(counted(/** @type {const} */ (['ok', 'warning', 'skipped', 'running', 'todo']).map((s) => card(STUDIO, s))), [], 'only loads that failed');
+  config.dataSources.coworkCredits = 'csv';
+  assert.deepEqual(counted([card(COWORK_DATAFLOW_ACTIVITY, 'failed', 'signIn')]), [COWORK_DATAFLOW_ACTIVITY], 'with no Dataflow there is no sign-in to do');
+});
+
 /* ---------- First load ---------- */
 
 /** A workspace with the Cowork Dataflow and a pipeline that can skip it. */
@@ -238,6 +254,37 @@ test('first load: leaves the Cowork Dataflow out only while it isn\'t signed in,
   const scheduled = workspace();
   await runPipeline(scheduled.ctx, { wait: false });
   assert.doesNotMatch(scheduled.fabric.calls.find((c) => c.startsWith('runJob Pipeline')) ?? '', /SkipCowork/, 'other runs never skip');
+});
+
+test('runPipeline: a run that completes with a load failed counts it, except the Cowork Dataflow while signing it in is to do', async () => {
+  const acts = build().properties.activities;
+  /** @param {Record<string, string | [string, any]>} changed */
+  const finish = async (changed) => {
+    const t = workspace();
+    t.fabric.jobs.push({ status: 'Completed', startTimeUtc: '2026-06-01T12:01:00Z', endTimeUtc: '2026-06-01T14:00:00Z' });
+    t.fabric.api.queryActivityRuns = async () => [...runsOf(acts, changed).values()];
+    return { result: await runPipeline(t.ctx, { wait: true }), text: t.ui.text() };
+  };
+  /** @type {Record<string, string | [string, any]>} */
+  const dataflow = { [COWORK_WRAPPER_ACTIVITY]: 'Failed', [COWORK_DATAFLOW_ACTIVITY]: ['Failed', UNSIGNED] };
+  const unsigned = await finish(dataflow);
+  assert.equal(unsigned.result.status, 'Completed');
+  assert.equal(unsigned.result.ok, false, 'run and rerun-failed still see it');
+  assert.deepEqual(unsigned.result.failed, [COWORK_DATAFLOW_ACTIVITY]);
+  assert.deepEqual(unsigned.result.counted, [], 'its sign-in is a next step');
+  assert.match(unsigned.text, /To do: sign in to the Cowork Dataflow/);
+
+  const busy = await finish({ ...dataflow, [COWORK_DATAFLOW_ACTIVITY]: ['Failed', { errorCode: 'TooManyRequestsForCapacity', message: 'The capacity is too busy.' }] });
+  assert.deepEqual(busy.result.counted, [COWORK_DATAFLOW_ACTIVITY], 'a busy capacity is not a sign-in');
+  assert.doesNotMatch(busy.text, /To do: sign in/);
+
+  const studio = await finish({ ...dataflow, [STUDIO]: ['Failed', { errorCode: 'NotebookFailed', message: 'Table not found.' }] });
+  assert.deepEqual([...(studio.result.failed ?? [])].sort(), [COWORK_DATAFLOW_ACTIVITY, STUDIO].sort());
+  assert.deepEqual(studio.result.counted, [STUDIO]);
+
+  const fine = await finish({});
+  assert.equal(fine.result.ok, true);
+  assert.deepEqual(fine.result.counted, []);
 });
 
 /* ---------- Load Cowork now ---------- */
