@@ -28,6 +28,9 @@ Both keep your install record and skip what's already done.
 | **Repair or change** | Asks the questions again, starting from your saved answers. Use it to add or drop a data source, change an advanced setting, or fix a broken step. Nothing changes until you approve the plan. |
 | **Update** (`update`) | No questions. Fabric: pushes the notebooks, pipeline and semantic model from this version. Azure: runs the preflight again and redeploys with this version's images. |
 
+On Azure, both also update the Teams app in your org's app catalog when its package has changed,
+rather than add another. See [Give it to everyone](../azure/teams/README.md#give-it-to-everyone).
+
 To [load more audit history](../installer/README.md#load-more-audit-history), choose **Repair or
 change** once the first load has finished, or `run --backfill-days <n>`.
 

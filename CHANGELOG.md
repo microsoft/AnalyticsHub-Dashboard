@@ -38,6 +38,34 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 Existing Azure installs get this on their next upgrade or **Repair or change**. Fabric is unchanged.
 
+**Azure: the installer publishes the Teams app to your org's app catalog.**
+
+- **No upload by hand.** After it writes `AnalyticsHub-Teams.zip`, the installer publishes it to
+  your org's app catalog through Microsoft Graph. A few hours later, people find Analytics Hub in
+  Teams under **Apps** > **Built for your org**, and in Outlook and the Microsoft 365 Copilot app.
+- **Updates the same app.** A re-run, **Repair or change**, **Update** or an upgrade updates the app
+  already in the catalog, including one uploaded by hand, rather than add another. If the package
+  hasn't changed, it leaves the app alone.
+- **One more sign-in.** Publishing takes the Teams Administrator or Global Administrator role and
+  consent to `AppCatalog.ReadWrite.All`, which the Azure CLI's sign-in can't ask for. So the
+  installer signs in once more, as Microsoft Graph Command Line Tools, at the start of the install
+  rather than at the end. The plan asks first, and you can go ahead without it. If the sign-in isn't
+  finished within 5 minutes, the install carries on without it. With `--use-az`, it doesn't publish.
+  The consent stays until an admin revokes it: see
+  [Permissions](docs/PERMISSIONS.md#publishing-the-teams-app-path-2).
+- **Falls back to the steps.** If it can't publish, because of the role, consent, a tenant policy, an
+  error or a sign-in nobody finishes, the install carries on. It keeps the zip, prints the steps to
+  upload it by hand, and **Check status** shows them as a pending admin action, which a later run
+  clears once the app is in the catalog. If Teams turns down an update at the same version, the steps
+  stay pending and the next run tries again.
+- **Uninstall removes it.** Uninstall deletes the app the installer looks after: the one it
+  published, or a hand upload it took on. It leaves any other alone.
+- **Pinning stays manual.** Microsoft Graph can't change app setup policies, so a Teams admin pins
+  it for the viewers group. See [Give it to everyone](azure/teams/README.md#give-it-to-everyone).
+
+Existing Azure installs get this on their next upgrade, **Repair or change** or **Update**. Fabric
+is unchanged.
+
 ## 2026-10-17 — Analytics Hub installer 0.6.6 (pre-release)
 
 **A pre-release, for testing.** 0.6.5 stays Latest, so the `releases/latest` links still serve it.

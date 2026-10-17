@@ -1,6 +1,7 @@
 // @ts-check
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
@@ -76,6 +77,98 @@ test('createTokenProvider and checkTokens: Cloud Shell\'s own Azure CLI sign-in 
   await assert.rejects(checkTokens(cloud), /can't get tokens for Fabric, Power BI, Power Automate, Power Apps\. Run az login --use-device-code/);
   await assert.doesNotReject(checkTokens(cloud, ['graph', 'arm']));
   await assert.rejects(checkTokens(async () => { throw new Error('AADSTS50076'); }), /AADSTS50076/, 'other failures as they are');
+});
+
+test('createTokenProvider: a sign-in can be given up on, and then it isn\'t tried again', async () => {
+  /** @type {unknown[][]} */
+  const requests = [];
+  const credential = {
+    getToken: async (/** @type {unknown[]} */ ...args) => {
+      requests.push(args);
+      return { token: 't', expiresOnTimestamp: Date.now() + 3_600_000 };
+    },
+  };
+  const scope = 'https://graph.microsoft.com/AppCatalog.ReadWrite.All';
+  await createTokenProvider(credential)(scope);
+  assert.deepEqual(requests, [[scope]], 'without a signal, the scope alone, as before');
+  const abort = new AbortController();
+  await createTokenProvider(credential)(scope, { abortSignal: abort.signal });
+  assert.deepEqual(requests[1], [scope, { abortSignal: abort.signal }], 'the signal reaches the sign-in');
+
+  const dropped = new Error('fetch failed', { cause: Object.assign(new Error('x'), { code: 'ENOTFOUND' }) });
+  assert.equal(isTransientNetworkError(dropped), true, 'one that would be tried again');
+  /** @type {number[]} */
+  const sleeps = [];
+  let calls = 0;
+  const gaveUp = new AbortController();
+  const getToken = createTokenProvider({
+    getToken: async () => {
+      calls++;
+      gaveUp.abort();
+      throw dropped;
+    },
+  }, { sleep: async (ms) => void sleeps.push(ms) });
+  await assert.rejects(getToken(scope, { abortSignal: gaveUp.signal }), /fetch failed/);
+  assert.equal(calls, 1, 'not tried again once given up on');
+  assert.deepEqual(sleeps, []);
+  await assert.rejects(getToken(scope, { abortSignal: gaveUp.signal }), { name: 'AbortError' });
+  assert.equal(calls, 1, 'nothing asked once already given up on');
+});
+
+/**
+ * Runs a script that leaves a listener open on localhost, like a browser sign-in waiting for the browser,
+ * then ends the way the installer's bin does.
+ * @param {boolean} abandon  Whether the sign-in was given up on first.
+ */
+function listenThenExit(abandon) {
+  const auth = new URL('../src/auth.js', import.meta.url).href;
+  const script = [
+    'import { createServer } from \'node:http\';',
+    `import { abandonSignIn, exitWhenDone } from ${JSON.stringify(auth)};`,
+    'createServer().listen(0, \'127.0.0.1\', () => {',
+    '  console.log(\'listening\');',
+    abandon ? '  abandonSignIn();' : '',
+    '  exitWhenDone(3);',
+    '});',
+  ].join('\n');
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  child.stdout.setEncoding('utf8').on('data', (d) => { out += d; });
+  child.stderr.setEncoding('utf8').on('data', (d) => { out += d; });
+  /** @type {Promise<number | null>} */
+  const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+  return { child, exited, out: () => out };
+}
+
+/** @param {Promise<unknown>} p @param {number} ms */
+async function within(p, ms) {
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
+  try {
+    return await Promise.race([p, new Promise((r) => { timer = setTimeout(r, ms, 'still running'); })]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+test('exitWhenDone: once a sign-in was given up on, the installer exits, though the sign-in\'s listener is still open', async () => {
+  const gaveUp = listenThenExit(true);
+  try {
+    assert.equal(await within(gaveUp.exited, 15_000), 3, gaveUp.out());
+    assert.match(gaveUp.out(), /listening/);
+  } finally {
+    gaveUp.child.kill();
+  }
+
+  const waiting = listenThenExit(false);
+  try {
+    for (let i = 0; !waiting.out().includes('listening') && i < 150; i++) await new Promise((r) => setTimeout(r, 100));
+    assert.match(waiting.out(), /listening/);
+    assert.equal(await within(waiting.exited, 1_000), 'still running', 'otherwise the open listener keeps it running');
+  } finally {
+    waiting.child.kill();
+  }
+  await waiting.exited;
 });
 
 test('allowsAction handles wildcards, notActions and data actions', () => {

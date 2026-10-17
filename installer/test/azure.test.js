@@ -10,13 +10,15 @@ import { MODULES, azureGraphRolesFor } from '../src/catalog.js';
 import { HttpError } from '../src/http.js';
 import { armApi, armErrors, waitForDeployment } from '../src/clients/azure.js';
 import { runCommand } from '../src/install.js';
-import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, armParameterNames, askTarget, azureConsumptionOn, azureCron, azureDeployment, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureRotateSecret, azureSemanticModels, consumptionParameters, installAzure, parseDropFolder, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
+import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, armParameterNames, askTarget, azureConsumptionOn, azureCron, azureDeployment, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureRotateSecret, azureSemanticModels, azureStatus, confirmAzurePlan, consumptionParameters, installAzure, parseDropFolder, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
 import { AZURE_AI_ROLES } from '../src/steps/consumption.js';
 import { azureFlowTarget, connectionSteps, flowDefinitions, flowsWanted } from '../src/steps/flows.js';
 import { CONNECTORS, connectorsUsed } from '../src/transform/flows.js';
 import { ROLES } from '../src/clients/azure.js';
 import { buildModel, mParameter } from '../src/transform/model.js';
-import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi } from './fakes.js';
+import { fakeAppCatalog, fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi, readManifest } from './fakes.js';
+import { manifestVersion } from '../src/azure/teams.js';
+import { CATALOG_SIGN_IN_MS } from '../src/steps/azure/teams-catalog.js';
 import { readScopes } from '../src/steps/org-access.js';
 import { loadConfig, saveConfig } from '../src/config.js';
 import { createWebUi } from '../src/web-ui.js';
@@ -1015,4 +1017,137 @@ test('sqlFreeOfferTurnedDown: only for a new database that asked for the free of
   assert.equal(await sqlFreeOfferTurnedDown(ctxWith({ sqlFreeOffer: false }), dbFailed), undefined, 'already without the free offer');
   assert.equal(await sqlFreeOfferTurnedDown(ctxWith({}), { operations: [{ resourceType: 'Microsoft.Web/sites', resourceName: 'web', code: 'Conflict' }] }), undefined, 'another resource failed');
   assert.equal(await sqlFreeOfferTurnedDown(ctxWith({}), new Error('BadRequest')), undefined, 'no failed operations');
+});
+
+test('Azure install publishes the Teams app to the org catalog once, Repair leaves it, and uninstall removes it', async () => {
+  const arm = fakeArm();
+  const graph = fakeAzureGraph();
+  graph.directoryRoles.push({ roleTemplateId: '69091246-20e8-4a56-aa4d-066075b2a7a8', displayName: 'Teams Administrator' });
+  const catalog = fakeAppCatalog();
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds', connectionDetails: { server: 'vlens-sql.database.windows.net', database: 'valuelens' } }]);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui, appCatalog: catalog.api });
+  Object.assign(config, {
+    target: 'azure',
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+  });
+  ctx.runFirstLoad = false;
+
+  await installAzure(ctx, { wait: true });
+  const az = /** @type {any} */ (config.azure);
+  const clientId = az.webApp.clientId;
+  const version = manifestVersion(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
+  assert.deepEqual(catalog.calls, ['signIn', `find ${clientId}`, `publish ${clientId} ${version}`], 'the package written to disk is the one published');
+  const manifest = readManifest(readFileSync(az.teamsPackage));
+  assert.equal(manifest.id, clientId);
+  assert.equal(manifest.version, version);
+  assert.deepEqual({ ...az.teamsApp, sha256: undefined, publishedAt: undefined }, { id: 'catalog-app-1', externalId: clientId, version, sha256: undefined, publishedAt: undefined });
+  assert.ok(!(az.status?.pendingAdminActions ?? []).some((/** @type {string} */ a) => a.startsWith('Publish the Teams app')));
+  const out = ui.text();
+  assert.ok(out.indexOf('Signed in to publish the Teams app') < out.indexOf('Wrote Teams package'), 'the sign-in comes before the deployment, not at the end');
+  assert.match(out, /Teams app: published Analytics Hub \S+ to your org's app catalog/);
+  assert.match(out, /Teams: +Analytics Hub \S+ in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app\./);
+
+  // Repair or change, as a new run: the same package, so no sign-in and nothing uploaded.
+  delete ctx.teamsCatalog;
+  catalog.calls.length = 0;
+  await installAzure(ctx, { wait: true });
+  assert.deepEqual(catalog.calls, []);
+  assert.equal(catalog.apps.length, 1);
+
+  delete ctx.teamsCatalog;
+  az.createdResourceGroup = true;
+  await runCommand(ctx, 'uninstall', { wait: true });
+  assert.deepEqual(catalog.calls, ['signIn', 'remove catalog-app-1']);
+  assert.equal(catalog.apps.length, 0);
+  assert.equal(az.teamsApp, undefined);
+  assert.ok(arm.calls.includes('deleteResourceGroup rg'));
+});
+
+/**
+ * A new Azure install by a Teams Administrator, with the org's app catalog to publish to.
+ * @param {{ answers?: any[] }} [o]  Scripted answers for the UI.
+ */
+function teamsCatalogInstall(o = {}) {
+  const arm = fakeArm();
+  const graph = fakeAzureGraph();
+  graph.directoryRoles.push({ roleTemplateId: '69091246-20e8-4a56-aa4d-066075b2a7a8', displayName: 'Teams Administrator' });
+  const catalog = fakeAppCatalog();
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds', connectionDetails: { server: 'vlens-sql.database.windows.net', database: 'valuelens' } }]);
+  const ui = fakeUi({ answers: o.answers });
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui, appCatalog: catalog.api });
+  Object.assign(config, {
+    target: 'azure',
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+  });
+  ctx.runFirstLoad = false;
+  return { ctx, arm, catalog, ui, az: () => /** @type {any} */ (config.azure) };
+}
+
+/** The Teams app's pending admin actions. @param {any} az @returns {string[]} */
+const teamsPending = (az) => (az.status?.pendingAdminActions ?? []).filter((/** @type {string} */ a) => a.startsWith('Publish the Teams app'));
+
+test('Azure install: a catalog sign-in nobody finishes holds it up for 5 minutes at most, then it carries on and leaves the steps to upload the app', async (t) => {
+  const s = teamsCatalogInstall();
+  /** @type {AbortSignal | undefined} */
+  let signal;
+  // A browser sign-in left open: its listener ignores the signal and waits for ever.
+  s.catalog.api.signIn = async (o) => {
+    s.catalog.calls.push('signIn');
+    signal = o?.abortSignal;
+    await new Promise(() => {});
+  };
+  t.mock.timers.enable({ apis: ['setTimeout'] });
+  const installing = installAzure(s.ctx, { wait: true });
+  for (let i = 0; !signal && i < 1000; i++) await new Promise((r) => setImmediate(r));
+  assert.ok(signal, 'signing in');
+  t.mock.timers.tick(CATALOG_SIGN_IN_MS - 1);
+  await new Promise((r) => setImmediate(r));
+  assert.equal(signal?.aborted, false, 'still waiting just before the time is up');
+  assert.equal(s.arm.calls.length, 0, 'nothing is created in Azure while the sign-in waits');
+  t.mock.timers.tick(1);
+  // The rest of the install waits on real timers.
+  t.mock.timers.reset();
+  assert.equal(signal?.aborted, true, 'given up on');
+  assert.equal(await installing, true, 'the install finishes');
+  assert.ok(s.arm.calls.includes('ensureResourceGroup rg'));
+  assert.deepEqual(s.catalog.calls, ['signIn'], 'no second sign-in at the end');
+  const az = s.az();
+  assert.equal(az.teamsApp, undefined);
+  assert.ok(readFileSync(az.teamsPackage).length > 0, 'the package is there to upload by hand');
+  const upload = `upload ${az.teamsPackage} in Teams admin center > Teams apps > Manage apps (https://admin.teams.microsoft.com/policies/manage-apps).`;
+  assert.deepEqual(teamsPending(az), [`Publish the Teams app: ${upload}`]);
+  const out = s.ui.text();
+  assert.match(out, /The installer can't publish the Teams app\. The sign-in to Microsoft Graph Command Line Tools wasn't finished within 5 minutes\. The install carries on/);
+  assert.match(out, /Teams app: not published to your org's app catalog\. The sign-in to Microsoft Graph Command Line Tools wasn't finished within 5 minutes\./);
+  assert.ok(out.includes(`Teams:      Not published yet. A Teams Administrator needs to ${upload}`), 'in the summary');
+  await azureStatus(s.ctx);
+  assert.ok(s.ui.text().includes(`Pending admin action: Publish the Teams app: ${upload}`), 'and in status');
+});
+
+test('Azure plan: the admin can go ahead without publishing the Teams app, and the install leaves the steps to upload it', async () => {
+  const s = teamsCatalogInstall({ answers: [false, true] });
+  /** @type {any[]} */
+  const plans = [];
+  const review = s.ui.ui.review;
+  s.ui.ui.review = (plan) => {
+    plans.push(plan);
+    review(plan);
+  };
+  assert.equal(await confirmAzurePlan(s.ctx), true, 'going ahead');
+  assert.deepEqual(s.ui.asked, ['Publish the Teams app to your org\'s app catalog? It takes one more sign-in. If you say no, the installer prints the steps to upload it by hand.', 'Go ahead?']);
+  const row = plans[0].creates.find((/** @type {any} */ r) => r.kind === 'Teams app');
+  assert.equal(row?.detail, 'Not published by the installer. You chose to upload it by hand. The installer prints the steps for a Teams Administrator to upload it.');
+
+  assert.equal(await installAzure(s.ctx, { wait: true }), true);
+  assert.deepEqual(s.catalog.calls, [], 'no sign-in for it');
+  const az = s.az();
+  assert.equal(az.teamsApp, undefined);
+  assert.equal(teamsPending(az).length, 1);
+  const out = s.ui.text();
+  assert.doesNotMatch(out, /Signing in once more/);
+  assert.match(out, /Teams app: not published to your org's app catalog\. You chose to upload it by hand\./);
+  assert.match(out, /Teams: +Not published yet\. A Teams Administrator needs to upload /);
 });
