@@ -52,8 +52,9 @@ Existing Azure installs get this on their next upgrade or **Repair or change**. 
   those ends it "partly set up": the installer exits 1, and its page shows the install didn't
   finish. On Azure, org-scoped access or a history reload that doesn't start ends it "set up, but
   not finished", also with exit 1. Each failed step says how to try it again. A step that only
-  warns (⚠), or works when it's tried again, still ends "set up". `update` says it isn't finished,
-  instead of "Up to date", after a step that failed.
+  warns (⚠), or works when it's tried again, still ends "set up", unless a load or refresh the
+  installer waited for hasn't finished, as before. `update` says it isn't finished, instead of
+  "Up to date", after a step that failed.
 - **The summary says how to deploy the app.** When the app step fails, the "partly set up"
   summary's next steps now start with fixing the problem and running `deploy-app`, or choosing
   **Redeploy the app**.
