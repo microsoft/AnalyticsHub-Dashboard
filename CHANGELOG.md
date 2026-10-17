@@ -44,7 +44,16 @@ Existing Azure installs get this on their next upgrade or **Repair or change**. 
   the installer says to run `deploy-app`. An install still waiting on its first load then saved
   the record from the copy it read at the start, which dropped the app: `status` didn't show it,
   and repair or update didn't treat it as deployed. Each save now keeps what another command
-  changed since, field by field, and the install's summary counts an app deployed meanwhile.
+  changed since, field by field. The install's summary counts an app deployed meanwhile when the
+  app step was the only one that failed.
+- **A step that fails leaves the install "partly set up".** Before, an install could end "Analytics
+  Hub is set up", and exit 0, after a step failed (✗) and it carried on: a Power BI report, the Ask
+  data agent, an upload, org-scoped access, or the data check after the first load. Now any of
+  those ends it "partly set up": the installer exits 1, and its page shows the install didn't
+  finish. On Azure, org-scoped access or a history reload that doesn't start ends it "set up, but
+  not finished", also with exit 1. Each failed step says how to try it again. A step that only
+  warns (⚠), or works when it's tried again, still ends "set up". `update` says it isn't finished,
+  instead of "Up to date", after a step that failed.
 - **The summary says how to deploy the app.** When the app step fails, the "partly set up"
   summary's next steps now start with fixing the problem and running `deploy-app`, or choosing
   **Redeploy the app**.

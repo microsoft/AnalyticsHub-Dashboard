@@ -373,6 +373,8 @@ const dataCheckName = (config) => config.fabric.notebookNames?.dataCheck ?? 'the
 /**
  * Runs the data check notebook and reads back the summary it leaves in the Lakehouse.
  * @param {Ctx} ctx
+ * @returns {Promise<any>} The summary; false when the check failed, saying how to run it again; null when it isn't
+ *   deployed, didn't finish or left no summary, which only warns.
  */
 export async function runDataCheck(ctx) {
   const { ui, config, api } = ctx;
@@ -392,7 +394,12 @@ export async function runDataCheck(ctx) {
     ui.warn(`Data check: Fabric's capacity is still busy. Trying again in ${BUSY_WAIT_MS / 60_000} minutes.`);
     await ctx.sleep(BUSY_WAIT_MS);
   }
-  if (!reportJob(ctx, job, 'Data check', 'check')) return null;
+  if (!reportJob(ctx, job, 'Data check', 'check')) {
+    if (job?.status !== 'Failed') return null;
+    // A busy capacity's note already says to run it again.
+    if (!capacityBusy(job.failureReason)) ui.info(`Run "${commandLine('check')}" to try it again.`);
+    return false;
+  }
   const summary = await api.oneLake.readJson(f.workspaceId, f.lakehouseId, DATA_CHECK_FILE).catch(() => null);
   if (!summary) {
     ui.note(`Open ${dataCheckName(config)} in Fabric to see its results.`);

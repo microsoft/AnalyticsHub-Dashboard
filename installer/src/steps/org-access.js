@@ -483,10 +483,12 @@ async function ensureAzureAccessNotebook(ctx) {
 
 /**
  * Lands the scope list, applies each model's role members and, when asked, refreshes the models.
- * Returns false when it couldn't; the install carries on, and the models stay closed to scoped
- * viewers until it's applied.
+ * The install carries on whatever happens, and the models stay closed to scoped viewers until it's
+ * applied.
  * @param {Ctx} ctx
  * @param {{ refresh?: boolean }} [opts]
+ * @returns {Promise<boolean | null>} true when applied; false when it failed, saying how to try again; null when it only
+ *   warned: no model can take its roles yet, or Azure's job that loads them couldn't be followed.
  */
 export async function applyOrgAccess(ctx, opts = {}) {
   const { ui, config } = ctx;
@@ -494,15 +496,17 @@ export async function applyOrgAccess(ctx, opts = {}) {
   const blockers = rlsBlockers(ctx);
   if (blockers.length) {
     for (const b of blockers) ui.fail(b);
+    ui.info(`Fix ${blockers.length === 1 ? 'that' : 'those'}, or turn org-scoped access off from "${commandLine('access')}".`);
     return false;
   }
   const rows = await readScopes(ctx);
   const { items, missing } = await roleItems(ctx, rows);
   for (const m of missing) ui.warn(`${m.name} wasn't deployed with org-scoped access by this installer. Run "${commandLine('update')}" to redeploy it.`);
-  if (!items.length) return false;
+  if (!items.length) return null;
 
   if (config.target === 'azure' && !(await grantLandingWrite(ctx, 'to write the org-scoped access files'))) {
     ui.fail('You need Storage Blob Data Contributor on the storage account to apply org-scoped access.');
+    ui.info(`Once you have it, try again from "${commandLine('access')}".`);
     return false;
   }
   const s = store(ctx);
@@ -517,7 +521,13 @@ export async function applyOrgAccess(ctx, opts = {}) {
     const id = await ensureAzureAccessNotebook(ctx);
     ok = await runAccessNotebook(ctx, ws, id, { MODE: 'membership', ROLES_B64: '', ROLES_FILE: s.rolesPath, WORKSPACE_ID: ws });
     // The jobs load the list into SQL, then refresh the models so it takes effect.
-    if (ok && opts.refresh !== false) ok = (await startAndWaitJob(ctx, 'run', { wait: true, steps: 'access,refresh', timeoutMs: 30 * 60_000 })).ok;
+    if (ok && opts.refresh !== false) {
+      const job = await startAndWaitJob(ctx, 'run', { wait: true, steps: 'access,refresh', timeoutMs: 30 * 60_000 });
+      // Started, but it couldn't be followed: that warns and says how to check it.
+      if (job.unfollowed) return null;
+      ok = job.ok;
+      if (!ok) ui.info(`Then try again from "${commandLine('access')}".`);
+    }
   } else {
     const ws = /** @type {string} */ (config.fabric.workspaceId);
     const id = config.fabric.notebooks.accessScope;
@@ -554,6 +564,7 @@ export function orgAccessPending(config) {
  * applied. Nothing to do when org-scoped access is off.
  * @param {Ctx} ctx
  * @param {{ refresh?: boolean }} [opts]
+ * @returns {Promise<boolean | null>} As applyOrgAccess: false when it failed; null when it only warned.
  */
 export async function ensureOrgAccess(ctx, opts = {}) {
   const { ui, config } = ctx;

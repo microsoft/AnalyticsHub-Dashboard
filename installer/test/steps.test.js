@@ -792,11 +792,40 @@ test('data check waits and tries again while the pipeline\'s session holds the c
   const ui2 = fakeUi();
   const t = fakeCtx({ fabric: again.api, oneLake, ui: ui2.ui });
   t.config.fabric.notebooks.dataCheck = 'nb-check';
-  assert.equal(await runDataCheck(t.ctx), null);
+  assert.equal(await runDataCheck(t.ctx), false, 'still busy after the retries: the check failed');
   assert.equal(again.calls.length, BUSY_RETRIES + 1);
   const text = ui2.text();
   assert.match(text, /Fabric's capacity was too busy to start a notebook\. Nothing is lost\./);
+  assert.match(text, /Wait a few minutes, then run ".*check" again\./);
+  assert.doesNotMatch(text, /to try it again/, 'the busy note already says how to run it again');
   assert.doesNotMatch(text, /Livy session/, 'the raw error is left out when the reason is a busy capacity');
+});
+
+test('data check: a failed check is a failure that says how to run it again; one that only warns is not', async () => {
+  const oneLake = { readJson: async () => ({ checkedAt: '2026-06-01T12:30:00+00:00', tables: { licensed: { rows: 5 } } }) };
+  const run = async (/** @type {any} */ job, deployed = true) => {
+    const fabric = fakeFabric();
+    if (job) fabric.jobs.push(job);
+    const ui = fakeUi();
+    const t = fakeCtx({ fabric: fabric.api, oneLake, ui: ui.ui });
+    if (deployed) t.config.fabric.notebooks.dataCheck = 'nb-check';
+    return { result: await runDataCheck(t.ctx), text: ui.text() };
+  };
+
+  const failed = await run({ status: 'Failed', failureReason: { errorCode: 'NotebookFailed', message: 'Spark ran out of memory' } });
+  assert.equal(failed.result, false);
+  assert.match(failed.text, /✗ Data check failed/);
+  assert.match(failed.text, /Spark ran out of memory/);
+  assert.match(failed.text, /Run ".*check" to try it again\./);
+
+  const cancelled = await run({ status: 'Cancelled' });
+  assert.equal(cancelled.result, null);
+  assert.match(cancelled.text, /Data check ended with status Cancelled/);
+  assert.doesNotMatch(cancelled.text, /✗/);
+
+  const missing = await run(undefined, false);
+  assert.equal(missing.result, null);
+  assert.match(missing.text, /The data check notebook isn't deployed/);
 });
 
 test('check runs the data check on its own, and needs its notebook', async () => {

@@ -299,7 +299,7 @@ test("install: a failed app deploy or unproven first load makes the install not 
   assert.match(src, /if \(!appDeployed\) appFailure = \{ since, workspaceId: config\.fabric\.workspaceId, deployedAt: config\.fabricApp\.deployedAt \};/);
   // Saving merges in what deploy-app saved while the first load ran, before the verdict.
   assert.match(src, /if \(appFailure\) \{\r?\n(?:\s*\/\/.*\r?\n)?\s*ctx\.save\(\);\r?\n\s*appLate = appDeployedSince\(config, appFailure\);\r?\n\s*\}/);
-  // Not when a report or the data agent failed too: install-late-app.test.js runs each case.
-  assert.match(src, /const appOk = appDeployed \|\| \(!!appLate && published\);\r?\n\s*ok = reloads\.ok && ok && appOk;\r?\n\s*await summary\(ctx, \{ ok, pending: reloads\.pending, appFailed: !appDeployed && !appLate, appLate \}\)/);
+  // Not when another step failed too: install-verdict.test.js runs each case.
+  assert.match(src, /const appOk = appDeployed \|\| !!appLate;\r?\n\s*ok = reloads\.ok && ok && stepsOk && appOk;\r?\n\s*await summary\(ctx, \{ ok, pending: reloads\.pending, appFailed: !appDeployed && !appLate, appLate \}\)/);
   assert.match(src, /if \(opts\.wait && config\.firstRun\?\.status !== 'Completed'\) ok = false;/);
 });

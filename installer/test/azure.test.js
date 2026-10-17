@@ -517,6 +517,58 @@ test('Azure: a model update Fabric can only make by clearing its data waits for 
   assert.equal(agreed.refreshes().length, 1);
 });
 
+test("Azure: a history reload that doesn't start leaves setup not finished, and says how to try again", async () => {
+  const failed = await azureModelChanged();
+  failed.ctx.reloadHistoryDays = 90;
+  failed.arm.api.getContainerAppJob = async () => {
+    throw new Error('Job not found');
+  };
+  assert.equal(await installAzure(failed.ctx, { wait: true }), false);
+  assert.match(failed.ui.text(), /✗ The history reload didn't start: Job not found/);
+  assert.match(failed.ui.text(), /Try again with ".*run --backfill-days 90"\./);
+  assert.match(failed.ui.text(), /Analytics Hub is set up, but not finished/);
+  assert.equal(failed.config.history.days, 30);
+
+  const started = await azureModelChanged();
+  started.ctx.reloadHistoryDays = 90;
+  assert.equal(await installAzure(started.ctx, { wait: true }), true);
+  assert.match(started.ui.text(), /Started run job \(vlens-run-exec\) with 90 days of audit history/);
+  assert.equal(started.config.history.days, 90);
+  assert.doesNotMatch(started.ui.text(), /not finished/);
+});
+
+/** Org-scoped access on, for the next run. @param {Awaited<ReturnType<typeof azureModelChanged>>} t */
+function orgAccessOn(t) {
+  t.config.access = /** @type {any} */ ({ ...t.config.access, groupId: 'group-1', groupName: 'Analytics Hub Viewers', rls: { enabled: true, orgAttribute: 'department', applied: [] } });
+  Object.assign(t.graph.api, { getGroup: async (/** @type {string} */ id) => ({ id, displayName: 'Analytics Hub Viewers' }) });
+  Object.assign(t.powerBi.api, { datasetUsers: async () => [], addDatasetUser: async () => null });
+}
+
+test("Azure: org-scoped access that fails leaves setup not finished; a job it can't follow only warns", async () => {
+  // A Pro workspace can't take roles with members.
+  const blocked = await azureModelChanged();
+  orgAccessOn(blocked);
+  assert.equal(await installAzure(blocked.ctx, { wait: true }), false);
+  assert.match(blocked.ui.text(), /✗ The Power BI workspace is on a Pro licence/);
+  assert.match(blocked.ui.text(), /Fix that, or turn org-scoped access off from ".*access"\./);
+  assert.match(blocked.ui.text(), /Analytics Hub is set up, but not finished/);
+
+  const unfollowed = await azureModelChanged();
+  orgAccessOn(unfollowed);
+  /** @type {any} */ (unfollowed.config.azure).powerBi.capacityId = 'cap-1';
+  unfollowed.ctx.api.dataLake = /** @type {any} */ (() => ({ readText: async () => null, writeFile: async () => {} }));
+  unfollowed.fabric.jobs.push({ status: 'Completed' });
+  const start = unfollowed.arm.api.startContainerAppJob;
+  // Azure starts the job that loads the scopes, but doesn't say which run it is.
+  unfollowed.arm.api.startContainerAppJob = async (sub, rg, name, template) => (template?.containers?.[0]?.args?.includes('--steps') ? /** @type {any} */ ({}) : start(sub, rg, name, template));
+  assert.equal(await installAzure(unfollowed.ctx, { wait: true }), true);
+  const text = unfollowed.ui.text();
+  assert.match(text, /! Azure didn't say which run of the run job \(access,refresh\) this is/);
+  assert.doesNotMatch(text, /✗/);
+  assert.match(text, /Analytics Hub is set up/);
+  assert.doesNotMatch(text, /not finished/);
+});
+
 /** The record as the next run reads it, saved and read back through the installer's own files. */
 function readBack(/** @type {any} */ config) {
   const dir = mkdtempSync(join(tmpdir(), 'ah-azure-reload-'));
@@ -614,7 +666,7 @@ test('Azure: a job run with no execution name is not counted as finished', async
   const t = await azureModelChanged();
   t.arm.api.startContainerAppJob = async () => /** @type {any} */ ({});
   const { startAndWaitJob } = await import('../src/steps/azure/index.js');
-  assert.deepEqual(await startAndWaitJob(t.ctx, 'run', { wait: true, steps: 'access,refresh' }), { ok: false, status: 'Unknown' });
+  assert.deepEqual(await startAndWaitJob(t.ctx, 'run', { wait: true, steps: 'access,refresh' }), { ok: false, status: 'Unknown', unfollowed: true });
   assert.match(t.ui.text(), /Azure didn't say which run of the run job \(access,refresh\) this is, so the installer can't follow it to the end/);
   // Not waiting, it is only started, which is all that is claimed.
   assert.deepEqual(await startAndWaitJob(t.ctx, 'run', { wait: false }), { ok: true, status: 'Running' });

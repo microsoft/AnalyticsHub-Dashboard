@@ -217,6 +217,25 @@ test('apply on Fabric: a failed notebook leaves the models unapplied and says wh
   assert.match(ui.text(), /Allow XMLA endpoints/);
 });
 
+test('ensureOrgAccess: a blocker is a failure that says how to get past it', async () => {
+  const { ctx, config, fabric, ui } = fabricInstall();
+  config.semanticModel.id = undefined;
+  assert.equal(await ensureOrgAccess(ctx, { refresh: false }), false);
+  assert.deepEqual(notebookRuns(fabric.calls), []);
+  assert.match(ui.text(), /✗ No semantic model is deployed yet/);
+  assert.match(ui.text(), /Fix that, or turn org-scoped access off from ".*access"\./);
+});
+
+test('ensureOrgAccess: with no model able to take its roles yet, it only warns, so it is not a failure', async () => {
+  const { ctx, config, fabric, lakeFiles, ui } = fabricInstall();
+  lakeFiles.map.set(FABRIC_SCOPE_FILE, scopeCsv(seedRows(['ana@contoso.com'], by)));
+  assert.equal(await ensureOrgAccess(ctx, { refresh: false }), null);
+  assert.deepEqual(notebookRuns(fabric.calls), []);
+  assert.deepEqual(config.access?.rls?.applied, []);
+  assert.match(ui.text(), /wasn't deployed with org-scoped access by this installer\. Run ".*update" to redeploy it\./);
+  assert.doesNotMatch(ui.text(), /✗/);
+});
+
 test('ensureOrgAccess: nothing to do when off, or when every model has its members', async () => {
   const off = fabricInstall({ rls: false });
   assert.equal(await ensureOrgAccess(off.ctx), true);
