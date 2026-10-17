@@ -67,7 +67,8 @@ From the `app` folder:
    viewer also needs **Build** on the models.
 
 To update it, get the latest code and run `ms app deploy` again. `ms app info` shows its links.
-To remove it, run `ms app delete`.
+To remove it, run
+[`ms app delete`](https://learn.microsoft.com/microsoft-365/managed-apps/developer/ms-cli-command-reference#ms-app-delete).
 
 ## What's different from Fabric and Azure
 

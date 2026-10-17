@@ -86,8 +86,9 @@ Uninstall leaves these alone. Remove them yourself if you no longer need them:
 - The Power Automate flows and their connections, and the Cowork Dataflow's connections.
 - Dataverse access for Agent Evaluator, and the Azure and Entra roles the installer gave.
 - Your install record in `Documents\Analytics Hub` (`~/analytics-hub` in Cloud Shell).
-- A [Copilot Managed App](MANAGED-APP.md), if you deployed one. Run `ms app delete` from the `app`
-  folder.
+- A [Copilot Managed App](MANAGED-APP.md), if you deployed one. Run
+  [`ms app delete`](https://learn.microsoft.com/microsoft-365/managed-apps/developer/ms-cli-command-reference#ms-app-delete)
+  from the `app` folder.
 
 ### Remove the installer
 
