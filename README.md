@@ -48,15 +48,15 @@ are the official numbers. Analytics Hub adds:
 | Page | Answers | Data from |
 |---|---|---|
 | **Executive summary** | What is Copilot delivering, and where? | All of the below, in one page |
+| **Value** | What was the work, and what was it worth? | Audit log, time per task |
+| **Consumption** | What credits did we use, and what did they cost? | Copilot credits, Azure cost *(Credit consumption add-on)* |
+| **Efficiency** | Is the right tool doing the job? | Audit log |
 | **Adoption** | Who started, who stayed, who stuck? | Purview audit log, licences, org data |
 | **Leaderboards** | Which people and agents do the most? | Audit log, Agent 365 registry |
 | **Work patterns** | Where does Copilot fit in everyday Microsoft 365 work? | Microsoft 365 usage reports *(optional)* |
+| **Readiness** | Who should get a licence next, and who is ready for Cowork? | Audit log, licences |
 | **Agent Evaluation** | How well do our agents answer? | Copilot Studio transcripts *(Agent Evaluator add-on)* |
 | **Governance** | Who owns our agents, who can reach them, what needs a review? | Agent 365 registry, Azure Resource Graph, Defender *(optional)* |
-| **Readiness** | Who should get a licence next, and who is ready for Cowork? | Audit log, licences |
-| **Consumption** | What credits did we use, and what did they cost? | Copilot credits, Azure cost *(Credit consumption add-on)* |
-| **Value** | What was the work, and what was it worth? | Audit log, time per task |
-| **Efficiency** | Is the right tool doing the job? | Audit log |
 | **Feedback** | What do people say about it? | Product feedback export *(optional)* |
 | **Assumptions** · **Appendix** | How long does each task take? What does each metric mean? | The model's task times and glossary |
 

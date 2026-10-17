@@ -24,6 +24,24 @@ describe("prefetchTargets", () => {
         expect(targets[0]).toBe("executive/the-bottom-line");
     });
 
+    it("from the executive summary, fetches Value, Consumption and Efficiency first, then the rest in menu order", () => {
+        expect(prefetchTargets(destinations, "executive", "the-bottom-line").map(key)).toEqual([
+            "value/task-breakdown",
+            "consumption/consumption-overview",
+            "efficiency/cowork-fit",
+            "adoption/adoption",
+            "leaderboards/leaderboard",
+            "work-patterns/m365-activity",
+            "readiness/license-readiness",
+            "agent-evaluation/agent-performance",
+            "governance/estate-health",
+            "feedback/feedback",
+            "executive/is-it-growing",
+            "executive/where-it-is-landing",
+            "executive/what-needs-attention",
+        ]);
+    });
+
     it("leaves out reference pages, Ask and the tab on screen", () => {
         const ids = prefetchTargets(destinations, "executive", "the-bottom-line").map((target) => target.id);
         expect(ids).not.toContain("assumptions");
