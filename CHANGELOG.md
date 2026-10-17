@@ -25,10 +25,14 @@ Deployment instructions do **not** live here. They live in the READMEs:
 - **Same sign-in.** The installer pre-authorises the Outlook and Microsoft 365 app clients (web,
   desktop and mobile) on the web app's registration, next to Teams, and the web app lets
   `*.microsoft365.com` and `outlook.office365.com` show it in a frame.
-- **Signs in as it opens.** The app now initialises TeamsJS and asks the host for a token when the
-  tab loads, so people go straight to their data. If the host needs a prompt first, such as consent
+- **Keeps what an admin added.** An upgrade or Repair now keeps any other pre-authorised client or
+  scope on the web app's registration, and adds its own. Before, it put back only its own.
+- **Signs in as it opens.** On the tab's address, the app now initialises TeamsJS and asks the host
+  for a token, so people go straight to their data. If the host needs a prompt first, such as consent
   or MFA, the tab shows **Sign in with Microsoft**, which opens it in a pop-up. Before, sign-in in
   the tab failed with "The library has not yet been initialized", in Teams too.
+- **No wait in a browser.** The app starts TeamsJS only on the tab's address. Before, a browser
+  window that another app opened could stay blank for up to a minute.
 - **Personal tab only.** The channel and group chat tab stays in Teams. The Teams package doesn't
   change, so there's nothing to upload again.
 

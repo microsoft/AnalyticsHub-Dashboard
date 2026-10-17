@@ -51,6 +51,7 @@ vi.mock("@azure/msal-browser", () => ({
 }));
 
 import { bootstrapAuth } from "@/services/rayfin-auth.service";
+import { detectTeamsHost, resetTeamsHost } from "@/lib/teams-host";
 
 /** A token as the host hands it over. The app only reads its claims. */
 function hostToken(claims: Record<string, unknown>): string {
@@ -62,6 +63,7 @@ const ada = { oid: "user-1", name: "Ada Lovelace", preferred_username: "ada@exam
 describe("Azure sign-in in a Teams, Outlook or Microsoft 365 tab", () => {
     beforeEach(() => {
         vi.resetAllMocks();
+        resetTeamsHost();
         runtime.inTeams = true;
         host.initialize.mockResolvedValue(undefined);
         history.replaceState(null, "", "/?host=teams");
@@ -108,6 +110,18 @@ describe("Azure sign-in in a Teams, Outlook or Microsoft 365 tab", () => {
 
         await expect(auth.initEmbeddedAuth()).resolves.toBeNull();
         expect(host.getAuthToken).not.toHaveBeenCalled();
+    });
+
+    it("initialises TeamsJS once in the sign-in pop-up, reusing the call the page made at load", async () => {
+        history.replaceState(null, "", "/?host=teams&auth=popup");
+        await expect(detectTeamsHost()).resolves.toBe(true);
+        const auth = bootstrapAuth();
+
+        await auth.initEmbeddedAuth();
+
+        expect(host.initialize).toHaveBeenCalledOnce();
+        expect(host.notifySuccess).toHaveBeenCalledOnce();
+        expect(host.notifyFailure).not.toHaveBeenCalled();
     });
 
     it("leaves a browser outside a host to the Microsoft sign-in button", async () => {

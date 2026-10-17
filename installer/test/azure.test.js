@@ -1,5 +1,5 @@
 import { fabricApi } from '../src/clients/fabric.js';
-import { graphApi } from '../src/clients/graph.js';
+import { graphApi, mergePreAuthorizedApplications } from '../src/clients/graph.js';
 // @ts-check
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
@@ -10,7 +10,7 @@ import { MODULES, azureGraphRolesFor } from '../src/catalog.js';
 import { HttpError } from '../src/http.js';
 import { armApi, armErrors, waitForDeployment } from '../src/clients/azure.js';
 import { runCommand } from '../src/install.js';
-import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, armParameterNames, askTarget, azureConsumptionOn, azureCron, azureDeployment, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureRotateSecret, azureSemanticModels, consumptionParameters, installAzure, parseDropFolder, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
+import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, armParameterNames, askTarget, azureConsumptionOn, azureCron, azureDeployment, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureRotateSecret, azureSemanticModels, consumptionParameters, installAzure, parseDropFolder, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
 import { AZURE_AI_ROLES } from '../src/steps/consumption.js';
 import { azureFlowTarget, connectionSteps, flowDefinitions, flowsWanted } from '../src/steps/flows.js';
 import { CONNECTORS, connectorsUsed } from '../src/transform/flows.js';
@@ -841,6 +841,69 @@ test('an app registration with no Graph roles is created without an empty permis
   await g.createApplication('Analytics Hub', [{ id: 'r1' }]);
   assert.deepEqual(posts[0].requiredResourceAccess, []);
   assert.equal(posts[1].requiredResourceAccess[0].resourceAccess[0].id, 'r1');
+});
+
+/** The web app registration's update, with each PATCH body it sends. */
+function webAppGraph() {
+  /** @type {any[]} */ const patches = [];
+  const g = graphApi(/** @type {any} */ ({ patch: async (/** @type {string} */ _p, /** @type {any} */ body) => (patches.push(body), {}) }));
+  const o = { fqdn: 'vlens.example.com', clientId: 'client', pbiScopeId: 's-dataset', graphUserReadScopeId: 's-user-read', teamsClientIds: TEAMS_CLIENTS };
+  return { patches, update: (/** @type {any} */ app) => g.updateAzureWebApplication(app, o) };
+}
+
+test('an upgrade or Repair keeps the web app registration\'s other pre-authorised clients and scopes', async () => {
+  const { patches, update } = webAppGraph();
+  const [teamsDesktop, teamsWeb] = TEAMS_CLIENTS;
+  const other = '11111111-2222-4333-8444-555555555555';
+  const extra = { id: 'scope-extra', value: 'Reports.Export', isEnabled: true, type: 'User', adminConsentDisplayName: 'Export reports' };
+  // An admin pre-authorised another client, and gave Teams an extra scope as well.
+  const app = { id: 'web-obj', appRoles: [{ id: 'role-user' }], api: {
+    requestedAccessTokenVersion: 2,
+    oauth2PermissionScopes: [{ id: 'scope-access', value: 'access_as_user', isEnabled: true, type: 'User' }, extra],
+    preAuthorizedApplications: [
+      { appId: other, delegatedPermissionIds: ['scope-extra', 'scope-access'] },
+      { appId: teamsDesktop, delegatedPermissionIds: ['scope-access', 'scope-extra'] },
+    ],
+  } };
+
+  await update(app);
+  const { api } = patches[0];
+  assert.equal(api.requestedAccessTokenVersion, 2);
+  assert.deepEqual(api.oauth2PermissionScopes.map((/** @type {any} */ s) => s.value), ['access_as_user', 'Reports.Export']);
+  assert.deepEqual(api.oauth2PermissionScopes[1], extra);
+  assert.deepEqual(api.preAuthorizedApplications.slice(0, 3), [
+    { appId: other, delegatedPermissionIds: ['scope-extra', 'scope-access'] },
+    { appId: teamsDesktop, delegatedPermissionIds: ['scope-access', 'scope-extra'] },
+    { appId: teamsWeb, delegatedPermissionIds: ['scope-access'] },
+  ]);
+  const clients = api.preAuthorizedApplications.map((/** @type {any} */ c) => c.appId);
+  assert.deepEqual(clients, [other, ...TEAMS_CLIENTS], 'each client once, the host clients added after what was there');
+  for (const c of api.preAuthorizedApplications) assert.equal(new Set(c.delegatedPermissionIds).size, c.delegatedPermissionIds.length, `${c.appId} lists each permission once`);
+
+  // The next run writes back what is there.
+  await update({ ...app, api });
+  assert.deepEqual(patches[1].api, api);
+});
+
+test('the web app registration gets its access_as_user scope and host clients when it has none', async () => {
+  const { patches, update } = webAppGraph();
+  await update({ id: 'web-obj' });
+  const [scope] = patches[0].api.oauth2PermissionScopes;
+  assert.equal(scope.value, 'access_as_user');
+  assert.deepEqual(patches[0].api.preAuthorizedApplications, TEAMS_CLIENTS.map((appId) => ({ appId, delegatedPermissionIds: [scope.id] })));
+});
+
+test('pre-authorisation lists each client and permission once, and only permissions the app still has', () => {
+  const merged = mergePreAuthorizedApplications([
+    { appId: 'client-a', delegatedPermissionIds: ['scope-extra', 'scope-extra', 'scope-gone'] },
+    { appId: 'CLIENT-A', delegatedPermissionIds: ['scope-access'] },
+    { appId: 'client-b', delegatedPermissionIds: ['scope-gone'] },
+    { appId: 'client-c', delegatedPermissionIds: [] },
+  ], ['client-a', 'client-d', 'client-d'], 'scope-access', [{ id: 'scope-access' }, { id: 'scope-extra' }]);
+  assert.deepEqual(merged, [
+    { appId: 'client-a', delegatedPermissionIds: ['scope-extra', 'scope-access'] },
+    { appId: 'client-d', delegatedPermissionIds: ['scope-access'] },
+  ]);
 });
 
 test('workspace capacity assignment polls the workspace instead of a missing operation', async () => {

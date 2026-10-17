@@ -15,6 +15,7 @@ import {
 } from "@microsoft/rayfin-auth-provider-fabric";
 import { getRayfinClient } from "@/lib/rayfin-client";
 import { runtimeConfig } from "@/lib/runtime-config";
+import { initialiseTeams } from "@/lib/teams-host";
 
 export interface AnalyticsHubUser {
     id?: string;
@@ -217,7 +218,7 @@ class AzureAuthService implements IAuthService {
         try {
             const account = this.account();
             if (!account) await this.msal.loginRedirect({ scopes: [this.config.apiScope] });
-            await teams.app.initialize();
+            await initialiseTeams();
             teams.authentication.notifySuccess();
         } catch (error) {
             teams.authentication.notifyFailure(error instanceof Error ? error.message : String(error));

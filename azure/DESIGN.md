@@ -360,11 +360,14 @@ Before showing the plan, the installer runs these checks and offers a fix for ea
   Teams clients `1fec8e78-bce4-4aaf-ab1b-5451cc387264` (desktop and mobile) and
   `5e3ce6c0-2b1f-4285-8d4b-75ee78787346` (web). It also pre-authorises the Microsoft 365 app and Outlook clients
   (`TEAMS_CLIENTS` in `installer/src/steps/azure/index.js`), so the personal tab runs in Outlook and the
-  Microsoft 365 Copilot app too. The channel tab stays in Teams.
-- In the app, `app.initialize()` runs at load, then a silent `getAuthToken()` gets the token for our API, so the
-  tab signs in without a click, and the server does the OBO to Power BI. When the host needs a prompt, such as
-  consent or MFA, the tab shows **Sign in with Microsoft**, which falls back to `authentication.authenticate()` in
-  a pop-up.
+  Microsoft 365 Copilot app too. The channel tab stays in Teams. Each run adds these clients to the registration
+  and keeps any other pre-authorised client or scope on it.
+- In the app, `app.initialize()` runs once per page, at load, on the tab's `?host=teams` address, then a silent
+  `getAuthToken()` gets the token for our API, so the tab signs in without a click, and the server does the OBO
+  to Power BI. When the host needs a prompt, such as consent or MFA, the tab shows **Sign in with Microsoft**,
+  which falls back to `authentication.authenticate()` in a pop-up. The pop-up's address has `?host=teams` too,
+  and it reuses its page's call. Any other address skips TeamsJS, which would take an opener for a host and wait
+  out its one-minute timeout.
 - The CSP `frame-ancestors` allows `teams.microsoft.com`, `*.teams.microsoft.com`, `*.cloud.microsoft`,
   `*.office.com`, `*.microsoft365.com`, `outlook.office.com` and `outlook.office365.com`.
 - Sharing works through the **Analytics Hub User** app role (assign a group), plus Build on the model.

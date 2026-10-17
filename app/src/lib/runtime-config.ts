@@ -6,10 +6,10 @@
 //-----------------------------------------------------------------------
 
 import { resolveRayfinConfig, type RayfinRuntimeConfig } from "@microsoft/rayfin-client";
-import * as teams from "@microsoft/teams-js";
 import { fabricConfig } from "@/fabric.generated";
 import type { ModelReference, ModelReferences } from "@/lib/connections";
 import { toCurrencyCode, type InstallCurrency } from "@/lib/currency";
+import { detectTeamsHost, resetTeamsHost } from "@/lib/teams-host";
 
 /** Where an Azure install puts the host contract, next to the SPA. */
 export const APP_CONFIG_PATH = "/app.config.json";
@@ -112,7 +112,7 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
         loaded = {
             ...defaults,
             host: "azure",
-            azure: { ...azure.azure!, inTeams: await detectTeams() },
+            azure: { ...azure.azure!, inTeams: await detectTeamsHost() },
             semanticModels: azure.semanticModels,
             modules: azure.modules,
             reporting: azure.reporting,
@@ -138,9 +138,10 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
     return loaded;
 }
 
-/** Forgets the loaded config. For tests. */
+/** Forgets the loaded config and the TeamsJS check. For tests. */
 export function resetRuntimeConfig(): void {
     loaded = undefined;
+    resetTeamsHost();
 }
 
 /** The Azure host config, or null when this is not an Azure-hosted install. */
@@ -312,19 +313,6 @@ export function parseModules(json: unknown): RuntimeModules | undefined {
         ...(typeof modules.defender === "boolean" ? { defender: modules.defender } : {}),
         ...(typeof modules.resourceGraph === "boolean" ? { resourceGraph: modules.resourceGraph } : {}),
     };
-}
-
-/**
- * Initialises TeamsJS and reports whether a host answered: Teams, Outlook or the Microsoft 365 app, which all load
- * the tab's `?host=teams` URL. getAuthToken only works once this has run, so the query can't stand in for it.
- */
-async function detectTeams(): Promise<boolean> {
-    try {
-        await teams.app.initialize();
-        return true;
-    } catch {
-        return false;
-    }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

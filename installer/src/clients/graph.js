@@ -59,6 +59,33 @@ export function apiPermissionsUrl(appId) {
 }
 
 /**
+ * The web app's pre-authorised clients with `scopeId` added for each of `clientIds`. Every other client and
+ * permission an admin added stays. Nothing is listed twice, a permission the app no longer has goes because
+ * Graph refuses it, and so does a client left with none.
+ * @param {{ appId: string, delegatedPermissionIds?: string[] }[] | undefined} current
+ * @param {string[]} clientIds
+ * @param {string} scopeId
+ * @param {{ id: string }[]} scopes  The app's oauth2PermissionScopes as they will be saved.
+ */
+export function mergePreAuthorizedApplications(current, clientIds, scopeId, scopes) {
+  const known = new Set(scopes.map((s) => s.id.toLowerCase()));
+  /** @type {Map<string, { appId: string, delegatedPermissionIds: string[] }>} */
+  const clients = new Map();
+  /** @param {string} appId @param {string[]} ids */
+  const add = (appId, ids) => {
+    const client = clients.get(appId.toLowerCase()) ?? { appId, delegatedPermissionIds: [] };
+    clients.set(appId.toLowerCase(), client);
+    for (const id of ids) {
+      const have = client.delegatedPermissionIds.some((d) => d.toLowerCase() === id.toLowerCase());
+      if (!have && known.has(id.toLowerCase())) client.delegatedPermissionIds.push(id);
+    }
+  };
+  for (const client of current ?? []) if (client?.appId) add(client.appId, client.delegatedPermissionIds ?? []);
+  for (const appId of clientIds) add(appId, [scopeId]);
+  return [...clients.values()].filter((c) => c.delegatedPermissionIds.length);
+}
+
+/**
  * Entra takes a little while to replicate a new app and service principal, so
  * "not found" style 400/404 answers are retried for up to two minutes.
  * @type {import('../http.js').RequestOptions}
@@ -203,11 +230,27 @@ export function graphApi(http) {
     },
 
     /**
+     * Brings the web app registration up to date on every install, upgrade and Repair. Other scopes and
+     * pre-authorised clients on it stay.
      * @param {any} application
      * @param {{ fqdn: string, clientId: string, pbiScopeId: string, graphUserReadScopeId: string, graphGroupScopeId?: string, groupClaims?: boolean, teamsClientIds: string[] }} o
      */
     async updateAzureWebApplication(application, o) {
-      const scope = application.api?.oauth2PermissionScopes?.find((s) => s.value === 'access_as_user') ?? { id: crypto.randomUUID() };
+      /** @type {any[]} */
+      const scopes = application.api?.oauth2PermissionScopes ?? [];
+      const scope = scopes.find((s) => s.value === 'access_as_user') ?? { id: crypto.randomUUID() };
+      const accessAsUser = {
+        ...scope,
+        adminConsentDescription: scope.adminConsentDescription ?? 'Allow users to access Analytics Hub.',
+        adminConsentDisplayName: scope.adminConsentDisplayName ?? 'Access Analytics Hub',
+        isEnabled: true,
+        type: 'User',
+        userConsentDescription: scope.userConsentDescription ?? 'Allow you to access Analytics Hub.',
+        userConsentDisplayName: scope.userConsentDisplayName ?? 'Access Analytics Hub',
+        value: 'access_as_user',
+      };
+      // Graph won't drop an enabled scope, and another pre-authorised client may use one.
+      const oauth2PermissionScopes = scopes.includes(scope) ? scopes.map((s) => (s === scope ? accessAsUser : s)) : [...scopes, accessAsUser];
       await http.patch(`/applications/${application.id}`, {
         spa: { redirectUris: [`https://${o.fqdn}/`, `https://${o.fqdn}/?host=teams&auth=popup`] },
         identifierUris: [`api://${o.fqdn}/${o.clientId}`],
@@ -215,19 +258,8 @@ export function graphApi(http) {
         groupMembershipClaims: o.groupClaims ? 'SecurityGroup' : application.groupMembershipClaims ?? null,
         api: {
           ...(application.api ?? {}),
-          oauth2PermissionScopes: [
-            {
-              ...scope,
-              adminConsentDescription: scope.adminConsentDescription ?? 'Allow users to access Analytics Hub.',
-              adminConsentDisplayName: scope.adminConsentDisplayName ?? 'Access Analytics Hub',
-              isEnabled: true,
-              type: 'User',
-              userConsentDescription: scope.userConsentDescription ?? 'Allow you to access Analytics Hub.',
-              userConsentDisplayName: scope.userConsentDisplayName ?? 'Access Analytics Hub',
-              value: 'access_as_user',
-            },
-          ],
-          preAuthorizedApplications: o.teamsClientIds.map((appId) => ({ appId, delegatedPermissionIds: [scope.id] })),
+          oauth2PermissionScopes,
+          preAuthorizedApplications: mergePreAuthorizedApplications(application.api?.preAuthorizedApplications, o.teamsClientIds, scope.id, oauth2PermissionScopes),
         },
         appRoles: application.appRoles?.length
           ? application.appRoles

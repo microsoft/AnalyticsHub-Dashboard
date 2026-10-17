@@ -32,6 +32,7 @@ import {
     resetRuntimeConfig,
     runtimeConfig,
 } from "@/lib/runtime-config";
+import { initialiseTeams } from "@/lib/teams-host";
 
 type Reply = { status?: number; body: string; contentType?: string } | Error;
 
@@ -83,7 +84,10 @@ const deployedModels = {
     },
 };
 
-beforeEach(() => resetRuntimeConfig());
+beforeEach(() => {
+    resetRuntimeConfig();
+    vi.mocked(teams.app.initialize).mockReset().mockRejectedValue(new Error("not teams"));
+});
 afterEach(() => {
     vi.unstubAllGlobals();
     resetRuntimeConfig();
@@ -132,20 +136,35 @@ describe("runtimeConfig", () => {
         expect(fetchMock).not.toHaveBeenCalledWith("/rayfin.config.json", expect.anything());
     });
 
-    it("initialises TeamsJS in a tab, so it can sign in through Teams, Outlook or the Microsoft 365 app", async () => {
+    it("initialises TeamsJS once in a tab, so it can sign in through Teams, Outlook or the Microsoft 365 app", async () => {
         history.replaceState(null, "", "/?host=teams");
-        vi.mocked(teams.app.initialize).mockClear().mockResolvedValueOnce(undefined);
+        vi.mocked(teams.app.initialize).mockResolvedValue(undefined);
         stubFiles({ [APP_CONFIG_PATH]: { body: JSON.stringify(azureTab) } });
 
         await loadRuntimeConfig();
+        // The sign-in pop-up's call shares the one made at load.
+        await initialiseTeams();
 
         expect(teams.app.initialize).toHaveBeenCalledOnce();
         expect(runtimeConfig().azure?.inTeams).toBe(true);
     });
 
+    it("leaves TeamsJS alone on the web link, so a window another app opened doesn't wait for a host", async () => {
+        // TeamsJS would take the opener for a host and wait up to a minute for an answer that never comes.
+        vi.stubGlobal("opener", {});
+        vi.mocked(teams.app.initialize).mockReturnValue(new Promise<void>(() => undefined));
+        stubFiles({ [APP_CONFIG_PATH]: { body: JSON.stringify(azureTab) } });
+
+        const loading = loadRuntimeConfig().then(() => "loaded");
+        const waiting = new Promise((resolve) => setTimeout(resolve, 1_000, "waiting for a host"));
+
+        await expect(Promise.race([loading, waiting])).resolves.toBe("loaded");
+        expect(teams.app.initialize).not.toHaveBeenCalled();
+        expect(runtimeConfig().azure?.inTeams).toBe(false);
+    });
+
     it("doesn't take ?host=teams on trust when no host answers", async () => {
         history.replaceState(null, "", "/?host=teams");
-        vi.mocked(teams.app.initialize).mockClear();
         stubFiles({ [APP_CONFIG_PATH]: { body: JSON.stringify(azureTab) } });
 
         await loadRuntimeConfig();
