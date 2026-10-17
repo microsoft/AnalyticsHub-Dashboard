@@ -78,14 +78,28 @@ opening the app took about 40 seconds.
 - **Paced queries.** The app now keeps at most 4 semantic model queries in flight and starts
   no more than 90 a minute per user, under Power BI's limit of 120. A page load used to send
   about 25 queries at once.
-- **Retries.** A query that Power BI throttles (`429` or `503`) is retried up to 3 times. The
-  app waits as long as `Retry-After` asks, or else backs off exponentially with jitter. Every
-  other query waits too, so the app stops adding load while Power BI catches up. On Azure, the
-  app now reads the `Retry-After` header that the web proxy passes through.
+- **Retries.** A query that Power BI throttles is retried with jittered backoff (1, 2, 4, 8,
+  then 15 seconds), for up to a minute in all. A `Retry-After` is kept in full: if it asks for
+  longer than the query can still wait, the card shows busy at once, and nothing goes to that
+  model until it ends. That includes a throttle sent inside a normal HTTP 200 reply, as an error
+  table, which the app used to keep in its cache. Only the throttled model waits, and it gets one
+  query at a time until it answers; queries to other models carry on. Other query errors aren't
+  retried, even when they name a table such as `Rate Limit`. On Azure, the app now reads the
+  `Retry-After` header that the web proxy passes through.
+- **Closed cards stop asking.** When you leave a card, its waiting and retries stop. A query
+  already sent still finishes, and its answer is kept.
 - **Shared requests.** Identical queries that are in flight at the same time share one
   request.
-- **A clear message.** A query that is still throttled after its retries shows **Power BI is
-  busy** with a Try again button, not "This didn't load".
+- **A clear message.** A query that is still throttled after a minute shows **Power BI is
+  busy** with a Try again button, not "This didn't load". Try again asks Power BI, not the cache.
+  A query error that only quotes those words, as a name, shows as that error.
+- **Busy cards clear by themselves.** Once the model answers any query again, every card that
+  showed busy on it, and the filter choices, ask again with no click or page change, even if
+  the answer came as the card gave up, or the card shares its query with others. A page opened
+  after a throttle sends its queries instead of giving up at once. A card that has switched
+  query or model, or closed, ignores what its old query reports.
+- **Background loading pauses.** After a throttle, background loading from that model waits at
+  least a minute, and until a query to it on screen succeeds. Pages still load when you open them.
 - **Only the affected visual fails.** A throttled slicer-options query no longer replaces the
   whole Agent Evaluation or Consumption page with a "didn't answer" error. The busy notice sits
   above the stages and each stage loads on its own. On the Executive summary, Try again now

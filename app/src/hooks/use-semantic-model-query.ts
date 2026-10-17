@@ -5,10 +5,11 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { type CachedQueryResult } from "@microsoft/fabric-app-data";
 import { getFabricClient, QUERY_CACHE_MAX_AGE_MS } from "@/lib/fabric-client";
-import { withPriority } from "@/lib/query-priority";
+import { withPriority, type QueryCaller } from "@/lib/query-priority";
+import { isBusyMessage, onModelRecovered, recoveriesOf } from "@/lib/query-scheduler";
 import { useIsPrefetch } from "./prefetch.context";
 
 interface UseSemanticModelQueryOptions {
@@ -24,13 +25,28 @@ interface UseSemanticModelQueryResult {
     data: CachedQueryResult | undefined;
     isLoading: boolean;
     error: Error | undefined;
+    /** Runs the query again; after an error it asks Power BI rather than the cache. */
     refetch: () => Promise<void>;
 }
+
+/** A busy error the cache kept: Power BI was only asking the app to slow down, so ask again. */
+function cachedBusy(result: CachedQueryResult): boolean {
+    return result.fromCache && result.status === "error" && isBusyMessage(result.error.message);
+}
+
+/** The model has answered again since the busy answer the card holds, which `seen` dates. */
+function outdated(model: string | undefined, seen: number): boolean {
+    return model !== undefined && recoveriesOf(model) > seen;
+}
+
+type Execute = (fresh?: boolean, signal?: AbortSignal) => Promise<void>;
 
 /**
  * React hook that executes a DAX query against a Power BI semantic model
  * via the Fabric SDK. Results are cached by the SDK's built-in LRU cache for
- * the rest of the visit, up to an hour each (`QUERY_CACHE_MAX_AGE_MS`).
+ * the rest of the visit, up to an hour each (`QUERY_CACHE_MAX_AGE_MS`). A card
+ * left showing "Power BI is busy" asks again by itself once its model answers
+ * another query.
  *
  * The connection alias is resolved from `fabric.generated.ts`
  * (managed by `npx fabric-app-data`).
@@ -74,41 +90,117 @@ export function useSemanticModelQuery(
     const [data, setData] = useState<CachedQueryResult | undefined>();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<Error | undefined>();
+    const latest = useRef<CachedQueryResult | undefined>(undefined);
+    /** The card's current inputs, as the `execute` made for them, and what aborts once they change or the card goes. */
+    const lifetime = useRef<{ execute: Execute; run: AbortController } | undefined>(undefined);
+    /** Counts the card's asks: only the latest may change what it shows. */
+    const asks = useRef(0);
+    /** The model the card's answer came from, as the scheduler names it. */
+    const asked = useRef<string | undefined>(undefined);
+    /** That model's recovery count as of the answer the card holds. */
+    const seen = useRef(0);
+    /** The card shows "Power BI is busy" and isn't asking again yet. */
+    const busy = useRef(false);
 
     const canExecute = Boolean(connection && query);
     const priority = useIsPrefetch() ? "low" : "normal";
 
-    const execute = useCallback(async () => {
-        if (!canExecute) return;
+    // Asks once. True when it ended busy on an answer from before its model last answered again.
+    // Only the card's latest ask changes what it shows. An older ask, or one whose card has gone or
+    // changed query, is ignored, and so is anything its requests report.
+    const ask = useCallback(async (fresh: boolean, signal?: AbortSignal): Promise<boolean> => {
+        if (signal?.aborted) return false;
+        const mine = ++asks.current;
+        const current = () => asks.current === mine && !signal?.aborted;
+        busy.current = false;
+        if (!canExecute) {
+            setIsLoading(false);
+            return false;
+        }
         setIsLoading(true);
         setError(undefined);
+        // What this ask's own requests report, kept here until the answer is known to still be the card's.
+        let model: string | undefined;
+        let stamp = 0;
+        const caller: QueryCaller = {
+            signal,
+            asking: (name) => {
+                model = name;
+                stamp = recoveriesOf(name);
+            },
+            // The query it joined may have begun before a recovery this card was told of.
+            gaveUp: (name, recoveries) => {
+                model = name;
+                stamp = recoveries;
+            },
+        };
 
+        let held = false;
         try {
-            const model = getFabricClient().semanticModel(connection);
-            let result = await withPriority(priority, () => model.query(query, { bypassCache }));
-            if (result.fromCache && result.cachedAt && Date.now() - result.cachedAt.getTime() > QUERY_CACHE_MAX_AGE_MS) {
-                result = await withPriority(priority, () => model.query(query, { bypassCache: true }));
+            const semanticModel = getFabricClient().semanticModel(connection);
+            let result = await withPriority(priority, () => semanticModel.query(query, { bypassCache: fresh || bypassCache }), caller);
+            if (!current()) return false;
+            const stale = result.fromCache && result.cachedAt && Date.now() - result.cachedAt.getTime() > QUERY_CACHE_MAX_AGE_MS;
+            if (stale || cachedBusy(result)) {
+                result = await withPriority(priority, () => semanticModel.query(query, { bypassCache: true }), caller);
+                if (!current()) return false;
             }
 
+            latest.current = result;
             setData(result);
 
             if (result.status === "error") {
+                held = isBusyMessage(result.error.message);
                 setError(new Error(result.error.message));
             }
         } catch (err) {
-            setError(err instanceof Error ? err : new Error(String(err)));
+            if (!current()) return false;
+            latest.current = undefined;
+            const failure = err instanceof Error ? err : new Error(String(err));
+            held = isBusyMessage(failure.message);
+            setError(failure);
         } finally {
-            setIsLoading(false);
+            if (current()) setIsLoading(false);
         }
+        asked.current = model;
+        seen.current = stamp;
+        const missed = held && outdated(model, stamp);
+        busy.current = held && !missed;
+        return missed;
     }, [connection, query, bypassCache, canExecute, priority]);
 
+    // `signal` aborts when the card unmounts or its query changes: what is still queued stops, and the answer is ignored.
+    const execute = useCallback(async (fresh = false, signal?: AbortSignal) => {
+        let again = await ask(fresh, signal);
+        while (again && !signal?.aborted) again = await ask(true, signal);
+    }, [ask]);
+
     useEffect(() => {
+        const run = new AbortController();
+        lifetime.current = { execute, run };
         // Starts a fetch from the semantic model; the loading flag must flip as it starts.
         // eslint-disable-next-line react-hooks/set-state-in-effect
-        execute();
+        execute(false, run.signal);
+        return () => run.abort();
     }, [execute]);
 
-    return { data, isLoading, error, refetch: execute };
+    // A card that gave up with "Power BI is busy" asks again once its model answers another query.
+    useEffect(() => onModelRecovered((model) => {
+        const life = lifetime.current;
+        if (life?.execute !== execute || life.run.signal.aborted) return;
+        if (!busy.current || model !== asked.current || !outdated(model, seen.current)) return;
+        void execute(true, life.run.signal);
+    }), [execute]);
+
+    // "Try again" after an error asks Power BI, not the cache that kept it; after a success the cache is right.
+    // One kept from before the card changed query does nothing.
+    const refetch = useCallback(() => {
+        const life = lifetime.current;
+        if (life?.execute !== execute || life.run.signal.aborted) return Promise.resolve();
+        return execute(latest.current?.status !== "success", life.run.signal);
+    }, [execute]);
+
+    return { data, isLoading, error, refetch };
 }
 
 /**
