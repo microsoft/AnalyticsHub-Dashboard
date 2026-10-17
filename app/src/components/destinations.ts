@@ -53,7 +53,10 @@ import { consumptionConnection, evaluatorConnection } from "@/queries/shared";
  *
  * The executive summary comes first and is where the app opens: one page
  * drawing on the others, each of its panels linking to the destination
- * that tells that part of the story in full.
+ * that tells that part of the story in full. The rest follow in the order
+ * the sidebar lists them and the background loader warms them: whether it
+ * is paying off (Value, Consumption, Efficiency), who is using it, who is
+ * next, the agents, then what people say.
  */
 export const destinations = [
     {
@@ -67,6 +70,46 @@ export const destinations = [
             { id: "is-it-growing", label: "Is it growing?", ready: true },
             { id: "where-it-is-landing", label: "Where it is landing", ready: true },
             { id: "what-needs-attention", label: "What needs attention", ready: true },
+        ],
+    },
+    {
+        id: "value",
+        label: "Value",
+        blurb: "What the work was, and what it was worth",
+        icon: Banknote as LucideIcon,
+        filters: ["dateRange", "organizations", "licence", "audience", "agentTypes", "agentNames"] as FilterKey[],
+        stages: [
+            { id: "task-breakdown", label: "Task breakdown", ready: true },
+            { id: "estimated-value", label: "Estimated value", ready: true },
+            { id: "value-by-habit", label: "Value by habit", ready: true },
+            { id: "cost-vs-value", label: "Cost vs value", ready: true },
+        ],
+    },
+    {
+        id: "consumption",
+        label: "Consumption",
+        blurb: "Credits used, and what they cost",
+        icon: Coins as LucideIcon,
+        filters: ["dateRange", "organizations", "agentNames"] as FilterKey[],
+        connection: consumptionConnection,
+        stages: [
+            { id: "consumption-overview", label: "All products", ready: true },
+            { id: "budget-runway", label: "Budget runway", ready: true },
+            { id: "cowork-credits", label: "Cowork / Work IQ", ready: true },
+            { id: "studio-credits", label: "Copilot Studio", ready: true },
+            { id: "azure-spend", label: "Azure", ready: true },
+        ],
+    },
+    {
+        id: "efficiency",
+        label: "Efficiency",
+        blurb: "Whether the right tool is doing the job",
+        icon: Gauge as LucideIcon,
+        filters: ["dateRange", "organizations", "licence", "audience", "agentTypes", "agentNames"] as FilterKey[],
+        stages: [
+            { id: "cowork-fit", label: "Cowork fit", ready: true },
+            { id: "model-fit", label: "Model fit", ready: true },
+            { id: "grading-method", label: "How grading works", ready: true },
         ],
     },
     {
@@ -107,6 +150,18 @@ export const destinations = [
         ],
     },
     {
+        id: "readiness",
+        label: "Readiness",
+        blurb: "Who to license next, and who is ready for Cowork",
+        icon: KeyRound as LucideIcon,
+        filters: ["dateRange", "organizations"] as FilterKey[],
+        stages: [
+            { id: "license-readiness", label: "License readiness", ready: true },
+            { id: "habit-licence", label: "Heavy users without a licence", ready: true },
+            { id: "cowork-readiness", label: "Cowork readiness", ready: true },
+        ],
+    },
+    {
         id: "agent-evaluation",
         label: "Agent Evaluation",
         blurb: "How well your agents answer, and where they fall short",
@@ -130,58 +185,6 @@ export const destinations = [
             { id: "accountability", label: "Accountability", ready: true },
             { id: "review-queue", label: "Review queue", ready: true },
             { id: "shadow-ai", label: "Shadow AI", ready: true },
-        ],
-    },
-    {
-        id: "readiness",
-        label: "Readiness",
-        blurb: "Who to license next, and who is ready for Cowork",
-        icon: KeyRound as LucideIcon,
-        filters: ["dateRange", "organizations"] as FilterKey[],
-        stages: [
-            { id: "license-readiness", label: "License readiness", ready: true },
-            { id: "habit-licence", label: "Heavy users without a licence", ready: true },
-            { id: "cowork-readiness", label: "Cowork readiness", ready: true },
-        ],
-    },
-    {
-        id: "consumption",
-        label: "Consumption",
-        blurb: "Credits used, and what they cost",
-        icon: Coins as LucideIcon,
-        filters: ["dateRange", "organizations", "agentNames"] as FilterKey[],
-        connection: consumptionConnection,
-        stages: [
-            { id: "consumption-overview", label: "All products", ready: true },
-            { id: "budget-runway", label: "Budget runway", ready: true },
-            { id: "cowork-credits", label: "Cowork / Work IQ", ready: true },
-            { id: "studio-credits", label: "Copilot Studio", ready: true },
-            { id: "azure-spend", label: "Azure", ready: true },
-        ],
-    },
-    {
-        id: "value",
-        label: "Value",
-        blurb: "What the work was, and what it was worth",
-        icon: Banknote as LucideIcon,
-        filters: ["dateRange", "organizations", "licence", "audience", "agentTypes", "agentNames"] as FilterKey[],
-        stages: [
-            { id: "task-breakdown", label: "Task breakdown", ready: true },
-            { id: "estimated-value", label: "Estimated value", ready: true },
-            { id: "value-by-habit", label: "Value by habit", ready: true },
-            { id: "cost-vs-value", label: "Cost vs value", ready: true },
-        ],
-    },
-    {
-        id: "efficiency",
-        label: "Efficiency",
-        blurb: "Whether the right tool is doing the job",
-        icon: Gauge as LucideIcon,
-        filters: ["dateRange", "organizations", "licence", "audience", "agentTypes", "agentNames"] as FilterKey[],
-        stages: [
-            { id: "cowork-fit", label: "Cowork fit", ready: true },
-            { id: "model-fit", label: "Model fit", ready: true },
-            { id: "grading-method", label: "How grading works", ready: true },
         ],
     },
     {

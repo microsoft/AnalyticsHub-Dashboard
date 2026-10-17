@@ -38,6 +38,8 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 Existing Azure installs get this on their next upgrade or **Repair or change**. Fabric is unchanged.
 
+**App: Value, Consumption and Efficiency now come straight after the Executive summary.**
+
 **Copilot Managed App (preview).** A third way to run the app, on the Copilot Managed Runtime. It
 reads the models of a Fabric or Azure install, and you set it up with Microsoft's `ms` command line.
 The Fabric and Azure apps are unchanged. See [Copilot Managed App](docs/MANAGED-APP.md).
