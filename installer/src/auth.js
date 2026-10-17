@@ -160,15 +160,16 @@ export function abandonSignIn() {
 }
 
 /**
- * Sets the exit code. After a sign-in was given up on, it also exits once the output is written,
- * rather than waiting for that sign-in's listener, which never closes.
+ * Sets the exit code. After a sign-in was given up on, it also exits, rather than waiting for that
+ * sign-in's listener, which never closes. But first it waits until stdout and stderr have written all
+ * their output, as Node does when it exits by itself: on Linux and macOS a pipe writes asynchronously,
+ * and exiting sooner would lose the last lines.
  * @param {number} code
  */
 export function exitWhenDone(code) {
   process.exitCode = code;
   if (!abandoned) return;
-  // In case a stream never calls back.
-  setTimeout(() => process.exit(code), 2_000).unref();
+  // An empty write calls back once everything written before it has been written.
   let waiting = 2;
   const flushed = () => {
     if (--waiting === 0) process.exit(code);

@@ -1,6 +1,6 @@
 // @ts-check
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -169,6 +169,49 @@ test('exitWhenDone: once a sign-in was given up on, the installer exits, though 
     waiting.child.kill();
   }
   await waiting.exited;
+});
+
+test('exitWhenDone: after a sign-in was given up on, it exits only once slow stdout and stderr have written everything, with the exit code', async () => {
+  const auth = new URL('../src/auth.js', import.meta.url).href;
+  const size = 1024 * 1024;
+  const streams = [
+    ['stdout', join(dir, 'slow-stdout.txt'), '\nUpload AnalyticsHub-Teams.zip to Teams by hand.\n'],
+    ['stderr', join(dir, 'slow-stderr.txt'), '\nThe last error.\n'],
+  ];
+  // Slow stdout and stderr, like pipes to a slow reader on Linux or macOS, where pipes write asynchronously.
+  // Writing anything takes 3 seconds.
+  const script = [
+    'import { appendFileSync } from \'node:fs\';',
+    'import { createServer } from \'node:http\';',
+    'import { Writable } from \'node:stream\';',
+    `import { abandonSignIn, exitWhenDone } from ${JSON.stringify(auth)};`,
+    `const streams = ${JSON.stringify(streams)};`,
+    'for (const [name, file] of streams) {',
+    '  const slow = new Writable({ write(chunk, _encoding, done) { setTimeout(() => { appendFileSync(file, chunk); done(); }, chunk.length ? 3_000 : 0); } });',
+    '  Object.defineProperty(process, name, { value: slow });',
+    '}',
+    'createServer().listen(0, \'127.0.0.1\', () => {',
+    '  abandonSignIn();',
+    `  for (const [name, , last] of streams) process[name].write('x'.repeat(${size}) + last);`,
+    '  exitWhenDone(7);',
+    '});',
+  ].join('\n');
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let other = '';
+  child.stdout.setEncoding('utf8').on('data', (d) => { other += d; });
+  child.stderr.setEncoding('utf8').on('data', (d) => { other += d; });
+  /** @type {Promise<number | null>} */
+  const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+  try {
+    assert.equal(await within(exited, 20_000), 7, other);
+  } finally {
+    child.kill();
+  }
+  for (const [name, file, last] of streams) {
+    const written = existsSync(file) ? readFileSync(file, 'utf8') : '';
+    assert.ok(written.endsWith(last), `the last line of ${name} arrives`);
+    assert.equal(written.length, size + last.length, `all of ${name} arrives`);
+  }
 });
 
 test('allowsAction handles wildcards, notActions and data actions', () => {
