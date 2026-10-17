@@ -435,6 +435,18 @@ test('uninstall removes the app the installer published', async () => {
   assert.match(t.ui.text(), /Teams app: removed Analytics Hub from your org's app catalog/);
 });
 
+test('uninstall removes a hand upload the installer took on, too', async () => {
+  const t = setup({ apps: [catalogApp('uploaded-by-hand', '0.6.7')] });
+  await publishTeamsApp(t.ctx, pkg('0.6.7'));
+  assert.equal(t.az.teamsApp?.id, 'uploaded-by-hand');
+  t.rerun();
+  await removeTeamsApp(t.ctx);
+  assert.deepEqual(t.catalog.calls, ['signIn', 'remove uploaded-by-hand']);
+  assert.equal(t.catalog.apps.length, 0);
+  assert.equal(t.az.teamsApp, undefined);
+  assert.match(t.ui.text(), /Teams app: removed Analytics Hub from your org's app catalog/);
+});
+
 test('uninstall carries on when the app is gone already', async () => {
   const t = setup({ teamsApp: record('deleted-by-hand') });
   await removeTeamsApp(t.ctx);
@@ -457,7 +469,7 @@ test('when uninstall can\'t remove the app, it keeps the record and prints the s
   assert.equal(cli.az.teamsApp?.id, 'app-1');
 });
 
-test('uninstall never deletes an app it didn\'t publish', async () => {
+test('uninstall leaves alone an app the installer never looked after, such as a hand upload it didn\'t take on', async () => {
   const t = setup({ apps: [catalogApp('uploaded-by-hand', '0.6.7')] });
   await removeTeamsApp(t.ctx);
   assert.deepEqual(t.catalog.calls, []);
