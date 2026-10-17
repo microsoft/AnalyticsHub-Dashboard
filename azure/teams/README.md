@@ -6,7 +6,7 @@ This folder contains the Teams manifest template and package builder for Analyti
 - `color.png` (192x192) and `outline.png` (32x32, white on transparent).
 - A personal static tab at `https://<fqdn>/?host=teams`.
 - A configurable team/group chat tab at `https://<fqdn>/?host=teams&config=1`.
-- `webApplicationInfo` for Teams SSO with resource `api://<fqdn>/<clientId>` unless overridden.
+- `webApplicationInfo` for single sign-on with resource `api://<fqdn>/<clientId>` unless overridden.
 
 Build a package with no dependencies:
 
@@ -22,4 +22,6 @@ The module also exports `buildTeamsPackage({ clientId, fqdn, appIdUri, version }
 2. Optionally, pin it for the viewers: in **Teams apps** > **Setup policies**, add the app to a policy's pinned apps and assign the policy to the **Analytics Hub Viewers** group.
 3. To try it first, upload it as a custom app (**Apps** > **Manage your apps** > **Upload an app**).
 
-The tab signs in with Teams SSO, so who can open it is the same as the web app: members of the viewer group, or anyone with the `AnalyticsHub.User` app role.
+Once it's in Teams, people can also add **Analytics Hub** from **Apps** in Outlook and the Microsoft 365 Copilot app: the same personal tab, with the same sign-in. The channel and group chat tab stays in Teams.
+
+The tab signs people in as it opens (single sign-on), in each of them. If the host first needs a prompt, such as consent or MFA, the tab shows **Sign in with Microsoft**. Who can open it is the same as the web app: members of the viewer group, or anyone with the `AnalyticsHub.User` app role.

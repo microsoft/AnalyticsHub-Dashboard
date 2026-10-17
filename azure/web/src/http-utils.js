@@ -1,6 +1,6 @@
 export function applySecurityHeaders(res) {
   res.setHeader('Content-Security-Policy', [
-    "frame-ancestors 'self' https://teams.microsoft.com https://*.teams.microsoft.com https://*.cloud.microsoft https://*.office.com https://outlook.office.com",
+    "frame-ancestors 'self' https://teams.microsoft.com https://*.teams.microsoft.com https://*.cloud.microsoft https://*.office.com https://*.microsoft365.com https://outlook.office.com https://outlook.office365.com",
     "default-src 'self'",
     "connect-src 'self' https://login.microsoftonline.com",
     "img-src 'self' data:",

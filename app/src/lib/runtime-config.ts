@@ -6,10 +6,10 @@
 //-----------------------------------------------------------------------
 
 import { resolveRayfinConfig, type RayfinRuntimeConfig } from "@microsoft/rayfin-client";
-import * as teams from "@microsoft/teams-js";
 import { fabricConfig } from "@/fabric.generated";
 import type { ModelReference, ModelReferences } from "@/lib/connections";
 import { toCurrencyCode, type InstallCurrency } from "@/lib/currency";
+import { detectTeamsHost, resetTeamsHost } from "@/lib/teams-host";
 
 /** Where an Azure install puts the host contract, next to the SPA. */
 export const APP_CONFIG_PATH = "/app.config.json";
@@ -23,6 +23,7 @@ export interface AzureRuntimeConfig {
     clientId: string;
     apiScope: string;
     version?: string;
+    /** A TeamsJS host (Teams, Outlook or the Microsoft 365 app) answered, so sign-in goes through it. */
     inTeams: boolean;
 }
 
@@ -111,7 +112,7 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
         loaded = {
             ...defaults,
             host: "azure",
-            azure: { ...azure.azure!, inTeams: azure.azure!.inTeams || await detectTeams() },
+            azure: { ...azure.azure!, inTeams: await detectTeamsHost() },
             semanticModels: azure.semanticModels,
             modules: azure.modules,
             reporting: azure.reporting,
@@ -137,9 +138,10 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
     return loaded;
 }
 
-/** Forgets the loaded config. For tests. */
+/** Forgets the loaded config and the TeamsJS check. For tests. */
 export function resetRuntimeConfig(): void {
     loaded = undefined;
+    resetTeamsHost();
 }
 
 /** The Azure host config, or null when this is not an Azure-hosted install. */
@@ -225,7 +227,8 @@ export function parseAzureConfig(json: unknown, path = APP_CONFIG_PATH): Runtime
             clientId,
             apiScope,
             version: typeof version === "string" ? version : undefined,
-            inTeams: queryRequestsTeams(),
+            // loadRuntimeConfig sets this once TeamsJS has answered.
+            inTeams: false,
         },
         semanticModels: parseSemanticModels(json, path),
         modules: parseModules(json),
@@ -310,21 +313,6 @@ export function parseModules(json: unknown): RuntimeModules | undefined {
         ...(typeof modules.defender === "boolean" ? { defender: modules.defender } : {}),
         ...(typeof modules.resourceGraph === "boolean" ? { resourceGraph: modules.resourceGraph } : {}),
     };
-}
-
-function queryRequestsTeams(): boolean {
-    if (typeof window === "undefined") return false;
-    return new URLSearchParams(window.location.search).get("host")?.toLowerCase() === "teams";
-}
-
-async function detectTeams(): Promise<boolean> {
-    if (queryRequestsTeams()) return true;
-    try {
-        await teams.app.initialize();
-        return true;
-    } catch {
-        return false;
-    }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

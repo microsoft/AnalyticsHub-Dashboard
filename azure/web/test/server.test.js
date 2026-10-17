@@ -139,13 +139,15 @@ test('version reads installer-v releases from AnalyticsHub-Dashboard', async () 
   assert.deepEqual(await service.getVersion(), { installed: '0.5.0', latest: '0.5.1', updateAvailable: true, releaseUrl: 'https://example.test/0.5.1' });
 });
 
-test('SPA fallback and security headers include Teams frame ancestors', async () => {
+test('SPA fallback and security headers let Teams, Outlook and Microsoft 365 frame the app', async () => {
   await fs.rm(testDir, { recursive: true, force: true }); await fs.mkdir(path.join(testDir, 'assets'), { recursive: true });
   await fs.writeFile(path.join(testDir, 'index.html'), '<html>app</html>'); await fs.writeFile(path.join(testDir, 'assets', 'app.js'), 'console.log("x");');
   const { server, baseUrl } = await startTestServer({ publicDir: testDir });
   try {
     const response = await request(baseUrl, '/dashboard', { headers: { Accept: 'text/html' } });
-    assert.equal(response.status, 200); assert.equal(await response.text(), '<html>app</html>'); assert.match(response.headers.get('content-security-policy'), /frame-ancestors[^;]*teams\.microsoft\.com/); assert.equal(response.headers.get('x-frame-options'), null);
+    assert.equal(response.status, 200); assert.equal(await response.text(), '<html>app</html>'); assert.equal(response.headers.get('x-frame-options'), null);
+    const frameAncestors = (response.headers.get('content-security-policy') ?? '').split(';').map((d) => d.trim().split(/\s+/)).find(([name]) => name === 'frame-ancestors')?.slice(1);
+    assert.deepEqual(frameAncestors, ["'self'", 'https://teams.microsoft.com', 'https://*.teams.microsoft.com', 'https://*.cloud.microsoft', 'https://*.office.com', 'https://*.microsoft365.com', 'https://outlook.office.com', 'https://outlook.office365.com']);
     assert.equal((await request(baseUrl, '/assets/app.js')).headers.get('cache-control'), 'public, max-age=31536000, immutable');
   } finally { server.close(); await fs.rm(testDir, { recursive: true, force: true }); }
 });
