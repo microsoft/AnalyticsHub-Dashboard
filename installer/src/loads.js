@@ -202,6 +202,8 @@ export function loadWarnings(statusRun) {
  * @property {ReasonKind} [kind]
  * @property {string[]} fix  What to do, with {@link RERUN} still in it.
  * @property {number} [attempts]
+ * @property {boolean} [counted]  Failed in a way that leaves an install partly set up. The Cowork Dataflow failing
+ *   while signing it in is still to do isn't: that's a next step.
  */
 
 /** The Viva load, which reads what the Cowork Dataflow wrote. */

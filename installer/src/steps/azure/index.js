@@ -1058,7 +1058,8 @@ export async function confirmAzurePlan(ctx) {
 
 /**
  * @param {Ctx} ctx @param {{ wait: boolean }} opts
- * @returns {Promise<boolean>} false when a model owed a reload couldn't be reloaded, or (waiting) didn't finish.
+ * @returns {Promise<boolean>} false when a step failed and setup carried on, or a model owed a reload couldn't be
+ *   reloaded or (waiting) didn't finish.
  */
 export async function installAzure(ctx, opts) {
   const { ui, config, api } = ctx;
@@ -1149,11 +1150,14 @@ export async function installAzure(ctx, opts) {
   }
 
   const loads = !!(ctx.runFirstLoad || ctx.reloadHistoryDays);
+  // A step that fails and lets setup carry on leaves it unfinished. One that only warns doesn't.
+  let stepsOk = true;
   if (rlsOn(config)) {
     step('Org-scoped access');
     // A first load refreshes the models itself, after loading the scopes into SQL.
     const refresh = !loads;
     const applied = await ensureOrgAccess(ctx, { refresh });
+    if (applied === false) stepsOk = false;
     if (applied && refresh) await verifyOrgAccess(ctx);
   }
   // A model owed a reload is reloaded from the database now, rather than trusting a load that runs on after setup.
@@ -1176,6 +1180,7 @@ export async function installAzure(ctx, opts) {
       config.history.days = days;
       ctx.save();
     } catch (err) {
+      stepsOk = false;
       ui.fail(`The history reload didn't start: ${/** @type {Error} */ (err).message}`);
       ui.info(`Try again with "${commandLine(`run --backfill-days ${days}`)}".`);
     }
@@ -1183,8 +1188,9 @@ export async function installAzure(ctx, opts) {
     step('First load');
     await startAndWaitJob(ctx, 'run', { wait: false });
   }
-  await azureSummary(ctx, reloads);
-  return reloads.ok;
+  const ok = reloads.ok && stepsOk;
+  await azureSummary(ctx, { ...reloads, ok });
+  return ok;
 }
 
 /**
@@ -1622,6 +1628,8 @@ function refreshScheduleBody(ctx) {
  * job; such a run isn't recorded as the last run, which tells whether the history was loaded.
  * @param {Ctx} ctx @param {'run' | 'migrate'} kind
  * @param {{ wait: boolean, timeoutMs?: number, backfillDays?: number, steps?: string }} opts
+ * @returns {Promise<{ ok: boolean, status: string, unfollowed?: boolean }>} unfollowed: started, but Azure didn't say
+ *   which run it is, so it couldn't be waited for. That only warns.
  */
 export async function startAndWaitJob(ctx, kind, opts) {
   const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
@@ -1651,7 +1659,7 @@ export async function startAndWaitJob(ctx, kind, opts) {
   if (!opts.wait) return { ok: true, status: 'Running' };
   if (!executionName) {
     ctx.ui.warn(`Azure didn't say which run of the ${label} this is, so the installer can't follow it to the end. Check it in the portal, or with "${commandLine('status')}".`);
-    return { ok: false, status: 'Unknown' };
+    return { ok: false, status: 'Unknown', unfollowed: true };
   }
   const progress = ctx.ui.progress(kind === 'run' ? 'Run job' : 'Migrate job');
   const deadline = Date.now() + (opts.timeoutMs ?? 15 * 60_000);
@@ -1794,7 +1802,7 @@ export async function azureSummary(ctx, opts = {}) {
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
   const pending = opts.pending ?? [];
   ui.heading(opts.ok === false ? 'Analytics Hub is set up, but not finished' : pending.length ? 'Analytics Hub is set up, still reloading' : 'Analytics Hub is set up');
-  if (opts.ok !== false && pending.length) {
+  if (pending.length) {
     ui.warn(`${pending.join(' and ')} ${pending.length === 1 ? 'is' : 'are'} still reloading: reports on ${pending.length === 1 ? 'it' : 'them'} can show no data or miss new columns until that finishes.`);
   }
   ui.info(`Azure:      ${az.resourceGroup} in ${az.location}`);

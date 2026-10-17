@@ -436,6 +436,7 @@ function newStage(title, o = {}) {
   return {
     id: ++stageIds, title, heading: null, level: o.level ?? 0, parent: o.parent ?? null, status: 'upcoming', only: o.only,
     items: [], kids: [], startedAt: 0, endedAt: 0, n: o.n, total: o.total, el: null, body: null, kidsEl: null,
+    step: !!o.step, failed: false,
   };
 }
 
@@ -458,7 +459,7 @@ const target = (run) => run.child ?? run.cur;
 
 function finish(stage, at, status = 'done') {
   if (stage.status !== 'current') return;
-  stage.status = status;
+  stage.status = status === 'done' && stage.failed ? 'failed' : status;
   stage.endedAt = at;
   paintStage(stage);
 }
@@ -495,6 +496,9 @@ function add(run, item, stage = target(run)) {
   item.stage = stage;
   item.more = item.more ?? [];
   stage.items.push(item);
+  // An install step with a ✗ line failed, even when the install carries on to the next step. So did one with a load
+  // that failed in a way that leaves the install partly set up.
+  if (stage.step && ((item.t === 'line' && item.kind === 'fail') || (item.t === 'loads' && item.cards.some((card) => card.counted)))) stage.failed = true;
   item.el = renderItem(item);
   if (item.el) {
     stage.body.append(item.el);
@@ -524,7 +528,8 @@ function* runItems(stages) {
 
 /**
  * A load that fails until a next step is done, like a Dataflow waiting for its sign-ins, is expected:
- * it shows as waiting rather than failed, and isn't a reason to rerun.
+ * it shows as waiting rather than failed, and isn't a reason to rerun. One the installer counts as
+ * failed, like that Dataflow on a busy capacity, isn't, even with the next step there.
  */
 function markExpected(run) {
   const waiting = new Map((run.nextSteps?.steps ?? []).filter((s) => s.activity).map((s) => [s.activity, s.title]));
@@ -532,7 +537,7 @@ function markExpected(run) {
   for (const it of loads) {
     let changed = false;
     for (const card of it.cards) {
-      const expected = card.state === 'failed' ? waiting.get(card.activity) : undefined;
+      const expected = card.state === 'failed' && !card.counted ? waiting.get(card.activity) : undefined;
       if (expected && card.expected !== expected) {
         card.expected = expected;
         changed = true;
@@ -802,7 +807,7 @@ function onStep(run, e) {
   }
   parent.n = e.n;
   parent.total = e.total;
-  const kid = newStage(e.title, { level: 1, parent, n: e.n, total: e.total });
+  const kid = newStage(e.title, { level: 1, parent, n: e.n, total: e.total, step: true });
   parent.kids.push(kid);
   enter(run, kid, e.at);
   paintStage(parent);

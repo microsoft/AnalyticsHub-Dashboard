@@ -68,6 +68,37 @@ Existing Azure installs get this on their next upgrade or **Repair or change**. 
 Existing Azure installs get this on their next upgrade, **Repair or change** or **Update**. Fabric
 is unchanged.
 
+**Installer: fixes from a clean-PC test of 0.6.6.**
+
+- **An app deployed while an install runs stays in the install record.** When the app step fails,
+  the installer says to run `deploy-app`. An install still waiting on its first load then saved
+  the record from the copy it read at the start, which dropped the app: `status` didn't show it,
+  and repair or update didn't treat it as deployed. Each save now keeps what another command
+  changed since, field by field. The install's summary counts an app deployed meanwhile when the
+  app step was the only one that failed.
+- **A step that fails leaves the install "partly set up".** Before, an install could end "Analytics
+  Hub is set up", and exit 0, after a step failed (✗) and it carried on: a Power BI report, the Ask
+  data agent, an upload, org-scoped access, the data check after the first load, or a source that
+  failed to load in a pipeline run that still completed (except the Cowork credits Dataflow while
+  signing it in is still to do, which is a next step). Now any of those ends it "partly set up":
+  the installer exits 1, and its page shows the install didn't finish. On Azure, org-scoped access
+  or a history reload that doesn't start ends it "set up, but not finished", also with exit 1. Each
+  failed step says how to try it again. A step that only warns (⚠), or works when it's tried
+  again, still ends "set up", unless a load or refresh the installer waited for hasn't finished, as
+  before. `update` says it isn't finished, instead of "Up to date", after a step that failed.
+- **The summary says how to deploy the app.** When the app step fails, the "partly set up"
+  summary's next steps now start with fixing the problem and running `deploy-app`, or choosing
+  **Redeploy the app**.
+- **A step that fails shows as failed** on the installer's page, not done, when the install carries
+  on past it: a step with a ✗ line, or the first load or a history reload with a source that failed
+  to load, counted as above. The page then offers **Rerun failed**, also for the Cowork credits
+  Dataflow on a busy capacity, which it showed as waiting for its sign-in.
+- **Governance and flows says "Resource Graph: off"** when that source is skipped, or on Azure's
+  demo data, instead of "agents on, Foundry on".
+- **Run it from a desktop session.** Over SSH, for example, the app's deploy tool may not be able
+  to store its sign-in securely, so a Fabric install sets up everything except the app. See
+  [Known issues](docs/KNOWN-ISSUES.md#installing).
+
 ## 2026-10-17 — Analytics Hub installer 0.6.6 (pre-release)
 
 **A pre-release, for testing.** 0.6.5 stays Latest, so the `releases/latest` links still serve it.

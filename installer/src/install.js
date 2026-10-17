@@ -20,7 +20,7 @@ import { createClient, defaultSleep } from './http.js';
 import { commandLine } from './launch.js';
 import { ensureConsent, ensureApp, ensureKeyVault, newSecret, notebookSecretDays } from './steps/identity.js';
 import { agentEvaluatorModelWanted, agentEvaluatorSummary, ensureAgentEvaluatorModel, ensureTranscriptAccess } from './steps/agent-evaluator.js';
-import { deployApp, ensureAppName, ensureFabricApp } from './steps/app.js';
+import { appDeployedSince, deployApp, ensureAppName, ensureFabricApp } from './steps/app.js';
 import { COWORK_DATAFLOW_NAME, consumptionModelWanted, consumptionSummary, ensureAzureAiAccess, ensureConsumptionModel, ensureCoworkDataflow, ensureLandingFolders } from './steps/consumption.js';
 import { coworkDataflowDefinition, isVivaId } from './transform/dataflow.js';
 import {
@@ -287,7 +287,9 @@ export async function rewindable(ctx, fn) {
  * Full set-up, or a repair when the install record already has IDs.
  * @param {Ctx} ctx
  * @param {{ wait: boolean }} opts
- * @returns {Promise<boolean>} false when the first load or model refresh it waited for didn't leave a working model.
+ * @returns {Promise<boolean>} false when a step failed and the install carried on, or the first load or model refresh it
+ *   waited for didn't leave a working model. An app deployed meanwhile, by deploy-app, makes up for its own step only
+ *   when that was the only failure.
  */
 export async function install(ctx, opts) {
   const { ui, config } = ctx;
@@ -376,17 +378,19 @@ export async function install(ctx, opts) {
     step('Resource Graph access');
     await ensureAppResourceGraphAccess(ctx);
   }
+  // A step that fails and lets the install carry on leaves it partly set up. One that only warns doesn't.
+  let stepsOk = true;
   if (withReports) {
     step('Power BI reports');
-    await ensureReports(ctx);
+    stepsOk = (await ensureReports(ctx)) && stepsOk;
   }
   if (withDataAgent) {
     step('Ask data agent');
-    await ensureDataAgent(ctx);
+    stepsOk = (await ensureDataAgent(ctx)) && stepsOk;
   }
   if (withUploads) {
     step('Data uploads');
-    await ensureUploads(ctx);
+    stepsOk = (await ensureUploads(ctx)) && stepsOk;
     await ensureFlows(ctx);
   }
   step('Notebooks, pipeline and schedule');
@@ -396,15 +400,19 @@ export async function install(ctx, opts) {
   await ensurePipeline(ctx);
   await ensureSchedule(ctx);
   // Before the first load or refresh, so the models open to viewers as soon as they have data.
-  await ensureOrgAccess(ctx, { refresh: false });
+  if ((await ensureOrgAccess(ctx, { refresh: false })) === false) stepsOk = false;
   if (withAccess) {
     step('Viewer access');
     if (await ensureViewerGroup(ctx)) await grantModelAccess(ctx, fabricViewerModels(config));
   }
   let appDeployed = true;
+  /** @type {{ since: number, workspaceId?: string, deployedAt?: string } | undefined} */
+  let appFailure;
   if (withApp) {
     step('Analytics Hub app');
+    const since = ctx.now().getTime();
     appDeployed = await tryDeployApp(ctx);
+    if (!appDeployed) appFailure = { since, workspaceId: config.fabric.workspaceId, deployedAt: config.fabricApp.deployedAt };
   }
   if (withShare) {
     step('Share the app');
@@ -430,7 +438,9 @@ export async function install(ctx, opts) {
       const result = await runPipeline(ctx, { backfillDays: config.history.days, wait: opts.wait, first: true, skipCowork });
       load = loadState(result);
       if (result.status === 'Completed') {
-        await runDataCheck(ctx);
+        // A run completes even when a load in it failed.
+        if (result.counted?.length) stepsOk = false;
+        if ((await runDataCheck(ctx)) === false) stepsOk = false;
         if (modelDeployed(config)) ok = (await verifyModel(ctx)).ok;
       }
       if (opts.wait && config.firstRun?.status !== 'Completed') ok = false;
@@ -452,7 +462,8 @@ export async function install(ctx, opts) {
         ctx.save();
       }
       if (result.status === 'Completed') {
-        await runDataCheck(ctx);
+        if (result.counted?.length) stepsOk = false;
+        if ((await runDataCheck(ctx)) === false) stepsOk = false;
         if (modelDeployed(config)) ok = (await verifyModel(ctx)).ok;
       } else if (opts.wait) ok = false;
     }
@@ -463,8 +474,17 @@ export async function install(ctx, opts) {
   }
   const reloads = await settleReloads(ctx, { wait: opts.wait, load, reachable: fabricReachable(config) });
   if (!reloads.ok) notFinished(ctx, 'install');
-  ok = reloads.ok && ok && appDeployed;
-  await summary(ctx, { ok, pending: reloads.pending });
+  /** @type {string | undefined} */
+  let appLate;
+  if (appFailure) {
+    // The step says to run deploy-app, which people do while the first load runs: saving merges its record in.
+    ctx.save();
+    appLate = appDeployedSince(config, appFailure);
+  }
+  // A late app makes up for its own step, so only when nothing else failed.
+  const appOk = appDeployed || !!appLate;
+  ok = reloads.ok && ok && stepsOk && appOk;
+  await summary(ctx, { ok, pending: reloads.pending, appFailed: !appDeployed && !appLate, appLate });
   return ok;
 }
 
@@ -615,28 +635,30 @@ export async function update(ctx, opts = {}) {
   if (config.modules.consumption) await consumptionSteps(ctx, { force: true });
   if (config.modules.agentEvaluator) await agentEvaluatorSteps(ctx, { force: true });
   if (resourceGraphOn(config)) await ensureAppResourceGraphAccess(ctx);
-  if (reportsOn(config)) await ensureReports(ctx);
-  await ensureDataAgent(ctx);
-  if (routerWanted(config.dataSources)) await ensureUploads(ctx);
+  // As in install: a step that fails and lets the update carry on leaves it unfinished.
+  let stepsOk = true;
+  if (reportsOn(config)) stepsOk = (await ensureReports(ctx)) && stepsOk;
+  stepsOk = (await ensureDataAgent(ctx)) && stepsOk;
+  if (routerWanted(config.dataSources)) stepsOk = (await ensureUploads(ctx)) && stepsOk;
   await ensureFlows(ctx);
   await ensureNotebooks(ctx, { force: true });
   await ensureSparkSettings(ctx);
   await ensurePipeline(ctx, { force: true });
   await ensureSchedule(ctx);
-  await ensureOrgAccess(ctx, { refresh: false });
+  if ((await ensureOrgAccess(ctx, { refresh: false })) === false) stepsOk = false;
   if (sm.enabled && config.fabricApp.enabled) {
-    if (await ui.confirm('Rebuild and redeploy the Analytics Hub app too?', true)) await tryDeployApp(ctx, { force: true });
+    if (await ui.confirm('Rebuild and redeploy the Analytics Hub app too?', true)) stepsOk = (await tryDeployApp(ctx, { force: true })) && stepsOk;
     else await ensureAppName(ctx);
   }
-  return finishUpdate(ctx, opts);
+  return finishUpdate(ctx, { ...opts, failed: !stepsOk });
 }
 
 /**
  * The end of a Fabric update: refreshes the models so they load their data with the new
- * definitions. "Up to date" only once every model owed a reload has finished reloading; not
- * waiting, the refreshes started is success, but said as such.
+ * definitions. "Up to date" only once every model owed a reload has finished reloading and no step
+ * failed; not waiting, the refreshes started is success, but said as such.
  * @param {Ctx} ctx
- * @param {{ wait?: boolean }} [opts]
+ * @param {{ wait?: boolean, failed?: boolean }} [opts]  failed: a step before this failed, and the update carried on.
  * @returns {Promise<boolean>}
  */
 export async function finishUpdate(ctx, opts = {}) {
@@ -653,6 +675,11 @@ export async function finishUpdate(ctx, opts = {}) {
   const reloads = await settleReloads(ctx, { wait, load: modelDeployed(config) ? 'refreshed' : 'none', reachable: fabricReachable(config) });
   if (!ok || !reloads.ok) {
     notFinished(ctx, 'update');
+    return false;
+  }
+  if (opts.failed) {
+    ui.fail(`The update isn't finished: a step above failed. Fix what it says, then run "${commandLine('update')}" again.`);
+    if (reloads.pending.length) ui.warn(reloadingNote(reloads.pending));
     return false;
   }
   if (reloads.pending.length) {
@@ -841,8 +868,9 @@ export async function rotateSecret(ctx) {
 /**
  * Prints where everything is and what to do next.
  * @param {Ctx} ctx
- * @param {{ ok?: boolean, pending?: string[] }} [opts]  ok false when a step above failed, so the heading doesn't say it is all set up;
- *   pending: models still reloading after their update.
+ * @param {{ ok?: boolean, pending?: string[], appFailed?: boolean, appLate?: string }} [opts]  ok false when a step above failed, so the heading doesn't say it is all set up;
+ *   pending: models still reloading after their update; appFailed: the app step failed, so a card says how to deploy it;
+ *   appLate: when the app was deployed after its step failed, by deploy-app or Redeploy run meanwhile.
  */
 export async function summary(ctx, opts = {}) {
   const { ui, config, api } = ctx;
@@ -855,13 +883,15 @@ export async function summary(ctx, opts = {}) {
   if (opts.ok === false) {
     ui.heading('Analytics Hub is partly set up');
     ui.warn('A step above didn\'t finish. Fix what it says, then run the installer again: it picks up where it stopped.');
+    if (opts.pending?.length) ui.warn(reloadingNote(opts.pending));
   } else if (opts.pending?.length) {
     ui.heading('Analytics Hub is set up, still reloading');
     ui.warn(reloadingNote(opts.pending));
   } else {
     ui.heading('Analytics Hub is set up');
   }
-  const left = nextSteps(config, ctx.user);
+  if (opts.appLate) ui.ok(`The app step above failed, but the app was deployed afterwards (${new Date(opts.appLate).toISOString().slice(0, 16).replace('T', ' ')} UTC).`);
+  const left = nextSteps(config, ctx.user, { appFailed: opts.appFailed });
   if (left.length) ui.nextSteps(stepsLeftTitle(left), left);
   ui.info(`Workspace:  ${f.workspaceName}  ${c.dim(`https://app.fabric.microsoft.com/groups/${ws}`)}`);
   ui.info(`Lakehouse:  ${f.lakehouseName}`);

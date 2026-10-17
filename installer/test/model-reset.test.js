@@ -220,6 +220,21 @@ test('update with nothing replaced still refreshes, and is up to date', async ()
   assert.ok(t.powerBi.calls.some((c) => c.startsWith(`refresh ${t.sm.id}`)));
 });
 
+test('update: after a step that failed, not "Up to date", even once the models reload', async () => {
+  const t = await replacedAndBound();
+  assert.equal(await finishUpdate(t.ctx, { failed: true }), false);
+  assert.ok(t.powerBi.calls.some((c) => c.startsWith(`refresh ${t.sm.id}`)), 'the models still reload');
+  assert.equal(t.sm.reload, undefined);
+  assert.match(t.ui.text(), /✗ The update isn't finished: a step above failed\. Fix what it says, then run ".*update" again\./);
+  assert.doesNotMatch(t.ui.text(), /Up to date|Updated\./);
+
+  const reloading = await replacedAndBound();
+  assert.equal(await finishUpdate(reloading.ctx, { wait: false, failed: true }), false);
+  assert.match(reloading.ui.text(), /a step above failed/);
+  assert.match(reloading.ui.text(), /! Analytics Hub Model is still reloading/);
+  assert.doesNotMatch(reloading.ui.text(), /Up to date|Updated\./);
+});
+
 test('refresh: only the installer\'s own refresh, finished cleanly, takes the obligation back', async () => {
   const failed = await replacedAndBound();
   failed.powerBi.states.push({ status: 'Unknown' }, { status: 'Failed', extendedStatus: 'Failed' });
