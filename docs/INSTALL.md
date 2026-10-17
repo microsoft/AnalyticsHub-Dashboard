@@ -139,7 +139,7 @@ again to pick up a new version; it removes the old one.
   `& $env:LOCALAPPDATA\AnalyticsHub\analytics-hub.cmd status`. With no arguments it opens the
   browser steps.
 - **A fixed version.** Each release's notes give a command pinned to that release, such as
-  `irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.5/install.ps1 | iex`.
+  `irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.6/install.ps1 | iex`.
   A pre-release is only reachable this way: `releases/latest` skips pre-releases. If that
   release's zip has since been removed, the command says so, prints the `releases/latest`
   command to run instead and stops. It doesn't switch versions on its own.
