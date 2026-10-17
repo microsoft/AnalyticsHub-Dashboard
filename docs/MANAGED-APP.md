@@ -99,7 +99,9 @@ Open **Diagnostics** in the sidebar and use the app as a viewer would.
   the Copilot Credits. It warns at 80% of the limit. If the rates change, set `launchCredits`,
   `creditPerCall` or `throttleLimit` in the config's `diagnostics` block. On a model without
   org-scoped access, one failed call is expected: the app checks for the `Access Scope` table.
-- **Copy results** copies it all as JSON.
+- **Copy results** copies JSON to share in an issue: the counts and assumptions, each operation tried
+  and how it came out, and, once you've checked, whether the model sees the signed-in viewer. It
+  leaves out names, sign-ins, IDs, URLs and error messages. Read it before you share it.
 
 ## If something goes wrong
 

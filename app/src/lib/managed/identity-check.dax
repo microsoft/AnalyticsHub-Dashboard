@@ -1,5 +1,6 @@
 EVALUATE
 // Who the model takes the viewer to be. On the Copilot Managed Runtime each viewer
 // queries through their own Power BI connection, so this should show them,
-// and row-level security filters for them.
-ROW("UPN", USERPRINCIPALNAME(), "User", USERNAME())
+// and row-level security filters for them. The object ID lets Copy results say
+// whether the model sees the signed-in viewer without copying either sign-in.
+ROW("UPN", USERPRINCIPALNAME(), "User", USERNAME(), "ObjectId", USEROBJECTID())

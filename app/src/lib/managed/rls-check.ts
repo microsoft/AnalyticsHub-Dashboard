@@ -40,8 +40,8 @@ export async function runIdentityCheck(): Promise<IdentityCheck> {
     return check;
 }
 
-/** The UPN and user name in the check's one row. Columns may come back as `[UPN]` or `UPN`. */
-export function readIdentity(table: QueryTable): Pick<IdentityCheck, "upn" | "user"> {
+/** The UPN, user name and object ID in the check's one row. Columns may come back as `[UPN]` or `UPN`. */
+export function readIdentity(table: QueryTable): Pick<IdentityCheck, "upn" | "user" | "objectId"> {
     const read = (name: string) => {
         const index = table.columns.findIndex((column) => column.name.replace(/^.*\[|\]$/g, "").toLowerCase() === name);
         const cell = index >= 0 ? table.rows[0]?.[index] : undefined;
@@ -49,5 +49,6 @@ export function readIdentity(table: QueryTable): Pick<IdentityCheck, "upn" | "us
     };
     const upn = read("upn");
     const user = read("user");
-    return { ...(upn ? { upn } : {}), ...(user ? { user } : {}) };
+    const objectId = read("objectid");
+    return { ...(upn ? { upn } : {}), ...(user ? { user } : {}), ...(objectId ? { objectId } : {}) };
 }

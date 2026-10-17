@@ -7,8 +7,20 @@ Short answers. Each links to the page with the detail.
 No. The official numbers are in the
 [Microsoft 365 admin center Copilot reports](https://learn.microsoft.com/en-us/microsoft-365/admin/activity-reports/microsoft-365-copilot-usage)
 and the [Viva Insights Copilot Dashboard](https://learn.microsoft.com/en-us/viva/insights/org-team-insights/copilot-dashboard).
-Analytics Hub adds history, your org structure, agents, value and cost on top. See the
-[disclaimer](../README.md#disclaimer).
+See the [disclaimer](../README.md#disclaimer).
+
+## What does it add to the official reports?
+
+| | What you get |
+|---|---|
+| **History** | Every Copilot interaction from the audit log, kept in your own Fabric or Azure store for as long as you choose |
+| **Your organisation** | Every page by department, job title, manager and location, from Entra ID or Workday |
+| **Agents** | Who uses each agent, who owns it, who can reach it and what needs a review |
+| **Value** | The hours saved and what they're worth, with task times you can change |
+| **Credits and cost** | Copilot Studio, Cowork and Azure AI spend in one place |
+| **Your data, your way** | An app, Power BI reports and models to build on, and questions in plain language on the Ask page |
+
+Every page: [App guide](APP-GUIDE.md).
 
 ## Why don't the numbers match the admin center?
 

@@ -8,6 +8,7 @@ import { useEffect, useId, useLayoutEffect, useMemo, useState, type FocusEvent, 
 import { Activity, Check, Copy, RefreshCw, UserCheck } from "lucide-react";
 import { canUseBrowserStorage } from "@/lib/managed/browser-storage";
 import {
+    diagnosticsResults,
     setDiagnosticsPage,
     summarizeDiagnostics,
     THROTTLE_WARNING,
@@ -91,7 +92,7 @@ function Diagnostics({ id }: { id: string }) {
             <IdentityGroup diagnostics={diagnostics} />
             <UsageGroup summary={summary} assumptions={assumptions} />
             <HostGroup diagnostics={diagnostics} />
-            <CopyResults diagnostics={diagnostics} summary={summary} assumptions={assumptions} now={now} />
+            <CopyResults diagnostics={diagnostics} assumptions={assumptions} now={now} />
         </section>
     );
 }
@@ -211,18 +212,13 @@ function HostGroup({ diagnostics }: { diagnostics: DiagnosticsState }) {
     );
 }
 
-function CopyResults({ diagnostics, summary, assumptions, now }: {
+function CopyResults({ diagnostics, assumptions, now }: {
     diagnostics: DiagnosticsState;
-    summary: DiagnosticsSummary;
     assumptions: ManagedDiagnosticsConfig;
     now: number;
 }) {
     const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-    const report = () => JSON.stringify(
-        { capturedAt: new Date(now).toISOString(), assumptions, summary, settingsInBrowser: canUseBrowserStorage(), diagnostics },
-        null,
-        2,
-    );
+    const report = () => JSON.stringify(diagnosticsResults(diagnostics, assumptions, canUseBrowserStorage(), now), null, 2);
     const copy = async () => {
         try {
             await navigator.clipboard.writeText(report());

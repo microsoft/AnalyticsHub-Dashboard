@@ -114,6 +114,10 @@ def test_relative_links_and_anchors_resolve(path):
         ("docs/TROUBLESHOOTING.md", "known-issues"),
         ("docs/KNOWN-ISSUES.md", "installing"),
         ("docs/KNOWN-ISSUES.md", "unsigned-files-in-the-download"),
+        # The old Update title and wiki Home sections, which older wiki links use.
+        ("docs/UPDATE.md", "update"),
+        ("docs/wiki/Home.md", "automatic-installer"),
+        ("docs/wiki/Home.md", "manual-by-hand-fabric"),
         ("docs/MANAGED-APP.md", "before-you-start"),
         ("docs/MANAGED-APP.md", "steps"),
     ],

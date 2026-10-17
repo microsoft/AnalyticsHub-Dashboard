@@ -1,5 +1,6 @@
 # Update or remove
 
+<a id="update"></a>
 Keep Analytics Hub current, change what it collects, replace secrets before they expire, or
 [remove it](#uninstall). Set it up by hand? See [Manual install: Update](MANUAL-INSTALL.md#update).
 Running the [Copilot Managed App](MANAGED-APP.md) *(preview)*? Get the latest code and run

@@ -314,24 +314,51 @@ describe("ManagedDiagnosticsPanel", () => {
     });
 
     describe("copying the results", () => {
-        it("copies the assumptions, the summary and everything measured as JSON", async () => {
+        it("copies the counts and how the checks came out, but no names, sign-ins, IDs or URLs", async () => {
             const writeText = vi.fn().mockResolvedValue(undefined);
             stubClipboard(writeText);
-            setViewer({ fullName: "Ada Lovelace", objectId: "o-1", tenantId: "t-1" });
+            const viewer = { fullName: "Ada Lovelace", objectId: "viewer-object-id", tenantId: "viewer-tenant-id" };
+            const flat: ConnectorCandidate = { ...candidate, operation: "ExecuteDatasetQuery", shape: "flat" };
+            setViewer(viewer);
+            setConnectorState({
+                status: "ready",
+                candidate,
+                attempts: [
+                    { candidate: flat, outcome: "denied", status: 403, message: "ada@contoso.com can't run this." },
+                    { candidate, outcome: "ok", status: 200 },
+                ],
+            });
+            setIdentityCheck({ status: "done", model: "vl", upn: "ada@contoso.com", user: "CONTOSO\\ada", objectId: "VIEWER-OBJECT-ID", checkedAt: 1 });
             recordCall(call());
+            recordCall(call({ ok: false, status: 403, error: "ada@contoso.com can't read this model." }));
             openPanel();
+            act(() => startManagedDiagnostics(hostSdk(
+                Promise.resolve({ appId: "app-1", environmentId: "env-1", sessionId: "session-1" }),
+                [{ type: "networkRequest", url: "https://reports.example/?user=ada", userAgent: "test-agent" }],
+            )));
+            expect(await screen.findByText("app-1")).toBeInTheDocument();
 
             fireEvent.click(screen.getByRole("button", { name: "Copy results" }));
 
             expect(await screen.findByRole("button", { name: "Results copied" })).toBeInTheDocument();
-            const report = JSON.parse(writeText.mock.calls[0][0] as string);
-            expect(report).toMatchObject({
+            const text = writeText.mock.calls[0][0] as string;
+            const report = JSON.parse(text);
+            expect(report).toEqual({
+                capturedAt: expect.any(String),
                 assumptions: { launchCredits: 0.1, creditPerCall: 0.1, throttleLimit: 100 },
-                summary: { calls: 1, credits: 0.2, lastMinute: 1, nearLimit: false },
+                summary: expect.objectContaining({ calls: 2, failed: 1, credits: 0.3, lastMinute: 2, nearLimit: false }),
                 settingsInBrowser: true,
-                diagnostics: { viewer: { fullName: "Ada Lovelace" }, totals: { calls: 1 }, connector: { status: "unknown" } },
+                connector: {
+                    status: "ready",
+                    candidate,
+                    attempts: [{ candidate: flat, outcome: "denied", status: 403 }, { candidate, outcome: "ok", status: 200 }],
+                },
+                identity: { status: "done", matchesViewer: true },
+                metrics: { networkRequest: 1 },
             });
             expect(Number.isNaN(Date.parse(report.capturedAt))).toBe(false);
+            for (const hidden of [viewer.fullName, viewer.objectId, viewer.tenantId, "ada@contoso.com", "contoso", "app-1", "env-1", "session-1", "reports.example", "test-agent"])
+                expect(text.toLowerCase()).not.toContain(hidden.toLowerCase());
             expect(screen.queryByLabelText("Diagnostics results")).not.toBeInTheDocument();
         });
 

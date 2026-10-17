@@ -14,11 +14,15 @@ Not sure? Use **Fabric**, with the installer.
 | **Set up with** | The installer, or by hand | The installer | Microsoft's `ms` command line |
 | **Loads the data** | Yes | Yes | No: it reads the Fabric or Azure models |
 
+<a id="automatic-installer"></a>
+
 ## Fabric or Azure (installer)
 
 1. [Prerequisites](../PREREQUISITES.md): who does what, and how long it takes.
 2. [Install](../INSTALL.md): the PowerShell one-liner, the exe or Azure Cloud Shell.
 3. [Check it worked](../INSTALL.md#check-it-worked): the first data, and what's left to do.
+
+<a id="manual-by-hand-fabric"></a>
 
 ## Fabric by hand
 

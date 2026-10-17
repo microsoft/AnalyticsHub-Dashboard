@@ -80,18 +80,8 @@ Analytics Hub itself is free. See [Architecture and costs](docs/ARCHITECTURE.md)
 
 ## What you get
 
-The [Microsoft 365 admin center Copilot reports](https://learn.microsoft.com/en-us/microsoft-365/admin/activity-reports/microsoft-365-copilot-usage)
-and the [Viva Insights Copilot Dashboard](https://learn.microsoft.com/en-us/viva/insights/org-team-insights/copilot-dashboard)
-are the official numbers. Analytics Hub adds:
-
-| | What you get |
-|---|---|
-| **History** | Every Copilot interaction from the audit log, kept in your own Fabric or Azure store for as long as you choose |
-| **Your organisation** | Every page by department, job title, manager and location, from Entra ID or Workday |
-| **Agents** | Who uses each agent, who owns it, who can reach it and what needs a review |
-| **Value** | The hours saved and what they're worth, with task times you can change |
-| **Credits and cost** | Copilot Studio, Cowork and Azure AI spend in one place |
-| **Your data, your way** | An app, Power BI reports and models to build on, and questions in plain language on the Ask page |
+History, your organisation, agents, value and cost, on top of the official Copilot reports. See
+[What it adds](docs/FAQ.md#what-does-it-add-to-the-official-reports).
 
 <a id="what-you-can-do-with-it"></a>
 **Pages:** Executive summary · Value · Consumption · Efficiency · Adoption · Leaderboards · Work
@@ -139,20 +129,7 @@ on. The rest are optional cards on the installer's **Data sources** screen, or e
 | [Release notes](CHANGELOG.md) | What changed |
 
 <a id="whats-here"></a>
-
-## Repository layout
-
-| Folder | What it is | Who needs it |
-|---|---|---|
-| [`docs/`](docs/) | The pages above. Published to the [wiki](https://github.com/microsoft/AnalyticsHub-Dashboard/wiki) on every change | Everyone |
-| [`installer/`](installer/) | `AnalyticsHubInstaller.exe`: sets up, repairs and updates Fabric or Azure installs | Fabric and Azure |
-| [`fabric/`](fabric/) | Notebooks, pipeline, flows and Power BI templates for Fabric. The installer deploys them | Fabric by hand, or to see what's deployed |
-| [`app/`](app/) | The Analytics Hub app: a Fabric app item, the web app's front end on Azure, and the Copilot Managed App | Fabric by hand, the Copilot Managed App, or developers |
-| [`azure/`](azure/) | Bicep, Container Apps jobs, SQL schema, web app and Teams package for Azure | Developers |
-| [`core/`](core/) | `valuelens_core`, the Python shared by the Azure jobs and the Fabric Defender notebook | Developers |
-| [`samples/`](samples/) | Synthetic sample data for demo mode | Demos |
-| [`media/`](media/) | Screenshots and the demo video | Docs |
-| [`scripts/`](scripts/) · [`tests/`](tests/) | Maintainer scripts that patch the templates, and the tests | Contributors |
+What each folder holds: [Repository layout](CONTRIBUTING.md#repository-layout).
 
 ## Help
 

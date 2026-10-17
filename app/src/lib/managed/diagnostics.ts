@@ -48,6 +48,8 @@ export interface IdentityCheck {
     upn?: string;
     /** `USERNAME()`. */
     user?: string;
+    /** `USEROBJECTID()`: the Microsoft Entra object ID. */
+    objectId?: string;
     error?: string;
     checkedAt: number;
 }
@@ -91,6 +93,23 @@ export interface DiagnosticsSummary {
     /** Copilot Credits for a viewer without Power Apps Premium: the launch and every call. */
     credits: number;
     byPage: ReadonlyArray<{ page: string; calls: number }>;
+}
+
+/** What Copy results puts on the clipboard, to share in an issue. */
+export interface DiagnosticsResults {
+    capturedAt: string;
+    assumptions: ManagedDiagnosticsConfig;
+    summary: DiagnosticsSummary;
+    settingsInBrowser: boolean;
+    connector: {
+        status: ConnectorState["status"];
+        candidate?: ConnectorCandidate;
+        attempts: ReadonlyArray<{ candidate: ConnectorCandidate; outcome: ConnectorAttempt["outcome"]; status?: number }>;
+    };
+    /** Left out until the check runs. `matchesViewer` is null until it's done and both object IDs are known. */
+    identity?: { status: IdentityCheck["status"]; matchesViewer: boolean | null };
+    /** How many host metrics arrived, by type. */
+    metrics: Readonly<Record<string, number>>;
 }
 
 /** The share of the throttle limit that earns a warning. */
@@ -210,6 +229,57 @@ export function summarizeDiagnostics(
             .map(([page, calls]) => ({ page, calls }))
             .sort((a, b) => b.calls - a.calls || a.page.localeCompare(b.page)),
     };
+}
+
+/**
+ * The results to copy, built from an allowlist: the counts, how the checks
+ * came out, and the assumptions. It leaves out the viewer, who the model
+ * sees, the app context, connector messages, the call log and raw host
+ * metrics, which can hold names, IDs and URLs.
+ */
+export function diagnosticsResults(
+    diagnostics: DiagnosticsState,
+    assumptions: ManagedDiagnosticsConfig,
+    settingsInBrowser: boolean,
+    now = Date.now(),
+): DiagnosticsResults {
+    const { connector, identity } = diagnostics;
+    return {
+        capturedAt: new Date(now).toISOString(),
+        assumptions: {
+            launchCredits: assumptions.launchCredits,
+            creditPerCall: assumptions.creditPerCall,
+            throttleLimit: assumptions.throttleLimit,
+        },
+        summary: summarizeDiagnostics(diagnostics, assumptions, now),
+        settingsInBrowser,
+        connector: {
+            status: connector.status,
+            ...(connector.candidate ? { candidate: candidateOnly(connector.candidate) } : {}),
+            attempts: connector.attempts.map(({ candidate, outcome, status }) => ({
+                candidate: candidateOnly(candidate),
+                outcome,
+                ...(status !== undefined ? { status } : {}),
+            })),
+        },
+        ...(identity ? { identity: { status: identity.status, matchesViewer: matchesViewer(identity, diagnostics.viewer) } } : {}),
+        metrics: Object.fromEntries(Object.entries(diagnostics.metrics).map(([type, { count }]) => [type, count])),
+    };
+}
+
+function candidateOnly({ dataSource, operation, shape }: ConnectorCandidate): ConnectorCandidate {
+    return { dataSource, operation, shape };
+}
+
+/** Compares object IDs, so the copy needs neither sign-in. */
+function matchesViewer(identity: IdentityCheck, viewer: ManagedUser | undefined): boolean | null {
+    const seen = identity.status === "done" ? comparableId(identity.objectId) : "";
+    const signedIn = comparableId(viewer?.objectId);
+    return seen && signedIn ? seen === signedIn : null;
+}
+
+function comparableId(id: unknown): string {
+    return typeof id === "string" ? id.trim().toLowerCase() : "";
 }
 
 /** The most start times that fall within any 60 seconds. */

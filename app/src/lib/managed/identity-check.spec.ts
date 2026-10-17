@@ -17,5 +17,6 @@ describe("identityCheck", () => {
         expect(query.trim()).toMatch(/^EVALUATE\b/);
         expect(query).toContain('"UPN", USERPRINCIPALNAME()');
         expect(query).toContain('"User", USERNAME()');
+        expect(query).toContain('"ObjectId", USEROBJECTID()');
     });
 });

@@ -6,19 +6,26 @@
 //-----------------------------------------------------------------------
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { ManagedDiagnosticsConfig } from "@/lib/runtime-config";
+import type { ConnectorCandidate } from "./connector-operations";
 import {
+    diagnosticsResults,
     getDiagnostics,
     peakCalls,
     recordCall,
     recordHostMetric,
     resetDiagnostics,
+    setConnectorState,
     setDiagnosticsPage,
+    setIdentityCheck,
+    setViewer,
     startManagedDiagnostics,
     subscribeDiagnostics,
     summarizeDiagnostics,
     type CallRecord,
+    type IdentityCheck,
 } from "./diagnostics";
-import type { HostMetric, ManagedSdk } from "./host";
+import type { HostMetric, ManagedSdk, ManagedUser } from "./host";
 
 const assumptions = { launchCredits: 0.1, creditPerCall: 0.1, throttleLimit: 10 };
 
@@ -195,6 +202,68 @@ describe("summarizeDiagnostics", () => {
         recordCall(call({ page: "a" }));
 
         expect(summarizeDiagnostics(getDiagnostics(), assumptions, now).byPage.map(({ page }) => page)).toEqual(["a", "b"]);
+    });
+});
+
+describe("diagnosticsResults", () => {
+    const now = Date.parse("2026-01-15T10:00:00.000Z");
+    const viewer: ManagedUser = { fullName: "Ada Lovelace", objectId: "viewer-object-id", tenantId: "viewer-tenant-id" };
+    const candidate: ConnectorCandidate = { dataSource: "powerbi", operation: "ExecuteDatasetQueriesJson", shape: "rest" };
+
+    it("keeps the counts, how the checks came out and the assumptions, and nothing else", async () => {
+        startManagedDiagnostics(fakeSdk());
+        await vi.waitFor(() => expect(getDiagnostics().context).toBeDefined());
+        recordHostMetric({ type: "networkRequest", url: "https://reports.example/?user=ada" });
+        recordHostMetric({ type: "networkRequest", userAgent: "test-agent" });
+        recordHostMetric({ type: "sessionLoadSummary", durationMs: 900 });
+        setViewer(viewer);
+        setConnectorState({
+            status: "ready",
+            candidate: { ...candidate, note: "dropped" } as ConnectorCandidate,
+            attempts: [
+                { candidate: { ...candidate, shape: "flat" }, outcome: "denied", status: 403, message: "ada@contoso.com can't run this." },
+                { candidate, outcome: "unreachable", message: "No answer." },
+            ],
+        });
+        setIdentityCheck({ status: "done", model: "vl", upn: "ada@contoso.com", user: "CONTOSO\\ada", objectId: viewer.objectId, checkedAt: 1 });
+        recordCall(call({ at: now - 1_000, ok: false, status: 403, error: "ada@contoso.com can't read this model." }));
+
+        const results = diagnosticsResults(getDiagnostics(), { ...assumptions, note: "dropped" } as ManagedDiagnosticsConfig, false, now);
+
+        expect(results).toEqual({
+            capturedAt: "2026-01-15T10:00:00.000Z",
+            assumptions,
+            summary: summarizeDiagnostics(getDiagnostics(), assumptions, now),
+            settingsInBrowser: false,
+            connector: {
+                status: "ready",
+                candidate,
+                attempts: [{ candidate: { ...candidate, shape: "flat" }, outcome: "denied", status: 403 }, { candidate, outcome: "unreachable" }],
+            },
+            identity: { status: "done", matchesViewer: true },
+            metrics: { networkRequest: 2, sessionLoadSummary: 1 },
+        });
+    });
+
+    it("says whether the model sees the signed-in viewer, once both object IDs are known", () => {
+        const matches = (identity: Partial<IdentityCheck>, signedIn: ManagedUser | null = viewer) => {
+            setViewer(signedIn ?? undefined);
+            setIdentityCheck({ status: "done", checkedAt: 1, ...identity });
+            return diagnosticsResults(getDiagnostics(), assumptions, true, now).identity?.matchesViewer;
+        };
+
+        expect(matches({ objectId: " VIEWER-OBJECT-ID " })).toBe(true);
+        expect(matches({ objectId: "someone-else" })).toBe(false);
+        expect(matches({ upn: "ada@contoso.com" })).toBeNull();
+        expect(matches({ objectId: viewer.objectId }, null)).toBeNull();
+        expect(matches({ status: "running", objectId: viewer.objectId })).toBeNull();
+        expect(matches({ status: "failed", objectId: viewer.objectId })).toBeNull();
+    });
+
+    it("leaves the check out until it runs", () => {
+        setViewer(viewer);
+
+        expect(diagnosticsResults(getDiagnostics(), assumptions, true, now)).not.toHaveProperty("identity");
     });
 });
 

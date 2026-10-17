@@ -38,11 +38,21 @@ beforeEach(() => {
 
 describe("runIdentityCheck", () => {
     it("asks the Analytics Hub model, past the cache, who the viewer is, and records it", async () => {
-        fabric.query.mockResolvedValue({ status: "success", table: table(["[UPN]", "[User]"], [["avery@contoso.com", "avery@contoso.com"]]) });
+        fabric.query.mockResolvedValue({
+            status: "success",
+            table: table(["[UPN]", "[User]", "[ObjectId]"], [["avery@contoso.com", "avery@contoso.com", "viewer-object-id"]]),
+        });
 
         const check = await runIdentityCheck();
 
-        expect(check).toEqual({ status: "done", model: "vl", upn: "avery@contoso.com", user: "avery@contoso.com", checkedAt: expect.any(Number) });
+        expect(check).toEqual({
+            status: "done",
+            model: "vl",
+            upn: "avery@contoso.com",
+            user: "avery@contoso.com",
+            objectId: "viewer-object-id",
+            checkedAt: expect.any(Number),
+        });
         expect(fabric.semanticModel).toHaveBeenCalledWith("vl");
         expect(fabric.query).toHaveBeenCalledWith(expect.stringContaining("USERPRINCIPALNAME()"), { bypassCache: true });
         expect(getDiagnostics().identity).toEqual(check);
@@ -95,12 +105,14 @@ describe("runIdentityCheck", () => {
 
 describe("readIdentity", () => {
     it("reads columns named with or without brackets or a table", () => {
-        expect(readIdentity(table(["[UPN]", "[User]"], [[" a@contoso.com ", "CONTOSO\\a"]]))).toEqual({ upn: "a@contoso.com", user: "CONTOSO\\a" });
-        expect(readIdentity(table(["user", "Row[UPN]"], [["b", "b@contoso.com"]]))).toEqual({ upn: "b@contoso.com", user: "b" });
+        expect(readIdentity(table(["[UPN]", "[User]", "[ObjectId]"], [[" a@contoso.com ", "CONTOSO\\a", " object-a "]])))
+            .toEqual({ upn: "a@contoso.com", user: "CONTOSO\\a", objectId: "object-a" });
+        expect(readIdentity(table(["user", "Row[UPN]", "OBJECTID"], [["b", "b@contoso.com", "object-b"]])))
+            .toEqual({ upn: "b@contoso.com", user: "b", objectId: "object-b" });
     });
 
     it("leaves out blanks, other types and missing rows", () => {
-        expect(readIdentity(table(["[UPN]", "[User]"], [["  ", null]]))).toEqual({});
+        expect(readIdentity(table(["[UPN]", "[User]", "[ObjectId]"], [["  ", null, ""]]))).toEqual({});
         expect(readIdentity(table(["[UPN]", "[User]"], [[42, true]]))).toEqual({});
         expect(readIdentity(table(["[UPN]"], []))).toEqual({});
         expect(readIdentity(table(["[Other]"], [["x"]]))).toEqual({});
