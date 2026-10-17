@@ -280,7 +280,8 @@ is readable for reviewers.
 targets. `valuelens-install.json` gains
 `target: "azure"` and an `azure` block: the subscription, the resource group, and whether the installer created it.
 It also records each resource's ID with `created: true`, the image tag, the SQL server and database, the Power BI
-workspace, dataset and refresh schedule, the web URL and app ID, the MI, and the Teams package path.
+workspace, dataset and refresh schedule, the web URL and app ID, the MI, the Teams package path, and the Teams
+app's ID and version in the org's app catalog.
 
 ### 5.2 Provisioning mechanics
 
@@ -311,7 +312,7 @@ workspace, dataset and refresh schedule, the web URL and app ID, the MI, and the
 | Privileged Role Administrator or Global Administrator (or send them a link) | To assign Graph app roles to the MI (equivalent to admin consent today) |
 | Power BI Pro (or PPU) licence, and the ability to create workspaces | For the model workspace |
 | Power BI tenant settings: *Dataset Execute Queries REST API*, and *Service principals can use Fabric/Power BI APIs* (for MI refresh) | The installer checks them if the user is a Fabric administrator |
-| Teams: permission to upload custom apps, or an admin to approve | For the tab |
+| Teams Administrator or Global Administrator, and consent to `AppCatalog.ReadWrite.All` for Microsoft Graph Command Line Tools (or a Teams admin uploads the package) | To publish the tab to the org's app catalog |
 
 ### 5.4 Quota and policy preflight (MSCAPS lessons)
 
@@ -356,6 +357,16 @@ Before showing the plan, the installer runs these checks and offers a fix for ea
 - The installer generates `AnalyticsHub-Teams.zip` (manifest v1.17+, a static personal tab plus a configurable
   channel tab). `webApplicationInfo` holds the app ID and `api://<fqdn>/<clientId>`, and `validDomains` holds the
   Container Apps FQDN or a custom domain.
+- The installer then publishes the package to the org's app catalog through Graph (`POST /appCatalogs/teamsApps`),
+  and later runs update that app (`POST /appCatalogs/teamsApps/{id}/appDefinitions`). It finds the app by
+  `externalId`, the manifest `id`, which is the web app's client ID, so it never adds a second one and it adopts
+  one uploaded by hand. It skips the update when the record has the same version and package hash, and leaves a
+  newer version in the catalog alone. `AppCatalog.ReadWrite.All` is delegated only, and the Azure CLI's client
+  can't ask for it, so the installer signs in once more as Microsoft Graph Command Line Tools
+  (`14d82eec-204b-4c2f-b7e8-296a70dab67e`). Without the Teams Administrator or Global Administrator role, without
+  consent, with `--use-az`, or on any error, it keeps the zip, prints the steps to upload it by hand, records a
+  pending admin action and carries on. Uninstall deletes the app it recorded, and only that one. App setup
+  policies, which pin apps, have no Graph API, so pinning stays a step for a Teams admin.
 - On the app registration, the installer sets the identifier URI `api://<fqdn>/<clientId>` and pre-authorises the
   Teams clients `1fec8e78-bce4-4aaf-ab1b-5451cc387264` (desktop and mobile) and
   `5e3ce6c0-2b1f-4285-8d4b-75ee78787346` (web). It also pre-authorises the Microsoft 365 app and Outlook clients
@@ -422,7 +433,7 @@ tests/fixtures/valuelens-golden/
 | One secret remains (the Power BI → SQL credential) | Expiry outages | A certificate with installer-managed rotation; `status` warns 30 days before |
 | MI support gaps (Dataverse application user, Power BI API) | Some modules need app registrations | Spike in Phase 0; fall back to certificate-based app registrations |
 | Two targets double the support and test matrix | Slower releases | A nightly CI deployment to a test subscription (Fabric and Azure) running the parity check; shared code paths |
-| Teams SSO: identifier URI and domain constraints, and custom app policy | The tab doesn't sign in | The installer sets the URI after the FQDN is known; the admin approval guide |
+| Teams SSO: identifier URI and domain constraints, and custom app policy | The tab doesn't sign in | The installer sets the URI after the FQDN is known, and publishes the app to the org's catalog or prints the steps for a Teams admin; the Teams guide covers custom app settings and policies |
 
 ## 9. Open decisions for review
 
@@ -443,7 +454,7 @@ tests/fixtures/valuelens-golden/
 | Collector logic in the shared core (`audit`, `licensed`, `org`, `m365`) | `shared/python/valuelens_core` | Done: the audit flatten matches the notebook on Spark-generated goldens |
 | Web API: `/app.config.json`, `/api/query` (OBO `executeQueries` with a model allowlist), settings | `2. Azure/web` | Done: 10 tests |
 | App seams: runtime host detection, MSAL sign-in, `HttpFabricProxy`, `SettingsStore` | `1. Fabric/Fabric App` | Done: the Fabric build is unchanged; 1,664 tests pass |
-| Teams manifest and package builder | `2. Azure/teams` (vendored into the installer) | Done: built by the installer; SSO through the web app registration |
+| Teams manifest and package builder | `2. Azure/teams` (vendored into the installer) | Done: built by the installer and published to the org's app catalog through Graph; SSO through the web app registration |
 | Installer Azure target: wizard choice, preflight, what-if, ARM deploy, app registrations, Graph roles, Power BI model, migrate, `run`, `status`, `refresh`, `update`, `rotate-secret`, `uninstall` | `1. Fabric/installer/src/azure`, `src/steps/azure` | Done: 218 tests pass |
 | CI: installer, web, ARM drift, and image builds (pushed to GHCR on `installer-v*` tags) | `.github/workflows/tests.yml`, `azure-images.yml` | Done |
 | End-to-end deployment to a real tenant and the 101-query parity check | Contoso demo tenant | **Done for core.** Deployed end to end in private networking mode: migrate, a 30-day first load, publish to SQL, and a Power BI refresh through the VNet data gateway. Parity (`2. Azure/tools/parity.mjs`) against the Fabric install: 25 match and 29 empty on both sides. The 7 diffs are Agent 365 registry data (Phase 2) and a one-day difference in the M365 activity report window. 35 queries target the separate consumption and Agent Evaluator models and 5 are templates. The demo tenant has very little Copilot activity, so re-run parity on a busier tenant before GA |

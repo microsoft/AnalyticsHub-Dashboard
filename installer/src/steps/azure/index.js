@@ -14,7 +14,8 @@ import { buildConsumptionModel, buildModel, loadTemplateModel, PBISM } from '../
 import { deployModel, MODEL_UPDATE_NOTE, modelSignature, REFRESH_POLL_MS, settleReloads } from '../model.js';
 import { addMonths, OPTIONAL_PERMISSION_EFFECTS, OPTIONAL_PERMISSIONS, SECRET_LIFETIME_MONTHS } from '../identity.js';
 import { addTrackedSecret, promoteSecret, removeRetired } from '../secrets.js';
-import { writeTeamsPackage } from '../../azure/teams.js';
+import { manifestVersion, writeTeamsPackage } from '../../azure/teams.js';
+import { checkCatalogAccess, publishTeamsApp, removeTeamsApp, signInForTeamsApp, TEAMS_APP_PENDING, teamsAppPlanRow } from './teams-catalog.js';
 import { APP_ALIAS, CONSUMPTION_ALIAS } from '../app.js';
 import { AZURE_AI_ROLES, ensureAzureAiAccess, planConsumption } from '../consumption.js';
 import { AZURE_LANDING_DIRS, azureDropLabel, azureDropsToSharePoint, ensureFlows, flowsSummary, flowsWanted, offerStudioRun, planFlows } from '../flows.js';
@@ -738,6 +739,7 @@ export async function azurePreflight(ctx) {
   const envName = String(az.outputs?.environmentName ?? '');
   if (envName && isPrivate(az) !== envName.endsWith('-vnet')) throw new Error(`This install already runs with ${envName.endsWith('-vnet') ? 'private networking' : 'public endpoints'}. Container Apps can't change networking in place, so uninstall and install again to switch.`);
   az.status ??= {};
+  ctx.teamsCatalog ??= await checkCatalogAccess(ctx);
   if (!az.outputs?.sqlServerFqdn) {
     const sqlRegion = az.sqlLocation || /** @type {string} */ (az.location);
     const cap = await api.arm.sqlCapability(/** @type {string} */ (az.subscriptionId), sqlRegion).catch(() => null);
@@ -934,6 +936,7 @@ export function azurePlanReview(ctx) {
   ]);
   if (!creates.length) creates.push({ kind: 'Azure resources', name: `${az.namePrefix} in ${az.resourceGroup}`, isNew: !az.outputs?.webName, detail: 'ARM what-if returned no changes.' });
   creates.push({ kind: 'Teams package', name: 'AnalyticsHub-Teams.zip', isNew: !az.teamsPackage, detail: 'Written next to the install record.' });
+  creates.push(teamsAppPlanRow(ctx, manifestVersion(pkgVersion())));
   const access = accessReview(ctx.config, `Power BI workspace ${az.powerBi?.workspaceId ?? az.workspaceName ?? 'Analytics Hub'}`);
   creates.push(...access.creates);
   if (isPrivate(az)) {
@@ -1060,6 +1063,8 @@ export async function installAzure(ctx, opts) {
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure ??= {});
   az.installId ??= randomUUID();
   ctx.save();
+  // Any sign-in comes now, while whoever approved the plan is still there, not at the end.
+  await signInForTeamsApp(ctx, manifestVersion(pkgVersion()));
   az.imageTag = imageTag(az);
   const consumption = azureConsumptionOn(config);
   const resourceGraph = azureResourceGraphOn(config);
@@ -1070,7 +1075,7 @@ export async function installAzure(ctx, opts) {
     'Resource group', 'Azure resources', 'Entra applications', 'Microsoft Graph permissions', ...(consumption ? ['Credit consumption'] : []), ...(resourceGraph ? ['Resource Graph access'] : []),
     ...(askAccess ? ['Ask model access'] : []),
     'Power BI model', ...(withAccess ? ['Viewer access'] : []), 'Azure resources (final)', 'Database migration', ...(rlsOn(config) ? ['Org-scoped access'] : []),
-    ...(flows ? ['Power Automate flow'] : []), 'Teams package', ...(ctx.reloadHistoryDays ? ['Reload audit history'] : ctx.runFirstLoad ? ['First load'] : []),
+    ...(flows ? ['Power Automate flow'] : []), 'Teams app', ...(ctx.reloadHistoryDays ? ['Reload audit history'] : ctx.runFirstLoad ? ['First load'] : []),
   ];
   let n = 0;
   const step = (/** @type {string} */ title) => ui.step(++n, titles.length, title);
@@ -1157,7 +1162,7 @@ export async function installAzure(ctx, opts) {
     await ensureFlows(ctx);
   }
 
-  step('Teams package');
+  step('Teams app');
   await writeAzureTeamsPackage(ctx);
 
   if (consumption && flows) await offerStudioRun(ctx, { pipelineNext: !!(ctx.reloadHistoryDays || ctx.runFirstLoad), quietWhenOff: true });
@@ -1676,16 +1681,14 @@ export async function startAndWaitJob(ctx, kind, opts) {
 async function writeAzureTeamsPackage(ctx) {
   const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
   const fqdn = az.outputs?.webFqdn;
-  if (!fqdn || !az.webApp?.clientId || !az.webApp.appIdUri) return ctx.ui.warn('Skipped Teams package because the web app identity is not complete.');
+  if (!fqdn || !az.webApp?.clientId || !az.webApp.appIdUri) return ctx.ui.warn('Skipped the Teams app because the web app identity is not complete.');
   const outFile = join(dirname(ctx.file), 'AnalyticsHub-Teams.zip');
   const result = await writeTeamsPackage({ clientId: az.webApp.clientId, fqdn, appIdUri: az.webApp.appIdUri, version: pkgVersion(), outFile });
-  if (result.skipped) ctx.ui.warn(`${result.reason} The coordinator must vendor it before packaging.`);
-  else {
-    az.teamsPackage = outFile;
-    ctx.save();
-    ctx.ui.ok(`Wrote Teams package ${outFile}`);
-  }
-  ctx.ui.info('Teams: send the ZIP to a Teams admin to publish to your org\'s app catalog, then pin it for the viewer group with an app setup policy. You can also upload it as a custom app to try it.');
+  if (result.skipped) return ctx.ui.warn(`${result.reason} The coordinator must vendor it before packaging.`);
+  az.teamsPackage = outFile;
+  ctx.save();
+  ctx.ui.ok(`Wrote Teams package ${outFile}`);
+  await publishTeamsApp(ctx, result);
 }
 
 /**
@@ -1727,6 +1730,7 @@ export async function azureStatus(ctx) {
   if (az.powerBi?.workspaceId) ui.info(`Power BI:       ${az.powerBi.workspaceId}${az.powerBi.datasetId ? ` / ${az.powerBi.datasetId}` : ''}`);
   if (az.powerBi?.consumptionDatasetId) ui.info(`Consumption:    ${az.powerBi.consumptionDatasetId}`);
   if (azureConsumptionOn(config) && config.dataSources.studioCredits !== 'skip') ui.info(`Credit files:   ${azureDropLabel(az)}`);
+  if (az.teamsApp) ui.info(`Teams app:      Analytics Hub ${az.teamsApp.version} in your org's app catalog`);
   expiry(ctx, 'SQL reader secret', az.sqlReader?.secretExpiry);
   for (const p of az.graphRoles?.pending ?? []) ui.warn(`Pending admin action: grant ${p} to the managed identity.`);
   for (const action of az.status?.pendingAdminActions ?? []) ui.warn(`Pending admin action: ${action}`);
@@ -1761,6 +1765,8 @@ export async function azureUninstall(ctx) {
   const az = config.azure;
   if (!az?.subscriptionId || !az.resourceGroup) throw new Error('Nothing is installed yet.');
   ui.heading('Uninstalling Analytics Hub on Azure');
+  // First, so any sign-in it needs comes before the long deletes.
+  await removeTeamsApp(ctx);
   // The gateway holds a service association link on its subnet, so it must go before the VNet.
   if (az.powerBi?.connectionId) {
     await api.fabric.deleteConnection(az.powerBi.connectionId).then(() => ui.ok('Deleted the Power BI gateway connection'), (err) => ui.warn(`Couldn't delete Power BI connection ${az.powerBi?.connectionId}: ${err.message}`));
@@ -1793,7 +1799,10 @@ export async function azureSummary(ctx, opts = {}) {
   if (az.outputs?.webUrl) ui.info(`App:        ${az.outputs.webUrl}`);
   if (az.powerBi?.workspaceId) ui.info(`Power BI:   workspace ${az.powerBi.workspaceId}, model ${az.powerBi.datasetId ?? 'not deployed'}`);
   if (az.powerBi?.consumptionDatasetId) ui.info(`Credits:    model ${az.powerBi.consumptionDatasetId}`);
-  if (az.teamsPackage) ui.info(`Teams:      ${az.teamsPackage}`);
+  const teamsPending = az.status?.pendingAdminActions?.find((a) => a.startsWith(`${TEAMS_APP_PENDING}: `));
+  if (teamsPending) ui.info(`Teams:      Not published yet. A Teams Administrator needs to ${teamsPending.slice(TEAMS_APP_PENDING.length + 2)}`);
+  else if (az.teamsApp) ui.info(`Teams:      Analytics Hub ${az.teamsApp.version} in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app.`);
+  else if (az.teamsPackage) ui.info(`Teams:      ${az.teamsPackage}`);
   ui.info(`Ask:        ${askLine(az)}`);
   for (const line of accessSummaryLines(config)) ui.info(line);
   if (flowsWanted(config).length) flowsSummary(ctx);

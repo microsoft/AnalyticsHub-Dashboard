@@ -147,6 +147,14 @@ test('checkPrereqs: the install\'s subscription is checked first; no Azure at al
   assert.equal(az['azure-rbac'].optional, false);
   assert.equal(az['fabric-capacity'], undefined, 'the Azure target needs no Fabric capacity');
   assert.equal(az['key-vault'], undefined);
+  assert.equal(az['teams-admin'].status, 'met', 'Global Administrator publishes the Teams app');
+  assert.equal(az['teams-admin'].optional, true);
+  assert.equal(none['teams-admin'], undefined, 'only the Azure target has a Teams app');
+  const noTeams = await run({ roles: [] }, azure);
+  assert.equal(noTeams['teams-admin'].status, 'missing');
+  assert.match(noTeams['teams-admin'].howTo, /prints the steps for a Teams Administrator/);
+  const teamsAdmin = await run({ roles: [{ roleTemplateId: '69091246-20e8-4a56-aa4d-066075b2a7a8', displayName: 'Teams Administrator' }] }, azure);
+  assert.match(teamsAdmin['teams-admin'].detail, /Active: Teams Administrator/);
 });
 
 test('checkPrereqs: System Administrator per environment; a failing check is "couldn\'t check"', async () => {

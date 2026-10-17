@@ -16,7 +16,8 @@ import { azureFlowTarget, connectionSteps, flowDefinitions, flowsWanted } from '
 import { CONNECTORS, connectorsUsed } from '../src/transform/flows.js';
 import { ROLES } from '../src/clients/azure.js';
 import { buildModel, mParameter } from '../src/transform/model.js';
-import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi } from './fakes.js';
+import { fakeAppCatalog, fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi, readManifest } from './fakes.js';
+import { manifestVersion } from '../src/azure/teams.js';
 import { readScopes } from '../src/steps/org-access.js';
 import { loadConfig, saveConfig } from '../src/config.js';
 import { createWebUi } from '../src/web-ui.js';
@@ -1015,4 +1016,50 @@ test('sqlFreeOfferTurnedDown: only for a new database that asked for the free of
   assert.equal(await sqlFreeOfferTurnedDown(ctxWith({ sqlFreeOffer: false }), dbFailed), undefined, 'already without the free offer');
   assert.equal(await sqlFreeOfferTurnedDown(ctxWith({}), { operations: [{ resourceType: 'Microsoft.Web/sites', resourceName: 'web', code: 'Conflict' }] }), undefined, 'another resource failed');
   assert.equal(await sqlFreeOfferTurnedDown(ctxWith({}), new Error('BadRequest')), undefined, 'no failed operations');
+});
+
+test('Azure install publishes the Teams app to the org catalog once, Repair leaves it, and uninstall removes it', async () => {
+  const arm = fakeArm();
+  const graph = fakeAzureGraph();
+  graph.directoryRoles.push({ roleTemplateId: '69091246-20e8-4a56-aa4d-066075b2a7a8', displayName: 'Teams Administrator' });
+  const catalog = fakeAppCatalog();
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds', connectionDetails: { server: 'vlens-sql.database.windows.net', database: 'valuelens' } }]);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui, appCatalog: catalog.api });
+  Object.assign(config, {
+    target: 'azure',
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+  });
+  ctx.runFirstLoad = false;
+
+  await installAzure(ctx, { wait: true });
+  const az = /** @type {any} */ (config.azure);
+  const clientId = az.webApp.clientId;
+  const version = manifestVersion(JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version);
+  assert.deepEqual(catalog.calls, ['signIn', `find ${clientId}`, `publish ${clientId} ${version}`], 'the package written to disk is the one published');
+  const manifest = readManifest(readFileSync(az.teamsPackage));
+  assert.equal(manifest.id, clientId);
+  assert.equal(manifest.version, version);
+  assert.deepEqual({ ...az.teamsApp, sha256: undefined, publishedAt: undefined }, { id: 'catalog-app-1', externalId: clientId, version, sha256: undefined, publishedAt: undefined });
+  assert.ok(!(az.status?.pendingAdminActions ?? []).some((/** @type {string} */ a) => a.startsWith('Publish the Teams app')));
+  const out = ui.text();
+  assert.ok(out.indexOf('Signed in to publish the Teams app') < out.indexOf('Wrote Teams package'), 'the sign-in comes before the deployment, not at the end');
+  assert.match(out, /Teams app: published Analytics Hub \S+ to your org's app catalog/);
+  assert.match(out, /Teams: +Analytics Hub \S+ in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app\./);
+
+  // Repair or change, as a new run: the same package, so no sign-in and nothing uploaded.
+  delete ctx.teamsCatalog;
+  catalog.calls.length = 0;
+  await installAzure(ctx, { wait: true });
+  assert.deepEqual(catalog.calls, []);
+  assert.equal(catalog.apps.length, 1);
+
+  delete ctx.teamsCatalog;
+  az.createdResourceGroup = true;
+  await runCommand(ctx, 'uninstall', { wait: true });
+  assert.deepEqual(catalog.calls, ['signIn', 'remove catalog-app-1']);
+  assert.equal(catalog.apps.length, 0);
+  assert.equal(az.teamsApp, undefined);
+  assert.ok(arm.calls.includes('deleteResourceGroup rg'));
 });

@@ -5,7 +5,7 @@ Open the installer and choose **Uninstall** (`uninstall`). It asks before it del
 | Where | What it deletes |
 |---|---|
 | Fabric | The workspace and everything in it, after its managed private endpoints. If the installer didn't create the workspace, the answer defaults to no. It waits up to ten minutes for the endpoints to go. |
-| Azure | The resource group the installer created. In a resource group you already had, only the resources tagged `valuelens-install-id`. Also the Power BI VNet data gateway and connection, and the **Analytics Hub** and SQL reader app registrations, if it created them. |
+| Azure | The resource group the installer created. In a resource group you already had, only the resources tagged `valuelens-install-id`. Also the Power BI VNet data gateway and connection, and the **Analytics Hub** and SQL reader app registrations, if it created them. And the Teams app it published to your org's app catalog, after one more sign-in as a Teams Administrator or Global Administrator. |
 
 ## What's left behind
 
@@ -14,6 +14,9 @@ Uninstall leaves these alone. Remove them yourself if you no longer need them:
 - On Fabric, the **Analytics Hub Data Collector** app registration. Delete it in
   [Entra ID](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade).
 - On Azure, the Power BI workspace and its models.
+- On Azure, the Teams app, if it was uploaded by hand or the installer couldn't delete it. A Teams
+  admin deletes it in the [Teams admin center](https://admin.teams.microsoft.com/policies/manage-apps)
+  under **Teams apps** > **Manage apps**.
 - The **Analytics Hub Viewers** group.
 - The Key Vault, if you used one, and its secret.
 - The Power Automate flows and their connections, and the Cowork Dataflow's connections.

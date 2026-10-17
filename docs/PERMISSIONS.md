@@ -137,6 +137,22 @@ The app's Ask page always lists suggested questions. What answers them needs:
 
 ---
 
+## Publishing the Teams app (path 2)
+
+On Azure, the installer publishes the Teams app (`AnalyticsHub-Teams.zip`) to your org's app catalog
+through Microsoft Graph, and updates that app on later runs. See
+[Give it to everyone](../azure/teams/README.md#give-it-to-everyone).
+
+| What | Role / requirement |
+|---|---|
+| Publish, update or delete the app in the org's app catalog | The person running the installer as **Teams Administrator** or **Global Administrator**, active. With Privileged Identity Management, activate it before signing in |
+| The installer's second sign-in | **Microsoft Graph Command Line Tools**, with the delegated Graph permission `AppCatalog.ReadWrite.All` (*Read and write to all app catalogs*). It needs admin consent: a **Global Administrator**, **Privileged Role Administrator**, **Cloud Application Administrator** or **Application Administrator** gives it at the prompt. `AppCatalog.Submit` would only submit the app for review, so the installer doesn't use it. With `--use-az`, there's no second sign-in and no publishing |
+| Upload it by hand instead | A **Teams Administrator** or **Global Administrator**, in the Teams admin center under **Teams apps** > **Manage apps** |
+| Pin it for the viewers (optional) | A **Teams Administrator**, with an app setup policy assigned to the viewer group. There's no Graph API for it, so the installer doesn't do it |
+| People can add it | The org-wide custom app setting, their app permission policy and the app's status in **Manage apps** allow it. The installer doesn't change them |
+
+---
+
 ## Viewing Analytics Hub (paths 1 and 2)
 
 The installer creates one Entra security group, **Analytics Hub Viewers**, with you as its owner (or uses a group you name). Sharing is adding people to it, from the installer's `access` command, **Share** in the app, or [My Groups](https://myaccount.microsoft.com/groups).

@@ -16,6 +16,12 @@ export const APP_ROLES = {
   '158c047a-c907-4556-b7ef-446551a6b5f7': 'Cloud Application Administrator',
 };
 
+/** Directory roles that can publish a custom app to the org's Teams app catalog. */
+export const TEAMS_PUBLISH_ROLES = {
+  '69091246-20e8-4a56-aa4d-066075b2a7a8': 'Teams Administrator',
+  '62e90394-69f5-4237-9190-012177145e10': 'Global Administrator',
+};
+
 export const FABRIC_ADMIN_ROLE = 'a9ea8996-122f-4c74-9520-8edcd192826c';
 export const GLOBAL_READER_ROLE = 'f2ef992c-3afb-46b9-b7cf-a126ee74c451';
 export const AI_ADMIN_ROLE = 'd2562ede-74db-457e-a7b6-544e236ebb61';
@@ -427,3 +433,47 @@ export function graphApi(http) {
 }
 
 /** @typedef {ReturnType<typeof graphApi>} GraphApi */
+
+/**
+ * An app in the org's Teams app catalog, with its versions when asked for.
+ * @typedef {object} TeamsCatalogApp
+ * @property {string} id  The app's ID in the catalog, not the manifest's.
+ * @property {string} [externalId]  The manifest's `id`.
+ * @property {string} [displayName]
+ * @property {string} [distributionMethod]  `organization` for an app your org published.
+ * @property {{ id?: string, version?: string, publishingState?: string }[]} [appDefinitions]  `publishingState` is `published`, or `submitted` while it waits for an admin.
+ */
+
+/**
+ * The org's Teams app catalog. Every call needs the delegated AppCatalog.ReadWrite.All scope, and
+ * publishing straight to the catalog, not for review, needs a Teams Administrator or Global Administrator.
+ * https://learn.microsoft.com/graph/api/teamsapp-publish
+ * @param {import('../http.js').HttpClient} http
+ * @param {() => Promise<unknown>} [signIn]  Gets the scope's token, so the sign-in can come before any call.
+ */
+export function appCatalogApi(http, signIn = async () => {}) {
+  /** Not retried after a network error: a second upload could add a second app. @type {import('../http.js').RequestOptions} */
+  const zipped = { headers: { 'Content-Type': 'application/zip' }, once: true };
+  return {
+    signIn: async () => {
+      await signIn();
+    },
+    /**
+     * The org's own apps with this manifest ID, with their versions. Store apps are left out.
+     * @param {string} externalId
+     * @returns {Promise<TeamsCatalogApp[]>}
+     */
+    find: async (externalId) => {
+      const apps = await http.list('/appCatalogs/teamsApps', { query: { $filter: `externalId eq '${externalId.replace(/'/g, "''")}'`, $expand: 'appDefinitions' } });
+      return apps.filter((a) => a.distributionMethod === 'organization');
+    },
+    /** Adds a new app to the org's catalog. @param {Uint8Array} zip @returns {Promise<TeamsCatalogApp>} */
+    publish: (zip) => http.post('/appCatalogs/teamsApps', zip, zipped),
+    /** Uploads a new version of an app already in the catalog. @param {string} id @param {Uint8Array} zip */
+    update: (id, zip) => http.post(`/appCatalogs/teamsApps/${encodeURIComponent(id)}/appDefinitions`, zip, zipped),
+    /** @param {string} id */
+    remove: (id) => http.del(`/appCatalogs/teamsApps/${encodeURIComponent(id)}`),
+  };
+}
+
+/** @typedef {ReturnType<typeof appCatalogApi>} AppCatalogApi */
