@@ -167,14 +167,17 @@ export async function deployDataAgent(ctx) {
  * Creates, updates and publishes the data agent. Nothing else depends on it, so a failure is
  * reported and the install carries on.
  * @param {Ctx} ctx
+ * @returns {Promise<boolean>} false when it failed; true when it's set up or isn't wanted.
  */
 export async function ensureDataAgent(ctx) {
-  if (!dataAgentWanted(ctx)) return;
+  if (!dataAgentWanted(ctx)) return true;
   try {
     await deployDataAgent(ctx);
+    return true;
   } catch (err) {
     ctx.ui.fail(`The ${ctx.config.dataAgent.name} data agent wasn't set up: ${/** @type {Error} */ (err).message}`);
     ctx.ui.info(`Fix the problem, then run "${commandLine('update')}".`);
+    return false;
   }
 }
 

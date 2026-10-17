@@ -274,7 +274,8 @@ export async function rewindable(ctx, fn) {
  * Full set-up, or a repair when the install record already has IDs.
  * @param {Ctx} ctx
  * @param {{ wait: boolean }} opts
- * @returns {Promise<boolean>} false when the first load or model refresh it waited for didn't leave a working model.
+ * @returns {Promise<boolean>} false when the first load or model refresh it waited for didn't leave a working model, or the
+ *   app wasn't deployed. An app deployed meanwhile, by deploy-app, counts unless a report or the data agent failed too.
  */
 export async function install(ctx, opts) {
   const { ui, config } = ctx;
@@ -363,13 +364,15 @@ export async function install(ctx, opts) {
     step('Resource Graph access');
     await ensureAppResourceGraphAccess(ctx);
   }
+  // A report or the data agent that fails is reported and the install carries on. Kept for a late app, below.
+  let published = true;
   if (withReports) {
     step('Power BI reports');
-    await ensureReports(ctx);
+    published = (await ensureReports(ctx)) && published;
   }
   if (withDataAgent) {
     step('Ask data agent');
-    await ensureDataAgent(ctx);
+    published = (await ensureDataAgent(ctx)) && published;
   }
   if (withUploads) {
     step('Data uploads');
@@ -460,10 +463,11 @@ export async function install(ctx, opts) {
     // The step says to run deploy-app, which people do while the first load runs: saving merges its record in.
     ctx.save();
     appLate = appDeployedSince(config, appFailure);
-    if (appLate) appDeployed = true;
   }
-  ok = reloads.ok && ok && appDeployed;
-  await summary(ctx, { ok, pending: reloads.pending, appFailed: !appDeployed, appLate });
+  // A late app makes up for its own step only when that was the only failure.
+  const appOk = appDeployed || (!!appLate && published);
+  ok = reloads.ok && ok && appOk;
+  await summary(ctx, { ok, pending: reloads.pending, appFailed: !appDeployed && !appLate, appLate });
   return ok;
 }
 

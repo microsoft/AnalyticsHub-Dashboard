@@ -99,16 +99,20 @@ export async function deployReport(ctx, w) {
  * Publishes or updates every wanted report. The models and data don't depend on them, so a
  * failure is reported and the install carries on.
  * @param {Ctx} ctx
+ * @returns {Promise<boolean>} false when a report failed.
  */
 export async function ensureReports(ctx) {
+  let ok = true;
   for (const w of reportsWanted(ctx)) {
     try {
       await deployReport(ctx, w);
     } catch (err) {
+      ok = false;
       ctx.ui.fail(`The ${w.model.report?.name ?? w.name} report wasn't published: ${/** @type {Error} */ (err).message}`);
       ctx.ui.info(`Fix the problem, then run "${commandLine('update')}".`);
     }
   }
+  return ok;
 }
 
 /**

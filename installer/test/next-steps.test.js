@@ -293,12 +293,13 @@ test('install: the app counts as deployed after its step failed only for a new d
   assert.equal(appDeployedSince(config, step), undefined, 'the app is no longer wanted');
 });
 
-test("install: a failed app deploy or unproven first load makes the install not ok, unless the app was deployed meanwhile", async () => {
+test("install: a failed app deploy or unproven first load makes the install not ok, unless the app was deployed meanwhile and was the only failure", async () => {
   const src = await readFile(new URL('../src/install.js', import.meta.url), 'utf8');
   assert.match(src, /const since = ctx\.now\(\)\.getTime\(\);\r?\n\s*appDeployed = await tryDeployApp\(ctx\);/);
   assert.match(src, /if \(!appDeployed\) appFailure = \{ since, workspaceId: config\.fabric\.workspaceId, deployedAt: config\.fabricApp\.deployedAt \};/);
   // Saving merges in what deploy-app saved while the first load ran, before the verdict.
-  assert.match(src, /if \(appFailure\) \{\r?\n(?:\s*\/\/.*\r?\n)?\s*ctx\.save\(\);\r?\n\s*appLate = appDeployedSince\(config, appFailure\);\r?\n\s*if \(appLate\) appDeployed = true;/);
-  assert.match(src, /ok = reloads\.ok && ok && appDeployed;\r?\n\s*await summary\(ctx, \{ ok, pending: reloads\.pending, appFailed: !appDeployed, appLate \}\)/);
+  assert.match(src, /if \(appFailure\) \{\r?\n(?:\s*\/\/.*\r?\n)?\s*ctx\.save\(\);\r?\n\s*appLate = appDeployedSince\(config, appFailure\);\r?\n\s*\}/);
+  // Not when a report or the data agent failed too: install-late-app.test.js runs each case.
+  assert.match(src, /const appOk = appDeployed \|\| \(!!appLate && published\);\r?\n\s*ok = reloads\.ok && ok && appOk;\r?\n\s*await summary\(ctx, \{ ok, pending: reloads\.pending, appFailed: !appDeployed && !appLate, appLate \}\)/);
   assert.match(src, /if \(opts\.wait && config\.firstRun\?\.status !== 'Completed'\) ok = false;/);
 });
