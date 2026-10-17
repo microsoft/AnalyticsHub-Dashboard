@@ -38,6 +38,8 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 Existing Azure installs get this on their next upgrade or **Repair or change**. Fabric is unchanged.
 
+**App: Value, Consumption and Efficiency now come straight after the Executive summary.**
+
 **Azure: the installer publishes the Teams app to your org's app catalog.**
 
 - **No upload by hand.** After it writes `AnalyticsHub-Teams.zip`, the installer publishes it to
