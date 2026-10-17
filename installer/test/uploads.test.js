@@ -279,10 +279,26 @@ test('planDataSources sets the modules and keeps the exports; ensureUploads make
   assert.ok(!asked.some((q) => /Power Automate/.test(q)), 'no follow-up about the email flow: it is its own mode');
   assert.equal(ctx.pendingUploads?.length, 1);
 
-  await ensureUploads(ctx);
+  assert.equal(await ensureUploads(ctx), true);
   assert.ok(oneLake.dirs.includes(UPLOAD_DIR));
   assert.equal(oneLake.files.size, 1);
   assert.deepEqual(ctx.pendingUploads, []);
+});
+
+test('ensureUploads: an export that fails is a failure that says how to put it there; the rest still go', async () => {
+  const oneLake = fakeOneLake(/broken/);
+  const { ui, text } = fakeUi();
+  const { ctx } = fakeCtx({ ui, oneLake });
+  ctx.pendingUploads = checkCsvFiles([csvFile('broken.csv', HEADERS.workday), csvFile('feedback.csv', HEADERS.productFeedback)], allCsv());
+  assert.equal(await ensureUploads(ctx), false);
+  assert.deepEqual([...oneLake.files.keys()], [`${UPLOAD_DIR}/20260601T120000Z_feedback.csv`]);
+  assert.match(text(), /✗ Couldn't upload broken.csv: 403 Forbidden/);
+  assert.match(text(), /Put it in .+ > .+ yourself, or run ".*upload <file>" again\./);
+  assert.deepEqual(ctx.pendingUploads, []);
+
+  // Nothing picked is nothing failed.
+  const none = fakeCtx({ ui: fakeUi().ui, oneLake: fakeOneLake() });
+  assert.equal(await ensureUploads(none.ctx), true);
 });
 
 test('planDataSources: with every source skipped there is no router; an export for a skipped source is an error', async () => {

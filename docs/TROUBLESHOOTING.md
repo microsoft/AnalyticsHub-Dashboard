@@ -56,6 +56,7 @@ the installer's version. For the Copilot Managed App, see
 | Problem | What to do |
 |---|---|
 | `The app wasn't deployed` | Fix the cause it shows, then choose **Redeploy the app**. |
+| `OS keychain is not available and plaintext token storage is not enabled` | Run the installer from a desktop session, at the PC or over Remote Desktop, then choose **Redeploy the app** (or run `deploy-app`). Without a desktop session, for example over SSH, the app's deploy tool can't store its sign-in securely, so it stops. The rest of the set-up is done. Don't allow the plain-text storage the message offers: it keeps your sign-in unencrypted on disk. |
 | `The … report wasn't published` | Fix the cause it shows, then choose **Update**. The models and data aren't affected. |
 | A report's Tornado chart, Word cloud or Deneb visual is blank | Turn on the tenant setting *Allow visuals created using the Power BI SDK*. See [Power BI reports](../installer/README.md#power-bi-reports). |
 | `You can't assign Azure roles in …` | See [Credit consumption](../installer/README.md#credit-consumption). |
@@ -86,6 +87,10 @@ Limits we know about, and what to do.
 - **Cloud Shell ends a session after 20 minutes without input.** Run the same command again: it
   carries on from the install record.
 - **Keep the PC awake.** If it sleeps, setup stops until it wakes.
+- **Run it from a desktop session: at the PC, or over Remote Desktop.** Without one, for example
+  over SSH, the app's deploy tool may not be able to store its sign-in securely. A Fabric install
+  then sets up everything except the app. To finish, run `deploy-app` from a desktop session. See
+  [The app, reports and data](#the-app-reports-and-data).
 
 ### Unsigned files in the download
 

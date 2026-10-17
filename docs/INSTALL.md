@@ -216,6 +216,8 @@ again to pick up a new version; it removes the old one.
   download the zip in a browser and set `$env:ANALYTICS_HUB_ZIP` to its path, or use `-ZipPath`.
 - **Constrained Language Mode** works: the launcher only uses commands allowed there. It skips
   keeping the PC awake, so keep it plugged in and awake yourself.
+- **Run it from a desktop session**, at the PC or over Remote Desktop. Over SSH, a Fabric install
+  may not be able to deploy the app: see [Known issues](TROUBLESHOOTING.md#installing).
 - **Remove it** with `.\install.ps1 -Uninstall` (from the download-and-run steps above), or by
   deleting `%LOCALAPPDATA%\AnalyticsHub`. That doesn't touch what's in your tenant, or your
   install record in `Documents\Analytics Hub`. To remove what's in your tenant, use **Uninstall**

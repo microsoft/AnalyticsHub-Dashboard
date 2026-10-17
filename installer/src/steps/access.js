@@ -265,7 +265,9 @@ export async function shareApp(ctx) {
   const a = config.access;
   if (a?.appShared === true) return;
   if (!shareAppPending(config)) {
-    ui.warn(`There's ${a?.groupId ? 'no app' : 'no viewer group'} yet, so there's nothing to share. The summary at the end says what to do.`);
+    ui.warn(a?.groupId
+      ? "There's no app yet, so there's nothing to share. The summary at the end says how to deploy it and share it."
+      : "There's no viewer group yet, so there's nothing to share. The summary at the end says what to do.");
     return;
   }
   const group = a?.groupName ?? VIEWER_GROUP_NAME;

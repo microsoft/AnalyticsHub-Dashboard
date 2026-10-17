@@ -156,7 +156,7 @@ test('ensureReports: one failure is reported and the rest still publish', async 
   const cm = t.fabric.add('SemanticModel', 'Analytics Hub Consumption Model', null);
   t.config.consumption.model.id = cm.id;
   t.fabric.failures.createReport = [httpError(400, 'The definition is not valid.')];
-  await ensureReports(t.ctx);
+  assert.equal(await ensureReports(t.ctx), false);
   assert.deepEqual(t.fabric.calls, ['createReport ValueLens', 'createReport Consumption Central']);
   assert.match(t.ui.text(), /The ValueLens report wasn't published: .*not valid/);
   assert.match(t.ui.text(), /then run ".*update"/);
@@ -166,7 +166,7 @@ test('ensureReports: one failure is reported and the rest still publish', async 
 
 test('ensureReports: a model that is not deployed is skipped', async () => {
   const t = setup({ modules: { consumption: true } });
-  await ensureReports(t.ctx);
+  assert.equal(await ensureReports(t.ctx), true, 'a skipped report is not a failure');
   assert.deepEqual(t.fabric.calls, ['createReport ValueLens']);
   assert.match(t.ui.text(), /Skipped the Consumption Central report/);
 });

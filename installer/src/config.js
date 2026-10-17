@@ -4,6 +4,8 @@
  * re-run picks up where the last one stopped. It never holds a secret.
  */
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { normaliseModules } from './catalog.js';
 import { normaliseReporting } from './currency.js';
 import { normaliseDataSources } from './uploads.js';
@@ -353,14 +355,33 @@ export function emptyConfig() {
  * @returns {{ config: InstallConfig, existed: boolean }}
  */
 export function loadConfig(file) {
-  if (!existsSync(file)) return { config: emptyConfig(), existed: false };
+  if (!existsSync(file)) {
+    const config = emptyConfig();
+    remember(config, file, null, JSON.stringify(config));
+    return { config, existed: false };
+  }
+  /** @type {string} */
+  let text;
   /** @type {any} */
   let raw;
   try {
-    raw = JSON.parse(readFileSync(file, 'utf8'));
+    text = readFileSync(file, 'utf8');
+    raw = JSON.parse(text);
   } catch (err) {
     throw new Error(`${file} is not valid JSON: ${/** @type {Error} */ (err).message}`);
   }
+  const config = normaliseConfig(raw, file);
+  remember(config, file, text, JSON.stringify(config));
+  return { config, existed: true };
+}
+
+/**
+ * A record as read from disk, with the defaults for anything it doesn't have yet.
+ * @param {any} raw
+ * @param {string} file
+ * @returns {InstallConfig}
+ */
+function normaliseConfig(raw, file) {
   if (raw.version !== CONFIG_VERSION) throw new Error(`${file} has version ${raw.version}; this installer reads version ${CONFIG_VERSION}.`);
   const base = emptyConfig();
   /** @type {InstallConfig} */
@@ -413,7 +434,102 @@ export function loadConfig(file) {
   };
   if (!config.reporting) delete config.reporting;
   assertNoSecrets(config);
-  return { config, existed: true };
+  return config;
+}
+
+/**
+ * For each record loadConfig returned, by file: the text it last read or wrote there (null when there was
+ * no file), and the record as it stood then. Another command can write the record meanwhile, such as
+ * deploy-app while an install waits hours for its first load; saveConfig merges what it changed.
+ * @type {WeakMap<object, Map<string, { read: string | null, base: string }>>}
+ */
+const lastSeen = new WeakMap();
+
+/** @param {object} config @param {string} file @param {string | null} read @param {string} base */
+function remember(config, file, read, base) {
+  let files = lastSeen.get(config);
+  if (!files) lastSeen.set(config, (files = new Map()));
+  files.set(resolve(file), { read, base });
+}
+
+/** @param {unknown} v @returns {v is Record<string, any>} */
+const isRecord = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+
+/**
+ * A three-way merge, field by field: each side keeps what only it changed since `base`. When both changed
+ * the same field to different values, `ours` wins, as the later save. A field one side removed and the
+ * other left alone stays removed. Lists are merged whole.
+ * @param {any} base
+ * @param {any} ours
+ * @param {any} theirs
+ * @returns {any}
+ */
+function mergeRecord(base, ours, theirs) {
+  if (isDeepStrictEqual(ours, base)) return theirs;
+  if (isDeepStrictEqual(theirs, base) || isDeepStrictEqual(ours, theirs)) return ours;
+  if (!isRecord(ours) || !isRecord(theirs)) return ours;
+  const was = isRecord(base) ? base : {};
+  /** @type {Record<string, any>} */
+  const merged = {};
+  for (const key of new Set([...Object.keys(ours), ...Object.keys(theirs)])) {
+    const value = mergeRecord(was[key], ours[key], theirs[key]);
+    if (value !== undefined) merged[key] = value;
+  }
+  return merged;
+}
+
+/**
+ * Brings the record in memory up to date with what was saved, changing only the fields the merge changed,
+ * in place, so code holding part of it (a `const app = config.fabricApp`, say) sees them too.
+ * @param {Record<string, any>} live
+ * @param {Record<string, any>} ours  What `live` held, as JSON.
+ * @param {Record<string, any>} merged
+ */
+function adopt(live, ours, merged) {
+  for (const key of Object.keys(ours)) if (!Object.hasOwn(merged, key)) delete live[key];
+  for (const [key, value] of Object.entries(merged)) {
+    if (isDeepStrictEqual(value, ours[key])) continue;
+    const held = live[key];
+    if (isRecord(value) && isRecord(ours[key]) && isRecord(held)) adopt(held, ours[key], value);
+    else if (Array.isArray(value) && Array.isArray(held)) held.splice(0, held.length, ...value);
+    else live[key] = value;
+  }
+}
+
+/**
+ * What to save when another command has written the record since `config` last read or wrote it: both
+ * sets of changes, merged. Undefined when nobody else has written it, or what's there can't be read as a
+ * record, so the save writes `config` as it is.
+ * @param {string} file
+ * @param {InstallConfig} config
+ * @param {{ read: string | null, base: string }} last
+ * @param {(ms: number) => void} wait
+ * @returns {{ ours: Record<string, any>, merged: Record<string, any> } | undefined}
+ */
+function mergeTheirs(file, config, last, wait) {
+  for (let attempt = 1; ; attempt++) {
+    /** @type {any} */
+    let theirs;
+    try {
+      const disk = readFileSync(file, 'utf8');
+      if (disk === last.read) return undefined;
+      theirs = JSON.parse(disk);
+    } catch (err) {
+      if (/** @type {NodeJS.ErrnoException} */ (err).code === 'ENOENT') return undefined;
+      // Half-written or held open: the other command may be writing it in place (see saveConfig). Give it
+      // a moment; if it still can't be read, this command's own changes are saved rather than lost.
+      if (attempt >= 3) return undefined;
+      wait(100 * attempt);
+      continue;
+    }
+    try {
+      theirs = JSON.parse(JSON.stringify(normaliseConfig(theirs, file)));
+    } catch {
+      return undefined;
+    }
+    const ours = JSON.parse(JSON.stringify(config));
+    return { ours, merged: mergeRecord(JSON.parse(last.base), ours, theirs) };
+  }
 }
 
 /**
@@ -445,6 +561,10 @@ function pause(ms) {
  * is being synced, so it's retried. If it still fails, the record is written
  * in place so the run's progress isn't lost. Either way it is read back, so a
  * step is only counted as done once its record is really on disk.
+ * For a record from loadConfig, another command may have saved the same file
+ * since this one last read or wrote it (deploy-app while an install waits on
+ * its first load): their changes are merged in, field by field, and the record
+ * in memory gets them too.
  * @param {string} file
  * @param {InstallConfig} config
  * @param {{ rename?: (from: string, to: string) => void, wait?: (ms: number) => void, tries?: number, read?: (file: string) => string }} [io]
@@ -452,7 +572,10 @@ function pause(ms) {
 export function saveConfig(file, config, io = {}) {
   assertNoSecrets(config);
   const { rename = renameSync, wait = pause, tries = 8, read = (/** @type {string} */ f) => readFileSync(f, 'utf8') } = io;
-  const text = `${JSON.stringify(config, null, 2)}\n`;
+  const last = lastSeen.get(config)?.get(resolve(file));
+  const merge = last ? mergeTheirs(file, config, last, wait) : undefined;
+  if (merge) assertNoSecrets(merge.merged);
+  const text = `${JSON.stringify(merge ? merge.merged : config, null, 2)}\n`;
   const tmp = `${file}.tmp`;
   writeFileSync(tmp, text, 'utf8');
   let renamed = false;
@@ -479,6 +602,9 @@ export function saveConfig(file, config, io = {}) {
   if (read(file) !== text) {
     throw new Error(`The install record ${file} didn't save: it reads back different from what was written. Check the folder isn't read-only or full, then run the installer again.`);
   }
+  if (!last) return;
+  if (merge) adopt(config, merge.ours, merge.merged);
+  remember(config, file, text, text);
 }
 
 /**

@@ -66,16 +66,18 @@ export async function planDataSources(ctx) {
 /**
  * Makes the drop folder and the folders the loads read, then uploads the exports picked.
  * @param {Ctx} ctx
+ * @returns {Promise<boolean>} false when an export couldn't be uploaded. The rest still go, and the install carries on.
  */
 export async function ensureUploads(ctx) {
   const pending = ctx.pendingUploads ?? [];
   if (routerWanted(ctx.config.dataSources) || pending.length) await ensureDropFolders(ctx);
-  await uploadFiles(ctx, pending);
+  const done = await uploadFiles(ctx, pending);
   ctx.pendingUploads = [];
   if (ctx.config.setup?.uploads?.length) {
     delete ctx.config.setup.uploads;
     ctx.save();
   }
+  return done === pending.length;
 }
 
 /**
