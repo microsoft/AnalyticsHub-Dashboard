@@ -75,6 +75,7 @@ def test_relative_links_and_anchors_resolve(path):
         ("README.md", "optional-add-ons"),
         ("README.md", "reference"),
         ("README.md", "whats-here"),
+        ("README.md", "repository-layout"),
         ("docs/MANUAL-INSTALL.md", "1-prerequisites"),
         ("docs/MANUAL-INSTALL.md", "2-install"),
         ("docs/MANUAL-INSTALL.md", "3-verify"),

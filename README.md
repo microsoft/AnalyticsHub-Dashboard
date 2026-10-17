@@ -128,7 +128,7 @@ on. The rest are optional cards on the installer's **Data sources** screen, or e
 | [Installer reference](installer/README.md) | Every installer option and command |
 | [Release notes](CHANGELOG.md) | What changed |
 
-<a id="whats-here"></a>
+<a id="whats-here"></a><a id="repository-layout"></a>
 What each folder holds: [Repository layout](CONTRIBUTING.md#repository-layout).
 
 ## Help
