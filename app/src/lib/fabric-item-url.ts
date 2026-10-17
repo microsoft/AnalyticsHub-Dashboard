@@ -24,6 +24,9 @@ const MSIT_PORTAL = "https://msit.fabric.microsoft.com";
 
 function fromRuntime(): FabricItemLinkConfig {
     const config = runtimeConfig();
+    // A Copilot Managed App isn't a Fabric item, but its data agent still is.
+    if (import.meta.env.MODE === "managed")
+        return { host: "fabric", portalUrl: config.rayfin.portalUrl || "https://app.fabric.microsoft.com/" };
     if (config.host === "azure") {
         const model = config.semanticModels.vl ?? Object.values(config.semanticModels)[0];
         return { host: "azure", workspaceId: model?.workspaceId, itemId: model?.itemId };

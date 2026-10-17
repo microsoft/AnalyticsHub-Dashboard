@@ -34,6 +34,7 @@ import {
 } from "./destinations";
 import { AccessScopeChip, NoScopeNotice } from "./access-scope";
 import { FilterBar } from "./filter-bar";
+import { ManagedDiagnosticsPanel } from "./managed-diagnostics-panel";
 import { ReportHeader } from "./report-header";
 import { PackActions } from "./report-pack-actions";
 import { ReportPackEditor } from "./report-pack-editor";
@@ -272,7 +273,12 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                     onCreate={() => setEditing({ pack: { id: newPackId(), name: "", stages: [] }, heading: "New report pack" })}
                 />
 
-                <SharePanel />
+                {import.meta.env.MODE === "managed" ? (
+                    <>
+                        <SharePanel />
+                        <ManagedDiagnosticsPanel page={viewKey} />
+                    </>
+                ) : <SharePanel />}
 
                 <UpdateNotice />
 

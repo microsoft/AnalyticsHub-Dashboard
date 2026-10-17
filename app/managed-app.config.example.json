@@ -1,0 +1,12 @@
+{
+  "semanticModels": {
+    "vl": { "workspaceId": "<Analytics Hub Model workspace ID>", "itemId": "<Analytics Hub Model ID>" },
+    "cc": { "workspaceId": "<Consumption Central workspace ID>", "itemId": "<Consumption Central model ID>" },
+    "ae": { "workspaceId": "<Agent Evaluator workspace ID>", "itemId": "<Agent Evaluator model ID>" }
+  },
+  "diagnostics": {
+    "launchCredits": 0.1,
+    "creditPerCall": 0.1,
+    "throttleLimit": 100
+  }
+}

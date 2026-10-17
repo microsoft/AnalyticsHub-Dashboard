@@ -1,7 +1,9 @@
-# Update
+# Update or remove
 
-Keep Analytics Hub current, change what it collects, and replace secrets before they expire. Set
-it up by hand? See [Manual install: Update](MANUAL-INSTALL.md#update).
+Keep Analytics Hub current, change what it collects, replace secrets before they expire, or
+[remove it](#uninstall). Set it up by hand? See [Manual install: Update](MANUAL-INSTALL.md#update).
+Running the [Copilot Managed App](MANAGED-APP.md) *(preview)*? Get the latest code and run
+`ms app deploy` again.
 
 ## Get a new version
 
@@ -61,4 +63,41 @@ On Azure, `rotate-secret` creates a new SQL reader secret and gives it to the Po
 
 ## Change networking (Azure)
 
-Networking can't be changed in place. [Uninstall](UNINSTALL.md), then install again.
+Networking can't be changed in place. [Uninstall](#uninstall), then install again.
+
+## Uninstall
+
+Open the installer and choose **Uninstall** (`uninstall`). It asks before it deletes anything.
+
+| Where | What it deletes |
+|---|---|
+| Fabric | The workspace and everything in it, after its managed private endpoints. If the installer didn't create the workspace, the answer defaults to no. It waits up to ten minutes for the endpoints to go. |
+| Azure | The resource group the installer created. In a resource group you already had, only the resources tagged `valuelens-install-id`. Also the Power BI VNet data gateway and connection, and the **Analytics Hub** and SQL reader app registrations, if it created them. |
+
+### What's left behind
+
+Uninstall leaves these alone. Remove them yourself if you no longer need them:
+
+- On Fabric, the **Analytics Hub Data Collector** app registration. Delete it in
+  [Entra ID](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade).
+- On Azure, the Power BI workspace and its models.
+- The **Analytics Hub Viewers** group.
+- The Key Vault, if you used one, and its secret.
+- The Power Automate flows and their connections, and the Cowork Dataflow's connections.
+- Dataverse access for Agent Evaluator, and the Azure and Entra roles the installer gave.
+- Your install record in `Documents\Analytics Hub` (`~/analytics-hub` in Cloud Shell).
+- A [Copilot Managed App](MANAGED-APP.md), if you deployed one. Run `ms app delete` from the `app`
+  folder.
+
+### Remove the installer
+
+The exe and the PowerShell one-liner unpack to `%LOCALAPPDATA%\AnalyticsHub`; Cloud Shell to
+`~/.analytics-hub`. To remove them:
+
+- **The exe:** delete it, and `%LOCALAPPDATA%\AnalyticsHub`.
+- **PowerShell:** run `.\install.ps1 -Uninstall`, or delete `%LOCALAPPDATA%\AnalyticsHub`.
+- **Cloud Shell:** run
+  `& ([scriptblock]::Create((irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1))) -Uninstall`,
+  or delete `~/.analytics-hub`.
+
+Neither touches what's in your tenant. Uninstall that first.

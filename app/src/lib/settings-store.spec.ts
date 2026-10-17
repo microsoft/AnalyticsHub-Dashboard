@@ -6,8 +6,14 @@
 //-----------------------------------------------------------------------
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const browser = vi.hoisted(() => ({ storage: undefined as Storage | undefined }));
+
 vi.mock("@/lib/runtime-config", () => ({
     runtimeConfig: () => ({ host: "azure" }),
+}));
+
+vi.mock("@/lib/managed/browser-storage", () => ({
+    browserStorage: () => browser.storage,
 }));
 
 vi.mock("@/services/rayfin-auth.service", () => ({
@@ -16,7 +22,9 @@ vi.mock("@/services/rayfin-auth.service", () => ({
 
 afterEach(() => {
     vi.unstubAllGlobals();
+    vi.unstubAllEnvs();
     vi.resetModules();
+    browser.storage = undefined;
 });
 
 describe("HttpSettingsStore", () => {
@@ -137,5 +145,143 @@ describe("HttpSettingsStore", () => {
 
         await expect(getSettingsStore().saveCommercialTerms({ creditRate: 0.04 }, undefined))
             .rejects.toThrow("Only Analytics Hub admins can change this");
+    });
+});
+
+describe("LocalSettingsStore", () => {
+    const KEY = "analytics-hub:managed:";
+    const TERMS_ID = "00000000-0000-0000-0000-000000000001";
+    const PACK_ID = "00000000-0000-0000-0000-0000000000aa";
+
+    function fakeStorage(entries: Record<string, string> = {}) {
+        const items = new Map(Object.entries(entries));
+        return {
+            items,
+            getItem: vi.fn((key: string): string | null => items.get(key) ?? null),
+            setItem: vi.fn((key: string, value: string): void => {
+                items.set(key, value);
+            }),
+            removeItem: (key: string) => items.delete(key),
+            clear: () => items.clear(),
+            key: (index: number) => [...items.keys()][index] ?? null,
+            get length() {
+                return items.size;
+            },
+        };
+    }
+
+    async function managedStore(storage?: ReturnType<typeof fakeStorage>) {
+        vi.stubEnv("MODE", "managed");
+        browser.storage = storage as unknown as Storage | undefined;
+        const settings = await import("@/lib/settings-store");
+        return { LocalSettingsStore: settings.LocalSettingsStore, store: settings.getSettingsStore() };
+    }
+
+    it("is a Copilot Managed App's store, and keeps settings in this browser between visits", async () => {
+        const storage = fakeStorage();
+        const { LocalSettingsStore, store } = await managedStore(storage);
+        expect(store).toBeInstanceOf(LocalSettingsStore);
+
+        const saved = await store.saveCommercialTerms({ creditRate: 0.02, budgetCowork: 5000 }, "a@example.com");
+
+        expect(saved).toMatchObject({ creditRate: 0.02, budgetCowork: 5000, updatedBy: "a@example.com" });
+        expect(saved.updatedAt).toBeInstanceOf(Date);
+        expect(JSON.parse(storage.items.get(`${KEY}CommercialTerms`)!)).toEqual([
+            expect.objectContaining({ id: TERMS_ID, creditRate: 0.02, budgetCowork: 5000, updatedBy: "a@example.com" }),
+        ]);
+        await expect(new LocalSettingsStore(storage as unknown as Storage).loadCommercialTerms()).resolves.toEqual(saved);
+    });
+
+    it("isn't used by the Fabric or Azure builds", async () => {
+        const settings = await import("@/lib/settings-store");
+        expect(settings.getSettingsStore()).not.toBeInstanceOf(settings.LocalSettingsStore);
+    });
+
+    it("merges a change over the saved terms, and clears what it's told to", async () => {
+        const { store } = await managedStore(fakeStorage());
+        await expect(store.loadCommercialTerms()).resolves.toBeNull();
+
+        await store.saveCommercialTerms({ creditRate: 0.02, budgetStudio: 2500, currency: "GBP" }, "a@example.com");
+        const saved = await store.saveCommercialTerms({ budgetAzure: 750, budgetStudio: undefined, currency: "XYZ" }, undefined);
+
+        expect(saved).toMatchObject({ creditRate: 0.02, budgetAzure: 750, budgetStudio: undefined, currency: undefined, updatedBy: undefined });
+        await expect(store.loadCommercialTerms()).resolves.toEqual(saved);
+    });
+
+    it("upserts task times by task, and drops one set back to the model's", async () => {
+        const { store } = await managedStore(fakeStorage());
+        await store.saveTaskTimes([
+            { task: "Email Drafting", time: { low: 1, typical: 2, high: 3 } },
+            { task: "General Chat", time: { low: 4, typical: 5, high: 6 } },
+        ], "a@example.com");
+
+        const saved = await store.saveTaskTimes([
+            { task: " email drafting ", time: { low: 2, typical: 3, high: 4 } },
+            { task: "General Chat", time: null },
+        ], undefined);
+
+        expect(saved).toEqual([expect.objectContaining({ task: " email drafting ", low: 2, typical: 3, high: 4, updatedBy: undefined })]);
+        await expect(store.loadTaskTimes()).resolves.toEqual(saved);
+    });
+
+    it("saves, replaces, lists and deletes report packs", async () => {
+        const { store } = await managedStore(fakeStorage());
+
+        const saved = await store.saveReportPack({ id: PACK_ID, name: " Weekly ", stages: ["budget-runway", "budget-runway"] }, "a@example.com");
+        expect(saved).toMatchObject({ id: PACK_ID, name: "Weekly", stages: ["budget-runway"] });
+        await store.saveReportPack({ id: PACK_ID, name: "Monthly", stages: ["budget-runway"] }, undefined);
+        await store.saveReportPack({ id: "00000000-0000-0000-0000-0000000000bb", name: "Annual", stages: ["budget-runway"] }, undefined);
+
+        await expect(store.loadReportPacks()).resolves.toEqual([
+            expect.objectContaining({ name: "Annual" }),
+            expect.objectContaining({ id: PACK_ID, name: "Monthly" }),
+        ]);
+        await store.deleteReportPack(PACK_ID);
+        await expect(store.loadReportPacks()).resolves.toEqual([expect.objectContaining({ name: "Annual" })]);
+        await expect(store.saveReportPack({ id: "p", name: "Empty", stages: [] }, undefined)).rejects.toThrow("at least one stage");
+    });
+
+    it("skips saved entries it can't read", async () => {
+        const { store } = await managedStore(fakeStorage({
+            [`${KEY}TaskTime`]: "not json",
+            [`${KEY}ReportPack`]: JSON.stringify({ id: PACK_ID }),
+            [`${KEY}CommercialTerms`]: JSON.stringify([1, null, ["x"], { id: TERMS_ID, creditRate: 0.5 }]),
+        }));
+
+        await expect(store.loadTaskTimes()).resolves.toEqual([]);
+        await expect(store.loadReportPacks()).resolves.toEqual([]);
+        await expect(store.loadCommercialTerms()).resolves.toMatchObject({ creditRate: 0.5 });
+    });
+
+    it("keeps settings until the app closes when the browser has no storage", async () => {
+        const { LocalSettingsStore, store } = await managedStore(undefined);
+
+        await store.saveTaskTimes([{ task: "Email Drafting", time: { low: 1, typical: 2, high: 3 } }], undefined);
+
+        await expect(store.loadTaskTimes()).resolves.toEqual([expect.objectContaining({ task: "Email Drafting", typical: 2 })]);
+        await expect(new LocalSettingsStore().loadTaskTimes()).resolves.toEqual([]);
+    });
+
+    it("says so when the browser won't save a change, and keeps what was there", async () => {
+        const storage = fakeStorage({ [`${KEY}CommercialTerms`]: JSON.stringify([{ id: TERMS_ID, creditRate: 0.02 }]) });
+        storage.setItem.mockImplementation(() => {
+            throw new DOMException("Quota exceeded", "QuotaExceededError");
+        });
+        const { store } = await managedStore(storage);
+
+        await expect(store.saveCommercialTerms({ creditRate: 0.03 }, undefined))
+            .rejects.toThrow("This browser wouldn't save the change. It may be out of space for this site.");
+        await expect(store.loadCommercialTerms()).resolves.toMatchObject({ creditRate: 0.02 });
+    });
+
+    it("loads nothing rather than fail when the browser blocks reading", async () => {
+        const storage = fakeStorage();
+        storage.getItem.mockImplementation(() => {
+            throw new DOMException("Blocked", "SecurityError");
+        });
+        const { store } = await managedStore(storage);
+
+        await expect(store.loadTaskTimes()).resolves.toEqual([]);
+        await expect(store.loadCommercialTerms()).resolves.toBeNull();
     });
 });

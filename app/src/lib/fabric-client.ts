@@ -8,6 +8,7 @@ import { SemanticModelMessageClient } from "@microsoft/fabric-app-data-embed-cli
 import { FabricClient, type FabricClientConfig } from "@microsoft/fabric-app-data";
 import { EmbedFabricApiProxy } from "@microsoft/fabric-app-data-proxy";
 import { HttpFabricProxy } from "@/lib/http-fabric-proxy";
+import { ManagedRuntimeProxy } from "@/lib/managed/managed-runtime-proxy";
 import { QueryScheduler, scheduledProxy } from "@/lib/query-scheduler";
 import { runtimeConfig } from "@/lib/runtime-config";
 import { getAccessToken } from "@/services/rayfin-auth.service";
@@ -33,8 +34,9 @@ export const QUERY_CACHE_MAX_AGE_MS = 60 * 60 * 1000;
  * Returns the pre-configured FabricClient singleton.
  *
  * Fabric uses the iframe postMessage proxy. Azure uses the same SDK over the
- * legacy executeQueries JSON protocol, proxied by the same-origin API.
- * Either way every request is paced, de-duplicated and retried when
+ * legacy executeQueries JSON protocol, proxied by the same-origin API. The
+ * Copilot Managed App uses that protocol too, through the app's Power BI
+ * connector. Every request is paced, de-duplicated and retried when
  * throttled by the query scheduler.
  *
  * @internal Used by `useSemanticModelQuery` — prefer the hook over direct client access.
@@ -42,13 +44,15 @@ export const QUERY_CACHE_MAX_AGE_MS = 60 * 60 * 1000;
 export function getFabricClient(): FabricClient {
     if (!_client) {
         const config = runtimeConfig();
-        const proxy = scheduledProxy(config.host === "azure"
-            ? new HttpFabricProxy(getAccessToken)
-            : fabricProxy(), getQueryScheduler());
+        const proxy = scheduledProxy(import.meta.env.MODE === "managed"
+            ? new ManagedRuntimeProxy()
+            : config.host === "azure"
+                ? new HttpFabricProxy(getAccessToken)
+                : fabricProxy(), getQueryScheduler());
         _client = new FabricClient({
             proxy,
             semanticModels: config.semanticModels,
-            daxProtocol: config.host === "azure" ? "json" : undefined,
+            daxProtocol: import.meta.env.MODE === "managed" || config.host === "azure" ? "json" : undefined,
             cache: { maxEntries: QUERY_CACHE_ENTRIES },
         } as FabricClientConfig);
     }

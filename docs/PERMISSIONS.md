@@ -91,7 +91,9 @@ covers the app on Fabric, and the jobs' managed identity on Azure.
 
 ---
 
-## Fabric workspace & capacity (path 1 only)
+<a id="fabric-workspace--capacity-path-1-only"></a>
+
+## Fabric workspace & capacity
 
 | What | Role / requirement |
 |---|---|
@@ -109,7 +111,9 @@ covers the app on Fabric, and the jobs' managed identity on Azure.
 
 ---
 
-## Credit consumption on Azure (path 2)
+<a id="credit-consumption-on-azure-path-2"></a>
+
+## Credit consumption on Azure
 
 | What | Role / requirement |
 |---|---|
@@ -122,7 +126,9 @@ covers the app on Fabric, and the jobs' managed identity on Azure.
 
 ---
 
-## Ask (paths 1 and 2)
+<a id="ask-paths-1-and-2"></a>
+
+## Ask
 
 The app's Ask page always lists suggested questions. What answers them needs:
 
@@ -137,7 +143,9 @@ The app's Ask page always lists suggested questions. What answers them needs:
 
 ---
 
-## Viewing Analytics Hub (paths 1 and 2)
+<a id="viewing-analytics-hub-paths-1-and-2"></a>
+
+## Viewing Analytics Hub
 
 The installer creates one Entra security group, **Analytics Hub Viewers**, with you as its owner (or uses a group you name). Sharing is adding people to it, from the installer's `access` command, **Share** in the app, or [My Groups](https://myaccount.microsoft.com/groups).
 
@@ -146,12 +154,21 @@ The installer creates one Entra security group, **Analytics Hub Viewers**, with 
 | Create the viewer group | The installing person can create security groups (users can by default; some tenants turn it off). Otherwise an Entra admin creates one and you pick it with `access` |
 | Query the models | The group gets **Build** (ReadExplore) on each model the app reads: `Analytics Hub Model`, and Consumption Central and Agent Evaluator when they're on. The installer grants it as a workspace Admin or Member |
 | Open the Power BI models below F64 | Viewers need a **Power BI Pro** (or PPU) licence unless the workspace is on an F64 or larger capacity |
-| Open the Fabric app (path 1) | Share the app item with the group once (**Share** on the item, enter the group, **Grant**). The installer asks you to straight after it deploys the app, and records it when you say it's done. After that, membership is enough |
-| Open the Azure web app (path 2) | Membership of the group (the token's `groups` claim, checked with `checkMemberGroups` when a user is in too many groups), or the **AnalyticsHub.User** app role |
+| Open the Fabric app | Share the app item with the group once (**Share** on the item, enter the group, **Grant**). The installer asks you to straight after it deploys the app, and records it when you say it's done. After that, membership is enough |
+| Open the Azure web app | Membership of the group (the token's `groups` claim, checked with `checkMemberGroups` when a user is in too many groups), or the **AnalyticsHub.User** app role |
 | Add and remove viewers in the Azure app | Group **owners** and **AnalyticsHub.Admin**. The web app calls Graph as the signed-in person with the delegated **GroupMember.ReadWrite.All** scope (admin-consented by the installer); Graph still only lets owners and admins change the group |
 | Add and remove viewers on Fabric | Group owners, in My Groups. **Share** in the Fabric app says "To give someone access, add them to" the group, links to it in My Groups, and says "Anyone in the group can open it" only once the app item is recorded as shared. Until then it says the item still has to be shared, with a link to it |
 
 > **Keep viewers off workspace roles.** Even a workspace Viewer can query the Lakehouse's SQL endpoint, and Admins, Members and Contributors skip [org-scoped access](#org-scoped-access-row-level-security). Share the app and models through the group instead. Organizational apps (preview) can be an optional landing page that bundles the app and the reports.
+
+---
+
+## Copilot Managed App
+
+Preview. It reads the models with each viewer's own Power BI connection, so viewers need **Build**
+on each model, as above, plus Power Apps Premium or Copilot Credits. Deploying it needs two Power
+Platform settings, the Power BI connector's **Run a query** action, and the Fabric tenant setting
+**Semantic Model Execute Queries REST API**. See [Before you start](MANAGED-APP.md#before-you-start).
 
 ---
 
@@ -223,6 +240,7 @@ Caveats:
 - **+ Agents 365:** add `CopilotPackages.Read.All` + `Application.Read.All` (+ `User.Read.All`) to the same app reg, and confirm the tenant has an Agent 365 licence.
 
 For the step-by-step, see [Install](INSTALL.md), or the README for where it runs:
-[Fabric](../fabric/README.md) · [Azure](../azure/README.md). The Power BI templates for other
+[Fabric](../fabric/README.md) · [Azure](../azure/README.md) · [Copilot Managed App](MANAGED-APP.md).
+The Power BI templates for other
 paths are in ValueLens: [3](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/blob/main/3.%20Power%20Automate%20+%20Dataverse/README.md) · [4](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/blob/main/4.%20SharePoint/README.md) ·
 [5](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/blob/main/5.%20Local%20CSV/README.md).

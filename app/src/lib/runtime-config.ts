@@ -9,14 +9,17 @@ import { resolveRayfinConfig, type RayfinRuntimeConfig } from "@microsoft/rayfin
 import { fabricConfig } from "@/fabric.generated";
 import type { ModelReference, ModelReferences } from "@/lib/connections";
 import { toCurrencyCode, type InstallCurrency } from "@/lib/currency";
+import { readManagedConfigFile } from "@/lib/managed/managed-config";
 import { detectTeamsHost, resetTeamsHost } from "@/lib/teams-host";
 
 /** Where an Azure install puts the host contract, next to the SPA. */
 export const APP_CONFIG_PATH = "/app.config.json";
 /** Where a Fabric install puts the semantic models it set up, next to the `rayfin.config.json` that `rayfin up` writes. */
 export const FABRIC_CONFIG_PATH = "/fabric.config.json";
+/** The Copilot Managed App's config. The managed build bundles it, so the name is only for error messages. */
+export const MANAGED_CONFIG_PATH = "managed-app.config.json";
 
-export type RuntimeHost = "fabric" | "azure";
+export type RuntimeHost = "fabric" | "azure" | "managed";
 
 export interface AzureRuntimeConfig {
     tenantId: string;
@@ -27,6 +30,25 @@ export interface AzureRuntimeConfig {
     inTeams: boolean;
 }
 
+/** What the Copilot Managed App's Diagnostics panel assumes when it estimates cost and throttling. */
+export interface ManagedDiagnosticsConfig {
+    /** Copilot Credits one app launch costs a viewer without a Power Apps Premium licence. */
+    launchCredits: number;
+    /** Copilot Credits one Power BI connector call costs. */
+    creditPerCall: number;
+    /** Power BI connector calls one connection may make a minute. */
+    throttleLimit: number;
+}
+
+export interface ManagedRuntimeConfig {
+    diagnostics: ManagedDiagnosticsConfig;
+    /** Pins the connector data source and operations to use. Found by probing when unset. */
+    connector: { dataSource?: string; operations?: string[] };
+}
+
+/** The published rates when the Copilot Managed App was added: 0.1 Copilot Credits a launch and a call, and 100 connector calls a minute. */
+export const MANAGED_DIAGNOSTICS_DEFAULTS: Readonly<ManagedDiagnosticsConfig> = { launchCredits: 0.1, creditPerCall: 0.1, throttleLimit: 100 };
+
 export interface RuntimeConfig {
     /** The host that supplies auth, query transport and app settings. */
     host: RuntimeHost;
@@ -34,6 +56,8 @@ export interface RuntimeConfig {
     rayfin: RayfinRuntimeConfig;
     /** Azure auth and host settings. Azure-only. */
     azure?: AzureRuntimeConfig;
+    /** Copilot Managed App settings. Managed-only. */
+    managed?: ManagedRuntimeConfig;
     /** The semantic models each page queries, by connection alias. */
     semanticModels: ModelReferences;
     /** Optional installer modules chosen for this install. Undefined for older installs and Azure hosts that do not say. */
@@ -86,7 +110,7 @@ let loaded: RuntimeConfig | undefined;
 /** The values baked in at build time. */
 export function buildTimeConfig(): RuntimeConfig {
     return {
-        host: "fabric",
+        host: import.meta.env.MODE === "managed" ? "managed" : "fabric",
         rayfin: {
             apiUrl: import.meta.env.VITE_RAYFIN_API_URL || undefined,
             publishableKey: import.meta.env.VITE_RAYFIN_PUBLISHABLE_KEY || undefined,
@@ -107,6 +131,12 @@ export function runtimeConfig(): RuntimeConfig {
 /** Reads deployed host config over build-time defaults. */
 export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
     const defaults = buildTimeConfig();
+    // Tested inline, so other builds drop this branch and the config it reads.
+    if (import.meta.env.MODE === "managed") {
+        loaded = { ...defaults, host: "managed", ...parseManagedConfig(readManagedConfigFile(), defaults.semanticModels) };
+        return loaded;
+    }
+
     const azure = await loadAzureConfig(APP_CONFIG_PATH);
     if (azure) {
         loaded = {
@@ -239,7 +269,55 @@ export function parseAzureConfig(json: unknown, path = APP_CONFIG_PATH): Runtime
 }
 
 /**
- * The `ask` block: a Fabric install names its data agent
+ * Reads the Copilot Managed App's config: the Fabric config's shape, with
+ * models falling back to `fabric.yaml`'s when it names none, plus optional
+ * `diagnostics` assumptions and a `connector` pin. A missing file or a bad
+ * diagnostics value falls back to the defaults so the app still runs, but
+ * malformed models fail rather than quietly query the build's.
+ */
+export function parseManagedConfig(
+    json: unknown,
+    fallbackModels: ModelReferences,
+    path = MANAGED_CONFIG_PATH,
+): Pick<RuntimeConfig, "semanticModels" | "modules" | "reporting" | "access" | "ask" | "managed"> {
+    const config = isRecord(json) ? json : {};
+    return {
+        semanticModels: config.semanticModels === undefined ? fallbackModels : parseSemanticModels(config, path),
+        modules: parseModules(config),
+        reporting: parseReporting(config),
+        access: parseAccess(config),
+        ask: parseAsk(config, "managed"),
+        managed: { diagnostics: parseDiagnostics(config.diagnostics), connector: parseConnector(config.connector) },
+    };
+}
+
+function parseDiagnostics(value: unknown): ManagedDiagnosticsConfig {
+    const diagnostics = isRecord(value) ? value : {};
+    const read = (key: keyof ManagedDiagnosticsConfig, allowed: (n: number) => boolean) => {
+        const n = diagnostics[key];
+        return typeof n === "number" && Number.isFinite(n) && allowed(n) ? n : MANAGED_DIAGNOSTICS_DEFAULTS[key];
+    };
+    return {
+        launchCredits: read("launchCredits", (n) => n >= 0),
+        creditPerCall: read("creditPerCall", (n) => n >= 0),
+        throttleLimit: read("throttleLimit", (n) => n > 0),
+    };
+}
+
+function parseConnector(value: unknown): ManagedRuntimeConfig["connector"] {
+    if (!isRecord(value)) return {};
+    const dataSource = typeof value.dataSource === "string" ? value.dataSource.trim() : "";
+    const operations = Array.isArray(value.operations)
+        ? value.operations.filter((op): op is string => typeof op === "string" && op.trim() !== "").map((op) => op.trim())
+        : [];
+    return {
+        ...(dataSource ? { dataSource } : {}),
+        ...(operations.length ? { operations } : {}),
+    };
+}
+
+/**
+ * The `ask` block: a Fabric or Copilot Managed App install names its data agent
  * (`{ workspaceId, itemId }`), and an Azure host says `{ mode: "chat" }` when
  * its `/api/ask` has a model. Anything else leaves Ask unconfigured.
  */

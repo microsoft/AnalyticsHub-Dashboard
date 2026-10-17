@@ -59,7 +59,7 @@ Do these in order. Each link has the steps.
    [People show as IDs](../fabric/notebooks/README.md#people-show-as-ids).
 4. **The app opens** *(if you deployed it).* Each page lists the latest date its sources hold.
 
-Something wrong? See [Troubleshooting](TROUBLESHOOTING.md) and [Known issues](KNOWN-ISSUES.md).
+Something wrong? See [Troubleshooting](TROUBLESHOOTING.md), including its [known issues](TROUBLESHOOTING.md#known-issues).
 
 ## Update
 

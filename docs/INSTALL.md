@@ -1,7 +1,7 @@
 # Install
 
-The automatic path: the installer sets everything up. To set it up by hand instead, see
-[Manual install](MANUAL-INSTALL.md).
+The installer sets everything up, on Fabric or Azure, then you check it worked. To set it up by
+hand instead, see [Manual install](MANUAL-INSTALL.md).
 
 Check the [Prerequisites](PREREQUISITES.md) first. Then start the installer one of these ways.
 They all run the same installer and ask the same questions.
@@ -25,7 +25,7 @@ regions that pass the [region preflight](../installer/README.md#regions-and-imag
 For [private networking](../installer/README.md#networking), choose **Yes** for the advanced
 settings. More in [Azure target](../installer/README.md#azure-target).
 
-Next: [Verify the install](VERIFY.md).
+When it finishes: [Check it worked](#check-it-worked).
 
 ## Run it
 
@@ -90,7 +90,7 @@ with the date and time, such as `valuelens-install.20260507-090302.json`. Or cho
 record** to carry on with it. In the terminal, `install` asks whether to start fresh. If Fabric
 can't be reached, or you can't read the workspace, nothing changes.
 
-**Updates.** See [Update](UPDATE.md).
+**Updates.** See [Update or remove](UPDATE.md).
 
 **Using a workspace that already has things in it?** The installer never changes anything it
 didn't create. If one of its names is taken, its own item gets the next free name, such as
@@ -100,6 +100,66 @@ didn't create. If one of its names is taken, its own item gets the next free nam
 `AnalyticsHub_Pipeline`, the `Analytics Hub SQL …` connection and the `Analytics Hub Data Collector`
 app registration. An install from an earlier version keeps the names it already has, such as
 `ValueLens Model`.
+
+## Check it worked
+
+1. **Read the Done page.** It lists what's left, as cards: who does each step and a message to
+   send. See [After it finishes](#after-it-finishes).
+2. **Check what loaded.** After the first run, each source has a card: loaded, warning, failed,
+   skipped or still running. A failed card says why and what to do. On Fabric, the same is in the
+   Lakehouse table `dbo.load_log`. See [Load status and reruns](../installer/README.md#load-status-and-reruns).
+3. **Check status.** Open the installer again and choose **Check status** (`status`): recent runs,
+   model refreshes, secret expiry and the last data check. On Azure it also shows the job runs,
+   the web app's URL and pending admin actions. It changes nothing.
+4. **Check the data** (Fabric). **Check the data** (`check`) reads the Lakehouse tables for row
+   counts, date ranges and licence matches, without running the pipeline.
+5. **Open the app.** Open the link the installer gives you. Each page lists the latest date each
+   of its sources holds. Pages for sources you skipped stay empty.
+
+Something failed? Choose **Rerun failed loads** (`rerun-failed`), or see
+[Troubleshooting](TROUBLESHOOTING.md).
+
+### After it finishes
+
+- **What's left comes first.** The Done page (and the end of the terminal output) starts with
+  "N steps left": a card for each thing still to do, in order, with who does it, why, a link and
+  the steps. For a step another admin does, the card has a message to copy and send:
+  - **Share the app**, if you chose **Later** when asked.
+  - **Sign in to the Power Automate flows**, for you or a Power Platform administrator.
+  - **Sign in to the Cowork Dataflow.** Until then its refresh fails on each run. That's expected,
+    so the load shows it as waiting rather than failed.
+  - **Ask a Viva Insights analyst for the Cowork credits query** (optional), when Cowork credits
+    come from the CSV export.
+  - **Ask a Privileged Role Administrator for Global Reader** for **Analytics Hub Data
+    Collector**, when agent configuration comes from Azure Resource Graph. The message has the
+    app's IDs, the link to Roles & admins, and a Cloud Shell command.
+  - **Ask a Microsoft 365 admin to schedule the product feedback export**, when its flow is on.
+- **Admin consent.** If you couldn't grant it, send the link the installer gives you to an admin.
+  They select **Grant admin consent**. Then open the exe again and choose **Run now**.
+- **Share the app and reports.** The installer creates **Analytics Hub Viewers** (or uses a group
+  you name) with you as owner, and gives it **Build** on the models. Then:
+  1. **Once:** share the app with the group. Straight after the app is deployed, before the first
+     load, the installer asks you to, with a link to the app item in Fabric: choose **Share**, add
+     the group and choose **Grant**. (Or in the workspace, choose **…** next to the
+     **Analytics Hub** app, then **Share**.) Choose **I've shared it** and it isn't asked again.
+     Choose **Later** and it's a card on the Done page, and Repair asks again. Do the same for the
+     **ValueLens** report.
+  2. **To give someone access:** add them to the group in
+     [My Groups](https://myaccount.microsoft.com/groups). You can also run `access`
+     (**Manage access** in the browser) or use **Share** in the app.
+
+  Keep viewers off workspace roles. See [Viewing Analytics Hub](PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
+- **Own reports.** Connect Power BI Desktop to `Analytics Hub Model`, or use **Save a copy** on a
+  published report.
+- **Flows and the Cowork Dataflow.** If you chose them, the end of the install lists what to sign
+  in to. See [Power Automate flows](../installer/README.md#power-automate-flows) and
+  [Credit consumption](../installer/README.md#credit-consumption).
+- **Someone else takes over the pipeline?** The notebooks run as the person who last changed the
+  pipeline, or the schedule's owner. Give them Key Vault Secrets User on the vault and Contributor
+  on the workspace first. With the secret in the notebooks, they only need Contributor.
+- **Secrets expire.** See [Secrets expire](UPDATE.md#secrets-expire).
+- **Copilot Managed App** *(preview)*. To run the app there as well, see
+  [Copilot Managed App](MANAGED-APP.md).
 
 ## Check the download
 
@@ -184,7 +244,7 @@ Or, from the [download-and-run](#from-powershell) files, `.\install.ps1 -ZipPath
   with the packages Rayfin needs to deploy it. The zip's `node.exe` is unpacked but not run.
 - **What still runs from your profile.** On a Fabric install, Rayfin loads two unsigned native
   add-ons when it signs you in itself. See
-  [Unsigned files in the download](KNOWN-ISSUES.md#unsigned-files-in-the-download). If policy
+  [Unsigned files in the download](TROUBLESHOOTING.md#unsigned-files-in-the-download). If policy
   blocks those too, use [Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell) or ask your IT
   team. An Azure install loads none.
 - **Same install.** It uses the same folders and the same install record as the other Windows

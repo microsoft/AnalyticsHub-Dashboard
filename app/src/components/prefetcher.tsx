@@ -15,8 +15,11 @@ import type { QueryScheduler } from "@/lib/query-scheduler";
 import type { Destination, DestinationId, StageId } from "./destinations";
 import { prefetchTargets, type PrefetchTarget } from "./prefetch-targets";
 
-/** Off switch: with it false, every page queries only when opened. */
-export const PREFETCH = true;
+/**
+ * Off switch: with it false, every page queries only when opened. Off in a Copilot Managed App,
+ * where each query is a billed call through the viewer's Power BI connection.
+ */
+export const PREFETCH = import.meta.env.MODE !== "managed";
 
 /** How long nothing may be loading before the next page is fetched. */
 export const IDLE_MS = 1500;

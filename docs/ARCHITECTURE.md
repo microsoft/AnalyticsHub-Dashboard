@@ -2,7 +2,26 @@
 
 Analytics Hub runs entirely in your tenant. It reads Microsoft 365 data with read-only permissions,
 keeps it in your Fabric workspace or Azure subscription, and shows it in an app and Power BI
-reports.
+reports. The app can also run as a [Copilot Managed App](#copilot-managed-app) (preview).
+
+## What it collects
+
+Everything is read-only, and stays in your tenant.
+
+| Source | What | |
+|---|---|---|
+| Purview audit log | Each Copilot interaction: who, when, which app or agent | Always |
+| Microsoft 365 licences | Who has a Copilot licence | Always |
+| Entra ID, or a Workday export | Department, job title, manager and location | Always |
+| Microsoft 365 usage reports | Everyday Teams, Outlook, Word and other activity | On by default |
+| Agent 365 registry | Each agent, its owner and who can reach it | Optional |
+| Copilot Studio, Cowork and Azure AI | Credits used, and what they cost | Optional |
+| Microsoft Defender, Azure Resource Graph | AI apps in use, agent risk and configuration, Foundry | Optional |
+| Copilot Studio transcripts | How well agents answer | Optional, Fabric |
+| Product feedback export | What people say about Copilot | Optional, Fabric |
+
+What each optional source needs: [Optional extras](PREREQUISITES.md#optional-extras). Each table
+and column: [Data dictionary](DATA-DICTIONARY.md).
 
 ## Fabric
 
@@ -70,6 +89,29 @@ flowchart LR
 - With [private networking](../installer/README.md#networking), SQL, Storage and Log Analytics
   go behind private endpoints, and Power BI refreshes through a VNet data gateway.
 
+## Copilot Managed App
+
+Preview. Microsoft hosts the app, and it loads no data: it reads the models of a Fabric or Azure
+install. See [Copilot Managed App](MANAGED-APP.md).
+
+```mermaid
+flowchart LR
+  subgraph M365["Microsoft 365 tenant"]
+    SM[(Semantic models:<br/>from Fabric or Azure)]
+    subgraph ENV["Power Platform environment"]
+      APP[Analytics Hub app]
+      C[Power BI connector]
+    end
+  end
+  V((Viewer)) --> APP
+  APP -- as the viewer --> C --> SM
+```
+
+- The **`ms` command line** builds the `app` folder and deploys it to an environment.
+- Each query goes through the viewer's own **Power BI connection**, so they see only what they're
+  allowed to.
+- There's **no app database**. Settings and report packs stay in each viewer's browser.
+
 ## Running costs
 
 Analytics Hub itself is free. It runs on services your organisation pays for. Prices vary by
@@ -84,5 +126,11 @@ region and agreement; the installer's plan lists what's billed, with links to th
 | Ask | Capacity units, on a paid capacity. Not on a trial. | Azure OpenAI tokens, per question. |
 | Key Vault | Only if you keep the secret there. [Billed per operation](https://azure.microsoft.com/pricing/details/key-vault/): small for a few reads a day. | Not used. |
 
+**Copilot Managed App** (preview): the Fabric or Azure install it reads from, plus
+[Power Apps Premium or Copilot Credits](https://learn.microsoft.com/microsoft-365/admin/manage/apps/licensing-faq)
+for each viewer. Without Premium, each query costs 0.1 Copilot Credits, and opening the app 0.1
+more. Viewers still need Power BI Pro below F64.
+
 Estimate Azure costs with the [Azure pricing calculator](https://azure.microsoft.com/pricing/calculator/).
-Copilot credits aren't charged by Analytics Hub: it reads what you've already used.
+Copilot credits aren't charged by Analytics Hub on Fabric or Azure: it reads what you've already
+used.

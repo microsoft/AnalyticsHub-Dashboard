@@ -105,6 +105,17 @@ def test_relative_links_and_anchors_resolve(path):
         ("docs/INSTALL.md", "check-the-download"),
         ("docs/INSTALL.md", "locked-down-tenant--azure-cloud-shell"),
         ("docs/INSTALL.md", "run-it"),
+        # Verify, Uninstall and Known issues moved into Install, Update and Troubleshooting.
+        # Older release notes and installers still link the old pages.
+        ("docs/INSTALL.md", "check-it-worked"),
+        ("docs/INSTALL.md", "after-it-finishes"),
+        ("docs/VERIFY.md", "after-it-finishes"),
+        ("docs/UPDATE.md", "uninstall"),
+        ("docs/TROUBLESHOOTING.md", "known-issues"),
+        ("docs/KNOWN-ISSUES.md", "installing"),
+        ("docs/KNOWN-ISSUES.md", "unsigned-files-in-the-download"),
+        ("docs/MANAGED-APP.md", "before-you-start"),
+        ("docs/MANAGED-APP.md", "steps"),
     ],
 )
 def test_old_anchors_still_land(page, anchor):
