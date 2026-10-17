@@ -5,7 +5,7 @@
  * reports "unknown" rather than failing when it can't be read.
  */
 import { allowsAction, ROLES } from './clients/azure.js';
-import { APP_ROLES, CONSENT_ROLES, FABRIC_ADMIN_ROLE, POWER_PLATFORM_ADMIN_ROLE } from './clients/graph.js';
+import { APP_ROLES, CONSENT_ROLES, FABRIC_ADMIN_ROLE, POWER_PLATFORM_ADMIN_ROLE, TEAMS_PUBLISH_ROLES } from './clients/graph.js';
 import { secretMode } from './config.js';
 import { copilotLicences } from './seats.js';
 import { canWriteSecrets } from './steps/identity.js';
@@ -225,6 +225,20 @@ export async function checkPrereqs(ctx) {
       },
       { [POWER_PLATFORM_ADMIN_ROLE]: 'Power Platform Administrator' },
     ),
+    ...(azure
+      ? [
+          entraRole(
+            {
+              id: 'teams-admin',
+              label: 'Teams Administrator or Global Administrator',
+              neededFor: 'Publishing the Teams app to your org\'s app catalog, so people find Analytics Hub in Teams, Outlook and the Microsoft 365 Copilot app.',
+              howTo: 'If that isn\'t you, carry on: the installer prints the steps for a Teams Administrator to upload the Teams package.',
+              optional: true,
+            },
+            TEAMS_PUBLISH_ROLES,
+          ),
+        ]
+      : []),
     guard(
       {
         id: 'register-apps',

@@ -4,14 +4,14 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { checkTokens, createCredential, createTokenProvider, decodeJwt } from './auth.js';
+import { APP_CATALOG_SCOPE, checkTokens, createCredential, createTokenProvider, decodeJwt, GRAPH_CLI_APP_ID } from './auth.js';
 import { notebooksFor, permissionsFor } from './catalog.js';
 import { armApi, keyVaultApi } from './clients/azure.js';
 import { connectionsApi, POWERAPPS_URL } from './clients/connections.js';
 import { dataverseApi, dataverseScope, DISCOVERY_URL, discoveryApi, orgUrl } from './clients/dataverse.js';
 import { FLOW_URL, flowApi } from './clients/flow.js';
 import { fabricApi, scheduleBody } from './clients/fabric.js';
-import { CONSENT_ROLES, graphApi } from './clients/graph.js';
+import { appCatalogApi, CONSENT_ROLES, graphApi } from './clients/graph.js';
 import { dataLakeApi, dataLakeUrl, ONELAKE_URL, oneLakeApi } from './clients/onelake.js';
 import { powerBiApi } from './clients/powerbi.js';
 import { POWER_PLATFORM_URL, powerPlatformApi } from './clients/powerplatform.js';
@@ -66,6 +66,7 @@ import { reviewSetup } from './setup.js';
  * @property {import('./clients/fabric.js').FabricApi} fabric
  * @property {import('./clients/graph.js').GraphApi} graph
  * @property {import('./clients/graph.js').GraphApi} [graphRoles]  Graph with the role management scope, asked for only when it's used.
+ * @property {import('./clients/graph.js').AppCatalogApi} [appCatalog]  The org's Teams app catalog, through a second sign-in asked for only when the Azure path publishes the Teams app.
  * @property {import('./clients/azure.js').ArmApi} arm
  * @property {import('./clients/azure.js').KeyVaultApi} keyVault
  * @property {import('./clients/onelake.js').OneLakeApi} oneLake
@@ -99,6 +100,7 @@ import { reviewSetup } from './setup.js';
  * @property {number} [reloadHistoryDays]  Repair or change: reload this many days of audit history after setup.
  * @property {import('./steps/azure/regions.js').RegionCheck} [azureRegions]  Azure: what the region preflight found, for placing the Ask model.
  * @property {{ sp: any, roles: { id: string, value: string }[] }} [graphRoles]
+ * @property {import('./steps/azure/teams-catalog.js').CatalogAccess} [teamsCatalog]  Azure: whether this run can publish the Teams app to the org's app catalog, and why not.
  * @property {import('./steps/app.js').Runner} [runner]  Runs the app's build tools; tests replace it.
  * @property {import('./staging.js').PendingUpload[]} [pendingUploads]  Exports to upload to the drop folder during the install.
  * @property {string[]} [csvFiles]  Exports named with --csv.
@@ -141,6 +143,17 @@ export async function connect(opts) {
   };
   if (opts.checkTokens) await checkTokens(getToken);
   const claims = decodeJwt(await getToken('graph'));
+  if (opts.method !== 'azure-cli') {
+    // The app the installer signs in with can't ask for the app catalog scope, so publishing the
+    // Teams app signs in once more with Microsoft Graph Command Line Tools, the first time it's used.
+    const catalogToken = createTokenProvider(
+      createCredential({ tenantId: opts.tenantId || claims.tid, method: opts.method, clientId: GRAPH_CLI_APP_ID, print: (m) => opts.ui.line(m) }),
+      { debug: opts.debug },
+    );
+    /** @param {{ abortSignal?: AbortSignal }} [o] */
+    const token = (o) => catalogToken(APP_CATALOG_SCOPE, o);
+    api.appCatalog = appCatalogApi(createClient({ baseUrl: 'https://graph.microsoft.com/v1.0', getToken: token, debug: opts.debug }), token);
+  }
   const me = await api.graph.me();
   return { api, user: { id: me.id, upn: me.userPrincipalName, displayName: me.displayName, tenantId: claims.tid }, getToken };
 }

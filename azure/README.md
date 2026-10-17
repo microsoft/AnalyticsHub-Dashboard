@@ -5,7 +5,7 @@ same data, the same ValueLens Model and measures, and the same app pages as [Fab
 The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
 
 > **Status.** The installer deploys it end to end: Azure SQL, the Container Apps jobs, the Power BI
-> models, the web app and a Teams package. It collects Copilot interactions, licences and org data, Microsoft
+> models, the web app, and a Teams app it publishes to your org's app catalog. It collects Copilot interactions, licences and org data, Microsoft
 > 365 activity, credit consumption (Copilot Studio, Cowork, Azure AI and pay-as-you-go), and optionally
 > Defender shadow AI and agent risk. The other modules
 > are coming. Try it in a demo or test tenant first.
@@ -30,7 +30,9 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
    regions that your Azure Policy allowed locations permit and where everything it deploys is
    available. It says why the others were left out.
 4. Review the plan and approve it. The installer prints the web app's URL and writes `AnalyticsHub-Teams.zip`,
-   the tab for Teams, Outlook and the Microsoft 365 Copilot app ([publish it](teams/README.md#give-it-to-everyone)).
+   the tab for Teams, Outlook and the Microsoft 365 Copilot app. If you're a Teams Administrator or Global
+   Administrator, it also publishes the tab to your org's app catalog, after one more sign-in
+   ([what it needs](teams/README.md#give-it-to-everyone)).
 
 ## Share it
 
@@ -44,8 +46,9 @@ models. To share, add people to the group:
 - **In [My Groups](https://myaccount.microsoft.com/groups)**, as an owner.
 
 The `AnalyticsHub.User` app role still works too. People without access get a page that names the
-group and links to your contact or request link. For Teams, publish the package to your org's app
-catalog: see [teams](teams/README.md#give-it-to-everyone). Permissions are in
+group and links to your contact or request link. In Teams, the installer publishes the tab to your
+org's app catalog. To pin it for the group, or to upload it by hand when the installer can't, see
+[teams](teams/README.md#give-it-to-everyone). Permissions are in
 [Viewing Analytics Hub](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
 
 What you need, networking, regions and the commands are in the installer's

@@ -287,6 +287,8 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {boolean} [storageRole] The installer gave the signed-in user Storage Blob Data Contributor on the landing container, for the Studio flow.
  * @property {{ assigned: string[], pending: string[] }} [graphRoles]
  * @property {string} [teamsPackage]
+ * @property {{ id: string, externalId: string, version: string, sha256: string, publishedAt: string }} [teamsApp]  The Teams app the installer
+ *   published to the org's app catalog: its catalog ID, the manifest's ID (the web app's client ID), and the package's version and hash.
  * @property {AzureAskConfig} [ask] The model the web app's Ask answers with. Absent on installs from before Ask, which leaves it off.
  * @property {{ whatIf?: any[], pendingAdminActions?: string[], lastRun?: any, lastMigrate?: any, lastAccess?: any }} [status]
  */
