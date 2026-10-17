@@ -1,8 +1,9 @@
 # Troubleshooting
 
-Find the message or symptom, then do what it says. Still stuck? Check [Known issues](KNOWN-ISSUES.md),
+Find the message or symptom, then do what it says. Still stuck? Check [Known issues](#known-issues),
 then [open an issue](https://github.com/microsoft/AnalyticsHub-Dashboard/issues) with the message and
-the installer's version.
+the installer's version. For the Copilot Managed App, see
+[If something goes wrong](MANAGED-APP.md#if-something-goes-wrong).
 
 ## Starting the installer
 
@@ -36,7 +37,7 @@ the installer's version.
 |---|---|
 | A run fails with `AADSTS7000215` | The secret doesn't match the app. Choose **Create new secrets**. |
 | A run fails with `Forbidden` from Graph | Admin consent is missing or still applying. Choose **Repair or change**, then **Run now**. |
-| A run fails reading the secret | The person the run uses can't read it, or a vault admin hasn't added it yet. See **Someone else takes over the pipeline?** in [After it finishes](VERIFY.md#after-it-finishes). |
+| A run fails reading the secret | The person the run uses can't read it, or a vault admin hasn't added it yet. See **Someone else takes over the pipeline?** in [After it finishes](INSTALL.md#after-it-finishes). |
 | A run says Fabric's capacity was too busy (`TooManyRequestsForCapacity`) | Nothing is lost. Wait a few minutes, then choose **Rerun failed loads**. It happens most on trials and small capacities, and less once the notebooks share one Spark session. See [Load status and reruns](../installer/README.md#load-status-and-reruns). |
 | `Couldn't turn on high concurrency for pipelines` | You need the workspace Admin role to change it. Ask a workspace admin to turn it on, or carry on: the notebooks start their own Spark sessions. See [Load status and reruns](../installer/README.md#load-status-and-reruns). |
 | The model refresh fails with `Table '…' is not in database` | The Lakehouse's SQL endpoint hadn't caught up with tables the run had just written. The refresh notebook syncs the endpoint first, so this is rare. Wait a couple of minutes, then choose **Rerun failed loads** or **Refresh the models**. |
@@ -62,3 +63,77 @@ the installer's version.
 | Work patterns says the reports hide user names | See [Microsoft 365 activity](../installer/README.md#microsoft-365-activity). |
 | An export isn't recognised, or is `set to Skip` | Check it's the export the card names, unedited. Or set its source to **Upload CSV** with **Repair or change**. Files the pipeline couldn't place are in `analytics_hub_uploads/_unrecognised`. |
 | A page is blank | Its source is skipped, or no export has arrived yet. See [Data sources and exports](../installer/README.md#data-sources-and-exports). |
+
+## Known issues
+
+Limits we know about, and what to do.
+
+### Installing
+
+- **The exe and `install.ps1` aren't code-signed yet.** A matching SHA-256 confirms a file is the
+  one in the release, not who published it. See [Check the download](INSTALL.md#check-the-download).
+  If your organisation's policy blocks them, use another route in [Install](INSTALL.md) or ask
+  your IT team.
+- **AppLocker or WDAC can block both the exe and the PowerShell one-liner.** Use
+  [IT-approved Node.js](INSTALL.md#it-approved-nodejs) if your IT team has approved one, or
+  [Azure Cloud Shell](INSTALL.md#locked-down-tenant--azure-cloud-shell).
+- **The Windows management command can lose non-ASCII paths.** `analytics-hub.cmd` is written as
+  ASCII. A non-ASCII installed Node.js path or Documents path can break later uses of that command,
+  even when the initial PowerShell launch works. Re-run the original approved launch command,
+  where policy permits, or ask your IT team. Unicode command generation remains a follow-up to #77.
+- **Cloud Shell can't sign in where Conditional Access blocks sign-in with a code.** Run the
+  installer on a PC that's allowed.
+- **Cloud Shell ends a session after 20 minutes without input.** Run the same command again: it
+  carries on from the install record.
+- **Keep the PC awake.** If it sleeps, setup stops until it wakes.
+
+### Unsigned files in the download
+
+`AnalyticsHubInstaller.zip` (which the exe and `install.ps1` unpack) holds a signed `node.exe` and
+these unsigned native files, all in Rayfin's packages under `f\app\node_modules`:
+
+| File | Why it's there | When it loads |
+|---|---|---|
+| `@azure\msal-node-extensions\bin\x64\dpapi.node` | Encrypts Rayfin's saved sign-in with Windows DPAPI | When Rayfin signs you in itself to deploy the app on a Fabric install |
+| `keytar\build\Release\keytar.node` | msal-node-extensions loads it with the DPAPI cache; Rayfin stops if it can't | Same as above |
+
+Neither loads on an Azure install, or when the installer hands Rayfin its own sign-in (in Cloud
+Shell, or when Rayfin is signed in as someone else). If policy blocks native files under your
+profile, use [Azure Cloud Shell](INSTALL.md#locked-down-tenant--azure-cloud-shell) or ask your IT
+team. The zip also has `dpapi.node` for arm64 and ia32, which never load on x64.
+
+The download no longer includes esbuild's `esbuild.exe`, `tsx`, or msal-node-runtime's native
+sign-in broker: nothing loads them when the installer runs.
+
+### Fabric
+
+- **A Fabric trial lasts 60 days and can't run the Ask data agent.** Move the workspace to a paid
+  capacity before it ends, or its notebooks and pipeline stop.
+- **The secret in the notebooks can be read by anyone with a workspace role.** That's the default
+  trade-off for needing no Azure. Use a Key Vault to avoid it. See
+  [Where the secret goes](../installer/README.md#where-the-secret-goes).
+- **`--flow-identity app` needs a Key Vault that allows public network access.** The Key Vault
+  connector can't reach a private vault.
+- **The Cowork Dataflow fails until someone signs in to it.** That's expected: the load shows it as
+  waiting, not failed.
+
+### Azure
+
+- **Some modules aren't on Azure yet:** Agent 365 registry, product feedback, Agent Evaluator,
+  GitHub Copilot credits and Cowork credits through the Dataflow.
+- **Networking can't be changed in place.** [Uninstall](UPDATE.md#uninstall), then install again.
+- **Org-scoped access isn't supported with private networking yet.** Its notebook can't reach the
+  storage account. See [Org-scoped access](PERMISSIONS.md#org-scoped-access-row-level-security).
+- **Container Apps logs can't be queried from a public network** with private networking, without
+  an Azure Monitor Private Link Scope.
+
+### Data
+
+- **Figures may not match the official Copilot reports.** Analytics Hub reads the Purview audit
+  log, which isn't the authoritative source. See the [disclaimer](../README.md#disclaimer).
+- **Only `CopilotInteraction` audit records are read**, so third-party AI logged as
+  `AIAppInteraction` isn't included.
+- **Per-user Copilot Studio credits are best effort.** They come from an undocumented API route,
+  and the flow only sees environments with credits allocated. Exports, where you add them, win.
+- **On a large tenant, audit records that arrive more than 3 days late are missed.** See
+  [A large tenant](../installer/README.md#a-large-tenant).

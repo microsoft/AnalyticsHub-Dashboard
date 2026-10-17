@@ -153,4 +153,4 @@ https://github.com/user-attachments/assets/c834bed3-49fa-4f6a-bc7a-01bded2fd53e
 
 ## Problems
 
-See [Troubleshooting](../docs/TROUBLESHOOTING.md) and [Known issues](../docs/KNOWN-ISSUES.md).
+See [Troubleshooting](../docs/TROUBLESHOOTING.md), including its [known issues](../docs/TROUBLESHOOTING.md#known-issues).

@@ -3,7 +3,7 @@
 Sets up Analytics Hub in your tenant, on [Fabric](../fabric/README.md) or [Azure](../azure/README.md),
 loads the first data and checks it. This page is the reference. To get going, follow the
 [Getting started](../README.md#getting-started) steps:
-[Prerequisites](../docs/PREREQUISITES.md) → [Install](../docs/INSTALL.md) → [Verify](../docs/VERIFY.md).
+[Prerequisites](../docs/PREREQUISITES.md) → [Install](../docs/INSTALL.md) → [Check it worked](../docs/INSTALL.md#check-it-worked).
 
 ## Editing setup and recovering from failures
 
@@ -299,7 +299,7 @@ The [Azure target](#azure-target) asks the same question. Its advanced settings 
 
 ## After it finishes
 
-Moved to [After it finishes](../docs/VERIFY.md#after-it-finishes).
+Moved to [After it finishes](../docs/INSTALL.md#after-it-finishes).
 
 ### When an update has to clear a model's data
 
