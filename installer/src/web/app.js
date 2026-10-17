@@ -496,8 +496,9 @@ function add(run, item, stage = target(run)) {
   item.stage = stage;
   item.more = item.more ?? [];
   stage.items.push(item);
-  // An install step with a ✗ line failed, even when the install carries on to the next step.
-  if (stage.step && item.t === 'line' && item.kind === 'fail') stage.failed = true;
+  // An install step with a ✗ line failed, even when the install carries on to the next step. So did one with a load
+  // that failed in a way that leaves the install partly set up.
+  if (stage.step && ((item.t === 'line' && item.kind === 'fail') || (item.t === 'loads' && item.cards.some((card) => card.counted)))) stage.failed = true;
   item.el = renderItem(item);
   if (item.el) {
     stage.body.append(item.el);
@@ -527,7 +528,8 @@ function* runItems(stages) {
 
 /**
  * A load that fails until a next step is done, like a Dataflow waiting for its sign-ins, is expected:
- * it shows as waiting rather than failed, and isn't a reason to rerun.
+ * it shows as waiting rather than failed, and isn't a reason to rerun. One the installer counts as
+ * failed, like that Dataflow on a busy capacity, isn't, even with the next step there.
  */
 function markExpected(run) {
   const waiting = new Map((run.nextSteps?.steps ?? []).filter((s) => s.activity).map((s) => [s.activity, s.title]));
@@ -535,7 +537,7 @@ function markExpected(run) {
   for (const it of loads) {
     let changed = false;
     for (const card of it.cards) {
-      const expected = card.state === 'failed' ? waiting.get(card.activity) : undefined;
+      const expected = card.state === 'failed' && !card.counted ? waiting.get(card.activity) : undefined;
       if (expected && card.expected !== expected) {
         card.expected = expected;
         changed = true;

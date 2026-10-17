@@ -247,6 +247,8 @@ export async function reportLoads(ctx, runs, activities) {
     }
     card.fix = card.fix.map((t) => fillRerun(t, rerun));
   }
+  // So the web page shows what the install counts as failed, rather than as waiting on a next step.
+  for (const card of countedFailures(ctx.config, cards)) card.counted = true;
   if (cards.length) ctx.ui.loads(cards);
   if (todo) ctx.ui.todo(todo);
   return cards;

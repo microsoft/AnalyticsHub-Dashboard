@@ -256,14 +256,21 @@ test('first load: leaves the Cowork Dataflow out only while it isn\'t signed in,
   assert.doesNotMatch(scheduled.fabric.calls.find((c) => c.startsWith('runJob Pipeline')) ?? '', /SkipCowork/, 'other runs never skip');
 });
 
-test('runPipeline: a run that completes with a load failed counts it, except the Cowork Dataflow while signing it in is to do', async () => {
+test('runPipeline: a run that completes with a load failed counts it, except the Cowork Dataflow while signing it in is to do, and flags its card', async () => {
   const acts = build().properties.activities;
   /** @param {Record<string, string | [string, any]>} changed */
   const finish = async (changed) => {
     const t = workspace();
     t.fabric.jobs.push({ status: 'Completed', startTimeUtc: '2026-06-01T12:01:00Z', endTimeUtc: '2026-06-01T14:00:00Z' });
     t.fabric.api.queryActivityRuns = async () => [...runsOf(acts, changed).values()];
-    return { result: await runPipeline(t.ctx, { wait: true }), text: t.ui.text() };
+    /** @type {import('../src/loads.js').LoadCard[]} */
+    let cards = [];
+    const show = t.ctx.ui.loads;
+    t.ctx.ui.loads = (c) => show((cards = c));
+    const result = await runPipeline(t.ctx, { wait: true });
+    // The web page shows the cards it's told count as failed, so they must be the ones the install counts.
+    assert.deepEqual(cards.filter((c) => c.counted).map((c) => c.activity), result.counted);
+    return { result, text: t.ui.text() };
   };
   /** @type {Record<string, string | [string, any]>} */
   const dataflow = { [COWORK_WRAPPER_ACTIVITY]: 'Failed', [COWORK_DATAFLOW_ACTIVITY]: ['Failed', UNSIGNED] };

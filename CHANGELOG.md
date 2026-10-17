@@ -89,8 +89,10 @@ is unchanged.
 - **The summary says how to deploy the app.** When the app step fails, the "partly set up"
   summary's next steps now start with fixing the problem and running `deploy-app`, or choosing
   **Redeploy the app**.
-- **A step with a ✗ line shows as failed** on the installer's page, not done, when the install
-  carries on past it.
+- **A step that fails shows as failed** on the installer's page, not done, when the install carries
+  on past it: a step with a ✗ line, or the first load or a history reload with a source that failed
+  to load, counted as above. The page then offers **Rerun failed**, also for the Cowork credits
+  Dataflow on a busy capacity, which it showed as waiting for its sign-in.
 - **Governance and flows says "Resource Graph: off"** when that source is skipped, or on Azure's
   demo data, instead of "agents on, Foundry on".
 - **Run it from a desktop session.** Over SSH, for example, the app's deploy tool may not be able

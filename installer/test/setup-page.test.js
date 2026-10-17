@@ -152,3 +152,46 @@ test('run page: an install step with a ✗ line shows as failed, even when the i
   `, context);
   assert.deepEqual(JSON.parse(JSON.stringify(status)), [['Recent runs', 'done']]);
 });
+
+test('run page: a load failure the install counts shows as failed with Rerun failed, even when a next step is for that load', () => {
+  const context = page();
+  const cowork = { activity: 'Refresh_Cowork_Credits', name: 'Cowork credits (Viva Insights)', state: 'failed', fix: [] };
+  const studio = { activity: 'Run_Consumption_Studio', name: 'Copilot Studio credits', state: 'ok', fix: [] };
+  /** An install whose First load ends with these cards, then the Cowork sign-in as a next step. @param {any[]} cards */
+  const firstLoad = (cards) => JSON.parse(JSON.stringify(runInContext(`
+    app.replay = true;
+    app.state = { record: { can: { 'rerun-failed': true } } };
+    app.run = createRun({ type: 'command', command: 'install', state: 'running', at: 0, seq: 1 });
+    [
+      { type: 'step', n: 1, total: 1, title: 'First load', at: 1 },
+      { type: 'line', kind: 'ok', text: 'Pipeline finished in 2 h', at: 2 },
+      { type: 'loads', cards: ${JSON.stringify(cards)}, at: 3 },
+      { type: 'next-steps', title: '1 step left', at: 4, steps: [{ id: 'cowork-dataflow', title: 'Sign in to the Dataflow',
+        why: 'Cowork credits load once it has its sign-ins.', who: 'You', activity: 'Refresh_Cowork_Credits' }] },
+    ].forEach(apply);
+    onCommand({ type: 'command', command: 'install', state: 'done', at: 5, seq: 2 });
+    ({
+      step: app.run.stages.find((s) => s.title === 'Setting up').kids[0].status,
+      waiting: [...runItems(app.run.stages)].find((it) => it.t === 'loads').cards.map((c) => c.expected ?? null),
+      outcome: app.run.outcomeEl.text,
+    });
+  `, context)));
+
+  // On a busy capacity the Dataflow failed, signed in or not: the install counts it, so it isn't waiting on the sign-in.
+  const busy = firstLoad([{ ...cowork, kind: 'capacity', reason: "Fabric's capacity was too busy to start it.", counted: true }, studio]);
+  assert.equal(busy.step, 'failed');
+  assert.deepEqual(busy.waiting, [null, null]);
+  assert.match(busy.outcome, /Some loads failed/);
+  assert.match(busy.outcome, /Rerun failed/);
+
+  // Failing until it's signed in is expected, as are cards saved before the page was told which failures count.
+  const unsigned = firstLoad([{ ...cowork, kind: 'signIn' }, studio]);
+  assert.equal(unsigned.step, 'done');
+  assert.deepEqual(unsigned.waiting, ['Sign in to the Dataflow', null]);
+  assert.doesNotMatch(unsigned.outcome, /Some loads failed|Rerun failed/);
+
+  const other = firstLoad([{ ...cowork, kind: 'signIn' }, { ...studio, state: 'failed', counted: true }]);
+  assert.equal(other.step, 'failed', 'another load failed beside it');
+  assert.deepEqual(other.waiting, ['Sign in to the Dataflow', null]);
+  assert.match(other.outcome, /Some loads failed/);
+});
