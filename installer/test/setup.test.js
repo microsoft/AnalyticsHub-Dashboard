@@ -535,3 +535,17 @@ test('a new session ignores first-load and reload choices an install record save
   await reviewSetup(azure.ctx);
   assert.equal(azure.ctx.runFirstLoad, true, 'Azure runs the load on each setup, as before');
 });
+
+test('setupCategories: Governance says Resource Graph is off when that source is skipped', () => {
+  const governance = (/** @type {import('../src/config.js').InstallConfig} */ config) => setupCategories(config).find((cat) => cat.id === 'governance')?.summary;
+  const config = emptyConfig();
+  config.dataSources.resourceGraph = 'skip';
+  assert.equal(governance(config), 'Resource Graph: off');
+  config.dataSources.resourceGraph = 'api';
+  config.resourceGraph.foundry = false;
+  assert.equal(governance(config), 'Resource Graph: agents on, Foundry off');
+  // Azure's demo data doesn't read it either.
+  config.target = 'azure';
+  config.azure = /** @type {any} */ ({ sampleData: true });
+  assert.equal(governance(config), 'Resource Graph: off');
+});

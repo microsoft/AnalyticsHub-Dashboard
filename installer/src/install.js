@@ -20,7 +20,7 @@ import { createClient, defaultSleep } from './http.js';
 import { commandLine } from './launch.js';
 import { ensureConsent, ensureApp, ensureKeyVault, newSecret, notebookSecretDays } from './steps/identity.js';
 import { agentEvaluatorModelWanted, agentEvaluatorSummary, ensureAgentEvaluatorModel, ensureTranscriptAccess } from './steps/agent-evaluator.js';
-import { deployApp, ensureAppName, ensureFabricApp } from './steps/app.js';
+import { appDeployedSince, deployApp, ensureAppName, ensureFabricApp } from './steps/app.js';
 import { COWORK_DATAFLOW_NAME, consumptionModelWanted, consumptionSummary, ensureAzureAiAccess, ensureConsumptionModel, ensureCoworkDataflow, ensureLandingFolders } from './steps/consumption.js';
 import { coworkDataflowDefinition, isVivaId } from './transform/dataflow.js';
 import {
@@ -389,9 +389,13 @@ export async function install(ctx, opts) {
     if (await ensureViewerGroup(ctx)) await grantModelAccess(ctx, fabricViewerModels(config));
   }
   let appDeployed = true;
+  /** @type {{ since: number, workspaceId?: string, deployedAt?: string } | undefined} */
+  let appFailure;
   if (withApp) {
     step('Analytics Hub app');
+    const since = ctx.now().getTime();
     appDeployed = await tryDeployApp(ctx);
+    if (!appDeployed) appFailure = { since, workspaceId: config.fabric.workspaceId, deployedAt: config.fabricApp.deployedAt };
   }
   if (withShare) {
     step('Share the app');
@@ -450,8 +454,16 @@ export async function install(ctx, opts) {
   }
   const reloads = await settleReloads(ctx, { wait: opts.wait, load, reachable: fabricReachable(config) });
   if (!reloads.ok) notFinished(ctx, 'install');
+  /** @type {string | undefined} */
+  let appLate;
+  if (appFailure) {
+    // The step says to run deploy-app, which people do while the first load runs: saving merges its record in.
+    ctx.save();
+    appLate = appDeployedSince(config, appFailure);
+    if (appLate) appDeployed = true;
+  }
   ok = reloads.ok && ok && appDeployed;
-  await summary(ctx, { ok, pending: reloads.pending });
+  await summary(ctx, { ok, pending: reloads.pending, appFailed: !appDeployed, appLate });
   return ok;
 }
 
@@ -828,8 +840,9 @@ export async function rotateSecret(ctx) {
 /**
  * Prints where everything is and what to do next.
  * @param {Ctx} ctx
- * @param {{ ok?: boolean, pending?: string[] }} [opts]  ok false when a step above failed, so the heading doesn't say it is all set up;
- *   pending: models still reloading after their update.
+ * @param {{ ok?: boolean, pending?: string[], appFailed?: boolean, appLate?: string }} [opts]  ok false when a step above failed, so the heading doesn't say it is all set up;
+ *   pending: models still reloading after their update; appFailed: the app step failed, so a card says how to deploy it;
+ *   appLate: when the app was deployed after its step failed, by deploy-app or Redeploy run meanwhile.
  */
 export async function summary(ctx, opts = {}) {
   const { ui, config, api } = ctx;
@@ -848,7 +861,8 @@ export async function summary(ctx, opts = {}) {
   } else {
     ui.heading('Analytics Hub is set up');
   }
-  const left = nextSteps(config, ctx.user);
+  if (opts.appLate) ui.ok(`The app step above failed, but the app was deployed afterwards (${new Date(opts.appLate).toISOString().slice(0, 16).replace('T', ' ')} UTC).`);
+  const left = nextSteps(config, ctx.user, { appFailed: opts.appFailed });
   if (left.length) ui.nextSteps(stepsLeftTitle(left), left);
   ui.info(`Workspace:  ${f.workspaceName}  ${c.dim(`https://app.fabric.microsoft.com/groups/${ws}`)}`);
   ui.info(`Lakehouse:  ${f.lakehouseName}`);

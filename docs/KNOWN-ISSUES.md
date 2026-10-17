@@ -20,6 +20,10 @@ Limits we know about, and what to do. For error messages, see [Troubleshooting](
 - **Cloud Shell ends a session after 20 minutes without input.** Run the same command again: it
   carries on from the install record.
 - **Keep the PC awake.** If it sleeps, setup stops until it wakes.
+- **Run it from a desktop session: at the PC, or over Remote Desktop.** Without one, for example
+  over SSH, the app's deploy tool may not be able to store its sign-in securely. A Fabric install
+  then sets up everything except the app. To finish, run `deploy-app` from a desktop session. See
+  [Troubleshooting](TROUBLESHOOTING.md#the-app-reports-and-data).
 
 ## Unsigned files in the download
 

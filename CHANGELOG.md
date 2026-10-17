@@ -38,6 +38,24 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 Existing Azure installs get this on their next upgrade or **Repair or change**. Fabric is unchanged.
 
+**Installer: fixes from a clean-PC test of 0.6.6.**
+
+- **An app deployed while an install runs stays in the install record.** When the app step fails,
+  the installer says to run `deploy-app`. An install still waiting on its first load then saved
+  the record from the copy it read at the start, which dropped the app: `status` didn't show it,
+  and repair or update didn't treat it as deployed. Each save now keeps what another command
+  changed since, field by field, and the install's summary counts an app deployed meanwhile.
+- **The summary says how to deploy the app.** When the app step fails, the "partly set up"
+  summary's next steps now start with fixing the problem and running `deploy-app`, or choosing
+  **Redeploy the app**.
+- **A step with a ✗ line shows as failed** on the installer's page, not done, when the install
+  carries on past it.
+- **Governance and flows says "Resource Graph: off"** when that source is skipped, or on Azure's
+  demo data, instead of "agents on, Foundry on".
+- **Run it from a desktop session.** Over SSH, for example, the app's deploy tool may not be able
+  to store its sign-in securely, so a Fabric install sets up everything except the app. See
+  [Known issues](docs/KNOWN-ISSUES.md#installing).
+
 ## 2026-10-17 — Analytics Hub installer 0.6.6 (pre-release)
 
 **A pre-release, for testing.** 0.6.5 stays Latest, so the `releases/latest` links still serve it.
