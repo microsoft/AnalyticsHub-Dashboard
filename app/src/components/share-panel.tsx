@@ -20,10 +20,11 @@ const BUTTON = "flex items-center justify-center gap-200 rounded-md border borde
 /**
  * Sharing from inside the app: copy its link, see who it is shared with, and on Azure let admins
  * and owners of the viewer group add and remove people. Fabric has no API the app can call for
- * this, so there it points to the group in My Groups.
+ * this, so there it points to the group in My Groups. A Copilot Managed App is shared from the
+ * Copilot Managed Runtime and can't see its own link, so it explains how sharing works instead.
  *
  * With org-scoped access on, Azure also lets admins and leaders choose what people see. On Fabric
- * that stays with admins, through the installer.
+ * and in a Copilot Managed App that stays with admins, through the installer.
  */
 export function SharePanel() {
     const [open, setOpen] = useState(false);
@@ -44,8 +45,10 @@ export function SharePanel() {
             </button>
             {open && (
                 <section id={panelId} aria-label="Share Analytics Hub" className="flex flex-col gap-300 rounded-md border border-border p-300">
-                    <CopyLink />
-                    {config.host === "azure" ? <AzureAccess access={config.access} /> : <FabricAccess access={config.access} />}
+                    {import.meta.env.MODE === "managed" ? <ManagedAccess access={config.access} /> : <CopyLink />}
+                    {import.meta.env.MODE === "managed"
+                        ? null
+                        : config.host === "azure" ? <AzureAccess access={config.access} /> : <FabricAccess access={config.access} />}
                     {config.host === "azure" && config.access?.rlsOrgAttribute && <ScopedDelegation contact={config.access.contact} />}
                 </section>
             )}
@@ -80,6 +83,29 @@ function CopyLink() {
                     onFocus={(event) => event.currentTarget.select()}
                     className={cn(TEXT, "w-full rounded-md border border-border bg-background px-200 py-100")}
                 />
+            )}
+        </div>
+    );
+}
+
+function ManagedAccess({ access }: { access?: AccessInfo }) {
+    return (
+        <div className="flex flex-col gap-100">
+            <p className={cn(TEXT, "text-muted-foreground")}>
+                Share the app with people, groups or your organization from the Copilot Managed Runtime. Sharing
+                lets them open it but not read the data: each viewer reads through their own Power BI connection,
+                so they also need access to the semantic models.
+            </p>
+            {access && (
+                <>
+                    <p className={cn(TEXT, "text-muted-foreground")}>
+                        Anyone in <span className="font-semibold text-foreground">{access.groupName ?? "the viewer group"}</span> can read the data.
+                    </p>
+                    <a href={myGroupsUrl(access.groupId)} target="_blank" rel="noreferrer" className={LINK}>
+                        Add or remove people in My Groups
+                    </a>
+                    {access.rlsOrgAttribute && <p className={cn(TEXT, "text-muted-foreground")}>{adminOnlyCopy(access.contact)}</p>}
+                </>
             )}
         </div>
     );

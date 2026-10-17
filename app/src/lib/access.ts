@@ -38,8 +38,12 @@ export function myGroupsUrl(groupId: string): string {
     return `https://myaccount.microsoft.com/groups/${encodeURIComponent(groupId)}`;
 }
 
-/** A prefilled email asking the install's contact for access. */
-export function accessRequestMailto(access: AccessInfo | undefined, link = appLink()): string | null {
+/**
+ * A prefilled email asking the install's contact for access. A Copilot Managed
+ * App names itself instead of linking: it only sees the address of the frame
+ * it runs in.
+ */
+export function accessRequestMailto(access: AccessInfo | undefined, link = import.meta.env.MODE === "managed" ? "Analytics Hub" : appLink()): string | null {
     if (!access?.contact) return null;
     const group = access.groupName ? ` (${access.groupName})` : "";
     const subject = "Access to Analytics Hub";
@@ -47,8 +51,8 @@ export function accessRequestMailto(access: AccessInfo | undefined, link = appLi
     return `mailto:${encodeURIComponent(access.contact)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
-/** A prefilled email asking the install's contact to choose which orgs the person sees. */
-export function scopeRequestMailto(access: AccessInfo | undefined, link = appLink()): string | null {
+/** A prefilled email asking the install's contact to choose which orgs the person sees. Named, not linked, as above. */
+export function scopeRequestMailto(access: AccessInfo | undefined, link = import.meta.env.MODE === "managed" ? "Analytics Hub" : appLink()): string | null {
     if (!access?.contact) return null;
     const subject = "Which orgs I can see in Analytics Hub";
     const body = `Hi,\n\nI can open ${link} but haven't been given any orgs to see yet. Please give me a scope.\n\nThanks`;

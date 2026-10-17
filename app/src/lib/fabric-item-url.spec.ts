@@ -5,7 +5,13 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+
+const runtime = vi.hoisted(() => ({
+    config: { host: "managed", rayfin: {}, semanticModels: {} } as { host: string; rayfin: { portalUrl?: string }; semanticModels: object },
+}));
+
+vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: () => runtime.config }));
 
 import { dataAgentUrl, fabricItemUrl } from "@/lib/fabric-item-url";
 
@@ -58,5 +64,28 @@ describe("dataAgentUrl", () => {
 
     it("has no link on Azure", () => {
         expect(dataAgentUrl({ workspaceId: "ws-2", itemId: "agent-1" }, { ...ids, host: "azure" })).toBeNull();
+    });
+});
+
+describe("in a Copilot Managed App", () => {
+    const agent = { workspaceId: "ws-2", itemId: "agent-1" };
+
+    afterEach(() => {
+        vi.unstubAllEnvs();
+    });
+
+    it("has no app item to link to", () => {
+        vi.stubEnv("MODE", "managed");
+        runtime.config = { host: "managed", rayfin: {}, semanticModels: {} };
+        expect(fabricItemUrl()).toBeNull();
+    });
+
+    it("still links to the data agent, which lives in Fabric", () => {
+        vi.stubEnv("MODE", "managed");
+        runtime.config = { host: "managed", rayfin: {}, semanticModels: {} };
+        expect(dataAgentUrl(agent)).toBe("https://app.fabric.microsoft.com/groups/ws-2/aiskills/agent-1");
+
+        runtime.config = { host: "managed", rayfin: { portalUrl: "https://msit.fabric.microsoft.com" }, semanticModels: {} };
+        expect(dataAgentUrl(agent)).toBe("https://msit.fabric.microsoft.com/groups/ws-2/aiskills/agent-1");
     });
 });

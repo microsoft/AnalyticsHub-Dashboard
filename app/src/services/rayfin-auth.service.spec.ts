@@ -51,6 +51,7 @@ vi.mock("@azure/msal-browser", () => ({
 }));
 
 import { bootstrapAuth } from "@/services/rayfin-auth.service";
+import { ManagedAuthService } from "@/services/managed-auth.service";
 import { detectTeamsHost, resetTeamsHost } from "@/lib/teams-host";
 
 /** A token as the host hands it over. The app only reads its claims. */
@@ -130,5 +131,16 @@ describe("Azure sign-in in a Teams, Outlook or Microsoft 365 tab", () => {
 
         await expect(auth.initEmbeddedAuth()).resolves.toBeNull();
         expect(host.getAuthToken).not.toHaveBeenCalled();
+    });
+});
+
+describe("sign-in in a Copilot Managed App", () => {
+    afterEach(() => {
+        vi.unstubAllEnvs();
+    });
+
+    it("asks the Copilot Managed Runtime who the viewer is, with no Azure or Fabric sign-in", () => {
+        vi.stubEnv("MODE", "managed");
+        expect(bootstrapAuth()).toBeInstanceOf(ManagedAuthService);
     });
 });

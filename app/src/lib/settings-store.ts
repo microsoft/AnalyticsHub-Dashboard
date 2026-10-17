@@ -6,6 +6,7 @@
 //-----------------------------------------------------------------------
 import { errorCode, reportAccessDenied } from "@/lib/access";
 import { getRayfinClient } from "@/lib/rayfin-client";
+import { browserStorage } from "@/lib/managed/browser-storage";
 import { runtimeConfig } from "@/lib/runtime-config";
 import { getAccessToken } from "@/services/rayfin-auth.service";
 import { taskTimeKey, type TaskTime, type TaskTimeOverride } from "@/queries/assumptions";
@@ -18,6 +19,10 @@ export const COMMERCIAL_TERMS_ID = "00000000-0000-0000-0000-000000000001";
 const LOAD_TIMEOUT_MS = 8000;
 const MAX_ROWS = 1000;
 const ADMIN_WRITE_MESSAGE = "Only Analytics Hub admins can change this";
+/** Where a Copilot Managed App keeps each kind of setting in the browser. */
+const LOCAL_PREFIX = "analytics-hub:managed:";
+
+type SettingsEntity = "CommercialTerms" | "ReportPack" | "TaskTime";
 
 export interface SavedCommercialTerms extends CommercialTermsValues {
     updatedBy?: string;
@@ -48,7 +53,9 @@ export interface SettingsStore {
 let store: SettingsStore | undefined;
 
 export function getSettingsStore(): SettingsStore {
-    store ??= runtimeConfig().host === "azure" ? new HttpSettingsStore() : new RayfinSettingsStore();
+    store ??= import.meta.env.MODE === "managed"
+        ? new LocalSettingsStore()
+        : runtimeConfig().host === "azure" ? new HttpSettingsStore() : new RayfinSettingsStore();
     return store;
 }
 
@@ -227,6 +234,104 @@ class HttpSettingsStore implements SettingsStore {
             return undefined as T;
         return await response.json() as T;
     }
+}
+
+/**
+ * Settings in a Copilot Managed App, which has no app database: each viewer
+ * keeps their own, in this browser. When the browser won't store them, they
+ * last until the app closes.
+ */
+export class LocalSettingsStore implements SettingsStore {
+    private readonly memory = new Map<SettingsEntity, string>();
+
+    constructor(private readonly storage: Storage | undefined = browserStorage()) {}
+
+    async loadCommercialTerms(): Promise<SavedCommercialTerms | null> {
+        const row = this.read("CommercialTerms").find((candidate) => candidate.id === COMMERCIAL_TERMS_ID);
+        return row ? commercialTermsFromRow(row) : null;
+    }
+
+    async saveCommercialTerms(patch: CommercialTermsValues, updatedBy: string | undefined): Promise<SavedCommercialTerms> {
+        const existing = this.read("CommercialTerms").find((candidate) => candidate.id === COMMERCIAL_TERMS_ID);
+        const row = { ...existing, ...commercialTermsPatch(patch), id: COMMERCIAL_TERMS_ID, ...stamp(updatedBy) };
+        this.write("CommercialTerms", [row]);
+        return commercialTermsFromRow(row);
+    }
+
+    async loadTaskTimes(): Promise<SavedTaskTime[]> {
+        return dedupeTaskTimes(this.read("TaskTime"));
+    }
+
+    async saveTaskTimes(changes: readonly TaskTimeChange[], updatedBy: string | undefined): Promise<SavedTaskTime[]> {
+        const ids = await Promise.all(changes.map((change) => taskTimeId(change.task)));
+        const rows = new Map(this.read("TaskTime").map((row) => [String(row.id), row]));
+        changes.forEach((change, index) => {
+            const id = ids[index];
+            if (change.time === null) {
+                rows.delete(id);
+                return;
+            }
+            rows.set(id, {
+                id,
+                task: change.task,
+                minLow: change.time.low,
+                minTypical: change.time.typical,
+                minHigh: change.time.high,
+                ...stamp(updatedBy),
+            });
+        });
+        this.write("TaskTime", [...rows.values()]);
+        return this.loadTaskTimes();
+    }
+
+    async loadReportPacks(): Promise<ReportPack[]> {
+        return reportPacksFromRows(this.read("ReportPack"));
+    }
+
+    async saveReportPack(pack: ReportPack, updatedBy: string | undefined): Promise<ReportPack> {
+        const row = { ...reportPackRow(pack), ...stamp(updatedBy) };
+        this.write("ReportPack", [...this.read("ReportPack").filter((candidate) => candidate.id !== row.id), row]);
+        return savedPack(row);
+    }
+
+    async deleteReportPack(id: string): Promise<void> {
+        this.write("ReportPack", this.read("ReportPack").filter((row) => row.id !== id));
+    }
+
+    private read(entity: SettingsEntity): Record<string, unknown>[] {
+        let text: string | null | undefined;
+        try {
+            text = this.storage ? this.storage.getItem(LOCAL_PREFIX + entity) : this.memory.get(entity);
+        } catch {
+            text = this.memory.get(entity);
+        }
+        if (!text) return [];
+        try {
+            const rows: unknown = JSON.parse(text);
+            return Array.isArray(rows)
+                ? rows.filter((row): row is Record<string, unknown> => typeof row === "object" && row !== null && !Array.isArray(row))
+                : [];
+        } catch {
+            return [];
+        }
+    }
+
+    private write(entity: SettingsEntity, rows: readonly Record<string, unknown>[]): void {
+        const text = JSON.stringify(rows);
+        if (!this.storage) {
+            this.memory.set(entity, text);
+            return;
+        }
+        try {
+            this.storage.setItem(LOCAL_PREFIX + entity, text);
+        } catch {
+            throw new Error("This browser wouldn't save the change. It may be out of space for this site.");
+        }
+    }
+}
+
+function stamp(updatedBy: string | undefined): { updatedBy: string | null; updatedAt: string } {
+    return { updatedBy: updatedBy || null, updatedAt: new Date().toISOString() };
 }
 
 function commercialTermsPatch(patch: CommercialTermsValues): Record<string, unknown> {
