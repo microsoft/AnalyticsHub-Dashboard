@@ -17,6 +17,7 @@ vi.mock("@/fabric.generated", () => ({
     },
 }));
 
+import * as teams from "@microsoft/teams-js";
 import {
     APP_CONFIG_PATH,
     FABRIC_CONFIG_PATH,
@@ -50,6 +51,15 @@ function stubFiles(files: Record<string, Reply>) {
 
 const SPA_FALLBACK: Reply = { body: "<!DOCTYPE html><html></html>", contentType: "text/html" };
 
+/** An Azure install's app.config.json, as a tab loads it. */
+const azureTab = {
+    host: "azure",
+    tenantId: "tenant",
+    clientId: "client",
+    apiScope: "scope",
+    semanticModels: { vl: { workspaceId: "w", itemId: "i" } },
+};
+
 const deployedRayfin = {
     apiUrl: "https://api.example.com",
     publishableKey: "pk-deployed",
@@ -77,6 +87,7 @@ beforeEach(() => resetRuntimeConfig());
 afterEach(() => {
     vi.unstubAllGlobals();
     resetRuntimeConfig();
+    history.replaceState(null, "", "/");
 });
 
 describe("runtimeConfig", () => {
@@ -121,22 +132,26 @@ describe("runtimeConfig", () => {
         expect(fetchMock).not.toHaveBeenCalledWith("/rayfin.config.json", expect.anything());
     });
 
-    it("detects Teams from the Azure query string", async () => {
+    it("initialises TeamsJS in a tab, so it can sign in through Teams, Outlook or the Microsoft 365 app", async () => {
         history.replaceState(null, "", "/?host=teams");
-        stubFiles({
-            [APP_CONFIG_PATH]: { body: JSON.stringify({
-                host: "azure",
-                tenantId: "tenant",
-                clientId: "client",
-                apiScope: "scope",
-                semanticModels: { vl: { workspaceId: "w", itemId: "i" } },
-            }) },
-        });
+        vi.mocked(teams.app.initialize).mockClear().mockResolvedValueOnce(undefined);
+        stubFiles({ [APP_CONFIG_PATH]: { body: JSON.stringify(azureTab) } });
 
         await loadRuntimeConfig();
 
+        expect(teams.app.initialize).toHaveBeenCalledOnce();
         expect(runtimeConfig().azure?.inTeams).toBe(true);
-        history.replaceState(null, "", "/");
+    });
+
+    it("doesn't take ?host=teams on trust when no host answers", async () => {
+        history.replaceState(null, "", "/?host=teams");
+        vi.mocked(teams.app.initialize).mockClear();
+        stubFiles({ [APP_CONFIG_PATH]: { body: JSON.stringify(azureTab) } });
+
+        await loadRuntimeConfig();
+
+        expect(teams.app.initialize).toHaveBeenCalledOnce();
+        expect(runtimeConfig().azure?.inTeams).toBe(false);
     });
 
     it("keeps the build's values when a developer deploy has no config files", async () => {

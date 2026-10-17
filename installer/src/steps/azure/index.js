@@ -48,7 +48,20 @@ export const GROUP_SCOPE = 'GroupMember.ReadWrite.All';
 export const SQL_READER_NAME = 'Analytics Hub SQL Reader';
 /** The SQL reader secret's name on its app, before the ref of the run that made it. */
 const SQL_READER_SECRET_LABEL = 'Power BI SQL credential';
-export const TEAMS_CLIENTS = ['1fec8e78-bce4-4aaf-ab1b-5451cc387264', '5e3ce6c0-2b1f-4285-8d4b-75ee78787346'];
+/**
+ * The Microsoft clients that run the Teams app's tab and get its sign-in token, pre-authorised on the web app's
+ * `access_as_user` scope: Teams, and Outlook and the Microsoft 365 app, which show the personal tab too.
+ * See https://learn.microsoft.com/microsoftteams/platform/tabs/how-to/authentication/tab-sso-register-aad
+ */
+export const TEAMS_CLIENTS = [
+  '1fec8e78-bce4-4aaf-ab1b-5451cc387264', // Teams desktop and mobile
+  '5e3ce6c0-2b1f-4285-8d4b-75ee78787346', // Teams web
+  '4765445b-32c6-49b0-83e6-1d93765276ca', // Microsoft 365 web
+  '0ec893e0-5785-4de6-99da-4ed124e5296c', // Microsoft 365 desktop
+  'd3590ed6-52b3-4102-aeff-aad2292ab01c', // Microsoft 365 mobile and Outlook desktop
+  'bc59ab01-8403-45c6-8796-ac3ef710b3e3', // Outlook web
+  '27922004-5251-4030-b22d-91ecd9a37ea4', // Outlook mobile
+];
 const ARM = JSON.parse(readFileSync(new URL('../../azure/main.arm.json', import.meta.url), 'utf8'));
 export const REQUIRED_ARM_PARAMETERS = [
   'location', 'sqlLocation', 'namePrefix', 'installId', 'tags', 'imageRegistry', 'imageTag', 'imageRegistryResourceId', 'runSchedule', 'runSteps', 'sampleData', 'sqlAdminLogin', 'sqlAdminObjectId',

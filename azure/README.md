@@ -29,7 +29,8 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
 3. Choose the subscription, resource group, region and Power BI workspace. The installer only offers
    regions that your Azure Policy allowed locations permit and where everything it deploys is
    available. It says why the others were left out.
-4. Review the plan and approve it. The installer prints the web app's URL and writes `AnalyticsHub-Teams.zip`.
+4. Review the plan and approve it. The installer prints the web app's URL and writes `AnalyticsHub-Teams.zip`,
+   the tab for Teams, Outlook and the Microsoft 365 Copilot app ([publish it](teams/README.md#give-it-to-everyone)).
 
 ## Share it
 

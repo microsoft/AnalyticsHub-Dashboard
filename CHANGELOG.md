@@ -20,6 +20,20 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**Azure: the Teams tab also opens in Outlook and the Microsoft 365 Copilot app.**
+
+- **Same sign-in.** The installer pre-authorises the Outlook and Microsoft 365 app clients (web,
+  desktop and mobile) on the web app's registration, next to Teams, and the web app lets
+  `*.microsoft365.com` and `outlook.office365.com` show it in a frame.
+- **Signs in as it opens.** The app now initialises TeamsJS and asks the host for a token when the
+  tab loads, so people go straight to their data. If the host needs a prompt first, such as consent
+  or MFA, the tab shows **Sign in with Microsoft**, which opens it in a pop-up. Before, sign-in in
+  the tab failed with "The library has not yet been initialized", in Teams too.
+- **Personal tab only.** The channel and group chat tab stays in Teams. The Teams package doesn't
+  change, so there's nothing to upload again.
+
+Existing Azure installs get this on their next upgrade or **Repair or change**. Fabric is unchanged.
+
 ## 2026-10-17 — Analytics Hub installer 0.6.6 (pre-release)
 
 **A pre-release, for testing.** 0.6.5 stays Latest, so the `releases/latest` links still serve it.

@@ -13,7 +13,7 @@
 - `GET/POST /api/delegations`, `DELETE /api/delegations/:id` and `POST /api/delegations/:id/approve` back scoped delegation in the Share panel when org-scoped access (row-level security) is on. They read and write `dbo.access_scope` in Azure SQL (`VALUELENS_SQL_SERVER`, `VALUELENS_SQL_DATABASE`) as the managed identity, writing only rows with `GrantedVia = 'share'`. The jobs' access step leaves those rows alone. Adding someone to the viewer group goes through Graph as the signed-in user. When they can't do that, the scope waits for an admin to approve it. After a change, the service refreshes the model's `Access Scope` table as the managed identity: at most one refresh waits per model. When RLS is off, `GET` returns `{ "enabled": false }`.
 - Other GETs serve static assets, with SPA fallback to `index.html` for HTML navigation requests.
 
-Security headers, including a Teams-compatible CSP `frame-ancestors`, are applied to all responses. The server intentionally does not set `X-Frame-Options`.
+Security headers, including a CSP `frame-ancestors` that lets Teams, Outlook and the Microsoft 365 Copilot app show the tab, are applied to all responses. The server intentionally does not set `X-Frame-Options`.
 
 ## Development
 

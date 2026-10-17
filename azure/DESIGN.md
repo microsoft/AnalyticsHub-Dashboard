@@ -203,7 +203,7 @@ Variants: App Service B1 Linux for the web app (+$13), or B1 Windows as in PnP (
 | Identity | Kind | Permissions | Secret? |
 |---|---|---|---|
 | `id-valuelens-collector` | User-assigned MI | Graph app roles assigned to the MI's SP: `AuditLogsQuery.Read.All`, `Reports.Read.All`, `User.Read.All`, plus module extras. Azure: Storage Blob/Table Data Contributor, SQL `db_owner` through Entra, Cost Management Reader and Monitoring Reader (consumption), Power BI workspace Member (refresh) | **No** |
-| `Analytics Hub` web app | App registration (SPA + API) | Exposes `access_as_user`; app roles *User* and *Admin*; delegated Power BI `Dataset.Read.All`; Teams client IDs pre-authorised | No (federated credential) |
+| `Analytics Hub` web app | App registration (SPA + API) | Exposes `access_as_user`; app roles *User* and *Admin*; delegated Power BI `Dataset.Read.All`; Teams, Outlook and Microsoft 365 client IDs pre-authorised | No (federated credential) |
 | `Analytics Hub SQL Reader` | App registration (SP) | `db_datareader` in SQL; used as the Power BI data source credential for the scheduled refresh | **Yes** (certificate or secret in Key Vault). The installer rotates it, and `status` warns 30 days before expiry, as today |
 | Agent Evaluator | MI or app registration | Dataverse application user with *Bot Transcript Viewer* | Verify whether Dataverse accepts an MI as an application user; otherwise an app registration with a certificate |
 
@@ -358,11 +358,15 @@ Before showing the plan, the installer runs these checks and offers a fix for ea
   Container Apps FQDN or a custom domain.
 - On the app registration, the installer sets the identifier URI `api://<fqdn>/<clientId>` and pre-authorises the
   Teams clients `1fec8e78-bce4-4aaf-ab1b-5451cc387264` (desktop and mobile) and
-  `5e3ce6c0-2b1f-4285-8d4b-75ee78787346` (web). It adds the Microsoft 365 app and Outlook client IDs if the app
-  should also run there.
-- In the app, `getAuthToken()` gets the token for our API, and the server does the OBO to Power BI. With
-  consent and MFA prompts, it falls back to `authentication.authenticate()` in a pop-up.
-- The CSP `frame-ancestors` allows `teams.microsoft.com`, `*.teams.microsoft.com` and `*.cloud.microsoft`.
+  `5e3ce6c0-2b1f-4285-8d4b-75ee78787346` (web). It also pre-authorises the Microsoft 365 app and Outlook clients
+  (`TEAMS_CLIENTS` in `installer/src/steps/azure/index.js`), so the personal tab runs in Outlook and the
+  Microsoft 365 Copilot app too. The channel tab stays in Teams.
+- In the app, `app.initialize()` runs at load, then a silent `getAuthToken()` gets the token for our API, so the
+  tab signs in without a click, and the server does the OBO to Power BI. When the host needs a prompt, such as
+  consent or MFA, the tab shows **Sign in with Microsoft**, which falls back to `authentication.authenticate()` in
+  a pop-up.
+- The CSP `frame-ancestors` allows `teams.microsoft.com`, `*.teams.microsoft.com`, `*.cloud.microsoft`,
+  `*.office.com`, `*.microsoft365.com`, `outlook.office.com` and `outlook.office365.com`.
 - Sharing works through the **Analytics Hub User** app role (assign a group), plus Build on the model.
   The installer offers to grant both to one group.
 

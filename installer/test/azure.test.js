@@ -432,7 +432,11 @@ test('Azure apply is idempotent enough against fakes and records key outputs', a
   assert.deepEqual(arm.calls.filter((c) => c.startsWith('deployTemplate')), ['deployTemplate valuelens', 'deployTemplate valuelens']);
   assert.ok(graph.applications.find((a) => a.displayName === 'Analytics Hub (Azure)')?.identifierUris?.[0].includes('vlens.example.com'));
   assert.ok(graph.calls.includes('fic app-obj-1 mi-sp'));
-  assert.ok(graph.applications.find((a) => a.displayName === 'Analytics Hub (Azure)')?.api?.preAuthorizedApplications?.some((a) => a.appId === '1fec8e78-bce4-4aaf-ab1b-5451cc387264'));
+  // Teams, plus Outlook and the Microsoft 365 app for the personal tab, get the tab's sign-in token without a consent prompt.
+  assert.deepEqual(graph.applications.find((a) => a.displayName === 'Analytics Hub (Azure)')?.api?.preAuthorizedApplications?.map((a) => a.appId).sort(), [
+    '1fec8e78-bce4-4aaf-ab1b-5451cc387264', '5e3ce6c0-2b1f-4285-8d4b-75ee78787346', '4765445b-32c6-49b0-83e6-1d93765276ca', '0ec893e0-5785-4de6-99da-4ed124e5296c',
+    'd3590ed6-52b3-4102-aeff-aad2292ab01c', 'bc59ab01-8403-45c6-8796-ac3ef710b3e3', '27922004-5251-4030-b22d-91ecd9a37ea4',
+  ].sort());
   assert.ok(powerBi.calls.some((c) => c === 'updateDatasource gw ds ServicePrincipal'));
   assert.ok(arm.calls.includes('startJob vlens-migrate'));
   assert.ok(arm.calls.includes('startJob vlens-run'));

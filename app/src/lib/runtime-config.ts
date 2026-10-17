@@ -23,6 +23,7 @@ export interface AzureRuntimeConfig {
     clientId: string;
     apiScope: string;
     version?: string;
+    /** A TeamsJS host (Teams, Outlook or the Microsoft 365 app) answered, so sign-in goes through it. */
     inTeams: boolean;
 }
 
@@ -111,7 +112,7 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
         loaded = {
             ...defaults,
             host: "azure",
-            azure: { ...azure.azure!, inTeams: azure.azure!.inTeams || await detectTeams() },
+            azure: { ...azure.azure!, inTeams: await detectTeams() },
             semanticModels: azure.semanticModels,
             modules: azure.modules,
             reporting: azure.reporting,
@@ -225,7 +226,8 @@ export function parseAzureConfig(json: unknown, path = APP_CONFIG_PATH): Runtime
             clientId,
             apiScope,
             version: typeof version === "string" ? version : undefined,
-            inTeams: queryRequestsTeams(),
+            // loadRuntimeConfig sets this once TeamsJS has answered.
+            inTeams: false,
         },
         semanticModels: parseSemanticModels(json, path),
         modules: parseModules(json),
@@ -312,13 +314,11 @@ export function parseModules(json: unknown): RuntimeModules | undefined {
     };
 }
 
-function queryRequestsTeams(): boolean {
-    if (typeof window === "undefined") return false;
-    return new URLSearchParams(window.location.search).get("host")?.toLowerCase() === "teams";
-}
-
+/**
+ * Initialises TeamsJS and reports whether a host answered: Teams, Outlook or the Microsoft 365 app, which all load
+ * the tab's `?host=teams` URL. getAuthToken only works once this has run, so the query can't stand in for it.
+ */
 async function detectTeams(): Promise<boolean> {
-    if (queryRequestsTeams()) return true;
     try {
         await teams.app.initialize();
         return true;

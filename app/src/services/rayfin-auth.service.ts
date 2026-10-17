@@ -113,8 +113,18 @@ class AzureAuthService implements IAuthService {
 
     async initEmbeddedAuth(): Promise<OpaqueSession | null> {
         await this.ensureInitialised();
-        if (this.config.inTeams && new URLSearchParams(window.location.search).get("auth") === "popup")
-            await this.completeTeamsPopup();
+        if (this.config.inTeams) {
+            if (new URLSearchParams(window.location.search).get("auth") === "popup") {
+                await this.completeTeamsPopup();
+            } else {
+                try {
+                    return await this.hostSession({ silent: true });
+                } catch {
+                    // The host needs a prompt, such as consent or MFA, so the Sign in button opens it.
+                    return null;
+                }
+            }
+        }
         const account = this.account();
         if (!account) return null;
         await this.getAccessToken();
@@ -125,14 +135,10 @@ class AzureAuthService implements IAuthService {
         await this.ensureInitialised();
         if (this.config.inTeams) {
             try {
-                this.token = await teams.authentication.getAuthToken();
-                this.user = decodeUser(this.token);
-                return this.session();
+                return await this.hostSession();
             } catch {
                 await teams.authentication.authenticate({ url: `${window.location.origin}${window.location.pathname}?host=teams&auth=popup` });
-                this.token = await teams.authentication.getAuthToken();
-                this.user = decodeUser(this.token);
-                return this.session();
+                return this.hostSession();
             }
         }
         await this.msal.loginRedirect({ scopes: [this.config.apiScope] });
@@ -189,6 +195,13 @@ class AzureAuthService implements IAuthService {
 
     private account(): AccountInfo | null {
         return this.msal.getActiveAccount() ?? this.msal.getAllAccounts()[0] ?? null;
+    }
+
+    /** Signs in with the token the host (Teams, Outlook or the Microsoft 365 app) gives the tab. */
+    private async hostSession(request?: teams.authentication.AuthTokenRequestParameters): Promise<OpaqueSession> {
+        this.token = await teams.authentication.getAuthToken(request);
+        this.user = decodeUser(this.token);
+        return this.session();
     }
 
     private session(account = this.account()): OpaqueSession {
