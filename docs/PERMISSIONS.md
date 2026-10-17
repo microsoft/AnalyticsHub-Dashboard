@@ -143,6 +143,42 @@ The app's Ask page always lists suggested questions. What answers them needs:
 
 ---
 
+<a id="publishing-the-teams-app-path-2"></a>
+
+## Publishing the Teams app
+
+On Azure, the installer publishes the Teams app (`AnalyticsHub-Teams.zip`) to your org's app catalog
+through Microsoft Graph, and updates that app on later runs. See
+[Give it to everyone](../azure/teams/README.md#give-it-to-everyone).
+
+| What | Role / requirement |
+|---|---|
+| Publish, update or delete the app in the org's app catalog | The person running the installer as **Teams Administrator** or **Global Administrator**, active. With Privileged Identity Management, activate it before signing in |
+| The installer's second sign-in | **Microsoft Graph Command Line Tools**, with the delegated Graph permission `AppCatalog.ReadWrite.All` (*Read and write to all app catalogs*). It needs admin consent: a **Global Administrator**, **Privileged Role Administrator**, **Cloud Application Administrator** or **Application Administrator** gives it at the prompt. `AppCatalog.Submit` would only submit the app for review, so the installer doesn't use it. With `--use-az`, there's no second sign-in and no publishing |
+| Upload it by hand instead | A **Teams Administrator** or **Global Administrator**, in the Teams admin center under **Teams apps** > **Manage apps** |
+| Pin it for the viewers (optional) | A **Teams Administrator**, with an app setup policy assigned to the viewer group. There's no Graph API for it, so the installer doesn't do it |
+| People can add it | The org-wide custom app setting, their app permission policy and the app's status in **Manage apps** allow it. The installer doesn't change them |
+
+**The consent.** The consent prompt has a **Consent on behalf of your organization** box. If the
+admin ticks it, the consent covers everyone in your tenant; if not, it covers only their own account.
+Either way it doesn't expire: it stays until someone revokes it, after an uninstall too. To revoke it,
+sign in to the [Microsoft Entra admin center](https://entra.microsoft.com) as at least a **Cloud
+Application Administrator** and go to **Entra ID** > **Enterprise apps** > **All applications** >
+**Microsoft Graph Command Line Tools** (app ID `14d82eec-204b-4c2f-b7e8-296a70dab67e`) >
+**Permissions** > **Admin consent**. Select **...** next to `AppCatalog.ReadWrite.All`, then **Revoke
+permission**. Leave its other permissions alone, as other scripts may use them. Consent for one
+account shows on the **User consent** tab, and is revoked with Microsoft Graph or PowerShell, not in
+the portal; see
+[Review permissions granted to enterprise applications](https://learn.microsoft.com/entra/identity/enterprise-apps/manage-application-permissions).
+
+Microsoft Graph Command Line Tools is the app that Microsoft Graph PowerShell (`Connect-MgGraph`)
+signs in with, so the consent applies there too: anyone it covers can use `AppCatalog.ReadWrite.All`
+from Graph PowerShell without being asked again. Like every delegated permission, it only acts as the
+person signed in, so nobody can do more with it than their own role allows. The installer doesn't keep
+the sign-in; its token is held in memory and goes when the installer closes.
+
+---
+
 <a id="viewing-analytics-hub-paths-1-and-2"></a>
 
 ## Viewing Analytics Hub

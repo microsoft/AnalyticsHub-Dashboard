@@ -14,10 +14,11 @@ first, then see [its own list](MANAGED-APP.md#before-you-start).
 | **Fabric admin** | Turns on four tenant settings | Turns on two tenant settings | 5 min |
 | **Entra admin** (Global Administrator or Privileged Role Administrator) | Grants admin consent for read-only Graph permissions | The same, for the app and the managed identity. Plus one to manage viewers from the web app | 2 min |
 | **Microsoft 365 admin** | Turns off concealed names in usage reports | The same | 1 min |
+| **Teams admin** | – | Publishes the Teams app to your org's app catalog | 2 min |
 | **Viewers** | In the Analytics Hub Viewers group. Power BI Pro below F64. | In the group. Power BI Pro. | – |
 
-One person can be several of these. If you're the Fabric admin or Entra admin yourself, the
-installer does their part.
+One person can be several of these. If you're the Fabric admin, Entra admin or Teams admin
+yourself, the installer does their part.
 
 - **Runs on** Windows 10 or 11, with [the exe or the PowerShell one-liner](INSTALL.md), or in
   [Azure Cloud Shell](INSTALL.md#locked-down-tenant--azure-cloud-shell) from any browser. No admin
@@ -49,7 +50,8 @@ installer window open. If the PC sleeps, setup stops until it wakes.
 
 ## Permissions
 
-Every Graph permission is read-only, except one the web app uses on your behalf to manage viewers.
+Every Graph permission is read-only, except one the web app uses on your behalf to manage viewers,
+and one the installer uses on Azure to publish the Teams app.
 Rows marked *(Optional.)* are only added when you turn on what they're for. For more detail, see
 [Permissions](PERMISSIONS.md).
 
@@ -94,6 +96,15 @@ The app registration people sign in to. Delegated permissions: it acts as the pe
 The web app also has two app roles, **AnalyticsHub.User** and **AnalyticsHub.Admin**. A second
 app registration, the SQL reader, is the Power BI refresh's sign-in to Azure SQL. It can only read
 the database and has no API permissions.
+
+### The installer's Teams sign-in (Azure)
+
+A second sign-in, to **Microsoft Graph Command Line Tools**, so the installer can publish the Teams
+app for you. A delegated permission: it acts as you.
+
+| API | Permission | Reason |
+|---|---|---|
+| Graph | `AppCatalog.ReadWrite.All` | Publishing the Teams app to your org's app catalog, and updating or deleting it on later runs. Asked for when you're a Teams Administrator or Global Administrator. It needs admin consent, which a Global Administrator, Privileged Role Administrator, Cloud Application Administrator or Application Administrator gives at the prompt. Without it, a Teams admin uploads the package by hand |
 
 ### Azure roles
 
@@ -232,7 +243,9 @@ the installer does this itself, and you can skip this section.
 
 - [ ] **Grant admin consent** for the [Graph permissions](#permissions) above. All are read-only,
       except `GroupMember.ReadWrite.All` on the Azure web app, which lets group owners and admins
-      add viewers from the app. The installer gives you a link to send.
+      add viewers from the app, and `AppCatalog.ReadWrite.All`, which lets the installer publish
+      the Teams app. The installer gives you a link to send for the app's permissions. The Teams
+      one is given at the installer's second sign-in, by whoever runs it.
       [About admin consent](https://learn.microsoft.com/entra/identity/enterprise-apps/grant-admin-consent).
 - [ ] **Optional: give the app or managed identity the Global Reader role**, only for agent
       configuration from Azure Resource Graph.
@@ -254,6 +267,22 @@ not switched on shows as **can be activated** in the Prerequisites panel.
       export to be emailed to the flow's mailbox, with the subject `Copilot Product Feedback`. This
       needs a Global Administrator or [Reports Reader](https://learn.microsoft.com/entra/identity/role-based-access-control/permissions-reference#reports-reader).
       [About product feedback](https://learn.microsoft.com/microsoft-365/admin/misc/feedback-user-control#how-can-i-see-my-users-feedback).
+
+### Teams admin: for the Teams app (Azure)
+
+A [Teams Administrator](https://learn.microsoft.com/entra/identity/role-based-access-control/permissions-reference#teams-administrator)
+or Global Administrator. If you run the installer as one of them, it publishes the app for you
+after a [second sign-in](#the-installers-teams-sign-in-azure), and you can skip the first item.
+
+- [ ] **Publish the Teams app**, if the installer couldn't. It prints the steps: in the
+      [Teams admin center](https://admin.teams.microsoft.com/policies/manage-apps), go to
+      **Teams apps** > **Manage apps**, select **Upload new app** > **Upload**, and choose
+      `AnalyticsHub-Teams.zip`. See [Give it to everyone](../azure/teams/README.md#give-it-to-everyone).
+- [ ] **Allow it**, if your organisation limits custom apps: the custom app setting in
+      [org-wide app settings](https://learn.microsoft.com/microsoftteams/manage-apps#manage-org-wide-app-settings),
+      and the viewers' [app permission policy](https://learn.microsoft.com/microsoftteams/teams-app-permission-policies).
+- [ ] **Optional: pin it** for the **Analytics Hub Viewers** group, with an
+      [app setup policy](https://learn.microsoft.com/microsoftteams/teams-app-setup-policies).
 
 ### People who view the app
 

@@ -633,8 +633,11 @@ export function fakeAzureGraph() {
   ], oauth2PermissionScopes: [{ id: 's-user-read', value: 'User.Read' }] };
   /** @type {Error[]} */
   const siteGrantFailures = [];
+  /** The signed-in user's directory roles. None unless a test adds some. @type {{ roleTemplateId: string, displayName: string }[]} */
+  const directoryRoles = [];
   const pbiSp = { id: 'pbi-sp', appId: '00000009-0000-0000-c000-000000000000', oauth2PermissionScopes: [{ id: 's-dataset', value: 'Dataset.Read.All' }] };
   const api = {
+    myDirectoryRoles: async () => structuredClone(directoryRoles),
     servicePrincipalByAppId: async (/** @type {string} */ appId) => (appId === pbiSp.appId ? pbiSp : graphSp),
     graphServicePrincipal: async () => graphSp,
     findApplication: async (/** @type {string} */ appId) => applications.find((a) => a.appId === appId) ?? null,
@@ -699,7 +702,87 @@ export function fakeAzureGraph() {
       if (err) throw err;
     },
   };
-  return { api, calls, applications, servicePrincipals, siteGrantFailures, passwords };
+  return { api, calls, applications, servicePrincipals, siteGrantFailures, passwords, directoryRoles };
+}
+
+/**
+ * A package's manifest ID and version: from manifest.json in a stored zip, as the installer builds it,
+ * or from the bytes as JSON.
+ * @param {Uint8Array} zip
+ * @returns {{ id: string, version: string }}
+ */
+export function readManifest(zip) {
+  const buf = Buffer.from(zip);
+  if (buf.length < 4 || buf.readUInt32LE(0) !== 0x04034b50) return JSON.parse(buf.toString('utf8'));
+  for (let at = 0; at + 30 <= buf.length && buf.readUInt32LE(at) === 0x04034b50; ) {
+    const size = buf.readUInt32LE(at + 18);
+    const nameEnd = at + 30 + buf.readUInt16LE(at + 26);
+    const start = nameEnd + buf.readUInt16LE(at + 28);
+    if (buf.toString('utf8', at + 30, nameEnd) === 'manifest.json') return JSON.parse(buf.toString('utf8', start, start + size));
+    at = start + size;
+  }
+  throw new Error('The package has no manifest.json.');
+}
+
+/**
+ * The org's Teams app catalog. What's published or updated is listed straight away, as published.
+ * `failures` scripts errors for each method, in order. `manifest` reads a package's manifest ID and
+ * version (readManifest by default).
+ * @param {{ apps?: import('../src/clients/graph.js').TeamsCatalogApp[], manifest?: (zip: Uint8Array) => { id: string, version: string } }} [o]
+ */
+export function fakeAppCatalog(o = {}) {
+  /** @type {string[]} */
+  const calls = [];
+  /** @type {import('../src/clients/graph.js').TeamsCatalogApp[]} */
+  const apps = structuredClone(o.apps ?? []);
+  /** @type {Record<string, Error[]>} */
+  const failures = {};
+  const manifest = o.manifest ?? readManifest;
+  let n = 0;
+  const fail = (/** @type {string} */ method) => {
+    const err = failures[method]?.shift();
+    if (err) throw err;
+  };
+  const notFound = (/** @type {string} */ method, /** @type {string} */ id) => new HttpError(`${method} /appCatalogs/teamsApps/${id} returned 404 NotFound`, { status: 404, method, url: `https://graph.microsoft.com/v1.0/appCatalogs/teamsApps/${id}`, code: 'NotFound' });
+  const api = {
+    signIn: async () => {
+      calls.push('signIn');
+      fail('signIn');
+    },
+    /** @param {string} externalId */
+    find: async (externalId) => {
+      calls.push(`find ${externalId}`);
+      fail('find');
+      return structuredClone(apps.filter((a) => a.externalId === externalId && a.distributionMethod === 'organization'));
+    },
+    /** @param {Uint8Array} zip */
+    publish: async (zip) => {
+      const m = manifest(zip);
+      calls.push(`publish ${m.id} ${m.version}`);
+      fail('publish');
+      const app = { id: `catalog-app-${++n}`, externalId: m.id, displayName: 'Analytics Hub', distributionMethod: 'organization', appDefinitions: [{ version: m.version, publishingState: 'published' }] };
+      apps.push(app);
+      return { id: app.id, externalId: app.externalId, displayName: app.displayName, distributionMethod: app.distributionMethod };
+    },
+    /** @param {string} id @param {Uint8Array} zip */
+    update: async (id, zip) => {
+      const m = manifest(zip);
+      calls.push(`update ${id} ${m.version}`);
+      fail('update');
+      const app = apps.find((a) => a.id === id);
+      if (!app) throw notFound('POST', id);
+      app.appDefinitions = [{ version: m.version, publishingState: 'published' }];
+    },
+    /** @param {string} id */
+    remove: async (id) => {
+      calls.push(`remove ${id}`);
+      fail('remove');
+      const at = apps.findIndex((a) => a.id === id);
+      if (at < 0) throw notFound('DELETE', id);
+      apps.splice(at, 1);
+    },
+  };
+  return { api: /** @type {import('../src/clients/graph.js').AppCatalogApi} */ (api), calls, apps, failures };
 }
 
 /** Power BI refreshes. `states` scripts what each poll of a refresh returns. */
@@ -774,7 +857,7 @@ export function fakePowerBi() {
 }
 
 /**
- * @param {{ ui?: import('../src/ui.js').Ui, fabric?: any, graph?: any, oneLake?: any, arm?: any, keyVault?: any, powerBi?: any, discovery?: any, powerPlatform?: any, flow?: any, connections?: any, dataverse?: (url: string) => any, dataLake?: (account: string) => any, runner?: import('../src/steps/app.js').Runner, sources?: import('../src/sources.js').Sources, config?: import('../src/config.js').InstallConfig, now?: Date }} [o]
+ * @param {{ ui?: import('../src/ui.js').Ui, fabric?: any, graph?: any, oneLake?: any, arm?: any, keyVault?: any, powerBi?: any, discovery?: any, powerPlatform?: any, flow?: any, connections?: any, appCatalog?: any, dataverse?: (url: string) => any, dataLake?: (account: string) => any, runner?: import('../src/steps/app.js').Runner, sources?: import('../src/sources.js').Sources, config?: import('../src/config.js').InstallConfig, now?: Date }} [o]
  */
 export function fakeCtx(o = {}) {
   const config = o.config ?? emptyConfig();
@@ -810,6 +893,7 @@ export function fakeCtx(o = {}) {
         dataLake: o.dataLake,
         flow: o.flow,
         connections: o.connections,
+        appCatalog: o.appCatalog,
       },
       user: { id: 'user-1', upn: 'admin@contoso.com', tenantId: 'tenant-1' },
       sources: o.sources ?? realSources(),

@@ -1,6 +1,7 @@
 // @ts-check
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { spawn } from 'node:child_process';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
@@ -76,6 +77,141 @@ test('createTokenProvider and checkTokens: Cloud Shell\'s own Azure CLI sign-in 
   await assert.rejects(checkTokens(cloud), /can't get tokens for Fabric, Power BI, Power Automate, Power Apps\. Run az login --use-device-code/);
   await assert.doesNotReject(checkTokens(cloud, ['graph', 'arm']));
   await assert.rejects(checkTokens(async () => { throw new Error('AADSTS50076'); }), /AADSTS50076/, 'other failures as they are');
+});
+
+test('createTokenProvider: a sign-in can be given up on, and then it isn\'t tried again', async () => {
+  /** @type {unknown[][]} */
+  const requests = [];
+  const credential = {
+    getToken: async (/** @type {unknown[]} */ ...args) => {
+      requests.push(args);
+      return { token: 't', expiresOnTimestamp: Date.now() + 3_600_000 };
+    },
+  };
+  const scope = 'https://graph.microsoft.com/AppCatalog.ReadWrite.All';
+  await createTokenProvider(credential)(scope);
+  assert.deepEqual(requests, [[scope]], 'without a signal, the scope alone, as before');
+  const abort = new AbortController();
+  await createTokenProvider(credential)(scope, { abortSignal: abort.signal });
+  assert.deepEqual(requests[1], [scope, { abortSignal: abort.signal }], 'the signal reaches the sign-in');
+
+  const dropped = new Error('fetch failed', { cause: Object.assign(new Error('x'), { code: 'ENOTFOUND' }) });
+  assert.equal(isTransientNetworkError(dropped), true, 'one that would be tried again');
+  /** @type {number[]} */
+  const sleeps = [];
+  let calls = 0;
+  const gaveUp = new AbortController();
+  const getToken = createTokenProvider({
+    getToken: async () => {
+      calls++;
+      gaveUp.abort();
+      throw dropped;
+    },
+  }, { sleep: async (ms) => void sleeps.push(ms) });
+  await assert.rejects(getToken(scope, { abortSignal: gaveUp.signal }), /fetch failed/);
+  assert.equal(calls, 1, 'not tried again once given up on');
+  assert.deepEqual(sleeps, []);
+  await assert.rejects(getToken(scope, { abortSignal: gaveUp.signal }), { name: 'AbortError' });
+  assert.equal(calls, 1, 'nothing asked once already given up on');
+});
+
+/**
+ * Runs a script that leaves a listener open on localhost, like a browser sign-in waiting for the browser,
+ * then ends the way the installer's bin does.
+ * @param {boolean} abandon  Whether the sign-in was given up on first.
+ */
+function listenThenExit(abandon) {
+  const auth = new URL('../src/auth.js', import.meta.url).href;
+  const script = [
+    'import { createServer } from \'node:http\';',
+    `import { abandonSignIn, exitWhenDone } from ${JSON.stringify(auth)};`,
+    'createServer().listen(0, \'127.0.0.1\', () => {',
+    '  console.log(\'listening\');',
+    abandon ? '  abandonSignIn();' : '',
+    '  exitWhenDone(3);',
+    '});',
+  ].join('\n');
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let out = '';
+  child.stdout.setEncoding('utf8').on('data', (d) => { out += d; });
+  child.stderr.setEncoding('utf8').on('data', (d) => { out += d; });
+  /** @type {Promise<number | null>} */
+  const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+  return { child, exited, out: () => out };
+}
+
+/** @param {Promise<unknown>} p @param {number} ms */
+async function within(p, ms) {
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
+  try {
+    return await Promise.race([p, new Promise((r) => { timer = setTimeout(r, ms, 'still running'); })]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+test('exitWhenDone: once a sign-in was given up on, the installer exits, though the sign-in\'s listener is still open', async () => {
+  const gaveUp = listenThenExit(true);
+  try {
+    assert.equal(await within(gaveUp.exited, 15_000), 3, gaveUp.out());
+    assert.match(gaveUp.out(), /listening/);
+  } finally {
+    gaveUp.child.kill();
+  }
+
+  const waiting = listenThenExit(false);
+  try {
+    for (let i = 0; !waiting.out().includes('listening') && i < 150; i++) await new Promise((r) => setTimeout(r, 100));
+    assert.match(waiting.out(), /listening/);
+    assert.equal(await within(waiting.exited, 1_000), 'still running', 'otherwise the open listener keeps it running');
+  } finally {
+    waiting.child.kill();
+  }
+  await waiting.exited;
+});
+
+test('exitWhenDone: after a sign-in was given up on, it exits only once slow stdout and stderr have written everything, with the exit code', async () => {
+  const auth = new URL('../src/auth.js', import.meta.url).href;
+  const size = 1024 * 1024;
+  const streams = [
+    ['stdout', join(dir, 'slow-stdout.txt'), '\nUpload AnalyticsHub-Teams.zip to Teams by hand.\n'],
+    ['stderr', join(dir, 'slow-stderr.txt'), '\nThe last error.\n'],
+  ];
+  // Slow stdout and stderr, like pipes to a slow reader on Linux or macOS, where pipes write asynchronously.
+  // Writing anything takes 3 seconds.
+  const script = [
+    'import { appendFileSync } from \'node:fs\';',
+    'import { createServer } from \'node:http\';',
+    'import { Writable } from \'node:stream\';',
+    `import { abandonSignIn, exitWhenDone } from ${JSON.stringify(auth)};`,
+    `const streams = ${JSON.stringify(streams)};`,
+    'for (const [name, file] of streams) {',
+    '  const slow = new Writable({ write(chunk, _encoding, done) { setTimeout(() => { appendFileSync(file, chunk); done(); }, chunk.length ? 3_000 : 0); } });',
+    '  Object.defineProperty(process, name, { value: slow });',
+    '}',
+    'createServer().listen(0, \'127.0.0.1\', () => {',
+    '  abandonSignIn();',
+    `  for (const [name, , last] of streams) process[name].write('x'.repeat(${size}) + last);`,
+    '  exitWhenDone(7);',
+    '});',
+  ].join('\n');
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script], { stdio: ['ignore', 'pipe', 'pipe'] });
+  let other = '';
+  child.stdout.setEncoding('utf8').on('data', (d) => { other += d; });
+  child.stderr.setEncoding('utf8').on('data', (d) => { other += d; });
+  /** @type {Promise<number | null>} */
+  const exited = new Promise((resolve) => child.on('exit', (code) => resolve(code)));
+  try {
+    assert.equal(await within(exited, 20_000), 7, other);
+  } finally {
+    child.kill();
+  }
+  for (const [name, file, last] of streams) {
+    const written = existsSync(file) ? readFileSync(file, 'utf8') : '';
+    assert.ok(written.endsWith(last), `the last line of ${name} arrives`);
+    assert.equal(written.length, size + last.length, `all of ${name} arrives`);
+  }
 });
 
 test('allowsAction handles wildcards, notActions and data actions', () => {

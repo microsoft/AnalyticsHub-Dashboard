@@ -89,6 +89,8 @@ def test_relative_links_and_anchors_resolve(path):
         ("docs/PERMISSIONS.md", "azure-resource-graph"),
         ("docs/PERMISSIONS.md", "viewing-analytics-hub-paths-1-and-2"),
         ("docs/PERMISSIONS.md", "org-scoped-access-row-level-security"),
+        # CHANGELOG.md links the Teams heading by its old name.
+        ("docs/PERMISSIONS.md", "publishing-the-teams-app-path-2"),
         # Hard-coded in installer/packaging/signing.js and in older release notes.
         ("installer/README.md", "without-the-exe"),
         ("installer/README.md", "from-powershell"),
