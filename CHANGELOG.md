@@ -20,7 +20,7 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
-## 2026-10-16 — Analytics Hub installer 0.6.6 (pre-release)
+## 2026-10-17 — Analytics Hub installer 0.6.6 (pre-release)
 
 **A pre-release, for testing.** 0.6.5 stays Latest, so the `releases/latest` links still serve it.
 To install 0.6.6, use
@@ -29,6 +29,9 @@ To install 0.6.6, use
 **What changed:** the app shows less on each page and paces its queries so it stays quick for a
 large tenant, the install is sized by Copilot seats, daily processing handles only new days, and
 an install that stops part way picks up where it left off on the next run.
+
+**Power BI is busy:** a throttled card retries for up to a minute, and if it still shows busy it
+loads again by itself once that model answers. Other models carry on.
 
 **Update an existing install:** run the pinned command, or open installer 0.6.6 and choose
 **Repair or change**. Unlike 0.6.3 to 0.6.5, this release changes what the installer deploys:
@@ -40,8 +43,6 @@ an install that stops part way picks up where it left off on the next run.
   longer than usual. Until it finishes, those columns are empty.
 - On Azure, migration `V007` adds the columns. The tag also publishes the `valuelens-jobs` and
   `valuelens-web` images as `0.6.6`.
-
-<!-- The "Power BI is busy" card fix is in review; add its entry here when it merges. -->
 
 **App: less on each page, so it stays quick for a large tenant.**
 
