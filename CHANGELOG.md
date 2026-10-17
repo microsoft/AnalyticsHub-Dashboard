@@ -38,6 +38,8 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 Existing Azure installs get this on their next upgrade or **Repair or change**. Fabric is unchanged.
 
+**App: Value, Consumption and Efficiency now come straight after the Executive summary.**
+
 **Installer: fixes from a clean-PC test of 0.6.6.**
 
 - **An app deployed while an install runs stays in the install record.** When the app step fails,
