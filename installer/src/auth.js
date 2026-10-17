@@ -33,6 +33,15 @@ export const API_NAMES = /** @type {Record<keyof typeof SCOPES, string>} */ ({
   powerApps: 'Power Apps',
 });
 
+/**
+ * Microsoft Graph Command Line Tools, Microsoft's public client app for Graph scripts. The
+ * installer signs in with it a second time only to publish the Teams app, because the app it
+ * usually signs in with can't ask for the app catalog scope.
+ */
+export const GRAPH_CLI_APP_ID = '14d82eec-204b-4c2f-b7e8-296a70dab67e';
+/** Publishing the Teams app to the org's app catalog. Not in SCOPES, so checkTokens never asks for it. */
+export const APP_CATALOG_SCOPE = 'https://graph.microsoft.com/AppCatalog.ReadWrite.All';
+
 /** Azure Cloud Shell's own sign-in, which the Azure CLI uses until you run az login, covers only some APIs. */
 const MSI_AUDIENCE = /not a supported MSI token audience/i;
 export const AZ_LOGIN = 'az login --use-device-code';
@@ -47,14 +56,15 @@ export const isMsiAudienceError = (err) => MSI_AUDIENCE.test(String(/** @type {a
 export const msiAudienceMessage = (apis) => `The Azure CLI is on Cloud Shell's own sign-in, which can't get tokens for ${apis.join(', ')}. Run ${AZ_LOGIN} to sign the Azure CLI in as you, then run the installer again. Or leave out --use-az to sign in with a code.`;
 
 /**
- * A named API, or the scope of one found at run time, such as a Dataverse environment.
- * @typedef {keyof typeof SCOPES | `https://${string}/.default`} Resource
+ * A named API, the app catalog scope, or the scope of one found at run time, such as a Dataverse environment.
+ * @typedef {keyof typeof SCOPES | typeof APP_CATALOG_SCOPE | `https://${string}/.default`} Resource
  */
 
 /**
  * @typedef {object} AuthOptions
  * @property {string} [tenantId]  Omit to use the account's home tenant.
  * @property {'browser' | 'device-code' | 'azure-cli'} [method]
+ * @property {string} [clientId]  The public client app to sign in with. Omit to use the Azure Identity library's default.
  * @property {(message: string) => void} [print]
  */
 
@@ -64,16 +74,18 @@ export const msiAudienceMessage = (apis) => `The Azure CLI is on Cloud Shell's o
  */
 export function createCredential(opts) {
   const tenantId = opts.tenantId || undefined;
+  const app = opts.clientId ? { clientId: opts.clientId } : {};
   switch (opts.method ?? 'browser') {
     case 'azure-cli':
       return new AzureCliCredential({ tenantId });
     case 'device-code':
       return new DeviceCodeCredential({
         tenantId,
+        ...app,
         userPromptCallback: (info) => (opts.print ?? console.log)(info.message),
       });
     default:
-      return new InteractiveBrowserCredential({ tenantId });
+      return new InteractiveBrowserCredential({ tenantId, ...app });
   }
 }
 
@@ -107,14 +119,18 @@ export function createTokenProvider(credential, opts = {}) {
   const sleep = opts.sleep ?? ((/** @type {number} */ ms) => new Promise((r) => setTimeout(r, ms)));
   /** @type {Map<Resource, { token: string, expiresOn: number }>} */
   const cache = new Map();
-  /** @param {Resource} resource */
-  return async function getToken(resource) {
+  /**
+   * @param {Resource} resource
+   * @param {{ abortSignal?: AbortSignal }} [o]  abortSignal: stop waiting for a sign-in. A code sign-in stops; a browser sign-in doesn't, see abandonSignIn.
+   */
+  return async function getToken(resource, o = {}) {
     const hit = cache.get(resource);
     if (hit && hit.expiresOn - Date.now() > 5 * 60_000) return hit.token;
     const scope = resource in SCOPES ? SCOPES[/** @type {keyof typeof SCOPES} */ (resource)] : resource;
     for (let attempt = 1; ; attempt++) {
+      o.abortSignal?.throwIfAborted();
       try {
-        const t = await credential.getToken(scope);
+        const t = await (o.abortSignal ? credential.getToken(scope, { abortSignal: o.abortSignal }) : credential.getToken(scope));
         if (!t) throw new Error(`Could not get a token for ${resource}.`);
         cache.set(resource, { token: t.token, expiresOn: t.expiresOnTimestamp });
         return t.token;
@@ -122,13 +138,44 @@ export function createTokenProvider(credential, opts = {}) {
         if (isMsiAudienceError(err)) {
           throw new Error(msiAudienceMessage([resource in API_NAMES ? API_NAMES[/** @type {keyof typeof SCOPES} */ (resource)] : scope.replace(/\/\.default$/, '')]), { cause: err });
         }
-        if (attempt >= TOKEN_ATTEMPTS || !isTransientNetworkError(err)) throw err;
+        if (attempt >= TOKEN_ATTEMPTS || o.abortSignal?.aborted || !isTransientNetworkError(err)) throw err;
         const wait = Math.min(TOKEN_RETRY_MS * 2 ** (attempt - 1), 30_000);
         opts.debug?.(`Network error getting a token for ${resource}; trying again in ${Math.round(wait / 1000)}s`);
         await sleep(wait);
       }
     }
   };
+}
+
+/** Whether a sign-in was given up on while it waited for the browser. */
+let abandoned = false;
+
+/**
+ * Notes that a sign-in was given up on. A browser sign-in can't be stopped: its listener on localhost
+ * waits for the browser for ever, and would keep the installer running after it's done. exitWhenDone
+ * then ends it.
+ */
+export function abandonSignIn() {
+  abandoned = true;
+}
+
+/**
+ * Sets the exit code. After a sign-in was given up on, it also exits, rather than waiting for that
+ * sign-in's listener, which never closes. But first it waits until stdout and stderr have written all
+ * their output, as Node does when it exits by itself: on Linux and macOS a pipe writes asynchronously,
+ * and exiting sooner would lose the last lines.
+ * @param {number} code
+ */
+export function exitWhenDone(code) {
+  process.exitCode = code;
+  if (!abandoned) return;
+  // An empty write calls back once everything written before it has been written.
+  let waiting = 2;
+  const flushed = () => {
+    if (--waiting === 0) process.exit(code);
+  };
+  process.stdout.write('', flushed);
+  process.stderr.write('', flushed);
 }
 
 /**

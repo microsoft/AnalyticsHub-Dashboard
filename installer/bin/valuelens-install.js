@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 // @ts-check
+import { exitWhenDone } from '../src/auth.js';
 import { main } from '../src/cli.js';
 
-process.exitCode = await main(process.argv.slice(2));
+exitWhenDone(await main(process.argv.slice(2)));
