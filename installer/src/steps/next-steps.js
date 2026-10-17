@@ -7,9 +7,10 @@
 import { FEEDBACK_SUBJECT } from '../transform/flows.js';
 import { isVivaId } from '../transform/dataflow.js';
 import { COWORK_DATAFLOW_ACTIVITY } from '../transform/pipeline.js';
+import { commandLine } from '../launch.js';
 import { appItemUrl, shareAppPending, shareAppSteps, VIEWER_GROUP_NAME, myGroupsUrl } from './access.js';
 import { COWORK_DATAFLOW_NAME, coworkSignInSteps, DATAFLOW_GUIDE } from './consumption.js';
-import { coworkDataflowOn } from './fabric.js';
+import { coworkDataflowOn, modelDeployed } from './fabric.js';
 import { connectionSteps, FLOW_NAMES, flowsWanted } from './flows.js';
 import { APP_NAME } from './plan.js';
 import { AGENT_DIRECTORY_ROLES, resourceGraphOn } from './resource-graph.js';
@@ -45,16 +46,23 @@ const letter = (body, from) => ['Hi,', '', ...body, '', 'Thanks', ...(from ? [fr
 const numbered = (steps) => steps.map((s, i) => `${i + 1}. ${s}`);
 
 /**
- * The cards, in the order to do them: share the app, sign in to the flows and the Cowork Dataflow,
- * then hand-offs to other admins. Empty when nothing is left.
+ * The cards, in the order to do them: deploy the app if it isn't, share it, sign in to the flows and the
+ * Cowork Dataflow, then hand-offs to other admins. Empty when nothing is left.
  * @param {import('../config.js').InstallConfig} config
  * @param {{ tenantId?: string, upn?: string }} [user]
+ * @param {{ appFailed?: boolean }} [opts]  appFailed: this run's app step failed.
  * @returns {NextStep[]}
  */
-export function nextSteps(config, user = {}) {
-  return [shareStep(config, user), flowsStep(config, user), coworkStep(config), vivaQueryStep(config, user), entraRoleStep(config, user), m365ExportStep(config, user)].filter(
-    /** @returns {s is NextStep} */ (s) => !!s,
-  );
+export function nextSteps(config, user = {}, opts = {}) {
+  return [
+    deployAppStep(config, opts),
+    shareStep(config, user),
+    flowsStep(config, user),
+    coworkStep(config),
+    vivaQueryStep(config, user),
+    entraRoleStep(config, user),
+    m365ExportStep(config, user),
+  ].filter(/** @returns {s is NextStep} */ (s) => !!s);
 }
 
 /**
@@ -66,6 +74,40 @@ export function stepsLeftTitle(steps) {
   const optional = steps.length - needed;
   if (!needed) return `${optional} optional ${optional === 1 ? 'step' : 'steps'}`;
   return `${needed} ${needed === 1 ? 'step' : 'steps'} left${optional ? `, and ${optional} optional` : ''}`;
+}
+
+/**
+ * The app the user chose, when this run's app step failed or it isn't deployed: the step said to fix the
+ * problem and run deploy-app, and that's easy to lose in a run that then loads data for hours.
+ * @param {import('../config.js').InstallConfig} config
+ * @param {{ appFailed?: boolean }} opts
+ * @returns {NextStep | null}
+ */
+function deployAppStep(config, opts) {
+  const fa = config.fabricApp;
+  const sm = config.semanticModel;
+  if (config.target === 'azure' || !fa?.enabled || !sm?.enabled || !sm.id) return null;
+  if (fa.itemId && !opts.appFailed) return null;
+  // deploy-app needs the model connected to the Lakehouse; the installer connects it, and asks to share the app.
+  const connected = modelDeployed(config);
+  // With an app from before, the share card covers sharing.
+  const share = connected && !fa.itemId && !!config.access?.groupId && config.access.appShared !== true;
+  const group = config.access?.groupName ?? VIEWER_GROUP_NAME;
+  return {
+    id: 'deploy-app',
+    title: fa.itemId ? 'Deploy the Analytics Hub app again' : 'Deploy the Analytics Hub app',
+    why: fa.itemId
+      ? 'The app step above failed. Until the app is deployed again, viewers get it as it was last deployed.'
+      : "There's no app for viewers to open until it's deployed. The data and the models don't need it.",
+    who: 'You',
+    steps: [
+      'Fix the problem the app step shows.',
+      connected
+        ? `Run "${commandLine('deploy-app')}", or choose Redeploy the app on the installer's home page.`
+        : `Run the installer again. It connects ${sm.name ?? 'the semantic model'} to the Lakehouse, then deploys the app.`,
+      ...(share ? [`Share it with "${group}": run "${commandLine('access')}" and choose Share the app with the group.`] : []),
+    ],
+  };
 }
 
 /**

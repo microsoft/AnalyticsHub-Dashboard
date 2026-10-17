@@ -293,14 +293,14 @@ test('deployDataAgent publishes again when only the publish failed last time', a
 test('ensureDataAgent: a failure is reported and the install carries on; nothing happens when it isn\'t wanted', async () => {
   const t = setup();
   t.fabric.failures.createDataAgent = [httpError(400, 'Data agents are not enabled for this tenant')];
-  await ensureDataAgent(t.ctx);
+  assert.equal(await ensureDataAgent(t.ctx), false);
   assert.match(t.ui.text(), /wasn't set up: .*not enabled/);
   assert.match(t.ui.text(), /update/);
   assert.equal(t.config.dataAgent.id, undefined);
 
   const off = setup();
   off.config.dataAgent.enabled = false;
-  await ensureDataAgent(off.ctx);
+  assert.equal(await ensureDataAgent(off.ctx), true);
   assert.deepEqual(off.fabric.calls.filter((c) => /DataAgent/.test(c)), []);
 
   const noModel = setup();

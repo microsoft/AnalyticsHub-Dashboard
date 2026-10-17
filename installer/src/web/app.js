@@ -436,6 +436,7 @@ function newStage(title, o = {}) {
   return {
     id: ++stageIds, title, heading: null, level: o.level ?? 0, parent: o.parent ?? null, status: 'upcoming', only: o.only,
     items: [], kids: [], startedAt: 0, endedAt: 0, n: o.n, total: o.total, el: null, body: null, kidsEl: null,
+    step: !!o.step, failed: false,
   };
 }
 
@@ -458,7 +459,7 @@ const target = (run) => run.child ?? run.cur;
 
 function finish(stage, at, status = 'done') {
   if (stage.status !== 'current') return;
-  stage.status = status;
+  stage.status = status === 'done' && stage.failed ? 'failed' : status;
   stage.endedAt = at;
   paintStage(stage);
 }
@@ -495,6 +496,8 @@ function add(run, item, stage = target(run)) {
   item.stage = stage;
   item.more = item.more ?? [];
   stage.items.push(item);
+  // An install step with a ✗ line failed, even when the install carries on to the next step.
+  if (stage.step && item.t === 'line' && item.kind === 'fail') stage.failed = true;
   item.el = renderItem(item);
   if (item.el) {
     stage.body.append(item.el);
@@ -802,7 +805,7 @@ function onStep(run, e) {
   }
   parent.n = e.n;
   parent.total = e.total;
-  const kid = newStage(e.title, { level: 1, parent, n: e.n, total: e.total });
+  const kid = newStage(e.title, { level: 1, parent, n: e.n, total: e.total, step: true });
   parent.kids.push(kid);
   enter(run, kid, e.at);
   paintStage(parent);

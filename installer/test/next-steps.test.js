@@ -3,7 +3,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { appItemUrl, publicAccess, shareApp, shareAppPending, VIEWER_GROUP_NAME } from '../src/steps/access.js';
-import { fabricConfigFile } from '../src/steps/app.js';
+import { appDeployedSince, fabricConfigFile } from '../src/steps/app.js';
+import { emptyConfig } from '../src/config.js';
+import { commandLine } from '../src/launch.js';
 import { flowsWanted } from '../src/steps/flows.js';
 import { GLOBAL_READER_ROLE_ID, nextSteps, stepsLeftTitle } from '../src/steps/next-steps.js';
 import { summary } from '../src/install.js';
@@ -189,9 +191,115 @@ test("summary: after a failed step it says the setup is partly done, not set up"
   assert.match(p.text(), /run the installer again/);
 });
 
-test("install: a failed app deploy or unproven first load makes the install not ok", async () => {
+/** installed(), after an app step that failed before the app was ever deployed. */
+function appFailed(answers = /** @type {any[]} */ ([])) {
+  const t = installed(answers);
+  Object.assign(t.config.semanticModel, { enabled: true, id: 'sm-1', bound: true });
+  t.config.fabricApp.itemId = undefined;
+  return t;
+}
+
+test('next steps: after the app step failed, the first card says how to deploy the app, then share it', () => {
+  const t = appFailed();
+  const steps = nextSteps(t.config, USER, { appFailed: true });
+  assert.deepEqual(ids(steps), ['deploy-app'], 'no share card: there is no app item to share yet');
+  const [deploy] = steps;
+  assert.equal(deploy.title, 'Deploy the Analytics Hub app');
+  assert.equal(deploy.who, 'You');
+  assert.ok(deploy.why);
+  assert.doesNotMatch(JSON.stringify(deploy), /Rayfin/i);
+  assert.deepEqual(deploy.steps, [
+    'Fix the problem the app step shows.',
+    `Run "${commandLine('deploy-app')}", or choose Redeploy the app on the installer's home page.`,
+    `Share it with "${VIEWER_GROUP_NAME}": run "${commandLine('access')}" and choose Share the app with the group.`,
+  ]);
+  assert.deepEqual(ids(nextSteps(t.config, USER)), ['deploy-app'], 'an app chosen and never deployed, too');
+
+  /** @type {any} */ (t.config.access).appShared = true;
+  assert.equal(nextSteps(t.config, USER, { appFailed: true })[0].steps?.length, 2, 'not asked to share again');
+  t.config.access = undefined;
+  assert.equal(nextSteps(t.config, USER, { appFailed: true })[0].steps?.length, 2, 'no group to share with');
+});
+
+test('next steps: an app from before is deployed again, and the share card still covers sharing', () => {
+  const t = appFailed();
+  t.config.fabricApp.itemId = 'app-item';
+  const steps = nextSteps(t.config, USER, { appFailed: true });
+  assert.deepEqual(ids(steps), ['deploy-app', 'share-app']);
+  assert.equal(steps[0].title, 'Deploy the Analytics Hub app again');
+  assert.match(steps[0].why, /as it was last deployed/);
+  assert.equal(steps[0].steps?.length, 2);
+  assert.deepEqual(ids(nextSteps(t.config, USER)), ['share-app'], 'no card once it deployed');
+});
+
+test('next steps: with the model not connected, the card says to run the installer again, not deploy-app', () => {
+  const t = appFailed();
+  t.config.semanticModel.bound = false;
+  const [deploy] = nextSteps(t.config, USER, { appFailed: true });
+  assert.equal(deploy.id, 'deploy-app');
+  assert.match(String(deploy.steps?.[1]), /^Run the installer again\. It connects .+ to the Lakehouse, then deploys the app\.$/);
+  assert.equal(deploy.steps?.length, 2, 'the installer asks to share the app itself');
+});
+
+test('next steps: no deploy card on Azure, without the app, or without the model', () => {
+  for (const change of [
+    (/** @type {any} */ c) => { c.target = 'azure'; },
+    (/** @type {any} */ c) => { c.fabricApp.enabled = false; },
+    (/** @type {any} */ c) => { c.semanticModel.id = undefined; },
+  ]) {
+    const t = appFailed();
+    change(t.config);
+    assert.ok(!ids(nextSteps(t.config, USER, { appFailed: true })).includes('deploy-app'));
+  }
+});
+
+test('summary: after the app step failed, the partly set up summary says how to deploy the app and share it', async () => {
+  const t = appFailed();
+  await summary(t.ctx, { ok: false, appFailed: true });
+  const text = t.text();
+  assert.match(text, /Analytics Hub is partly set up/);
+  assert.ok(text.includes(`Run "${commandLine('deploy-app')}"`), text);
+  assert.ok(text.includes('choose Share the app with the group'), text);
+  assert.ok(text.indexOf('Deploy the Analytics Hub app') < text.indexOf('Next steps'), 'the card leads');
+});
+
+test('summary: an app deployed after its step failed is said so, with no card to deploy it', async () => {
+  const t = appFailed();
+  Object.assign(t.config.fabricApp, { itemId: 'app-item', deployedAt: '2026-06-01T15:42:10.000Z' });
+  await summary(t.ctx, { ok: true, appFailed: false, appLate: '2026-06-01T15:42:10.000Z' });
+  const text = t.text();
+  assert.match(text, /Analytics Hub is set up/);
+  assert.match(text, /The app step above failed, but the app was deployed afterwards \(2026-06-01 15:42 UTC\)\./);
+  assert.doesNotMatch(text, /Deploy the Analytics Hub app/);
+  assert.match(text, /App: +Analytics Hub/);
+});
+
+test('install: the app counts as deployed after its step failed only for a new deployment to the workspace since the step', () => {
+  const config = emptyConfig();
+  config.fabric.workspaceId = 'ws-1';
+  config.fabricApp.enabled = true;
+  const step = { since: Date.parse('2026-06-01T12:00:00Z'), workspaceId: 'ws-1', deployedAt: undefined };
+  assert.equal(appDeployedSince(config, step), undefined, 'nothing deployed since');
+  Object.assign(config.fabricApp, { itemId: 'app-item', deployedAt: '2026-06-01T15:42:10.000Z' });
+  assert.equal(appDeployedSince(config, step), '2026-06-01T15:42:10.000Z');
+  assert.equal(appDeployedSince(config, { ...step, deployedAt: '2026-06-01T15:42:10.000Z' }), undefined, 'the deployment it already had');
+  assert.equal(appDeployedSince(config, { ...step, since: Date.parse('2026-06-01T16:00:00Z') }), undefined, 'from before the step');
+  assert.equal(appDeployedSince(config, { ...step, workspaceId: 'ws-2' }), undefined, 'the record has moved to another workspace');
+  assert.equal(appDeployedSince(config, { ...step, workspaceId: undefined }), undefined);
+  config.fabricApp.deployedAt = 'not a date';
+  assert.equal(appDeployedSince(config, step), undefined);
+  config.fabricApp.deployedAt = '2026-06-01T15:42:10.000Z';
+  config.fabricApp.enabled = false;
+  assert.equal(appDeployedSince(config, step), undefined, 'the app is no longer wanted');
+});
+
+test("install: a failed app deploy or unproven first load makes the install not ok, unless the app was deployed meanwhile and was the only failure", async () => {
   const src = await readFile(new URL('../src/install.js', import.meta.url), 'utf8');
-  assert.match(src, /appDeployed = await tryDeployApp\(ctx\)/);
-  assert.match(src, /ok = reloads\.ok && ok && appDeployed;\r?\n\s*await summary\(ctx, \{ ok, pending: reloads\.pending \}\)/);
+  assert.match(src, /const since = ctx\.now\(\)\.getTime\(\);\r?\n\s*appDeployed = await tryDeployApp\(ctx\);/);
+  assert.match(src, /if \(!appDeployed\) appFailure = \{ since, workspaceId: config\.fabric\.workspaceId, deployedAt: config\.fabricApp\.deployedAt \};/);
+  // Saving merges in what deploy-app saved while the first load ran, before the verdict.
+  assert.match(src, /if \(appFailure\) \{\r?\n(?:\s*\/\/.*\r?\n)?\s*ctx\.save\(\);\r?\n\s*appLate = appDeployedSince\(config, appFailure\);\r?\n\s*\}/);
+  // Not when a report or the data agent failed too: install-late-app.test.js runs each case.
+  assert.match(src, /const appOk = appDeployed \|\| \(!!appLate && published\);\r?\n\s*ok = reloads\.ok && ok && appOk;\r?\n\s*await summary\(ctx, \{ ok, pending: reloads\.pending, appFailed: !appDeployed && !appLate, appLate \}\)/);
   assert.match(src, /if \(opts\.wait && config\.firstRun\?\.status !== 'Completed'\) ok = false;/);
 });

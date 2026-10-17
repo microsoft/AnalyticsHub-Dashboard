@@ -5,10 +5,11 @@ import { createHash } from 'node:crypto';
 import { archiveConfig, loadConfig, removeFile, saveConfig } from './config.js';
 import { armErrors } from './clients/azure.js';
 import { plan, preflight, confirmPlan } from './steps/plan.js';
-import { askTarget, azurePreflight, confirmAzurePlan, deploymentPinned, planAzure, resourcesIn, supportsVnetGateway } from './steps/azure/index.js';
+import { askTarget, azurePreflight, azureResourceGraphOn, confirmAzurePlan, deploymentPinned, planAzure, resourcesIn, supportsVnetGateway } from './steps/azure/index.js';
 import { checkRegions, regionProblems, sqlProblem, allowedFor, ASK_TYPE } from './steps/azure/regions.js';
 import { askModelIn } from './steps/azure/ask.js';
 import { isResumeLater } from './steps/identity.js';
+import { resourceGraphOn } from './steps/resource-graph.js';
 import { checkStaged } from './staging.js';
 
 /** @typedef {import('./install.js').Ctx} Ctx */
@@ -24,6 +25,10 @@ export function setupCategories(config) {
   const azure = config.target === 'azure';
   const done = new Set(config.setup?.completed ?? []);
   const entry = (/** @type {string} */ id, /** @type {string} */ title, /** @type {string} */ summary) => ({ id, title, summary, complete: done.has(id) });
+  const rg = config.resourceGraph;
+  const resourceGraph = (azure ? azureResourceGraphOn(config) : resourceGraphOn(config))
+    ? `agents ${rg.agents ? 'on' : 'off'}, Foundry ${rg.foundry ? 'on' : 'off'}`
+    : 'off';
   return [
     entry('data', 'Data collection', `${azure && az?.sampleData ? 'Demo data; ' : ''}${Object.entries(config.modules).filter(([, on]) => on).map(([name]) => name).join(', ')}`),
     entry('placement', azure ? 'Azure placement' : 'Fabric placement', azure
@@ -35,7 +40,7 @@ export function setupCategories(config) {
     entry('access', 'Viewer access', config.access?.groupName ?? config.access?.groupId ?? 'Choose who can view'),
     ...(!azure ? [entry('identity', 'Identity and secrets', `${config.app.displayName ?? config.app.appId ?? 'App registration'}; ${config.keyVault.mode === 'notebook' ? 'secret in notebooks' : config.keyVault.name ?? 'Key Vault'}`)] : []),
     entry('sources', 'Module connections', 'Credit consumption, data sources and module-specific connections'),
-    entry('governance', 'Governance and flows', `Resource Graph: agents ${config.resourceGraph.agents ? 'on' : 'off'}, Foundry ${config.resourceGraph.foundry ? 'on' : 'off'}`),
+    entry('governance', 'Governance and flows', `Resource Graph: ${resourceGraph}`),
     ...(azure ? [entry('ask', 'Ask / AI', `${az?.ask?.mode ?? 'off'}${az?.ask?.location ? `; ${az.ask.location}` : ''}`)] : []),
     entry('schedule', 'Schedule and loading', `${config.schedule.frequency}, ${config.schedule.time} ${config.schedule.timeZone}; ${config.history.days} days; ${config.reporting?.currency ?? 'USD'}`),
   ];

@@ -356,6 +356,23 @@ export async function deployApp(ctx) {
 }
 
 /**
+ * After this run's app step failed: when the app has been deployed since, by deploy-app or Redeploy run while
+ * this run waited on the first load. Saving merges their record in. Only a new deployment to the same workspace,
+ * from after the step started, counts.
+ * @param {import('../config.js').InstallConfig} config
+ * @param {{ since: number, workspaceId?: string, deployedAt?: string }} step  When the step started, the workspace,
+ *   and the app's deployedAt once it had failed.
+ * @returns {string | undefined} When it was deployed.
+ */
+export function appDeployedSince(config, step) {
+  const fa = config.fabricApp;
+  if (!fa?.enabled || !fa.itemId || !fa.deployedAt || fa.deployedAt === step.deployedAt) return undefined;
+  if (!step.workspaceId || config.fabric?.workspaceId !== step.workspaceId) return undefined;
+  const at = Date.parse(fa.deployedAt);
+  return Number.isFinite(at) && at >= step.since ? fa.deployedAt : undefined;
+}
+
+/**
  * Builds the app from source with the customer's models and deploys it.
  * @param {Ctx} ctx
  * @param {string} dir
