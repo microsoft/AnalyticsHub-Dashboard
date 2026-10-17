@@ -150,7 +150,8 @@ export async function connect(opts) {
       createCredential({ tenantId: opts.tenantId || claims.tid, method: opts.method, clientId: GRAPH_CLI_APP_ID, print: (m) => opts.ui.line(m) }),
       { debug: opts.debug },
     );
-    const token = () => catalogToken(APP_CATALOG_SCOPE);
+    /** @param {{ abortSignal?: AbortSignal }} [o] */
+    const token = (o) => catalogToken(APP_CATALOG_SCOPE, o);
     api.appCatalog = appCatalogApi(createClient({ baseUrl: 'https://graph.microsoft.com/v1.0', getToken: token, debug: opts.debug }), token);
   }
   const me = await api.graph.me();

@@ -2,13 +2,14 @@
 /**
  * Publishes the Teams app package to the org's app catalog, so nobody has to upload it by hand, and keeps
  * that app up to date on later runs. When it can't (no admin role, no consent, a tenant policy, an API
- * error), the package stays on disk, the admin gets the steps to upload it, and the install carries on.
+ * error, a sign-in that isn't finished in time), or the admin chooses not to, the package stays on disk,
+ * the admin gets the steps to upload it, and the install carries on.
  *
  * Publishing needs the delegated AppCatalog.ReadWrite.All scope, which the installer's own sign-in (the
  * Azure CLI's app) can't ask for, so it signs in once more as Microsoft Graph Command Line Tools.
  */
 import { createHash } from 'node:crypto';
-import { isTransientNetworkError } from '../../auth.js';
+import { abandonSignIn, isTransientNetworkError } from '../../auth.js';
 import { TEAMS_PUBLISH_ROLES } from '../../clients/graph.js';
 import { HttpError } from '../../http.js';
 import { VIEWER_GROUP_NAME } from '../access.js';
@@ -23,6 +24,9 @@ export const MANAGE_APPS_URL = 'https://admin.teams.microsoft.com/policies/manag
 /** How the pending admin action starts when the installer couldn't publish the app, so a later run can clear it. */
 export const TEAMS_APP_PENDING = 'Publish the Teams app';
 
+/** How long the app catalog sign-in can take before the install carries on without it. */
+export const CATALOG_SIGN_IN_MS = 5 * 60_000;
+
 const PERMISSION = '"Read and write to all app catalogs" (AppCatalog.ReadWrite.All)';
 const STEPS_LATER = 'The install carries on, and the steps to upload it by hand come at the end.';
 
@@ -33,6 +37,7 @@ const STEPS_LATER = 'The install carries on, and the steps to upload it by hand 
  * @property {string} [role]  The role that allows it, when the installer could see it.
  * @property {string} [reason]  Why not, when it can't.
  * @property {string} [fix]  What lets a later run publish it, when it can't.
+ * @property {boolean} [skip]  The admin said no when the plan asked to publish it, so this run leaves it for them to upload.
  * @property {Promise<string | undefined>} [ready]  The sign-in for the app catalog, once started: undefined when it worked, otherwise why not.
  */
 
@@ -71,7 +76,7 @@ const accessFor = async (ctx) => (ctx.teamsCatalog ??= await checkCatalogAccess(
 
 /**
  * Signs in for the app catalog permission. Once per run, whatever the outcome, so a declined consent isn't
- * asked for again. Never throws.
+ * asked for again. Gives up after CATALOG_SIGN_IN_MS. Never throws.
  * @param {Ctx} ctx
  * @returns {Promise<string | undefined>}  Why it can't change the catalog, or undefined when it can.
  */
@@ -79,30 +84,72 @@ export async function catalogSignIn(ctx) {
   const access = await accessFor(ctx);
   const catalog = ctx.api.appCatalog;
   if (!access.canTry || !catalog) return access.reason ?? 'This sign-in can\'t change your org\'s app catalog.';
-  return (access.ready ??= catalog.signIn().then(() => undefined, catalogErrorReason));
+  return (access.ready ??= signInWithin(catalog, CATALOG_SIGN_IN_MS));
 }
 
 /**
- * Whether the catalog may need this run's package: nothing published yet, another version, or an app
- * published for another app registration.
+ * Signs in, but stops waiting after `ms`, so a browser sign-in that nobody finishes can't hold up the install.
+ * @param {import('../../clients/graph.js').AppCatalogApi} catalog
+ * @param {number} ms
+ * @returns {Promise<string | undefined>}  undefined when it worked, otherwise why not. Never rejects.
+ */
+function signInWithin(catalog, ms) {
+  const abort = new AbortController();
+  /** @type {ReturnType<typeof setTimeout> | undefined} */
+  let timer;
+  /** @type {Promise<string>} */
+  const timedOut = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      abort.abort();
+      // A code sign-in stops on the abort, but a browser sign-in keeps waiting for the browser.
+      abandonSignIn();
+      resolve(`The sign-in to Microsoft Graph Command Line Tools wasn't finished within ${ms / 60_000} minutes.`);
+    }, ms);
+  });
+  const signedIn = Promise.resolve()
+    .then(() => catalog.signIn({ abortSignal: abort.signal }))
+    .then(() => undefined, catalogErrorReason);
+  return Promise.race([signedIn, timedOut]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Whether the catalog may need this run's package: nothing published yet, another version, an app
+ * published for another app registration, or an earlier run that left the steps to upload it.
  * @param {AzureConfig} az
  * @param {string} version  The package's manifest version.
  */
 export function catalogNeedsChange(az, version) {
   const rec = az.teamsApp;
-  return !rec || rec.version !== version || rec.externalId !== az.webApp?.clientId;
+  return !rec || rec.version !== version || rec.externalId !== az.webApp?.clientId || !!az.status?.pendingAdminActions?.some((a) => a.startsWith(TEAMS_APP_PENDING));
+}
+
+/**
+ * With the plan: asks whether to publish the Teams app this run, when the installer can try. Saying no
+ * leaves it for an admin to upload by hand, with no sign-in. The default is the last answer this run, or yes.
+ * @param {Ctx} ctx
+ * @param {string} version  The package's manifest version.
+ */
+export async function askToPublishTeamsApp(ctx, version) {
+  const az = ctx.config.azure;
+  if (!az || !ctx.api.appCatalog || !catalogNeedsChange(az, version)) return;
+  const access = await accessFor(ctx);
+  if (!access.canTry) return;
+  access.skip = !(await ctx.ui.confirm('Publish the Teams app to your org\'s app catalog? It takes one more sign-in. If you say no, the installer prints the steps to upload it by hand.', !access.skip));
 }
 
 /**
  * Asks for the app catalog permission straight after the plan is approved, while the admin is still at the
- * keyboard, rather than at the end of the install. Does nothing when the catalog already has this version.
+ * keyboard, rather than at the end of the install. Does nothing when the catalog already has this version,
+ * or when the admin chose to upload it by hand.
  * @param {Ctx} ctx
  * @param {string} version  The package's manifest version.
  */
 export async function signInForTeamsApp(ctx, version) {
   const az = ctx.config.azure;
-  if (!az || !catalogNeedsChange(az, version) || !(await accessFor(ctx)).canTry) return;
-  ctx.ui.note('Signing in once more, as Microsoft Graph Command Line Tools, to publish the Teams app to your org\'s app catalog.');
+  if (!az || !catalogNeedsChange(az, version)) return;
+  const access = await accessFor(ctx);
+  if (!access.canTry || access.skip) return;
+  ctx.ui.note(`Signing in once more, as Microsoft Graph Command Line Tools, to publish the Teams app to your org's app catalog. If the sign-in isn't finished within ${CATALOG_SIGN_IN_MS / 60_000} minutes, the install carries on without it.`);
   const reason = await catalogSignIn(ctx);
   if (reason) ctx.ui.warn(`The installer can't publish the Teams app. ${reason} ${STEPS_LATER}`);
   else ctx.ui.ok('Signed in to publish the Teams app');
@@ -119,7 +166,9 @@ export function teamsAppPlanRow(ctx, version) {
   const row = { kind: 'Teams app', name: 'Analytics Hub in your org\'s app catalog' };
   if (az.teamsApp && !catalogNeedsChange(az, version)) return { ...row, isNew: false, detail: `Already published (version ${version}).` };
   const access = ctx.teamsCatalog;
-  if (access && !access.canTry) return { ...row, isNew: false, detail: `Not published by the installer. ${access.reason} The installer prints the steps for a Teams Administrator to upload it.` };
+  const byHand = 'The installer prints the steps for a Teams Administrator to upload it.';
+  if (access && !access.canTry) return { ...row, isNew: false, detail: `Not published by the installer. ${access.reason} ${byHand}` };
+  if (access?.skip) return { ...row, isNew: false, detail: `Not published by the installer. You chose to upload it by hand. ${byHand}` };
   const signIn = 'You sign in once more for this, to Microsoft Graph Command Line Tools.';
   return az.teamsApp
     ? { ...row, isNew: false, detail: `Update to version ${version}. ${signIn}` }
@@ -145,6 +194,9 @@ export async function publishTeamsApp(ctx, pkg) {
     if (clearPending(az)) ctx.save();
     ui.ok(`Teams app: up to date in your org's app catalog (version ${pkg.version})`);
     return;
+  }
+  if (ctx.teamsCatalog?.skip) {
+    return manual(ctx, pkg, 'You chose to upload it by hand. To have the installer publish it, run the installer again, choose Repair or change, and say yes to publishing it.', { existing: ours ? true : undefined, stale });
   }
   const reason = await catalogSignIn(ctx);
   if (reason) return manual(ctx, pkg, [reason, ctx.teamsCatalog?.fix].filter(Boolean).join(' '), { existing: ours ? true : undefined, stale });
@@ -183,8 +235,8 @@ export async function publishTeamsApp(ctx, pkg) {
           ui.ok(`Teams app: updated Analytics Hub to ${pkg.version} in your org's app catalog`);
         } catch (err) {
           if (!(order === 0 && err instanceof HttpError && (err.status === 400 || err.status === 409))) throw err;
-          // Recorded anyway, so later runs of this version don't sign in only to be turned down again.
-          ui.warn(`Teams app: your org's app catalog keeps Analytics Hub ${current}, because Teams didn't take this package as an update at the same version (${firstLine(err.message)}). The next installer version updates it.`);
+          // The record keeps the package Teams has, so the next run tries again.
+          return manual(ctx, pkg, `Teams kept Analytics Hub ${current} and didn't take this package as an update at the same version (${firstLine(err.message)}).`, { existing: true, stale });
         }
       }
     }
@@ -198,8 +250,8 @@ export async function publishTeamsApp(ctx, pkg) {
 }
 
 /**
- * Uninstall: deletes the app the installer published from the org's catalog. Never deletes an app it
- * didn't record, and never throws.
+ * Uninstall: deletes the app the installer looks after from the org's catalog, the one it published or a
+ * hand upload it took on. Never deletes an app it didn't record, and never throws.
  * @param {Ctx} ctx
  */
 export async function removeTeamsApp(ctx) {

@@ -152,7 +152,8 @@ Azure SQL Database serverless, Container Apps jobs, and the web app from the ARM
 registration, a Power BI workspace and model, and an `AnalyticsHub-Teams.zip` package (the app as a
 Teams tab, built by `src/azure/teams/build-package.mjs`) next to the install record. It publishes the
 package to your org's Teams app catalog, and later runs update that app rather than add another. If
-it can't, it prints the steps to upload it by hand and carries on.
+it can't, if you say no when the plan asks, or if the sign-in isn't finished within 5 minutes, it
+prints the steps to upload it by hand and carries on.
 
 `core`, `orgData`, `m365Activity` and `consumption` are supported on Azure. Other modules
 are shown as coming soon and cannot be selected. Credit consumption deploys the Consumption Central model,

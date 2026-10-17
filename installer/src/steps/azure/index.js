@@ -15,7 +15,7 @@ import { deployModel, MODEL_UPDATE_NOTE, modelSignature, REFRESH_POLL_MS, settle
 import { addMonths, OPTIONAL_PERMISSION_EFFECTS, OPTIONAL_PERMISSIONS, SECRET_LIFETIME_MONTHS } from '../identity.js';
 import { addTrackedSecret, promoteSecret, removeRetired } from '../secrets.js';
 import { manifestVersion, writeTeamsPackage } from '../../azure/teams.js';
-import { checkCatalogAccess, publishTeamsApp, removeTeamsApp, signInForTeamsApp, TEAMS_APP_PENDING, teamsAppPlanRow } from './teams-catalog.js';
+import { askToPublishTeamsApp, checkCatalogAccess, publishTeamsApp, removeTeamsApp, signInForTeamsApp, TEAMS_APP_PENDING, teamsAppPlanRow } from './teams-catalog.js';
 import { APP_ALIAS, CONSUMPTION_ALIAS } from '../app.js';
 import { AZURE_AI_ROLES, ensureAzureAiAccess, planConsumption } from '../consumption.js';
 import { AZURE_LANDING_DIRS, azureDropLabel, azureDropsToSharePoint, ensureFlows, flowsSummary, flowsWanted, offerStudioRun, planFlows } from '../flows.js';
@@ -1049,6 +1049,8 @@ export async function confirmAzurePlan(ctx) {
     sqlMaxVcores: liveSql.capacity, powerBiCapacityId: az.powerBi?.capacityId,
   });
   for (const w of sizing) ui.warn(w);
+  // Before the review, which shows the answer. The web UI takes a question after the review as the plan's own.
+  await askToPublishTeamsApp(ctx, manifestVersion(pkgVersion()));
   ui.review(azurePlanReview(ctx));
   ui.note(keepAwake());
   return ui.confirm('Go ahead?', true);

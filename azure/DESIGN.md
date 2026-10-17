@@ -360,12 +360,17 @@ Before showing the plan, the installer runs these checks and offers a fix for ea
 - The installer then publishes the package to the org's app catalog through Graph (`POST /appCatalogs/teamsApps`),
   and later runs update that app (`POST /appCatalogs/teamsApps/{id}/appDefinitions`). It finds the app by
   `externalId`, the manifest `id`, which is the web app's client ID, so it never adds a second one and it adopts
-  one uploaded by hand. It skips the update when the record has the same version and package hash, and leaves a
-  newer version in the catalog alone. `AppCatalog.ReadWrite.All` is delegated only, and the Azure CLI's client
+  one uploaded by hand. It skips the update when the record has the same version and package hash. If Teams turns
+  down an update at the same version (400 or 409), the record keeps the last package Teams accepted and the pending
+  admin action stays, so the next run asks, signs in and tries again. A newer version in the catalog is left alone.
+  `AppCatalog.ReadWrite.All` is delegated only, and the Azure CLI's client
   can't ask for it, so the installer signs in once more as Microsoft Graph Command Line Tools
-  (`14d82eec-204b-4c2f-b7e8-296a70dab67e`). Without the Teams Administrator or Global Administrator role, without
-  consent, with `--use-az`, or on any error, it keeps the zip, prints the steps to upload it by hand, records a
-  pending admin action and carries on. Uninstall deletes the app it recorded, and only that one. App setup
+  (`14d82eec-204b-4c2f-b7e8-296a70dab67e`). The plan asks first. Without the Teams Administrator or Global
+  Administrator role, without consent, with `--use-az`, if the admin says no, on any error, or when the sign-in
+  isn't finished within 5 minutes, it keeps the zip, prints the steps to upload it by hand, records a pending admin
+  action and carries on. A browser sign-in can't be cancelled (MSAL's loopback listener keeps waiting), so the
+  installer stops waiting for it and exits once it's done. Uninstall deletes the app it recorded (one it published,
+  or a hand upload it adopted), and only that one. App setup
   policies, which pin apps, have no Graph API, so pinning stays a step for a Teams admin.
 - On the app registration, the installer sets the identifier URI `api://<fqdn>/<clientId>` and pre-authorises the
   Teams clients `1fec8e78-bce4-4aaf-ab1b-5451cc387264` (desktop and mobile) and

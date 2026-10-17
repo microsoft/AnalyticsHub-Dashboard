@@ -119,14 +119,18 @@ export function createTokenProvider(credential, opts = {}) {
   const sleep = opts.sleep ?? ((/** @type {number} */ ms) => new Promise((r) => setTimeout(r, ms)));
   /** @type {Map<Resource, { token: string, expiresOn: number }>} */
   const cache = new Map();
-  /** @param {Resource} resource */
-  return async function getToken(resource) {
+  /**
+   * @param {Resource} resource
+   * @param {{ abortSignal?: AbortSignal }} [o]  abortSignal: stop waiting for a sign-in. A code sign-in stops; a browser sign-in doesn't, see abandonSignIn.
+   */
+  return async function getToken(resource, o = {}) {
     const hit = cache.get(resource);
     if (hit && hit.expiresOn - Date.now() > 5 * 60_000) return hit.token;
     const scope = resource in SCOPES ? SCOPES[/** @type {keyof typeof SCOPES} */ (resource)] : resource;
     for (let attempt = 1; ; attempt++) {
+      o.abortSignal?.throwIfAborted();
       try {
-        const t = await credential.getToken(scope);
+        const t = await (o.abortSignal ? credential.getToken(scope, { abortSignal: o.abortSignal }) : credential.getToken(scope));
         if (!t) throw new Error(`Could not get a token for ${resource}.`);
         cache.set(resource, { token: t.token, expiresOn: t.expiresOnTimestamp });
         return t.token;
@@ -134,13 +138,43 @@ export function createTokenProvider(credential, opts = {}) {
         if (isMsiAudienceError(err)) {
           throw new Error(msiAudienceMessage([resource in API_NAMES ? API_NAMES[/** @type {keyof typeof SCOPES} */ (resource)] : scope.replace(/\/\.default$/, '')]), { cause: err });
         }
-        if (attempt >= TOKEN_ATTEMPTS || !isTransientNetworkError(err)) throw err;
+        if (attempt >= TOKEN_ATTEMPTS || o.abortSignal?.aborted || !isTransientNetworkError(err)) throw err;
         const wait = Math.min(TOKEN_RETRY_MS * 2 ** (attempt - 1), 30_000);
         opts.debug?.(`Network error getting a token for ${resource}; trying again in ${Math.round(wait / 1000)}s`);
         await sleep(wait);
       }
     }
   };
+}
+
+/** Whether a sign-in was given up on while it waited for the browser. */
+let abandoned = false;
+
+/**
+ * Notes that a sign-in was given up on. A browser sign-in can't be stopped: its listener on localhost
+ * waits for the browser for ever, and would keep the installer running after it's done. exitWhenDone
+ * then ends it.
+ */
+export function abandonSignIn() {
+  abandoned = true;
+}
+
+/**
+ * Sets the exit code. After a sign-in was given up on, it also exits once the output is written,
+ * rather than waiting for that sign-in's listener, which never closes.
+ * @param {number} code
+ */
+export function exitWhenDone(code) {
+  process.exitCode = code;
+  if (!abandoned) return;
+  // In case a stream never calls back.
+  setTimeout(() => process.exit(code), 2_000).unref();
+  let waiting = 2;
+  const flushed = () => {
+    if (--waiting === 0) process.exit(code);
+  };
+  process.stdout.write('', flushed);
+  process.stderr.write('', flushed);
 }
 
 /**

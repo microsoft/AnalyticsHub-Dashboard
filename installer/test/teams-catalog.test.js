@@ -9,7 +9,7 @@ import { manifestVersion, writeTeamsPackage } from '../src/azure/teams.js';
 import { appCatalogApi } from '../src/clients/graph.js';
 import { createClient, HttpError } from '../src/http.js';
 import { azureSummary } from '../src/steps/azure/index.js';
-import { catalogErrorReason, checkCatalogAccess, MANAGE_APPS_URL, publishTeamsApp, removeTeamsApp, signInForTeamsApp, TEAMS_APP_PENDING, teamsAppPlanRow } from '../src/steps/azure/teams-catalog.js';
+import { catalogErrorReason, CATALOG_SIGN_IN_MS, askToPublishTeamsApp, checkCatalogAccess, MANAGE_APPS_URL, publishTeamsApp, removeTeamsApp, signInForTeamsApp, TEAMS_APP_PENDING, teamsAppPlanRow } from '../src/steps/azure/teams-catalog.js';
 import { fakeAppCatalog, fakeCtx, fakeUi, readManifest } from './fakes.js';
 
 /** @typedef {import('../src/config.js').AzureConfig} AzureConfig */
@@ -23,6 +23,7 @@ const PATH = '/installs/AnalyticsHub-Teams.zip';
 const WHERE = `Teams admin center > Teams apps > Manage apps (${MANAGE_APPS_URL})`;
 const UPLOAD_PENDING = `${TEAMS_APP_PENDING}: upload ${PATH} in ${WHERE}.`;
 const NOW = '2026-06-01T12:00:00.000Z';
+const PUBLISH_QUESTION = 'Publish the Teams app to your org\'s app catalog? It takes one more sign-in. If you say no, the installer prints the steps to upload it by hand.';
 
 /**
  * A package as writeTeamsPackage returns it. The fake catalog reads its bytes as the manifest; `build`
@@ -48,11 +49,11 @@ const graphError = (status, message = `POST /v1.0/appCatalogs/teamsApps returned
 
 /**
  * A run on the Azure path. A Teams Administrator is signed in unless `roles` says otherwise; `catalog: false`
- * is a sign-in with the Azure CLI, which has no app catalog client.
- * @param {{ roles?: { roleTemplateId: string, displayName: string }[] | Error, apps?: import('../src/clients/graph.js').TeamsCatalogApp[], catalog?: boolean, teamsApp?: AzureConfig['teamsApp'], pending?: string[] }} [o]
+ * is a sign-in with the Azure CLI, which has no app catalog client. `answers` scripts the admin's replies.
+ * @param {{ roles?: { roleTemplateId: string, displayName: string }[] | Error, apps?: import('../src/clients/graph.js').TeamsCatalogApp[], catalog?: boolean, teamsApp?: AzureConfig['teamsApp'], pending?: string[], answers?: any[] }} [o]
  */
 function setup(o = {}) {
-  const ui = fakeUi();
+  const ui = fakeUi({ answers: o.answers });
   const catalog = fakeAppCatalog({ apps: o.apps });
   /** @type {string[]} */
   const graphCalls = [];
@@ -153,20 +154,35 @@ test('a changed package at the same version is sent as an update', async () => {
   assert.equal(t.az.teamsApp?.sha256, sha(changed));
 });
 
-test('when Teams turns down a same-version update, the install carries on and later runs leave it', async () => {
-  const t = setup();
-  await publishTeamsApp(t.ctx, pkg('0.6.7'));
-  t.rerun();
-  t.catalog.failures.update = [graphError(400, 'POST /v1.0/appCatalogs/teamsApps/catalog-app-1/appDefinitions returned 400 BadRequest: The version must be higher.')];
-  const changed = pkg('0.6.7', { build: 2 });
-  await publishTeamsApp(t.ctx, changed);
-  assert.match(t.ui.text(), /Teams app: your org's app catalog keeps Analytics Hub 0\.6\.7, because Teams didn't take this package as an update at the same version \(POST .* returned 400 BadRequest: The version must be higher\.\)\. The next installer version updates it\./);
-  assert.equal(t.az.teamsApp?.sha256, sha(changed));
-  assert.deepEqual(t.az.status?.pendingAdminActions, []);
-  t.rerun();
-  await publishTeamsApp(t.ctx, changed);
-  assert.deepEqual(t.catalog.calls, [], 'not turned down again on every run');
-});
+for (const c of [
+  { status: 400, message: 'POST /v1.0/appCatalogs/teamsApps/catalog-app-1/appDefinitions returned 400 BadRequest: The version must be higher.', reason: /Teams app: not published to your org's app catalog\. Teams kept Analytics Hub 0\.6\.7 and didn't take this package as an update at the same version \(POST .* returned 400 BadRequest: The version must be higher\.\)\./ },
+  { status: 409, message: 'POST /v1.0/appCatalogs/teamsApps/catalog-app-1/appDefinitions returned 409 Conflict', reason: /Teams app: not published to your org's app catalog\. Teams kept Analytics Hub 0\.6\.7 and didn't take this package as an update at the same version \(POST .* returned 409 Conflict\)\./ },
+  { status: 403, message: 'POST /v1.0/appCatalogs/teamsApps/catalog-app-1/appDefinitions returned 403 Forbidden', reason: /Teams app: not published to your org's app catalog\. Microsoft Graph refused it \(403\)\./ },
+]) {
+  test(`when Teams turns down a same-version update (${c.status}), it keeps what Teams has, leaves the steps, and the next run tries again`, async () => {
+    const t = setup();
+    const first = pkg('0.6.7');
+    await publishTeamsApp(t.ctx, first);
+    t.rerun();
+    t.catalog.failures.update = [graphError(c.status, c.message)];
+    const changed = pkg('0.6.7', { build: 2 });
+    await publishTeamsApp(t.ctx, changed);
+    assert.deepEqual(t.catalog.calls, ['signIn', `find ${CLIENT_ID}`, 'update catalog-app-1 0.6.7']);
+    const out = t.ui.text();
+    assert.match(out, c.reason);
+    assert.match(out, /2\. Selects Analytics Hub, then Upload file on its page, and chooses \/installs\/AnalyticsHub-Teams\.zip/);
+    assert.equal(t.az.teamsApp?.sha256, sha(first), 'the record keeps the package Teams took');
+    assert.deepEqual(t.az.status?.pendingAdminActions, [UPLOAD_PENDING]);
+
+    t.rerun();
+    assert.match(teamsAppPlanRow(t.ctx, '0.6.7').detail, /^Update to version 0\.6\.7\. You sign in once more/, 'the plan says it tries again');
+    await signInForTeamsApp(t.ctx, '0.6.7');
+    await publishTeamsApp(t.ctx, changed);
+    assert.deepEqual(t.catalog.calls, ['signIn', `find ${CLIENT_ID}`, 'update catalog-app-1 0.6.7'], 'the next run sends the update again');
+    assert.equal(t.az.teamsApp?.sha256, sha(changed));
+    assert.deepEqual(t.az.status?.pendingAdminActions, []);
+  });
+}
 
 test('a newer version in the catalog is left alone', async () => {
   const t = setup({ apps: [catalogApp('uploaded-by-hand', '0.6.10')], pending: [UPLOAD_PENDING] });
@@ -264,6 +280,94 @@ test('a sign-in that needs admin consent is asked for once, and the install carr
   assert.match(out, new RegExp(`The installer can't publish the Teams app\\. ${consent} The install carries on, and the steps to upload it by hand come at the end\\.`));
   assert.match(out, new RegExp(`Teams app: not published to your org's app catalog\\. ${consent}`));
   assert.deepEqual(t.az.status?.pendingAdminActions, [UPLOAD_PENDING]);
+});
+
+test('a declined sign-in leaves the steps to upload it, and the install carries on', async () => {
+  const t = setup();
+  t.catalog.failures.signIn = [new Error('AADSTS65004: User declined to consent to access the app.')];
+  await signInForTeamsApp(t.ctx, '0.6.7');
+  await publishTeamsApp(t.ctx, pkg('0.6.7'));
+  assert.deepEqual(t.catalog.calls, ['signIn']);
+  assert.match(t.ui.text(), /Teams app: not published to your org's app catalog\. The app catalog permission, .*, was declined at sign-in\./);
+  assert.equal(t.az.teamsApp, undefined);
+  assert.deepEqual(t.az.status?.pendingAdminActions, [UPLOAD_PENDING]);
+});
+
+/** @type {{ label: string, wait: (signal?: AbortSignal) => Promise<unknown> }[]} */
+const unfinished = [
+  // The browser sign-in's listener ignores the signal and waits for ever.
+  { label: 'a browser sign-in left open', wait: () => new Promise(() => {}) },
+  { label: 'a code sign-in nobody enters', wait: (signal) => new Promise((_, reject) => signal?.addEventListener('abort', () => reject(new Error('AbortError: The operation was aborted.')))) },
+];
+for (const c of unfinished) {
+  test(`${c.label} is given up on after 5 minutes, and the install carries on with the steps`, async (tt) => {
+    tt.mock.timers.enable({ apis: ['setTimeout'] });
+    const t = setup();
+    /** @type {AbortSignal | undefined} */
+    let signal;
+    t.catalog.api.signIn = async (o) => {
+      t.catalog.calls.push('signIn');
+      signal = o?.abortSignal;
+      await c.wait(signal);
+    };
+    const signingIn = signInForTeamsApp(t.ctx, '0.6.7');
+    while (!signal) await new Promise((r) => setImmediate(r));
+    assert.equal(CATALOG_SIGN_IN_MS, 5 * 60_000);
+    tt.mock.timers.tick(CATALOG_SIGN_IN_MS - 1);
+    await new Promise((r) => setImmediate(r));
+    assert.equal(signal?.aborted, false, 'still waiting just before the time is up');
+    tt.mock.timers.tick(1);
+    await signingIn;
+    assert.equal(signal?.aborted, true);
+    let out = t.ui.text();
+    assert.match(out, /Signing in once more, as Microsoft Graph Command Line Tools, to publish the Teams app to your org's app catalog\. If the sign-in isn't finished within 5 minutes, the install carries on without it\./);
+    assert.match(out, /The installer can't publish the Teams app\. The sign-in to Microsoft Graph Command Line Tools wasn't finished within 5 minutes\. The install carries on, and the steps to upload it by hand come at the end\./);
+
+    await publishTeamsApp(t.ctx, pkg('0.6.7'));
+    assert.deepEqual(t.catalog.calls, ['signIn'], 'not asked again');
+    out = t.ui.text();
+    assert.match(out, /Teams app: not published to your org's app catalog\. The sign-in to Microsoft Graph Command Line Tools wasn't finished within 5 minutes\./);
+    assert.match(out, /2\. If Analytics Hub is listed, selects it, then Upload file on its page\. If not, selects Upload new app, then Upload\. Either way, chooses \/installs\/AnalyticsHub-Teams\.zip/);
+    assert.equal(t.az.teamsApp, undefined);
+    assert.deepEqual(t.az.status?.pendingAdminActions, [UPLOAD_PENDING]);
+  });
+}
+
+test('with the plan, the admin can choose to upload the Teams app by hand: no sign-in, and the steps at the end', async () => {
+  const t = setup({ answers: [false] });
+  await askToPublishTeamsApp(t.ctx, '0.6.7');
+  assert.deepEqual(t.ui.asked, [PUBLISH_QUESTION]);
+  assert.equal(t.ctx.teamsCatalog?.skip, true);
+  assert.deepEqual(teamsAppPlanRow(t.ctx, '0.6.7'), { kind: 'Teams app', name: 'Analytics Hub in your org\'s app catalog', isNew: false, detail: 'Not published by the installer. You chose to upload it by hand. The installer prints the steps for a Teams Administrator to upload it.' });
+  await signInForTeamsApp(t.ctx, '0.6.7');
+  await publishTeamsApp(t.ctx, pkg('0.6.7'));
+  assert.deepEqual(t.catalog.calls, [], 'no sign-in');
+  const out = t.ui.text();
+  assert.doesNotMatch(out, /Signing in once more/);
+  assert.match(out, /Teams app: not published to your org's app catalog\. You chose to upload it by hand\. To have the installer publish it, run the installer again, choose Repair or change, and say yes to publishing it\./);
+  assert.match(out, /2\. If Analytics Hub is listed, selects it, then Upload file on its page\. If not, selects Upload new app, then Upload\. Either way, chooses \/installs\/AnalyticsHub-Teams\.zip/);
+  assert.equal(t.az.teamsApp, undefined);
+  assert.deepEqual(t.az.status?.pendingAdminActions, [UPLOAD_PENDING]);
+});
+
+test('the plan asks about publishing the Teams app only when this run would sign in for it, and yes is the default', async () => {
+  const yes = setup();
+  await askToPublishTeamsApp(yes.ctx, '0.6.7');
+  assert.deepEqual(yes.ui.asked, [PUBLISH_QUESTION]);
+  assert.equal(yes.ctx.teamsCatalog?.skip, false);
+  assert.match(teamsAppPlanRow(yes.ctx, '0.6.7').detail, /^Publish version 0\.6\.7/);
+
+  const back = setup({ answers: [false] });
+  await askToPublishTeamsApp(back.ctx, '0.6.7');
+  await askToPublishTeamsApp(back.ctx, '0.6.7');
+  assert.equal(back.ui.asked.length, 2, 'asked again when the plan is shown again');
+  assert.equal(back.ctx.teamsCatalog?.skip, true, 'with the last answer as the default');
+
+  for (const quiet of [setup({ teamsApp: record('app-1', '0.6.7') }), setup({ roles: [GLOBAL_READER] }), setup({ catalog: false })]) {
+    await askToPublishTeamsApp(quiet.ctx, '0.6.7');
+    assert.deepEqual(quiet.ui.asked, [], 'up to date, no role, or no way to ask for the permission');
+    assert.deepEqual(quiet.catalog.calls, []);
+  }
 });
 
 for (const c of [
@@ -442,7 +546,7 @@ test('appCatalogApi finds the org\'s own app by its manifest ID, with its versio
   assert.deepEqual(apps.map((a) => a.id), ['ours']);
   const url = new URL(g.calls[0].url);
   assert.equal(url.pathname, '/v1.0/appCatalogs/teamsApps');
-  assert.equal(url.searchParams.get('$filter'), "externalId eq 'it''s'");
+  assert.equal(url.searchParams.get('$filter'), "distributionMethod eq 'organization' and externalId eq 'it''s'");
   assert.equal(url.searchParams.get('$expand'), 'appDefinitions');
 });
 

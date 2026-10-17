@@ -151,6 +151,24 @@ through Microsoft Graph, and updates that app on later runs. See
 | Pin it for the viewers (optional) | A **Teams Administrator**, with an app setup policy assigned to the viewer group. There's no Graph API for it, so the installer doesn't do it |
 | People can add it | The org-wide custom app setting, their app permission policy and the app's status in **Manage apps** allow it. The installer doesn't change them |
 
+**The consent.** The consent prompt has a **Consent on behalf of your organization** box. If the
+admin ticks it, the consent covers everyone in your tenant; if not, it covers only their own account.
+Either way it doesn't expire: it stays until someone revokes it, after an uninstall too. To revoke it,
+sign in to the [Microsoft Entra admin center](https://entra.microsoft.com) as at least a **Cloud
+Application Administrator** and go to **Entra ID** > **Enterprise apps** > **All applications** >
+**Microsoft Graph Command Line Tools** (app ID `14d82eec-204b-4c2f-b7e8-296a70dab67e`) >
+**Permissions** > **Admin consent**. Select **...** next to `AppCatalog.ReadWrite.All`, then **Revoke
+permission**. Leave its other permissions alone, as other scripts may use them. Consent for one
+account shows on the **User consent** tab, and is revoked with Microsoft Graph or PowerShell, not in
+the portal; see
+[Review permissions granted to enterprise applications](https://learn.microsoft.com/entra/identity/enterprise-apps/manage-application-permissions).
+
+Microsoft Graph Command Line Tools is the app that Microsoft Graph PowerShell (`Connect-MgGraph`)
+signs in with, so the consent applies there too: anyone it covers can use `AppCatalog.ReadWrite.All`
+from Graph PowerShell without being asked again. Like every delegated permission, it only acts as the
+person signed in, so nobody can do more with it than their own role allows. The installer doesn't keep
+the sign-in; its token is held in memory and goes when the installer closes.
+
 ---
 
 ## Viewing Analytics Hub (paths 1 and 2)
