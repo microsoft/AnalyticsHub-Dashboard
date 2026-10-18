@@ -26,8 +26,8 @@ the models that one of them publishes.
 | **Runs on** | Your Fabric capacity | Your Azure subscription | The Copilot Managed Runtime, hosted by Microsoft |
 | **You need** | A Fabric capacity, F2 or larger, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager) | An Azure subscription or resource group, and a Power BI workspace | A Fabric or Azure install, and a few admin settings |
 | **Loads the data** | Yes | Yes | No: it reads the Fabric or Azure models |
-| **Set up with** | The installer, or by hand | The installer | Microsoft's `ms` command line |
-| **Takes** | About 20 minutes. The first data arrives about 25 minutes after **Go ahead** | The same as Fabric | 8 steps, once the admin settings are on |
+| **Set up with** | The installer, or by hand | The installer | One command, from the `app` folder |
+| **Takes** | About 20 minutes. The first data arrives about 25 minutes after **Go ahead** | The same as Fabric | 3 steps, once the admin settings are on |
 | **Costs** | The Fabric capacity | About $5–40 a month for a small tenant | Power Apps Premium or Copilot Credits for each viewer, on top of Fabric or Azure |
 
 <a id="architecture-and-running-costs"></a>
@@ -69,8 +69,8 @@ Analytics Hub itself is free. See [Architecture and costs](docs/ARCHITECTURE.md)
 1. **Set up Fabric or Azure first.** The app reads the models they publish.
 2. **Ask your admins for the settings.** [Before you start](docs/MANAGED-APP.md#before-you-start)
    says who turns on what.
-3. **Deploy it.** Follow the [steps](docs/MANAGED-APP.md#steps) from the `app` folder, then share
-   it.
+3. **Run setup.** Install Node.js, get the code, and run one command. It deploys the app and
+   shares it. See the [steps](docs/MANAGED-APP.md#steps).
 
 **Then:** [Update or remove](docs/UPDATE.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) ·
 [FAQ](docs/FAQ.md) · [Release notes](CHANGELOG.md). These pages are also on the

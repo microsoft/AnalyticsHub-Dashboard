@@ -3,8 +3,8 @@
 The ValueLens dashboard as a web app in your Fabric workspace. The [installer](../installer/README.md)
 deploys it for you. Use this folder only to deploy it by hand or to change it.
 
-The same app also runs as a [Copilot Managed App](../docs/MANAGED-APP.md) (preview), built with
-`npm run build:managed` and deployed with the `ms` CLI.
+The same app also runs as a [Copilot Managed App](../docs/MANAGED-APP.md) (preview).
+`npm run deploy:managed` builds it with `npm run build:managed`, deploys it and shares it.
 
 The app keeps no copy of your data. Each page queries the semantic model live, as the person
 viewing it, so row-level security applies. How each figure is worked out is in the
@@ -159,7 +159,7 @@ A report pack is a named, ordered list of sections taken from any page. Packs ar
 |---|---|
 | Preview live | `npm run dev`, then open the app in Fabric with `&devUri=http://localhost:5173` on the URL |
 | Preview as a Copilot Managed App | Once it's [deployed](../docs/MANAGED-APP.md), `npm run dev:managed`, then open the **Local Play** URL it prints |
-| Build a Copilot Managed App | `npm run build:managed`. `ms app deploy` runs it for you |
+| Deploy a Copilot Managed App | `npm run deploy:managed`. It builds with `npm run build:managed`. See the [steps](../docs/MANAGED-APP.md#steps) |
 | Test | `npm test` and `npm run lint` |
 | Edit a query | `src/queries/<page>/`: a `.dax` query and a `.ts` definition per visual |
 | Edit a page | `src/screens/<page>/` |
@@ -170,7 +170,8 @@ Don't commit your IDs in `fabric.yaml` or the redirect URI that `rayfin up` adds
 The installer ships one build for every tenant, so it reads the model IDs from a
 `fabric.config.json` deployed next to the app. Newer files also include a `modules` block for the
 optional module choices. A deploy from this folder uses `fabric.yaml` instead. A Copilot Managed App
-build reads `managed-app.config.json` (copy [`managed-app.config.example.json`](managed-app.config.example.json)),
-which is built into the app. It and the `ms.config.json` that `ms app init` writes are gitignored. See
+build reads `managed-app.config.json`, which `npm run deploy:managed` writes from the models' links
+(or copy [`managed-app.config.example.json`](managed-app.config.example.json)). It's built into the
+app. It, and the files the managed apps CLI writes, are gitignored. See
 [`src/lib/runtime-config.ts`](src/lib/runtime-config.ts).
 [`AGENTS.md`](AGENTS.md) has the conventions for coding agents.

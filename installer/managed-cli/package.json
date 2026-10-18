@@ -1,0 +1,10 @@
+{
+  "name": "analytics-hub-managed-cli",
+  "version": "1.0.0",
+  "description": "Pins the Copilot managed apps CLI that `npm run deploy:managed` runs. Nothing else installs it.",
+  "license": "MIT",
+  "private": true,
+  "dependencies": {
+    "@microsoft/managed-apps-cli": "0.29.0"
+  }
+}

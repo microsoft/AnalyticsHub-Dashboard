@@ -14,6 +14,8 @@
     "build": "npx fabric-app-data generate -o src/fabric.generated.ts && tsc -b --noCheck && vite build",
     "build:fabric": "npx fabric-app-data generate -o src/fabric.generated.ts && tsc -b --noCheck && vite build",
     "build:managed": "npx fabric-app-data generate -o src/fabric.generated.ts && tsc -b --noCheck && vite build --mode managed",
+    "deploy:managed": "node scripts/deploy-managed.mjs",
+    "remove:managed": "node scripts/remove-managed.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",
