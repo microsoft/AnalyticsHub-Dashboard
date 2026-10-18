@@ -7,6 +7,10 @@ param imageTag = loadJsonContent('../../installer/package.json').version
 param modules = 'core,orgData' // Add ,consumption for credit consumption.
 param sqlReaderName = 'Analytics Hub SQL Reader' // The database user Power BI reads as.
 
+// Step 1. Remove deletes the resource group in this subscription.
+#disable-next-line no-unused-vars
+var subscription = ''
+
 // Step 2.
 param webClientId = ''
 param webAppIdUri = ''

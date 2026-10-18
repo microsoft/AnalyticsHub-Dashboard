@@ -12,7 +12,7 @@ For a Copilot Managed App, install on Fabric or Azure first, then see
 | Who | Fabric | Azure | Time |
 |---|---|---|---|
 | **You**, who run the installer | Contributor on an F2 or larger capacity, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager). Power BI Pro. Can register an app. | Owner, or Contributor and User Access Administrator, on a subscription or resource group. Power BI Pro. Can register an app. | 20 min |
-| **Fabric admin** | Turns on four tenant settings | Turns on two tenant settings | 5 min |
+| **Fabric admin** | Turns on four tenant settings | Turns on three tenant settings | 5 min |
 | **Entra admin** (Global Administrator or Privileged Role Administrator) | Grants admin consent for read-only Graph permissions | The same, for the app and the managed identity. Plus one to manage viewers from the web app | 2 min |
 | **Microsoft 365 admin** | Turns off concealed names in usage reports | The same | 1 min |
 | **Teams admin** | – | Publishes the Teams app to your org's app catalog | 2 min |
@@ -189,16 +189,19 @@ The detail behind [At a glance](#at-a-glance), with links to Microsoft Learn.
       or a [free trial](#what-it-costs). Use **F64 or larger** for a tenant with more than 10,000
       people. Make the person who runs the installer a **Contributor** on it.
 - [ ] **Tenant settings** turned on, in the Fabric admin portal under **Tenant settings**. They
-      can be on for the whole organisation, or for a security group that the app (Fabric) or
-      managed identity (Azure) is in:
+      can be on for the whole organisation, or just for security groups. If just for groups, who
+      needs each one has to be in one of them:
   - [*Service principals can call Fabric public APIs*](https://learn.microsoft.com/fabric/admin/service-admin-portal-developer#service-principals-can-call-fabric-public-apis).
-    Lets the daily loads run on their own. Fabric and Azure.
+    Lets the daily loads run on their own. Fabric and Azure. Needed by the app registration
+    (Fabric) or the managed identity (Azure).
   - [*Semantic Model Execute Queries REST API*](https://learn.microsoft.com/fabric/admin/service-admin-portal-integration#semantic-model-execute-queries-rest-api).
-    Lets the app's pages query the model. Fabric.
+    Lets the app's pages query the model, as the person using them. Fabric and Azure. Needed by
+    the people who use the app.
   - [*Fabric App items*](https://learn.microsoft.com/fabric/admin/tenant-settings-index#microsoft-fabric).
-    Lets the installer create the Analytics Hub app in Fabric. Fabric.
+    Lets the installer create the Analytics Hub app in Fabric. Fabric only. Needed by whoever
+    runs the installer.
   - *Allow visuals created using the Power BI SDK*, for the Power BI reports, or some visuals stay
-    blank. Fabric and Azure.
+    blank. Fabric and Azure. Needed by the people who open the reports.
 - [ ] **Leave on** *Users can access data stored in OneLake with apps external to Fabric*. It's on
       by default. The Power Automate flows need it.
 

@@ -34,7 +34,7 @@ Not sure? Use **Fabric**, with the installer.
 ## Azure by hand
 
 [Seven steps in Azure Cloud Shell](../MANUAL-INSTALL.md#azure), from the installer's own template
-and report.
+and report. They need a release that includes them: **Get the files** checks for one.
 
 ## Copilot Managed App (preview)
 

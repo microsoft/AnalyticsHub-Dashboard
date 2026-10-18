@@ -65,6 +65,7 @@ Analytics Hub itself is free. See [Architecture and costs](docs/ARCHITECTURE.md)
 **[🎥 Watch the manual setup](fabric/README.md#set-it-up-by-hand)** first.
 
 **Azure, by hand.** No installer: [seven steps in Azure Cloud Shell](docs/MANUAL-INSTALL.md#azure).
+They need a release that includes them: **Get the files** checks for one.
 
 ### Copilot Managed App (preview)
 

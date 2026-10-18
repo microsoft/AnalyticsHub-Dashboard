@@ -89,15 +89,16 @@ Want them? Use the [installer](INSTALL.md) instead, in a new workspace.
 ## Azure
 
 Set up the [Azure version](../azure/README.md) in [Azure Cloud Shell](https://shell.azure.com), in
-**Bash**, from the installer's own template, images and report. It's seven steps, plus Teams if you
-want it: about an hour, then about 25 minutes for the first load. When Cloud Shell first asks,
-mount a storage account, so your files are kept between sessions.
+**Bash**, from the installer's own template, images and report. It needs a release that includes
+it, so do **Get the files** before you ask your admins. It's seven steps, plus Teams if you want
+it: about an hour, then about 25 minutes for the first load. When Cloud Shell first asks, mount a
+storage account, so your files are kept between sessions.
 
 | Who | What |
 |---|---|
 | **You** | Owner, or Contributor and User Access Administrator, on the subscription ([Azure roles](PREREQUISITES.md#azure-roles)). Can register apps. Power BI Pro, and Power BI Desktop on Windows |
 | **Entra admin** (Global Administrator or Privileged Role Administrator) | Step 3, about 2 minutes |
-| **Fabric admin** | Turns on *Service principals can call Fabric public APIs*, *Semantic Model Execute Queries REST API* and *Allow visuals created using the Power BI SDK* ([where](PREREQUISITES.md#fabric-admin-about-5-minutes)). If they're on for a security group, adds the managed identity to it after step 1 |
+| **Fabric admin** | Turns on *Service principals can call Fabric public APIs*, *Semantic Model Execute Queries REST API* and *Allow visuals created using the Power BI SDK* ([where](PREREQUISITES.md#fabric-admin-about-5-minutes)). If one is only on for security groups, adds who needs it: the managed identity for the first, after step 1, and the people you let in for the other two |
 | **Microsoft 365 admin** | Turns off concealed names in usage reports ([how](PREREQUISITES.md#microsoft-365-admin)) |
 | **Teams admin** | Step 8, if you want Teams ([what](PREREQUISITES.md#teams-admin-for-the-teams-app-azure)) |
 
@@ -105,18 +106,29 @@ Paste each block whole. If a command fails, fix the cause and paste the block ag
 exists" errors are fine. If a new app "doesn't exist", wait a minute. If you're asked to sign in
 again, run `az login --use-device-code`.
 
+**Get the files.** This gets the latest release, if it includes Azure by hand and its images are
+published. If it says **Not available yet**, use the [installer](INSTALL.md), or try again after
+the next release. `my.bicepparam` is your install's record: the steps fill in its IDs.
+
+```bash
+[ -d ~/AnalyticsHub-Dashboard ] || git clone -q https://github.com/microsoft/AnalyticsHub-Dashboard ~/AnalyticsHub-Dashboard
+cd ~/AnalyticsHub-Dashboard && git fetch -q --tags
+get_release() {
+  TAG=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest); TAG=${TAG##*/}
+  [[ $TAG == installer-v* ]] && git cat-file -e $TAG:azure/infra/web-app-registration.json 2>/dev/null || { echo "Not available yet: the latest release doesn't include it."; return 1; }
+  V=$(git show $TAG:installer/package.json | jq -r .version)
+  for i in valuelens-jobs valuelens-web; do
+    T=$(curl -fsS "https://ghcr.io/token?scope=repository:microsoft/$i:pull" | jq -r .token)
+    curl -fsSI -o /dev/null -H "Authorization: Bearer $T" https://ghcr.io/v2/microsoft/$i/manifests/$V || { echo "Not available yet: the $i $V image isn't published."; return 1; }
+  done
+  git checkout -q --detach $TAG && echo "Using $TAG"
+}
+get_release && { [ -f azure/infra/my.bicepparam ] || cp azure/infra/main.bicepparam azure/infra/my.bicepparam; }
+```
+
 **Sign in, once.** Run `az login --use-device-code` and pick the subscription. Cloud Shell's own
 sign-in can't get tokens for some of the APIs used here. If Conditional Access blocks signing in
 with a code, ask whoever manages it.
-
-**Get the files, once.** `my.bicepparam` is your install's record: the steps fill in its IDs.
-
-```bash
-git clone https://github.com/microsoft/AnalyticsHub-Dashboard ~/AnalyticsHub-Dashboard
-cd ~/AnalyticsHub-Dashboard
-git checkout -q --detach "$(git tag -l 'installer-v*' --sort=-v:refname | head -1)"
-[ -f azure/infra/my.bicepparam ] || cp azure/infra/main.bicepparam azure/infra/my.bicepparam
-```
 
 **Each time Cloud Shell opens**, paste this first. Cloud Shell closes after 20 minutes idle. For
 another resource group name, change `analytics-hub` after `RG=`, every time.
@@ -133,6 +145,7 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
 
 1. **Deploy** (about 10 minutes). Change `uksouth` to your region first.
    ```bash
+   put subscription $(az account show --query id -o tsv)
    for p in App Sql Storage OperationalInsights ManagedIdentity; do
      az provider register -n Microsoft.$p --wait
    done
@@ -266,26 +279,27 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
 **Check it.** `az containerapp job execution list -g $RG -n job-vlens-run -o table` shows
 **Succeeded**, and the app shows data. If not, see [Troubleshooting](TROUBLESHOOTING.md).
 
-**Update.** Paste the setup block, then this, then run step 5:
+**Update.** Paste **Get the files**, then the setup block, then run step 5. If the
+[release notes](../CHANGELOG.md) say the report changed, do step 4 again and choose **Replace**
+when you publish. Then start a load, as at the end of step 6. Before a year is up, make a new key
+and enter it, as in step 6.
+
+**Remove.** Paste the setup block, then this. It deletes the workspace, both apps, and the
+resource group with everything in it, from the subscription step 1 used. Paste it again until it
+says **Removed**: until then, `my.bicepparam` keeps the IDs. Then remove the Teams app, and any
+roles you gave on other subscriptions.
 
 ```bash
-git fetch -q --tags
-git checkout -q --detach "$(git tag -l 'installer-v*' --sort=-v:refname | head -1)"
-```
-
-If the [release notes](../CHANGELOG.md) say the report changed, do step 4 again and choose
-**Replace** when you publish. Then start a load, as at the end of step 6. Before a year is up,
-make a new key and enter it, as in step 6.
-
-**Remove.** Paste the setup block, then this. Then remove the Teams app, and any roles you gave on
-other subscriptions.
-
-```bash
-az rest -m DELETE -u $API/groups/$WS --resource $PBI
-az ad app delete --id $WEB
-az ad app delete --id $READER
-az group delete -n $RG --yes --no-wait
-rm azure/infra/my.bicepparam
+S=$(get subscription)
+gone_ws() { [ -z "$WS" ] || [ "$(az rest -u $API/groups --resource $PBI --query "length(value[?id=='$WS'])" -o tsv)" = 0 ]; }
+gone_app() { [ -z "$1" ] || [ "$(az ad app list --app-id $1 --query 'length(@)' -o tsv)" = 0 ]; }
+gone_rg() { [ "$(az group exists -n $RG --subscription $S)" = false ]; }
+gone_ws || az rest -m DELETE -u $API/groups/$WS --resource $PBI
+gone_app $WEB || az ad app delete --id $WEB
+gone_app $READER || az ad app delete --id $READER
+[ "$(az group show -n $RG --subscription $S --query properties.provisioningState -o tsv)" = Succeeded ] && az group delete -n $RG --subscription $S --yes --no-wait
+left=; gone_ws || left+=" workspace"; gone_app $WEB || left+=" web-app"; gone_app $READER || left+=" sql-reader"; gone_rg || left+=" resource-group"
+if [ -z "$left" ]; then rm $P && echo Removed; else echo "Still there:$left. Paste this again in a few minutes."; false; fi
 ```
 
 **What you don't get by hand on Azure.** The installer does these:

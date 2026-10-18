@@ -30,6 +30,12 @@ Deployment instructions do **not** live here. They live in the READMEs:
   builds the settings file against the template.
 - **What you don't get** by hand, such as **Check status**, **Repair or change**, update checks
   and org-scoped access, is listed on the page.
+- **Only from a published release.** **Get the files** uses the latest release once it includes
+  Azure by hand and its images are published. Until then, it says **Not available yet**.
+- **Remove** keeps your IDs until it has checked that everything is gone, so you can paste it again.
+  It deletes and checks the resource group in the subscription step 1 recorded.
+- **Tenant settings.** [Prerequisites](docs/PREREQUISITES.md#fabric-admin-about-5-minutes) now
+  lists three for Azure, not two, and who needs each one if it's only on for some groups.
 
 The installer and Fabric by hand are unchanged.
 
