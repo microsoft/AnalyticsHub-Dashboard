@@ -20,6 +20,22 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+## Analytics Hub installer 0.6.7 (unreleased)
+
+**Release preparation only.** 0.6.7 is not published. 0.6.6 remains Latest; whether 0.6.7
+is published as a stable release or a pre-release, and whether it becomes Latest, are separate
+decisions.
+
+**What changed:** clean-PC installer fixes preserve concurrent app deployments and report failed
+steps accurately. Azure adds personal-tab support in Outlook and the Microsoft 365 Copilot app,
+plus optional Teams org app-catalog publication. Value, Consumption and Efficiency follow the
+Executive summary. Simpler docs are included below.
+
+**Update an existing install:** once 0.6.7 is published, run that version and choose
+**Repair or change**. Azure app-catalog publication needs an additional sign-in with the admin
+role and consent described below; you can continue without it and upload the package by hand.
+Pinning remains manual. This preparation adds no new schema migration or model-reset requirement.
+
 **Azure: the Teams tab also opens in Outlook and the Microsoft 365 Copilot app.**
 
 - **Same sign-in.** The installer pre-authorises the Outlook and Microsoft 365 app clients (web,
