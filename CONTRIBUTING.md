@@ -105,7 +105,7 @@ against a workspace or a local SQL database.
 | [`installer/`](installer/) | `AnalyticsHubInstaller.exe`: sets up, repairs and updates Fabric or Azure installs | Fabric and Azure |
 | [`fabric/`](fabric/) | Notebooks, pipeline, flows and Power BI templates for Fabric. The installer deploys them | Fabric by hand, or to see what's deployed |
 | [`app/`](app/) | The Analytics Hub app: a Fabric app item, the web app's front end on Azure, and the Copilot Managed App | Fabric by hand, the Copilot Managed App, or developers |
-| [`azure/`](azure/) | Bicep, Container Apps jobs, SQL schema, web app and Teams package for Azure | Developers |
+| [`azure/`](azure/) | Bicep, Container Apps jobs, SQL schema, web app and Teams package for Azure | Azure by hand, or developers |
 | [`core/`](core/) | `valuelens_core`, the Python shared by the Azure jobs and the Fabric Defender notebook | Developers |
 | [`samples/`](samples/) | Synthetic sample data for demo mode | Demos |
 | [`media/`](media/) | Screenshots and the demo video | Docs |

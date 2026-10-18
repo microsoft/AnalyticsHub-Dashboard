@@ -20,6 +20,19 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**Azure: set it up by hand, without the installer.**
+
+- **Seven steps in Azure Cloud Shell**, plus Teams if you want it, from the installer's own
+  template, images and report. See [Azure, by hand](docs/MANUAL-INSTALL.md#azure).
+- **Two files for it.** `azure/infra/main.bicepparam` is now the by-hand settings file: you copy it
+  and the steps fill it in. `azure/infra/web-app-registration.json` is the web app's registration.
+  A test keeps the registration and the page's Graph roles in step with the installer, and CI
+  builds the settings file against the template.
+- **What you don't get** by hand, such as **Check status**, **Repair or change**, update checks
+  and org-scoped access, is listed on the page.
+
+The installer and Fabric by hand are unchanged.
+
 **Azure: the Teams tab also opens in Outlook and the Microsoft 365 Copilot app.**
 
 - **Same sign-in.** The installer pre-authorises the Outlook and Microsoft 365 app clients (web,

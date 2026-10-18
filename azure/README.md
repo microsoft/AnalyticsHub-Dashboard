@@ -34,6 +34,8 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
    Administrator, it also publishes the tab to your org's app catalog, after one more sign-in
    ([what it needs](teams/README.md#give-it-to-everyone)).
 
+No installer? Set it up [by hand](../docs/MANUAL-INSTALL.md#azure) in Azure Cloud Shell.
+
 ## Share it
 
 Who can open the web app and the Teams tab is one Entra group, **Analytics Hub Viewers**, which the
@@ -183,3 +185,5 @@ ARM can't do these, so the installer:
 - Create or find the viewer group, give it Build on the models, and pass it to the web app as `VALUELENS_ACCESS`.
 - With credit consumption: the managed identity's Cost Management and Azure AI roles, write access to
   where the credit files land, the Consumption Central model, and the Copilot Studio Power Automate flow.
+
+To do them by hand, see [Azure, by hand](../docs/MANUAL-INSTALL.md#azure).

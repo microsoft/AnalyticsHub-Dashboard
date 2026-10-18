@@ -1,0 +1,111 @@
+{
+  "displayName": "Analytics Hub (Azure)",
+  "signInAudience": "AzureADMyOrg",
+  "spa": {
+    "redirectUris": [
+      "https://{{fqdn}}/",
+      "https://{{fqdn}}/?host=teams&auth=popup"
+    ]
+  },
+  "api": {
+    "oauth2PermissionScopes": [
+      {
+        "id": "f187649e-3af7-463f-bd2d-f4d2c42583ad",
+        "adminConsentDescription": "Allow users to access Analytics Hub.",
+        "adminConsentDisplayName": "Access Analytics Hub",
+        "isEnabled": true,
+        "type": "User",
+        "userConsentDescription": "Allow you to access Analytics Hub.",
+        "userConsentDisplayName": "Access Analytics Hub",
+        "value": "access_as_user"
+      }
+    ],
+    "preAuthorizedApplications": [
+      {
+        "appId": "1fec8e78-bce4-4aaf-ab1b-5451cc387264",
+        "delegatedPermissionIds": [
+          "f187649e-3af7-463f-bd2d-f4d2c42583ad"
+        ]
+      },
+      {
+        "appId": "5e3ce6c0-2b1f-4285-8d4b-75ee78787346",
+        "delegatedPermissionIds": [
+          "f187649e-3af7-463f-bd2d-f4d2c42583ad"
+        ]
+      },
+      {
+        "appId": "4765445b-32c6-49b0-83e6-1d93765276ca",
+        "delegatedPermissionIds": [
+          "f187649e-3af7-463f-bd2d-f4d2c42583ad"
+        ]
+      },
+      {
+        "appId": "0ec893e0-5785-4de6-99da-4ed124e5296c",
+        "delegatedPermissionIds": [
+          "f187649e-3af7-463f-bd2d-f4d2c42583ad"
+        ]
+      },
+      {
+        "appId": "d3590ed6-52b3-4102-aeff-aad2292ab01c",
+        "delegatedPermissionIds": [
+          "f187649e-3af7-463f-bd2d-f4d2c42583ad"
+        ]
+      },
+      {
+        "appId": "bc59ab01-8403-45c6-8796-ac3ef710b3e3",
+        "delegatedPermissionIds": [
+          "f187649e-3af7-463f-bd2d-f4d2c42583ad"
+        ]
+      },
+      {
+        "appId": "27922004-5251-4030-b22d-91ecd9a37ea4",
+        "delegatedPermissionIds": [
+          "f187649e-3af7-463f-bd2d-f4d2c42583ad"
+        ]
+      }
+    ]
+  },
+  "appRoles": [
+    {
+      "id": "dde95e6b-1031-4d78-85d4-d7339e7ce6d3",
+      "allowedMemberTypes": [
+        "User"
+      ],
+      "displayName": "Analytics Hub User",
+      "value": "AnalyticsHub.User",
+      "description": "Can use Analytics Hub.",
+      "isEnabled": true
+    },
+    {
+      "id": "a98b12e4-5b17-4cd9-a307-8d1bb3178c87",
+      "allowedMemberTypes": [
+        "User"
+      ],
+      "displayName": "Analytics Hub Admin",
+      "value": "AnalyticsHub.Admin",
+      "description": "Can administer Analytics Hub.",
+      "isEnabled": true
+    }
+  ],
+  "requiredResourceAccess": [
+    {
+      "resourceAppId": "00000009-0000-0000-c000-000000000000",
+      "resourceAccess": [
+        {
+          "id": "7f33e027-4039-419b-938e-2f8ca153e68e",
+          "type": "Scope"
+        }
+      ]
+    },
+    {
+      "resourceAppId": "00000003-0000-0000-c000-000000000000",
+      "resourceAccess": [
+        {
+          "id": "e1fe6dd8-ba31-4d61-89e7-88639da4683d",
+          "type": "Scope"
+        }
+      ]
+    }
+  ],
+  "notes": "Analytics Hub's Azure web app, set up by hand: docs/MANUAL-INSTALL.md#azure in the Analytics Hub repo."
+}

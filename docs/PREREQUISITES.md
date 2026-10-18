@@ -2,9 +2,10 @@
 
 What you need before you install, and who to ask. Send each admin their row before you start,
 so you don't stop halfway. Once you sign in, the installer's **Prerequisites** panel (`prereqs`)
-checks most of it for you, and changes nothing. Setting it up by hand? You also need
-[these](MANUAL-INSTALL.md#1-prerequisites). For a Copilot Managed App, install on Fabric or Azure
-first, then see [its own list](MANAGED-APP.md#before-you-start).
+checks most of it for you, and changes nothing. Setting it up by hand? On Fabric, you also need
+[these](MANUAL-INSTALL.md#1-prerequisites); on Azure, see [its list](MANUAL-INSTALL.md#azure).
+For a Copilot Managed App, install on Fabric or Azure first, then see
+[its own list](MANAGED-APP.md#before-you-start).
 
 ## At a glance
 

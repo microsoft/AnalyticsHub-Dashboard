@@ -29,3 +29,6 @@ Thumbs.db
 
 __pycache__/
 *.pyc
+
+# Azure, by hand: your copy of azure/infra/main.bicepparam
+azure/infra/my.bicepparam

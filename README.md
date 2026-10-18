@@ -26,7 +26,7 @@ the models that one of them publishes.
 | **Runs on** | Your Fabric capacity | Your Azure subscription | The Copilot Managed Runtime, hosted by Microsoft |
 | **You need** | A Fabric capacity, F2 or larger, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager) | An Azure subscription or resource group, and a Power BI workspace | A Fabric or Azure install, and a few admin settings |
 | **Loads the data** | Yes | Yes | No: it reads the Fabric or Azure models |
-| **Set up with** | The installer, or by hand | The installer | Microsoft's `ms` command line |
+| **Set up with** | The installer, or by hand | The installer, or by hand | Microsoft's `ms` command line |
 | **Takes** | About 20 minutes. The first data arrives about 25 minutes after **Go ahead** | The same as Fabric | 8 steps, once the admin settings are on |
 | **Costs** | The Fabric capacity | About $5–40 a month for a small tenant | Power Apps Premium or Copilot Credits for each viewer, on top of Fabric or Azure |
 
@@ -63,6 +63,8 @@ Analytics Hub itself is free. See [Architecture and costs](docs/ARCHITECTURE.md)
 [Prerequisites](docs/MANUAL-INSTALL.md#1-prerequisites) → [Install](docs/MANUAL-INSTALL.md#2-install)
 → [Check it worked](docs/MANUAL-INSTALL.md#3-verify).
 **[🎥 Watch the manual setup](fabric/README.md#set-it-up-by-hand)** first.
+
+**Azure, by hand.** No installer: [seven steps in Azure Cloud Shell](docs/MANUAL-INSTALL.md#azure).
 
 ### Copilot Managed App (preview)
 
@@ -117,7 +119,7 @@ on. The rest are optional cards on the installer's **Data sources** screen, or e
 |---|---|
 | [Prerequisites](docs/PREREQUISITES.md) · [Permissions](docs/PERMISSIONS.md) | Who does what, each permission and role, and costs |
 | [Install](docs/INSTALL.md) | The installer: every way to start it, and checking it worked |
-| [Manual install](docs/MANUAL-INSTALL.md) | Fabric, by hand |
+| [Manual install](docs/MANUAL-INSTALL.md) | Fabric or Azure, by hand |
 | [Copilot Managed App](docs/MANAGED-APP.md) | The app on the Copilot Managed Runtime (preview) |
 | [Update or remove](docs/UPDATE.md) | Keeping it current, and removing it |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) · [FAQ](docs/FAQ.md) | Error messages, known issues and short answers |

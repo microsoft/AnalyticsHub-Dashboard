@@ -4,11 +4,12 @@ Set Analytics Hub up by hand, step by step, without the installer. It uses the s
 installer does. Use it only if no [install route](INSTALL.md) works for you, or you want to see
 each piece.
 
-- **Fabric only.** Azure can't be set up by hand. See [Azure](#azure).
+- **Fabric or Azure.** Fabric is sections 1 to 3. Azure is [one section](#azure), in Azure Cloud
+  Shell.
 - **It takes longer**, and you update it by hand. The [installer](INSTALL.md) is quicker and
   does more for you: see [What you don't get by hand](#what-you-dont-get-by-hand).
-- **Watch first:** the [manual setup video](../fabric/README.md#set-it-up-by-hand), from a fresh
-  app registration to a self-refreshing report.
+- **Watch first** (Fabric): the [manual setup video](../fabric/README.md#set-it-up-by-hand), from
+  a fresh app registration to a self-refreshing report.
 
 ## 1. Prerequisites
 
@@ -63,7 +64,7 @@ Something wrong? See [Troubleshooting](TROUBLESHOOTING.md), including its [known
 
 ## Update
 
-There's no **Repair or change** by hand. For a new version:
+There's no **Repair or change** by hand. For a new version on Fabric:
 
 - **Notebooks:** import the new ones over the old, and fill in the first cell again.
 - **Pipeline:** paste the new JSON, fill in the IDs again, and re-add your refresh step. See
@@ -73,7 +74,7 @@ There's no **Repair or change** by hand. For a new version:
 
 ## What you don't get by hand
 
-The installer does these. By hand, you do them yourself or go without:
+On Fabric, the installer does these. By hand, you do them yourself or go without:
 
 - The **Analytics Hub Viewers** group and sharing.
 - The **Ask** page's Fabric data agent.
@@ -87,10 +88,216 @@ Want them? Use the [installer](INSTALL.md) instead, in a new workspace.
 
 ## Azure
 
-**Not supported by hand.** An Azure install needs steps that a template can't do: Graph app roles
-for the managed identity, the database users, the web app's registration and the Power BI models.
-Only the installer does them. See
-[After deployment](../azure/README.md#after-deployment-installer-steps-not-arm).
+Set up the [Azure version](../azure/README.md) in [Azure Cloud Shell](https://shell.azure.com), in
+**Bash**, from the installer's own template, images and report. It's seven steps, plus Teams if you
+want it: about an hour, then about 25 minutes for the first load. When Cloud Shell first asks,
+mount a storage account, so your files are kept between sessions.
 
-If your PC can't run the installer, run it in
-[Azure Cloud Shell](INSTALL.md#locked-down-tenant--azure-cloud-shell). Nothing runs on your PC.
+| Who | What |
+|---|---|
+| **You** | Owner, or Contributor and User Access Administrator, on the subscription ([Azure roles](PREREQUISITES.md#azure-roles)). Can register apps. Power BI Pro, and Power BI Desktop on Windows |
+| **Entra admin** (Global Administrator or Privileged Role Administrator) | Step 3, about 2 minutes |
+| **Fabric admin** | Turns on *Service principals can call Fabric public APIs*, *Semantic Model Execute Queries REST API* and *Allow visuals created using the Power BI SDK* ([where](PREREQUISITES.md#fabric-admin-about-5-minutes)). If they're on for a security group, adds the managed identity to it after step 1 |
+| **Microsoft 365 admin** | Turns off concealed names in usage reports ([how](PREREQUISITES.md#microsoft-365-admin)) |
+| **Teams admin** | Step 8, if you want Teams ([what](PREREQUISITES.md#teams-admin-for-the-teams-app-azure)) |
+
+Paste each block whole. If a command fails, fix the cause and paste the block again: "already
+exists" errors are fine. If a new app "doesn't exist", wait a minute. If you're asked to sign in
+again, run `az login --use-device-code`.
+
+**Sign in, once.** Run `az login --use-device-code` and pick the subscription. Cloud Shell's own
+sign-in can't get tokens for some of the APIs used here. If Conditional Access blocks signing in
+with a code, ask whoever manages it.
+
+**Get the files, once.** `my.bicepparam` is your install's record: the steps fill in its IDs.
+
+```bash
+git clone https://github.com/microsoft/AnalyticsHub-Dashboard ~/AnalyticsHub-Dashboard
+cd ~/AnalyticsHub-Dashboard
+git checkout -q --detach "$(git tag -l 'installer-v*' --sort=-v:refname | head -1)"
+[ -f azure/infra/my.bicepparam ] || cp azure/infra/main.bicepparam azure/infra/my.bicepparam
+```
+
+**Each time Cloud Shell opens**, paste this first. Cloud Shell closes after 20 minutes idle. For
+another resource group name, change `analytics-hub` after `RG=`, every time.
+
+```bash
+cd ~/AnalyticsHub-Dashboard
+RG=analytics-hub; P=azure/infra/my.bicepparam
+PBI=https://analysis.windows.net/powerbi/api; API=https://api.powerbi.com/v1.0/myorg
+out() { az deployment group show -g $RG -n analytics-hub --query properties.outputs.$1.value -o tsv; }
+get() { sed -n -E "s/^(param|var) $1 = '([^']*)'.*/\2/p" $P; }
+put() { [ -n "$2" ] || { echo "No value for $1"; return 1; }; v="'$2'"; [[ $2 =~ ^(true|false|[0-9]+)$ ]] && v=$2; sed -i -E "s#^(// )?(param|var) $1 = .*#\2 $1 = $v#" $P; grep -E "^(param|var) $1 = " $P; }
+WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI=$(out identityPrincipalId 2>/dev/null)
+```
+
+1. **Deploy** (about 10 minutes). Change `uksouth` to your region first.
+   ```bash
+   for p in App Sql Storage OperationalInsights ManagedIdentity; do
+     az provider register -n Microsoft.$p --wait
+   done
+   az group create -n $RG -l uksouth -o none
+   az deployment group create -g $RG -n analytics-hub -p $P --query properties.provisioningState -o tsv
+   ```
+   If Azure SQL can't go in that region, run `put sqlLocation <region>` with another region, then
+   the last line again.
+2. **Register the apps:** the web app people sign in to, and the SQL reader that Power BI reads
+   the database as.
+   ```bash
+   FQDN=$(out webFqdn); MI=$(out identityPrincipalId); TENANT=$(az account show --query tenantId -o tsv)
+   sed "s/{{fqdn}}/$FQDN/g" azure/infra/web-app-registration.json > /tmp/web-app.json
+   [ -n "$WEB" ] || WEB=$(az rest -m POST -u https://graph.microsoft.com/v1.0/applications -b @/tmp/web-app.json --query appId -o tsv)
+   [ -n "$READER" ] || READER=$(az rest -m POST -u https://graph.microsoft.com/v1.0/applications -b '{"displayName": "Analytics Hub SQL Reader"}' --query appId -o tsv)
+   put webClientId $WEB; put webAppIdUri api://$FQDN/$WEB; put sqlReaderClientId $READER
+   sleep 30
+   az ad app update --id $WEB --identifier-uris api://$FQDN/$WEB
+   az ad sp create --id $WEB -o none
+   az ad sp create --id $READER -o none
+   az ad app federated-credential create --id $WEB --parameters "{\"name\": \"managed-identity\", \"issuer\": \"https://login.microsoftonline.com/$TENANT/v2.0\", \"subject\": \"$MI\", \"audiences\": [\"api://AzureADTokenExchange\"]}" -o none
+   ```
+3. **Entra admin** (about 2 minutes). Gives the managed identity its read-only Graph roles, and
+   consents to the web app's permissions. If that's not you, run `echo "MI=$MI WEB=$WEB"` and send
+   them what it prints and this block. They run `az login --use-device-code --allow-no-subscriptions`
+   in Cloud Shell (Bash), then paste both.
+   ```bash
+   GRAPH=$(az ad sp show --id 00000003-0000-0000-c000-000000000000 --query id -o tsv)
+   for role in AuditLogsQuery.Read.All Reports.Read.All User.Read.All; do
+     ID=$(az ad sp show --id $GRAPH --query "appRoles[?value=='$role'].id" -o tsv)
+     az rest -m POST -u https://graph.microsoft.com/v1.0/servicePrincipals/$MI/appRoleAssignments -b "{\"principalId\": \"$MI\", \"resourceId\": \"$GRAPH\", \"appRoleId\": \"$ID\"}" -o none
+   done
+   az ad app permission grant --id $WEB --api 00000009-0000-0000-c000-000000000000 --scope Dataset.Read.All -o none
+   az ad app permission grant --id $WEB --api 00000003-0000-0000-c000-000000000000 --scope User.Read -o none
+   ```
+4. **Publish the report.** This creates the **Analytics Hub (Azure)** workspace, with the managed
+   identity as a Member so it can refresh the model.
+   ```bash
+   [ -n "$WS" ] || WS=$(az rest -m POST -u "$API/groups?workspaceV2=True" --resource $PBI -b '{"name": "Analytics Hub (Azure)"}' --query id -o tsv)
+   put workspace $WS
+   az rest -m POST -u $API/groups/$WS/users --resource $PBI -b "{\"identifier\": \"$MI\", \"principalType\": \"App\", \"groupUserAccessRight\": \"Member\"}" -o none
+   cp "fabric/ValueLens - Fabric.pbit" ~/ValueLens.pbit
+   echo "Server: $(out sqlServerFqdn)  Database: $(out sqlDatabaseName)"
+   ```
+   - In Cloud Shell, choose **Manage files** > **Download**, enter `ValueLens.pbit`, and open it
+     in Power BI Desktop.
+   - Set **Fabric SQL Endpoint** to the server and **Lakehouse Name** to the database. Set
+     **Enable_ProductFeedback** and **Enable_Agent365** to `Exclude`. Leave the rest.
+   - Select **Load**, then **Cancel** when it asks you to sign in. The tables fill in at step 6.
+   - Save it as **Analytics Hub Model**, and **Publish** it to **Analytics Hub (Azure)**.
+   - Back in Cloud Shell:
+     ```bash
+     put model $(az rest -u $API/groups/$WS/datasets --resource $PBI --query "value[?name=='Analytics Hub Model'].id" -o tsv)
+     ```
+5. **Create the tables** (about 5 minutes). This deploys again with the new IDs, then makes the
+   tables and the SQL reader's database user.
+   ```bash
+   az deployment group create -g $RG -n analytics-hub -p $P --query properties.provisioningState -o tsv
+   az containerapp job start -g $RG -n job-vlens-migrate -o none
+   ```
+   Then run `az containerapp job execution list -g $RG -n job-vlens-migrate -o table` until it
+   shows **Succeeded**.
+6. **Load the data** (about 25 minutes).
+   - Make the SQL reader a key, which lasts a year:
+     `az ad app credential reset --id $READER --append --display-name "Power BI SQL credential"`.
+   - In Power BI, open **Analytics Hub Model**'s **Settings** > **Data source credentials** >
+     **Edit credentials**. Choose **Service principal**, and enter the `tenant`, the `appId` as
+     the ID and the `password` as the key. Set the privacy level to **Organizational**. If the
+     database isn't available, it's starting up: try again in a minute.
+   - Run `az containerapp job start -g $RG -n job-vlens-run -o none`. It refreshes the model when
+     it's done.
+7. **Let people in.**
+   ```bash
+   echo "Users: https://portal.azure.com/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Users/objectId/$(az ad sp show --id $WEB --query id -o tsv)/appId/$WEB"
+   echo "App: $(out webUrl)"
+   ```
+   - Open the **Users** link and select **Add user/group**. Add yourself as **Analytics Hub
+     Admin**, and others as **Analytics Hub User**. Groups need Entra ID P1 or P2. If you can't
+     add them, ask the Entra admin or a Cloud Application Administrator.
+   - In Power BI, share **Analytics Hub Model** with the same people, with **Allow recipients to
+     build content**. They need Power BI Pro.
+   - Once the first load is done, open the **App** link.
+8. **Teams** *(optional)*.
+   ```bash
+   node azure/teams/build-package.mjs --client-id $WEB --fqdn $(out webFqdn) --version $(node -p "require('./installer/package.json').version") --out ~/AnalyticsHub-Teams.zip
+   ```
+   Download `AnalyticsHub-Teams.zip` as in step 4, and give it to a Teams admin to
+   [upload](../azure/teams/README.md#if-the-installer-cant-publish-it).
+
+**Extras** *(optional)*. Run its line before step 5, or run step 5 again after it.
+
+| Extra | Line |
+|---|---|
+| Sample data, not your tenant's | `put sampleData true` |
+| [Ask](../azure/README.md#ask) | `az provider register -n Microsoft.CognitiveServices --wait`, then `put askMode create` |
+| More history, before step 6 | `put auditHistoryDays 90` (30, 90 or 180 days) |
+| Load time, in UTC (03:00 by default) | `put runSchedule '0 6 * * *'` |
+| Azure SQL's free offer, before step 1 | `put sqlUseFreeLimit true` |
+
+**Credit consumption** *(optional)*. After step 7, for the
+[Consumption Central pages](../azure/README.md#credit-consumption), from exports you upload:
+
+1. Run `put modules core,orgData,consumption`.
+2. Give yourself access to the storage account. It can take a few minutes to work.
+   ```bash
+   az role assignment create --assignee $(az ad signed-in-user show --query id -o tsv) --role "Storage Blob Data Contributor" --scope $(az storage account show -g $RG -n $(out storageAccountName) --query id -o tsv) -o none
+   ```
+   Then, in the portal, open the storage account's `landing` container. Upload the Power Platform
+   admin center's credit CSVs to `studio/`, and the Viva Insights export to `viva/`.
+3. **Azure AI costs** *(optional)*. Run `put azureAiSubscriptionId <id>` with the ID of the
+   subscription your Azure AI resources are in, then this. It needs Owner or User Access
+   Administrator there.
+   ```bash
+   for r in Reader "Cost Management Reader" "Monitoring Reader"; do
+     az role assignment create --assignee-object-id $MI --assignee-principal-type ServicePrincipal --role "$r" --scope /subscriptions/$(get azureAiSubscriptionId) -o none
+   done
+   ```
+4. Publish the second report. Run this, then do as in step 4 with `ConsumptionCentral.pbit`: set
+   **FabricSQLEndpoint** to the server and **LakehouseName** to the database, and save it as
+   **Analytics Hub Consumption Model**.
+   ```bash
+   cp "fabric/Add Credit Consumption/Consumption Central - Fabric.pbit" ~/ConsumptionCentral.pbit
+   echo "Server: $(out sqlServerFqdn)  Database: $(out sqlDatabaseName)"
+   ```
+   Then:
+   ```bash
+   put consumptionModel $(az rest -u $API/groups/$WS/datasets --resource $PBI --query "value[?name=='Analytics Hub Consumption Model'].id" -o tsv)
+   ```
+5. Run step 5 again, then step 6 for **Analytics Hub Consumption Model**. Share it as in step 7.
+
+**Check it.** `az containerapp job execution list -g $RG -n job-vlens-run -o table` shows
+**Succeeded**, and the app shows data. If not, see [Troubleshooting](TROUBLESHOOTING.md).
+
+**Update.** Paste the setup block, then this, then run step 5:
+
+```bash
+git fetch -q --tags
+git checkout -q --detach "$(git tag -l 'installer-v*' --sort=-v:refname | head -1)"
+```
+
+If the [release notes](../CHANGELOG.md) say the report changed, do step 4 again and choose
+**Replace** when you publish. Then start a load, as at the end of step 6. Before a year is up,
+make a new key and enter it, as in step 6.
+
+**Remove.** Paste the setup block, then this. Then remove the Teams app, and any roles you gave on
+other subscriptions.
+
+```bash
+az rest -m DELETE -u $API/groups/$WS --resource $PBI
+az ad app delete --id $WEB
+az ad app delete --id $READER
+az group delete -n $RG --yes --no-wait
+rm azure/infra/my.bicepparam
+```
+
+**What you don't get by hand on Azure.** The installer does these:
+
+- **Check status**, **Repair or change**, update checks, key rotation and **Uninstall**. These
+  need an [install record](INSTALL.md#run-it).
+- Load status cards, Microsoft 365 activity, Defender, Azure Resource Graph, pay-as-you-go spend
+  and the reporting currency. These need the model the installer builds.
+- The **Analytics Hub Viewers** group, **Share** in the app, and
+  [org-scoped access](PERMISSIONS.md#org-scoped-access-row-level-security). Everyone you let in
+  sees all the data.
+- The Copilot Studio credits flow. Upload the exports instead.
+- Private networking, and publishing the Teams app for you.
+
+Want them? Use the [installer](INSTALL.md) instead, in a new resource group.

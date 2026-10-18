@@ -123,6 +123,9 @@ def test_relative_links_and_anchors_resolve(path):
         ("docs/wiki/Home.md", "manual-by-hand-fabric"),
         ("docs/MANAGED-APP.md", "before-you-start"),
         ("docs/MANAGED-APP.md", "steps"),
+        # Hard-coded in azure/infra/main.bicepparam, web-app-registration.json and
+        # installer/test/azure-by-hand.test.js.
+        ("docs/MANUAL-INSTALL.md", "azure"),
     ],
 )
 def test_old_anchors_still_land(page, anchor):

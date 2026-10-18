@@ -11,7 +11,7 @@ Not sure? Use **Fabric**, with the installer.
 | | **Fabric** (recommended) | **Azure** | **Copilot Managed App** (preview) |
 |---|---|---|---|
 | **Runs on** | Your Fabric capacity | Your Azure subscription | The Copilot Managed Runtime, hosted by Microsoft |
-| **Set up with** | The installer, or by hand | The installer | Microsoft's `ms` command line |
+| **Set up with** | The installer, or by hand | The installer, or by hand | Microsoft's `ms` command line |
 | **Loads the data** | Yes | Yes | No: it reads the Fabric or Azure models |
 
 <a id="automatic-installer"></a>
@@ -30,6 +30,11 @@ Not sure? Use **Fabric**, with the installer.
    create.
 2. [Install](../MANUAL-INSTALL.md#2-install): notebooks, report, pipeline, then the app.
 3. [Check it worked](../MANUAL-INSTALL.md#3-verify): the pipeline run, the data and the report.
+
+## Azure by hand
+
+[Seven steps in Azure Cloud Shell](../MANUAL-INSTALL.md#azure), from the installer's own template
+and report.
 
 ## Copilot Managed App (preview)
 
