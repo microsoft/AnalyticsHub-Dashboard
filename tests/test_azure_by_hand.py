@@ -385,7 +385,9 @@ def test_get_the_files_stops_if_the_latest_release_does_not_include_it(github, u
     assert NOT_INCLUDED in r.stdout
     assert not github.record.exists()
     assert github.branch() == "refs/heads/main"
-    assert not [c for c in calls(github.state) if "ghcr.io" in c]
+    # It asks for the latest release, and nothing else: no image checks.
+    curled = [c.split()[-1] for c in calls(github.state) if c.startswith("curl ")]
+    assert curled == [REPO + "/releases/latest"]
 
 
 @pytest.mark.parametrize("image", ["valuelens-jobs", "valuelens-web"])
