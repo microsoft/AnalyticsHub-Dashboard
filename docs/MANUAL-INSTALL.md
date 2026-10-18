@@ -111,9 +111,9 @@ published. If it says **Not available yet**, use the [installer](INSTALL.md), or
 the next release. `my.bicepparam` is your install's record: the steps fill in its IDs.
 
 ```bash
-[ -d ~/AnalyticsHub-Dashboard ] || git clone -q https://github.com/microsoft/AnalyticsHub-Dashboard ~/AnalyticsHub-Dashboard
-cd ~/AnalyticsHub-Dashboard && git fetch -q --tags
-get_release() {
+get_files() {
+  [ -d ~/AnalyticsHub-Dashboard ] || git clone -q https://github.com/microsoft/AnalyticsHub-Dashboard ~/AnalyticsHub-Dashboard || return
+  cd ~/AnalyticsHub-Dashboard && git fetch -q --tags || return
   TAG=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest); TAG=${TAG##*/}
   [[ $TAG == installer-v* ]] && git cat-file -e $TAG:azure/infra/web-app-registration.json 2>/dev/null || { echo "Not available yet: the latest release doesn't include it."; return 1; }
   V=$(git show $TAG:installer/package.json | jq -r .version)
@@ -121,9 +121,11 @@ get_release() {
     T=$(curl -fsS "https://ghcr.io/token?scope=repository:microsoft/$i:pull" | jq -r .token)
     curl -fsSI -o /dev/null -H "Authorization: Bearer $T" https://ghcr.io/v2/microsoft/$i/manifests/$V || { echo "Not available yet: the $i $V image isn't published."; return 1; }
   done
-  git checkout -q --detach $TAG && echo "Using $TAG"
+  git checkout -q --detach $TAG || return
+  [ -f azure/infra/my.bicepparam ] || cp azure/infra/main.bicepparam azure/infra/my.bicepparam || return
+  echo "Using $TAG"
 }
-get_release && { [ -f azure/infra/my.bicepparam ] || cp azure/infra/main.bicepparam azure/infra/my.bicepparam; }
+get_files
 ```
 
 **Sign in, once.** Run `az login --use-device-code` and pick the subscription. Cloud Shell's own
@@ -145,7 +147,8 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
 
 1. **Deploy** (about 10 minutes). Change `uksouth` to your region first.
    ```bash
-   put subscription $(az account show --query id -o tsv)
+   put tenant $(az account show --query tenantId -o tsv); put subscription $(az account show --query id -o tsv)
+   put resourceGroup $RG
    for p in App Sql Storage OperationalInsights ManagedIdentity; do
      az provider register -n Microsoft.$p --wait
    done
@@ -284,22 +287,29 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
 when you publish. Then start a load, as at the end of step 6. Before a year is up, make a new key
 and enter it, as in step 6.
 
-**Remove.** Paste the setup block, then this. It deletes the workspace, both apps, and the
-resource group with everything in it, from the subscription step 1 used. Paste it again until it
-says **Removed**: until then, `my.bicepparam` keeps the IDs. Then remove the Teams app, and any
+**Remove.** Paste the setup block, then this. In the tenant and subscription step 1 recorded, it
+deletes the workspace, both apps, and the resource group with everything in it. Paste it again
+until it says **Removed**: until then, `my.bicepparam` keeps the IDs of anything it hasn't
+deleted. If it never does, because you've lost access or something's already gone, check with
+whoever manages them, then delete `my.bicepparam` yourself. Then remove the Teams app, and any
 roles you gave on other subscriptions.
 
 ```bash
-S=$(get subscription)
-gone_ws() { [ -z "$WS" ] || [ "$(az rest -u $API/groups --resource $PBI --query "length(value[?id=='$WS'])" -o tsv)" = 0 ]; }
-gone_app() { [ -z "$1" ] || [ "$(az ad app list --app-id $1 --query 'length(@)' -o tsv)" = 0 ]; }
-gone_rg() { [ "$(az group exists -n $RG --subscription $S)" = false ]; }
-gone_ws || az rest -m DELETE -u $API/groups/$WS --resource $PBI
-gone_app $WEB || az ad app delete --id $WEB
-gone_app $READER || az ad app delete --id $READER
-[ "$(az group show -n $RG --subscription $S --query properties.provisioningState -o tsv)" = Succeeded ] && az group delete -n $RG --subscription $S --yes --no-wait
-left=; gone_ws || left+=" workspace"; gone_app $WEB || left+=" web-app"; gone_app $READER || left+=" sql-reader"; gone_rg || left+=" resource-group"
-if [ -z "$left" ]; then rm $P && echo Removed; else echo "Still there:$left. Paste this again in a few minutes."; false; fi
+drop() { sed -i -E "s#^(param|var) $1 = .*#\1 $1 = ''#" $P; }
+remove_all() {
+  local TN=$(get tenant) S=$(get subscription) G=$(get resourceGroup) left=
+  local WS=$(get workspace) WEB=$(get webClientId) READER=$(get sqlReaderClientId)
+  [ -n "$TN" ] && [ -n "$S" ] && [ -n "$G" ] || { echo "Not removed: $P doesn't say where step 1 deployed."; return 1; }
+  az account set -s "$S" && [ "$(az account show --query tenantId -o tsv)" = "$TN" ] ||
+    { echo "Not removed: you're not signed in where step 1 deployed. Sign in, then paste this again: az login --use-device-code --tenant $TN"; return 1; }
+  [ -z "$WS" ] || { az rest -m DELETE -u $API/groups/$WS --resource $PBI && drop workspace; } || left+=" workspace"
+  [ -z "$WEB" ] || { az ad app delete --id $WEB && drop webClientId; } || left+=" web-app"
+  [ -z "$READER" ] || { az ad app delete --id $READER && drop sqlReaderClientId; } || left+=" sql-reader"
+  [ "$(az group show -n $G --query properties.provisioningState -o tsv)" = Succeeded ] && az group delete -n $G --yes --no-wait
+  [ "$(az group exists -n $G)" = false ] || left+=" resource-group"
+  if [ -z "$left" ]; then rm $P && echo Removed; else echo "Not removed yet:$left. Paste this again in a few minutes."; return 1; fi
+}
+remove_all
 ```
 
 **What you don't get by hand on Azure.** The installer does these:

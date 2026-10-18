@@ -31,9 +31,12 @@ Deployment instructions do **not** live here. They live in the READMEs:
 - **What you don't get** by hand, such as **Check status**, **Repair or change**, update checks
   and org-scoped access, is listed on the page.
 - **Only from a published release.** **Get the files** uses the latest release once it includes
-  Azure by hand and its images are published. Until then, it says **Not available yet**.
-- **Remove** keeps your IDs until it has checked that everything is gone, so you can paste it again.
-  It deletes and checks the resource group in the subscription step 1 recorded.
+  Azure by hand and its images are published. Until then, it says **Not available yet**. If git
+  can't get the files, it stops there.
+- **Remove** deletes only in the tenant, subscription and resource group that step 1 recorded: if
+  you're signed in somewhere else, it says how to sign in and deletes nothing. It keeps each ID
+  until that delete succeeds, and `my.bicepparam` until the resource group is gone, so you can
+  paste it again.
 - **Tenant settings.** [Prerequisites](docs/PREREQUISITES.md#fabric-admin-about-5-minutes) now
   lists three for Azure, not two, and who needs each one if it's only on for some groups.
 
