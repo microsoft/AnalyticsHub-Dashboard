@@ -516,7 +516,7 @@ def codeql_scope_problems(workflows: dict[str, str], ideas: list[str], read_loca
 
 
 def _codeql_job_problems(where: str, job: dict, steps: list, ideas: list[str], read_local) -> tuple[bool, list[str]]:
-    js, checked_out = False, False
+    js, checked_out, unanalysed = False, False, None
     problems = [f"{where} has an if:, which could skip the scan"] if "if" in job else []
     problems += _env_problems(where, job.get("env"))
     for n, step in enumerate(steps, 1):
@@ -525,6 +525,10 @@ def _codeql_job_problems(where: str, job: dict, steps: list, ideas: list[str], r
             problems.append(f"{at}: only checkout, CodeQL init and analyze steps are understood here; "
                             "check this one leaves ideas/ in place, then allow it here")
             continue
+        if action == CODEQL_INIT:
+            unanalysed = at
+        elif action == CODEQL_ANALYZE:
+            unanalysed = None
         problems += [f"{at} has {key!r}, which could skip it or change what it does; review it, then allow it here"
                      for key in step if key not in STEP_KEYS]
         problems += _env_problems(at, step.get("env"))
@@ -543,6 +547,8 @@ def _codeql_job_problems(where: str, job: dict, steps: list, ideas: list[str], r
         else:
             problems += [f"{at}: analyze input {key!r} could drop the scan's results; review it, then allow it here"
                          for key in inputs if key not in ANALYZE_INPUTS]
+    if unanalysed:
+        problems.append(f"{unanalysed} has no analyze step after it, so nothing is analysed or uploaded")
     return js, problems
 
 
@@ -572,9 +578,20 @@ def _init_problems(at: str, job: dict, inputs: dict, ideas: list[str], read_loca
         problems += _config_problems(f"{at} config", config, ideas)
     elif config is not None:
         problems.append(f"{at} config must be a literal | block so the guard can read it")
-    if inputs.get("config-file") is not None:
+    if inputs.get("config-file") is not None and not _config_overrides_file(config):
         problems += _config_file_problems(at, inputs["config-file"], ideas, read_local)
     return js, problems
+
+
+def _config_overrides_file(config) -> bool:
+    # init/action.yml: config "takes precedence over the config-file input"; only Default Setup merges them.
+    # Only a config the guard reads as a mapping counts, so an empty or unreadable one leaves the file checked.
+    if not isinstance(config, LiteralBlock):
+        return False
+    try:
+        return isinstance(parse_yaml_subset(config), dict)
+    except YamlSubsetError:
+        return False
 
 
 def _language_values(job: dict, languages) -> tuple[list[str], str | None]:
@@ -814,7 +831,8 @@ def _context_source_problem(source: str) -> str | None:
 # None means it must pass.
 CODEQL_WORKFLOW = ".github/workflows/codeql.yml"
 CODEQL_CONFIG = ".github/codeql/codeql-config.yml"
-LANGS = "languages: ${{ matrix.language }}"
+LEGACY_CONFIG = ".github/codeql/legacy.yml"
+LANGS =  "languages: ${{ matrix.language }}"
 DOCKERFILES = {"jobs": ROOT / "azure" / "jobs" / "Dockerfile", "web": ROOT / "azure" / "web" / "Dockerfile"}
 
 
@@ -853,6 +871,21 @@ def _init(text: str, *lines: str) -> str:
     return "\n".join(rows[:at + 1] + [" " * indent + line for line in lines] + rows[end:])
 
 
+def _analyze_step(text: str, before: str | None) -> str:
+    # Takes the analyze step out, then puts it back above the line holding `before`, if there is one.
+    rows = text.split("\n")
+    at = _line_of(rows, "codeql-action/analyze@")
+    indent = len(rows[at]) - len(rows[at].lstrip(" "))
+    end = at + 1
+    while end < len(rows) and rows[end].strip() and len(rows[end]) - len(rows[end].lstrip(" ")) > indent:
+        end += 1
+    step, rows = rows[at:end], rows[:at] + rows[end:]
+    if before is not None:
+        at = _line_of(rows, before)
+        rows = rows[:at] + step + rows[at:]
+    return "\n".join(rows)
+
+
 def _dockerfile(base: str | None, lines: list[str], before: bool) -> str:
     text = DOCKERFILES[base].read_bytes().decode("utf-8") if base else ""
     if text and not text.endswith("\n"):
@@ -882,6 +915,11 @@ CODEQL_CASES = [
     pytest.param(lambda t: _init(t, f"config-file: ./{CODEQL_CONFIG}"),
                  {CODEQL_CONFIG: "paths-ignore:\n  - ideas/managed-app\n"}, "paths-ignore",
                  id="config-file-ignores-ideas"),
+    pytest.param(lambda t: _init(t, "config: |", "  paths: [app]", f"config-file: ./{LEGACY_CONFIG}"),
+                 {LEGACY_CONFIG: "paths: [app, ideas]\n"}, "paths leaves out",
+                 id="config-restricts-despite-config-file"),
+    pytest.param(lambda t: _init(t, "config: |", f"config-file: ./{LEGACY_CONFIG}"),
+                 {LEGACY_CONFIG: "paths: [app]\n"}, "paths leaves out", id="empty-config-keeps-config-file"),
     pytest.param(lambda t: _init(t, "db-location: /tmp/codeql"), {}, "db-location", id="unknown-init-input"),
     pytest.param(lambda t: _swap(t, "[javascript-typescript, python, actions]", "[python, actions]"), {},
                  "JavaScript", id="matrix-without-js"),
@@ -900,6 +938,9 @@ CODEQL_CASES = [
     pytest.param(lambda t: _after(t, "codeql-action/init@", "        if: false"), {}, "'if'", id="step-if"),
     pytest.param(lambda t: _after(t, "category:", "          skip-queries: true"), {}, "skip-queries",
                  id="analyze-skip-queries"),
+    pytest.param(lambda t: _analyze_step(t, None), {}, "no analyze step after it", id="no-analyze"),
+    pytest.param(lambda t: _analyze_step(t, "codeql-action/init@"), {}, "no analyze step after it",
+                 id="analyze-before-init"),
     pytest.param(lambda t: _after(t, "  pull_request:", "    paths-ignore: ['ideas/**']"), {}, "paths-ignore",
                  id="trigger-paths-ignore"),
     pytest.param(lambda t: _after(t, "  push:", "    paths: ['app/**']"), {}, "on.push.paths leaves out",
@@ -920,6 +961,8 @@ CODEQL_CASES = [
     pytest.param(lambda t: _init(t, "source-root: ${{ github.workspace }}"), {}, None, id="source-root-workspace"),
     pytest.param(lambda t: _init(t, f"config-file: ./{CODEQL_CONFIG}"),
                  {CODEQL_CONFIG: "name: Extra\npaths-ignore:\n  - samples\n"}, None, id="config-file-local"),
+    pytest.param(lambda t: _init(t, "config: |", "  paths: [app, ideas]", f"config-file: ./{LEGACY_CONFIG}"),
+                 {LEGACY_CONFIG: "paths: [app]\n"}, None, id="config-overrides-config-file"),
     pytest.param(lambda t: _init(t, "build-mode: none", "queries: security-extended"), {}, None,
                  id="harmless-init-inputs"),
     pytest.param(lambda t: _swap(t, LANGS, "languages: javascript-typescript"), {}, None, id="languages-literal"),
