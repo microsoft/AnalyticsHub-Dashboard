@@ -17,12 +17,6 @@
 2. [Install](../MANUAL-INSTALL.md#2-install)
 3. [Check it worked](../MANUAL-INSTALL.md#3-verify)
 
-**Copilot Managed App (preview)**
-
-1. [Before you start](../MANAGED-APP.md#before-you-start)
-2. [Steps](../MANAGED-APP.md#steps)
-3. [Check it worked](../MANAGED-APP.md#check-it-worked)
-
 **Operate**
 
 - [Update or remove](../UPDATE.md)

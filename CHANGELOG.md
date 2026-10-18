@@ -29,7 +29,7 @@ decisions.
 **What changed:** clean-PC installer fixes preserve concurrent app deployments and report failed
 steps accurately. Azure adds personal-tab support in Outlook and the Microsoft 365 Copilot app,
 plus optional Teams org app-catalog publication. Value, Consumption and Efficiency follow the
-Executive summary. The separate Copilot Managed App preview and simpler docs are included below.
+Executive summary. Simpler docs are included below.
 
 **Update an existing install:** once 0.6.7 is published, run that version and choose
 **Repair or change**. Azure app-catalog publication needs an additional sign-in with the admin
@@ -115,13 +115,7 @@ is unchanged.
   to store its sign-in securely, so a Fabric install sets up everything except the app. See
   [Known issues](docs/KNOWN-ISSUES.md#installing).
 
-**Copilot Managed App (preview).** A third way to run the app, on the Copilot Managed Runtime. It
-reads the models of an existing Fabric or Azure install, and you set it up separately with
-Microsoft's `ms` command line. Installer 0.6.7 does not set up the Managed App; managed easy setup
-and installer support are not included. The Fabric and Azure apps are unchanged. See
-[Copilot Managed App](docs/MANAGED-APP.md).
-
-**Simpler docs.** The README shows the three paths side by side, with short steps for each. Verify,
+**Simpler docs.** The README shows Fabric and Azure side by side, with short steps for each. Verify,
 Uninstall and Known issues moved into Install, Update and Troubleshooting, and the old links still
 work.
 

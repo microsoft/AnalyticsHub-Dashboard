@@ -173,9 +173,7 @@ function AskSetup({ host, pages }: { host: RuntimeHost; pages: SuggestedPage[] }
                 <p className={cn(SMALL, "text-muted-foreground")}>
                     {host === "azure"
                         ? "An admin re-runs the installer and turns Ask on. It adds an Azure OpenAI model for the app, or uses one you already have, and answers with each viewer's own access to the data."
-                        : import.meta.env.MODE === "managed"
-                            ? "An admin adds the Analytics Hub data agent from a Fabric install to the ask block of managed-app.config.json, then deploys the app again. Data agents need a paid Fabric capacity (F2 or larger, or Power BI Premium) and the tenant settings for Copilot and data agents turned on."
-                            : "An admin re-runs the installer, which sets up an Analytics Hub data agent in Fabric. Data agents need a paid Fabric capacity (F2 or larger, or Power BI Premium) and the tenant settings for Copilot and data agents turned on."}
+                        : "An admin re-runs the installer, which sets up an Analytics Hub data agent in Fabric. Data agents need a paid Fabric capacity (F2 or larger, or Power BI Premium) and the tenant settings for Copilot and data agents turned on."}
                 </p>
             </div>
             <CopyQuestions pages={pages} />

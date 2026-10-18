@@ -17,22 +17,15 @@ vi.mock("@/fabric.generated", () => ({
     },
 }));
 
-const managedFile = vi.hoisted(() => ({ value: undefined as unknown }));
-vi.mock("@/lib/managed/managed-config", () => ({
-    readManagedConfigFile: () => managedFile.value,
-}));
-
 import * as teams from "@microsoft/teams-js";
 import {
     APP_CONFIG_PATH,
     FABRIC_CONFIG_PATH,
-    MANAGED_DIAGNOSTICS_DEFAULTS,
     RuntimeConfigError,
     loadRuntimeConfig,
     loadSemanticModels,
     parseAccess,
     parseAsk,
-    parseManagedConfig,
     parseModules,
     parseReporting,
     parseSemanticModels,
@@ -266,16 +259,11 @@ describe("parseAsk", () => {
         expect(parseAsk({ ask: { mode: "chat" } }, "azure")).toEqual({ mode: "chat" });
     });
 
-    it("reads a Copilot Managed App's data agent, which still opens in Fabric", () => {
-        expect(parseAsk({ ask: agent }, "managed")).toEqual({ mode: "fabric", ...agent });
-    });
-
     it("leaves Ask unconfigured for anything else", () => {
         expect(parseAsk({}, "fabric")).toBeUndefined();
         expect(parseAsk({ ask: { workspaceId: agent.workspaceId, itemId: "../x" } }, "fabric")).toBeUndefined();
         expect(parseAsk({ ask: { mode: "chat" } }, "fabric")).toBeUndefined();
         expect(parseAsk({ ask: agent }, "azure")).toBeUndefined();
-        expect(parseAsk({ ask: { mode: "chat" } }, "managed")).toBeUndefined();
     });
 
     it("carries through loadRuntimeConfig on both hosts", async () => {
@@ -292,107 +280,6 @@ describe("parseAsk", () => {
         });
         await loadRuntimeConfig();
         expect(runtimeConfig().ask).toEqual({ mode: "chat" });
-    });
-});
-
-describe("the Copilot Managed App", () => {
-    const buildModels = { vl: { workspaceId: "build-ws", itemId: "build-vl" } };
-
-    afterEach(() => {
-        vi.unstubAllEnvs();
-        managedFile.value = undefined;
-    });
-
-    it("reads the bundled config and fetches nothing", async () => {
-        vi.stubEnv("MODE", "managed");
-        const fetchMock = stubFiles({});
-        managedFile.value = { ...deployedModels, diagnostics: { creditPerCall: 0.2 }, connector: { dataSource: "pbi" } };
-
-        expect(runtimeConfig().host).toBe("managed");
-        await loadRuntimeConfig();
-
-        expect(fetchMock).not.toHaveBeenCalled();
-        expect(runtimeConfig()).toMatchObject({
-            host: "managed",
-            semanticModels: deployedModels.semanticModels,
-            modules: deployedModels.modules,
-            managed: {
-                diagnostics: { ...MANAGED_DIAGNOSTICS_DEFAULTS, creditPerCall: 0.2 },
-                connector: { dataSource: "pbi" },
-            },
-        });
-    });
-
-    it("runs on the build's models and the published rates without a config", async () => {
-        vi.stubEnv("MODE", "managed");
-        stubFiles({});
-
-        await loadRuntimeConfig();
-
-        expect(runtimeConfig()).toMatchObject({
-            host: "managed",
-            semanticModels: buildModels,
-            managed: { diagnostics: MANAGED_DIAGNOSTICS_DEFAULTS, connector: {} },
-        });
-    });
-
-    it("leaves the managed config out of other builds", async () => {
-        managedFile.value = { diagnostics: { creditPerCall: 0.2 } };
-        stubFiles({ "/rayfin.config.json": { body: JSON.stringify(deployedRayfin) } });
-
-        await loadRuntimeConfig();
-
-        expect(runtimeConfig().host).toBe("fabric");
-        expect(runtimeConfig().managed).toBeUndefined();
-    });
-
-    describe("parseManagedConfig", () => {
-        it("reads the Fabric config's blocks", () => {
-            const agent = { workspaceId: "11111111-2222-3333-4444-555555555555", itemId: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee" };
-            expect(parseManagedConfig({
-                ...deployedModels,
-                reporting: { currency: "GBP" },
-                access: { groupId: "g-1", groupName: "Analytics viewers" },
-                ask: agent,
-            }, buildModels)).toEqual({
-                semanticModels: deployedModels.semanticModels,
-                modules: deployedModels.modules,
-                reporting: { currency: "GBP" },
-                access: { groupId: "g-1", groupName: "Analytics viewers" },
-                ask: { mode: "fabric", ...agent },
-                managed: { diagnostics: MANAGED_DIAGNOSTICS_DEFAULTS, connector: {} },
-            });
-        });
-
-        it("uses the build's models when the file names none, or there's no file", () => {
-            expect(parseManagedConfig({ diagnostics: {} }, buildModels).semanticModels).toBe(buildModels);
-            expect(parseManagedConfig(undefined, buildModels).semanticModels).toBe(buildModels);
-            expect(parseManagedConfig([], buildModels).semanticModels).toBe(buildModels);
-        });
-
-        it("names the config file when its models are malformed", () => {
-            expect(() => parseManagedConfig({ semanticModels: [] }, buildModels))
-                .toThrow('managed-app.config.json needs a "semanticModels" object.');
-            expect(() => parseManagedConfig({ semanticModels: { vl: { workspaceId: "w" } } }, buildModels))
-                .toThrow('managed-app.config.json has no workspaceId and itemId for "vl".');
-        });
-
-        it("keeps the diagnostics values it can use and defaults the rest", () => {
-            const diagnostics = (value: unknown) => parseManagedConfig({ diagnostics: value }, buildModels).managed?.diagnostics;
-            expect(diagnostics({ launchCredits: 0, creditPerCall: 0.5, throttleLimit: 60 })).toEqual({ launchCredits: 0, creditPerCall: 0.5, throttleLimit: 60 });
-            expect(diagnostics({ launchCredits: -1, creditPerCall: "0.2", throttleLimit: 0 })).toEqual(MANAGED_DIAGNOSTICS_DEFAULTS);
-            expect(diagnostics({ creditPerCall: Number.POSITIVE_INFINITY, throttleLimit: Number.NaN })).toEqual(MANAGED_DIAGNOSTICS_DEFAULTS);
-            expect(diagnostics([1, 2, 3])).toEqual(MANAGED_DIAGNOSTICS_DEFAULTS);
-        });
-
-        it("trims the connector pin and drops what it can't use", () => {
-            const connector = (value: unknown) => parseManagedConfig({ connector: value }, buildModels).managed?.connector;
-            expect(connector({ dataSource: " pbi ", operations: [" ExecuteDatasetQueriesJson ", "", "  ", 3, "ExecuteDatasetQuery"] }))
-                .toEqual({ dataSource: "pbi", operations: ["ExecuteDatasetQueriesJson", "ExecuteDatasetQuery"] });
-            expect(connector({ dataSource: "  ", operations: "ExecuteDatasetQuery" })).toEqual({});
-            expect(connector({ operations: [] })).toEqual({});
-            expect(connector("pbi")).toEqual({});
-        });
     });
 });
 

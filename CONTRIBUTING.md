@@ -104,12 +104,13 @@ against a workspace or a local SQL database.
 | [`docs/`](docs/) | The user pages. Published to the [wiki](https://github.com/microsoft/AnalyticsHub-Dashboard/wiki) on every change | Everyone |
 | [`installer/`](installer/) | `AnalyticsHubInstaller.exe`: sets up, repairs and updates Fabric or Azure installs | Fabric and Azure |
 | [`fabric/`](fabric/) | Notebooks, pipeline, flows and Power BI templates for Fabric. The installer deploys them | Fabric by hand, or to see what's deployed |
-| [`app/`](app/) | The Analytics Hub app: a Fabric app item, the web app's front end on Azure, and the Copilot Managed App | Fabric by hand, the Copilot Managed App, or developers |
+| [`app/`](app/) | The Analytics Hub app: a Fabric app item and the web app's front end on Azure | Fabric by hand, or developers |
 | [`azure/`](azure/) | Bicep, Container Apps jobs, SQL schema, web app and Teams package for Azure | Developers |
 | [`core/`](core/) | `valuelens_core`, the Python shared by the Azure jobs and the Fabric Defender notebook | Developers |
 | [`samples/`](samples/) | Synthetic sample data for demo mode | Demos |
 | [`media/`](media/) | Screenshots and the demo video | Docs |
 | [`scripts/`](scripts/) · [`tests/`](tests/) | Maintainer scripts that patch the templates, and the tests | Contributors |
+| [`ideas/`](ideas/) | Parked ideas. Not part of the product: not built, run, shipped or supported. Still in source downloads, and still scanned and checked | Contributors |
 
 ## Repository conventions
 

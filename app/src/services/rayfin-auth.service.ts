@@ -16,7 +16,6 @@ import {
 import { getRayfinClient } from "@/lib/rayfin-client";
 import { runtimeConfig } from "@/lib/runtime-config";
 import { initialiseTeams } from "@/lib/teams-host";
-import { ManagedAuthService } from "./managed-auth.service";
 
 export interface AnalyticsHubUser {
     id?: string;
@@ -56,9 +55,7 @@ export function getAccessToken(options?: TokenOptions): Promise<string> {
 /** Construct the auth service used by the app for the current host. */
 export function bootstrapAuth(): IAuthService {
     const config = runtimeConfig();
-    currentAuthService = import.meta.env.MODE === "managed"
-        ? new ManagedAuthService()
-        : config.host === "azure" ? new AzureAuthService() : bootstrapFabricAuth();
+    currentAuthService = config.host === "azure" ? new AzureAuthService() : bootstrapFabricAuth();
     return currentAuthService;
 }
 

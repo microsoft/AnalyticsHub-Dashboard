@@ -158,8 +158,6 @@ Something failed? Choose **Rerun failed loads** (`rerun-failed`), or see
   pipeline, or the schedule's owner. Give them Key Vault Secrets User on the vault and Contributor
   on the workspace first. With the secret in the notebooks, they only need Contributor.
 - **Secrets expire.** See [Secrets expire](UPDATE.md#secrets-expire).
-- **Copilot Managed App** *(preview)*. To run the app there as well, see
-  [Copilot Managed App](MANAGED-APP.md).
 
 ## Check the download
 
