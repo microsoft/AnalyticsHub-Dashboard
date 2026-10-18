@@ -5,7 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: () => ({ host: "fabric", rayfin: {}, semanticModels: {} }) }));
 vi.mock("@/lib/fabric-item-url", () => ({ fabricItemUrl: () => "https://app.fabric.microsoft.com/groups/ws-1/appbackends/item-1" }));
@@ -19,19 +19,9 @@ function body(mailto: string | null): string {
 }
 
 describe("access request emails", () => {
-    afterEach(() => {
-        vi.unstubAllEnvs();
-    });
-
     it("link to the app item on Fabric", () => {
         expect(body(accessRequestMailto(access))).toContain("so I can open https://app.fabric.microsoft.com/groups/ws-1/appbackends/item-1");
         expect(body(scopeRequestMailto(access))).toContain("I can open https://app.fabric.microsoft.com/groups/ws-1/appbackends/item-1 but");
-    });
-
-    it("name the app in a Copilot Managed App, which can't see its own link", () => {
-        vi.stubEnv("MODE", "managed");
-        expect(body(accessRequestMailto(access))).toContain("so I can open Analytics Hub\n");
-        expect(body(scopeRequestMailto(access))).toContain("I can open Analytics Hub but");
     });
 
     it("need someone to send them to", () => {

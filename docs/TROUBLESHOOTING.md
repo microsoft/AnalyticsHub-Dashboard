@@ -2,8 +2,7 @@
 
 Find the message or symptom, then do what it says. Still stuck? Check [Known issues](#known-issues),
 then [open an issue](https://github.com/microsoft/AnalyticsHub-Dashboard/issues) with the message and
-the installer's version. For the Copilot Managed App, see
-[If something goes wrong](MANAGED-APP.md#if-something-goes-wrong).
+the installer's version.
 
 ## Starting the installer
 

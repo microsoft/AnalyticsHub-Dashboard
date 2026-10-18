@@ -14,7 +14,6 @@ Use fabricated examples and redact screenshots. -->
 
 - [ ] Fabric
 - [ ] Azure
-- [ ] Copilot Managed App (preview)
 
 ### Where did it go wrong?
 

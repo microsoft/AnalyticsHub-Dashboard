@@ -15,7 +15,7 @@ publish_wiki = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(publish_wiki)
 
 CHECKED = sorted(
-    [*(ROOT / "docs").glob("*.md"), *(ROOT / "docs" / "wiki").glob("*.md")]
+    [*(ROOT / "docs").glob("*.md"), *(ROOT / "docs" / "wiki").glob("*.md"), *(ROOT / "ideas").glob("**/*.md")]
     + [ROOT / p for p in ("README.md", "CONTRIBUTING.md", "fabric/README.md", "azure/README.md", "installer/README.md", "fabric/MANUAL-SETUP.md")]
 )
 
@@ -121,8 +121,17 @@ def test_relative_links_and_anchors_resolve(path):
         ("docs/UPDATE.md", "update"),
         ("docs/wiki/Home.md", "automatic-installer"),
         ("docs/wiki/Home.md", "manual-by-hand-fabric"),
+        # The Copilot Managed App is parked in ideas/. Its old page and sections keep their anchors.
+        ("docs/MANAGED-APP.md", "how-it-works"),
         ("docs/MANAGED-APP.md", "before-you-start"),
         ("docs/MANAGED-APP.md", "steps"),
+        ("docs/MANAGED-APP.md", "whats-different-from-fabric-and-azure"),
+        ("docs/MANAGED-APP.md", "check-it-worked"),
+        ("docs/MANAGED-APP.md", "if-something-goes-wrong"),
+        ("README.md", "copilot-managed-app-preview"),
+        ("docs/wiki/Home.md", "copilot-managed-app-preview"),
+        ("docs/ARCHITECTURE.md", "copilot-managed-app"),
+        ("docs/PERMISSIONS.md", "copilot-managed-app"),
         # Hard-coded in azure/infra/main.bicepparam, web-app-registration.json and
         # installer/test/azure-by-hand.test.js.
         ("docs/MANUAL-INSTALL.md", "azure"),

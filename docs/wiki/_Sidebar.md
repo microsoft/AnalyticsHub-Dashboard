@@ -21,12 +21,6 @@
 
 - [Steps](../MANUAL-INSTALL.md#azure)
 
-**Copilot Managed App (preview)**
-
-1. [Before you start](../MANAGED-APP.md#before-you-start)
-2. [Steps](../MANAGED-APP.md#steps)
-3. [Check it worked](../MANAGED-APP.md#check-it-worked)
-
 **Operate**
 
 - [Update or remove](../UPDATE.md)

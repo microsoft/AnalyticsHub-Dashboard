@@ -1,8 +1,7 @@
 # Analytics Hub for Microsoft Copilot
 
 See how your organisation uses Microsoft 365 Copilot and agents, and the hours and value they
-deliver. Run it on **Microsoft Fabric**, in **your own Azure subscription**, or as a **Copilot
-Managed App** (preview).
+deliver. Run it on **Microsoft Fabric** or in **your own Azure subscription**.
 
 [![Analytics Hub preview](media/AnalyticsHub-Preview.gif)](docs/APP-GUIDE.md)
 
@@ -18,17 +17,16 @@ https://github.com/user-attachments/assets/b415625d-c2ae-467f-9a91-59ef9adca6c8
 
 ## Getting started
 
-Pick a path. Fabric and Azure load the data and publish the models. A Copilot Managed App reads
-the models that one of them publishes.
+Pick a path. Fabric and Azure load the data and publish the models.
 
-| | **Fabric** (recommended) | **Azure** | **Copilot Managed App** (preview) |
-|---|---|---|---|
-| **Runs on** | Your Fabric capacity | Your Azure subscription | The Copilot Managed Runtime, hosted by Microsoft |
-| **You need** | A Fabric capacity, F2 or larger, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager) | An Azure subscription or resource group, and a Power BI workspace | A Fabric or Azure install, and a few admin settings |
-| **Loads the data** | Yes | Yes | No: it reads the Fabric or Azure models |
-| **Set up with** | The installer, or by hand | The installer, or by hand | Microsoft's `ms` command line |
-| **Takes** | About 20 minutes. The first data arrives about 25 minutes after **Go ahead** | The same as Fabric | 8 steps, once the admin settings are on |
-| **Costs** | The Fabric capacity | About $5–40 a month for a small tenant | Power Apps Premium or Copilot Credits for each viewer, on top of Fabric or Azure |
+| | **Fabric** (recommended) | **Azure** |
+|---|---|---|
+| **Runs on** | Your Fabric capacity | Your Azure subscription |
+| **You need** | A Fabric capacity, F2 or larger, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager) | An Azure subscription or resource group, and a Power BI workspace |
+| **Loads the data** | Yes | Yes |
+| **Set up with** | The installer, or by hand | The installer, or by hand |
+| **Takes** | About 20 minutes. The first data arrives about 25 minutes after **Go ahead** | The same as Fabric |
+| **Costs** | The Fabric capacity | About $5–40 a month for a small tenant |
 
 <a id="architecture-and-running-costs"></a>
 Analytics Hub itself is free. See [Architecture and costs](docs/ARCHITECTURE.md).
@@ -66,14 +64,6 @@ Analytics Hub itself is free. See [Architecture and costs](docs/ARCHITECTURE.md)
 
 **Azure, by hand.** No installer: [seven steps in Azure Cloud Shell](docs/MANUAL-INSTALL.md#azure).
 They need a release that includes them: **Get the files** checks for one.
-
-### Copilot Managed App (preview)
-
-1. **Set up Fabric or Azure first.** The app reads the models they publish.
-2. **Ask your admins for the settings.** [Before you start](docs/MANAGED-APP.md#before-you-start)
-   says who turns on what.
-3. **Deploy it.** Follow the [steps](docs/MANAGED-APP.md#steps) from the `app` folder, then share
-   it.
 
 **Then:** [Update or remove](docs/UPDATE.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) ·
 [FAQ](docs/FAQ.md) · [Release notes](CHANGELOG.md). These pages are also on the
@@ -121,7 +111,6 @@ on. The rest are optional cards on the installer's **Data sources** screen, or e
 | [Prerequisites](docs/PREREQUISITES.md) · [Permissions](docs/PERMISSIONS.md) | Who does what, each permission and role, and costs |
 | [Install](docs/INSTALL.md) | The installer: every way to start it, and checking it worked |
 | [Manual install](docs/MANUAL-INSTALL.md) | Fabric or Azure, by hand |
-| [Copilot Managed App](docs/MANAGED-APP.md) | The app on the Copilot Managed Runtime (preview) |
 | [Update or remove](docs/UPDATE.md) | Keeping it current, and removing it |
 | [Troubleshooting](docs/TROUBLESHOOTING.md) · [FAQ](docs/FAQ.md) | Error messages, known issues and short answers |
 | [Architecture and costs](docs/ARCHITECTURE.md) | What it collects and creates, and what it costs |
@@ -133,6 +122,9 @@ on. The rest are optional cards on the installer's **Data sources** screen, or e
 
 <a id="whats-here"></a><a id="repository-layout"></a>
 What each folder holds: [Repository layout](CONTRIBUTING.md#repository-layout).
+
+<a id="copilot-managed-app-preview"></a>
+Parked ideas, like the Copilot Managed App, are in [ideas](ideas/README.md). They aren't supported.
 
 ## Help
 

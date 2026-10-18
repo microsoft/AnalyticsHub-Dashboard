@@ -4,8 +4,6 @@
 Keep Analytics Hub current, change what it collects, replace secrets before they expire, or
 [remove it](#uninstall). Set it up by hand? See [Manual install: Update](MANUAL-INSTALL.md#update)
 for Fabric, or [Azure](MANUAL-INSTALL.md#azure).
-Running the [Copilot Managed App](MANAGED-APP.md) *(preview)*? Get the latest code and run
-`ms app deploy` again.
 
 ## Get a new version
 
@@ -97,9 +95,6 @@ Uninstall leaves these alone. Remove them yourself if you no longer need them:
 - The Power Automate flows and their connections, and the Cowork Dataflow's connections.
 - Dataverse access for Agent Evaluator, and the Azure and Entra roles the installer gave.
 - Your install record in `Documents\Analytics Hub` (`~/analytics-hub` in Cloud Shell).
-- A [Copilot Managed App](MANAGED-APP.md), if you deployed one. Run
-  [`ms app delete`](https://learn.microsoft.com/microsoft-365/managed-apps/developer/ms-cli-command-reference#ms-app-delete)
-  from the `app` folder.
 
 ### Remove the installer
 

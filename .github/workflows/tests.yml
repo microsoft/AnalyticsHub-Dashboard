@@ -65,18 +65,11 @@ jobs:
       - run: npx --no-install tsc -b
       # The Fabric build avoids the deployment-oriented rayfin env prebuild hook.
       - run: npm run build:fabric
-      # The Azure image and the installer run the same vite build, in the same mode.
-      - name: Check the Fabric build has no Copilot Managed App code
-        run: node scripts/check-managed-markers.mjs dist absent
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: app-${{ github.event.pull_request.head.sha || github.sha }}
           path: app/dist
           if-no-files-found: error
-      # This replaces dist, so it runs after the upload. Finding every marker here keeps the check above honest.
-      - run: npm run build:managed
-      - name: Check the Copilot Managed App build has every marker
-        run: node scripts/check-managed-markers.mjs dist present
 
   valuelens-web:
     runs-on: ubuntu-latest
