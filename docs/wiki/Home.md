@@ -1,18 +1,17 @@
 # Analytics Hub for Microsoft Copilot
 
 See how your organisation uses Microsoft 365 Copilot and agents, and the hours and value they
-deliver. Run it on Microsoft Fabric, in your own Azure subscription, or as a Copilot Managed App
-(preview).
+deliver. Run it on Microsoft Fabric or in your own Azure subscription.
 
 ## Which path?
 
 Not sure? Use **Fabric**, with the installer.
 
-| | **Fabric** (recommended) | **Azure** | **Copilot Managed App** (preview) |
-|---|---|---|---|
-| **Runs on** | Your Fabric capacity | Your Azure subscription | The Copilot Managed Runtime, hosted by Microsoft |
-| **Set up with** | The installer, or by hand | The installer | Microsoft's `ms` command line |
-| **Loads the data** | Yes | Yes | No: it reads the Fabric or Azure models |
+| | **Fabric** (recommended) | **Azure** |
+|---|---|---|
+| **Runs on** | Your Fabric capacity | Your Azure subscription |
+| **Set up with** | The installer, or by hand | The installer |
+| **Loads the data** | Yes | Yes |
 
 <a id="automatic-installer"></a>
 
@@ -30,12 +29,6 @@ Not sure? Use **Fabric**, with the installer.
    create.
 2. [Install](../MANUAL-INSTALL.md#2-install): notebooks, report, pipeline, then the app.
 3. [Check it worked](../MANUAL-INSTALL.md#3-verify): the pipeline run, the data and the report.
-
-## Copilot Managed App (preview)
-
-1. Set up Fabric or Azure first. The app reads the models they publish.
-2. [Before you start](../MANAGED-APP.md#before-you-start): the settings your admins turn on.
-3. [Steps](../MANAGED-APP.md#steps): deploy it with the `ms` command line, then share it.
 
 ## Operate
 
@@ -56,3 +49,6 @@ Not sure? Use **Fabric**, with the installer.
 
 These pages are published from the repo's [docs](../) folder. To change one, open a pull request
 there.
+
+<a id="copilot-managed-app-preview"></a>
+Parked ideas, like the Copilot Managed App, are in [ideas](../../ideas/README.md). They aren't supported.

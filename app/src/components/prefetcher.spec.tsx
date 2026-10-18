@@ -223,16 +223,4 @@ describe("Prefetcher", () => {
         expect(mounted(container)).toBeUndefined();
         expect(seen).toHaveLength(0);
     });
-
-    it("is off in a Copilot Managed App, where each query is a billed call", async () => {
-        vi.useRealTimers();
-        vi.stubEnv("MODE", "managed");
-        vi.resetModules();
-        try {
-            expect((await import("./prefetcher")).PREFETCH).toBe(false);
-        } finally {
-            vi.unstubAllEnvs();
-            vi.resetModules();
-        }
-    });
 });

@@ -3,9 +3,6 @@
 The ValueLens dashboard as a web app in your Fabric workspace. The [installer](../installer/README.md)
 deploys it for you. Use this folder only to deploy it by hand or to change it.
 
-The same app also runs as a [Copilot Managed App](../docs/MANAGED-APP.md) (preview), built with
-`npm run build:managed` and deployed with the `ms` CLI.
-
 The app keeps no copy of your data. Each page queries the semantic model live, as the person
 viewing it, so row-level security applies. How each figure is worked out is in the
 [methodology](../docs/METHODOLOGY.md).
@@ -129,7 +126,6 @@ only with people who should.
   **Use research** puts them back.
 
 The app saves these in a small SQL database under its item. The Power BI report doesn't see them.
-A Copilot Managed App keeps them in each viewer's browser instead, so they apply only to that viewer.
 
 ## Reports
 
@@ -141,8 +137,8 @@ A report pack is a named, ordered list of sections taken from any page. Packs ar
 - **Your packs.** **New pack** opens an editor where you name the pack, tick sections from each
   page, and put them in order. On Fabric anyone who can open the app can save, edit or delete a
   pack, and it changes for everyone. On Azure that needs the `AnalyticsHub.Admin` role. Packs are
-  stored with the other settings: in the app's SQL database on Fabric, in Table Storage on
-  Azure, and in each viewer's browser on a Copilot Managed App.
+  stored with the other settings: in the app's SQL database on Fabric, and in Table Storage on
+  Azure.
 - **Missing sections.** A pack skips a section whose page is hidden because its optional data
   hasn't arrived, and says which ones it left out.
 - **Download PDF** and **Download PowerPoint** are on every page and every pack. Both show the
@@ -158,8 +154,6 @@ A report pack is a named, ordered list of sections taken from any page. Packs ar
 | Task | How |
 |---|---|
 | Preview live | `npm run dev`, then open the app in Fabric with `&devUri=http://localhost:5173` on the URL |
-| Preview as a Copilot Managed App | Once it's [deployed](../docs/MANAGED-APP.md), `npm run dev:managed`, then open the **Local Play** URL it prints |
-| Build a Copilot Managed App | `npm run build:managed`. `ms app deploy` runs it for you |
 | Test | `npm test` and `npm run lint` |
 | Edit a query | `src/queries/<page>/`: a `.dax` query and a `.ts` definition per visual |
 | Edit a page | `src/screens/<page>/` |
@@ -169,8 +163,6 @@ Don't commit your IDs in `fabric.yaml` or the redirect URI that `rayfin up` adds
 
 The installer ships one build for every tenant, so it reads the model IDs from a
 `fabric.config.json` deployed next to the app. Newer files also include a `modules` block for the
-optional module choices. A deploy from this folder uses `fabric.yaml` instead. A Copilot Managed App
-build reads `managed-app.config.json` (copy [`managed-app.config.example.json`](managed-app.config.example.json)),
-which is built into the app. It and the `ms.config.json` that `ms app init` writes are gitignored. See
+optional module choices. A deploy from this folder uses `fabric.yaml` instead. See
 [`src/lib/runtime-config.ts`](src/lib/runtime-config.ts).
 [`AGENTS.md`](AGENTS.md) has the conventions for coding agents.

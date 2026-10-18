@@ -6,7 +6,7 @@
 //-----------------------------------------------------------------------
 
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { askCatalogue } from "@/ask/catalogue";
 import { AskError } from "@/lib/ask-api";
 import type { AskConfig } from "@/lib/runtime-config";
@@ -14,7 +14,7 @@ import { runSummary, suggestedPages } from "./ask-helpers";
 import { AskScreen } from "./index";
 
 const runtime = vi.hoisted(() => ({
-    host: "fabric" as "fabric" | "azure" | "managed",
+    host: "fabric" as "fabric" | "azure",
     ask: undefined as AskConfig | undefined,
 }));
 
@@ -73,10 +73,6 @@ describe("AskScreen", () => {
         runtime.ask = undefined;
     });
 
-    afterEach(() => {
-        vi.unstubAllEnvs();
-    });
-
     it("says how to turn Ask on, and still suggests questions to copy", async () => {
         const writeText = vi.fn().mockResolvedValue(undefined);
         Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
@@ -94,15 +90,6 @@ describe("AskScreen", () => {
         runtime.host = "azure";
         render(<AskScreen />);
         expect(screen.getByText(/turns Ask on/)).toBeTruthy();
-    });
-
-    it("tells a Copilot Managed App to add the data agent to its config and deploy again", () => {
-        vi.stubEnv("MODE", "managed");
-        runtime.host = "managed";
-        render(<AskScreen />);
-
-        expect(screen.getByText(/ask block of managed-app\.config\.json, then deploys the app again/)).toBeTruthy();
-        expect(screen.queryByText(/re-runs the installer/)).toBeNull();
     });
 
     it("opens the data agent in Fabric", () => {

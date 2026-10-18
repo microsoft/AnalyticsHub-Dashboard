@@ -48,11 +48,10 @@ Source: [Audit logs for Copilot and AI applications](https://learn.microsoft.com
 
 ## Which path?
 
-All three show the same app pages. **Fabric** and **Azure** each load the data, with the same
+Both show the same app pages. **Fabric** and **Azure** each load the data, with the same
 model and measures: pick Fabric if you have a capacity (F2 or larger, or a trial), or Azure if
-you'd rather not use Fabric. The **Copilot Managed App** (preview) runs the app on the Copilot
-Managed Runtime and loads no data: it reads the models of a Fabric or Azure install. See
-[Getting started](../README.md#getting-started) and [Architecture and costs](ARCHITECTURE.md).
+you'd rather not use Fabric. See [Getting started](../README.md#getting-started) and
+[Architecture and costs](ARCHITECTURE.md).
 
 ## Installer or by hand?
 
@@ -63,8 +62,7 @@ Fabric only.
 ## What does it cost?
 
 Analytics Hub is free. You pay for the Fabric capacity, or about $5–40 a month of Azure for a
-small tenant. Viewers need Power BI Pro below F64. The Copilot Managed App adds Power Apps Premium
-or Copilot Credits for each viewer. See
+small tenant. Viewers need Power BI Pro below F64. See
 [What it costs](PREREQUISITES.md#what-it-costs) and [Running costs](ARCHITECTURE.md#running-costs).
 
 ## Where does the data go, and who can see it?

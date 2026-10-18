@@ -5,10 +5,9 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 const configs = vi.hoisted(() => [] as unknown[]);
-const managed = vi.hoisted(() => ({ proxies: 0 }));
 
 vi.mock("@microsoft/fabric-app-data", () => ({
     FabricClient: class {
@@ -20,13 +19,6 @@ vi.mock("@microsoft/fabric-app-data", () => ({
 vi.mock("@microsoft/fabric-app-data-proxy", () => ({ EmbedFabricApiProxy: class {} }));
 vi.mock("@microsoft/fabric-app-data-embed-client", () => ({ SemanticModelMessageClient: class {} }));
 vi.mock("@/lib/runtime-config", () => ({ runtimeConfig: () => ({ host: "fabric", semanticModels: {} }) }));
-vi.mock("@/lib/managed/managed-runtime-proxy", () => ({
-    ManagedRuntimeProxy: class {
-        constructor() {
-            managed.proxies++;
-        }
-    },
-}));
 
 import { getFabricClient, QUERY_CACHE_ENTRIES } from "./fabric-client";
 
@@ -41,24 +33,5 @@ describe("getFabricClient", () => {
     it("makes one client for the session", () => {
         expect(getFabricClient()).toBe(getFabricClient());
         expect(configs).toHaveLength(1);
-        expect(managed.proxies).toBe(0);
-    });
-});
-
-describe("getFabricClient in a Copilot Managed App", () => {
-    afterEach(() => {
-        vi.unstubAllEnvs();
-    });
-
-    it("sends DAX as JSON through the app's Power BI connector", async () => {
-        vi.stubEnv("MODE", "managed");
-        vi.resetModules();
-        configs.length = 0;
-        const { getFabricClient: managedClient } = await import("./fabric-client");
-
-        managedClient();
-        expect(managed.proxies).toBe(1);
-        expect(configs).toHaveLength(1);
-        expect(configs[0]).toMatchObject({ daxProtocol: "json" });
     });
 });

@@ -32,9 +32,7 @@ rayfin/.temp/
 # Playwright CLI session state from `npm run test:fabric`
 .playwright-cli/
 
-# Copilot Managed App. `ms app init` writes the app's identity, `ms app add data-source`
-# generates the connector's definitions, and managed-app.config.json names your models.
-# Each person deploys into their own environment, so all of these stay local.
+# Parked Copilot Managed App: never commit a local try's IDs or build files.
 ms.config.json
 ms.*.config.json
 .ms/
