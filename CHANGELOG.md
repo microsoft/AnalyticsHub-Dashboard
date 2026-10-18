@@ -32,7 +32,8 @@ Deployment instructions do **not** live here. They live in the READMEs:
 - **Shares it.** It offers the install's **Analytics Hub Viewers** group, then anyone else, and
   checks the group took.
 - **Run it again to update.** It remembers the app, so the next release's code updates the same
-  one. `npm run remove:managed` deletes it.
+  one. For an app set up with the `ms` commands, copy its files across first: see
+  [Update or remove](docs/MANAGED-APP.md#update-or-remove). `npm run remove:managed` deletes it.
 - **A pinned CLI.** It installs `@microsoft/managed-apps-cli` 0.29.0 from a lock file, just for this,
   and keeps `package.json` as it was. `--dry-run` shows the `ms` commands, to run yourself.
 

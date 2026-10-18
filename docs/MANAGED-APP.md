@@ -77,6 +77,9 @@ Setup saves the models in `app\managed-app.config.json`. It also takes the `modu
 
 - **Update:** get the new release's code, and run setup again. It remembers your app, so it
   updates it instead of making another.
+- **Set it up with `ms` commands before?** Copy `ms.config.json`, `managed-app.config.json`,
+  `generated` and `.ms` from the old `app` folder into the new one. Then run setup: it updates that
+  app.
 - **Remove:** in `app`, run `npm.cmd run remove:managed`. It asks first.
 
 It remembers the app in `%LOCALAPPDATA%\AnalyticsHub-ManagedApp`: its ID and environment, the
