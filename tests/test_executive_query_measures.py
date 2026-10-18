@@ -1,10 +1,10 @@
-"""The landing page's trend query works some ValueLens measures out itself, for speed.
+"""The landing page's summary and trend queries work some ValueLens measures out themselves, for speed.
 
-executive-months.dax counts active people without the per-person LEN(TRIM())
-test, and works the seat counts out once rather than once a month. It gives
-the same numbers only while the measures it reproduces, and the relationships
-it relies on, stay as they are here. If a test here fails, review that query,
-then update this file.
+executive-months.dax and executive-summary.dax count active people without the
+per-person LEN(TRIM()) test, and the monthly trend works the seat counts out
+once rather than once a month. They give the same numbers only while the
+measures they reproduce, and the relationships they rely on, stay as they are
+here. If a test here fails, review those queries, then update this file.
 """
 import importlib.util
 import json
@@ -19,11 +19,12 @@ PATCHER = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(PATCHER)
 AUDIT = PATCHER.AUDIT
 MONTHS = "app/src/queries/executive/executive-months.dax"
+SUMMARY = "app/src/queries/executive/executive-summary.dax"
 
 # Each measure, without comments or layout, and the queries that rely on it.
 PINNED = {
     "Usage Rows": (
-        (MONTHS,),
+        (MONTHS, SUMMARY),
         "CALCULATE(COUNTROWS('Chat + Agent Interactions (Audit Logs)'), "
         "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Is Usage Row] = TRUE()))",
     ),
@@ -33,13 +34,13 @@ PINNED = {
         "LEN(TRIM('Chat + Agent Interactions (Audit Logs)'[Audit_UserId])) > 0 && CALCULATE([Usage Rows]) > 0))",
     ),
     "Active Licensed Users": (
-        (MONTHS,),
+        (MONTHS, SUMMARY),
         "CALCULATE( COUNTROWS(FILTER(VALUES('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
         "LEN(TRIM('Chat + Agent Interactions (Audit Logs)'[Audit_UserId])) > 0 && CALCULATE([Usage Rows]) > 0)), "
         "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[License Status] = \"M365 Copilot Licensed\") )",
     ),
     "% Active Licensed Users": (
-        (MONTHS,),
+        (MONTHS, SUMMARY),
         "VAR _Total = [Licensed Users (Filter-Aware)] VAR _Active = [Active Licensed Users] "
         "RETURN IF(_Total > 0 && _Active <= _Total, DIVIDE(_Active, _Total))",
     ),
