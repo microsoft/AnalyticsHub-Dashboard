@@ -23,11 +23,7 @@ interface AuthGateProps {
     fabricLink?: string | null;
 }
 
-/**
- * Host-aware auth gate. Fabric keeps the brokered iframe path; Azure signs in
- * directly; a Copilot Managed App has already signed the viewer in, so it only
- * asks the host who they are. `ManagedAuthGate` frames it there.
- */
+/** Host-aware auth gate. Fabric keeps the brokered iframe path; Azure signs in directly. */
 export function AuthGate({
     children,
     embedded = isRunningInFabric(),
@@ -72,7 +68,7 @@ export function AuthGate({
         return (
             <div className="flex min-h-screen items-center justify-center bg-background">
                 <div className="text-sm text-muted-foreground">
-                    Connecting to {import.meta.env.MODE === "managed" || host === "azure" ? "Analytics Hub" : "Fabric"}…
+                    Connecting to {host === "azure" ? "Analytics Hub" : "Fabric"}…
                 </div>
             </div>
         );
@@ -80,10 +76,10 @@ export function AuthGate({
 
     if (accessDenied) {
         const access = runtimeConfig().access;
-        const mailto = accessRequestMailto(access, import.meta.env.MODE === "managed" || host === "azure" ? undefined : fabricLink ?? undefined);
+        const mailto = accessRequestMailto(access, host === "azure" ? undefined : fabricLink ?? undefined);
         const group = access?.groupName ?? "Analytics Hub users";
         return (
-            <div className={import.meta.env.MODE === "managed" ? "w-full" : "flex min-h-screen items-center justify-center bg-background p-400"}>
+            <div className="flex min-h-screen items-center justify-center bg-background p-400">
                 <div role="alert" className="w-full max-w-md rounded-xl border border-border bg-card p-800 text-center shadow-8">
                     <h1 className="mb-200 text-500 font-semibold leading-500 text-card-foreground">
                         You don't have access
@@ -118,20 +114,17 @@ export function AuthGate({
     }
 
     if (!isAuthenticated) {
-        // A Copilot Managed App's host signs people in before the app opens, so here it only didn't answer.
-        const signInLabel = import.meta.env.MODE === "managed" ? "Try again" : host === "azure" ? "Sign in with Microsoft" : "Sign in with Fabric";
+        const signInLabel = host === "azure" ? "Sign in with Microsoft" : "Sign in with Fabric";
         return (
-            <div className={import.meta.env.MODE === "managed" ? "w-full" : "flex min-h-screen items-center justify-center bg-background p-400"}>
+            <div className="flex min-h-screen items-center justify-center bg-background p-400">
                 <div className="w-full max-w-md rounded-xl border border-border bg-card p-800 text-center shadow-8">
                     <h1 className="mb-200 text-500 font-semibold leading-500 text-card-foreground">
-                        {import.meta.env.MODE === "managed" ? "Analytics Hub couldn't connect" : "Sign in to open this app"}
+                        Sign in to open this app
                     </h1>
                     <p className="mb-600 text-300 leading-300 text-muted-foreground">
-                        {import.meta.env.MODE === "managed"
-                            ? "When it opens, it asks the Copilot Managed Runtime who you are, and it didn't answer. Try again, or reopen the app."
-                            : host === "azure"
-                                ? "Use your Microsoft account to access Analytics Hub."
-                                : "Use your Fabric account to access this app and its connected semantic models."}
+                        {host === "azure"
+                            ? "Use your Microsoft account to access Analytics Hub."
+                            : "Use your Fabric account to access this app and its connected semantic models."}
                     </p>
                     <button
                         type="button"
@@ -140,11 +133,11 @@ export function AuthGate({
                         aria-busy={isSigningIn}
                         className="rounded-lg bg-primary px-400 py-200 text-300 font-semibold text-primary-foreground hover:opacity-90 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
                     >
-                        {isSigningIn ? (import.meta.env.MODE === "managed" ? "Connecting…" : "Signing in…") : signInLabel}
+                        {isSigningIn ? "Signing in…" : signInLabel}
                     </button>
                     {signInError && (
                         <p role="alert" className="mt-400 text-300 leading-300 text-destructive">
-                            {import.meta.env.MODE === "managed" ? "We couldn't connect: " : "We couldn't sign you in: "}{signInError.message}{import.meta.env.MODE === "managed" ? "" : " Please try again and allow pop-ups for this site."}
+                            We couldn't sign you in: {signInError.message} Please try again and allow pop-ups for this site.
                         </p>
                     )}
                 </div>

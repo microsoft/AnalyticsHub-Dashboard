@@ -42,14 +42,11 @@ const localNetworkAccessPlugin: PluginOption = {
 };
 
 // https://vite.dev/config/
-export default defineConfig(async ({ mode }) => ({
+export default defineConfig({
     plugins: [
         react(),
         tailwindcss(),
         localNetworkAccessPlugin,
-        // The Copilot Managed App: relative asset paths for its player, and a play link from the dev server.
-        // Loaded only in that mode, so other builds never touch it.
-        ...(mode === "managed" ? [(await import("@microsoft/managed-apps-vite-plugin")).managedApps()] : []),
     ],
     resolve: {
         alias: {
@@ -102,4 +99,4 @@ export default defineConfig(async ({ mode }) => ({
             ],
         },
     },
-}));
+});

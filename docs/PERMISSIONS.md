@@ -197,14 +197,8 @@ The installer creates one Entra security group, **Analytics Hub Viewers**, with 
 
 > **Keep viewers off workspace roles.** Even a workspace Viewer can query the Lakehouse's SQL endpoint, and Admins, Members and Contributors skip [org-scoped access](#org-scoped-access-row-level-security). Share the app and models through the group instead. Organizational apps (preview) can be an optional landing page that bundles the app and the reports.
 
----
-
-## Copilot Managed App
-
-Preview. It reads the models with each viewer's own Power BI connection, so viewers need **Build**
-on each model, as above, plus Power Apps Premium or Copilot Credits. Deploying it needs two Power
-Platform settings, the Power BI connector's **Run a query** action, and the Fabric tenant setting
-**Semantic Model Execute Queries REST API**. See [Before you start](MANAGED-APP.md#before-you-start).
+<a id="copilot-managed-app"></a>
+Parked ideas, like the Copilot Managed App, are in [ideas](../ideas/README.md). They aren't supported.
 
 ---
 
@@ -276,7 +270,6 @@ Caveats:
 - **+ Agents 365:** add `CopilotPackages.Read.All` + `Application.Read.All` (+ `User.Read.All`) to the same app reg, and confirm the tenant has an Agent 365 licence.
 
 For the step-by-step, see [Install](INSTALL.md), or the README for where it runs:
-[Fabric](../fabric/README.md) · [Azure](../azure/README.md) · [Copilot Managed App](MANAGED-APP.md).
-The Power BI templates for other
+[Fabric](../fabric/README.md) · [Azure](../azure/README.md). The Power BI templates for other
 paths are in ValueLens: [3](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/blob/main/3.%20Power%20Automate%20+%20Dataverse/README.md) · [4](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/blob/main/4.%20SharePoint/README.md) ·
 [5](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/blob/main/5.%20Local%20CSV/README.md).
