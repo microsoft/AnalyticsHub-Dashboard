@@ -39,3 +39,5 @@ param semanticModels = string(union(
 // param sqlLocation = ''
 // param sqlUseFreeLimit = true
 // param azureAiSubscriptionId = ''
+
+// Keep this line last: it shows this file is complete.

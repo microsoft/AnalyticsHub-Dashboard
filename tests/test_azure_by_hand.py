@@ -54,7 +54,12 @@ def step_block(lead: str) -> str:
 GET_FILES = block("**Get the files.**")
 SETUP = block("**Each time Cloud Shell opens**")
 STEP_1 = step_block("1. **Deploy**")
+STEP_2 = step_block("2. **Register the apps:**")
+STEP_4 = step_block("4. **Publish the report.**")
 REMOVE = block("**Remove.**")
+# The template's last line. Get the files uses a record only if it has it. Records already made
+# end with it, so never change it.
+COMPLETE = "// Keep this line last: it shows this file is complete."
 
 # Stand-ins. Each answers only the exact calls the page makes; anything else is recorded and fails.
 # The install is in sub-1, in tenant-1. $STATE/subs lists the subscriptions signed in to, with
@@ -83,6 +88,28 @@ group_at() {  # The resource group $2, as ARM sees it from subscription $1: 0 th
   [ -e "$STATE/hidden-rg" ] && { err AuthorizationFailed; return; }
   [ "$1" = sub-1 ] && [ "$2" = "$(cat "$STATE/rg-name")" ] && [ -e "$STATE/rg" ] || return 3
 }
+recorded() {  # What the record says for $1.
+  command sed -n -E "s/^(param|var) $1 = '([^']*)'.*/\2/p" "$HOME/AnalyticsHub-Dashboard/azure/infra/my.bicepparam" 2>/dev/null
+}
+scoped() {  # Before a deploy: has step 1 saved this tenant, subscription and resource group ($1, or any)?
+  local g; g=$(recorded resourceGroup)
+  [ -n "$g" ] && [ "$g" = "${1:-$g}" ] && [ "$(recorded tenant)" = "$tenant" ] &&
+    [ "$(recorded subscription)" = "$sub" ] && return
+  echo "az call before step 1 saved where it deploys: $tenant $sub ${1:-?}" >> "$STATE/unexpected"; return 99
+}
+saved() {  # Before setting up $1: is it saved, as one of the names after it?
+  local id=$1 k; shift
+  for k; do [ -n "$id" ] && [ "$(recorded "$k")" = "$id" ] && return; done
+  echo "az call for '$id' before it was saved as $*" >> "$STATE/unexpected"; return 99
+}
+made() {  # Makes a new $1 (web or reader, an app; ws, the workspace) and prints its ID.
+  local n; n=$(( $(cat "$STATE/made-$1" 2>/dev/null || echo 0) + 1 ))
+  echo "$n" > "$STATE/made-$1"
+  if [ "$1" = ws ]; then touch "$STATE/workspace"; else touch "$STATE/app-$1-$n"; fi
+  echo "$1-$n"
+}
+sleep() { log "sleep $*"; }
+rm -f "$STATE/web-app.json"  # Step 2 writes it. See run().
 az() {
   log "az $*"
   # Without --subscription, a call goes to the subscription in use, and its tenant.
@@ -125,9 +152,58 @@ az() {
   "group exists -n "*)
     fails group-exists && { err simulated; return; }
     group_at "$sub" "$4"; case $? in 0) echo true ;; 3) echo false ;; *) return 1 ;; esac ;;
-  "deployment group show -g "*" -n analytics-hub --query properties.outputs.identityPrincipalId.value -o tsv")
+  "deployment group show -g "*" -n analytics-hub --query properties.outputs."*".value -o tsv")
     fails deployment-show && { err simulated; return; }
-    group_at "$sub" "$5"; case $? in 0) echo mi-1 ;; 3) err ResourceGroupNotFound 3 ;; *) return 1 ;; esac ;;
+    group_at "$sub" "$5"; case $? in 0) ;; 3) err ResourceGroupNotFound 3; return ;; *) return 1 ;; esac
+    case $9 in
+    properties.outputs.identityPrincipalId.value) echo mi-1 ;;
+    properties.outputs.webFqdn.value) echo app.example.test ;;
+    properties.outputs.sqlServerFqdn.value) echo sql.example.test ;;
+    properties.outputs.sqlDatabaseName.value) echo db-1 ;;
+    *) printf '%s\n' "az $*" >> "$STATE/unexpected"; err "unexpected output" 99 ;;
+    esac ;;
+  # Step 1. Each deploy call checks step 1 has already saved where it's deploying.
+  "provider register -n Microsoft."*" --wait")
+    scoped || return; fails provider-register && { err simulated; return; }; : ;;
+  "group create -n "*" -l uksouth -o none")
+    scoped "$4" || return; fails group-create && { err simulated; return; }
+    echo "$4" > "$STATE/rg-name"; [ -e "$STATE/rg" ] || echo Succeeded > "$STATE/rg" ;;
+  "deployment group create -g "*" -n analytics-hub -p azure/infra/my.bicepparam --query properties.provisioningState -o tsv")
+    scoped "$5" || return; fails deployment-create && { err simulated; return; }
+    group_at "$sub" "$5" || { err ResourceGroupNotFound 3; return; }
+    echo Succeeded ;;
+  # Step 2. The SQL reader is made only once the web app is saved, and each app is set up only
+  # once it's saved.
+  "rest -m POST -u https://graph.microsoft.com/v1.0/applications -b @$STATE/web-app.json --query appId -o tsv")
+    fails web-create && { err simulated; return; }
+    grep -q '"https://app.example.test/' "$STATE/web-app.json" || { err "Invalid value for redirectUris"; return; }
+    made web ;;
+  'rest -m POST -u https://graph.microsoft.com/v1.0/applications -b {"displayName": "Analytics Hub SQL Reader"} --query appId -o tsv')
+    [ -n "$(recorded webClientId)" ] && [ -n "$(recorded webAppIdUri)" ] ||
+      { echo "SQL reader made before the web app was saved" >> "$STATE/unexpected"; return 99; }
+    fails reader-create && { err simulated; return; }
+    made reader ;;
+  "ad app update --id "*" --identifier-uris "*)
+    saved "$5" webClientId || return ;;
+  "ad sp create --id "*" -o none")
+    saved "$5" webClientId sqlReaderClientId || return
+    [ ! -e "$STATE/sp-$5" ] || { err "Another object with the same value for property servicePrincipalNames already exists."; return; }
+    touch "$STATE/sp-$5" ;;
+  "ad app federated-credential create --id "*" --parameters "*" -o none")
+    saved "$6" webClientId || return
+    [ ! -e "$STATE/fic-$6" ] || { err "FederatedIdentityCredential with name managed-identity already exists."; return; }
+    touch "$STATE/fic-$6" ;;
+  # Step 4. The workspace is set up only once it's saved.
+  'rest -m POST -u https://api.powerbi.com/v1.0/myorg/groups?workspaceV2=True --resource https://analysis.windows.net/powerbi/api -b {"name": "Analytics Hub (Azure)"} --query id -o tsv')
+    fails workspace-create && { err simulated; return; }
+    made ws ;;
+  "rest -m POST -u https://api.powerbi.com/v1.0/myorg/groups/"*"/users --resource https://analysis.windows.net/powerbi/api -b "*" -o none")
+    local w=${5#https://api.powerbi.com/v1.0/myorg/groups/}
+    saved "${w%/users}" workspace || return ;;
+  "rest -u https://api.powerbi.com/v1.0/myorg/groups/ws-1/datasets --resource https://analysis.windows.net/powerbi/api --query value[?name=='Analytics Hub Model'].id -o tsv")
+    echo model-1 ;;
+  "rest -u https://api.powerbi.com/v1.0/myorg/groups/ws-1/datasets --resource https://analysis.windows.net/powerbi/api --query value[?name=='Analytics Hub Consumption Model'].id -o tsv")
+    echo cmodel-1 ;;
   *) printf '%s\n' "az $*" >> "$STATE/unexpected"; err "unexpected call" 99 ;;
   esac
 }
@@ -161,7 +237,10 @@ def run(
         (guard / name).write_text('#!/bin/sh\necho "$0 $*" >> "$STATE/real"\nexit 97\n', newline="\n")
         (guard / name).chmod(0o755)
     script = state / "run.sh"
-    script.write_text(STUBS + prelude + "\n".join(blocks), encoding="utf-8", newline="\n")
+    # Step 2's file goes in this scratch folder, not the shared /tmp, so tests can run side by side.
+    # It's the only change made to the blocks.
+    pasted_text = "\n".join(blocks).replace("/tmp/web-app.json", '"$STATE/web-app.json"')
+    script.write_text(STUBS + prelude + pasted_text, encoding="utf-8", newline="\n")
     env = {
         **os.environ,
         "HOME": home.as_posix(),
@@ -203,19 +282,30 @@ SIGN_IN = (
 NO_RECORD = "Not removed: azure/infra/my.bicepparam doesn't say where step 1 deployed."
 
 
+def fill(text: str, values: dict[str, str]) -> str:
+    """`text`, with `values` put in it as put does: each one's whole line is rewritten."""
+    for name, value in values.items():
+        v = value if re.fullmatch(r"true|false|[0-9]+", value) else f"'{value}'"
+        text, n = re.subn(
+            rf"^(?:// )?(param|var) {name} = .*$", lambda m: f"{m[1]} {name} = {v}", text, flags=re.M
+        )
+        assert n == 1, name
+    return text
+
+
 @pytest.fixture
 def install(tmp_path):
     """A finished install in sub-1, in tenant-1: its record, and the workspace, two apps and
     resource group it names. Signed in to sub-1, and to sub-2 in tenant-2."""
     home, state = tmp_path / "home", tmp_path / "state"
-    infra = home / "AnalyticsHub-Dashboard" / "azure" / "infra"
+    clone = home / "AnalyticsHub-Dashboard"
+    infra = clone / "azure" / "infra"
     infra.mkdir(parents=True)
+    (clone / "fabric").mkdir()
     state.mkdir()
-    text = TEMPLATE
-    for name, value in (*WHERE.items(), *((key, i) for _, key, i in WHAT.values())):
-        old = re.search(rf"^(?:param|var) {name} = ''", text, re.M)
-        assert old and text.count(old.group()) == 1, name
-        text = text.replace(old.group(), f"{old.group()[:-2]}'{value}'")
+    shutil.copy(ROOT / "azure" / "infra" / "web-app-registration.json", infra)
+    (clone / "fabric" / "ValueLens - Fabric.pbit").write_bytes(b"report")
+    text = fill(TEMPLATE, {**WHERE, **{key: i for _, key, i in WHAT.values()}})
     record = infra / "my.bicepparam"
     record.write_text(text, encoding="utf-8", newline="\n")
     for name in ("workspace", "app-web-1", "app-reader-1"):
@@ -452,20 +542,355 @@ def test_remove_deletes_nothing_if_the_record_does_not_say_where_step_1_deployed
     assert left(install) == ALL
 
 
-def test_step_1_records_where_it_deploys_before_it_deploys(install):
-    record_where, deploy = STEP_1.split("for p in", 1)
-    assert "az group create" in deploy and "az deployment group create" in deploy
-    install.record.write_text(TEMPLATE, encoding="utf-8", newline="\n")
-    (install.state / "subs").write_text("sub-9 tenant-9\n", newline="\n")
-    (install.state / "current").write_text("sub-9\n", newline="\n")
-    setup = SETUP.replace("RG=analytics-hub;", "RG=my-rg;")
-    assert setup != SETUP
-    r = run(install.home, install.state, setup, record_where)
+# Steps 1, 2 and 4, and put. Each block runs whole. The stand-ins fail any call made before what
+# it needs is in the record: a deploy before where it deploys, and an app or the workspace being
+# set up before its ID.
+
+WEB_IDS = {
+    "webClientId": "web-1",
+    "webAppIdUri": "api://app.example.test/web-1",
+    "sqlReaderClientId": "reader-1",
+}
+DEPLOY = [  # Step 1's calls that change Azure, in order.
+    *(f"az provider register -n Microsoft.{p} --wait"
+      for p in re.search(r"for p in ([\w ]+); do", STEP_1)[1].split()),
+    "az group create -n analytics-hub -l uksouth -o none",
+    "az deployment group create -g analytics-hub -n analytics-hub -p azure/infra/my.bicepparam"
+    " --query properties.provisioningState -o tsv",
+]
+SET_UP = [  # Step 2's calls that set up the apps.
+    "az ad app update --id web-1 --identifier-uris api://app.example.test/web-1",
+    "az ad sp create --id web-1 -o none",
+    "az ad sp create --id reader-1 -o none",
+    'az ad app federated-credential create --id web-1 --parameters {"name": "managed-identity",'
+    ' "issuer": "https://login.microsoftonline.com/tenant-1/v2.0", "subject": "mi-1",'
+    ' "audiences": ["api://AzureADTokenExchange"]} -o none',
+]
+MEMBER = (  # Step 4's call that sets up the workspace.
+    "az rest -m POST -u https://api.powerbi.com/v1.0/myorg/groups/ws-1/users"
+    ' --resource https://analysis.windows.net/powerbi/api -b {"identifier": "mi-1",'
+    ' "principalType": "App", "groupUserAccessRight": "Member"} -o none'
+)
+NOT_SAVED = "Not saved in azure/infra/my.bicepparam: "
+
+# sed, failing as when the disk is full, where the test says: fail-write, every write to the
+# record; fail-write-<name>, the writes of <name>; fail-silently-write, every write, though sed
+# says it worked; fail-registration, writing step 2's registration, part-way through.
+WRITE_FAILS = r"""
+sed() {
+  local re='\) ([A-Za-z]+) = '
+  if [ "$1" = -i ]; then
+    [[ $3 =~ $re ]]
+    if fails write || fails "write-${BASH_REMATCH[1]}"; then
+      echo "sed: couldn't open temporary file azure/infra/sedX4bQ2z: Disk quota exceeded" >&2; return 4
+    fi
+    [ ! -e "$STATE/fail-silently-write" ] || return 0
+  elif [[ $1 == "s/{{fqdn}}/"* ]] && fails registration; then
+    command sed "$@" | head -n 3; echo "sed: couldn't write 9 items to stdout: Disk quota exceeded" >&2; return 4
+  fi
+  command sed "$@"
+}
+"""
+# Between two pastes in one shell: the cause is fixed. The record as the first paste left it, if
+# there is one, goes to $STATE/after-first.
+FIXED = (
+    'rm -f "$STATE"/fail-*; log "-- fixed"\n'
+    'command cp ~/AnalyticsHub-Dashboard/azure/infra/my.bicepparam "$STATE/after-first" 2>/dev/null\n'
+)
+
+
+def at_step(inst, step: int) -> str:
+    """Takes the install back to just before step 1, 2 or 4: the record so far, and only what the
+    steps before it made. Returns the record."""
+    for name in {1: ALL, 2: ALL - {"rg"}, 4: {"workspace"}}[step]:
+        (inst.state / name).unlink()
+    text = fill(TEMPLATE, {1: {}, 2: WHERE, 4: {**WHERE, **WEB_IDS}}[step])
+    inst.record.write_text(text, encoding="utf-8", newline="\n")
+    return text
+
+
+def checked(block: str) -> str:
+    """The block, then its exit status, so the same shell can paste it again."""
+    return block + 'echo "== exit $?"\n'
+
+
+def pasted(r) -> list[tuple[int, str]]:
+    """Each checked() block's exit status, and what it printed."""
+    parts = re.split(r"^== exit (\d+)\n", r.stdout, flags=re.M)
+    return [(int(code), out) for out, code in zip(parts[::2], parts[1::2])]
+
+
+def pastes(state: Path) -> tuple[list[str], list[str]]:
+    """The calls made before FIXED, and after it."""
+    log = calls(state)
+    return log[: log.index("-- fixed")], log[log.index("-- fixed") + 1 :]
+
+
+def after_first(inst) -> str | None:
+    path = inst.state / "after-first"
+    return path.read_text(encoding="utf-8") if path.exists() else None
+
+
+def deploying(log: list[str]) -> list[str]:
+    return [c for c in log if c.startswith(("az provider ", "az group create ", "az deployment group create "))]
+
+
+def setting_up(log: list[str]) -> list[str]:
+    return [c for c in log if c.startswith(("az ad ", "az rest -m POST -u https://api.powerbi.com/v1.0/myorg/groups/"))]
+
+
+def made(state: Path) -> dict[str, int]:
+    """How many web apps, SQL readers and workspaces the steps have made."""
+    return {k: int((state / f"made-{k}").read_text()) for k in ("web", "reader", "ws") if (state / f"made-{k}").exists()}
+
+
+def test_step_1_saves_where_it_deploys_before_it_changes_anything(install):
+    at_step(install, 1)
+    for _ in range(2):  # Pasted again in the same place, it deploys again.
+        r = run(install.home, install.state, SETUP, STEP_1)
+        assert r.returncode == 0, r.stdout + r.stderr
+        assert r.stdout.splitlines() == [
+            "var tenant = 'tenant-1'", "var subscription = 'sub-1'", "var resourceGroup = 'analytics-hub'",
+            "Succeeded",
+        ]
+        assert install.record.read_text(encoding="utf-8") == fill(TEMPLATE, WHERE)
+    assert deploying(calls(install.state)) == DEPLOY * 2
+
+
+@pytest.mark.parametrize(
+    "failing, saved",
+    [
+        ("account-show", {}),
+        ("write", {}),
+        ("silently-write", {}),
+        ("write-subscription", {"tenant": "tenant-1"}),
+        ("write-resourceGroup", {"tenant": "tenant-1", "subscription": "sub-1"}),
+    ],
+)
+def test_step_1_changes_nothing_until_it_has_saved_where_it_deploys(install, failing, saved):
+    at_step(install, 1)
+    (install.state / f"fail-{failing}").touch()
+    r = run(install.home, install.state, SETUP, checked(STEP_1), FIXED, checked(STEP_1), prelude=WRITE_FAILS)
+    (code, out), (again, out_again) = pasted(r)
+    first, then = pastes(install.state)
+    # It stops, says why, and changes nothing. The shell stays open, to paste it again.
+    assert code != 0
+    if failing == "account-show":
+        assert out == "" and "ERROR: Please run 'az login' to setup account." in r.stderr
+    else:
+        name = failing[len("write-"):] if failing.startswith("write-") else "tenant"
+        assert out.splitlines()[-1] == f"{NOT_SAVED}{name} = '{WHERE[name]}'"
+    assert deploying(first) == []
+    assert after_first(install) == fill(TEMPLATE, saved)
+    # Fixed, and pasted again: it saves the rest, then deploys.
+    assert again == 0, r.stdout + r.stderr
+    assert out_again.splitlines()[-1] == "Succeeded"
+    assert deploying(then) == DEPLOY
+    assert install.record.read_text(encoding="utf-8") == fill(TEMPLATE, WHERE)
+
+
+@pytest.mark.parametrize("missing", ["record", "clone"])
+def test_step_1_deploys_nothing_without_the_record(install, missing):
+    # Without the clone, the setup block's cd fails and the block runs where it was pasted.
+    if missing == "record":
+        install.record.unlink()
+    else:
+        shutil.rmtree(install.home / "AnalyticsHub-Dashboard")
+    r = run(install.home, install.state, SETUP, STEP_1)
+    assert r.returncode != 0
+    assert r.stdout.splitlines() == [NOT_SAVED + "tenant = 'tenant-1'"]
+    assert deploying(calls(install.state)) == []
+    assert not install.record.exists() and not (install.state / "azure").exists()
+
+
+@pytest.mark.parametrize(
+    "failing, calls_made",
+    [("provider-register", 1), ("group-create", len(DEPLOY) - 1), ("deployment-create", len(DEPLOY))],
+)
+def test_step_1_stops_at_the_first_call_that_fails(install, failing, calls_made):
+    at_step(install, 1)
+    (install.state / f"fail-{failing}").touch()
+    r = run(install.home, install.state, SETUP, checked(STEP_1), FIXED, checked(STEP_1))
+    (code, out), (again, out_again) = pasted(r)
+    first, then = pastes(install.state)
+    assert code != 0 and "Succeeded" not in out
+    assert deploying(first) == DEPLOY[:calls_made]
+    assert again == 0, r.stdout + r.stderr
+    assert out_again.splitlines()[-1] == "Succeeded"
+    assert deploying(then) == DEPLOY
+    assert install.record.read_text(encoding="utf-8") == fill(TEMPLATE, WHERE)
+
+
+@pytest.mark.parametrize(
+    "current, rg, says",
+    [
+        ("sub-2", "analytics-hub", "tenant tenant-1, not tenant-2"),
+        ("sub-3", "analytics-hub", "subscription sub-1, not sub-3"),
+        ("sub-1", "my-rg", "resourceGroup analytics-hub, not my-rg"),
+    ],
+    ids=["other-tenant", "other-subscription", "other-resource-group"],
+)
+def test_step_1_deploys_nowhere_else_with_the_same_record(install, current, rg, says):
+    # The record is how Remove finds what step 1 deployed, so it's never pointed somewhere else.
+    text = at_step(install, 2)
+    (install.state / "subs").write_text("sub-1 tenant-1\nsub-2 tenant-2\nsub-3 tenant-1\n", newline="\n")
+    (install.state / "current").write_text(current + "\n", newline="\n")
+    r = run(install.home, install.state, SETUP.replace("RG=analytics-hub;", f"RG={rg};"), STEP_1)
+    assert r.returncode != 0
+    assert r.stdout.splitlines() == [f"Not deployed: azure/infra/my.bicepparam is for {says}."]
+    assert deploying(calls(install.state)) == []
+    assert install.record.read_text(encoding="utf-8") == text
+
+
+def test_step_2_saves_each_app_before_it_sets_it_up(install):
+    text = at_step(install, 2)
+    r = run(install.home, install.state, SETUP, STEP_2)
     assert r.returncode == 0, r.stdout + r.stderr
-    expected = TEMPLATE
-    for name, value in (("tenant", "tenant-9"), ("subscription", "sub-9"), ("resourceGroup", "my-rg")):
-        expected = expected.replace(f"var {name} = ''", f"var {name} = '{value}'")
-    assert install.record.read_text(encoding="utf-8") == expected
+    assert install.record.read_text(encoding="utf-8") == fill(text, WEB_IDS)
+    assert setting_up(calls(install.state)) == SET_UP
+    assert made(install.state) == {"web": 1, "reader": 1}
+
+    # Pasted again in a new shell, it uses the apps it saved. "Already exists" errors are fine.
+    r = run(install.home, install.state, SETUP, STEP_2)
+    assert "already exists" in r.stderr
+    assert install.record.read_text(encoding="utf-8") == fill(text, WEB_IDS)
+    assert made(install.state) == {"web": 1, "reader": 1}
+
+
+WEB_SAVED = {"webClientId": "web-1", "webAppIdUri": "api://app.example.test/web-1"}
+
+
+@pytest.mark.parametrize(
+    "failing, saved, says",
+    [
+        ("deployment-show", {}, None),
+        ("account-show", {}, None),
+        ("registration", {}, None),
+        ("web-create", {}, "No value for webClientId"),
+        ("write-webClientId", {}, NOT_SAVED + "webClientId = 'web-1'"),
+        ("write-webAppIdUri", {"webClientId": "web-1"}, NOT_SAVED + "webAppIdUri = 'api://app.example.test/web-1'"),
+        ("reader-create", WEB_SAVED, "No value for sqlReaderClientId"),
+        ("write-sqlReaderClientId", WEB_SAVED, NOT_SAVED + "sqlReaderClientId = 'reader-1'"),
+    ],
+)
+def test_step_2_sets_up_no_app_it_has_not_saved(install, failing, saved, says):
+    text = at_step(install, 2)
+    (install.state / f"fail-{failing}").touch()
+    r = run(install.home, install.state, SETUP, checked(STEP_2), FIXED, checked(STEP_2), prelude=WRITE_FAILS)
+    (code, out), (again, _) = pasted(r)
+    first, then = pastes(install.state)
+    # It stops where it failed. Without says, that's before it prints anything: before it makes an app.
+    assert code != 0
+    assert out.splitlines()[-1:] == ([says] if says else [])
+    assert setting_up(first) == []
+    assert after_first(install) == fill(text, saved)
+    # Fixed, and pasted again in the same shell: an app it already made is saved, not made again.
+    assert again == 0, r.stdout + r.stderr
+    assert setting_up(then) == SET_UP
+    assert install.record.read_text(encoding="utf-8") == fill(text, WEB_IDS)
+    assert made(install.state) == {"web": 1, "reader": 1}
+
+
+def test_step_4_saves_the_workspace_before_it_sets_it_up(install):
+    text = at_step(install, 4)
+    r = run(install.home, install.state, SETUP, STEP_4)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.stdout.splitlines() == ["var workspace = 'ws-1'", "Server: sql.example.test  Database: db-1"]
+    assert install.record.read_text(encoding="utf-8") == fill(text, {"workspace": "ws-1"})
+    assert setting_up(calls(install.state)) == [MEMBER]
+    assert made(install.state) == {"ws": 1}
+    assert (install.home / "ValueLens.pbit").read_bytes() == b"report"
+
+
+@pytest.mark.parametrize(
+    "failing, says",
+    [
+        ("workspace-create", "No value for workspace"),
+        ("write-workspace", NOT_SAVED + "workspace = 'ws-1'"),
+        ("silently-write", NOT_SAVED + "workspace = 'ws-1'"),
+    ],
+)
+def test_step_4_sets_up_no_workspace_it_has_not_saved(install, failing, says):
+    text = at_step(install, 4)
+    (install.state / f"fail-{failing}").touch()
+    r = run(install.home, install.state, SETUP, checked(STEP_4), FIXED, checked(STEP_4), prelude=WRITE_FAILS)
+    (code, out), (again, _) = pasted(r)
+    first, then = pastes(install.state)
+    assert code != 0 and out.splitlines()[-1] == says
+    assert setting_up(first) == []
+    assert after_first(install) == text
+    assert again == 0, r.stdout + r.stderr
+    assert setting_up(then) == [MEMBER]
+    assert install.record.read_text(encoding="utf-8") == fill(text, {"workspace": "ws-1"})
+    assert made(install.state) == {"ws": 1}
+
+
+def test_steps_save_all_they_make_so_remove_can_delete_it(install):
+    at_step(install, 1)
+    for step in (STEP_1, STEP_2, STEP_4):
+        r = run(install.home, install.state, SETUP, step)
+        assert r.returncode == 0, r.stdout + r.stderr
+    assert made(install.state) == {"web": 1, "reader": 1, "ws": 1}
+    assert left(install) == ALL
+    r = remove(install)
+    assert "Not removed yet: resource-group." in r.stdout
+    (install.state / "rg").unlink()
+    r = remove(install)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.stdout.splitlines()[-1] == "Removed"
+    assert left(install) == set()
+    assert not install.record.exists()
+
+
+def dataset(key: str, name: str) -> str:
+    return f"put {key} $(az rest -u $API/groups/$WS/datasets --resource $PBI --query \"value[?name=='{name}'].id\" -o tsv)"
+
+
+PUTS = [  # The page's other puts, as it has them: what's run, with yours filled in, and what it saves.
+    ("put sqlLocation <region>", "put sqlLocation ukwest", "param sqlLocation = 'ukwest'"),
+    (dataset("model", "Analytics Hub Model"), None, "var model = 'model-1'"),
+    ("put sampleData true", None, "param sampleData = true"),
+    ("put askMode create", None, "param askMode = 'create'"),
+    ("put auditHistoryDays 90", None, "param auditHistoryDays = 90"),
+    ("put runSchedule '0 6 * * *'", None, "param runSchedule = '0 6 * * *'"),
+    ("put sqlUseFreeLimit true", None, "param sqlUseFreeLimit = true"),
+    ("put modules core,orgData,consumption", None, "param modules = 'core,orgData,consumption'"),
+    ("put azureAiSubscriptionId <id>", "put azureAiSubscriptionId sub-9", "param azureAiSubscriptionId = 'sub-9'"),
+    (dataset("consumptionModel", "Analytics Hub Consumption Model"), None, "var consumptionModel = 'cmodel-1'"),
+]
+
+
+@pytest.mark.parametrize("page, line, saves", PUTS, ids=[p[0].split()[1] for p in PUTS])
+def test_each_put_on_the_page_saves_or_says_it_has_not(install, page, line, saves):
+    assert page in DOC
+    line = (line or page) + "\n"
+    (install.state / "fail-write").touch()
+    r = run(install.home, install.state, SETUP, checked(line), FIXED, checked(line), prelude=WRITE_FAILS)
+    (code, out), (again, out_again) = pasted(r)
+    assert code != 0 and out == NOT_SAVED + saves.split(" ", 1)[1] + "\n"
+    assert after_first(install) == install.text
+    assert again == 0 and out_again == saves + "\n"
+    name, value = saves.split(" ", 1)[1].split(" = ")
+    assert install.record.read_text(encoding="utf-8") == fill(install.text, {name: value.strip("'")})
+
+
+def test_every_put_on_the_page_is_tested():
+    names = set(re.findall(r"^(?:// )?(?:param|var) (\w+) = ", TEMPLATE, re.M))
+    on_the_page = set(re.findall(r"\bput (\w+)", DOC[DOC.index("## Azure"):])) & names
+    in_steps = set(re.findall(r"\bput (\w+)", STEP_1 + STEP_2 + STEP_4))
+    assert in_steps == {*WHERE, *WEB_IDS, "workspace"}
+    assert on_the_page == in_steps | {page.split()[1] for page, _, _ in PUTS}
+
+
+@pytest.mark.parametrize(
+    "line, says",
+    [("put noSuchSetting x", NOT_SAVED + "noSuchSetting = 'x'"), ("put workspace", "No value for workspace")],
+)
+def test_put_says_when_it_has_nothing_to_save(install, line, says):
+    r = run(install.home, install.state, SETUP, line + "\n")
+    assert r.returncode != 0
+    assert r.stdout == says + "\n"
+    assert install.record.read_text(encoding="utf-8") == install.text
 
 
 # Get the files
@@ -491,11 +916,28 @@ CD_FAILS = (
     'cd() { [ "$1" != "$HOME/AnalyticsHub-Dashboard" ] ||'
     ' { echo "cd: $1: Permission denied" >&2; return 1; }; builtin cd "$@"; }\n'
 )
-CHECKOUT_FAILS = (
-    'git() { [ "$1" != checkout ] ||'
-    ' { echo "error: unable to unlink old file: Permission denied" >&2; return 1; }; command git "$@"; }\n'
-)
-COPY_FAILS = 'cp() { echo "cp: cannot create regular file: Disk quota exceeded" >&2; return 1; }\n'
+# Where the test says: fail-checkout, git checkout fails; fail-copy-empty and fail-copy-part, cp
+# makes its copy, then fails with it empty or part-written, as when the disk is full;
+# fail-silently-copy-part, cp part-writes it but says it worked; fail-move, mv fails.
+PART_FAILS = r"""
+git() {
+  [ "$1" != checkout ] || ! fails checkout || { echo "error: unable to unlink old file: Permission denied" >&2; return 1; }
+  command git "$@"
+}
+cp() {
+  if fails copy-empty; then : > "${@: -1}"
+  elif fails copy-part; then head -c 20 "$1" > "${@: -1}"
+  elif fails silently-copy-part; then head -c 20 "$1" > "${@: -1}"; return 0
+  else command cp "$@"; return; fi
+  echo "cp: error writing '${@: -1}': Disk quota exceeded" >&2; return 1
+}
+mv() { ! fails move || { echo "mv: cannot move '$1': Permission denied" >&2; return 1; }; command mv "$@"; }
+"""
+
+
+def released(version: str) -> str:
+    """A release's main.bicepparam, in the stand-in for GitHub."""
+    return f"// {version}\n{COMPLETE}\n"
 
 
 @pytest.fixture
@@ -520,7 +962,7 @@ def github(tmp_path):
         infra.mkdir(parents=True, exist_ok=True)
         (origin / "installer").mkdir(exist_ok=True)
         (origin / "installer" / "package.json").write_text(json.dumps({"version": version}), newline="\n")
-        (infra / "main.bicepparam").write_text(f"// {version}\n", newline="\n")
+        (infra / "main.bicepparam").write_text(released(version) if azure_by_hand else f"// {version}\n", newline="\n")
         if azure_by_hand:
             (infra / "web-app-registration.json").write_text("{}\n", newline="\n")
         git(origin, "add", "-A", env=env)
@@ -552,7 +994,7 @@ def github(tmp_path):
 
     clone = home / "AnalyticsHub-Dashboard"
     return SimpleNamespace(
-        state=state, clone=clone, record=clone / "azure" / "infra" / "my.bicepparam",
+        home=home, state=state, clone=clone, record=clone / "azure" / "infra" / "my.bicepparam",
         env=env, release=release, publish=publish, own=own,
         latest=lambda url: (state / "latest").write_text(url, encoding="utf-8"),
         get=lambda cwd=None, prelude="": run(home, state, GET_FILES, cwd=cwd, prelude=prelude),
@@ -613,7 +1055,7 @@ def test_get_the_files_uses_the_latest_published_release(github):
     assert r.stdout.splitlines()[-1] == "Using installer-v9.9.9"
     # The release its images were built from: not the highest tag, and not main.
     assert github.head() == github.commit("installer-v9.9.9")
-    assert github.record.read_text(encoding="utf-8") == "// 9.9.9\n"
+    assert github.record.read_text(encoding="utf-8") == released("9.9.9")
     assert [c.split()[-1] for c in calls(github.state) if "/manifests/" in c] == [
         "https://ghcr.io/v2/microsoft/valuelens-jobs/manifests/9.9.9",
         "https://ghcr.io/v2/microsoft/valuelens-web/manifests/9.9.9",
@@ -624,7 +1066,7 @@ def test_get_the_files_again_keeps_the_record_and_waits_for_the_images(github):
     github.latest(LATEST + "9.9.9")
     github.publish("9.9.9")
     assert github.get().returncode == 0
-    filled = "// 9.9.9\nparam webClientId = 'web-1'\n"
+    filled = f"// 9.9.9\nparam webClientId = 'web-1'\n{COMPLETE}\n"
     github.record.write_text(filled, encoding="utf-8", newline="\n")
 
     r = github.get()  # Pasted again: same release, and the IDs are kept.
@@ -716,14 +1158,77 @@ def test_get_the_files_stops_if_git_cannot_fetch(github):
     assert r.stdout == ""
     assert curls(github.state, since) == []
     assert github.head() == head
-    assert github.record.read_text(encoding="utf-8") == "// 9.9.9\n"
+    assert github.record.read_text(encoding="utf-8") == released("9.9.9")
 
 
-@pytest.mark.parametrize("prelude", [CHECKOUT_FAILS, COPY_FAILS], ids=["checkout", "copy"])
-def test_get_the_files_says_using_only_once_it_has_the_files(github, prelude):
+# The record is made whole or not at all, and Get the files uses it only if it's whole: it ends
+# with the template's last line.
+
+UNFINISHED = "Not using azure/infra/my.bicepparam: it's incomplete. Move it aside, paste this again, then put back any IDs it has: mv azure/infra/my.bicepparam ~/my.bicepparam.old"
+
+
+@pytest.mark.parametrize("failing", ["checkout", "copy-empty", "copy-part", "move"])
+def test_get_the_files_makes_no_record_if_it_fails_then_a_whole_one(github, failing):
     github.latest(LATEST + "9.9.9")
     github.publish("9.9.9")
-    r = github.get(prelude=prelude)
-    assert r.returncode != 0
-    assert "Using" not in r.stdout
-    assert not github.record.exists()
+    (github.state / f"fail-{failing}").touch()
+    r = run(github.home, github.state, checked(GET_FILES), FIXED, checked(GET_FILES), prelude=PART_FAILS)
+    (code, out), (again, out_again) = pasted(r)
+    # It stops with the command's own error: there's no record to move aside.
+    assert code != 0 and out == ""
+    assert after_first(github) is None
+    # Fixed, and pasted again in the same shell.
+    assert again == 0, r.stdout + r.stderr
+    assert out_again.splitlines()[-1] == "Using installer-v9.9.9"
+    assert github.record.read_text(encoding="utf-8") == released("9.9.9")
+    assert sorted(p.name for p in github.record.parent.glob("my.bicepparam*")) == ["my.bicepparam"]
+
+
+@pytest.mark.parametrize(
+    "unfinished", ["", "// 9.9.9\nparam webClientId = 'web-1'\n// Keep th", None],
+    ids=["empty", "part-written", "copied-part-written"],
+)
+def test_get_the_files_will_not_use_an_unfinished_record(github, unfinished):
+    github.latest(LATEST + "9.9.9")
+    github.publish("9.9.9")
+    if unfinished is None:  # Made by a copy that said it worked.
+        (github.state / "fail-silently-copy-part").touch()
+        r = github.get(prelude=PART_FAILS)
+        (github.state / "fail-silently-copy-part").unlink()
+        unfinished = github.record.read_text(encoding="utf-8")
+        assert unfinished == released("9.9.9")[:20]
+    else:
+        assert github.get().returncode == 0
+        github.record.write_text(unfinished, encoding="utf-8", newline="\n")
+        r = github.get()
+    assert r.returncode != 0 and "Using" not in r.stdout
+    assert r.stdout.splitlines()[-1] == UNFINISHED
+    assert github.record.read_text(encoding="utf-8") == unfinished
+    # As it says, in the folder it leaves you in: move it aside, and paste this again.
+    r = run(github.home, github.state, UNFINISHED.rsplit(": ", 1)[1] + "\n", GET_FILES, cwd=github.clone)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.stdout.splitlines()[-1] == "Using installer-v9.9.9"
+    assert github.record.read_text(encoding="utf-8") == released("9.9.9")
+    assert (github.home / "my.bicepparam.old").read_text(encoding="utf-8") == unfinished
+
+
+@pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["lf", "crlf"])
+def test_get_the_files_keeps_a_whole_record_and_copies_nothing_over_it(github, newline):
+    github.latest(LATEST + "9.9.9")
+    github.publish("9.9.9")
+    assert github.get().returncode == 0
+    filled = f"// 9.9.9\nparam webClientId = 'web-1'\n{COMPLETE}\n".replace("\n", newline).encode()
+    github.record.write_bytes(filled)
+    for failing in ("copy-empty", "move"):
+        (github.state / f"fail-{failing}").touch()
+    r = github.get(prelude=PART_FAILS)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.stdout.splitlines()[-1] == "Using installer-v9.9.9"
+    assert github.record.read_bytes() == filled
+
+
+def test_the_record_ends_with_the_line_that_shows_it_is_whole():
+    assert TEMPLATE.endswith(f"\n{COMPLETE}\n") and TEMPLATE.count(COMPLETE) == 1
+    assert f"grep -qF '{COMPLETE}' $R" in GET_FILES
+    # put and Remove never rewrite it.
+    assert not re.match(r"(// )?(param|var) ", COMPLETE)

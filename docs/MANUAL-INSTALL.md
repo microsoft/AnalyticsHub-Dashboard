@@ -103,8 +103,9 @@ storage account, so your files are kept between sessions.
 | **Teams admin** | Step 8, if you want Teams ([what](PREREQUISITES.md#teams-admin-for-the-teams-app-azure)) |
 
 Paste each block whole. If a command fails, fix the cause and paste the block again: "already
-exists" errors are fine. If a new app "doesn't exist", wait a minute. If you're asked to sign in
-again, run `az login --use-device-code`.
+exists" errors are fine. If a block says **Not saved**, it stopped there: fix the cause and paste
+it again before Cloud Shell closes. If a new app "doesn't exist", wait a minute. If you're asked to
+sign in again, run `az login --use-device-code`.
 
 **Get the files.** This gets the latest release, if it includes Azure by hand and its images are
 published. If it says **Not available yet**, use the [installer](INSTALL.md), or try again after
@@ -122,7 +123,9 @@ get_files() {
     curl -fsSI -o /dev/null -H "Authorization: Bearer $T" https://ghcr.io/v2/microsoft/$i/manifests/$V || { echo "Not available yet: the $i $V image isn't published."; return 1; }
   done
   git checkout -q --detach $TAG || return
-  [ -f azure/infra/my.bicepparam ] || cp azure/infra/main.bicepparam azure/infra/my.bicepparam || return
+  local R=azure/infra/my.bicepparam
+  [ -f $R ] || { cp azure/infra/main.bicepparam $R.new && mv $R.new $R; } || return
+  grep -qF '// Keep this line last: it shows this file is complete.' $R || { echo "Not using $R: it's incomplete. Move it aside, paste this again, then put back any IDs it has: mv $R ~/my.bicepparam.old"; return 1; }
   echo "Using $TAG"
 }
 get_files
@@ -141,35 +144,45 @@ RG=analytics-hub; P=azure/infra/my.bicepparam
 PBI=https://analysis.windows.net/powerbi/api; API=https://api.powerbi.com/v1.0/myorg
 out() { az deployment group show -g $RG -n analytics-hub --query properties.outputs.$1.value -o tsv; }
 get() { sed -n -E "s/^(param|var) $1 = '([^']*)'.*/\2/p" $P; }
-put() { [ -n "$2" ] || { echo "No value for $1"; return 1; }; v="'$2'"; [[ $2 =~ ^(true|false|[0-9]+)$ ]] && v=$2; sed -i -E "s#^(// )?(param|var) $1 = .*#\2 $1 = $v#" $P; grep -E "^(param|var) $1 = " $P; }
+put() { [ -n "$2" ] || { echo "No value for $1"; return 1; }; v="'$2'"; [[ $2 =~ ^(true|false|[0-9]+)$ ]] && v=$2; sed -i -E "s#^(// )?(param|var) $1 = .*#\2 $1 = $v#" $P && grep -xF -e "param $1 = $v" -e "var $1 = $v" $P || { echo "Not saved in $P: $1 = $v"; return 1; }; }
 WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI=$(out identityPrincipalId 2>/dev/null)
 ```
 
 1. **Deploy** (about 10 minutes). Change `uksouth` to your region first.
    ```bash
-   put tenant $(az account show --query tenantId -o tsv); put subscription $(az account show --query id -o tsv)
-   put resourceGroup $RG
-   for p in App Sql Storage OperationalInsights ManagedIdentity; do
-     az provider register -n Microsoft.$p --wait
-   done
-   az group create -n $RG -l uksouth -o none
-   az deployment group create -g $RG -n analytics-hub -p $P --query properties.provisioningState -o tsv
+   same() { [ -z "$(get $1)" ] || [ "$(get $1)" = "$2" ] || { echo "Not deployed: $P is for $1 $(get $1), not $2."; return 1; }; }
+   deploy() {
+     local TN S
+     TN=$(az account show --query tenantId -o tsv) && S=$(az account show --query id -o tsv) || return
+     same tenant $TN && same subscription $S && same resourceGroup $RG || return
+     put tenant $TN && put subscription $S && put resourceGroup $RG || return
+     for p in App Sql Storage OperationalInsights ManagedIdentity; do
+       az provider register -n Microsoft.$p --wait || return
+     done
+     az group create -n $RG -l uksouth -o none || return
+     az deployment group create -g $RG -n analytics-hub -p $P --query properties.provisioningState -o tsv
+   }
+   deploy
    ```
    If Azure SQL can't go in that region, run `put sqlLocation <region>` with another region, then
-   the last line again.
+   paste the block again.
 2. **Register the apps:** the web app people sign in to, and the SQL reader that Power BI reads
    the database as.
    ```bash
-   FQDN=$(out webFqdn); MI=$(out identityPrincipalId); TENANT=$(az account show --query tenantId -o tsv)
-   sed "s/{{fqdn}}/$FQDN/g" azure/infra/web-app-registration.json > /tmp/web-app.json
-   [ -n "$WEB" ] || WEB=$(az rest -m POST -u https://graph.microsoft.com/v1.0/applications -b @/tmp/web-app.json --query appId -o tsv)
-   [ -n "$READER" ] || READER=$(az rest -m POST -u https://graph.microsoft.com/v1.0/applications -b '{"displayName": "Analytics Hub SQL Reader"}' --query appId -o tsv)
-   put webClientId $WEB; put webAppIdUri api://$FQDN/$WEB; put sqlReaderClientId $READER
-   sleep 30
-   az ad app update --id $WEB --identifier-uris api://$FQDN/$WEB
-   az ad sp create --id $WEB -o none
-   az ad sp create --id $READER -o none
-   az ad app federated-credential create --id $WEB --parameters "{\"name\": \"managed-identity\", \"issuer\": \"https://login.microsoftonline.com/$TENANT/v2.0\", \"subject\": \"$MI\", \"audiences\": [\"api://AzureADTokenExchange\"]}" -o none
+   register_apps() {
+     FQDN=$(out webFqdn) && MI=$(out identityPrincipalId) && TENANT=$(az account show --query tenantId -o tsv) || return
+     sed "s/{{fqdn}}/$FQDN/g" azure/infra/web-app-registration.json > /tmp/web-app.json || return
+     [ -n "$WEB" ] || WEB=$(az rest -m POST -u https://graph.microsoft.com/v1.0/applications -b @/tmp/web-app.json --query appId -o tsv)
+     put webClientId $WEB && put webAppIdUri api://$FQDN/$WEB || return
+     [ -n "$READER" ] || READER=$(az rest -m POST -u https://graph.microsoft.com/v1.0/applications -b '{"displayName": "Analytics Hub SQL Reader"}' --query appId -o tsv)
+     put sqlReaderClientId $READER || return
+     sleep 30
+     az ad app update --id $WEB --identifier-uris api://$FQDN/$WEB
+     az ad sp create --id $WEB -o none
+     az ad sp create --id $READER -o none
+     az ad app federated-credential create --id $WEB --parameters "{\"name\": \"managed-identity\", \"issuer\": \"https://login.microsoftonline.com/$TENANT/v2.0\", \"subject\": \"$MI\", \"audiences\": [\"api://AzureADTokenExchange\"]}" -o none
+   }
+   register_apps
    ```
 3. **Entra admin** (about 2 minutes). Gives the managed identity its read-only Graph roles, and
    consents to the web app's permissions. If that's not you, run `echo "MI=$MI WEB=$WEB"` and send
@@ -187,11 +200,14 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
 4. **Publish the report.** This creates the **Analytics Hub (Azure)** workspace, with the managed
    identity as a Member so it can refresh the model.
    ```bash
-   [ -n "$WS" ] || WS=$(az rest -m POST -u "$API/groups?workspaceV2=True" --resource $PBI -b '{"name": "Analytics Hub (Azure)"}' --query id -o tsv)
-   put workspace $WS
-   az rest -m POST -u $API/groups/$WS/users --resource $PBI -b "{\"identifier\": \"$MI\", \"principalType\": \"App\", \"groupUserAccessRight\": \"Member\"}" -o none
-   cp "fabric/ValueLens - Fabric.pbit" ~/ValueLens.pbit
-   echo "Server: $(out sqlServerFqdn)  Database: $(out sqlDatabaseName)"
+   make_workspace() {
+     [ -n "$WS" ] || WS=$(az rest -m POST -u "$API/groups?workspaceV2=True" --resource $PBI -b '{"name": "Analytics Hub (Azure)"}' --query id -o tsv)
+     put workspace $WS || return
+     az rest -m POST -u $API/groups/$WS/users --resource $PBI -b "{\"identifier\": \"$MI\", \"principalType\": \"App\", \"groupUserAccessRight\": \"Member\"}" -o none
+     cp "fabric/ValueLens - Fabric.pbit" ~/ValueLens.pbit
+     echo "Server: $(out sqlServerFqdn)  Database: $(out sqlDatabaseName)"
+   }
+   make_workspace
    ```
    - In Cloud Shell, choose **Manage files** > **Download**, enter `ValueLens.pbit`, and open it
      in Power BI Desktop.

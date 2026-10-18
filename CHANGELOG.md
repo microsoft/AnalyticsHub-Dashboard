@@ -33,6 +33,13 @@ Deployment instructions do **not** live here. They live in the READMEs:
 - **Only from a published release.** **Get the files** uses the latest release once it includes
   Azure by hand and its images are published. Until then, it says **Not available yet**. If git
   can't get the files, it stops there.
+- **Saves before it makes.** Step 1 saves where it deploys, then deploys. Steps 2 and 4 save each
+  app and the workspace before setting them up. If a save fails, the step says **Not saved** and
+  stops, so `my.bicepparam` keeps what Remove needs. Step 1 won't deploy somewhere else with the
+  same `my.bicepparam`.
+- **A whole record, or none.** `main.bicepparam` now ends with a line that shows a copy is whole.
+  **Get the files** makes `my.bicepparam` whole or not at all, and won't use one without that line.
+  It says how to move it aside instead.
 - **Remove** deletes only in the tenant, subscription and resource group that step 1 recorded: if
   you're signed in somewhere else, it says how to sign in and deletes nothing. It keeps each ID
   until that delete succeeds, and `my.bicepparam` until the resource group is gone, so you can
