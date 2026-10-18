@@ -20,6 +20,22 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+## Analytics Hub installer 0.6.7 (unreleased)
+
+**Release preparation only.** 0.6.7 is not published. 0.6.6 remains Latest; whether 0.6.7
+is published as a stable release or a pre-release, and whether it becomes Latest, are separate
+decisions.
+
+**What changed:** clean-PC installer fixes preserve concurrent app deployments and report failed
+steps accurately. Azure adds personal-tab support in Outlook and the Microsoft 365 Copilot app,
+plus optional Teams org app-catalog publication. Value, Consumption and Efficiency follow the
+Executive summary. The separate Copilot Managed App preview and simpler docs are included below.
+
+**Update an existing install:** once 0.6.7 is published, run that version and choose
+**Repair or change**. Azure app-catalog publication needs an additional sign-in with the admin
+role and consent described below; you can continue without it and upload the package by hand.
+Pinning remains manual. This preparation adds no new schema migration or model-reset requirement.
+
 **Azure: the Teams tab also opens in Outlook and the Microsoft 365 Copilot app.**
 
 - **Same sign-in.** The installer pre-authorises the Outlook and Microsoft 365 app clients (web,
@@ -100,8 +116,10 @@ is unchanged.
   [Known issues](docs/KNOWN-ISSUES.md#installing).
 
 **Copilot Managed App (preview).** A third way to run the app, on the Copilot Managed Runtime. It
-reads the models of a Fabric or Azure install, and you set it up with Microsoft's `ms` command line.
-The Fabric and Azure apps are unchanged. See [Copilot Managed App](docs/MANAGED-APP.md).
+reads the models of an existing Fabric or Azure install, and you set it up separately with
+Microsoft's `ms` command line. Installer 0.6.7 does not set up the Managed App; managed easy setup
+and installer support are not included. The Fabric and Azure apps are unchanged. See
+[Copilot Managed App](docs/MANAGED-APP.md).
 
 **Simpler docs.** The README shows the three paths side by side, with short steps for each. Verify,
 Uninstall and Known issues moved into Install, Update and Troubleshooting, and the old links still
