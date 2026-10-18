@@ -97,6 +97,20 @@ cd azure/web  && npm ci && npm test   # the Azure web proxy
 See the [app README](app/README.md) and the [Azure README](azure/README.md) for running them
 against a workspace or a local SQL database.
 
+## Repository layout
+
+| Folder | What it is | Who needs it |
+|---|---|---|
+| [`docs/`](docs/) | The user pages. Published to the [wiki](https://github.com/microsoft/AnalyticsHub-Dashboard/wiki) on every change | Everyone |
+| [`installer/`](installer/) | `AnalyticsHubInstaller.exe`: sets up, repairs and updates Fabric or Azure installs | Fabric and Azure |
+| [`fabric/`](fabric/) | Notebooks, pipeline, flows and Power BI templates for Fabric. The installer deploys them | Fabric by hand, or to see what's deployed |
+| [`app/`](app/) | The Analytics Hub app: a Fabric app item, the web app's front end on Azure, and the Copilot Managed App | Fabric by hand, the Copilot Managed App, or developers |
+| [`azure/`](azure/) | Bicep, Container Apps jobs, SQL schema, web app and Teams package for Azure | Developers |
+| [`core/`](core/) | `valuelens_core`, the Python shared by the Azure jobs and the Fabric Defender notebook | Developers |
+| [`samples/`](samples/) | Synthetic sample data for demo mode | Demos |
+| [`media/`](media/) | Screenshots and the demo video | Docs |
+| [`scripts/`](scripts/) · [`tests/`](tests/) | Maintainer scripts that patch the templates, and the tests | Contributors |
+
 ## Repository conventions
 
 - Put setup details in the relevant README (`fabric/`, `azure/`, `installer/`) and shared

@@ -1,38 +1,46 @@
 # Analytics Hub for Microsoft Copilot
 
 See how your organisation uses Microsoft 365 Copilot and agents, and the hours and value they
-deliver. One installer sets it up in your tenant, on Microsoft Fabric or in your own Azure
-subscription.
+deliver. Run it on Microsoft Fabric, in your own Azure subscription, or as a Copilot Managed App
+(preview).
 
 ## Which path?
 
-Two paths. Each is the same 3 steps. Not sure? Use **Automatic**.
+Not sure? Use **Fabric**, with the installer.
 
-| | **Automatic** (recommended) | **Manual** |
-|---|---|---|
-| **How** | The installer sets it up and checks it, about 20 minutes | You follow the steps, no installer |
-| **Runs on** | Fabric or Azure | Fabric only |
-| **Then** | Repair, update and status from the installer | You update it by hand |
+| | **Fabric** (recommended) | **Azure** | **Copilot Managed App** (preview) |
+|---|---|---|---|
+| **Runs on** | Your Fabric capacity | Your Azure subscription | The Copilot Managed Runtime, hosted by Microsoft |
+| **Set up with** | The installer, or by hand | The installer | Microsoft's `ms` command line |
+| **Loads the data** | Yes | Yes | No: it reads the Fabric or Azure models |
 
-## Automatic (installer)
+<a id="automatic-installer"></a>
+
+## Fabric or Azure (installer)
 
 1. [Prerequisites](../PREREQUISITES.md): who does what, and how long it takes.
 2. [Install](../INSTALL.md): the PowerShell one-liner, the exe or Azure Cloud Shell.
-3. [Verify](../VERIFY.md): check the first data has arrived.
+3. [Check it worked](../INSTALL.md#check-it-worked): the first data, and what's left to do.
 
-## Manual (by hand, Fabric)
+<a id="manual-by-hand-fabric"></a>
+
+## Fabric by hand
 
 1. [Prerequisites](../MANUAL-INSTALL.md#1-prerequisites): the same, plus an app registration you
    create.
 2. [Install](../MANUAL-INSTALL.md#2-install): notebooks, report, pipeline, then the app.
-3. [Verify](../MANUAL-INSTALL.md#3-verify): check the pipeline run, the data and the report.
+3. [Check it worked](../MANUAL-INSTALL.md#3-verify): the pipeline run, the data and the report.
+
+## Copilot Managed App (preview)
+
+1. Set up Fabric or Azure first. The app reads the models they publish.
+2. [Before you start](../MANAGED-APP.md#before-you-start): the settings your admins turn on.
+3. [Steps](../MANAGED-APP.md#steps): deploy it with the `ms` command line, then share it.
 
 ## Operate
 
-- [Update](../UPDATE.md)
-- [Uninstall](../UNINSTALL.md)
-- [Troubleshooting](../TROUBLESHOOTING.md)
-- [Known issues](../KNOWN-ISSUES.md)
+- [Update or remove](../UPDATE.md)
+- [Troubleshooting](../TROUBLESHOOTING.md), including known issues
 - [FAQ](../FAQ.md)
 - [Release notes](../../CHANGELOG.md)
 

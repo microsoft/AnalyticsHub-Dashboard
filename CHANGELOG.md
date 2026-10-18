@@ -99,6 +99,14 @@ is unchanged.
   to store its sign-in securely, so a Fabric install sets up everything except the app. See
   [Known issues](docs/KNOWN-ISSUES.md#installing).
 
+**Copilot Managed App (preview).** A third way to run the app, on the Copilot Managed Runtime. It
+reads the models of a Fabric or Azure install, and you set it up with Microsoft's `ms` command line.
+The Fabric and Azure apps are unchanged. See [Copilot Managed App](docs/MANAGED-APP.md).
+
+**Simpler docs.** The README shows the three paths side by side, with short steps for each. Verify,
+Uninstall and Known issues moved into Install, Update and Troubleshooting, and the old links still
+work.
+
 ## 2026-10-17 — Analytics Hub installer 0.6.6 (pre-release)
 
 **A pre-release, for testing.** 0.6.5 stays Latest, so the `releases/latest` links still serve it.

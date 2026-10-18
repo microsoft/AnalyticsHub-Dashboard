@@ -23,6 +23,7 @@ PAGES = {
     "docs/PREREQUISITES.md": "Prerequisites",
     "docs/INSTALL.md": "Install",
     "docs/MANUAL-INSTALL.md": "Manual-Install",
+    "docs/MANAGED-APP.md": "Copilot-Managed-App",
     "docs/VERIFY.md": "Verify",
     "docs/UPDATE.md": "Update",
     "docs/UNINSTALL.md": "Uninstall",

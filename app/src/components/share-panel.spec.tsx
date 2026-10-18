@@ -6,12 +6,12 @@
 //-----------------------------------------------------------------------
 
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { SharePanel } from "@/components/share-panel";
 
 const runtime = vi.hoisted(() => ({
-    host: "azure" as "fabric" | "azure",
+    host: "azure" as "fabric" | "azure" | "managed",
     access: { groupId: "group-1", groupName: "Analytics Hub Viewers", contact: "admin@example.com" } as
         { groupId: string; groupName?: string; contact?: string; requestUrl?: string; rlsOrgAttribute?: string; appShared?: boolean } | undefined,
 }));
@@ -41,11 +41,21 @@ function openPanel() {
     fireEvent.click(screen.getByRole("button", { name: "Share" }));
 }
 
+/** A Copilot Managed App build: the host the config reports, and the mode the build gates on. */
+function inManagedApp() {
+    runtime.host = "managed";
+    vi.stubEnv("MODE", "managed");
+}
+
 describe("SharePanel", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         runtime.host = "azure";
         runtime.access = { groupId: "group-1", groupName: "Analytics Hub Viewers", contact: "admin@example.com" };
+    });
+
+    afterEach(() => {
+        vi.unstubAllEnvs();
     });
 
     it("copies the app link", async () => {
@@ -100,6 +110,29 @@ describe("SharePanel", () => {
         openPanel();
 
         expect(screen.getByText("Give people access by sharing the app item in Fabric.")).toBeInTheDocument();
+    });
+
+    it("explains Copilot Managed App sharing, with no app link to copy", () => {
+        inManagedApp();
+        openPanel();
+
+        expect(screen.getByText(/Share the app with people, groups or your organization from the Copilot Managed Runtime/)).toBeInTheDocument();
+        expect(screen.getByText(/can read the data/)).toHaveTextContent("Anyone in Analytics Hub Viewers can read the data.");
+        expect(screen.getByRole("link", { name: "Add or remove people in My Groups" }))
+            .toHaveAttribute("href", "https://myaccount.microsoft.com/groups/group-1");
+        expect(screen.queryByRole("button", { name: "Copy app link" })).not.toBeInTheDocument();
+        expect(screen.queryByText(/To give someone access/)).not.toBeInTheDocument();
+        expect(api.loadAccess).not.toHaveBeenCalled();
+        expect(screen.queryByText(/choose what people see/)).not.toBeInTheDocument();
+    });
+
+    it("explains Copilot Managed App sharing without a viewer group", () => {
+        inManagedApp();
+        runtime.access = undefined;
+        openPanel();
+
+        expect(screen.getByText(/each viewer reads through their own Power BI connection/)).toBeInTheDocument();
+        expect(screen.queryByRole("link", { name: "Add or remove people in My Groups" })).not.toBeInTheDocument();
     });
 
     it("tells viewers who can add people", async () => {
@@ -163,6 +196,14 @@ describe("SharePanel", () => {
 
         it("tells Fabric users only an admin chooses what people see", () => {
             runtime.host = "fabric";
+            openPanel();
+
+            expect(screen.getByText("Only an Analytics Hub admin can choose what people see. Ask admin@example.com.")).toBeInTheDocument();
+            expect(api.loadDelegations).not.toHaveBeenCalled();
+        });
+
+        it("tells Copilot Managed App users the same", () => {
+            inManagedApp();
             openPanel();
 
             expect(screen.getByText("Only an Analytics Hub admin can choose what people see. Ask admin@example.com.")).toBeInTheDocument();

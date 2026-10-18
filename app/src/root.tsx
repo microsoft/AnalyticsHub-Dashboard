@@ -16,6 +16,7 @@ import { ThemeContext } from './hooks/theme.context';
 import { AuthProvider } from './hooks/use-auth';
 import { bootstrapAuth, type IAuthService } from './services/rayfin-auth.service';
 import { AuthGate } from './components/auth-gate.component';
+import { ManagedAuthGate } from './components/managed-auth-gate';
 
 function Root({ rayfinAuthService }: { rayfinAuthService: IAuthService }) {
     const { isDark, toggleTheme } = useAppTheme();
@@ -25,9 +26,9 @@ function Root({ rayfinAuthService }: { rayfinAuthService: IAuthService }) {
         <ThemeContext.Provider value={{ isDark, toggleTheme, theme }}>
             <ErrorBoundary FallbackComponent={ErrorFallback}>
                 <AuthProvider rayfinAuthService={rayfinAuthService}>
-                    <AuthGate>
-                        <App />
-                    </AuthGate>
+                    {import.meta.env.MODE === "managed"
+                        ? <ManagedAuthGate><App /></ManagedAuthGate>
+                        : <AuthGate><App /></AuthGate>}
                 </AuthProvider>
             </ErrorBoundary>
         </ThemeContext.Provider>

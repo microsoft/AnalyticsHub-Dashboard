@@ -75,6 +75,7 @@ def test_relative_links_and_anchors_resolve(path):
         ("README.md", "optional-add-ons"),
         ("README.md", "reference"),
         ("README.md", "whats-here"),
+        ("README.md", "repository-layout"),
         ("docs/MANUAL-INSTALL.md", "1-prerequisites"),
         ("docs/MANUAL-INSTALL.md", "2-install"),
         ("docs/MANUAL-INSTALL.md", "3-verify"),
@@ -89,6 +90,8 @@ def test_relative_links_and_anchors_resolve(path):
         ("docs/PERMISSIONS.md", "azure-resource-graph"),
         ("docs/PERMISSIONS.md", "viewing-analytics-hub-paths-1-and-2"),
         ("docs/PERMISSIONS.md", "org-scoped-access-row-level-security"),
+        # CHANGELOG.md links the Teams heading by its old name.
+        ("docs/PERMISSIONS.md", "publishing-the-teams-app-path-2"),
         # Hard-coded in installer/packaging/signing.js and in older release notes.
         ("installer/README.md", "without-the-exe"),
         ("installer/README.md", "from-powershell"),
@@ -105,6 +108,21 @@ def test_relative_links_and_anchors_resolve(path):
         ("docs/INSTALL.md", "check-the-download"),
         ("docs/INSTALL.md", "locked-down-tenant--azure-cloud-shell"),
         ("docs/INSTALL.md", "run-it"),
+        # Verify, Uninstall and Known issues moved into Install, Update and Troubleshooting.
+        # Older release notes and installers still link the old pages.
+        ("docs/INSTALL.md", "check-it-worked"),
+        ("docs/INSTALL.md", "after-it-finishes"),
+        ("docs/VERIFY.md", "after-it-finishes"),
+        ("docs/UPDATE.md", "uninstall"),
+        ("docs/TROUBLESHOOTING.md", "known-issues"),
+        ("docs/KNOWN-ISSUES.md", "installing"),
+        ("docs/KNOWN-ISSUES.md", "unsigned-files-in-the-download"),
+        # The old Update title and wiki Home sections, which older wiki links use.
+        ("docs/UPDATE.md", "update"),
+        ("docs/wiki/Home.md", "automatic-installer"),
+        ("docs/wiki/Home.md", "manual-by-hand-fabric"),
+        ("docs/MANAGED-APP.md", "before-you-start"),
+        ("docs/MANAGED-APP.md", "steps"),
     ],
 )
 def test_old_anchors_still_land(page, anchor):
