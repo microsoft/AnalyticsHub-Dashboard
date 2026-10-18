@@ -75,4 +75,11 @@ describe("ask catalogue", () => {
             for (const column of tool.people!) expect(text, `${tool.name}: ${column}`).toContain(`"${column}"`);
         }
     });
+
+    it("lists references as one measure or column each", () => {
+        for (const tool of askCatalogue.tools.filter((t) => t.references)) {
+            expect(tool.references!.length, tool.name).toBeGreaterThan(0);
+            for (const reference of tool.references!) expect(reference, tool.name).toMatch(/^(?:'(?:[^']|'')+')?\[[^\]]+\]$/);
+        }
+    });
 });
