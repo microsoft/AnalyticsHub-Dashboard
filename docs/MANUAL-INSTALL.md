@@ -144,7 +144,7 @@ RG=analytics-hub; P=azure/infra/my.bicepparam
 PBI=https://analysis.windows.net/powerbi/api; API=https://api.powerbi.com/v1.0/myorg
 out() { az deployment group show -g $RG -n analytics-hub --query properties.outputs.$1.value -o tsv; }
 get() { sed -n -E "s/^(param|var) $1 = '([^']*)'.*/\2/p" $P; }
-put() { [ -n "$2" ] || { echo "No value for $1"; return 1; }; v="'$2'"; [[ $2 =~ ^(true|false|[0-9]+)$ ]] && v=$2; sed -i -E "s#^(// )?(param|var) $1 = .*#\2 $1 = $v#" $P && grep -xF -e "param $1 = $v" -e "var $1 = $v" $P || { echo "Not saved in $P: $1 = $v"; return 1; }; }
+put() { [ -n "$2" ] || { echo "No value for $1"; return 1; }; v="'$2'"; [[ $2 =~ ^(true|false|[0-9]+)$ ]] && grep -qE "^(// )?param $1 = (true|false|[0-9]+)\b" azure/infra/main.bicepparam && v=$2; sed -i -E "s#^(// )?(param|var) $1 = .*#\2 $1 = $v#" $P && grep -xF -e "param $1 = $v" -e "var $1 = $v" $P || { echo "Not saved in $P: $1 = $v"; return 1; }; }
 WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI=$(out identityPrincipalId 2>/dev/null)
 ```
 

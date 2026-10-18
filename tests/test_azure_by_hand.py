@@ -283,9 +283,11 @@ NO_RECORD = "Not removed: azure/infra/my.bicepparam doesn't say where step 1 dep
 
 
 def fill(text: str, values: dict[str, str]) -> str:
-    """`text`, with `values` put in it as put does: each one's whole line is rewritten."""
+    """`text`, with `values` put in it as put does: each one's whole line is rewritten. A value is
+    left bare only for a setting the template has as true, false or a number. All else is text."""
     for name, value in values.items():
-        v = value if re.fullmatch(r"true|false|[0-9]+", value) else f"'{value}'"
+        typed = re.search(rf"^(?:// )?param {name} = (?:true|false|[0-9]+)\b", TEMPLATE, re.M)
+        v = value if typed and re.fullmatch(r"true|false|[0-9]+", value) else f"'{value}'"
         text, n = re.subn(
             rf"^(?:// )?(param|var) {name} = .*$", lambda m: f"{m[1]} {name} = {v}", text, flags=re.M
         )
@@ -303,7 +305,8 @@ def install(tmp_path):
     infra.mkdir(parents=True)
     (clone / "fabric").mkdir()
     state.mkdir()
-    shutil.copy(ROOT / "azure" / "infra" / "web-app-registration.json", infra)
+    for name in ("main.bicepparam", "web-app-registration.json"):  # put reads the template.
+        shutil.copy(ROOT / "azure" / "infra" / name, infra)
     (clone / "fabric" / "ValueLens - Fabric.pbit").write_bytes(b"report")
     text = fill(TEMPLATE, {**WHERE, **{key: i for _, key, i in WHAT.values()}})
     record = infra / "my.bicepparam"
@@ -742,6 +745,43 @@ def test_step_1_deploys_nowhere_else_with_the_same_record(install, current, rg, 
     assert install.record.read_text(encoding="utf-8") == text
 
 
+@pytest.mark.parametrize("rg", ["123", "true"])
+def test_step_1_saves_a_resource_group_called_123_or_true_as_a_name(install, rg):
+    # Saved as text, the name reads back: for step 1 pasted again, and for Remove.
+    at_step(install, 1)
+    r = run(install.home, install.state, SETUP.replace("RG=analytics-hub;", f"RG={rg};"), STEP_1)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.stdout.splitlines() == [
+        "var tenant = 'tenant-1'", "var subscription = 'sub-1'", f"var resourceGroup = '{rg}'", "Succeeded",
+    ]
+    assert recorded(install)["resourceGroup"] == rg
+    assert deploying(calls(install.state)) == [
+        c.replace("-n analytics-hub -l", f"-n {rg} -l").replace("-g analytics-hub", f"-g {rg}") for c in DEPLOY
+    ]
+
+    # Pasted again for another group, it won't deploy there: the record keeps the first one.
+    text, before = install.record.read_text(encoding="utf-8"), len(calls(install.state))
+    r = run(install.home, install.state, SETUP, STEP_1)
+    assert r.returncode != 0
+    assert r.stdout.splitlines() == [
+        f"Not deployed: azure/infra/my.bicepparam is for resourceGroup {rg}, not analytics-hub."
+    ]
+    assert deploying(calls(install.state)[before:]) == []
+    assert install.record.read_text(encoding="utf-8") == text
+
+    # Remove finds it, and keeps the record until it's gone.
+    r = remove(install)
+    assert r.returncode != 0 and NO_RECORD not in r.stdout
+    assert "Not removed yet: resource-group." in r.stdout
+    assert group_deletes(install.state, rg) == [f"az group delete -n {rg} --yes --no-wait"]
+    assert install.record.read_text(encoding="utf-8") == text
+    (install.state / "rg").unlink()
+    r = remove(install)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert r.stdout.splitlines()[-1] == "Removed"
+    assert not install.record.exists()
+
+
 def test_step_2_saves_each_app_before_it_sets_it_up(install):
     text = at_step(install, 2)
     r = run(install.home, install.state, SETUP, STEP_2)
@@ -891,6 +931,20 @@ def test_put_says_when_it_has_nothing_to_save(install, line, says):
     assert r.returncode != 0
     assert r.stdout == says + "\n"
     assert install.record.read_text(encoding="utf-8") == install.text
+
+
+@pytest.mark.parametrize("value", ["123", "true"])
+def test_put_saves_ids_and_names_as_text_whatever_they_look_like(install, value):
+    # Only the settings the template has as true, false or a number are saved bare. Anything else
+    # is saved as text, even if it looks like one, so get reads it back.
+    names = set(re.findall(r"^(?:// )?(?:param|var) (\w+) = ", TEMPLATE, re.M))
+    typed = set(re.findall(r"^(?:// )?param (\w+) = (?:true|false|[0-9]+)\b", TEMPLATE, re.M))
+    text = sorted((set(re.findall(r"\bput (\w+)", DOC[DOC.index("## Azure"):])) & names) - typed)
+    assert {*WHERE, *WEB_IDS, "workspace", "model", "consumptionModel"} <= set(text)
+    lines = "".join(f'put {n} {value} >/dev/null && [ "$(get {n})" = {value} ] || echo {n}\n' for n in text)
+    r = run(install.home, install.state, SETUP, lines)
+    assert r.stdout == "", r.stdout + r.stderr
+    assert install.record.read_text(encoding="utf-8") == fill(install.text, dict.fromkeys(text, value))
 
 
 # Get the files
