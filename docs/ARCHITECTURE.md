@@ -107,7 +107,8 @@ flowchart LR
   APP -- as the viewer --> C --> SM
 ```
 
-- The **`ms` command line** builds the `app` folder and deploys it to an environment.
+- **`npm run deploy:managed`** builds the `app` folder, and deploys it to an environment with
+  Microsoft's managed apps command line.
 - Each query goes through the viewer's own **Power BI connection**, so they see only what they're
   allowed to.
 - There's **no app database**. Settings and report packs stay in each viewer's browser.

@@ -11,7 +11,7 @@ Not sure? Use **Fabric**, with the installer.
 | | **Fabric** (recommended) | **Azure** | **Copilot Managed App** (preview) |
 |---|---|---|---|
 | **Runs on** | Your Fabric capacity | Your Azure subscription | The Copilot Managed Runtime, hosted by Microsoft |
-| **Set up with** | The installer, or by hand | The installer | Microsoft's `ms` command line |
+| **Set up with** | The installer, or by hand | The installer | One command, from the `app` folder |
 | **Loads the data** | Yes | Yes | No: it reads the Fabric or Azure models |
 
 <a id="automatic-installer"></a>
@@ -35,7 +35,7 @@ Not sure? Use **Fabric**, with the installer.
 
 1. Set up Fabric or Azure first. The app reads the models they publish.
 2. [Before you start](../MANAGED-APP.md#before-you-start): the settings your admins turn on.
-3. [Steps](../MANAGED-APP.md#steps): deploy it with the `ms` command line, then share it.
+3. [Steps](../MANAGED-APP.md#steps): one command deploys it and shares it.
 
 ## Operate
 

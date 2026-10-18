@@ -20,6 +20,24 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**Copilot Managed App: one command sets it up.**
+
+- **Three steps.** Install Node.js, get the code, and in `app` run `npm run deploy:managed`. Git,
+  the global `ms` CLI and editing JSON aren't needed any more.
+- **Asks for the models.** Paste each model's link from Power BI or Fabric, or use the ones in your
+  install record.
+- **Checks first.** Before it makes anything, it checks the Power BI connector's **Run a query**
+  action isn't blocked. When an admin needs to act, it says who and what, with a link, and a re-run
+  picks up where it stopped. It never changes tenant settings.
+- **Shares it.** It offers the install's **Analytics Hub Viewers** group, then anyone else, and
+  checks the group took.
+- **Run it again to update.** It remembers the app, so the next release's code updates the same
+  one. `npm run remove:managed` deletes it.
+- **A pinned CLI.** It installs `@microsoft/managed-apps-cli` 0.29.0 from a lock file, just for this,
+  and keeps `package.json` as it was. `--dry-run` shows the `ms` commands, to run yourself.
+
+The Fabric and Azure apps are unchanged. See [Copilot Managed App](docs/MANAGED-APP.md#steps).
+
 **Azure: the Teams tab also opens in Outlook and the Microsoft 365 Copilot app.**
 
 - **Same sign-in.** The installer pre-authorises the Outlook and Microsoft 365 app clients (web,
