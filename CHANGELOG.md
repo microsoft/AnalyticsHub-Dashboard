@@ -20,6 +20,19 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**App: the Executive summary opens sooner.**
+
+Measured on F64 with 20,000 synthetic people, the page's monthly trend query took about 10 seconds
+and its summary about 7, and both started behind about a dozen quicker queries.
+
+- **Its two slowest queries go first.** The summary and the monthly trend now start ahead of other
+  waiting queries. The pacing is unchanged: at most 4 queries in flight and 90 a minute.
+- **A quicker trend and summary.** The trend counts each month's active people once, and works out
+  the seat counts once rather than for every month. The summary counts the seats in use once.
+  Neither tests every user ID each time any more. On their own, the trend now takes about 2 seconds
+  and the summary about 4. The figures, and what the Fabric data agent is told about them, don't
+  change.
+
 ## Analytics Hub installer 0.6.7 (unreleased)
 
 **Release preparation only.** 0.6.7 is not published. 0.6.6 remains Latest; whether 0.6.7
