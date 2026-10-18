@@ -16,6 +16,13 @@ export interface QueryCaller {
     asking?: (model: string) => void;
     /** Told, when the request gives up busy, the model's recovery count the busy answer is from. */
     gaveUp?: (model: string, recoveries: number) => void;
+    /**
+     * The page's first view waits on this card, as the landing page does on
+     * its summary and trend. On screen, its request is let in ahead of the
+     * other requests waiting on screen, behind any such request queued
+     * before it; in the background lane it waits as any other.
+     */
+    lead?: boolean;
 }
 
 let current: QueryPriority = "normal";

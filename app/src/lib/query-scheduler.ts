@@ -94,6 +94,8 @@ interface ModelState {
 interface Job {
     key: string;
     lane: QueryPriority;
+    /** A card the page's first view waits on asked for it on screen, so it waits ahead of the rest there. */
+    lead: boolean;
     model: ModelState;
     promise: Promise<unknown>;
     /** Cards waiting on it that can say they have gone. */
@@ -295,6 +297,12 @@ export function recoveriesOf(model: string): number {
  * Only a throttle is retried: a query error is passed
  * on as it came, even if a name it quotes says "rate limit".
  *
+ * Queries on screen take free slots first in, first out, except a lead
+ * query — one a page's first view waits on, such as the landing page's
+ * summary and trend — which waits ahead of the others, behind any lead
+ * query queued before it. It keeps that place when it waits again after a
+ * throttle. It takes no extra slot or budget: the limits above still hold.
+ *
  * A query stops waiting once every card that asked for it has gone; one
  * already sent finishes and its answer is kept, but a throttle isn't retried.
  *
@@ -351,18 +359,30 @@ export class QueryScheduler {
      * `model` names the semantic model it asks, which a throttle pauses on its own.
      * `signal` says when the caller has gone: once every caller has, the query
      * stops waiting and isn't sent or tried again. One already sent finishes.
+     * `lead` says the page's first view waits on it: asked for on screen, it
+     * waits ahead of the other queries there, and keeps that place.
      */
-    run<T>(key: string, task: () => Promise<T>, priority: QueryPriority = "normal", model = "", signal?: AbortSignal): Promise<T> {
+    run<T>(
+        key: string,
+        task: () => Promise<T>,
+        priority: QueryPriority = "normal",
+        model = "",
+        signal?: AbortSignal,
+        lead = false,
+    ): Promise<T> {
         if (signal?.aborted) return Promise.reject(goneError());
+        const onScreen = priority === "normal";
         const existing = this.jobs.get(key);
         if (existing) {
             this.join(existing, signal);
-            if (priority === "normal") this.promote(existing);
+            if (onScreen && lead) this.lead(existing);
+            if (onScreen) this.promote(existing);
             return existing.promise as Promise<T>;
         }
         const job: Job = {
             key,
             lane: priority,
+            lead: onScreen && lead,
             model: this.modelState(model),
             promise: Promise.resolve(),
             interest: 0,
@@ -480,10 +500,25 @@ export class QueryScheduler {
             if (this.waiting.length === 0 && this.active < this.concurrency) {
                 this.active++;
                 entry.admit("normal");
-            } else this.waiting.push(entry);
+            } else this.enqueue(entry);
         }
         job.nap?.();
         this.notify();
+    }
+
+    /** The page's first view waits on the query, so one waiting on screen moves up to wait with the other lead queries. */
+    private lead(job: Job): void {
+        if (job.lead) return;
+        job.lead = true;
+        const index = this.waiting.findIndex((entry) => entry.job === job);
+        if (index >= 0) this.enqueue(this.waiting.splice(index, 1)[0]);
+    }
+
+    /** Queues a query on screen: a lead query goes behind the lead queries already waiting, ahead of the rest. */
+    private enqueue(entry: { job: Job; admit: Admit }): void {
+        const index = entry.job.lead ? this.waiting.findIndex((other) => !other.job.lead) : -1;
+        if (index < 0) this.waiting.push(entry);
+        else this.waiting.splice(index, 0, entry);
     }
 
     private async attempt<T>(job: Job, task: () => Promise<T>): Promise<T> {
@@ -678,7 +713,7 @@ export class QueryScheduler {
             this.active++;
             return Promise.resolve("normal");
         }
-        return new Promise((resolve) => this.waiting.push({ job, admit: resolve }));
+        return new Promise((resolve) => this.enqueue({ job, admit: resolve }));
     }
 
     private admitLow(job: Job, front = false): Promise<QueryPriority | undefined> {
@@ -782,7 +817,7 @@ export function scheduledProxy(inner: IFabricApiProxy, scheduler = new QuerySche
         // A card that has gone, or moved on to another query, is told nothing more about this one.
         const present = () => !caller?.signal?.aborted;
         if (present()) caller?.asking?.(model);
-        const answer = scheduler.run(key.join("\0"), task, currentPriority(), model, caller?.signal);
+        const answer = scheduler.run(key.join("\0"), task, currentPriority(), model, caller?.signal, caller?.lead === true);
         if (!caller?.gaveUp) return answer;
         // Each caller learns which recovery the busy answer predates, not just when it joined the query.
         return answer.catch((error: unknown) => {
