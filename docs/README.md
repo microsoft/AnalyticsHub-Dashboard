@@ -31,6 +31,7 @@ rest are optional cards on the installer's **Data sources** screen, or extra ste
 | Page | What it covers |
 |---|---|
 | [Prerequisites](PREREQUISITES.md) · [Permissions](PERMISSIONS.md) | Who does what, each permission and role, and costs |
+| [Least-privilege Azure install](AZURE-LEAST-PRIVILEGE.md) | For your Azure admin: a resource group with just the rights the installer needs |
 | [Install](INSTALL.md) | The installer: every way to start it, and checking it worked |
 | [Manual install](MANUAL-INSTALL.md) | Fabric, by hand |
 | [Update or remove](UPDATE.md) | Keeping it current, and removing it |
