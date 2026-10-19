@@ -15,7 +15,7 @@
     "full": "Analytics Hub surfaces ValueLens Microsoft Copilot analytics in Teams."
   },
   "icons": { "color": "color.png", "outline": "outline.png" },
-  "accentColor": "6264A7",
+  "accentColor": "#6264A7",
   "staticTabs": [{
     "entityId": "analytics-hub",
     "name": "Analytics Hub",
