@@ -19,6 +19,10 @@ Data layout (same under a local directory or the ADLS account; first segment = c
     landing/defender/ai_watchlist.csv                          (module defender: the AI watchlist, admin-edited)
     raw/agents_365/part-0.parquet                              (module agent365: the newest Agent 365 export)
     raw/user_feedback/part-0.parquet                           (module productFeedback: every export, deduplicated)
+    raw/agent_<sessions|turns|errors|subagents|performance>/month-YYYYMM.parquet
+                                                               (module agentEvaluator: Copilot Studio transcripts)
+    raw/agent_catalogue/part-0.parquet, raw/evaluator_status/part-0.parquet  (module agentEvaluator)
+    raw/_state/audit.json, raw/_state/agent_evaluator.json     (what the incremental collectors last read)
     curated/copilot_interactions_curated/month-YYYYMM.parquet  (one file per month; month-none = no date)
     curated/_valuelens_process/state.json, context/            (incremental process bookkeeping)
     curated/<studio_* | viva_*>/part-0.parquet                 (module consumption, merged state)
@@ -288,6 +292,10 @@ def collect(store, settings, api=None) -> dict:
         from .collect.resource_graph import collect_resource_graph
 
         jobs.append(("resource_graph", collect_resource_graph))
+    if settings.has("agentEvaluator"):
+        from .collect.agent_evaluator import collect_agent_evaluator
+
+        jobs.append(("agent_evaluator", collect_agent_evaluator))
     out, errors = {}, {}
     for name, fn in jobs:
         try:
@@ -327,6 +335,10 @@ def publish_targets(settings) -> list[str]:
         targets.append("agents_365")
     if settings.has("productFeedback"):
         targets.append("user_feedback")
+    if settings.has("agentEvaluator"):
+        from .publish import AGENT_EVALUATOR
+
+        targets += list(AGENT_EVALUATOR)
     return targets + consumption
 
 

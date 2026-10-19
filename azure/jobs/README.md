@@ -19,6 +19,7 @@ in step with the Fabric notebooks by the golden tests in `tests/`. No Spark or J
 | | Product feedback, from every CSV export in the drop folder | productFeedback |
 | | Workday org data, from the newest CSV export in the drop folder, after the org data | workday (a data source, with orgData) |
 | | Shadow AI and agent risk from Microsoft Defender (`ThreatHunting.Read.All`, `CloudApp-Discovery.Read.All`) | defender |
+| | Copilot Studio conversation transcripts from Dataverse (an application user with Bot Transcript Viewer) | agentEvaluator |
 | process | Curates interactions with `valuelens_core.curate()` into `curated/copilot_interactions_curated`, recomputing only the months that changed or fall in the lookback window | core |
 | publish | Loads curated and raw tables into Azure SQL, rewriting only the days that changed | per module |
 | refresh | Refreshes the configured Power BI semantic models and waits for them to finish | — |
@@ -244,6 +245,51 @@ Optional and off by default. It mirrors `Copilot_Defender_Ingester.ipynb` on Fab
 `azure/sql/migrations/V003__defender.sql` creates them up front, so the model loads empty tables
 until the first run.
 
+## Agent Evaluator (module `agentEvaluator`)
+
+Optional and off by default; the installer doesn't offer it on Azure yet. It ports the Fabric notebook
+`Copilot_Agent_Transcript_Parser.ipynb`. `collect/agent_evaluator.py` reads Copilot Studio conversation
+transcripts from Dataverse, and `valuelens_jobs/transcripts.py` parses them into the notebook's seven
+tables, with the same columns, so the Agent Evaluator model reads `dbo.<table>` in Azure SQL.
+`tests/test_azure_agent_evaluator.py` checks the parser's rows against the notebook's own code.
+
+- **Identity.** The job's managed identity reads `conversationtranscripts` in each environment of
+  `VALUELENS_DATAVERSE_ENVIRONMENTS`, with a token for `<environment URL>/.default`. It needs to be an
+  application user in each environment with the **Bot Transcript Viewer** role; a 401 or 403 says so
+  in `evaluator_status`. UPNs that a transcript doesn't carry come from Graph `$batch` with
+  `User.Read.All`, which core already grants. That lookup is best effort.
+- **Reading.** Each environment's days are split into `VALUELENS_TRANSCRIPT_WINDOWS` date windows, read
+  up to `VALUELENS_TRANSCRIPT_PARALLEL` at a time, in pages of `VALUELENS_TRANSCRIPT_PAGE_SIZE`.
+  Throttling (HTTP 429, honouring `Retry-After`) and transient errors are retried. An environment
+  without the bot lookup on transcripts is read without it. Up to four worker processes parse the
+  pages as they arrive.
+- **Incremental.** A run reads the last `VALUELENS_TRANSCRIPT_LOOKBACK_DAYS` (default 14), stretched to
+  cover any gap since the environment's last complete read. An environment that no run has read
+  completely goes back `VALUELENS_TRANSCRIPT_FIRST_READ_DAYS` (default 180). A transcript that's read
+  again replaces all of its rows, and only the month files that changed are rewritten.
+  `is_returning_user` and `agent_catalogue` are worked out again from the whole history. The merge
+  takes one table at a time, and DuckDB keeps it within `VALUELENS_DUCKDB_MEMORY_LIMIT` (default
+  `4GB`), spilling to disk past that.
+- **Each environment fails on its own.** `evaluator_status` has one row per environment (`ok`,
+  `empty`, `forbidden` or `error`) saying what it read. After a failed window, that environment's last
+  complete read stays where it was, so the next run reads the window again. The step fails only when
+  nothing could be read.
+- **Privacy, as in Fabric.** The raw transcript is never written anywhere. Prompts, replies and error
+  messages are kept as 500-character previews, and feedback comments as written. `user_id_hash` holds
+  the user's Entra object ID, not a hash, so sessions join to org data. Parsed rows wait in a
+  temporary folder on the job's own disk until the merge. The tables keep every transcript the job has
+  read, also after Dataverse deletes it (by default, after 30 days).
+
+| Table | Publish |
+|---|---|
+| `agent_sessions`, `agent_turns`, `agent_errors`, `agent_subagents`, `agent_performance` | by `transcript_date` |
+| `agent_catalogue`, `evaluator_status` | snapshot |
+
+`azure/sql/migrations/V008__agent_evaluator.sql` creates them up front. The five transcript tables add
+`source_environment` (the environment URL) and `transcript_date` (the UTC day the conversation
+started), and are clustered on `transcript_date`. As in every Azure table, text longer than 4,000
+characters is cut to 4,000.
+
 ## Settings
 
 The job reads its settings from environment variables. Bicep sets them.
@@ -264,10 +310,15 @@ The job reads its settings from environment variables. Bicep sets them.
 | `VALUELENS_WORKDAY_OUTPUT_TABLE`, `VALUELENS_WORKDAY_ALLOW_BASE_OVERWRITE` | workday: `dbo.copilot_org_data_workday_preview` (the default) or `dbo.copilot_org_data`, which needs the overwrite set to `true`. Bicep sets both from the installer, so a redeploy resets them. |
 | `VALUELENS_WORKDAY_MIN_MATCH_RATE` | workday: the share of the export's people that must match the org data, from 0 to 1 (default 0.5) |
 | `VALUELENS_WORKDAY_EMAIL_COLUMN` | workday: the export's work-email header (default `primaryWorkEmail`), matched ignoring case and spaces |
+| `VALUELENS_DATAVERSE_ENVIRONMENTS` | agentEvaluator: the environments to read, as a JSON list of `{"url": ..., "name": ...}` or comma-separated URLs |
+| `VALUELENS_TRANSCRIPT_LOOKBACK_DAYS` / `VALUELENS_TRANSCRIPT_FIRST_READ_DAYS` | agentEvaluator: the days each run reads again (default 14; 0 reads everything every run), and how far back an environment's first complete read goes (default 180) |
+| `VALUELENS_TRANSCRIPT_WINDOWS`, `VALUELENS_TRANSCRIPT_PARALLEL`, `VALUELENS_TRANSCRIPT_PAGE_SIZE` | agentEvaluator: the date windows per environment (default 4), how many are read at once (default 4), and the page size (default 1000) |
+| `VALUELENS_TRANSCRIPT_PARSE_WORKERS` | agentEvaluator: the parse processes. The default, -1, uses one per CPU up to four; 0 or 1 parses in the job's own process. |
+| `VALUELENS_TRANSCRIPT_RESOLVE_UPNS` | agentEvaluator: `false` stops looking up UPNs in Graph for users whose transcripts don't carry one. The default is `true`. |
 | `VALUELENS_AUDIT_HISTORY_DAYS` / `VALUELENS_AUDIT_LOOKBACK_DAYS` | The first-run backfill (default 30) and the re-read window on later runs (default 7) |
 | `VALUELENS_PROCESS_LOOKBACK_DAYS` | Days before the newest audit record whose months `process` always recomputes (default 14) |
 | `VALUELENS_PROCESS_FULL_REBUILD` | `true` makes `process` recompute every month. Set it on a single execution, not on the job. |
-| `VALUELENS_DUCKDB_MEMORY_LIMIT` | Optional DuckDB memory cap for `process`, for example `4GB` |
+| `VALUELENS_DUCKDB_MEMORY_LIMIT` | Optional DuckDB memory cap, for example `4GB`, for `process` and the Agent Evaluator merge. Past it, DuckDB spills to the job's temporary folder. `process` has no cap by default; the Agent Evaluator merge uses `4GB`. |
 | `VALUELENS_AUDIT_BACKFILL_DAYS` | A one-off reload of this many days of audit history, even after the first run. The installer sets it on a single execution when **Repair or change** loads more history; don't set it on the job itself, or every run reloads. |
 | `VALUELENS_POWERBI_WORKSPACE_ID`, `VALUELENS_SEMANTIC_MODELS` | The Power BI workspace, and a JSON object of the models to refresh |
 | `VALUELENS_SQL_READER_NAME`, `VALUELENS_SQL_READER_CLIENT_ID` | The web app's identity, granted read access by `migrate` |
@@ -294,6 +345,9 @@ The job reads its settings from environment variables. Bicep sets them.
 | `landing/workday/` | workday: the drop folder for the export in public networking. It is read only. |
 | `raw/defender_*/` | defender: one parquet file per day for the two daily tables, a snapshot for the rest |
 | `landing/defender/ai_watchlist.csv` | defender: the AI watchlist. The first run writes it; after that it is only read |
+| `raw/agent_sessions/month-YYYYMM.parquet` | agentEvaluator: one file per month the conversations started in (`month-none` without a start time), for each of the five transcript tables |
+| `raw/agent_catalogue/`, `raw/evaluator_status/` | agentEvaluator: the agents seen in every session, and what the latest run read from each environment |
+| `raw/_state/agent_evaluator.json` | agentEvaluator: when each environment was last read completely |
 
 The SQL tables have the same names as the Fabric Lakehouse tables, so the ValueLens Model only
 changes its connection parameters.

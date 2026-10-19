@@ -91,6 +91,13 @@ TARGETS["user_feedback"] = Target("user_feedback", "raw/user_feedback", incremen
 # Workday org data (data source `workday`) when it writes its review table rather than the org data.
 TARGETS["copilot_org_data_workday_preview"] = Target(
     "copilot_org_data_workday_preview", "raw/copilot_org_data_workday_preview", incremental=False)
+# Agent Evaluator (module `agentEvaluator`): the transcript tables are published day by day on the day the
+# conversation started; the catalogue and the per-environment status are replaced each run. Plain imports.
+AGENT_EVALUATOR_PARTITIONED = {_name: "transcript_date" for _name in (
+    "agent_sessions", "agent_turns", "agent_errors", "agent_subagents", "agent_performance")}
+AGENT_EVALUATOR = [*AGENT_EVALUATOR_PARTITIONED, "agent_catalogue", "evaluator_status"]
+for _name in AGENT_EVALUATOR:
+    TARGETS[_name] = Target(_name, f"raw/{_name}", AGENT_EVALUATOR_PARTITIONED.get(_name), incremental=False)
 
 
 def b(name: str) -> str:
