@@ -26,7 +26,8 @@ Deployment instructions do **not** live here. They live in the READMEs:
   and Path 2 (Azure), with the installer or by hand. Each path also has a folder of just its steps,
   [1-fabric](1-fabric/) and [2-azure](2-azure/). The code stays in `fabric/` and `azure/`. What you
   get, the data and the list of pages moved to [docs](docs/README.md). Old links and anchors still
-  work. [Install](docs/INSTALL.md) now names the installer's first choice as it appears:
+  work. The exe download is a plain link now, after the PowerShell command.
+  [Install](docs/INSTALL.md) now names the installer's first choice as it appears:
   **Microsoft Fabric**.
 
 ## 2026-10-19 — Analytics Hub installer 0.6.7
