@@ -20,21 +20,22 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
-## Analytics Hub installer 0.6.7 (unreleased)
+## 2026-10-19 — Analytics Hub installer 0.6.7
 
-**Release preparation only.** 0.6.7 is not published. 0.6.6 remains Latest; whether 0.6.7
-is published as a stable release or a pre-release, and whether it becomes Latest, are separate
-decisions.
+**The current release.** 0.6.7 replaces 0.6.6 as Latest, so the `releases/latest` links, including
+the PowerShell command, now serve it. To pin this version, use
+`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.7/install.ps1 | iex`.
 
 **What changed:** clean-PC installer fixes preserve concurrent app deployments and report failed
 steps accurately. Azure adds personal-tab support in Outlook and the Microsoft 365 Copilot app,
 plus optional Teams org app-catalog publication. Value, Consumption and Efficiency follow the
 Executive summary, which now opens sooner. Simpler docs are included below.
 
-**Update an existing install:** once 0.6.7 is published, run that version and choose
-**Repair or change**. Azure app-catalog publication needs an additional sign-in with the admin
-role and consent described below; you can continue without it and upload the package by hand.
-Pinning remains manual. This preparation adds no new schema migration or model-reset requirement.
+**Update an existing install:** run the PowerShell command again, or open installer 0.6.7 and
+choose **Repair or change**. Azure app-catalog publication needs an additional sign-in with the
+admin role and consent described below; you can continue without it and upload the package by
+hand. Pinning the app in Teams remains manual. 0.6.7 adds no new schema migration or model-reset
+requirement. The tag also publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.7`.
 
 **Azure: the Teams tab also opens in Outlook and the Microsoft 365 Copilot app.**
 
@@ -50,8 +51,9 @@ Pinning remains manual. This preparation adds no new schema migration or model-r
 - **Keeps loading in Outlook on the web.** The tab reuses its token rather than ask for one per query.
 - **No wait in a browser.** The app starts TeamsJS only on the tab's address. Before, a browser
   window that another app opened could stay blank for up to a minute.
-- **Personal tab only.** The channel and group chat tab stays in Teams. The Teams package doesn't
-  change, so there's nothing to upload again.
+- **Personal tab only.** The channel and group chat tab stays in Teams.
+- **A new Teams package.** Its accent colour now starts with `#`, as the schema requires. Upload
+  `AnalyticsHub-Teams.zip` again, or let **Repair or change** republish it to the org catalog.
 
 Existing Azure installs get this on their next upgrade or **Repair or change**. Fabric is unchanged.
 
