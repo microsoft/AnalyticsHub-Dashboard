@@ -1,6 +1,6 @@
 # Path 1: Fabric
 
-Analytics Hub on your Fabric capacity. The recommended path.
+Analytics Hub on your Fabric capacity.
 
 - **You need:** a Fabric capacity, F2 or larger, or a
   [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager).

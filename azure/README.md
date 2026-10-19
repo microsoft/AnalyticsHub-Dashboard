@@ -2,7 +2,7 @@
 
 **Path 2.** Just the steps: [2-azure](../2-azure/). This page has the details.
 
-Analytics Hub running in **your own Azure subscription**, without Microsoft Fabric. It has the
+The recommended path. Analytics Hub running in **your own Azure subscription**, without Microsoft Fabric. It has the
 same data, the same ValueLens Model and measures, and the same app pages as [Fabric](../fabric/README.md).
 The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
 

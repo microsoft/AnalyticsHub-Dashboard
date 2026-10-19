@@ -1,6 +1,6 @@
 # Path 2: Azure
 
-Analytics Hub in your own Azure subscription, without Fabric.
+Analytics Hub in your own Azure subscription, without Fabric. The recommended path.
 
 - **You need:** an Azure subscription or resource group, and a Power BI workspace.
 - **Takes:** about 20 minutes. The first data arrives about 25 minutes after **Go ahead**.
