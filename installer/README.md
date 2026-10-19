@@ -155,7 +155,7 @@ package to your org's Teams app catalog, and later runs update that app rather t
 it can't, if you say no when the plan asks, or if the sign-in isn't finished within 5 minutes, it
 prints the steps to upload it by hand and carries on.
 
-`core`, `orgData`, `m365Activity`, `agent365` and `consumption` are supported on Azure. Other modules
+`core`, `orgData`, `m365Activity`, `agent365`, `productFeedback` and `consumption` are supported on Azure. Other modules
 are shown as coming soon and cannot be selected. Credit consumption deploys the Consumption Central model,
 gives the jobs' managed identity Cost Management and Azure AI roles, and creates the Copilot Studio flow,
 signed in as you (`--flow-identity app` is Fabric only). With public endpoints the flow writes to the
@@ -166,6 +166,8 @@ on that site (a SharePoint or Global administrator grants it). See
 The Agent 365 registry comes from its CSV export, which you drop in the same place, under
 `agent365`; the Agent 365 API is Fabric only for now. See
 [Agent 365 registry](../azure/README.md#agent-365-registry).
+Product feedback comes from its CSV exports, which you drop there too, under `product_feedback`; the
+emailed export flow is Fabric only for now. See [Product feedback](../azure/README.md#product-feedback).
 Agent configuration and Foundry from Azure
 Resource Graph also works on Azure: see [Agent configuration and Foundry](#agent-configuration-and-foundry).
 The app's Ask page answers with an Azure OpenAI model, an AI Services account the installer creates
@@ -530,7 +532,7 @@ this installer ignore it and run as usual: run `update` first if yours is.
 | Workday org data | | Workday: a report of active workers with **Primary Work Email** | Organisation filters |
 | Microsoft 365 activity | Yes | | M365 activity |
 | Agent 365 registry | Needs an Agent 365 licence. Fabric only for now: on Azure, use the export | Microsoft 365 admin center > **Agents** > **All agents** > **Export** | Agents |
-| Product feedback | No API. **Power Automate (emailed export)**: a flow saves exports emailed to you | Microsoft 365 admin center > **Health** > **Product feedback** > **Export** | User Feedback |
+| Product feedback | No API. **Power Automate (emailed export)**: a flow saves exports emailed to you. Fabric only for now: on Azure, use the export | Microsoft 365 admin center > **Health** > **Product feedback** > **Export** | User Feedback |
 | Copilot Studio credits | **Connected (Power Automate flow)**, the default: a daily flow reads the licensing API (tenant, environment, agent and per-user figures) | Power Platform admin center > **Licensing** > **Products** > **Copilot Studio** (Summary, Environments, Agents and Users) | Consumption Central |
 | Copilot Cowork credits | **Connected (Dataflow)**: a Dataflow Gen2 reads your Viva Insights query | Viva Insights > Copilot Consumption Dashboard > **Export** | Consumption Central |
 | Azure AI costs | Yes | | Consumption Central |
@@ -564,7 +566,9 @@ use the Lakehouse folder.
 **On Azure** there's no Lakehouse, and **Upload exports** is Fabric only. Drop the Agent 365 export
 in `agent365/` in the storage account's `landing` container or, with private networking, in the
 `agent365` folder under the SharePoint folder you gave the installer. Each run loads the newest
-one. See [Agent 365 registry](../azure/README.md#agent-365-registry); credit files are in
+one. Product feedback exports go in `product_feedback/` the same way, and each run loads them all.
+See [Agent 365 registry](../azure/README.md#agent-365-registry) and
+[Product feedback](../azure/README.md#product-feedback); credit files are in
 [Credit consumption](../azure/README.md#credit-consumption).
 
 ### Power Automate flows
@@ -577,7 +581,7 @@ access to the environment can see the flows.
 | Flow | When | What it does | Sign in to |
 |---|---|---|---|
 | `Analytics Hub - Copilot Studio credits` | Copilot Studio credits set to **Connected** (the default) | Each day, an hour before the pipeline, reads credits by agent, by user and the tenant's entitlement from the Power Platform licensing API. The first run loads about six months; later runs restate the last ten days | Power Platform API and OneLake |
-| `Analytics Hub - Product feedback` | Product feedback set to **Power Automate (emailed export)** | Saves product feedback exports emailed with the subject `Copilot Product Feedback` | Office 365 Outlook and OneLake |
+| `Analytics Hub - Product feedback` | Product feedback set to **Power Automate (emailed export)**, on Fabric only for now | Saves product feedback exports emailed with the subject `Copilot Product Feedback` | Office 365 Outlook and OneLake |
 | `Analytics Hub - Agent inventory` | Agent configuration and Foundry set to **Connected**, with agents | Each day, an hour before the pipeline, saves the Power Platform inventory of Copilot Studio agents, environments and agent flows to `Files/arg_inventory`, for when Resource Graph won't give the app the agents | Power Platform API and OneLake |
 
 They need Power Automate Premium: whoever signs in to the HTTP with Microsoft Entra ID
@@ -686,7 +690,8 @@ Source IDs for `--data`: `workday`, `m365Activity`, `agent365`, `productFeedback
 `api`, `csv` or `skip` (`defender` and `resourceGraph` take `api` or `skip`).
 For `productFeedback` and `studioCredits`, `flow` is the same as `api`. `--feedback-flow` still
 works: it's the same as `productFeedback=flow`.
-On Azure, `agent365` is `csv` or `skip`: `api` warns and uses the export.
+On Azure, `agent365` and `productFeedback` are `csv` or `skip`. `api` warns and uses the exports, as
+do `productFeedback=flow` and `--feedback-flow`.
 Without `--flow-environment`, the installer asks which environment to use.
 With `resourceGraph=api`, `--arg-management-group <id>` reads one management group rather than the
 whole tenant, and `--no-arg-agents` or `--no-arg-foundry` leaves agents or Foundry out.

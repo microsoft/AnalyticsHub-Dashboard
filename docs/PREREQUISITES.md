@@ -305,7 +305,7 @@ nothing fails.
 |---|---|
 | **Microsoft 365 activity** *(on by default)* | Real names in usage reports (Microsoft 365 admin). |
 | **Agent 365 registry** | An [Agent 365](https://learn.microsoft.com/microsoft-agent-365/overview) licence for **Connected**, which is Fabric only for now. Without one, or on Azure, upload the export from the Microsoft 365 admin center. On Azure you drop it in the landing folder: see [Agent 365 registry](../azure/README.md#agent-365-registry). |
-| **Product feedback** | No API. With the flow: a Power Automate Premium licence, a mailbox for the exports, and the export schedule (Microsoft 365 admin). Or upload the export yourself. Fabric only. |
+| **Product feedback** | No API. With the flow: a Power Automate Premium licence, a mailbox for the exports, and the export schedule (Microsoft 365 admin). Or upload the export yourself. The flow and the upload are Fabric only for now: on Azure you drop the exports in the landing folder, see [Product feedback](../azure/README.md#product-feedback). |
 | **Workday org data** | A Workday report of active workers with **Primary Work Email**, uploaded as a CSV. |
 | **Credit consumption** | Three cards, below. |
 | ↳ **Copilot Studio credits** | The Power Platform admin items above: environment, data policies, Premium licence and the sign-in. Or upload the exports from the Power Platform admin center each month. |

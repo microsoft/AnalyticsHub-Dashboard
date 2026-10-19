@@ -86,6 +86,8 @@ for _name in RESOURCE_GRAPH:
     TARGETS[_name] = Target(_name, f"raw/{_name}", incremental=False)
 # Agent 365 registry by CSV (module `agent365`): the newest export, replaced each run.
 TARGETS["agents_365"] = Target("agents_365", "raw/agents_365", incremental=False)
+# Product feedback by CSV (module `productFeedback`): every export, deduplicated, replaced each run.
+TARGETS["user_feedback"] = Target("user_feedback", "raw/user_feedback", incremental=False)
 
 
 def b(name: str) -> str:

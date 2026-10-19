@@ -9,8 +9,8 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
 > **Status.** The installer deploys it end to end: Azure SQL, the Container Apps jobs, the Power BI
 > models, the web app, and a Teams app it publishes to your org's app catalog. It collects Copilot interactions, licences and org data, Microsoft
 > 365 activity, credit consumption (Copilot Studio, Cowork, Azure AI and pay-as-you-go), and optionally
-> Defender shadow AI and agent risk, and the Agent 365 registry (from its CSV export). The other modules
-> are coming. Try it in a demo or test tenant first.
+> Defender shadow AI and agent risk, the Agent 365 registry and product feedback (both from their CSV
+> exports). The other modules are coming. Try it in a demo or test tenant first.
 
 ## Install it
 
@@ -113,6 +113,34 @@ Good to know:
 - Demo mode doesn't load the Agent 365 sample.
 - Uninstalling leaves the SharePoint folder and its files alone.
 
+## Product feedback
+
+Tick **Product feedback** to see what people say about Copilot, in the same `user_feedback` table as
+on Fabric, so the User Feedback page works. On Azure it comes from the CSV export. The flow that
+saves the emailed export is Fabric only for now: `--data productFeedback=flow` (or `api`) and
+`--feedback-flow` warn and use the exports.
+
+1. Export it from the Microsoft 365 admin center: **Health** > **Product feedback** > **Export**.
+2. Drop the CSV where the jobs read it, as for the Agent 365 export:
+   - **Public endpoints:** `product_feedback/` in the storage account's `landing` container. The
+     installer gives you **Storage Blob Data Contributor** on the account, so you can upload it.
+   - **Private networking:** a `product_feedback` folder in the SharePoint folder you give the
+     installer. The jobs' managed identity needs **Sites.Selected** with read on that site. The
+     installer grants it if you're a SharePoint or Global administrator; otherwise it prints the
+     command for one.
+3. Each run reads every CSV in that folder into `dbo.user_feedback`, keeping each `Feedback Id` once
+   (its latest submission), so add new exports next to the old ones. The jobs don't move or delete
+   the files, and with no CSV the table stays as it is.
+
+Good to know:
+
+- An export without a `Feedback Id` column, or with blank ones, fails the run, as do exports with no
+  rows at all. The table keeps what it had, and the rest of the run still publishes.
+- Text longer than 4,000 characters is cut when it's published to Azure SQL.
+- **Upload exports**, `upload` and `--csv` in the installer are Fabric only for now.
+- Demo mode doesn't load the product feedback sample.
+- Uninstalling leaves the SharePoint folder and its files alone.
+
 ## Ask
 
 The app's **Ask** page answers questions about the dashboard in plain language, inline. The web app's
@@ -212,5 +240,5 @@ ARM can't do these, so the installer:
 - Create or find the viewer group, give it Build on the models, and pass it to the web app as `VALUELENS_ACCESS`.
 - With credit consumption: the managed identity's Cost Management and Azure AI roles, write access to
   where the credit files land, the Consumption Central model, and the Copilot Studio Power Automate flow.
-- With the Agent 365 registry: write access to the `landing` container for you, or, with private
-  networking, read on the SharePoint site for the managed identity.
+- With the Agent 365 registry or product feedback: write access to the `landing` container for you,
+  or, with private networking, read on the SharePoint site for the managed identity.

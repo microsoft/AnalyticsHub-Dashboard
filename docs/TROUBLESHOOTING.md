@@ -123,9 +123,10 @@ sign-in broker: nothing loads them when the installer runs.
 
 ### Azure
 
-- **Some modules aren't on Azure yet:** product feedback, Agent Evaluator,
+- **Some modules aren't on Azure yet:** Agent Evaluator,
   GitHub Copilot credits and Cowork credits through the Dataflow. The Agent 365 registry loads
-  from its CSV export only: its API is Fabric only for now.
+  from its CSV export only: its API is Fabric only for now. Product feedback loads from its CSV
+  exports only: the emailed export flow is Fabric only for now.
 - **Networking can't be changed in place.** [Uninstall](UPDATE.md#uninstall), then install again.
 - **Org-scoped access isn't supported with private networking yet.** Its notebook can't reach the
   storage account. See [Org-scoped access](PERMISSIONS.md#org-scoped-access-row-level-security).

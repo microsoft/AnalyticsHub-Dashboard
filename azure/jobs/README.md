@@ -16,6 +16,7 @@ in step with the Fabric notebooks by the golden tests in `tests/`. No Spark or J
 | | Microsoft 365 daily activity reports (`Reports.Read.All`) | m365Activity |
 | | Copilot Studio credits and Viva (Copilot Chat) credits from the drop folder; Azure AI spend, tokens and Copilot pay-as-you-go from Azure Resource Manager | consumption |
 | | The Agent 365 registry, from the newest CSV export in the drop folder | agent365 |
+| | Product feedback, from every CSV export in the drop folder | productFeedback |
 | | Shadow AI and agent risk from Microsoft Defender (`ThreatHunting.Read.All`, `CloudApp-Discovery.Read.All`) | defender |
 | process | Curates interactions with `valuelens_core.curate()` into `curated/copilot_interactions_curated`, recomputing only the months that changed or fall in the lookback window | core |
 | publish | Loads curated and raw tables into Azure SQL, rewriting only the days that changed | per module |
@@ -90,13 +91,14 @@ model reads `dbo.<table>` in Azure SQL. Each collector fails on its own, and the
 
 Files in the drop folder are never moved or deleted. Every run re-reads all of them and merges the
 results idempotently into the state kept in `curated/<table>/part-0.parquet`, as Fabric does with
-its Delta tables. The Agent 365 collector is the exception: it reads only the newest export.
+its Delta tables. The Agent 365 collector is the exception: it reads only the newest export. The
+product feedback collector reads every export and rebuilds `user_feedback` from them each run.
 
-The drop folder has the subfolders `studio/`, `viva/`, `agent365/` and `arg_inventory/`. The Power Automate flow's `flows/`
+The drop folder has the subfolders `studio/`, `viva/`, `agent365/`, `product_feedback/` and `arg_inventory/`. The Power Automate flow's `flows/`
 state is ignored. Where the folder lives depends on the networking mode:
 
 - Public networking uses the storage account's `landing` container (`landing/studio/`,
-  `landing/viva/`, `landing/agent365/`).
+  `landing/viva/`, `landing/agent365/`, `landing/product_feedback/`).
 - Private networking uses SharePoint when `VALUELENS_DROP_SITE_ID` is set. The job reads it
   through Microsoft Graph with the managed identity, which needs `Sites.Selected` and a read grant
   on the site.
@@ -147,6 +149,35 @@ route, `Copilot_Agent365_Registry_Ingester`, is Fabric only for now.
 `azure/sql/migrations/V009__agent365.sql` creates it up front, with the 37 columns and
 `Snapshot As Of`. Publish adds any other column the export has.
 
+## Product feedback (module `productFeedback`)
+
+Optional and off by default. `collect/product_feedback.py` ports the Fabric notebook
+`Copilot_ProductFeedback_Ingester`. It reads every `.csv` in the drop folder's `product_feedback/`,
+in name order, and writes them as the `user_feedback` snapshot, so exports add up. The flow that saves
+the emailed export, `Copilot_ProductFeedback_Email_to_OneLake`, is Fabric only for now.
+
+- **Rows.** Each `Feedback Id` is kept once: the latest `Date Submitted UTC`, then the row with the
+  most values, then the last file by name, as in the ingester, then the last row.
+- **Columns.** Column names stay as exported, and the exports are combined by name. The 23 columns
+  the model reads load blank when no export has them. A name that repeats in one file is numbered,
+  as Spark does, and fails the step if it still clashes. A header longer than 128 characters can't be
+  a SQL column, so it's dropped with a warning.
+- **Derived.** `Sentiment` is Positive or Negative from `Feedback Type`, and `Date Submitted Date` is
+  the date of `Date Submitted UTC`. `SourceFile` and `LoadDate` record which export each row came
+  from and when it was loaded.
+- **No data.** With no CSV, the table is left as it is. A missing or blank `Feedback Id`, or no rows
+  in any export, fails the step instead of writing rows that can't be deduplicated, or none.
+- **Unlike the ingester**, every CSV is read whatever its name (the ingester reads `*feedback*`
+  only), headers lose surrounding spaces, and names match ignoring case.
+- **Demo mode** doesn't load the product feedback sample, and doesn't publish `user_feedback`.
+
+| Table | Publish |
+|---|---|
+| `user_feedback` | snapshot |
+
+`azure/sql/migrations/V010__product_feedback.sql` creates it up front, with the 23 columns,
+`SourceFile` and `LoadDate`. Publish adds any other column the exports have.
+
 ## Defender (module `defender`)
 
 Optional and off by default. It mirrors `Copilot_Defender_Ingester.ipynb` on Fabric; both run
@@ -181,12 +212,12 @@ The job reads its settings from environment variables. Bicep sets them.
 | `VALUELENS_TENANT_ID` | The customer tenant |
 | `VALUELENS_STORAGE_ACCOUNT` | The ADLS Gen2 account (containers `raw`, `curated`, `landing`) |
 | `VALUELENS_SQL_SERVER`, `VALUELENS_SQL_DATABASE` | The Azure SQL target. Auth is Entra-only, with an access token. |
-| `VALUELENS_MODULES` | A comma list such as `core,orgData,m365Activity,agent365,consumption,defender,resourceGraph`. The default is `core,orgData`. |
+| `VALUELENS_MODULES` | A comma list such as `core,orgData,m365Activity,agent365,productFeedback,consumption,defender,resourceGraph`. The default is `core,orgData`. |
 | `VALUELENS_ARG_MANAGEMENT_GROUP` | resourceGraph: the management group Resource Graph reads. Empty reads everything the identity can see. |
 | `VALUELENS_ARG_AGENTS`, `VALUELENS_ARG_FOUNDRY` | resourceGraph: `false` turns off the agent or Foundry probes. Both default to `true`. |
 | `VALUELENS_AZURE_AI_SUBSCRIPTION` | consumption: the subscription for Azure OpenAI / AI Foundry costs and metrics. When it is empty, Azure AI and pay-as-you-go are skipped. |
 | `VALUELENS_PAYG_SUBSCRIPTIONS` | consumption: other subscriptions, as a comma list, whose Copilot pay-as-you-go costs are read |
-| `VALUELENS_DROP_SITE_ID`, `VALUELENS_DROP_DRIVE_ID`, `VALUELENS_DROP_FOLDER` | consumption and agent365, private networking: the SharePoint drop folder (see above). When unset, the job reads the `landing` container. |
+| `VALUELENS_DROP_SITE_ID`, `VALUELENS_DROP_DRIVE_ID`, `VALUELENS_DROP_FOLDER` | consumption, agent365 and productFeedback, private networking: the SharePoint drop folder (see above). When unset, the job reads the `landing` container. |
 | `VALUELENS_AUDIT_HISTORY_DAYS` / `VALUELENS_AUDIT_LOOKBACK_DAYS` | The first-run backfill (default 30) and the re-read window on later runs (default 7) |
 | `VALUELENS_PROCESS_LOOKBACK_DAYS` | Days before the newest audit record whose months `process` always recomputes (default 14) |
 | `VALUELENS_PROCESS_FULL_REBUILD` | `true` makes `process` recompute every month. Set it on a single execution, not on the job. |
@@ -211,6 +242,8 @@ The job reads its settings from environment variables. Bicep sets them.
 | `landing/studio/`, `landing/viva/` | consumption: the drop folder in public networking. It is read only. |
 | `raw/agents_365/part-0.parquet` | agent365: the newest Agent 365 export, as landed |
 | `landing/agent365/` | agent365: the drop folder for the export in public networking. It is read only. |
+| `raw/user_feedback/part-0.parquet` | productFeedback: every product feedback export, deduplicated by `Feedback Id` |
+| `landing/product_feedback/` | productFeedback: the drop folder for the exports in public networking. It is read only. |
 | `raw/defender_*/` | defender: one parquet file per day for the two daily tables, a snapshot for the rest |
 | `landing/defender/ai_watchlist.csv` | defender: the AI watchlist. The first run writes it; after that it is only read |
 

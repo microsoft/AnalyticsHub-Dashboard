@@ -27,6 +27,13 @@ one into `dbo.agents_365` (migration `V009`), the table Fabric fills, so the sam
 Agent 365 API is Fabric only for now: `--data agent365=api` warns and uses the export. See
 [Agent 365 registry](azure/README.md#agent-365-registry).
 
+**Azure: product feedback, from its CSV exports.** The `productFeedback` module now installs on
+Azure. Drop the Microsoft 365 admin center's exports in `product_feedback/`, in the same places as
+the Agent 365 export. Each run loads them all into `dbo.user_feedback` (migration `V010`), the table
+Fabric fills, with duplicates removed by Feedback Id. The emailed export flow is Fabric only for
+now: `--data productFeedback=flow` and `--feedback-flow` warn and use the exports. See
+[Product feedback](azure/README.md#product-feedback).
+
 **Power BI model: faster active-user counts.** In both Fabric templates, and so in the Azure model
 built from them, `[All Active Users]` and `[Active Licensed Users]` now take one distinct count
 instead of testing each user, as in
