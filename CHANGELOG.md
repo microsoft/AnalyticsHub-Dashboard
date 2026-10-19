@@ -90,9 +90,10 @@ Azure installs load their config as before.
 - **Clear errors for Fabric-only options.** On Azure, `upload`, `install --csv` and `load-cowork` now
   stop and name the folder to put exports in. `coworkCredits=api`, `--flow-identity app` and leaving
   every credit source out warn.
-- **Parity documented.** The Azure README compares credit consumption with Fabric source by source,
-  says why the Viva Insights Dataflow, `--flow-identity app` and installer uploads are Fabric only for
-  now, and gives the steps to compare the two Consumption Central models with `parity.mjs`.
+- **Parity documented.** The [Azure README](azure/README.md#parity-with-fabric) compares credit
+  consumption with Fabric source by source, says why the Viva Insights Dataflow, `--flow-identity app`
+  and installer uploads are Fabric only for now, and gives the steps to compare the two Consumption
+  Central models with `parity.mjs`.
 
 ## 2026-10-19 — Analytics Hub installer 0.6.7
 
