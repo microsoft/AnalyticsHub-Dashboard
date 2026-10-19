@@ -25,6 +25,9 @@ const CONTRIBUTOR = {
 const RBAC_ADMIN = { actions: ['Microsoft.Authorization/roleAssignments/write', 'Microsoft.Authorization/roleAssignments/delete', '*/read', 'Microsoft.Support/*'], notActions: [] };
 const GUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
+/** Matches `s` literally inside a RegExp. @param {string} s */
+const literal = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+
 /** @param {string} method @param {string} path */
 const forbidden = (method, path) => new HttpError(`${method} ${path} returned 403 AuthorizationFailed`, { status: 403, method, url: `https://management.azure.com${path}`, code: 'AuthorizationFailed' });
 /** A deployment ARM turned down. @param {string} code @param {string} message */
@@ -68,7 +71,7 @@ test('least privilege: the admin page has the same condition, every resource pro
   assert.match(doc, /--condition-version "?2\.0"?/);
   const all = azureProviders(/** @type {any} */ ({ publicNetworkAccess: false, ask: { mode: 'create' } }));
   assert.deepEqual([...all].sort(), [...AZURE_PROVIDERS, ...PRIVATE_PROVIDERS, ...ASK_PROVIDERS].sort());
-  for (const ns of all) assert.match(doc, new RegExp(`\\b${ns.replace(/\./g, '\\.')}\\b`), ns);
+  for (const ns of all) assert.match(doc, new RegExp(`\\b${literal(ns)}\\b`), ns);
   assert.ok(doc.includes(`--namespace ${PRIVATE_FEATURE[0]} --name ${PRIVATE_FEATURE[1]}`), PRIVATE_FEATURE.join('/'));
   for (const r of [...TEMPLATE_ROLES, ...AZURE_AI_ROLES]) assert.ok(doc.includes(r.name), r.name);
 });
@@ -188,7 +191,7 @@ test('least privilege: ARM errors for an unregistered provider or a role you can
 
   const scope = `${RG}/providers/Microsoft.Storage/storageAccounts/stvlens`;
   const denied = roleAssignMessage(refused('AuthorizationFailed', `The client 'admin@contoso.com' with object id 'user-1' does not have authorization to perform action 'Microsoft.Authorization/roleAssignments/write' over scope '${scope}/providers/Microsoft.Authorization/roleAssignments/abc' or the scope is invalid.`));
-  assert.match(denied, new RegExp(`^Azure wouldn't let you assign a role on ${scope.replace(/[/.]/g, '\\$&')}\\.\\n`));
+  assert.match(denied, new RegExp(`^Azure wouldn't let you assign a role on ${literal(scope)}\\.\\n`));
   assert.match(denied, /Owner, User Access Administrator, or Role Based Access Control Administrator with a condition that allows these roles, on the resource group \(docs\/AZURE-LEAST-PRIVILEGE\.md\)/);
   assert.equal(roleAssignMessage(refused('AuthorizationFailed', "does not have authorization to perform action 'Microsoft.Sql/servers/write'")), '', 'only role assignments');
 
