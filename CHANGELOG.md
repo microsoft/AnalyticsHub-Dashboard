@@ -38,8 +38,8 @@ nothing new and deploy as before.
   **Repair or change** keeps what was chosen. The ARM template takes a new
   `sqlFreeLimitExhaustionBehavior` parameter, `AutoPause` by default.
 - **First load.** A new test checks that an audit collection cut off by the run job's 4-hour limit
-  carries on in the next run. The [installer README](installer/README.md#azure-target) says what
-  to expect at 20,000 seats.
+  carries on in the next run. The [installer README](installer/README.md#a-large-tenant-on-azure)
+  says what to expect at 20,000 seats.
 
 **Docs:**
 

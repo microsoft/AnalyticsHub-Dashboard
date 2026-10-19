@@ -171,6 +171,8 @@ Re-runs are incremental and use the same
 resource with `valuelens-install-id` and stops rather than modifying untagged resources with colliding
 names.
 
+### A large tenant on Azure
+
 On a tenant with more than 10,000 Copilot seats, setup sizes Azure for the tenant and asks before
 anything costs more:
 
@@ -493,7 +495,7 @@ limits until you do. An install that has a tenant size gets the new time limits 
 **Update** or **Repair or change**, and keeps its data and settings.
 
 On the Azure target, the Power BI capacity, Azure SQL and web app sizing and the run job's time
-limit are under [Azure target](#azure-target).
+limit are under [A large tenant on Azure](#a-large-tenant-on-azure).
 
 ### Load more audit history
 
