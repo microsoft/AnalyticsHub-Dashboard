@@ -1079,7 +1079,6 @@ const FABRIC_ONLY = /** @type {[string[], string][]} */ ([
   [['--data', 'productFeedback=flow'], '--data productFeedback=api'],
   [['--data', 'coworkCredits=api'], '--data coworkCredits=api'],
   [['--data', 'agent365=api'], '--data agent365=api'],
-  [['--data', 'agentEvaluator=api'], '--data agentEvaluator=api'],
 ]);
 for (const [argv, name] of FABRIC_ONLY) {
   test(`askTarget: a new install given ${argv.join(' ')}, which only works on Fabric, starts on Fabric`, async () => {
@@ -1123,6 +1122,22 @@ test("askTarget: Agent 365 and product feedback keep Fabric by API, and by CSV o
     } finally {
       azure.supported = runs;
     }
+  }
+});
+
+test("askTarget: Agent Evaluator keeps Fabric only while Azure doesn't run it", async () => {
+  const azure = MODULES.agentEvaluator.azure;
+  const runs = azure.supported;
+  const argv = ['--data', 'agentEvaluator=api'];
+  try {
+    // Before and after Azure runs the module.
+    for (const supported of [false, true]) {
+      azure.supported = supported;
+      assert.deepEqual(fabricOnlyOptions(parseCli(['install', ...argv], {})), supported ? [] : ['--data agentEvaluator=api'], `supported: ${supported}`);
+      assert.equal((await firstQuestion({ newInstall: true, argv })).start, supported ? 'azure' : 'fabric', `supported: ${supported}`);
+    }
+  } finally {
+    azure.supported = runs;
   }
 });
 
