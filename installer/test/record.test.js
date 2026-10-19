@@ -408,17 +408,24 @@ test('web session: a new install starts on Azure, a restored draft keeps its ans
     assert.deepEqual(ended().map((e) => e.state), ['done', 'done', 'done', 'done']);
   }));
 
-test('web session: --target fabric starts a new install on Fabric, also after Start fresh', () =>
-  inDir(async (dir) => {
-    const w = session(dir, async () => ({ id: 'ws-1' }), 'tenant-1', 'fabric');
-    rmSync(w.configFile);
-    const { starts, install } = installs(w);
-    await install();
-    assert.equal(w.s.startFresh().ok, true);
-    await install();
-    assert.deepEqual(starts, [0, 0]);
-    assert.deepEqual(w.ended().map((e) => e.state), ['done', 'done']);
-  }));
+test('web session: --target chooses for a new install, also after Start fresh', async () => {
+  // --target fabric starts the first question on Fabric. --target azure skips it, as in the terminal.
+  /** @type {['fabric' | 'azure', number[]][]} */
+  const cases = [['fabric', [0, 0]], ['azure', []]];
+  for (const [target, asked] of cases) {
+    await inDir(async (dir) => {
+      const w = session(dir, async () => ({ id: 'ws-1' }), 'tenant-1', target);
+      rmSync(w.configFile);
+      const { starts, install } = installs(w);
+      await install();
+      assert.equal(w.s.startFresh().ok, true);
+      await install();
+      assert.deepEqual(starts, asked, `--target ${target}`);
+      assert.equal(loadConfig(`${w.configFile}.draft.json`).config.target, target);
+      assert.deepEqual(w.ended().map((e) => e.state), ['done', 'done']);
+    });
+  }
+});
 
 test('terminal: install offers to start fresh, other commands and --yes stop and say how', () =>
   inDir(async (dir) => {
