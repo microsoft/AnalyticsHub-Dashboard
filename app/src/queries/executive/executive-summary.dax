@@ -31,9 +31,11 @@ VAR _noSecurityCopilot =
         NOT CONTAINSSTRING('Chat + Agent Interactions (Audit Logs)'[AppHost], "SecurityCopilot")
     )
 VAR _seats = [Licensed Users (Filter-Aware)]
-// [Active Licensed Users] tests each user ID with LEN(TRIM()), which takes
-// seconds on a large tenant. Counting the licensed users with a usage row,
-// less the blank IDs, gives the same number (as in executive-months.dax).
+// [Active Licensed Users] now tests each user ID with LEN(TRIM()) only when
+// Audit_UserId is filtered directly, but models deployed from older templates
+// still test every ID, which takes seconds on a large tenant. Counting the
+// licensed users with a usage row, less the blank IDs, gives the same number
+// on any model, so this inline count stays (as in executive-months.dax).
 VAR _blankIds =
     FILTER(
         ALL('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]),

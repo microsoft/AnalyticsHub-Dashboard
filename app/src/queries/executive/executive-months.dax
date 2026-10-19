@@ -17,9 +17,11 @@ VAR _seatsInScope =
         [Total Licensed Users],
         TREATAS(VALUES('Chat + Agent Org Data'[PersonId]), 'Copilot Licensed'[UPN_Normalized])
     )
-// [All Active Users] tests each user ID with LEN(TRIM()) every month, which
-// takes seconds on a large tenant. Counting the users with a usage row, less
-// the blank IDs found once here, gives the same number.
+// [All Active Users] and [Active Licensed Users] now test each user ID with
+// LEN(TRIM()) only when Audit_UserId is filtered directly, but models deployed
+// from older templates still test every ID every month, which takes seconds
+// on a large tenant. Counting the users with a usage row, less the blank IDs
+// found once here, gives the same number on any model, so these counts stay.
 VAR _blankIds =
     FILTER(
         ALL('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]),
