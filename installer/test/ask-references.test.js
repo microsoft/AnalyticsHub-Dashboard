@@ -26,6 +26,25 @@ const tools = ask.catalogue.tools.filter((t) => t.references);
 /** @param {string[] | undefined} refs */
 const listed = (refs) => daxReferences((refs ?? []).join(' '));
 
+// What the data agent was told about the summary and the trend before their queries worked some
+// figures out themselves and named `references` instead. A change to these changes the agent's
+// instructions and signature, so it is published again: change them only for what it should see.
+const BEFORE_REFERENCES = {
+  bottom_line:
+    'Measures: [Expert Equivalent Hours], [AI Tasks], [All Active Users], [Licensed Users (Filter-Aware)], ' +
+    '[Active Licensed Users], [% Active Licensed Users], [Active Unlicensed Users], [Habitual Users %, Last Month], ' +
+    '[Power Users %, Last Month], [Active Agent Users]. ' +
+    "Columns: 'Behavior Value Map'[Behavior], 'Chat + Agent Interactions (Audit Logs)'[Cowork Task Category], " +
+    "'Chat + Agent Interactions (Audit Logs)'[AppHost], 'Effort Scenario'[Scenario], " +
+    "'Chat + Agent Interactions (Audit Logs)'[WeekStart], 'Calendar'[Date], " +
+    "'Chat + Agent Interactions (Audit Logs)'[Agent Filter (Normalized)], 'Chat + Agent Interactions (Audit Logs)'[AgentName], " +
+    "'Chat + Agent Interactions (Audit Logs)'[Audit_UserId], 'Chat + Agent Org Data'[Organization].",
+  monthly_trend:
+    'Measures: [Expert Equivalent Hours], [AI Tasks], [% Active Licensed Users], [Habitual Users (Monthly)], ' +
+    '[Power Users (Monthly)], [Inactive Users (Monthly)], [All Active Users]. ' +
+    "Columns: 'Calendar'[Date], 'Effort Scenario'[Scenario], 'Chat + Agent Interactions (Audit Logs)'[Agent Filter (Normalized)].",
+};
+
 test('references name measures and columns the deployed main model shows, one per entry', () => {
   assert.ok(tools.length > 0, 'the catalogue lists some');
   for (const tool of tools) {
@@ -49,6 +68,15 @@ test('the data agent names a tool\'s references, in order, in place of what its 
     if (refs.measures.length) parts.push(`Measures: ${refs.measures.map((m) => `[${m}]`).join(', ')}.`);
     if (refs.columns.length) parts.push(`Columns: ${refs.columns.map((c) => `'${c.table.replace(/'/g, "''")}'[${c.column}]`).join(', ')}.`);
     assert.ok(line.includes(` ${parts.join(' ')}`), `${tool.name}: ${line}`);
+  }
+});
+
+test('the data agent is told the same measures and columns for the summary and the trend as before, in the same order', () => {
+  const lines = dataSourceInstructions(ask, 'vl', schema).split('\n');
+  for (const [name, names] of Object.entries(BEFORE_REFERENCES)) {
+    const tool = ask.catalogue.tools.find((t) => t.name === name);
+    assert.ok(tool, name);
+    assert.equal(lines.find((l) => l.startsWith(`- ${name}: `)), `- ${name}: ${tool.description} ${names}`);
   }
 });
 

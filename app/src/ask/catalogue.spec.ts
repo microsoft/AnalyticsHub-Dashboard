@@ -76,8 +76,10 @@ describe("ask catalogue", () => {
         }
     });
 
-    it("lists references as one measure or column each", () => {
-        for (const tool of askCatalogue.tools.filter((t) => t.references)) {
+    it("lists references for the summary and the trend, one measure or column each", () => {
+        const listing = askCatalogue.tools.filter((t) => t.references);
+        expect(listing.map((t) => t.name)).toEqual(expect.arrayContaining(["bottom_line", "monthly_trend"]));
+        for (const tool of listing) {
             expect(tool.references!.length, tool.name).toBeGreaterThan(0);
             for (const reference of tool.references!) expect(reference, tool.name).toMatch(/^(?:'(?:[^']|'')+')?\[[^\]]+\]$/);
         }

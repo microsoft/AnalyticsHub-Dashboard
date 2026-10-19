@@ -1029,6 +1029,15 @@ describe("QueryScheduler lead queries", () => {
         expect(started).toEqual(["b", "lead", "a"]);
     });
 
+    it("keeps a lead query's place when a lead card asks for it again", async () => {
+        const { started, ask, drain } = fullScheduler();
+        const results = [ask("lead1", true), ask("lead2", true), ask("a")];
+        expect(ask("lead1", true)).toBe(results[0]);
+        await drain();
+        await Promise.all(results);
+        expect(started).toEqual(["lead1", "lead2", "a"]);
+    });
+
     it("lets a background query a lead card asks for on screen in ahead of the queries waiting", async () => {
         const { scheduler, started, ask, drain } = fullScheduler();
         const first = ask("a");
@@ -1051,6 +1060,18 @@ describe("QueryScheduler lead queries", () => {
         await drain();
         await Promise.all(results);
         expect(started).toEqual(["lead", "a", "back"]);
+    });
+
+    it("ignores lead in the background for a query already waiting there too", async () => {
+        const { started, ask, drain } = fullScheduler();
+        const first = ask("a");
+        const background = ask("back", false, undefined, "low");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(ask("back", true, undefined, "low")).toBe(background);
+        expect(ask("back")).toBe(background);
+        await drain();
+        await Promise.all([first, background]);
+        expect(started).toEqual(["a", "back"]);
     });
 
     it("gives a lead query's place to the next lead once its card has gone", async () => {
@@ -1163,6 +1184,38 @@ describe("QueryScheduler lead queries", () => {
         expect(started).toBe(90);
         await vi.advanceTimersByTimeAsync(1);
         expect(started).toBe(100);
+        await Promise.all(results);
+    });
+
+    it("makes a lead query wait for the per-minute budget like any other", async () => {
+        const scheduler = new QueryScheduler();
+        let normal = 0;
+        const results = Array.from({ length: 90 }, (_, index) =>
+            scheduler.run(`q${index}`, async () => {
+                normal++;
+                return index;
+            }),
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(normal).toBe(90);
+
+        let started = false;
+        const lead = scheduler.run(
+            "lead",
+            async () => {
+                started = true;
+                return "lead";
+            },
+            "normal",
+            "",
+            undefined,
+            true,
+        );
+        await vi.advanceTimersByTimeAsync(59_999);
+        expect(started).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(started).toBe(true);
+        await expect(lead).resolves.toBe("lead");
         await Promise.all(results);
     });
 });
