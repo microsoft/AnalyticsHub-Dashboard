@@ -16,12 +16,13 @@ Data layout (same under a local directory or the ADLS account; first segment = c
     raw/m365_activity_daily/day-YYYYMMDD.parquet
     raw/defender_*/...                                         (module defender, optional)
     landing/defender/ai_watchlist.csv                          (module defender: the AI watchlist, admin-edited)
-    raw/agents_365/*.parquet                                   (Phase 2, optional)
+    raw/agents_365/part-0.parquet                              (module agent365: the newest Agent 365 export)
     curated/copilot_interactions_curated/month-YYYYMM.parquet  (one file per month; month-none = no date)
     curated/_valuelens_process/state.json, context/            (incremental process bookkeeping)
     curated/<studio_* | viva_*>/part-0.parquet                 (module consumption, merged state)
     raw/<azure_ai_* | copilot_payg_spend | ...>/part-0.parquet (module consumption, Azure AI)
     landing/studio/*.csv, landing/viva/*.csv                   (consumption drop folder, read only)
+    landing/agent365/*.csv                                     (module agent365 drop folder, read only)
 """
 from __future__ import annotations
 
@@ -265,6 +266,11 @@ def collect(store, settings, api=None) -> dict:
         else:
             # As in Fabric: without the Azure AI subscription, Copilot pay-as-you-go isn't read either.
             log.info("collect azure_ai: VALUELENS_AZURE_AI_SUBSCRIPTION not set; Azure AI and PAYG skipped")
+    if settings.has("agent365"):
+        # Before resource_graph, which maps agents to their Agent 365 titles through this table.
+        from .collect.agent365 import collect_agent365
+
+        jobs.append(("agent365", collect_agent365))
     if settings.has("resourceGraph"):
         from .collect.resource_graph import collect_resource_graph
 
@@ -299,6 +305,8 @@ def publish_targets(settings) -> list[str]:
         targets.append("m365")
     if settings.has("defender"):
         targets += list(DEFENDER)
+    if settings.has("agent365"):
+        targets.append("agents_365")
     return targets + consumption
 
 

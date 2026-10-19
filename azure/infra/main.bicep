@@ -94,7 +94,7 @@ param sqlReaderClientId string = ''
 param azureAiSubscriptionId string = ''
 @description('Credit consumption: other subscriptions (comma-separated) that Copilot pay-as-you-go billing policies charge.')
 param paygSubscriptionIds string = ''
-@description('Credit consumption, private networking: SharePoint site, drive and folder the Copilot Studio flow and the Viva export are dropped in. Empty = the storage account\'s landing container.')
+@description('Private networking: SharePoint site, drive and folder the Copilot Studio flow and the CSV exports (Viva, Agent 365 and others) are dropped in, one subfolder per source. Empty = the storage account\'s landing container.')
 param dropSiteId string = ''
 param dropDriveId string = ''
 param dropFolder string = ''
