@@ -157,6 +157,8 @@ test('rlsModels: the deployed models on each target; Agent Evaluator only on Fab
   config.target = 'azure';
   config.azure = /** @type {any} */ ({ powerBi: { workspaceId: 'pbi-ws', datasetId: 'az-vl', consumptionDatasetId: 'az-cc' } });
   assert.deepEqual(rlsModels(config).map((m) => [m.kind, m.workspaceId, m.datasetId]), [['valuelens', 'pbi-ws', 'az-vl'], ['consumption', 'pbi-ws', 'az-cc']]);
+  config.modules.consumption = false;
+  assert.deepEqual(rlsModels(config).map((m) => m.kind), ['valuelens'], 'a Consumption model kept after an untick is left out, as on Fabric');
 });
 
 test('rlsBlockers: no model, a Pro workspace or private networking', () => {

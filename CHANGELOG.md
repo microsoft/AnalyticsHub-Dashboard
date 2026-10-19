@@ -90,6 +90,10 @@ Azure installs load their config as before.
 - **Clear errors for Fabric-only options.** On Azure, `upload`, `install --csv` and `load-cowork` now
   stop and name the folder to put exports in. `coworkCredits=api`, `--flow-identity app` and leaving
   every credit source out warn.
+- **Unticking it works as on Fabric.** On Azure, unticking **Credit consumption**, or switching to demo
+  mode, keeps the Consumption Central model but hides its pages in the app. The jobs, the `refresh`
+  command and its scheduled refresh in Power BI stop refreshing it, and the installer stops giving access
+  to it. Ticking it again reuses the model. Before, the app kept the pages, with data that no longer updated.
 - **Parity documented.** The [Azure README](azure/README.md#parity-with-fabric) compares credit
   consumption with Fabric source by source, says why the Viva Insights Dataflow, `--flow-identity app`
   and installer uploads are Fabric only for now, and gives the steps to compare the two Consumption

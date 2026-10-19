@@ -13,7 +13,7 @@ import { commandLine } from '../launch.js';
 import { ACCESS_INVENTORY, ACCESS_PEOPLE_TABLE, ORG_ATTRIBUTES, rlsOn, roleDefinitions } from '../transform/access.js';
 import { prepareNotebook, serialiseNotebook } from '../transform/notebook.js';
 import { ensureViewerGroup } from './access.js';
-import { grantLandingWrite, isPrivate, startAndWaitJob } from './azure/index.js';
+import { azureConsumptionModelDeployed, grantLandingWrite, isPrivate, startAndWaitJob } from './azure/index.js';
 import { createdId } from './fabric.js';
 import { deployedRoles, refreshModel } from './model.js';
 import { BUSY_RETRIES, BUSY_WAIT_MS, capacityBusy, waitForJob } from './run.js';
@@ -252,7 +252,7 @@ export function rlsModels(config) {
     const ws = pbi.workspaceId;
     return [
       ...(pbi.datasetId ? [{ kind: /** @type {const} */ ('valuelens'), workspaceId: ws, datasetId: pbi.datasetId, name: config.semanticModel.name, model: config.semanticModel }] : []),
-      ...(pbi.consumptionDatasetId ? [{ kind: /** @type {const} */ ('consumption'), workspaceId: ws, datasetId: pbi.consumptionDatasetId, name: config.consumption.model.name, model: config.consumption.model }] : []),
+      ...(azureConsumptionModelDeployed(config) ? [{ kind: /** @type {const} */ ('consumption'), workspaceId: ws, datasetId: /** @type {string} */ (pbi.consumptionDatasetId), name: config.consumption.model.name, model: config.consumption.model }] : []),
     ];
   }
   const ws = config.fabric.workspaceId;

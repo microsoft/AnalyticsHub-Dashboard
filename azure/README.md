@@ -99,8 +99,8 @@ app's pages are the same. Source by source:
 | Copilot Cowork credits | The Viva Insights Dataflow (`coworkCredits=api`), the CSV export, or both | The CSV export. `coworkCredits=api` warns and becomes CSV, and `load-cowork` stops |
 | Azure AI and pay-as-you-go | `Ingest_Azure_AI` | The jobs read the same APIs and write the same tables. **Leave Azure AI out** at the subscription question, or `--data azureAi=skip`, leaves it out |
 | Where credit files land | The Lakehouse | The `landing` container, or a SharePoint folder with private networking (above) |
-| Demo mode | None in the installer. `seed_sample_data.py` loads the sample by hand | Leaves credit consumption out until you switch to your tenant's data |
-| The model and the app's pages | Consumption Central | The same model, reading Azure SQL, and the same pages |
+| Demo mode | None in the installer. `seed_sample_data.py` loads the sample by hand | Leaves credit consumption out, as if unticked, until you switch to your tenant's data |
+| The model and the app's pages | Consumption Central. Unticking credit consumption keeps the model, but the app hides its pages, nothing refreshes it, and the installer stops giving access to it (access already given stays). Ticking it again reuses it | The same model, reading Azure SQL, and the same pages. Unticked, the same as Fabric, and its scheduled refresh in Power BI is turned off. It gets a new SQL reader secret only once it's ticked again |
 | GitHub Copilot and negotiated rates | Not installed: notebooks you import and run by hand | Not collected. The app's pages leave GitHub Copilot out, and you set your rates under **Rates & packs** in the app, which works on both |
 
 Why some are Fabric only for now:

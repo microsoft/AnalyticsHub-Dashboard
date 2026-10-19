@@ -10,7 +10,7 @@ import { loadConfig, saveConfig } from '../src/config.js';
 import { createClient, HttpError } from '../src/http.js';
 import { powerBiApi } from '../src/clients/powerbi.js';
 import { finishUpdate, loadState, runCommand } from '../src/install.js';
-import { confirmReloaded, deployModel, MODEL_UPDATE_NOTE, needsDataReset, refreshModel, settleReloads } from '../src/steps/model.js';
+import { confirmReloaded, deployModel, MODEL_UPDATE_NOTE, needsDataReset, pendingReloads, refreshModel, settleReloads } from '../src/steps/model.js';
 import { planReview } from '../src/steps/plan.js';
 import { createWebUi } from '../src/web-ui.js';
 import { fakeCtx, fakeFabric, fakeGraph, fakePowerBi, fakeUi, httpError } from './fakes.js';
@@ -695,6 +695,24 @@ test('a change that may not have finished is applied again before anything count
   t.sm.bound = true;
   assert.deepEqual(await settleReloads(t.ctx, { wait: true, load: 'none', reachable: () => true }), { ok: true, pending: [] });
   assert.equal(t.sm.reload, undefined);
+});
+
+test('a Consumption model kept while credit consumption is off, or in Azure demo mode, is owed no reload until it is used again', () => {
+  const { config } = fakeCtx();
+  const reload = { since: '2026-06-01T12:00:00.000Z', unsettled: true };
+  Object.assign(config.semanticModel, { id: 'vl-1', reload: { ...reload } });
+  Object.assign(config.consumption.model, { id: 'cc-1', reload: { ...reload } });
+  const owed = () => pendingReloads(config).map((m) => m.id);
+  for (const target of /** @type {const} */ (['fabric', 'azure'])) {
+    config.target = target;
+    config.modules.consumption = true;
+    assert.deepEqual(owed(), ['vl-1', 'cc-1'], target);
+    config.modules.consumption = false;
+    assert.deepEqual(owed(), ['vl-1'], `${target}, unticked`);
+  }
+  config.modules.consumption = true;
+  /** @type {any} */ (config.azure).sampleData = true;
+  assert.deepEqual(owed(), ['vl-1'], 'demo mode publishes no credit tables');
 });
 
 test('--allow-model-reset: only with install, update or access, and not with --ui', () => {
