@@ -11,7 +11,7 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const CSC = join(process.env.WINDIR ?? 'C:\\Windows', 'Microsoft.NET', 'Framework64', 'v4.0.30319', 'csc.exe');
 const skip = process.platform !== 'win32' || !existsSync(CSC) ? 'needs Windows and the .NET Framework C# compiler' : false;
 
-test('launcher: quotes arguments, refuses unsafe entries, unpacks past 260 characters and keeps the PC awake', { skip }, () => {
+test('launcher: quotes arguments, refuses unsafe entries, unpacks past 260 characters, waits for a held unpack and keeps the PC awake', { skip }, () => {
   const dir = mkdtempSync(join(realpathSync.native(tmpdir()), 'ahl-'));
   try {
     const exe = join(dir, 'check.exe');
@@ -46,4 +46,13 @@ test('launcher: a node.exe blocked by device policy says what to do, with links 
   assert.match(doc, /^## IT-approved Node\.js$/m, '#it-approved-nodejs');
   assert.match(doc, /^## Locked-down tenant \/ Azure Cloud Shell$/m, '#locked-down-tenant--azure-cloud-shell');
   assert.doesNotMatch(src, /ExecutionPolicy|Bypass|Run anyway|Keep anyway|AllSigned/i);
+});
+
+test('launcher: a held unpack folder is retried on both errors Windows gives, not a failed start', () => {
+  const src = readFileSync(join(HERE, '..', 'packaging', 'launcher', 'Launcher.cs'), 'utf8');
+  const unpack = src.slice(src.indexOf('private static void Unpack('), src.indexOf('internal static readonly int[] MoveWaits'));
+  assert.match(unpack, /MoveIntoPlace\(partial, root, MoveWaits\);\s*\}/);
+  const move = src.slice(src.indexOf('internal static void MoveIntoPlace('), src.indexOf('internal static string BusyMessage('));
+  assert.match(move, /catch \(IOException e\) \{ failure = e; \}\s*catch \(UnauthorizedAccessException e\) \{ failure = e; \}/);
+  assert.ok(move.indexOf('File.Exists(marker)') < move.indexOf('Thread.Sleep('), 'checks for a copy that finished first before each wait');
 });

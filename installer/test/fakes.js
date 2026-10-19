@@ -554,7 +554,15 @@ export function fakeArm() {
       return restrictedSqlRegions.has(location) ? { status: 'Visible', reason: 'Subscriptions are restricted from provisioning in this region.' } : { status: 'Available' };
     },
     listResourceGroups: async () => Object.values(groups),
-    getResourceGroup: async (/** @type {string} */ _sub, /** @type {string} */ name) => groups[name] ?? null,
+    getResourceGroup: async (/** @type {string} */ _sub, /** @type {string} */ name) => {
+      const g = groups[name];
+      if (g?.deleting) {
+        const state = g.deleteStates?.shift();
+        if (state === undefined) delete groups[name];
+        else g.properties = { provisioningState: state };
+      }
+      return groups[name] ?? null;
+    },
     ensureResourceGroup: async (/** @type {string} */ _sub, /** @type {string} */ name, /** @type {string} */ location, /** @type {any} */ tags = {}) => {
       calls.push(`ensureResourceGroup ${name}`);
       groups[name] = { name, location, tags };
@@ -629,7 +637,10 @@ export function fakeArm() {
     listContainerAppJobExecutions: async () => executions,
     deleteResourceGroup: async (/** @type {string} */ _sub, /** @type {string} */ rg) => {
       calls.push(`deleteResourceGroup ${rg}`);
-      delete groups[rg];
+      fail('deleteResourceGroup');
+      // A group given deleteStates (what each read reports while Azure deletes it) goes only after those reads.
+      if (groups[rg]?.deleteStates?.length) groups[rg].deleting = true;
+      else delete groups[rg];
     },
     deleteResource: async (/** @type {string} */ id) => {
       calls.push(`deleteResource ${id}`);
@@ -824,15 +835,26 @@ export function fakePowerBi() {
   const answers = [];
   /** @type {Record<string, Error[]>} */
   const failures = {};
+  /** @type {{ id: string, name: string }[]} The workspaces groups() lists. */
+  const workspaces = [];
   /** @type {any[]} */
   let datasources = [{ datasourceType: 'Sql', connectionDetails: { server: 'abc.datawarehouse.fabric.microsoft.com', database: 'ValueLens' } }];
   let n = 0;
   const api = {
     datasources: async () => datasources,
-    groups: async () => [],
+    groups: async () => {
+      const err = failures.groups?.shift();
+      if (err) throw err;
+      return structuredClone(workspaces);
+    },
     createGroup: async (/** @type {string} */ name) => {
       calls.push(`createGroup ${name}`);
       return { id: 'pbi-ws-1', name };
+    },
+    deleteGroup: async (/** @type {string} */ id) => {
+      calls.push(`deleteGroup ${id}`);
+      const err = failures.deleteGroup?.shift();
+      if (err) throw err;
     },
     addGroupUser: async (/** @type {string} */ ws, /** @type {any} */ body) => {
       calls.push(`addGroupUser ${ws} ${body.identifier}`);
@@ -876,6 +898,7 @@ export function fakePowerBi() {
     history,
     failures,
     answers,
+    workspaces,
     /** @param {any[]} d */
     setDatasources: (d) => {
       datasources = d;

@@ -297,6 +297,8 @@ Azure commands:
 - `update` re-runs preflight/what-if and redeploys with the current installer image tag.
 - `rotate-secret` creates a new SQL reader secret and rebinds the Power BI credential.
 - `uninstall` deletes the created resource group, or only tagged resources if you used an existing group.
+  It waits up to 45 minutes for Azure to finish deleting the group (`--no-wait` doesn't). It also deletes
+  the Power BI workspace if the installer created it, after asking.
 
 ## Run it
 

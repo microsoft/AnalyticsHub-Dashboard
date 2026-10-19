@@ -13,6 +13,7 @@ import { runCommand } from '../src/install.js';
 import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, armParameterNames, askTarget, azureAgent365On, azureConsumptionOn, azureCron, azureDeployment, azureDropContents, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureProductFeedbackOn, azureRefresh, azureRotateSecret, azureSemanticModels, azureStatus, azureSummary, azureUninstall, confirmAzurePlan, consumptionParameters, enabledAzureModuleIds, installAzure, parseDropFolder, planAzure, planAzureAgent365, planAzureDrop, planAzureProductFeedback, planAzureConsumption, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
 import { AZURE_AI_ROLES } from '../src/steps/consumption.js';
 import { azureFlowTarget, connectionSteps, flowDefinitions, flowsWanted } from '../src/steps/flows.js';
+import { RG_DELETE_POLL_MS, RG_DELETE_POLLS } from '../src/steps/azure/index.js';
 import { CONNECTORS, connectorsUsed } from '../src/transform/flows.js';
 import { ROLES } from '../src/clients/azure.js';
 import { buildModel, mParameter } from '../src/transform/model.js';
@@ -1564,6 +1565,193 @@ test('Azure never-touch collision and uninstall scope', async () => {
   config.azure.createdResourceGroup = true;
   await runCommand(ctx, 'uninstall', { wait: true });
   assert.ok(arm.calls.includes('deleteResourceGroup rg'));
+});
+
+/**
+ * An Azure install that created its resource group, Power BI workspace and app registrations.
+ * @param {{ answers?: any[] }} [o]  answers: the uninstall's prompts, in order.
+ */
+async function createdAzureInstall(o = {}) {
+  const arm = fakeArm();
+  const graph = fakeAzureGraph();
+  const fabric = fakeFabric();
+  const powerBi = fakePowerBi();
+  powerBi.workspaces.push({ id: 'pbi-ws-1', name: 'Analytics Hub' });
+  const ui = fakeUi({ answers: o.answers });
+  const { ctx, config, sleeps } = fakeCtx({ ui: ui.ui, arm: arm.api, graph: graph.api, fabric: fabric.api, powerBi: powerBi.api });
+  config.target = 'azure';
+  config.fabric.workspaceId = 'pbi-ws-1';
+  config.azure = {
+    subscriptionId: 'sub-1',
+    resourceGroup: 'rg',
+    location: 'uksouth',
+    installId: 'install-1',
+    createdResourceGroup: true,
+    workspaceName: 'Analytics Hub',
+    powerBi: { workspaceId: 'pbi-ws-1', createdWorkspace: true, datasetId: 'ds-1', consumptionDatasetId: 'cc-1', connectionId: 'conn-1' },
+    webApp: { clientId: 'web-client', objectId: 'web-obj', created: true },
+    sqlReader: { clientId: 'sql-client', objectId: 'sql-obj', created: true },
+  };
+  await arm.api.ensureResourceGroup('sub-1', 'rg', 'uksouth');
+  return { arm, graph, fabric, powerBi, ui, ctx, config, sleeps, az: /** @type {any} */ (config.azure) };
+}
+
+const DELETE_WORKSPACE = 'Delete Power BI workspace "Analytics Hub" and everything in it, including the semantic models?';
+
+test('Azure uninstall deletes the Power BI workspace the install created, after asking, and forgets it', async () => {
+  const t = await createdAzureInstall();
+  assert.equal(await runCommand(t.ctx, 'uninstall', { wait: true }), true);
+  assert.deepEqual(t.ui.asked, [DELETE_WORKSPACE], 'asked before anything is deleted, and defaults to Yes');
+  assert.deepEqual(t.powerBi.calls, ['deleteGroup pbi-ws-1']);
+  assert.match(t.ui.text(), /Deleted Power BI workspace "Analytics Hub"/);
+  for (const key of ['workspaceId', 'createdWorkspace', 'datasetId', 'consumptionDatasetId']) assert.equal(t.az.powerBi[key], undefined, key);
+  assert.equal(t.config.fabric.workspaceId, undefined);
+  assert.ok(t.fabric.calls.includes('deleteConnection conn-1'));
+  assert.ok(t.arm.calls.includes('deleteResourceGroup rg'));
+  assert.deepEqual(t.graph.calls.filter((c) => c.startsWith('deleteApplication')), ['deleteApplication web-obj', 'deleteApplication sql-obj']);
+
+  const kept = await createdAzureInstall({ answers: [false] });
+  assert.equal(await runCommand(kept.ctx, 'uninstall', { wait: true }), true);
+  assert.deepEqual(kept.powerBi.calls, []);
+  assert.match(kept.ui.text(), /Left Power BI workspace "Analytics Hub" alone\./);
+  assert.equal(kept.az.powerBi.workspaceId, 'pbi-ws-1');
+  assert.equal(kept.az.powerBi.createdWorkspace, true);
+  assert.ok(kept.arm.calls.includes('deleteResourceGroup rg'), 'everything else still goes');
+
+  const chosen = await createdAzureInstall();
+  delete chosen.az.powerBi.createdWorkspace;
+  await runCommand(chosen.ctx, 'uninstall', { wait: true });
+  assert.deepEqual(chosen.ui.asked, [], 'never offers to delete a workspace the installer didn\'t create');
+  assert.deepEqual(chosen.powerBi.calls, []);
+  assert.match(chosen.ui.text(), /Left the Power BI workspace you chose alone, because the installer didn't create it\./);
+  assert.equal(chosen.az.powerBi.workspaceId, 'pbi-ws-1');
+
+  const gone = await createdAzureInstall();
+  gone.powerBi.failures.deleteGroup = [httpError(404)];
+  await runCommand(gone.ctx, 'uninstall', { wait: true });
+  assert.match(gone.ui.text(), /Power BI workspace "Analytics Hub" was already gone/);
+  assert.equal(gone.az.powerBi.workspaceId, undefined);
+  assert.equal(gone.config.fabric.workspaceId, undefined);
+
+  const refused = await createdAzureInstall();
+  refused.powerBi.failures.deleteGroup = [httpError(500, 'Server error')];
+  assert.equal(await runCommand(refused.ctx, 'uninstall', { wait: true }), true);
+  assert.match(refused.ui.text(), /Couldn't delete Power BI workspace "Analytics Hub": Server error\. A workspace admin can delete it in Power BI under Workspaces\./);
+  assert.equal(refused.az.powerBi.workspaceId, 'pbi-ws-1', 'the record still points at the workspace that is still there');
+  assert.equal(refused.config.fabric.workspaceId, 'pbi-ws-1');
+  assert.ok(refused.arm.calls.includes('deleteResourceGroup rg'), 'everything else still goes');
+});
+
+test('Azure uninstall deletes a workspace only while it has the name the installer gave it', async () => {
+  // Before 0.6.8, picking another workspace in Repair or change kept the created flag.
+  const picked = await createdAzureInstall();
+  picked.az.powerBi.workspaceId = 'theirs';
+  picked.config.fabric.workspaceId = 'theirs';
+  picked.powerBi.workspaces.push({ id: 'theirs', name: 'Theirs' });
+  assert.equal(await runCommand(picked.ctx, 'uninstall', { wait: true }), true);
+  assert.deepEqual(picked.ui.asked, [], 'never offers to delete it');
+  assert.deepEqual(picked.powerBi.calls, []);
+  assert.match(picked.ui.text(), /Left Power BI workspace "Theirs" alone, because the installer created one named "Analytics Hub"\. If you renamed it, delete it in Power BI under Workspaces\./);
+  assert.equal(picked.az.powerBi.workspaceId, 'theirs');
+  assert.ok(picked.arm.calls.includes('deleteResourceGroup rg'), 'everything else still goes');
+
+  const missing = await createdAzureInstall();
+  missing.powerBi.workspaces.length = 0;
+  await runCommand(missing.ctx, 'uninstall', { wait: true });
+  assert.deepEqual(missing.ui.asked, []);
+  assert.deepEqual(missing.powerBi.calls, []);
+  assert.match(missing.ui.text(), /Didn't find Power BI workspace "Analytics Hub" among the workspaces you can see, so it's gone or you've lost access to it\./);
+  assert.equal(missing.az.powerBi.workspaceId, undefined, 'forgotten, so a new install creates another');
+  assert.equal(missing.config.fabric.workspaceId, undefined);
+
+  const unknown = await createdAzureInstall();
+  unknown.powerBi.failures.groups = [httpError(500, 'Server error')];
+  await runCommand(unknown.ctx, 'uninstall', { wait: true });
+  assert.deepEqual(unknown.ui.asked, []);
+  assert.deepEqual(unknown.powerBi.calls, []);
+  assert.match(unknown.ui.text(), /Couldn't check Power BI workspace "Analytics Hub", so left it alone: Server error\. A workspace admin can delete it in Power BI under Workspaces\./);
+  assert.equal(unknown.az.powerBi.workspaceId, 'pbi-ws-1', 'kept, as it may still be there');
+});
+
+test('Azure setup only marks a Power BI workspace for uninstall when the installer creates it', async () => {
+  /** @param {any[]} answers  the capacity, then the workspace, then a new workspace's name */
+  const plan = async (answers) => {
+    const powerBi = fakePowerBi();
+    /** @type {any} */ (powerBi.api).groups = async () => [{ id: 'pbi-ws-1', name: 'Analytics Hub' }, { id: 'theirs', name: 'Theirs' }];
+    const { ctx, config } = fakeCtx({ ui: fakeUi({ answers }).ui, arm: fakeArm().api, fabric: fakeFabric().api, powerBi: powerBi.api });
+    config.target = 'azure';
+    config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', workspaceName: 'Analytics Hub', powerBi: { workspaceId: 'pbi-ws-1', createdWorkspace: true } };
+    await planAzure(ctx, { subscriptions: [{ subscriptionId: 'sub-1', displayName: 'Sub' }] }, 'powerbi');
+    return /** @type {any} */ (config.azure).powerBi;
+  };
+  assert.equal((await plan(['', 'pbi-ws-1'])).createdWorkspace, true, 'keeping the workspace it created');
+  const picked = await plan(['', 'theirs']);
+  assert.equal(picked.workspaceId, 'theirs');
+  assert.equal(picked.createdWorkspace, undefined, 'one picked from the list is never deleted');
+  const fresh = await plan(['', 'new', 'Analytics Hub 2']);
+  assert.equal(fresh.workspaceId, undefined);
+  assert.equal(fresh.createdWorkspace, undefined, 'set again only once setup creates the new one');
+});
+
+test('Azure uninstall waits for the resource group to go, and says it is deleted only once it is', async () => {
+  assert.equal((RG_DELETE_POLL_MS * RG_DELETE_POLLS) / 60_000, 45, 'the docs say it waits up to 45 minutes');
+  const t = await createdAzureInstall();
+  t.arm.groups.rg.deleteStates = ['Deleting', 'Deleting', 'Deleting'];
+  assert.equal(await runCommand(t.ctx, 'uninstall', { wait: true }), true);
+  const text = t.ui.text();
+  const waiting = text.indexOf('Waiting for Azure to delete resource group rg, which can take half an hour.');
+  assert.ok(waiting >= 0 && waiting < text.indexOf('Deleted resource group rg'), text);
+  assert.deepEqual(t.sleeps, Array(4).fill(RG_DELETE_POLL_MS));
+  assert.equal(t.arm.groups.rg, undefined);
+  assert.ok(t.graph.calls.includes('deleteApplication web-obj'));
+
+  const lagging = await createdAzureInstall();
+  lagging.arm.groups.rg.deleteStates = ['Succeeded', 'Deleting'];
+  assert.equal(await runCommand(lagging.ctx, 'uninstall', { wait: true }), true, 'a first read that lags the delete is not a failure');
+  assert.match(lagging.ui.text(), /Deleted resource group rg/);
+
+  const slow = await createdAzureInstall();
+  slow.arm.groups.rg.deleteStates = Array(RG_DELETE_POLLS + 10).fill('Deleting');
+  assert.equal(await runCommand(slow.ctx, 'uninstall', { wait: true }), true);
+  assert.equal(slow.sleeps.length, RG_DELETE_POLLS);
+  assert.match(slow.ui.text(), /Azure is still deleting resource group rg after 45 minutes\. It carries on without the installer/);
+  assert.doesNotMatch(slow.ui.text(), /Deleted resource group rg/);
+  assert.ok(slow.graph.calls.includes('deleteApplication sql-obj'), 'app registrations go before the wait');
+
+  const failed = await createdAzureInstall();
+  failed.arm.groups.rg.deleteStates = ['Deleting', 'Succeeded'];
+  assert.equal(await runCommand(failed.ctx, 'uninstall', { wait: true }), false);
+  assert.match(failed.ui.text(), /Azure didn't delete resource group rg: it's Succeeded\. Its activity log in the Azure portal says why\./);
+  assert.ok(failed.arm.groups.rg);
+
+  const quick = await createdAzureInstall();
+  quick.arm.groups.rg.deleteStates = ['Deleting'];
+  assert.equal(await runCommand(quick.ctx, 'uninstall', { wait: false }), true);
+  assert.deepEqual(quick.sleeps, []);
+  assert.match(quick.ui.text(), /Azure is deleting resource group rg\. That can take half an hour: it's done when the group no longer shows in the Azure portal\./);
+  assert.doesNotMatch(quick.ui.text(), /Deleted resource group rg/);
+});
+
+test('Azure uninstall copes with a resource group already gone or already being deleted, and stops on a lock', async () => {
+  const gone = await createdAzureInstall();
+  gone.arm.failures.deleteResourceGroup = [httpError(404)];
+  assert.equal(await runCommand(gone.ctx, 'uninstall', { wait: true }), true);
+  assert.match(gone.ui.text(), /Resource group rg was already gone/);
+  assert.deepEqual(gone.sleeps, []);
+  assert.ok(gone.graph.calls.includes('deleteApplication web-obj'));
+
+  const deleting = await createdAzureInstall();
+  deleting.arm.failures.deleteResourceGroup = [new HttpError('Conflict', { status: 409, method: 'DELETE', url: 'https://x', body: { error: { code: 'ResourceGroupBeingDeleted' } } })];
+  deleting.arm.groups.rg.deleting = true;
+  deleting.arm.groups.rg.deleteStates = ['Deleting'];
+  assert.equal(await runCommand(deleting.ctx, 'uninstall', { wait: true }), true);
+  assert.match(deleting.ui.text(), /Waiting for Azure to delete resource group rg/);
+  assert.match(deleting.ui.text(), /Deleted resource group rg/);
+
+  const locked = await createdAzureInstall();
+  locked.arm.failures.deleteResourceGroup = [new HttpError('The scope is locked', { status: 409, method: 'DELETE', url: 'https://x', body: { error: { code: 'ScopeLocked' } } })];
+  await assert.rejects(runCommand(locked.ctx, 'uninstall', { wait: true }), /The scope is locked/);
+  assert.deepEqual(locked.sleeps, []);
 });
 
 test('Azure model uses SQL output values as the existing source parameters', () => {

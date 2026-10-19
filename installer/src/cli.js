@@ -43,7 +43,8 @@ Commands:
   access           Who can view: the viewer group, its members and owners, and its Build on the models
   upload [files]   Upload CSV exports to the drop folder (Files/analytics_hub_uploads). Fabric only
   uninstall        Azure: remove the resource group if created, or only tagged resources. Fabric: delete
-                   the workspace's managed private endpoints, then the workspace
+                   the workspace's managed private endpoints, then the workspace. On Azure, it also
+                   deletes the Power BI workspace if created, and waits for the resource group to go
   prereqs          Check the roles, licences, capacities and Azure access you have and lack.
                    Read-only; works before anything is installed
   preview          Write what would be deployed to a folder, without signing in
@@ -107,7 +108,8 @@ Options:
   --allow-model-reset  With install, update or access: when Fabric can't update a model and keep its
                        data, clear the data and reload it without asking. Reports on that model show
                        no data until the reload finishes
-  --no-wait            Don't wait for the first load or a refresh to finish
+  --no-wait            Don't wait for the first load or a refresh to finish, or for Azure to delete
+                       the resource group on uninstall
   --verbose            Print each API call
   -h, --help           Show this help
   -v, --version        Show the version

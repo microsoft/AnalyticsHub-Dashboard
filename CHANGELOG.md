@@ -67,6 +67,22 @@ nothing new and deploy as before.
   an Azure uninstall in that time took "not found" to mean the app was gone and forgot it, which
   left the app in the catalog. Now, for a day after it publishes or updates the app, the installer
   keeps its record and says how to delete the app in the Teams admin center.
+- **Azure uninstall deletes the Power BI workspace it created.** It used to leave the workspace, and
+  the semantic models in it, behind. Now it asks first, and the answer defaults to yes, so `--yes`
+  deletes it too. It never offers to delete a workspace you picked rather than had it create, or
+  one you've renamed since: it leaves those for you.
+- **Azure uninstall says a resource group is deleted only once it's gone.** It said "Deleted
+  resource group" as soon as Azure accepted the delete, which can take half an hour more to finish.
+  Now it waits up to 45 minutes for the group to go. If Azure is still deleting it then, it says
+  so; if Azure stopped, it gives the group's state and the uninstall fails. With `--no-wait`, it
+  stops once Azure accepts the delete and says that's what happened.
+- **The installer exe waits for antivirus rather than failing to start.** The exe unpacks to a new
+  folder, then renames it into place. Antivirus checking the new files can hold that folder for a
+  moment, and the exe tried the rename once and handled only one of the two errors Windows gives,
+  so "Access to the path … is denied" ended in "The installer couldn't start" until you ran it
+  again. Now it tries again for up to 50 seconds on either error, and stops as soon as another
+  copy has finished unpacking. If the folder is still held, it asks you to wait a minute and run
+  it again.
 - **Release candidates.** A version such as `0.6.8-rc.1` now builds: its `installer-v0.6.8-rc.1`
   tag drafts a pre-release, whose notes say it's a release candidate and pin its own `install.ps1`.
   `releases/latest` and the installer's update check skip it, and its Azure images are tagged with
