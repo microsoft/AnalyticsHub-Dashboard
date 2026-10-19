@@ -4,7 +4,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { emptyConfig } from '../src/config.js';
-import { HttpError } from '../src/http.js';
+import { fabricApi } from '../src/clients/fabric.js';
+import { createClient, HttpError } from '../src/http.js';
 import { loadSources } from '../src/sources.js';
 import { createUi } from '../src/ui.js';
 
@@ -360,7 +361,7 @@ export function fakeFabric() {
       Object.assign(/** @type {any} */ (roles.find((r) => r.id === id)), { role });
       return null;
     },
-    listConnections: async () => connections.map(({ id, displayName }) => ({ id, displayName })),
+    listConnections: async () => connections.map(({ id, displayName, body }) => ({ id, displayName, ...(body?.gatewayId ? { gatewayId: body.gatewayId } : {}) })),
     /** @param {string} id */
     getConnection: async (id) => {
       const conn = connections.find((x) => x.id === id);
@@ -422,6 +423,32 @@ export function fakeFabric() {
     },
   };
   return { api, items, schedules, calls, jobs, jobList, activityRuns, roles, connections, gateways, workspaceCapacities, failures, sqlStates, spark, dataflowConnections, git, add, operations };
+}
+
+/**
+ * Fabric's createConnection over the real HTTP client, where Fabric makes the connection but answers 429. The
+ * client sends it again, and Fabric then says the name is taken.
+ * @param {ReturnType<typeof fakeFabric>} fabric  Where the connection is made.
+ * @param {any} [listed]  More of what Fabric lists for it, such as its gatewayId.
+ */
+export function throttledThenTaken(fabric, listed = {}) {
+  /** @type {string[]} */
+  const sent = [];
+  const http = createClient({
+    baseUrl: 'https://fabric.invalid/v1',
+    getToken: async () => 'offline',
+    sleep: async () => {},
+    fetchImpl: /** @type {any} */ (async (/** @type {string} */ _url, /** @type {any} */ init) => {
+      const body = JSON.parse(init.body);
+      sent.push(`${init.method} ${body.displayName}`);
+      if (sent.length === 1) {
+        fabric.connections.push({ id: 'conn-throttled', displayName: body.displayName, body: { ...body, ...listed } });
+        return new Response(JSON.stringify({ errorCode: 'TooManyRequests', message: 'Too many requests' }), { status: 429, headers: { 'Retry-After': '1' } });
+      }
+      return new Response(JSON.stringify({ errorCode: 'DuplicateConnectionName', message: `Connection with name ${body.displayName} already exists.` }), { status: 409 });
+    }),
+  });
+  return { createConnection: fabricApi(http).createConnection, sent };
 }
 
 /** @param {number} [status] @param {string} [message] */

@@ -162,9 +162,13 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
         run: |
+          # A release candidate such as installer-v0.6.8-rc.1 is a pre-release, which
+          # releases/latest and the installer's update check skip.
+          pre=()
+          if [[ "$TAG" =~ -rc\.[0-9]+$ ]]; then pre=(--prerelease); fi
           gh release create "$TAG" AnalyticsHubInstaller.exe AnalyticsHubInstaller.exe.sha256 \
             AnalyticsHubInstaller.zip AnalyticsHubInstaller.zip.sha256 install.ps1 \
-            --repo "$GITHUB_REPOSITORY" --draft \
+            --repo "$GITHUB_REPOSITORY" --draft "${pre[@]}" \
             --notes-file notes/release-notes.md \
             --title "Analytics Hub installer ${TAG#installer-v}"
 

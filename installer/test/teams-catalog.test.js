@@ -454,6 +454,27 @@ test('uninstall carries on when the app is gone already', async () => {
   assert.equal(t.az.teamsApp, undefined);
 });
 
+test('uninstall soon after publishing keeps the record when Microsoft Graph doesn\'t find the app yet', async () => {
+  const t = setup({ teamsApp: { ...record('just-published'), publishedAt: '2026-06-01T11:40:00.000Z' } });
+  await removeTeamsApp(t.ctx);
+  assert.deepEqual(t.catalog.calls, ['signIn', 'remove just-published']);
+  assert.equal(t.az.teamsApp?.id, 'just-published', 'kept, so the installer can still find the app');
+  const out = t.ui.text();
+  assert.match(out, /Teams app: not removed from your org's app catalog\. Microsoft Graph didn't find Analytics Hub, which the installer published or updated 20 minutes ago\. Graph can take half an hour or more to find a new app, so it may still be there\./);
+  assert.match(out, /Delete it in Teams admin center > Teams apps > Manage apps \(https:\/\/admin\.teams\.microsoft\.com\/policies\/manage-apps\): select Analytics Hub, then Delete\./);
+  assert.doesNotMatch(out, /removed Analytics Hub/);
+
+  const hours = setup({ teamsApp: { ...record('published-this-morning'), publishedAt: '2026-06-01T07:00:00.000Z' } });
+  await removeTeamsApp(hours.ctx);
+  assert.match(hours.ui.text(), /which the installer published or updated 5 hours ago\./);
+  assert.equal(hours.az.teamsApp?.id, 'published-this-morning');
+
+  const old = setup({ teamsApp: { ...record('published-two-days-ago'), publishedAt: '2026-05-30T12:00:00.000Z' } });
+  await removeTeamsApp(old.ctx);
+  assert.equal(old.az.teamsApp, undefined, 'after a day, not found means gone');
+  assert.match(old.ui.text(), /Teams app: removed Analytics Hub from your org's app catalog/);
+});
+
 test('when uninstall can\'t remove the app, it keeps the record and prints the steps', async () => {
   const t = setup({ apps: [catalogApp('app-1', '0.6.7')], teamsApp: record('app-1') });
   t.catalog.failures.remove = [graphError(403)];

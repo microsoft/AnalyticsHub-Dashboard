@@ -11,7 +11,7 @@ import { HttpError } from '../../http.js';
 import { commandLine } from '../../launch.js';
 import { rlsOn, rlsSettings } from '../../transform/access.js';
 import { buildConsumptionModel, buildModel, loadTemplateModel, PBISM } from '../../transform/model.js';
-import { deployModel, MODEL_UPDATE_NOTE, modelSignature, REFRESH_POLL_MS, settleReloads } from '../model.js';
+import { connectionCreatedAnyway, deployModel, MODEL_UPDATE_NOTE, modelSignature, REFRESH_POLL_MS, settleReloads } from '../model.js';
 import { addMonths, OPTIONAL_PERMISSION_EFFECTS, OPTIONAL_PERMISSIONS, SECRET_LIFETIME_MONTHS } from '../identity.js';
 import { addTrackedSecret, promoteSecret, removeRetired } from '../secrets.js';
 import { manifestVersion, writeTeamsPackage } from '../../azure/teams.js';
@@ -1901,22 +1901,32 @@ async function bindThroughVnetGateway(ctx, secret) {
   const name = connectionName(az);
   const server = String(az.outputs?.sqlServerFqdn);
   const database = String(az.outputs?.sqlDatabaseName ?? 'valuelens');
+  const ours = (/** @type {any} */ c) => c.displayName === name && c.gatewayId === gatewayId;
   let conn = pbi.connectionId ? await api.fabric.getConnection(pbi.connectionId).catch(() => null) : null;
-  conn ??= (await api.fabric.listConnections().catch(() => [])).find((c) => c.displayName === name && c.gatewayId === gatewayId) ?? null;
-  if (conn) {
+  conn ??= (await api.fabric.listConnections().catch(() => [])).find(ours) ?? null;
+  let created = false;
+  if (!conn) {
+    try {
+      conn = await whileSqlResumes(ui, () => api.fabric.createConnection({
+        connectivityType: 'VirtualNetworkGateway',
+        gatewayId,
+        displayName: name,
+        connectionDetails: { type: 'SQL', creationMethod: 'SQL', parameters: [{ dataType: 'Text', name: 'server', value: server }, { dataType: 'Text', name: 'database', value: database }] },
+        privacyLevel: 'Organizational',
+        credentialDetails: sqlConnectionCredentials(ctx, secret),
+      }));
+      created = true;
+    } catch (err) {
+      conn = await connectionCreatedAnyway(ctx, err, ours);
+      if (!conn) throw err;
+    }
+  }
+  if (created) {
+    ui.ok(`Created Power BI connection ${name}`);
+  } else {
     const id = conn.id;
     await whileSqlResumes(ui, () => api.fabric.updateConnection(id, { connectivityType: 'VirtualNetworkGateway', privacyLevel: 'Organizational', credentialDetails: sqlConnectionCredentials(ctx, secret) }));
     ui.ok(`Updated Power BI connection ${name}`);
-  } else {
-    conn = await whileSqlResumes(ui, () => api.fabric.createConnection({
-      connectivityType: 'VirtualNetworkGateway',
-      gatewayId,
-      displayName: name,
-      connectionDetails: { type: 'SQL', creationMethod: 'SQL', parameters: [{ dataType: 'Text', name: 'server', value: server }, { dataType: 'Text', name: 'database', value: database }] },
-      privacyLevel: 'Organizational',
-      credentialDetails: sqlConnectionCredentials(ctx, secret),
-    }));
-    ui.ok(`Created Power BI connection ${name}`);
   }
   pbi.connectionId = conn.id;
   ctx.save();

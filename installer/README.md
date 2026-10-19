@@ -155,7 +155,7 @@ package to your org's Teams app catalog, and later runs update that app rather t
 it can't, if you say no when the plan asks, or if the sign-in isn't finished within 5 minutes, it
 prints the steps to upload it by hand and carries on.
 
-`core`, `orgData`, `m365Activity`, `agent365`, `productFeedback` and `consumption` are supported on Azure. Other modules
+`core`, `orgData`, `m365Activity`, `agent365`, `productFeedback`, `consumption` and `defender` are supported on Azure. Other modules
 are shown as coming soon and cannot be selected. Credit consumption deploys the Consumption Central model,
 gives the jobs' managed identity Cost Management and Azure AI roles, and creates the Copilot Studio flow,
 signed in as you (`--flow-identity app` is Fabric only). With public endpoints the flow writes to the

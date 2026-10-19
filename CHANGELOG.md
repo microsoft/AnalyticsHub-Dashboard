@@ -55,6 +55,25 @@ nothing new and deploy as before.
   carries on in the next run. The [installer README](installer/README.md#a-large-tenant-on-azure)
   says what to expect at 20,000 seats.
 
+**Installer: fixes from the 0.6.7 Azure test, and release candidates.**
+
+- **A connection Fabric made while throttling is reused.** When Fabric answered the request for
+  the model's connection with 429 (too many requests) but made the connection anyway, the retry got
+  409 `DuplicateConnectionName` and the step failed until you chose **Retry**. Now the installer
+  finds the connection by name, reuses it and sets its credentials, on Fabric and on Azure. With
+  private networking on Azure, it reuses only a connection on the install's own gateway.
+- **Uninstall soon after publishing keeps track of the Teams app.** Microsoft Graph can take half an
+  hour or more to find an app the installer has just published to your org's app catalog. Before,
+  an Azure uninstall in that time took "not found" to mean the app was gone and forgot it, which
+  left the app in the catalog. Now, for a day after it publishes or updates the app, the installer
+  keeps its record and says how to delete the app in the Teams admin center.
+- **Release candidates.** A version such as `0.6.8-rc.1` now builds: its `installer-v0.6.8-rc.1`
+  tag drafts a pre-release, whose notes say it's a release candidate and pin its own `install.ps1`.
+  `releases/latest` and the installer's update check skip it, and its Azure images are tagged with
+  that version, so they don't replace a release's. Before, the release notes step took only x.y.z,
+  so the tag's build and the signing pipeline failed. The Teams app inside has the release's
+  version, `0.6.8`, because Teams takes only x.y.z.
+
 **Docs:**
 
 - **A shorter README, by path.** The [README](README.md) is now just the steps for Path 1 (Fabric)
@@ -64,6 +83,7 @@ nothing new and deploy as before.
   work. The exe download is a plain link now, after the PowerShell command.
   [Install](docs/INSTALL.md) now names the installer's first choice as it appears:
   **Microsoft Fabric**.
+- The installer README lists Defender with the modules Azure supports.
 
 **App: Adoption now comes straight after the Executive summary, ahead of Value, Consumption and
 Efficiency.**

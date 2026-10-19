@@ -16,7 +16,7 @@ import { azureFlowTarget, connectionSteps, flowDefinitions, flowsWanted } from '
 import { CONNECTORS, connectorsUsed } from '../src/transform/flows.js';
 import { ROLES } from '../src/clients/azure.js';
 import { buildModel, mParameter } from '../src/transform/model.js';
-import { fakeAppCatalog, fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi, readManifest } from './fakes.js';
+import { fakeAppCatalog, fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi, httpError, readManifest, throttledThenTaken } from './fakes.js';
 import { manifestVersion } from '../src/azure/teams.js';
 import { CATALOG_SIGN_IN_MS } from '../src/steps/azure/teams-catalog.js';
 import { readScopes } from '../src/steps/org-access.js';
@@ -1480,6 +1480,44 @@ test('private networking deploys a VNet, binds the model through a VNet data gat
   assert.ok(fabric.calls.includes(`deleteConnection ${az.powerBi.connectionId}`));
   assert.ok(fabric.calls.includes(`deleteGateway ${az.powerBi.gatewayId}`));
   assert.ok(arm.calls.includes('deleteResourceGroup rg'));
+});
+
+test('private networking: a connection a throttled create made anyway is reused, but not one on another gateway', async () => {
+  const name = 'Analytics Hub SQL rg 12345678';
+  const setup = async (/** @type {(fabric: ReturnType<typeof fakeFabric>) => void} */ before) => {
+    const fabric = fakeFabric();
+    const powerBi = fakePowerBi();
+    const { ctx, config } = fakeCtx({ arm: fakeArm().api, graph: fakeAzureGraph().api, fabric: fabric.api, powerBi: powerBi.api });
+    Object.assign(config, {
+      target: 'azure',
+      azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: '12345678-aaaa', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: false, workspaceName: 'Analytics Hub', powerBi: { capacityId: 'cap-f' } },
+    });
+    before(fabric);
+    await azurePreflight(ctx);
+    ctx.runFirstLoad = false;
+    return { fabric, powerBi, ctx, az: /** @type {any} */ (config.azure) };
+  };
+
+  /** @type {ReturnType<typeof throttledThenTaken> | undefined} */
+  let throttled;
+  const t = await setup((fabric) => {
+    throttled = throttledThenTaken(fabric);
+    fabric.api.createConnection = throttled.createConnection;
+  });
+  await installAzure(t.ctx, { wait: true });
+  assert.deepEqual(throttled?.sent, [`POST ${name}`, `POST ${name}`], 'the client sends it again after the 429, and Fabric answers 409');
+  assert.equal(t.fabric.connections.length, 1);
+  assert.equal(t.az.powerBi.connectionId, 'conn-throttled');
+  assert.ok(t.fabric.calls.includes('updateConnection conn-throttled'), 'given the SQL reader secret again');
+  assert.ok(t.powerBi.calls.includes(`bindToGateway ${t.az.powerBi.datasetId} ${t.az.powerBi.gatewayId} conn-throttled`));
+
+  const other = await setup((fabric) => {
+    fabric.connections.push({ id: 'conn-elsewhere', displayName: name, body: { gatewayId: 'gateway-elsewhere' } });
+    fabric.failures.createConnection = [httpError(409, 'DuplicateConnectionName')];
+  });
+  await assert.rejects(installAzure(other.ctx, { wait: true }), /DuplicateConnectionName/);
+  assert.ok(!other.fabric.calls.includes('updateConnection conn-elsewhere'), 'never takes over a connection on another gateway');
+  assert.equal(other.az.powerBi.connectionId, undefined);
 });
 
 test('private networking only offers capacities that can host a VNet data gateway, and explains forced-off public access', () => {
