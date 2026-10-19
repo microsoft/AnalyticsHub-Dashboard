@@ -30,6 +30,9 @@ Deployment instructions do **not** live here. They live in the READMEs:
   [Install](docs/INSTALL.md) now names the installer's first choice as it appears:
   **Microsoft Fabric**.
 
+**App: Adoption now comes straight after the Executive summary, ahead of Value, Consumption and
+Efficiency.**
+
 ## 2026-10-19 — Analytics Hub installer 0.6.7
 
 **The current release.** 0.6.7 replaces 0.6.6 as Latest, so the `releases/latest` links, including

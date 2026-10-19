@@ -54,9 +54,10 @@ import { consumptionConnection, evaluatorConnection } from "@/queries/shared";
  * The executive summary comes first and is where the app opens: one page
  * drawing on the others, each of its panels linking to the destination
  * that tells that part of the story in full. The rest follow in the order
- * the sidebar lists them and the background loader warms them: whether it
- * is paying off (Value, Consumption, Efficiency), who is using it, who is
- * next, the agents, then what people say.
+ * the sidebar lists them and the background loader warms them: who is
+ * using it (Adoption), whether it is paying off (Value, Consumption,
+ * Efficiency), who does the most and how people work, who is next, the
+ * agents, then what people say.
  */
 export const destinations = [
     {
@@ -70,6 +71,19 @@ export const destinations = [
             { id: "is-it-growing", label: "Is it growing?", ready: true },
             { id: "where-it-is-landing", label: "Where it is landing", ready: true },
             { id: "what-needs-attention", label: "What needs attention", ready: true },
+        ],
+    },
+    {
+        id: "adoption",
+        label: "Adoption",
+        blurb: "Who started, who stayed, who stuck",
+        icon: TrendingUp as LucideIcon,
+        filters: ["dateRange", "organizations", "licence", "audience", "agentTypes", "agentNames"] as FilterKey[],
+        stages: [
+            { id: "adoption", label: "Adoption", ready: true },
+            { id: "activation", label: "Activation", ready: true },
+            { id: "habit-formation", label: "Habit formation", ready: true },
+            { id: "trend-heatmap", label: "Trend heatmap", ready: true },
         ],
     },
     {
@@ -110,19 +124,6 @@ export const destinations = [
             { id: "cowork-fit", label: "Cowork fit", ready: true },
             { id: "model-fit", label: "Model fit", ready: true },
             { id: "grading-method", label: "How grading works", ready: true },
-        ],
-    },
-    {
-        id: "adoption",
-        label: "Adoption",
-        blurb: "Who started, who stayed, who stuck",
-        icon: TrendingUp as LucideIcon,
-        filters: ["dateRange", "organizations", "licence", "audience", "agentTypes", "agentNames"] as FilterKey[],
-        stages: [
-            { id: "adoption", label: "Adoption", ready: true },
-            { id: "activation", label: "Activation", ready: true },
-            { id: "habit-formation", label: "Habit formation", ready: true },
-            { id: "trend-heatmap", label: "Trend heatmap", ready: true },
         ],
     },
     {
