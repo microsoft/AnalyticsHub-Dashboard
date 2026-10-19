@@ -148,7 +148,7 @@ function changedCategories(before, after) {
   const old = setupCategories(before);
   const values = (/** @type {InstallConfig} */ config) => ({
     data: [config.modules, config.dataSources, config.azure?.sampleData],
-    placement: [config.azure?.subscriptionId, config.azure?.resourceGroup, config.azure?.location, config.azure?.sqlLocation, config.azure?.namePrefix, config.azure?.tags, config.fabric.capacityId, config.fabric.workspaceName, config.fabric.lakehouseName, config.scale],
+    placement: [config.azure?.subscriptionId, config.azure?.resourceGroup, config.azure?.location, config.azure?.sqlLocation, config.azure?.namePrefix, config.azure?.tags, config.azure?.sqlScaleUp, config.azure?.webAlwaysOn, config.fabric.capacityId, config.fabric.workspaceName, config.fabric.lakehouseName, config.scale],
     networking: [config.azure?.publicNetworkAccess, config.azure?.privateDns],
     powerbi: [config.azure?.powerBi, config.azure?.workspaceName, config.semanticModel.enabled, config.semanticModel.reports, config.fabricApp.enabled],
     access: config.access,

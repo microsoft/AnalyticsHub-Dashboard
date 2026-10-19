@@ -47,6 +47,9 @@ param sqlMinCapacity string = '0.5'
 param sqlMaxCapacity int = 2
 param sqlAutoPauseDelayMinutes int = 60
 param sqlUseFreeLimit bool = false
+@description('With the free offer, when the month\'s free allowance runs out: pause until next month (AutoPause) or bill the extra (BillOverUsage, which Azure cannot switch back).')
+@allowed(['AutoPause', 'BillOverUsage'])
+param sqlFreeLimitExhaustionBehavior string = 'AutoPause'
 
 @allowed(['Enabled', 'Disabled'])
 param publicNetworkAccess string = 'Enabled'
@@ -195,6 +198,7 @@ module sql 'modules/sql.bicep' = {
     maxCapacity: sqlMaxCapacity
     autoPauseDelayMinutes: sqlAutoPauseDelayMinutes
     useFreeLimit: sqlUseFreeLimit
+    freeLimitExhaustionBehavior: sqlFreeLimitExhaustionBehavior
     publicNetworkAccess: publicNetworkAccess
   }
 }

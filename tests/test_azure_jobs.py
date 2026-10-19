@@ -351,6 +351,43 @@ def test_audit_rejects_foreign_next_link(tmp_path):
         audit_collect.collect_audit(api, LocalStore(tmp_path), settings(), now=NOW, sleep=lambda x: None)
 
 
+class ReplicaStopped(BaseException):
+    """The run job stopping a replica at its 4 h limit: not an Exception, so nothing in the collector
+    catches it and the windows it hadn't finished stay unfinished in the manifest."""
+
+
+def test_audit_first_collection_resumes_across_runs(tmp_path):
+    # A large tenant's first collection can outlast one run. The next run must query only the windows the
+    # stopped one didn't finish, then merge everything.
+    s = settings(audit_history_days=3, audit_lookback_days=1)
+    records = [_record(i, NOW - timedelta(hours=75 - 8 * i)) for i in range(10)]  # one in each 8 h window
+
+    class StopsAfterFourWindows(AuditGraph):
+        def __call__(self, method, url, kw):
+            if method == "POST" and len(self.created) >= 4:
+                raise ReplicaStopped()
+            return super().__call__(method, url, kw)
+
+    store = LocalStore(tmp_path)
+    api, _ = make_api(StopsAfterFourWindows(records))
+    with pytest.raises(ReplicaStopped):
+        audit_collect.collect_audit(api, store, s, now=NOW, sleep=lambda x: None, max_concurrent=1)
+    state = store.read_json(audit_collect.STATE)
+    done = {k for k, w in state["windows"].items() if w["status"] == "succeeded"}
+    assert len(done) == 4 and "high_water_mark" not in state
+    assert not list((store.root / audit_collect.PARSED).glob("*.parquet"))
+
+    rerun = AuditGraph(records)
+    api, _ = make_api(rerun)
+    assert audit_collect.collect_audit(api, store, s, now=NOW + timedelta(hours=1), sleep=lambda x: None)["rows"] == 10
+    queried = {audit_collect.audit.stable_window_key(ws, we) for ws, we in rerun.created}
+    assert len(queried) == 6 and not queried & done
+    rows, _ = _parsed(store)
+    assert len(rows) == 10
+    state = store.read_json(audit_collect.STATE)
+    assert state["high_water_mark"] and all(w["status"] == "succeeded" for w in state["windows"].values())
+
+
 # ---------------------------------------------------------------- graph snapshots
 LICENSED_CSV = ("\ufeffReport Refresh Date,User Principal Name,Display Name,Assigned Products\n"
                 "2026-09-09,Ada@contoso.com,Ada,MICROSOFT 365 E5+MICROSOFT 365 COPILOT\n"
