@@ -81,6 +81,10 @@ Azure installs load their config as before.
 
 - **Recommended sources on a new tick.** Ticking **Credit consumption** on Azure now starts from the
   Copilot Studio credits flow and the Cowork CSV export. Before, both defaulted to left out.
+- **Installs that ticked it before 0.6.8.** If an Azure install ticked it without changing the advanced
+  settings and reads Azure AI from a subscription, Copilot Studio and Cowork stay left out, because its
+  record can't tell that from a choice. To turn them on, choose **Repair or change**, then **Module
+  connections**, and pick their sources. In a terminal, run `install` and say **Yes** to the advanced settings.
 - **`--data azureAi=skip` works on Azure.** The subscription question now defaults to leaving Azure AI
   out, as it already did after **Leave Azure AI out**, so `--yes` no longer turns it on.
 - **Clear errors for Fabric-only options.** On Azure, `upload`, `install --csv` and `load-cowork` now

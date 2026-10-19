@@ -164,9 +164,14 @@ export function dataSourcesSummary(ctx) {
  * run job reads, and its next run loads them.
  * @param {import('../config.js').InstallConfig} config
  * @param {string} what  The command or flag, e.g. "--csv".
+ * @param {boolean} [chosen]  A new install has just chosen Azure: nothing is deployed, and Fabric is still open.
  */
-export const azureUploadError = (config, what) =>
-  new Error(`${what} is for the Fabric target only for now. On Azure, put Copilot Studio credit exports in ${azureDropLabel(config.azure, AZURE_LANDING_DIRS.studio)} and Cowork credit exports in ${azureDropLabel(config.azure, AZURE_LANDING_DIRS.viva)}; the next run loads them.`);
+export function azureUploadError(config, what, chosen = false) {
+  const studio = azureDropLabel(config.azure, AZURE_LANDING_DIRS.studio);
+  const viva = azureDropLabel(config.azure, AZURE_LANDING_DIRS.viva);
+  if (!chosen) return new Error(`${what} is for the Fabric target only for now. On Azure, put Copilot Studio credit exports in ${studio} and Cowork credit exports in ${viva}; the next run loads them.`);
+  return new Error(`${what} is for the Fabric target only for now. To upload these exports with the installer, run it again and choose Microsoft Fabric. To install on Azure, run it again without ${what}, then put Copilot Studio credit exports in ${studio} and Cowork credit exports in ${viva}, or with private networking in the ${AZURE_LANDING_DIRS.studio} and ${AZURE_LANDING_DIRS.viva} folders of the SharePoint drop folder; the next run loads them.`);
+}
 
 /**
  * Uploads exports to an existing install, then runs the pipeline if asked.
