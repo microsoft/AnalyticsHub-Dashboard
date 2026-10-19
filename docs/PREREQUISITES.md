@@ -10,7 +10,7 @@ checks most of it for you, and changes nothing. Setting it up by hand? You also 
 | Who | Fabric | Azure | Time |
 |---|---|---|---|
 | **You**, who run the installer | Contributor on an F2 or larger capacity, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager). Power BI Pro. Can register an app. | Owner, or Contributor and User Access Administrator, on a subscription or resource group. Power BI Pro. Can register an app. | 20 min |
-| **Fabric admin** | Turns on four tenant settings | Turns on two tenant settings | 5 min |
+| **Fabric admin** | Turns on four tenant settings, and lets you create Fabric items | Turns on two tenant settings | 5 min |
 | **Entra admin** (Global Administrator or Privileged Role Administrator) | Grants admin consent for read-only Graph permissions | The same, for the app and the managed identity. Plus one to manage viewers from the web app | 2 min |
 | **Microsoft 365 admin** | Turns off concealed names in usage reports | The same | 1 min |
 | **Teams admin** | – | Publishes the Teams app to your org's app catalog | 2 min |
@@ -185,7 +185,13 @@ The detail behind [At a glance](#at-a-glance), with links to Microsoft Learn.
 
 - [ ] **Fabric: a capacity.** An F2 or larger [Fabric capacity](https://learn.microsoft.com/fabric/enterprise/licenses#capacity),
       or a [free trial](#what-it-costs). Use **F64 or larger** for a tenant with more than 10,000
-      people. Make the person who runs the installer a **Contributor** on it.
+      people. Make the person who runs the installer a **Contributor** on it. A Premium P capacity
+      works too, but **Premium Per User (PPU)** workspaces can't hold notebooks or Lakehouses.
+- [ ] [*Users can create Fabric items*](https://learn.microsoft.com/fabric/admin/fabric-switch) turned on
+      for the person who runs the installer: for the whole organisation, a security group they're in, or
+      [delegated](https://learn.microsoft.com/fabric/admin/capacity-settings#delegated-tenant-settings)
+      to the capacity. Without it, Fabric says *Unable to create Import notebook* (or Lakehouse).
+      It can take about 15 minutes to apply. Fabric.
 - [ ] **Tenant settings** turned on, in the Fabric admin portal under **Tenant settings**. They
       can be on for the whole organisation, or for a security group that the app (Fabric) or
       managed identity (Azure) is in:
