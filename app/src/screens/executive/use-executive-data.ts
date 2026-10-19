@@ -54,6 +54,9 @@ export interface ExecutiveData {
  * the stages on show. The trend waits for the activity's dates so it never
  * asks for months it then drops. The summary and the trend are the slowest
  * queries the page waits on, so they ask ahead of the other queries waiting.
+ * The summary doesn't wait for the task times saved in the app either: it's
+ * asked at the model's own minutes from the page's first query, and asked
+ * again only if the saved times differ.
  */
 export function useExecutiveData(): ExecutiveData {
     const range = useExecutiveRange();
@@ -75,7 +78,7 @@ export function useExecutiveData(): ExecutiveData {
         [params, creditColors],
     );
 
-    const summary = useSummaryQuery({ ...executiveSummary(), lead: true });
+    const summary = useSummaryQuery({ ...executiveSummary(), lead: true, speculate: true });
     const months = useTableQuery(
         trend ? { ...monthsSource, lead: true } : { ...monthsSource, ...SKIP },
         trend ? [dateBetween("'Calendar'[Date]", window.from, window.to)] : [],

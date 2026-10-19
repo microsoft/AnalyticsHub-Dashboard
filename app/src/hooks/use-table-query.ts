@@ -66,12 +66,18 @@ export function useTableQuery(
 
 /** A one-row query, keyed by DAX column name. */
 export function useSummaryQuery(
-    source: { connection: string; query: string; filters?: FilterProfile; lead?: boolean },
+    source: { connection: string; query: string; filters?: FilterProfile; lead?: boolean; speculate?: boolean },
     extra: readonly string[] = [],
     ignore?: readonly FilterKey[],
 ): SummaryResult {
     const result = useFilteredQuery(
-        { connection: source.connection, query: source.query, filters: source.filters, lead: source.lead },
+        {
+            connection: source.connection,
+            query: source.query,
+            filters: source.filters,
+            lead: source.lead,
+            speculate: source.speculate,
+        },
         { extra, ignore },
     );
     const row = useMemo(

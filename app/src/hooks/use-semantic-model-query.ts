@@ -5,7 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef } from "react";
 import { type CachedQueryResult } from "@microsoft/fabric-app-data";
 import { getFabricClient, QUERY_CACHE_MAX_AGE_MS } from "@/lib/fabric-client";
 import { withPriority, type QueryCaller } from "@/lib/query-priority";
@@ -103,9 +103,19 @@ export function useSemanticModelQuery(
     const seen = useRef(0);
     /** The card shows "Power BI is busy" and isn't asking again yet. */
     const busy = useRef(false);
+    /**
+     * Whether the page's first view waits on the card, read when it asks. Only the queue order
+     * depends on it, so a change mustn't call off and send again a query that is already on its way.
+     */
+    const leading = useRef(lead);
 
     const canExecute = Boolean(connection && query);
     const priority = useIsPrefetch() ? "low" : "normal";
+
+    // Declared before the effect that asks, so an ask made in the same commit sees the change.
+    useEffect(() => {
+        leading.current = lead;
+    });
 
     // Asks once. True when it ended busy on an answer from before its model last answered again.
     // Only the card's latest ask changes what it shows. An older ask, or one whose card has gone or
@@ -126,7 +136,7 @@ export function useSemanticModelQuery(
         let stamp = 0;
         const caller: QueryCaller = {
             signal,
-            lead,
+            lead: leading.current,
             asking: (name) => {
                 model = name;
                 stamp = recoveriesOf(name);
@@ -170,7 +180,7 @@ export function useSemanticModelQuery(
         const missed = held && outdated(model, stamp);
         busy.current = held && !missed;
         return missed;
-    }, [connection, query, bypassCache, canExecute, priority, lead]);
+    }, [connection, query, bypassCache, canExecute, priority]);
 
     // `signal` aborts when the card unmounts or its query changes: what is still queued stops, and the answer is ignored.
     const execute = useCallback(async (fresh = false, signal?: AbortSignal) => {
@@ -204,6 +214,63 @@ export function useSemanticModelQuery(
     }, [execute]);
 
     return { data, isLoading, error, refetch };
+}
+
+/**
+ * Asks a query before the card that shows it can, and shows nothing itself:
+ * the card that then asks the same query joins it while it's being answered,
+ * or reads its answer from the cache. Once the query changes or the page goes
+ * it's called off: a query still waiting stops, and one already sent finishes.
+ *
+ * It asks in a layout effect, because React runs a page's effects after its
+ * stages' effects, and their queries would otherwise take every free slot first.
+ * It calls a query off in an effect, after the effects of the hooks called
+ * before it in the same component. Call it after the card's own query, so a
+ * card that now asks the same one joins it first, and it keeps its place in
+ * the queue.
+ */
+export function useSpeculativeQuery(options: Omit<UseSemanticModelQueryOptions, "bypassCache">): void {
+    const { connection, query, lead } = options;
+    const priority = useIsPrefetch() ? "low" : "normal";
+    /** Read when it asks, as the card does, so a change doesn't call off a query already on its way. */
+    const leading = useRef(lead);
+    /** The queries it has moved on from, called off once the card has asked. */
+    const ended = useRef<AbortController[]>([]);
+
+    useLayoutEffect(() => {
+        leading.current = lead;
+    });
+
+    useLayoutEffect(() => {
+        if (!connection || !query) return;
+        const runs = ended.current;
+        const run = new AbortController();
+        // The answer is the card's to read, and a failure the card's to meet when it asks.
+        try {
+            const semanticModel = getFabricClient().semanticModel(connection);
+            void withPriority(priority, () => semanticModel.query(query), { signal: run.signal, lead: leading.current })
+                .catch(() => undefined);
+        } catch {
+            // Thrown before the query starts, as for a model that isn't set up.
+        }
+        return () => {
+            runs.push(run);
+        };
+    }, [connection, query, priority]);
+
+    // React runs every layout effect of a change before any effect, and a component's effects in order.
+    useEffect(() => {
+        callOff(ended.current);
+    });
+
+    useEffect(() => {
+        const runs = ended.current;
+        return () => callOff(runs);
+    }, []);
+}
+
+function callOff(runs: AbortController[]): void {
+    for (const run of runs.splice(0)) run.abort();
 }
 
 /**
