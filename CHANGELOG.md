@@ -44,6 +44,10 @@ and until a query on screen to that model succeeds, but now for at most five min
 model's last throttle. Then it tries the model again, one query at a time. Before, it could wait for
 good if nothing on screen asked that model, and pages stopped loading ahead for every model.
 
+**App: on Fabric, the first query starts a round trip sooner.** The app now asks for its three
+config files at once, rather than ruling out an Azure config before it asks for the Fabric ones.
+Azure installs load their config as before.
+
 ## 2026-10-19 — Analytics Hub installer 0.6.7
 
 **The current release.** 0.6.7 replaces 0.6.6 as Latest, so the `releases/latest` links, including
