@@ -262,7 +262,7 @@ is readable for reviewers.
 
 ### 5.1 Flow (unchanged UX, new first question)
 
-0. **Where should Analytics Hub run?** *Microsoft Fabric* | *Your Azure subscription*.
+0. **Where should Analytics Hub run?** *Microsoft Fabric* | *Your Azure subscription (recommended)*.
 1. What to collect: the same `MODULES` in `catalog.js`. Each module also declares its Azure needs (MI app
    roles, storage containers, SQL tables, and a job step).
 2. Power BI: the model and the app (default), the model only, or neither. On Azure, also **workspace**:

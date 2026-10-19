@@ -19,7 +19,9 @@ If your organisation's policy blocks a route, don't work around it. Use another 
 your IT team.
 
 **Fabric or Azure.** The first question is where it runs: **Microsoft Fabric** or **Your Azure
-subscription** (`--target azure`). The steps are the same. On Azure, you pick a subscription,
+subscription (recommended)** (`--target azure`). A new install starts on Azure, or on Fabric with
+`--yes` or an option that only works on Fabric, such as `--csv`. **Repair or change** keeps an
+install's path. The steps are the same. On Azure, you pick a subscription,
 resource group, region and Power BI workspace instead of a capacity, workspace and secret. Only
 regions that pass the [region preflight](../installer/README.md#regions-and-images) are offered.
 For [private networking](../installer/README.md#networking), choose **Yes** for the advanced

@@ -2,9 +2,9 @@
 
 **Path 2.** Just the steps: [2-azure](../2-azure/). This page has the details.
 
-The recommended path. Analytics Hub running in **your own Azure subscription**, without Microsoft Fabric. It has the
-same data, the same ValueLens Model and measures, and the same app pages as [Fabric](../fabric/README.md).
-The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
+The recommended path. Analytics Hub running in **your own Azure subscription**, without Microsoft
+Fabric. It has the same data, the same ValueLens Model and measures, and the same app pages as
+[Fabric](../fabric/README.md). The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
 
 > **Status.** The installer deploys it end to end: Azure SQL, the Container Apps jobs, the Power BI
 > models, the web app, and a Teams app it publishes to your org's app catalog. It collects Copilot interactions, licences and org data, Microsoft
