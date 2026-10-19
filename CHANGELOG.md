@@ -20,6 +20,12 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**Power BI model: faster active-user counts.** In both Fabric templates, and so in the Azure model
+built from them, `[All Active Users]` and `[Active Licensed Users]` now take one distinct count
+instead of testing each user, as in
+[ValueLens #199](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/pull/199). Adoption
+and the Executive summary should load sooner. The numbers don't change.
+
 **Docs:**
 
 - **A shorter README, by path.** The [README](README.md) is now just the steps for Path 1 (Fabric)

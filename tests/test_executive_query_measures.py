@@ -30,14 +30,33 @@ PINNED = {
     ),
     "All Active Users": (
         (MONTHS,),
+        "IF( ISFILTERED('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
         "COUNTROWS(FILTER(VALUES('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
-        "LEN(TRIM('Chat + Agent Interactions (Audit Logs)'[Audit_UserId])) > 0 && CALCULATE([Usage Rows]) > 0))",
+        "LEN(TRIM('Chat + Agent Interactions (Audit Logs)'[Audit_UserId])) > 0 && CALCULATE([Usage Rows]) > 0)), "
+        "VAR BlankIds = FILTER( ALL('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
+        "LEN(TRIM('Chat + Agent Interactions (Audit Logs)'[Audit_UserId])) = 0 ) "
+        "VAR UsageIds = CALCULATE( DISTINCTCOUNT('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
+        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Is Usage Row] = TRUE()) ) "
+        "VAR BlankUsageIds = CALCULATE( DISTINCTCOUNT('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
+        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Is Usage Row] = TRUE()), KEEPFILTERS(BlankIds) ) "
+        "VAR ActiveIds = UsageIds - BlankUsageIds RETURN IF(ActiveIds > 0, ActiveIds) )",
     ),
     "Active Licensed Users": (
         (MONTHS, SUMMARY),
+        "IF( ISFILTERED('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
         "CALCULATE( COUNTROWS(FILTER(VALUES('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
         "LEN(TRIM('Chat + Agent Interactions (Audit Logs)'[Audit_UserId])) > 0 && CALCULATE([Usage Rows]) > 0)), "
-        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[License Status] = \"M365 Copilot Licensed\") )",
+        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[License Status] = \"M365 Copilot Licensed\") ), "
+        "VAR BlankIds = FILTER( ALL('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
+        "LEN(TRIM('Chat + Agent Interactions (Audit Logs)'[Audit_UserId])) = 0 ) "
+        "VAR UsageIds = CALCULATE( DISTINCTCOUNT('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
+        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Is Usage Row] = TRUE()), "
+        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[License Status] = \"M365 Copilot Licensed\") ) "
+        "VAR BlankUsageIds = CALCULATE( DISTINCTCOUNT('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
+        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Is Usage Row] = TRUE()), "
+        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[License Status] = \"M365 Copilot Licensed\"), "
+        "KEEPFILTERS(BlankIds) ) "
+        "VAR ActiveIds = UsageIds - BlankUsageIds RETURN IF(ActiveIds > 0, ActiveIds) )",
     ),
     "% Active Licensed Users": (
         (MONTHS, SUMMARY),
