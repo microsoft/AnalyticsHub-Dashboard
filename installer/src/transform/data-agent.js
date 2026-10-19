@@ -18,7 +18,7 @@ export const DESCRIPTION_LIMIT = 800;
 
 /**
  * @typedef {'vl' | 'cc' | 'ae'} ModelAlias
- * @typedef {{ name: string, page: string, model: ModelAlias, query: string, filters: string[], people?: string[], description: string }} AskTool
+ * @typedef {{ name: string, page: string, model: ModelAlias, query: string, filters: string[], people?: string[], references?: string[], description: string }} AskTool
  * @typedef {{ minPeople: number, pages: { destination: string, questions: string[] }[], tools: AskTool[] }} AskCatalogue
  * @typedef {{ catalogue: AskCatalogue, queries: Record<string, string> }} Ask
  */
@@ -223,7 +223,9 @@ export function dataSourceInstructions(ask, alias, schema) {
   }
   lines.push('How the Analytics Hub pages work out each figure. Use the same measures and columns:');
   for (const tool of ask.catalogue.tools.filter((t) => t.model === alias)) {
-    const refs = daxReferences(ask.queries[tool.name] ?? '');
+    // A query that works some figures out itself, for speed, lists the model's measures and
+    // columns behind them as `references`, so the agent is pointed at those, not the query's own working.
+    const refs = daxReferences(tool.references?.join(' ') ?? ask.queries[tool.name] ?? '');
     const ms = refs.measures.filter((m) => measures.has(m));
     const cs = refs.columns.filter((c) => columns.has(`${c.table}\u0000${c.column}`));
     const parts = [`- ${tool.name}: ${tool.description}`];

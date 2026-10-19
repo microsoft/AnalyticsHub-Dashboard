@@ -19,6 +19,8 @@ export interface TableSource {
     columnMetadata: ColumnMetadataMap;
     /** How the query takes the filter bar, when not as its model's default. */
     filters?: FilterProfile;
+    /** The page's first view waits on this query: on screen it goes ahead of the other queries waiting. */
+    lead?: boolean;
 }
 
 export interface TableResult {
@@ -51,7 +53,7 @@ export function useTableQuery(
     ignore?: readonly FilterKey[],
 ): TableResult {
     const result = useFilteredQuery(
-        { connection: source.connection, query: source.query, filters: source.filters },
+        { connection: source.connection, query: source.query, filters: source.filters, lead: source.lead },
         { extra, ignore },
     );
     const table = useMemo(
@@ -64,12 +66,12 @@ export function useTableQuery(
 
 /** A one-row query, keyed by DAX column name. */
 export function useSummaryQuery(
-    source: { connection: string; query: string; filters?: FilterProfile },
+    source: { connection: string; query: string; filters?: FilterProfile; lead?: boolean },
     extra: readonly string[] = [],
     ignore?: readonly FilterKey[],
 ): SummaryResult {
     const result = useFilteredQuery(
-        { connection: source.connection, query: source.query, filters: source.filters },
+        { connection: source.connection, query: source.query, filters: source.filters, lead: source.lead },
         { extra, ignore },
     );
     const row = useMemo(

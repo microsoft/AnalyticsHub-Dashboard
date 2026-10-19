@@ -253,6 +253,20 @@ describe("useSemanticModelQuery, once a card has moved on", () => {
         expect(sent.map(({ query }) => query)).toEqual(["OLD", "NEW"]);
         expect(result.current).toMatchObject({ data: answer(1111), error: undefined, isLoading: false });
     });
+
+    it("asks as a lead card, Try again too, only when the page's first view waits on it", async () => {
+        const { result } = renderHook(() => useSemanticModelQuery({ connection: "a", query: "Q", lead: true }));
+        expect(sent[0].caller?.lead).toBe(true);
+        await act(async () => sent[0].answer(busy));
+        act(() => {
+            void result.current.refetch();
+        });
+        expect(sent[1]).toMatchObject({ query: "Q", options: { bypassCache: true } });
+        expect(sent[1].caller?.lead).toBe(true);
+
+        renderHook(() => useSemanticModelQuery({ connection: "a", query: "R" }));
+        expect(sent[2].caller?.lead).toBeFalsy();
+    });
 });
 
 describe("useSemanticModelQuery's cache age", () => {

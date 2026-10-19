@@ -52,7 +52,8 @@ export interface ExecutiveData {
 /**
  * The queries more than one stage reads, run once for the page, and only for
  * the stages on show. The trend waits for the activity's dates so it never
- * asks for months it then drops.
+ * asks for months it then drops. The summary and the trend are the slowest
+ * queries the page waits on, so they ask ahead of the other queries waiting.
  */
 export function useExecutiveData(): ExecutiveData {
     const range = useExecutiveRange();
@@ -74,9 +75,9 @@ export function useExecutiveData(): ExecutiveData {
         [params, creditColors],
     );
 
-    const summary = useSummaryQuery(executiveSummary());
+    const summary = useSummaryQuery({ ...executiveSummary(), lead: true });
     const months = useTableQuery(
-        trend ? monthsSource : { ...monthsSource, ...SKIP },
+        trend ? { ...monthsSource, lead: true } : { ...monthsSource, ...SKIP },
         trend ? [dateBetween("'Calendar'[Date]", window.from, window.to)] : [],
         TREND_IGNORES,
     );

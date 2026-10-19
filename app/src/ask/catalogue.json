@@ -92,6 +92,28 @@
             "model": "vl",
             "query": "executive/executive-summary.dax",
             "filters": ["dateRange", "organizations"],
+            "references": [
+                "[Expert Equivalent Hours]",
+                "[AI Tasks]",
+                "[All Active Users]",
+                "[Licensed Users (Filter-Aware)]",
+                "[Active Licensed Users]",
+                "[% Active Licensed Users]",
+                "[Active Unlicensed Users]",
+                "[Habitual Users %, Last Month]",
+                "[Power Users %, Last Month]",
+                "[Active Agent Users]",
+                "'Behavior Value Map'[Behavior]",
+                "'Chat + Agent Interactions (Audit Logs)'[Cowork Task Category]",
+                "'Chat + Agent Interactions (Audit Logs)'[AppHost]",
+                "'Effort Scenario'[Scenario]",
+                "'Chat + Agent Interactions (Audit Logs)'[WeekStart]",
+                "'Calendar'[Date]",
+                "'Chat + Agent Interactions (Audit Logs)'[Agent Filter (Normalized)]",
+                "'Chat + Agent Interactions (Audit Logs)'[AgentName]",
+                "'Chat + Agent Interactions (Audit Logs)'[Audit_UserId]",
+                "'Chat + Agent Org Data'[Organization]"
+            ],
             "description": "The executive summary's headline row: expert-equivalent hours (typical, conservative, optimistic), AI tasks, active people, licensed seats and seats in use, unlicensed users, habit and power-user shares for the last full month, agent users and hours, agents in use, satisfaction and feedback count."
         },
         {
@@ -100,6 +122,18 @@
             "model": "vl",
             "query": "executive/executive-months.dax",
             "filters": ["dateRange", "organizations"],
+            "references": [
+                "[Expert Equivalent Hours]",
+                "[AI Tasks]",
+                "[% Active Licensed Users]",
+                "[Habitual Users (Monthly)]",
+                "[Power Users (Monthly)]",
+                "[Inactive Users (Monthly)]",
+                "[All Active Users]",
+                "'Calendar'[Date]",
+                "'Effort Scenario'[Scenario]",
+                "'Chat + Agent Interactions (Audit Logs)'[Agent Filter (Normalized)]"
+            ],
             "description": "The executive summary's month-by-month figures, to say what changed between months."
         },
         {

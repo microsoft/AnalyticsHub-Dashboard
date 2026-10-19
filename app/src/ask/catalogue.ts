@@ -32,6 +32,13 @@ export interface AskTool {
     filters: FilterKey[];
     /** Columns that together count the people behind a row; rows under `minPeople` are left out. */
     people?: string[];
+    /**
+     * The model's measures and columns behind the figures, as `[Measure]` and
+     * `'Table'[Column]`, when the query works some of them out itself for
+     * speed. The Fabric data agent's instructions name these instead of the
+     * ones the query names, so it uses the model's own measures.
+     */
+    references?: string[];
     description: string;
 }
 

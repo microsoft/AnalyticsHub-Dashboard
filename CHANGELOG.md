@@ -29,7 +29,7 @@ decisions.
 **What changed:** clean-PC installer fixes preserve concurrent app deployments and report failed
 steps accurately. Azure adds personal-tab support in Outlook and the Microsoft 365 Copilot app,
 plus optional Teams org app-catalog publication. Value, Consumption and Efficiency follow the
-Executive summary. Simpler docs are included below.
+Executive summary, which now opens sooner. Simpler docs are included below.
 
 **Update an existing install:** once 0.6.7 is published, run that version and choose
 **Repair or change**. Azure app-catalog publication needs an additional sign-in with the admin
@@ -55,6 +55,18 @@ Pinning remains manual. This preparation adds no new schema migration or model-r
 Existing Azure installs get this on their next upgrade or **Repair or change**. Fabric is unchanged.
 
 **App: Value, Consumption and Efficiency now come straight after the Executive summary.**
+
+**App: the Executive summary opens sooner.**
+
+On F64 with 20,000 synthetic people and the model warm, the page was ready about 5 seconds after
+its first query, down from about 12 (medians of 6 test opens each).
+
+- **Its two slowest queries start sooner.** The summary and the monthly trend now start ahead of
+  other waiting queries. The pacing is unchanged: at most 4 queries in flight and 90 a minute.
+- **A quicker trend and summary.** The trend counts each month's active people once, and works out
+  the seat counts once rather than for every month. The summary counts the seats in use once.
+  Neither tests every user ID each time any more. The figures, and what the Fabric data agent is
+  told about them, don't change.
 
 **Azure: the installer publishes the Teams app to your org's app catalog.**
 
