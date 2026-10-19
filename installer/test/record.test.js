@@ -5,7 +5,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { isNewInstall, startFresh } from '../src/cli.js';
+import { fabricOnlyOptions, isNewInstall, parseCli, startFresh } from '../src/cli.js';
 import { archiveConfig, emptyConfig, loadConfig, saveConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
 import { appDeployedSince } from '../src/steps/app.js';
@@ -285,16 +285,16 @@ test('record: only a definite not-found, or another tenant, makes the workspace 
  * @param {string} dir
  * @param {() => Promise<any>} getWorkspace
  * @param {string} [tenantId]
- * @param {'fabric' | 'azure'} [target]  --target
+ * @param {{ target?: 'fabric' | 'azure', fabricOnly?: string[] }} [given]  --target, and the options given that only work on Fabric
  */
-function session(dir, getWorkspace, tenantId = 'tenant-1', target) {
+function session(dir, getWorkspace, tenantId = 'tenant-1', given = {}) {
   const configFile = join(dir, 'valuelens-install.json');
   saveConfig(configFile, record());
   const ui = createWebUi({ now: () => 1000 });
   /** @type {any} */
   const api = { fabric: fabricThat(getWorkspace) };
   const connect = async () => ({ api, user: { id: 'u', upn: 'admin@contoso.com', tenantId } });
-  const s = createSession({ ui, configFile, version: '0.0.0', target, connect: /** @type {any} */ (connect) });
+  const s = createSession({ ui, configFile, version: '0.0.0', ...given, connect: /** @type {any} */ (connect) });
   const ended = () => ui.history().filter((e) => e.type === 'command' && e.state !== 'running');
   return { s, ui, configFile, ended };
 }
@@ -414,7 +414,7 @@ test('web session: --target chooses for a new install, also after Start fresh', 
   const cases = [['fabric', [0, 0]], ['azure', []]];
   for (const [target, asked] of cases) {
     await inDir(async (dir) => {
-      const w = session(dir, async () => ({ id: 'ws-1' }), 'tenant-1', target);
+      const w = session(dir, async () => ({ id: 'ws-1' }), 'tenant-1', { target });
       rmSync(w.configFile);
       const { starts, install } = installs(w);
       await install();
@@ -424,6 +424,24 @@ test('web session: --target chooses for a new install, also after Start fresh', 
       assert.equal(loadConfig(`${w.configFile}.draft.json`).config.target, target);
       assert.deepEqual(w.ended().map((e) => e.state), ['done', 'done']);
     });
+  }
+});
+
+test('web session: a new install given an option that only works on Fabric starts on Fabric', async () => {
+  // --ui refuses --csv, --data and the flow, Viva and other install options, and takes these.
+  for (const argv of [['--key-vault'], ['--no-key-vault'], ['--secret-in-notebook'], ['--secret-days', '30']]) {
+    await inDir(async (dir) => {
+      const fabricOnly = fabricOnlyOptions(parseCli(['--ui', ...argv], {}));
+      assert.equal(fabricOnly.length, 1, argv.join(' '));
+      const w = session(dir, async () => ({ id: 'ws-1' }), 'tenant-1', { fabricOnly });
+      rmSync(w.configFile);
+      const { starts, install } = installs(w);
+      await install();
+      assert.deepEqual(starts, [0], argv.join(' '));
+    });
+  }
+  for (const argv of [['--csv', 'usage.csv'], ['--data', 'workday=csv'], ['--feedback-flow'], ['--flow-identity', 'app'], ['--viva-query', '00000000-0000-0000-0000-000000000001']]) {
+    assert.throws(() => parseCli(['--ui', ...argv], {}), /Data sources page/, argv.join(' '));
   }
 });
 

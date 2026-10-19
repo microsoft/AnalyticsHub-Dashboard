@@ -96,6 +96,7 @@ export function describeError(err) {
  *   tenantId?: string,
  *   method?: Method,
  *   target?: 'fabric' | 'azure',
+ *   fabricOnly?: string[],
  *   connect?: typeof realConnect,
  *   debug?: (m: string) => void,
  * }} o
@@ -211,6 +212,7 @@ export function createSession(o) {
       const ctx = createCtx({ ui, config, file: o.configFile, api: signedIn.api, user: signedIn.user, sources, getToken: signedIn.getToken });
       // No install record, including after Start fresh set it aside, and no --target: a new install, which can start on Azure.
       if (!existed && !o.target) ctx.newInstall = true;
+      ctx.fabricOnly = o.fabricOnly;
       ctx.setupSection = req.section;
       ctx.setupRetry = req.retry;
       let ok = true;

@@ -4,6 +4,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { AZ_LOGIN } from './auth.js';
+import { MODULES } from './catalog.js';
 import { orgUrl } from './clients/dataverse.js';
 import { archiveConfig, DEFAULT_CONFIG_FILE, loadConfig, normaliseResourceGraph } from './config.js';
 import { HttpError } from './http.js';
@@ -333,6 +334,38 @@ export async function startFresh(o) {
 export const isNewInstall = (o) => (!o.existed || o.startedFresh) && !o.target;
 
 /**
+ * `--data` modes Azure can't run: the Agent 365 API, the product feedback flow and the Cowork Dataflow are Fabric only,
+ * and Azure has no Workday job yet. A module Azure doesn't run at all counts in any mode but skip.
+ * @type {Record<string, import('./uploads.js').SourceMode[]>}
+ */
+const FABRIC_ONLY_MODES = { agent365: ['api'], productFeedback: ['api'], coworkCredits: ['api'], workday: ['csv'] };
+
+/**
+ * The options given that only work on Fabric. A new install given any of them starts on Fabric at the first question.
+ * Only what was typed counts, never the install record or its defaults.
+ * @param {ReturnType<typeof parseCli>} args
+ * @returns {string[]}
+ */
+export function fabricOnlyOptions(args) {
+  const offAzure = new Set(Object.values(MODULES).filter((m) => !m.azure.supported).map((m) => /** @type {string} */ (m.id)));
+  const data = /** @type {[string, import('./uploads.js').SourceMode][]} */ (Object.entries(args.dataSources))
+    .filter(([id, mode]) => mode !== 'skip' && (offAzure.has(id) || FABRIC_ONLY_MODES[id]?.includes(mode)))
+    .map(([id, mode]) => `--data ${id}=${mode}`);
+  return [
+    args.csvFiles.length ? '--csv' : '',
+    args.useKeyVault ? '--key-vault' : '',
+    args.secretInNotebook ? '--no-key-vault' : '',
+    args.secretDays ? '--secret-days' : '',
+    args.flowIdentity === 'app' ? '--flow-identity app' : '',
+    args.vivaPartition ? '--viva-partition' : '',
+    args.vivaQuery ? '--viva-query' : '',
+    // As in applyDataFlags: with productFeedback=skip, --feedback-flow does nothing.
+    args.feedbackFlow && args.dataSources.productFeedback !== 'skip' ? '--feedback-flow' : '',
+    ...data,
+  ].filter(Boolean);
+}
+
+/**
  * @param {string[]} argv
  * @returns {Promise<number>} Exit code.
  */
@@ -351,7 +384,7 @@ export async function main(argv) {
     }
     const debug = verbose ? (/** @type {string} */ m) => process.stderr.write(`${c.dim(m)}\n`) : undefined;
     if (args.ui) {
-      await runWizard({ configFile: args.configFile, sourceDir: args.sourceDir, tenantId: args.tenantId, method: args.method, target: args.target, open: args.open, version: version(), debug });
+      await runWizard({ configFile: args.configFile, sourceDir: args.sourceDir, tenantId: args.tenantId, method: args.method, target: args.target, fabricOnly: fabricOnlyOptions(args), open: args.open, version: version(), debug });
       return 0;
     }
     const ui = createUi({ yes: args.yes });
@@ -393,6 +426,7 @@ export async function main(argv) {
     const ctx = createCtx({ ui, config, file: args.configFile, api, user, sources, getToken });
     ctx.csvFiles = args.csvFiles;
     if (isNewInstall({ existed, startedFresh, target: args.target })) ctx.newInstall = true;
+    ctx.fabricOnly = fabricOnlyOptions(args);
     if (args.secretInNotebook) ctx.secretInNotebook = true;
     if (args.useKeyVault) ctx.useKeyVault = true;
     if (args.allowModelReset) ctx.allowModelReset = true;
