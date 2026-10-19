@@ -98,6 +98,13 @@ class RayfinAuthService implements IAuthService {
     }
 }
 
+/**
+ * Reuse the host's token until this long before it expires. Teams and the Microsoft 365 app cache it
+ * themselves, but Outlook on the web runs a full silent sign-in for each request, and Entra can turn
+ * the tab's silent sign-ins away for minutes after about 20 in quick succession.
+ */
+const HOST_TOKEN_RENEWAL_MS = 5 * 60 * 1000;
+
 class AzureAuthService implements IAuthService {
     private readonly config = runtimeConfig().azure!;
     private readonly msal = new PublicClientApplication({
@@ -111,6 +118,10 @@ class AzureAuthService implements IAuthService {
     private init?: Promise<void>;
     private token?: string;
     private user: AnalyticsHubUser | null = null;
+    /** The host's latest token, reused for API calls until it's due for renewal. */
+    private hostToken?: { token: string; renewAt: number };
+    /** The request to the host in progress, shared by every call that needs a new token meanwhile. */
+    private hostTokenRequest?: Promise<string>;
 
     async initEmbeddedAuth(): Promise<OpaqueSession | null> {
         await this.ensureInitialised();
@@ -150,9 +161,7 @@ class AzureAuthService implements IAuthService {
         await this.ensureInitialised();
         if (this.config.inTeams) {
             try {
-                this.token = await teams.authentication.getAuthToken();
-                this.user = decodeUser(this.token);
-                return this.token;
+                return await this.getHostToken(options?.forceRefresh === true);
             } catch (error) {
                 throw new AnalyticsHubAccessDeniedError(error instanceof Error ? error.message : undefined);
             }
@@ -200,9 +209,27 @@ class AzureAuthService implements IAuthService {
 
     /** Signs in with the token the host (Teams, Outlook or the Microsoft 365 app) gives the tab. */
     private async hostSession(request?: teams.authentication.AuthTokenRequestParameters): Promise<OpaqueSession> {
-        this.token = await teams.authentication.getAuthToken(request);
-        this.user = decodeUser(this.token);
+        await this.requestHostToken(request);
         return this.session();
+    }
+
+    /** A token for an API call: the host's latest while it's fresh, otherwise a new one. */
+    private getHostToken(forceRefresh: boolean): Promise<string> {
+        if (!forceRefresh && this.hostToken && Date.now() < this.hostToken.renewAt)
+            return Promise.resolve(this.hostToken.token);
+        // A failed request isn't kept, so the next call asks the host again.
+        this.hostTokenRequest ??= this.requestHostToken().finally(() => {
+            this.hostTokenRequest = undefined;
+        });
+        return this.hostTokenRequest;
+    }
+
+    private async requestHostToken(request?: teams.authentication.AuthTokenRequestParameters): Promise<string> {
+        const token = await teams.authentication.getAuthToken(request);
+        this.hostToken = { token, renewAt: renewalTime(token) };
+        this.token = token;
+        this.user = decodeUser(token);
+        return token;
     }
 
     private session(account = this.account()): OpaqueSession {
@@ -248,6 +275,12 @@ function decodeUser(token: string | undefined): AnalyticsHubUser | null {
         username: typeof claims.preferred_username === "string" ? claims.preferred_username : undefined,
         roles,
     };
+}
+
+/** When to stop reusing a host token: shortly before it expires, or at once if it doesn't say when. */
+function renewalTime(token: string): number {
+    const expires = decodeJwt(token)?.exp;
+    return typeof expires === "number" ? expires * 1000 - HOST_TOKEN_RENEWAL_MS : 0;
 }
 
 function decodeJwt(token: string | undefined): Record<string, unknown> | null {
