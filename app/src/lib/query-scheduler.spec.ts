@@ -828,6 +828,63 @@ describe("QueryScheduler background lane", () => {
         expect(vl).toHaveBeenCalledTimes(2);
     });
 
+    it("lets background queries try a held model again five minutes after its last throttle, though nothing on screen asked it", async () => {
+        const log = vi.fn();
+        const scheduler = new QueryScheduler({ random: () => 0, log });
+        const vl = vi.fn().mockRejectedValueOnce(apiError(429)).mockResolvedValue("vl");
+        const held = scheduler.run("vl-back", vl, "low", "ws/vl");
+        await vi.advanceTimersByTimeAsync(299_999);
+        expect(vl).toHaveBeenCalledTimes(1);
+        expect(scheduler.activity()).toMatchObject({ foreground: 0, background: 1 });
+
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(held).resolves.toBe("vl");
+        expect(vl).toHaveBeenCalledTimes(2);
+        expect(log.mock.calls).toEqual([
+            ["warn", "Analytics Hub: Power BI throttled a query to model vl (HTTP 429), 1 in a row. Its queries wait 0.5 s, then try it one at a time."],
+            ["info", "Analytics Hub: background loading from model vl paused for at least 60 s, and until it answers a query on screen."],
+            ["info", "Analytics Hub: background loading from model vl resumed 300 s after its last throttle, without an answer on screen."],
+            ["info", "Analytics Hub: model vl is answering again."],
+        ]);
+    });
+
+    it("counts the five minutes from the model's last throttle, so a model still throttling queries on screen stays held", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const back = vi.fn().mockRejectedValueOnce(apiError(429)).mockResolvedValue("back");
+        const held = scheduler.run("back", back, "low", "ws/later");
+        await vi.advanceTimersByTimeAsync(200_000);
+        const front = vi.fn().mockRejectedValue(Object.assign(apiError(429), { retryAfterMs: 120_000 }));
+        await expect(scheduler.run("front", front, "normal", "ws/later")).rejects.toMatchObject({ message: BUSY_MESSAGE });
+
+        await vi.advanceTimersByTimeAsync(299_999);
+        expect(back).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(held).resolves.toBe("back");
+        expect(back).toHaveBeenCalledTimes(2);
+    });
+
+    it("lets one background query try the model after five minutes, and holds the rest five minutes more if it is throttled", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const first = vi.fn().mockRejectedValueOnce(apiError(429)).mockResolvedValue("first");
+        const second = vi.fn().mockRejectedValueOnce(apiError(429)).mockResolvedValue("second");
+        const backs = [scheduler.run("first", first, "low", "ws/vl"), scheduler.run("second", second, "low", "ws/vl")];
+        await vi.advanceTimersByTimeAsync(299_999);
+        expect(first).toHaveBeenCalledTimes(1);
+        expect(second).not.toHaveBeenCalled();
+
+        // The second is first in line, so it alone tries the model, and is throttled.
+        await vi.advanceTimersByTimeAsync(1);
+        expect(second).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(299_999);
+        expect(first).toHaveBeenCalledTimes(1);
+        expect(second).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(Promise.all(backs)).resolves.toEqual(["first", "second"]);
+        expect(first).toHaveBeenCalledTimes(2);
+        expect(second).toHaveBeenCalledTimes(2);
+    });
+
     it("tells subscribers when work starts and finishes", async () => {
         const scheduler = new QueryScheduler();
         const listener = vi.fn();

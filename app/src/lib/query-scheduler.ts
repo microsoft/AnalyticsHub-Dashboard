@@ -42,6 +42,13 @@ export interface QuerySchedulerOptions {
     maxWaitMs?: number;
     /** How long background queries to a model wait after its last throttled reply. */
     backgroundHoldMs?: number;
+    /**
+     * The longest background queries to a model wait, after its last throttled
+     * reply, for a query on screen to it to succeed. Then they try the model
+     * again, one at a time until it answers, so background loading can't stay
+     * paused when nothing on screen asks that model.
+     */
+    maxBackgroundHoldMs?: number;
     /** Where the scheduler says what it does about throttling; the browser console by default. */
     log?: (level: "info" | "warn", message: string) => void;
     now?: () => number;
@@ -80,10 +87,12 @@ interface ModelState {
     running: number;
     /** Background queries to the model wait until this... */
     heldUntil: number;
-    /** ...and until a query on screen to it succeeds. */
+    /** ...and until a query on screen to it succeeds, or `cap` ends that wait. */
     awaitingSuccess: boolean;
     holding: boolean;
     timer: ReturnType<typeof setTimeout> | undefined;
+    /** Ends the wait for an answer on screen, `maxBackgroundHoldMs` after the model's last throttled reply. */
+    cap: ReturnType<typeof setTimeout> | undefined;
     /** A query to it gave up with the busy message since it last answered. */
     owed: boolean;
     /** It answered while a pause it asked for stood: busy cards hear so when the pause ends. */
@@ -313,7 +322,9 @@ export function recoveriesOf(model: string): number {
  * for budget. One that waited checks again that the screen is quiet before
  * it starts, and if not, gives its slot back and queues again. After a
  * throttle, background queries to that model wait `backgroundHoldMs`, and
- * until a query on screen to it succeeds.
+ * until a query on screen to it succeeds, or `maxBackgroundHoldMs` has passed
+ * since its last throttle without one: then they try it one at a time, so
+ * background loading can't stay paused when nothing on screen asks it.
  */
 export class QueryScheduler {
     private readonly concurrency: number;
@@ -324,6 +335,7 @@ export class QueryScheduler {
     private readonly maxDelayMs: number;
     private readonly maxWaitMs: number;
     private readonly backgroundHoldMs: number;
+    private readonly maxBackgroundHoldMs: number;
     private readonly log: (level: "info" | "warn", message: string) => void;
     private readonly now: () => number;
     private readonly random: () => number;
@@ -349,6 +361,9 @@ export class QueryScheduler {
         // measured; a minute is a guess to tune once it is.
         this.maxWaitMs = options.maxWaitMs ?? 60_000;
         this.backgroundHoldMs = options.backgroundHoldMs ?? 60_000;
+        // Also a guess to tune: a model that keeps throttling while nothing on screen asks it gets
+        // one background query every five minutes.
+        this.maxBackgroundHoldMs = options.maxBackgroundHoldMs ?? 5 * 60_000;
         this.log = options.log ?? ((level, message) => console[level](message));
         this.now = options.now ?? Date.now;
         this.random = options.random ?? Math.random;
@@ -436,6 +451,7 @@ export class QueryScheduler {
                 awaitingSuccess: false,
                 holding: false,
                 timer: undefined,
+                cap: undefined,
                 owed: false,
                 recovery: undefined,
             };
@@ -609,6 +625,20 @@ export class QueryScheduler {
             model.timer = undefined;
             this.resumeIfClear(model);
         }, model.heldUntil - now);
+        // Counted from the last throttle, so a model that still throttles stays held.
+        clearTimeout(model.cap);
+        model.cap = setTimeout(() => this.capped(model), this.maxBackgroundHoldMs);
+    }
+
+    /** No query on screen has had an answer from the model since its last throttle: its background queries stop waiting for one. */
+    private capped(model: ModelState): void {
+        model.cap = undefined;
+        if (!model.awaitingSuccess) return;
+        model.awaitingSuccess = false;
+        this.resumeIfClear(
+            model,
+            `Analytics Hub: background loading from model ${model.label} resumed ${seconds(this.maxBackgroundHoldMs)} s after its last throttle, without an answer on screen.`,
+        );
     }
 
     private answered(job: Job): void {
@@ -637,10 +667,12 @@ export class QueryScheduler {
         for (const listener of [...recoveryListeners]) listener(model.id);
     }
 
-    private resumeIfClear(model: ModelState): void {
+    private resumeIfClear(model: ModelState, message = `Analytics Hub: background loading from model ${model.label} resumed.`): void {
         if (!model.holding || this.held(model)) return;
         model.holding = false;
-        this.log("info", `Analytics Hub: background loading from model ${model.label} resumed.`);
+        clearTimeout(model.cap);
+        model.cap = undefined;
+        this.log("info", message);
         this.drainLow();
     }
 

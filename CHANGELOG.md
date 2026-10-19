@@ -39,6 +39,11 @@ and the Executive summary should load sooner. The numbers don't change.
 **App: Adoption now comes straight after the Executive summary, ahead of Value, Consumption and
 Efficiency.**
 
+**App: background loading can't stay paused after a throttle.** It still waits at least a minute,
+and until a query on screen to that model succeeds, but now for at most five minutes after the
+model's last throttle. Then it tries the model again, one query at a time. Before, it could wait for
+good if nothing on screen asked that model, and pages stopped loading ahead for every model.
+
 ## 2026-10-19 — Analytics Hub installer 0.6.7
 
 **The current release.** 0.6.7 replaces 0.6.6 as Latest, so the `releases/latest` links, including
