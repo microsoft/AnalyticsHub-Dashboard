@@ -167,6 +167,10 @@ build takes the list from its own imports, so the list keeps up as the code chan
 **App: the Executive summary's headline figures no longer wait for the task times saved in the
 app.** They're asked with the page's first query, and asked again only if saved times change them.
 
+**App: a quicker Executive summary.** It now counts the agents in use, and the people with an
+organization, all at once rather than one agent or person at a time. The figures, and what the
+Fabric data agent is told about them, don't change.
+
 ## 2026-10-19 — Analytics Hub installer 0.6.7
 
 **The current release.** 0.6.7 replaces 0.6.6 as Latest, so the `releases/latest` links, including

@@ -169,6 +169,15 @@ describe("the per-person breadth measures", () => {
     });
 });
 
+describe("the summary's agents in use and people with an organization", () => {
+    // Asking about each agent, or each person, in turn was slow on a large tenant, so the summary counts them all at once.
+    it("are counted without asking about each agent or person", () => {
+        const { query } = executiveSummary();
+        expect(query).not.toMatch(/\[Active Agent Users\]\s*>\s*0/);
+        expect(query).not.toContain("VALUES('Chat + Agent Interactions (Audit Logs)'[Audit_UserId])");
+    });
+});
+
 describe("shapeMonthlyTrend", () => {
     const transformOf = (spec: unknown) =>
         (spec as { transform: { calculate?: string; as?: string }[] }).transform.find((step) => step.as === "Emphasis");

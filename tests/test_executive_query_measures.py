@@ -2,9 +2,11 @@
 
 executive-months.dax and executive-summary.dax count active people without the
 per-person LEN(TRIM()) test, and the monthly trend works the seat counts out
-once rather than once a month. They give the same numbers only while the
-measures they reproduce, and the relationships they rely on, stay as they are
-here. If a test here fails, review those queries, then update this file.
+once rather than once a month. The summary also counts the agents in use
+without asking [Active Agent Users] about each agent, and asks for the
+organization once rather than once a person. They give the same numbers only
+while the measures they reproduce, and the relationships they rely on, stay as
+they are here. If a test here fails, review those queries, then update this file.
 """
 import importlib.util
 import json
@@ -87,6 +89,17 @@ PINNED = {
         "CALCULATE( DISTINCTCOUNT('Copilot Licensed'[UPN_Normalized]), "
         "UPPER(TRIM('Copilot Licensed'[Has license])) IN {\"YES\",\"TRUE\",\"Y\",\"1\"} )",
     ),
+    "Active Agent Users": (
+        (SUMMARY,),
+        "CALCULATE( COUNTROWS(FILTER(VALUES('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
+        "LEN(TRIM('Chat + Agent Interactions (Audit Logs)'[Audit_UserId])) > 0 && CALCULATE([AI Tasks]) > 0)), "
+        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Agent Filter (Normalized)] = \"Agents\") )",
+    ),
+    "AI Tasks": (
+        (SUMMARY,),
+        "CALCULATE(COUNTROWS('Chat + Agent Interactions (Audit Logs)'), "
+        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Is Prompt Row] = TRUE()))",
+    ),
 }
 
 # Strings, quoted names and [names] are kept whole, so a comment marker inside one isn't one.
@@ -132,7 +145,8 @@ class ExecutiveQueryMeasures(unittest.TestCase):
                     self.assertEqual(code(measures[name]), expected, f"[{name}] changed: review {' and '.join(queries)}")
 
     def test_dates_and_the_audit_log_never_filter_the_seat_or_people_lists(self):
-        # So the monthly trend can count seats once for every month.
+        # So the monthly trend can count seats once for every month, and the summary can ask
+        # for the organization once rather than once a person.
         for relative in PATCHER.VALUELENS:
             model = load(relative)
             self.assertIn(AUDIT, filtered_by(model, "Calendar"), relative)
@@ -140,7 +154,7 @@ class ExecutiveQueryMeasures(unittest.TestCase):
                 reached = filtered_by(model, start)
                 for table in ("Copilot Licensed", "Chat + Agent Org Data"):
                     with self.subTest(template=str(relative), start=start, table=table):
-                        self.assertNotIn(table, reached, f"a filter on {start} now reaches {table}: review {MONTHS}")
+                        self.assertNotIn(table, reached, f"a filter on {start} now reaches {table}: review {MONTHS} and {SUMMARY}")
 
     def test_comments_and_layout_are_not_code(self):
         self.assertEqual(code(["A // x", "/* y */ + \"//kept\" -- z", "+ 'T--'[C]"]), "A + \"//kept\" + 'T--'[C]")
