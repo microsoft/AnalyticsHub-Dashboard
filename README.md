@@ -99,6 +99,8 @@ What you get, the data, costs, permissions and every other page: **[docs](docs/R
 [Support](SUPPORT.md) · [Report a vulnerability](SECURITY.md) · [Contributing](CONTRIBUTING.md) ·
 [MIT licence](LICENSE)
 
+Created by [Keith McGrane](https://github.com/Keithland89).
+
 To contribute, open a pull request against `main`. Keith reviews and approves every change, and
 only Keith creates release tags. See [Contributing](CONTRIBUTING.md#reviews-and-releases).
 

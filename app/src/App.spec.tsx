@@ -6,7 +6,7 @@
 //-----------------------------------------------------------------------
 
 import { describe, it, expect } from "vitest";
-import { render } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useCssTheme } from "@microsoft/fabric-visuals";
 import App from "@/App";
@@ -40,5 +40,22 @@ describe("App", () => {
             </Harness>,
         );
         expect(document.body).not.toBeEmptyDOMElement();
+    });
+
+    it("credits its creator at the foot of the sidebar, linking to his profile in a new tab", () => {
+        render(
+            <Harness>
+                <App />
+            </Harness>,
+        );
+        const sidebar = screen.getByRole("navigation", { name: "Sections" });
+        const link = within(sidebar).getByRole("link", { name: "Keith McGrane" });
+        const footer = link.closest("footer");
+
+        expect(footer).toHaveTextContent(/^Created by Keith McGrane$/);
+        expect(sidebar.lastElementChild).toBe(footer);
+        expect(link).toHaveAttribute("href", "https://github.com/Keithland89");
+        expect(link).toHaveAttribute("target", "_blank");
+        expect(link).toHaveAttribute("rel", "noreferrer");
     });
 });

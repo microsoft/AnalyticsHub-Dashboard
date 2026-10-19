@@ -77,6 +77,25 @@ function UpdateNotice() {
     );
 }
 
+const CREATOR_PROFILE_URL = "https://github.com/Keithland89";
+
+/** The sidebar's footer: who made the app, linked to their profile. */
+function CreatorCredit() {
+    return (
+        <footer className="px-200 text-[length:var(--text-200)] leading-200 text-muted-foreground">
+            Created by{" "}
+            <a
+                href={CREATOR_PROFILE_URL}
+                target="_blank"
+                rel="noreferrer"
+                className="underline underline-offset-2 hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+            >
+                Keith McGrane
+            </a>
+        </footer>
+    );
+}
+
 /** What the canvas shows: one destination at one of its stages, or a report pack's stages from any of them. */
 export type AppView =
     | { kind: "destination"; id: DestinationId; stage?: StageId }
@@ -289,6 +308,8 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                     )}
                     {isDark ? "Light mode" : "Dark mode"}
                 </button>
+
+                <CreatorCredit />
             </nav>
 
             <main ref={mainRef} data-print="flow" className="relative min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">

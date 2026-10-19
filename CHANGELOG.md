@@ -74,6 +74,10 @@ nothing new and deploy as before.
   so the tag's build and the signing pipeline failed. The Teams app inside has the release's
   version, `0.6.8`, because Teams takes only x.y.z.
 
+**App and README:** both credit their creator, "Created by Keith McGrane", linked to his profile.
+In the app it's a small footer at the bottom of the sidebar, so it's on every page, in a browser
+and in Teams, Outlook and Microsoft 365.
+
 **Docs:**
 
 - **A shorter README, by path.** The [README](README.md) is now just the steps for Path 1 (Fabric)
