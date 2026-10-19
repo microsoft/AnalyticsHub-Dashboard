@@ -112,7 +112,7 @@ export function pendingReloads(config) {
   return [
     config.semanticModel,
     config.modules?.consumption && !(azure && config.azure?.sampleData === true) && config.consumption?.model,
-    !azure && config.modules?.agentEvaluator && config.agentEvaluator?.model,
+    (azure || config.modules?.agentEvaluator) && config.agentEvaluator?.model,
   ].filter((m) => !!m && !!m.id && !!m.reload).map((m) => /** @type {import('../config.js').ModelConfig} */ (m));
 }
 

@@ -241,7 +241,7 @@ export function describeScope(r, attribute = 'department') {
 }
 
 /**
- * The models org-scoped access covers on this install. Agent Evaluator isn't deployed on Azure.
+ * The models org-scoped access covers on this install.
  * @param {import('../config.js').InstallConfig} config
  * @returns {RlsModel[]}
  */
@@ -253,6 +253,7 @@ export function rlsModels(config) {
     return [
       ...(pbi.datasetId ? [{ kind: /** @type {const} */ ('valuelens'), workspaceId: ws, datasetId: pbi.datasetId, name: config.semanticModel.name, model: config.semanticModel }] : []),
       ...(azureConsumptionModelDeployed(config) ? [{ kind: /** @type {const} */ ('consumption'), workspaceId: ws, datasetId: /** @type {string} */ (pbi.consumptionDatasetId), name: config.consumption.model.name, model: config.consumption.model }] : []),
+      ...(pbi.agentEvaluatorDatasetId ? [{ kind: /** @type {const} */ ('agentEvaluator'), workspaceId: ws, datasetId: pbi.agentEvaluatorDatasetId, name: config.agentEvaluator.model.name, model: config.agentEvaluator.model }] : []),
     ];
   }
   const ws = config.fabric.workspaceId;

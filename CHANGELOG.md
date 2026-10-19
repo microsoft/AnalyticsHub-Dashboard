@@ -32,6 +32,12 @@ Copilot Studio conversation transcripts from Dataverse with the jobs' managed id
 as the Fabric notebook does, and publishes the seven Agent Evaluator tables to Azure SQL (migration
 V008). The installer doesn't offer it on Azure yet.
 
+**Azure: the installer can deploy the Agent Evaluator model.** Like Consumption Central, it's the
+Fabric template converted to read Azure SQL, deployed as a third Power BI model. It gets the same
+credential or VNet gateway binding, refresh schedule, viewer access and org-scoped access, and the app
+and the jobs' refresh see it as `ae`. Agent Variables and Conversation Transcripts (Raw) load empty, as
+they do on Fabric. The installer still doesn't offer the module on Azure, so nothing deploys it yet.
+
 ## Analytics Hub installer 0.6.8-rc.1 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.1 is not published, and 0.6.7 remains Latest.

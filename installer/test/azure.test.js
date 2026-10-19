@@ -1765,7 +1765,7 @@ async function createdAzureInstall(o = {}) {
     installId: 'install-1',
     createdResourceGroup: true,
     workspaceName: 'Analytics Hub',
-    powerBi: { workspaceId: 'pbi-ws-1', createdWorkspace: true, datasetId: 'ds-1', consumptionDatasetId: 'cc-1', connectionId: 'conn-1' },
+    powerBi: { workspaceId: 'pbi-ws-1', createdWorkspace: true, datasetId: 'ds-1', consumptionDatasetId: 'cc-1', agentEvaluatorDatasetId: 'ae-1', connectionId: 'conn-1' },
     webApp: { clientId: 'web-client', objectId: 'web-obj', created: true },
     sqlReader: { clientId: 'sql-client', objectId: 'sql-obj', created: true },
   };
@@ -1781,7 +1781,7 @@ test('Azure uninstall deletes the Power BI workspace the install created, after 
   assert.deepEqual(t.ui.asked, [DELETE_WORKSPACE], 'asked before anything is deleted, and defaults to Yes');
   assert.deepEqual(t.powerBi.calls, ['deleteGroup pbi-ws-1']);
   assert.match(t.ui.text(), /Deleted Power BI workspace "Analytics Hub"/);
-  for (const key of ['workspaceId', 'createdWorkspace', 'datasetId', 'consumptionDatasetId']) assert.equal(t.az.powerBi[key], undefined, key);
+  for (const key of ['workspaceId', 'createdWorkspace', 'datasetId', 'consumptionDatasetId', 'agentEvaluatorDatasetId']) assert.equal(t.az.powerBi[key], undefined, key);
   assert.equal(t.config.fabric.workspaceId, undefined);
   assert.ok(t.fabric.calls.includes('deleteConnection conn-1'));
   assert.ok(t.arm.calls.includes('deleteResourceGroup rg'));
