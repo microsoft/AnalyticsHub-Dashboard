@@ -206,6 +206,8 @@ export function createSession(o) {
         return;
       }
       const ctx = createCtx({ ui, config, file: o.configFile, api: signedIn.api, user: signedIn.user, sources, getToken: signedIn.getToken });
+      // No install record, including after Start fresh set it aside: the first question starts on Azure.
+      if (!existed) ctx.newInstall = true;
       ctx.setupSection = req.section;
       ctx.setupRetry = req.retry;
       let ok = true;

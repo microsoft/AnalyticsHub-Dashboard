@@ -86,6 +86,8 @@ export function restoreSetupDraft(ctx) {
   if (config.tenantId && config.tenantId !== ctx.user.tenantId) throw new Error('The saved setup draft belongs to a different tenant. Sign in to that tenant to resume it.');
   if (config.setup?.baseRevision !== recordRevision(ctx.file)) return false;
   replaceConfig(ctx.config, config);
+  // The draft has the first question's answer, so a new install keeps it rather than starting on Azure again.
+  ctx.newInstall = false;
   ctx.runFirstLoad = config.setup?.runFirstLoad;
   ctx.reloadHistoryDays = config.setup?.reloadHistoryDays;
   return true;

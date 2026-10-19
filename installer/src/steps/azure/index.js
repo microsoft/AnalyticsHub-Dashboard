@@ -234,11 +234,13 @@ export const AZURE_TARGET_DESCRIPTION =
 export async function askTarget(ctx) {
   ctx.config.target ??= 'fabric';
   if (ctx.config.target === 'azure' || ctx.config.fabric.workspaceId || ctx.config.azure?.subscriptionId) return;
+  // A new install starts on Azure. --yes keeps Fabric, and so do --csv files: the installer uploads them to Fabric only.
+  const start = ctx.newInstall && !ctx.ui.yes && !ctx.csvFiles?.length ? 'azure' : ctx.config.target;
   ctx.ui.heading('Where should Analytics Hub run?');
   ctx.config.target = await ctx.ui.select('Where should Analytics Hub run?', [
     { name: 'Microsoft Fabric', value: 'fabric', description: 'Use Fabric workspaces, Lakehouse, notebooks and pipeline.' },
-    { name: 'Your Azure subscription', value: 'azure', description: AZURE_TARGET_DESCRIPTION },
-  ], ctx.config.target);
+    { name: 'Your Azure subscription (recommended)', value: 'azure', description: AZURE_TARGET_DESCRIPTION },
+  ], start);
 }
 
 /**

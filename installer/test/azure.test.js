@@ -1024,6 +1024,42 @@ test('askTarget: the Azure choice says what it runs, in plain words', async () =
   assert.match(azure.description, /scheduled jobs in Azure Container Apps/);
   assert.doesNotMatch(azure.description, /PaaS/);
 });
+
+/**
+ * What the first question offers and starts on, for a record with no workspace or subscription yet.
+ * @param {{ newInstall?: boolean, yes?: boolean, csvFiles?: string[], target?: 'fabric' | 'azure' }} [o]
+ */
+async function firstQuestion(o = {}) {
+  /** @type {{ choices?: any[], start?: any }} */
+  const asked = {};
+  const t = fakeUi({ yes: o.yes });
+  const ui = /** @type {any} */ ({ ...t.ui, select: async (/** @type {string} */ _m, /** @type {any[]} */ choices, /** @type {any} */ def) => (Object.assign(asked, { choices, start: def }), def) });
+  const { ctx, config } = fakeCtx({ ui });
+  delete config.fabric.workspaceId;
+  if (o.target) config.target = o.target;
+  else delete config.target;
+  ctx.newInstall = o.newInstall;
+  ctx.csvFiles = o.csvFiles;
+  await askTarget(ctx);
+  return { ...asked, target: config.target };
+}
+
+test('askTarget: a new install starts on Azure, marked recommended, and Fabric stays first', async () => {
+  const q = await firstQuestion({ newInstall: true });
+  assert.deepEqual(q.choices?.map((c) => [c.value, c.name]), [['fabric', 'Microsoft Fabric'], ['azure', 'Your Azure subscription (recommended)']]);
+  assert.equal(q.start, 'azure');
+  assert.equal(q.target, 'azure');
+});
+
+test('askTarget: --yes, --csv files, --target and an existing record start on Fabric; Azure skips the question', async () => {
+  assert.equal((await firstQuestion({ newInstall: true, yes: true })).target, 'fabric', '--yes takes Fabric');
+  assert.equal((await firstQuestion({ newInstall: true, csvFiles: ['usage.csv'] })).start, 'fabric', 'installer uploads go to Fabric');
+  assert.equal((await firstQuestion({ target: 'fabric' })).start, 'fabric', '--target fabric, or a record that stopped before creating anything');
+  assert.equal((await firstQuestion()).start, 'fabric', 'an older record with no target');
+  const azure = await firstQuestion({ target: 'azure' });
+  assert.equal(azure.choices, undefined);
+  assert.equal(azure.target, 'azure');
+});
 test('Azure SQL free offer turned down: the new database is created at the usual price instead', async () => {
   const arm = fakeArm();
   const graph = fakeAzureGraph();

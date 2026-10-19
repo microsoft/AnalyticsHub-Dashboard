@@ -48,6 +48,11 @@ good if nothing on screen asked that model, and pages stopped loading ahead for 
 config files at once, rather than ruling out an Azure config before it asks for the Fabric ones.
 Azure installs load their config as before.
 
+**Installer: Azure is recommended.** The first question's Azure choice now reads
+**Your Azure subscription (recommended)**, and a new install starts on it. Fabric is still
+listed first. `--yes` and `--csv` still start on Fabric, `--target` still chooses, and
+**Repair or change** keeps an install's path.
+
 ## 2026-10-19 — Analytics Hub installer 0.6.7
 
 **The current release.** 0.6.7 replaces 0.6.6 as Latest, so the `releases/latest` links, including

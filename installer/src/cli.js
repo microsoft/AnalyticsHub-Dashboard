@@ -54,7 +54,8 @@ Options:
   --config <file>      Install record (default ./${DEFAULT_CONFIG_FILE})
   --source <dir>       The repo folder to deploy from (default: this checkout)
   --tenant <id>        Tenant ID or domain to sign in to
-  --target <target>    Where Analytics Hub runs: fabric (default) or azure
+  --target <target>    Where Analytics Hub runs: fabric or azure (recommended). A new install
+                       starts on azure, or on fabric with --yes or --csv
   --device-code        Sign in with a code on another device instead of a browser. The default
                        in Azure Cloud Shell
   --use-az             Use the account you are signed in to with the Azure CLI. In Azure Cloud
@@ -324,6 +325,13 @@ export async function startFresh(o) {
 }
 
 /**
+ * Whether the first question treats this run as a new install, and starts on Azure: there was no install record, or
+ * Start fresh set it aside, and --target didn't choose.
+ * @param {{ existed: boolean, startedFresh: boolean, target?: string }} o
+ */
+export const isNewInstall = (o) => (!o.existed || o.startedFresh) && !o.target;
+
+/**
  * @param {string[]} argv
  * @returns {Promise<number>} Exit code.
  */
@@ -374,13 +382,16 @@ export async function main(argv) {
       debug,
       checkTokens: args.cloudShell && args.method === 'azure-cli',
     });
+    let startedFresh = false;
     if (existed && args.command !== 'prereqs' && (await startFresh({ ui, config, file: args.configFile, fabric: api.fabric, tenantId: user.tenantId, command: args.command }))) {
+      startedFresh = true;
       config = loadConfig(args.configFile).config;
       if (args.target) config.target = args.target;
       applyDataFlags(config, args);
     }
     const ctx = createCtx({ ui, config, file: args.configFile, api, user, sources, getToken });
     ctx.csvFiles = args.csvFiles;
+    if (isNewInstall({ existed, startedFresh, target: args.target })) ctx.newInstall = true;
     if (args.secretInNotebook) ctx.secretInNotebook = true;
     if (args.useKeyVault) ctx.useKeyVault = true;
     if (args.allowModelReset) ctx.allowModelReset = true;
