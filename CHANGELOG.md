@@ -73,6 +73,10 @@ its first query, down from about 12 (medians of 6 test opens each).
 - **No upload by hand.** After it writes `AnalyticsHub-Teams.zip`, the installer publishes it to
   your org's app catalog through Microsoft Graph. A few hours later, people find Analytics Hub in
   Teams under **Apps** > **Built for your org**, and in Outlook and the Microsoft 365 Copilot app.
+- **The catalog accepts the package.** Its accent colour is now `#6264A7`, as the Teams manifest
+  schema requires. Before, it had no `#`, so Microsoft Graph turned the package down with a 400
+  ("Schema validation failed at 'accentColor'") and the app never reached the catalog. A test now
+  checks the package against the schema.
 - **Updates the same app.** A re-run, **Repair or change**, **Update** or an upgrade updates the app
   already in the catalog, including one uploaded by hand, rather than add another. If the package
   hasn't changed, it leaves the app alone.
