@@ -211,7 +211,9 @@ has finished. How long the refresh takes depends on the capacity and the history
 Under [Advanced settings](#advanced-settings), the wizard asks which data the dashboard shows. **Demo mode (sample data)**
 deploys everything as usual but sets `VALUELENS_SAMPLE_DATA=true` on the run job, so each run publishes
 the synthetic sample bundled in the jobs image (dates moved forward to end last week) instead of calling
-the tenant's APIs. It's recorded as `azure.sampleData`. To switch to tenant data, run the installer again,
+the tenant's APIs. It's recorded as `azure.sampleData`. Demo mode leaves
+[credit consumption](../azure/README.md#credit-consumption) out for now: the installer deploys the
+Consumption Central model once you switch. To switch to tenant data, run the installer again,
 choose **Yes** for the advanced settings and pick **Your tenant's data**; the next run replaces the sample.
 
 ### Networking
@@ -699,6 +701,12 @@ whole tenant, and `--no-arg-agents` or `--no-arg-foundry` leaves agents or Found
 how many of it make $1. Without the rate, set it under **Prices** in the app. In the browser, choose
 the currency under [Advanced settings](#advanced-settings) instead.
 
+On the Azure target, `upload`, `--csv`, `load-cowork`, `--flow-identity app` and
+`coworkCredits=api` are Fabric only for now. `upload`, `--csv` and `load-cowork` stop and name the
+folder to put exports in. The other two warn, then the Copilot Studio credits flow signs in as you
+and Cowork credits come from the CSV export. See
+[Parity with Fabric](../azure/README.md#parity-with-fabric).
+
 `uninstall` on Fabric asks before it deletes the workspace. If the installer didn't create the
 workspace, the answer defaults to no. It deletes the workspace's managed private endpoints first,
 because Fabric won't delete a workspace that still has them, and waits up to ten minutes for them
@@ -716,6 +724,7 @@ Microsoft 365 admin center, go to **Settings** > **Org settings** > **Services**
 ## Credit consumption
 
 Optional. It fills the app's Consumption pages. See [Consumption Central](../fabric/Add%20Credit%20Consumption/).
+On the Azure target, see [Credit consumption](../azure/README.md#credit-consumption) instead.
 On the **Data sources** screen it's three cards, grouped as **Credit consumption**: **Copilot
 Studio credits**, **Copilot Cowork credits** and **Azure AI costs**. Choose any of them.
 

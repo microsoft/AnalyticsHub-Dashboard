@@ -620,7 +620,7 @@ export async function planAzureConsumption(ctx, subs) {
   const { ui, config } = ctx;
   const ds = config.dataSources;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
-  if (config.modules.consumption && az.sampleData) ui.note('Demo mode has no credit consumption sample, so credit consumption is collected once you switch to your tenant\'s data.');
+  if (config.modules.consumption && az.sampleData) ui.note('Demo mode leaves credit consumption out for now. Once you switch to your tenant\'s data, the installer deploys the Consumption Central model and collects credit consumption.');
   if (!azureConsumptionOn(config)) {
     ds.studioCredits = 'skip';
     ds.coworkCredits = 'skip';
@@ -628,8 +628,12 @@ export async function planAzureConsumption(ctx, subs) {
     return;
   }
   ui.heading('Credit consumption');
-  const studio = ds.studioCredits === 'csv' || ds.studioCredits === 'skip' ? ds.studioCredits : 'api';
-  const cowork = ds.coworkCredits === 'skip' ? 'skip' : 'csv';
+  // Ticked with no source picked yet (a new install, or ticked again after being off or in demo mode):
+  // start from the recommended sources.
+  const fresh = ds.studioCredits === 'skip' && ds.coworkCredits === 'skip' && ds.azureAi === 'skip';
+  if (ds.coworkCredits === 'api') ui.warn('On Azure, Cowork credits come from the Consumption Dashboard\'s CSV export; the Viva Insights Dataflow (coworkCredits=api) is Fabric only for now.');
+  const studio = fresh ? 'api' : ds.studioCredits === 'csv' || ds.studioCredits === 'skip' ? ds.studioCredits : 'api';
+  const cowork = fresh ? 'csv' : ds.coworkCredits === 'skip' ? 'skip' : 'csv';
   if (!asksAdvanced(ctx)) {
     ds.studioCredits = studio;
     ds.coworkCredits = cowork;
@@ -644,9 +648,15 @@ export async function planAzureConsumption(ctx, subs) {
       { name: 'Leave Cowork out', value: 'skip' },
     ], cowork);
   }
+  // Azure has no Data sources screen: Azure AI is the subscription question below. Left out already
+  // (--data azureAi=skip, or an earlier run), it defaults to staying out, so --yes keeps it out.
+  if (!fresh && ds.azureAi === 'skip') config.consumption.azureSubscriptionId = '';
   ds.azureAi = 'api';
   await planConsumption(ctx, /** @type {import('../plan.js').Preflight} */ (/** @type {unknown} */ ({ subscriptions: subs })));
-  if (config.uploads.flowIdentity === 'app' && ds.studioCredits === 'api') ui.warn('On Azure the Studio flow signs in as you; --flow-identity app is Fabric only for now.');
+  if ([ds.studioCredits, ds.coworkCredits, ds.azureAi].every((mode) => mode === 'skip')) {
+    ui.warn('Copilot Studio, Cowork and Azure AI are all left out, so credit consumption collects nothing, and the next run starts from the recommended sources again. To leave it out, untick Credit consumption.');
+  }
+  if (config.uploads.flowIdentity === 'app' && ds.studioCredits === 'api') ui.warn('--flow-identity app is Fabric only for now, so it\'s ignored: on Azure the Studio flow signs in as you, because the jobs\' managed identity has no secret a flow can sign in with.');
   await planFlows(ctx);
 }
 

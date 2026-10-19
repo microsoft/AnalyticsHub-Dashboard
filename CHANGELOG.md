@@ -77,6 +77,19 @@ good if nothing on screen asked that model, and pages stopped loading ahead for 
 config files at once, rather than ruling out an Azure config before it asks for the Fabric ones.
 Azure installs load their config as before.
 
+**Azure: credit consumption checked against Fabric.**
+
+- **Recommended sources on a new tick.** Ticking **Credit consumption** on Azure now starts from the
+  Copilot Studio credits flow and the Cowork CSV export. Before, both defaulted to left out.
+- **`--data azureAi=skip` works on Azure.** The subscription question now defaults to leaving Azure AI
+  out, as it already did after **Leave Azure AI out**, so `--yes` no longer turns it on.
+- **Clear errors for Fabric-only options.** On Azure, `upload`, `install --csv` and `load-cowork` now
+  stop and name the folder to put exports in. `coworkCredits=api`, `--flow-identity app` and leaving
+  every credit source out warn.
+- **Parity documented.** The Azure README compares credit consumption with Fabric source by source,
+  says why the Viva Insights Dataflow, `--flow-identity app` and installer uploads are Fabric only for
+  now, and gives the steps to compare the two Consumption Central models with `parity.mjs`.
+
 ## 2026-10-19 — Analytics Hub installer 0.6.7
 
 **The current release.** 0.6.7 replaces 0.6.6 as Latest, so the `releases/latest` links, including

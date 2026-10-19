@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { notebooksFor } from '../src/catalog.js';
-import { applyDataFlags, parseCli } from '../src/cli.js';
+import { applyDataFlags, main, parseCli } from '../src/cli.js';
 import { emptyConfig } from '../src/config.js';
 import { startServer } from '../src/server.js';
 import { checkStaged, clearStaged, inspectFile, sizeOk, stageUpload } from '../src/staging.js';
@@ -332,6 +332,13 @@ test('uploadCommand: needs an install that loads exports; uploads, then runs whe
   const bare = fakeCtx();
   bare.config.fabric.workspaceId = undefined;
   await assert.rejects(uploadCommand(bare.ctx, { files: [] }, runNow), /Nothing is installed/);
+
+  // On Azure, exports go in the landing folders by hand: say where, not "Nothing is installed".
+  bare.config.target = 'azure';
+  bare.config.azure = /** @type {any} */ ({ outputs: { storageAccountName: 'stah' } });
+  await assert.rejects(uploadCommand(bare.ctx, { files: [] }, runNow), /^Error: The upload command is for the Fabric target only.*stah > landing\/studio.*stah > landing\/viva/);
+  bare.config.azure = /** @type {any} */ ({ drop: { siteId: 's1', folderUrl: 'https://contoso.sharepoint.com/sites/ah/Shared Documents/AnalyticsHub/' } });
+  await assert.rejects(uploadCommand(bare.ctx, { files: [] }, runNow), /AnalyticsHub\/studio and Cowork credit exports in https:\/\/contoso\.sharepoint\.com\/.*AnalyticsHub\/viva;/);
 });
 
 test('cli: upload takes files; --run, --data and --csv go where they belong', () => {
@@ -353,6 +360,23 @@ test('cli: upload takes files; --run, --data and --csv go where they belong', ()
   const skipped = emptyConfig();
   applyDataFlags(skipped, { dataSources: { productFeedback: 'skip' }, feedbackFlow: true });
   assert.equal(skipped.dataSources.productFeedback, 'skip');
+});
+
+test('cli: install --csv on an Azure install stops before signing in and says where exports go', async () => {
+  const file = join(tmp, 'azure-record.json');
+  writeFileSync(file, JSON.stringify({ version: 1, target: 'azure', azure: { outputs: { storageAccountName: 'stah' } } }));
+  const write = process.stderr.write;
+  let err = '';
+  process.stderr.write = /** @type {any} */ ((/** @type {string} */ s) => {
+    err += s;
+    return true;
+  });
+  try {
+    assert.equal(await main(['install', '--config', file, '--csv', 'credits.csv']), 1);
+  } finally {
+    process.stderr.write = write;
+  }
+  assert.match(err, /--csv is for the Fabric target only.*stah > landing\/studio.*stah > landing\/viva/);
 });
 
 test('web ui: the Data sources answer checks its modes and staged files', async () => {

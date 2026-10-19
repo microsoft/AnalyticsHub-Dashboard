@@ -369,4 +369,12 @@ test('Load Cowork now: not while the pipeline runs, and not without a Dataflow',
   const none = signedIn();
   none.config.dataSources.coworkCredits = 'csv';
   await assert.rejects(loadCoworkNow(none.ctx), /no Cowork credits Dataflow/);
+
+  // On Azure, Cowork credits come from the CSV export: say where it goes, not "no pipeline".
+  const azure = signedIn();
+  azure.config.target = 'azure';
+  azure.config.azure = /** @type {any} */ ({ outputs: { storageAccountName: 'stah' } });
+  const before = azure.fabric.calls.length;
+  await assert.rejects(loadCoworkNow(azure.ctx), /^Error: load-cowork is for the Fabric target's Cowork Dataflow\. On Azure.*CSV export: put it in stah > landing\/viva, and the next run loads it\.$/);
+  assert.equal(azure.fabric.calls.length, before, 'nothing touched Fabric');
 });
