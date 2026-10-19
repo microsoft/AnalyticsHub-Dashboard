@@ -1027,19 +1027,20 @@ test('askTarget: the Azure choice says what it runs, in plain words', async () =
 
 /**
  * What the first question offers and starts on, for a record with no workspace or subscription yet.
- * @param {{ newInstall?: boolean, yes?: boolean, csvFiles?: string[], target?: 'fabric' | 'azure' }} [o]
+ * @param {{ newInstall?: boolean, yes?: boolean, target?: 'fabric' | 'azure', csvFiles?: string[], useKeyVault?: boolean, secretInNotebook?: boolean, secretDays?: number }} [o]
  */
-async function firstQuestion(o = {}) {
+async function firstQuestion({ yes, target, secretDays, ...fields } = {}) {
   /** @type {{ choices?: any[], start?: any }} */
   const asked = {};
-  const t = fakeUi({ yes: o.yes });
+  const t = fakeUi({ yes });
   const ui = /** @type {any} */ ({ ...t.ui, select: async (/** @type {string} */ _m, /** @type {any[]} */ choices, /** @type {any} */ def) => (Object.assign(asked, { choices, start: def }), def) });
   const { ctx, config } = fakeCtx({ ui });
   delete config.fabric.workspaceId;
-  if (o.target) config.target = o.target;
+  if (target) config.target = target;
   else delete config.target;
-  ctx.newInstall = o.newInstall;
-  ctx.csvFiles = o.csvFiles;
+  // Where --secret-days goes.
+  if (secretDays) config.app.secretDays = secretDays;
+  Object.assign(ctx, fields);
   await askTarget(ctx);
   return { ...asked, target: config.target };
 }
@@ -1051,9 +1052,12 @@ test('askTarget: a new install starts on Azure, marked recommended, and Fabric s
   assert.equal(q.target, 'azure');
 });
 
-test('askTarget: --yes, --csv files, --target and an existing record start on Fabric; Azure skips the question', async () => {
+test('askTarget: --yes, an option that only works on Fabric, --target and an existing record start on Fabric; Azure skips the question', async () => {
   assert.equal((await firstQuestion({ newInstall: true, yes: true })).target, 'fabric', '--yes takes Fabric');
-  assert.equal((await firstQuestion({ newInstall: true, csvFiles: ['usage.csv'] })).start, 'fabric', 'installer uploads go to Fabric');
+  /** @type {[string, Parameters<typeof firstQuestion>[0]][]} */
+  const fabricOnly = [['--csv', { csvFiles: ['usage.csv'] }], ['--key-vault', { useKeyVault: true }], ['--no-key-vault', { secretInNotebook: true }], ['--secret-days', { secretDays: 30 }]];
+  for (const [option, o] of fabricOnly) assert.equal((await firstQuestion({ ...o, newInstall: true })).start, 'fabric', option);
+  assert.equal((await firstQuestion({ newInstall: true, csvFiles: [] })).start, 'azure', 'no --csv files');
   assert.equal((await firstQuestion({ target: 'fabric' })).start, 'fabric', '--target fabric, or a record that stopped before creating anything');
   assert.equal((await firstQuestion()).start, 'fabric', 'an older record with no target');
   const azure = await firstQuestion({ target: 'azure' });

@@ -285,15 +285,16 @@ test('record: only a definite not-found, or another tenant, makes the workspace 
  * @param {string} dir
  * @param {() => Promise<any>} getWorkspace
  * @param {string} [tenantId]
+ * @param {'fabric' | 'azure'} [target]  --target
  */
-function session(dir, getWorkspace, tenantId = 'tenant-1') {
+function session(dir, getWorkspace, tenantId = 'tenant-1', target) {
   const configFile = join(dir, 'valuelens-install.json');
   saveConfig(configFile, record());
   const ui = createWebUi({ now: () => 1000 });
   /** @type {any} */
   const api = { fabric: fabricThat(getWorkspace) };
   const connect = async () => ({ api, user: { id: 'u', upn: 'admin@contoso.com', tenantId } });
-  const s = createSession({ ui, configFile, version: '0.0.0', connect: /** @type {any} */ (connect) });
+  const s = createSession({ ui, configFile, version: '0.0.0', target, connect: /** @type {any} */ (connect) });
   const ended = () => ui.history().filter((e) => e.type === 'command' && e.state !== 'running');
   return { s, ui, configFile, ended };
 }
@@ -367,23 +368,33 @@ test('web session: start fresh waits for a running command, and works with no re
     assert.deepEqual(none, { ok: true, archived: null });
   }));
 
+/**
+ * Runs install in a browser session, answering Fabric and then Save and close, and collects where each first question
+ * started: 0 for Fabric, 1 for Azure.
+ * @param {ReturnType<typeof session>} w
+ */
+function installs(w) {
+  /** @type {number[]} */
+  const starts = [];
+  w.ui.subscribe((e) => {
+    if (e.type !== 'prompt') return;
+    if (e.message === 'Where should Analytics Hub run?') starts.push(e.default);
+    setImmediate(() => assert.equal(w.ui.answer(e.id, e.kind === 'settings' ? 'close' : 0).ok, true, e.message));
+  });
+  const install = async () => {
+    assert.equal(w.s.start({ command: 'install' }).ok, true);
+    await w.s.settled();
+  };
+  return { starts, install };
+}
+
 test('web session: a new install starts on Azure, a restored draft keeps its answer, and Start fresh is new again', () =>
   inDir(async (dir) => {
-    const { s, ui, configFile, ended } = session(dir, async () => ({ id: 'ws-1' }));
+    const w = session(dir, async () => ({ id: 'ws-1' }));
+    const { s, configFile, ended } = w;
     // A record that stopped before creating anything keeps its path.
     saveConfig(configFile, Object.assign(emptyConfig(), { tenantId: 'tenant-1' }));
-    /** @type {number[]} */
-    const starts = [];
-    ui.subscribe((e) => {
-      if (e.type !== 'prompt') return;
-      if (e.message === 'Where should Analytics Hub run?') starts.push(e.default);
-      // Fabric, then Save and close.
-      setImmediate(() => assert.equal(ui.answer(e.id, e.kind === 'settings' ? 'close' : 0).ok, true, e.message));
-    });
-    const install = async () => {
-      assert.equal(s.start({ command: 'install' }).ok, true);
-      await s.settled();
-    };
+    const { starts, install } = installs(w);
     await install();
     assert.equal(s.startFresh().ok, true);
     await install();
@@ -395,6 +406,18 @@ test('web session: a new install starts on Azure, a restored draft keeps its ans
     await install();
     assert.deepEqual(starts, [0, 1, 0, 1], 'the record, new, the restored draft, new again');
     assert.deepEqual(ended().map((e) => e.state), ['done', 'done', 'done', 'done']);
+  }));
+
+test('web session: --target fabric starts a new install on Fabric, also after Start fresh', () =>
+  inDir(async (dir) => {
+    const w = session(dir, async () => ({ id: 'ws-1' }), 'tenant-1', 'fabric');
+    rmSync(w.configFile);
+    const { starts, install } = installs(w);
+    await install();
+    assert.equal(w.s.startFresh().ok, true);
+    await install();
+    assert.deepEqual(starts, [0, 0]);
+    assert.deepEqual(w.ended().map((e) => e.state), ['done', 'done']);
   }));
 
 test('terminal: install offers to start fresh, other commands and --yes stop and say how', () =>

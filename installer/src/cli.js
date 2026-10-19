@@ -55,7 +55,8 @@ Options:
   --source <dir>       The repo folder to deploy from (default: this checkout)
   --tenant <id>        Tenant ID or domain to sign in to
   --target <target>    Where Analytics Hub runs: fabric or azure (recommended). A new install
-                       starts on azure, or on fabric with --yes or --csv
+                       starts on Azure, or on Fabric with --yes or an option that only works on
+                       Fabric, such as --csv
   --device-code        Sign in with a code on another device instead of a browser. The default
                        in Azure Cloud Shell
   --use-az             Use the account you are signed in to with the Azure CLI. In Azure Cloud
@@ -325,7 +326,7 @@ export async function startFresh(o) {
 }
 
 /**
- * Whether the first question treats this run as a new install, and starts on Azure: there was no install record, or
+ * Whether the first question treats this run as a new install, which can start on Azure: there was no install record, or
  * Start fresh set it aside, and --target didn't choose.
  * @param {{ existed: boolean, startedFresh: boolean, target?: string }} o
  */
@@ -350,7 +351,7 @@ export async function main(argv) {
     }
     const debug = verbose ? (/** @type {string} */ m) => process.stderr.write(`${c.dim(m)}\n`) : undefined;
     if (args.ui) {
-      await runWizard({ configFile: args.configFile, sourceDir: args.sourceDir, tenantId: args.tenantId, method: args.method, open: args.open, version: version(), debug });
+      await runWizard({ configFile: args.configFile, sourceDir: args.sourceDir, tenantId: args.tenantId, method: args.method, target: args.target, open: args.open, version: version(), debug });
       return 0;
     }
     const ui = createUi({ yes: args.yes });

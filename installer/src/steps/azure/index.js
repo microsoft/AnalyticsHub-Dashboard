@@ -234,8 +234,10 @@ export const AZURE_TARGET_DESCRIPTION =
 export async function askTarget(ctx) {
   ctx.config.target ??= 'fabric';
   if (ctx.config.target === 'azure' || ctx.config.fabric.workspaceId || ctx.config.azure?.subscriptionId) return;
-  // A new install starts on Azure. --yes keeps Fabric, and so do --csv files: the installer uploads them to Fabric only.
-  const start = ctx.newInstall && !ctx.ui.yes && !ctx.csvFiles?.length ? 'azure' : ctx.config.target;
+  // A new install starts on Azure. --yes keeps Fabric, and so do the options that only work on Fabric: --csv (the
+  // installer uploads to Fabric only), --key-vault, --no-key-vault and --secret-days (which sets app.secretDays).
+  const fabricOnly = ctx.csvFiles?.length || ctx.useKeyVault || ctx.secretInNotebook || ctx.config.app.secretDays;
+  const start = ctx.newInstall && !ctx.ui.yes && !fabricOnly ? 'azure' : ctx.config.target;
   ctx.ui.heading('Where should Analytics Hub run?');
   ctx.config.target = await ctx.ui.select('Where should Analytics Hub run?', [
     { name: 'Microsoft Fabric', value: 'fabric', description: 'Use Fabric workspaces, Lakehouse, notebooks and pipeline.' },
