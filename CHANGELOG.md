@@ -94,6 +94,20 @@ nothing new and deploy as before.
 In the app it's a small footer at the bottom of the sidebar, so it's on every page, in a browser
 and in Teams, Outlook and Microsoft 365.
 
+**Azure: least-privilege install into a resource group your Azure admin creates.** The admin
+creates the group, registers the resource providers, and gives you Contributor and a Role Based
+Access Control Administrator that's limited to the roles the installer gives, on just that group
+([Least-privilege Azure install](docs/AZURE-LEAST-PRIVILEGE.md)). Owner, or Contributor and User
+Access Administrator, still works as before.
+
+- **Checks the resource group.** With an existing resource group, **Checking Azure** and
+  **Prerequisites** check your rights there, not just on the subscription, and the preflight stops
+  before creating anything when you can't deploy or assign roles there.
+- **Commands for the admin.** During **Checking Azure**, resource providers you can't register, and
+  the managed identity's roles outside the group (Azure AI and pay-as-you-go costs, Reader for
+  Resource Graph), are listed as az commands for your Azure admin. Deployment errors about
+  unregistered providers or role assignments say what's needed.
+
 **Docs:**
 
 - **A shorter README, by path.** The [README](README.md) is now just the steps for Path 1 (Fabric)

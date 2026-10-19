@@ -157,6 +157,89 @@ test('checkPrereqs: the install\'s subscription is checked first; no Azure at al
   assert.match(teamsAdmin['teams-admin'].detail, /Active: Teams Administrator/);
 });
 
+const CONTRIBUTOR = [{ actions: ['*'], notActions: ['Microsoft.Authorization/*/Delete', 'Microsoft.Authorization/*/Write', 'Microsoft.Authorization/elevateAccess/Action'] }];
+const RBAC_ADMIN = [{ actions: ['Microsoft.Authorization/roleAssignments/write', 'Microsoft.Authorization/roleAssignments/delete', '*/read', 'Microsoft.Support/*'], notActions: [] }];
+const RG = '/subscriptions/sub-1/resourceGroups/rg-x';
+
+/** An Azure install into resource group rg-x in sub-1. @param {'existing' | 'new'} [mode] */
+function azureInto(mode = 'existing') {
+  const config = emptyConfig();
+  config.target = 'azure';
+  config.azure = /** @type {any} */ ({ subscriptionId: 'sub-1', resourceGroup: 'rg-x', resourceGroupMode: mode });
+  return config;
+}
+
+test('checkPrereqs: an existing resource group is checked there, so least privilege on just that group is enough', async () => {
+  const lp = await run({
+    perms: { '/subscriptions/sub-1': READ, [RG]: [...CONTRIBUTOR, ...RBAC_ADMIN] },
+    assigned: { '/subscriptions/sub-1': [], [RG]: [assignment(ROLES.contributor), assignment(ROLES.rbacAdministrator)] },
+  }, azureInto());
+  const rbac = lp['azure-rbac'];
+  assert.equal(rbac.status, 'met', 'the resource group decides, not the subscription');
+  assert.match(rbac.detail, /^Resource group rg-x: enough to install there\. Subscription-wide, 0 of 1 subscription give you this\./);
+  assert.deepEqual(rbac.rows?.map((r) => [r.name, r.status]), [['Resource group rg-x', 'met'], ['Production', 'missing']]);
+  assert.equal(rbac.rows?.[0].detail, 'Can deploy and assign roles in this resource group (Contributor, Role Based Access Control Administrator)');
+  assert.match(rbac.howTo, /least privilege.*docs\/AZURE-LEAST-PRIVILEGE\.md/);
+
+  const subs = [{ subscriptionId: 'sub-1', displayName: 'Production', state: 'Enabled' }, { subscriptionId: 'sub-2', displayName: 'Other', state: 'Enabled' }];
+  const noAssign = await run({ subs, perms: { '/subscriptions/sub-1': READ, '/subscriptions/sub-2': ALL, [RG]: CONTRIBUTOR }, assigned: { [RG]: [assignment(ROLES.contributor)] } }, azureInto());
+  assert.equal(noAssign['azure-rbac'].status, 'missing', 'Owner on another subscription doesn\'t help an install into rg-x');
+  assert.match(noAssign['azure-rbac'].detail, /^Resource group rg-x: not enough to install there\. Subscription-wide, 1 of 2 subscriptions give you this\./);
+  assert.equal(noAssign['azure-rbac'].rows?.[0].detail, 'Can deploy here but not assign roles (no Role Based Access Control Administrator or User Access Administrator) (Contributor)');
+
+  const assignOnly = await run({ perms: { '/subscriptions/sub-1': READ, [RG]: RBAC_ADMIN }, assigned: { [RG]: [assignment(ROLES.rbacAdministrator)] } }, azureInto());
+  assert.equal(assignOnly['azure-rbac'].rows?.[0].detail, 'Can assign roles here but not deploy (no Contributor) (Role Based Access Control Administrator)');
+
+  const readOnly = await run({ perms: { '/subscriptions/sub-1': READ, [RG]: READ }, assigned: { [RG]: [] } }, azureInto());
+  assert.equal(readOnly['azure-rbac'].status, 'missing');
+  assert.equal(readOnly['azure-rbac'].rows?.[0].detail, 'Can\'t deploy or assign roles in this resource group');
+
+  const eligible = await run({
+    perms: { '/subscriptions/sub-1': READ, [RG]: CONTRIBUTOR },
+    assigned: { [RG]: [assignment(ROLES.contributor)] },
+    armEligible: { [RG]: [assignment(ROLES.rbacAdministrator)] },
+  }, azureInto());
+  assert.equal(eligible['azure-rbac'].status, 'eligible');
+  assert.match(eligible['azure-rbac'].detail, /^Resource group rg-x: activate your role first\./);
+  assert.equal(eligible['azure-rbac'].rows?.[0].detail, 'Not active yet: Role Based Access Control Administrator. You can activate it in Privileged Identity Management.');
+});
+
+test('checkPrereqs: a resource group that can\'t be checked leaves it to the subscriptions; no resource group row for a new group or on Fabric', async () => {
+  const forbidden = () => new HttpError('403 Forbidden', { method: 'GET', url: 'x', status: 403 });
+  const byId = (/** @type {import('../src/prereqs.js').Prereq[]} */ items) => Object.fromEntries(items.map((i) => [i.id, i]));
+
+  const unreadable = fakeApis();
+  unreadable.arm.permissions = async (/** @type {string} */ scope) => {
+    if (scope === RG) throw forbidden();
+    return ALL;
+  };
+  const r = byId(await checkPrereqs({ api: unreadable, user: USER, config: azureInto() }));
+  assert.equal(r['azure-rbac'].status, 'met', 'Owner on the subscription still decides');
+  assert.match(r['azure-rbac'].detail, /^Resource group rg-x: couldn't check\. Subscription-wide, 1 of 1 subscription give you this\./);
+  assert.equal(r['azure-rbac'].rows?.[0].status, 'unknown');
+  assert.match(r['azure-rbac'].rows?.[0].detail ?? '', /^Couldn't check: 403/);
+
+  const hidden = await run({ subs: [], perms: { [RG]: [...CONTRIBUTOR, ...RBAC_ADMIN] } }, azureInto());
+  assert.equal(hidden['azure-rbac'].status, 'met', 'rights on just the group, with no subscription you can list');
+  assert.equal(hidden['azure-rbac'].detail, 'Resource group rg-x: enough to install there.');
+  assert.deepEqual(hidden['azure-rbac'].rows?.map((row) => row.name), ['Resource group rg-x']);
+
+  const unlisted = fakeApis({ perms: { [RG]: [...CONTRIBUTOR, ...RBAC_ADMIN] } });
+  unlisted.arm.listSubscriptions = async () => { throw forbidden(); };
+  const u = byId(await checkPrereqs({ api: unlisted, user: USER, config: azureInto() }));
+  assert.equal(u['azure-rbac'].status, 'met', 'a subscription list that fails doesn\'t hide the resource group');
+
+  const fresh = await run({}, azureInto('new'));
+  assert.ok(!fresh['azure-rbac'].rows?.some((row) => row.name.startsWith('Resource group')), 'a new group needs the subscription');
+  assert.doesNotMatch(fresh['azure-rbac'].detail, /Resource group/);
+
+  const fabric = azureInto();
+  fabric.target = 'fabric';
+  const fab = await run({}, fabric);
+  assert.ok(!fab['azure-rbac'].rows?.some((row) => row.name.startsWith('Resource group')), 'Fabric doesn\'t deploy into a resource group');
+  assert.doesNotMatch(fab['azure-rbac'].howTo, /LEAST-PRIVILEGE/);
+});
+
 test('checkPrereqs: System Administrator per environment; a failing check is "couldn\'t check"', async () => {
   const r = await run({
     envs: [

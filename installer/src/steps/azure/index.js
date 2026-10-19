@@ -29,6 +29,7 @@ import { ensureOrgAccess, verifyOrgAccess } from '../org-access.js';
 import { askAdvanced, asksAdvanced } from '../advanced.js';
 import { askGrants, askLine, askMode, askParameters, ensureAzureAskAccess, planAzureAsk } from './ask.js';
 import { checkRegions, noRegionMessage, regionNotes, regionProblems, sqlProblem } from './regions.js';
+import { checkDeployRights, printAdminGrants, registrationMessage, reportProviders, roleAssignMessage } from './least-privilege.js';
 import { AZURE_LARGE_TENANT_SKU, AZURE_LARGE_TENANT_SQL_VCORES, BIG_CAPACITY_SEATS, copilotSeats, LARGE_TENANT_SEATS, seatCount } from '../../seats.js';
 
 /** @typedef {import('../../install.js').Ctx} Ctx */
@@ -42,6 +43,8 @@ export const PRIVATE_FEATURE = /** @type {[string, string]} */ (['Microsoft.Netw
 /** Capacities that can host a Power BI VNet data gateway: F (including trial), P and A4+; not PPU, EM or A1-A3. */
 export const supportsVnetGateway = (/** @type {{ sku?: string }} */ cap) => /^(F|FT|P\d|A[4-9])/i.test(String(cap.sku ?? '')) && !/^PP/i.test(String(cap.sku ?? ''));
 export const isPrivate = (/** @type {import('../../config.js').AzureConfig | undefined} */ az) => az?.publicNetworkAccess === false;
+/** The resource providers this install needs registered in its subscription. @param {import('../../config.js').AzureConfig | undefined} az */
+export const azureProviders = (az) => [...AZURE_PROVIDERS, ...(isPrivate(az) ? PRIVATE_PROVIDERS : []), ...(askMode(az) === 'create' ? ASK_PROVIDERS : [])];
 export const AZURE_SUPPORTED_MODULES = /** @type {const} */ (['core', 'orgData', 'm365Activity', 'agent365', 'productFeedback', 'consumption', 'defender']);
 export const WEB_APP_NAME = 'Analytics Hub (Azure)';
 /** Delegated: lets admins and group owners add and remove viewers from the app. Graph still checks they own the group or are a directory admin. */
@@ -198,7 +201,8 @@ export function publicAccessMessage(err, az) {
 }
 
 /** @param {any} err @param {import('../../config.js').AzureConfig} [az] */
-const explain = (err, az) => policyMessage(err, az) || publicAccessMessage(err, az) || regionCapacityMessage(err) || askModelMessage(err);
+const explain = (err, az) => policyMessage(err, az) || publicAccessMessage(err, az) || regionCapacityMessage(err) || askModelMessage(err)
+  || registrationMessage(err, az?.subscriptionId, [...azureProviders(az), ...(isPrivate(az) ? [PRIVATE_FEATURE.join('/')] : [])]) || roleAssignMessage(err);
 
 /** @param {any} err */
 export function askModelMessage(err) {
@@ -879,9 +883,18 @@ export async function azurePreflight(ctx) {
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
   ui.heading('Checking Azure');
   az.installId ??= randomUUID();
-  for (const ns of [...AZURE_PROVIDERS, ...(isPrivate(az) ? PRIVATE_PROVIDERS : []), ...(askMode(az) === 'create' ? ASK_PROVIDERS : [])]) await api.arm.ensureProvider(/** @type {string} */ (az.subscriptionId), ns).catch((err) => ui.warn(`Couldn't register ${ns}: ${err.message}`));
+  // An install with rights on just its resource group can't register providers: say which, for the admin, rather than fail here.
+  /** @type {{ unregistered: string[], unread: string[] }} */
+  const providers = { unregistered: [], unread: [] };
+  /** @param {string} name @param {string} failed @param {any} err */
+  const providerProblem = (name, failed, err) => {
+    if (err instanceof HttpError && err.status === 403) providers[err.method === 'GET' ? 'unread' : 'unregistered'].push(name);
+    else ui.warn(`${failed}: ${err.message}`);
+  };
+  for (const ns of azureProviders(az)) await api.arm.ensureProvider(/** @type {string} */ (az.subscriptionId), ns).catch((err) => providerProblem(ns, `Couldn't register ${ns}`, err));
   // A VNet-integrated Container Apps environment fails with SubscriptionNotRegisteredForFeature unless this flag is on.
-  if (isPrivate(az)) await api.arm.ensureFeature(/** @type {string} */ (az.subscriptionId), ...PRIVATE_FEATURE).catch((err) => ui.warn(`Couldn't register the ${PRIVATE_FEATURE.join('/')} feature: ${err.message}`));
+  if (isPrivate(az)) await api.arm.ensureFeature(/** @type {string} */ (az.subscriptionId), ...PRIVATE_FEATURE).catch((err) => providerProblem(PRIVATE_FEATURE.join('/'), `Couldn't register the ${PRIVATE_FEATURE.join('/')} feature`, err));
+  reportProviders(ctx, providers);
   if (isPrivate(az) && !az.powerBi?.capacityId) throw new Error('Private networking needs a Fabric or Premium capacity for the Power BI VNet data gateway. Run the installer without --yes to choose one.');
   const envName = String(az.outputs?.environmentName ?? '');
   if (envName && isPrivate(az) !== envName.endsWith('-vnet')) throw new Error(`This install already runs with ${envName.endsWith('-vnet') ? 'private networking' : 'public endpoints'}. Container Apps can't change networking in place, so uninstall and install again to switch.`);
@@ -896,12 +909,14 @@ export async function azurePreflight(ctx) {
   }
   // ARM validate and what-if need the resource group, and nothing is created before the plan is approved.
   const rgExists = await api.arm.getResourceGroup(/** @type {string} */ (az.subscriptionId), /** @type {string} */ (az.resourceGroup)).then((g) => !!g, () => false);
+  await checkDeployRights(ctx, rgExists);
   if (!rgExists) {
     ui.note(`Resource group ${az.resourceGroup} is new, so every resource will be created. Azure checks policy when it deploys.`);
     az.status.whatIf = [
       { resourceType: 'Microsoft.Resources/resourceGroups', name: az.resourceGroup, changeType: 'Create' },
       ...newResourceGroupResources(az),
     ];
+    await printAdminGrants(ctx);
     return;
   }
   const deployment = await azureDeployment(ctx, { pass: 1 });
@@ -919,6 +934,7 @@ export async function azurePreflight(ctx) {
   });
   az.status.whatIf = changes?.properties?.changes ?? changes?.changes ?? [];
   await stopOnUntaggedCollisions(ctx);
+  await printAdminGrants(ctx);
 }
 
 /**

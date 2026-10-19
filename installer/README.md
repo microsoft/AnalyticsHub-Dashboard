@@ -133,7 +133,10 @@ The installer can also set up Analytics Hub in **your Azure subscription**. Star
 
 You need:
 
-- Contributor plus User Access Administrator (or Owner) on the subscription or resource group.
+- Contributor plus User Access Administrator (or Owner) on the subscription or resource group. Or,
+  for least privilege, Contributor and a limited Role Based Access Control Administrator on just a
+  resource group your Azure admin creates: see
+  [Least-privilege Azure install](../docs/AZURE-LEAST-PRIVILEGE.md).
 - Permission to register Entra apps, or an Application Administrator.
 - A Global Administrator or Privileged Role Administrator to grant the managed identity's Graph app
   roles, or to use the admin links the installer prints.
