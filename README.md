@@ -13,7 +13,7 @@ https://github.com/user-attachments/assets/b415625d-c2ae-467f-9a91-59ef9adca6c8
 
 Pick a path. Both load the data and publish the models.
 
-| | [**1. Fabric**](1-fabric/) (recommended) | [**2. Azure**](2-azure/) |
+| | [**1. Fabric**](1-fabric/) | [**2. Azure**](2-azure/) (recommended) |
 |---|---|---|
 | **You need** | A Fabric capacity, F2 or larger, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager) | An Azure subscription or resource group, and a Power BI workspace |
 | **Set up with** | The installer, or by hand | The installer |

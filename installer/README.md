@@ -129,7 +129,9 @@ permissions cover won't load until they're fixed.
 ## Azure target
 
 The installer can also set up Analytics Hub in **your Azure subscription**. Start it with
-`--target azure`, or pick **Your Azure subscription** as the first wizard answer.
+`--target azure`, or pick **Your Azure subscription (recommended)** as the first wizard answer.
+A new install starts on it, or on Fabric with `--yes` or an option that only works on Fabric,
+such as `--csv`. **Repair or change** keeps an install's path.
 
 You need:
 

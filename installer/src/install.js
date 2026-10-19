@@ -105,6 +105,8 @@ import { reviewSetup } from './setup.js';
  * @property {import('./staging.js').PendingUpload[]} [pendingUploads]  Exports to upload to the drop folder during the install.
  * @property {string[]} [csvFiles]  Exports named with --csv.
  * @property {string} [configFile]  The install record's path.
+ * @property {boolean} [newInstall]  No install record when the run started, or Start fresh set it aside, and no --target. The first question starts on Azure unless --yes or an option that only works on Fabric keeps Fabric.
+ * @property {string[]} [fabricOnly]  The options given that only work on Fabric, such as --csv.
  * @property {(resource: import('./auth.js').Resource) => Promise<string>} [getToken]  The signed-in user's tokens, for tools the installer runs.
  * @property {string} [setupSection] Open this settings category directly after a failure.
  * @property {boolean} [setupRetry] Revalidate saved choices without reopening every question.

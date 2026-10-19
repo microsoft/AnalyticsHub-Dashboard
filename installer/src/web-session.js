@@ -95,6 +95,8 @@ export function describeError(err) {
  *   version: string,
  *   tenantId?: string,
  *   method?: Method,
+ *   target?: 'fabric' | 'azure',
+ *   fabricOnly?: string[],
  *   connect?: typeof realConnect,
  *   debug?: (m: string) => void,
  * }} o
@@ -186,6 +188,8 @@ export function createSession(o) {
     ui.emit({ type: 'command', command, state: 'running' });
     try {
       const { config, existed } = loadConfig(o.configFile);
+      // --target chooses for a new install. A record keeps its own.
+      if (!existed && o.target) config.target = o.target;
       currentConfig = config;
       if (!NO_RECORD.includes(command) && !existed) throw new Error(`No install record at ${o.configFile}. Set up Analytics Hub first.`);
       const sources = loadSources(o.sourceDir);
@@ -206,6 +210,9 @@ export function createSession(o) {
         return;
       }
       const ctx = createCtx({ ui, config, file: o.configFile, api: signedIn.api, user: signedIn.user, sources, getToken: signedIn.getToken });
+      // No install record, including after Start fresh set it aside, and no --target: a new install, which can start on Azure.
+      if (!existed && !o.target) ctx.newInstall = true;
+      ctx.fabricOnly = o.fabricOnly;
       ctx.setupSection = req.section;
       ctx.setupRetry = req.retry;
       let ok = true;

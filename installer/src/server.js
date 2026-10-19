@@ -392,12 +392,12 @@ export function mirror(write) {
 
 /**
  * `valuelens-install --ui`: serves the wizard until the page closes it or Ctrl+C.
- * @param {{ configFile: string, sourceDir?: string, tenantId?: string, method?: import('./web-session.js').Method, open: boolean, version: string, debug?: (m: string) => void, write?: (s: string) => void, checkUpdate?: () => Promise<import('./update-check.js').Update | null>, stdin?: NodeJS.ReadableStream & { isTTY?: boolean } }} o
+ * @param {{ configFile: string, sourceDir?: string, tenantId?: string, method?: import('./web-session.js').Method, target?: 'fabric' | 'azure', fabricOnly?: string[], open: boolean, version: string, debug?: (m: string) => void, write?: (s: string) => void, checkUpdate?: () => Promise<import('./update-check.js').Update | null>, stdin?: NodeJS.ReadableStream & { isTTY?: boolean } }} o
  */
 export async function runWizard(o) {
   const write = o.write ?? ((/** @type {string} */ s) => process.stdout.write(s));
   const ui = createWebUi();
-  const session = createSession({ ui, configFile: o.configFile, sourceDir: o.sourceDir, version: o.version, tenantId: o.tenantId, method: o.method, debug: o.debug });
+  const session = createSession({ ui, configFile: o.configFile, sourceDir: o.sourceDir, version: o.version, tenantId: o.tenantId, method: o.method, target: o.target, fabricOnly: o.fabricOnly, debug: o.debug });
   const server = await startServer({ ui, session });
   ui.subscribe(mirror(write));
   write(`${c.bold(`Analytics Hub installer ${o.version}`)}\n`);

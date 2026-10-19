@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { MODULES, azureGraphRolesFor } from '../src/catalog.js';
+import { fabricOnlyOptions, parseCli } from '../src/cli.js';
 import { HttpError } from '../src/http.js';
 import { armApi, armErrors, waitForDeployment } from '../src/clients/azure.js';
 import { runCommand } from '../src/install.js';
@@ -1023,6 +1024,126 @@ test('askTarget: the Azure choice says what it runs, in plain words', async () =
   assert.equal(azure.description, AZURE_TARGET_DESCRIPTION);
   assert.match(azure.description, /scheduled jobs in Azure Container Apps/);
   assert.doesNotMatch(azure.description, /PaaS/);
+});
+
+/**
+ * What the first question offers and starts on, for a record with no workspace or subscription yet. argv holds the
+ * install options: cli.js passes on --yes and the options that only work on Fabric.
+ * @param {{ newInstall?: boolean, target?: 'fabric' | 'azure', argv?: string[], dataSources?: Partial<import('../src/uploads.js').DataSourceModes> }} [o]
+ */
+async function firstQuestion({ newInstall, target, argv = [], dataSources } = {}) {
+  const args = parseCli(['install', ...argv], {});
+  /** @type {{ choices?: any[], start?: any }} */
+  const asked = {};
+  const t = fakeUi({ yes: args.yes });
+  const ui = /** @type {any} */ ({ ...t.ui, select: async (/** @type {string} */ _m, /** @type {any[]} */ choices, /** @type {any} */ def) => (Object.assign(asked, { choices, start: def }), def) });
+  const { ctx, config } = fakeCtx({ ui });
+  delete config.fabric.workspaceId;
+  if (target) config.target = target;
+  else delete config.target;
+  Object.assign(config.dataSources, dataSources);
+  Object.assign(ctx, { newInstall, fabricOnly: fabricOnlyOptions(args) });
+  await askTarget(ctx);
+  return { ...asked, target: config.target };
+}
+
+test('askTarget: a new install starts on Azure, marked recommended, and Fabric stays first', async () => {
+  const q = await firstQuestion({ newInstall: true });
+  assert.deepEqual(q.choices?.map((c) => [c.value, c.name]), [['fabric', 'Microsoft Fabric'], ['azure', 'Your Azure subscription (recommended)']]);
+  assert.equal(q.start, 'azure');
+  assert.equal(q.target, 'azure');
+});
+
+test('askTarget: --yes, --target and an existing record start on Fabric; Azure skips the question', async () => {
+  assert.equal((await firstQuestion({ newInstall: true, argv: ['--yes'] })).target, 'fabric', '--yes takes Fabric');
+  assert.equal((await firstQuestion({ target: 'fabric' })).start, 'fabric', '--target fabric, or a record that stopped before creating anything');
+  assert.equal((await firstQuestion()).start, 'fabric', 'an older record with no target');
+  const azure = await firstQuestion({ target: 'azure' });
+  assert.equal(azure.choices, undefined);
+  assert.equal(azure.target, 'azure');
+});
+
+const VIVA_ID = '00000000-0000-0000-0000-000000000001';
+/** Each option that only works on Fabric, and how fabricOnlyOptions names it. */
+const FABRIC_ONLY = /** @type {[string[], string][]} */ ([
+  [['--csv', 'usage.csv'], '--csv'],
+  [['--key-vault'], '--key-vault'],
+  [['--no-key-vault'], '--no-key-vault'],
+  [['--secret-in-notebook'], '--no-key-vault'],
+  [['--secret-days', '30'], '--secret-days'],
+  [['--flow-identity', 'app'], '--flow-identity app'],
+  [['--viva-partition', VIVA_ID], '--viva-partition'],
+  [['--viva-query', VIVA_ID], '--viva-query'],
+  [['--feedback-flow'], '--feedback-flow'],
+  [['--data', 'productFeedback=api'], '--data productFeedback=api'],
+  [['--data', 'productFeedback=flow'], '--data productFeedback=api'],
+  [['--data', 'coworkCredits=api'], '--data coworkCredits=api'],
+  [['--data', 'agent365=api'], '--data agent365=api'],
+]);
+for (const [argv, name] of FABRIC_ONLY) {
+  test(`askTarget: a new install given ${argv.join(' ')}, which only works on Fabric, starts on Fabric`, async () => {
+    assert.deepEqual(fabricOnlyOptions(parseCli(['install', ...argv], {})), [name]);
+    assert.equal((await firstQuestion({ newInstall: true, argv })).start, 'fabric');
+  });
+}
+
+test('askTarget: options Azure runs too, and skipping a source, still start a new install on Azure', async () => {
+  const azureToo = [
+    [],
+    ['--studio-flow'],
+    ['--data', 'studioCredits=api'],
+    ['--data', 'studioCredits=csv,coworkCredits=csv'],
+    ['--flow-identity', 'user'],
+    ['--data', 'workday=csv'],
+    ['--flow-environment', 'https://org.crm.dynamics.com'],
+    ['--data', 'm365Activity=skip,defender=api,resourceGraph=api'],
+    ['--arg-management-group', '/providers/Microsoft.Management/managementGroups/mg-1', '--no-arg-foundry'],
+    ['--currency', 'GBP', '--exchange-rate', '0.79'],
+    ['--data', 'workday=skip,agent365=skip,productFeedback=skip,coworkCredits=skip,agentEvaluator=skip'],
+    ['--feedback-flow', '--data', 'productFeedback=skip'],
+  ];
+  for (const argv of azureToo) {
+    assert.deepEqual(fabricOnlyOptions(parseCli(['install', ...argv], {})), [], argv.join(' '));
+    assert.equal((await firstQuestion({ newInstall: true, argv })).start, 'azure', argv.join(' '));
+  }
+});
+
+test("askTarget: Agent 365 and product feedback keep Fabric by API, and by CSV only while Azure doesn't run them", async () => {
+  for (const id of /** @type {const} */ (['agent365', 'productFeedback'])) {
+    const azure = MODULES[id].azure;
+    const runs = azure.supported;
+    try {
+      // Before and after Azure runs the module from a CSV.
+      for (const supported of [false, true]) {
+        azure.supported = supported;
+        assert.equal((await firstQuestion({ newInstall: true, argv: ['--data', `${id}=api`] })).start, 'fabric', `${id}=api, supported: ${supported}`);
+        assert.equal((await firstQuestion({ newInstall: true, argv: ['--data', `${id}=csv`] })).start, supported ? 'azure' : 'fabric', `${id}=csv, supported: ${supported}`);
+      }
+    } finally {
+      azure.supported = runs;
+    }
+  }
+});
+
+test("askTarget: Agent Evaluator keeps Fabric only while Azure doesn't run it", async () => {
+  const azure = MODULES.agentEvaluator.azure;
+  const runs = azure.supported;
+  const argv = ['--data', 'agentEvaluator=api'];
+  try {
+    // Before and after Azure runs the module.
+    for (const supported of [false, true]) {
+      azure.supported = supported;
+      assert.deepEqual(fabricOnlyOptions(parseCli(['install', ...argv], {})), supported ? [] : ['--data agentEvaluator=api'], `supported: ${supported}`);
+      assert.equal((await firstQuestion({ newInstall: true, argv })).start, supported ? 'azure' : 'fabric', `supported: ${supported}`);
+    }
+  } finally {
+    azure.supported = runs;
+  }
+});
+
+test("askTarget: only the options given count, not the data sources a new install's record starts with", async () => {
+  const q = await firstQuestion({ newInstall: true, dataSources: { agent365: 'api', productFeedback: 'api', coworkCredits: 'api', agentEvaluator: 'api' } });
+  assert.equal(q.start, 'azure');
 });
 test('Azure SQL free offer turned down: the new database is created at the usual price instead', async () => {
   const arm = fakeArm();

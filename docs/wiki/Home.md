@@ -5,9 +5,9 @@ deliver. Run it on Microsoft Fabric or in your own Azure subscription.
 
 ## Which path?
 
-Not sure? Use **Fabric**, with the installer.
+Not sure? Use **Azure**, with the installer.
 
-| | **1. Fabric** (recommended) | **2. Azure** |
+| | **1. Fabric** | **2. Azure** (recommended) |
 |---|---|---|
 | **Runs on** | Your Fabric capacity | Your Azure subscription |
 | **Set up with** | The installer, or by hand | The installer |

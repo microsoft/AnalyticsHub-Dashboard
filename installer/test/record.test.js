@@ -5,11 +5,11 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSy
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { startFresh } from '../src/cli.js';
+import { fabricOnlyOptions, isNewInstall, parseCli, startFresh } from '../src/cli.js';
 import { archiveConfig, emptyConfig, loadConfig, saveConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
 import { appDeployedSince } from '../src/steps/app.js';
-import { confirmAzurePlan } from '../src/steps/azure/index.js';
+import { askTarget, confirmAzurePlan } from '../src/steps/azure/index.js';
 import { recordWorkspaceGone, staleRecordMessage } from '../src/steps/fabric.js';
 import { adoptUploadedRecord, CLOUD_SHELL_ENV, cloudShellKeepsFiles, cloudShellRecordMessage } from '../src/launch.js';
 import { confirmPlan, KEEP_AWAKE, KEEP_CLOUD_SHELL_OPEN, keepAwake } from '../src/steps/plan.js';
@@ -285,15 +285,16 @@ test('record: only a definite not-found, or another tenant, makes the workspace 
  * @param {string} dir
  * @param {() => Promise<any>} getWorkspace
  * @param {string} [tenantId]
+ * @param {{ target?: 'fabric' | 'azure', fabricOnly?: string[] }} [given]  --target, and the options given that only work on Fabric
  */
-function session(dir, getWorkspace, tenantId = 'tenant-1') {
+function session(dir, getWorkspace, tenantId = 'tenant-1', given = {}) {
   const configFile = join(dir, 'valuelens-install.json');
   saveConfig(configFile, record());
   const ui = createWebUi({ now: () => 1000 });
   /** @type {any} */
   const api = { fabric: fabricThat(getWorkspace) };
   const connect = async () => ({ api, user: { id: 'u', upn: 'admin@contoso.com', tenantId } });
-  const s = createSession({ ui, configFile, version: '0.0.0', connect: /** @type {any} */ (connect) });
+  const s = createSession({ ui, configFile, version: '0.0.0', ...given, connect: /** @type {any} */ (connect) });
   const ended = () => ui.history().filter((e) => e.type === 'command' && e.state !== 'running');
   return { s, ui, configFile, ended };
 }
@@ -367,6 +368,83 @@ test('web session: start fresh waits for a running command, and works with no re
     assert.deepEqual(none, { ok: true, archived: null });
   }));
 
+/**
+ * Runs install in a browser session, answering Fabric and then Save and close, and collects where each first question
+ * started: 0 for Fabric, 1 for Azure.
+ * @param {ReturnType<typeof session>} w
+ */
+function installs(w) {
+  /** @type {number[]} */
+  const starts = [];
+  w.ui.subscribe((e) => {
+    if (e.type !== 'prompt') return;
+    if (e.message === 'Where should Analytics Hub run?') starts.push(e.default);
+    setImmediate(() => assert.equal(w.ui.answer(e.id, e.kind === 'settings' ? 'close' : 0).ok, true, e.message));
+  });
+  const install = async () => {
+    assert.equal(w.s.start({ command: 'install' }).ok, true);
+    await w.s.settled();
+  };
+  return { starts, install };
+}
+
+test('web session: a new install starts on Azure, a restored draft keeps its answer, and Start fresh is new again', () =>
+  inDir(async (dir) => {
+    const w = session(dir, async () => ({ id: 'ws-1' }));
+    const { s, configFile, ended } = w;
+    // A record that stopped before creating anything keeps its path.
+    saveConfig(configFile, Object.assign(emptyConfig(), { tenantId: 'tenant-1' }));
+    const { starts, install } = installs(w);
+    await install();
+    assert.equal(s.startFresh().ok, true);
+    await install();
+    const draft = `${configFile}.draft.json`;
+    assert.ok(!existsSync(configFile) && loadConfig(draft).config.target === 'fabric', 'only a draft, with Fabric');
+    await install();
+    assert.equal(s.startFresh().ok, true);
+    assert.ok(!existsSync(draft));
+    await install();
+    assert.deepEqual(starts, [0, 1, 0, 1], 'the record, new, the restored draft, new again');
+    assert.deepEqual(ended().map((e) => e.state), ['done', 'done', 'done', 'done']);
+  }));
+
+test('web session: --target chooses for a new install, also after Start fresh', async () => {
+  // --target fabric starts the first question on Fabric. --target azure skips it, as in the terminal.
+  /** @type {['fabric' | 'azure', number[]][]} */
+  const cases = [['fabric', [0, 0]], ['azure', []]];
+  for (const [target, asked] of cases) {
+    await inDir(async (dir) => {
+      const w = session(dir, async () => ({ id: 'ws-1' }), 'tenant-1', { target });
+      rmSync(w.configFile);
+      const { starts, install } = installs(w);
+      await install();
+      assert.equal(w.s.startFresh().ok, true);
+      await install();
+      assert.deepEqual(starts, asked, `--target ${target}`);
+      assert.equal(loadConfig(`${w.configFile}.draft.json`).config.target, target);
+      assert.deepEqual(w.ended().map((e) => e.state), ['done', 'done']);
+    });
+  }
+});
+
+test('web session: a new install given an option that only works on Fabric starts on Fabric', async () => {
+  // --ui refuses --csv, --data and the flow, Viva and other install options, and takes these.
+  for (const argv of [['--key-vault'], ['--no-key-vault'], ['--secret-in-notebook'], ['--secret-days', '30']]) {
+    await inDir(async (dir) => {
+      const fabricOnly = fabricOnlyOptions(parseCli(['--ui', ...argv], {}));
+      assert.equal(fabricOnly.length, 1, argv.join(' '));
+      const w = session(dir, async () => ({ id: 'ws-1' }), 'tenant-1', { fabricOnly });
+      rmSync(w.configFile);
+      const { starts, install } = installs(w);
+      await install();
+      assert.deepEqual(starts, [0], argv.join(' '));
+    });
+  }
+  for (const argv of [['--csv', 'usage.csv'], ['--data', 'agent365=api'], ['--feedback-flow'], ['--flow-identity', 'app'], ['--viva-query', '00000000-0000-0000-0000-000000000001']]) {
+    assert.throws(() => parseCli(['--ui', ...argv], {}), /Data sources page/, argv.join(' '));
+  }
+});
+
 test('terminal: install offers to start fresh, other commands and --yes stop and say how', () =>
   inDir(async (dir) => {
     const file = join(dir, 'valuelens-install.json');
@@ -390,6 +468,25 @@ test('terminal: install offers to start fresh, other commands and --yes stop and
     const forbidden = fabricThat(async () => { throw httpError(403, 'Forbidden'); });
     assert.equal(await startFresh({ ui: fakeUi().ui, config: record(), file, fabric: forbidden, tenantId: 'tenant-1', command: 'status' }), false);
     assert.ok(existsSync(file));
+  }));
+
+test('terminal: after Start fresh the install is new, so the first question starts on Azure unless --target chose', () =>
+  inDir(async (dir) => {
+    const file = join(dir, 'valuelens-install.json');
+    saveConfig(file, record());
+    const missing = fabricThat(async () => { throw httpError(404); });
+    const startedFresh = await startFresh({ ui: fakeUi({ answers: [true] }).ui, config: record(), file, fabric: missing, tenantId: 'tenant-1', command: 'install' });
+    assert.equal(isNewInstall({ existed: true, startedFresh }), true);
+    assert.equal(isNewInstall({ existed: true, startedFresh: false }), false, 'a kept record keeps its path');
+    assert.equal(isNewInstall({ existed: false, startedFresh: false }), true);
+    assert.equal(isNewInstall({ existed: true, startedFresh, target: 'fabric' }), false);
+
+    /** @type {any} */
+    let start;
+    const ui = { ...fakeUi().ui, select: async (/** @type {string} */ _m, /** @type {any[]} */ _c, /** @type {any} */ def) => (start = def) };
+    const { config } = loadConfig(file);
+    await askTarget(/** @type {any} */ ({ ui, config, newInstall: isNewInstall({ existed: true, startedFresh }) }));
+    assert.equal(start, 'azure');
   }));
 
 test('wording: the run says the web page can be closed, and the terminal Ctrl+C', async () => {
