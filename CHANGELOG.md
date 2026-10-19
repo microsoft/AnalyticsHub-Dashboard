@@ -47,6 +47,7 @@ Pinning remains manual. This preparation adds no new schema migration or model-r
   for a token, so people go straight to their data. If the host needs a prompt first, such as consent
   or MFA, the tab shows **Sign in with Microsoft**, which opens it in a pop-up. Before, sign-in in
   the tab failed with "The library has not yet been initialized", in Teams too.
+- **Keeps loading in Outlook on the web.** The tab reuses its token rather than ask for one per query.
 - **No wait in a browser.** The app starts TeamsJS only on the tab's address. Before, a browser
   window that another app opened could stay blank for up to a minute.
 - **Personal tab only.** The channel and group chat tab stays in Teams. The Teams package doesn't
