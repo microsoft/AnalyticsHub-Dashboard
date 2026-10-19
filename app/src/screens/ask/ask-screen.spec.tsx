@@ -8,6 +8,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { askCatalogue } from "@/ask/catalogue";
+import { destinations } from "@/components/destinations";
 import { AskError } from "@/lib/ask-api";
 import type { AskConfig } from "@/lib/runtime-config";
 import { runSummary, suggestedPages } from "./ask-helpers";
@@ -84,6 +85,14 @@ describe("AskScreen", () => {
 
         await waitFor(() => expect(writeText).toHaveBeenCalledWith(executiveQuestion));
         expect(await within(executive).findByText("Copied")).toBeTruthy();
+    });
+
+    it("groups the suggested questions in menu order, not the catalogue's", () => {
+        render(<AskScreen />);
+        const groups = screen.getAllByRole("region", { name: / questions$/ }).map((group) => group.getAttribute("aria-label"));
+        const menu = destinations.map((destination) => `${destination.label} questions`);
+        expect(groups).toEqual(menu.filter((label) => groups.includes(label)));
+        expect(groups.slice(0, 2)).toEqual(["Executive summary questions", "Adoption questions"]);
     });
 
     it("tells an Azure install without a model to turn Ask on in the installer", () => {

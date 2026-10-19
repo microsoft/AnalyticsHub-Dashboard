@@ -24,12 +24,12 @@ describe("prefetchTargets", () => {
         expect(targets[0]).toBe("executive/the-bottom-line");
     });
 
-    it("from the executive summary, fetches Value, Consumption and Efficiency first, then the rest in menu order", () => {
+    it("from the executive summary, fetches Adoption first, then the rest in menu order", () => {
         expect(prefetchTargets(destinations, "executive", "the-bottom-line").map(key)).toEqual([
+            "adoption/adoption",
             "value/task-breakdown",
             "consumption/consumption-overview",
             "efficiency/cowork-fit",
-            "adoption/adoption",
             "leaderboards/leaderboard",
             "work-patterns/m365-activity",
             "readiness/license-readiness",

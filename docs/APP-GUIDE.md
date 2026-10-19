@@ -14,10 +14,10 @@ Screenshots use synthetic data. Every name in them is invented.
 | Page | Answers |
 |---|---|
 | [Executive summary](#executive-summary) | What is Copilot delivering, and where? |
+| [Adoption](#adoption) | Who started, who stayed, who stuck? |
 | [Value](#value) | What was the work, and what was it worth? |
 | [Consumption](#consumption) | What credits did we use, and what did they cost? |
 | [Efficiency](#efficiency) | Is the right tool doing the job? |
-| [Adoption](#adoption) | Who started, who stayed, who stuck? |
 | [Leaderboards](#leaderboards) | Which people and agents do the most? |
 | [Work patterns](#work-patterns) | How do people work across Microsoft 365, and where does Copilot fit? |
 | [Readiness](#readiness) | Who should get a licence next, and who is ready for Cowork? |
@@ -45,6 +45,21 @@ Central when it's installed. **Filters:** dates, organisation.
 | Is it growing? | Monthly trend, and whether it is becoming how people work |
 | Where it is landing | The departments, apps and agents carrying the use |
 | What needs attention | Decisions the data points to, the most people or hours affected first |
+
+## Adoption
+
+![Adoption](../media/pages/adoption.png)
+
+**Answers:** who started, who stayed and who stuck.
+
+**Reads:** the audit log, org data and the Agent 365 registry. **Filters:** all.
+
+| Section | What it shows |
+|---|---|
+| Activation | How much of the population has picked Copilot up at all |
+| Adoption | How often active people come back, the same way across every surface |
+| Habit formation | Where people sit on the ladder from licensed but idle to daily use |
+| Trend heatmap | Where and when use is concentrating or fading, week by week |
 
 ## Value
 
@@ -95,21 +110,6 @@ answer. **Filters:** all.
 | Cowork fit | Whether the work people hand to Cowork suits it |
 | Model fit | Whether the model doing the work suits it |
 | How grading works | The rules behind both grades |
-
-## Adoption
-
-![Adoption](../media/pages/adoption.png)
-
-**Answers:** who started, who stayed and who stuck.
-
-**Reads:** the audit log, org data and the Agent 365 registry. **Filters:** all.
-
-| Section | What it shows |
-|---|---|
-| Activation | How much of the population has picked Copilot up at all |
-| Adoption | How often active people come back, the same way across every surface |
-| Habit formation | Where people sit on the ladder from licensed but idle to daily use |
-| Trend heatmap | Where and when use is concentrating or fading, week by week |
 
 ## Leaderboards
 
