@@ -1,5 +1,7 @@
 # Fabric
 
+**Path 1.** Just the steps: [1-fabric](../1-fabric/). This page has the details.
+
 The recommended path. One installer sets everything up in your tenant and gives you the dashboard
 as an app in Fabric, called **Analytics Hub**. You don't need a terminal or Power BI Desktop.
 

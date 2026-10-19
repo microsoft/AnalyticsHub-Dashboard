@@ -16,7 +16,8 @@ spec.loader.exec_module(publish_wiki)
 
 CHECKED = sorted(
     [*(ROOT / "docs").glob("*.md"), *(ROOT / "docs" / "wiki").glob("*.md"), *(ROOT / "ideas").glob("**/*.md")]
-    + [ROOT / p for p in ("README.md", "CONTRIBUTING.md", "fabric/README.md", "azure/README.md", "installer/README.md", "fabric/MANUAL-SETUP.md")]
+    + [ROOT / p for p in ("README.md", "CONTRIBUTING.md", "1-fabric/README.md", "2-azure/README.md",
+                          "fabric/README.md", "azure/README.md", "installer/README.md", "fabric/MANUAL-SETUP.md")]
 )
 
 LINK = re.compile(r'!?\[(?:[^\[\]]|\[[^\]]*\])*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)')
