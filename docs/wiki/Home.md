@@ -7,7 +7,7 @@ deliver. Run it on Microsoft Fabric or in your own Azure subscription.
 
 Not sure? Use **Fabric**, with the installer.
 
-| | **Fabric** (recommended) | **Azure** |
+| | **1. Fabric** (recommended) | **2. Azure** |
 |---|---|---|
 | **Runs on** | Your Fabric capacity | Your Azure subscription |
 | **Set up with** | The installer, or by hand | The installer |

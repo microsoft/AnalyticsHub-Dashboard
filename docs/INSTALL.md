@@ -18,7 +18,7 @@ They all run the same installer and ask the same questions.
 If your organisation's policy blocks a route, don't work around it. Use another route, or ask
 your IT team.
 
-**Fabric or Azure.** The first question is where it runs: **Your Fabric capacity** or **Your Azure
+**Fabric or Azure.** The first question is where it runs: **Microsoft Fabric** or **Your Azure
 subscription** (`--target azure`). The steps are the same. On Azure, you pick a subscription,
 resource group, region and Power BI workspace instead of a capacity, workspace and secret. Only
 regions that pass the [region preflight](../installer/README.md#regions-and-images) are offered.
