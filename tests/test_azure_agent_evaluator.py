@@ -71,7 +71,7 @@ class Http:
     def request(self, method, url, headers=None, timeout=None, json=None, **kw):
         with self.lock:
             self.calls.append((method, url, dict(headers or {})))
-        if url.startswith("https://graph.microsoft.com"):
+        if url.startswith("https://graph.microsoft.com/"):
             return self._graph(json)
         base = url.split("/api/data/")[0]
         if self.deny:
