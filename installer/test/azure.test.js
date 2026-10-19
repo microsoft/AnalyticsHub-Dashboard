@@ -1080,7 +1080,6 @@ const FABRIC_ONLY = /** @type {[string[], string][]} */ ([
   [['--data', 'coworkCredits=api'], '--data coworkCredits=api'],
   [['--data', 'agent365=api'], '--data agent365=api'],
   [['--data', 'agentEvaluator=api'], '--data agentEvaluator=api'],
-  [['--data', 'workday=csv'], '--data workday=csv'],
 ]);
 for (const [argv, name] of FABRIC_ONLY) {
   test(`askTarget: a new install given ${argv.join(' ')}, which only works on Fabric, starts on Fabric`, async () => {
@@ -1096,6 +1095,7 @@ test('askTarget: options Azure runs too, and skipping a source, still start a ne
     ['--data', 'studioCredits=api'],
     ['--data', 'studioCredits=csv,coworkCredits=csv'],
     ['--flow-identity', 'user'],
+    ['--data', 'workday=csv'],
     ['--flow-environment', 'https://org.crm.dynamics.com'],
     ['--data', 'm365Activity=skip,defender=api,resourceGraph=api'],
     ['--arg-management-group', '/providers/Microsoft.Management/managementGroups/mg-1', '--no-arg-foundry'],
@@ -1127,7 +1127,7 @@ test("askTarget: Agent 365 and product feedback keep Fabric by API, and by CSV o
 });
 
 test("askTarget: only the options given count, not the data sources a new install's record starts with", async () => {
-  const q = await firstQuestion({ newInstall: true, dataSources: { agent365: 'api', productFeedback: 'api', coworkCredits: 'api', agentEvaluator: 'api', workday: 'csv' } });
+  const q = await firstQuestion({ newInstall: true, dataSources: { agent365: 'api', productFeedback: 'api', coworkCredits: 'api', agentEvaluator: 'api' } });
   assert.equal(q.start, 'azure');
 });
 test('Azure SQL free offer turned down: the new database is created at the usual price instead', async () => {

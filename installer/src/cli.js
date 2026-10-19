@@ -334,11 +334,11 @@ export async function startFresh(o) {
 export const isNewInstall = (o) => (!o.existed || o.startedFresh) && !o.target;
 
 /**
- * `--data` modes Azure can't run: the Agent 365 API, the product feedback flow and the Cowork Dataflow are Fabric only,
- * and Azure has no Workday job yet. A module Azure doesn't run at all counts in any mode but skip.
+ * `--data` modes Azure can't run: the Agent 365 API, the product feedback flow and the Cowork Dataflow are Fabric only.
+ * A module Azure doesn't run at all counts in any mode but skip.
  * @type {Record<string, import('./uploads.js').SourceMode[]>}
  */
-const FABRIC_ONLY_MODES = { agent365: ['api'], productFeedback: ['api'], coworkCredits: ['api'], workday: ['csv'] };
+const FABRIC_ONLY_MODES = { agent365: ['api'], productFeedback: ['api'], coworkCredits: ['api'] };
 
 /**
  * The options given that only work on Fabric. A new install given any of them starts on Fabric at the first question.

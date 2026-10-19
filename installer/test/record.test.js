@@ -440,7 +440,7 @@ test('web session: a new install given an option that only works on Fabric start
       assert.deepEqual(starts, [0], argv.join(' '));
     });
   }
-  for (const argv of [['--csv', 'usage.csv'], ['--data', 'workday=csv'], ['--feedback-flow'], ['--flow-identity', 'app'], ['--viva-query', '00000000-0000-0000-0000-000000000001']]) {
+  for (const argv of [['--csv', 'usage.csv'], ['--data', 'agent365=api'], ['--feedback-flow'], ['--flow-identity', 'app'], ['--viva-query', '00000000-0000-0000-0000-000000000001']]) {
     assert.throws(() => parseCli(['--ui', ...argv], {}), /Data sources page/, argv.join(' '));
   }
 });
