@@ -5,7 +5,8 @@ Analytics Hub in your own Azure subscription, without Fabric.
 - **You need:** an Azure subscription or resource group, and a Power BI workspace.
 - **Takes:** about 20 minutes. The first data arrives about 25 minutes after **Go ahead**.
 - **Costs:** about $5–40 a month for a small tenant. Analytics Hub itself is free. See
-  [Architecture and costs](../docs/ARCHITECTURE.md).
+  [Architecture and costs](../docs/ARCHITECTURE.md). For more than 10,000 Copilot seats, see
+  [A large tenant on Azure](../installer/README.md#a-large-tenant-on-azure).
 
 ## Installer
 

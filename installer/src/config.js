@@ -262,6 +262,8 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {string} [location]
  * @property {string} [sqlLocation] Region for Azure SQL when it differs from location (regional SQL capacity).
  * @property {boolean} [sqlFreeOffer] false once Azure turned down the Azure SQL free offer for a new database, which then uses the usual serverless price. Unset = ask for it.
+ * @property {boolean} [sqlScaleUp] A large tenant chose to pay for Azure SQL beyond the free offer: more vCores, and carrying on past the free allowance. Unset = no.
+ * @property {boolean} [webAlwaysOn] A large tenant chose to pay to keep one web app replica running, so the first visit doesn't wait. Unset = no.
  * @property {string} [namePrefix]
  * @property {string} [installId]
  * @property {Record<string, string>} [tags]

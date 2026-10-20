@@ -175,11 +175,34 @@ Re-runs are incremental and use the same
 resource with `valuelens-install-id` and stops rather than modifying untagged resources with colliding
 names.
 
-On a tenant with more than 10,000 Copilot seats, the plan warns when the Azure sizing looks small
-and says where to change it: the Azure SQL free offer's monthly limit (the database pauses when it
-runs out), fewer than 4 max vCores from 30,000 seats, the run job's 4 hours per run (start with 30
-days of history), and a Power BI workspace on shared capacity. It doesn't change the sizing for
-you. If your organisation's policy rules a change out, setup still works and the loads are slower.
+### A large tenant on Azure
+
+On a tenant with more than 10,000 Copilot seats, setup sizes Azure for the tenant and asks before
+anything costs more:
+
+- **Power BI capacity.** Setup recommends F64 or larger and suggests the first active capacity that
+  size. It warns when the semantic model would sit on shared capacity, where a model is limited to
+  1 GB.
+- **Azure SQL.** **Azure placement** offers to let the database scale up to 4 vCores and carry on
+  past the free offer's monthly allowance, for about $30-80 a month. Otherwise, when the allowance
+  runs out, Azure pauses the database until next month and the jobs stop until then.
+- **Web app.** **Azure placement** offers to keep one replica running, for about $10-20 a month, so
+  the first visit after a quiet spell doesn't wait while the app starts.
+
+The prices are indicative: check the [Azure pricing calculator](https://azure.microsoft.com/pricing/calculator/).
+Neither paid option is on unless you choose it: `--yes` never turns one on, and **Repair or change**
+keeps what you chose. The plan also warns when the sizing looks small and says where to change it:
+the free offer, fewer than 4 max vCores from 30,000 seats, the run job's time limit, and shared
+capacity. If your organisation's policy rules a change out, setup still works and the loads are
+slower. Tenants with 10,000 seats or fewer aren't asked or warned, and deploy as before.
+
+Each run of the collector job has 4 vCPU, 8 GiB and up to 4 hours, which Azure enforces. The run
+loads the data and then refreshes the semantic models, waiting up to 2 hours for each refresh. On a
+large tenant the first load may not fit in one run. The audit collector records each time window as
+it finishes, so the next run (the next scheduled one, or **Run** on the home page) queries only the
+windows still to do, and then loads them all. The dashboard fills in once that's done. At 20,000
+seats, start with 30 days of history and [load more](#load-more-audit-history) once the first load
+has finished. How long the refresh takes depends on the capacity and the history loaded.
 
 ### Demo mode
 
@@ -474,6 +497,9 @@ Purview portal while it loads. To change the tenant size, choose **Repair or cha
 for the advanced settings. An install from an earlier version keeps its audit windows and time
 limits until you do. An install that has a tenant size gets the new time limits on its next
 **Update** or **Repair or change**, and keeps its data and settings.
+
+On the Azure target, the Power BI capacity, Azure SQL and web app sizing and the run job's time
+limit are under [A large tenant on Azure](#a-large-tenant-on-azure).
 
 ### Load more audit history
 

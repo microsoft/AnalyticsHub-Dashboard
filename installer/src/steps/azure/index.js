@@ -20,7 +20,7 @@ import { APP_ALIAS, CONSUMPTION_ALIAS } from '../app.js';
 import { AZURE_AI_ROLES, ensureAzureAiAccess, planConsumption } from '../consumption.js';
 import { AZURE_LANDING_DIRS, azureDropLabel, azureDropsToSharePoint, ensureFlows, flowsSummary, flowsWanted, offerStudioRun, planFlows } from '../flows.js';
 import { DEFAULT_CURRENCY } from '../../currency.js';
-import { askMoreHistory, askReportingCurrency, editSchedule, HISTORY_CHOICES, keepAwake, planCosts, reloadDetail, reloadLine } from '../plan.js';
+import { askMoreHistory, askReportingCurrency, editSchedule, HISTORY_CHOICES, keepAwake, planCosts, PRICING, reloadDetail, reloadLine } from '../plan.js';
 import { ensureResourceGraphAccess, planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from '../resource-graph.js';
 import { DATA_SOURCES } from '../../uploads.js';
 import { normaliseResourceGraph } from '../../config.js';
@@ -29,7 +29,7 @@ import { ensureOrgAccess, verifyOrgAccess } from '../org-access.js';
 import { askAdvanced, asksAdvanced } from '../advanced.js';
 import { askGrants, askLine, askMode, askParameters, ensureAzureAskAccess, planAzureAsk } from './ask.js';
 import { checkRegions, noRegionMessage, regionNotes, regionProblems, sqlProblem } from './regions.js';
-import { BIG_CAPACITY_SEATS, copilotSeats, LARGE_TENANT_SEATS, seatCount } from '../../seats.js';
+import { AZURE_LARGE_TENANT_SKU, AZURE_LARGE_TENANT_SQL_VCORES, BIG_CAPACITY_SEATS, copilotSeats, LARGE_TENANT_SEATS, seatCount } from '../../seats.js';
 
 /** @typedef {import('../../install.js').Ctx} Ctx */
 
@@ -66,7 +66,7 @@ export const TEAMS_CLIENTS = [
 const ARM = JSON.parse(readFileSync(new URL('../../azure/main.arm.json', import.meta.url), 'utf8'));
 export const REQUIRED_ARM_PARAMETERS = [
   'location', 'sqlLocation', 'namePrefix', 'installId', 'tags', 'imageRegistry', 'imageTag', 'imageRegistryResourceId', 'runSchedule', 'runSteps', 'sampleData', 'sqlAdminLogin', 'sqlAdminObjectId',
-  'sqlAdminPrincipalType', 'sqlMinCapacity', 'sqlMaxCapacity', 'sqlAutoPauseDelayMinutes', 'sqlUseFreeLimit', 'publicNetworkAccess', 'privateDnsZoneMode', 'privateDnsZonesResourceGroupId', 'deployWeb',
+  'sqlAdminPrincipalType', 'sqlMinCapacity', 'sqlMaxCapacity', 'sqlAutoPauseDelayMinutes', 'sqlUseFreeLimit', 'sqlFreeLimitExhaustionBehavior', 'publicNetworkAccess', 'privateDnsZoneMode', 'privateDnsZonesResourceGroupId', 'deployWeb',
   'webMinReplicas', 'webClientId', 'webAppIdUri', 'webAccess', 'modules', 'auditHistoryDays', 'powerBiWorkspaceId', 'semanticModels', 'sqlReaderName', 'sqlReaderClientId',
   'azureAiSubscriptionId', 'paygSubscriptionIds', 'dropSiteId', 'dropDriveId', 'dropFolder', 'argManagementGroup', 'argAgents', 'argFoundry', 'reportingCurrency', 'exchangeRate',
   'askMode', 'askEndpoint', 'askDeployment', 'askModelName', 'askModelVersion', 'askSku', 'askCapacity', 'askLocation',
@@ -388,6 +388,7 @@ export async function planAzure(ctx, pre, section) {
       az.namePrefix ??= 'vlens';
       az.tags ??= {};
     }
+    await askAzureSizing(ctx, pre);
   }
   if (editing('networking')) {
     const previousAccess = az.publicNetworkAccess;
@@ -440,11 +441,19 @@ export async function planAzure(ctx, pre, section) {
     const sqlPolicy = sqlPrivate.map((n) => `"${n}"`).join(', ');
     const capacities = (await api.fabric.listCapacities().catch(() => [])).filter((cap) => cap.state === 'Active' && (!isPrivate(az) || supportsVnetGateway(cap)));
     if (isPrivate(az) && !capacities.length) throw new Error(`${sqlPrivate.length ? `Azure Policy ${sqlPolicy} keeps Azure SQL's public access off, so Analytics Hub needs Private networking here. ` : ''}Private networking needs an active Fabric (F or trial) or Power BI Premium (P, A4+) capacity you can assign workspaces to, to host the VNet data gateway. Start a Fabric trial or ask a capacity admin, then try again.`);
-    const capacityChoices = capacities.map((cap) => ({ name: `${cap.displayName} (${cap.sku}, ${cap.region})`, value: cap.id }));
+    const large = largeAzureTenant(az, pre.seats);
+    const recommended = /** @type {number} */ (capacityUnits(AZURE_LARGE_TENANT_SKU));
+    if (large) ui.note(`${AZURE_LARGE_TENANT_SKU} or larger is recommended for ${seatCount(pre.seats ?? 0)} Copilot seats.`);
+    const capacityChoices = capacities.map((cap) => ({
+      name: `${cap.displayName} (${cap.sku}, ${cap.region})`, value: cap.id,
+      ...(large && (capacityUnits(cap.sku) ?? recommended) < recommended ? { description: `Below the recommended ${AZURE_LARGE_TENANT_SKU} for a tenant this size.` } : {}),
+    }));
+    const shared = { name: 'None (shared capacity, Pro)', value: '', ...(large ? { description: 'Not recommended for a tenant this size: a semantic model there is limited to 1 GB.' } : {}) };
+    const firstChoice = (large ? capacities.find((cap) => (capacityUnits(cap.sku) ?? 0) >= recommended)?.id : undefined) ?? capacityChoices[0]?.value ?? '';
     az.powerBi.capacityId = await ui.select(
       isPrivate(az) ? 'Capacity for the Power BI workspace and VNet data gateway' : 'Capacity for the Power BI workspace',
-      isPrivate(az) ? capacityChoices : [...capacityChoices, { name: 'None (shared capacity, Pro)', value: '' }],
-      capacities.some((cap) => cap.id === az.powerBi?.capacityId) ? az.powerBi.capacityId : (capacityChoices[0]?.value ?? ''),
+      isPrivate(az) ? capacityChoices : [...capacityChoices, shared],
+      capacities.some((cap) => cap.id === az.powerBi?.capacityId) ? az.powerBi.capacityId : firstChoice,
     ) || undefined;
     const groups = await api.powerBi.groups().catch(() => []);
     const wsChoice = await ui.select('Power BI workspace', [{ name: 'Create a new workspace', value: 'new' }, ...groups.map((g) => ({ name: `Use "${g.name}"`, value: g.id }))], az.powerBi?.workspaceId ?? 'new');
@@ -454,6 +463,7 @@ export async function planAzure(ctx, pre, section) {
       az.workspaceName = await ui.input('New Power BI workspace name', { default: az.workspaceName ?? 'Analytics Hub' });
     }
     else az.powerBi.workspaceId = wsChoice;
+    if (large && (await modelOnSharedCapacity(ctx))) ui.warn(sharedCapacityWarning(pre.seats ?? 0));
   }
   if (editing('access')) {
     await planAccess(ctx);
@@ -894,7 +904,7 @@ async function stopOnUntaggedCollisions(ctx) {
 export async function azureDeployment(ctx, o) {
   const { config, user } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure ?? {});
-  const liveSql = /** @type {{ minCapacity?: number, capacity?: number, autoPauseDelay?: number, useFreeLimit?: boolean }} */ (await liveSqlSettings(ctx).catch(() => ({})));
+  const sql = plannedSql(az, /** @type {LiveSql} */ (await liveSqlSettings(ctx).catch(() => ({}))));
   const params = {
     location: param(az.location), sqlLocation: param(az.sqlLocation ?? ''), namePrefix: param(az.namePrefix ?? 'vlens'), installId: param(az.installId ?? randomUUID()),
     tags: param({ ...(az.tags ?? {}), 'valuelens-install-id': az.installId }), imageRegistry: param(az.images?.registry || DEFAULT_IMAGE_REGISTRY), imageTag: param(imageTag(az)),
@@ -903,8 +913,9 @@ export async function azureDeployment(ctx, o) {
     // The jobs' managed identity stays the Entra admin (empty = identity) so migrate can run DDL.
     // The SQL reader only gets db_datareader, created by SID from sqlReaderClientId.
     sqlAdminLogin: param(''), sqlAdminObjectId: param(''), sqlAdminPrincipalType: param('Application'),
-    sqlMinCapacity: param(String(liveSql.minCapacity ?? '0.5')), sqlMaxCapacity: param(liveSql.capacity ?? 2), sqlAutoPauseDelayMinutes: param(liveSql.autoPauseDelay ?? 60), sqlUseFreeLimit: param(liveSql.useFreeLimit ?? az.sqlFreeOffer ?? true),
-    publicNetworkAccess: param(az.publicNetworkAccess === false ? 'Disabled' : 'Enabled'), deployWeb: param(true), webMinReplicas: param(0),
+    sqlMinCapacity: param(sql.minCapacity), sqlMaxCapacity: param(sql.maxCapacity), sqlAutoPauseDelayMinutes: param(sql.autoPauseDelay), sqlUseFreeLimit: param(sql.useFreeLimit),
+    sqlFreeLimitExhaustionBehavior: param(sql.freeLimitExhaustionBehavior),
+    publicNetworkAccess: param(az.publicNetworkAccess === false ? 'Disabled' : 'Enabled'), deployWeb: param(true), webMinReplicas: param(az.webAlwaysOn === true ? 1 : 0),
     privateDnsZoneMode: param(az.privateDns?.mode ?? 'create'), privateDnsZonesResourceGroupId: param(az.privateDns?.mode === 'existing' ? (az.privateDns.resourceGroupId ?? '') : ''),
     webClientId: param(o.pass === 2 ? (az.webApp?.clientId ?? '') : ''), webAppIdUri: param(o.pass === 2 ? (az.webApp?.appIdUri ?? '') : ''), webAccess: param(webAccess(config)),
     modules: param([...enabledAzureModuleIds(config.modules, az), ...(azureResourceGraphOn(config) ? ['resourceGraph'] : [])].join(',')), auditHistoryDays: param(Math.max(config.history.days, ctx.reloadHistoryDays ?? 0)), powerBiWorkspaceId: param(az.powerBi?.workspaceId ?? ''),
@@ -995,7 +1006,12 @@ export function enabledAzureModuleIds(modules, az) {
   return AZURE_SUPPORTED_MODULES.filter((id) => id === 'core' || (id === 'consumption' && az?.sampleData === true ? false : modules[/** @type {keyof import('../../catalog.js').ModuleChoice} */ (id)]));
 }
 
-/** @param {Ctx} ctx */
+/**
+ * The Azure SQL database's own settings, read back so a deployment keeps them.
+ * @typedef {{ minCapacity?: number, capacity?: number, autoPauseDelay?: number, useFreeLimit?: boolean, freeLimitExhaustionBehavior?: string }} LiveSql
+ */
+
+/** @param {Ctx} ctx @returns {Promise<LiveSql>} */
 async function liveSqlSettings(ctx) {
   const az = ctx.config.azure;
   const out = az?.outputs ?? {};
@@ -1003,7 +1019,111 @@ async function liveSqlSettings(ctx) {
   if (!az?.subscriptionId || !az.resourceGroup) return {};
   const server = String(out.sqlServerFqdn).split('.')[0];
   const db = await ctx.api.arm.getSqlDatabase(/** @type {string} */ (az.subscriptionId), /** @type {string} */ (az.resourceGroup), server, String(out.sqlDatabaseName));
-  return { capacity: db?.sku?.capacity, minCapacity: db?.properties?.minCapacity, autoPauseDelay: db?.properties?.autoPauseDelay, useFreeLimit: db?.properties?.useFreeLimit };
+  return {
+    capacity: db?.sku?.capacity, minCapacity: db?.properties?.minCapacity, autoPauseDelay: db?.properties?.autoPauseDelay, useFreeLimit: db?.properties?.useFreeLimit,
+    freeLimitExhaustionBehavior: db?.properties?.freeLimitExhaustionBehavior,
+  };
+}
+
+/**
+ * The Azure SQL settings to deploy. An existing database keeps its own, including changes made in the Azure portal.
+ * Scaling up, once chosen, raises the max vCores and carries on past the free offer's monthly allowance.
+ * @param {import('../../config.js').AzureConfig} az @param {LiveSql} live
+ */
+export function plannedSql(az, live) {
+  const useFreeLimit = live.useFreeLimit ?? az.sqlFreeOffer ?? true;
+  const capacity = live.capacity ?? DEFAULT_SQL_MAX_VCORES;
+  const scaleUp = az.sqlScaleUp === true;
+  return {
+    minCapacity: String(live.minCapacity ?? '0.5'),
+    maxCapacity: scaleUp ? Math.max(capacity, AZURE_LARGE_TENANT_SQL_VCORES) : capacity,
+    autoPauseDelay: live.autoPauseDelay ?? 60,
+    useFreeLimit,
+    // Azure can't switch a database that bills past the free allowance back to pausing, so that sticks.
+    freeLimitExhaustionBehavior: useFreeLimit && (scaleUp || live.freeLimitExhaustionBehavior === 'BillOverUsage') ? 'BillOverUsage' : 'AutoPause',
+  };
+}
+
+/**
+ * More Copilot seats than the Azure defaults are sized for, collecting real data.
+ * @param {import('../../config.js').AzureConfig | undefined} az @param {number | undefined} seats
+ */
+export const largeAzureTenant = (az, seats) => !!seats && seats > LARGE_TENANT_SEATS && az?.sampleData !== true;
+
+/**
+ * A capacity's size in Fabric capacity units (F64 and P1 are 64, A1 and EM1 are 8), or undefined for one
+ * without a known size, such as PPU or a trial SKU without a number.
+ * @param {string | undefined} sku
+ */
+export function capacityUnits(sku) {
+  const m = /^(FTL|F|P|A|EM)(\d+)$/i.exec(sku ?? '');
+  if (!m) return undefined;
+  const family = m[1].toUpperCase();
+  const n = Number(m[2]);
+  if (family === 'F' || family === 'FTL') return n;
+  return n < 1 ? undefined : (family === 'P' ? 64 : 8) * 2 ** (n - 1);
+}
+
+/**
+ * Whether the semantic model will sit on shared capacity: no capacity chosen, and the workspace is new or an existing
+ * one on shared capacity (ensureWorkspaceCapacity leaves an existing workspace's capacity alone). False when it can't tell.
+ * @param {Ctx} ctx
+ */
+async function modelOnSharedCapacity(ctx) {
+  const pbi = ctx.config.azure?.powerBi;
+  if (pbi?.capacityId) return false;
+  if (!pbi?.workspaceId) return true;
+  try {
+    const ws = await ctx.api.fabric.getWorkspace(pbi.workspaceId);
+    return !!ws && !ws.capacityId;
+  } catch {
+    return false;
+  }
+}
+
+/** @param {number} seats */
+const sharedCapacityWarning = (seats) =>
+  `${seatCount(seats)} Copilot seats are assigned and the Power BI workspace is on shared capacity, where a semantic model is limited to 1 GB. ` +
+  `In Power BI, choose a Fabric capacity of ${AZURE_LARGE_TENANT_SKU} or larger (or its Premium equivalent), or ask your capacity admin for one. If policy keeps you on shared capacity, the model may stop refreshing as the data grows.`;
+
+/**
+ * For a large tenant, offers Azure SQL beyond the free offer and a web app that's always running, with what they cost.
+ * Each defaults to the recorded answer, so --yes never adds spend and a change keeps what the install chose. Smaller
+ * tenants aren't asked, unless they chose one before.
+ * @param {Ctx} ctx @param {{ seats?: number }} pre
+ */
+async function askAzureSizing(ctx, pre) {
+  const { ui } = ctx;
+  const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
+  const large = largeAzureTenant(az, pre.seats);
+  if (large) ui.note(`For ${seatCount(pre.seats ?? 0)} Copilot seats, Azure SQL and the web app can be sized up. Both cost extra, so nothing changes unless you choose it.`);
+  if (large || az.sqlScaleUp === true) {
+    const now = plannedSql({ ...az, sqlScaleUp: false }, await liveSqlSettings(ctx).catch(() => ({})));
+    const freeOffer = now.useFreeLimit && now.freeLimitExhaustionBehavior === 'AutoPause';
+    const scaleUp = now.maxCapacity < AZURE_LARGE_TENANT_SQL_VCORES;
+    if (!freeOffer && !scaleUp) {
+      ui.note(`Azure SQL already scales up to ${now.maxCapacity} vCores${now.useFreeLimit ? ' and carries on past the free offer\'s monthly allowance' : ''}, so it stays as it is.`);
+    } else {
+      const upTo = `up to ${AZURE_LARGE_TENANT_SQL_VCORES} vCores`;
+      const change = scaleUp ? `Scale ${upTo}${freeOffer ? ' and carry on past the free allowance' : ''}` : 'Carry on past the free allowance';
+      az.sqlScaleUp = await ui.select('Azure SQL compute', [
+        {
+          name: `Keep ${freeOffer ? 'the free offer, ' : ''}up to ${now.maxCapacity} vCores (no extra cost)`, value: false,
+          description: freeOffer ? 'When the month\'s free allowance runs out, Azure pauses the database until next month, and the jobs stop until then.' : 'Large loads take longer.',
+        },
+        {
+          name: `${change} (about ${SQL_SCALE_UP_COST} a month)`, value: true,
+          description: `${freeOffer ? 'The free allowance still comes off the bill; past it, Azure bills the serverless rate and can\'t switch the database back to pausing. ' : ''}An indicative list price: check ${PRICING.azure}.`,
+        },
+      ], az.sqlScaleUp === true);
+    }
+  }
+  if (large || az.webAlwaysOn === true) {
+    az.webAlwaysOn = await ui.select('Web app', [
+      { name: 'Scale to zero when idle (no extra cost)', value: false, description: 'The first visit after a quiet spell waits about 5-10 seconds while the web app starts.' },
+      { name: `Keep one replica running (about ${WEB_ALWAYS_ON_COST} a month)`, value: true, description: `No wait on the first visit. An indicative list price: check ${PRICING.azure}.` },
+    ], az.webAlwaysOn === true);
+  }
 }
 
 /** @param {Ctx} ctx */
@@ -1056,7 +1176,7 @@ export function azurePlanReview(ctx) {
     runsOn: [
       { what: 'Azure resources', where: `${az.subscriptionName ?? az.subscriptionId} / ${az.resourceGroup} / ${az.location}`, detail: `Incremental ARM deployment. Deletes are not applied by the template.${az.sqlLocation ? ` Azure SQL goes in ${az.sqlLocation}.` : ''}` },
       { what: 'Scheduled jobs', where: `Container Apps job, ${ctx.config.schedule.frequency} at ${ctx.config.schedule.time} UTC`, ...(az.sampleData ? { detail: 'Demo mode: each run publishes the synthetic sample instead of tenant data.' } : {}) },
-      { what: 'Cost', where: `Indicative Azure cost: about $5-40/month small tenants or $60-160/month large tenants, plus Power BI Pro/PPU licences.${isPrivate(az) ? ' Private networking adds about $30-40/month (4 private endpoints and DNS zones); the VNet data gateway uses capacity units on your Fabric/Premium capacity while refreshing.' : ''}` },
+      { what: 'Cost', where: `Indicative Azure cost: about $5-40/month small tenants or $60-160/month large tenants, plus Power BI Pro/PPU licences.${isPrivate(az) ? ' Private networking adds about $30-40/month (4 private endpoints and DNS zones); the VNet data gateway uses capacity units on your Fabric/Premium capacity while refreshing.' : ''}${sizingCost(az)}` },
       ...(ctx.reloadHistoryDays ? [{ what: 'History reload', where: reloadLine(ctx.reloadHistoryDays), detail: `The run job, once, with ${BACKFILL_ENV}=${ctx.reloadHistoryDays}. ${reloadDetail(ctx.reloadHistoryDays)}` }] : []),
     ],
     costs: planCosts(ctx.config),
@@ -1064,12 +1184,25 @@ export function azurePlanReview(ctx) {
 }
 
 /**
+ * The sizing a large tenant chose to pay for, for the review's cost line.
+ * @param {import('../../config.js').AzureConfig} az
+ */
+function sizingCost(az) {
+  const chosen = [
+    ...(az.sqlScaleUp === true ? [`Azure SQL sized up (about ${SQL_SCALE_UP_COST}/month)`] : []),
+    ...(az.webAlwaysOn === true ? [`one web app replica always running (about ${WEB_ALWAYS_ON_COST}/month)`] : []),
+  ];
+  return chosen.length ? ` You chose ${chosen.join(' and ')}.` : '';
+}
+
+/**
  * What to tell someone whose Azure sizing looks too small for the seats assigned. Says which setting
  * changes it, and how to carry on when policy rules the change out. Only warns: nothing is resized.
- * @param {{ seats?: number, sampleData?: boolean, sqlFreeLimit?: boolean, sqlMaxVcores?: number, powerBiCapacityId?: string }} o
+ * @param {{ seats?: number, sampleData?: boolean, sqlFreeLimit?: boolean, sqlMaxVcores?: number, powerBiCapacityId?: string, sharedCapacity?: boolean }} o
+ *   sharedCapacity, when known, says whether the model sits on shared capacity; otherwise no powerBiCapacityId does.
  * @returns {string[]}
  */
-export function azureSizingWarnings({ seats, sampleData, sqlFreeLimit, sqlMaxVcores, powerBiCapacityId }) {
+export function azureSizingWarnings({ seats, sampleData, sqlFreeLimit, sqlMaxVcores, powerBiCapacityId, sharedCapacity }) {
   if (!seats || sampleData || seats <= LARGE_TENANT_SEATS) return [];
   const n = seatCount(seats);
   /** @type {string[]} */
@@ -1077,24 +1210,20 @@ export function azureSizingWarnings({ seats, sampleData, sqlFreeLimit, sqlMaxVco
   if (sqlFreeLimit !== false) {
     out.push(
       `${n} Copilot seats are assigned and Azure SQL uses the free offer (100,000 vCore seconds and 32 GB a month). A tenant this size will likely use that up, and the database then pauses until next month. ` +
-        'After setup, open the database\'s Compute + storage in the Azure portal and choose to continue using it for additional charges when the free limit is reached, or ask your Azure admin to. If your organisation\'s policy keeps the free limit, expect the jobs to stop when it runs out.',
+        `In Azure placement, choose to carry on past the free allowance (about ${SQL_SCALE_UP_COST} a month), or after setup open the database's Compute + storage in the Azure portal and choose to continue using it for additional charges when the free limit is reached, or ask your Azure admin to. If your organisation's policy keeps the free limit, expect the jobs to stop when it runs out.`,
     );
   }
-  if (seats >= BIG_CAPACITY_SEATS && (sqlMaxVcores ?? DEFAULT_SQL_MAX_VCORES) < 4) {
+  if (seats >= BIG_CAPACITY_SEATS && (sqlMaxVcores ?? DEFAULT_SQL_MAX_VCORES) < AZURE_LARGE_TENANT_SQL_VCORES) {
     out.push(
-      `${n} Copilot seats are assigned and Azure SQL scales up to ${sqlMaxVcores ?? DEFAULT_SQL_MAX_VCORES} vCores. After setup, raise the database's max vCores to 4 or more in the Azure portal (Compute + storage), or ask your Azure admin to; a policy that caps vCores means slower loads.`,
+      `${n} Copilot seats are assigned and Azure SQL scales up to ${sqlMaxVcores ?? DEFAULT_SQL_MAX_VCORES} vCores. In Azure placement, choose to scale it up to ${AZURE_LARGE_TENANT_SQL_VCORES} vCores, or after setup raise the database's max vCores to ${AZURE_LARGE_TENANT_SQL_VCORES} or more in the Azure portal (Compute + storage), or ask your Azure admin to; a policy that caps vCores means slower loads.`,
     );
   }
   if (seats >= BIG_CAPACITY_SEATS) {
     out.push(
-      `${n} Copilot seats are assigned. Each run of the collector job has ${RUN_JOB_SIZE} and up to 4 hours, so a long first load may not fit in one run. In Schedule and loading, start with 30 days of history and reload more once the first load finishes.`,
+      `${n} Copilot seats are assigned. Each run of the collector job has ${RUN_JOB_SIZE} and up to 4 hours, so a long first load may not fit in one run; the next run carries on reading the audit log from where it stopped. In Schedule and loading, start with 30 days of history and reload more once the first load finishes.`,
     );
   }
-  if (!powerBiCapacityId) {
-    out.push(
-      `${n} Copilot seats are assigned and the Power BI workspace is on shared capacity, where a semantic model is limited to 1 GB. In Power BI, choose a Fabric (F) or Premium capacity, or ask your capacity admin for one. If policy keeps you on shared capacity, the model may stop refreshing as the data grows.`,
-    );
-  }
+  if (sharedCapacity ?? !powerBiCapacityId) out.push(sharedCapacityWarning(seats));
   return out;
 }
 
@@ -1102,6 +1231,12 @@ export function azureSizingWarnings({ seats, sampleData, sqlFreeLimit, sqlMaxVco
 const RUN_JOB_SIZE = '4 vCPU and 8 GiB';
 /** azure/infra/modules/sql.bicep maxCapacity, used when the database doesn't exist yet. */
 const DEFAULT_SQL_MAX_VCORES = 2;
+/**
+ * Indicative monthly list prices for a large tenant's sizing choices, from azure/DESIGN.md section 2.5. They vary by
+ * region and agreement, so the questions point to the Azure pricing calculator.
+ */
+const SQL_SCALE_UP_COST = '$30-80';
+const WEB_ALWAYS_ON_COST = '$10-20';
 
 /** @param {Ctx} ctx */
 export async function confirmAzurePlan(ctx) {
@@ -1129,10 +1264,13 @@ export async function confirmAzurePlan(ctx) {
   if (azureResourceGraphOn(config)) ui.info(`Governance:  ${resourceGraphKinds(config)} from Azure Resource Graph, in ${scopeName(config)}`);
   ui.info(`Ask:         ${askLine(az)}`);
   if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)}`);
-  const liveSql = /** @type {{ capacity?: number, useFreeLimit?: boolean }} */ (await liveSqlSettings(ctx).catch(() => ({})));
+  const sql = plannedSql(az, await liveSqlSettings(ctx).catch(() => ({})));
+  if (az.sqlScaleUp === true) ui.info(`SQL compute: up to ${sql.maxCapacity} vCores${sql.useFreeLimit ? ', carrying on past the free offer' : ''} (about ${SQL_SCALE_UP_COST} a month)`);
+  if (az.webAlwaysOn === true) ui.info(`Web app:     one replica always running (about ${WEB_ALWAYS_ON_COST} a month)`);
   const sizing = azureSizingWarnings({
-    seats, sampleData: az.sampleData, sqlFreeLimit: liveSql.useFreeLimit ?? az.sqlFreeOffer ?? true,
-    sqlMaxVcores: liveSql.capacity, powerBiCapacityId: az.powerBi?.capacityId,
+    seats, sampleData: az.sampleData, sqlFreeLimit: sql.useFreeLimit && sql.freeLimitExhaustionBehavior === 'AutoPause',
+    sqlMaxVcores: sql.maxCapacity, powerBiCapacityId: az.powerBi?.capacityId,
+    sharedCapacity: largeAzureTenant(az, seats) ? await modelOnSharedCapacity(ctx) : undefined,
   });
   for (const w of sizing) ui.warn(w);
   // Before the review, which shows the answer. The web UI takes a question after the review as the plan's own.

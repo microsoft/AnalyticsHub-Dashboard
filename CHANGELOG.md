@@ -33,6 +33,21 @@ instead of testing each user, as in
 [ValueLens #199](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/pull/199). Adoption
 and the Executive summary should load sooner. The numbers don't change.
 
+**Azure: sizing for a tenant with more than 10,000 Copilot seats.** Smaller tenants are asked
+nothing new and deploy as before.
+
+- **Power BI capacity.** Setup recommends F64 or larger, suggests the first active capacity that
+  size, and warns when the semantic model would sit on shared capacity, where a model is limited
+  to 1 GB.
+- **Paid options, off unless chosen.** **Azure placement** offers Azure SQL that scales up to 4
+  vCores and carries on past the free offer's monthly allowance (about $30-80 a month), and a web
+  app that keeps one replica running (about $10-20 a month). `--yes` never turns them on, and
+  **Repair or change** keeps what was chosen. The ARM template takes a new
+  `sqlFreeLimitExhaustionBehavior` parameter, `AutoPause` by default.
+- **First load.** A new test checks that an audit collection cut off by the run job's 4-hour limit
+  carries on in the next run. The [installer README](installer/README.md#a-large-tenant-on-azure)
+  says what to expect at 20,000 seats.
+
 **Docs:**
 
 - **A shorter README, by path.** The [README](README.md) is now just the steps for Path 1 (Fabric)
