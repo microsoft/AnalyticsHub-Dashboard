@@ -8,6 +8,7 @@
 export * from "./executive-credit-dates";
 export * from "./executive-credits";
 export * from "./executive-departments";
+export * from "./executive-hours-range";
 export * from "./executive-months";
 export * from "./executive-summary";
 export * from "./executive-work-kinds";

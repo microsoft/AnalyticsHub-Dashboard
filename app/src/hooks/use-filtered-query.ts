@@ -44,8 +44,8 @@ export interface FilteredQueryConfig {
      * minutes, so it's on its way from the page's first query. Nothing shows
      * until the times are known. With none saved the card then joins that
      * query or reads its answer; with some saved it asks again at them, and
-     * the first answer is wasted. Only for the one query a page's first view
-     * waits on longest.
+     * the first answer is wasted. Only for queries a page's first view waits
+     * on, where an early answer is worth a wasted one when times are saved.
      */
     speculate?: boolean;
 }

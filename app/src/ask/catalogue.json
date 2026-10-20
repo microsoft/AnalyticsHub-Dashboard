@@ -115,7 +115,15 @@
                 "'Chat + Agent Interactions (Audit Logs)'[Audit_UserId]",
                 "'Chat + Agent Org Data'[Organization]"
             ],
-            "description": "The executive summary's headline row: expert-equivalent hours (typical, conservative, optimistic), AI tasks, active people, licensed seats and seats in use, unlicensed users, habit and power-user shares for the last full month, agent users and hours, agents in use, satisfaction and feedback count."
+            "description": "The executive summary's headline row: expert-equivalent hours at typical effort (hours_range has the conservative to optimistic range), AI tasks, active people, licensed seats and seats in use, unlicensed users, habit and power-user shares for the last full month, agent users and hours, agents in use, satisfaction and feedback count."
+        },
+        {
+            "name": "hours_range",
+            "page": "executive",
+            "model": "vl",
+            "query": "executive/executive-hours-range.dax",
+            "filters": ["dateRange", "organizations"],
+            "description": "The range around the executive summary's expert-equivalent hours: the hours at conservative and at optimistic effort, for the same dates and organizations as bottom_line's typical figure."
         },
         {
             "name": "monthly_trend",

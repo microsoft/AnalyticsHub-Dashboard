@@ -14,11 +14,22 @@ import { Section } from "@/components/section";
 import { useSourceAvailability } from "@/hooks/source-availability.context";
 import { formatKpi } from "@/lib/format-kpi";
 import { isAbsent } from "@/lib/optional-sources";
+import { isBusyMessage } from "@/lib/query-scheduler";
 import { readNumber, readText, type SummaryRow } from "@/lib/summary-row";
 import { BODY } from "@/lib/type-scale";
 import { cn } from "@/lib/utils";
 import { CONSUMPTION_CONFIGURED } from "@/screens/value/cost-vs-value-data";
-import { byMonth, cardDelta, cardTrend, formatMonth, sumPresent, tableRecords, workRates } from "./executive-data";
+import {
+    byMonth,
+    cardDelta,
+    cardTrend,
+    formatMonth,
+    hoursRangeOf,
+    sumPresent,
+    tableRecords,
+    workRates,
+    type HoursRange,
+} from "./executive-data";
 import type { ExecutiveData } from "./use-executive-data";
 
 /** A label and a figure that isn't a single number, laid out as {@link KpiStat} lays out one that is. */
@@ -31,6 +42,56 @@ function Stat({ label, value }: { label: string; value: string }) {
             </span>
         </div>
     );
+}
+
+const HOURS_RANGE = "Conservative to Optimistic";
+
+/**
+ * The hours range under the Typical hours. It's its own query, so it can land
+ * after the hours: until it has answered for the hours on show, the line
+ * holds a placeholder rather than a range for other filters, and a download
+ * waits for it as it waits for any card still loading.
+ */
+function HoursRangeStat({ range, onRetry }: { range: HoursRange; onRetry: () => void }) {
+    switch (range.status) {
+        case "ready":
+            return (
+                <Stat
+                    label={HOURS_RANGE}
+                    value={`${formatKpi(range.conservative, "whole")} – ${formatKpi(range.optimistic, "whole")}`}
+                />
+            );
+        case "none":
+            return null;
+        case "pending":
+            return (
+                <div className="flex items-center justify-between gap-200">
+                    <span>{HOURS_RANGE}</span>
+                    <span role="status" data-query-loading="">
+                        <span className="sr-only">Loading</span>
+                        <span aria-hidden="true" className="block h-200 w-[10ch] animate-pulse rounded-sm bg-muted" />
+                    </span>
+                </div>
+            );
+        case "error": {
+            const busy = isBusyMessage(range.message);
+            return (
+                <div className="flex flex-wrap items-baseline justify-between gap-x-200">
+                    <span>{HOURS_RANGE}</span>
+                    <span className="flex items-baseline gap-200">
+                        <span title={busy ? undefined : range.message}>{busy ? "Power BI is busy" : "Didn't load"}</span>
+                        <button
+                            type="button"
+                            onClick={onRetry}
+                            className="font-semibold text-foreground underline underline-offset-2 hover:text-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                        >
+                            Try again
+                        </button>
+                    </span>
+                </div>
+            );
+        }
+    }
 }
 
 function Details({ children }: { children: ReactNode }) {
@@ -72,7 +133,7 @@ function feedbackNote(hasFeedback: boolean): { scope: string; reason: string } |
  * becoming how people work. No figure here is money; Cost vs value has that.
  */
 export function BottomLineStage({ data }: { data: ExecutiveData }) {
-    const { summary, months, credits, creditsInRange, range } = data;
+    const { summary, hoursRange, months, credits, creditsInRange, range } = data;
     const row = summary.row;
     const pair = range.range?.pair;
     const hasFeedback = !isAbsent(useSourceAvailability(), "productFeedback");
@@ -89,8 +150,6 @@ export function BottomLineStage({ data }: { data: ExecutiveData }) {
 
     const rates = workRates(row);
     const habitMonth = formatMonth(readText(row, "[Habit Month]"));
-    const conservative = readNumber(row, "[Hours Conservative]");
-    const optimistic = readNumber(row, "[Hours Optimistic]");
 
     const comparison = pair
         ? `Arrows compare ${formatMonth(pair.current)}, the last full month, with ${formatMonth(pair.previous)}; totals are compared per day so month length doesn't skew them.`
@@ -126,12 +185,7 @@ export function BottomLineStage({ data }: { data: ExecutiveData }) {
                             trend={cardTrend("volume", range.range, monthRows, read("Hours"))}
                             detail={
                                 <Details>
-                                    {conservative !== undefined && optimistic !== undefined && (
-                                        <Stat
-                                            label="Conservative to Optimistic"
-                                            value={`${formatKpi(conservative, "whole")} – ${formatKpi(optimistic, "whole")}`}
-                                        />
-                                    )}
+                                    <HoursRangeStat range={hoursRangeOf(summary, hoursRange)} onRetry={hoursRange.refetch} />
                                     {rates.minutesPerPersonWeek !== undefined && (
                                         <Stat
                                             label="Per person a week"

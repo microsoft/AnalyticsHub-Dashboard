@@ -5,7 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { act, cleanup, render, screen } from "@testing-library/react";
+import { act, cleanup, render, screen, within } from "@testing-library/react";
 import { FabricClient, type FabricClientConfig, type IFabricApiProxy } from "@microsoft/fabric-app-data";
 import { useCssTheme } from "@microsoft/fabric-visuals";
 import { tableFromArrays, tableToIPC } from "apache-arrow";
@@ -15,13 +15,14 @@ import { FilterContext } from "@/hooks/filter.context";
 import { onlyStages, StageFilterContext, type StageFilter } from "@/hooks/stage-filter.context";
 import { TaskTimesContext } from "@/hooks/task-times.context";
 import { ThemeContext } from "@/hooks/theme.context";
-import { defaultFilters } from "@/lib/filters";
+import { defaultFilters, FILTER_KEYS } from "@/lib/filters";
 import { DEFAULT_ORG_ATTRIBUTE, describeOrgAttribute } from "@/lib/org-attribute";
 import { withPriority } from "@/lib/query-priority";
 import { QueryScheduler, scheduledProxy } from "@/lib/query-scheduler";
+import { isBusy } from "@/lib/report-export";
 import type { SavedTaskTime } from "@/lib/settings-store";
 import { withTaskTimes } from "@/queries/assumptions/task-times";
-import { executiveSummary } from "@/queries/executive";
+import { executiveHoursRange, executiveSummary } from "@/queries/executive";
 import { ExecutiveScreen } from ".";
 
 const state = vi.hoisted(() => ({ client: undefined as unknown }));
@@ -41,9 +42,12 @@ vi.mock("@/components/commercial-terms-provider", () => ({
 }));
 
 const SUMMARY = executiveSummary().query;
+/** The bottom line's hours range, asked beside the summary. */
+const RANGE = executiveHoursRange().query;
 /** One task's own times, saved in the app: the summary at them is another query. */
 const SAVED: readonly SavedTaskTime[] = [{ task: "Summarise a meeting", low: 5, typical: 10, high: 20 }];
 const TIMED = withTaskTimes(SUMMARY, SAVED);
+const TIMED_RANGE = withTaskTimes(RANGE, SAVED);
 const OPENING = onlyStages(["the-bottom-line", "is-it-growing"]);
 const EVERY_STAGE = onlyStages(["the-bottom-line", "is-it-growing", "where-it-is-landing", "what-needs-attention"]);
 const isTrend = (query: string | undefined) => query?.includes('"Month Start"') === true;
@@ -66,9 +70,16 @@ function answerTable(query: string): ArrayBuffer {
             ? { "[Hours]": [4321], "[Tasks]": [9876], "[Licensed Seats]": [20], "[Seats In Use]": [10] }
             : query === TIMED
               ? { "[Hours]": [5555], "[Tasks]": [9876], "[Licensed Seats]": [20], "[Seats In Use]": [10] }
-              : { "[Value]": [] as string[] };
+              : query === RANGE
+                ? { "[Hours Conservative]": [1234], "[Hours Optimistic]": [5678] }
+                : query === TIMED_RANGE
+                  ? { "[Hours Conservative]": [2222], "[Hours Optimistic]": [7777] }
+                  : { "[Value]": [] as string[] };
     return tableToIPC(tableFromArrays(columns), "stream").slice().buffer;
 }
+
+/** The bottom line's range row: a placeholder until the range has answered for the hours on show. */
+const rangeLine = () => screen.getByText("Conservative to Optimistic").parentElement as HTMLElement;
 
 /** The real SDK and scheduler with one slot, so a queue forms; each query is held until `answerNext()`. */
 function setup() {
@@ -98,9 +109,14 @@ function Themed({ children }: { children: ReactNode }) {
 }
 
 /** The page as it first opens, by default its bottom line and trend: the app's saved task times may still be on their way. */
-function page(taskTimes: "loading" | "ready", saved: readonly SavedTaskTime[] = [], stages: StageFilter = OPENING) {
+function page(
+    taskTimes: "loading" | "ready",
+    saved: readonly SavedTaskTime[] = [],
+    stages: StageFilter = OPENING,
+    filters: ContextType<typeof FilterContext> = FILTERS,
+) {
     return (
-        <FilterContext.Provider value={FILTERS}>
+        <FilterContext.Provider value={filters}>
             <TaskTimesContext.Provider value={{ status: taskTimes, saved, save: () => Promise.resolve() }}>
                 <Themed>
                     <StageFilterContext.Provider value={stages}>
@@ -137,7 +153,7 @@ describe("Executive summary on a cold open", () => {
         const { sent, scheduler, answerNext } = setup();
         const { rerender } = render(page("loading"));
         await tick(0);
-        // The bottom line doesn't wait for the task times: it's asked at the model's own. The trend waits.
+        // The bottom line doesn't wait for the task times: its hours and their range are asked at the model's own. The trend waits.
         expect(sent).toEqual([SUMMARY]);
 
         // Meanwhile the page's other cards ask, and wait behind it for the only slot.
@@ -146,25 +162,32 @@ describe("Executive summary on a cold open", () => {
         for (const query of others) void model.query(query);
         await tick(0);
         expect(sent).toEqual([SUMMARY]);
-        expect(scheduler.activity().foreground).toBe(4);
+        expect(scheduler.activity().foreground).toBe(5);
 
-        // None are saved, so the bottom line waits for the query already on its way, and the trend queues ahead of the rest.
+        // None are saved, so the bottom line waits for the queries already on their way, and the trend queues ahead of the rest.
         rerender(page("ready"));
         await tick(0);
-        expect(scheduler.activity().foreground).toBe(5);
+        expect(scheduler.activity().foreground).toBe(6);
         expect(sent).toEqual([SUMMARY]);
 
+        // The hours show as soon as they land; their range holds a placeholder until it lands too.
         answerNext();
         await tick(0);
         expect(screen.getByText("4,321")).toBeTruthy();
-        for (let answered = 1; answered < 4; answered++) {
+        expect(within(rangeLine()).getByRole("status")).toBeTruthy();
+        expect(sent).toEqual([SUMMARY, RANGE]);
+
+        answerNext();
+        await tick(0);
+        expect(within(rangeLine()).getByText("1,234 – 5,678")).toBeTruthy();
+        for (let answered = 2; answered < 5; answered++) {
             answerNext();
             await tick(0);
         }
-        expect(sent).toHaveLength(5);
-        expect(sent[0]).toBe(SUMMARY);
-        expect(isTrend(sent[1])).toBe(true);
-        expect(sent.slice(2)).toEqual(others);
+        expect(sent).toHaveLength(6);
+        expect(sent.slice(0, 2)).toEqual([SUMMARY, RANGE]);
+        expect(isTrend(sent[2])).toBe(true);
+        expect(sent.slice(3)).toEqual(others);
     });
 
     it("shows nothing from an answer that comes before the task times, then reads it from the cache once none turn out to be saved", async () => {
@@ -173,13 +196,19 @@ describe("Executive summary on a cold open", () => {
         await tick(0);
         answerNext();
         await tick(0);
+        answerNext();
+        await tick(0);
+        expect(sent).toEqual([SUMMARY, RANGE]);
         expect(screen.queryByText("4,321")).toBeNull();
+        expect(screen.queryByText("1,234 – 5,678")).toBeNull();
 
         rerender(page("ready"));
         await tick(0);
         expect(screen.getByText("4,321")).toBeTruthy();
+        expect(within(rangeLine()).getByText("1,234 – 5,678")).toBeTruthy();
         expect(sent.filter((query) => query === SUMMARY)).toHaveLength(1);
-        expect(isTrend(sent[1])).toBe(true);
+        expect(sent.filter((query) => query === RANGE)).toHaveLength(1);
+        expect(isTrend(sent[2])).toBe(true);
     });
 
     it("asks the bottom line again at the task times saved in the app, and never shows the answer at the model's own", async () => {
@@ -192,6 +221,7 @@ describe("Executive summary on a cold open", () => {
         await tick(0);
         answerNext();
         await tick(0);
+        // The range at the model's own times was still waiting, so it's called off before it's sent.
         expect(sent).toEqual([SUMMARY, TIMED]);
         expect(screen.queryByText("4,321")).toBeNull();
 
@@ -199,7 +229,14 @@ describe("Executive summary on a cold open", () => {
         await tick(0);
         expect(screen.getByText("5,555")).toBeTruthy();
         expect(screen.queryByText("4,321")).toBeNull();
-        expect(isTrend(sent[2])).toBe(true);
+        expect(within(rangeLine()).getByRole("status")).toBeTruthy();
+        expect(sent).toEqual([SUMMARY, TIMED, TIMED_RANGE]);
+
+        answerNext();
+        await tick(0);
+        expect(within(rangeLine()).getByText("2,222 – 7,777")).toBeTruthy();
+        expect(isTrend(sent[3])).toBe(true);
+        expect(sent).not.toContain(RANGE);
     });
 
     it("asks the bottom line before the queries of the stages below it", async () => {
@@ -209,6 +246,64 @@ describe("Executive summary on a cold open", () => {
         expect(sent).toEqual([SUMMARY]);
         // The stages below asked too, and wait behind it.
         expect(scheduler.activity().foreground).toBeGreaterThan(1);
+    });
+
+    it("leaves the hours range unasked when the bottom line isn't on show", async () => {
+        const { sent, answerNext } = setup();
+        render(page("ready", [], onlyStages(["is-it-growing", "what-needs-attention"])));
+        for (let answered = 0; answered < 20; answered++) {
+            await tick(0);
+            answerNext();
+        }
+        await tick(0);
+        expect(sent).toContain(SUMMARY);
+        expect(sent).not.toContain(RANGE);
+    });
+
+    it("keeps a download waiting until the range has landed, as it waits for any card still loading", async () => {
+        const { sent, answerNext } = setup();
+        render(page("ready", [], onlyStages(["the-bottom-line"])));
+        await tick(0);
+        answerNext();
+        await tick(0);
+        expect(screen.getByText("4,321")).toBeTruthy();
+        expect(sent).toEqual([SUMMARY, RANGE]);
+        // What a download or report pack checks before it captures the page.
+        expect(isBusy(rangeLine())).toBe(true);
+
+        answerNext();
+        await tick(0);
+        expect(within(rangeLine()).getByText("1,234 – 5,678")).toBeTruthy();
+        expect(isBusy(rangeLine())).toBe(false);
+    });
+
+    it("asks the hours range under the same filters as the summary", async () => {
+        const { sent, answerNext } = setup();
+        const filtered: ContextType<typeof FilterContext> = {
+            ...FILTERS,
+            filters: {
+                ...defaultFilters,
+                dateRange: { preset: "custom", from: "2026-06-01", to: "2026-06-30" },
+                organizations: ["Finance"],
+                licence: "licensed",
+                agentNames: ["Helper"],
+            },
+            applicable: FILTER_KEYS,
+        };
+        render(page("ready", [], OPENING, filtered));
+        for (let answered = 0; answered < 3; answered++) {
+            await tick(0);
+            answerNext();
+        }
+        await tick(0);
+        const summary = sent.find((query) => query.includes('"Habitual Pct"'));
+        const range = sent.find((query) => query.includes('"Hours Conservative"'));
+        // The filters follow the query's body, after a comma on its own line.
+        const filtersOf = (query: string | undefined) => query?.slice(query.lastIndexOf("\n,\n"));
+        expect(filtersOf(summary)).toContain("DATE(2026, 6, 1)");
+        expect(filtersOf(summary)).toContain('{"Finance"}');
+        expect(filtersOf(summary)).toContain('{"Helper"}');
+        expect(filtersOf(range)).toBe(filtersOf(summary));
     });
 
     it("keeps the bottom line's place in the queue when the task times come while it waits, none saved", async () => {
@@ -234,9 +329,13 @@ describe("Executive summary on a cold open", () => {
         answerNext();
         await tick(0);
         expect(screen.getByText("4,321")).toBeTruthy();
-        expect(sent).toEqual([FIRST, SUMMARY, LEAD]);
+        expect(sent).toEqual([FIRST, SUMMARY, RANGE]);
         answerNext();
         await tick(0);
-        expect(isTrend(sent[3])).toBe(true);
+        expect(within(rangeLine()).getByText("1,234 – 5,678")).toBeTruthy();
+        expect(sent).toEqual([FIRST, SUMMARY, RANGE, LEAD]);
+        answerNext();
+        await tick(0);
+        expect(isTrend(sent[4])).toBe(true);
     });
 });

@@ -37,6 +37,12 @@ export interface SummaryResult {
     /** True once the query has answered, even with no rows. */
     loaded: boolean;
     error: string | undefined;
+    /**
+     * True while the query is asked again with its last answer still in `row`
+     * or `error`, as after a filter changes: that answer may be for the
+     * filters as they were.
+     */
+    refreshing?: boolean;
     refetch: () => void;
     /** Active filters the query can't take, and why. */
     notFilteredBy?: readonly NotFiltered[];
@@ -88,6 +94,7 @@ export function useSummaryQuery(
         row,
         loaded: result.data?.status === "success",
         error: result.data?.status === "error" ? result.data.error.message : undefined,
+        refreshing: result.isRefreshing,
         refetch: result.refetch,
         notFilteredBy: result.notFilteredBy,
     };
