@@ -10,7 +10,7 @@ import { MODULES, azureGraphRolesFor } from '../src/catalog.js';
 import { HttpError } from '../src/http.js';
 import { armApi, armErrors, waitForDeployment } from '../src/clients/azure.js';
 import { runCommand } from '../src/install.js';
-import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, armParameterNames, askTarget, azureAgent365On, azureConsumptionOn, azureCron, azureDeployment, azureDropContents, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureRotateSecret, azureSemanticModels, azureStatus, azureSummary, azureUninstall, confirmAzurePlan, consumptionParameters, enabledAzureModuleIds, installAzure, parseDropFolder, planAzure, planAzureAgent365, planAzureDrop, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
+import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, armParameterNames, askTarget, azureAgent365On, azureConsumptionOn, azureCron, azureDeployment, azureDropContents, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureProductFeedbackOn, azureRotateSecret, azureSemanticModels, azureStatus, azureSummary, azureUninstall, confirmAzurePlan, consumptionParameters, enabledAzureModuleIds, installAzure, parseDropFolder, planAzure, planAzureAgent365, planAzureDrop, planAzureProductFeedback, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
 import { AZURE_AI_ROLES } from '../src/steps/consumption.js';
 import { azureFlowTarget, connectionSteps, flowDefinitions, flowsWanted } from '../src/steps/flows.js';
 import { CONNECTORS, connectorsUsed } from '../src/transform/flows.js';
@@ -457,6 +457,246 @@ test('Azure plan with Agent 365: the review lists the access the export needs', 
     { who: 'Collector managed identity', what: 'Sites.Selected (read)', where: 'https://contoso.sharepoint.com/sites/Analytics', detail: 'Reads the Agent 365 export. Needs a SharePoint or Global administrator.' },
   ]);
   assert.match(grants[0].what, /Sites\.Selected/);
+});
+
+/** @param {import('../src/config.js').InstallConfig} config @param {Partial<import('../src/config.js').AzureConfig>} [az] */
+function withAzureFeedback(config, az = {}) {
+  config.target = 'azure';
+  config.modules.productFeedback = true;
+  config.dataSources.productFeedback = 'csv';
+  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub', ...az };
+}
+
+const FEEDBACK_FABRIC_ONLY = /On Azure product feedback comes from its CSV export: the emailed export flow is Fabric only for now\./;
+
+test('product feedback on Azure: ticking it takes the CSV exports, because the emailed export flow is Fabric only for now', async () => {
+  const pre = { subscriptions: [{ subscriptionId: 'sub-1', displayName: 'Sub' }], capacities: [] };
+  const choice = azureModuleChoices(fakeCtx().config.modules).find((c) => c.value === 'productFeedback');
+  assert.equal(choice?.disabled, false);
+  assert.match(choice?.description ?? '', /^From .+\. Shows what people say about Copilot\. On Azure it comes from the CSV export: the emailed export flow is Fabric only for now\.$/);
+
+  const on = fakeUi({ answers: [['m365Activity', 'productFeedback'], false] });
+  const picked = fakeCtx({ ui: on.ui, arm: fakeArm().api, fabric: fakeFabric().api, powerBi: fakePowerBi().api });
+  picked.config.dataSources.productFeedback = 'api';
+  await planAzure(picked.ctx, pre, 'data');
+  assert.equal(picked.config.modules.productFeedback, true);
+  assert.equal(picked.config.dataSources.productFeedback, 'csv', 'a Fabric install\'s flow becomes the exports');
+  assert.match(on.text(), FEEDBACK_FABRIC_ONLY);
+  assert.ok(enabledAzureModuleIds(picked.config.modules, picked.config.azure).includes('productFeedback'), 'the jobs collect it');
+  assert.ok(!flowsWanted(picked.config).includes('feedback'), 'no feedback flow on Azure');
+
+  const csv = fakeUi({ answers: [['productFeedback'], false] });
+  const kept = fakeCtx({ ui: csv.ui, arm: fakeArm().api, fabric: fakeFabric().api, powerBi: fakePowerBi().api });
+  kept.config.dataSources.productFeedback = 'csv';
+  await planAzure(kept.ctx, pre, 'data');
+  assert.equal(kept.config.dataSources.productFeedback, 'csv');
+  assert.doesNotMatch(csv.text(), FEEDBACK_FABRIC_ONLY, 'nothing to warn about');
+
+  const off = fakeUi({ answers: [['m365Activity'], false] });
+  const left = fakeCtx({ ui: off.ui, arm: fakeArm().api, fabric: fakeFabric().api, powerBi: fakePowerBi().api });
+  Object.assign(left.config.modules, { productFeedback: true });
+  left.config.dataSources.productFeedback = 'api';
+  await planAzure(left.ctx, pre, 'data');
+  assert.equal(left.config.modules.productFeedback, false);
+  assert.equal(left.config.dataSources.productFeedback, 'skip');
+  assert.doesNotMatch(off.text(), /Fabric only/);
+  assert.ok(!enabledAzureModuleIds(left.config.modules, left.config.azure).includes('productFeedback'));
+});
+
+test('product feedback on Azure: the plan says where to drop the exports, and demo mode leaves it out', () => {
+  const plan = (/** @type {Partial<import('../src/config.js').AzureConfig>} */ az, on = true) => {
+    const u = fakeUi();
+    const { ctx, config } = fakeCtx({ ui: u.ui });
+    withAzureFeedback(config, az);
+    config.modules.productFeedback = on;
+    planAzureProductFeedback(ctx);
+    return { text: u.text(), asked: u.asked, config };
+  };
+  const before = plan({});
+  assert.match(before.text, /Product feedback/);
+  assert.match(before.text, /On Azure product feedback comes from its CSV export: the emailed export flow is Fabric only for now\. Export it from Microsoft 365 admin center > Health > Product feedback > Export, and drop each CSV in the storage account > landing\/product_feedback\. Each run loads them all and removes duplicates by Feedback Id\./);
+  assert.deepEqual(before.asked, [], 'there is nothing to choose');
+  assert.equal(azureProductFeedbackOn(before.config), true);
+  assert.deepEqual(azureDropContents(before.config), ['product feedback exports']);
+  assert.match(plan({ outputs: { storageAccountName: 'vlensst' } }).text, /drop each CSV in vlensst > landing\/product_feedback\./);
+  assert.match(plan({ publicNetworkAccess: false }).text, /drop each CSV in a product_feedback folder in the SharePoint folder you choose for the jobs\./);
+
+  const demo = plan({ sampleData: true });
+  assert.match(demo.text, /Demo mode doesn't load the product feedback sample, so product feedback is collected once you switch to your tenant's data\./);
+  assert.doesNotMatch(demo.text, /Export it from/);
+  assert.equal(azureProductFeedbackOn(demo.config), false);
+  assert.deepEqual(azureDropContents(demo.config), []);
+  assert.equal(plan({}, false).text, '');
+});
+
+test('product feedback on Azure with private networking: the exports share the SharePoint folder with the Agent 365 export and credit files', async () => {
+  const plan = async (/** @type {(config: import('../src/config.js').InstallConfig, az: any) => void} */ setUp, /** @type {any[]} */ answers = [DROP_FOLDER]) => {
+    const u = fakeUi({ answers });
+    const { ctx, config } = fakeCtx({ ui: u.ui });
+    withAzureFeedback(config, { publicNetworkAccess: false });
+    setUp(config, config.azure);
+    await planAzureDrop(ctx);
+    return { u, config, az: /** @type {any} */ (config.azure) };
+  };
+  const values = (/** @type {import('../src/config.js').InstallConfig} */ config) => Object.fromEntries(Object.entries(consumptionParameters(config)).map(([k, v]) => [k, v.value]));
+
+  const only = await plan(() => {});
+  assert.deepEqual(only.u.asked, ['SharePoint folder for product feedback exports (the address of a folder in a document library)']);
+  assert.match(only.u.text(), /Private networking keeps vlens storage off the internet, so your uploads go to a SharePoint folder the jobs read instead\./);
+  assert.equal(only.az.drop.siteId, 'contoso.sharepoint.com:/sites/Analytics');
+  assert.ok(azureGraphRoles(only.config).includes('Sites.Selected'), 'the jobs read the folder');
+  assert.deepEqual(values(only.config), { azureAiSubscriptionId: '', paygSubscriptionIds: '', dropSiteId: 'contoso.sharepoint.com:/sites/Analytics', dropDriveId: '', dropFolder: 'Shared Documents/ValueLens' });
+
+  const exports = await plan((config) => {
+    config.modules.agent365 = true;
+    config.dataSources.agent365 = 'csv';
+  });
+  assert.deepEqual(exports.u.asked, ['SharePoint folder for the Agent 365 export and product feedback exports (the address of a folder in a document library)']);
+
+  const all = await plan((config) => {
+    withAzureConsumption(config, { publicNetworkAccess: false });
+    config.modules.agent365 = true;
+    config.dataSources.agent365 = 'csv';
+  });
+  assert.deepEqual(all.u.asked, ['SharePoint folder for credit files, the Agent 365 export and product feedback exports (the address of a folder in a document library)']);
+  assert.match(all.u.text(), /where Power Automate runs, so the flow and your uploads go to a SharePoint folder the jobs read instead\./);
+  assert.deepEqual(azureDropContents(all.config), ['credit files', 'the Agent 365 export', 'product feedback exports']);
+
+  const pub = await plan((_c, az) => { az.publicNetworkAccess = true; az.drop = parseDropFolder(DROP_FOLDER); }, []);
+  assert.deepEqual(pub.u.asked, [], 'public storage takes the exports in the landing container');
+  assert.equal(pub.az.drop, undefined);
+
+  const demo = await plan((_c, az) => { az.sampleData = true; az.drop = parseDropFolder(DROP_FOLDER); }, []);
+  assert.deepEqual(demo.u.asked, []);
+  assert.equal(demo.az.drop.siteId, 'contoso.sharepoint.com:/sites/Analytics', 'the folder is kept for next time');
+  assert.ok(!azureGraphRoles(demo.config).includes('Sites.Selected'));
+  assert.equal(values(demo.config).dropSiteId, '');
+});
+
+test('Azure install with product feedback: write on the landing container for you, and where to drop the exports', async () => {
+  const arm = fakeArm();
+  /** @type {any[]} */
+  const deployments = [];
+  const deploy = /** @type {(...a: any[]) => Promise<any>} */ (arm.api.deployTemplate);
+  arm.api.deployTemplate = async (/** @type {any[]} */ ...args) => {
+    deployments.push(args[3]);
+    return deploy(...args);
+  };
+  const graph = fakeAzureGraph();
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds', connectionDetails: { server: 'vlens-sql.database.windows.net', database: 'valuelens' } }]);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui });
+  withAzureFeedback(config);
+  config.modules.agent365 = true;
+  config.dataSources.agent365 = 'csv';
+  ctx.runFirstLoad = false;
+
+  await installAzure(ctx, { wait: true });
+  const role = `assignRole /subscriptions/sub-1/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/vlensstabc ${ROLES.storageBlobDataContributor} user-1 User`;
+  assert.deepEqual(arm.calls.filter((c) => c.startsWith('assignRole')), [role], 'one role for both exports, and none for the jobs');
+  const az = /** @type {any} */ (config.azure);
+  assert.equal(az.storageRole, true);
+  assert.ok(!graph.calls.some((c) => c.startsWith('grantSiteRead')));
+  assert.ok(!az.graphRoles.assigned.includes('Sites.Selected'));
+  const out = ui.text();
+  assert.match(out, /Product feedback export/);
+  assert.match(out, /Drop product feedback exports in vlensstabc > landing\/product_feedback\. Each run loads them all and removes duplicates by Feedback Id\./);
+  assert.match(out, /Feedback: +drop exports in vlensstabc > landing\/product_feedback\. Each run loads them all and removes duplicates by Feedback Id\./, 'in the summary');
+  assert.match(out, /Agent 365: +drop the export in vlensstabc > landing\/agent365\./);
+
+  const last = deployments.at(-1).properties.parameters;
+  assert.deepEqual(last.modules.value.split(',').filter((/** @type {string} */ m) => m === 'agent365' || m === 'productFeedback'), ['agent365', 'productFeedback']);
+  assert.equal(last.dropSiteId.value, '');
+
+  await azureStatus(ctx);
+  assert.match(ui.text(), /Feedback CSV: +vlensstabc > landing\/product_feedback/);
+
+  // An update reuses the role.
+  arm.calls.length = 0;
+  await installAzure(ctx, { wait: true });
+  assert.ok(!arm.calls.some((c) => c.startsWith('assignRole')));
+});
+
+test('Azure install with product feedback and private networking: one read grant on the SharePoint site, which uninstall leaves alone', async () => {
+  const arm = fakeArm();
+  /** @type {any[]} */
+  const deployments = [];
+  const deploy = /** @type {(...a: any[]) => Promise<any>} */ (arm.api.deployTemplate);
+  arm.api.deployTemplate = async (/** @type {any[]} */ ...args) => {
+    deployments.push(args[3]);
+    return deploy(...args);
+  };
+  const graph = fakeAzureGraph();
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds' }]);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui });
+  // Public endpoints keep the fakes simple; the folder is what matters here.
+  withAzureFeedback(config, { drop: parseDropFolder(DROP_FOLDER), createdResourceGroup: true });
+  config.modules.agent365 = true;
+  config.dataSources.agent365 = 'csv';
+  ctx.runFirstLoad = false;
+
+  await installAzure(ctx, { wait: true });
+  const az = /** @type {any} */ (config.azure);
+  assert.equal(graph.calls.filter((c) => c.startsWith('grantSiteRead')).length, 1, 'one grant covers both exports');
+  assert.ok(graph.calls.some((c) => c.startsWith('grantSiteRead site:contoso.sharepoint.com:/sites/Analytics')));
+  assert.equal(az.drop.granted, true);
+  assert.ok(az.graphRoles.assigned.includes('Sites.Selected'));
+  assert.ok(!arm.calls.some((c) => c.includes('storageAccounts/')), 'no storage role for you when the exports go to SharePoint');
+  assert.match(ui.text(), /Drop product feedback exports in https:\/\/contoso\.sharepoint\.com\/sites\/Analytics\/Shared Documents\/ValueLens\/product_feedback\. Each run loads them all and removes duplicates by Feedback Id\./);
+  const last = deployments.at(-1).properties.parameters;
+  assert.equal(last.dropSiteId.value, 'contoso.sharepoint.com:/sites/Analytics');
+  assert.equal(last.dropFolder.value, 'Shared Documents/ValueLens');
+
+  await azureUninstall(ctx);
+  assert.ok(arm.calls.includes('deleteResourceGroup rg'));
+  assert.match(ui.text(), /The SharePoint drop folder https:\/\/contoso\.sharepoint\.com\/sites\/Analytics\/Shared Documents\/ValueLens and the files in it are left alone\./);
+});
+
+test('Azure install with product feedback in demo mode grants nothing for it', async () => {
+  const arm = fakeArm();
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds' }]);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: fakeAzureGraph().api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui });
+  withAzureFeedback(config, { sampleData: true });
+  ctx.runFirstLoad = false;
+  await installAzure(ctx, { wait: true });
+  assert.ok(!arm.calls.some((c) => c.startsWith('assignRole')));
+  assert.doesNotMatch(ui.text(), /Product feedback export|Drop product feedback|Feedback CSV/);
+});
+
+test('Azure plan with product feedback: the review lists the access the exports need', async () => {
+  const s = teamsCatalogInstall({ answers: [false, true] });
+  /** @type {any[]} */
+  const plans = [];
+  const review = s.ui.ui.review;
+  s.ui.ui.review = (plan) => {
+    plans.push(plan);
+    review(plan);
+  };
+  const config = s.ctx.config;
+  config.modules.productFeedback = true;
+  config.dataSources.productFeedback = 'csv';
+  assert.equal(await confirmAzurePlan(s.ctx), true);
+  assert.match(s.ui.text(), /Feedback: +CSV exports, in the storage account > landing\/product_feedback/);
+  const feedback = (/** @type {{ detail?: string }[]} */ grants) => grants.filter((g) => /product feedback/.test(g.detail ?? ''));
+  assert.deepEqual(feedback(plans[0].grants), [
+    { who: 'You', what: 'Storage Blob Data Contributor', where: 'The storage account', detail: 'So you can upload product feedback exports to the landing container.' },
+  ]);
+
+  config.modules.agent365 = true;
+  config.dataSources.agent365 = 'csv';
+  assert.deepEqual(feedback(azurePlanReview(s.ctx).grants), [
+    { who: 'You', what: 'Storage Blob Data Contributor', where: 'The storage account', detail: 'So you can upload the Agent 365 export and product feedback exports to the landing container.' },
+  ]);
+
+  s.az().drop = parseDropFolder(DROP_FOLDER);
+  assert.deepEqual(feedback(azurePlanReview(s.ctx).grants), [
+    { who: 'Collector managed identity', what: 'Sites.Selected (read)', where: 'https://contoso.sharepoint.com/sites/Analytics', detail: 'Reads the Agent 365 export and the product feedback exports. Needs a SharePoint or Global administrator.' },
+  ]);
 });
 
 test('Azure preflight surfaces policy denial and what-if plan grouping', async () => {

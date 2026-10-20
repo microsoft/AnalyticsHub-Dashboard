@@ -67,11 +67,11 @@ export const MODULES = {
   productFeedback: {
     id: 'productFeedback',
     label: 'Product feedback',
-    description: 'From the product feedback export in the Microsoft 365 admin center, which you put in the Lakehouse. Shows what people say about Copilot.',
+    description: 'From the product feedback export in the Microsoft 365 admin center, which you upload. Shows what people say about Copilot.',
     required: false,
     defaultOn: false,
     permissions: [],
-    azure: { supported: false, graphRoles: [] },
+    azure: { supported: true, graphRoles: [] },
     pipelineParameter: 'EnableProductFeedback',
   },
   consumption: {

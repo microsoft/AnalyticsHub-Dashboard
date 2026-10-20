@@ -17,12 +17,14 @@ Data layout (same under a local directory or the ADLS account; first segment = c
     raw/defender_*/...                                         (module defender, optional)
     landing/defender/ai_watchlist.csv                          (module defender: the AI watchlist, admin-edited)
     raw/agents_365/part-0.parquet                              (module agent365: the newest Agent 365 export)
+    raw/user_feedback/part-0.parquet                           (module productFeedback: every export, deduplicated)
     curated/copilot_interactions_curated/month-YYYYMM.parquet  (one file per month; month-none = no date)
     curated/_valuelens_process/state.json, context/            (incremental process bookkeeping)
     curated/<studio_* | viva_*>/part-0.parquet                 (module consumption, merged state)
     raw/<azure_ai_* | copilot_payg_spend | ...>/part-0.parquet (module consumption, Azure AI)
     landing/studio/*.csv, landing/viva/*.csv                   (consumption drop folder, read only)
     landing/agent365/*.csv                                     (module agent365 drop folder, read only)
+    landing/product_feedback/*.csv                             (module productFeedback drop folder, read only)
 """
 from __future__ import annotations
 
@@ -271,6 +273,10 @@ def collect(store, settings, api=None) -> dict:
         from .collect.agent365 import collect_agent365
 
         jobs.append(("agent365", collect_agent365))
+    if settings.has("productFeedback"):
+        from .collect.product_feedback import collect_product_feedback
+
+        jobs.append(("product_feedback", collect_product_feedback))
     if settings.has("resourceGraph"):
         from .collect.resource_graph import collect_resource_graph
 
@@ -307,6 +313,8 @@ def publish_targets(settings) -> list[str]:
         targets += list(DEFENDER)
     if settings.has("agent365"):
         targets.append("agents_365")
+    if settings.has("productFeedback"):
+        targets.append("user_feedback")
     return targets + consumption
 
 

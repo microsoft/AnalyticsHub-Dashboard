@@ -12,7 +12,9 @@ organisations, agents, prompts and usage are all invented. Addresses use `contos
 The `valuelens-jobs` image bundles these files at `/app/sample-data`, so an Azure install can show a
 full dashboard before any tenant data is collected. On Fabric, `product_feedback_sample.csv` also
 works as a real export: drop it in `Files/product_feedback/` and run
-`Copilot_ProductFeedback_Ingester`.
+`Copilot_ProductFeedback_Ingester`. Azure demo mode doesn't load it, but out of demo mode, with
+product feedback on, it works as a real export there too: drop it in `product_feedback/` (see
+[Product feedback](../azure/README.md#product-feedback)).
 
 ## Where the files come from
 

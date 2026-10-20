@@ -72,11 +72,12 @@ const flowsChosen = (config) => {
 /** The ADLS container an Azure install's flows and uploads land in. */
 export const AZURE_LANDING = 'landing';
 /** Folders under the Azure landing place: what the jobs read, and the flow's own state, which they don't. */
-export const AZURE_LANDING_DIRS = /** @type {const} */ ({ studio: 'studio', viva: 'viva', agent365: 'agent365', flows: 'flows', argInventory: 'arg_inventory' });
+export const AZURE_LANDING_DIRS = /** @type {const} */ ({ studio: 'studio', viva: 'viva', agent365: 'agent365', productFeedback: 'product_feedback', flows: 'flows', argInventory: 'arg_inventory' });
 
 /**
- * The credit files and the Agent 365 export go to a SharePoint folder rather than the landing container. The
- * plan sets the folder only with private networking, where Power Automate can't reach the storage account.
+ * The credit files and the CSV exports (Agent 365, product feedback) go to a SharePoint folder rather than the
+ * landing container. The plan sets the folder only with private networking, where Power Automate can't reach
+ * the storage account.
  * @param {import('../config.js').AzureConfig | undefined} az
  */
 export const azureDropsToSharePoint = (az) => !!az?.drop?.siteId;
