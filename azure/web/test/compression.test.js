@@ -49,7 +49,7 @@ test('the encodings a client accepts, best first', () => {
   for (const none of [undefined, '', 'identity', 'deflate', 'br;q=0, gzip;q=0', 'br;q=nonsense']) assert.deepEqual(acceptedEncodings(none), [], String(none));
 });
 
-test('only types that shrink are compressed: never images, fonts or an event stream', () => {
+test('only types that shrink are compressed: text, JSON and SVG, never PNG, icons, fonts or an event stream', () => {
   for (const type of ['application/json; charset=utf-8', 'text/javascript; charset=utf-8', 'text/html', 'text/css', 'image/svg+xml', 'application/problem+json']) assert.ok(isCompressible(type), type);
   for (const type of ['text/event-stream', 'image/png', 'image/x-icon', 'font/woff2', 'application/octet-stream', '', undefined]) assert.ok(!isCompressible(type), String(type));
 });
