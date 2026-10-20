@@ -1,11 +1,14 @@
-"""Agent 365 dates before 2000 load as blank, in core and in both Fabric notebooks."""
+"""Agent 365 dates before 2000 load as blank, in core, in both Fabric notebooks and in the Azure collector."""
 import json
+import re
 from datetime import date, datetime, timezone
 
+import duckdb
 import pytest
 
 import notebook_source
 from valuelens_core import dates
+from valuelens_jobs.collect import agent365
 
 REGISTRY = "Copilot_Agent365_Registry_Ingester.ipynb"
 LANDER = "Copilot_Agent365_Lander.ipynb"
@@ -41,6 +44,27 @@ def test_core_blanks_dates_before_2000(value, expected):
 def test_registry_ingester_matches_core(value, expected):
     ns = notebook_source.namespace(REGISTRY, CONSTANTS)
     assert ns["_plausible_date"](value) == expected
+
+
+# A CSV holds text only, so the Azure collector sees the string cases.
+@pytest.mark.parametrize(("value", "expected"), [c for c in CASES if c[0] is None or isinstance(c[0], str)])
+def test_azure_collector_matches_core(value, expected):
+    con = duckdb.connect()
+    con.execute('CREATE TEMP TABLE landed ("Date created" VARCHAR, "Last Activity Date" VARCHAR, '
+                '"Last updated" VARCHAR)')
+    con.execute("INSERT INTO landed VALUES (?, ?, ?)", [value, value, value])
+    blanked = agent365._blank_implausible_dates(con)
+    assert con.execute("SELECT * FROM landed").fetchone() == (expected, expected, value)
+    assert blanked == (2 if value is not None and expected is None else 0)
+    assert agent365.DATE_COLUMNS == ("Date created", "Last Activity Date")
+
+
+@pytest.mark.parametrize("value", ["0001-01-01", "1/1/0001 12:00:00 AM", "12345 2026", "x0001", "2026-0001",
+                                   "20260101", "99999", "abc", "", "0001\n2026", "Created 1999 or 2026", "1234"])
+def test_azure_year_pattern_matches_core(value):
+    match = re.search(dates.YEAR_PATTERN, value)
+    found = duckdb.execute("SELECT regexp_extract(?, ?, 1)", [value, agent365.YEAR_SQL_PATTERN]).fetchone()[0]
+    assert found == (match.group(1) if match else "")
 
 
 @pytest.mark.parametrize("notebook", [REGISTRY, LANDER])

@@ -155,14 +155,18 @@ package to your org's Teams app catalog, and later runs update that app rather t
 it can't, if you say no when the plan asks, or if the sign-in isn't finished within 5 minutes, it
 prints the steps to upload it by hand and carries on.
 
-`core`, `orgData`, `m365Activity` and `consumption` are supported on Azure. Other modules
+`core`, `orgData`, `m365Activity`, `agent365` and `consumption` are supported on Azure. Other modules
 are shown as coming soon and cannot be selected. Credit consumption deploys the Consumption Central model,
 gives the jobs' managed identity Cost Management and Azure AI roles, and creates the Copilot Studio flow,
 signed in as you (`--flow-identity app` is Fabric only). With public endpoints the flow writes to the
 storage account's `landing` container and you get **Storage Blob Data Contributor** on it. With private
 networking it writes to a SharePoint folder you name, and the managed identity gets **Sites.Selected** read
 on that site (a SharePoint or Global administrator grants it). See
-[Azure](../azure/README.md#credit-consumption). Agent configuration and Foundry from Azure
+[Azure](../azure/README.md#credit-consumption).
+The Agent 365 registry comes from its CSV export, which you drop in the same place, under
+`agent365`; the Agent 365 API is Fabric only for now. See
+[Agent 365 registry](../azure/README.md#agent-365-registry).
+Agent configuration and Foundry from Azure
 Resource Graph also works on Azure: see [Agent configuration and Foundry](#agent-configuration-and-foundry).
 The app's Ask page answers with an Azure OpenAI model, an AI Services account the installer creates
 by default or a deployment you already have: see [Ask](#ask).
@@ -499,7 +503,7 @@ this installer ignore it and run as usual: run `update` first if yours is.
 | Org data (Entra ID) | Always | | Organisation filters |
 | Workday org data | | Workday: a report of active workers with **Primary Work Email** | Organisation filters |
 | Microsoft 365 activity | Yes | | M365 activity |
-| Agent 365 registry | Needs an Agent 365 licence | Microsoft 365 admin center > **Agents** > **All agents** > **Export** | Agents |
+| Agent 365 registry | Needs an Agent 365 licence. Fabric only for now: on Azure, use the export | Microsoft 365 admin center > **Agents** > **All agents** > **Export** | Agents |
 | Product feedback | No API. **Power Automate (emailed export)**: a flow saves exports emailed to you | Microsoft 365 admin center > **Health** > **Product feedback** > **Export** | User Feedback |
 | Copilot Studio credits | **Connected (Power Automate flow)**, the default: a daily flow reads the licensing API (tenant, environment, agent and per-user figures) | Power Platform admin center > **Licensing** > **Products** > **Copilot Studio** (Summary, Environments, Agents and Users) | Consumption Central |
 | Copilot Cowork credits | **Connected (Dataflow)**: a Dataflow Gen2 reads your Viva Insights query | Viva Insights > Copilot Consumption Dashboard > **Export** | Consumption Central |
@@ -530,6 +534,12 @@ Your account needs Contributor or Member on the workspace to write there.
 name the shortcut `sharepoint`. Files there are read where they are, loaded once each, and left in
 place. Shortcuts need the Fabric tenant setting for OneDrive and SharePoint shortcuts. Without it,
 use the Lakehouse folder.
+
+**On Azure** there's no Lakehouse, and **Upload exports** is Fabric only. Drop the Agent 365 export
+in `agent365/` in the storage account's `landing` container or, with private networking, in the
+`agent365` folder under the SharePoint folder you gave the installer. Each run loads the newest
+one. See [Agent 365 registry](../azure/README.md#agent-365-registry); credit files are in
+[Credit consumption](../azure/README.md#credit-consumption).
 
 ### Power Automate flows
 
@@ -650,6 +660,7 @@ Source IDs for `--data`: `workday`, `m365Activity`, `agent365`, `productFeedback
 `api`, `csv` or `skip` (`defender` and `resourceGraph` take `api` or `skip`).
 For `productFeedback` and `studioCredits`, `flow` is the same as `api`. `--feedback-flow` still
 works: it's the same as `productFeedback=flow`.
+On Azure, `agent365` is `csv` or `skip`: `api` warns and uses the export.
 Without `--flow-environment`, the installer asks which environment to use.
 With `resourceGraph=api`, `--arg-management-group <id>` reads one management group rather than the
 whole tenant, and `--no-arg-agents` or `--no-arg-foundry` leaves agents or Foundry out.
@@ -784,7 +795,8 @@ inventory API it calls takes delegated sign-ins only, so the flow reads as the a
 to its connection. It writes to `Files/arg_inventory` in the Lakehouse, or on Azure to
 `landing/arg_inventory`, or with private networking the `arg_inventory` subfolder of the
 SharePoint drop folder. Agent Title IDs are matched from the Agent 365 registry, so the load runs
-after it; on Azure, where Agent 365 isn't available yet, they stay blank.
+after it. They're matched on its `Bot Id` and `Entra Agent ID` columns, which the admin center's
+export doesn't have, so with only the export (on Azure, for now) they stay blank.
 
 On Azure the installer adds `resourceGraph` to the jobs' modules and passes the management group
 and what to read (`argManagementGroup`, `argAgents`, `argFoundry`). Demo mode leaves it out.

@@ -39,7 +39,7 @@ parameter.
 | 1 | Chat + Agent Interactions (Audit Logs) | `copilot_interactions_curated` | **Core** | `Copilot_Audit_Log_Direct_Ingester` → `Copilot_Audit_Log_Processor` | `GetCopilotInteractions*` |
 | 2 | Copilot Licensed | `copilot_licensed_users` | **Core** | `Copilot_Licensed_Users_Direct_Ingester` | `GetCopilotUsers*` |
 | 3 | Chat + Agent Org Data | `copilot_org_data` | **Core** | `Copilot_Org_Data_Direct_Ingester` *(+ optional `notebooks/workday-org-data/` overlay)* | `Get-EntraOrgData*` |
-| 4 | Agents 365 | `agents_365` | *Optional* | `Copilot_Agent365_Registry_Ingester` *(API, primary)* → `Copilot_Agent365_Lander` *(CSV fallback if the API step fails)* | `Get-Agents365Registry.ps1` *(API)*, or an admin centre export via `-Agents365Csv` *(fallback)* → `Agent 365` CSV (also Local CSV and the Dataverse template) |
+| 4 | Agents 365 | `agents_365` | *Optional* | `Copilot_Agent365_Registry_Ingester` *(API, primary)* → `Copilot_Agent365_Lander` *(CSV fallback if the API step fails)*. Azure: the `agent365` jobs module *(CSV only)* | `Get-Agents365Registry.ps1` *(API)*, or an admin centre export via `-Agents365Csv` *(fallback)* → `Agent 365` CSV (also Local CSV and the Dataverse template) |
 | 5 | ProductFeedback | `user_feedback` | *Optional* | `Copilot_ProductFeedback_Ingester` | OCV feedback CSV (`Feedback File`) |
 | 6 | Defender AI Watchlist, Shadow AI Daily, Shadow AI Totals, Defender AI Installed, Defender Cloud Discovery, Defender AI Agents, Defender Status | `defender_*` (7 tables) | *Optional* (off by default) | `Copilot_Defender_Ingester` | None. Fabric and Azure only (Azure: the `defender` jobs module) |
 | 7 | Agent Configuration, Power Platform Environments, Agent Flows, Foundry Resources, Resource Graph Status | `arg_agent_config`, `arg_environments`, `arg_agent_flows`, `arg_foundry_resources`, `arg_status` | *Optional* | `Copilot_Resource_Graph_Ingester` *(Azure Resource Graph, with the Agent inventory flow's JSON as the fallback for agents)* | — *(Fabric and Azure only; the Azure jobs' module `resourceGraph`)* |
@@ -275,6 +275,11 @@ column-mapping preserves spaced header names like `Agent name`). Both write the 
 shipped pipeline runs the Ingester **first** and the Lander **only if the Ingester fails**
 (`Run_Agent365_CSV_Fallback`, e.g. no Agent 365 licence). Read via `FabricTable("agents_365")`, wrapped with `Enable_Agent365`. The Fabric
 model is now **100% Lakehouse-sourced**.
+
+> **On Azure** the `agent365` jobs module lands the CSV export as `Copilot_Agent365_Lander` does,
+> from the newest CSV in the drop folder's `agent365/`, into `dbo.agents_365` (created by migration
+> `V009`). The API route is Fabric only for now, so the Ingester's `Detail As Of`, cache and history
+> tables aren't on Azure. See [Agent 365 registry](../azure/README.md#agent-365-registry).
 
 **Incremental pull.** The ingester lists every agent on every run, but calls the per-agent detail
 endpoint (Bot Id, usage, sharing, element types) only for agents that are new, whose
@@ -617,7 +622,7 @@ file when Resource Graph refuses or returns nothing (`Source` says which).
 | `SnapshotDate` | The run's UTC date |
 | `AgentResourceId`, `BotId`, `AgentName` | The agent. `BotId` is lower case |
 | `EntraAgentId`, `EntraAppId` | The agent's Entra identities, when published with one |
-| `TitleId`, `MatchedOn` | The Agent 365 registry's Title ID, matched on `Bot Id` first, then `Entra Agent ID`. Blank when no match (always on Azure, which doesn't collect Agent 365). The model relates `TitleId` to `Agents 365[Title ID]` |
+| `TitleId`, `MatchedOn` | The Agent 365 registry's Title ID, matched on `Bot Id` first, then `Entra Agent ID`. Blank when no match, and always when the registry has neither column, as with the admin center's export (on Azure, the only source for now). The model relates `TitleId` to `Agents 365[Title ID]` |
 | `EnvironmentId` | Lower case; relates to `Power Platform Environments` |
 | `Authentication`, `NoSignIn` | The agent's authentication setting. `NoSignIn` is true when it's *None*: anyone with the link can chat without signing in |
 | `IsQuarantined`, `IsManaged`, `WebSearchEnabled` | Admin quarantine, managed environment, and web search on for knowledge |

@@ -10,7 +10,7 @@ import { MODULES, azureGraphRolesFor } from '../src/catalog.js';
 import { HttpError } from '../src/http.js';
 import { armApi, armErrors, waitForDeployment } from '../src/clients/azure.js';
 import { runCommand } from '../src/install.js';
-import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, armParameterNames, askTarget, azureConsumptionOn, azureCron, azureDeployment, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureRotateSecret, azureSemanticModels, azureStatus, confirmAzurePlan, consumptionParameters, installAzure, parseDropFolder, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
+import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, armParameterNames, askTarget, azureAgent365On, azureConsumptionOn, azureCron, azureDeployment, azureDropContents, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureRotateSecret, azureSemanticModels, azureStatus, azureSummary, azureUninstall, confirmAzurePlan, consumptionParameters, enabledAzureModuleIds, installAzure, parseDropFolder, planAzure, planAzureAgent365, planAzureDrop, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
 import { AZURE_AI_ROLES } from '../src/steps/consumption.js';
 import { azureFlowTarget, connectionSteps, flowDefinitions, flowsWanted } from '../src/steps/flows.js';
 import { CONNECTORS, connectorsUsed } from '../src/transform/flows.js';
@@ -28,7 +28,8 @@ test('Azure target gates modules and mirrors Graph roles', () => {
   const choices = azureModuleChoices({ orgData: true, m365Activity: true, agent365: true, productFeedback: true, consumption: true, agentEvaluator: true });
   assert.equal(choices.find((c) => c.value === 'core')?.disabled, 'Always collected');
   assert.equal(choices.find((c) => c.value === 'm365Activity')?.checked, true);
-  assert.equal(choices.find((c) => c.value === 'agent365')?.disabled, 'Coming soon on Azure');
+  for (const c of choices.filter((ch) => !MODULES[ch.value].azure.supported)) assert.equal(c.disabled, 'Coming soon on Azure', c.value);
+  assert.equal(choices.find((c) => c.value === 'agent365')?.disabled, false);
   assert.deepEqual(azureGraphRolesFor({ orgData: true, m365Activity: true, agent365: false, productFeedback: false, consumption: false, agentEvaluator: false }), [
     'AuditLogsQuery.Read.All',
     'ReportSettings.Read.All',
@@ -235,6 +236,227 @@ test('Azure install with credit consumption in demo mode leaves it all out', asy
   assert.ok(!arm.calls.some((c) => c.startsWith('assignRole')));
   assert.equal(config.azure?.powerBi?.consumptionDatasetId, undefined);
   assert.equal(env.flows.size, 0);
+});
+
+/** @param {import('../src/config.js').InstallConfig} config @param {Partial<import('../src/config.js').AzureConfig>} [az] */
+function withAzureAgent365(config, az = {}) {
+  config.target = 'azure';
+  config.modules.agent365 = true;
+  config.dataSources.agent365 = 'csv';
+  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub', ...az };
+}
+
+const DROP_FOLDER = 'https://contoso.sharepoint.com/sites/Analytics/Shared Documents/ValueLens';
+const AGENT365_FABRIC_ONLY = /On Azure the Agent 365 registry comes from its CSV export: the Agent 365 API is Fabric only for now\./;
+
+test('Agent 365 on Azure: ticking it takes the CSV export, because the Agent 365 API is Fabric only for now', async () => {
+  const pre = { subscriptions: [{ subscriptionId: 'sub-1', displayName: 'Sub' }], capacities: [] };
+  const choice = azureModuleChoices(fakeCtx().config.modules).find((c) => c.value === 'agent365');
+  assert.match(choice?.description ?? '', /^From .+\. On Azure it comes from the CSV export: the Agent 365 API is Fabric only for now\.$/);
+
+  const on = fakeUi({ answers: [['m365Activity', 'agent365'], false] });
+  const picked = fakeCtx({ ui: on.ui, arm: fakeArm().api, fabric: fakeFabric().api, powerBi: fakePowerBi().api });
+  picked.config.dataSources.agent365 = 'api';
+  await planAzure(picked.ctx, pre, 'data');
+  assert.equal(picked.config.modules.agent365, true);
+  assert.equal(picked.config.dataSources.agent365, 'csv', 'a Fabric install\'s API choice becomes the export');
+  assert.match(on.text(), AGENT365_FABRIC_ONLY);
+  assert.ok(enabledAzureModuleIds(picked.config.modules, picked.config.azure).includes('agent365'), 'the jobs collect it');
+
+  const off = fakeUi({ answers: [['m365Activity'], false] });
+  const left = fakeCtx({ ui: off.ui, arm: fakeArm().api, fabric: fakeFabric().api, powerBi: fakePowerBi().api });
+  Object.assign(left.config.modules, { agent365: true });
+  left.config.dataSources.agent365 = 'csv';
+  await planAzure(left.ctx, pre, 'data');
+  assert.equal(left.config.modules.agent365, false);
+  assert.equal(left.config.dataSources.agent365, 'skip');
+  assert.doesNotMatch(off.text(), /Fabric only/);
+  assert.ok(!enabledAzureModuleIds(left.config.modules, left.config.azure).includes('agent365'));
+});
+
+test('Agent 365 on Azure: the plan says where to drop the export, and demo mode leaves it out', () => {
+  const plan = (/** @type {Partial<import('../src/config.js').AzureConfig>} */ az, on = true) => {
+    const u = fakeUi();
+    const { ctx, config } = fakeCtx({ ui: u.ui });
+    withAzureAgent365(config, az);
+    config.modules.agent365 = on;
+    planAzureAgent365(ctx);
+    return { text: u.text(), asked: u.asked, config };
+  };
+  const before = plan({});
+  assert.match(before.text, /Agent 365 registry/);
+  assert.match(before.text, /On Azure the Agent 365 registry comes from its CSV export: the Agent 365 API is Fabric only for now\. Export it from Microsoft 365 admin center > Agents > All agents > Export, and drop the CSV in the storage account > landing\/agent365\. Each run loads the newest one\./);
+  assert.deepEqual(before.asked, [], 'there is nothing to choose');
+  assert.match(plan({ outputs: { storageAccountName: 'vlensst' } }).text, /drop the CSV in vlensst > landing\/agent365\./);
+  assert.match(plan({ publicNetworkAccess: false }).text, /drop the CSV in an agent365 folder in the SharePoint folder you choose for the jobs\./);
+
+  const demo = plan({ sampleData: true });
+  assert.match(demo.text, /Demo mode doesn't load the Agent 365 sample, so the Agent 365 registry is collected once you switch to your tenant's data\./);
+  assert.doesNotMatch(demo.text, /Export it from/);
+  assert.equal(azureAgent365On(demo.config), false);
+  assert.deepEqual(azureDropContents(demo.config), []);
+  assert.equal(plan({}, false).text, '');
+});
+
+test('Agent 365 on Azure with private networking: one SharePoint folder for the export and any credit files', async () => {
+  const plan = async (/** @type {(config: import('../src/config.js').InstallConfig, az: any) => void} */ setUp, /** @type {any[]} */ answers = [DROP_FOLDER]) => {
+    const u = fakeUi({ answers });
+    const { ctx, config } = fakeCtx({ ui: u.ui });
+    withAzureAgent365(config, { publicNetworkAccess: false });
+    setUp(config, config.azure);
+    await planAzureDrop(ctx);
+    return { u, config, az: /** @type {any} */ (config.azure) };
+  };
+  const values = (/** @type {import('../src/config.js').InstallConfig} */ config) => Object.fromEntries(Object.entries(consumptionParameters(config)).map(([k, v]) => [k, v.value]));
+
+  const only = await plan(() => {});
+  assert.deepEqual(only.u.asked, ['SharePoint folder for the Agent 365 export (the address of a folder in a document library)']);
+  assert.match(only.u.text(), /Private networking keeps vlens storage off the internet, so your uploads go to a SharePoint folder the jobs read instead\./);
+  assert.equal(only.az.drop.siteId, 'contoso.sharepoint.com:/sites/Analytics');
+  assert.equal(only.az.drop.granted, false);
+  assert.deepEqual(azureDropContents(only.config), ['the Agent 365 export']);
+  assert.ok(azureGraphRoles(only.config).includes('Sites.Selected'), 'the jobs read the folder');
+  assert.deepEqual(values(only.config), { azureAiSubscriptionId: '', paygSubscriptionIds: '', dropSiteId: 'contoso.sharepoint.com:/sites/Analytics', dropDriveId: '', dropFolder: 'Shared Documents/ValueLens' });
+
+  const both = await plan((config) => withAzureConsumption(config, { publicNetworkAccess: false }));
+  assert.deepEqual(both.u.asked, ['SharePoint folder for credit files and the Agent 365 export (the address of a folder in a document library)']);
+  assert.match(both.u.text(), /Private networking keeps vlens storage off the internet, where Power Automate runs, so the flow and your uploads go to a SharePoint folder the jobs read instead\./);
+  assert.deepEqual(azureDropContents(both.config), ['credit files', 'the Agent 365 export']);
+
+  const keep = (/** @type {any} */ _c, /** @type {any} */ az) => { az.drop = { ...parseDropFolder(DROP_FOLDER), granted: true }; };
+  assert.equal((await plan(keep, [])).az.drop.granted, true, 'the same site keeps its grant');
+  assert.equal((await plan(keep, ['https://contoso.sharepoint.com/sites/Finance/Shared Documents/ValueLens'])).az.drop.granted, false, 'another site needs its own');
+  await assert.rejects(plan(() => {}, ['https://contoso.sharepoint.com/sites/Analytics']), /That is a site, not a folder/);
+
+  const pub = await plan((_c, az) => { az.publicNetworkAccess = true; az.drop = parseDropFolder(DROP_FOLDER); }, []);
+  assert.deepEqual(pub.u.asked, [], 'public storage takes the export in the landing container');
+  assert.equal(pub.az.drop, undefined);
+
+  for (const [label, setUp] of /** @type {const} */ ([
+    ['Agent 365 off', (/** @type {any} */ c) => { c.modules.agent365 = false; }],
+    ['demo mode', (/** @type {any} */ _c, /** @type {any} */ az) => { az.sampleData = true; }],
+  ])) {
+    const left = await plan((c, az) => { setUp(c, az); az.drop = parseDropFolder(DROP_FOLDER); }, []);
+    assert.deepEqual(left.u.asked, [], label);
+    assert.equal(left.az.drop.siteId, 'contoso.sharepoint.com:/sites/Analytics', `${label}: the folder is kept for next time`);
+    assert.ok(!azureGraphRoles(left.config).includes('Sites.Selected'), label);
+    assert.equal(values(left.config).dropSiteId, '', label);
+  }
+});
+
+test('Azure install with Agent 365: write on the landing container for you, and where to drop the export', async () => {
+  const arm = fakeArm();
+  /** @type {any[]} */
+  const deployments = [];
+  const deploy = /** @type {(...a: any[]) => Promise<any>} */ (arm.api.deployTemplate);
+  arm.api.deployTemplate = async (/** @type {any[]} */ ...args) => {
+    deployments.push(args[3]);
+    return deploy(...args);
+  };
+  const graph = fakeAzureGraph();
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds', connectionDetails: { server: 'vlens-sql.database.windows.net', database: 'valuelens' } }]);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui });
+  withAzureAgent365(config);
+  ctx.runFirstLoad = false;
+
+  await installAzure(ctx, { wait: true });
+  const role = `assignRole /subscriptions/sub-1/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/vlensstabc ${ROLES.storageBlobDataContributor} user-1 User`;
+  assert.deepEqual(arm.calls.filter((c) => c.startsWith('assignRole')), [role], 'no Azure roles for the jobs');
+  const az = /** @type {any} */ (config.azure);
+  assert.equal(az.storageRole, true);
+  assert.ok(!graph.calls.some((c) => c.startsWith('grantSiteRead')));
+  assert.ok(!az.graphRoles.assigned.includes('Sites.Selected'));
+  const out = ui.text();
+  assert.match(out, /Agent 365 export/);
+  assert.match(out, /Drop the Agent 365 export in vlensstabc > landing\/agent365\. Each run loads the newest one\./);
+  assert.match(out, /Agent 365: +drop the export in vlensstabc > landing\/agent365\. Each run loads the newest one\./, 'in the summary');
+
+  const last = deployments.at(-1).properties.parameters;
+  assert.ok(last.modules.value.split(',').includes('agent365'));
+  assert.equal(last.dropSiteId.value, '');
+
+  await azureStatus(ctx);
+  assert.match(ui.text(), /Agent 365 CSV: +vlensstabc > landing\/agent365/);
+
+  // An update reuses the role.
+  arm.calls.length = 0;
+  await installAzure(ctx, { wait: true });
+  assert.ok(!arm.calls.some((c) => c.startsWith('assignRole')));
+});
+
+test('Azure install with Agent 365 and private networking: the jobs read the SharePoint folder, which uninstall leaves alone', async () => {
+  const arm = fakeArm();
+  /** @type {any[]} */
+  const deployments = [];
+  const deploy = /** @type {(...a: any[]) => Promise<any>} */ (arm.api.deployTemplate);
+  arm.api.deployTemplate = async (/** @type {any[]} */ ...args) => {
+    deployments.push(args[3]);
+    return deploy(...args);
+  };
+  const graph = fakeAzureGraph();
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds' }]);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui });
+  // Public endpoints keep the fakes simple; the folder is what matters here.
+  withAzureAgent365(config, { drop: parseDropFolder(DROP_FOLDER), createdResourceGroup: true });
+  ctx.runFirstLoad = false;
+
+  await installAzure(ctx, { wait: true });
+  const az = /** @type {any} */ (config.azure);
+  assert.ok(graph.calls.some((c) => c.startsWith('grantSiteRead site:contoso.sharepoint.com:/sites/Analytics')));
+  assert.equal(az.drop.granted, true);
+  assert.ok(az.graphRoles.assigned.includes('Sites.Selected'));
+  assert.ok(!arm.calls.some((c) => c.includes('storageAccounts/')), 'no storage role for you when the export goes to SharePoint');
+  assert.match(ui.text(), /Drop the Agent 365 export in https:\/\/contoso\.sharepoint\.com\/sites\/Analytics\/Shared Documents\/ValueLens\/agent365\./);
+  const last = deployments.at(-1).properties.parameters;
+  assert.equal(last.dropSiteId.value, 'contoso.sharepoint.com:/sites/Analytics');
+  assert.equal(last.dropFolder.value, 'Shared Documents/ValueLens');
+
+  await azureUninstall(ctx);
+  assert.ok(arm.calls.includes('deleteResourceGroup rg'));
+  assert.match(ui.text(), /The SharePoint drop folder https:\/\/contoso\.sharepoint\.com\/sites\/Analytics\/Shared Documents\/ValueLens and the files in it are left alone\./);
+});
+
+test('Azure install with Agent 365 in demo mode grants nothing for it', async () => {
+  const arm = fakeArm();
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds' }]);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: fakeAzureGraph().api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui });
+  withAzureAgent365(config, { sampleData: true });
+  ctx.runFirstLoad = false;
+  await installAzure(ctx, { wait: true });
+  assert.ok(!arm.calls.some((c) => c.startsWith('assignRole')));
+  assert.doesNotMatch(ui.text(), /Agent 365 export/);
+});
+
+test('Azure plan with Agent 365: the review lists the access the export needs', async () => {
+  const s = teamsCatalogInstall({ answers: [false, true] });
+  /** @type {any[]} */
+  const plans = [];
+  const review = s.ui.ui.review;
+  s.ui.ui.review = (plan) => {
+    plans.push(plan);
+    review(plan);
+  };
+  const config = s.ctx.config;
+  config.modules.agent365 = true;
+  config.dataSources.agent365 = 'csv';
+  assert.equal(await confirmAzurePlan(s.ctx), true);
+  assert.match(s.ui.text(), /Agent 365: +CSV export, in the storage account > landing\/agent365/);
+  assert.deepEqual(plans[0].grants.filter((/** @type {any} */ g) => /Agent 365/.test(g.detail ?? '')), [
+    { who: 'You', what: 'Storage Blob Data Contributor', where: 'The storage account', detail: 'So you can upload the Agent 365 export to the landing container.' },
+  ]);
+
+  s.az().drop = parseDropFolder(DROP_FOLDER);
+  const grants = azurePlanReview(s.ctx).grants;
+  assert.deepEqual(grants.filter((g) => /Agent 365/.test(g.detail ?? '')), [
+    { who: 'Collector managed identity', what: 'Sites.Selected (read)', where: 'https://contoso.sharepoint.com/sites/Analytics', detail: 'Reads the Agent 365 export. Needs a SharePoint or Global administrator.' },
+  ]);
+  assert.match(grants[0].what, /Sites\.Selected/);
 });
 
 test('Azure preflight surfaces policy denial and what-if plan grouping', async () => {

@@ -264,7 +264,7 @@
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "Credit consumption, private networking: SharePoint site, drive and folder the Copilot Studio flow and the Viva export are dropped in. Empty = the storage account's landing container."
+        "description": "Private networking: SharePoint site, drive and folder the Copilot Studio flow and the CSV exports (Viva, Agent 365 and others) are dropped in, one subfolder per source. Empty = the storage account's landing container."
       }
     },
     "dropDriveId": {

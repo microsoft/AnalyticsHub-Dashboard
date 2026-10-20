@@ -42,7 +42,7 @@ export const PRIVATE_FEATURE = /** @type {[string, string]} */ (['Microsoft.Netw
 /** Capacities that can host a Power BI VNet data gateway: F (including trial), P and A4+; not PPU, EM or A1-A3. */
 export const supportsVnetGateway = (/** @type {{ sku?: string }} */ cap) => /^(F|FT|P\d|A[4-9])/i.test(String(cap.sku ?? '')) && !/^PP/i.test(String(cap.sku ?? ''));
 export const isPrivate = (/** @type {import('../../config.js').AzureConfig | undefined} */ az) => az?.publicNetworkAccess === false;
-export const AZURE_SUPPORTED_MODULES = /** @type {const} */ (['core', 'orgData', 'm365Activity', 'consumption', 'defender']);
+export const AZURE_SUPPORTED_MODULES = /** @type {const} */ (['core', 'orgData', 'm365Activity', 'agent365', 'consumption', 'defender']);
 export const WEB_APP_NAME = 'Analytics Hub (Azure)';
 /** Delegated: lets admins and group owners add and remove viewers from the app. Graph still checks they own the group or are a directory admin. */
 export const GROUP_SCOPE = 'GroupMember.ReadWrite.All';
@@ -80,12 +80,18 @@ export const DEFAULT_IMAGE_REGISTRY = 'ghcr.io/microsoft';
 /** The image tag to deploy: the installer's version unless the record pins another (`azure.images.tag`). */
 const imageTag = (/** @type {import('../../config.js').AzureConfig} */ az) => az.images?.tag || pkgVersion();
 
+/** Where a module's data comes from on Azure, when that differs from Fabric. */
+const AZURE_NOTES = /** @type {Partial<Record<import('../../catalog.js').ModuleId, string>>} */ ({
+  agent365: 'On Azure it comes from the CSV export: the Agent 365 API is Fabric only for now.',
+});
+const AGENT365_CSV_ONLY = 'On Azure the Agent 365 registry comes from its CSV export: the Agent 365 API is Fabric only for now.';
+
 /** @param {import('../../catalog.js').ModuleChoice} modules */
 export function azureModuleChoices(modules) {
   const box = (/** @type {import('../../catalog.js').ModuleId} */ id) => ({
     name: MODULES[id].label,
     value: id,
-    description: MODULES[id].azure.supported ? MODULES[id].description : `${MODULES[id].description} Coming soon on Azure.`,
+    description: MODULES[id].azure.supported ? [MODULES[id].description, AZURE_NOTES[id]].filter(Boolean).join(' ') : `${MODULES[id].description} Coming soon on Azure.`,
     disabled: MODULES[id].azure.supported ? (ESSENTIAL_MODULES.includes(/** @type {any} */ (id)) ? 'Always collected' : false) : 'Coming soon on Azure',
     checked: MODULES[id].azure.supported && (ESSENTIAL_MODULES.includes(/** @type {any} */ (id)) || !!modules[id]),
   });
@@ -267,8 +273,10 @@ export async function planAzure(ctx, pre, section) {
   if (editing('data')) {
     ui.heading('What to collect');
     const picked = await ui.checkbox('Tick the data you want. Unsupported modules are coming soon on Azure.', azureModuleChoices(config.modules));
-    config.modules = /** @type {import('../../catalog.js').ModuleChoice} */ ({ orgData: true, m365Activity: picked.includes('m365Activity'), agent365: false, productFeedback: false, consumption: picked.includes('consumption'), agentEvaluator: false, defender: picked.includes('defender') });
+    config.modules = /** @type {import('../../catalog.js').ModuleChoice} */ ({ orgData: true, m365Activity: picked.includes('m365Activity'), agent365: picked.includes('agent365'), productFeedback: false, consumption: picked.includes('consumption'), agentEvaluator: false, defender: picked.includes('defender') });
     config.dataSources.productFeedback = 'skip';
+    if (config.modules.agent365 && config.dataSources.agent365 === 'api') ui.warn(AGENT365_CSV_ONLY);
+    config.dataSources.agent365 = config.modules.agent365 ? 'csv' : 'skip';
     config.dataSources.defender = config.modules.defender ? 'api' : 'skip';
     if (!section) await askAdvanced(
       ctx,
@@ -469,7 +477,11 @@ export async function planAzure(ctx, pre, section) {
     ctx.runFirstLoad = ctx.reloadHistoryDays ? false : !advanced || (await ui.confirm('Run the first load as soon as setup finishes?', true));
     if (advanced) await askReportingCurrency(ctx);
   }
-  if (editing('sources')) await planAzureConsumption(ctx, subs);
+  if (editing('sources')) {
+    planAzureAgent365(ctx);
+    await planAzureConsumption(ctx, subs);
+    await planAzureDrop(ctx);
+  }
   if (editing('governance')) await planAzureResourceGraph(ctx);
   if (editing('ask')) await planAzureAsk(ctx);
   if (!section) await azurePreflight(ctx);
@@ -513,13 +525,56 @@ export function jobTemplateWith(job, env, opts = {}) {
 /** Credit consumption is collected: the module is on and the jobs read tenant data. @param {import('../../config.js').InstallConfig} config */
 export const azureConsumptionOn = (config) => !!config.modules.consumption && config.azure?.sampleData !== true;
 
+/** The Agent 365 registry is collected, from its CSV export: the module is on and the jobs read tenant data. @param {import('../../config.js').InstallConfig} config */
+export const azureAgent365On = (config) => !!config.modules.agent365 && config.azure?.sampleData !== true;
+
+/** The jobs read files dropped for them: credit files or the Agent 365 export. @param {import('../../config.js').InstallConfig} config */
+export const azureReadsDrop = (config) => azureConsumptionOn(config) || azureAgent365On(config);
+
+const CREDIT_FILES = 'credit files';
+const AGENT365_EXPORT = 'the Agent 365 export';
+
+/**
+ * What lands in the drop folder, for people: the credit files and the Agent 365 export, as collected.
+ * @param {import('../../config.js').InstallConfig} config
+ * @returns {string[]}
+ */
+export function azureDropContents(config) {
+  const ds = config.dataSources;
+  return [
+    ...(azureConsumptionOn(config) && (ds.studioCredits !== 'skip' || ds.coworkCredits !== 'skip') ? [CREDIT_FILES] : []),
+    ...(azureAgent365On(config) ? [AGENT365_EXPORT] : []),
+  ];
+}
+
+const joinList = (/** @type {string[]} */ names) => (names.length < 3 ? names.join(' and ') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+const withThe = (/** @type {string} */ name) => (name.startsWith('the ') ? name : `the ${name}`);
+
 /** Microsoft Graph application permissions the jobs' managed identity needs. @param {import('../../config.js').InstallConfig} config */
-export const azureGraphRoles = (config) => [...azureGraphRolesFor(config.modules), ...(azureConsumptionOn(config) && azureDropsToSharePoint(config.azure) ? ['Sites.Selected'] : [])];
+export const azureGraphRoles = (config) => [...azureGraphRolesFor(config.modules), ...(azureReadsDrop(config) && azureDropsToSharePoint(config.azure) ? ['Sites.Selected'] : [])];
+
+/**
+ * The Agent 365 registry on Azure: its CSV export, which you drop where the jobs read it. Asks nothing;
+ * the Agent 365 API is Fabric only for now.
+ * @param {Ctx} ctx
+ */
+export function planAzureAgent365(ctx) {
+  const { ui, config } = ctx;
+  if (!config.modules.agent365) return;
+  if (config.azure?.sampleData) {
+    ui.note('Demo mode doesn\'t load the Agent 365 sample, so the Agent 365 registry is collected once you switch to your tenant\'s data.');
+    return;
+  }
+  const where = (DATA_SOURCES.find((s) => s.id === 'agent365')?.export?.where ?? 'Microsoft 365 admin center > Agents > All agents > Export.').replace(/\.$/, '');
+  const folder = isPrivate(config.azure) ? `an ${AZURE_LANDING_DIRS.agent365} folder in the SharePoint folder you choose for the jobs` : azureDropLabel(config.azure, AZURE_LANDING_DIRS.agent365);
+  ui.heading('Agent 365 registry');
+  ui.note(`${AGENT365_CSV_ONLY} Export it from ${where}, and drop the CSV in ${folder}. Each run loads the newest one.`);
+}
 
 /**
  * Credit consumption on Azure: where Copilot Studio and Cowork credits come from, the subscriptions the
- * jobs read Azure AI and pay-as-you-go costs from, the Studio flow's environment, and, with private
- * networking, the SharePoint folder the flow and uploads land in.
+ * jobs read Azure AI and pay-as-you-go costs from, and the Studio flow's environment. With private
+ * networking, planAzureDrop then asks for the SharePoint folder the flow and uploads land in.
  * @param {Ctx} ctx
  * @param {{ subscriptionId: string, displayName: string }[]} subs
  */
@@ -555,22 +610,38 @@ export async function planAzureConsumption(ctx, subs) {
   await planConsumption(ctx, /** @type {import('../plan.js').Preflight} */ (/** @type {unknown} */ ({ subscriptions: subs })));
   if (config.uploads.flowIdentity === 'app' && ds.studioCredits === 'api') ui.warn('On Azure the Studio flow signs in as you; --flow-identity app is Fabric only for now.');
   await planFlows(ctx);
-  if (isPrivate(az) && (ds.studioCredits !== 'skip' || ds.coworkCredits !== 'skip')) {
-    ui.note(`Private networking keeps ${az.namePrefix ?? 'the'} storage off the internet, where Power Automate runs, so the flow and your uploads go to a SharePoint folder the jobs read instead.`);
-    const folderUrl = await ui.input('SharePoint folder for credit files (the address of a folder in a document library)', {
-      default: az.drop?.folderUrl ?? '',
-      validate: (v) => {
-        try {
-          parseDropFolder(v);
-          return true;
-        } catch (err) {
-          return /** @type {Error} */ (err).message;
-        }
-      },
-    });
-    const parsed = parseDropFolder(folderUrl);
-    az.drop = { ...parsed, granted: az.drop?.siteId === parsed.siteId ? az.drop?.granted : false };
-  } else delete az.drop;
+}
+
+/**
+ * With private networking, the SharePoint folder the jobs read dropped files from (the credit files and
+ * the Agent 365 export), because Power Automate and your browser can't reach the storage account. Without
+ * private networking they land in the landing container. Leaves the folder alone when the jobs read no files.
+ * @param {Ctx} ctx
+ */
+export async function planAzureDrop(ctx) {
+  const { ui, config } = ctx;
+  const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
+  if (!azureReadsDrop(config)) return;
+  const contents = azureDropContents(config);
+  if (!isPrivate(az) || !contents.length) {
+    delete az.drop;
+    return;
+  }
+  const through = contents.includes(CREDIT_FILES) ? ', where Power Automate runs, so the flow and your uploads go' : ', so your uploads go';
+  ui.note(`Private networking keeps ${az.namePrefix ?? 'the'} storage off the internet${through} to a SharePoint folder the jobs read instead.`);
+  const folderUrl = await ui.input(`SharePoint folder for ${joinList(contents)} (the address of a folder in a document library)`, {
+    default: az.drop?.folderUrl ?? '',
+    validate: (v) => {
+      try {
+        parseDropFolder(v);
+        return true;
+      } catch (err) {
+        return /** @type {Error} */ (err).message;
+      }
+    },
+  });
+  const parsed = parseDropFolder(folderUrl);
+  az.drop = { ...parsed, granted: az.drop?.siteId === parsed.siteId ? az.drop?.granted : false };
 }
 
 /**
@@ -650,6 +721,18 @@ async function ensureAzureConsumptionAccess(ctx) {
   if (config.dataSources.studioCredits === 'skip' && config.dataSources.coworkCredits === 'skip') return;
   if (azureDropsToSharePoint(az)) await grantDropSite(ctx);
   else await grantLandingWrite(ctx);
+}
+
+/**
+ * Agent 365 export access: read on the SharePoint drop folder's site for the jobs' managed identity, or,
+ * without one, write on the landing container for you, so you can upload the export.
+ * @param {Ctx} ctx
+ */
+async function ensureAzureAgent365Access(ctx) {
+  const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
+  if (azureDropsToSharePoint(az)) await grantDropSite(ctx);
+  else await grantLandingWrite(ctx, 'to upload the Agent 365 export');
+  ctx.ui.info(`Drop the Agent 365 export in ${azureDropLabel(az, AZURE_LANDING_DIRS.agent365)}. Each run loads the newest one.`);
 }
 
 /**
@@ -871,14 +954,14 @@ export function webAccess(config) {
 }
 
 /**
- * What the run job reads for credit consumption: the Azure AI and pay-as-you-go subscriptions it has
- * access to, and with private networking, the SharePoint drop folder.
+ * What the run job reads for credit consumption and the Agent 365 export: the Azure AI and pay-as-you-go
+ * subscriptions it has access to, and with private networking, the SharePoint drop folder.
  * @param {import('../../config.js').InstallConfig} config
  */
 export function consumptionParameters(config) {
   const on = azureConsumptionOn(config);
   const cc = config.consumption;
-  const drop = on ? config.azure?.drop : undefined;
+  const drop = azureReadsDrop(config) ? config.azure?.drop : undefined;
   return {
     azureAiSubscriptionId: param(on && config.dataSources.azureAi === 'api' && cc.azureAccess && cc.azureSubscriptionId ? cc.azureSubscriptionId : ''),
     paygSubscriptionIds: param(on && config.dataSources.azureAi === 'api' ? (cc.paygSubscriptions ?? []).filter((p) => p.access).map((p) => p.subscriptionId).join(',') : ''),
@@ -953,8 +1036,10 @@ export function azurePlanReview(ctx) {
   const consumptionGrants = [];
   if (consumption && cc.azureSubscriptionId && ctx.config.dataSources.azureAi === 'api') consumptionGrants.push({ who: 'Collector managed identity', what: AZURE_AI_ROLES.map((r) => r.name).join(', '), where: `Subscription ${cc.azureSubscriptionName ?? cc.azureSubscriptionId}`, detail: 'Azure AI costs and metrics.' });
   if (consumption && cc.paygSubscriptions?.length) consumptionGrants.push({ who: 'Collector managed identity', what: 'Cost Management Reader', where: cc.paygSubscriptions.map((p) => p.name ?? p.subscriptionId).join(', '), detail: 'Copilot pay-as-you-go billed in Azure.' });
-  if (consumption && az.drop) consumptionGrants.push({ who: 'Collector managed identity', what: 'Sites.Selected (read)', where: az.drop.siteUrl ?? az.drop.folderUrl, detail: 'Reads the credit files. Needs a SharePoint or Global administrator.' });
+  const dropped = azureDropContents(ctx.config);
+  if (az.drop && dropped.length) consumptionGrants.push({ who: 'Collector managed identity', what: 'Sites.Selected (read)', where: az.drop.siteUrl ?? az.drop.folderUrl, detail: `Reads ${joinList(dropped.map(withThe))}. Needs a SharePoint or Global administrator.` });
   else if (consumption && (ctx.config.dataSources.studioCredits !== 'skip' || ctx.config.dataSources.coworkCredits !== 'skip')) consumptionGrants.push({ who: 'You', what: 'Storage Blob Data Contributor', where: 'The storage account', detail: 'So the Studio flow, signed in as you, and your uploads can write to the landing container.' });
+  else if (azureAgent365On(ctx.config)) consumptionGrants.push({ who: 'You', what: 'Storage Blob Data Contributor', where: 'The storage account', detail: 'So you can upload the Agent 365 export to the landing container.' });
   else if (flowsWanted(ctx.config).includes('agents') && !az.drop) consumptionGrants.push({ who: 'You', what: 'Storage Blob Data Contributor', where: 'The storage account', detail: 'So the agent inventory flow can write to the landing container.' });
   const argGrants = azureResourceGraphOn(ctx.config) ? resourceGraphGrants(ctx.config, ctx.user?.tenantId ?? '', 'Collector managed identity', 'azureAccess') : [];
   return {
@@ -1033,6 +1118,7 @@ export async function confirmAzurePlan(ctx) {
   ui.info(`Prefix:      ${az.namePrefix}`);
   ui.info(`Power BI:    ${az.powerBi?.workspaceId ? `Workspace ${az.powerBi.workspaceId}` : `New workspace ${az.workspaceName ?? 'Analytics Hub'}`}`);
   ui.info(`Schedule:    ${config.schedule.frequency === 'weekly' ? `${config.schedule.weekday}s` : 'Daily'} at ${config.schedule.time} UTC`);
+  if (azureAgent365On(config)) ui.info(`Agent 365:   CSV export, in ${azureDropLabel(az, AZURE_LANDING_DIRS.agent365)}`);
   if (azureConsumptionOn(config)) {
     const ds = config.dataSources;
     const studio = { api: 'Power Platform licensing API (daily flow)', csv: 'CSV exports', skip: 'Left out' }[ds.studioCredits] ?? ds.studioCredits;
@@ -1070,12 +1156,14 @@ export async function installAzure(ctx, opts) {
   await signInForTeamsApp(ctx, manifestVersion(pkgVersion()));
   az.imageTag = imageTag(az);
   const consumption = azureConsumptionOn(config);
+  const agent365 = azureAgent365On(config);
   const resourceGraph = azureResourceGraphOn(config);
   const flows = flowsWanted(config).length > 0;
   const withAccess = !!config.access;
   const askAccess = askMode(az) === 'existing';
   const titles = [
-    'Resource group', 'Azure resources', 'Entra applications', 'Microsoft Graph permissions', ...(consumption ? ['Credit consumption'] : []), ...(resourceGraph ? ['Resource Graph access'] : []),
+    'Resource group', 'Azure resources', 'Entra applications', 'Microsoft Graph permissions', ...(consumption ? ['Credit consumption'] : []), ...(agent365 ? ['Agent 365 export'] : []),
+    ...(resourceGraph ? ['Resource Graph access'] : []),
     ...(askAccess ? ['Ask model access'] : []),
     'Power BI model', ...(withAccess ? ['Viewer access'] : []), 'Azure resources (final)', 'Database migration', ...(rlsOn(config) ? ['Org-scoped access'] : []),
     ...(flows ? ['Power Automate flow'] : []), 'Teams app', ...(ctx.reloadHistoryDays ? ['Reload audit history'] : ctx.runFirstLoad ? ['First load'] : []),
@@ -1113,6 +1201,12 @@ export async function installAzure(ctx, opts) {
   if (consumption) {
     step('Credit consumption');
     await ensureAzureConsumptionAccess(ctx);
+    ctx.save();
+  }
+
+  if (agent365) {
+    step('Agent 365 export');
+    await ensureAzureAgent365Access(ctx);
     ctx.save();
   }
 
@@ -1740,6 +1834,7 @@ export async function azureStatus(ctx) {
   if (az.powerBi?.workspaceId) ui.info(`Power BI:       ${az.powerBi.workspaceId}${az.powerBi.datasetId ? ` / ${az.powerBi.datasetId}` : ''}`);
   if (az.powerBi?.consumptionDatasetId) ui.info(`Consumption:    ${az.powerBi.consumptionDatasetId}`);
   if (azureConsumptionOn(config) && config.dataSources.studioCredits !== 'skip') ui.info(`Credit files:   ${azureDropLabel(az)}`);
+  if (azureAgent365On(config)) ui.info(`Agent 365 CSV:  ${azureDropLabel(az, AZURE_LANDING_DIRS.agent365)}`);
   if (az.teamsApp) ui.info(`Teams app:      Analytics Hub ${az.teamsApp.version} in your org's app catalog`);
   expiry(ctx, 'SQL reader secret', az.sqlReader?.secretExpiry);
   for (const p of az.graphRoles?.pending ?? []) ui.warn(`Pending admin action: grant ${p} to the managed identity.`);
@@ -1794,6 +1889,7 @@ export async function azureUninstall(ctx) {
     ui.ok(`Deleted ${ours.length} tagged Azure resources and left everything else alone`);
   }
   for (const app of [az.webApp, az.sqlReader]) if (app?.created && app.objectId) await api.graph.deleteApplication(app.objectId).catch((err) => ui.warn(`Couldn't delete app registration ${app.clientId}: ${err.message}`));
+  if (az.drop?.folderUrl) ui.note(`The SharePoint drop folder ${az.drop.folderUrl} and the files in it are left alone. Delete them yourself if you no longer need them.`);
 }
 
 /** @param {Ctx} ctx @param {{ ok?: boolean, pending?: string[] }} [opts]  pending: models still reloading after their update. */
@@ -1809,6 +1905,7 @@ export async function azureSummary(ctx, opts = {}) {
   if (az.outputs?.webUrl) ui.info(`App:        ${az.outputs.webUrl}`);
   if (az.powerBi?.workspaceId) ui.info(`Power BI:   workspace ${az.powerBi.workspaceId}, model ${az.powerBi.datasetId ?? 'not deployed'}`);
   if (az.powerBi?.consumptionDatasetId) ui.info(`Credits:    model ${az.powerBi.consumptionDatasetId}`);
+  if (azureAgent365On(config)) ui.info(`Agent 365:  drop the export in ${azureDropLabel(az, AZURE_LANDING_DIRS.agent365)}. Each run loads the newest one.`);
   const teamsPending = az.status?.pendingAdminActions?.find((a) => a.startsWith(`${TEAMS_APP_PENDING}: `));
   if (teamsPending) ui.info(`Teams:      Not published yet. A Teams Administrator needs to ${teamsPending.slice(TEAMS_APP_PENDING.length + 2)}`);
   else if (az.teamsApp) ui.info(`Teams:      Analytics Hub ${az.teamsApp.version} in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app.`);

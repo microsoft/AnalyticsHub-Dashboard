@@ -61,7 +61,7 @@ export const MODULES = {
     required: false,
     defaultOn: false,
     permissions: ['CopilotPackages.Read.All', 'Application.Read.All', 'User.Read.All'],
-    azure: { supported: false, graphRoles: [] },
+    azure: { supported: true, graphRoles: [] },
     pipelineParameter: 'EnableAgent365',
   },
   productFeedback: {

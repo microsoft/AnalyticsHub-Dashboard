@@ -9,7 +9,7 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
 > **Status.** The installer deploys it end to end: Azure SQL, the Container Apps jobs, the Power BI
 > models, the web app, and a Teams app it publishes to your org's app catalog. It collects Copilot interactions, licences and org data, Microsoft
 > 365 activity, credit consumption (Copilot Studio, Cowork, Azure AI and pay-as-you-go), and optionally
-> Defender shadow AI and agent risk. The other modules
+> Defender shadow AI and agent risk, and the Agent 365 registry (from its CSV export). The other modules
 > are coming. Try it in a demo or test tenant first.
 
 ## Install it
@@ -85,6 +85,33 @@ The jobs read the files where they land and don't move them, the same as the Fab
 
 Not on Azure yet: GitHub Copilot consumption, the dated Agent Daily table, Viva without a CSV, and
 `--flow-identity app` (the flow always signs in as you; the option warns and is ignored).
+
+## Agent 365 registry
+
+Tick **Agent 365 registry** to list the agents in your tenant and who made them, in the same
+`agents_365` table as on Fabric, so the same pages work. On Azure it comes from the registry's CSV
+export. The Agent 365 API is Fabric only for now: `--data agent365=api` warns and uses the export.
+
+1. Export it from the Microsoft 365 admin center: **Agents** > **All agents** > **Export**.
+2. Drop the CSV where the jobs read it:
+   - **Public endpoints:** `agent365/` in the storage account's `landing` container. The installer
+     gives you **Storage Blob Data Contributor** on the account, so you can upload it.
+   - **Private networking:** an `agent365` folder in the SharePoint folder you give the installer,
+     which the credit files use too. The jobs' managed identity needs **Sites.Selected** with read on
+     that site. The installer grants it if you're a SharePoint or Global administrator; otherwise it
+     prints the command for one.
+3. Each run loads the newest CSV in that folder into `dbo.agents_365`, replacing the last export. The
+   jobs don't move or delete the files, and with no CSV the table stays as it is.
+
+Good to know:
+
+- The agent details (the agent link and behaviour labels) fill in the months the next run recomputes.
+  Older months keep what they had. To fill them too, run the job once with
+  `VALUELENS_PROCESS_FULL_REBUILD=true` (see [incremental processing](jobs/README.md#steps)).
+- The Resource Graph agents get their Agent 365 Title ID only when the export has a `Bot Id` or
+  `Entra Agent ID` column. The admin center's export doesn't, as on Fabric.
+- Demo mode doesn't load the Agent 365 sample.
+- Uninstalling leaves the SharePoint folder and its files alone.
 
 ## Ask
 
@@ -185,3 +212,5 @@ ARM can't do these, so the installer:
 - Create or find the viewer group, give it Build on the models, and pass it to the web app as `VALUELENS_ACCESS`.
 - With credit consumption: the managed identity's Cost Management and Azure AI roles, write access to
   where the credit files land, the Consumption Central model, and the Copilot Studio Power Automate flow.
+- With the Agent 365 registry: write access to the `landing` container for you, or, with private
+  networking, read on the SharePoint site for the managed identity.

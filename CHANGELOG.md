@@ -20,6 +20,13 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**Azure: the Agent 365 registry, from its CSV export.** The `agent365` module now installs on
+Azure. Drop the Microsoft 365 admin center's export in `agent365/` in the `landing` container, or
+with private networking in the SharePoint drop folder's `agent365` folder. Each run loads the newest
+one into `dbo.agents_365` (migration `V009`), the table Fabric fills, so the same pages work. The
+Agent 365 API is Fabric only for now: `--data agent365=api` warns and uses the export. See
+[Agent 365 registry](azure/README.md#agent-365-registry).
+
 **Power BI model: faster active-user counts.** In both Fabric templates, and so in the Azure model
 built from them, `[All Active Users]` and `[Active Licensed Users]` now take one distinct count
 instead of testing each user, as in

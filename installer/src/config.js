@@ -283,8 +283,8 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  *   `capacityId` hosts the workspace (semantic model definition APIs need a Fabric/Premium capacity) and, in private
  *   networking mode, the VNet data gateway `gatewayId` whose SQL connection `connectionId` the model is bound to.
  *   `consumptionDatasetId` is the Consumption model, deployed with credit consumption.
- * @property {AzureDrop} [drop] Private networking with credit consumption: the SharePoint folder the Studio flow and CSV uploads land in.
- * @property {boolean} [storageRole] The installer gave the signed-in user Storage Blob Data Contributor on the landing container, for the Studio flow.
+ * @property {AzureDrop} [drop] Private networking with credit consumption or the Agent 365 export: the SharePoint folder the Studio flow and CSV uploads land in.
+ * @property {boolean} [storageRole] The installer gave the signed-in user Storage Blob Data Contributor on the landing container, for the Studio flow and CSV uploads.
  * @property {{ assigned: string[], pending: string[] }} [graphRoles]
  * @property {string} [teamsPackage]
  * @property {{ id: string, externalId: string, version: string, sha256: string, publishedAt: string }} [teamsApp]  The Teams app the installer

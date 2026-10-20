@@ -84,6 +84,8 @@ for _name in DEFENDER:
 RESOURCE_GRAPH = ["arg_agent_config", "arg_environments", "arg_agent_flows", "arg_foundry_resources", "arg_status"]
 for _name in RESOURCE_GRAPH:
     TARGETS[_name] = Target(_name, f"raw/{_name}", incremental=False)
+# Agent 365 registry by CSV (module `agent365`): the newest export, replaced each run.
+TARGETS["agents_365"] = Target("agents_365", "raw/agents_365", incremental=False)
 
 
 def b(name: str) -> str:
