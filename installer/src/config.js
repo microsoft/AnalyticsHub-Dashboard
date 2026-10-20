@@ -192,7 +192,8 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {string} url  The Dataverse org URL, without a trailing slash.
  * @property {string} [id]  The Power Platform environment ID.
  * @property {string} [name]
- * @property {boolean} [access]  The app is an application user there with the Bot Transcript Viewer role.
+ * @property {boolean} [access]  The app is an application user there with the Bot Transcript Viewer role. On Azure, the jobs' managed identity is.
+ * @property {string} [accessAppId]  Azure only: the client ID that `access` was found for, so that a new managed identity is checked again.
  */
 
 /**
@@ -293,6 +294,8 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {{ id: string, externalId: string, version: string, sha256: string, publishedAt: string }} [teamsApp]  The Teams app the installer
  *   published to the org's app catalog: its catalog ID, the manifest's ID (the web app's client ID), and the package's version and hash.
  * @property {AzureAskConfig} [ask] The model the web app's Ask answers with. Absent on installs from before Ask, which leaves it off.
+ * @property {AzureTranscriptAccess[]} [transcriptAccess] Each Dataverse environment where the jobs' managed identity was
+ *   found or given access, and what the installer added there, so that unticking the environment or uninstalling removes only that.
  * @property {{ whatIf?: any[], pendingAdminActions?: string[], lastRun?: any, lastMigrate?: any, lastAccess?: any }} [status]
  */
 
@@ -307,6 +310,18 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {string} [endpoint] existing: the account's endpoint.
  * @property {string} [accountId] existing: the account's ARM resource ID, when it was picked from a list.
  * @property {boolean} [granted] existing: the web app's managed identity has Cognitive Services OpenAI User on it.
+ */
+
+/**
+ * One Dataverse environment where the Azure jobs' managed identity was found or given access to transcripts, and what
+ * the installer added there. With neither `createdUser` nor `roleId`, an admin added it, so the installer leaves it.
+ * @typedef {object} AzureTranscriptAccess
+ * @property {string} url  The environment's Dataverse org URL.
+ * @property {string} appId  The managed identity's client ID.
+ * @property {string} [name]  The environment's name, for messages once it's no longer chosen.
+ * @property {string} [userId]  Its application user (systemuserid). Absent when an admin said it already has access.
+ * @property {boolean} [createdUser]  The installer created the application user, so it deletes it again.
+ * @property {string} [roleId]  The Bot Transcript Viewer role the installer assigned, so it removes it again.
  */
 
 /**

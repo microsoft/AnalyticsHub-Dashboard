@@ -27,16 +27,47 @@ comes from and how to fill the gaps; for another org attribute, such as office l
 needs attention** leaves the line out. The installer's data check still gives the real count, and
 warns below 80%.
 
+**Azure: the installer offers Agent Evaluator.** Tick **Agent Evaluator** on an Azure install and
+pick the Power Platform environments whose Copilot Studio transcripts the jobs read, from the same
+list as on Fabric. The jobs' managed identity reads them, so in each environment it has to be an
+application user with the **Bot Transcript Viewer** role. The web app's registration gets no
+Dataverse access. A new **Transcript access** step adds the managed identity through the Dataverse
+Web API when you're a System Administrator of the environment. Otherwise it prints the Power Platform
+admin center steps, which search for the managed identity by its client ID, not its name, and asks
+whether to leave the environment out for now or whether it already has access. See
+[Agent Evaluator](azure/README.md#agent-evaluator).
+
+- **Refresh waits for a readable environment.** The model deploys, and the Agent Evaluation pages
+  show, once the module is on with an environment, outside demo mode. The pages are empty until the
+  jobs first read transcripts. The installer's refresh, the model's scheduled refresh and the jobs'
+  refresh of `ae` wait until the managed identity can read one of the environments, and the schedule
+  is off until then. `agentEvaluator` is in the jobs' `VALUELENS_MODULES` whenever the module is
+  ticked, as on Fabric, but `VALUELENS_DATAVERSE_ENVIRONMENTS` lists the environments only once one
+  can be read, so the jobs read and refresh nothing before then.
+- **Taking it away removes only what the installer added.** Untick an environment or the module, or
+  uninstall, and the installer takes away the role it gave and deletes the application user it
+  created, deactivating it first. If Dataverse won't delete it, the installer activates it again,
+  with no role, and prints the steps for a System Administrator. It leaves application users an
+  admin added. Unticking the module keeps the model and its ID, hides the pages and turns off the
+  schedule; ticking it again reuses the same model.
+- **Demo mode** reads no transcripts, adds no access and hides the pages. Switching to it removes
+  nothing, so the managed identity keeps its access for when you switch back.
+- **`status`** shows how many environments the managed identity can read, and what the jobs' last
+  read found in each.
+
+**Update an existing Azure install:** run the installer, choose **Repair or change**, tick **Agent
+Evaluator** under **Data collection**, and pick its environments under **Module connections**.
+
 **Azure: the jobs can collect Agent Evaluator's data.** A new `agentEvaluator` jobs module reads
 Copilot Studio conversation transcripts from Dataverse with the jobs' managed identity, parses them
 as the Fabric notebook does, and publishes the seven Agent Evaluator tables to Azure SQL (migration
-V008). The installer doesn't offer it on Azure yet.
+V008).
 
 **Azure: the installer can deploy the Agent Evaluator model.** Like Consumption Central, it's the
 Fabric template converted to read Azure SQL, deployed as a third Power BI model. It gets the same
 credential or VNet gateway binding, refresh schedule, viewer access and org-scoped access, and the app
 and the jobs' refresh see it as `ae`. Agent Variables and Conversation Transcripts (Raw) load empty, as
-they do on Fabric. The installer still doesn't offer the module on Azure, so nothing deploys it yet.
+they do on Fabric.
 
 ## Analytics Hub installer 0.6.8-rc.1 (unreleased)
 

@@ -832,6 +832,97 @@ export function fakeAppCatalog(o = {}) {
   return { api: /** @type {import('../src/clients/graph.js').AppCatalogApi} */ (api), calls, apps, failures };
 }
 
+/**
+ * One Dataverse environment's application users and their roles, for the transcript reader. `failures` scripts an
+ * error for each call of a method, in order. Like Dataverse, it deletes only a deactivated user, and answers 404 for a
+ * user or role assignment that isn't there.
+ * @param {{ bu?: string | null, role?: string | null, users?: { systemuserid: string, applicationid: string, isdisabled?: boolean, _businessunitid_value?: string }[], userRoles?: Record<string, string[]> }} [o]
+ */
+export function fakeTranscriptEnvironment(o = {}) {
+  /** @type {string[]} */
+  const calls = [];
+  /** @type {Record<string, Error[]>} */
+  const failures = {};
+  const users = structuredClone(o.users ?? []);
+  /** @type {Record<string, string[]>} */
+  const userRoles = structuredClone(o.userRoles ?? {});
+  const bu = o.bu === undefined ? 'bu-root' : o.bu;
+  const role = o.role === undefined ? 'role-btv' : o.role;
+  let n = 0;
+  const fail = (/** @type {string} */ method) => {
+    const err = failures[method]?.shift();
+    if (err) throw err;
+  };
+  const find = (/** @type {string} */ userId) => {
+    const user = users.find((u) => u.systemuserid === userId);
+    if (!user) throw httpError(404);
+    return user;
+  };
+  const api = {
+    /** @param {string} appId */
+    findAppUser: async (appId) => {
+      calls.push(`findAppUser ${appId}`);
+      fail('findAppUser');
+      return users.find((u) => u.applicationid.toLowerCase() === appId.toLowerCase());
+    },
+    rootBusinessUnit: async () => bu ?? undefined,
+    /** @param {string} appId @param {string} businessUnitId */
+    createAppUser: async (appId, businessUnitId) => {
+      calls.push(`createAppUser ${appId} ${businessUnitId}`);
+      fail('createAppUser');
+      const user = { systemuserid: `user-${++n}`, applicationid: appId, _businessunitid_value: businessUnitId };
+      users.push(user);
+      return user.systemuserid;
+    },
+    /** @param {string} name @param {string} businessUnitId */
+    findRole: async (name, businessUnitId) => {
+      calls.push(`findRole ${name} ${businessUnitId}`);
+      return role ?? undefined;
+    },
+    /** @param {string} userId */
+    userRoleIds: async (userId) => [...(userRoles[userId] ?? [])],
+    /** @param {string} userId @param {string} roleId */
+    assignRole: async (userId, roleId) => {
+      calls.push(`assignRole ${userId} ${roleId}`);
+      fail('assignRole');
+      (userRoles[userId] ??= []).push(roleId);
+      return null;
+    },
+    /** @param {string} userId @param {string} roleId */
+    removeRole: async (userId, roleId) => {
+      calls.push(`removeRole ${userId} ${roleId}`);
+      fail('removeRole');
+      if (!userRoles[userId]?.includes(roleId)) throw httpError(404);
+      userRoles[userId] = userRoles[userId].filter((r) => r !== roleId);
+      return null;
+    },
+    /** @param {string} userId */
+    disableUser: async (userId) => {
+      calls.push(`disableUser ${userId}`);
+      fail('disableUser');
+      find(userId).isdisabled = true;
+      return null;
+    },
+    /** @param {string} userId */
+    enableUser: async (userId) => {
+      calls.push(`enableUser ${userId}`);
+      fail('enableUser');
+      find(userId).isdisabled = false;
+      return null;
+    },
+    /** @param {string} userId */
+    deleteUser: async (userId) => {
+      calls.push(`deleteUser ${userId}`);
+      fail('deleteUser');
+      if (!find(userId).isdisabled) throw httpError(400, 'Only an inactive application user can be deleted.');
+      users.splice(users.findIndex((u) => u.systemuserid === userId), 1);
+      delete userRoles[userId];
+      return null;
+    },
+  };
+  return { api, calls, failures, users, userRoles };
+}
+
 /** Power BI refreshes. `states` scripts what each poll of a refresh returns. */
 export function fakePowerBi() {
   /** @type {string[]} */

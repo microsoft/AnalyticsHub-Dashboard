@@ -10,7 +10,8 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
 > models, the web app, and a Teams app it publishes to your org's app catalog. It collects Copilot interactions, licences and org data, Microsoft
 > 365 activity, credit consumption (Copilot Studio, Cowork, Azure AI and pay-as-you-go), and optionally
 > Defender shadow AI and agent risk, the Agent 365 registry, product feedback and Workday org data (all
-> from their CSV exports). The other modules are coming. Try it in a demo or test tenant first.
+> from their CSV exports), and Copilot Studio transcripts for [Agent Evaluator](#agent-evaluator).
+> Try it in a demo or test tenant first.
 
 ## Install it
 
@@ -257,6 +258,101 @@ Good to know:
 - Demo mode doesn't load a Workday sample.
 - Uninstalling leaves the SharePoint folder and its files alone.
 
+## Agent Evaluator
+
+Tick **Agent Evaluator** to get the Agent Evaluation pages, from a third Power BI model (*Agent
+Evaluator*) that reads the same Azure SQL database. The jobs read the Copilot Studio conversation
+transcripts kept in Dataverse, in the Power Platform environments you pick, and parse them as the
+Fabric notebook does (see [Add Agent Evaluator](../fabric/Add%20Agent%20Evaluator/)). Pick the
+environments under **Module connections**, from the same list as on Fabric: see
+[Agent Evaluator](../installer/README.md#agent-evaluator) in the installer's README.
+
+**Who reads them.** The jobs' managed identity, the one they already run as, with a token for
+`<environment URL>/.default`. In each environment it has to be an application user with the **Bot
+Transcript Viewer** security role. The web app's registration gets no Dataverse access.
+
+The installer's **Transcript access** step adds it through the Dataverse Web API when you're a
+System Administrator of the environment: it creates the application user for the managed identity's
+client ID in the root business unit and gives it the role. When it can't (Dataverse answers 401 or
+403), it prints the managed identity's name and client ID, and the steps for a System Administrator
+of the environment in the [Power Platform admin center](https://admin.powerplatform.microsoft.com):
+
+1. **Manage** > **Environments** > the environment > **Settings** > **Users + permissions** >
+   **Application users** > **+ New app user**.
+2. **+ Add an app**, and search for the managed identity by its **client ID**, not its name.
+   [Manage application users](https://learn.microsoft.com/en-us/power-platform/admin/manage-application-users)
+   says the same: enter a managed identity's application ID, not its name.
+3. Pick the root business unit, add the **Bot Transcript Viewer** security role, and choose
+   **Create**.
+
+Then it asks:
+
+- **Leave it out for now**: the jobs skip the environment. Run the installer again once it's added,
+  so it's checked and the jobs read it.
+- **It already has access**: an admin has added it, so the jobs read it from their next run. The
+  installer doesn't check; if it hasn't been added, `status` shows the environment as `forbidden`
+  after that run.
+
+`--yes` leaves it out.
+
+**When the pages show and refresh.**
+
+- The model is deployed when the module is ticked, at least one environment is chosen, and the
+  install isn't in [demo mode](../installer/README.md#demo-mode).
+- The pages show while the module is ticked and the model is deployed, outside demo mode. They do
+  even when the managed identity can't read any environment yet, or every environment has been
+  unticked since. They're empty until the jobs first read transcripts.
+- Nothing refreshes the model until the managed identity can read at least one chosen environment:
+  not the installer, not the model's scheduled refresh in Power BI (turned off until then), and not
+  the jobs. The installer gives the jobs the environments, in `VALUELENS_DATAVERSE_ENVIRONMENTS`,
+  only once the managed identity can read one of them, and then lists every chosen environment,
+  readable or not. Until then the list is empty and the jobs read none. `agentEvaluator` is in the
+  jobs' `VALUELENS_MODULES` whenever the module is ticked, outside demo mode, as on Fabric.
+
+**Taking it away.**
+
+- **Untick an environment**, the module, or uninstall, and the installer removes only what it added
+  there. It takes away the Bot Transcript Viewer role it gave, and deletes the application user if
+  it created it. Dataverse deletes only an inactive application user, so it deactivates the user
+  first. If Dataverse still won't delete it, the installer activates it again (it has no role now,
+  so it can't read transcripts), warns, and prints the steps for a System Administrator:
+  **Application users** > the one with the managed identity's client ID > **Deactivate**, then
+  **Delete**. It leaves an application user an admin added. If it added nothing there, it says once
+  how a System Administrator removes that user.
+- **Untick the module**, and the installer also keeps the model and its ID, hides the pages and
+  turns off the model's scheduled refresh. Tick it again and it reuses the same model; nothing new is
+  created.
+- **Demo mode** has no Agent Evaluator sample, so it reads no transcripts and hides the pages.
+  Switching to it removes no application users, so an admin needn't add them again when you switch
+  back to your tenant's data.
+- **Uninstall** removes what the installer added in each environment before it deletes the Azure
+  resources, the managed identity among them.
+
+**Status.** `status` shows `Agents: X of N environment(s) readable`, a line for each environment,
+and what the jobs' last read found in each, from the model's *Evaluator Status* table: `ok`,
+`empty`, `forbidden` (a 401 or 403) or `error`.
+
+**Privacy and retention.** As on Fabric:
+
+- The jobs read each transcript from Dataverse and never write the raw transcript anywhere. Parsed
+  rows wait in a temporary folder on the job's own disk until the merge.
+- What's kept goes to the storage account (`raw/agent_*/`) and the install's Azure SQL database:
+  prompts, replies and error messages as 500-character previews, and feedback comments as written.
+  In Azure SQL, text longer than 4,000 characters is cut to 4,000.
+- `user_id_hash` holds the user's Entra object ID, not a hash, so sessions join to org data. UPNs a
+  transcript doesn't carry come from Microsoft Graph with `User.Read.All`, which core already
+  grants. `VALUELENS_TRANSCRIPT_RESOLVE_UPNS=false` turns that off.
+- Dataverse keeps transcripts for about 30 days by default. The tables keep every transcript the
+  jobs have read, also after Dataverse deletes it, so history builds up past that window. Each run
+  reads the last 14 days (`VALUELENS_TRANSCRIPT_LOOKBACK_DAYS`), stretched to cover any gap since
+  the environment's last complete read. An environment no run has read completely yet goes back 180
+  days (`VALUELENS_TRANSCRIPT_FIRST_READ_DAYS`).
+- Unticking an environment or the module doesn't delete what was read. Uninstall deletes it with the
+  database and the storage account.
+
+The tables and settings are in the [jobs' README](jobs/README.md#agent-evaluator-module-agentevaluator).
+To check all of this on a real install, see the [live test](AGENT-EVALUATOR-LIVE-TEST.md).
+
 ## Ask
 
 The app's **Ask** page answers questions about the dashboard in plain language, inline. The web app's
@@ -358,5 +454,8 @@ ARM can't do these, so the installer:
   where the credit files land, the Consumption Central model, and the Copilot Studio Power Automate flow.
 - With the Agent 365 registry, product feedback or Workday org data: write access to the `landing`
   container for you, or, with private networking, read on the SharePoint site for the managed identity.
+- With Agent Evaluator: the Agent Evaluator model, and the managed identity as an application user
+  with the Bot Transcript Viewer role in each environment you pick. See
+  [Agent Evaluator](#agent-evaluator).
 
 To do them by hand, see [Azure, by hand](../docs/MANUAL-INSTALL.md#azure).

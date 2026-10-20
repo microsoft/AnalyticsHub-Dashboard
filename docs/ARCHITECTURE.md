@@ -17,7 +17,7 @@ Everything is read-only, and stays in your tenant.
 | Agent 365 registry | Each agent, its owner and who can reach it | Optional. The API is Fabric only; Azure loads the export |
 | Copilot Studio, Cowork and Azure AI | Credits used, and what they cost | Optional |
 | Microsoft Defender, Azure Resource Graph | AI apps in use, agent risk and configuration, Foundry | Optional |
-| Copilot Studio transcripts | How well agents answer | Optional, Fabric |
+| Copilot Studio transcripts | How well agents answer | Optional |
 | Product feedback export | What people say about Copilot | Optional. The emailed export flow is Fabric only; Azure loads the exports |
 
 What each optional source needs: [Optional extras](PREREQUISITES.md#optional-extras). Each table

@@ -12,8 +12,8 @@ instead, and give you two roles on just that group:
 Registering resource providers is subscription-wide, so the admin does that once too. A few roles
 sit outside the resource group: the installer prints them, as commands, for the admin.
 
-The Entra, Power BI and Teams rights in [Prerequisites](PREREQUISITES.md) don't change. Publishing
-the Teams app to your org's catalog stays optional: a Teams admin can
+The Entra, Power BI, Teams and Power Platform rights in [Prerequisites](PREREQUISITES.md) don't
+change. Publishing the Teams app to your org's catalog stays optional: a Teams admin can
 [upload the package](../azure/teams/README.md#give-it-to-everyone) instead.
 
 ## Who does what

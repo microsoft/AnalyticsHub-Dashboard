@@ -105,6 +105,28 @@ export function dataverseApi(http, url) {
     assignRole: (userId, roleId) =>
       http.request('POST', `/systemusers(${userId})/systemuserroles_association/$ref`, { headers: ODATA, body: { '@odata.id': `${base}/roles(${roleId})` } }),
     /**
+     * Takes a security role away from a user.
+     * @param {string} userId
+     * @param {string} roleId
+     */
+    removeRole: (userId, roleId) => http.request('DELETE', `/systemusers(${userId})/systemuserroles_association(${roleId})/$ref`, { headers: ODATA }),
+    /**
+     * Deactivates a user. Only an inactive application user can be deleted. If-Match stops the
+     * PATCH creating a user that's already gone; Dataverse answers 404 instead.
+     * @param {string} userId
+     */
+    disableUser: (userId) => http.request('PATCH', `/systemusers(${userId})`, { headers: { ...ODATA, 'If-Match': '*' }, body: { isdisabled: true } }),
+    /**
+     * Activates a user again, for one Dataverse wouldn't delete once it was deactivated.
+     * @param {string} userId
+     */
+    enableUser: (userId) => http.request('PATCH', `/systemusers(${userId})`, { headers: { ...ODATA, 'If-Match': '*' }, body: { isdisabled: false } }),
+    /**
+     * Deletes a deactivated application user. Some environments refuse this, so callers fall back to the admin center.
+     * @param {string} userId
+     */
+    deleteUser: (userId) => http.request('DELETE', `/systemusers(${userId})`, { headers: ODATA }),
+    /**
      * Creates a cloud flow, turned off, owned by the signed-in user. Returns its workflowid.
      * @param {{ name: string, description: string, clientdata: string }} flow
      */

@@ -4,20 +4,30 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
-import { azureAgentEvaluatorOn, azurePlanReview, azurePreflight, azureRefresh, azureSemanticModels, azureStatus, azureViewerModels, installAzure } from '../src/steps/azure/index.js';
+import { HttpError } from '../src/http.js';
+import { ensureAzureTranscriptAccess } from '../src/steps/azure/agent-evaluator.js';
+import {
+  agentEvaluatorParameters, azureAgentEvaluatorModelDeployed, azureAgentEvaluatorOn, azureAgentEvaluatorReads, azureAgentEvaluatorRefreshes, azurePlanReview, azurePreflight, azureRefresh, azureSemanticModels, azureStatus, azureSummary,
+  azureUninstall, azureViewerModels, enabledAzureModuleIds, installAzure,
+} from '../src/steps/azure/index.js';
 import { MODEL_UPDATE_NOTE, pendingReloads } from '../src/steps/model.js';
-import { AZURE_ROLES_FILE } from '../src/steps/org-access.js';
+import { AZURE_ROLES_FILE, rlsModels } from '../src/steps/org-access.js';
 import { buildAgentEvaluatorModel, loadTemplateModel, mParameter } from '../src/transform/model.js';
-import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi, realSources } from './fakes.js';
+import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeTranscriptEnvironment, fakeUi, httpError, realSources } from './fakes.js';
 
 const AE_MODEL = 'Analytics Hub Agent Evaluator Model';
 const SERVER = 'vlens-sql.database.windows.net';
 const DATABASE = 'valuelens';
 const REPO = fileURLToPath(new URL('../../', import.meta.url));
+const ENV = 'https://env.example.com';
+const DEV = 'https://dev.example.com';
+const OFF = { value: { enabled: false } };
 
 /**
- * An Azure install with Agent Evaluator turned on directly, since the Azure module list doesn't offer it yet.
- * @param {{ private?: boolean, environments?: boolean, sources?: any, az?: Record<string, any> }} [o]
+ * An Azure install with Agent Evaluator ticked and, unless a test says otherwise, one environment chosen. Each
+ * environment's Dataverse is a fake, where the jobs' managed identity is added unless a test scripts otherwise. Power BI
+ * schedules are recorded by model, and `scheduleErrors` makes setting one fail.
+ * @param {{ private?: boolean, environments?: false | import('../src/config.js').AgentEnvironment[], sources?: any, az?: Record<string, any>, answers?: any[], dataverse?: Record<string, ReturnType<typeof fakeTranscriptEnvironment>> }} [o]
  */
 async function aeInstall(o = {}) {
   const arm = fakeArm();
@@ -31,9 +41,25 @@ async function aeInstall(o = {}) {
   const graph = fakeAzureGraph();
   const fabric = fakeFabric();
   const powerBi = fakePowerBi();
+  /** @type {Map<string, any[]>} */
+  const schedules = new Map();
+  /** @type {Map<string, Error>} */
+  const scheduleErrors = new Map();
+  const setSchedule = powerBi.api.setRefreshSchedule;
+  Object.assign(powerBi.api, {
+    setRefreshSchedule: async (/** @type {string} */ ws, /** @type {string} */ id, /** @type {any} */ body) => {
+      await setSchedule(ws, id);
+      schedules.set(id, [...(schedules.get(id) ?? []), body]);
+      const err = scheduleErrors.get(id);
+      if (err) throw err;
+    },
+  });
   if (!o.private) powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds', connectionDetails: { server: SERVER, database: DATABASE } }]);
-  const ui = fakeUi();
-  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fabric.api, powerBi: powerBi.api, ui: ui.ui, sources: o.sources });
+  const ui = fakeUi({ answers: o.answers });
+  /** @type {Record<string, ReturnType<typeof fakeTranscriptEnvironment>>} */
+  const dv = { ...o.dataverse };
+  const dataverse = (/** @type {string} */ url) => (dv[url] ??= fakeTranscriptEnvironment()).api;
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fabric.api, powerBi: powerBi.api, ui: ui.ui, sources: o.sources, dataverse });
   Object.assign(config, {
     target: 'azure',
     azure: {
@@ -53,11 +79,11 @@ async function aeInstall(o = {}) {
     },
   });
   config.modules.agentEvaluator = true;
-  if (o.environments !== false) config.agentEvaluator.environments = [{ url: 'https://env.example.com', id: 'env-1', name: 'Example' }];
+  if (o.environments !== false) config.agentEvaluator.environments = o.environments ?? [{ url: ENV, id: 'env-1', name: 'Example' }];
   if (o.private) await azurePreflight(ctx);
   ctx.runFirstLoad = false;
   const ok = await installAzure(ctx, { wait: true });
-  return { ctx, config, arm, graph, fabric, powerBi, ui, deployments, ok, az: /** @type {any} */ (config.azure) };
+  return { ctx, config, arm, graph, fabric, powerBi, ui, deployments, ok, az: /** @type {any} */ (config.azure), dv, schedules, scheduleErrors };
 }
 
 /** The model.bim a fake Fabric holds for a semantic model. @param {ReturnType<typeof fakeFabric>} fabric @param {string} id */
@@ -69,24 +95,83 @@ function deployedBim(fabric, id) {
 /** The web app's models, from the last deployment. @param {any[]} deployments */
 const deployedAliases = (deployments) => Object.keys(JSON.parse(deployments.at(-1).properties.parameters.semanticModels.value)).sort();
 
-test('Azure Agent Evaluator: its model is wanted with the module on, an environment to read and tenant data', () => {
+/** The jobs' settings from the last deployment: the modules they run, and the environments they read. @param {any[]} deployments */
+function jobSettings(deployments) {
+  const p = deployments.at(-1).properties.parameters;
+  return { modules: String(p.modules.value).split(',').filter(Boolean), environments: JSON.parse(p.dataverseEnvironments.value) };
+}
+
+test('Azure Agent Evaluator: its model is deployed with the module on, an environment and tenant data, and used while the module is on', () => {
   const { config } = fakeCtx();
   config.target = 'azure';
-  config.azure = /** @type {any} */ ({ powerBi: { workspaceId: 'ws', datasetId: 'vl-1', consumptionDatasetId: 'cc-1', agentEvaluatorDatasetId: 'ae-1' } });
-  assert.equal(azureAgentEvaluatorOn(config), false, 'off by default');
-  config.modules.agentEvaluator = true;
-  assert.equal(azureAgentEvaluatorOn(config), false, 'no environment to read transcripts from');
-  config.agentEvaluator.environments = [{ url: 'https://env.example.com' }];
-  assert.equal(azureAgentEvaluatorOn(config), true);
-  /** @type {any} */ (config.azure).sampleData = true;
-  assert.equal(azureAgentEvaluatorOn(config), false, 'demo mode publishes no Agent Evaluator tables');
+  config.azure = /** @type {any} */ ({ powerBi: { workspaceId: 'ws', datasetId: 'vl-1', agentEvaluatorDatasetId: 'ae-1' }, outputs: { identityClientId: 'mi-client' } });
+  const az = /** @type {any} */ (config.azure);
+  const vl = `vl-1 ${config.semanticModel.name}`;
+  const ae = `ae-1 ${AE_MODEL}`;
+  const gates = () => ({
+    on: azureAgentEvaluatorOn(config),
+    deployed: azureAgentEvaluatorModelDeployed(config),
+    reads: azureAgentEvaluatorReads(config),
+    refreshes: azureAgentEvaluatorRefreshes(config),
+  });
+  const used = () => ({ aliases: Object.keys(azureSemanticModels(config)), viewers: azureViewerModels(config).map((m) => `${m.datasetId} ${m.name}`), rls: rlsModels(config).map((m) => m.datasetId) });
+  assert.deepEqual(gates(), { on: false, deployed: false, reads: false, refreshes: false }, 'off by default');
+  assert.deepEqual(used(), { aliases: ['vl'], viewers: [vl], rls: ['vl-1'] });
 
+  config.modules.agentEvaluator = true;
+  assert.deepEqual(gates(), { on: false, deployed: true, reads: false, refreshes: false }, 'no environment to read, but its model is in use, as on Fabric');
   assert.deepEqual(azureSemanticModels(config), { vl: { workspaceId: 'ws', itemId: 'vl-1' }, ae: { workspaceId: 'ws', itemId: 'ae-1' } });
-  assert.deepEqual(
-    azureViewerModels(config).map((m) => `${m.datasetId} ${m.name}`),
-    [`vl-1 ${config.semanticModel.name}`, `ae-1 ${AE_MODEL}`],
-    'the viewer group gets Build on it, so the app can query it',
-  );
+  assert.deepEqual(used(), { aliases: ['vl', 'ae'], viewers: [vl, ae], rls: ['vl-1', 'ae-1'] }, 'the viewer group gets Build on it, so the app can query it');
+
+  config.agentEvaluator.environments = [{ url: ENV }, { url: DEV }];
+  assert.deepEqual(gates(), { on: true, deployed: true, reads: false, refreshes: false }, 'the managed identity reads neither environment yet');
+  config.agentEvaluator.environments[1].access = true;
+  assert.equal(azureAgentEvaluatorReads(config), false, 'access found for no recorded identity is checked again');
+  config.agentEvaluator.environments[1].accessAppId = 'OTHER-MI';
+  assert.equal(azureAgentEvaluatorReads(config), false, 'access for another managed identity');
+  config.agentEvaluator.environments[1].accessAppId = 'MI-CLIENT';
+  assert.deepEqual(gates(), { on: true, deployed: true, reads: true, refreshes: true }, 'one of two environments is enough');
+
+  delete az.powerBi.agentEvaluatorDatasetId;
+  assert.deepEqual(gates(), { on: true, deployed: false, reads: true, refreshes: false }, 'the jobs read before the model is deployed');
+  assert.deepEqual(used(), { aliases: ['vl'], viewers: [vl], rls: ['vl-1'] });
+  az.powerBi.agentEvaluatorDatasetId = 'ae-1';
+
+  az.sampleData = true;
+  assert.deepEqual(gates(), { on: false, deployed: false, reads: false, refreshes: false }, 'demo mode publishes no Agent Evaluator tables');
+  assert.deepEqual(used(), { aliases: ['vl'], viewers: [vl], rls: ['vl-1'] });
+  az.sampleData = false;
+
+  config.modules.agentEvaluator = false;
+  assert.deepEqual(gates(), { on: false, deployed: false, reads: false, refreshes: false }, 'unticked');
+  assert.deepEqual(used(), { aliases: ['vl'], viewers: [vl], rls: ['vl-1'] });
+  assert.equal(az.powerBi.agentEvaluatorDatasetId, 'ae-1', 'the model is kept');
+});
+
+test('Azure Agent Evaluator: the jobs\' module follows the tick, and they get the environments once the managed identity can read one', () => {
+  const { config } = fakeCtx();
+  config.target = 'azure';
+  config.azure = /** @type {any} */ ({ outputs: { identityClientId: 'mi-client' } });
+  const az = /** @type {import('../src/config.js').AzureConfig} */ (config.azure);
+  const listed = () => enabledAzureModuleIds(config.modules, az).includes('agentEvaluator');
+  const environments = () => JSON.parse(agentEvaluatorParameters(config).dataverseEnvironments.value);
+  assert.equal(listed(), false, 'unticked');
+  config.modules.agentEvaluator = true;
+  assert.equal(listed(), true, 'ticked with no environment, as Fabric\'s flag is');
+  assert.deepEqual(environments(), []);
+  config.agentEvaluator.environments = [{ url: ENV, name: 'Example' }, { url: DEV }];
+  assert.equal(listed(), true, 'ticked with none readable');
+  assert.deepEqual(environments(), [], 'nothing for the jobs to read or refresh yet');
+  Object.assign(config.agentEvaluator.environments[1], { access: true, accessAppId: 'mi-client' });
+  assert.equal(listed(), true, 'one of two readable');
+  assert.deepEqual(environments(), [{ url: ENV, name: 'Example' }, { url: DEV }], 'every chosen environment, readable or not');
+  az.sampleData = true;
+  assert.equal(listed(), false, 'demo mode');
+  assert.deepEqual(environments(), []);
+  az.sampleData = false;
+  config.modules.agentEvaluator = false;
+  assert.equal(listed(), false, 'unticked again');
+  assert.deepEqual(environments(), []);
 });
 
 test('Azure install with Agent Evaluator: a third model, reading Azure SQL, bound, scheduled and given to the app as ae', async () => {
@@ -106,14 +191,26 @@ test('Azure install with Agent Evaluator: a third model, reading Azure SQL, boun
 
   assert.equal(t.powerBi.calls.filter((c) => c === 'updateDatasource gw ds ServicePrincipal').length, 2, 'the main model and Agent Evaluator are bound');
   assert.ok(t.powerBi.calls.includes(`setRefreshSchedule ${t.az.powerBi.workspaceId} ${ae.id}`));
+  assert.equal(t.schedules.get(ae.id)?.at(-1).value.enabled, true, 'scheduled like the main model, since the managed identity can read the environment');
   assert.deepEqual(deployedAliases(t.deployments), ['ae', 'vl'], 'the app can query it, and the jobs refresh it');
   assert.ok(t.ui.text().includes(`Evaluator:  model ${ae.id}`));
 
+  // The jobs' managed identity is added to the environment, and what was added is noted for removal.
+  assert.deepEqual(t.dv[ENV].calls, ['findAppUser mi-client', 'createAppUser mi-client bu-root', 'findRole Bot Transcript Viewer bu-root', 'assignRole user-1 role-btv']);
+  assert.deepEqual(t.az.transcriptAccess, [{ url: ENV, appId: 'mi-client', name: 'Example', userId: 'user-1', createdUser: true, roleId: 'role-btv' }]);
+  assert.deepEqual(t.config.agentEvaluator.environments[0], { url: ENV, id: 'env-1', name: 'Example', access: true, accessAppId: 'mi-client' });
+  assert.ok(jobSettings(t.deployments).modules.includes('agentEvaluator'), 'the jobs read the transcripts');
+  assert.deepEqual(jobSettings(t.deployments).environments, [{ url: ENV, name: 'Example' }]);
+  assert.ok(t.ui.text().includes('Gave the jobs\' managed identity the Bot Transcript Viewer role in Example'));
+
   // A repair leaves it as it is.
   t.fabric.calls.length = 0;
+  t.dv[ENV].calls.length = 0;
   assert.equal(await installAzure(t.ctx, { wait: true }), true);
   assert.ok(!t.fabric.calls.some((c) => c.startsWith('createSemanticModel') || c.startsWith('updateSemanticModel')));
   assert.equal(t.az.powerBi.agentEvaluatorDatasetId, ae.id);
+  assert.deepEqual(t.dv[ENV].calls, [], 'access already found is not asked for again');
+  assert.equal(t.az.transcriptAccess.length, 1);
 });
 
 test('Azure install with Agent Evaluator: no model in demo mode, without an environment or without its template', async () => {
@@ -127,6 +224,9 @@ test('Azure install with Agent Evaluator: no model in demo mode, without an envi
     assert.ok(!t.fabric.calls.includes(`createSemanticModel ${AE_MODEL}`), label);
     assert.equal(t.az.powerBi?.agentEvaluatorDatasetId, undefined, label);
     assert.equal(t.config.agentEvaluator.model.id, undefined, label);
+    assert.deepEqual(Object.keys(t.dv), [], `${label}: Dataverse isn't touched`);
+    assert.equal(jobSettings(t.deployments).modules.includes('agentEvaluator'), label === 'no environment', `${label}: the module follows its tick outside demo mode`);
+    assert.deepEqual(jobSettings(t.deployments).environments, [], label);
   }
 
   const bare = await aeInstall({ sources: { ...realSources(), agentEvaluatorModelFile: undefined } });
@@ -182,10 +282,14 @@ test('Azure: a replaced Agent Evaluator model is refreshed, and owed a reload un
   assert.ok(t.ui.text().includes(`${AE_MODEL} may show old data or miss new columns until it reloads after its update, so refreshing it now`));
   assert.deepEqual(pendingReloads(t.config), [], 'reloaded');
 
-  // Owed a reload, it stays owed on Azure even with the module turned off, like the consumption model.
-  t.config.modules.agentEvaluator = false;
+  // Owed a reload, a model kept while its module is off, or in demo mode, waits until it's used again.
   ae.reload = { since: '2026-01-01T00:00:00.000Z' };
   assert.deepEqual(pendingReloads(t.config), [ae]);
+  t.config.modules.agentEvaluator = false;
+  assert.deepEqual(pendingReloads(t.config), []);
+  t.config.modules.agentEvaluator = true;
+  t.az.sampleData = true;
+  assert.deepEqual(pendingReloads(t.config), []);
 });
 
 test('Azure install with Agent Evaluator and org-scoped access: its model gets the roles, and the roles file covers it', async () => {
@@ -213,6 +317,331 @@ test('Azure install with Agent Evaluator and org-scoped access: its model gets t
   assert.ok(items.some((/** @type {any} */ i) => i.datasetId === id && i.dataset === AE_MODEL), 'in the roles file');
   assert.deepEqual([...(t.config.access?.rls?.applied ?? [])].sort(), [t.az.powerBi.datasetId, id].sort());
   assert.match(t.ui.text(), new RegExp(`Org-scoped access applied to .*${AE_MODEL}`));
+});
+
+/** An environment where whoever runs the installer can't add application users. */
+function blockedEnvironment() {
+  const env = fakeTranscriptEnvironment();
+  env.failures.findAppUser = [httpError(403, 'Forbidden')];
+  return env;
+}
+
+/** Whether the app, the viewers' Build permission and the org-scoped roles use a model. @param {Awaited<ReturnType<typeof aeInstall>>} t @param {string} id */
+const usedBy = (t, id) => ({
+  app: deployedAliases(t.deployments).includes('ae'),
+  viewers: azureViewerModels(t.config).some((m) => m.datasetId === id),
+  rls: rlsModels(t.config).some((m) => m.datasetId === id),
+});
+
+test('Azure Agent Evaluator, with no environment the jobs can read: its pages are there, but nothing reads, refreshes or schedules it', async () => {
+  const t = await aeInstall({ dataverse: { [ENV]: blockedEnvironment() } });
+  assert.equal(t.ok, true);
+  const id = t.az.powerBi.agentEvaluatorDatasetId;
+  assert.ok(id, 'deployed, for its pages');
+  assert.deepEqual(usedBy(t, id), { app: true, viewers: true, rls: true });
+  const jobs = jobSettings(t.deployments);
+  assert.ok(jobs.modules.includes('agentEvaluator'), 'the module follows its tick, as Fabric\'s flag does');
+  assert.deepEqual(jobs.environments, [], 'so the jobs neither read transcripts nor refresh the model');
+  assert.deepEqual(t.schedules.get(id), [OFF], 'its schedule is only ever turned off');
+  assert.equal(t.az.transcriptAccess, undefined, 'nothing was added');
+  assert.equal(t.config.agentEvaluator.environments[0].access, undefined);
+  const text = t.ui.text();
+  assert.ok(text.includes('You can\'t add the jobs\' managed identity to Example, so its transcripts are skipped until someone does.'));
+  assert.ok(text.includes('Search for the managed identity by its client ID, mi-client.'), 'the admin center finds it by client ID');
+  assert.ok(text.includes('The jobs\' managed identity can\'t read any of the environments yet, so the jobs don\'t read transcripts.'));
+
+  t.powerBi.calls.length = 0;
+  await azureRefresh(t.ctx);
+  assert.ok(t.powerBi.calls.includes(`refresh ${t.az.powerBi.datasetId} full`));
+  assert.ok(!t.powerBi.calls.includes(`refresh ${id} full`), 'nothing to refresh it from yet');
+  t.ui.out.length = 0;
+  await azureStatus(t.ctx);
+  assert.match(t.ui.text(), /Agents: +0 of 1 environment\(s\) readable/);
+});
+
+test('Azure Agent Evaluator, with one of two environments readable: the jobs read, and the model refreshes on its schedule', async () => {
+  const t = await aeInstall({ environments: [{ url: ENV, id: 'env-1', name: 'Example' }, { url: DEV, id: 'env-2', name: 'Dev' }], dataverse: { [DEV]: blockedEnvironment() } });
+  const id = t.az.powerBi.agentEvaluatorDatasetId;
+  assert.deepEqual(usedBy(t, id), { app: true, viewers: true, rls: true });
+  assert.equal(t.schedules.get(id)?.at(-1).value.enabled, true);
+  const jobs = jobSettings(t.deployments);
+  assert.ok(jobs.modules.includes('agentEvaluator'));
+  assert.deepEqual(jobs.environments, [{ url: ENV, name: 'Example' }, { url: DEV, name: 'Dev' }], 'so the jobs report the one they can\'t read');
+  assert.deepEqual(t.az.transcriptAccess.map((/** @type {any} */ e) => e.url), [ENV]);
+  t.powerBi.calls.length = 0;
+  await azureRefresh(t.ctx);
+  assert.ok(t.powerBi.calls.includes(`refresh ${id} full`));
+  t.ui.out.length = 0;
+  await azureStatus(t.ctx);
+  assert.match(t.ui.text(), /Agents: +1 of 2 environment\(s\) readable/);
+});
+
+test('Azure Agent Evaluator, with every environment removed: its pages stay, and what the installer added there goes', async () => {
+  const t = await aeInstall();
+  const id = t.az.powerBi.agentEvaluatorDatasetId;
+  t.config.agentEvaluator.environments = [];
+  t.fabric.calls.length = 0;
+  t.dv[ENV].calls.length = 0;
+  t.ui.out.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.deepEqual(t.dv[ENV].calls, ['removeRole user-1 role-btv', 'disableUser user-1', 'deleteUser user-1']);
+  assert.deepEqual(t.dv[ENV].users, []);
+  assert.equal(t.az.transcriptAccess, undefined);
+  assert.ok(t.ui.text().includes('Removed the application user for the jobs\' managed identity (client ID mi-client) from Example'));
+  assert.equal(t.az.powerBi.agentEvaluatorDatasetId, id, 'the model is kept');
+  assert.ok(!t.fabric.calls.some((c) => /^(create|update|delete)/.test(c) && c.includes(AE_MODEL)));
+  assert.deepEqual(usedBy(t, id), { app: true, viewers: true, rls: true }, 'its pages stay while the module is on, as on Fabric');
+  const jobs = jobSettings(t.deployments);
+  assert.ok(jobs.modules.includes('agentEvaluator'), 'still ticked');
+  assert.deepEqual(jobs.environments, []);
+  assert.deepEqual(t.schedules.get(id)?.at(-1), OFF);
+  t.powerBi.calls.length = 0;
+  await azureRefresh(t.ctx);
+  assert.ok(!t.powerBi.calls.includes(`refresh ${id} full`));
+});
+
+test('Azure Agent Evaluator, unticked or in demo mode: its model is kept but unused, and its schedule is off', async () => {
+  for (const label of ['unticked', 'demo mode']) {
+    const t = await aeInstall();
+    const ae = t.config.agentEvaluator.model;
+    const id = t.az.powerBi.agentEvaluatorDatasetId;
+    if (label === 'unticked') t.config.modules.agentEvaluator = false;
+    else t.az.sampleData = true;
+    t.fabric.calls.length = 0;
+    t.powerBi.calls.length = 0;
+    t.dv[ENV].calls.length = 0;
+    t.ui.out.length = 0;
+    assert.equal(await installAzure(t.ctx, { wait: true }), true, label);
+    assert.deepEqual(usedBy(t, id), { app: false, viewers: false, rls: false }, label);
+    assert.equal(t.powerBi.calls.filter((c) => c === 'updateDatasource gw ds ServicePrincipal').length, 1, `${label}: only the main model is bound`);
+    assert.deepEqual(t.schedules.get(id)?.at(-1), OFF, label);
+    assert.equal(t.az.powerBi.agentEvaluatorDatasetId, id, `${label}: the model is kept`);
+    assert.equal(ae.id, id, label);
+    assert.ok(!t.fabric.calls.some((c) => /^(create|update|delete)/.test(c) && c.includes(AE_MODEL)), label);
+    assert.ok(!jobSettings(t.deployments).modules.includes('agentEvaluator'), label);
+    assert.deepEqual(jobSettings(t.deployments).environments, [], label);
+    ae.reload = { since: '2026-01-01T00:00:00.000Z' };
+    assert.deepEqual(pendingReloads(t.config), [], `${label}: not owed a reload while unused`);
+    delete ae.reload;
+    t.ui.out.length = 0;
+    await azureStatus(t.ctx);
+    azureSummary(t.ctx);
+    assert.doesNotMatch(t.ui.text(), /Evaluator:|Agents:/, label);
+    t.powerBi.calls.length = 0;
+    await azureRefresh(t.ctx);
+    assert.ok(!t.powerBi.calls.includes(`refresh ${id} full`), label);
+    if (label === 'unticked') {
+      assert.deepEqual(t.dv[ENV].calls, ['removeRole user-1 role-btv', 'disableUser user-1', 'deleteUser user-1'], 'unticked, what the installer added goes');
+      assert.equal(t.az.transcriptAccess, undefined);
+    } else {
+      assert.deepEqual(t.dv[ENV].calls, [], 'demo mode leaves Dataverse alone');
+      assert.equal(t.az.transcriptAccess.length, 1);
+    }
+  }
+});
+
+test('Azure Agent Evaluator in demo mode keeps the managed identity\'s access for when tenant data is back', async () => {
+  const t = await aeInstall();
+  t.az.sampleData = true;
+  t.dv[ENV].calls.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.ok(t.ui.text().includes('Demo mode reads no transcripts. The jobs\' managed identity (client ID mi-client) keeps its access in 1 environment for when you switch to your tenant\'s data.'));
+  t.az.sampleData = false;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.deepEqual(t.dv[ENV].calls, [], 'nothing to add back');
+  assert.ok(jobSettings(t.deployments).modules.includes('agentEvaluator'));
+  assert.equal(t.schedules.get(t.az.powerBi.agentEvaluatorDatasetId)?.at(-1).value.enabled, true);
+});
+
+test('Azure Agent Evaluator, ticked again: the recorded model is used again, and the managed identity added back', async () => {
+  const t = await aeInstall();
+  const id = t.az.powerBi.agentEvaluatorDatasetId;
+  t.config.modules.agentEvaluator = false;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.deepEqual(t.schedules.get(id)?.at(-1), OFF);
+  t.config.modules.agentEvaluator = true;
+  t.fabric.calls.length = 0;
+  t.dv[ENV].calls.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.equal(t.az.powerBi.agentEvaluatorDatasetId, id, 'the recorded model');
+  assert.ok(!t.fabric.calls.some((c) => c.startsWith('createSemanticModel')), 'nothing new is created');
+  assert.deepEqual(usedBy(t, id), { app: true, viewers: true, rls: true });
+  assert.equal(t.schedules.get(id)?.at(-1).value.enabled, true);
+  assert.ok(jobSettings(t.deployments).modules.includes('agentEvaluator'));
+  assert.deepEqual(t.dv[ENV].calls, ['findAppUser mi-client', 'createAppUser mi-client bu-root', 'findRole Bot Transcript Viewer bu-root', 'assignRole user-2 role-btv']);
+});
+
+test('Azure Agent Evaluator: turning its schedule off ignores a model Power BI no longer has, and says how when it fails', async () => {
+  const t = await aeInstall();
+  const id = t.az.powerBi.agentEvaluatorDatasetId;
+  t.config.modules.agentEvaluator = false;
+  t.scheduleErrors.set(id, new HttpError('Not found', { status: 404, method: 'PATCH', url: 'https://x' }));
+  t.ui.out.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.deepEqual(t.schedules.get(id)?.at(-1), OFF);
+  assert.doesNotMatch(t.ui.text(), /Couldn't turn off the scheduled refresh/);
+  t.scheduleErrors.set(id, new HttpError('Server error', { status: 500, method: 'PATCH', url: 'https://x' }));
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.match(t.ui.text(), new RegExp(`Couldn't turn off the scheduled refresh of ${AE_MODEL}: Server error\\. Turn it off in the model's settings in Power BI\\.`));
+});
+
+test('Azure transcript access: from a user an admin added, only the role the installer gave is taken back', async () => {
+  const existing = fakeTranscriptEnvironment({ users: [{ systemuserid: 'admin-made', applicationid: 'MI-CLIENT' }] });
+  const t = await aeInstall({ dataverse: { [ENV]: existing } });
+  assert.deepEqual(t.az.transcriptAccess, [{ url: ENV, appId: 'mi-client', name: 'Example', userId: 'admin-made', roleId: 'role-btv' }]);
+  existing.calls.length = 0;
+  t.config.agentEvaluator.environments = [];
+  assert.equal(await ensureAzureTranscriptAccess(t.ctx), false);
+  assert.deepEqual(existing.calls, ['removeRole admin-made role-btv']);
+  assert.deepEqual(existing.users.map((u) => u.systemuserid), ['admin-made'], 'the user is left');
+  assert.deepEqual(existing.userRoles['admin-made'], []);
+  assert.equal(t.az.transcriptAccess, undefined);
+  assert.ok(t.ui.text().includes('Took the Bot Transcript Viewer role away from the jobs\' managed identity (client ID mi-client) in Example'));
+
+  // A role an admin already took away is fine.
+  t.config.agentEvaluator.environments = [{ url: ENV, id: 'env-1', name: 'Example' }];
+  await ensureAzureTranscriptAccess(t.ctx);
+  existing.userRoles['admin-made'] = [];
+  existing.calls.length = 0;
+  t.ui.out.length = 0;
+  t.config.agentEvaluator.environments = [];
+  await ensureAzureTranscriptAccess(t.ctx);
+  assert.deepEqual(existing.calls, ['removeRole admin-made role-btv']);
+  assert.ok(t.ui.text().includes('Took the Bot Transcript Viewer role away'));
+  assert.doesNotMatch(t.ui.text(), /Couldn't/);
+});
+
+test('Azure transcript access: a user Dataverse won\'t delete is activated again without its role, and the admin center steps printed', async () => {
+  const t = await aeInstall();
+  const dv = t.dv[ENV];
+  dv.failures.deleteUser = [httpError(400, 'The \'Delete\' method does not support entities of type \'systemuser\'')];
+  dv.calls.length = 0;
+  t.config.agentEvaluator.environments = [];
+  await ensureAzureTranscriptAccess(t.ctx);
+  assert.deepEqual(dv.calls, ['removeRole user-1 role-btv', 'disableUser user-1', 'deleteUser user-1', 'enableUser user-1']);
+  assert.deepEqual(dv.users.map((u) => [u.systemuserid, !!u.isdisabled]), [['user-1', false]], 'not left deactivated');
+  assert.deepEqual(dv.userRoles['user-1'], []);
+  assert.equal(t.az.transcriptAccess, undefined, 'said once, then dropped');
+  const text = t.ui.text();
+  assert.ok(text.includes('Dataverse wouldn\'t delete the application user for the jobs\' managed identity (client ID mi-client) in Example (The \'Delete\' method does not support entities of type \'systemuser\'). It has no role now, so it can\'t read transcripts.'));
+  assert.ok(text.includes('A System Administrator can delete it: Power Platform admin center > Manage > Environments > Example > Settings > Users + permissions > Application users > the one with client ID mi-client > Deactivate, then Delete.'));
+
+  // Ticked again, the active user gets the role back, and only the role is noted as the installer's.
+  t.config.agentEvaluator.environments = [{ url: ENV, id: 'env-1', name: 'Example' }];
+  dv.calls.length = 0;
+  assert.equal(await ensureAzureTranscriptAccess(t.ctx), true);
+  assert.deepEqual(dv.calls, ['findAppUser mi-client', 'findRole Bot Transcript Viewer bu-root', 'assignRole user-1 role-btv']);
+  assert.deepEqual(t.az.transcriptAccess, [{ url: ENV, appId: 'mi-client', name: 'Example', userId: 'user-1', roleId: 'role-btv' }]);
+});
+
+test('Azure transcript access: a user Dataverse won\'t delete or activate again is left deactivated, with both ways out', async () => {
+  const t = await aeInstall();
+  const dv = t.dv[ENV];
+  dv.failures.deleteUser = [httpError(400, 'No delete')];
+  dv.failures.enableUser = [httpError(500, 'No enable')];
+  dv.calls.length = 0;
+  t.config.agentEvaluator.environments = [];
+  await ensureAzureTranscriptAccess(t.ctx);
+  assert.deepEqual(dv.calls, ['removeRole user-1 role-btv', 'disableUser user-1', 'deleteUser user-1', 'enableUser user-1']);
+  assert.equal(dv.users[0].isdisabled, true);
+  assert.equal(t.az.transcriptAccess, undefined);
+  const text = t.ui.text();
+  assert.ok(text.includes('Dataverse wouldn\'t delete the application user for the jobs\' managed identity (client ID mi-client) in Example (No delete), or activate it again (No enable), so it\'s deactivated.'));
+  assert.ok(text.includes('A System Administrator can delete it (Power Platform admin center > Manage > Environments > Example > Settings > Users + permissions > Application users > the one with client ID mi-client > Delete), or activate it (Activate) before you tick Example again.'));
+});
+
+test('Azure transcript access: a role Dataverse won\'t take back is printed for an admin, and the environment still counts as read', async () => {
+  const t = await aeInstall();
+  const dv = t.dv[ENV];
+  dv.failures.removeRole = [httpError(403, 'Forbidden')];
+  dv.calls.length = 0;
+  t.config.modules.agentEvaluator = false;
+  await ensureAzureTranscriptAccess(t.ctx);
+  assert.deepEqual(dv.calls, ['removeRole user-1 role-btv'], 'the user isn\'t deactivated while it keeps the role');
+  assert.equal(t.az.transcriptAccess, undefined, 'said once, then dropped');
+  assert.equal(t.config.agentEvaluator.environments[0].access, true, 'it can still read the environment');
+  const text = t.ui.text();
+  assert.ok(text.includes('Couldn\'t take the Bot Transcript Viewer role away from the jobs\' managed identity (client ID mi-client) in Example (Forbidden), so it can still read transcripts there.'));
+  assert.ok(text.includes('Edit security roles, clear Bot Transcript Viewer and Save. Then Deactivate it, and Delete it.'));
+});
+
+test('Azure transcript access: access an admin gave is left for them to take back, said once', async () => {
+  const blocked = blockedEnvironment();
+  const t = await aeInstall({ dataverse: { [ENV]: blocked } });
+  blocked.failures.findAppUser = [httpError(403, 'Forbidden')];
+  const ui = fakeUi({ answers: [true] });
+  t.ctx.ui = ui.ui;
+  assert.equal(await ensureAzureTranscriptAccess(t.ctx), true, 'It already has access');
+  assert.deepEqual(t.az.transcriptAccess, [{ url: ENV, appId: 'mi-client', name: 'Example' }]);
+  assert.equal(t.config.agentEvaluator.environments[0].accessAppId, 'mi-client');
+  blocked.calls.length = 0;
+  t.config.agentEvaluator.environments = [];
+  await ensureAzureTranscriptAccess(t.ctx);
+  assert.deepEqual(blocked.calls, [], 'Dataverse isn\'t asked');
+  assert.ok(ui.text().includes('The jobs\' managed identity (client ID mi-client) is still an application user in Example. It was added outside the installer, so the installer leaves it; a System Administrator can remove it: Power Platform admin center > Manage > Environments > Example > Settings > Users + permissions > Application users > the one with client ID mi-client > Deactivate, then Delete.'));
+  assert.equal(t.az.transcriptAccess, undefined);
+  ui.out.length = 0;
+  await ensureAzureTranscriptAccess(t.ctx);
+  assert.equal(ui.text(), '', 'only once');
+});
+
+test('Azure transcript access: a new managed identity replaces the old one\'s access', async () => {
+  const t = await aeInstall();
+  t.az.outputs.identityClientId = 'mi-new';
+  t.dv[ENV].calls.length = 0;
+  assert.equal(await ensureAzureTranscriptAccess(t.ctx), true);
+  assert.deepEqual(t.dv[ENV].calls, [
+    'removeRole user-1 role-btv', 'disableUser user-1', 'deleteUser user-1',
+    'findAppUser mi-new', 'createAppUser mi-new bu-root', 'findRole Bot Transcript Viewer bu-root', 'assignRole user-2 role-btv',
+  ]);
+  assert.deepEqual(t.az.transcriptAccess, [{ url: ENV, appId: 'mi-new', name: 'Example', userId: 'user-2', createdUser: true, roleId: 'role-btv' }]);
+  assert.equal(t.config.agentEvaluator.environments[0].accessAppId, 'mi-new');
+
+  // Access an admin gave the old one is checked again for the new one.
+  t.config.agentEvaluator.environments[0].accessAppId = 'mi-old';
+  t.dv[ENV].calls.length = 0;
+  await ensureAzureTranscriptAccess(t.ctx);
+  assert.deepEqual(t.dv[ENV].calls, ['findAppUser mi-new', 'findRole Bot Transcript Viewer bu-root'], 'found with its role');
+  assert.equal(t.config.agentEvaluator.environments[0].accessAppId, 'mi-new');
+});
+
+test('Azure uninstall takes back what the installer added in each environment, before the managed identity goes', async () => {
+  const t = await aeInstall({ environments: [{ url: ENV, id: 'env-1', name: 'Example' }, { url: DEV, id: 'env-2', name: 'Dev' }] });
+  assert.equal(t.az.transcriptAccess.length, 2);
+  t.dv[ENV].calls.length = 0;
+  t.dv[DEV].calls.length = 0;
+  t.ui.out.length = 0;
+  await azureUninstall(t.ctx);
+  for (const url of [ENV, DEV]) assert.deepEqual(t.dv[url].calls, ['removeRole user-1 role-btv', 'disableUser user-1', 'deleteUser user-1'], url);
+  assert.equal(t.az.transcriptAccess, undefined);
+  const text = t.ui.text();
+  const removed = text.indexOf('Removed the application user for the jobs\' managed identity (client ID mi-client) from Dev');
+  assert.ok(removed >= 0);
+  assert.ok(removed < text.search(/Deleted (resource group|\d+ tagged)/), 'before the resource group');
+
+  const none = await aeInstall({ environments: false });
+  await azureUninstall(none.ctx);
+  assert.deepEqual(Object.keys(none.dv), [], 'nothing to take back');
+});
+
+test('Azure status shows what the jobs last read in each environment', async () => {
+  const t = await aeInstall({ environments: [{ url: ENV, id: 'env-1', name: 'Example' }, { url: DEV, id: 'env-2', name: 'Dev' }], dataverse: { [DEV]: blockedEnvironment() } });
+  t.powerBi.answers.push({ results: [{ tables: [{ rows: [
+    { 'Evaluator Status[RunAt]': '2026-01-02T03:04:05Z', 'Evaluator Status[Environment]': 'Example', 'Evaluator Status[EnvironmentUrl]': ENV, 'Evaluator Status[Status]': 'Read' },
+    { 'Evaluator Status[RunAt]': '2026-01-02T03:04:05Z', 'Evaluator Status[Environment]': 'Dev', 'Evaluator Status[EnvironmentUrl]': DEV, 'Evaluator Status[Status]': 'Skipped', 'Evaluator Status[Reason]': '403 Forbidden' },
+  ] }] }] });
+  t.ui.out.length = 0;
+  await azureStatus(t.ctx);
+  const text = t.ui.text();
+  assert.match(text, /Agents: +1 of 2 environment\(s\) readable/);
+  assert.ok(text.includes('Last read:      2026-01-02T03:04:05Z'));
+  assert.ok(text.includes('  Example: Read'));
+  assert.match(text, /  Dev: Skipped.*403 Forbidden/);
+
+  t.powerBi.answers.push({ results: [{ tables: [{ rows: [] }] }] });
+  t.ui.out.length = 0;
+  await azureStatus(t.ctx);
+  assert.ok(t.ui.text().includes('The jobs haven\'t read any transcripts yet.'));
 });
 
 /** The Agent Evaluator model as deployed on Azure, with org-scoped access so it reads the access tables too. */

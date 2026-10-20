@@ -293,9 +293,13 @@ def collect(store, settings, api=None) -> dict:
 
         jobs.append(("resource_graph", collect_resource_graph))
     if settings.has("agentEvaluator"):
-        from .collect.agent_evaluator import collect_agent_evaluator
+        if settings.dataverse_environments:
+            from .collect.agent_evaluator import collect_agent_evaluator
 
-        jobs.append(("agent_evaluator", collect_agent_evaluator))
+            jobs.append(("agent_evaluator", collect_agent_evaluator))
+        else:
+            # The installer lists the environments once the managed identity can read one of them.
+            log.info("collect agent_evaluator: VALUELENS_DATAVERSE_ENVIRONMENTS lists no environment yet; skipped")
     out, errors = {}, {}
     for name, fn in jobs:
         try:

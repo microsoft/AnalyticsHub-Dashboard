@@ -644,17 +644,25 @@ def test_agent_evaluator_settings_from_the_environment():
 
 
 # ---------------------------------------------------------------------------------------- wiring and publish
-def test_collect_and_publish_follow_the_agent_evaluator_module(tmp_path, monkeypatch):
+def test_collect_and_publish_follow_the_agent_evaluator_module(tmp_path, monkeypatch, caplog):
     from valuelens_jobs.collect import audit, graph
 
     called = []
     for mod, name in ((graph, "collect_licensed"), (audit, "collect_audit"), (ae, "collect_agent_evaluator")):
         monkeypatch.setattr(mod, name, lambda *a, _n=name, **k: called.append(_n))
     store = LocalStore(tmp_path)
+    caplog.set_level("INFO")
     jobs_main.collect(store, Settings(modules=frozenset({"core"})), api=object())
     assert "collect_agent_evaluator" not in called
     called.clear()
-    jobs_main.collect(store, Settings(modules=frozenset({"agentEvaluator"})), api=object())
+    # The module follows the tick; the installer lists the environments once the managed identity can read one.
+    listed = Settings(modules=frozenset({"agentEvaluator"}))
+    assert jobs_main.collect(store, listed, api=object()) == {}
+    assert called == []
+    assert "VALUELENS_DATAVERSE_ENVIRONMENTS lists no environment yet; skipped" in caplog.text
+    published = jobs_main.publish_step(store, listed, conn=sqlite3.connect(":memory:"))
+    assert [r["table"] for r in published if r.get("skipped")] == [*pub.AGENT_EVALUATOR, "access"]
+    jobs_main.collect(store, settings(ENV_A), api=object())
     assert called == ["collect_agent_evaluator"]
     assert jobs_main.publish_targets(Settings(modules=frozenset({"core", "agentEvaluator"}))) == [
         "curated", "licensed", *pub.AGENT_EVALUATOR]
@@ -667,6 +675,31 @@ def test_collect_and_publish_follow_the_agent_evaluator_module(tmp_path, monkeyp
         assert t.partition == ("transcript_date" if name in tx.FACT_TABLES else None)
     assert ae.CATALOGUE.startswith(ae.prefix("agent_catalogue") + "/")
     assert ae.STATUS.startswith(ae.prefix("evaluator_status") + "/")
+
+
+def test_the_agent_evaluator_model_refreshes_only_once_transcripts_can_be_read(monkeypatch, caplog):
+    from valuelens_jobs import refresh as rf
+
+    refreshed = []
+    monkeypatch.setattr(rf.Refresher, "refresh", lambda self, ws, ds, **k: refreshed.append(ds))
+    models = {"vl": {"workspaceId": "ws", "itemId": "ds-vl"}, "ae": {"workspaceId": "ws", "itemId": "ds-ae"}}
+    caplog.set_level("INFO", logger="valuelens_jobs.refresh")
+    # The installer lists the model once it's deployed and the module while it's ticked, and lists the environments
+    # once the managed identity can read one of them. The jobs refresh the model only with both.
+    unticked = Settings(modules=frozenset({"core"}), semantic_models=models, dataverse_environments=((ENV_A, ""),))
+    assert rf.refresh_models(object(), unticked) == ["vl"]
+    assert refreshed == ["ds-vl"]
+    assert "ae skipped; agentEvaluator isn't in VALUELENS_MODULES" in caplog.text
+    refreshed.clear()
+    unread = Settings(modules=frozenset({"core", "agentEvaluator"}), semantic_models=models)
+    assert rf.refresh_models(object(), unread) == ["vl"]
+    assert refreshed == ["ds-vl"]
+    assert "ae skipped; VALUELENS_DATAVERSE_ENVIRONMENTS lists no environment yet" in caplog.text
+    refreshed.clear()
+    on = Settings(modules=frozenset({"core", "agentEvaluator"}), semantic_models=models, dataverse_environments=((ENV_A, ""),))
+    assert rf.refresh_models(object(), on) == ["vl", "ae"]
+    assert refreshed == ["ds-vl", "ds-ae"]
+    assert rf.MODEL_MODULES == {"ae": "agentEvaluator"}
 
 
 def _v008_tables() -> dict:

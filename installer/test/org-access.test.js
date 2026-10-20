@@ -384,6 +384,7 @@ test('apply on Azure: the Agent Evaluator model gets its roles too', async () =>
     outputs: { storageAccountName: 'vlensstabc', runJobName: 'vlens-run', migrateJobName: 'vlens-migrate' },
     powerBi: { workspaceId: 'pbi-ws', datasetId: 'az-vl', agentEvaluatorDatasetId: 'az-ae', capacityId: 'cap-1' },
   });
+  config.modules.agentEvaluator = true;
   config.fabric.workspaceId = 'pbi-ws';
   config.access = /** @type {any} */ ({ ...config.access, groupId: 'g-1', rls: { enabled: true, orgAttribute: 'department', applied: [] } });
   store.map.set(`landing/${AZURE_SCOPE_FILE}`, scopeCsv(seedRows(['ana@example.com'], by)));
