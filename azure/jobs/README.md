@@ -39,6 +39,14 @@ rows, so it equals a full rebuild. Every month is recomputed when the settings, 
 `VALUELENS_PROCESS_FULL_REBUILD=true`. Months that aren't recomputed keep the licence and
 agent-registry values from when they were last processed.
 
+**Long histories run in passes.** When the months to recompute hold more than
+`VALUELENS_PROCESS_PASS_ROWS` source rows (default 2 million), as a long backfill or a large
+tenant's full rebuild can, `process` curates them in passes of whole months, oldest first. Memory
+and spill then follow the largest pass, not the whole history. Each pass sees the history as
+nightly runs would have built it by then, so the rows match nightly runs; only an older month's
+Agent Last Used Date can differ from one pass over everything. The state is saved after each pass,
+so a run that stops part-way carries on with the months left.
+
 Any failure is logged and the job exits with code 1, so Container Apps records the run as failed.
 
 ## Credit consumption (module `consumption`)
@@ -322,7 +330,8 @@ The job reads its settings from environment variables. Bicep sets them.
 | `VALUELENS_AUDIT_HISTORY_DAYS` / `VALUELENS_AUDIT_LOOKBACK_DAYS` | The first-run backfill (default 30) and the re-read window on later runs (default 7) |
 | `VALUELENS_PROCESS_LOOKBACK_DAYS` | Days before the newest audit record whose months `process` always recomputes (default 14) |
 | `VALUELENS_PROCESS_FULL_REBUILD` | `true` makes `process` recompute every month. Set it on a single execution, not on the job. |
-| `VALUELENS_DUCKDB_MEMORY_LIMIT` | Optional DuckDB memory cap, for example `4GB`, for `process` and the Agent Evaluator merge. Past it, DuckDB spills to the job's temporary folder. `process` has no cap by default; the Agent Evaluator merge uses `4GB`. |
+| `VALUELENS_PROCESS_PASS_ROWS` | The most source rows `process` curates in one pass (default 2,000,000; `0` means one pass). See [Steps](#steps). |
+| `VALUELENS_DUCKDB_MEMORY_LIMIT` | DuckDB's memory cap for `process` and the Agent Evaluator merge. The run job sets `5GiB` of its 8 GiB, since some of DuckDB's memory sits outside the cap. Past it, DuckDB spills to the job's temporary folder. Unset, `process` lets DuckDB take 80% of the container's memory and the Agent Evaluator merge uses `4GB`. |
 | `VALUELENS_AUDIT_BACKFILL_DAYS` | A one-off reload of this many days of audit history, even after the first run. The installer sets it on a single execution when **Repair or change** loads more history; don't set it on the job itself, or every run reloads. |
 | `VALUELENS_POWERBI_WORKSPACE_ID`, `VALUELENS_SEMANTIC_MODELS` | The Power BI workspace, and a JSON object of the models to refresh |
 | `VALUELENS_SQL_READER_NAME`, `VALUELENS_SQL_READER_CLIENT_ID` | The web app's identity, granted read access by `migrate` |

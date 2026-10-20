@@ -201,7 +201,87 @@ def test_process_cli_full_rebuild_flag(tmp_path, sample_rows, monkeypatch):
     jobs_main.main(["process", "--data-dir", str(tmp_path)],
                    env={"VALUELENS_PROCESS_FULL_REBUILD": "true", "VALUELENS_PROCESS_LOOKBACK_DAYS": "30"})
     jobs_main.main(["process", "--data-dir", str(tmp_path)], env={})
-    assert [(c["full_rebuild"], c["lookback_days"]) for c in calls] == [(True, 14), (True, 30), (False, 14)]
+    jobs_main.main(["process", "--data-dir", str(tmp_path)], env={"VALUELENS_PROCESS_PASS_ROWS": "0"})
+    default = jobs_main.DEFAULT_PROCESS_PASS_ROWS
+    assert [(c["full_rebuild"], c["lookback_days"], c["max_rows_per_pass"]) for c in calls] == [
+        (True, 14, default), (True, 30, default), (False, 14, default), (False, 14, 0)]
+
+
+# ---------------------------------------------------------------- Azure job: processing passes
+def test_passes_split_whole_months_in_order():
+    src = {"2026-07": "3:1", "2026-08": "4:1", "2026-09": "9:1", "2026-10": "2:1", "none": "1:1"}
+    months = list(src)
+    assert jobs_main._passes(months, src, 7) == [["2026-07", "2026-08"], ["2026-09"], ["2026-10", "none"]]
+    assert jobs_main._passes(months, src, 1) == [[k] for k in months]
+    assert jobs_main._passes(months, src, 0) == [months]
+    assert jobs_main._passes([], src, 7) == [[]]
+
+
+def test_chunked_full_rebuild_matches_nightly_runs(tmp_path, sample_rows, caplog):
+    # One month per pass: each pass sees the history as nightly runs that met the months in turn built it.
+    base, con = sample_rows
+    chunked = _new_store(tmp_path, "chunked", base)
+    _write_parsed(chunked, con)
+    with caplog.at_level("INFO", logger="valuelens_jobs"):
+        total = jobs_main.process(chunked, full_rebuild=True, max_rows_per_pass=1)
+    assert "in 4 passes" in caplog.text
+    nightly = _new_store(tmp_path, "nightly", base)
+    for where in ("CreationDate::VARCHAR < '2026-08'", "CreationDate::VARCHAR < '2026-09'",
+                  "CreationDate::VARCHAR < '2026-10'", "TRUE"):
+        _write_parsed(nightly, con, where)
+        jobs_main.process(nightly, lookback_days=0)
+    assert _curated(chunked) == _curated(nightly)
+
+    one = _new_store(tmp_path, "one", base)
+    _write_parsed(one, con)
+    assert jobs_main.process(one, full_rebuild=True) == total
+    # Only the snapshot columns of the older months differ from a single pass.
+    assert _curated(chunked, ["2026-10"]) == _curated(one, ["2026-10"])
+    assert _curated(chunked, exclude=SNAPSHOT_COLS) == _curated(one, exclude=SNAPSHOT_COLS)
+
+
+def test_chunked_backfill_matches_one_pass(tmp_path, sample_rows, caplog):
+    # A first run on recent rows, then the older history arrives at once, as a "load more" backfill does.
+    base, con = sample_rows
+    stores, totals = {}, {}
+    for name, max_rows in (("chunked", 1), ("one", 0)):
+        store = stores[name] = _new_store(tmp_path, name, base)
+        _write_parsed(store, con, "CreationDate::VARCHAR >= '2026-09-06'")
+        jobs_main.process(store, lookback_days=14)
+        _write_parsed(store, con)
+        with caplog.at_level("INFO", logger="valuelens_jobs"):
+            totals[name] = jobs_main.process(store, lookback_days=14, max_rows_per_pass=max_rows)
+    assert "in 4 passes" in caplog.text
+    assert totals["chunked"] == totals["one"]
+    assert _curated(stores["chunked"], ["2026-10"]) == _curated(stores["one"], ["2026-10"])
+    assert _curated(stores["chunked"], exclude=SNAPSHOT_COLS) == _curated(stores["one"], exclude=SNAPSHOT_COLS)
+
+
+def test_stopped_chunked_run_resumes_with_the_months_left(tmp_path, sample_rows, monkeypatch):
+    base, con = sample_rows
+    whole = _new_store(tmp_path, "whole", base)
+    _write_parsed(whole, con)
+    total = jobs_main.process(whole, lookback_days=0, max_rows_per_pass=1)
+
+    store = _new_store(tmp_path, "stopped", base)
+    _write_parsed(store, con)
+    real, calls = jobs_main.curate, []
+
+    def stop_in_third_pass(*args, **kwargs):
+        calls.append(1)
+        if len(calls) == 3:
+            raise RuntimeError("stopped")
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(jobs_main, "curate", stop_in_third_pass)
+    with pytest.raises(RuntimeError, match="stopped"):
+        jobs_main.process(store, lookback_days=0, max_rows_per_pass=1)
+    # The two finished passes are saved; the next run curates only September and October.
+    assert sorted(store.read_json(jobs_main.PROCESS_STATE)["months"]) == ["2026-07", "2026-08"]
+    assert _month_files(store) == ["month-202607.parquet", "month-202608.parquet"]
+    assert jobs_main.process(store, lookback_days=0, max_rows_per_pass=1) == total
+    assert len(calls) == 5
+    assert _curated(store) == _curated(whole)
 
 # ---------------------------------------------------------------- Fabric processor notebook
 PROCESSOR_NB = ROOT / "fabric" / "notebooks" / "Copilot_Audit_Log_Processor.ipynb"
