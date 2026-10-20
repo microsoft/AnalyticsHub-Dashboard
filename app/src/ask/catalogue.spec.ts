@@ -76,6 +76,18 @@ describe("ask catalogue", () => {
         }
     });
 
+    it("leaves out only columns the query returns", () => {
+        for (const tool of askCatalogue.tools.filter((t) => t.omit)) {
+            const text = queries[`../queries/${tool.query}`];
+            for (const column of tool.omit!) expect(text, `${tool.name}: ${column}`).toContain(`"${column}"`);
+        }
+    });
+
+    it("keeps the summary's count of people with an organization from Ask's model", () => {
+        // The audit log doesn't filter the org table, so the count takes in everyone once any org data is loaded.
+        expect(askCatalogue.tools.find((t) => t.name === "bottom_line")?.omit ?? []).toContain("People With Organization");
+    });
+
     it("lists references for the summary and the trend, one measure or column each", () => {
         const listing = askCatalogue.tools.filter((t) => t.references);
         expect(listing.map((t) => t.name)).toEqual(expect.arrayContaining(["bottom_line", "monthly_trend"]));

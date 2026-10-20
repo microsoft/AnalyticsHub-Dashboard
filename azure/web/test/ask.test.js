@@ -99,6 +99,31 @@ test('Ask answers with the catalogue queries it ran, as the user, with small gro
   assert.doesNotMatch(toolMessage.content, /Tiny team/);
 });
 
+test('Ask never hands its model the summary\'s count of people with an organization', async () => {
+  // The summary row as executeQueries returns it. People With Organization equals People once any
+  // org data is loaded, because the audit log doesn't filter the org table, so it isn't right to quote.
+  const summary = { '[Hours]': 1541.5, '[Tasks]': 6300, '[People]': 180, '[Licensed Seats]': 225, '[Seats In Use]': 150, '[People With Organization]': 180 };
+  const { fetchImpl, ai, pbi } = fakeFetch([
+    reply({ tool_calls: [call('s', 'bottom_line')] }),
+    reply({ content: '180 people did 6,300 AI tasks.' })
+  ], () => json({ results: [{ tables: [{ rows: [summary] }] }] }));
+  await withServer({ config: { ask: ASK, semanticModels: MODELS }, fetchImpl }, async (baseUrl) => {
+    const res = await ask(baseUrl, { question: 'How many people with a task have a department?' });
+    assert.equal(res.status, 200);
+    const body = await res.json();
+    assert.deepEqual(body.runs.map((r) => r.name), ['bottom_line']);
+    const { dax, ...run } = body.runs[0];
+    assert.match(dax, /"People With Organization"/, 'the summary query runs as the pages run it');
+    assert.equal(run.rowCount, 1);
+    assert.doesNotMatch(JSON.stringify({ ...body, runs: [run] }), /People With Organization/, 'only the query text names it');
+  });
+  assert.equal(pbi.length, 1);
+  const toolMessage = ai[1].body.messages.at(-1);
+  assert.equal(toolMessage.role, 'tool');
+  assert.deepEqual(JSON.parse(toolMessage.content).rows, [{ Hours: 1541.5, Tasks: 6300, People: 180, 'Licensed Seats': 225, 'Seats In Use': 150 }]);
+  assert.doesNotMatch(JSON.stringify(ai.map((r) => r.body)), /People With Organization/, 'nothing the model reads names it');
+});
+
 test('Ask tells the model about unknown tools, bad arguments and failed queries without running anything else', async () => {
   const { fetchImpl, ai, pbi } = fakeFetch([
     reply({ tool_calls: [call('a', 'drop_tables'), call('b', 'activation_by_org', { from: 'last month' }), { id: 'c', type: 'function', function: { name: 'value_summary', arguments: '{oops' } }, call('d', 'value_summary')] }),
@@ -198,4 +223,16 @@ test('the catalogue loads with every query, and tool arguments are only the filt
   const shaped = shapeRows(Array.from({ length: 80 }, (_, i) => ({ '[N]': i })), { people: undefined }, 5);
   assert.equal(shaped.rows.length, 50);
   assert.ok(shaped.truncated);
+});
+
+test('a tool\'s omitted columns are taken out of its rows after its people columns leave small groups out', () => {
+  const rows = [
+    { 'Chat + Agent Org Data[Organization]': 'Finance', '[People]': 40, '[Share]': 0.5 },
+    { 'Chat + Agent Org Data[Organization]': 'Tiny team', '[People]': 2, '[Share]': 0.9 }
+  ];
+  const shaped = shapeRows(rows, { people: ['People'], omit: ['People', 'Share'] }, 5);
+  assert.deepEqual(shaped.rows, [{ Organization: 'Finance' }]);
+  assert.equal(shaped.rowCount, 1);
+  assert.equal(shaped.suppressed, 1);
+  assert.deepEqual(shapeRows(rows, { omit: [] }, 5).rows[0], { Organization: 'Finance', People: 40, Share: 0.5 });
 });

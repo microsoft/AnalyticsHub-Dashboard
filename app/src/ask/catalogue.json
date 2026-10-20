@@ -92,6 +92,7 @@
             "model": "vl",
             "query": "executive/executive-summary.dax",
             "filters": ["dateRange", "organizations"],
+            "omit": ["People With Organization"],
             "references": [
                 "[Expert Equivalent Hours]",
                 "[AI Tasks]",

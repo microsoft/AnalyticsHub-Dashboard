@@ -369,7 +369,9 @@ only what they can. The answer shows which queries it ran and links to the page 
   `ask` block and the page lists suggested questions only.
 - **Limits.** Groups under 5 people are left out before the model sees a row, and at most 50 rows of
   each query reach it. A question runs at most 8 queries and keeps the last 8 turns of the
-  conversation. Each person gets 20 questions every 10 minutes and 2 at once.
+  conversation. Each person gets 20 questions every 10 minutes and 2 at once. Columns a catalogue
+  entry lists under `omit`, such as the Executive summary's count of the people with a department,
+  never reach the model.
 - **Logs.** The question and the names of the queries it ran, never the answer or the data.
 - **Cost.** Billed per token on the AI Services account. Light use costs a few dollars a month.
 

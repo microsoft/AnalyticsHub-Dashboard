@@ -91,7 +91,8 @@ const columnName = (key) => { const m = /\[([^\]]*(?:\]\][^\]]*)*)\]$/.exec(key)
 
 /**
  * A query's rows for the model: groups under `minPeople` people left out
- * (as the app's pages do), then at most ROWS_TO_MODEL rows.
+ * (as the app's pages do), the columns the tool omits taken out, then at
+ * most ROWS_TO_MODEL rows.
  */
 export function shapeRows(rows, tool, minPeople) {
   const named = rows.map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [columnName(k), v])));
@@ -104,6 +105,7 @@ export function shapeRows(rows, tool, minPeople) {
     });
     suppressed = named.length - kept.length;
   }
+  if (tool.omit?.length) kept = kept.map((row) => Object.fromEntries(Object.entries(row).filter(([column]) => !tool.omit.includes(column))));
   let shown = kept.slice(0, ROWS_TO_MODEL);
   while (shown.length > 1 && JSON.stringify(shown).length > RESULT_CHARS) shown = shown.slice(0, Math.ceil(shown.length / 2));
   return { rows: shown, rowCount: kept.length, suppressed, truncated: shown.length < kept.length };
