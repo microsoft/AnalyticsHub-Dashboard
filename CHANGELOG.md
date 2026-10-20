@@ -121,6 +121,34 @@ the whole curve's query took 3.46–4.06 seconds and a callouts-only one 1.16–
 shares and their people counts are worked out as before, ties included. Consumption's Copilot
 Studio section and Value keep their curves.
 
+**Power BI model: faster agent, unlicensed, Cowork and habit-stage counts.** In both Fabric
+templates, and so in the Azure model built from them, `[Active Agent Users]`,
+`[Active Unlicensed Users]`, `[Cowork Users]` and `[Cowork Fit: Eligible Users]` now count their
+users in one pass instead of testing each user, as in
+[ValueLens #202](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/pull/202). The eight
+habit-stage counts, `[Beginner Users, Last Month]`, `[Beginner Users (Monthly)]` and the same pairs
+for Developing, Habitual and Power users, count everyone's active days at once, as in
+[ValueLens #203](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/pull/203). Where user
+IDs are filtered directly, all twelve still test each user. The numbers don't change. With these
+measures defined in the query against 0.6.8-rc.1's model, with 20,000 people on an F64 trial, the
+Executive summary's query took 2.44 s instead of 2.80 s, and the Adoption summary's 3.83–4.51 s
+instead of 5.05–6.23 s. Running the installer again deploys the model with them; if you published a
+template yourself, publish the new one.
+
+- **Open the templates in Power BI Desktop June 2024 or later.** The habit-stage counts use
+  `SUMMARIZECOLUMNS` inside a measure, and earlier Desktop releases show errors in most habit-stage
+  visuals. The Power BI service and Fabric evaluate them for the app, published reports and Desktop
+  connected live to a published model, so those aren't affected.
+
+**Adoption: the summary is asked for in two queries.** The five sessions-per-user-per-week figures
+have their own query now, and the other ten keep theirs. The app asks for both at once, on the
+Adoption page and when it prefetches the page, on Fabric and on Azure, and fills the cards when both
+have answered. While the filters change, the cards keep the figures they showed until then, as they
+did before. Each figure is the same expression under the same filters, and the task times you set
+still apply to the figures that read them, so the numbers don't change; tests check that offline.
+Measured the same way as the model changes above, the two queries took 2.77 s together, against
+3.93 s for the single query on its own. That run didn't compare the figures.
+
 ## Analytics Hub installer 0.6.8-rc.1 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.1 is not published, and 0.6.7 remains Latest.

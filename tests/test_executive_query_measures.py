@@ -91,9 +91,20 @@ PINNED = {
     ),
     "Active Agent Users": (
         (SUMMARY,),
+        "IF( ISFILTERED('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
         "CALCULATE( COUNTROWS(FILTER(VALUES('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
         "LEN(TRIM('Chat + Agent Interactions (Audit Logs)'[Audit_UserId])) > 0 && CALCULATE([AI Tasks]) > 0)), "
-        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Agent Filter (Normalized)] = \"Agents\") )",
+        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Agent Filter (Normalized)] = \"Agents\") ), "
+        "VAR BlankIds = FILTER( ALL('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
+        "LEN(TRIM('Chat + Agent Interactions (Audit Logs)'[Audit_UserId])) = 0 ) "
+        "VAR PromptIds = CALCULATE( DISTINCTCOUNT('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
+        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Is Prompt Row] = TRUE()), "
+        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Agent Filter (Normalized)] = \"Agents\") ) "
+        "VAR BlankPromptIds = CALCULATE( DISTINCTCOUNT('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]), "
+        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Is Prompt Row] = TRUE()), "
+        "KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Agent Filter (Normalized)] = \"Agents\"), "
+        "KEEPFILTERS(BlankIds) ) "
+        "VAR ActiveIds = PromptIds - BlankPromptIds RETURN IF(ActiveIds > 0, ActiveIds) )",
     ),
     "AI Tasks": (
         (SUMMARY,),

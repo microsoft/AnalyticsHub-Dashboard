@@ -33,7 +33,7 @@ The [installer](../../installer/) does all of this for you. Use these steps only
    loads 30 days (`BACKFILL_DAYS`, up to 180). Afterwards, set it back to `'incremental'`. On a
    large tenant, read [A large tenant](#a-large-tenant) first.
 5. **Run `Copilot_Audit_Log_Processor`** once the ingesters finish.
-6. **Open the template** in Power BI Desktop and publish it:
+6. **Open the template** in Power BI Desktop, June 2024 or later, and publish it:
    - [`ValueLens - Fabric.pbit`](../ValueLens%20-%20Fabric.pbit): enter the Lakehouse's **SQL analytics endpoint** and its name.
    - Or [`ValueLens - Fabric OneLake.pbit`](../ValueLens%20-%20Fabric%20OneLake.pbit): enter the workspace ID and the Lakehouse ID.
 7. **Schedule it** with the [pipeline](../pipelines/README.md).

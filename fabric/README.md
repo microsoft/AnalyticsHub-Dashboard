@@ -137,8 +137,8 @@ in your workspace.
 To use a template instead, choose not to deploy the model in the installer's **Power BI** step.
 When it finishes, it shows the values to enter in
 [`ValueLens - Fabric.pbit`](ValueLens%20-%20Fabric.pbit) (SQL endpoint) or
-[`ValueLens - Fabric OneLake.pbit`](ValueLens%20-%20Fabric%20OneLake.pbit) (OneLake).
-Publish the report, then
+[`ValueLens - Fabric OneLake.pbit`](ValueLens%20-%20Fabric%20OneLake.pbit) (OneLake), which need
+Power BI Desktop June 2024 or later. Publish the report, then
 [add a refresh step to the pipeline](pipelines/README.md#refresh-power-bi-from-the-pipeline).
 
 ## Set it up by hand

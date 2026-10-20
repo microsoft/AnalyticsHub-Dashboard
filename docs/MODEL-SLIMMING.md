@@ -195,8 +195,8 @@ the pins after a deliberate rebuild.
 
 ## Desktop refresh checks
 
-There's no VertiPaq engine in CI, so check a rebuilt template in Power BI Desktop against a
-lakehouse that the new processor has written:
+There's no VertiPaq engine in CI, so check a rebuilt template in Power BI Desktop (June 2024 or
+later) against a lakehouse that the new processor has written:
 
 1. Open the `.pbit`, enter the workspace and lakehouse, and let it refresh. It should finish with no
    calculated-column step on the audit fact.
