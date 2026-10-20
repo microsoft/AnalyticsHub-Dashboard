@@ -64,6 +64,17 @@ git clone --branch <rc.2 tag or branch under test> https://github.com/microsoft/
 $rec = "$HOME\ae-live-test\valuelens-install.json"
 ```
 
+If the branch under test doesn't include
+[#144](https://github.com/microsoft/AnalyticsHub-Dashboard/pull/144), don't load a Workday
+org-data export that has a `Department` column on this install. Without #144, the models rename
+`Department` to `Organization` even though the org data already has `Organization`, so the refresh
+fails. On Azure, publish never drops a column, so the core and Agent Evaluator refreshes would both
+keep failing. To check, look for the test #144 adds. No output means #144 isn't in the branch:
+
+```powershell
+Select-String -Path "$HOME\ae-live-test\src\installer\test\model.test.js" -SimpleMatch 'not Table.HasColumns(RenamedPersonId, "Organization")'
+```
+
 The jobs and web images have to contain the code under test. The installer deploys
 `<registry>/valuelens-jobs:<tag>` and `<registry>/valuelens-web:<tag>`. Unless the install record
 pins others, the registry is `ghcr.io/microsoft` and the tag is the version in
