@@ -26,7 +26,7 @@ describe("departmentCoverage", () => {
         const note = coverageNote(coverage!);
         expect(note).toContain("30 of 200 people with a task have a department.");
         expect(note).toContain("Fill in Department on users in Microsoft Entra ID");
-        expect(note).toContain("Workday org data");
+        expect(note).not.toContain("Workday");
     });
 
     it("has nothing to say without counts, or for another org attribute", () => {
@@ -52,7 +52,8 @@ describe("orgEmptyDescription", () => {
         const text = orgEmptyDescription(BASE, ORG);
         expect(text.startsWith(BASE)).toBe(true);
         expect(text).toContain("Department in Microsoft Entra ID");
-        expect(text).toContain("Repair or change");
+        expect(text).toContain("fill it in there");
+        expect(text).not.toContain("Workday");
     });
 
     it("leaves other org attributes alone", () => {

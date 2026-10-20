@@ -7,7 +7,7 @@ import { notebooksFor } from '../src/catalog.js';
 import { emptyConfig } from '../src/config.js';
 import { modelDeployed, notebookSettings, pipelineSignature } from '../src/steps/fabric.js';
 import { prepareNotebook } from '../src/transform/notebook.js';
-import { AUDIT_TABLE, buildModel, datasourcePath, decodeText, loadTemplateModel, mParameter, mString, readTemplateModel, setMParameter } from '../src/transform/model.js';
+import { AUDIT_TABLE, buildAgentEvaluatorModel, buildModel, datasourcePath, decodeText, loadTemplateModel, mParameter, mString, readTemplateModel, setMParameter } from '../src/transform/model.js';
 import { buildPipeline, findActivity, REFRESH_ACTIVITY } from '../src/transform/pipeline.js';
 import { listZip, readZipEntry } from '../src/transform/zip.js';
 import { fakeCtx, realSources } from './fakes.js';
@@ -95,6 +95,22 @@ test('the real template: source parameters filled, optional pages switched, temp
   assert.equal(/** @type {any} */ (bim).name, undefined);
   assert.ok(bim.compatibilityLevel >= 1600);
   assert.ok(bim.model.tables.find((t) => t.name === AUDIT_TABLE)?.refreshPolicy, 'the audit table keeps its incremental refresh policy');
+});
+
+test('the Fabric, Azure and Agent Evaluator models rename Department to Organization only when Organization is missing', () => {
+  const guard = 'if colDepartment <> null and not Table.HasColumns(RenamedPersonId, "Organization") then';
+  const agentEvaluator = loadTemplateModel(/** @type {string} */ (realSources().agentEvaluatorModelFile));
+  const models = {
+    fabric: buildModel(template, settings),
+    azure: buildModel(template, { ...settings, server: 'sql-valuelens.database.windows.net', database: 'valuelens' }),
+    agentEvaluator: buildAgentEvaluatorModel(agentEvaluator, { server: settings.server, database: settings.database }),
+  };
+  for (const [name, bim] of Object.entries(models)) {
+    const org = bim.model.tables.find((t) => t.name === 'Chat + Agent Org Data');
+    const query = [].concat(org?.partitions?.[0]?.source?.expression ?? []).join('\n');
+    assert.ok(query.includes(guard), `${name}: the rename checks for an Organization column`);
+    assert.doesNotMatch(query, /if colDepartment <> null then/, name);
+  }
 });
 
 test('M parameters: quotes are escaped; a missing or non-parameter query fails', () => {

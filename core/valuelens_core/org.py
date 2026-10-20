@@ -177,7 +177,7 @@ def coverage_message(have, total):
     if not total or have / total >= LOW_DEPARTMENT_COVERAGE:
         return line
     return (f'{line}. Views by department leave out everyone without one: fill in Department on users '
-            'in Microsoft Entra ID, or load org data from Workday instead.')
+            'in Microsoft Entra ID.')
 
 
 def build_snapshot(users, *, table_exists=False, allow_empty=False):

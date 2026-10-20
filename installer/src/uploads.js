@@ -62,7 +62,7 @@ export const DATA_SOURCES = [
   {
     id: 'workday',
     label: 'Workday org data',
-    description: 'Adds or overrides org fields from a Workday report, matched on Primary Work Email.',
+    description: 'Adds the fields of a Workday report that the org data doesn\'t have, matched on Primary Work Email. It doesn\'t change or fill in existing ones, such as department.',
     modes: ['csv', 'skip'],
     defaultMode: 'skip',
     export: {
