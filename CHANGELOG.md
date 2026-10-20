@@ -140,6 +140,15 @@ template yourself, publish the new one.
   visuals. The Power BI service and Fabric evaluate them for the app, published reports and Desktop
   connected live to a published model, so those aren't affected.
 
+**Adoption: the summary is asked for in two queries.** The five sessions-per-user-per-week figures
+have their own query now, and the other ten keep theirs. The app asks for both at once, on the
+Adoption page and when it prefetches the page, on Fabric and on Azure, and fills the cards when both
+have answered. While the filters change, the cards keep the figures they showed until then, as they
+did before. Each figure is the same expression under the same filters, and the task times you set
+still apply to the figures that read them, so the numbers don't change; tests check that offline.
+Measured the same way as the model changes above, the two queries took 2.77 s together, against
+3.93 s for the single query on its own. That run didn't compare the figures.
+
 ## Analytics Hub installer 0.6.8-rc.1 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.1 is not published, and 0.6.7 remains Latest.

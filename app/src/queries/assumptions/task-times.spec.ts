@@ -120,6 +120,7 @@ describe("withTaskTimes", () => {
                 "../adoption/adoption-summary.dax",
             ]),
         );
+        expect(reading).not.toContain("../adoption/adoption-summary-spuw.dax");
         expect(reading).not.toContain("../assumptions/task-times.dax");
     });
 });

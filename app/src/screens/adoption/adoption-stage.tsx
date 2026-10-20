@@ -18,10 +18,11 @@ import { useThemeContext } from "@/hooks/theme.context";
 import { useFilterContext } from "@/hooks/filter.context";
 import { useFilteredQuery } from "@/hooks/use-filtered-query";
 import { selectedCohort, unshownActivity, type FilterKey } from "@/lib/filters";
-import { readNumber, readText, toSummaryRow } from "@/lib/summary-row";
+import { readNumber, readText } from "@/lib/summary-row";
 import { toDataTable } from "@/lib/to-data-table";
-import { adoptionSummary, adoptionTrend, type AdoptionTrendMeasure } from "@/queries/adoption";
+import { adoptionTrend, type AdoptionTrendMeasure } from "@/queries/adoption";
 import { adoptionTrendHeadline } from "./headlines";
+import { useAdoptionSummary } from "./use-adoption-summary";
 
 /** The four surfaces usage is reported across. */
 const surfaces = [
@@ -58,14 +59,11 @@ export function AdoptionStage() {
         ? `${unshown} has no card of its own, so ${highlighted.label} is highlighted.`
         : `licensed chat, unlicensed chat and agents are each shown in their own card and line, so ${highlighted.label} is highlighted.`;
 
-    const summary = useFilteredQuery(adoptionSummary(), { ignore: SURFACE_FILTERS });
+    const summary = useAdoptionSummary(SURFACE_FILTERS);
     const trend = useMemo(() => adoptionTrend({ measure }), [measure]);
     const trendResult = useFilteredQuery({ connection: trend.connection, query: trend.query }, { ignore: SURFACE_FILTERS });
 
-    const summaryRow = useMemo(
-        () => (summary.data?.status === "success" ? toSummaryRow(summary.data.table) : undefined),
-        [summary.data],
-    );
+    const summaryRow = summary.row;
 
     const trendTable = useMemo(
         () =>
@@ -107,9 +105,9 @@ export function AdoptionStage() {
             }
         >
             <FilterNote ignored={SURFACE_FILTERS} reason={surfaceReason} />
-            {summary.data?.status === "error" ? (
-                <QueryError message={summary.data.error.message} onRetry={summary.refetch} />
-            ) : summary.isLoading || !summary.data ? (
+            {summary.error ? (
+                <QueryError message={summary.error} onRetry={summary.refetch} />
+            ) : !summary.loaded ? (
                 <div className="grid gap-300 md:grid-cols-2 xl:grid-cols-4">
                     {surfaces.map((surface) => (
                         <QueryLoading key={surface.id} />

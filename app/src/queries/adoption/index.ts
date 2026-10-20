@@ -8,6 +8,7 @@
 export * from "./activation-summary";
 export * from "./activation-by-org";
 export * from "./adoption-summary";
+export * from "./adoption-summary-spuw";
 export * from "./adoption-trend";
 export * from "./habit-summary";
 export * from "./habit-trend";
