@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
+import { acceptedEncodings, appendVary, isCompressible } from './http-utils.js';
 
 const MIME_TYPES = new Map([
   ['.html', 'text/html; charset=utf-8'], ['.js', 'text/javascript; charset=utf-8'],
@@ -7,6 +8,10 @@ const MIME_TYPES = new Map([
   ['.json', 'application/json; charset=utf-8'], ['.png', 'image/png'], ['.svg', 'image/svg+xml'],
   ['.ico', 'image/x-icon'], ['.woff', 'font/woff'], ['.woff2', 'font/woff2']
 ]);
+/** Where precompress.js writes each encoding's copy of a file. */
+export const PRECOMPRESSED_SUFFIX = { br: '.br', gzip: '.gz' };
+
+export function contentTypeFor(filePath) { return MIME_TYPES.get(path.extname(filePath).toLowerCase()) || 'application/octet-stream'; }
 
 export function createStaticHandler(publicDir) {
   const root = path.resolve(publicDir);
@@ -21,15 +26,34 @@ export function createStaticHandler(publicDir) {
       stat = await statOrNull(filePath);
     }
     if (!stat || !stat.isFile()) return false;
-    const ext = path.extname(filePath).toLowerCase();
+    const contentType = contentTypeFor(filePath);
+    const compressible = isCompressible(contentType);
+    const variant = compressible ? await precompressedVariant(filePath, stat, acceptedEncodings(req.headers['accept-encoding'])) : null;
+    // Read before setting any header: if the read fails, server.js sends its 500 on this response, which mustn't carry the file's headers.
+    const body = req.method === 'HEAD' ? null : await fs.readFile(variant ? variant.path : filePath);
     res.statusCode = 200;
-    res.setHeader('Content-Type', MIME_TYPES.get(ext) || 'application/octet-stream');
+    res.setHeader('Content-Type', contentType);
     if (pathname.startsWith('/assets/')) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     else if (path.basename(filePath) === 'index.html') res.setHeader('Cache-Control', 'no-cache');
+    if (compressible) appendVary(res, 'Accept-Encoding');
+    if (variant) res.setHeader('Content-Encoding', variant.encoding);
     if (req.method === 'HEAD') return res.end();
-    res.end(await fs.readFile(filePath));
+    res.end(body);
     return true;
   };
+}
+
+/**
+ * The best accepted copy written by precompress.js at image build; static files are never compressed at run time.
+ * precompress.js gives each copy its file's modified time, so a copy that doesn't match (its file changed since) is ignored.
+ */
+async function precompressedVariant(filePath, stat, encodings) {
+  for (const encoding of encodings) {
+    const variantPath = filePath + PRECOMPRESSED_SUFFIX[encoding];
+    const variant = await statOrNull(variantPath);
+    if (variant?.isFile() && Math.abs(variant.mtimeMs - stat.mtimeMs) < 1) return { encoding, path: variantPath };
+  }
+  return null;
 }
 
 function safeResolve(root, requestPath) {

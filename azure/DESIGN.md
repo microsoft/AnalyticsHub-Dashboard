@@ -195,6 +195,28 @@ Variants: App Service B1 Linux for the web app (+$13), or B1 Windows as in PnP (
   - Limits: **120 queries per minute per user**, 100k rows or 1M values per query. Mitigations: a per-user LRU cache
     keyed by the model's last refresh time, request coalescing, and a concurrency limit per user.
     Phase 0 measures how many queries each page sends.
+  - **Token reuse.** One MSAL client per process makes every OBO exchange, and the Power BI or Graph token is reused
+    for later requests carrying the same user token and scopes. The cache is keyed by a SHA-256 of the user's token
+    plus the scopes, never the raw token, and every request's token is verified before the cache is looked at. An
+    entry is used for at most 10 minutes after its exchange, and never past 5 minutes before the downstream token or
+    the user's token expires, so an active user makes about one exchange every 10 minutes for each set of scopes. A
+    user whose account is disabled, or whose sessions are revoked in Entra, keeps Power BI and Graph access through
+    the app for up to 10 minutes, and can reopen results loaded in that time for up to 10 minutes after each was
+    fetched. The cache holds at most 2,000 entries, least recently used out first. MSAL's own
+    cache is skipped and emptied after each exchange. Concurrent first requests share one exchange, a claims
+    challenge always goes to Entra, and a token Power BI or Graph refuses (401 or 403) is dropped. Before this,
+    every query made its own exchange.
+  - **Removing access.** Power BI and Graph check permissions on every call, so the token cache doesn't delay
+    removing someone's workspace access or app role. The app's own checks delay it, as they did before: the access
+    check reads the app role, and usually the viewer group, from the user's sign-in token, so a removed role or
+    membership counts until that token expires (60 to 90 minutes by default; for a user in more than 200 groups,
+    Graph's answer is kept for 10 minutes). Results a user has already loaded are served from the result cache for
+    up to 10 minutes after they were fetched.
+  - **Compression.** JSON responses of 1 KB or more go out with Brotli or gzip at moderate levels, and the SPA's
+    text files are compressed once at image build, so the 0.5 vCPU container never compresses them. Responses carry
+    `Vary: Accept-Encoding`. Container Apps doesn't document response compression at its ingress, so the app does
+    it. The ingress documentation lists HTTP/1.1 and HTTP/2 support, with TLS ending at the ingress, so this change
+    makes no infra change for either.
 - `GET/PUT /api/settings`, `GET /api/version` (powers the "update available" notice) and `GET /api/health`.
 - **OBO without a secret.** The web app registration gets a **federated identity credential** that trusts
   the user-assigned MI, so the container signs its client assertion with the MI. If a tenant blocks

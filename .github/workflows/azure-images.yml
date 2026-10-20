@@ -61,6 +61,39 @@ jobs:
         if: matrix.image == 'valuelens-jobs'
         run: docker run --rm "${{ steps.tag.outputs.image }}" --help
 
+      # The web image must serve the Brotli and gzip copies of the app's files that precompress.js made at build.
+      # The whole server can't start here (its settings store needs a managed identity at start-up), so this runs
+      # the image's own static handler on its public folder, with no network.
+      - name: Smoke-test the web image
+        if: matrix.image == 'valuelens-web'
+        run: |
+          docker run --rm --network none --entrypoint node "${{ steps.tag.outputs.image }}" --input-type=module -e '
+            import http from "node:http";
+            import zlib from "node:zlib";
+            import { createStaticHandler } from "/app/src/static.js";
+            const serve = createStaticHandler("/app/public");
+            const server = http.createServer(async (req, res) => {
+              if (!(await serve(req, res, new URL(req.url, "http://localhost").pathname))) { res.statusCode = 404; res.end(); }
+            });
+            await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+            const get = (path, encoding) => new Promise((resolve, reject) => {
+              const headers = encoding ? { "Accept-Encoding": encoding } : {};
+              http.get({ host: "127.0.0.1", port: server.address().port, path, headers, agent: false }, (res) => {
+                const chunks = [];
+                res.on("data", (chunk) => chunks.push(chunk));
+                res.on("end", () => resolve({ status: res.statusCode, encoding: res.headers["content-encoding"], body: Buffer.concat(chunks) }));
+              }).on("error", reject);
+            });
+            const entry = /src="(\/assets\/[^"]+\.js)"/.exec((await get("/")).body.toString())?.[1];
+            if (!entry) throw new Error("index.html names no entry script");
+            const raw = await get(entry), br = await get(entry, "br"), gz = await get(entry, "gzip");
+            if (raw.status !== 200 || raw.encoding) throw new Error(`${entry}: ${raw.status} ${raw.encoding}`);
+            if (br.encoding !== "br" || !zlib.brotliDecompressSync(br.body).equals(raw.body)) throw new Error(`${entry} is not sent as its Brotli copy`);
+            if (gz.encoding !== "gzip" || !zlib.gunzipSync(gz.body).equals(raw.body)) throw new Error(`${entry} is not sent as its gzip copy`);
+            console.log(`${entry}: ${raw.body.length} bytes, sent as ${br.body.length} with br and ${gz.body.length} with gzip`);
+            server.close();
+          '
+
       - name: Push
         if: startsWith(github.ref, 'refs/tags/installer-v') || github.event_name == 'workflow_dispatch'
         env:

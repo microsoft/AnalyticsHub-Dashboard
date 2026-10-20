@@ -110,6 +110,8 @@ export class AccessService {
     });
     const text = await response.text();
     if (!response.ok) {
+      // Don't reuse a token Graph refused: the next call exchanges a fresh one.
+      if (response.status === 401 || response.status === 403) this.tokenAcquirer.forget?.(auth.token, GRAPH_SCOPES);
       let message = text;
       try { message = JSON.parse(text)?.error?.message || text; } catch { /* plain text */ }
       if (response.status === 403) throw httpError(403, 'AccessManageDenied', 'Microsoft Entra did not allow this change. Only owners of the viewer group and directory admins can change its members.');

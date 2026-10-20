@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { startTestServer, request, authHeader } from './helpers.js';
 import { parseAccess } from '../src/config.js';
+import { GRAPH_SCOPES } from '../src/auth.js';
 
 const ACCESS = { groupId: 'group-1', groupName: 'Analytics Hub viewers', contact: 'admin@example.com' };
 const NEW_USER = '22222222-2222-4222-8222-222222222222';
@@ -133,5 +134,18 @@ test('a Power BI refusal reaches the app as PowerBIAccessDenied', async () => {
     const response = await request(baseUrl, '/api/query', { method: 'POST', headers: { ...authHeader('group'), 'Content-Type': 'application/json' }, body: JSON.stringify({ workspaceId: 'workspace-1', itemId: 'dataset-1', query: 'EVALUATE ROW("x", 1)' }) });
     assert.equal(response.status, 403);
     assert.equal((await response.json()).error.code, 'PowerBIAccessDenied');
+  });
+});
+
+test('a token Power BI or Graph refuses is dropped, so the next call exchanges a fresh one', async () => {
+  const forgotten = [];
+  const tokenAcquirer = async (_t, _c, scopes) => (scopes?.[0]?.includes('graph') ? 'graph-token' : 'powerbi-token');
+  tokenAcquirer.forget = (token, scopes) => forgotten.push([token, scopes]);
+  await withServer({ fetchImpl: fakeGraph({ denyWrites: true }).fetchImpl, tokenAcquirer }, async (baseUrl) => {
+    const query = await request(baseUrl, '/api/query', { method: 'POST', headers: { ...authHeader('group'), 'Content-Type': 'application/json' }, body: JSON.stringify({ workspaceId: 'workspace-1', itemId: 'dataset-1', query: 'EVALUATE ROW("x", 1)' }) });
+    assert.equal(query.status, 403);
+    assert.deepEqual(forgotten, [['group', undefined]]);
+    assert.equal((await request(baseUrl, `/api/access/members/${NEW_USER}`, { method: 'DELETE', headers: authHeader('admin') })).status, 403);
+    assert.deepEqual(forgotten, [['group', undefined], ['admin', GRAPH_SCOPES]]);
   });
 });

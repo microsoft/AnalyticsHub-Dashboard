@@ -25,6 +25,8 @@ COPY ["azure/web/src/", "./src/"]
 COPY ["app/src/ask/catalogue.json", "./ask/catalogue.json"]
 COPY ["app/src/queries/", "./ask/queries/"]
 COPY --from=spa-build /src/fabric-app/dist ./public
+# Brotli and gzip copies of the app's text files, made once here so the container never compresses them at run time.
+RUN node src/precompress.js public
 USER valuelens
 EXPOSE 8080
 CMD ["node", "src/server.js"]

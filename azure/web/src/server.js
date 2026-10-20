@@ -1,7 +1,7 @@
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
 import { loadConfig } from './config.js';
-import { applySecurityHeaders, readJsonBody, sendJson } from './http-utils.js';
+import { applySecurityHeaders, readJsonBody, sendBody, sendJson } from './http-utils.js';
 import { createJwtVerifier, createOboTokenAcquirer, hasAccessScope, hasAdminRole, parseBearerToken, userNameFromClaims } from './auth.js';
 import { QueryService } from './query.js';
 import { AccessService, httpError } from './access.js';
@@ -41,7 +41,7 @@ export function createServer(deps = {}) {
         const result = await queryService.execute(await readJsonBody(req, 128 * 1024), await auth(req));
         for (const [key, value] of Object.entries(result.headers || {})) res.setHeader(key, value);
         res.statusCode = result.status;
-        return res.end(result.body);
+        return sendBody(res, result.body);
       }
       if (url.pathname === '/api/ask' && req.method === 'POST') {
         const caller = await auth(req);
