@@ -9,15 +9,20 @@ Port of the Fabric `Copilot_Audit_Log_Ingester` notebook:
 * records are canonicalised and flattened by `valuelens_core.audit` (golden-checked against Spark);
 * new rows replace existing rows with the same `Id` (the notebook's Delta MERGE), one file per day;
 * each page is staged gzip-compressed, and a long backfill merges in passes of whole days, so it fits the
-  run job's memory and disk.
+  run job's memory and disk;
+* a reload (VALUELENS_AUDIT_BACKFILL_DAYS, set on one run) is remembered in the state until a run has merged
+  it, so one that outlasts a run carries over to the next runs;
+* each window logs how long it waited for a query slot, for its query and to drain its pages.
 """
 from __future__ import annotations
 
 import gzip
 import json
 import logging
+import math
 import os
 import re
+import statistics
 import tempfile
 import threading
 import time
@@ -38,6 +43,8 @@ QUERIES = "https://graph.microsoft.com/beta/security/auditLog/queries"
 PARSED = "raw/copilot_interactions_parsed"
 STAGING = "raw/_audit_staging"
 STATE = "raw/_state/audit.json"
+# The state key holding where an unmerged reload starts.
+BACKFILL_FROM = "backfill_from"
 CHUNK_HOURS = 8
 MAX_CONCURRENT_QUERIES = 5  # Graph runs ~10 audit queries at once per tenant; leave room for other admins
 MAX_WAIT_MIN_PER_QUERY = 240
@@ -84,8 +91,8 @@ def _window_key(rel: str) -> str:
 
 
 class AuditCollector:
-    def __init__(self, api, store, settings, *, now=None, sleep=time.sleep, poll_seconds=POLL_INTERVAL_SEC,
-                 max_wait_minutes=MAX_WAIT_MIN_PER_QUERY, chunk_hours=CHUNK_HOURS,
+    def __init__(self, api, store, settings, *, now=None, sleep=time.sleep, clock=time.monotonic,
+                 poll_seconds=POLL_INTERVAL_SEC, max_wait_minutes=MAX_WAIT_MIN_PER_QUERY, chunk_hours=CHUNK_HOURS,
                  max_concurrent=MAX_CONCURRENT_QUERIES, window_retries=WINDOW_RETRIES,
                  min_chunk_hours=MIN_CHUNK_HOURS, split_on_timeout=SPLIT_ON_TIMEOUT,
                  retry_base_seconds=RETRY_BASE_SEC, retry_max_seconds=RETRY_MAX_SEC,
@@ -93,7 +100,8 @@ class AuditCollector:
         self.api, self.store, self.settings = api, store, settings
         self.merge_pass_records = max(int(merge_pass_records), 0)
         self.end = now or datetime.now(timezone.utc)
-        self.sleep, self.poll_seconds, self.max_wait_minutes = sleep, poll_seconds, max_wait_minutes
+        self.sleep, self.clock = sleep, clock
+        self.poll_seconds, self.max_wait_minutes = poll_seconds, max_wait_minutes
         self.chunk_hours, self.max_concurrent = chunk_hours, max_concurrent
         self.window_retries, self.min_chunk_hours = max(int(window_retries), 0), min_chunk_hours
         self.split_on_timeout = split_on_timeout
@@ -103,19 +111,46 @@ class AuditCollector:
         self._lock = threading.RLock()
         self.state = store.read_json(STATE, {}) or {}
         self.manifest = dict(self.state.get("windows") or {})
+        self._timings, self._failed_attempts = [], 0
 
     # -------------------------------------------------------------- window plan
+    def _backfill_days(self) -> int:
+        return int(getattr(self.settings, "audit_backfill_days", 0) or 0)
+
+    def remember_backfill(self):
+        """Record where a reload starts, before fetching, until a run has merged it.
+
+        The installer sets VALUELENS_AUDIT_BACKFILL_DAYS on one run only. If that run stops before its merge (at
+        the run job's 4 hours), the next run would plan from the high-water mark and prune the reload's windows.
+        With the start in the state, later runs plan the reload again and query only the windows not yet fetched.
+        A bigger reload while one is pending moves the start earlier; a smaller one leaves it.
+        """
+        backfill = self._backfill_days()
+        if backfill <= 0:
+            return
+        start = audit._as_utc_datetime(self.end - timedelta(days=backfill))
+        with self._lock:
+            pending = audit._as_utc_datetime(self.state.get(BACKFILL_FROM))
+            if pending is not None and pending <= start:
+                return
+            self.state[BACKFILL_FROM] = start.isoformat()
+            self._save()
+
     def plan(self):
         hw = self.state.get("high_water_mark")
         if hw:
             start = audit.determine_incremental_start(self.end, hw, self.lookback)
         else:
             start = self.end - timedelta(days=max(int(self.settings.audit_history_days), self.lookback, 1))
-        # A one-off reload of more history (set on a single run by the installer): the high-water mark
-        # would otherwise keep the run to the days since the last one. Windows already loaded are reused.
-        backfill = int(getattr(self.settings, "audit_backfill_days", 0) or 0)
+        # A reload of more history: the high-water mark would otherwise keep the run to the days since the last
+        # one. Windows already loaded are reused. An unmerged reload stays in the state (remember_backfill), and
+        # the window grid is anchored, so each run plans the same windows for it.
+        backfill = self._backfill_days()
         if backfill > 0:
             start = min(start, self.end - timedelta(days=backfill))
+        pending = audit._as_utc_datetime(self.state.get(BACKFILL_FROM))
+        if pending is not None:
+            start = min(audit._as_utc_datetime(start), pending)
         return audit.build_windows(start, self.end, self.chunk_hours)
 
     def _files(self, key):
@@ -160,10 +195,13 @@ class AuditCollector:
         raise_for_status(r, "create audit query")
         return r.json()["id"]
 
-    def wait(self, qid: str):
-        deadline = time.monotonic() + self.max_wait_minutes * 60
+    def wait(self, qid: str) -> int:
+        """Poll a query until it succeeds; returns the number of polls."""
+        deadline = self.clock() + self.max_wait_minutes * 60
+        polls = 0
         while True:
             r = self.api.get(f"{QUERIES}/{qid}", timeout=60)
+            polls += 1
             raise_for_status(r, f"audit query {qid}")
             payload = r.json()
             status = payload.get("status") if isinstance(payload, dict) else None
@@ -171,12 +209,12 @@ class AuditCollector:
                 raise RuntimeError(f"Query {qid} returned missing/invalid status: {status!r}")
             status = status.strip().lower()
             if status == "succeeded":
-                return
+                return polls
             if status in ("failed", "cancelled"):
                 raise AuditQueryFailed(f"Query {qid} ended with status: {status}")
             if status not in ("notstarted", "running"):
                 raise RuntimeError(f"Query {qid} returned unexpected status: {status}")
-            if time.monotonic() > deadline:
+            if self.clock() > deadline:
                 raise TimeoutError(f"Query {qid} did not succeed within {self.max_wait_minutes} min.")
             self.sleep(self.poll_seconds)
 
@@ -227,20 +265,25 @@ class AuditCollector:
     def _window(self, ws, we, attempt=1):
         key = audit.stable_window_key(ws, we)
         self._mark(key, "querying", window_start=_iso(ws), window_end=_iso(we),
-                   refreshed_at=datetime.now(timezone.utc).isoformat(), completed_at=None,
+                   refreshed_at=datetime.now(timezone.utc).isoformat(), completed_at=None, timing=None,
                    attempts=attempt, error=None, **({"attempt_errors": []} if attempt == 1 else {}))
         qid = None
         try:
+            queued = self.clock()
             # Only creating and waiting hold one of the tenant's concurrent query slots; draining doesn't.
             with self.limiter:
+                created = self.clock()
                 qid = self.create_query(ws, we)
                 self._mark(key, "waiting", query_id=qid)
-                self.wait(qid)
+                polls = self.wait(qid)
+                ready = self.clock()
             self._mark(key, "draining", query_id=qid)
             rows, files = self.drain(qid, key)
-            self._mark(key, "succeeded", query_id=qid, rows=rows, pages=len(files), files=files,
+            timing = {"slot_wait_s": round(created - queued, 1), "ready_s": round(ready - created, 1),
+                      "polls": polls, "drain_s": round(self.clock() - ready, 1)}
+            self._mark(key, "succeeded", query_id=qid, rows=rows, pages=len(files), files=files, timing=timing,
                        completed_at=datetime.now(timezone.utc).isoformat())
-            return key, rows
+            return key, rows, dict(timing, pages=len(files))
         except Exception as exc:
             self._mark(key, "failed", error=f"{type(exc).__name__}: {exc}", query_id=qid, completed_at=None)
             self.store.remove(self._files(key))
@@ -249,31 +292,40 @@ class AuditCollector:
     def _run_window(self, ws, we):
         """Fetch one window: retry with a new query, then split it when the retries run out.
 
-        Returns (key, rows, outcome, detail); outcome is 'done', 'split' (detail = the halves) or
-        'failed' (detail = the last error). Only PermissionError (missing Graph permission) propagates.
+        Returns (key, rows, outcome, detail); outcome is 'done' (detail = the window's timing), 'split'
+        (detail = the halves) or 'failed' (detail = the last error). Only PermissionError (missing Graph
+        permission) propagates.
         """
         key = audit.stable_window_key(ws, we)
         errors, last = [], None
         for attempt in range(1, self.window_retries + 2):
+            started = self.clock()
             try:
-                _, rows = self._window(ws, we, attempt)
-                return key, rows, "done", None
+                _, rows, timing = self._window(ws, we, attempt)
+                return key, rows, "done", timing
             except PermissionError:
                 raise
             except Exception as exc:
                 last = f"{type(exc).__name__}: {exc}"
                 errors.append(f"attempt {attempt}: {last}")
+                with self._lock:
+                    self._failed_attempts += 1
                 self._mark(key, "failed", attempts=attempt, attempt_errors=errors[-5:])
-                if not is_retryable(exc):
+                retryable = is_retryable(exc)
+                split = retryable and isinstance(exc, TimeoutError) and self.split_on_timeout
+                delay = (audit.retry_delay(attempt, self.retry_base_seconds, self.retry_max_seconds)
+                         if retryable and not split and attempt <= self.window_retries else None)
+                log.warning("audit: window %s attempt %s failed after %.1fs: %s%s", key, attempt,
+                            self.clock() - started, last,
+                            "" if delay is None else f"; new query in {delay:.0f}s (retry {attempt}/"
+                                                     f"{self.window_retries})")
+                if not retryable:
                     return key, 0, "failed", last
                 if self.limiter.shrink(f"{key}: {last}", halve=getattr(exc, "status_code", None) == 429):
                     log.warning("audit: concurrency lowered to %s after: %s", self.limiter.limit, last)
-                if isinstance(exc, TimeoutError) and self.split_on_timeout:
+                if split:
                     break
-                if attempt <= self.window_retries:
-                    delay = audit.retry_delay(attempt, self.retry_base_seconds, self.retry_max_seconds)
-                    log.warning("audit: window %s: %s; new query in %.0fs (retry %s/%s)", key, last, delay,
-                                attempt, self.window_retries)
+                if delay is not None:
                     self.sleep(delay)
         halves = audit.split_window(ws, we, self.min_chunk_hours)
         if not halves:
@@ -316,13 +368,32 @@ class AuditCollector:
                     elif how == "failed":
                         log.warning("audit: window %s failed: %s", key, detail)
                     else:
-                        log.info("audit: window %s +%s record(s)", key, rows)
+                        with self._lock:
+                            self._timings.append(detail)
+                        log.info("audit: window %s +%s record(s) in %s page(s); slot wait %.1fs, ready %.1fs "
+                                 "(%s poll(s)), drain %.1fs", key, rows, detail["pages"], detail["slot_wait_s"],
+                                 detail["ready_s"], detail["polls"], detail["drain_s"])
         if fatal is not None:
             raise fatal
         return outcomes
 
+    def _log_fetch(self, seconds):
+        """One line to size a reload from: the fetch's wall time and the queries' ready and drain times."""
+        with self._lock:
+            timings, failed = list(self._timings), self._failed_attempts
+        line = f"audit: fetch took {seconds:.1f}s for {len(timings)} window(s), {failed} failed attempt(s)"
+        if timings:
+            ready = sorted(t["ready_s"] for t in timings)
+            p90 = ready[math.ceil(0.9 * len(ready)) - 1]
+            per_page = [t["drain_s"] / t["pages"] for t in timings if t["pages"]]
+            line += (f"; ready median {statistics.median(ready):.1f}s, p90 {p90:.1f}s, max {ready[-1]:.1f}s; "
+                     f"drain median {statistics.median(per_page) if per_page else 0:.2f}s a page over "
+                     f"{sum(t['pages'] for t in timings)} page(s)")
+        log.info(line)
+
     # -------------------------------------------------------------- run
     def run(self) -> dict:
+        self.remember_backfill()
         windows = self.plan()
         self.store.pull(STAGING)
         leaves = self.leaves(windows)
@@ -333,10 +404,12 @@ class AuditCollector:
                  self.chunk_hours, windows[0][0] if windows else "-", len(pending), self.limiter.limit)
         previous = getattr(self.api, "on_throttle", None)
         self.api.on_throttle = lambda: self.limiter.shrink("HTTP 429 (throttled) from Graph", halve=True)
+        started = self.clock()
         try:
             outcomes = self._fetch(pending)
         finally:
             self.api.on_throttle = previous
+        self._log_fetch(self.clock() - started)
         leaves = self.leaves(windows)
         keys = {audit.stable_window_key(ws, we) for ws, we in leaves}
         with self._lock:
@@ -359,6 +432,14 @@ class AuditCollector:
                                f"windows were merged and the next run resumes the rest. Each failed window was "
                                f"retried {self.window_retries}x and split down to {self.min_chunk_hours:g}h. "
                                f"Failed: {listed}")
+        # Every window merged: a reload is done. Kept on a failed window, a failed merge or a run cut off, so
+        # the next run plans it again and `prune` keeps its windows.
+        with self._lock:
+            reload_from = self.state.pop(BACKFILL_FROM, None)
+            if reload_from is not None:
+                self._save()
+        if reload_from is not None:
+            log.info("audit: the reload from %s is merged", reload_from)
         self.prune({audit.stable_window_key(ws, we) for ws, we in self.leaves(windows, include_parents=True)})
         return result
 

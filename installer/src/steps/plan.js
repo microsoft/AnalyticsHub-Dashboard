@@ -345,12 +345,22 @@ export const HISTORY_CHOICES = [
 ];
 
 /**
+ * What reloading `days` days of history runs, on Fabric: the pipeline, once.
+ * @param {number} days
+ */
+const pipelineReloadChoice = (days) =>
+  days > 30
+    ? `Runs the pipeline once with ${days} days of history: a few hours, and many hours on a large tenant. The scheduled runs carry on after it.`
+    : `Runs the pipeline once with ${days} days of history, usually in under an hour.`;
+
+/**
  * Repair or change, once the history has loaded: offers to reload more of it after setup. Only
  * more than is loaded is offered. The answer goes on `ctx.reloadHistoryDays`; the install record
  * keeps the old number until the reload has started.
  * @param {Ctx} ctx
+ * @param {(days: number) => string} [describe]  Each reload choice's description. Azure, which has no pipeline, passes its own.
  */
-export async function askMoreHistory(ctx) {
+export async function askMoreHistory(ctx, describe = pipelineReloadChoice) {
   const { ui, config } = ctx;
   delete ctx.reloadHistoryDays;
   const current = config.history.days;
@@ -366,10 +376,7 @@ export async function askMoreHistory(ctx) {
       ...more.map((ch) => ({
         name: `Reload ${ch.value} days after setup`,
         value: ch.value,
-        description:
-          ch.value > 30
-            ? `Runs the pipeline once with ${ch.value} days of history: a few hours, and many hours on a large tenant. The scheduled runs carry on after it.`
-            : `Runs the pipeline once with ${ch.value} days of history, usually in under an hour.`,
+        description: describe(ch.value),
       })),
     ],
     0,

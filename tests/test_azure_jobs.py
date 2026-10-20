@@ -939,6 +939,202 @@ def test_audit_backfill_reloads_older_days_despite_high_water_mark(tmp_path):
     assert short.plan()[0][0] <= NOW - timedelta(days=7)
 
 
+def test_audit_reload_cut_off_carries_over_until_a_run_merges_it(tmp_path):
+    # The installer sets VALUELENS_AUDIT_BACKFILL_DAYS on one run. A reload that run doesn't finish (the run job
+    # stops at 4 h) carries over: the next runs, without the setting, plan it again, query only the windows it
+    # didn't finish and keep them from `prune`. A clean merge ends it, and the run after plans as usual.
+    hw = (NOW - timedelta(hours=2)).isoformat()
+    records = [_record(i, NOW - timedelta(hours=95 - 8 * i)) for i in range(12)]  # one in each 8 h window
+    store = LocalStore(tmp_path)
+    store.write_json(audit_collect.STATE, {"high_water_mark": hw})
+
+    class StopsAfterFourWindows(AuditGraph):
+        def __call__(self, method, url, kw):
+            if method == "POST" and len(self.created) >= 4:
+                raise ReplicaStopped()
+            return super().__call__(method, url, kw)
+
+    api, _ = make_api(StopsAfterFourWindows(records))
+    with pytest.raises(ReplicaStopped):
+        audit_collect.collect_audit(api, store, settings(audit_lookback_days=1, audit_backfill_days=4), now=NOW,
+                                    sleep=lambda x: None, max_concurrent=1)
+    state = store.read_json(audit_collect.STATE)
+    assert state["backfill_from"] == (NOW - timedelta(days=4)).isoformat() and state["high_water_mark"] == hw
+    done = {k for k, w in state["windows"].items() if w["status"] == "succeeded"}
+    assert len(done) == 4
+
+    s = settings(audit_lookback_days=1)
+    nightly = NOW + timedelta(days=1)
+    rerun = AuditGraph(records)
+    api, _ = make_api(rerun)
+    assert audit_collect.collect_audit(api, store, s, now=nightly, sleep=lambda x: None)["rows"] == 12
+    queried = {audit_collect.audit.stable_window_key(ws, we) for ws, we in rerun.created}
+    assert len(queried) == 12 and not queried & done
+    assert len(_parsed(store)[0]) == 12
+    state = store.read_json(audit_collect.STATE)
+    assert "backfill_from" not in state and done <= set(state["windows"])
+
+    # Merged: the next run plans from the high-water mark and the look-back again, and prunes the reload's windows.
+    later = nightly + timedelta(days=1)
+    assert audit_collect.AuditCollector(None, store, s, now=later).plan()[0][0] == NOW - timedelta(hours=4)
+    api, _ = make_api(AuditGraph(records))
+    audit_collect.collect_audit(api, store, s, now=later, sleep=lambda x: None)
+    windows = store.read_json(audit_collect.STATE)["windows"]
+    assert not set(windows) & done
+    assert min(datetime.fromisoformat(w["window_start"]) for w in windows.values()) == NOW - timedelta(hours=4)
+
+
+def test_audit_reload_only_moves_its_start_earlier(tmp_path):
+    store = LocalStore(tmp_path)
+
+    def remember(days, now=NOW):
+        audit_collect.AuditCollector(None, store, settings(audit_backfill_days=days), now=now).remember_backfill()
+        return (store.read_json(audit_collect.STATE) or {}).get("backfill_from")
+
+    assert remember(0) is None
+    assert remember(30) == (NOW - timedelta(days=30)).isoformat()
+    assert remember(90) == (NOW - timedelta(days=90)).isoformat()
+    # A smaller reload while a bigger one is pending, or the same one a day later, leaves the start.
+    assert remember(7) == remember(90, now=NOW + timedelta(days=1)) == (NOW - timedelta(days=90)).isoformat()
+    # Without the setting, a run plans the pending reload from that start, on the same window grid.
+    pending = audit_collect.AuditCollector(None, store, settings(), now=NOW + timedelta(days=2))
+    assert pending.plan()[0][0] == NOW - timedelta(days=90, hours=4)
+
+
+def test_audit_first_run_with_the_reload_setting_ends_the_reload(tmp_path):
+    # The installer starts the first run with the setting too (the history it chose); it loads as before.
+    store = LocalStore(tmp_path)
+    records = [_record(i, NOW - timedelta(hours=40 - 8 * i)) for i in range(5)]
+    api, _ = make_api(AuditGraph(records))
+    assert audit_collect.collect_audit(api, store, settings(audit_history_days=2, audit_backfill_days=2), now=NOW,
+                                       sleep=lambda x: None)["rows"] == 5
+    state = store.read_json(audit_collect.STATE)
+    assert "backfill_from" not in state and state["high_water_mark"] == (NOW - timedelta(hours=8)).isoformat()
+    later = audit_collect.AuditCollector(None, store, settings(audit_lookback_days=1), now=NOW + timedelta(days=1))
+    assert later.plan()[0][0] == NOW - timedelta(hours=12)
+
+
+def test_audit_reload_is_kept_after_a_failed_window_or_merge(tmp_path, monkeypatch):
+    # Only a run that merges every window ends a reload. After a failed window or a failed merge, the next run
+    # plans it again without the setting.
+    hw = (NOW - timedelta(hours=2)).isoformat()
+    since = (NOW - timedelta(days=3)).isoformat()
+    first = NOW - timedelta(days=3, hours=4)  # the reload's first window, 2026-09-07 08:00
+    records = [_record(i, NOW - timedelta(hours=60 - 6 * i)) for i in range(10)]  # across 3 days
+
+    def seeded(name):
+        store = LocalStore(tmp_path / name)
+        store.write_json(audit_collect.STATE, {"high_water_mark": hw})
+        return store
+
+    def collect(store, graph_fake, days=3, **kw):
+        api, _ = make_api(graph_fake)
+        return audit_collect.collect_audit(api, store, settings(audit_backfill_days=days), now=NOW,
+                                           sleep=lambda x: None, merge_pass_records=1, **kw)
+
+    store = seeded("window")
+    failing = AuditGraph(records, status=lambda ws, we, n: "failed" if ws == first else "succeeded")
+    with pytest.raises(RuntimeError, match=r"1 audit window\(s\) failed"):
+        collect(store, failing, window_retries=0, min_chunk_hours=8)
+    assert store.read_json(audit_collect.STATE)["backfill_from"] == since
+    rerun = AuditGraph(records)
+    assert collect(store, rerun, days=0)["rows"] == 10
+    assert rerun.created == [(first, first + timedelta(hours=8))]
+    assert "backfill_from" not in store.read_json(audit_collect.STATE)
+
+    real, passes = audit_collect.AuditCollector._merge_pass, []
+
+    def out_of_memory_in_the_second_pass(self, files, spill):
+        passes.append(files)
+        if len(passes) == 2:
+            raise duckdb.OutOfMemoryException("Out of Memory Error: could not allocate block")
+        return real(self, files, spill)
+
+    store = seeded("merge")
+    monkeypatch.setattr(audit_collect.AuditCollector, "_merge_pass", out_of_memory_in_the_second_pass)
+    with pytest.raises(duckdb.OutOfMemoryException):
+        collect(store, AuditGraph(records))
+    assert len(passes) == 2 and store.read_json(audit_collect.STATE)["backfill_from"] == since
+    monkeypatch.undo()
+    rerun = AuditGraph(records)
+    assert collect(store, rerun, days=0) == {"rows": 10, "days": 3}
+    assert rerun.created == [] and "backfill_from" not in store.read_json(audit_collect.STATE)
+
+
+def test_audit_logs_how_long_each_window_took_and_a_fetch_summary(tmp_path, caplog):
+    # The live run sizes a reload from these lines: each window's wait for a query slot, its query (with its
+    # polls) and its drain, then the fetch's wall time and its median and p90 query times.
+    clock = [0.0]
+    start = NOW - timedelta(days=1, hours=4)  # the plan's first window, 2026-09-09 08:00
+    records = [_record(i, start + timedelta(hours=h)) for i, h in enumerate((1, 2, 9, 25))]
+    running = [0, 1, 2, 4]  # polls that find each window's query still running
+
+    class TimedGraph(AuditGraph):
+        """Scripts each query's statuses; a records page takes half a second on the clock."""
+
+        def __init__(self, recs):
+            super().__init__(recs)
+            self.script, self.polls = {}, {}
+
+        def __call__(self, method, url, kw):
+            resp = super().__call__(method, url, kw)
+            if method == "POST":
+                ws, we = self.created[-1]
+                index, attempt = (ws - start) // timedelta(hours=8), self.created.count((ws, we))
+                self.script[resp.json()["id"]] = (["running", "failed"] if (index, attempt) == (1, 1)
+                                                  else ["running"] * running[index] + ["succeeded"])
+            elif "/records" in url:
+                clock[0] += 0.5
+            else:
+                qid = url.rsplit("/", 1)[-1]
+                n = self.polls[qid] = self.polls.get(qid, 0) + 1
+                script = self.script[qid]
+                return Resp(200, {"status": script[min(n, len(script)) - 1]})
+            return resp
+
+    keys = [audit_collect.audit.stable_window_key(start + timedelta(hours=8 * i),
+                                                  min(start + timedelta(hours=8 * (i + 1)), NOW)) for i in range(4)]
+    store = LocalStore(tmp_path)
+    api, _ = make_api(TimedGraph(records))
+    with caplog.at_level("INFO", logger="valuelens_jobs.collect.audit"):
+        assert audit_collect.collect_audit(api, store, settings(), now=NOW, max_concurrent=1, retry_base_seconds=0,
+                                           sleep=lambda s: clock.__setitem__(0, clock[0] + s),
+                                           clock=lambda: clock[0])["rows"] == 4
+    lines = [r.getMessage() for r in caplog.records]
+    for key, done in zip(keys, ("+2 record(s) in 2 page(s); slot wait 0.0s, ready 0.0s (1 poll(s)), drain 1.0s",
+                                "+1 record(s) in 1 page(s); slot wait 0.0s, ready 30.0s (2 poll(s)), drain 0.5s",
+                                "+0 record(s) in 0 page(s); slot wait 0.0s, ready 60.0s (3 poll(s)), drain 0.5s",
+                                "+1 record(s) in 1 page(s); slot wait 0.0s, ready 120.0s (5 poll(s)), drain 0.5s")):
+        assert f"audit: window {key} {done}" in lines
+    assert any(line.startswith(f"audit: window {keys[1]} attempt 1 failed after 30.0s: AuditQueryFailed: Query ")
+               and line.endswith(" ended with status: failed; new query in 0s (retry 1/3)") for line in lines)
+    assert ("audit: fetch took 242.5s for 4 window(s), 1 failed attempt(s); ready median 45.0s, p90 120.0s, "
+            "max 120.0s; drain median 0.50s a page over 4 page(s)") in lines
+    window = store.read_json(audit_collect.STATE)["windows"][keys[1]]
+    assert window["attempts"] == 2
+    assert window["timing"] == {"slot_wait_s": 0.0, "ready_s": 30.0, "polls": 2, "drain_s": 0.5}
+
+
+def test_audit_window_timing_keeps_the_wait_for_a_query_slot_apart(tmp_path):
+    # With every query slot in use, a window waits before its query is created; that wait isn't the query's.
+    clock = [0.0]
+
+    class BusyLimiter:
+        def __enter__(self):
+            clock[0] += 7.0
+            return self
+
+        def __exit__(self, *exc):
+            return False
+
+    api, _ = make_api(AuditGraph([_record(0, NOW - timedelta(hours=3))]))
+    collector = audit_collect.AuditCollector(api, LocalStore(tmp_path), settings(), now=NOW,
+                                             sleep=lambda s: None, clock=lambda: clock[0])
+    collector.limiter = BusyLimiter()
+    assert collector._window(NOW - timedelta(hours=4), NOW)[1:] == (
+        1, {"slot_wait_s": 7.0, "ready_s": 0.0, "polls": 1, "drain_s": 0.0, "pages": 1})
+
+
 def test_publish_targets_follow_modules():
     assert jobs_main.publish_targets(settings(modules=frozenset({"core"}))) == ["curated", "licensed"]
     assert jobs_main.publish_targets(settings()) == ["curated", "licensed", "org", "m365"]

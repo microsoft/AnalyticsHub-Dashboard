@@ -55,6 +55,22 @@ with the same `Id`, so the day files are the same as from one pass, and the high
 only once every pass has merged. Once the audit is collected, the run frees its local copy of the
 staged pages, which stay in storage for the next run, so `process` has the disk.
 
+**A reload carries over until it's merged.** `VALUELENS_AUDIT_BACKFILL_DAYS` is set on one execution
+only. Before that run queries anything, it records in the audit state where the reload starts. Each
+later run plans from there too, reusing the windows already fetched, until a run merges every window
+and clears the record. The run after that plans from the high-water mark again, and prunes the
+reload's windows. So a reload that reaches the run job's 4-hour limit, or has a window fail, isn't
+lost: the scheduled runs finish it. Agent Evaluator remembers a reload the same way, for each
+environment (see [Agent Evaluator](#agent-evaluator-module-agentevaluator)).
+
+**Query timings.** The run logs a line for each audit window it fetches, `audit: window <key> +N
+record(s) in P page(s); slot wait Xs, ready Ys (Z poll(s)), drain Ws`. The slot wait is the time
+spent waiting for one of the query slots, ready is the time from creating the query until its records
+are ready, and drain is the time to read its pages. A failed attempt logs how long it ran. After the
+fetch, `audit: fetch took ...` gives the fetch's wall time, the windows, the failed attempts, the
+median, p90 and longest ready times, and the median drain time a page, so you can work out how long a
+longer reload would take.
+
 Any failure is logged and the job exits with code 1, so Container Apps records the run as failed.
 
 ## Credit consumption (module `consumption`)
@@ -285,7 +301,11 @@ tables, with the same columns, so the Agent Evaluator model reads `dbo.<table>` 
   pages as they arrive.
 - **Incremental.** A run reads the last `VALUELENS_TRANSCRIPT_LOOKBACK_DAYS` (default 14), stretched to
   cover any gap since the environment's last complete read. An environment that no run has read
-  completely goes back `VALUELENS_TRANSCRIPT_FIRST_READ_DAYS` (default 180). A transcript that's read
+  completely goes back `VALUELENS_TRANSCRIPT_FIRST_READ_DAYS` (default 180). A reload
+  (`VALUELENS_AUDIT_BACKFILL_DAYS`) reads each environment back the reload's days or
+  `VALUELENS_TRANSCRIPT_FIRST_READ_DAYS`, whichever is more. It's remembered in the state from the
+  start of that run until the environment's read finishes, so a run that stops before Agent Evaluator,
+  or an environment whose read fails, gets the reload on the next runs. A transcript that's read
   again replaces all of its rows, and only the month files that changed are rewritten.
   `is_returning_user` and `agent_catalogue` are worked out again from the whole history. The merge
   takes one table at a time, and DuckDB keeps it within `VALUELENS_DUCKDB_MEMORY_LIMIT` (default
@@ -340,7 +360,7 @@ The job reads its settings from environment variables. Bicep sets them.
 | `VALUELENS_PROCESS_FULL_REBUILD` | `true` makes `process` recompute every month. Set it on a single execution, not on the job. |
 | `VALUELENS_PROCESS_PASS_ROWS` | The most source rows `process` curates in one pass (default 2,000,000; `0` means one pass). See [Steps](#steps). |
 | `VALUELENS_DUCKDB_MEMORY_LIMIT` | DuckDB's memory cap for `process`, the audit merge and the Agent Evaluator merge. The run job sets `5GiB` of its 8 GiB, since some of DuckDB's memory sits outside the cap. Past it, DuckDB spills to the job's temporary folder. Unset, `process` and the audit merge let DuckDB take 80% of the container's memory, and the Agent Evaluator merge uses `4GB`. |
-| `VALUELENS_AUDIT_BACKFILL_DAYS` | A one-off reload of this many days of audit history, even after the first run. The installer sets it on a single execution when **Repair or change** loads more history; don't set it on the job itself, or every run reloads. |
+| `VALUELENS_AUDIT_BACKFILL_DAYS` | A one-off reload of this many days of audit history, even after the first run. The installer sets it on a single execution when **Repair or change** loads more history; don't set it on the job itself, or every run reloads. Agent Evaluator reads each environment back this many days or `VALUELENS_TRANSCRIPT_FIRST_READ_DAYS`, whichever is more. The reload is remembered from the start of that execution, so later runs carry on with it: the audit history until a run has merged every window, and Agent Evaluator until each environment's read finishes. |
 | `VALUELENS_POWERBI_WORKSPACE_ID`, `VALUELENS_SEMANTIC_MODELS` | The Power BI workspace, and a JSON object of the models to refresh |
 | `VALUELENS_SQL_READER_NAME`, `VALUELENS_SQL_READER_CLIENT_ID` | The web app's identity, granted read access by `migrate` |
 | `VALUELENS_MIGRATIONS_DIR` | Where the migrations are. The image sets this to `/app/sql/migrations`. |
@@ -351,7 +371,7 @@ The job reads its settings from environment variables. Bicep sets them.
 | Path | Contents |
 |---|---|
 | `raw/copilot_interactions_parsed/` | Flattened audit records, one parquet file per day |
-| `raw/_audit_staging/`, `raw/_state/audit.json` | The audit pages of the windows the last run planned, gzip-compressed, and the manifest of finished windows with the high-water mark. A run that is cut off reuses the finished windows. |
+| `raw/_audit_staging/`, `raw/_state/audit.json` | The audit pages of the windows the last run planned, gzip-compressed, and the manifest of finished windows with the high-water mark and where a reload not yet merged starts. A run that is cut off reuses the finished windows. |
 | `raw/copilot_licensed_users/`, `raw/copilot_org_data/`, `raw/m365_activity_daily/` | Collector snapshots |
 | `curated/copilot_interactions_curated/month-YYYYMM.parquet` | The curated fact, one file per month (`month-none` for rows without a date). Each file is written atomically. |
 | `curated/_valuelens_process/` | process: the per-month source fingerprints (`state.json`) and the per-month context that incremental runs reuse |
@@ -368,7 +388,7 @@ The job reads its settings from environment variables. Bicep sets them.
 | `landing/defender/ai_watchlist.csv` | defender: the AI watchlist. The first run writes it; after that it is only read |
 | `raw/agent_sessions/month-YYYYMM.parquet` | agentEvaluator: one file per month the conversations started in (`month-none` without a start time), for each of the five transcript tables |
 | `raw/agent_catalogue/`, `raw/evaluator_status/` | agentEvaluator: the agents seen in every session, and what the latest run read from each environment |
-| `raw/_state/agent_evaluator.json` | agentEvaluator: when each environment was last read completely |
+| `raw/_state/agent_evaluator.json` | agentEvaluator: when each environment was last read completely, and where a reload not yet read starts for each |
 
 The SQL tables have the same names as the Fabric Lakehouse tables, so the ValueLens Model only
 changes its connection parameters.

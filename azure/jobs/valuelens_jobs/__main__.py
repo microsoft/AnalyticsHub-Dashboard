@@ -395,8 +395,13 @@ def collect(store, settings, api=None) -> dict:
         jobs.append(("resource_graph", collect_resource_graph))
     if settings.has("agentEvaluator"):
         if settings.dataverse_environments:
-            from .collect.agent_evaluator import collect_agent_evaluator
+            from .collect.agent_evaluator import collect_agent_evaluator, remember_backfill
 
+            try:
+                # Before any collector runs: a reload this run stops short of is then read by the next runs.
+                remember_backfill(store, settings)
+            except Exception as exc:
+                log.warning("collect agent_evaluator: couldn't remember the reload for later runs: %s", exc)
             jobs.append(("agent_evaluator", collect_agent_evaluator))
         else:
             # The installer lists the environments once the managed identity can read one of them.

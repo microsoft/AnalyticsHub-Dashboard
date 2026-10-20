@@ -99,6 +99,18 @@ nightly run take about 3 and 5 minutes.
   most 2.2 GiB committed, nothing spilled and 2.5 GiB on disk, plus the time the audit queries wait
   in Microsoft's queue. Pages staged by an earlier version still merge. See
   [Steps](azure/jobs/README.md#steps).
+- **A reload that runs out of time carries over.** Loading more history (**Repair or change** >
+  *Load more audit history*, or `run --backfill-days`) sets `VALUELENS_AUDIT_BACKFILL_DAYS` on one
+  run. If that run stopped at the job's 4 hours before merging, or a window failed, the next runs
+  dropped what was left without an error, while the install record said the history was loaded. The
+  run now records where the reload starts before it queries anything. Later runs plan from there
+  and query only what's missing, until a run has merged it all. Agent Evaluator records the reload
+  for each environment before any collector runs, and reads each one back that far until its read
+  finishes. On Azure, the installer's reload question and note now say a run stops at 4 hours and
+  the scheduled runs carry the reload on.
+- **Query timings.** Each audit window's log line gives how long it waited for a query slot, how
+  long its query took to be ready (and in how many polls), and how long its pages took to read. A
+  summary follows the fetch, so a longer reload can be sized against the 4 hours.
 - **After the upgrade.** The first run recomputes every month once, as after any change to the
   processing code. On a large tenant it runs in passes.
 
