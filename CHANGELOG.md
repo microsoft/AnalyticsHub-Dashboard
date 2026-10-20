@@ -114,6 +114,13 @@ nightly run take about 3 and 5 minutes.
 - **After the upgrade.** The first run recomputes every month once, as after any change to the
   processing code. On a large tenant it runs in passes.
 
+**App: Leaderboards shows the busiest 1%, 5% and 25% without the concentration curve.** The share
+card now gives just those three callouts, and its query works out only those three cuts, so the
+page's first view no longer waits for the curve. On an F64 trial with 20,000 people, on 0.6.8-rc.1,
+the whole curve's query took 3.46–4.06 seconds and a callouts-only one 1.16–1.68 (measured). The
+shares and their people counts are worked out as before, ties included. Consumption's Copilot
+Studio section and Value keep their curves.
+
 ## Analytics Hub installer 0.6.8-rc.1 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.1 is not published, and 0.6.7 remains Latest.

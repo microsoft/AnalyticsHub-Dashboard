@@ -53,7 +53,8 @@ export const TOTAL_COLUMN: ColumnMetadataMap = {
 /**
  * The cut rows of a concentration query: how many of the busiest people a
  * cut takes, the sum of their values, and the people with a value and their
- * total, repeated on each row. `readConcentration` in lib/concentration reads them.
+ * total, repeated on each row. `readConcentration` in lib/concentration reads
+ * them, or `readConcentrationSlices` where a query returns only the top slices.
  */
 export const CONCENTRATION_COLUMNS: ColumnMetadataMap = {
     "[Count]": { name: "Count", displayName: "Busiest people", format: FORMAT_WHOLE },

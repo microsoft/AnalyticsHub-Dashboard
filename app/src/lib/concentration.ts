@@ -35,12 +35,16 @@ export interface ParetoPoint {
     totalShare: number;
 }
 
-export interface Concentration {
+/** The share the top slices take, without the curve. */
+export interface ConcentrationSlices {
     total: number;
     /** People with a value above zero. */
     people: number;
     /** Only the slices that hold at least {@link MIN_PEOPLE} people. */
     slices: ConcentrationSlice[];
+}
+
+export interface Concentration extends ConcentrationSlices {
     points: ParetoPoint[];
 }
 
@@ -74,6 +78,17 @@ function summarize(
     total: number,
     cumulativeAt: (count: number) => number | undefined,
 ): Concentration | undefined {
+    const shares = topSlices(people, total, cumulativeAt);
+    const points = shares && paretoPoints(people, total, cumulativeAt);
+    return points && { ...shares, points };
+}
+
+/** The top slices alone, from the same inputs as {@link summarize}. Undefined when a slice's sum is missing. */
+function topSlices(
+    people: number,
+    total: number,
+    cumulativeAt: (count: number) => number | undefined,
+): ConcentrationSlices | undefined {
     if (!Number.isSafeInteger(people) || people <= 0 || !Number.isFinite(total) || total <= 0) return undefined;
 
     const slices: ConcentrationSlice[] = [];
@@ -84,9 +99,7 @@ function summarize(
         if (cumulative === undefined) return undefined;
         if (size >= MIN_PEOPLE) slices.push({ pct, people: size, share: cumulative / total });
     }
-
-    const points = paretoPoints(people, total, cumulativeAt);
-    return points && { total, people, slices, points };
+    return { total, people, slices };
 }
 
 /** The curve from (0, 0) to (1, 1), thinned evenly but always keeping both ends. */
@@ -109,21 +122,28 @@ function paretoPoints(
     return points;
 }
 
-/** The columns of a concentration query's cut rows, as {@link readConcentration} reads them. */
+/** The columns of a concentration query's cut rows, as {@link readConcentration} and {@link readConcentrationSlices} read them. */
 export const CUT_COUNT = "Count";
 export const CUT_CUMULATIVE = "Cumulative";
 export const CUT_PEOPLE = "People";
 export const CUT_TOTAL = "Total";
 
+/** A query's cut rows, checked: the sum of the busiest people's values by how many of them there are. */
+interface Cuts {
+    people: number;
+    total: number;
+    sums: Map<number, number>;
+}
+
 /**
- * The same figures as {@link concentration}, from a query that worked them
- * out in the model: one row per cut, with the cut's `Count` of busiest people
- * and the `Cumulative` sum of their values, and the `People` with a value
- * and their `Total` repeated on each. The query returns every count the
- * slices and curve need, so no person's value has to leave the model. Rows
- * without a count are skipped, so a query can return cut rows beside others.
+ * The cut rows of a concentration query, undefined when there are none or
+ * any is malformed: a count that isn't a whole number of people, a sum that
+ * isn't positive, rows that disagree on the people or total, a sum above the
+ * total or below a smaller cut's, or a cut of everyone that misses the total.
+ * Rows without a count are skipped, so a query can return cut rows beside
+ * others.
  */
-export function readConcentration(table: DataTable | undefined): Concentration | undefined {
+function readCuts(table: DataTable | undefined): Cuts | undefined {
     if (!table) return undefined;
     const at = (name: string) => table.columns.findIndex((column) => column.name === name);
     const [countAt, cumulativeAt, peopleAt, totalAt] = [CUT_COUNT, CUT_CUMULATIVE, CUT_PEOPLE, CUT_TOTAL].map(at);
@@ -148,18 +168,44 @@ export function readConcentration(table: DataTable | undefined): Concentration |
         people = rowPeople;
         total = rowTotal;
     }
+    if (sums.size === 0) return undefined;
     const final = sums.get(people);
-    if (final === undefined || Math.abs(final - total) > Math.abs(total) * 1e-9) return undefined;
+    if (final !== undefined && Math.abs(final - total) > Math.abs(total) * 1e-9) return undefined;
     let previous = 0;
     for (const [, sum] of [...sums].sort(([a], [b]) => a - b)) {
         if (sum < previous - Math.abs(total) * 1e-9) return undefined;
         previous = sum;
     }
-    return summarize(people, total, (count) => sums.get(count));
+    return { people, total, sums };
+}
+
+/**
+ * The same figures as {@link concentration}, from a query that worked them
+ * out in the model: one row per cut, with the cut's `Count` of busiest people
+ * and the `Cumulative` sum of their values, and the `People` with a value
+ * and their `Total` repeated on each. The query returns every count the
+ * slices and curve need, including the cut of everyone, so no person's value
+ * has to leave the model.
+ */
+export function readConcentration(table: DataTable | undefined): Concentration | undefined {
+    const cuts = readCuts(table);
+    if (!cuts?.sums.has(cuts.people)) return undefined;
+    return summarize(cuts.people, cuts.total, (count) => cuts.sums.get(count));
+}
+
+/**
+ * The top slices alone, from cut rows like {@link readConcentration}'s. The
+ * rows need hold only the slices' counts, not the curve's, and each slice
+ * comes out as {@link readConcentration} gives it for the same people.
+ * Leaderboards reads its rows this way.
+ */
+export function readConcentrationSlices(table: DataTable | undefined): ConcentrationSlices | undefined {
+    const cuts = readCuts(table);
+    return cuts && topSlices(cuts.people, cuts.total, (count) => cuts.sums.get(count));
 }
 
 /** Distinguishes a broken aggregate response from a genuinely empty population. */
-export function concentrationIncomplete(table: DataTable | undefined, summary: Concentration | undefined): boolean {
+export function concentrationIncomplete(table: DataTable | undefined, summary: ConcentrationSlices | undefined): boolean {
     if (!table || summary || table.rows.length === 0) return false;
     const at = (name: string) => table.columns.findIndex((column) => column.name === name);
     if ([CUT_COUNT, CUT_CUMULATIVE, CUT_PEOPLE, CUT_TOTAL].some((name) => at(name) < 0)) return true;
@@ -206,7 +252,7 @@ export function sliceLabel(pct: number): string {
  * people account for 38% of sessions." It prefers the 5% slice, then 25%,
  * then 1%, and says nothing when no slice holds enough people.
  */
-export function concentrationHeadline(result: Concentration | undefined, noun: string): string | undefined {
+export function concentrationHeadline(result: ConcentrationSlices | undefined, noun: string): string | undefined {
     if (!result) return undefined;
     const slice = [0.05, 0.25, 0.01]
         .map((pct) => result.slices.find((candidate) => candidate.pct === pct))

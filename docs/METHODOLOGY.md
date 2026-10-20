@@ -1093,11 +1093,12 @@ may be incomplete.
 ### 8.6 Concentration, value by habit and agent spotlights
 
 - **Concentration** (Leaderboards, Consumption's Copilot Studio section, Value) ranks people by one
-  measure and shows the share of the total taken by the top 1%, 5% and 25%, with a Pareto curve
-  of cumulative share against cumulative people. On Leaderboards the measure is sessions under the
-  page filters. On Consumption it is Copilot Studio credits this month. On Value it is
-  expert-equivalent hours in the last full month. A slice is the top *pct × people*, rounded up,
-  and its share is shown only when it covers at least five people.
+  measure and shows the share of the total taken by the top 1%, 5% and 25%. Consumption and Value
+  add a Pareto curve of cumulative share against cumulative people. Leaderboards shows only the
+  three callouts, without the curve, and its query works out only those three slices. On
+  Leaderboards the measure is sessions under the page filters. On Consumption it is Copilot Studio
+  credits this month. On Value it is expert-equivalent hours in the last full month. A slice is the
+  top *pct × people*, rounded up, and its share is shown only when it covers at least five people.
 - **Value by habit** (Value) puts each person active in the last full month into a habit group by
   their active days (Power 16+, Habitual 11–15, Developing 6–10, Beginner 1–5), then shows each
   group's expert-equivalent hours per person that month under the selected effort scenario. A
