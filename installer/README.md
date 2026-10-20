@@ -148,6 +148,9 @@ You need:
 - The tenant settings *Service principals can call Fabric public APIs* (enabled for a group that holds
   the managed identity, so the jobs can refresh the model) and *Semantic Model Execute Queries REST
   API* (for the app's queries).
+- For Agent Evaluator: System Administrator in each Power Platform environment you pick, so the
+  installer can add the jobs' managed identity there. Otherwise an admin adds it: see
+  [Agent Evaluator](#agent-evaluator).
 
 It creates or reuses a resource group and deploys a managed identity, Storage, Log Analytics,
 Azure SQL Database serverless, Container Apps jobs, and the web app from the ARM template in
@@ -158,7 +161,7 @@ package to your org's Teams app catalog, and later runs update that app rather t
 it can't, if you say no when the plan asks, or if the sign-in isn't finished within 5 minutes, it
 prints the steps to upload it by hand and carries on.
 
-`core`, `orgData`, `m365Activity`, `agent365`, `productFeedback`, `consumption` and `defender` are supported on Azure. Other modules
+`core`, `orgData`, `m365Activity`, `agent365`, `productFeedback`, `consumption`, `agentEvaluator` and `defender` are supported on Azure. Other modules
 are shown as coming soon and cannot be selected. Credit consumption deploys the Consumption Central model,
 gives the jobs' managed identity Cost Management and Azure AI roles, and creates the Copilot Studio flow,
 signed in as you (`--flow-identity app` is Fabric only). With public endpoints the flow writes to the
@@ -173,6 +176,9 @@ Product feedback comes from its CSV exports, which you drop there too, under `pr
 emailed export flow is Fabric only for now. See [Product feedback](../azure/README.md#product-feedback).
 Workday org data, under the advanced settings, comes from its CSV export, which you drop there too,
 under `workday`. See [Workday org data](../azure/README.md#workday-org-data).
+Agent Evaluator deploys the Agent Evaluator model and adds the jobs' managed identity to the Power
+Platform environments you pick, so the jobs can read their Copilot Studio transcripts: see
+[Agent Evaluator](#agent-evaluator).
 Agent configuration and Foundry from Azure
 Resource Graph also works on Azure: see [Agent configuration and Foundry](#agent-configuration-and-foundry).
 The app's Ask page answers with an Azure OpenAI model, an AI Services account the installer creates
@@ -220,6 +226,8 @@ the tenant's APIs. It's recorded as `azure.sampleData`. Demo mode leaves
 [credit consumption](../azure/README.md#credit-consumption) out for now: the installer deploys the
 Consumption Central model once you switch. To switch to tenant data, run the installer again,
 choose **Yes** for the advanced settings and pick **Your tenant's data**; the next run replaces the sample.
+There's no Agent Evaluator sample, so demo mode reads no transcripts and hides those pages. It leaves
+the jobs' managed identity in its environments for when you switch to your tenant's data.
 
 ### Networking
 
@@ -298,10 +306,15 @@ Azure commands:
 
 - `run` starts the Container Apps run job.
 - `status` shows job executions, the web URL, pending admin actions, and SQL reader secret expiry.
-- `refresh` starts a Power BI model refresh.
+  With Agent Evaluator it also shows which environments the jobs' managed identity can read, and
+  what the jobs' last read found in each.
+- `refresh` starts a Power BI model refresh. It refreshes the Agent Evaluator model only once the
+  jobs' managed identity can read one of its environments.
 - `update` re-runs preflight/what-if and redeploys with the current installer image tag.
 - `rotate-secret` creates a new SQL reader secret and rebinds the Power BI credential.
 - `uninstall` deletes the created resource group, or only tagged resources if you used an existing group.
+  Before that it removes what it added in each Agent Evaluator environment: see
+  [Agent Evaluator](#agent-evaluator).
   It waits up to 45 minutes for Azure to finish deleting the group (`--no-wait` doesn't). It also deletes
   the Power BI workspace if the installer created it, after asking.
 
@@ -388,6 +401,10 @@ Pages for sources you skip stay empty rather than failing. To leave the reports 
 **Semantic model and the Analytics Hub app** or **Semantic model only** for Power BI. An install
 from an earlier version gets the reports offered the next time you choose **Repair or change**;
 **Update** on its own doesn't add them.
+
+On the [Azure target](#azure-target) the installer publishes no reports: the web app's pages read
+the models. It deploys the Agent Evaluator model when Agent Evaluator is on with an environment,
+outside [demo mode](#demo-mode).
 
 The Analytics Hub app reads a small `fabric.config.json` deployed beside it. It contains the
 semantic model IDs the app should query and, for newer installs, the optional modules the admin
@@ -709,6 +726,7 @@ For `productFeedback` and `studioCredits`, `flow` is the same as `api`. `--feedb
 works: it's the same as `productFeedback=flow`.
 On Azure, `agent365` and `productFeedback` are `csv` or `skip`. `api` warns and uses the exports, as
 do `productFeedback=flow` and `--feedback-flow`. `workday=csv` works there too, with org data.
+`agentEvaluator=api` ticks Agent Evaluator on Azure as well as on Fabric.
 Without `--flow-environment`, the installer asks which environment to use.
 With `resourceGraph=api`, `--arg-management-group <id>` reads one management group rather than the
 whole tenant, and `--no-arg-agents` or `--no-arg-foundry` leaves agents or Foundry out.
@@ -884,6 +902,28 @@ If you aren't a System Administrator in an environment you pick, ask one to:
 2. Pick the app registration, the root business unit and the **Bot Transcript Viewer** role.
 
 Then choose **Repair or change**.
+
+**On Azure.** Tick **Agent Evaluator** under **Data collection**, then pick its environments under
+**Module connections**, from the same list. The jobs read the transcripts as their managed identity,
+the one they already run as, so it's the managed identity that needs to be an application user with
+the **Bot Transcript Viewer** role in each environment. The web app's registration gets no Dataverse
+access. The **Transcript access** step adds it when you're a System Administrator of the
+environment. When it can't, it prints the steps above with the managed identity's name and client
+ID, then asks whether to **Leave it out for now** or whether **It already has access**. In step 2 the
+admin chooses **+ Add an app** and searches for the client ID, not the name. `--yes` leaves it out.
+
+The Agent Evaluator pages show while the module is on and its model is deployed, outside
+[demo mode](#demo-mode), even before the managed identity can read an environment. They stay empty
+until the jobs first read transcripts. The installer refreshes the model, turns on its scheduled
+refresh and adds `agentEvaluator` to the jobs' modules only once the managed identity can read one
+of the environments.
+
+When you untick an environment or the module, or uninstall, the installer removes only what it
+added there: the role it gave, and the application user if it created it. Unticking the module
+keeps the model, hides its pages and turns off its scheduled refresh; ticking it again reuses the
+model. Demo mode reads no transcripts and adds no access. Switching to it removes nothing, so the
+managed identity keeps its access for when you switch back. See
+[Agent Evaluator on Azure](../azure/README.md#agent-evaluator).
 
 ## Ask
 

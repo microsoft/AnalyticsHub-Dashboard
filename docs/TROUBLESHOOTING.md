@@ -61,7 +61,9 @@ the installer's version.
 | `The … report wasn't published` | Fix the cause it shows, then choose **Update**. The models and data aren't affected. |
 | A report's Tornado chart, Word cloud or Deneb visual is blank | Turn on the tenant setting *Allow visuals created using the Power BI SDK*. See [Power BI reports](../installer/README.md#power-bi-reports). |
 | `You can't assign Azure roles in …` | See [Credit consumption](../installer/README.md#credit-consumption). |
-| `You can't add … to …, so its transcripts are skipped` | See [Agent Evaluator](../installer/README.md#agent-evaluator). |
+| `You can't add … to …, so its transcripts are skipped` | See [Agent Evaluator](../installer/README.md#agent-evaluator). On Azure, a System Administrator of the environment adds the jobs' managed identity by its client ID: see [Agent Evaluator on Azure](../azure/README.md#agent-evaluator). |
+| `Dataverse wouldn't delete the application user for …` | Some environments won't let the installer delete it. It has no role now, so it can't read transcripts. A System Administrator deletes it in the Power Platform admin center: see [Agent Evaluator on Azure](../azure/README.md#agent-evaluator). |
+| The Agent Evaluation pages are empty on Azure | They fill after the jobs' first run that reads transcripts. Run `status`: it says which environments the jobs' managed identity can read, and what the last read found. `forbidden` means it isn't an application user with **Bot Transcript Viewer** there. See [Agent Evaluator on Azure](../azure/README.md#agent-evaluator). |
 | Work patterns says the reports hide user names | See [Microsoft 365 activity](../installer/README.md#microsoft-365-activity). |
 | An export isn't recognised, or is `set to Skip` | Check it's the export the card names, unedited. Or set its source to **Upload CSV** with **Repair or change**. Files the pipeline couldn't place are in `analytics_hub_uploads/_unrecognised`. |
 | A page is blank | Its source is skipped, or no export has arrived yet. See [Data sources and exports](../installer/README.md#data-sources-and-exports). |
@@ -125,10 +127,9 @@ sign-in broker: nothing loads them when the installer runs.
 
 ### Azure
 
-- **Some modules aren't on Azure yet:** Agent Evaluator,
-  GitHub Copilot credits and Cowork credits through the Dataflow. The Agent 365 registry loads
-  from its CSV export only: its API is Fabric only for now. Product feedback loads from its CSV
-  exports only: the emailed export flow is Fabric only for now.
+- **Some modules aren't on Azure yet:** GitHub Copilot credits and Cowork credits through the
+  Dataflow. The Agent 365 registry loads from its CSV export only: its API is Fabric only for now.
+  Product feedback loads from its CSV exports only: the emailed export flow is Fabric only for now.
 - **Networking can't be changed in place.** [Uninstall](UPDATE.md#uninstall), then install again.
 - **Org-scoped access isn't supported with private networking yet.** Its notebook can't reach the
   storage account. See [Org-scoped access](PERMISSIONS.md#org-scoped-access-row-level-security).

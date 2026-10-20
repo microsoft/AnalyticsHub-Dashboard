@@ -335,6 +335,7 @@ remove_all
 - Load status cards, Microsoft 365 activity, Defender, Azure Resource Graph, pay-as-you-go spend
   and the reporting currency. These need the model the installer builds.
 - The Agent 365 registry, product feedback and Workday org data, from their CSV exports.
+- [Agent Evaluator](../azure/README.md#agent-evaluator), from Copilot Studio transcripts.
 - The **Analytics Hub Viewers** group, **Share** in the app, and
   [org-scoped access](PERMISSIONS.md#org-scoped-access-row-level-security). Everyone you let in
   sees all the data.

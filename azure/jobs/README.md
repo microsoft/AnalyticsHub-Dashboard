@@ -22,7 +22,7 @@ in step with the Fabric notebooks by the golden tests in `tests/`. No Spark or J
 | | Copilot Studio conversation transcripts from Dataverse (an application user with Bot Transcript Viewer) | agentEvaluator |
 | process | Curates interactions with `valuelens_core.curate()` into `curated/copilot_interactions_curated`, recomputing only the months that changed or fall in the lookback window | core |
 | publish | Loads curated and raw tables into Azure SQL, rewriting only the days that changed | per module |
-| refresh | Refreshes the configured Power BI semantic models and waits for them to finish | — |
+| refresh | Refreshes the configured Power BI semantic models and waits for them to finish. The Agent Evaluator model (`ae`) is skipped until `agentEvaluator` is in `VALUELENS_MODULES` (`MODEL_MODULES` in `refresh.py`) | — |
 
 The other commands are:
 
@@ -247,7 +247,11 @@ until the first run.
 
 ## Agent Evaluator (module `agentEvaluator`)
 
-Optional and off by default; the installer doesn't offer it on Azure yet. It ports the Fabric notebook
+Optional and off by default. The installer adds it to `VALUELENS_MODULES` once you tick Agent
+Evaluator and the job's managed identity can read one of the environments you pick. Until then
+`VALUELENS_DATAVERSE_ENVIRONMENTS` still lists every environment you picked, but the job reads none
+of them and leaves the `ae` model alone: see [Agent Evaluator](../README.md#agent-evaluator). It
+ports the Fabric notebook
 `Copilot_Agent_Transcript_Parser.ipynb`. `collect/agent_evaluator.py` reads Copilot Studio conversation
 transcripts from Dataverse, and `valuelens_jobs/transcripts.py` parses them into the notebook's seven
 tables, with the same columns, so the Agent Evaluator model reads `dbo.<table>` in Azure SQL.
