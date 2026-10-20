@@ -47,6 +47,14 @@ nightly runs would have built it by then, so the rows match nightly runs; only a
 Agent Last Used Date can differ from one pass over everything. The state is saved after each pass,
 so a run that stops part-way carries on with the months left.
 
+**Audit backfills merge in passes too.** The audit collector stages each page of audit records
+gzip-compressed. When a run has staged more than 250,000 records, as a long backfill or a large
+tenant's first run can, it merges them into the day files in passes of whole days, oldest first,
+under the same DuckDB memory cap as `process` and with a temp folder to spill to. Rows replace rows
+with the same `Id`, so the day files are the same as from one pass, and the high-water mark moves
+only once every pass has merged. Once the audit is collected, the run frees its local copy of the
+staged pages, which stay in storage for the next run, so `process` has the disk.
+
 Any failure is logged and the job exits with code 1, so Container Apps records the run as failed.
 
 ## Credit consumption (module `consumption`)
@@ -331,7 +339,7 @@ The job reads its settings from environment variables. Bicep sets them.
 | `VALUELENS_PROCESS_LOOKBACK_DAYS` | Days before the newest audit record whose months `process` always recomputes (default 14) |
 | `VALUELENS_PROCESS_FULL_REBUILD` | `true` makes `process` recompute every month. Set it on a single execution, not on the job. |
 | `VALUELENS_PROCESS_PASS_ROWS` | The most source rows `process` curates in one pass (default 2,000,000; `0` means one pass). See [Steps](#steps). |
-| `VALUELENS_DUCKDB_MEMORY_LIMIT` | DuckDB's memory cap for `process` and the Agent Evaluator merge. The run job sets `5GiB` of its 8 GiB, since some of DuckDB's memory sits outside the cap. Past it, DuckDB spills to the job's temporary folder. Unset, `process` lets DuckDB take 80% of the container's memory and the Agent Evaluator merge uses `4GB`. |
+| `VALUELENS_DUCKDB_MEMORY_LIMIT` | DuckDB's memory cap for `process`, the audit merge and the Agent Evaluator merge. The run job sets `5GiB` of its 8 GiB, since some of DuckDB's memory sits outside the cap. Past it, DuckDB spills to the job's temporary folder. Unset, `process` and the audit merge let DuckDB take 80% of the container's memory, and the Agent Evaluator merge uses `4GB`. |
 | `VALUELENS_AUDIT_BACKFILL_DAYS` | A one-off reload of this many days of audit history, even after the first run. The installer sets it on a single execution when **Repair or change** loads more history; don't set it on the job itself, or every run reloads. |
 | `VALUELENS_POWERBI_WORKSPACE_ID`, `VALUELENS_SEMANTIC_MODELS` | The Power BI workspace, and a JSON object of the models to refresh |
 | `VALUELENS_SQL_READER_NAME`, `VALUELENS_SQL_READER_CLIENT_ID` | The web app's identity, granted read access by `migrate` |
@@ -343,7 +351,7 @@ The job reads its settings from environment variables. Bicep sets them.
 | Path | Contents |
 |---|---|
 | `raw/copilot_interactions_parsed/` | Flattened audit records, one parquet file per day |
-| `raw/_audit_staging/`, `raw/_state/audit.json` | Audit queries that are still running, and the high-water mark |
+| `raw/_audit_staging/`, `raw/_state/audit.json` | The audit pages of the windows the last run planned, gzip-compressed, and the manifest of finished windows with the high-water mark. A run that is cut off reuses the finished windows. |
 | `raw/copilot_licensed_users/`, `raw/copilot_org_data/`, `raw/m365_activity_daily/` | Collector snapshots |
 | `curated/copilot_interactions_curated/month-YYYYMM.parquet` | The curated fact, one file per month (`month-none` for rows without a date). Each file is written atomically. |
 | `curated/_valuelens_process/` | process: the per-month source fingerprints (`state.json`) and the per-month context that incremental runs reuse |

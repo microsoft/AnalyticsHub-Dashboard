@@ -215,9 +215,12 @@ large tenant the first load may not fit in one run. The audit collector records 
 it finishes, so the next run (the next scheduled one, or **Run** on the home page) queries only the
 windows still to do, and then loads them all. The dashboard fills in once that's done. At 20,000
 seats, start with 30 days of history and [load more](#load-more-audit-history) once the first load
-has finished. In an offline test at 20,000 seats, processing the collected data took about 3
-minutes for the first 30 days, 5 minutes for a nightly run and 25 minutes for 180 days, within the
-job's memory. How long the refresh takes depends on the capacity and the history loaded.
+has finished. In an offline test at 20,000 seats, with the audit service simulated, the run stayed
+within the job's memory and disk. Collecting the audit records took about 3 minutes for the first
+30 days and 18 minutes for 180 days, plus the time each audit query waits in Microsoft's queue,
+which the test couldn't measure. Processing them took about 3 minutes for the first 30 days, 5
+minutes for a nightly run and 25 to 35 minutes for 180 days. How long the refresh takes depends on
+the capacity and the history loaded.
 
 ### Demo mode
 

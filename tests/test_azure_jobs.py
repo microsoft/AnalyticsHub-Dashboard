@@ -5,11 +5,13 @@ accepts the bracket-quoted DDL/DML that publish emits.
 """
 from __future__ import annotations
 
+import gzip
 import json
 import sqlite3
 import sys
 import uuid
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from types import SimpleNamespace
 
 import duckdb
@@ -386,6 +388,179 @@ def test_audit_first_collection_resumes_across_runs(tmp_path):
     assert len(rows) == 10
     state = store.read_json(audit_collect.STATE)
     assert state["high_water_mark"] and all(w["status"] == "succeeded" for w in state["windows"].values())
+
+
+def test_audit_merge_in_passes_writes_what_one_pass_writes(tmp_path, caplog):
+    # A long backfill merges in passes of whole days, so the run job holds one pass in memory at a time.
+    # Rows replace rows by Id, so the day files and the high-water mark must match a single pass.
+    s = settings(audit_history_days=3, audit_lookback_days=1)
+    records = [_record(i, NOW - timedelta(hours=70 - 7 * i)) for i in range(10)]  # across 4 days
+    late = _record(9, NOW - timedelta(hours=7))
+    late["auditData"]["CopilotEventData"]["AppHost"] = "Excel"
+    stores = {"one": LocalStore(tmp_path / "one"), "passes": LocalStore(tmp_path / "passes")}
+    budgets = {"one": audit_collect.MERGE_PASS_RECORDS, "passes": 1}
+
+    def collect(name, recs, now):
+        api, _ = make_api(AuditGraph(recs))
+        return audit_collect.collect_audit(api, stores[name], s, now=now, sleep=lambda x: None,
+                                           merge_pass_records=budgets[name])
+
+    def written(name):
+        store = stores[name]
+        return (sorted(p.name for p in (store.root / audit_collect.PARSED).glob("*.parquet")), _parsed(store),
+                store.read_json(audit_collect.STATE)["high_water_mark"])
+
+    with caplog.at_level("INFO", logger="valuelens_jobs.collect.audit"):
+        assert collect("one", records, NOW) == collect("passes", records, NOW) == {"rows": 10, "days": 4}
+    assert "merged 10 row(s) across 4 day file(s) in 4 passes" in caplog.text
+    first = written("one")
+    assert written("passes") == first and len(first[0]) == 4
+
+    # The next run re-queries the look-back and replaces the changed row inside the existing day files.
+    later = NOW + timedelta(hours=1)
+    assert collect("one", records[:9] + [late], later) == collect("passes", records[:9] + [late], later)
+    assert written("passes") == written("one") != first
+    assert len(written("passes")[1][0]) == 10
+
+
+def test_audit_merge_failing_part_way_holds_everything_for_the_next_run(tmp_path, monkeypatch):
+    # A merge can fail between passes (out of memory, a full disk). Until it finishes, the high-water mark holds,
+    # the windows stay finished and nothing is pruned, so the next run re-merges them without querying again and
+    # writes what one clean run writes.
+    s = settings(audit_history_days=3)
+    hw = (NOW - timedelta(days=3)).isoformat()
+    records = [_record(i, NOW - timedelta(hours=60 - 6 * i)) for i in range(10)]  # across 3 days
+    old = NOW - timedelta(days=30)
+    stale = audit_collect.audit.stable_window_key(old, old + timedelta(hours=8))
+    page = f"{audit_collect.STAGING}/win_{stale}_0000.jsonl.gz"
+
+    def seeded(name):
+        # The last run, 3 days ago, left a window the next finished run prunes.
+        store = LocalStore(tmp_path / name)
+        store.path(page).parent.mkdir(parents=True)
+        with gzip.open(store.path(page), "wt", encoding="utf-8") as fh:
+            fh.write(json.dumps(audit_collect.audit.canonicalize_audit_record(_record(99, old))) + "\n")
+        store.write_json(audit_collect.STATE, {"high_water_mark": hw, "windows": {stale: {
+            "status": "succeeded", "rows": 1, "pages": 1, "files": [page.split("/")[-1]],
+            "completed_at": old.isoformat()}}})
+        return store
+
+    def collect(store, graph_fake, budget=1):
+        api, _ = make_api(graph_fake)
+        return audit_collect.collect_audit(api, store, s, now=NOW, sleep=lambda x: None, merge_pass_records=budget)
+
+    def written(store):
+        return (sorted(p.name for p in (store.root / audit_collect.PARSED).glob("*.parquet")), _parsed(store),
+                store.read_json(audit_collect.STATE)["high_water_mark"])
+
+    clean = seeded("clean")
+    assert collect(clean, AuditGraph(records), budget=audit_collect.MERGE_PASS_RECORDS) == {"rows": 10, "days": 3}
+
+    real, passes = audit_collect.AuditCollector._merge_pass, []
+
+    def out_of_memory_in_the_second_of_three_passes(self, files, spill):
+        passes.append(files)
+        if len(passes) == 2:
+            raise duckdb.OutOfMemoryException("Out of Memory Error: could not allocate block")
+        return real(self, files, spill)
+
+    store = seeded("failing")
+    monkeypatch.setattr(audit_collect.AuditCollector, "_merge_pass", out_of_memory_in_the_second_of_three_passes)
+    with pytest.raises(duckdb.OutOfMemoryException):
+        collect(store, AuditGraph(records))
+    assert len(passes) == 2
+    state = store.read_json(audit_collect.STATE)
+    assert state["high_water_mark"] == hw
+    assert len(state["windows"]) > 1 and all(w["status"] == "succeeded" for w in state["windows"].values())
+    assert stale in state["windows"] and store.path(page).is_file()
+    assert [p.name for p in (store.root / audit_collect.PARSED).glob("*.parquet")] == ["day-20260908.parquet"]
+
+    monkeypatch.undo()
+    rerun = AuditGraph(records)
+    assert collect(store, rerun) == {"rows": 10, "days": 3}
+    assert rerun.created == []
+    assert written(store) == written(clean)
+    assert stale not in store.read_json(audit_collect.STATE)["windows"] and not store.path(page).exists()
+
+
+def test_audit_pages_are_staged_compressed_and_uncompressed_pages_still_merge(tmp_path):
+    store = LocalStore(tmp_path)
+    api, _ = make_api(AuditGraph([_record(1, NOW - timedelta(hours=2))]))
+    collector = audit_collect.AuditCollector(api, store, settings(), now=NOW, sleep=lambda x: None)
+    assert collector.run()["rows"] == 1
+    staged = store.list(audit_collect.STAGING)
+    assert staged and all(rel.endswith(".jsonl.gz") for rel in staged)
+    with gzip.open(store.path(staged[0]), "rt", encoding="utf-8") as fh:
+        assert json.loads(fh.readline())["RecordId"] == "rec-1"
+
+    # A page an earlier release staged uncompressed still merges alongside the compressed ones.
+    ws = NOW - timedelta(hours=52)
+    old_key = audit_collect.audit.stable_window_key(ws, ws + timedelta(hours=8))
+    record = audit_collect.audit.canonicalize_audit_record(_record(2, ws + timedelta(hours=1)))
+    old = store.path(f"{audit_collect.STAGING}/win_{old_key}_0000.jsonl")
+    old.write_text(json.dumps(record) + "\n", encoding="utf-8")
+    assert collector.merge({old_key, audit_collect._window_key(staged[0])}) == {"rows": 2, "days": 2}
+    rows, _ = _parsed(store)
+    assert len(rows) == 2
+
+
+def test_audit_merge_caps_duckdb_and_spills_to_a_temp_folder(tmp_path, monkeypatch):
+    # DuckDB's default spill folder is `.tmp` in the working directory, which the job's user can't create.
+    executed, connections = [], []
+
+    class Recording:
+        def __init__(self, con):
+            self._con = con
+
+        def execute(self, sql, *args):
+            executed.append(sql)
+            return self._con.execute(sql, *args)
+
+        def __getattr__(self, name):
+            return getattr(self._con, name)
+
+    def connect(*args, **kwargs):
+        connections.append(Recording(duckdb.connect(*args, **kwargs)))
+        return connections[-1]
+
+    monkeypatch.setattr(audit_collect, "duckdb", SimpleNamespace(connect=connect))
+    monkeypatch.setenv("VALUELENS_DUCKDB_MEMORY_LIMIT", "1GiB")
+    records = [_record(1, NOW - timedelta(hours=30)), _record(2, NOW - timedelta(hours=2))]  # two days
+    api, _ = make_api(AuditGraph(records))
+    assert audit_collect.collect_audit(api, LocalStore(tmp_path / "capped"), settings(audit_history_days=2),
+                                       now=NOW, sleep=lambda x: None, merge_pass_records=1)["rows"] == 2
+    assert len(connections) == 2
+    assert executed.count("SET memory_limit = '1GiB'") == 2
+    spills = {sql for sql in executed if sql.startswith("SET temp_directory")}
+    assert len(spills) == 1 and "valuelens-duckdb-" in next(iter(spills))
+    assert not Path(next(iter(spills)).split("'")[1]).exists()
+
+    monkeypatch.delenv("VALUELENS_DUCKDB_MEMORY_LIMIT")
+    executed.clear()
+    api, _ = make_api(AuditGraph(records))
+    assert audit_collect.collect_audit(api, LocalStore(tmp_path / "default"), settings(audit_history_days=2),
+                                       now=NOW, sleep=lambda x: None)["rows"] == 2
+    assert any(sql.startswith("SET temp_directory") for sql in executed)
+    assert not any(sql.startswith("SET memory_limit") for sql in executed)
+
+
+def test_collect_audit_frees_the_local_staging_copy_after_each_run(tmp_path):
+    # `process` runs next on the same disk; the staged pages stay in storage for the next run.
+    class Store(LocalStore):
+        def evict(self, prefix):
+            self.evicted.append(prefix)
+
+    store = Store(tmp_path)
+    store.evicted = []
+    records = [_record(1, NOW - timedelta(hours=2))]
+    api, _ = make_api(AuditGraph(records, fail_first=10**6))
+    with pytest.raises(RuntimeError, match="audit window"):
+        audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None, window_retries=0,
+                                    min_chunk_hours=8)
+    assert store.evicted == [audit_collect.STAGING]
+    api, _ = make_api(AuditGraph(records))
+    assert audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None)["rows"] == 1
+    assert store.evicted == [audit_collect.STAGING] * 2
 
 
 # ---------------------------------------------------------------- graph snapshots
@@ -913,3 +1088,35 @@ def test_adls_store_skips_hns_directory_markers(tmp_path):
         "raw/copilot_licensed_users/part-0.parquet", "raw/copilot_licensed_users/part-1.parquet"]
     store.remove([r for r in store.list("raw/copilot_licensed_users") if not r.endswith("part-0.parquet")])
     assert deleted == ["copilot_licensed_users/part-1.parquet"]
+
+
+def test_adls_store_evict_frees_the_local_copy_and_keeps_the_blobs(tmp_path):
+    from valuelens_jobs.storage import AdlsStore
+
+    blobs, deleted = {"_audit_staging/win_k_0000.jsonl.gz": b"page"}, []
+
+    class Container:
+        def list_blobs(self, name_starts_with, include=None):
+            return [SimpleNamespace(name=n, metadata={}) for n in sorted(blobs) if n.startswith(name_starts_with)]
+
+        def download_blob(self, name):
+            return SimpleNamespace(readinto=lambda fh: fh.write(blobs[name]))
+
+        def delete_blob(self, name):
+            deleted.append(name)
+
+    service = SimpleNamespace(get_container_client=lambda name: Container())
+    store = AdlsStore("acct", root=tmp_path / "adls", service=service)
+    staged = ["raw/_audit_staging/win_k_0000.jsonl.gz"]
+    assert store.pull("raw/_audit_staging") == staged and store.path(staged[0]).read_bytes() == b"page"
+    store.evict("raw/_audit_staging")
+    assert not (tmp_path / "adls" / "raw" / "_audit_staging").exists()
+    assert store.list("raw/_audit_staging") == staged and deleted == []
+    store.evict("raw/_audit_staging")
+    assert store.pull("raw/_audit_staging") == staged and store.path(staged[0]).is_file()
+
+    # In a local store the folder is the data itself, so nothing is removed.
+    local = LocalStore(tmp_path / "local")
+    local.write_json("raw/_audit_staging/page.json", {})
+    local.evict("raw/_audit_staging")
+    assert local.list("raw/_audit_staging") == ["raw/_audit_staging/page.json"]

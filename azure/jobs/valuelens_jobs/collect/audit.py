@@ -7,12 +7,18 @@ Port of the Fabric `Copilot_Audit_Log_Ingester` notebook:
 * a failing window is re-queried with backoff, then split in halves down to `MIN_CHUNK_HOURS`;
   failures and 429s lower concurrency for the rest of the run (same helpers as the notebook);
 * records are canonicalised and flattened by `valuelens_core.audit` (golden-checked against Spark);
-* new rows replace existing rows with the same `Id` (the notebook's Delta MERGE), one file per day.
+* new rows replace existing rows with the same `Id` (the notebook's Delta MERGE), one file per day;
+* each page is staged gzip-compressed, and a long backfill merges in passes of whole days, so it fits the
+  run job's memory and disk.
 """
 from __future__ import annotations
 
+import gzip
 import json
 import logging
+import os
+import re
+import tempfile
 import threading
 import time
 from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, wait as wait_futures
@@ -42,6 +48,10 @@ SPLIT_ON_TIMEOUT = True
 RETRY_BASE_SEC = 60
 RETRY_MAX_SEC = 900
 MIN_CONCURRENT_QUERIES = 1
+PAGE_RECORDS = 999
+# Staged records one merge pass flattens. More (a long backfill, or a large tenant's first run) merge in passes
+# of whole days, oldest first, so memory and spill follow the largest pass, not the whole history.
+MERGE_PASS_RECORDS = 250_000
 
 
 class AuditQueryFailed(RuntimeError):
@@ -68,14 +78,20 @@ def _range(ws, we) -> str:
     return f"{audit._as_utc_datetime(ws):%Y-%m-%d %H:%M}-{audit._as_utc_datetime(we):%H:%M} UTC"
 
 
+def _window_key(rel: str) -> str:
+    """The window key of a staged page, `raw/_audit_staging/win_<key>_<page>.jsonl[.gz]`."""
+    return rel.split("/")[-1].split("_", 1)[-1].rsplit("_", 1)[0]
+
+
 class AuditCollector:
     def __init__(self, api, store, settings, *, now=None, sleep=time.sleep, poll_seconds=POLL_INTERVAL_SEC,
                  max_wait_minutes=MAX_WAIT_MIN_PER_QUERY, chunk_hours=CHUNK_HOURS,
                  max_concurrent=MAX_CONCURRENT_QUERIES, window_retries=WINDOW_RETRIES,
                  min_chunk_hours=MIN_CHUNK_HOURS, split_on_timeout=SPLIT_ON_TIMEOUT,
                  retry_base_seconds=RETRY_BASE_SEC, retry_max_seconds=RETRY_MAX_SEC,
-                 min_concurrent=MIN_CONCURRENT_QUERIES):
+                 min_concurrent=MIN_CONCURRENT_QUERIES, merge_pass_records=MERGE_PASS_RECORDS):
         self.api, self.store, self.settings = api, store, settings
+        self.merge_pass_records = max(int(merge_pass_records), 0)
         self.end = now or datetime.now(timezone.utc)
         self.sleep, self.poll_seconds, self.max_wait_minutes = sleep, poll_seconds, max_wait_minutes
         self.chunk_hours, self.max_concurrent = chunk_hours, max_concurrent
@@ -176,7 +192,8 @@ class AuditCollector:
 
     def drain(self, qid, key):
         self.store.remove(self._files(key))
-        url, seen, rows, page, files = self._records_url(f"{QUERIES}/{qid}/records?$top=999", qid), set(), 0, 0, []
+        url, seen, rows, page, files = (self._records_url(f"{QUERIES}/{qid}/records?$top={PAGE_RECORDS}", qid),
+                                        set(), 0, 0, [])
         while url:
             if url in seen:
                 raise RuntimeError(f"Query {qid} returned repeated pagination link cycle: {url}")
@@ -192,10 +209,11 @@ class AuditCollector:
             nxt = payload.get("@odata.nextLink")
             nxt = self._records_url(nxt, qid) if nxt is not None else None
             if values:
-                rel = f"{STAGING}/win_{key}_{page:04d}.jsonl"
+                # Compressed (about 10x): a long backfill's pages would otherwise fill the run job's disk.
+                rel = f"{STAGING}/win_{key}_{page:04d}.jsonl.gz"
                 path = self.store.path(rel)
                 path.parent.mkdir(parents=True, exist_ok=True)
-                with open(path, "w", encoding="utf-8") as fh:
+                with gzip.open(path, "wt", encoding="utf-8", compresslevel=6) as fh:
                     for record in values:
                         fh.write(json.dumps(audit.canonicalize_audit_record(record)))
                         fh.write("\n")
@@ -345,66 +363,118 @@ class AuditCollector:
         return result
 
     def merge(self, keys, advance_high_water=True) -> dict:
-        files = sorted(rel for rel in self.store.list(STAGING)
-                       if rel.split("/")[-1].split("_", 1)[-1].rsplit("_", 1)[0] in keys)
+        files = sorted(rel for rel in self.store.list(STAGING) if _window_key(rel) in keys)
         if not files:
             log.info("audit: no records in the window set")
             return {"rows": 0, "days": 0}
-        con = duckdb.connect()
-        con.execute("SET TimeZone = 'UTC'")
-        cols = "{" + ", ".join(f"'{c}': 'VARCHAR'" for c in audit.STAGE_COLUMNS) + "}"
-        paths = "[" + ", ".join(q(self.store.path(f)) for f in files) + "]"
-        staged = f"read_json({paths}, format='newline_delimited', columns={cols})"
-        rel = audit.flatten(con, staged)
-        con.execute(f"CREATE TEMP TABLE new_rows AS {rel.sql_query()}")
-        records = con.execute(f"SELECT count(*) FROM {staged}").fetchone()[0]
-        skipped = records - con.execute("SELECT count(DISTINCT Source_RecordKey) FROM new_rows").fetchone()[0]
-        if skipped:
+        passes = self._passes(files)
+        total, records, prompted, days, newest = 0, 0, 0, set(), None
+        # DuckDB spills to `.tmp` in the working directory by default, which the job's user can't create.
+        with tempfile.TemporaryDirectory(prefix="valuelens-duckdb-") as spill:
+            for number, part in enumerate(passes, 1):
+                rows, staged, with_prompt, written, latest = self._merge_pass(part, spill)
+                total, records, prompted = total + rows, records + staged, prompted + with_prompt
+                days.update(written)
+                if latest is not None and (newest is None or latest > newest):
+                    newest = latest
+                if len(passes) > 1:
+                    log.info("audit: merge pass %s of %s: %s row(s) across %s day file(s)", number, len(passes),
+                             rows, len(written))
+        if records > prompted:
             log.info("audit: %s of %s staged record(s) have no user prompt (response-only events outside the "
                      "Copilot Studio runtime/Cowork task-row exceptions) and are not counted, as in every "
-                     "ValueLens variant", skipped, records)
-        blank = con.execute("SELECT count(*) FROM new_rows WHERE Id IS NULL OR trim(Id) = ''").fetchone()[0]
-        if blank:
-            raise RuntimeError(f"{blank} parsed audit row(s) have a blank Id; refusing to merge duplicates.")
-        select = ", ".join(ident(c) for c in audit.PARSED_COLUMNS)
-        days = [d for (d,) in con.execute("SELECT DISTINCT InteractionDate FROM new_rows").fetchall()]
-        total = 0
-        for day in days:
-            rel_path = day_file(day)
-            self.store.pull(rel_path)
-            target = self.store.path(rel_path)
-            target.parent.mkdir(parents=True, exist_ok=True)
-            match = "InteractionDate IS NULL" if day is None else f"InteractionDate = DATE '{day.isoformat()}'"
-            source = f"SELECT {select} FROM new_rows WHERE {match}"
-            if target.is_file():
-                # SELECT * so day files written before a column was added still merge; BY NAME fills the gap with NULL.
-                source = (f"SELECT {select} FROM ({source} UNION ALL BY NAME SELECT * FROM "
-                          f"read_parquet({q(target)}) WHERE Id NOT IN (SELECT Id FROM new_rows))")
-            tmp = target.with_suffix(".parquet.tmp")
-            con.execute(f"COPY ({source} ORDER BY CreationDate, Id) TO {q(tmp)} (FORMAT PARQUET)")
-            tmp.replace(target)
-            self.store.push([rel_path])
-            total += con.execute(f"SELECT count(*) FROM new_rows WHERE {match}").fetchone()[0]
-        newest = con.execute("SELECT max(CreationDate) FROM new_rows").fetchone()[0]
-        con.close()
+                     "ValueLens variant", records - prompted, records)
         if newest is not None and advance_high_water:
             old = audit._as_utc_datetime(self.state.get("high_water_mark"))
             newest = audit._as_utc_datetime(newest)
             self.state["high_water_mark"] = (max(old, newest) if old else newest).isoformat()
         self._save()
-        log.info("audit: merged %s row(s) across %s day file(s)", total, len(days))
+        log.info("audit: merged %s row(s) across %s day file(s)%s", total, len(days),
+                 f" in {len(passes)} passes" if len(passes) > 1 else "")
         return {"rows": total, "days": len(days)}
+
+    def _passes(self, files):
+        """The staged pages in merge passes: whole days, oldest first, up to `merge_pass_records` records each.
+
+        A day over the budget is a pass on its own. Rows replace rows by `Id`, so the passes write the same day
+        files as one pass would.
+        """
+        days = {}
+        for rel in files:
+            key = _window_key(rel)
+            start = re.fullmatch(r"v\d+_(\d{8})\d{4}_\d{12}", key)
+            days.setdefault(start.group(1) if start else key, {}).setdefault(key, []).append(rel)
+        passes, size = [], 0
+        for day in sorted(days):
+            # The manifest has each window's record count; its page count bounds it for an entry without one.
+            records = sum(int((self.manifest.get(key) or {}).get("rows") or 0) or len(pages) * PAGE_RECORDS
+                          for key, pages in days[day].items())
+            if not passes or (self.merge_pass_records and size + records > self.merge_pass_records):
+                passes.append([])
+                size = 0
+            passes[-1] += [rel for pages in days[day].values() for rel in pages]
+            size += records
+        return passes
+
+    def _merge_pass(self, files, spill):
+        """Flatten one pass's staged pages and replace their rows in the day files.
+
+        Returns (rows merged, staged records, records with a prompt, the days written, the newest CreationDate).
+        """
+        con = duckdb.connect()
+        try:
+            con.execute("SET TimeZone = 'UTC'")
+            con.execute(f"SET temp_directory = {q(spill)}")
+            if os.environ.get("VALUELENS_DUCKDB_MEMORY_LIMIT"):
+                con.execute(f"SET memory_limit = {q(os.environ['VALUELENS_DUCKDB_MEMORY_LIMIT'])}")
+            cols = "{" + ", ".join(f"'{c}': 'VARCHAR'" for c in audit.STAGE_COLUMNS) + "}"
+            paths = "[" + ", ".join(q(self.store.path(f)) for f in files) + "]"
+            # Pages staged before compression (`.jsonl`) still read: DuckDB picks the codec by extension.
+            staged = f"read_json({paths}, format='newline_delimited', columns={cols})"
+            rel = audit.flatten(con, staged)
+            con.execute(f"CREATE TEMP TABLE new_rows AS {rel.sql_query()}")
+            records = con.execute(f"SELECT count(*) FROM {staged}").fetchone()[0]
+            prompted = con.execute("SELECT count(DISTINCT Source_RecordKey) FROM new_rows").fetchone()[0]
+            blank = con.execute("SELECT count(*) FROM new_rows WHERE Id IS NULL OR trim(Id) = ''").fetchone()[0]
+            if blank:
+                raise RuntimeError(f"{blank} parsed audit row(s) have a blank Id; refusing to merge duplicates.")
+            select = ", ".join(ident(c) for c in audit.PARSED_COLUMNS)
+            days = [d for (d,) in con.execute("SELECT DISTINCT InteractionDate FROM new_rows").fetchall()]
+            total = 0
+            for day in days:
+                rel_path = day_file(day)
+                self.store.pull(rel_path)
+                target = self.store.path(rel_path)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                match = "InteractionDate IS NULL" if day is None else f"InteractionDate = DATE '{day.isoformat()}'"
+                source = f"SELECT {select} FROM new_rows WHERE {match}"
+                if target.is_file():
+                    # SELECT * so day files written before a column was added still merge; BY NAME fills the gap with NULL.
+                    source = (f"SELECT {select} FROM ({source} UNION ALL BY NAME SELECT * FROM "
+                              f"read_parquet({q(target)}) WHERE Id NOT IN (SELECT Id FROM new_rows))")
+                tmp = target.with_suffix(".parquet.tmp")
+                con.execute(f"COPY ({source} ORDER BY CreationDate, Id) TO {q(tmp)} (FORMAT PARQUET)")
+                tmp.replace(target)
+                self.store.push([rel_path])
+                total += con.execute(f"SELECT count(*) FROM new_rows WHERE {match}").fetchone()[0]
+            newest = con.execute("SELECT max(CreationDate) FROM new_rows").fetchone()[0]
+            return total, records, prompted, days, newest
+        finally:
+            con.close()
 
     def prune(self, keys):
         stale = [k for k in self.manifest if k not in keys]
         if not stale:
             return
-        self.store.remove([rel for rel in self.store.list(STAGING)
-                           if rel.split("/")[-1].split("_", 1)[-1].rsplit("_", 1)[0] in stale])
+        self.store.remove([rel for rel in self.store.list(STAGING) if _window_key(rel) in stale])
         for k in stale:
             self.manifest.pop(k, None)
         self._save()
 
 
 def collect_audit(api, store, settings, **kwargs) -> dict:
-    return AuditCollector(api, store, settings, **kwargs).run()
+    try:
+        return AuditCollector(api, store, settings, **kwargs).run()
+    finally:
+        # The staged pages stay in storage for the next run. `process`, later in this run, needs the disk.
+        store.evict(STAGING)
