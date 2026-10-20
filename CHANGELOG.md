@@ -165,6 +165,17 @@ queries, the page as a whole is ready about 0.2 s later.
   Fabric data agent's instructions name it too, so the installer's next run updates and
   republishes the data agent.
 
+**Azure: the web app reuses each user's Power BI token, and compresses what it sends.** It
+exchanged the signed-in user's token for a new Power BI token on every query, and sent everything
+uncompressed. Now one sign-in client serves the whole process, and each user's Power BI or Graph
+token is reused until 5 minutes before it, or the user's own token, expires. Tokens are kept under
+a SHA-256 of the user's token and the scopes, so one user's token never serves another, at most
+2,000 at a time, and they're never logged. Queries that arrive together share one exchange, and a
+token Power BI or Graph refuses is dropped. Query results and other JSON of 1 KB or more go out with
+Brotli or gzip, and the app's files, about 3 MB of start-up code, are compressed once when the image
+is built. The 0.6.8 plan estimates that Azure pages are ready 0.2 to 2.3 s sooner (est.); it hasn't
+been measured on Azure. Nothing changes on Fabric.
+
 ## Analytics Hub installer 0.6.8-rc.1 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.1 is not published, and 0.6.7 remains Latest.
