@@ -11,7 +11,7 @@ import { HttpError } from '../../http.js';
 import { commandLine } from '../../launch.js';
 import { rlsOn, rlsSettings } from '../../transform/access.js';
 import { buildConsumptionModel, buildModel, loadTemplateModel, PBISM } from '../../transform/model.js';
-import { deployModel, MODEL_UPDATE_NOTE, modelSignature, REFRESH_POLL_MS, settleReloads } from '../model.js';
+import { connectionCreatedAnyway, deployModel, MODEL_UPDATE_NOTE, modelSignature, REFRESH_POLL_MS, settleReloads } from '../model.js';
 import { addMonths, OPTIONAL_PERMISSION_EFFECTS, OPTIONAL_PERMISSIONS, SECRET_LIFETIME_MONTHS } from '../identity.js';
 import { addTrackedSecret, promoteSecret, removeRetired } from '../secrets.js';
 import { manifestVersion, writeTeamsPackage } from '../../azure/teams.js';
@@ -460,9 +460,12 @@ export async function planAzure(ctx, pre, section) {
     ) || undefined;
     const groups = await api.powerBi.groups().catch(() => []);
     const wsChoice = await ui.select('Power BI workspace', [{ name: 'Create a new workspace', value: 'new' }, ...groups.map((g) => ({ name: `Use "${g.name}"`, value: g.id }))], az.powerBi?.workspaceId ?? 'new');
+    // Uninstall deletes only a workspace the installer created, never one picked here.
+    if (wsChoice !== 'new' && wsChoice !== az.powerBi.workspaceId) delete az.powerBi.createdWorkspace;
     if (wsChoice === 'new') {
       if (az.powerBi.workspaceId && (az.deploymentConfig || az.powerBi.datasetId || az.powerBi.gatewayId)) throw new Error('The workspace is already in use by this install. Keep it; use a separate install record for a different workspace.');
       delete az.powerBi.workspaceId;
+      delete az.powerBi.createdWorkspace;
       az.workspaceName = await ui.input('New Power BI workspace name', { default: az.workspaceName ?? 'Analytics Hub' });
     }
     else az.powerBi.workspaceId = wsChoice;
@@ -1901,22 +1904,32 @@ async function bindThroughVnetGateway(ctx, secret) {
   const name = connectionName(az);
   const server = String(az.outputs?.sqlServerFqdn);
   const database = String(az.outputs?.sqlDatabaseName ?? 'valuelens');
+  const ours = (/** @type {any} */ c) => c.displayName === name && c.gatewayId === gatewayId;
   let conn = pbi.connectionId ? await api.fabric.getConnection(pbi.connectionId).catch(() => null) : null;
-  conn ??= (await api.fabric.listConnections().catch(() => [])).find((c) => c.displayName === name && c.gatewayId === gatewayId) ?? null;
-  if (conn) {
+  conn ??= (await api.fabric.listConnections().catch(() => [])).find(ours) ?? null;
+  let created = false;
+  if (!conn) {
+    try {
+      conn = await whileSqlResumes(ui, () => api.fabric.createConnection({
+        connectivityType: 'VirtualNetworkGateway',
+        gatewayId,
+        displayName: name,
+        connectionDetails: { type: 'SQL', creationMethod: 'SQL', parameters: [{ dataType: 'Text', name: 'server', value: server }, { dataType: 'Text', name: 'database', value: database }] },
+        privacyLevel: 'Organizational',
+        credentialDetails: sqlConnectionCredentials(ctx, secret),
+      }));
+      created = true;
+    } catch (err) {
+      conn = await connectionCreatedAnyway(ctx, err, ours);
+      if (!conn) throw err;
+    }
+  }
+  if (created) {
+    ui.ok(`Created Power BI connection ${name}`);
+  } else {
     const id = conn.id;
     await whileSqlResumes(ui, () => api.fabric.updateConnection(id, { connectivityType: 'VirtualNetworkGateway', privacyLevel: 'Organizational', credentialDetails: sqlConnectionCredentials(ctx, secret) }));
     ui.ok(`Updated Power BI connection ${name}`);
-  } else {
-    conn = await whileSqlResumes(ui, () => api.fabric.createConnection({
-      connectivityType: 'VirtualNetworkGateway',
-      gatewayId,
-      displayName: name,
-      connectionDetails: { type: 'SQL', creationMethod: 'SQL', parameters: [{ dataType: 'Text', name: 'server', value: server }, { dataType: 'Text', name: 'database', value: database }] },
-      privacyLevel: 'Organizational',
-      credentialDetails: sqlConnectionCredentials(ctx, secret),
-    }));
-    ui.ok(`Created Power BI connection ${name}`);
   }
   pbi.connectionId = conn.id;
   ctx.save();
@@ -2078,32 +2091,159 @@ export async function azureUpdate(ctx) {
   return installAzure(ctx, { wait: true });
 }
 
-/** @param {Ctx} ctx */
-export async function azureUninstall(ctx) {
+/** How often, and how many times, uninstall checks the resource group has gone: 45 minutes in all. */
+export const RG_DELETE_POLL_MS = 30_000;
+export const RG_DELETE_POLLS = 90;
+
+/**
+ * Waits for Azure to finish deleting a resource group. That can take half an hour after Azure
+ * accepts the delete, and can still fail.
+ * @param {Ctx} ctx @param {string} subscriptionId @param {string} rg
+ * @returns {Promise<string>}  'Gone', or the group's provisioning state when the wait ended.
+ */
+async function waitForGroupGone(ctx, subscriptionId, rg) {
+  const progress = ctx.ui.progress('Resource group');
+  let state = 'Deleting';
+  try {
+    progress.update(state);
+    for (let i = 0; i < RG_DELETE_POLLS; i++) {
+      await ctx.sleep(RG_DELETE_POLL_MS);
+      const g = await ctx.api.arm.getResourceGroup(subscriptionId, rg).catch(() => undefined);
+      if (g === null) return 'Gone';
+      if (g === undefined) continue;
+      state = g.properties?.provisioningState ?? 'Unknown';
+      progress.update(state);
+      // The first read can lag the delete, so it takes a second one to show the delete stopped.
+      if (state !== 'Deleting' && i > 0) break;
+    }
+  } finally {
+    progress.done();
+  }
+  return state;
+}
+
+/**
+ * Whether the recorded Power BI workspace is still the one the installer created. Before 0.6.8, picking
+ * another workspace in Repair or change kept the record's created flag. Power BI workspace names are
+ * unique, so a workspace under another name may be one the user picked.
+ * @param {Ctx} ctx @param {string} workspaceId @param {string} name  the name the installer gave it.
+ * @returns {Promise<{ state: 'created' | 'missing' } | { state: 'renamed', name: string } | { state: 'unknown', message: string }>}
+ */
+async function checkCreatedWorkspace(ctx, workspaceId, name) {
+  try {
+    const ws = (await ctx.api.powerBi.groups()).find((g) => g.id === workspaceId);
+    if (!ws) return { state: 'missing' };
+    return ws.name === name ? { state: 'created' } : { state: 'renamed', name: ws.name };
+  } catch (err) {
+    return { state: 'unknown', message: /** @type {Error} */ (err).message };
+  }
+}
+
+/**
+ * Forgets the Power BI workspace, so a new install creates another rather than deploying into one that's gone.
+ * @param {Ctx} ctx @param {NonNullable<import('../../config.js').AzureConfig['powerBi']>} pbi
+ */
+function forgetPowerBiWorkspace(ctx, pbi) {
+  const { config } = ctx;
+  const id = pbi.workspaceId;
+  delete pbi.workspaceId;
+  delete pbi.createdWorkspace;
+  delete pbi.datasetId;
+  delete pbi.consumptionDatasetId;
+  if (config.fabric.workspaceId === id) delete config.fabric.workspaceId;
+  ctx.save();
+}
+
+/**
+ * Deletes the Power BI workspace the installer created, then forgets it.
+ * @param {Ctx} ctx
+ * @param {NonNullable<import('../../config.js').AzureConfig['powerBi']>} pbi
+ * @param {string} name
+ */
+async function deletePowerBiWorkspace(ctx, pbi, name) {
+  const { ui, api } = ctx;
+  try {
+    await api.powerBi.deleteGroup(/** @type {string} */ (pbi.workspaceId));
+    ui.ok(`Deleted Power BI workspace "${name}"`);
+  } catch (err) {
+    if (!(err instanceof HttpError && err.status === 404)) {
+      ui.warn(`Couldn't delete Power BI workspace "${name}": ${/** @type {Error} */ (err).message}. A workspace admin can delete it in Power BI under Workspaces.`);
+      return;
+    }
+    ui.ok(`Power BI workspace "${name}" was already gone`);
+  }
+  forgetPowerBiWorkspace(ctx, pbi);
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {{ wait?: boolean }} [opts]  wait: false stops once Azure accepts the resource group delete.
+ * @returns {Promise<boolean>}  false when Azure didn't delete the resource group.
+ */
+export async function azureUninstall(ctx, opts = {}) {
   const { ui, config, api } = ctx;
   const az = config.azure;
   if (!az?.subscriptionId || !az.resourceGroup) throw new Error('Nothing is installed yet.');
+  const { subscriptionId, resourceGroup: rg } = az;
   ui.heading('Uninstalling Analytics Hub on Azure');
-  // First, so any sign-in it needs comes before the long deletes.
+  const pbi = az.powerBi;
+  const workspace = az.workspaceName ?? 'Analytics Hub';
+  const check = pbi?.workspaceId && pbi.createdWorkspace ? await checkCreatedWorkspace(ctx, pbi.workspaceId, workspace) : undefined;
+  // Asked first, and the Teams app's sign-in next, so nothing waits on a person during the long deletes.
+  const deleteWorkspace = check?.state === 'created' && (await ui.confirm(`Delete Power BI workspace "${workspace}" and everything in it, including the semantic models?`, true));
   await removeTeamsApp(ctx);
+  if (pbi?.workspaceId) {
+    if (deleteWorkspace) await deletePowerBiWorkspace(ctx, pbi, workspace);
+    else if (!check) ui.note('Left the Power BI workspace you chose alone, because the installer didn\'t create it. Delete the Analytics Hub semantic models in it if you no longer need them.');
+    else if (check.state === 'created') ui.note(`Left Power BI workspace "${workspace}" alone.`);
+    else if (check.state === 'renamed') ui.note(`Left Power BI workspace "${check.name}" alone, because the installer created one named "${workspace}". If you renamed it, delete it in Power BI under Workspaces.`);
+    else if (check.state === 'unknown') ui.warn(`Couldn't check Power BI workspace "${workspace}", so left it alone: ${check.message}. A workspace admin can delete it in Power BI under Workspaces.`);
+    else {
+      ui.note(`Didn't find Power BI workspace "${workspace}" among the workspaces you can see, so it's gone or you've lost access to it. If it's still there, a workspace admin can delete it in Power BI under Workspaces.`);
+      forgetPowerBiWorkspace(ctx, pbi);
+    }
+  }
   // The gateway holds a service association link on its subnet, so it must go before the VNet.
-  if (az.powerBi?.connectionId) {
-    await api.fabric.deleteConnection(az.powerBi.connectionId).then(() => ui.ok('Deleted the Power BI gateway connection'), (err) => ui.warn(`Couldn't delete Power BI connection ${az.powerBi?.connectionId}: ${err.message}`));
+  if (pbi?.connectionId) {
+    await api.fabric.deleteConnection(pbi.connectionId).then(() => ui.ok('Deleted the Power BI gateway connection'), (err) => ui.warn(`Couldn't delete Power BI connection ${pbi.connectionId}: ${err.message}`));
   }
-  if (az.powerBi?.createdGateway && az.powerBi.gatewayId) {
-    await api.fabric.deleteGateway(az.powerBi.gatewayId).then(() => ui.ok('Deleted the Power BI VNet data gateway'), (err) => ui.warn(`Couldn't delete Power BI gateway ${az.powerBi?.gatewayId}: ${err.message}`));
+  if (pbi?.createdGateway && pbi.gatewayId) {
+    await api.fabric.deleteGateway(pbi.gatewayId).then(() => ui.ok('Deleted the Power BI VNet data gateway'), (err) => ui.warn(`Couldn't delete Power BI gateway ${pbi.gatewayId}: ${err.message}`));
   }
+  let deleting = false;
   if (az.createdResourceGroup) {
-    await api.arm.deleteResourceGroup(az.subscriptionId, az.resourceGroup);
-    ui.ok(`Deleted resource group ${az.resourceGroup}`);
+    try {
+      await api.arm.deleteResourceGroup(subscriptionId, rg);
+      deleting = true;
+    } catch (err) {
+      if (!(err instanceof HttpError)) throw err;
+      if (err.status === 404) ui.ok(`Resource group ${rg} was already gone`);
+      else if (err.status === 409 && /ResourceGroupBeingDeleted/i.test(`${err.message} ${JSON.stringify(err.body ?? '')}`)) deleting = true;
+      else throw err;
+    }
   } else {
-    const resources = await api.arm.listResources(az.subscriptionId, az.resourceGroup);
+    const resources = await api.arm.listResources(subscriptionId, rg);
     const ours = resources.filter((r) => r.tags?.['valuelens-install-id'] === az.installId);
     for (const r of ours) await api.arm.deleteResource(r.id);
     ui.ok(`Deleted ${ours.length} tagged Azure resources and left everything else alone`);
   }
+  // Before the wait, so they go even if a Cloud Shell sign-out stops the installer during it.
   for (const app of [az.webApp, az.sqlReader]) if (app?.created && app.objectId) await api.graph.deleteApplication(app.objectId).catch((err) => ui.warn(`Couldn't delete app registration ${app.clientId}: ${err.message}`));
   if (az.drop?.folderUrl) ui.note(`The SharePoint drop folder ${az.drop.folderUrl} and the files in it are left alone. Delete them yourself if you no longer need them.`);
+  if (!deleting) return true;
+  if (opts.wait === false) {
+    ui.ok(`Azure is deleting resource group ${rg}. That can take half an hour: it's done when the group no longer shows in the Azure portal.`);
+    return true;
+  }
+  ui.info(`Waiting for Azure to delete resource group ${rg}, which can take half an hour.`);
+  const state = await waitForGroupGone(ctx, subscriptionId, rg);
+  if (state === 'Gone') ui.ok(`Deleted resource group ${rg}`);
+  else if (state === 'Deleting') ui.warn(`Azure is still deleting resource group ${rg} after ${(RG_DELETE_POLL_MS * RG_DELETE_POLLS) / 60_000} minutes. It carries on without the installer: check it's gone in the Azure portal before you install again with the same name.`);
+  else {
+    ui.fail(`Azure didn't delete resource group ${rg}: it's ${state}. Its activity log in the Azure portal says why. Fix that, then run "${commandLine('uninstall')}" again.`);
+    return false;
+  }
+  return true;
 }
 
 /** @param {Ctx} ctx @param {{ ok?: boolean, pending?: string[] }} [opts]  pending: models still reloading after their update. */

@@ -302,6 +302,11 @@ app's ID and version in the org's app catalog.
   sets the refresh schedule. `transform/model.js` gets a source mode: `FabricTable(...)` or `SqlTable(...)`.
 - **Uninstall.** If the installer created the resource group, it deletes it. Otherwise it deletes only the
   recorded and tagged items. Resources that policies created (diagnostic settings, Defender) are listed and left alone.
+  Azure accepts a resource group delete long before it finishes, so uninstall polls the group every 30 seconds,
+  for up to 45 minutes, and says it's deleted only once it's gone (`--no-wait` stops at the accepted delete).
+  It deletes the Power BI workspace only if the installer created it (`powerBi.createdWorkspace`) and it still has
+  the name the installer gave it, after asking. Picking an existing workspace clears that flag; before 0.6.8 it
+  didn't, and workspace names are unique in Power BI, so the name check keeps those older records safe.
 
 ### 5.3 Permissions the installing user needs
 

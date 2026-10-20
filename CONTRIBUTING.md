@@ -74,7 +74,9 @@ the exe and `install.ps1` (in PowerShell 7, and in Windows PowerShell 5.1 in Con
 Mode) on pull requests that touch `packaging/`. To publish one, set the version in
 `installer/package.json` and push a tag `installer-v<version>`. The workflow drafts a
 release with the exe, the zip, their SHA-256 files, `install.ps1` and the release notes from
-`packaging/finish-exe.js`. The same
+`packaging/finish-exe.js`. For a release candidate, use a version such as `0.6.8-rc.1`: the
+workflow drafts it as a pre-release, which `releases/latest` and the installer's update check
+skip. The same
 tag makes [`azure-images`](.github/workflows/azure-images.yml) push
 `ghcr.io/microsoft/valuelens-jobs` and `valuelens-web` with that version, which Azure installs pull.
 

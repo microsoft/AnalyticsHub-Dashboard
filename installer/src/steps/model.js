@@ -389,6 +389,21 @@ async function createConnection(ctx, body) {
 }
 
 /**
+ * After a connection create failed with 409: Fabric can make the connection and still answer 429 or time out,
+ * and the retry then finds the name taken. Returns the connection `match` finds, to reuse, or undefined.
+ * @param {Ctx} ctx
+ * @param {unknown} err  What the create threw.
+ * @param {(c: any) => boolean} match  Which listed connection is the one the create was making.
+ * @returns {Promise<any>}
+ */
+export async function connectionCreatedAnyway(ctx, err, match) {
+  if (status(err) !== 409) return undefined;
+  const found = (await ctx.api.fabric.listConnections().catch(() => [])).find(match);
+  if (found) ctx.ui.info(`Fabric already has a connection named "${found.displayName}", probably from an earlier request that it throttled or that timed out. Using that one.`);
+  return found;
+}
+
+/**
  * Makes sure the model reads the Lakehouse through a connection that signs in as the app.
  * @param {Ctx} ctx
  */
@@ -419,15 +434,21 @@ export async function ensureModelConnection(ctx) {
     const secret = await connectionSecret(ctx);
     const credentials = credentialsFor(ctx, secret.value);
     try {
-      const existing = (await api.fabric.listConnections()).find((c) => c.displayName === name);
+      let existing = (await api.fabric.listConnections()).find((c) => c.displayName === name);
+      if (!existing) {
+        const body = sqlConnectionBody({ displayName: name, server: /** @type {string} */ (sm.server), database: /** @type {string} */ (sm.database), ...credentials });
+        try {
+          conn = await createConnection(ctx, body);
+          ui.ok(`Created the connection "${name}", signed in as ${config.app.displayName ?? 'the app'}`);
+        } catch (err) {
+          existing = await connectionCreatedAnyway(ctx, err, (c) => c.displayName === name);
+          if (!existing) throw err;
+        }
+      }
       if (existing) {
         await api.fabric.updateConnection(existing.id, { connectivityType: 'ShareableCloud', credentialDetails: servicePrincipalCredentials(credentials) });
         conn = existing;
         ui.ok(`Updated the connection "${name}" to sign in as ${config.app.displayName ?? 'the app'}`);
-      } else {
-        const body = sqlConnectionBody({ displayName: name, server: /** @type {string} */ (sm.server), database: /** @type {string} */ (sm.database), ...credentials });
-        conn = await createConnection(ctx, body);
-        ui.ok(`Created the connection "${name}", signed in as ${config.app.displayName ?? 'the app'}`);
       }
     } catch (err) {
       await settleConnectionSecret(ctx, secret, err);

@@ -107,7 +107,7 @@ const COMMANDS = {
   uninstall: {
     title: 'Uninstall Analytics Hub', short: 'Uninstall', icon: 'x', section: 'Uninstall', adopt: true,
     row: 'Uninstall', button: 'Uninstall',
-    desc: 'Azure: delete the resource group the installer created, or only tagged resources in an existing group. Fabric: delete the workspace, after its managed private endpoints.',
+    desc: 'Azure: delete the resource group the installer created, or only tagged resources in an existing group, and the Power BI workspace if it created one. Fabric: delete the workspace, after its managed private endpoints.',
     off: 'Nothing is installed yet.',
   },
   prereqs: {

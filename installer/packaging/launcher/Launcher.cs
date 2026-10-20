@@ -15,6 +15,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Runtime.Versioning;
 using System.Text;
+using System.Threading;
 
 // Some installed packages nest past Windows' 260-character path limit once unpacked. Targeting
 // .NET Framework 4.6.2 lets the file APIs take extended-length (\\?\) paths, which don't have it.
@@ -145,18 +146,50 @@ internal static class Launcher
             Extract(zip, partial);
         }
         File.WriteAllText(Path.Combine(partial, Marker), DateTime.UtcNow.ToString("o"));
-        try
+        MoveIntoPlace(partial, root, MoveWaits);
+    }
+
+    // Antivirus, backup and sync tools open new files to check them, and the folder can't be renamed
+    // until they let go. These waits come to 50 seconds.
+    internal static readonly int[] MoveWaits = { 1000, 2000, 3000, 4000, 5000, 5000, 5000, 5000, 5000, 5000, 5000, 5000 };
+
+    /// <summary>Renames the unpacked folder to its final name, waiting between tries while something holds it.</summary>
+    internal static void MoveIntoPlace(string partial, string root, int[] waits)
+    {
+        string marker = Path.Combine(root, Marker);
+        for (int attempt = 0; ; attempt++)
         {
-            // Left half unpacked by an earlier run that was stopped.
-            if (Directory.Exists(root) && !File.Exists(Path.Combine(root, Marker))) Directory.Delete(Long(root), true);
-            Directory.Move(partial, root);
-        }
-        catch (IOException)
-        {
+            Exception failure;
+            try
+            {
+                // Left half unpacked by an earlier run that was stopped.
+                if (Directory.Exists(root) && !File.Exists(marker)) Directory.Delete(Long(root), true);
+                Directory.Move(partial, root);
+                return;
+            }
+            catch (IOException e) { failure = e; }
+            catch (UnauthorizedAccessException e) { failure = e; }
             // Another copy of the installer unpacked it first.
-            if (!File.Exists(Path.Combine(root, Marker))) throw;
-            TryDelete(partial);
+            if (File.Exists(marker))
+            {
+                TryDelete(partial);
+                return;
+            }
+            if (attempt >= waits.Length)
+            {
+                TryDelete(partial);
+                throw new IOException(BusyMessage(Path.GetDirectoryName(root), failure.Message), failure);
+            }
+            if (attempt == 0) Console.WriteLine("Waiting for something, most likely antivirus, to finish checking the unpacked files...");
+            Thread.Sleep(waits[attempt]);
         }
+    }
+
+    /// <summary>What to do when something holds the unpacked files for longer than the launcher waits.</summary>
+    internal static string BusyMessage(string home, string detail)
+    {
+        return "something kept its files in " + home + " busy, most likely antivirus checking them."
+            + " Wait a minute, then run it again. (" + detail + ")";
     }
 
     /// <summary>Unpacks every entry under dest, through extended-length paths.</summary>
