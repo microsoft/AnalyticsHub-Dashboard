@@ -27,6 +27,11 @@ comes from and how to fill the gaps; for another org attribute, such as office l
 needs attention** leaves the line out. The installer's data check still gives the real count, and
 warns below 80%.
 
+**Azure: the jobs can collect Agent Evaluator's data.** A new `agentEvaluator` jobs module reads
+Copilot Studio conversation transcripts from Dataverse with the jobs' managed identity, parses them
+as the Fabric notebook does, and publishes the seven Agent Evaluator tables to Azure SQL (migration
+V008). The installer doesn't offer it on Azure yet.
+
 ## Analytics Hub installer 0.6.8-rc.1 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.1 is not published, and 0.6.7 remains Latest.

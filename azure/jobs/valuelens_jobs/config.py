@@ -39,6 +39,15 @@ class Settings:
     workday_allow_base_overwrite: bool = False
     workday_min_match_rate: str = ""
     workday_email_column: str = ""
+    # Agent Evaluator (module agentEvaluator): (url, name) per Dataverse environment, and how transcripts are read.
+    dataverse_environments: tuple = ()
+    transcript_lookback_days: int = 14
+    transcript_first_read_days: int = 180
+    transcript_windows: int = 4
+    transcript_parallel: int = 4
+    transcript_page_size: int = 1000
+    transcript_parse_workers: int = -1
+    transcript_resolve_upns: bool = True
 
     def has(self, module: str) -> bool:
         return module in self.modules
@@ -84,7 +93,49 @@ class Settings:
             workday_allow_base_overwrite=_bool(env, "VALUELENS_WORKDAY_ALLOW_BASE_OVERWRITE", False),
             workday_min_match_rate=(env.get("VALUELENS_WORKDAY_MIN_MATCH_RATE") or "").strip(),
             workday_email_column=(env.get("VALUELENS_WORKDAY_EMAIL_COLUMN") or "").strip(),
+            dataverse_environments=_environments(env.get("VALUELENS_DATAVERSE_ENVIRONMENTS")),
+            transcript_lookback_days=_int(env, "VALUELENS_TRANSCRIPT_LOOKBACK_DAYS", 14),
+            transcript_first_read_days=_int(env, "VALUELENS_TRANSCRIPT_FIRST_READ_DAYS", 180),
+            transcript_windows=_int(env, "VALUELENS_TRANSCRIPT_WINDOWS", 4),
+            transcript_parallel=_int(env, "VALUELENS_TRANSCRIPT_PARALLEL", 4),
+            transcript_page_size=_int(env, "VALUELENS_TRANSCRIPT_PAGE_SIZE", 1000),
+            transcript_parse_workers=_int(env, "VALUELENS_TRANSCRIPT_PARSE_WORKERS", -1),
+            transcript_resolve_upns=_bool(env, "VALUELENS_TRANSCRIPT_RESOLVE_UPNS", True),
         )
+
+
+def _environments(raw) -> tuple:
+    """VALUELENS_DATAVERSE_ENVIRONMENTS: a JSON list of {"url": ..., "name": ...} objects (or of URLs), or
+    comma-separated URLs. Returns (url, name) pairs: URLs without a trailing slash, each environment once."""
+    name = "VALUELENS_DATAVERSE_ENVIRONMENTS"
+    raw = (raw or "").strip()
+    if not raw:
+        return ()
+    if raw[0] in "[{":
+        try:
+            items = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(f"{name} is not valid JSON: {exc}") from exc
+        items = [items] if isinstance(items, dict) else items
+    else:
+        items = raw.split(",")
+    out, seen = [], set()
+    for item in items:
+        if isinstance(item, str):
+            url, label = item, ""
+        elif isinstance(item, dict):
+            url, label = item.get("url") or "", item.get("name") or ""
+        else:
+            raise ValueError(f'{name} must list environment URLs or {{"url": ..., "name": ...}} objects.')
+        url = str(url).strip().rstrip("/")
+        if not url:
+            continue
+        if not url.lower().startswith("https://"):
+            raise ValueError(f"{name}: {url!r} isn't an https:// environment URL.")
+        if url.lower() not in seen:
+            seen.add(url.lower())
+            out.append((url, str(label).strip()))
+    return tuple(out)
 
 
 def _bool(env, name: str, default: bool) -> bool:
