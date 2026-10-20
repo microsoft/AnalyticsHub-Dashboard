@@ -55,6 +55,47 @@ VAR _licensedUsers =
         )
 // Blank rather than 0 when nobody is counted, as COUNTROWS gives.
 VAR _seatsInUse = IF(_licensedUsers > 0, _licensedUsers)
+// Agents In Use asked [Active Agent Users] about each agent, and that tests
+// each user ID with LEN(TRIM()). An agent is in use when its prompts in the
+// agent audience come from more user IDs than blank ones.
+VAR _agents =
+    CALCULATETABLE(
+        ADDCOLUMNS(
+            FILTER(
+                VALUES('Chat + Agent Interactions (Audit Logs)'[AgentName]),
+                LEN(TRIM('Chat + Agent Interactions (Audit Logs)'[AgentName])) > 0
+            ),
+            "@Ids", CALCULATE(DISTINCTCOUNT('Chat + Agent Interactions (Audit Logs)'[Audit_UserId])),
+            "@BlankIds",
+                CALCULATE(
+                    DISTINCTCOUNT('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]),
+                    KEEPFILTERS(_blankIds)
+                )
+        ),
+        KEEPFILTERS(_noSecurityCopilot),
+        KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Agent Filter (Normalized)] = "Agents"),
+        KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Is Prompt Row] = TRUE())
+    )
+// Same people as [All Active Users]: a prompt or a Cowork scheduled run.
+VAR _promptOrCowork =
+    FILTER(
+        ALL(
+            'Chat + Agent Interactions (Audit Logs)'[Is Prompt Row],
+            'Chat + Agent Interactions (Audit Logs)'[Is_Cowork]
+        ),
+        'Chat + Agent Interactions (Audit Logs)'[Is Prompt Row]
+            || 'Chat + Agent Interactions (Audit Logs)'[Is_Cowork]
+    )
+VAR _activeIds =
+    CALCULATE(
+        DISTINCTCOUNT('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]),
+        KEEPFILTERS(_promptOrCowork)
+    )
+        - CALCULATE(
+            DISTINCTCOUNT('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]),
+            KEEPFILTERS(_promptOrCowork),
+            KEEPFILTERS(_blankIds)
+        )
 RETURN
     ROW(
         "Hours", CALCULATE([Expert Equivalent Hours], 'Effort Scenario'[Scenario] = "Typical"),
@@ -84,38 +125,12 @@ RETURN
                 'Effort Scenario'[Scenario] = "Typical",
                 KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Agent Filter (Normalized)] = "Agents")
             ),
-        "Agents In Use",
-            CALCULATE(
-                COUNTROWS(
-                    FILTER(
-                        VALUES('Chat + Agent Interactions (Audit Logs)'[AgentName]),
-                        LEN(TRIM('Chat + Agent Interactions (Audit Logs)'[AgentName])) > 0 && [Active Agent Users] > 0
-                    )
-                ),
-                KEEPFILTERS(_noSecurityCopilot)
-            ),
+        "Agents In Use", COUNTROWS(FILTER(_agents, [@Ids] > [@BlankIds])),
         "Satisfaction", 'ProductFeedback'[Satisfaction Rate],
         "Feedback", 'ProductFeedback'[Total Feedback],
-        // Same people as [All Active Users]: a prompt or a Cowork scheduled run.
+        // This asked each person for their organization, but the audit log never
+        // filters the org table, so everyone got the same answer. Asking once,
+        // and counting the active people less the blank IDs, gives the same number.
         "People With Organization",
-            COUNTROWS(
-                FILTER(
-                    VALUES('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]),
-                    LEN(TRIM('Chat + Agent Interactions (Audit Logs)'[Audit_UserId])) > 0
-                        && CALCULATE(
-                            COUNTROWS('Chat + Agent Interactions (Audit Logs)'),
-                            KEEPFILTERS(
-                                FILTER(
-                                    ALL(
-                                        'Chat + Agent Interactions (Audit Logs)'[Is Prompt Row],
-                                        'Chat + Agent Interactions (Audit Logs)'[Is_Cowork]
-                                    ),
-                                    'Chat + Agent Interactions (Audit Logs)'[Is Prompt Row]
-                                        || 'Chat + Agent Interactions (Audit Logs)'[Is_Cowork]
-                                )
-                            )
-                        ) > 0
-                        && LEN(TRIM(CALCULATE(MAX('Chat + Agent Org Data'[Organization])))) > 0
-                )
-            )
+            IF(_activeIds > 0 && LEN(TRIM(MAX('Chat + Agent Org Data'[Organization]))) > 0, _activeIds)
     )

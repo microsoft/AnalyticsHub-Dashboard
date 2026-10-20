@@ -205,8 +205,8 @@ UPN_Normalized       (lower(trim(UPN)) — dedupe + join key)
 ```
 
 ### 3. `copilot_org_data` — Entra org / people data
-Dashboard normalizes dynamically (UPN/PersonId variants, `Department`→`Organization`) and adds
-`PersonId_Normalized` + `TotalEmployees` if missing.
+Dashboard normalizes dynamically (UPN/PersonId variants, `Department`→`Organization` when there's
+no `Organization` column) and adds `PersonId_Normalized` + `TotalEmployees` if missing.
 
 ```
 id, PersonId, displayName, Organization, JobTitle, companyName,
@@ -219,9 +219,10 @@ officeLocation, city, country, accountEnabled, managerUPN
 **Department coverage.** `Organization` is each person's Entra `department`, so anyone without one
 drops out of every view by organization. The ingester prints, and the Azure `org` job logs,
 "X of Y people have a department". Below 80% it adds how to fill the gaps: set Department in
-Microsoft Entra ID, or add the Workday org data below. The installer's data check reports the same
-count after the first load, and the app's by-organization empty states and **What needs attention**
-say how many people with a task have a department.
+Microsoft Entra ID. The Workday org data below only adds columns, so it doesn't fill in a missing
+department. The installer's data check reports the same count after the first load, and the app's
+by-organization empty states and **What needs attention** say how many people with a task have a
+department.
 
 #### Optional Workday / HRIS enrichment or standalone source
 

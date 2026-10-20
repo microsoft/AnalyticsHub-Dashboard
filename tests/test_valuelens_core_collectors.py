@@ -107,7 +107,7 @@ def test_department_coverage_counts_non_blank_departments_and_advises_when_low()
     assert org.coverage_message(1200, 1500) == "1,200 of 1,500 people have a department"
     low = org.coverage_message(2, 5)
     assert low.startswith("2 of 5 people have a department.")
-    assert "Department on users in Microsoft Entra ID" in low and "Workday" in low
+    assert "Department on users in Microsoft Entra ID" in low and "Workday" not in low
     assert org.coverage_message(0, 0) == "0 of 0 people have a department"
 
 

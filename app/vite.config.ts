@@ -9,6 +9,7 @@ import react from "@vitejs/plugin-react-swc";
 import tailwindcss from "@tailwindcss/vite";
 import { defineConfig, type PluginOption } from "vite";
 import license from "rollup-plugin-license";
+import { preloadStartUp } from "./vite-plugins/preload-start-up.ts";
 
 import { resolve } from 'path';
 
@@ -47,6 +48,12 @@ export default defineConfig({
         react(),
         tailwindcss(),
         localNetworkAccessPlugin,
+        // main.tsx imports the root once the runtime config has loaded, and every
+        // open lands on the Executive summary (App.tsx's default screen). Listing
+        // both chunk groups in index.html lets the browser download them alongside
+        // the entry and the config files instead of after them. They still run only
+        // when imported. Paths are from the project root.
+        preloadStartUp(["src/root.tsx", "src/screens/executive/index.tsx"]),
     ],
     resolve: {
         alias: {

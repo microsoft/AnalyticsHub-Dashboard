@@ -8,18 +8,18 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { azureDeployment } from '../src/steps/azure/index.js';
-import { validateArmTemplate } from './arm-expressions.js';
+import { armEvaluator, RUNTIME_FUNCTIONS, validateArmTemplate } from './arm-expressions.js';
 import { fakeCtx } from './fakes.js';
 
 const TEMPLATE = JSON.parse(readFileSync(new URL('../src/azure/main.arm.json', import.meta.url), 'utf8'));
 const SCOPE = { subscriptionId: '11111111-1111-1111-1111-111111111111', resourceGroup: 'rg-analytics-hub' };
 
-/** @param {(az: any) => void} [tweak] @param {1 | 2} [pass] */
+/** @param {(az: any, config: any) => void} [tweak] @param {1 | 2} [pass] */
 async function installerParameters(tweak, pass = 1) {
   const { ctx, config } = fakeCtx();
   config.target = 'azure';
   config.azure = { subscriptionId: SCOPE.subscriptionId, resourceGroup: SCOPE.resourceGroup, location: 'uksouth', namePrefix: 'vlens', installId: '7d1c0f3e-2a55-4f7b-9a0e-3c1d2b4e5f60', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] } };
-  tweak?.(config.azure);
+  tweak?.(config.azure, config);
   return (await azureDeployment(ctx, { pass })).properties.parameters;
 }
 
@@ -107,6 +107,47 @@ test('no SQL firewall rule deploys when public access is off (private, or forced
   assert.equal(rules[0].passes.publicNetworkAccess.value, "[parameters('publicNetworkAccess')]");
   assert.equal((await installerParameters((az) => (az.publicNetworkAccess = false))).publicNetworkAccess.value, 'Disabled');
   assert.equal((await installerParameters()).publicNetworkAccess.value, 'Enabled');
+});
+
+/**
+ * The env of each Container Apps container (run, migrate and web), evaluated with the parameters the installer sends.
+ * @param {Record<string, { value: any }>} params
+ */
+function containerEnv(params) {
+  const outer = armEvaluator(TEMPLATE, params, SCOPE);
+  const mod = TEMPLATE.resources.find((/** @type {any} */ r) => r.name === 'vl-containerapps');
+  // Values only known while deploying, such as the managed identity's client id, get a stand-in.
+  const inner = Object.fromEntries(Object.entries(mod.properties.parameters).map(([k, v]) => [k, RUNTIME_FUNCTIONS.test(JSON.stringify(v)) ? { value: 'runtime' } : outer.evalValue(v)]));
+  const ev = armEvaluator(mod.properties.template, inner, SCOPE);
+  /** @type {Record<string, Record<string, unknown>>} */
+  const env = {};
+  for (const r of Object.values(mod.properties.template.resources)) {
+    for (const c of r.properties?.template?.containers ?? []) env[c.name] = Object.fromEntries(ev.evalValue(c.env).map((/** @type {any} */ e) => [e.name, e.value]));
+  }
+  return env;
+}
+
+test('the web app gets the modules the installer turns on (VALUELENS_MODULES), as both jobs do', async () => {
+  // The web app serves them to the app as `modules`, so it skips the checks for modules that are off.
+  const byDefault = await installerParameters();
+  assert.equal(byDefault.modules.value, 'core,orgData,m365Activity');
+  const allOn = (/** @type {any} */ az, /** @type {any} */ config) => {
+    Object.assign(config.modules, { agent365: true, productFeedback: true, consumption: true, defender: true });
+    config.dataSources.resourceGraph = 'api';
+  };
+  const full = await installerParameters(allOn);
+  assert.equal(full.modules.value, 'core,orgData,m365Activity,agent365,productFeedback,consumption,defender,resourceGraph');
+  // Sample data deploys no Consumption model and reads nothing from Resource Graph.
+  const sample = await installerParameters((az, config) => {
+    allOn(az, config);
+    az.sampleData = true;
+  });
+  assert.equal(sample.modules.value, 'core,orgData,m365Activity,agent365,productFeedback,defender');
+  for (const params of [byDefault, full, sample]) {
+    const env = containerEnv(params);
+    assert.deepEqual(Object.keys(env).sort(), ['migrate', 'run', 'web']);
+    for (const [name, vars] of Object.entries(env)) assert.equal(vars.VALUELENS_MODULES, params.modules.value, `${name}: ${params.modules.value}`);
+  }
 });
 
 test('the template validates with only its required parameters (Deploy to Azure / az CLI)', () => {

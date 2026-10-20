@@ -254,7 +254,7 @@ The job reads its settings from environment variables. Bicep sets them.
 | `VALUELENS_TENANT_ID` | The customer tenant |
 | `VALUELENS_STORAGE_ACCOUNT` | The ADLS Gen2 account (containers `raw`, `curated`, `landing`) |
 | `VALUELENS_SQL_SERVER`, `VALUELENS_SQL_DATABASE` | The Azure SQL target. Auth is Entra-only, with an access token. |
-| `VALUELENS_MODULES` | A comma list such as `core,orgData,m365Activity,agent365,productFeedback,consumption,defender,resourceGraph`. The default is `core,orgData`. |
+| `VALUELENS_MODULES` | A comma list such as `core,orgData,m365Activity,agent365,productFeedback,consumption,defender,resourceGraph`. The default is `core,orgData`. The web app gets the same list and tells the app which modules are off. |
 | `VALUELENS_ARG_MANAGEMENT_GROUP` | resourceGraph: the management group Resource Graph reads. Empty reads everything the identity can see. |
 | `VALUELENS_ARG_AGENTS`, `VALUELENS_ARG_FOUNDRY` | resourceGraph: `false` turns off the agent or Foundry probes. Both default to `true`. |
 | `VALUELENS_AZURE_AI_SUBSCRIPTION` | consumption: the subscription for Azure OpenAI / AI Foundry costs and metrics. When it is empty, Azure AI and pay-as-you-go are skipped. |

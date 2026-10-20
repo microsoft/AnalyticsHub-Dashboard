@@ -69,11 +69,32 @@ the same places as the Agent 365 export. After each Entra ID load, each run adds
 columns to `dbo.copilot_org_data`, matched on Primary Work Email, with the Fabric notebook's rules
 and checks. See [Workday org data](azure/README.md#workday-org-data).
 
+**Azure: the app skips the checks for modules that are off.** The web app now gets
+`VALUELENS_MODULES`, the list of modules the installer turned on, which only the jobs had before,
+and serves it in `/app.config.json` as `modules`, as `fabric.config.json` does on Fabric. When it
+opens, the app no longer runs those modules' checks (up to five small queries, and Governance's
+Resource Graph summary), and Governance says the Agent 365 registry or Defender isn't turned on,
+instead of how to connect it. The data doesn't change: an off module's tables were already empty,
+so its pages were already hidden. An Azure install gets this at its next **Update** or **Repair or
+change**; until then the app checks every source, as before. See [web](azure/web/README.md#routes).
+
 **Power BI model: faster active-user counts.** In both Fabric templates, and so in the Azure model
 built from them, `[All Active Users]` and `[Active Licensed Users]` now take one distinct count
 instead of testing each user, as in
 [ValueLens #199](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/pull/199). Adoption
 and the Executive summary should load sooner. The numbers don't change.
+
+**Power BI model: a Workday `Department` column no longer fails the refresh.** The org query
+renamed `Department` to `Organization` even when the org data already had an `Organization`
+column, so a Workday export with a `Department` column failed the refresh. Now it renames
+`Department` only when there's no `Organization` column, and leaves `Organization` as it is: a
+blank one isn't filled in from `Department`. The fix is in both Fabric templates and the Agent
+Evaluator template, and so in the Azure model built from them.
+
+**Workday org data only adds columns, and the wording now says so.** The installer said it adds or
+overrides org fields, and the installer, the org data load, the app and the docs suggested it when
+few people have a department. It only adds the columns the org data doesn't have, so it doesn't
+fill in a missing department. The advice now just says to fill in Department in Microsoft Entra ID.
 
 **Azure: sizing for a tenant with more than 10,000 Copilot seats.** Smaller tenants are asked
 nothing new and deploy as before.
@@ -187,6 +208,18 @@ Azure installs load their config as before.
   consumption with Fabric source by source, says why the Viva Insights Dataflow, `--flow-identity app`
   and installer uploads are Fabric only for now, and gives the steps to compare the two Consumption
   Central models with `parity.mjs`.
+
+**App: start-up code now downloads while the config loads.** The page now tells the browser to
+fetch the code for the app, and for the Executive summary it opens on, straight away. Before, the
+app asked for that code only after its config arrived. The code still runs only after that. Each
+build takes the list from its own imports, so the list keeps up as the code changes.
+
+**App: the Executive summary's headline figures no longer wait for the task times saved in the
+app.** They're asked with the page's first query, and asked again only if saved times change them.
+
+**App: a quicker Executive summary.** It now counts the agents in use, and the people with an
+organization, all at once rather than one agent or person at a time. The figures, and what the
+Fabric data agent is told about them, don't change.
 
 ## 2026-10-19 — Analytics Hub installer 0.6.7
 

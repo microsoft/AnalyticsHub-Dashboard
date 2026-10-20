@@ -27,6 +27,22 @@ test('app.config.json carries the reporting currency chosen at install', async (
   } finally { server.close(); }
 });
 
+test('app.config.json says which modules are on, from VALUELENS_MODULES, and leaves them out without it', async () => {
+  const cases = [
+    ['core,orgData,m365Activity,defender', { m365Activity: true, agent365: false, productFeedback: false, consumption: false, agentEvaluator: false, defender: true, resourceGraph: false }],
+    [undefined, undefined],
+    ['', undefined],
+  ];
+  for (const [value, expected] of cases) {
+    const { server, baseUrl } = await startTestServer({ config: { modules: loadConfig({ VALUELENS_MODULES: value }).modules } });
+    try {
+      const body = await (await request(baseUrl, '/app.config.json')).json();
+      assert.equal('modules' in body, expected !== undefined, JSON.stringify(value));
+      assert.deepEqual(body.modules, expected);
+    } finally { server.close(); }
+  }
+});
+
 test('auth returns 401 for missing or invalid tokens and 403 for missing roles', async () => {
   const { server, baseUrl } = await startTestServer();
   try {

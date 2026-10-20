@@ -94,9 +94,10 @@ var commonEnv = [
   { name: 'VALUELENS_VERSION', value: version }
   { name: 'VALUELENS_POWERBI_WORKSPACE_ID', value: powerBiWorkspaceId }
   { name: 'VALUELENS_SEMANTIC_MODELS', value: semanticModels }
+  // The jobs load these modules; the web app tells the app which are off, so it skips their checks.
+  { name: 'VALUELENS_MODULES', value: modules }
 ]
 var jobEnv = concat(commonEnv, [
-  { name: 'VALUELENS_MODULES', value: modules }
   { name: 'VALUELENS_AUDIT_HISTORY_DAYS', value: string(auditHistoryDays) }
   { name: 'VALUELENS_SQL_READER_NAME', value: sqlReaderName }
   { name: 'VALUELENS_SQL_READER_CLIENT_ID', value: sqlReaderClientId }

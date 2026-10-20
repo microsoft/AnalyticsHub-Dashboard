@@ -505,7 +505,7 @@ function printDepartmentCoverage(ctx, people, withDepartment) {
   }
   ui.warn(line);
   ui.note('Views by department leave out everyone without one. Fill in Department on users in Microsoft Entra ID');
-  ui.note('(or the HR system that feeds it), or add the Workday org data source from "Repair or change". The next pipeline run picks it up.');
+  ui.note('(or the HR system that feeds it). The next pipeline run picks it up.');
 }
 
 /**

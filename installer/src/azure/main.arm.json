@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.47.16.16243",
-      "templateHash": "749734417960842937"
+      "templateHash": "6818260149208572806"
     }
   },
   "parameters": {
@@ -1720,7 +1720,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.47.16.16243",
-              "templateHash": "16130129418597659368"
+              "templateHash": "7715614686506984579"
             }
           },
           "parameters": {
@@ -1928,9 +1928,13 @@
               {
                 "name": "VALUELENS_SEMANTIC_MODELS",
                 "value": "[parameters('semanticModels')]"
+              },
+              {
+                "name": "VALUELENS_MODULES",
+                "value": "[parameters('modules')]"
               }
             ],
-            "jobEnv": "[concat(variables('commonEnv'), createArray(createObject('name', 'VALUELENS_MODULES', 'value', parameters('modules')), createObject('name', 'VALUELENS_AUDIT_HISTORY_DAYS', 'value', string(parameters('auditHistoryDays'))), createObject('name', 'VALUELENS_SQL_READER_NAME', 'value', parameters('sqlReaderName')), createObject('name', 'VALUELENS_SQL_READER_CLIENT_ID', 'value', parameters('sqlReaderClientId')), createObject('name', 'VALUELENS_SAMPLE_DATA', 'value', if(parameters('sampleData'), 'true', 'false')), createObject('name', 'VALUELENS_AZURE_AI_SUBSCRIPTION', 'value', parameters('azureAiSubscriptionId')), createObject('name', 'VALUELENS_PAYG_SUBSCRIPTIONS', 'value', parameters('paygSubscriptionIds')), createObject('name', 'VALUELENS_DROP_SITE_ID', 'value', parameters('dropSiteId')), createObject('name', 'VALUELENS_DROP_DRIVE_ID', 'value', parameters('dropDriveId')), createObject('name', 'VALUELENS_DROP_FOLDER', 'value', parameters('dropFolder')), createObject('name', 'VALUELENS_ARG_MANAGEMENT_GROUP', 'value', parameters('argManagementGroup')), createObject('name', 'VALUELENS_ARG_AGENTS', 'value', if(parameters('argAgents'), 'true', 'false')), createObject('name', 'VALUELENS_ARG_FOUNDRY', 'value', if(parameters('argFoundry'), 'true', 'false')), createObject('name', 'VALUELENS_WORKDAY_OUTPUT_TABLE', 'value', parameters('workdayOutputTable')), createObject('name', 'VALUELENS_WORKDAY_ALLOW_BASE_OVERWRITE', 'value', if(parameters('workdayAllowBaseOverwrite'), 'true', 'false'))))]",
+            "jobEnv": "[concat(variables('commonEnv'), createArray(createObject('name', 'VALUELENS_AUDIT_HISTORY_DAYS', 'value', string(parameters('auditHistoryDays'))), createObject('name', 'VALUELENS_SQL_READER_NAME', 'value', parameters('sqlReaderName')), createObject('name', 'VALUELENS_SQL_READER_CLIENT_ID', 'value', parameters('sqlReaderClientId')), createObject('name', 'VALUELENS_SAMPLE_DATA', 'value', if(parameters('sampleData'), 'true', 'false')), createObject('name', 'VALUELENS_AZURE_AI_SUBSCRIPTION', 'value', parameters('azureAiSubscriptionId')), createObject('name', 'VALUELENS_PAYG_SUBSCRIPTIONS', 'value', parameters('paygSubscriptionIds')), createObject('name', 'VALUELENS_DROP_SITE_ID', 'value', parameters('dropSiteId')), createObject('name', 'VALUELENS_DROP_DRIVE_ID', 'value', parameters('dropDriveId')), createObject('name', 'VALUELENS_DROP_FOLDER', 'value', parameters('dropFolder')), createObject('name', 'VALUELENS_ARG_MANAGEMENT_GROUP', 'value', parameters('argManagementGroup')), createObject('name', 'VALUELENS_ARG_AGENTS', 'value', if(parameters('argAgents'), 'true', 'false')), createObject('name', 'VALUELENS_ARG_FOUNDRY', 'value', if(parameters('argFoundry'), 'true', 'false')), createObject('name', 'VALUELENS_WORKDAY_OUTPUT_TABLE', 'value', parameters('workdayOutputTable')), createObject('name', 'VALUELENS_WORKDAY_ALLOW_BASE_OVERWRITE', 'value', if(parameters('workdayAllowBaseOverwrite'), 'true', 'false'))))]",
             "registries": "[if(empty(parameters('registryServer')), createArray(), createArray(createObject('server', parameters('registryServer'), 'identity', parameters('identityId'))))]",
             "identity": {
               "type": "UserAssigned",

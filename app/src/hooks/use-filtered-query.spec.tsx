@@ -11,15 +11,23 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CONSUMPTION_COWORK, REGISTRY } from "@/lib/filter-profiles";
 import { defaultFilters, type FilterKey, type FilterState } from "@/lib/filters";
 import { DEFAULT_ORG_ATTRIBUTE, describeOrgAttribute } from "@/lib/org-attribute";
+import type { SavedTaskTime } from "@/lib/settings-store";
+import { connection as valueLens } from "@/queries/shared";
 import { FilterContext } from "./filter.context";
-import { useFilteredQuery } from "./use-filtered-query";
+import { PrefetchContext } from "./prefetch.context";
+import { TaskTimesContext, type TaskTimesContextValue } from "./task-times.context";
+import { useFilteredQuery, type FilteredQueryConfig } from "./use-filtered-query";
 
 const queries = vi.hoisted(() => [] as string[]);
+const speculated = vi.hoisted(() => [] as string[]);
 
 vi.mock("./use-semantic-model-query", () => ({
     useSemanticModelQuery: ({ query }: { query: string }) => {
         queries.push(query);
         return { data: undefined, isLoading: false, refetch: () => undefined };
+    },
+    useSpeculativeQuery: ({ query }: { query: string }) => {
+        speculated.push(query);
     },
 }));
 
@@ -97,5 +105,65 @@ describe("useFilteredQuery", () => {
 
         expect(lastQuery()).toContain("'Agents 365'[Agent name]");
         expect(lastQuery()).toContain("'Agents 365'[Status] = \"Live\"");
+    });
+});
+
+describe("useFilteredQuery, while the saved task times load", () => {
+    const HOURS = { connection: valueLens, query: 'EVALUATE ROW("Hours", [Expert Equivalent Hours])' };
+    const SAVED: readonly SavedTaskTime[] = [{ task: "Summarise a meeting", low: 5, typical: 10, high: 20 }];
+    const lastSpeculated = () => speculated[speculated.length - 1];
+
+    function open(config: FilteredQueryConfig, status: TaskTimesContextValue["status"], saved: readonly SavedTaskTime[] = [], prefetch = false) {
+        const Filters = wrapper(["organizations"]);
+        return renderHook(() => useFilteredQuery(config), {
+            wrapper: ({ children }: { children: ReactNode }) => (
+                <PrefetchContext.Provider value={prefetch}>
+                    <TaskTimesContext.Provider value={{ status, saved, save: () => Promise.resolve() }}>
+                        <Filters>{children}</Filters>
+                    </TaskTimesContext.Provider>
+                </PrefetchContext.Provider>
+            ),
+        });
+    }
+
+    beforeEach(() => {
+        queries.length = 0;
+        speculated.length = 0;
+    });
+
+    it("asks a query that may speculate at the model's own minutes, filtered just as the card asks it once none turn out saved", () => {
+        const { result } = open({ ...HOURS, speculate: true }, "loading");
+        expect(lastQuery()).toBe("");
+        expect(result.current.isLoading).toBe(true);
+        const early = lastSpeculated();
+        expect(early).toContain("CALCULATETABLE(");
+        expect(early).toContain("[Expert Equivalent Hours]");
+
+        open({ ...HOURS, speculate: true }, "ready");
+        expect(lastQuery()).toBe(early);
+        expect(lastSpeculated()).toBe("");
+
+        open({ ...HOURS, speculate: true }, "unavailable");
+        expect(lastQuery()).toBe(early);
+    });
+
+    it("leaves the card to ask again at the times saved, which the early query wasn't", () => {
+        open({ ...HOURS, speculate: true }, "loading");
+        const early = lastSpeculated();
+
+        open({ ...HOURS, speculate: true }, "ready", SAVED);
+        expect(lastQuery()).not.toBe(early);
+        expect(lastQuery()).toContain('"Summarise a meeting"');
+        expect(lastSpeculated()).toBe("");
+    });
+
+    it("doesn't speculate unless asked to, while a page is fetched ahead, or for a query the task times don't change", () => {
+        open(HOURS, "loading");
+        open({ ...HOURS, speculate: true }, "loading", [], true);
+        open({ connection: valueLens, query: "EVALUATE 'Agents 365'", speculate: true }, "loading");
+        open({ ...COWORK, speculate: true }, "loading");
+
+        expect(speculated.length).toBeGreaterThan(0);
+        expect(speculated.every((query) => query === "")).toBe(true);
     });
 });

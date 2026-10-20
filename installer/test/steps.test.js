@@ -950,7 +950,7 @@ test('printDataCheck reports how many people in the org data have a department',
   printDataCheck(fakeCtx({ ui: low.ui }).ctx, { tables: { org: { rows: 1200, withDepartment: 300 } } });
   assert.match(low.text(), /! Org data: 300 of 1,200 people have a department/);
   assert.match(low.text(), /Fill in Department on users in Microsoft Entra ID/);
-  assert.match(low.text(), /Workday org data source/);
+  assert.doesNotMatch(low.text(), /Workday/);
 
   const old = fakeUi();
   printDataCheck(fakeCtx({ ui: old.ui }).ctx, { tables: { org: { rows: 1200 } } });

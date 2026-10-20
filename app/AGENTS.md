@@ -16,6 +16,7 @@ For example, when building a new dashboard page: a sub-agent finds the semantic 
 fabric.yaml                # Fabric connection config (managed by `npx fabric-app-data`)
 index.html                 # Vite entry HTML
 vite.config.ts             # Vite + Tailwind build config
+vite-plugins/              # Build-time Vite plugins (start-up modulepreload links)
 tsconfig.json              # TypeScript configuration
 src/
 ├── fabric.generated.ts    # Auto-generated from fabric.yaml — connection aliases → workspace/item IDs
