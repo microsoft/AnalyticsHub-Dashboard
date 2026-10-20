@@ -12,7 +12,8 @@ ADLS account in VALUELENS_STORAGE_ACCOUNT with its managed identity.
 Data layout (same under a local directory or the ADLS account; first segment = container):
     raw/copilot_interactions_parsed/day-YYYYMMDD.parquet
     raw/copilot_licensed_users/part-0.parquet
-    raw/copilot_org_data/part-0.parquet
+    raw/copilot_org_data/part-0.parquet                        (data source workday may add its columns in place)
+    raw/copilot_org_data_workday_preview/part-0.parquet        (data source workday: the enriched copy to review)
     raw/m365_activity_daily/day-YYYYMMDD.parquet
     raw/defender_*/...                                         (module defender, optional)
     landing/defender/ai_watchlist.csv                          (module defender: the AI watchlist, admin-edited)
@@ -25,6 +26,7 @@ Data layout (same under a local directory or the ADLS account; first segment = c
     landing/studio/*.csv, landing/viva/*.csv                   (consumption drop folder, read only)
     landing/agent365/*.csv                                     (module agent365 drop folder, read only)
     landing/product_feedback/*.csv                             (module productFeedback drop folder, read only)
+    landing/workday/*.csv                                      (data source workday drop folder, read only)
 """
 from __future__ import annotations
 
@@ -250,6 +252,11 @@ def collect(store, settings, api=None) -> dict:
         jobs += [("licensed", collect_licensed), ("audit", collect_audit)]
     if settings.has("orgData"):
         jobs.append(("org", collect_org))
+        if settings.has("workday"):
+            # After org, whatever its outcome, as the Fabric pipeline runs the Workday notebook.
+            from .collect.workday import collect_workday
+
+            jobs.append(("workday", collect_workday))
     if settings.has("m365Activity"):
         jobs.append(("m365", collect_m365))
     if settings.has("defender"):
@@ -307,6 +314,11 @@ def publish_targets(settings) -> list[str]:
         targets += ["curated", "licensed"]
     if settings.has("orgData"):
         targets.append("org")
+        if settings.has("workday"):
+            from .collect.workday import writes_preview
+
+            if writes_preview(settings):
+                targets.append("copilot_org_data_workday_preview")
     if settings.has("m365Activity"):
         targets.append("m365")
     if settings.has("defender"):

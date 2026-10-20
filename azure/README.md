@@ -9,8 +9,8 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
 > **Status.** The installer deploys it end to end: Azure SQL, the Container Apps jobs, the Power BI
 > models, the web app, and a Teams app it publishes to your org's app catalog. It collects Copilot interactions, licences and org data, Microsoft
 > 365 activity, credit consumption (Copilot Studio, Cowork, Azure AI and pay-as-you-go), and optionally
-> Defender shadow AI and agent risk, the Agent 365 registry and product feedback (both from their CSV
-> exports). The other modules are coming. Try it in a demo or test tenant first.
+> Defender shadow AI and agent risk, the Agent 365 registry, product feedback and Workday org data (all
+> from their CSV exports). The other modules are coming. Try it in a demo or test tenant first.
 
 ## Install it
 
@@ -213,6 +213,50 @@ Good to know:
 - Demo mode doesn't load the product feedback sample.
 - Uninstalling leaves the SharePoint folder and its files alone.
 
+## Workday org data
+
+Workday org data adds what Workday knows about people, such as their job profile or worker type, to
+the org data, as on Fabric. It's a data source that comes with org data, not a module: under the
+advanced settings, answer **Upload a CSV export** to **Workday org data?**, or use
+`--data workday=csv`.
+
+1. In Workday, run a report of active workers that includes **Primary Work Email**, then export it
+   to CSV. If you save it from Excel, choose **CSV UTF-8**.
+2. Drop the CSV where the jobs read it, as for the Agent 365 export:
+   - **Public endpoints:** `workday/` in the storage account's `landing` container. The installer
+     gives you **Storage Blob Data Contributor** on the account, so you can upload it.
+   - **Private networking:** a `workday` folder in the SharePoint folder you give the installer. The
+     jobs' managed identity needs **Sites.Selected** with read on that site. The installer grants it
+     if you're a SharePoint or Global administrator; otherwise it prints the command for one.
+3. Each run loads the Entra ID org data, then adds the newest CSV in that folder to it in
+   `dbo.copilot_org_data`. The jobs don't move or delete the files, and with no CSV the org data is
+   what Entra ID gave.
+
+It follows the rules of the Fabric notebook (see the
+[data dictionary](../docs/DATA-DICTIONARY.md#optional-workday--hris-enrichment-or-standalone-source)):
+
+- People are matched on Primary Work Email to their user principal name. The export adds the
+  columns the org data doesn't have. The columns it has keep Entra ID's values, even blank ones, so
+  the export doesn't fill in a missing department. People only in Workday are left out.
+- As on Fabric, the model reads the export's `Function` and `Location` columns when it has them.
+  The other columns are in Azure SQL for your own reports.
+- An export with no rows, a blank Primary Work Email, two different rows for one email, or fewer
+  than half its people matched fails the step. The org data is then what Entra ID gave, and the
+  rest of the run still publishes.
+
+Good to know:
+
+- Each run reads only the newest export. On Fabric, every file in the folder is combined.
+- A file that isn't UTF-8 fails the step. Column names longer than 128 characters can't be Azure
+  SQL columns, so they're dropped with a warning.
+- If the Entra ID load fails, the export is added to the last org data, which already has its
+  Workday columns, so they keep their values. A newer export shows after the next good load.
+- Leaving Workday out later keeps its columns in Azure SQL, empty from the next run.
+- The match threshold and the other settings are in [the jobs' settings](jobs/README.md#settings).
+- **Upload exports**, `upload` and `--csv` in the installer are Fabric only for now.
+- Demo mode doesn't load a Workday sample.
+- Uninstalling leaves the SharePoint folder and its files alone.
+
 ## Ask
 
 The app's **Ask** page answers questions about the dashboard in plain language, inline. The web app's
@@ -312,7 +356,7 @@ ARM can't do these, so the installer:
 - Create or find the viewer group, give it Build on the models, and pass it to the web app as `VALUELENS_ACCESS`.
 - With credit consumption: the managed identity's Cost Management and Azure AI roles, write access to
   where the credit files land, the Consumption Central model, and the Copilot Studio Power Automate flow.
-- With the Agent 365 registry or product feedback: write access to the `landing` container for you,
-  or, with private networking, read on the SharePoint site for the managed identity.
+- With the Agent 365 registry, product feedback or Workday org data: write access to the `landing`
+  container for you, or, with private networking, read on the SharePoint site for the managed identity.
 
 To do them by hand, see [Azure, by hand](../docs/MANUAL-INSTALL.md#azure).

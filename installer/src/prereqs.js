@@ -64,6 +64,7 @@ const AZURE_ROLE_NAMES = {
   [ROLES.owner]: 'Owner',
   [ROLES.contributor]: 'Contributor',
   [ROLES.userAccessAdministrator]: 'User Access Administrator',
+  [ROLES.rbacAdministrator]: 'Role Based Access Control Administrator',
 };
 
 /** @param {any} err */
@@ -85,6 +86,41 @@ export function azureAccess(perms) {
     create: allowsAction(perms, 'Microsoft.Resources/subscriptions/resourceGroups/write') && allowsAction(perms, 'Microsoft.Resources/deployments/write'),
     assign: allowsAction(perms, 'Microsoft.Authorization/roleAssignments/write'),
   };
+}
+
+/** The resource group row's verdict, leading the Azure access detail. */
+const RESOURCE_GROUP_VERDICT = { met: 'enough to install there.', eligible: 'activate your role first.', missing: 'not enough to install there.', unknown: 'couldn\'t check.' };
+
+/**
+ * What the user can do in the existing resource group they picked. Deploying and assigning roles there
+ * is enough to install, whether it comes from the subscription or from roles on just that group.
+ * @param {import('./install.js').Apis} api
+ * @param {string} subscriptionId
+ * @param {string} resourceGroup
+ * @param {string[]} ids  The user's ID, then their groups'.
+ * @returns {Promise<{ name: string, status: PrereqStatus, detail: string }>}
+ */
+async function resourceGroupAccess(api, subscriptionId, resourceGroup, ids) {
+  const scope = `/subscriptions/${subscriptionId}/resourceGroups/${resourceGroup}`;
+  const name = `Resource group ${resourceGroup}`;
+  /** @param {{ properties: { roleDefinitionId: string } }[]} list */
+  const roleNames = (list) => [...new Set(list.map((a) => AZURE_ROLE_NAMES[roleGuid(a.properties.roleDefinitionId)]).filter(Boolean))];
+  try {
+    const perms = await api.arm.permissions(scope);
+    const deploy = allowsAction(perms, 'Microsoft.Resources/deployments/write');
+    const assign = allowsAction(perms, 'Microsoft.Authorization/roleAssignments/write');
+    const names = roleNames(await api.arm.myRoleAssignments(scope, ids).catch(() => []));
+    const has = names.length ? ` (${names.join(', ')})` : '';
+    if (deploy && assign) return { name, status: 'met', detail: `Can deploy and assign roles in this resource group${has}` };
+    const eligNames = roleNames(await api.arm.myEligibleRoles(scope, ids).catch(() => []));
+    if (eligNames.length) return { name, status: 'eligible', detail: `Not active yet: ${eligNames.join(', ')}. You can activate it in Privileged Identity Management.` };
+    const lacks = deploy
+      ? 'Can deploy here but not assign roles (no Role Based Access Control Administrator or User Access Administrator)'
+      : assign ? 'Can assign roles here but not deploy (no Contributor)' : 'Can\'t deploy or assign roles in this resource group';
+    return { name, status: 'missing', detail: `${lacks}${has}` };
+  } catch (err) {
+    return { name, status: 'unknown', detail: `Couldn't check: ${why(err)}` };
+  }
 }
 
 /**
@@ -145,7 +181,7 @@ export async function checkPrereqs(ctx) {
       return { status: 'missing', detail: `You don't have ${Object.values(wanted).join(' or ')} active.${elig ? '' : ' Couldn\'t check for roles you could activate yourself.'}` };
     });
 
-  /** Owner, or Contributor plus User Access Administrator, per subscription. */
+  /** Owner, or Contributor plus User Access Administrator, per subscription; and in the existing resource group picked, which least privilege covers. */
   const azureRbac = guard(
     {
       id: 'azure-rbac',
@@ -153,12 +189,19 @@ export async function checkPrereqs(ctx) {
       neededFor: azure
         ? 'The Azure target creates its resource group, SQL database, container jobs and role assignments.'
         : 'Creating the Key Vault for the app secret, and the Azure role assignments for credit consumption.',
-      howTo: 'Ask a subscription owner for Owner, or for Contributor and User Access Administrator, on the subscription you\'ll use.',
+      howTo: `Ask a subscription owner for Owner, or for Contributor and User Access Administrator, on the subscription you'll use.${azure ? ' Or, for least privilege, ask your Azure admin to create the resource group and give you Contributor and a condition-limited Role Based Access Control Administrator on just that group (docs/AZURE-LEAST-PRIVILEGE.md).' : ''}`,
       optional: !azure,
     },
     async () => {
-      const list = await subs;
+      const az = config.azure;
+      const rgName = azure && az?.resourceGroupMode === 'existing' && az.subscriptionId ? az.resourceGroup : undefined;
+      const ids = [user.id, ...(await groups)];
+      const rgRow = rgName ? await resourceGroupAccess(api, /** @type {string} */ (az?.subscriptionId), rgName, ids) : undefined;
+      /** @param {string} rest */
+      const withGroup = (rest) => (rgRow ? `Resource group ${rgName}: ${RESOURCE_GROUP_VERDICT[rgRow.status]}${rest ? ` Subscription-wide, ${rest}` : ''}` : rest);
+      const list = rgRow ? await subs.catch(() => []) : await subs;
       if (!list.length) {
+        if (rgRow) return { status: rgRow.status, detail: withGroup(''), rows: [rgRow] };
         return {
           status: 'missing',
           detail: 'No enabled Azure subscription you can see.',
@@ -167,7 +210,6 @@ export async function checkPrereqs(ctx) {
       }
       const first = config.azure?.subscriptionId ?? config.keyVault.subscriptionId;
       const ordered = [...list].sort((a, b) => Number(b.subscriptionId === first) - Number(a.subscriptionId === first));
-      const ids = [user.id, ...(await groups)];
       const rows = await Promise.all(ordered.slice(0, MAX_SUBSCRIPTIONS).map(async (s) => {
         const scope = `/subscriptions/${s.subscriptionId}`;
         const name = s.displayName ?? s.subscriptionId;
@@ -189,7 +231,10 @@ export async function checkPrereqs(ctx) {
       const status = /** @type {PrereqStatus} */ (['met', 'eligible', 'missing', 'unknown'].find((st) => rows.some((r) => r.status === st)) ?? 'unknown');
       const met = rows.filter((r) => r.status === 'met').length;
       const more = list.length > MAX_SUBSCRIPTIONS ? ` Checked the first ${MAX_SUBSCRIPTIONS} of ${list.length}.` : '';
-      return { status, detail: `${met} of ${rows.length} ${rows.length === 1 ? 'subscription' : 'subscriptions'} give you this.${more}`, rows };
+      const detail = withGroup(`${met} of ${rows.length} ${rows.length === 1 ? 'subscription' : 'subscriptions'} give you this.${more}`);
+      // The resource group picked decides, unless it couldn't be checked.
+      if (rgRow) return { status: rgRow.status === 'unknown' ? status : rgRow.status, detail, rows: [rgRow, ...rows] };
+      return { status, detail, rows };
     },
   );
 

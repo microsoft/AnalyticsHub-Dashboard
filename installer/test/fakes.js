@@ -510,6 +510,8 @@ export function fakeArm() {
   const jobTemplates = [];
   /** @type {Record<string, Error[]>} */
   const failures = {};
+  /** The signed-in user's ARM permissions by scope. Anything not listed allows everything. @type {Record<string, { actions?: string[], notActions?: string[] }[]>} */
+  const perms = {};
   const offered = (/** @type {string} */ name = 'gpt-5-mini', /** @type {string} */ version = '2025-08-07') => ({ kind: 'AIServices', model: { name, version, skus: [{ name: 'GlobalStandard' }, { name: 'DataZoneStandard' }] } });
   /** Azure AI: models and quota by region ('*' = any), accounts, and deployments by account ID. */
   const ai = {
@@ -570,11 +572,18 @@ export function fakeArm() {
     },
     ensureProvider: async (/** @type {string} */ _sub, /** @type {string} */ ns) => {
       calls.push(`ensureProvider ${ns}`);
+      fail('ensureProvider');
       return false;
     },
     ensureFeature: async (/** @type {string} */ _sub, /** @type {string} */ ns, /** @type {string} */ name) => {
       calls.push(`ensureFeature ${ns}/${name}`);
+      fail('ensureFeature');
       return false;
+    },
+    permissions: async (/** @type {string} */ scope) => {
+      calls.push(`permissions ${scope}`);
+      fail('permissions');
+      return perms[scope] ?? [{ actions: ['*'], notActions: [] }];
     },
     validateDeployment: async () => {
       calls.push('validateDeployment');
@@ -646,7 +655,7 @@ export function fakeArm() {
       calls.push(`deleteResource ${id}`);
     },
   };
-  return { api, calls, resources, groups, executions, jobTemplates, failures, restrictedSqlRegions, ai, regions };
+  return { api, calls, resources, groups, executions, jobTemplates, failures, restrictedSqlRegions, ai, regions, perms };
 }
 
 /** Rich Graph fake for Azure app registration work. */

@@ -63,6 +63,12 @@ Fabric fills, with duplicates removed by Feedback Id. The emailed export flow is
 now: `--data productFeedback=flow` and `--feedback-flow` warn and use the exports. See
 [Product feedback](azure/README.md#product-feedback).
 
+**Azure: Workday org data, from its CSV export.** Workday now installs on Azure too, with org data,
+under the advanced settings or with `--data workday=csv`. Drop the Workday export in `workday/`, in
+the same places as the Agent 365 export. After each Entra ID load, each run adds the newest one's
+columns to `dbo.copilot_org_data`, matched on Primary Work Email, with the Fabric notebook's rules
+and checks. See [Workday org data](azure/README.md#workday-org-data).
+
 **Power BI model: faster active-user counts.** In both Fabric templates, and so in the Azure model
 built from them, `[All Active Users]` and `[Active Licensed Users]` now take one distinct count
 instead of testing each user, as in
@@ -122,6 +128,20 @@ nothing new and deploy as before.
 **App and README:** both credit their creator, "Created by Keith McGrane", linked to his profile.
 In the app it's a small footer at the bottom of the sidebar, so it's on every page, in a browser
 and in Teams, Outlook and Microsoft 365.
+
+**Azure: least-privilege install into a resource group your Azure admin creates.** The admin
+creates the group, registers the resource providers, and gives you Contributor and a Role Based
+Access Control Administrator that's limited to the roles the installer gives, on just that group
+([Least-privilege Azure install](docs/AZURE-LEAST-PRIVILEGE.md)). Owner, or Contributor and User
+Access Administrator, still works as before.
+
+- **Checks the resource group.** With an existing resource group, **Checking Azure** and
+  **Prerequisites** check your rights there, not just on the subscription, and the preflight stops
+  before creating anything when you can't deploy or assign roles there.
+- **Commands for the admin.** During **Checking Azure**, resource providers you can't register, and
+  the managed identity's roles outside the group (Azure AI and pay-as-you-go costs, Reader for
+  Resource Graph), are listed as az commands for your Azure admin. Deployment errors about
+  unregistered providers or role assignments say what's needed.
 
 **Docs:**
 

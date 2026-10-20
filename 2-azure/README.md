@@ -11,7 +11,9 @@ Analytics Hub in your own Azure subscription, without Fabric.
 ## Installer
 
 1. **Prerequisites.** Send each admin their row of [Prerequisites](../docs/PREREQUISITES.md),
-   from the Azure column.
+   from the Azure column. If your Azure admin would rather not give you Owner, they can prepare a
+   resource group with just the rights the installer needs: see
+   [Least-privilege Azure install](../docs/AZURE-LEAST-PRIVILEGE.md).
 2. **Run the installer.** On Windows 10 or 11, paste this into PowerShell. It needs no admin
    rights:
 

@@ -133,7 +133,10 @@ The installer can also set up Analytics Hub in **your Azure subscription**. Star
 
 You need:
 
-- Contributor plus User Access Administrator (or Owner) on the subscription or resource group.
+- Contributor plus User Access Administrator (or Owner) on the subscription or resource group. Or,
+  for least privilege, Contributor and a limited Role Based Access Control Administrator on just a
+  resource group your Azure admin creates: see
+  [Least-privilege Azure install](../docs/AZURE-LEAST-PRIVILEGE.md).
 - Permission to register Entra apps, or an Application Administrator.
 - A Global Administrator or Privileged Role Administrator to grant the managed identity's Graph app
   roles, or to use the admin links the installer prints.
@@ -168,6 +171,8 @@ The Agent 365 registry comes from its CSV export, which you drop in the same pla
 [Agent 365 registry](../azure/README.md#agent-365-registry).
 Product feedback comes from its CSV exports, which you drop there too, under `product_feedback`; the
 emailed export flow is Fabric only for now. See [Product feedback](../azure/README.md#product-feedback).
+Workday org data, under the advanced settings, comes from its CSV export, which you drop there too,
+under `workday`. See [Workday org data](../azure/README.md#workday-org-data).
 Agent configuration and Foundry from Azure
 Resource Graph also works on Azure: see [Agent configuration and Foundry](#agent-configuration-and-foundry).
 The app's Ask page answers with an Azure OpenAI model, an AI Services account the installer creates
@@ -333,7 +338,8 @@ use `install --currency GBP --exchange-rate 0.79`. The installer keeps your choi
 
 The [Azure target](#azure-target) asks the same question. Its advanced settings also cover
 [demo mode](#demo-mode), the Azure SQL region, the name prefix, extra tags,
-[networking](#networking), where credits come from, agent configuration and Foundry, and
+[networking](#networking), where credits come from,
+[Workday org data](../azure/README.md#workday-org-data), agent configuration and Foundry, and
 [which model Ask uses](#ask).
 
 ## After it finishes
@@ -571,8 +577,10 @@ use the Lakehouse folder.
 in `agent365/` in the storage account's `landing` container or, with private networking, in the
 `agent365` folder under the SharePoint folder you gave the installer. Each run loads the newest
 one. Product feedback exports go in `product_feedback/` the same way, and each run loads them all.
-See [Agent 365 registry](../azure/README.md#agent-365-registry) and
-[Product feedback](../azure/README.md#product-feedback); credit files are in
+The Workday export goes in `workday/`, and each run adds the newest one to the org data. See
+[Agent 365 registry](../azure/README.md#agent-365-registry),
+[Product feedback](../azure/README.md#product-feedback) and
+[Workday org data](../azure/README.md#workday-org-data); credit files are in
 [Credit consumption](../azure/README.md#credit-consumption).
 
 ### Power Automate flows
@@ -691,11 +699,12 @@ addresses, the M365 Copilot licence flag and the exact prepaid split.
 
 Source IDs for `--data`: `workday`, `m365Activity`, `agent365`, `productFeedback`,
 `studioCredits`, `coworkCredits`, `azureAi`, `agentEvaluator`, `defender`, `resourceGraph`. Modes:
-`api`, `csv` or `skip` (`defender` and `resourceGraph` take `api` or `skip`).
+`api`, `csv` or `skip` (`defender` and `resourceGraph` take `api` or `skip`, and `workday` takes
+`csv` or `skip`).
 For `productFeedback` and `studioCredits`, `flow` is the same as `api`. `--feedback-flow` still
 works: it's the same as `productFeedback=flow`.
 On Azure, `agent365` and `productFeedback` are `csv` or `skip`. `api` warns and uses the exports, as
-do `productFeedback=flow` and `--feedback-flow`.
+do `productFeedback=flow` and `--feedback-flow`. `workday=csv` works there too, with org data.
 Without `--flow-environment`, the installer asks which environment to use.
 With `resourceGraph=api`, `--arg-management-group <id>` reads one management group rather than the
 whole tenant, and `--no-arg-agents` or `--no-arg-foundry` leaves agents or Foundry out.

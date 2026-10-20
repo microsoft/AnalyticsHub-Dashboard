@@ -23,6 +23,9 @@ export const ROLES = {
   contributor: 'b24988ac-6180-42a0-ab88-20f7382dd24c',
   userAccessAdministrator: '18d7d88d-d35e-4fb5-a5c3-7773c20a72d9',
   cognitiveServicesOpenAiUser: '5e0bd9bd-7b93-4f28-af87-19fc36ad61bd',
+  storageTableDataContributor: '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3',
+  acrPull: '7f951dda-4ed3-4680-a7ca-43fe172d538d',
+  rbacAdministrator: 'f58310d9-a9f6-439a-9e8d-f62e7b41a168',
 };
 
 /**
