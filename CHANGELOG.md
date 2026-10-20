@@ -20,6 +20,32 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+## Analytics Hub installer 0.6.8-rc.1 (unreleased)
+
+**Release candidate preparation only.** 0.6.8-rc.1 is not published, and 0.6.7 remains Latest.
+Its tag, `installer-v0.6.8-rc.1`, drafts a pre-release, which `releases/latest` and the
+installer's update check skip. Agent Evaluator on Azure isn't in this candidate.
+
+**What changed:** on Azure, the Agent 365 registry, product feedback and Workday org data now
+install from their exports, credit consumption is checked against Fabric, the app skips the checks
+for modules that are off, and an install can use a resource group your Azure admin creates, with
+least privilege. Azure setup sizes for tenants with more than 10,000 Copilot seats, and the
+installer fixes what the 0.6.7 Azure test found. In the model, active-user counts are faster and a
+Workday `Department` column no longer fails the refresh. The app's first pages load sooner. On
+Fabric, the app shows saved task times, report packs and commercial terms again: check your terms
+after updating. Azure by hand, in Azure Cloud Shell, is documented; it works once a release that
+includes it is Latest. The details are below.
+
+**Update an existing install:** once 0.6.8-rc.1 is published, run it from its release page and
+choose **Update**. On Azure, that redeploys with this version's images, adds the Agent 365 and
+product feedback tables (migrations `V009` and `V010`), and redeploys any model whose definition
+changed. On Fabric, it redeploys the model and notebooks, and offers to replace the pipeline and
+redeploy the app. To turn on a module Azure now supports, choose **Repair or change**, then **Data
+collection**. Workday org data is under the advanced settings: see
+[Workday org data](azure/README.md#workday-org-data). Some Azure installs that ticked **Credit
+consumption** before 0.6.8 keep Copilot Studio and Cowork left out until you pick their sources:
+see below.
+
 **Azure: set it up by hand, without the installer.**
 
 - **Seven steps in Azure Cloud Shell**, plus Teams if you want it, from the installer's own
