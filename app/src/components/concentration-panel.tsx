@@ -5,7 +5,9 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { useCallback, useMemo, type ReactNode } from "react";
+import { useCallback, useId, useMemo, type ReactNode } from "react";
+import { Headlined } from "@/components/headlined";
+import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { ChartPanel } from "@/components/report-panels";
 import type { TableResult } from "@/hooks/use-table-query";
 import {
@@ -16,6 +18,7 @@ import {
     sliceLabel,
     TOP_SLICES,
     type Concentration,
+    type ConcentrationSlices,
 } from "@/lib/concentration";
 import { formatKpi } from "@/lib/format-kpi";
 import { MIN_PEOPLE, shareText } from "@/lib/headline";
@@ -36,7 +39,14 @@ interface ConcentrationPanelProps {
     height?: number;
 }
 
-function SliceFigures({ result }: { result: Concentration }) {
+/** The result, failed when its rows came back but couldn't be read as whole figures. */
+function checkedResult(result: TableResult, summary: ConcentrationSlices | undefined): TableResult {
+    return !result.isLoading && result.error === undefined && concentrationIncomplete(result.table, summary)
+        ? { ...result, error: "The concentration totals are incomplete. Retry to load the full result." }
+        : result;
+}
+
+function SliceFigures({ result }: { result: ConcentrationSlices }) {
     return (
         <dl className="grid grid-cols-3 gap-300">
             {TOP_SLICES.map((pct) => {
@@ -77,14 +87,12 @@ export function ConcentrationPanel({
     const table = useMemo(() => (result.table ? paretoTable(summary) : undefined), [result.table, summary]);
     const spec = useMemo(() => paretoSpec(noun), [noun]);
     const headline = useCallback(() => concentrationHeadline(summary, noun), [summary, noun]);
-    const checkedResult = !result.isLoading && result.error === undefined && concentrationIncomplete(result.table, summary)
-        ? { ...result, error: "The concentration totals are incomplete. Retry to load the full result." }
-        : result;
+    const checked = checkedResult(result, summary);
 
     return (
         <div className="flex flex-col gap-300">
             <ChartPanel
-                result={checkedResult}
+                result={checked}
                 table={table}
                 height={height}
                 spec={spec}
@@ -96,5 +104,50 @@ export function ConcentrationPanel({
             />
             {!result.isLoading && result.error === undefined && summary && <SliceFigures result={summary} />}
         </div>
+    );
+}
+
+type ConcentrationCalloutsProps = Omit<ConcentrationPanelProps, "summary" | "height"> & {
+    /** The slices read from the result's table, undefined when nobody has a value. */
+    summary: ConcentrationSlices | undefined;
+};
+
+/**
+ * The share taken by the top 1%, 5% and 25% on their own, for a query that
+ * returns only their cuts, so there is no curve. It reads as one card, with
+ * the same headline, figures and states as {@link ConcentrationPanel}.
+ */
+export function ConcentrationCallouts({
+    result,
+    summary,
+    noun,
+    title,
+    subtitle,
+    emptyTitle,
+    emptyDescription,
+}: ConcentrationCalloutsProps) {
+    const headingId = useId();
+    const checked = checkedResult(result, summary);
+
+    if (checked.error !== undefined) return <QueryError message={checked.error} onRetry={checked.refetch} />;
+    if (checked.isLoading || !checked.table) return <QueryLoading />;
+    if (!summary) return <QueryEmpty title={emptyTitle} description={emptyDescription} />;
+    return (
+        <Headlined text={concentrationHeadline(summary, noun)}>
+            <article
+                aria-labelledby={headingId}
+                className="flex flex-col gap-400 rounded-xl border border-border bg-card p-500"
+                data-export=""
+                data-export-title={title}
+            >
+                <header className="flex flex-col gap-100">
+                    <h3 id={headingId} className="text-[length:var(--text-300)] leading-300 font-semibold text-foreground">
+                        {title}
+                    </h3>
+                    <p className={cn(SMALL, "text-muted-foreground")}>{subtitle}</p>
+                </header>
+                <SliceFigures result={summary} />
+            </article>
+        </Headlined>
     );
 }

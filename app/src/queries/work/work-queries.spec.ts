@@ -231,13 +231,21 @@ describe("leaderboard queries", () => {
         expect(query).not.toMatch(/__[A-Z_]+__/);
     });
 
-    // The curve sums the sessions the people list sorts by, for the same people.
+    // The top slices sum the sessions the people list sorts by, for the same people.
     it.each(concentrationQueries)("$name sums its own cohort's sessions per person", ({ cohort, query }) => {
         expect(query).toContain(`"@Sessions", [${leaderboardMeasures(cohort).sessions}]`);
         expect(query).toContain(`'Chat + Agent Interactions (Audit Logs)'[Audit_UserId]`);
         expect(leaderboardConcentration(cohort, describeOrgAttribute("Department")).query).toContain(
             "'Chat + Agent Org Data'[Department]",
         );
+    });
+
+    // Leaderboards shows the top 1%, 5% and 25% without a curve, so its query
+    // asks for those three cuts alone, still over the org-and-person rows.
+    it.each(concentrationQueries)("$name works out only the top slices", ({ query }) => {
+        expect(query).toContain(`SELECTCOLUMNS({ 1, 5, 25 }, "@Count", QUOTIENT(__Count * [Value] + 99, 100))`);
+        expect(query).toContain("'Chat + Agent Org Data'[Organization]");
+        expect(query).not.toMatch(/GENERATESERIES|UNION|__Steps/);
     });
 
     // The report's bookmarks each bind their own cohort's measures, so a

@@ -16,9 +16,10 @@ import { withCohortMeasures, type LeaderboardCohort } from "./leaderboard-cohort
 import template from "./leaderboard-concentration.dax?raw";
 
 /**
- * How much of one cohort's sessions the busiest people account for, worked
- * out over every person in the "Organization → User" table rather than the
- * top of it. Read the rows with `readConcentration`.
+ * How much of one cohort's sessions the busiest 1%, 5% and 25% of people
+ * account for, worked out over every person in the "Organization → User"
+ * table rather than the top of it. It returns only those three cuts, not
+ * the curve's, so read the rows with `readConcentrationSlices`.
  */
 export function leaderboardConcentration(
     cohort: LeaderboardCohort = "all",

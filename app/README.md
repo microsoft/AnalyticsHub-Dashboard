@@ -19,7 +19,8 @@ Group and grand totals still cover the full filtered population, including
 groups whose people are outside the cap. Person-row counts can include the
 same person under multiple groups. Leaderboard and Studio concentration are
 computed separately across all person rows, combining repeat person keys
-before selecting positive values. Value by habit returns whole-population
+before selecting positive values; Leaderboard returns only the top 1%, 5%
+and 25% cuts, without a curve. Value by habit returns whole-population
 habit totals and concentration cuts, not a truncated person list. Agent
 spotlights return full-population maxima and tie counts with two named
 winners; separate agents with the same display name still count separately.

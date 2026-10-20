@@ -18,8 +18,12 @@ import {
     paretoTable,
     personValues,
     readConcentration,
+    readConcentrationSlices,
     sliceLabel,
+    TOP_SLICES,
     TOTAL_SHARE,
+    type Concentration,
+    type ConcentrationSlices,
 } from "./concentration";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { CAUSAL_WORDS } from "./headline";
@@ -111,12 +115,13 @@ function cutTable(rows: unknown[][]): DataTable {
 
 /**
  * The cut rows the concentration queries return, worked out as their DAX
- * does: the counts each slice and curve point could round to, and for each
- * the sum of TOPN's rows, which keeps every tie at the cut, less the ties
- * past it. Sum strict winners plus the required boundary ties to avoid
- * cancellation when a large tied population shares a small decimal value.
+ * does: the counts each slice and, unless `curve` is false as on
+ * Leaderboards, each curve point could round to, and for each the sum of
+ * TOPN's rows, which keeps every tie at the cut, less the ties past it. Sum
+ * strict winners plus the required boundary ties to avoid cancellation when
+ * a large tied population shares a small decimal value.
  */
-function daxCuts(input: readonly number[]): unknown[][] {
+function daxCuts(input: readonly number[], curve = true): unknown[][] {
     const values = input.filter((value) => value > 0);
     const people = values.length;
     const total = values.reduce((sum, value) => sum + value, 0);
@@ -124,7 +129,7 @@ function daxCuts(input: readonly number[]): unknown[][] {
     const quotient = (a: number, b: number) => Math.trunc(a / b);
     const counts = new Set<number>();
     for (const pct of [1, 5, 25]) counts.add(quotient(people * pct + 99, 100));
-    for (let step = 1; step <= steps; step++) {
+    for (let step = 1; curve && step <= steps; step++) {
         counts.add(quotient(step * people, steps));
         counts.add(quotient(step * people + steps - 1, steps));
     }
@@ -213,6 +218,7 @@ describe("concentration from the model", () => {
     ])("rejects malformed cuts instead of drawing plausible partial figures (%s)", (...row) => {
         const table = cutTable([row, [2, 3, 2, 3]]);
         expect(readConcentration(table)).toBeUndefined();
+        expect(readConcentrationSlices(table)).toBeUndefined();
         expect(concentrationIncomplete(table, undefined)).toBe(true);
     });
 
@@ -230,6 +236,7 @@ describe("concentration from the model", () => {
     it("skips rows without a count beside the cuts", () => {
         const rows = [[null, null, 9, null], ...daxCuts([3, 1, 2])];
         expect(readConcentration(cutTable(rows))).toEqual(concentration([3, 1, 2]));
+        expect(readConcentrationSlices(cutTable(rows))).toEqual(slicesOf(concentration([3, 1, 2])));
     });
 
     it("works the cuts out the same way in every query", () => {
@@ -237,9 +244,143 @@ describe("concentration from the model", () => {
             const text = query.replace(/\r\n/g, "\n").replace(/^(\/\/|--)/gm, "");
             return text.slice(text.indexOf(" The cuts lib/concentration.ts reads"), text.lastIndexOf("RETURN"));
         };
-        expect(tail(leaderboardQuery)).toMatch(/^ The cuts[\s\S]*TOPN\(\[@Count\], __Values, \[@Value\], DESC\)/);
-        expect(tail(studioQuery)).toBe(tail(leaderboardQuery));
-        expect(tail(habitQuery)).toBe(tail(leaderboardQuery));
+        expect(tail(studioQuery)).toMatch(/^ The cuts[\s\S]*TOPN\(\[@Count\], __Values, \[@Value\], DESC\)/);
+        expect(tail(habitQuery)).toBe(tail(studioQuery));
+    });
+
+    // Leaderboards shows the top slices without a curve, so its query keeps
+    // only their cuts, each summed by the same lines as the curve queries'.
+    it("works out Leaderboards' top slices as the curve queries do, without the curve", () => {
+        const code = (query: string) => {
+            const lines = query.replace(/\r\n/g, "\n").split("\n").map((line) => line.trim());
+            const body = lines.filter((line) => !/^(\/\/|--)/.test(line));
+            return body.slice(body.indexOf("VAR __Total = SUMX(__Values, [@Value])")).join("\n").trim();
+        };
+        const withoutCurve = code(studioQuery)
+            .replace("VAR __Steps = MAX(1, MIN(__Count, 100))\n", "")
+            .replace(/UNION\(\n(SELECTCOLUMNS\(\{ 1, 5, 25 \}.*\)),\n(?:SELECTCOLUMNS\(GENERATESERIES.*\n){2}\)\n/, "$1\n");
+        expect(withoutCurve).toContain("VAR __Total = SUMX(__Values, [@Value])");
+        expect(withoutCurve).not.toMatch(/GENERATESERIES|UNION|__Steps/);
+        expect(code(leaderboardQuery)).toBe(withoutCurve);
+        const listed = /SELECTCOLUMNS\(\{ ([\d, ]+) \}, "@Count"/.exec(leaderboardQuery)?.[1].split(", ").map(Number);
+        expect(listed).toEqual(TOP_SLICES.map((pct) => Math.round(pct * 100)));
+    });
+});
+
+/** The figures the curve's reader gives, less the curve. */
+function slicesOf(result: Concentration | undefined): ConcentrationSlices | undefined {
+    return result && { total: result.total, people: result.people, slices: result.slices };
+}
+
+describe("top slices from the model", () => {
+    it("matches the curve's slices for the same people, ties and all", () => {
+        const next = random(13);
+        const sizes = [1, 2, 3, 4, 5, 19, 20, 21, 99, 100, 101, 140, 150, 199, 200, 201, 333, 700, 1001, 5000, 20000];
+        for (let size = 1; size <= 3000; size += 37) sizes.push(size);
+        for (const size of sizes) {
+            const spread = 1 + Math.floor(next() * 40);
+            const values = Array.from({ length: size }, () => Math.floor(next() * spread) - 1);
+            const rows = daxCuts(values, false);
+            expect(rows.length).toBeLessThanOrEqual(TOP_SLICES.length);
+            const curve = readConcentration(cutTable(daxCuts(values)));
+            const read = readConcentrationSlices(cutTable(rows));
+            expect(read, `${size} people`).toEqual(slicesOf(curve));
+            expect(read, `${size} people`).toEqual(slicesOf(concentration(values)));
+            expect(readConcentrationSlices(cutTable(daxCuts(values))), `${size} people`).toEqual(read);
+            expect(concentrationHeadline(read, "sessions")).toBe(concentrationHeadline(curve, "sessions"));
+        }
+    });
+
+    it("counts people tied at a cut only up to the cut, as the curve's slices do", () => {
+        // 100 people: 3 on 10 sessions, 10 tied on 5 and 87 on 1. The top 5% is
+        // the 3 and two of the 10 tied, 30 + 2 × 5 = 40 of the 167 sessions.
+        const values = [...Array<number>(3).fill(10), ...Array<number>(10).fill(5), ...Array<number>(87).fill(1)];
+        const read = readConcentrationSlices(cutTable(daxCuts(values, false)));
+        expect(read).toEqual({
+            total: 167,
+            people: 100,
+            slices: [
+                { pct: 0.05, people: 5, share: 40 / 167 },
+                { pct: 0.25, people: 25, share: 92 / 167 },
+            ],
+        });
+        expect(read).toEqual(slicesOf(readConcentration(cutTable(daxCuts(values)))));
+    });
+
+    it("finds every slice among the three cuts, for any number of people", () => {
+        const unread: number[] = [];
+        for (let people = 1; people <= 50000; people++) {
+            const counts = new Set([1, 5, 25].map((pct) => Math.trunc((people * pct + 99) / 100)));
+            const rows = [...counts].map((count) => [count, count, people, people]);
+            if (readConcentrationSlices(cutTable(rows))?.people !== people) unread.push(people);
+        }
+        expect(unread).toEqual([]);
+    });
+
+    it("does not round an exact five-percent cut up because of binary floating point", () => {
+        const values = Array.from({ length: 140 }, () => 1);
+        const rows = daxCuts(values, false);
+        expect(rows.map((row) => row[0])).toEqual([2, 7, 35]);
+        expect(readConcentrationSlices(cutTable(rows))?.slices.find((slice) => slice.pct === 0.05)?.people).toBe(7);
+    });
+
+    it("reads a handful of people, whose slices share one cut", () => {
+        for (const values of [[7], [7, 3], [2, 2, 2], [4, 3, 2, 1]]) {
+            const rows = daxCuts(values, false);
+            expect(rows.map((row) => row[0])).toEqual([1]);
+            expect(readConcentrationSlices(cutTable(rows))).toEqual({
+                total: values.reduce((sum, value) => sum + value, 0),
+                people: values.length,
+                slices: [],
+            });
+        }
+    });
+
+    it("matches to rounding for fractional values", () => {
+        const next = random(11);
+        const values = Array.from({ length: 2345 }, () => Math.round(next() * next() * 1000) / 8);
+        const read = readConcentrationSlices(cutTable(daxCuts(values, false)));
+        const direct = concentration(values);
+        expect(read).toEqual(slicesOf(readConcentration(cutTable(daxCuts(values)))));
+        expect(read?.people).toBe(direct?.people);
+        expect(read?.slices.map((slice) => slice.people)).toEqual(direct?.slices.map((slice) => slice.people));
+        read?.slices.forEach((slice, index) => expect(slice.share).toBeCloseTo(direct?.slices[index].share ?? 0, 9));
+    });
+
+    it("keeps decimal cutoff ties within a relative tolerance of 1e-9", () => {
+        const values = Array.from({ length: 10001 }, () => 0.00037);
+        const read = readConcentrationSlices(cutTable(daxCuts(values, false)))!;
+        const direct = concentration(values)!;
+        expect(read).toEqual(slicesOf(readConcentration(cutTable(daxCuts(values)))));
+        expect(read.slices.map((slice) => slice.people)).toEqual([101, 501, 2501]);
+        read.slices.forEach((slice, index) => {
+            const expected = direct.slices[index].share;
+            expect(Math.abs(slice.share - expected)).toBeLessThanOrEqual(Math.abs(expected) * 1e-9);
+        });
+    });
+
+    it("says nothing without people, or when a slice's cut is missing", () => {
+        expect(readConcentrationSlices(undefined)).toBeUndefined();
+        expect(readConcentrationSlices(cutTable([]))).toBeUndefined();
+        expect(concentrationIncomplete(cutTable([]), undefined)).toBe(false);
+        const rows = daxCuts(Array.from({ length: 100 }, (_, index) => 100 - index), false);
+        expect(rows.map((row) => row[0])).toEqual([1, 5, 25]);
+        for (const count of [1, 5, 25]) {
+            const table = cutTable(rows.filter((row) => row[0] !== count));
+            expect(readConcentrationSlices(table), `without ${count}`).toBeUndefined();
+            expect(concentrationIncomplete(table, undefined)).toBe(true);
+        }
+        expect(readConcentrationSlices({ columns: [], rows } as unknown as DataTable)).toBeUndefined();
+    });
+
+    it("rejects a cut of everyone that misses the total", () => {
+        expect(readConcentrationSlices(cutTable([[1, 6, 1, 6]]))).toEqual({ total: 6, people: 1, slices: [] });
+        expect(readConcentrationSlices(cutTable([[1, 5, 1, 6]]))).toBeUndefined();
+    });
+
+    it("doesn't give the curve's reader the cuts it needs", () => {
+        const rows = daxCuts(Array.from({ length: 100 }, (_, index) => 100 - index), false);
+        expect(readConcentration(cutTable(rows))).toBeUndefined();
     });
 });
 
