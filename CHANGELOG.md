@@ -221,6 +221,18 @@ app.** They're asked with the page's first query, and asked again only if saved 
 organization, all at once rather than one agent or person at a time. The figures, and what the
 Fabric data agent is told about them, don't change.
 
+**App: on Fabric, saved task times, report packs and commercial terms show again.** In 0.6.7 and
+earlier, the app on Fabric read back only each saved row's id. So task times saved in the app never
+applied, even straight after saving. Report packs, rates, budgets and prices looked saved until the
+page reloaded, then showed as unset. The app now asks for every column it uses, and after saving one
+terms menu, the terms set in the others keep showing. Azure installs weren't affected.
+
+- **Check your terms after updating.** While terms showed as unset, each menu's boxes were empty,
+  and **Rates & packs**, **Monthly budgets** and **Prices** save every box in the menu. So saving one
+  term cleared the others in the same menu, and they stay cleared.
+- **Report packs created twice.** A pack created again while the list looked empty now shows beside
+  the original. Delete the one you don't need.
+
 ## 2026-10-19 — Analytics Hub installer 0.6.7
 
 **The current release.** 0.6.7 replaces 0.6.6 as Latest, so the `releases/latest` links, including

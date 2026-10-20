@@ -12,12 +12,56 @@ import { taskTimeKey, type TaskTime, type TaskTimeOverride } from "@/queries/ass
 import { COMMERCIAL_TERM_KEYS, type CommercialTermsValues } from "@/queries/consumption/commercial-terms";
 import { toCurrencyCode } from "@/lib/currency";
 import { parsePack, type ReportPack } from "@/lib/report-pack";
+import type { ValueLensSchema } from "../../rayfin/data/schema";
 
 /** The app keeps one set of terms for everyone, in this row. */
 export const COMMERCIAL_TERMS_ID = "00000000-0000-0000-0000-000000000001";
 const LOAD_TIMEOUT_MS = 8000;
 const MAX_ROWS = 1000;
 const ADMIN_WRITE_MESSAGE = "Only Analytics Hub admins can change this";
+
+/**
+ * Every column of an entity, for a Rayfin read to ask for: without a list, a
+ * read returns only each row's id. Naming them as keys makes a column added to
+ * or renamed in the entity fail type checking until it's listed here too.
+ */
+function columns<E extends keyof ValueLensSchema>(
+    all: { readonly [K in keyof ValueLensSchema[E] & string]-?: true },
+): (keyof ValueLensSchema[E] & string)[] {
+    return Object.keys(all) as (keyof ValueLensSchema[E] & string)[];
+}
+
+const COMMERCIAL_TERMS_COLUMNS = columns<"CommercialTerms">({
+    id: true,
+    creditRate: true,
+    prepaidCreditRate: true,
+    prepaidCreditBalance: true,
+    licensePrice: true,
+    exchangeRate: true,
+    budgetCowork: true,
+    budgetStudio: true,
+    budgetAzure: true,
+    currency: true,
+    updatedBy: true,
+    updatedAt: true,
+});
+const TASK_TIME_COLUMNS = columns<"TaskTime">({
+    id: true,
+    task: true,
+    minLow: true,
+    minTypical: true,
+    minHigh: true,
+    updatedBy: true,
+    updatedAt: true,
+});
+const REPORT_PACK_COLUMNS = columns<"ReportPack">({
+    id: true,
+    name: true,
+    description: true,
+    stages: true,
+    updatedBy: true,
+    updatedAt: true,
+});
 
 export interface SavedCommercialTerms extends CommercialTermsValues {
     updatedBy?: string;
@@ -65,7 +109,14 @@ export async function taskTimeId(task: string): Promise<string> {
 
 class RayfinSettingsStore implements SettingsStore {
     async loadCommercialTerms(): Promise<SavedCommercialTerms | null> {
-        const row = await withTimeout(getRayfinClient().data.CommercialTerms.findById(COMMERCIAL_TERMS_ID), LOAD_TIMEOUT_MS);
+        // Not findById: it can't list columns, so it returns only the id.
+        const row = await withTimeout(
+            getRayfinClient().data.CommercialTerms
+                .select(COMMERCIAL_TERMS_COLUMNS)
+                .where({ id: { eq: COMMERCIAL_TERMS_ID } })
+                .findFirst(),
+            LOAD_TIMEOUT_MS,
+        );
         return row ? commercialTermsFromRow(row as unknown as Record<string, unknown>) : null;
     }
 
@@ -76,11 +127,15 @@ class RayfinSettingsStore implements SettingsStore {
         const update = { ...changed, ...stamp } as unknown as Partial<SavedCommercialTerms>;
         const terms = getRayfinClient().data.CommercialTerms;
         const row = await terms.upsert({ id: COMMERCIAL_TERMS_ID }, create, update);
-        return commercialTermsFromRow(row as unknown as Record<string, unknown>);
+        // The upsert returns only the columns it wrote, so read the row back for the terms other forms set.
+        return (await this.loadCommercialTerms()) ?? commercialTermsFromRow(row as unknown as Record<string, unknown>);
     }
 
     async loadTaskTimes(): Promise<SavedTaskTime[]> {
-        const rows = await withTimeout(getRayfinClient().data.TaskTime.first(MAX_ROWS).execute(), LOAD_TIMEOUT_MS);
+        const rows = await withTimeout(
+            getRayfinClient().data.TaskTime.select(TASK_TIME_COLUMNS).first(MAX_ROWS).execute(),
+            LOAD_TIMEOUT_MS,
+        );
         return dedupeTaskTimes(rows as unknown as Record<string, unknown>[]);
     }
 
@@ -118,7 +173,10 @@ class RayfinSettingsStore implements SettingsStore {
     }
 
     async loadReportPacks(): Promise<ReportPack[]> {
-        const rows = await withTimeout(getRayfinClient().data.ReportPack.first(MAX_ROWS).execute(), LOAD_TIMEOUT_MS);
+        const rows = await withTimeout(
+            getRayfinClient().data.ReportPack.select(REPORT_PACK_COLUMNS).first(MAX_ROWS).execute(),
+            LOAD_TIMEOUT_MS,
+        );
         return reportPacksFromRows(rows as unknown as Record<string, unknown>[]);
     }
 
