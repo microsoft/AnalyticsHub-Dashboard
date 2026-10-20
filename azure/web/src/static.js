@@ -27,18 +27,18 @@ export function createStaticHandler(publicDir) {
     }
     if (!stat || !stat.isFile()) return false;
     const contentType = contentTypeFor(filePath);
+    const compressible = isCompressible(contentType);
+    const variant = compressible ? await precompressedVariant(filePath, stat, acceptedEncodings(req.headers['accept-encoding'])) : null;
+    // Read before setting any header: if the read fails, server.js sends its 500 on this response, which mustn't carry the file's headers.
+    const body = req.method === 'HEAD' ? null : await fs.readFile(variant ? variant.path : filePath);
     res.statusCode = 200;
     res.setHeader('Content-Type', contentType);
     if (pathname.startsWith('/assets/')) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     else if (path.basename(filePath) === 'index.html') res.setHeader('Cache-Control', 'no-cache');
-    let bodyPath = filePath;
-    if (isCompressible(contentType)) {
-      appendVary(res, 'Accept-Encoding');
-      const variant = await precompressedVariant(filePath, stat, acceptedEncodings(req.headers['accept-encoding']));
-      if (variant) { res.setHeader('Content-Encoding', variant.encoding); bodyPath = variant.path; }
-    }
+    if (compressible) appendVary(res, 'Accept-Encoding');
+    if (variant) res.setHeader('Content-Encoding', variant.encoding);
     if (req.method === 'HEAD') return res.end();
-    res.end(await fs.readFile(bodyPath));
+    res.end(body);
     return true;
   };
 }

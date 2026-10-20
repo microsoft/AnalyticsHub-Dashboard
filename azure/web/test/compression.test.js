@@ -144,6 +144,38 @@ test('static files are served from the copies precompress writes, and never from
   for (const gone of ['index.html.br', 'index.html.gz']) await assert.rejects(fs.access(path.join(dir, gone)), gone);
 });
 
+test('a static file whose copy can\'t be read gets a plain 500, without the file\'s encoding or caching headers', async (t) => {
+  const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'valuelens-public-'));
+  t.after(() => fs.rm(dir, { recursive: true, force: true }));
+  await fs.mkdir(path.join(dir, 'assets'));
+  const appJs = Array.from({ length: 600 }, (_, i) => `export const value${i} = ${i};`).join('\n');
+  await fs.writeFile(path.join(dir, 'assets', 'app.js'), appJs);
+  await precompress(dir);
+  // static.js reads through this same fs/promises object, so only its read of the Brotli copy fails.
+  const readFile = fs.readFile;
+  t.mock.method(fs, 'readFile', (file, ...rest) => (String(file).endsWith('.br')
+    ? Promise.reject(Object.assign(new Error('EIO: i/o error, read'), { code: 'EIO' }))
+    : readFile.call(fs, file, ...rest)));
+  const errors = t.mock.method(console, 'error', () => {});
+
+  const { server, baseUrl } = await startTestServer({ publicDir: dir });
+  try {
+    const failed = await rawRequest(baseUrl, '/assets/app.js', { headers: { 'Accept-Encoding': 'br, gzip' } });
+    assert.equal(failed.status, 500);
+    assert.equal(failed.headers['content-encoding'], undefined);
+    assert.equal(failed.headers['cache-control'], undefined);
+    assert.match(failed.headers['content-type'], /^application\/json/);
+    assert.equal(JSON.parse(failed.body).error.message, 'Internal server error.');
+    assert.equal(errors.mock.callCount(), 1);
+
+    const gzip = await rawRequest(baseUrl, '/assets/app.js', { headers: { 'Accept-Encoding': 'gzip' } });
+    assert.equal(gzip.status, 200);
+    assert.equal(gzip.headers['content-encoding'], 'gzip');
+    assert.equal(gzip.headers['cache-control'], 'public, max-age=31536000, immutable');
+    assert.equal(decoded(gzip).toString(), appJs);
+  } finally { server.close(); }
+});
+
 test('precompress runs from the command line, as the image build runs it', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'valuelens-public-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));

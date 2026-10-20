@@ -31,6 +31,11 @@ export function userNameFromClaims(claims) { return String(claims.preferred_user
 
 /** A cached token is dropped this long before it, or the caller's token it came from, expires. */
 export const OBO_TOKEN_SKEW_MS = 5 * 60 * 1000;
+/**
+ * A cached token is used for at most this long after its exchange began. Once Entra stops issuing a user tokens (their
+ * account is disabled or their sessions are revoked), the app stops using the ones it holds for them within this time.
+ */
+export const OBO_TOKEN_MAX_AGE_MS = 10 * 60 * 1000;
 export const OBO_CACHE_MAX_ENTRIES = 2000;
 const OBO_CACHE_SWEEP_MS = 60 * 1000;
 
@@ -38,9 +43,10 @@ const OBO_CACHE_SWEEP_MS = 60 * 1000;
  * Exchanges the caller's token for a Power BI or Graph token on their behalf (OBO), with one MSAL client per process.
  *
  * Tokens are reused per caller token and scopes. The cache key is a SHA-256 of the caller's token plus the scopes, never
- * the token itself, so one caller's token is never handed to another. An entry is used until OBO_TOKEN_SKEW_MS before the
- * downstream token or the caller's token expires, whichever is first; a caller's token with no readable expiry is never
- * cached. The cache holds at most maxEntries, least recently used out first, and expired entries are swept as it's used.
+ * the token itself, so one caller's token is never handed to another. An entry is used for at most OBO_TOKEN_MAX_AGE_MS after
+ * its exchange began, and never past OBO_TOKEN_SKEW_MS before the downstream token or the caller's token expires; a caller's
+ * token with no readable expiry is never cached. The cache holds at most maxEntries, least recently used out first, and
+ * expired entries are swept as it's used.
  * Concurrent requests for the same key share one exchange. A non-empty claims challenge always goes to Entra.
  *
  * MSAL's own token cache is skipped (skipCache) and emptied after every exchange, so it can't grow as tokens rotate; it
@@ -109,11 +115,12 @@ export function createOboTokenAcquirer(config, { credential, createClient = (cli
     tokens.set(key, entry);
     return entry.accessToken;
   }
-  function remember(key, userJwt, result) {
+  function remember(key, userJwt, result, startedAt) {
     const now = Date.now();
     const expiresOn = result.expiresOn ? new Date(result.expiresOn).getTime() : NaN;
     const refreshOn = result.refreshOn ? new Date(result.refreshOn).getTime() : Infinity;
-    const expiresAt = Math.min(expiresOn, refreshOn, assertionExpiresAt(userJwt)) - OBO_TOKEN_SKEW_MS;
+    // NaN (no readable expiry) carries through Math.min, so such a token isn't kept.
+    const expiresAt = Math.min(startedAt + OBO_TOKEN_MAX_AGE_MS, Math.min(expiresOn, refreshOn, assertionExpiresAt(userJwt)) - OBO_TOKEN_SKEW_MS);
     tokens.delete(key);
     if (!(expiresAt > now)) return;
     tokens.set(key, { accessToken: result.accessToken, expiresAt });
@@ -133,8 +140,9 @@ export function createOboTokenAcquirer(config, { credential, createClient = (cli
       if (inflight.has(key)) return inflight.get(key);
     }
     // A challenge supersedes any exchange already in flight for this key: that one's token is returned to its callers but not kept.
+    const startedAt = Date.now();
     const promise = exchange(userJwt, scopes, challenge).then((result) => {
-      if (inflight.get(key) === promise) remember(key, userJwt, result);
+      if (inflight.get(key) === promise) remember(key, userJwt, result, startedAt);
       return result.accessToken;
     });
     inflight.set(key, promise);

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { decodeJwt, jwtVerify } from 'jose';
 import { ConfidentialClientApplication } from '@azure/msal-node';
-import { GRAPH_SCOPES, OBO_TOKEN_SKEW_MS, POWER_BI_SCOPES, createOboTokenAcquirer } from '../src/auth.js';
+import { GRAPH_SCOPES, OBO_TOKEN_MAX_AGE_MS, OBO_TOKEN_SKEW_MS, POWER_BI_SCOPES, createOboTokenAcquirer } from '../src/auth.js';
 import { testConfig } from './helpers.js';
 
 const TENANT = 'tenant-id';
@@ -27,8 +27,11 @@ function callerToken(oid, lifetimeSeconds = 3600) {
   return unsignedJwt({ aud: CLIENT_ID, iss: `${AUTHORITY}/v2.0`, tid: TENANT, oid, sub: `sub-${oid}`, scp: 'access_as_user', iat: now, ...(lifetimeSeconds === null ? {} : { exp: now + lifetimeSeconds }), uti: `token-${callerTokens}` });
 }
 
-/** Entra as MSAL's network client sees it: the tenant's metadata, and a token endpoint that names each token after its caller. */
-function fakeEntra({ expiresIn = 3600, refreshIn, refuse = () => false } = {}) {
+/**
+ * Entra as MSAL's network client sees it: the tenant's metadata, and a token endpoint that names each token after its caller.
+ * whileExchanging runs as each exchange is answered, so a test can move its clock while one is in flight.
+ */
+function fakeEntra({ expiresIn = 3600, refreshIn, refuse = () => false, whileExchanging = () => {} } = {}) {
   const gets = [];
   const exchanges = [];
   const networkClient = {
@@ -47,6 +50,7 @@ function fakeEntra({ expiresIn = 3600, refreshIn, refuse = () => false } = {}) {
       const exchange = { url, form, assertion: form.get('assertion'), scope: form.get('scope'), claims: form.get('claims') };
       exchanges.push(exchange);
       await new Promise((resolve) => setTimeout(resolve, 5));
+      whileExchanging(exchange);
       if (refuse(exchange)) return { status: 400, headers: {}, body: { error: 'invalid_grant', error_description: 'AADSTS50013: Assertion failed signature validation.', error_codes: [50013] } };
       let caller = {};
       try { caller = decodeJwt(exchange.assertion); } catch { /* not a JWT */ }
@@ -161,20 +165,21 @@ test('two callers never share a token: nor do two tokens of one person, nor Powe
 
 test('a token is used until five minutes before it, or the caller\'s token, expires', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: START });
-  const entra = fakeEntra({ expiresIn: 3600 });
+  // Each lifetime here, less the five minutes, ends before OBO_TOKEN_MAX_AGE_MS is up, so it's the expiry that decides.
+  const entra = fakeEntra({ expiresIn: 840 });
   const { acquire } = acquirerFor(entra);
 
   const alice = callerToken('alice', 7200);
   const forAlice = await acquire(alice, {});
-  t.mock.timers.tick(3600_000 - OBO_TOKEN_SKEW_MS - 1000);
+  t.mock.timers.tick(840_000 - OBO_TOKEN_SKEW_MS - 1000);
   assert.equal(await acquire(alice, {}), forAlice);
   t.mock.timers.tick(2000);
   assert.notEqual(await acquire(alice, {}), forAlice);
   assert.equal(entra.exchanges.length, 2);
 
-  const bob = callerToken('bob', 1200);
+  const bob = callerToken('bob', 720);
   const forBob = await acquire(bob, {});
-  t.mock.timers.tick(1200_000 - OBO_TOKEN_SKEW_MS - 1000);
+  t.mock.timers.tick(720_000 - OBO_TOKEN_SKEW_MS - 1000);
   assert.equal(await acquire(bob, {}), forBob);
   t.mock.timers.tick(2000);
   assert.notEqual(await acquire(bob, {}), forBob);
@@ -190,14 +195,47 @@ test('a token is used until five minutes before it, or the caller\'s token, expi
 
 test('a token Entra says to refresh early is used until five minutes before then', async (t) => {
   t.mock.timers.enable({ apis: ['Date'], now: START });
-  const entra = fakeEntra({ expiresIn: 7200, refreshIn: 1800 });
+  const entra = fakeEntra({ expiresIn: 7200, refreshIn: 720 });
   const { acquire } = acquirerFor(entra);
   const alice = callerToken('alice', 7200);
   const forAlice = await acquire(alice, {});
-  t.mock.timers.tick(1800_000 - OBO_TOKEN_SKEW_MS - 1000);
+  t.mock.timers.tick(720_000 - OBO_TOKEN_SKEW_MS - 1000);
   assert.equal(await acquire(alice, {}), forAlice);
   t.mock.timers.tick(2000);
   assert.notEqual(await acquire(alice, {}), forAlice);
+});
+
+test('a token is used for at most ten minutes after its exchange began, however long it and the caller\'s token last', async (t) => {
+  t.mock.timers.enable({ apis: ['Date'], now: START });
+  let exchangeTakes = 0;
+  const entra = fakeEntra({ expiresIn: 3600, whileExchanging: () => { if (exchangeTakes) t.mock.timers.tick(exchangeTakes); } });
+  const { acquire } = acquirerFor(entra);
+  const alice = callerToken('alice', 7200);
+  for (const scopes of [POWER_BI_SCOPES, GRAPH_SCOPES]) {
+    const first = await acquire(alice, {}, scopes);
+    t.mock.timers.tick(OBO_TOKEN_MAX_AGE_MS - 1000);
+    assert.equal(await acquire(alice, {}, scopes), first);
+    t.mock.timers.tick(2000);
+    const second = await acquire(alice, {}, scopes);
+    assert.notEqual(second, first);
+    // The next ten minutes count from the new exchange.
+    t.mock.timers.tick(OBO_TOKEN_MAX_AGE_MS - 1000);
+    assert.equal(await acquire(alice, {}, scopes), second);
+    t.mock.timers.tick(2000);
+    assert.notEqual(await acquire(alice, {}, scopes), second);
+  }
+  assert.equal(entra.exchanges.length, 6);
+
+  // An exchange that takes 30 s leaves its token 9.5 minutes, so no token is used more than ten minutes after Entra was asked.
+  exchangeTakes = 30_000;
+  const bob = callerToken('bob', 7200);
+  const forBob = await acquire(bob, {});
+  exchangeTakes = 0;
+  t.mock.timers.tick(OBO_TOKEN_MAX_AGE_MS - 30_000 - 1000);
+  assert.equal(await acquire(bob, {}), forBob);
+  t.mock.timers.tick(2000);
+  assert.notEqual(await acquire(bob, {}), forBob);
+  assert.equal(entra.exchanges.length, 8);
 });
 
 test('the cache holds at most maxEntries, dropping the least recently used, and sweeps out expired tokens', async (t) => {
