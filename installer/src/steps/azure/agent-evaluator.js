@@ -215,10 +215,10 @@ async function removeTranscriptAccess(ctx, entry) {
       await dv.disableUser(entry.userId);
     } catch (err) {
       if (gone(err)) {
-        ui.ok(`${cap(who)}'s application user in ${where} is already gone`);
+        ui.ok(`The application user for ${who} in ${where} is already gone`);
         return true;
       }
-      ui.warn(`Dataverse wouldn't deactivate ${who}'s application user in ${where} (${message(err)}). It has no role now, so it can't read transcripts.`);
+      ui.warn(`Dataverse wouldn't deactivate the application user for ${who} in ${where} (${message(err)}). It has no role now, so it can't read transcripts.`);
       ui.info(`A System Administrator can delete it: ${user} > Deactivate, then Delete.`);
       return true;
     }
@@ -230,16 +230,16 @@ async function removeTranscriptAccess(ctx, entry) {
         try {
           await dv.enableUser(entry.userId);
         } catch (again) {
-          ui.warn(`Dataverse wouldn't delete ${who}'s application user in ${where} (${message(err)}), or activate it again (${message(again)}), so it's deactivated.`);
+          ui.warn(`Dataverse wouldn't delete the application user for ${who} in ${where} (${message(err)}), or activate it again (${message(again)}), so it's deactivated.`);
           ui.info(`A System Administrator can delete it (${user} > Delete), or activate it (Activate) before you tick ${where} again.`);
           return true;
         }
-        ui.warn(`Dataverse wouldn't delete ${who}'s application user in ${where} (${message(err)}). It has no role now, so it can't read transcripts.`);
+        ui.warn(`Dataverse wouldn't delete the application user for ${who} in ${where} (${message(err)}). It has no role now, so it can't read transcripts.`);
         ui.info(`A System Administrator can delete it: ${user} > Deactivate, then Delete.`);
         return true;
       }
     }
-    ui.ok(`Removed ${who}'s application user from ${where}`);
+    ui.ok(`Removed the application user for ${who} from ${where}`);
     return true;
   } catch (err) {
     ui.warn(`Couldn't remove what the installer added for ${who} in ${where} (${message(err)}).`);

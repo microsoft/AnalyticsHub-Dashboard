@@ -129,6 +129,9 @@ param askCapacity int = 50
 @description('Ask, create: region for the AI Services account. Empty = location.')
 param askLocation string = ''
 
+@description('Agent Evaluator: the Dataverse environments the jobs read Copilot Studio transcripts from, as a JSON list of {url, name}. Empty when the module is off.')
+param dataverseEnvironments string = '[]'
+
 var allTags = union(tags, { 'valuelens-install-id': installId, 'valuelens-component': 'analytics-hub' })
 var privateNetworking = publicNetworkAccess == 'Disabled'
 var suffix = substring(uniqueString(resourceGroup().id, installId), 0, 6)
@@ -302,6 +305,7 @@ module apps 'modules/containerapps.bicep' = {
     workdayAllowBaseOverwrite: workdayAllowBaseOverwrite
     askEndpoint: askEndpointValue
     askDeployment: askDeploymentValue
+    dataverseEnvironments: dataverseEnvironments
   }
 }
 

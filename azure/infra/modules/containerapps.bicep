@@ -52,6 +52,9 @@ param logsViaDiagnosticSettings bool = false
 param askEndpoint string = ''
 param askDeployment string = ''
 
+@description('Agent Evaluator: the Dataverse environments the jobs read Copilot Studio transcripts from, as a JSON list of {url, name}.')
+param dataverseEnvironments string = '[]'
+
 resource logs 'Microsoft.OperationalInsights/workspaces@2023-09-01' existing = {
   name: logAnalyticsName
 }
@@ -107,6 +110,7 @@ var jobEnv = concat(commonEnv, [
   { name: 'VALUELENS_DROP_SITE_ID', value: dropSiteId }
   { name: 'VALUELENS_DROP_DRIVE_ID', value: dropDriveId }
   { name: 'VALUELENS_DROP_FOLDER', value: dropFolder }
+  { name: 'VALUELENS_DATAVERSE_ENVIRONMENTS', value: dataverseEnvironments }
   { name: 'VALUELENS_ARG_MANAGEMENT_GROUP', value: argManagementGroup }
   { name: 'VALUELENS_ARG_AGENTS', value: argAgents ? 'true' : 'false' }
   { name: 'VALUELENS_ARG_FOUNDRY', value: argFoundry ? 'true' : 'false' }
