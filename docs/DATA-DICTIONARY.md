@@ -220,9 +220,9 @@ officeLocation, city, country, accountEnabled, managerUPN
 drops out of every view by organization. The ingester prints, and the Azure `org` job logs,
 "X of Y people have a department". Below 80% it adds how to fill the gaps: set Department in
 Microsoft Entra ID. The Workday org data below only adds columns, so it doesn't fill in a missing
-department. The installer's data check reports the same count after the first load, and the app's
-by-organization empty states and **What needs attention** say how many people with a task have a
-department.
+department. The installer's data check reports the same count after the first load. The app gives
+no count: the Executive summary's table by organization, the by-organization empty states and
+**What needs attention** say where the department comes from and how to fill the gaps.
 
 #### Optional Workday / HRIS enrichment or standalone source
 

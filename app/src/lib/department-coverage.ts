@@ -5,59 +5,29 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { formatKpi } from "./format-kpi";
 import { DEFAULT_ORG_ATTRIBUTE, type OrgAttribute } from "./org-attribute";
 
-/** Below this share of people with a department, views by department leave most people out. */
-export const LOW_DEPARTMENT_COVERAGE = 0.8;
+// The app has no count of the people with a department: the summary's
+// `[People With Organization]` counts everyone once any org data is loaded. The
+// installer's data check gives the real count, so the app only gives the advice,
+// worded to hold whatever the coverage.
 
 /** How to fill the gaps. The default org column comes from each person's Department in Microsoft Entra ID. */
 export const DEPARTMENT_ADVICE =
-    "Views by department leave out everyone without one. Fill in Department on users in Microsoft Entra ID.";
+    "Views by department leave out everyone without one. To include them, fill in Department on users in Microsoft Entra ID.";
 
 const WHERE_DEPARTMENT_COMES_FROM =
     "The organization comes from each person's Department in Microsoft Entra ID. If it's blank for most people, fill it in there.";
 
-export interface DepartmentCoverage {
-    have: number;
-    people: number;
-    /** Too few people have a department for views by department to be representative. */
-    low: boolean;
-    /** E.g. "180 of 200 people with a task have a department". */
-    text: string;
-}
-
-/**
- * How many of the people with a task have a department, from the summary's
- * `[People With Organization]` and `[People]`. Only the default org column is
- * counted, so another chosen attribute gets `undefined`.
- */
-export function departmentCoverage(
-    have: number | undefined,
-    people: number | undefined,
-    column: string,
-): DepartmentCoverage | undefined {
-    if (column !== DEFAULT_ORG_ATTRIBUTE || have === undefined || people === undefined || people <= 0) return undefined;
-    return {
-        have,
-        people,
-        low: have / people < LOW_DEPARTMENT_COVERAGE,
-        text: `${formatKpi(have, "whole")} of ${formatKpi(people, "whole")} people with a task have a department`,
-    };
-}
-
-/** The coverage line for a note, with advice when it is low. */
-export function coverageNote(coverage: DepartmentCoverage): string {
-    return coverage.low ? `${coverage.text}. ${DEPARTMENT_ADVICE}` : coverage.text;
+/** The advice for views by the chosen org attribute. Only the default column's source is known, so another gets `undefined`. */
+export function departmentAdvice(org: OrgAttribute): string | undefined {
+    return org.column === DEFAULT_ORG_ATTRIBUTE ? DEPARTMENT_ADVICE : undefined;
 }
 
 /**
  * An empty "No organizations to compare" description that says why it may be
- * empty: how many people have a department and how to fill the gaps, or, with
- * no count to hand, where the department comes from.
+ * empty: where the department comes from, and to fill it in there.
  */
-export function orgEmptyDescription(base: string, org: OrgAttribute, coverage?: DepartmentCoverage): string {
-    if (org.column !== DEFAULT_ORG_ATTRIBUTE) return base;
-    if (coverage) return coverage.low ? `${base} ${coverage.text}. ${DEPARTMENT_ADVICE}` : `${base} ${coverage.text}.`;
-    return `${base} ${WHERE_DEPARTMENT_COMES_FROM}`;
+export function orgEmptyDescription(base: string, org: OrgAttribute): string {
+    return org.column === DEFAULT_ORG_ATTRIBUTE ? `${base} ${WHERE_DEPARTMENT_COMES_FROM}` : base;
 }

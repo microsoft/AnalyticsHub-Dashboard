@@ -20,6 +20,13 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**App: the Executive summary no longer says everyone has a department.** Its count of the people
+with a task who have one took in everyone once any org data was loaded, so it said everyone had
+one and its low-coverage note never showed. Now the app gives no count, just where the department
+comes from and how to fill the gaps; for another org attribute, such as office location, **What
+needs attention** leaves the line out. The installer's data check still gives the real count, and
+warns below 80%.
+
 ## Analytics Hub installer 0.6.8-rc.1 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.1 is not published, and 0.6.7 remains Latest.
