@@ -73,9 +73,9 @@ counts the rows in the ValueLens model's optional sources (unfiltered). **Feedba
 shows how to connect the Agent 365 registry instead of empty sections, and the **Agents** leaderboard
 drops its registry columns. Governance's **Shadow AI** section needs `Defender Status`, and says how to
 turn Defender on without it; it doesn't depend on the registry. Newer installer builds also write which optional modules were switched
-off into `fabric.config.json`; those pages stay hidden without probing until the admin turns the
-module on. Everything shows while the check runs, or if it fails, and a page comes back on the next
-open once its data loads.
+off into `fabric.config.json` (on Azure, the web app serves them in `/app.config.json`); those
+pages stay hidden without probing until the admin turns the module on. Everything shows while the
+check runs, or if it fails, and a page comes back on the next open once its data loads.
 
 ## How pages load
 
