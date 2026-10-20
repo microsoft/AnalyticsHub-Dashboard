@@ -1,7 +1,7 @@
 # valuelens-jobs: build from the REPO ROOT so the shared core and SQL migrations are in the context:
 #   docker build -f "azure/jobs/Dockerfile" -t ghcr.io/microsoft/valuelens-jobs:<version> .
 # No JVM / Spark: the processor runs on DuckDB (core/valuelens_core).
-FROM python:3.12-slim-bookworm
+FROM python:3.14-slim-bookworm
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 \
     VALUELENS_MIGRATIONS_DIR=/app/sql/migrations
