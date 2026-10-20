@@ -5,7 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { useEffect, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { applyDaxFilters } from "@/lib/dax-filters";
 import { defaultProfile, resolveFilters, type FilterProfile, type NotFiltered } from "@/lib/filter-profiles";
 import type { FilterKey } from "@/lib/filters";
@@ -15,7 +15,7 @@ import { connection as valueLensConnection } from "@/queries/shared";
 import { useFilterContext } from "./filter.context";
 import { useIsPrefetch } from "./prefetch.context";
 import { useTaskTimes } from "./task-times.context";
-import { useSemanticModelQuery } from "./use-semantic-model-query";
+import { useSemanticModelQuery, useSpeculativeQuery } from "./use-semantic-model-query";
 
 interface FilteredQueryOptions {
     /**
@@ -39,6 +39,15 @@ export interface FilteredQueryConfig {
     filters?: FilterProfile;
     /** The page's first view waits on this query: on screen it goes ahead of the other queries waiting. */
     lead?: boolean;
+    /**
+     * While the saved task times load, ask the query at the model's own
+     * minutes, so it's on its way from the page's first query. Nothing shows
+     * until the times are known. With none saved the card then joins that
+     * query or reads its answer; with some saved it asks again at them, and
+     * the first answer is wasted. Only for the one query a page's first view
+     * waits on longest.
+     */
+    speculate?: boolean;
 }
 
 /**
@@ -49,7 +58,8 @@ export interface FilteredQueryConfig {
  * `notFilteredBy`, so the card can say so; filters in `ignore` are the
  * caller's to explain. A ValueLens query that shows hours or
  * value is worked out at the task times saved in the app, and waits, as an
- * empty query, until those are known.
+ * empty query, until those are known; one that may `speculate` is asked
+ * meanwhile at the model's own minutes, without showing that answer.
  *
  * Once a query has data, a refetch keeps that data on screen — `isLoading`
  * stays false and the shell dims the canvas instead — so changing a filter
@@ -68,6 +78,10 @@ export function useFilteredQuery(config: FilteredQueryConfig, options: FilteredQ
         if (taskTimes.status === "loading" && readsTaskTimes(config.query)) return "";
         return withTaskTimes(config.query, taskTimes.saved);
     }, [config.connection, config.query, taskTimes.status, taskTimes.saved]);
+    const waiting = Boolean(config.query) && !timed;
+    const prefetching = useIsPrefetch();
+    // What the query is with no task times saved, as the card will ask it if none turn out to be.
+    const untimed = config.speculate && waiting && !prefetching ? withTaskTimes(config.query, []) : "";
 
     const resolved = useMemo(() => {
         const ignored = new Set(ignoreKey ? ignoreKey.split("|") : []);
@@ -75,15 +89,17 @@ export function useFilteredQuery(config: FilteredQueryConfig, options: FilteredQ
         return resolveFilters(profile, filters, keys, { consumptionOrgAttributes });
     }, [profile, filters, applicable, ignoreKey, consumptionOrgAttributes]);
 
-    const query = useMemo(() => {
-        if (!timed) return "";
+    const filtered = useCallback((dax: string) => {
+        if (!dax) return "";
         const extraFilters = extraKey ? extraKey.split("\u0000") : [];
-        return applyDaxFilters(timed, [...resolved.expressions, ...extraFilters]);
-    }, [timed, resolved.expressions, extraKey]);
+        return applyDaxFilters(dax, [...resolved.expressions, ...extraFilters]);
+    }, [resolved.expressions, extraKey]);
+    const query = useMemo(() => filtered(timed), [filtered, timed]);
+    const speculative = useMemo(() => filtered(untimed), [filtered, untimed]);
 
     const result = useSemanticModelQuery({ connection: config.connection, query, lead: config.lead });
-    const waiting = Boolean(config.query) && !timed;
-    const prefetching = useIsPrefetch();
+    // After the card's query: once the times are known, a card asking the same query joins the early one where it waits.
+    useSpeculativeQuery({ connection: config.connection, query: speculative, lead: config.lead });
     const isRefreshing = result.isLoading && result.data !== undefined;
     // A page fetched ahead of a visit is off screen, so it doesn't show the refreshing bar.
     const signalsRefresh = isRefreshing && !prefetching;

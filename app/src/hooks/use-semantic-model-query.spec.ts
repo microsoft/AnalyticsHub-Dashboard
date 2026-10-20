@@ -6,9 +6,10 @@
 //-----------------------------------------------------------------------
 
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { renderHook, act, waitFor } from "@testing-library/react";
+import { renderHook, render, act, waitFor } from "@testing-library/react";
 import { FabricApiProxyError } from "@microsoft/fabric-app-data";
-import { useSemanticModelQuery, clearQueryCache } from "@/hooks/use-semantic-model-query";
+import { createElement } from "react";
+import { useSemanticModelQuery, useSpeculativeQuery, clearQueryCache } from "@/hooks/use-semantic-model-query";
 import { currentCaller, type QueryCaller } from "@/lib/query-priority";
 import { BUSY_MESSAGE, QueryScheduler, recoveriesOf } from "@/lib/query-scheduler";
 
@@ -266,6 +267,113 @@ describe("useSemanticModelQuery, once a card has moved on", () => {
 
         renderHook(() => useSemanticModelQuery({ connection: "a", query: "R" }));
         expect(sent[2].caller?.lead).toBeFalsy();
+    });
+
+    it.each([
+        { from: false, to: true },
+        { from: true, to: false },
+    ])("keeps its query in flight when lead turns from $from to $to, and asks next time as it now says", async ({ from, to }) => {
+        const { result, rerender } = renderHook((props) => useSemanticModelQuery(props), {
+            initialProps: { connection: "a", query: "Q", lead: from },
+        });
+        expect(sent[0].caller?.lead).toBe(from);
+
+        rerender({ connection: "a", query: "Q", lead: to });
+        expect(sent).toHaveLength(1);
+        expect(sent[0].caller?.signal?.aborted).toBe(false);
+
+        await act(async () => sent[0].answer(busy));
+        expect(result.current).toMatchObject({ data: busy, isLoading: false });
+        act(() => {
+            void result.current.refetch();
+        });
+        expect(sent).toHaveLength(2);
+        expect(sent[1]).toMatchObject({ query: "Q", options: { bypassCache: true } });
+        expect(sent[1].caller?.lead).toBe(to);
+    });
+});
+
+describe("useSpeculativeQuery", () => {
+    type Sent = { query: string; options: unknown; caller: QueryCaller | undefined };
+    let sent: Sent[];
+
+    beforeEach(() => {
+        mockQuery.mockReset();
+        sent = [];
+        mockQuery.mockImplementation((query: string, options: unknown) => {
+            sent.push({ query, options, caller: currentCaller() });
+            return new Promise(() => {});
+        });
+    });
+
+    it("asks once, keeps its query on its way when lead changes, and calls it off once the query changes or the page goes", () => {
+        const { rerender, unmount } = renderHook((props) => useSpeculativeQuery(props), {
+            initialProps: { connection: "vl", query: "Q", lead: true },
+        });
+        expect(sent).toEqual([{ query: "Q", options: undefined, caller: expect.objectContaining({ lead: true }) }]);
+        const first = sent[0].caller?.signal;
+        expect(first?.aborted).toBe(false);
+
+        rerender({ connection: "vl", query: "Q", lead: false });
+        expect(sent).toHaveLength(1);
+        expect(first?.aborted).toBe(false);
+
+        rerender({ connection: "vl", query: "R", lead: false });
+        expect(first?.aborted).toBe(true);
+        expect(sent.map(({ query }) => query)).toEqual(["Q", "R"]);
+        expect(sent[1].caller?.lead).toBe(false);
+
+        unmount();
+        expect(sent[1].caller?.signal?.aborted).toBe(true);
+    });
+
+    it("asks nothing without a query", () => {
+        renderHook(() => useSpeculativeQuery({ connection: "vl", query: "" }));
+        expect(sent).toEqual([]);
+    });
+
+    it("leaves the page standing when its query can't even start, for the card to say why when it asks", () => {
+        mockQuery.mockImplementation(() => {
+            throw new Error("No semantic model is set up as 'vl'.");
+        });
+        function Page() {
+            useSpeculativeQuery({ connection: "vl", query: "Q", lead: true });
+            return createElement("p", null, "The bottom line");
+        }
+        const { container } = render(createElement(Page));
+        expect(container.textContent).toBe("The bottom line");
+    });
+
+    it("asks before the cards below it, whose effects React runs first", () => {
+        function Card() {
+            useSemanticModelQuery({ connection: "vl", query: "CARD" });
+            return null;
+        }
+        function Page() {
+            useSpeculativeQuery({ connection: "vl", query: "PAGE", lead: true });
+            return createElement(Card);
+        }
+        render(createElement(Page));
+        expect(sent.map(({ query }) => query)).toEqual(["PAGE", "CARD"]);
+    });
+
+    it("calls its query off only once the card asking the same one has joined it", () => {
+        const events: string[] = [];
+        mockQuery.mockImplementation((query: string) => {
+            events.push(`ask ${query}`);
+            currentCaller()?.signal?.addEventListener("abort", () => events.push(`call off ${query}`));
+            return new Promise(() => {});
+        });
+        function Summary({ known }: { known: boolean }) {
+            useSemanticModelQuery({ connection: "vl", query: known ? "Q" : "" });
+            useSpeculativeQuery({ connection: "vl", query: known ? "" : "Q", lead: true });
+            return null;
+        }
+        const { rerender } = render(createElement(Summary, { known: false }));
+        expect(events).toEqual(["ask Q"]);
+
+        rerender(createElement(Summary, { known: true }));
+        expect(events).toEqual(["ask Q", "ask Q", "call off Q"]);
     });
 });
 

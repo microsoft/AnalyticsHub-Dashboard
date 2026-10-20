@@ -164,6 +164,9 @@ fetch the code for the app, and for the Executive summary it opens on, straight 
 app asked for that code only after its config arrived. The code still runs only after that. Each
 build takes the list from its own imports, so the list keeps up as the code changes.
 
+**App: the Executive summary's headline figures no longer wait for the task times saved in the
+app.** They're asked with the page's first query, and asked again only if saved times change them.
+
 ## 2026-10-19 — Analytics Hub installer 0.6.7
 
 **The current release.** 0.6.7 replaces 0.6.6 as Latest, so the `releases/latest` links, including
