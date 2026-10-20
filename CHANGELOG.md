@@ -41,7 +41,9 @@ whether to leave the environment out for now or whether it already has access. S
   show, once the module is on with an environment, outside demo mode. The pages are empty until the
   jobs first read transcripts. The installer's refresh, the model's scheduled refresh and the jobs'
   refresh of `ae` wait until the managed identity can read one of the environments, and the schedule
-  is off until then. Only then is `agentEvaluator` in the jobs' `VALUELENS_MODULES`.
+  is off until then. `agentEvaluator` is in the jobs' `VALUELENS_MODULES` whenever the module is
+  ticked, as on Fabric, but `VALUELENS_DATAVERSE_ENVIRONMENTS` lists the environments only once one
+  can be read, so the jobs read and refresh nothing before then.
 - **Taking it away removes only what the installer added.** Untick an environment or the module, or
   uninstall, and the installer takes away the role it gave and deletes the application user it
   created, deactivating it first. If Dataverse won't delete it, the installer activates it again,

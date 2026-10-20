@@ -304,9 +304,10 @@ Then it asks:
   unticked since. They're empty until the jobs first read transcripts.
 - Nothing refreshes the model until the managed identity can read at least one chosen environment:
   not the installer, not the model's scheduled refresh in Power BI (turned off until then), and not
-  the jobs. Only then does the installer add `agentEvaluator` to the jobs' `VALUELENS_MODULES`.
-  `VALUELENS_DATAVERSE_ENVIRONMENTS` lists every chosen environment, readable or not, and the jobs
-  read none of them until then.
+  the jobs. The installer gives the jobs the environments, in `VALUELENS_DATAVERSE_ENVIRONMENTS`,
+  only once the managed identity can read one of them, and then lists every chosen environment,
+  readable or not. Until then the list is empty and the jobs read none. `agentEvaluator` is in the
+  jobs' `VALUELENS_MODULES` whenever the module is ticked, outside demo mode, as on Fabric.
 
 **Taking it away.**
 

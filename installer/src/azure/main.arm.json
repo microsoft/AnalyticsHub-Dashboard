@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.47.16.16243",
-      "templateHash": "3529457265792409449"
+      "templateHash": "7456984285369647599"
     }
   },
   "parameters": {
@@ -383,7 +383,7 @@
       "type": "string",
       "defaultValue": "[[]",
       "metadata": {
-        "description": "Agent Evaluator: the Dataverse environments the jobs read Copilot Studio transcripts from, as a JSON list of {url, name}. Empty when the module is off."
+        "description": "Agent Evaluator: the Dataverse environments the jobs read Copilot Studio transcripts from, as a JSON list of {url, name}. Empty when the module is off, and until the jobs' managed identity can read one of them."
       }
     }
   },

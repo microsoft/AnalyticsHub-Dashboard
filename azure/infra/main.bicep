@@ -129,7 +129,7 @@ param askCapacity int = 50
 @description('Ask, create: region for the AI Services account. Empty = location.')
 param askLocation string = ''
 
-@description('Agent Evaluator: the Dataverse environments the jobs read Copilot Studio transcripts from, as a JSON list of {url, name}. Empty when the module is off.')
+@description('Agent Evaluator: the Dataverse environments the jobs read Copilot Studio transcripts from, as a JSON list of {url, name}. Empty when the module is off, and until the jobs\' managed identity can read one of them.')
 param dataverseEnvironments string = '[]'
 
 var allTags = union(tags, { 'valuelens-install-id': installId, 'valuelens-component': 'analytics-hub' })

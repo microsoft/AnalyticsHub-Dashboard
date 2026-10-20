@@ -915,8 +915,8 @@ admin chooses **+ Add an app** and searches for the client ID, not the name. `--
 The Agent Evaluator pages show while the module is on and its model is deployed, outside
 [demo mode](#demo-mode), even before the managed identity can read an environment. They stay empty
 until the jobs first read transcripts. The installer refreshes the model, turns on its scheduled
-refresh and adds `agentEvaluator` to the jobs' modules only once the managed identity can read one
-of the environments.
+refresh and gives the jobs the environments to read only once the managed identity can read one of
+them. The jobs' modules include `agentEvaluator` whenever the module is ticked, as on Fabric.
 
 When you untick an environment or the module, or uninstall, the installer removes only what it
 added there: the role it gave, and the application user if it created it. Unticking the module

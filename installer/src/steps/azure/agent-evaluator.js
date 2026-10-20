@@ -65,8 +65,8 @@ export const azureAgentEvaluatorModelDeployed = (config) => !!config.modules.age
 const readable = (env, appId) => !!env.access && sameId(env.accessAppId, appId);
 
 /**
- * The jobs read transcripts: the module is on and the managed identity can read some chosen environment. Only then is
- * agentEvaluator in VALUELENS_MODULES.
+ * The jobs read transcripts: the module is on and the managed identity can read some chosen environment. Only then does
+ * VALUELENS_DATAVERSE_ENVIRONMENTS list the environments.
  * @param {InstallConfig} config
  */
 export const azureAgentEvaluatorReads = (config) => azureAgentEvaluatorOn(config) && config.agentEvaluator.environments.some((e) => readable(e, config.azure?.outputs?.identityClientId));
@@ -74,18 +74,21 @@ export const azureAgentEvaluatorReads = (config) => azureAgentEvaluatorOn(config
 /**
  * The Agent Evaluator model refreshes: it's in use and the jobs read transcripts, as Fabric's refresh also needs
  * agentEvaluatorOn. It decides the installer's refresh and the Power BI schedule. The jobs skip the model on the same
- * setting, since VALUELENS_MODULES drives both (azure/jobs/valuelens_jobs/refresh.py).
+ * condition, since they refresh it only while VALUELENS_DATAVERSE_ENVIRONMENTS lists environments
+ * (azure/jobs/valuelens_jobs/refresh.py).
  * @param {InstallConfig} config
  */
 export const azureAgentEvaluatorRefreshes = (config) => azureAgentEvaluatorModelDeployed(config) && azureAgentEvaluatorReads(config);
 
 /**
- * The environments the jobs read, as VALUELENS_DATAVERSE_ENVIRONMENTS. Every chosen environment is listed, readable or
- * not; the jobs read none until agentEvaluator is in VALUELENS_MODULES.
+ * The environments the jobs read, as VALUELENS_DATAVERSE_ENVIRONMENTS. None are listed until the managed identity can
+ * read one of them, so the jobs neither collect transcripts nor refresh the model before then, though agentEvaluator is
+ * in VALUELENS_MODULES while the module is ticked. From then on every chosen environment is listed, readable or not, so
+ * the jobs report each one's status and pick up access an admin adds later.
  * @param {InstallConfig} config
  */
 export const agentEvaluatorParameters = (config) => ({
-  dataverseEnvironments: param(JSON.stringify((azureAgentEvaluatorOn(config) ? config.agentEvaluator.environments : []).map((e) => ({ url: e.url, ...(e.name ? { name: e.name } : {}) })))),
+  dataverseEnvironments: param(JSON.stringify((azureAgentEvaluatorReads(config) ? config.agentEvaluator.environments : []).map((e) => ({ url: e.url, ...(e.name ? { name: e.name } : {}) })))),
 });
 
 /**

@@ -7,7 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { HttpError } from '../src/http.js';
 import { ensureAzureTranscriptAccess } from '../src/steps/azure/agent-evaluator.js';
 import {
-  azureAgentEvaluatorModelDeployed, azureAgentEvaluatorOn, azureAgentEvaluatorReads, azureAgentEvaluatorRefreshes, azurePlanReview, azurePreflight, azureRefresh, azureSemanticModels, azureStatus, azureSummary,
+  agentEvaluatorParameters, azureAgentEvaluatorModelDeployed, azureAgentEvaluatorOn, azureAgentEvaluatorReads, azureAgentEvaluatorRefreshes, azurePlanReview, azurePreflight, azureRefresh, azureSemanticModels, azureStatus, azureSummary,
   azureUninstall, azureViewerModels, enabledAzureModuleIds, installAzure,
 } from '../src/steps/azure/index.js';
 import { MODEL_UPDATE_NOTE, pendingReloads } from '../src/steps/model.js';
@@ -148,17 +148,30 @@ test('Azure Agent Evaluator: its model is deployed with the module on, an enviro
   assert.equal(az.powerBi.agentEvaluatorDatasetId, 'ae-1', 'the model is kept');
 });
 
-test('Azure Agent Evaluator: the jobs run the module only once the managed identity can read an environment', () => {
+test('Azure Agent Evaluator: the jobs\' module follows the tick, and they get the environments once the managed identity can read one', () => {
   const { config } = fakeCtx();
   config.target = 'azure';
   config.azure = /** @type {any} */ ({ outputs: { identityClientId: 'mi-client' } });
   const az = /** @type {import('../src/config.js').AzureConfig} */ (config.azure);
+  const listed = () => enabledAzureModuleIds(config.modules, az).includes('agentEvaluator');
+  const environments = () => JSON.parse(agentEvaluatorParameters(config).dataverseEnvironments.value);
+  assert.equal(listed(), false, 'unticked');
   config.modules.agentEvaluator = true;
-  config.agentEvaluator.environments = [{ url: ENV }];
-  assert.ok(!enabledAzureModuleIds(config.modules, az, config).includes('agentEvaluator'), 'nothing to read yet');
-  assert.ok(!enabledAzureModuleIds(config.modules, az).includes('agentEvaluator'), 'never without the config to check');
-  Object.assign(config.agentEvaluator.environments[0], { access: true, accessAppId: 'mi-client' });
-  assert.ok(enabledAzureModuleIds(config.modules, az, config).includes('agentEvaluator'));
+  assert.equal(listed(), true, 'ticked with no environment, as Fabric\'s flag is');
+  assert.deepEqual(environments(), []);
+  config.agentEvaluator.environments = [{ url: ENV, name: 'Example' }, { url: DEV }];
+  assert.equal(listed(), true, 'ticked with none readable');
+  assert.deepEqual(environments(), [], 'nothing for the jobs to read or refresh yet');
+  Object.assign(config.agentEvaluator.environments[1], { access: true, accessAppId: 'mi-client' });
+  assert.equal(listed(), true, 'one of two readable');
+  assert.deepEqual(environments(), [{ url: ENV, name: 'Example' }, { url: DEV }], 'every chosen environment, readable or not');
+  az.sampleData = true;
+  assert.equal(listed(), false, 'demo mode');
+  assert.deepEqual(environments(), []);
+  az.sampleData = false;
+  config.modules.agentEvaluator = false;
+  assert.equal(listed(), false, 'unticked again');
+  assert.deepEqual(environments(), []);
 });
 
 test('Azure install with Agent Evaluator: a third model, reading Azure SQL, bound, scheduled and given to the app as ae', async () => {
@@ -212,7 +225,7 @@ test('Azure install with Agent Evaluator: no model in demo mode, without an envi
     assert.equal(t.az.powerBi?.agentEvaluatorDatasetId, undefined, label);
     assert.equal(t.config.agentEvaluator.model.id, undefined, label);
     assert.deepEqual(Object.keys(t.dv), [], `${label}: Dataverse isn't touched`);
-    assert.ok(!jobSettings(t.deployments).modules.includes('agentEvaluator'), label);
+    assert.equal(jobSettings(t.deployments).modules.includes('agentEvaluator'), label === 'no environment', `${label}: the module follows its tick outside demo mode`);
     assert.deepEqual(jobSettings(t.deployments).environments, [], label);
   }
 
@@ -327,8 +340,8 @@ test('Azure Agent Evaluator, with no environment the jobs can read: its pages ar
   assert.ok(id, 'deployed, for its pages');
   assert.deepEqual(usedBy(t, id), { app: true, viewers: true, rls: true });
   const jobs = jobSettings(t.deployments);
-  assert.ok(!jobs.modules.includes('agentEvaluator'), 'the jobs don\'t read transcripts');
-  assert.deepEqual(jobs.environments, [{ url: ENV, name: 'Example' }], 'every chosen environment is listed');
+  assert.ok(jobs.modules.includes('agentEvaluator'), 'the module follows its tick, as Fabric\'s flag does');
+  assert.deepEqual(jobs.environments, [], 'so the jobs neither read transcripts nor refresh the model');
   assert.deepEqual(t.schedules.get(id), [OFF], 'its schedule is only ever turned off');
   assert.equal(t.az.transcriptAccess, undefined, 'nothing was added');
   assert.equal(t.config.agentEvaluator.environments[0].access, undefined);
@@ -379,7 +392,7 @@ test('Azure Agent Evaluator, with every environment removed: its pages stay, and
   assert.ok(!t.fabric.calls.some((c) => /^(create|update|delete)/.test(c) && c.includes(AE_MODEL)));
   assert.deepEqual(usedBy(t, id), { app: true, viewers: true, rls: true }, 'its pages stay while the module is on, as on Fabric');
   const jobs = jobSettings(t.deployments);
-  assert.ok(!jobs.modules.includes('agentEvaluator'));
+  assert.ok(jobs.modules.includes('agentEvaluator'), 'still ticked');
   assert.deepEqual(jobs.environments, []);
   assert.deepEqual(t.schedules.get(id)?.at(-1), OFF);
   t.powerBi.calls.length = 0;

@@ -32,7 +32,7 @@ import { checkRegions, noRegionMessage, regionNotes, regionProblems, sqlProblem 
 import { checkDeployRights, printAdminGrants, registrationMessage, reportProviders, roleAssignMessage } from './least-privilege.js';
 import { AZURE_LARGE_TENANT_SKU, AZURE_LARGE_TENANT_SQL_VCORES, BIG_CAPACITY_SEATS, copilotSeats, LARGE_TENANT_SEATS, seatCount } from '../../seats.js';
 import {
-  agentEvaluatorParameters, azureAgentEvaluatorConfirmLine, azureAgentEvaluatorModelDeployed, azureAgentEvaluatorOn, azureAgentEvaluatorReads, azureAgentEvaluatorRefreshes, azureAgentEvaluatorSummary,
+  agentEvaluatorParameters, azureAgentEvaluatorConfirmLine, azureAgentEvaluatorModelDeployed, azureAgentEvaluatorOn, azureAgentEvaluatorRefreshes, azureAgentEvaluatorSummary,
   azureTranscriptStatus, azureTranscriptStepWanted, ensureAzureTranscriptAccess, planAzureAgentEvaluator, removeAzureTranscriptAccess, transcriptAccessReview,
 } from './agent-evaluator.js';
 
@@ -1050,7 +1050,7 @@ export async function azureDeployment(ctx, o) {
     publicNetworkAccess: param(az.publicNetworkAccess === false ? 'Disabled' : 'Enabled'), deployWeb: param(true), webMinReplicas: param(az.webAlwaysOn === true ? 1 : 0),
     privateDnsZoneMode: param(az.privateDns?.mode ?? 'create'), privateDnsZonesResourceGroupId: param(az.privateDns?.mode === 'existing' ? (az.privateDns.resourceGroupId ?? '') : ''),
     webClientId: param(o.pass === 2 ? (az.webApp?.clientId ?? '') : ''), webAppIdUri: param(o.pass === 2 ? (az.webApp?.appIdUri ?? '') : ''), webAccess: param(webAccess(config)),
-    modules: param([...enabledAzureModuleIds(config.modules, az, config), ...(azureResourceGraphOn(config) ? ['resourceGraph'] : []), ...(azureWorkdayOn(config) ? ['workday'] : [])].join(',')), auditHistoryDays: param(Math.max(config.history.days, ctx.reloadHistoryDays ?? 0)), powerBiWorkspaceId: param(az.powerBi?.workspaceId ?? ''),
+    modules: param([...enabledAzureModuleIds(config.modules, az), ...(azureResourceGraphOn(config) ? ['resourceGraph'] : []), ...(azureWorkdayOn(config) ? ['workday'] : [])].join(',')), auditHistoryDays: param(Math.max(config.history.days, ctx.reloadHistoryDays ?? 0)), powerBiWorkspaceId: param(az.powerBi?.workspaceId ?? ''),
     semanticModels: param(JSON.stringify(azureSemanticModels(config))),
     sqlReaderName: param(SQL_READER_NAME), sqlReaderClientId: param(o.pass === 2 ? (az.sqlReader?.clientId ?? '') : ''),
     reportingCurrency: param(config.reporting?.currency ?? DEFAULT_CURRENCY), exchangeRate: param(config.reporting?.exchangeRate ? String(config.reporting.exchangeRate) : ''),
@@ -1082,7 +1082,7 @@ export function azureSemanticModels(config) {
   return {
     ...(pbi.datasetId ? { [APP_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.datasetId } } : {}),
     ...(azureConsumptionModelDeployed(config) ? { [CONSUMPTION_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.consumptionDatasetId } } : {}),
-    // The jobs skip refreshing it until agentEvaluator is in VALUELENS_MODULES, once the managed identity can read an environment.
+    // The jobs skip refreshing it until VALUELENS_DATAVERSE_ENVIRONMENTS lists environments, once the managed identity can read one.
     ...(azureAgentEvaluatorModelDeployed(config) ? { [EVALUATOR_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.agentEvaluatorDatasetId } } : {}),
   };
 }
@@ -1149,12 +1149,13 @@ export function argParameters(config) {
 }
 
 /**
- * The modules the jobs collect. Agent Evaluator is in only once the managed identity can read an environment, since the
- * setting also decides whether the jobs refresh its model.
- * @param {import('../../catalog.js').ModuleChoice} modules @param {import('../../config.js').AzureConfig} [az] @param {import('../../config.js').InstallConfig} [config]
+ * The modules the jobs collect. Consumption and Agent Evaluator follow their tick outside demo mode, as Fabric's module
+ * flags do; the jobs read Agent Evaluator's transcripts only once VALUELENS_DATAVERSE_ENVIRONMENTS lists environments
+ * (agentEvaluatorParameters).
+ * @param {import('../../catalog.js').ModuleChoice} modules @param {import('../../config.js').AzureConfig} [az]
  */
-export function enabledAzureModuleIds(modules, az, config) {
-  return AZURE_SUPPORTED_MODULES.filter((id) => id === 'core' || (id === 'consumption' && az?.sampleData === true ? false : id === 'agentEvaluator' ? !!config && azureAgentEvaluatorReads(config) : modules[/** @type {keyof import('../../catalog.js').ModuleChoice} */ (id)]));
+export function enabledAzureModuleIds(modules, az) {
+  return AZURE_SUPPORTED_MODULES.filter((id) => id === 'core' || ((id === 'consumption' || id === 'agentEvaluator') && az?.sampleData === true ? false : modules[/** @type {keyof import('../../catalog.js').ModuleChoice} */ (id)]));
 }
 
 /**
