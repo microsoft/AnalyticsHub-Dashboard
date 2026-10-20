@@ -615,7 +615,7 @@ export function buildPipeline(template, settings) {
       notebookStep(settings, {
         key: 'workdayLander',
         name: WORKDAY_ACTIVITY,
-        description: 'Adds or overrides org fields in copilot_org_data from the Workday export in Files/org_workday. Does nothing without an export.',
+        description: 'Adds the columns of the Workday export in Files/org_workday that copilot_org_data doesn\'t have. Existing columns aren\'t changed or filled in. Does nothing without an export.',
         timeout: '0.00:30:00',
       }),
     );

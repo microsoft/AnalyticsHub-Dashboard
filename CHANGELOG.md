@@ -55,6 +55,18 @@ instead of testing each user, as in
 [ValueLens #199](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/pull/199). Adoption
 and the Executive summary should load sooner. The numbers don't change.
 
+**Power BI model: a Workday `Department` column no longer fails the refresh.** The org query
+renamed `Department` to `Organization` even when the org data already had an `Organization`
+column, so a Workday export with a `Department` column failed the refresh. Now it renames
+`Department` only when there's no `Organization` column, and leaves `Organization` as it is: a
+blank one isn't filled in from `Department`. The fix is in both Fabric templates and the Agent
+Evaluator template, and so in the Azure model built from them.
+
+**Workday org data only adds columns, and the wording now says so.** The installer said it adds or
+overrides org fields, and the installer, the org data load, the app and the docs suggested it when
+few people have a department. It only adds the columns the org data doesn't have, so it doesn't
+fill in a missing department. The advice now just says to fill in Department in Microsoft Entra ID.
+
 **Azure: sizing for a tenant with more than 10,000 Copilot seats.** Smaller tenants are asked
 nothing new and deploy as before.
 

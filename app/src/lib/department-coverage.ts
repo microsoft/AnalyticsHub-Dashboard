@@ -13,10 +13,10 @@ export const LOW_DEPARTMENT_COVERAGE = 0.8;
 
 /** How to fill the gaps. The default org column comes from each person's Department in Microsoft Entra ID. */
 export const DEPARTMENT_ADVICE =
-    "Views by department leave out everyone without one. Fill in Department on users in Microsoft Entra ID, or add Workday org data: run the installer again and choose Repair or change.";
+    "Views by department leave out everyone without one. Fill in Department on users in Microsoft Entra ID.";
 
 const WHERE_DEPARTMENT_COMES_FROM =
-    "The organization comes from each person's Department in Microsoft Entra ID. If it's blank for most people, fill it in there, or add Workday org data: run the installer again and choose Repair or change.";
+    "The organization comes from each person's Department in Microsoft Entra ID. If it's blank for most people, fill it in there.";
 
 export interface DepartmentCoverage {
     have: number;
