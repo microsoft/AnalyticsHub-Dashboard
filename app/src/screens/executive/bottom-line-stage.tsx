@@ -49,7 +49,8 @@ const HOURS_RANGE = "Conservative to Optimistic";
 /**
  * The hours range under the Typical hours. It's its own query, so it can land
  * after the hours: until it has answered for the hours on show, the line
- * holds a placeholder rather than a range for other filters.
+ * holds a placeholder rather than a range for other filters, and a download
+ * waits for it as it waits for any card still loading.
  */
 function HoursRangeStat({ range, onRetry }: { range: HoursRange; onRetry: () => void }) {
     switch (range.status) {
@@ -66,7 +67,7 @@ function HoursRangeStat({ range, onRetry }: { range: HoursRange; onRetry: () => 
             return (
                 <div className="flex items-center justify-between gap-200">
                     <span>{HOURS_RANGE}</span>
-                    <span role="status">
+                    <span role="status" data-query-loading="">
                         <span className="sr-only">Loading</span>
                         <span aria-hidden="true" className="block h-200 w-[10ch] animate-pulse rounded-sm bg-muted" />
                     </span>

@@ -19,6 +19,7 @@ import { defaultFilters, FILTER_KEYS } from "@/lib/filters";
 import { DEFAULT_ORG_ATTRIBUTE, describeOrgAttribute } from "@/lib/org-attribute";
 import { withPriority } from "@/lib/query-priority";
 import { QueryScheduler, scheduledProxy } from "@/lib/query-scheduler";
+import { isBusy } from "@/lib/report-export";
 import type { SavedTaskTime } from "@/lib/settings-store";
 import { withTaskTimes } from "@/queries/assumptions/task-times";
 import { executiveHoursRange, executiveSummary } from "@/queries/executive";
@@ -257,6 +258,23 @@ describe("Executive summary on a cold open", () => {
         await tick(0);
         expect(sent).toContain(SUMMARY);
         expect(sent).not.toContain(RANGE);
+    });
+
+    it("keeps a download waiting until the range has landed, as it waits for any card still loading", async () => {
+        const { sent, answerNext } = setup();
+        render(page("ready", [], onlyStages(["the-bottom-line"])));
+        await tick(0);
+        answerNext();
+        await tick(0);
+        expect(screen.getByText("4,321")).toBeTruthy();
+        expect(sent).toEqual([SUMMARY, RANGE]);
+        // What a download or report pack checks before it captures the page.
+        expect(isBusy(rangeLine())).toBe(true);
+
+        answerNext();
+        await tick(0);
+        expect(within(rangeLine()).getByText("1,234 – 5,678")).toBeTruthy();
+        expect(isBusy(rangeLine())).toBe(false);
     });
 
     it("asks the hours range under the same filters as the summary", async () => {

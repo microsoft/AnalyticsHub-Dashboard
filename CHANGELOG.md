@@ -156,9 +156,10 @@ trial with 20,000 people, the summary took 2.80 s, and 2.03 s without the range.
 the two took 2.02 s and 1.68 s, or 1.65 s and 1.64 s against 2.44 s with the model changes due
 from ValueLens, and gave the same results as the single query. The bottom line shows the same
 figures. The range shows a placeholder until it lands, appears only once it and the hours answer
-for the same filters, and says so, with **Try again**, if it doesn't load. Estimated: the first
-figures land 0.8 to 0.9 s sooner and a date change 0.5 to 1.0 s sooner, but until the landing asks
-fewer queries, the page as a whole is ready about 0.2 s later.
+for the same filters, and says so, with **Try again**, if it doesn't load. Downloads and report
+packs wait for it, as they wait for any card still loading. Estimated: the first figures land
+0.8 to 0.9 s sooner and a date change 0.5 to 1.0 s sooner, but until the landing asks fewer
+queries, the page as a whole is ready about 0.2 s later.
 
 - **Ask:** on Azure, `bottom_line` no longer returns the range; a new `hours_range` tool does. The
   Fabric data agent's instructions name it too, so the installer's next run updates and
