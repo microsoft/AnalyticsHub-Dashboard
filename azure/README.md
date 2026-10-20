@@ -70,7 +70,8 @@ Tick **Credit consumption** to get the Consumption Central pages, from a second 
   installer creates a daily Power Automate flow, signed in as you through **HTTP with Microsoft Entra ID**.
   Its first run loads about six months, then it reads the last ten days. Per-user credits are best effort.
   You can choose the PPAC CSV exports instead.
-- **Cowork credits**: drop the Consumption Dashboard's Viva Insights export in the `viva` folder.
+- **Cowork credits**: drop the Consumption Dashboard's Viva Insights export in the `viva` folder. The
+  Viva Insights Dataflow is Fabric only for now: see [Parity with Fabric](#parity-with-fabric).
 - **Azure AI and pay-as-you-go**: the jobs read Cost Management and Azure Monitor with their managed
   identity. The installer gives it the roles on the subscriptions you pick, if you can assign them.
 
@@ -81,10 +82,79 @@ Where the files land depends on networking:
 | Public endpoints | The storage account's `landing` container: `studio/`, `viva/` (the flow keeps its own state in `flows/`) | Whoever signs the flow's storage connection in needs **Storage Blob Data Contributor** on the account. The installer gives it to you |
 | Private networking | A SharePoint folder you choose, with `studio/` and `viva/` under it. Power Automate can't reach private storage | The jobs' managed identity needs **Sites.Selected** with read on that site. The installer grants it if you're a SharePoint or Global administrator; otherwise it prints the `Grant-PnPAzureADAppSitePermission` command for one |
 
-The jobs read the files where they land and don't move them, the same as the Fabric notebooks.
+The jobs read the files where they land and don't move them, the same as the Fabric notebooks. Put
+exports there yourself, in the Azure portal, Azure Storage Explorer or SharePoint, or with
+`az storage blob upload`: the installer's `upload` command and `--csv` are Fabric only for now, and on
+Azure they stop and name the folder.
 
-Not on Azure yet: GitHub Copilot consumption, the dated Agent Daily table, Viva without a CSV, and
-`--flow-identity app` (the flow always signs in as you; the option warns and is ignored).
+### Parity with Fabric
+
+The jobs write the same tables as the Fabric notebooks, and the Consumption Central model and the
+app's pages are the same. Source by source:
+
+| | Fabric | Azure |
+|---|---|---|
+| Copilot Studio credits | The licensing API flow, PPAC exports, or both | The same |
+| Who the Studio flow signs in as | You, or the app registration with `--flow-identity app` | You. `--flow-identity app` warns and is ignored |
+| Copilot Cowork credits | The Viva Insights Dataflow (`coworkCredits=api`), the CSV export, or both | The CSV export. `coworkCredits=api` warns and becomes CSV, and `load-cowork` stops |
+| Azure AI and pay-as-you-go | `Ingest_Azure_AI` | The jobs read the same APIs and write the same tables. **Leave Azure AI out** at the subscription question, or `--data azureAi=skip`, leaves it out |
+| Where credit files land | The Lakehouse | The `landing` container, or a SharePoint folder with private networking (above) |
+| Demo mode | None in the installer. `seed_sample_data.py` loads the sample by hand | Leaves credit consumption out, as if unticked, until you switch to your tenant's data |
+| The model and the app's pages | Consumption Central. Unticking credit consumption keeps the model, but the app hides its pages, nothing refreshes it, and the installer stops giving access to it (access already given stays). Ticking it again reuses it | The same model, reading Azure SQL, and the same pages. Unticked, the same as Fabric, and its scheduled refresh in Power BI is turned off. It gets a new SQL reader secret only once it's ticked again |
+| GitHub Copilot and negotiated rates | Not installed: notebooks you import and run by hand | Not collected. The app's pages leave GitHub Copilot out, and you set your rates under **Rates & packs** in the app, which works on both |
+
+Why some are Fabric only for now:
+
+- **Cowork by API.** The Viva Insights connector signs in as a person, and the Dataflow Gen2 that
+  reads it needs Fabric capacity. Viva Insights has no documented export a managed identity can call,
+  so the jobs read the CSV export instead.
+- **`--flow-identity app`.** On Fabric the flow can sign in as the app registration, with its secret
+  from Key Vault. The jobs' managed identity has no secret a flow can sign in with.
+- **`upload`, `--csv` and `load-cowork`.** They write to the Lakehouse or refresh the Dataflow. The
+  web installer hides them on Azure.
+- **Demo mode.** The sample has credit consumption, but demo mode doesn't deploy the Consumption
+  Central model yet.
+
+### Check parity with Fabric
+
+[`tools/parity.mjs`](tools/parity.mjs) runs the app's DAX queries against two models and compares the
+results. To check Consumption Central, load the same sample into a Fabric install and an Azure
+install, then compare their Consumption Central models. Both installs cost money and need the roles in
+[Prerequisites](../docs/PREREQUISITES.md). Put them in the same test tenant, so one sign-in can query
+both, with a new Fabric workspace and a new resource group.
+
+1. Install both, tick **Credit consumption**, and take credits from exports only, so both read nothing
+   but the sample: `install --data studioCredits=csv,coworkCredits=csv,azureAi=skip`, and the same
+   with `--target azure`. On Azure, keep public endpoints and your tenant's data (not demo mode).
+2. In the same calendar month on both, load these files from `samples/consumption/`:
+   `StudioTenantDaily.csv`, `StudioPerAgent.csv` and `StudioPerUser.csv` for Copilot Studio, and
+   `PersonServiceCreditsMetrics.csv` and `SpendingPolicyMetadata.csv` for Cowork.
+   - **Fabric:** `upload` the five files with `--run`.
+   - **Azure:** put the Studio files in the `landing` container's `studio/` folder and the Cowork files
+     in `viva/`, for example
+     `az storage blob upload --auth-mode login --account-name <storage account> -c landing -n studio/StudioTenantDaily.csv -f samples/consumption/StudioTenantDaily.csv`.
+     The installer gave you Storage Blob Data Contributor; a new role can take a few minutes to
+     apply. Then `run`.
+3. Wait for both runs to finish. On Fabric, `status` lists the Consumption Central refreshes. On Azure,
+   the run job refreshes both models before it ends, so its latest execution in `status` shows
+   `Succeeded`.
+4. Find each Consumption Central model's IDs. In Power BI, its address has
+   `groups/<workspace ID>/datasets/<model ID>`. On Azure, `status` prints them too: the workspace ID
+   first on its **Power BI** line, and the model ID on its **Consumption** line.
+5. Sign in with `az login`, or set `POWERBI_TOKEN`, then compare the queries that read Consumption
+   Central, one folder at a time (`--only` takes one prefix):
+
+   ```powershell
+   $a = '<Fabric workspace ID>/<model ID>'; $b = '<Azure workspace ID>/<model ID>'
+   foreach ($only in 'consumption/', 'executive/executive-credit', 'freshness/consumption', 'filters/consumption') {
+     node azure/tools/parity.mjs --a $a --b $b --only $only --out "parity-$($only.Split('/')[0]).json"
+   }
+   ```
+
+6. Read each summary. The script exits 0 whatever it finds, so check the counts: every query should
+   be `match`, or `both-empty` where neither install has data for it. The organization filter
+   matches only if both installs read the same directory at about the same time.
+7. Run `uninstall` on both when you're done.
 
 ## Agent 365 registry
 

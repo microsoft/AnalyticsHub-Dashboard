@@ -7,7 +7,7 @@ organisations, agents, prompts and usage are all invented. Addresses use `contos
 | Folder | What it is | Used by |
 |---|---|---|
 | `samples/` | Copilot interactions, licensed users and org data for a 170-person company over three months, plus an Agent 365 registry and a product feedback export | Azure demo mode (`VALUELENS_SAMPLE_DATA=true`) |
-| `samples/consumption/` | Consumption Central exports for Copilot Studio, Copilot credits, GitHub and Azure AI Foundry over the same thirteen weeks | Azure demo mode with consumption on, and the Fabric seeder [`seed_sample_data.py`](../fabric/Add%20Credit%20Consumption/seed_sample_data.py) |
+| `samples/consumption/` | Consumption Central exports for Copilot Studio, Copilot credits, GitHub and Azure AI Foundry over the same thirteen weeks | The Fabric seeder [`seed_sample_data.py`](../fabric/Add%20Credit%20Consumption/seed_sample_data.py). Not Azure demo mode yet: it leaves [credit consumption](../azure/README.md#credit-consumption) out for now |
 
 The `valuelens-jobs` image bundles these files at `/app/sample-data`, so an Azure install can show a
 full dashboard before any tenant data is collected. On Fabric, `product_feedback_sample.csv` also

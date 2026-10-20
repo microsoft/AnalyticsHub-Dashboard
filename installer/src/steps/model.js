@@ -102,6 +102,8 @@ export const MODEL_UPDATE_NOTE = 'Updated in place if this version changed it, k
 /**
  * The installer's models that are owed a reload: their definition was, or may have been, replaced
  * and no refresh has finished since. Kept in the install record, so a later run still reloads them.
+ * A Consumption model kept while credit consumption is off, or in Azure's demo mode, waits until
+ * it's used again.
  * @param {import('../config.js').InstallConfig} config
  * @returns {import('../config.js').ModelConfig[]}
  */
@@ -109,7 +111,7 @@ export function pendingReloads(config) {
   const azure = config.target === 'azure';
   return [
     config.semanticModel,
-    (azure || config.modules?.consumption) && config.consumption?.model,
+    config.modules?.consumption && !(azure && config.azure?.sampleData === true) && config.consumption?.model,
     !azure && config.modules?.agentEvaluator && config.agentEvaluator?.model,
   ].filter((m) => !!m && !!m.id && !!m.reload).map((m) => /** @type {import('../config.js').ModelConfig} */ (m));
 }

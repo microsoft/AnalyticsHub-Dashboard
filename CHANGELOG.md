@@ -77,6 +77,28 @@ good if nothing on screen asked that model, and pages stopped loading ahead for 
 config files at once, rather than ruling out an Azure config before it asks for the Fabric ones.
 Azure installs load their config as before.
 
+**Azure: credit consumption checked against Fabric.**
+
+- **Recommended sources on a new tick.** Ticking **Credit consumption** on Azure now starts from the
+  Copilot Studio credits flow and the Cowork CSV export. Before, both defaulted to left out.
+- **Installs that ticked it before 0.6.8.** If an Azure install ticked it without changing the advanced
+  settings and reads Azure AI from a subscription, Copilot Studio and Cowork stay left out, because its
+  record can't tell that from a choice. To turn them on, choose **Repair or change**, then **Module
+  connections**, and pick their sources. In a terminal, run `install` and say **Yes** to the advanced settings.
+- **`--data azureAi=skip` works on Azure.** The subscription question now defaults to leaving Azure AI
+  out, as it already did after **Leave Azure AI out**, so `--yes` no longer turns it on.
+- **Clear errors for Fabric-only options.** On Azure, `upload`, `install --csv` and `load-cowork` now
+  stop and name the folder to put exports in. `coworkCredits=api`, `--flow-identity app` and leaving
+  every credit source out warn.
+- **Unticking it works as on Fabric.** On Azure, unticking **Credit consumption**, or switching to demo
+  mode, keeps the Consumption Central model but hides its pages in the app. The jobs, the `refresh`
+  command and its scheduled refresh in Power BI stop refreshing it, and the installer stops giving access
+  to it. Ticking it again reuses the model. Before, the app kept the pages, with data that no longer updated.
+- **Parity documented.** The [Azure README](azure/README.md#parity-with-fabric) compares credit
+  consumption with Fabric source by source, says why the Viva Insights Dataflow, `--flow-identity app`
+  and installer uploads are Fabric only for now, and gives the steps to compare the two Consumption
+  Central models with `parity.mjs`.
+
 ## 2026-10-19 — Analytics Hub installer 0.6.7
 
 **The current release.** 0.6.7 replaces 0.6.6 as Latest, so the `releases/latest` links, including

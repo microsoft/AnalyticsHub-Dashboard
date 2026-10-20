@@ -10,7 +10,7 @@ import { MODULES, azureGraphRolesFor } from '../src/catalog.js';
 import { HttpError } from '../src/http.js';
 import { armApi, armErrors, waitForDeployment } from '../src/clients/azure.js';
 import { runCommand } from '../src/install.js';
-import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, armParameterNames, askTarget, azureAgent365On, azureConsumptionOn, azureCron, azureDeployment, azureDropContents, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureProductFeedbackOn, azureRotateSecret, azureSemanticModels, azureStatus, azureSummary, azureUninstall, confirmAzurePlan, consumptionParameters, enabledAzureModuleIds, installAzure, parseDropFolder, planAzure, planAzureAgent365, planAzureDrop, planAzureProductFeedback, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
+import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, armParameterNames, askTarget, azureAgent365On, azureConsumptionOn, azureCron, azureDeployment, azureDropContents, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureProductFeedbackOn, azureRefresh, azureRotateSecret, azureSemanticModels, azureStatus, azureSummary, azureUninstall, confirmAzurePlan, consumptionParameters, enabledAzureModuleIds, installAzure, parseDropFolder, planAzure, planAzureAgent365, planAzureDrop, planAzureProductFeedback, planAzureConsumption, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
 import { AZURE_AI_ROLES } from '../src/steps/consumption.js';
 import { azureFlowTarget, connectionSteps, flowDefinitions, flowsWanted } from '../src/steps/flows.js';
 import { CONNECTORS, connectorsUsed } from '../src/transform/flows.js';
@@ -20,7 +20,7 @@ import { fakeAppCatalog, fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePower
 import { manifestVersion } from '../src/azure/teams.js';
 import { CATALOG_SIGN_IN_MS } from '../src/steps/azure/teams-catalog.js';
 import { readScopes } from '../src/steps/org-access.js';
-import { loadConfig, saveConfig } from '../src/config.js';
+import { loadConfig, saveConfig, emptyConfig } from '../src/config.js';
 import { createWebUi } from '../src/web-ui.js';
 import { createSession } from '../src/web-session.js';
 
@@ -84,13 +84,18 @@ test('credit consumption on Azure: the job reads only what it was given access t
   assert.deepEqual(on, { azureAiSubscriptionId: 'ai-sub', paygSubscriptionIds: 'payg-1', dropSiteId: 'contoso.sharepoint.com:/sites/Analytics', dropDriveId: '', dropFolder: 'Shared Documents/ValueLens' });
   assert.ok(azureGraphRoles(config).includes('Sites.Selected'));
 
-  assert.deepEqual(azureSemanticModels({ powerBi: { workspaceId: 'ws', datasetId: 'vl-1', consumptionDatasetId: 'cc-1' } }), { vl: { workspaceId: 'ws', itemId: 'vl-1' }, cc: { workspaceId: 'ws', itemId: 'cc-1' } });
+  /** @type {any} */ (config.azure).powerBi = { workspaceId: 'ws', datasetId: 'vl-1', consumptionDatasetId: 'cc-1' };
+  assert.deepEqual(azureSemanticModels(config), { vl: { workspaceId: 'ws', itemId: 'vl-1' }, cc: { workspaceId: 'ws', itemId: 'cc-1' } });
+  config.modules.consumption = false;
+  assert.deepEqual(azureSemanticModels(config), { vl: { workspaceId: 'ws', itemId: 'vl-1' } }, 'unticked, the kept model is out of the app and the jobs');
+  config.modules.consumption = true;
 
   // Demo mode collects nothing from the tenant.
   /** @type {any} */ (config.azure).sampleData = true;
   assert.equal(azureConsumptionOn(config), false);
   assert.ok(Object.values(consumptionParameters(config)).every((v) => v.value === ''));
   assert.ok(!azureGraphRoles(config).includes('Sites.Selected'));
+  assert.deepEqual(Object.keys(azureSemanticModels(config)), ['vl']);
 });
 
 test('Azure Studio flow: signed in as the user, it writes to the landing container, or to SharePoint with private networking', () => {
@@ -197,6 +202,107 @@ test('Azure install with credit consumption: roles for the jobs, landing write f
   assert.equal(env.flows.size, 1);
 });
 
+test('Azure: unticking credit consumption keeps its model but takes it out of the app, the refreshes and access, as on Fabric; ticking it again reuses it', async () => {
+  const arm = fakeArm();
+  /** @type {any[]} */
+  const deployments = [];
+  const deploy = /** @type {(...a: any[]) => Promise<any>} */ (arm.api.deployTemplate);
+  arm.api.deployTemplate = async (/** @type {any[]} */ ...args) => {
+    deployments.push(args[3]);
+    return deploy(...args);
+  };
+  const graph = fakeAzureGraph();
+  Object.assign(graph.api, { getGroup: async (/** @type {string} */ id) => ({ id, displayName: 'Analytics Hub Viewers' }) });
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds' }]);
+  /** @type {Map<string, any[]>} */
+  const schedules = new Map();
+  /** @type {Map<string, Error>} Why a model's schedule can't be changed. */
+  const scheduleErrors = new Map();
+  const setSchedule = powerBi.api.setRefreshSchedule;
+  const listSources = powerBi.api.datasources;
+  /** @type {string[]} The models the viewer group's Build was checked on. */
+  const built = [];
+  /** @type {string[]} The models whose database credential was set. */
+  const bound = [];
+  Object.assign(powerBi.api, {
+    setRefreshSchedule: async (/** @type {string} */ ws, /** @type {string} */ id, /** @type {any} */ body) => {
+      const err = scheduleErrors.get(id);
+      if (err) throw err;
+      schedules.set(id, [...(schedules.get(id) ?? []), body]);
+      return setSchedule(ws, id);
+    },
+    datasources: async (/** @type {string} */ _ws, /** @type {string} */ id) => {
+      bound.push(id);
+      return listSources();
+    },
+    datasetUsers: async (/** @type {string} */ _ws, /** @type {string} */ id) => {
+      built.push(id);
+      return [];
+    },
+    addDatasetUser: async () => null,
+  });
+  const env = fakeFlowEnvironment();
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui, dataverse: () => env.api });
+  withAzureConsumption(config);
+  config.access = /** @type {any} */ ({ ...config.access, groupId: 'group-1', groupName: 'Analytics Hub Viewers' });
+  ctx.runFirstLoad = false;
+  const az = /** @type {any} */ (config.azure);
+  const aliases = () => Object.keys(JSON.parse(deployments.at(-1).properties.parameters.semanticModels.value)).sort();
+
+  assert.equal(await installAzure(ctx, { wait: true }), true);
+  const cc = az.powerBi.consumptionDatasetId;
+  assert.ok(cc);
+  assert.deepEqual(aliases(), ['cc', 'vl']);
+  assert.equal(schedules.get(cc)?.at(-1).value.enabled, true);
+  assert.ok(built.includes(cc));
+  assert.ok(bound.includes(cc));
+
+  // Unticked in What to collect, while an update of the model may not have finished.
+  config.modules.consumption = false;
+  config.consumption.model.reload = { since: '2026-06-01T00:00:00Z', unsettled: true };
+  built.length = 0;
+  bound.length = 0;
+  powerBi.calls.length = 0;
+  ui.out.length = 0;
+  assert.equal(await installAzure(ctx, { wait: true }), true, 'the kept model waits to be reloaded until it is ticked again');
+  assert.doesNotMatch(ui.text(), /Credits: +model /, 'the summary leaves it out');
+  assert.deepEqual(aliases(), ['vl'], 'no credit pages in the app, and the jobs stop refreshing it');
+  assert.deepEqual(schedules.get(cc)?.at(-1), { value: { enabled: false } }, 'its scheduled refresh is turned off, and nothing else is changed in the same request');
+  assert.ok(!built.includes(cc), 'no Build on it for the viewer group');
+  assert.deepEqual(bound, [az.powerBi.datasetId], 'its database credential is left as it was');
+  assert.ok(!powerBi.calls.some((c) => c.startsWith(`refresh ${cc}`)));
+  assert.equal(az.powerBi.consumptionDatasetId, cc, 'the model is kept');
+  assert.equal(config.consumption.model.id, cc);
+  powerBi.calls.length = 0;
+  await azureRefresh(ctx);
+  assert.deepEqual(powerBi.calls.filter((c) => c.startsWith('refresh ')), [`refresh ${az.powerBi.datasetId} full`]);
+
+  // Ticked again: the same model is applied again, reloaded, and back in the app and on its schedule.
+  config.modules.consumption = true;
+  powerBi.calls.length = 0;
+  ui.out.length = 0;
+  assert.equal(await installAzure(ctx, { wait: true }), true);
+  assert.match(ui.text(), new RegExp(`Credits: +model ${cc}`));
+  assert.equal(az.powerBi.consumptionDatasetId, cc);
+  assert.deepEqual(aliases(), ['cc', 'vl']);
+  assert.equal(schedules.get(cc)?.at(-1).value.enabled, true);
+  assert.ok(built.includes(cc));
+  assert.ok(bound.includes(cc));
+  assert.ok(powerBi.calls.includes(`refresh ${cc} full`));
+  assert.equal(config.consumption.model.reload, undefined);
+
+  // Unticked again: a model deleted in Power BI since has no schedule to turn off; any other failure only warns.
+  config.modules.consumption = false;
+  scheduleErrors.set(cc, new HttpError('Not found', { status: 404, method: 'PATCH', url: 'https://x' }));
+  assert.equal(await installAzure(ctx, { wait: true }), true);
+  assert.doesNotMatch(ui.text(), /Couldn't turn off/);
+  scheduleErrors.set(cc, new HttpError('Internal', { status: 500, method: 'PATCH', url: 'https://x' }));
+  assert.equal(await installAzure(ctx, { wait: true }), true);
+  assert.match(ui.text(), /Couldn't turn off the scheduled refresh of .+Turn it off in the model's settings in Power BI\./);
+});
+
 test('Azure install with credit consumption: a SharePoint drop folder gets a site grant for the jobs, or an admin action', async () => {
   const drop = parseDropFolder('https://contoso.sharepoint.com/sites/Analytics/Shared Documents/ValueLens');
   const run = async (/** @type {boolean} */ fail) => {
@@ -236,6 +342,101 @@ test('Azure install with credit consumption in demo mode leaves it all out', asy
   assert.ok(!arm.calls.some((c) => c.startsWith('assignRole')));
   assert.equal(config.azure?.powerBi?.consumptionDatasetId, undefined);
   assert.equal(env.flows.size, 0);
+
+  const u = fakeUi();
+  const planned = fakeCtx({ ui: u.ui });
+  withAzureConsumption(planned.config, { sampleData: true });
+  await planAzureConsumption(planned.ctx, []);
+  const ds = planned.config.dataSources;
+  assert.deepEqual([ds.studioCredits, ds.coworkCredits, ds.azureAi], ['skip', 'skip', 'skip']);
+  assert.match(u.text(), /Demo mode leaves credit consumption out for now\. Once you switch to your tenant's data, the installer deploys the Consumption Central model/);
+});
+
+/** The one Power Platform environment the Studio flow can go in. */
+const oneEnvironment = { instances: async () => [{ Url: 'https://org1.crm.dynamics.com/', EnvironmentId: 'env-1', FriendlyName: 'Contoso' }] };
+
+test('Azure credit consumption ticked with no source picked yet starts from Studio by the licensing API and Cowork by CSV', async () => {
+  for (const advanced of [false, true]) {
+    const u = fakeUi();
+    const { ctx, config } = fakeCtx({ ui: u.ui, discovery: oneEnvironment });
+    withAzureConsumption(config);
+    // What a new install has, and what turning credit consumption off or demo mode leaves behind.
+    const empty = emptyConfig();
+    Object.assign(config, { dataSources: empty.dataSources, consumption: empty.consumption, uploads: empty.uploads });
+    ctx.advanced = advanced;
+    await planAzureConsumption(ctx, []);
+    const ds = config.dataSources;
+    assert.deepEqual([ds.studioCredits, ds.coworkCredits], ['api', 'csv'], advanced ? 'the questions default to them' : 'without the advanced questions');
+    assert.equal(u.asked.includes('Where should Copilot Studio credits come from?'), advanced);
+    assert.equal(config.uploads.flowEnvironment?.url, 'https://org1.crm.dynamics.com', 'the Studio flow gets an environment');
+    assert.equal(ds.azureAi, 'skip', 'no subscription to read Azure AI from');
+  }
+});
+
+test('Azure credit consumption keeps the sources picked before, and Cowork by the Viva Insights Dataflow becomes CSV with a warning', async () => {
+  const run = async (/** @type {Partial<import('../src/uploads.js').DataSourceModes>} */ modes, /** @type {string | undefined} */ aiSub = 'ai-sub', /** @type {import('../src/config.js').UploadsConfig} */ uploads = {}) => {
+    const u = fakeUi();
+    const { ctx, config } = fakeCtx({ ui: u.ui, discovery: oneEnvironment });
+    withAzureConsumption(config);
+    Object.assign(config.dataSources, modes);
+    Object.assign(config.uploads, uploads);
+    config.consumption.azureSubscriptionId = aiSub;
+    ctx.advanced = false;
+    await planAzureConsumption(ctx, []);
+    const ds = config.dataSources;
+    return { modes: [ds.studioCredits, ds.coworkCredits, ds.azureAi], text: u.text() };
+  };
+  const dataflow = /Viva Insights Dataflow \(coworkCredits=api\) is Fabric only/;
+  const nothing = /all left out, so credit consumption collects nothing, and the next run starts from the recommended sources again/;
+
+  const kept = await run({ studioCredits: 'skip', coworkCredits: 'skip' });
+  assert.deepEqual(kept.modes, ['skip', 'skip', 'api'], 'Studio and Cowork left out on purpose, with Azure AI on');
+  assert.deepEqual((await run({ studioCredits: 'csv', coworkCredits: 'csv' })).modes, ['csv', 'csv', 'api']);
+  assert.doesNotMatch(kept.text, dataflow);
+  assert.doesNotMatch(kept.text, nothing);
+
+  // Azure AI left out too: kept for this run, with a warning that the next run starts again.
+  const none = await run({ studioCredits: 'skip', coworkCredits: 'skip' }, '');
+  assert.deepEqual(none.modes, ['skip', 'skip', 'skip']);
+  assert.match(none.text, nothing);
+
+  const viva = await run({ coworkCredits: 'api' });
+  assert.deepEqual(viva.modes, ['api', 'csv', 'api']);
+  assert.match(viva.text, dataflow);
+
+  const appIdentity = /--flow-identity app is Fabric only for now, so it's ignored: on Azure the Studio flow signs in as you/;
+  assert.doesNotMatch(viva.text, appIdentity);
+  assert.match((await run({}, 'ai-sub', { flowIdentity: 'app' })).text, appIdentity);
+});
+
+test('Azure credit consumption: --data azureAi=skip on a first install keeps Azure AI out, and the subscription question can still turn it on', async () => {
+  const run = async (/** @type {any[]} */ answers, /** @type {Partial<import('../src/uploads.js').DataSourceModes>} */ modes = { studioCredits: 'csv', coworkCredits: 'csv', azureAi: 'skip' }) => {
+    const arm = fakeArm();
+    arm.ai.accounts = [{ id: 'acct-1', name: 'ai-1', location: 'uksouth' }];
+    const u = fakeUi({ answers });
+    const { ctx, config } = fakeCtx({ ui: u.ui, arm: arm.api, discovery: oneEnvironment });
+    withAzureConsumption(config);
+    // A first install: no subscription picked for Azure AI yet.
+    const empty = emptyConfig();
+    Object.assign(config, { consumption: empty.consumption, uploads: empty.uploads });
+    Object.assign(config.dataSources, modes);
+    ctx.advanced = false;
+    await planAzureConsumption(ctx, [{ subscriptionId: 'ai-sub', displayName: 'AI' }]);
+    return { modes: [config.dataSources.studioCredits, config.dataSources.coworkCredits, config.dataSources.azureAi], sub: config.consumption.azureSubscriptionId, asked: u.asked };
+  };
+  const out = await run([]);
+  assert.deepEqual(out.modes, ['csv', 'csv', 'skip'], '--yes takes the default, which is to leave it out');
+  assert.equal(out.sub, '');
+  assert.ok(out.asked.some((q) => q.startsWith('Which subscription\'s Azure OpenAI and AI Foundry costs')), 'still asked');
+
+  const picked = await run(['ai-sub']);
+  assert.deepEqual(picked.modes, ['csv', 'csv', 'api']);
+  assert.equal(picked.sub, 'ai-sub');
+
+  // Without --data azureAi=skip, a first install still defaults to the subscription with Azure AI.
+  assert.deepEqual((await run([], { studioCredits: 'csv', coworkCredits: 'csv', azureAi: 'api' })).modes, ['csv', 'csv', 'api']);
+  // A fresh tick (nothing picked yet) does too.
+  assert.deepEqual((await run([], { studioCredits: 'skip', coworkCredits: 'skip', azureAi: 'skip' })).modes, ['api', 'csv', 'api']);
 });
 
 /** @param {import('../src/config.js').InstallConfig} config @param {Partial<import('../src/config.js').AzureConfig>} [az] */

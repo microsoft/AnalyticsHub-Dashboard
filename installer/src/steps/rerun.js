@@ -21,6 +21,7 @@ import {
 } from '../transform/pipeline.js';
 import { coworkConnections, coworkSignInSteps, VIVA_LOAD_FILE } from './consumption.js';
 import { coworkDataflowOn, pipelineSettings } from './fabric.js';
+import { AZURE_LANDING_DIRS, azureDropLabel } from './flows.js';
 import { activityRuns, BUSY_RETRIES, BUSY_WAIT_MS, capacityBusy, jobIdFrom, loadedBy, reportLoads, TERMINAL, utc, waitForJob } from './run.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
@@ -373,6 +374,9 @@ export const PUBLISH_RETRY_MS = 60_000;
  */
 export async function loadCoworkNow(ctx) {
   const { ui, config, api } = ctx;
+  if (config.target === 'azure') {
+    throw new Error(`load-cowork is for the Fabric target's Cowork Dataflow. On Azure, Cowork credits come from the Consumption Dashboard's CSV export: put it in ${azureDropLabel(config.azure, AZURE_LANDING_DIRS.viva)}, and the next run loads it.`);
+  }
   const f = config.fabric;
   if (!f.workspaceId || !f.pipelineId) throw new Error('There is no pipeline yet. Run the installer first.');
   if (!coworkDataflowOn(config)) {

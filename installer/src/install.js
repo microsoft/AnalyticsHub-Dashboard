@@ -43,7 +43,7 @@ import { confirmPlan, plan, preflight } from './steps/plan.js';
 import { checkPrereqs } from './prereqs.js';
 import { ensureReports, reportsOn, reportsSummary } from './steps/report.js';
 import { dataAgentSummary, dataAgentWanted, ensureDataAgent } from './steps/data-agent.js';
-import { dataSourcesSummary, ensureUploads, uploadCommand } from './steps/data-sources.js';
+import { azureUploadError, dataSourcesSummary, ensureUploads, uploadCommand } from './steps/data-sources.js';
 import { ensureFlows, FLOW_FILES, flowDefinitions, flowsSummary, flowsWanted, offerStudioRun } from './steps/flows.js';
 import { ensureAppResourceGraphAccess, resourceGraphOn } from './steps/resource-graph.js';
 import { routerWanted } from './uploads.js';
@@ -301,7 +301,10 @@ export async function install(ctx, opts) {
     if (go && config.target !== 'azure') pre = await preflight(ctx);
   }
   else {
+    const wasAzure = config.target === 'azure';
     await askTarget(ctx);
+    // The CLI stops --csv on an Azure install before signing in, but a new install only chooses its target here.
+    if (config.target === 'azure' && ctx.csvFiles?.length) throw azureUploadError(config, '--csv', !wasAzure);
     pre = await preflight(ctx);
     const checked = pre;
     go = await rewindable(ctx, async () => {

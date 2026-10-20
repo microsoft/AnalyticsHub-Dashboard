@@ -620,7 +620,7 @@ export async function planAzureConsumption(ctx, subs) {
   const { ui, config } = ctx;
   const ds = config.dataSources;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
-  if (config.modules.consumption && az.sampleData) ui.note('Demo mode has no credit consumption sample, so credit consumption is collected once you switch to your tenant\'s data.');
+  if (config.modules.consumption && az.sampleData) ui.note('Demo mode leaves credit consumption out for now. Once you switch to your tenant\'s data, the installer deploys the Consumption Central model and collects credit consumption.');
   if (!azureConsumptionOn(config)) {
     ds.studioCredits = 'skip';
     ds.coworkCredits = 'skip';
@@ -628,8 +628,12 @@ export async function planAzureConsumption(ctx, subs) {
     return;
   }
   ui.heading('Credit consumption');
-  const studio = ds.studioCredits === 'csv' || ds.studioCredits === 'skip' ? ds.studioCredits : 'api';
-  const cowork = ds.coworkCredits === 'skip' ? 'skip' : 'csv';
+  // Ticked with no source picked yet (a new install, or ticked again after being off or in demo mode):
+  // start from the recommended sources.
+  const fresh = ds.studioCredits === 'skip' && ds.coworkCredits === 'skip' && ds.azureAi === 'skip';
+  if (ds.coworkCredits === 'api') ui.warn('On Azure, Cowork credits come from the Consumption Dashboard\'s CSV export; the Viva Insights Dataflow (coworkCredits=api) is Fabric only for now.');
+  const studio = fresh ? 'api' : ds.studioCredits === 'csv' || ds.studioCredits === 'skip' ? ds.studioCredits : 'api';
+  const cowork = fresh ? 'csv' : ds.coworkCredits === 'skip' ? 'skip' : 'csv';
   if (!asksAdvanced(ctx)) {
     ds.studioCredits = studio;
     ds.coworkCredits = cowork;
@@ -644,9 +648,15 @@ export async function planAzureConsumption(ctx, subs) {
       { name: 'Leave Cowork out', value: 'skip' },
     ], cowork);
   }
+  // Azure has no Data sources screen: Azure AI is the subscription question below. Left out already
+  // (--data azureAi=skip, or an earlier run), it defaults to staying out, so --yes keeps it out.
+  if (!fresh && ds.azureAi === 'skip') config.consumption.azureSubscriptionId = '';
   ds.azureAi = 'api';
   await planConsumption(ctx, /** @type {import('../plan.js').Preflight} */ (/** @type {unknown} */ ({ subscriptions: subs })));
-  if (config.uploads.flowIdentity === 'app' && ds.studioCredits === 'api') ui.warn('On Azure the Studio flow signs in as you; --flow-identity app is Fabric only for now.');
+  if ([ds.studioCredits, ds.coworkCredits, ds.azureAi].every((mode) => mode === 'skip')) {
+    ui.warn('Copilot Studio, Cowork and Azure AI are all left out, so credit consumption collects nothing, and the next run starts from the recommended sources again. To leave it out, untick Credit consumption.');
+  }
+  if (config.uploads.flowIdentity === 'app' && ds.studioCredits === 'api') ui.warn('--flow-identity app is Fabric only for now, so it\'s ignored: on Azure the Studio flow signs in as you, because the jobs\' managed identity has no secret a flow can sign in with.');
   await planFlows(ctx);
 }
 
@@ -960,7 +970,7 @@ export async function azureDeployment(ctx, o) {
     privateDnsZoneMode: param(az.privateDns?.mode ?? 'create'), privateDnsZonesResourceGroupId: param(az.privateDns?.mode === 'existing' ? (az.privateDns.resourceGroupId ?? '') : ''),
     webClientId: param(o.pass === 2 ? (az.webApp?.clientId ?? '') : ''), webAppIdUri: param(o.pass === 2 ? (az.webApp?.appIdUri ?? '') : ''), webAccess: param(webAccess(config)),
     modules: param([...enabledAzureModuleIds(config.modules, az), ...(azureResourceGraphOn(config) ? ['resourceGraph'] : [])].join(',')), auditHistoryDays: param(Math.max(config.history.days, ctx.reloadHistoryDays ?? 0)), powerBiWorkspaceId: param(az.powerBi?.workspaceId ?? ''),
-    semanticModels: param(JSON.stringify(azureSemanticModels(az))),
+    semanticModels: param(JSON.stringify(azureSemanticModels(config))),
     sqlReaderName: param(SQL_READER_NAME), sqlReaderClientId: param(o.pass === 2 ? (az.sqlReader?.clientId ?? '') : ''),
     reportingCurrency: param(config.reporting?.currency ?? DEFAULT_CURRENCY), exchangeRate: param(config.reporting?.exchangeRate ? String(config.reporting.exchangeRate) : ''),
     ...consumptionParameters(config),
@@ -971,14 +981,23 @@ export async function azureDeployment(ctx, o) {
 }
 
 /**
- * The models the web app may query, by the alias the pages use.
- * @param {import('../../config.js').AzureConfig} az
+ * The Consumption model is in use: credit consumption is collected and the model is deployed. Like Fabric's
+ * consumptionModelDeployed, it gates the app's pages, the refreshes, the model's database credential, and viewer
+ * and org-scoped access, and pendingReloads checks the same. Unticked, or in demo mode, which publishes no credit
+ * tables, the model and its ID are kept with its scheduled refresh off, so ticking it again reuses them.
+ * @param {import('../../config.js').InstallConfig} config
  */
-export function azureSemanticModels(az) {
-  const pbi = az.powerBi ?? {};
+export const azureConsumptionModelDeployed = (config) => azureConsumptionOn(config) && !!config.azure?.powerBi?.consumptionDatasetId;
+
+/**
+ * The models the web app may query, by the alias the pages use. The jobs refresh the same models.
+ * @param {import('../../config.js').InstallConfig} config
+ */
+export function azureSemanticModels(config) {
+  const pbi = config.azure?.powerBi ?? {};
   return {
     ...(pbi.datasetId ? { [APP_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.datasetId } } : {}),
-    ...(pbi.consumptionDatasetId ? { [CONSUMPTION_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.consumptionDatasetId } } : {}),
+    ...(azureConsumptionModelDeployed(config) ? { [CONSUMPTION_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.consumptionDatasetId } } : {}),
   };
 }
 
@@ -992,7 +1011,7 @@ export function azureViewerModels(config) {
   if (!pbi.workspaceId) return [];
   return [
     ...(pbi.datasetId ? [{ workspaceId: pbi.workspaceId, datasetId: pbi.datasetId, name: config.semanticModel.name }] : []),
-    ...(pbi.consumptionDatasetId ? [{ workspaceId: pbi.workspaceId, datasetId: pbi.consumptionDatasetId, name: config.consumption.model.name }] : []),
+    ...(azureConsumptionModelDeployed(config) ? [{ workspaceId: pbi.workspaceId, datasetId: /** @type {string} */ (pbi.consumptionDatasetId), name: config.consumption.model.name }] : []),
   ];
 }
 
@@ -1710,6 +1729,14 @@ async function ensureAzurePowerBi(ctx, sqlReaderSecret) {
   if (isPrivate(az)) await bindThroughVnetGateway(ctx, sqlReaderSecret);
   else await bindPowerBiCredentials(ctx, sqlReaderSecret);
   for (const id of [az.powerBi.datasetId, cc]) if (id) await api.powerBi.setRefreshSchedule(/** @type {string} */ (az.powerBi.workspaceId), id, refreshScheduleBody(ctx));
+  // A kept Consumption model stops refreshing; one deleted since has nothing to turn off. Power BI wants nothing
+  // else in a request that turns a schedule off.
+  const kept = azureConsumptionModelDeployed(config) ? undefined : az.powerBi.consumptionDatasetId;
+  if (kept) {
+    await api.powerBi.setRefreshSchedule(/** @type {string} */ (az.powerBi.workspaceId), kept, { value: { enabled: false } }).catch((err) => {
+      if (!(err instanceof HttpError && err.status === 404)) ui.warn(`Couldn't turn off the scheduled refresh of ${config.consumption.model.name}: ${err.message}. Turn it off in the model's settings in Power BI.`);
+    });
+  }
 }
 
 /**
@@ -1737,13 +1764,12 @@ async function ensureAzureConsumptionModel(ctx, server, database) {
   return m.id;
 }
 
-/** The Power BI models on this install. @param {import('../../config.js').AzureConfig} az */
-const azureDatasetIds = (az) => /** @type {string[]} */ ([az.powerBi?.datasetId, az.powerBi?.consumptionDatasetId].filter(Boolean));
+/** The Power BI models in use on this install, which read the database. @param {import('../../config.js').InstallConfig} config */
+const azureDatasetIds = (config) => /** @type {string[]} */ ([config.azure?.powerBi?.datasetId, azureConsumptionModelDeployed(config) && config.azure?.powerBi?.consumptionDatasetId].filter(Boolean));
 
 /** @param {Ctx} ctx @param {string} secret */
 async function bindPowerBiCredentials(ctx, secret) {
-  const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
-  for (const id of azureDatasetIds(az)) await bindPowerBiCredential(ctx, secret, id);
+  for (const id of azureDatasetIds(ctx.config)) await bindPowerBiCredential(ctx, secret, id);
 }
 
 /** @param {Ctx} ctx @param {string} secret @param {string} datasetId */
@@ -1894,8 +1920,8 @@ async function bindThroughVnetGateway(ctx, secret) {
   }
   pbi.connectionId = conn.id;
   ctx.save();
-  for (const id of azureDatasetIds(az)) await api.powerBi.bindToGateway(/** @type {string} */ (pbi.workspaceId), id, { gatewayObjectId: gatewayId, datasourceObjectIds: [/** @type {string} */ (conn.id)] });
-  ui.ok(`Bound the model${azureDatasetIds(az).length > 1 ? 's' : ''} to the VNet data gateway`);
+  for (const id of azureDatasetIds(ctx.config)) await api.powerBi.bindToGateway(/** @type {string} */ (pbi.workspaceId), id, { gatewayObjectId: gatewayId, datasourceObjectIds: [/** @type {string} */ (conn.id)] });
+  ui.ok(`Bound the model${azureDatasetIds(ctx.config).length > 1 ? 's' : ''} to the VNet data gateway`);
 }
 
 /** @param {Ctx} ctx */
@@ -2003,8 +2029,8 @@ export async function azureRefresh(ctx) {
   if (!az?.powerBi?.workspaceId || !az.powerBi.datasetId) throw new Error('No Azure Power BI model is recorded.');
   const requestId = await ctx.api.powerBi.refresh(az.powerBi.workspaceId, az.powerBi.datasetId, { type: 'full', commitMode: 'transactional', retryCount: 1 });
   ctx.ui.ok(`Started a refresh of ${ctx.config.semanticModel.name}`);
-  if (az.powerBi.consumptionDatasetId) {
-    await ctx.api.powerBi.refresh(az.powerBi.workspaceId, az.powerBi.consumptionDatasetId, { type: 'full', commitMode: 'transactional', retryCount: 1 });
+  if (azureConsumptionModelDeployed(ctx.config)) {
+    await ctx.api.powerBi.refresh(az.powerBi.workspaceId, /** @type {string} */ (az.powerBi.consumptionDatasetId), { type: 'full', commitMode: 'transactional', retryCount: 1 });
     ctx.ui.ok(`Started a refresh of ${ctx.config.consumption.model.name}`);
   }
   return { ok: true, status: requestId };
@@ -2092,7 +2118,7 @@ export async function azureSummary(ctx, opts = {}) {
   ui.info(`Azure:      ${az.resourceGroup} in ${az.location}`);
   if (az.outputs?.webUrl) ui.info(`App:        ${az.outputs.webUrl}`);
   if (az.powerBi?.workspaceId) ui.info(`Power BI:   workspace ${az.powerBi.workspaceId}, model ${az.powerBi.datasetId ?? 'not deployed'}`);
-  if (az.powerBi?.consumptionDatasetId) ui.info(`Credits:    model ${az.powerBi.consumptionDatasetId}`);
+  if (azureConsumptionModelDeployed(config)) ui.info(`Credits:    model ${az.powerBi?.consumptionDatasetId}`);
   if (azureAgent365On(config)) ui.info(`Agent 365:  drop the export in ${azureDropLabel(az, AZURE_LANDING_DIRS.agent365)}. Each run loads the newest one.`);
   if (azureProductFeedbackOn(config)) ui.info(`Feedback:   drop exports in ${azureDropLabel(az, AZURE_LANDING_DIRS.productFeedback)}. Each run loads them all and removes duplicates by Feedback Id.`);
   const teamsPending = az.status?.pendingAdminActions?.find((a) => a.startsWith(`${TEAMS_APP_PENDING}: `));
