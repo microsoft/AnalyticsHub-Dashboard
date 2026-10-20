@@ -10,6 +10,8 @@ export function powerBiApi(http) {
     groups: async () => (await http.get('/groups'))?.value ?? [],
     /** @param {string} name */
     createGroup: (name) => http.post('/groups', { name }),
+    /** Deletes a workspace and everything in it. @param {string} workspaceId */
+    deleteGroup: (workspaceId) => http.del(`/groups/${workspaceId}`),
     /** @param {string} workspaceId @param {{ identifier: string, principalType: 'App' | 'User' | 'Group', groupUserAccessRight: 'Admin' | 'Member' | 'Contributor' | 'Viewer' }} body */
     addGroupUser: (workspaceId, body) => http.post(`/groups/${workspaceId}/users`, body),
     /** Who has direct access to a semantic model. @param {string} workspaceId @param {string} datasetId @returns {Promise<any[]>} */

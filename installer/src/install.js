@@ -43,7 +43,7 @@ import { confirmPlan, plan, preflight } from './steps/plan.js';
 import { checkPrereqs } from './prereqs.js';
 import { ensureReports, reportsOn, reportsSummary } from './steps/report.js';
 import { dataAgentSummary, dataAgentWanted, ensureDataAgent } from './steps/data-agent.js';
-import { dataSourcesSummary, ensureUploads, uploadCommand } from './steps/data-sources.js';
+import { azureUploadError, dataSourcesSummary, ensureUploads, uploadCommand } from './steps/data-sources.js';
 import { ensureFlows, FLOW_FILES, flowDefinitions, flowsSummary, flowsWanted, offerStudioRun } from './steps/flows.js';
 import { ensureAppResourceGraphAccess, resourceGraphOn } from './steps/resource-graph.js';
 import { routerWanted } from './uploads.js';
@@ -301,7 +301,10 @@ export async function install(ctx, opts) {
     if (go && config.target !== 'azure') pre = await preflight(ctx);
   }
   else {
+    const wasAzure = config.target === 'azure';
     await askTarget(ctx);
+    // The CLI stops --csv on an Azure install before signing in, but a new install only chooses its target here.
+    if (config.target === 'azure' && ctx.csvFiles?.length) throw azureUploadError(config, '--csv', !wasAzure);
     pre = await preflight(ctx);
     const checked = pre;
     go = await rewindable(ctx, async () => {
@@ -752,7 +755,7 @@ export async function showPrereqs(ctx) {
  * @param {Ctx} ctx
  * @param {string} command
  * @param {{ wait: boolean, backfillDays?: number, files?: string[], run?: boolean }} opts
- * @returns {Promise<boolean>} false when a run or refresh it waited for didn't succeed.
+ * @returns {Promise<boolean>} false when a run, refresh or resource group delete it waited for didn't succeed.
  */
 export async function runCommand(ctx, command, opts) {
   switch (command) {
@@ -789,8 +792,8 @@ export async function runCommand(ctx, command, opts) {
       else await rotateSecret(ctx);
       return true;
     case 'uninstall':
-      if (ctx.config.target === 'azure') await azureUninstall(ctx);
-      else await fabricUninstall(ctx);
+      if (ctx.config.target === 'azure') return azureUninstall(ctx, { wait: opts.wait });
+      await fabricUninstall(ctx);
       return true;
     case 'upload':
       return uploadCommand(ctx, { files: opts.files ?? [], run: opts.run, wait: opts.wait }, (c2, o) => run(c2, o));

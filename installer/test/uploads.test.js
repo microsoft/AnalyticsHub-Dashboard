@@ -6,8 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
 import { notebooksFor } from '../src/catalog.js';
-import { applyDataFlags, parseCli } from '../src/cli.js';
+import { applyDataFlags, main, parseCli } from '../src/cli.js';
 import { emptyConfig } from '../src/config.js';
+import { install } from '../src/install.js';
 import { startServer } from '../src/server.js';
 import { checkStaged, clearStaged, inspectFile, sizeOk, stageUpload } from '../src/staging.js';
 import { checkCsvFiles, ensureUploads, planDataSources, uploadCommand, uploadFiles } from '../src/steps/data-sources.js';
@@ -332,6 +333,13 @@ test('uploadCommand: needs an install that loads exports; uploads, then runs whe
   const bare = fakeCtx();
   bare.config.fabric.workspaceId = undefined;
   await assert.rejects(uploadCommand(bare.ctx, { files: [] }, runNow), /Nothing is installed/);
+
+  // On Azure, exports go in the landing folders by hand: say where, not "Nothing is installed".
+  bare.config.target = 'azure';
+  bare.config.azure = /** @type {any} */ ({ outputs: { storageAccountName: 'stah' } });
+  await assert.rejects(uploadCommand(bare.ctx, { files: [] }, runNow), /^Error: The upload command is for the Fabric target only.*stah > landing\/studio.*stah > landing\/viva/);
+  bare.config.azure = /** @type {any} */ ({ drop: { siteId: 's1', folderUrl: 'https://contoso.sharepoint.com/sites/ah/Shared Documents/AnalyticsHub/' } });
+  await assert.rejects(uploadCommand(bare.ctx, { files: [] }, runNow), /AnalyticsHub\/studio and Cowork credit exports in https:\/\/contoso\.sharepoint\.com\/.*AnalyticsHub\/viva;/);
 });
 
 test('cli: upload takes files; --run, --data and --csv go where they belong', () => {
@@ -353,6 +361,51 @@ test('cli: upload takes files; --run, --data and --csv go where they belong', ()
   const skipped = emptyConfig();
   applyDataFlags(skipped, { dataSources: { productFeedback: 'skip' }, feedbackFlow: true });
   assert.equal(skipped.dataSources.productFeedback, 'skip');
+});
+
+test('cli: install --csv on an Azure install stops before signing in and says where exports go', async () => {
+  const file = join(tmp, 'azure-record.json');
+  writeFileSync(file, JSON.stringify({ version: 1, target: 'azure', azure: { outputs: { storageAccountName: 'stah' } } }));
+  const write = process.stderr.write;
+  let err = '';
+  process.stderr.write = /** @type {any} */ ((/** @type {string} */ s) => {
+    err += s;
+    return true;
+  });
+  try {
+    assert.equal(await main(['install', '--config', file, '--csv', 'credits.csv']), 1);
+  } finally {
+    process.stderr.write = write;
+  }
+  assert.match(err, /--csv is for the Fabric target only.*stah > landing\/studio.*stah > landing\/viva/);
+});
+
+test('install: --csv on a new install stops as soon as Azure is chosen, before the tenant checks', async () => {
+  /** @type {string[]} */
+  const calls = [];
+  const graph = new Proxy({}, { get: (_target, name) => async () => (calls.push(String(name)), []) });
+  const t = fakeUi({ answers: ['azure'] });
+  const { ctx, config } = fakeCtx({ ui: t.ui, graph });
+  delete config.fabric.workspaceId;
+  ctx.csvFiles = ['credits.csv'];
+  await assert.rejects(
+    install(ctx, { wait: false }),
+    /--csv is for the Fabric target only.*run it again and choose Microsoft Fabric.*without --csv, then put Copilot Studio credit exports in the storage account > landing\/studio and Cowork credit exports in the storage account > landing\/viva, or with private networking in the studio and viva folders of the SharePoint drop folder/,
+  );
+  assert.equal(config.target, 'azure');
+  assert.deepEqual(t.asked, ['Where should Analytics Hub run?']);
+  assert.deepEqual(calls, [], 'preflight never ran');
+  assert.doesNotMatch(t.text(), /Checking your tenant/);
+
+  // A record already on Azure (the CLI stops it before signing in): its landing folders, and no new choice to offer.
+  const known = fakeUi();
+  const azure = fakeCtx({ ui: known.ui, graph });
+  Object.assign(azure.config, { target: 'azure', azure: { outputs: { storageAccountName: 'stah' } } });
+  azure.ctx.csvFiles = ['credits.csv'];
+  await assert.rejects(install(azure.ctx, { wait: false }), (/** @type {Error} */ e) =>
+    /On Azure, put Copilot Studio credit exports in stah > landing\/studio and Cowork credit exports in stah > landing\/viva/.test(e.message) && !/choose Microsoft Fabric/.test(e.message));
+  assert.deepEqual(known.asked, []);
+  assert.deepEqual(calls, []);
 });
 
 test('web ui: the Data sources answer checks its modes and staged files', async () => {

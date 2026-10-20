@@ -74,7 +74,9 @@ the exe and `install.ps1` (in PowerShell 7, and in Windows PowerShell 5.1 in Con
 Mode) on pull requests that touch `packaging/`. To publish one, set the version in
 `installer/package.json` and push a tag `installer-v<version>`. The workflow drafts a
 release with the exe, the zip, their SHA-256 files, `install.ps1` and the release notes from
-`packaging/finish-exe.js`. The same
+`packaging/finish-exe.js`. For a release candidate, use a version such as `0.6.8-rc.1`: the
+workflow drafts it as a pre-release, which `releases/latest` and the installer's update check
+skip. The same
 tag makes [`azure-images`](.github/workflows/azure-images.yml) push
 `ghcr.io/microsoft/valuelens-jobs` and `valuelens-web` with that version, which Azure installs pull.
 
@@ -101,6 +103,7 @@ against a workspace or a local SQL database.
 
 | Folder | What it is | Who needs it |
 |---|---|---|
+| [`1-fabric/`](1-fabric/) · [`2-azure/`](2-azure/) | Path 1 (Fabric) and Path 2 (Azure): just the setup steps, by the installer or by hand | Everyone |
 | [`docs/`](docs/) | The user pages. Published to the [wiki](https://github.com/microsoft/AnalyticsHub-Dashboard/wiki) on every change | Everyone |
 | [`installer/`](installer/) | `AnalyticsHubInstaller.exe`: sets up, repairs and updates Fabric or Azure installs | Fabric and Azure |
 | [`fabric/`](fabric/) | Notebooks, pipeline, flows and Power BI templates for Fabric. The installer deploys them | Fabric by hand, or to see what's deployed |
@@ -117,6 +120,8 @@ against a workspace or a local SQL database.
 - Put setup details in the relevant README (`fabric/`, `azure/`, `installer/`) and shared
   column contracts in the
   [data dictionary](docs/DATA-DICTIONARY.md).
+- Keep the root README, `1-fabric/` and `2-azure/` to setup steps only, in order. Background and
+  reference go in `docs/`, listed in [docs/README.md](docs/README.md).
 - User pages live in `docs/` and publish to the wiki: add a new page to `PAGES` in
   `.github/scripts/publish_wiki.py`. Keep the two paths apart: installer steps in
   [Install](docs/INSTALL.md), by-hand steps in [Manual install](docs/MANUAL-INSTALL.md).

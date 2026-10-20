@@ -155,14 +155,20 @@ package to your org's Teams app catalog, and later runs update that app rather t
 it can't, if you say no when the plan asks, or if the sign-in isn't finished within 5 minutes, it
 prints the steps to upload it by hand and carries on.
 
-`core`, `orgData`, `m365Activity` and `consumption` are supported on Azure. Other modules
+`core`, `orgData`, `m365Activity`, `agent365`, `productFeedback`, `consumption` and `defender` are supported on Azure. Other modules
 are shown as coming soon and cannot be selected. Credit consumption deploys the Consumption Central model,
 gives the jobs' managed identity Cost Management and Azure AI roles, and creates the Copilot Studio flow,
 signed in as you (`--flow-identity app` is Fabric only). With public endpoints the flow writes to the
 storage account's `landing` container and you get **Storage Blob Data Contributor** on it. With private
 networking it writes to a SharePoint folder you name, and the managed identity gets **Sites.Selected** read
 on that site (a SharePoint or Global administrator grants it). See
-[Azure](../azure/README.md#credit-consumption). Agent configuration and Foundry from Azure
+[Azure](../azure/README.md#credit-consumption).
+The Agent 365 registry comes from its CSV export, which you drop in the same place, under
+`agent365`; the Agent 365 API is Fabric only for now. See
+[Agent 365 registry](../azure/README.md#agent-365-registry).
+Product feedback comes from its CSV exports, which you drop there too, under `product_feedback`; the
+emailed export flow is Fabric only for now. See [Product feedback](../azure/README.md#product-feedback).
+Agent configuration and Foundry from Azure
 Resource Graph also works on Azure: see [Agent configuration and Foundry](#agent-configuration-and-foundry).
 The app's Ask page answers with an Azure OpenAI model, an AI Services account the installer creates
 by default or a deployment you already have: see [Ask](#ask).
@@ -171,18 +177,43 @@ Re-runs are incremental and use the same
 resource with `valuelens-install-id` and stops rather than modifying untagged resources with colliding
 names.
 
-On a tenant with more than 10,000 Copilot seats, the plan warns when the Azure sizing looks small
-and says where to change it: the Azure SQL free offer's monthly limit (the database pauses when it
-runs out), fewer than 4 max vCores from 30,000 seats, the run job's 4 hours per run (start with 30
-days of history), and a Power BI workspace on shared capacity. It doesn't change the sizing for
-you. If your organisation's policy rules a change out, setup still works and the loads are slower.
+### A large tenant on Azure
+
+On a tenant with more than 10,000 Copilot seats, setup sizes Azure for the tenant and asks before
+anything costs more:
+
+- **Power BI capacity.** Setup recommends F64 or larger and suggests the first active capacity that
+  size. It warns when the semantic model would sit on shared capacity, where a model is limited to
+  1 GB.
+- **Azure SQL.** **Azure placement** offers to let the database scale up to 4 vCores and carry on
+  past the free offer's monthly allowance, for about $30-80 a month. Otherwise, when the allowance
+  runs out, Azure pauses the database until next month and the jobs stop until then.
+- **Web app.** **Azure placement** offers to keep one replica running, for about $10-20 a month, so
+  the first visit after a quiet spell doesn't wait while the app starts.
+
+The prices are indicative: check the [Azure pricing calculator](https://azure.microsoft.com/pricing/calculator/).
+Neither paid option is on unless you choose it: `--yes` never turns one on, and **Repair or change**
+keeps what you chose. The plan also warns when the sizing looks small and says where to change it:
+the free offer, fewer than 4 max vCores from 30,000 seats, the run job's time limit, and shared
+capacity. If your organisation's policy rules a change out, setup still works and the loads are
+slower. Tenants with 10,000 seats or fewer aren't asked or warned, and deploy as before.
+
+Each run of the collector job has 4 vCPU, 8 GiB and up to 4 hours, which Azure enforces. The run
+loads the data and then refreshes the semantic models, waiting up to 2 hours for each refresh. On a
+large tenant the first load may not fit in one run. The audit collector records each time window as
+it finishes, so the next run (the next scheduled one, or **Run** on the home page) queries only the
+windows still to do, and then loads them all. The dashboard fills in once that's done. At 20,000
+seats, start with 30 days of history and [load more](#load-more-audit-history) once the first load
+has finished. How long the refresh takes depends on the capacity and the history loaded.
 
 ### Demo mode
 
 Under [Advanced settings](#advanced-settings), the wizard asks which data the dashboard shows. **Demo mode (sample data)**
 deploys everything as usual but sets `VALUELENS_SAMPLE_DATA=true` on the run job, so each run publishes
 the synthetic sample bundled in the jobs image (dates moved forward to end last week) instead of calling
-the tenant's APIs. It's recorded as `azure.sampleData`. To switch to tenant data, run the installer again,
+the tenant's APIs. It's recorded as `azure.sampleData`. Demo mode leaves
+[credit consumption](../azure/README.md#credit-consumption) out for now: the installer deploys the
+Consumption Central model once you switch. To switch to tenant data, run the installer again,
 choose **Yes** for the advanced settings and pick **Your tenant's data**; the next run replaces the sample.
 
 ### Networking
@@ -266,6 +297,8 @@ Azure commands:
 - `update` re-runs preflight/what-if and redeploys with the current installer image tag.
 - `rotate-secret` creates a new SQL reader secret and rebinds the Power BI credential.
 - `uninstall` deletes the created resource group, or only tagged resources if you used an existing group.
+  It waits up to 45 minutes for Azure to finish deleting the group (`--no-wait` doesn't). It also deletes
+  the Power BI workspace if the installer created it, after asking.
 
 ## Run it
 
@@ -471,6 +504,9 @@ for the advanced settings. An install from an earlier version keeps its audit wi
 limits until you do. An install that has a tenant size gets the new time limits on its next
 **Update** or **Repair or change**, and keeps its data and settings.
 
+On the Azure target, the Power BI capacity, Azure SQL and web app sizing and the run job's time
+limit are under [A large tenant on Azure](#a-large-tenant-on-azure).
+
 ### Load more audit history
 
 The first load reads the history you chose: 30, 90 or 180 days. To load more later, any of these
@@ -499,8 +535,8 @@ this installer ignore it and run as usual: run `update` first if yours is.
 | Org data (Entra ID) | Always | | Organisation filters |
 | Workday org data | | Workday: a report of active workers with **Primary Work Email** | Organisation filters |
 | Microsoft 365 activity | Yes | | M365 activity |
-| Agent 365 registry | Needs an Agent 365 licence | Microsoft 365 admin center > **Agents** > **All agents** > **Export** | Agents |
-| Product feedback | No API. **Power Automate (emailed export)**: a flow saves exports emailed to you | Microsoft 365 admin center > **Health** > **Product feedback** > **Export** | User Feedback |
+| Agent 365 registry | Needs an Agent 365 licence. Fabric only for now: on Azure, use the export | Microsoft 365 admin center > **Agents** > **All agents** > **Export** | Agents |
+| Product feedback | No API. **Power Automate (emailed export)**: a flow saves exports emailed to you. Fabric only for now: on Azure, use the export | Microsoft 365 admin center > **Health** > **Product feedback** > **Export** | User Feedback |
 | Copilot Studio credits | **Connected (Power Automate flow)**, the default: a daily flow reads the licensing API (tenant, environment, agent and per-user figures) | Power Platform admin center > **Licensing** > **Products** > **Copilot Studio** (Summary, Environments, Agents and Users) | Consumption Central |
 | Copilot Cowork credits | **Connected (Dataflow)**: a Dataflow Gen2 reads your Viva Insights query | Viva Insights > Copilot Consumption Dashboard > **Export** | Consumption Central |
 | Azure AI costs | Yes | | Consumption Central |
@@ -531,6 +567,14 @@ name the shortcut `sharepoint`. Files there are read where they are, loaded once
 place. Shortcuts need the Fabric tenant setting for OneDrive and SharePoint shortcuts. Without it,
 use the Lakehouse folder.
 
+**On Azure** there's no Lakehouse, and **Upload exports** is Fabric only. Drop the Agent 365 export
+in `agent365/` in the storage account's `landing` container or, with private networking, in the
+`agent365` folder under the SharePoint folder you gave the installer. Each run loads the newest
+one. Product feedback exports go in `product_feedback/` the same way, and each run loads them all.
+See [Agent 365 registry](../azure/README.md#agent-365-registry) and
+[Product feedback](../azure/README.md#product-feedback); credit files are in
+[Credit consumption](../azure/README.md#credit-consumption).
+
 ### Power Automate flows
 
 The installer creates these flows in the Power Platform environment you pick, **turned off**, then
@@ -541,7 +585,7 @@ access to the environment can see the flows.
 | Flow | When | What it does | Sign in to |
 |---|---|---|---|
 | `Analytics Hub - Copilot Studio credits` | Copilot Studio credits set to **Connected** (the default) | Each day, an hour before the pipeline, reads credits by agent, by user and the tenant's entitlement from the Power Platform licensing API. The first run loads about six months; later runs restate the last ten days | Power Platform API and OneLake |
-| `Analytics Hub - Product feedback` | Product feedback set to **Power Automate (emailed export)** | Saves product feedback exports emailed with the subject `Copilot Product Feedback` | Office 365 Outlook and OneLake |
+| `Analytics Hub - Product feedback` | Product feedback set to **Power Automate (emailed export)**, on Fabric only for now | Saves product feedback exports emailed with the subject `Copilot Product Feedback` | Office 365 Outlook and OneLake |
 | `Analytics Hub - Agent inventory` | Agent configuration and Foundry set to **Connected**, with agents | Each day, an hour before the pipeline, saves the Power Platform inventory of Copilot Studio agents, environments and agent flows to `Files/arg_inventory`, for when Resource Graph won't give the app the agents | Power Platform API and OneLake |
 
 They need Power Automate Premium: whoever signs in to the HTTP with Microsoft Entra ID
@@ -650,12 +694,20 @@ Source IDs for `--data`: `workday`, `m365Activity`, `agent365`, `productFeedback
 `api`, `csv` or `skip` (`defender` and `resourceGraph` take `api` or `skip`).
 For `productFeedback` and `studioCredits`, `flow` is the same as `api`. `--feedback-flow` still
 works: it's the same as `productFeedback=flow`.
+On Azure, `agent365` and `productFeedback` are `csv` or `skip`. `api` warns and uses the exports, as
+do `productFeedback=flow` and `--feedback-flow`.
 Without `--flow-environment`, the installer asks which environment to use.
 With `resourceGraph=api`, `--arg-management-group <id>` reads one management group rather than the
 whole tenant, and `--no-arg-agents` or `--no-arg-foundry` leaves agents or Foundry out.
 `--currency <code>` sets the Value page currency (US dollars by default), and `--exchange-rate <n>`
 how many of it make $1. Without the rate, set it under **Prices** in the app. In the browser, choose
 the currency under [Advanced settings](#advanced-settings) instead.
+
+On the Azure target, `upload`, `--csv`, `load-cowork`, `--flow-identity app` and
+`coworkCredits=api` are Fabric only for now. `upload`, `--csv` and `load-cowork` stop and name the
+folder to put exports in. The other two warn, then the Copilot Studio credits flow signs in as you
+and Cowork credits come from the CSV export. See
+[Parity with Fabric](../azure/README.md#parity-with-fabric).
 
 `uninstall` on Fabric asks before it deletes the workspace. If the installer didn't create the
 workspace, the answer defaults to no. It deletes the workspace's managed private endpoints first,
@@ -674,6 +726,7 @@ Microsoft 365 admin center, go to **Settings** > **Org settings** > **Services**
 ## Credit consumption
 
 Optional. It fills the app's Consumption pages. See [Consumption Central](../fabric/Add%20Credit%20Consumption/).
+On the Azure target, see [Credit consumption](../azure/README.md#credit-consumption) instead.
 On the **Data sources** screen it's three cards, grouped as **Credit consumption**: **Copilot
 Studio credits**, **Copilot Cowork credits** and **Azure AI costs**. Choose any of them.
 
@@ -784,7 +837,8 @@ inventory API it calls takes delegated sign-ins only, so the flow reads as the a
 to its connection. It writes to `Files/arg_inventory` in the Lakehouse, or on Azure to
 `landing/arg_inventory`, or with private networking the `arg_inventory` subfolder of the
 SharePoint drop folder. Agent Title IDs are matched from the Agent 365 registry, so the load runs
-after it; on Azure, where Agent 365 isn't available yet, they stay blank.
+after it. They're matched on its `Bot Id` and `Entra Agent ID` columns, which the admin center's
+export doesn't have, so with only the export (on Azure, for now) they stay blank.
 
 On Azure the installer adds `resourceGraph` to the jobs' modules and passes the management group
 and what to read (`argManagementGroup`, `argAgents`, `argFoundry`). Demo mode leaves it out.

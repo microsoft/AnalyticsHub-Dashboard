@@ -11,6 +11,7 @@ import { connect, createCtx, preview, runCommand } from './install.js';
 import { adoptUploadedRecord, cloudShellKeepsFiles, cloudShellRecordMessage, commandLine, inCloudShell } from './launch.js';
 import { runWizard } from './server.js';
 import { loadSources } from './sources.js';
+import { azureUploadError } from './steps/data-sources.js';
 import { recordWorkspaceGone, staleRecordMessage } from './steps/fabric.js';
 import { isResumeLater, MAX_SECRET_DAYS, NOTEBOOK_SECRET_DAYS } from './steps/identity.js';
 import { isManagementGroupId, managementGroupId } from './steps/resource-graph.js';
@@ -33,16 +34,17 @@ Commands:
   run              Run the pipeline now, then the data check
   rerun-failed     Run again only the loads that failed in the latest pipeline run
   load-cowork      Once the Cowork Dataflow is signed in: refresh it, load the Viva credits
-                   and refresh the consumption model
+                   and refresh the consumption model. Fabric only
   check            Run the data check again, without the pipeline
   refresh          Refresh the semantic model now
   deploy-app       Deploy the Analytics Hub app again
   status           Show recent runs and refreshes, the last data check and when secrets expire
   rotate-secret    Create new client secrets for Key Vault and the model's connection
   access           Who can view: the viewer group, its members and owners, and its Build on the models
-  upload [files]   Upload CSV exports to the drop folder (Files/analytics_hub_uploads)
+  upload [files]   Upload CSV exports to the drop folder (Files/analytics_hub_uploads). Fabric only
   uninstall        Azure: remove the resource group if created, or only tagged resources. Fabric: delete
-                   the workspace's managed private endpoints, then the workspace
+                   the workspace's managed private endpoints, then the workspace. On Azure, it also
+                   deletes the Power BI workspace if created, and waits for the resource group to go
   prereqs          Check the roles, licences, capacities and Azure access you have and lack.
                    Read-only; works before anything is installed
   preview          Write what would be deployed to a folder, without signing in
@@ -66,6 +68,7 @@ Options:
                        Power Automate flow, the api mode of productFeedback and studioCredits.
                        Sources: ${DATA_SOURCE_IDS.join(', ')}
   --csv <file>         With install: an export to upload during the install. Repeat for more.
+                       Fabric only: on Azure, put exports in the landing folders yourself
   --feedback-flow      With install: same as --data productFeedback=flow, the flow that saves
                        product feedback exports emailed to you (needs Power Automate Premium)
   --studio-flow        With install: same as --data studioCredits=api, the daily flow that reads
@@ -76,10 +79,12 @@ Options:
                        With install: who the flows write to OneLake as. user (default): a person
                        signs in to an HTTP with Microsoft Entra ID connection; no Key Vault.
                        app: the app registration, with its secret from Key Vault. The vault must
-                       allow public network access.
+                       allow public network access. Fabric only: on Azure the Studio flow
+                       always signs in as you.
   --viva-partition <id>
   --viva-query <id>    With install: the Viva Insights partition and query the Cowork credits
-                       Dataflow reads (needs coworkCredits=api)
+                       Dataflow reads (needs coworkCredits=api). Fabric only: on Azure, Cowork
+                       credits come from the Consumption Dashboard's CSV export
   --arg-management-group <id>
                        With install: the Azure management group Resource Graph reads agents
                        and Foundry from (needs resourceGraph=api). Default: the whole tenant
@@ -103,7 +108,8 @@ Options:
   --allow-model-reset  With install, update or access: when Fabric can't update a model and keep its
                        data, clear the data and reload it without asking. Reports on that model show
                        no data until the reload finishes
-  --no-wait            Don't wait for the first load or a refresh to finish
+  --no-wait            Don't wait for the first load or a refresh to finish, or for Azure to delete
+                       the resource group on uninstall
   --verbose            Print each API call
   -h, --help           Show this help
   -v, --version        Show the version
@@ -351,6 +357,7 @@ export async function main(argv) {
     let config = loaded.config;
     const existed = loaded.existed;
     if (args.target) config.target = args.target;
+    if (args.csvFiles.length && config.target === 'azure') throw azureUploadError(config, '--csv');
     const sources = loadSources(args.sourceDir);
     applyDataFlags(config, args);
 

@@ -1,18 +1,23 @@
-"""The drop folder the consumption collectors read: Copilot Studio exports / flow output and Viva CSVs.
+"""The drop folder the CSV collectors read: Copilot Studio exports / flow output, Viva CSVs, the
+Agent 365 registry export and the product feedback exports.
 
 Two layouts, chosen by settings:
 
-* Storage (default, public networking): the `landing` container, `landing/studio/*.csv` and
-  `landing/viva/*.csv`. The Power Automate flow's state under `landing/flows/` is ignored.
-* SharePoint (private networking, `VALUELENS_DROP_SITE_ID` set): `<folder>/studio/*.csv` and
-  `<folder>/viva/*.csv` in a document library, read through Microsoft Graph with the job's managed
-  identity (Sites.Selected with a read grant on the site).
+* Storage (default, public networking): the `landing` container, `landing/studio/*.csv`,
+  `landing/viva/*.csv`, `landing/agent365/*.csv` and `landing/product_feedback/*.csv`. The Power
+  Automate flow's state under `landing/flows/` is ignored.
+* SharePoint (private networking, `VALUELENS_DROP_SITE_ID` set): `<folder>/studio/*.csv`,
+  `<folder>/viva/*.csv`, `<folder>/agent365/*.csv` and `<folder>/product_feedback/*.csv` in a
+  document library, read through Microsoft Graph with the job's managed identity (Sites.Selected
+  with a read grant on the site).
   - `VALUELENS_DROP_SITE_ID` is a Graph site id (`host,guid,guid`) or a path (`host:/sites/Name`);
     both resolve with `GET /sites/{value}`.
   - `VALUELENS_DROP_DRIVE_ID` set: `VALUELENS_DROP_FOLDER` is relative to that drive's root.
     Empty: the folder's first segment is the library's name (e.g. `Shared Documents/ValueLens`).
 
-Files are never moved or deleted: the collectors re-read everything and merge idempotently.
+Files are never moved or deleted: the consumption collectors re-read everything and merge
+idempotently, the Agent 365 collector reads the newest export and the product feedback collector
+reads every export.
 """
 from __future__ import annotations
 
@@ -25,7 +30,7 @@ from .api import GRAPH, raise_for_status
 log = logging.getLogger("valuelens_jobs.dropfolder")
 
 GRAPH_V1 = "https://graph.microsoft.com/v1.0"
-SUBDIRS = ("studio", "viva")
+SUBDIRS = ("studio", "viva", "agent365", "product_feedback")
 
 
 def _safe_name(name: str) -> str:

@@ -4,7 +4,8 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { emptyConfig } from '../src/config.js';
-import { HttpError } from '../src/http.js';
+import { fabricApi } from '../src/clients/fabric.js';
+import { createClient, HttpError } from '../src/http.js';
 import { loadSources } from '../src/sources.js';
 import { createUi } from '../src/ui.js';
 
@@ -360,7 +361,7 @@ export function fakeFabric() {
       Object.assign(/** @type {any} */ (roles.find((r) => r.id === id)), { role });
       return null;
     },
-    listConnections: async () => connections.map(({ id, displayName }) => ({ id, displayName })),
+    listConnections: async () => connections.map(({ id, displayName, body }) => ({ id, displayName, ...(body?.gatewayId ? { gatewayId: body.gatewayId } : {}) })),
     /** @param {string} id */
     getConnection: async (id) => {
       const conn = connections.find((x) => x.id === id);
@@ -422,6 +423,32 @@ export function fakeFabric() {
     },
   };
   return { api, items, schedules, calls, jobs, jobList, activityRuns, roles, connections, gateways, workspaceCapacities, failures, sqlStates, spark, dataflowConnections, git, add, operations };
+}
+
+/**
+ * Fabric's createConnection over the real HTTP client, where Fabric makes the connection but answers 429. The
+ * client sends it again, and Fabric then says the name is taken.
+ * @param {ReturnType<typeof fakeFabric>} fabric  Where the connection is made.
+ * @param {any} [listed]  More of what Fabric lists for it, such as its gatewayId.
+ */
+export function throttledThenTaken(fabric, listed = {}) {
+  /** @type {string[]} */
+  const sent = [];
+  const http = createClient({
+    baseUrl: 'https://fabric.invalid/v1',
+    getToken: async () => 'offline',
+    sleep: async () => {},
+    fetchImpl: /** @type {any} */ (async (/** @type {string} */ _url, /** @type {any} */ init) => {
+      const body = JSON.parse(init.body);
+      sent.push(`${init.method} ${body.displayName}`);
+      if (sent.length === 1) {
+        fabric.connections.push({ id: 'conn-throttled', displayName: body.displayName, body: { ...body, ...listed } });
+        return new Response(JSON.stringify({ errorCode: 'TooManyRequests', message: 'Too many requests' }), { status: 429, headers: { 'Retry-After': '1' } });
+      }
+      return new Response(JSON.stringify({ errorCode: 'DuplicateConnectionName', message: `Connection with name ${body.displayName} already exists.` }), { status: 409 });
+    }),
+  });
+  return { createConnection: fabricApi(http).createConnection, sent };
 }
 
 /** @param {number} [status] @param {string} [message] */
@@ -527,7 +554,15 @@ export function fakeArm() {
       return restrictedSqlRegions.has(location) ? { status: 'Visible', reason: 'Subscriptions are restricted from provisioning in this region.' } : { status: 'Available' };
     },
     listResourceGroups: async () => Object.values(groups),
-    getResourceGroup: async (/** @type {string} */ _sub, /** @type {string} */ name) => groups[name] ?? null,
+    getResourceGroup: async (/** @type {string} */ _sub, /** @type {string} */ name) => {
+      const g = groups[name];
+      if (g?.deleting) {
+        const state = g.deleteStates?.shift();
+        if (state === undefined) delete groups[name];
+        else g.properties = { provisioningState: state };
+      }
+      return groups[name] ?? null;
+    },
     ensureResourceGroup: async (/** @type {string} */ _sub, /** @type {string} */ name, /** @type {string} */ location, /** @type {any} */ tags = {}) => {
       calls.push(`ensureResourceGroup ${name}`);
       groups[name] = { name, location, tags };
@@ -602,7 +637,10 @@ export function fakeArm() {
     listContainerAppJobExecutions: async () => executions,
     deleteResourceGroup: async (/** @type {string} */ _sub, /** @type {string} */ rg) => {
       calls.push(`deleteResourceGroup ${rg}`);
-      delete groups[rg];
+      fail('deleteResourceGroup');
+      // A group given deleteStates (what each read reports while Azure deletes it) goes only after those reads.
+      if (groups[rg]?.deleteStates?.length) groups[rg].deleting = true;
+      else delete groups[rg];
     },
     deleteResource: async (/** @type {string} */ id) => {
       calls.push(`deleteResource ${id}`);
@@ -797,15 +835,26 @@ export function fakePowerBi() {
   const answers = [];
   /** @type {Record<string, Error[]>} */
   const failures = {};
+  /** @type {{ id: string, name: string }[]} The workspaces groups() lists. */
+  const workspaces = [];
   /** @type {any[]} */
   let datasources = [{ datasourceType: 'Sql', connectionDetails: { server: 'abc.datawarehouse.fabric.microsoft.com', database: 'ValueLens' } }];
   let n = 0;
   const api = {
     datasources: async () => datasources,
-    groups: async () => [],
+    groups: async () => {
+      const err = failures.groups?.shift();
+      if (err) throw err;
+      return structuredClone(workspaces);
+    },
     createGroup: async (/** @type {string} */ name) => {
       calls.push(`createGroup ${name}`);
       return { id: 'pbi-ws-1', name };
+    },
+    deleteGroup: async (/** @type {string} */ id) => {
+      calls.push(`deleteGroup ${id}`);
+      const err = failures.deleteGroup?.shift();
+      if (err) throw err;
     },
     addGroupUser: async (/** @type {string} */ ws, /** @type {any} */ body) => {
       calls.push(`addGroupUser ${ws} ${body.identifier}`);
@@ -849,6 +898,7 @@ export function fakePowerBi() {
     history,
     failures,
     answers,
+    workspaces,
     /** @param {any[]} d */
     setDatasources: (d) => {
       datasources = d;

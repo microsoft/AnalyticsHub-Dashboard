@@ -117,8 +117,8 @@ App settings (`CommercialTerms`, `TaskTime`) go in Table Storage. SQL wakes only
 the Power BI refresh.
 
 **SQL design.** Tables have the same names as the Lakehouse tables (`dbo.copilot_interactions_curated`,
-`dbo.copilot_licensed_users`, `dbo.copilot_org_data`, `dbo.m365_activity_daily`, `dbo.agents_365`,
-`dbo.user_feedback`, and the consumption and evaluator tables). This keeps the model's M expressions 1:1.
+`dbo.copilot_licensed_users`, `dbo.copilot_org_data`, `dbo.m365_activity_daily`, `dbo.agents_365` (created by `V009`),
+`dbo.user_feedback` (created by `V010`), and the consumption and evaluator tables). This keeps the model's M expressions 1:1.
 The large facts get **clustered columnstore**. Publishing uses a staging table plus `MERGE` by date partition,
 as in PnP's `InsertBatch`. Authentication is **Entra-only**: the jobs use the MI, and Power BI uses the
 reader SP (section 3.3).
@@ -302,6 +302,11 @@ app's ID and version in the org's app catalog.
   sets the refresh schedule. `transform/model.js` gets a source mode: `FabricTable(...)` or `SqlTable(...)`.
 - **Uninstall.** If the installer created the resource group, it deletes it. Otherwise it deletes only the
   recorded and tagged items. Resources that policies created (diagnostic settings, Defender) are listed and left alone.
+  Azure accepts a resource group delete long before it finishes, so uninstall polls the group every 30 seconds,
+  for up to 45 minutes, and says it's deleted only once it's gone (`--no-wait` stops at the accepted delete).
+  It deletes the Power BI workspace only if the installer created it (`powerBi.createdWorkspace`) and it still has
+  the name the installer gave it, after asking. Picking an existing workspace clears that flag; before 0.6.8 it
+  didn't, and workspace names are unique in Power BI, so the name check keeps those older records safe.
 
 ### 5.3 Permissions the installing user needs
 
@@ -464,7 +469,7 @@ tests/fixtures/valuelens-golden/
 | CI: installer, web, ARM drift, and image builds (pushed to GHCR on `installer-v*` tags) | `.github/workflows/tests.yml`, `azure-images.yml` | Done |
 | End-to-end deployment to a real tenant and the 101-query parity check | Contoso demo tenant | **Done for core.** Deployed end to end in private networking mode: migrate, a 30-day first load, publish to SQL, and a Power BI refresh through the VNet data gateway. Parity (`2. Azure/tools/parity.mjs`) against the Fabric install: 25 match and 29 empty on both sides. The 7 diffs are Agent 365 registry data (Phase 2) and a one-day difference in the M365 activity report window. 35 queries target the separate consumption and Agent Evaluator models and 5 are templates. The demo tenant has very little Copilot activity, so re-run parity on a busier tenant before GA |
 | Private networking (VNet, private endpoints, VNet data gateway) | `2. Azure/infra/modules/network.bicep`, `src/steps/azure` | Done: pulled forward from Phase 2 because MCAPS policy forces public access off |
-| Phase 2 modules (Agent 365, feedback, credit consumption, Agent Evaluator, Workday) | | **Credit consumption done** (#149): Studio by the licensing API flow (signed in as the user, into `landing/studio` or a SharePoint folder with private networking), Cowork by CSV, Azure AI and PAYG through Cost Management, and the Consumption Central model. GitHub, the dated Agent Daily table and Viva automation follow. The rest not started |
+| Phase 2 modules (Agent 365, feedback, credit consumption, Agent Evaluator, Workday) | | **Credit consumption done** (#149): Studio by the licensing API flow (signed in as the user, into `landing/studio` or a SharePoint folder with private networking), Cowork by CSV, Azure AI and PAYG through Cost Management, and the Consumption Central model. The dated Agent Daily and User Daily tables are in too. Viva automation stays Fabric only, as Viva Insights has no export a managed identity can call. GitHub and negotiated rates aren't collected; on Fabric they're notebooks run by hand. The Consumption Central model hasn't had a live parity run yet: see [Check parity with Fabric](README.md#check-parity-with-fabric). **Agent 365 done by CSV**: the `agent365` module lands the admin center export from the same drop folder (`agent365/`) into `dbo.agents_365` (`V009`); the API route is Fabric only for now. **Product feedback done by CSV**: the `productFeedback` module loads every admin center export in the drop folder's `product_feedback/` into `dbo.user_feedback` (`V010`), deduplicated by `Feedback Id`; the emailed export flow is Fabric only for now. The rest not started |
 
 ### 10.1 Findings from the first real deployment (Contoso, MCAPS subscription)
 

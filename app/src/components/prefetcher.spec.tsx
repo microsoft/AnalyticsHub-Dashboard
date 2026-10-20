@@ -57,8 +57,8 @@ function fakeScreen(page: DestinationId) {
     };
 }
 
-const available = destinations.filter((destination) => ["executive", "value", "consumption"].includes(destination.id));
-const screens = { executive: fakeScreen("executive"), value: fakeScreen("value"), consumption: fakeScreen("consumption") };
+const available = destinations.filter((destination) => ["executive", "adoption", "value"].includes(destination.id));
+const screens = { executive: fakeScreen("executive"), adoption: fakeScreen("adoption"), value: fakeScreen("value") };
 
 function renderPrefetcher(
     scheduler: ReturnType<typeof fakeScheduler>,
@@ -131,7 +131,7 @@ describe("Prefetcher", () => {
         act(() => vi.advanceTimersByTime(IDLE - 1));
         expect(mounted(container)).toBeUndefined();
         act(() => vi.advanceTimersByTime(1));
-        expect(mounted(container)).toBe("value/task-breakdown");
+        expect(mounted(container)).toBe("adoption/adoption");
     });
 
     it("mounts the next page hidden, with its own tab, slicers and the background lane", () => {
@@ -144,12 +144,12 @@ describe("Prefetcher", () => {
         expect(holder.hidden).toBe(true);
         expect(holder.hasAttribute("inert")).toBe(true);
         expect(holder.getAttribute("aria-hidden")).toBe("true");
-        const value = destinations.find((destination) => destination.id === "value")!;
+        const adoption = destinations.find((destination) => destination.id === "adoption")!;
         expect(seen.at(-1)).toEqual({
-            page: "value",
+            page: "adoption",
             prefetch: true,
-            applicable: value.filters,
-            shows: ["task-breakdown"],
+            applicable: adoption.filters,
+            shows: ["adoption"],
             organizations: ["Finance"],
         });
     });
@@ -159,15 +159,15 @@ describe("Prefetcher", () => {
         scheduler.set({ finished: 1 });
         const { container } = renderPrefetcher(scheduler);
         act(() => vi.advanceTimersByTime(IDLE));
-        expect(mounted(container)).toBe("value/task-breakdown");
+        expect(mounted(container)).toBe("adoption/adoption");
 
         scheduler.set({ background: 4 });
         act(() => vi.advanceTimersByTime(IDLE * 10));
-        expect(mounted(container)).toBe("value/task-breakdown");
+        expect(mounted(container)).toBe("adoption/adoption");
 
         scheduler.set({ background: 0, finished: 5 });
         act(() => vi.advanceTimersByTime(IDLE));
-        expect(mounted(container)).toBe("consumption/consumption-overview");
+        expect(mounted(container)).toBe("value/task-breakdown");
         act(() => vi.advanceTimersByTime(IDLE));
         expect(mounted(container)).toBe("executive/is-it-growing");
         idleFor(2);
@@ -183,7 +183,7 @@ describe("Prefetcher", () => {
         act(() => vi.advanceTimersByTime(IDLE));
         scheduler.set({ foreground: 1 });
         act(() => vi.advanceTimersByTime(IDLE * 10));
-        expect(mounted(container)).toBe("value/task-breakdown");
+        expect(mounted(container)).toBe("adoption/adoption");
     });
 
     it("moves past a page that fails", () => {
@@ -193,11 +193,11 @@ describe("Prefetcher", () => {
         const broken = () => {
             throw new Error("no such measure");
         };
-        const { container } = renderPrefetcher(scheduler, [], { ...screens, value: broken });
+        const { container } = renderPrefetcher(scheduler, [], { ...screens, adoption: broken });
         act(() => vi.advanceTimersByTime(IDLE));
         expect(container.querySelector("[data-prefetch]")?.textContent).toBe("");
         act(() => vi.advanceTimersByTime(IDLE));
-        expect(mounted(container)).toBe("consumption/consumption-overview");
+        expect(mounted(container)).toBe("value/task-breakdown");
     });
 
     it("starts again from the first page when the slicers change", () => {
@@ -205,12 +205,12 @@ describe("Prefetcher", () => {
         scheduler.set({ finished: 1 });
         const { container, rerender } = renderPrefetcher(scheduler);
         idleFor(2);
-        expect(mounted(container)).toBe("consumption/consumption-overview");
+        expect(mounted(container)).toBe("value/task-breakdown");
 
         rerender(prefetcher(scheduler, ["Finance"]));
         expect(mounted(container)).toBeUndefined();
         act(() => vi.advanceTimersByTime(IDLE));
-        expect(mounted(container)).toBe("value/task-breakdown");
+        expect(mounted(container)).toBe("adoption/adoption");
         expect(seen.at(-1)?.organizations).toEqual(["Finance"]);
     });
 

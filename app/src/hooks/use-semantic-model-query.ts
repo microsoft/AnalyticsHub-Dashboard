@@ -19,6 +19,8 @@ interface UseSemanticModelQueryOptions {
     query: string;
     /** If true, skip reading from cache (still writes the fresh result). */
     bypassCache?: boolean;
+    /** The page's first view waits on this query: on screen it goes ahead of the other queries waiting. */
+    lead?: boolean;
 }
 
 interface UseSemanticModelQueryResult {
@@ -86,7 +88,7 @@ type Execute = (fresh?: boolean, signal?: AbortSignal) => Promise<void>;
 export function useSemanticModelQuery(
     options: UseSemanticModelQueryOptions,
 ): UseSemanticModelQueryResult {
-    const { connection, query, bypassCache } = options;
+    const { connection, query, bypassCache, lead } = options;
     const [data, setData] = useState<CachedQueryResult | undefined>();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<Error | undefined>();
@@ -124,6 +126,7 @@ export function useSemanticModelQuery(
         let stamp = 0;
         const caller: QueryCaller = {
             signal,
+            lead,
             asking: (name) => {
                 model = name;
                 stamp = recoveriesOf(name);
@@ -167,7 +170,7 @@ export function useSemanticModelQuery(
         const missed = held && outdated(model, stamp);
         busy.current = held && !missed;
         return missed;
-    }, [connection, query, bypassCache, canExecute, priority]);
+    }, [connection, query, bypassCache, canExecute, priority, lead]);
 
     // `signal` aborts when the card unmounts or its query changes: what is still queued stops, and the answer is ignored.
     const execute = useCallback(async (fresh = false, signal?: AbortSignal) => {

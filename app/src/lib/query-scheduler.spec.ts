@@ -26,7 +26,7 @@ import {
     vectorFromArray,
 } from "apache-arrow";
 import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
-import { withPriority } from "@/lib/query-priority";
+import { withPriority, type QueryPriority } from "@/lib/query-priority";
 import {
     arrowErrorOf,
     BUSY_MESSAGE,
@@ -828,6 +828,63 @@ describe("QueryScheduler background lane", () => {
         expect(vl).toHaveBeenCalledTimes(2);
     });
 
+    it("lets background queries try a held model again five minutes after its last throttle, though nothing on screen asked it", async () => {
+        const log = vi.fn();
+        const scheduler = new QueryScheduler({ random: () => 0, log });
+        const vl = vi.fn().mockRejectedValueOnce(apiError(429)).mockResolvedValue("vl");
+        const held = scheduler.run("vl-back", vl, "low", "ws/vl");
+        await vi.advanceTimersByTimeAsync(299_999);
+        expect(vl).toHaveBeenCalledTimes(1);
+        expect(scheduler.activity()).toMatchObject({ foreground: 0, background: 1 });
+
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(held).resolves.toBe("vl");
+        expect(vl).toHaveBeenCalledTimes(2);
+        expect(log.mock.calls).toEqual([
+            ["warn", "Analytics Hub: Power BI throttled a query to model vl (HTTP 429), 1 in a row. Its queries wait 0.5 s, then try it one at a time."],
+            ["info", "Analytics Hub: background loading from model vl paused for at least 60 s, and until it answers a query on screen."],
+            ["info", "Analytics Hub: background loading from model vl resumed 300 s after its last throttle, without an answer on screen."],
+            ["info", "Analytics Hub: model vl is answering again."],
+        ]);
+    });
+
+    it("counts the five minutes from the model's last throttle, so a model still throttling queries on screen stays held", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const back = vi.fn().mockRejectedValueOnce(apiError(429)).mockResolvedValue("back");
+        const held = scheduler.run("back", back, "low", "ws/later");
+        await vi.advanceTimersByTimeAsync(200_000);
+        const front = vi.fn().mockRejectedValue(Object.assign(apiError(429), { retryAfterMs: 120_000 }));
+        await expect(scheduler.run("front", front, "normal", "ws/later")).rejects.toMatchObject({ message: BUSY_MESSAGE });
+
+        await vi.advanceTimersByTimeAsync(299_999);
+        expect(back).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(held).resolves.toBe("back");
+        expect(back).toHaveBeenCalledTimes(2);
+    });
+
+    it("lets one background query try the model after five minutes, and holds the rest five minutes more if it is throttled", async () => {
+        const scheduler = new QueryScheduler({ random: () => 0 });
+        const first = vi.fn().mockRejectedValueOnce(apiError(429)).mockResolvedValue("first");
+        const second = vi.fn().mockRejectedValueOnce(apiError(429)).mockResolvedValue("second");
+        const backs = [scheduler.run("first", first, "low", "ws/vl"), scheduler.run("second", second, "low", "ws/vl")];
+        await vi.advanceTimersByTimeAsync(299_999);
+        expect(first).toHaveBeenCalledTimes(1);
+        expect(second).not.toHaveBeenCalled();
+
+        // The second is first in line, so it alone tries the model, and is throttled.
+        await vi.advanceTimersByTimeAsync(1);
+        expect(second).toHaveBeenCalledTimes(1);
+        await vi.advanceTimersByTimeAsync(299_999);
+        expect(first).toHaveBeenCalledTimes(1);
+        expect(second).toHaveBeenCalledTimes(1);
+
+        await vi.advanceTimersByTimeAsync(1);
+        await expect(Promise.all(backs)).resolves.toEqual(["first", "second"]);
+        expect(first).toHaveBeenCalledTimes(2);
+        expect(second).toHaveBeenCalledTimes(2);
+    });
+
     it("tells subscribers when work starts and finishes", async () => {
         const scheduler = new QueryScheduler();
         const listener = vi.fn();
@@ -976,6 +1033,250 @@ describe("QueryScheduler when a card goes", () => {
     });
 });
 
+describe("QueryScheduler lead queries", () => {
+    /** A scheduler with all four slots on screen taken; `started` lists the queries asked after, in the order they start. */
+    function fullScheduler() {
+        const scheduler = new QueryScheduler();
+        const slots = Array.from({ length: 4 }, () => deferred());
+        slots.forEach((slot, index) => scheduler.run(`slot${index}`, () => slot.promise));
+        const started: string[] = [];
+        const ask = (key: string, lead = false, signal?: AbortSignal, priority: QueryPriority = "normal") =>
+            scheduler.run(
+                key,
+                async () => {
+                    started.push(key);
+                    return key;
+                },
+                priority,
+                "",
+                signal,
+                lead,
+            );
+        const drain = async () => {
+            for (const slot of slots) slot.resolve("slot");
+            await vi.advanceTimersByTimeAsync(0);
+        };
+        return { scheduler, started, ask, drain };
+    }
+
+    it("lets a lead query in ahead of the queries already waiting", async () => {
+        const { started, ask, drain } = fullScheduler();
+        const results = [ask("a"), ask("b"), ask("lead", true)];
+        await drain();
+        await expect(Promise.all(results)).resolves.toEqual(["a", "b", "lead"]);
+        expect(started).toEqual(["lead", "a", "b"]);
+    });
+
+    it("keeps lead queries first in, first out among themselves, all ahead of the rest", async () => {
+        const { started, ask, drain } = fullScheduler();
+        const results = [ask("a"), ask("lead1", true), ask("b"), ask("lead2", true)];
+        await drain();
+        await Promise.all(results);
+        expect(started).toEqual(["lead1", "lead2", "a", "b"]);
+    });
+
+    it("moves a waiting query up once a lead card asks for it too, and keeps it there", async () => {
+        const { started, ask, drain } = fullScheduler();
+        const first = ask("a");
+        const shared = ask("b");
+        expect(ask("b", true)).toBe(shared);
+        const results = [first, shared, ask("lead", true), ask("b")];
+        await drain();
+        await Promise.all(results);
+        expect(started).toEqual(["b", "lead", "a"]);
+    });
+
+    it("keeps a lead query's place when a lead card asks for it again", async () => {
+        const { started, ask, drain } = fullScheduler();
+        const results = [ask("lead1", true), ask("lead2", true), ask("a")];
+        expect(ask("lead1", true)).toBe(results[0]);
+        await drain();
+        await Promise.all(results);
+        expect(started).toEqual(["lead1", "lead2", "a"]);
+    });
+
+    it("lets a background query a lead card asks for on screen in ahead of the queries waiting", async () => {
+        const { scheduler, started, ask, drain } = fullScheduler();
+        const first = ask("a");
+        const background = ask("back", false, undefined, "low");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(scheduler.activity()).toMatchObject({ background: 1 });
+
+        expect(ask("back", true)).toBe(background);
+        expect(scheduler.activity()).toMatchObject({ background: 0 });
+        await drain();
+        await Promise.all([first, background]);
+        expect(started).toEqual(["back", "a"]);
+    });
+
+    it("ignores lead in the background: asked for later on screen as any other, the query waits at the back", async () => {
+        const { started, ask, drain } = fullScheduler();
+        const results = [ask("a"), ask("back", true, undefined, "low")];
+        await vi.advanceTimersByTimeAsync(0);
+        results.push(ask("back"), ask("lead", true));
+        await drain();
+        await Promise.all(results);
+        expect(started).toEqual(["lead", "a", "back"]);
+    });
+
+    it("ignores lead in the background for a query already waiting there too", async () => {
+        const { started, ask, drain } = fullScheduler();
+        const first = ask("a");
+        const background = ask("back", false, undefined, "low");
+        await vi.advanceTimersByTimeAsync(0);
+        expect(ask("back", true, undefined, "low")).toBe(background);
+        expect(ask("back")).toBe(background);
+        await drain();
+        await Promise.all([first, background]);
+        expect(started).toEqual(["a", "back"]);
+    });
+
+    it("gives a lead query's place to the next lead once its card has gone", async () => {
+        const { started, ask, drain } = fullScheduler();
+        const card = new AbortController();
+        const first = ask("a");
+        const dropped = ask("lead1", true, card.signal);
+        const next = ask("lead2", true);
+        card.abort();
+        await expect(dropped).rejects.toMatchObject({ name: "AbortError" });
+        await drain();
+        await Promise.all([first, next]);
+        expect(started).toEqual(["lead2", "a"]);
+    });
+
+    it("keeps a lead query's place when it waits again after a throttle", async () => {
+        const scheduler = new QueryScheduler({ concurrency: 1, random: () => 0 });
+        const started: string[] = [];
+        const gate = deferred();
+        const lead = vi
+            .fn()
+            .mockImplementationOnce(async () => {
+                started.push("lead");
+                throw apiError(429);
+            })
+            .mockImplementation(async () => {
+                started.push("lead");
+                return "lead";
+            });
+        const answer = scheduler.run("lead", lead, "normal", "ws/vl", undefined, true);
+        const other = scheduler.run(
+            "cc1",
+            async () => {
+                started.push("cc1");
+                return gate.promise;
+            },
+            "normal",
+            "ws/cc",
+        );
+        const last = scheduler.run(
+            "cc2",
+            async () => {
+                started.push("cc2");
+                return "cc2";
+            },
+            "normal",
+            "ws/cc",
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(started).toEqual(["lead", "cc1"]);
+
+        await vi.advanceTimersByTimeAsync(500);
+        gate.resolve("cc1");
+        await expect(Promise.all([answer, other, last])).resolves.toEqual(["lead", "cc1", "cc2"]);
+        expect(started).toEqual(["lead", "cc1", "lead", "cc2"]);
+    });
+
+    it("still holds no more than four queries in flight", async () => {
+        const scheduler = new QueryScheduler();
+        const tasks = Array.from({ length: 10 }, () => deferred());
+        let running = 0;
+        let peak = 0;
+        const results = tasks.map((task, index) =>
+            scheduler.run(
+                `q${index}`,
+                async () => {
+                    running++;
+                    peak = Math.max(peak, running);
+                    try {
+                        return await task.promise;
+                    } finally {
+                        running--;
+                    }
+                },
+                "normal",
+                "",
+                undefined,
+                index % 2 === 1,
+            ),
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(running).toBe(4);
+        for (const task of tasks) {
+            task.resolve("a");
+            await vi.advanceTimersByTimeAsync(0);
+        }
+        await Promise.all(results);
+        expect(peak).toBe(4);
+    });
+
+    it("still starts no more than 90 queries in a minute", async () => {
+        const scheduler = new QueryScheduler();
+        let started = 0;
+        const results = Array.from({ length: 100 }, (_, index) =>
+            scheduler.run(
+                `q${index}`,
+                async () => {
+                    started++;
+                    return index;
+                },
+                "normal",
+                "",
+                undefined,
+                index % 3 === 0,
+            ),
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(started).toBe(90);
+        await vi.advanceTimersByTimeAsync(59_999);
+        expect(started).toBe(90);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(started).toBe(100);
+        await Promise.all(results);
+    });
+
+    it("makes a lead query wait for the per-minute budget like any other", async () => {
+        const scheduler = new QueryScheduler();
+        let normal = 0;
+        const results = Array.from({ length: 90 }, (_, index) =>
+            scheduler.run(`q${index}`, async () => {
+                normal++;
+                return index;
+            }),
+        );
+        await vi.advanceTimersByTimeAsync(0);
+        expect(normal).toBe(90);
+
+        let started = false;
+        const lead = scheduler.run(
+            "lead",
+            async () => {
+                started = true;
+                return "lead";
+            },
+            "normal",
+            "",
+            undefined,
+            true,
+        );
+        await vi.advanceTimersByTimeAsync(59_999);
+        expect(started).toBe(false);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(started).toBe(true);
+        await expect(lead).resolves.toBe("lead");
+        await Promise.all(results);
+    });
+});
+
 describe("scheduledProxy", () => {
     function fakeProxy() {
         const executeDax = vi.fn(async () => ({ data: new ArrayBuffer(0), requestId: "r" }));
@@ -1075,6 +1376,37 @@ describe("scheduledProxy", () => {
         expect(executeDax).toHaveBeenCalledTimes(1);
         expect(first.gaveUp.mock.calls).toEqual([["ws/shared", recoveriesOf("ws/shared")]]);
         expect(second.gaveUp.mock.calls).toEqual(first.gaveUp.mock.calls);
+    });
+
+    it("lets a request a lead card starts on screen in ahead of the requests waiting; one it starts in the background stays there", async () => {
+        const sent: string[] = [];
+        const first = deferred<void>();
+        const executeDax = vi.fn(async (_workspace: string, _model: string, query: string) => {
+            sent.push(query);
+            if (query === "EVALUATE A") await first.promise;
+            return { data: new ArrayBuffer(0), requestId: "r" };
+        });
+        const inner = {
+            semanticModel: { executeDax, executeDaxJson: vi.fn() },
+            lakehouse: { executeSql: vi.fn() },
+            warehouse: { executeSql: vi.fn() },
+        } as unknown as IFabricApiProxy;
+        const scheduler = new QueryScheduler({ concurrency: 1 });
+        const proxy = scheduledProxy(inner, scheduler);
+        const lead = { signal: new AbortController().signal, lead: true };
+        const results = [
+            proxy.semanticModel.executeDax("ws", "m", "EVALUATE A"),
+            proxy.semanticModel.executeDax("ws", "m", "EVALUATE B"),
+            withPriority("normal", () => proxy.semanticModel.executeDax("ws", "m", "EVALUATE C"), lead),
+        ];
+        await vi.advanceTimersByTimeAsync(0);
+        first.resolve();
+        await Promise.all(results);
+        expect(sent).toEqual(["EVALUATE A", "EVALUATE C", "EVALUATE B"]);
+
+        const background = withPriority("low", () => proxy.semanticModel.executeDax("ws", "m", "EVALUATE D"), lead);
+        expect(scheduler.activity()).toMatchObject({ foreground: 0, background: 1 });
+        await background;
     });
 });
 

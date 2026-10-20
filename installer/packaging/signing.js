@@ -12,6 +12,15 @@ import { SCRIPT_NAME, ZIP_NAME, scriptCommand } from './script.js';
 
 export const PUBLISHER = 'Microsoft Corporation';
 
+/**
+ * An installer release's version: x.y.z, or x.y.z-rc.N for a release candidate. installer-exe
+ * drafts a release candidate as a pre-release, which releases/latest and the update check skip.
+ */
+export const RELEASE_VERSION = /^\d+\.\d+\.\d+(?:-rc\.\d+)?$/;
+
+/** @param {string} version */
+export const isReleaseCandidate = (version) => /-rc\.\d+$/.test(version);
+
 /** Where the install steps live, relative to the repo's main branch. */
 export const INSTALL_DOCS = 'blob/main/docs/INSTALL.md';
 export const WITHOUT_EXE_DOCS = 'blob/main/docs/INSTALL.md#without-the-exe';
@@ -78,6 +87,12 @@ export function checkSignature(sig, { publisher = PUBLISHER } = {}) {
 export function releaseNotes({ repo, sha256, signed, publisher = PUBLISHER, version }) {
   const base = `https://github.com/${repo}`;
   const lines = [];
+  if (version && isReleaseCandidate(version)) {
+    lines.push(
+      `**Release candidate.** This pre-release is for testing ${version.replace(/-rc\.\d+$/, '')} before it's released. The installer doesn't offer it as an update, and ${base}/releases/latest stays on the last release.`,
+      '',
+    );
+  }
   if (version) {
     lines.push(
       '### Install from PowerShell',

@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { EXE_NAME } from '../src/launch.js';
-import { checkSignature, commonName, parseSha256, releaseNotes, sha256Line } from '../packaging/signing.js';
+import { RELEASE_VERSION, checkSignature, commonName, isReleaseCandidate, parseSha256, releaseNotes, sha256Line } from '../packaging/signing.js';
 
 const HASH = '748ed2f139d14f8babdabea867a809c4fe6da12ef9da3d07ecd93dba616224db';
 const MICROSOFT = 'CN=Microsoft Corporation, O=Microsoft Corporation, L=Redmond, S=Washington, C=US';
@@ -81,4 +81,21 @@ test('signing: release notes with a version lead with the pinned PowerShell comm
   const unsigned = releaseNotes({ repo: 'octo/hub', sha256: HASH, signed: false, version: '1.2.3' });
   assert.match(unsigned, /Use the PowerShell command above, another route/);
   assert.doesNotMatch(unsigned, /Keep anyway|Run anyway|Bypass/);
+  assert.doesNotMatch(notes, /Release candidate/);
+});
+
+test('signing: a release version is x.y.z, or x.y.z-rc.N for a release candidate', () => {
+  for (const v of ['0.6.8', '10.0.12', '0.6.8-rc.1', '0.6.8-rc.12']) assert.ok(RELEASE_VERSION.test(v), v);
+  for (const v of ['0.6', 'v0.6.8', '0.6.8-beta', '0.6.8-rc', '0.6.8-rc.1+abc1234', '0.6.8 ']) assert.ok(!RELEASE_VERSION.test(v), v);
+  assert.equal(isReleaseCandidate('0.6.8-rc.1'), true);
+  assert.equal(isReleaseCandidate('0.6.8'), false);
+});
+
+test('signing: release candidate notes say it is a pre-release, and pin its own install.ps1', () => {
+  const notes = releaseNotes({ repo: 'octo/hub', sha256: HASH, signed: true, version: '1.2.3-rc.2' });
+  assert.ok(notes.startsWith('**Release candidate.**'), 'the notice comes first');
+  assert.match(notes, /for testing 1\.2\.3 before it's released/);
+  assert.match(notes, /doesn't offer it as an update/);
+  assert.ok(notes.includes('https://github.com/octo/hub/releases/latest stays on the last release'));
+  assert.ok(notes.includes('irm https://github.com/octo/hub/releases/download/installer-v1.2.3-rc.2/install.ps1 | iex'));
 });

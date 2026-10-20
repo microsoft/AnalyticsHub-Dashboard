@@ -10,7 +10,7 @@ checks most of it for you, and changes nothing. Setting it up by hand? On Fabric
 | Who | Fabric | Azure | Time |
 |---|---|---|---|
 | **You**, who run the installer | Contributor on an F2 or larger capacity, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager). Power BI Pro. Can register an app. | Owner, or Contributor and User Access Administrator, on a subscription or resource group. Power BI Pro. Can register an app. | 20 min |
-| **Fabric admin** | Turns on four tenant settings | Turns on three tenant settings | 5 min |
+| **Fabric admin** | Turns on four tenant settings, and lets you create Fabric items | Turns on three tenant settings | 5 min |
 | **Entra admin** (Global Administrator or Privileged Role Administrator) | Grants admin consent for read-only Graph permissions | The same, for the app and the managed identity. Plus one to manage viewers from the web app | 2 min |
 | **Microsoft 365 admin** | Turns off concealed names in usage reports | The same | 1 min |
 | **Teams admin** | – | Publishes the Teams app to your org's app catalog | 2 min |
@@ -185,7 +185,13 @@ The detail behind [At a glance](#at-a-glance), with links to Microsoft Learn.
 
 - [ ] **Fabric: a capacity.** An F2 or larger [Fabric capacity](https://learn.microsoft.com/fabric/enterprise/licenses#capacity),
       or a [free trial](#what-it-costs). Use **F64 or larger** for a tenant with more than 10,000
-      people. Make the person who runs the installer a **Contributor** on it.
+      people. Make the person who runs the installer a **Contributor** on it. A Premium P capacity
+      works too, but **Premium Per User (PPU)** workspaces can't hold notebooks or Lakehouses.
+- [ ] [*Users can create Fabric items*](https://learn.microsoft.com/fabric/admin/fabric-switch) turned on
+      for the person who runs the installer: for the whole organisation, a security group they're in, or
+      [delegated](https://learn.microsoft.com/fabric/admin/capacity-settings#delegated-tenant-settings)
+      to the capacity. Without it, Fabric says *Unable to create Import notebook* (or Lakehouse).
+      It can take about 15 minutes to apply. Fabric.
 - [ ] **Tenant settings** turned on, in the Fabric admin portal under **Tenant settings**. They
       can be on for the whole organisation, or just for security groups. If just for groups, who
       needs each one has to be in one of them:
@@ -301,8 +307,8 @@ nothing fails.
 | Card | What it needs, beyond the checklist |
 |---|---|
 | **Microsoft 365 activity** *(on by default)* | Real names in usage reports (Microsoft 365 admin). |
-| **Agent 365 registry** | An [Agent 365](https://learn.microsoft.com/microsoft-agent-365/overview) licence for **Connected**. Without one, upload the export from the Microsoft 365 admin center. Fabric only. |
-| **Product feedback** | No API. With the flow: a Power Automate Premium licence, a mailbox for the exports, and the export schedule (Microsoft 365 admin). Or upload the export yourself. Fabric only. |
+| **Agent 365 registry** | An [Agent 365](https://learn.microsoft.com/microsoft-agent-365/overview) licence for **Connected**, which is Fabric only for now. Without one, or on Azure, upload the export from the Microsoft 365 admin center. On Azure you drop it in the landing folder: see [Agent 365 registry](../azure/README.md#agent-365-registry). |
+| **Product feedback** | No API. With the flow: a Power Automate Premium licence, a mailbox for the exports, and the export schedule (Microsoft 365 admin). Or upload the export yourself. The flow and the upload are Fabric only for now: on Azure you drop the exports in the landing folder, see [Product feedback](../azure/README.md#product-feedback). |
 | **Workday org data** | A Workday report of active workers with **Primary Work Email**, uploaded as a CSV. |
 | **Credit consumption** | Three cards, below. |
 | ↳ **Copilot Studio credits** | The Power Platform admin items above: environment, data policies, Premium licence and the sign-in. Or upload the exports from the Power Platform admin center each month. |

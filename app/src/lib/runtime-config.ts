@@ -107,7 +107,19 @@ export function runtimeConfig(): RuntimeConfig {
 /** Reads deployed host config over build-time defaults. */
 export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
     const defaults = buildTimeConfig();
-    const azure = await loadAzureConfig(APP_CONFIG_PATH);
+    // All three files load at once. On Fabric the Azure check finds nothing, and waiting for that
+    // before asking for the Fabric files put a round trip to the app host in front of the first query.
+    const azureLoad = loadAzureConfig(APP_CONFIG_PATH);
+    const fabricLoad = Promise.all([
+        resolveRayfinConfig(defaults.rayfin),
+        loadFabricConfig(FABRIC_CONFIG_PATH),
+    ]);
+    // Nothing awaits the Fabric files until the Azure check is done, and on Azure nothing ever does, so
+    // their failing mustn't surface as an unhandled rejection. Without an Azure config, the await below
+    // still rejects on it.
+    fabricLoad.catch(() => undefined);
+
+    const azure = await azureLoad;
     if (azure) {
         loaded = {
             ...defaults,
@@ -122,10 +134,7 @@ export async function loadRuntimeConfig(): Promise<RuntimeConfig> {
         return loaded;
     }
 
-    const [rayfin, fabric] = await Promise.all([
-        resolveRayfinConfig(defaults.rayfin),
-        loadFabricConfig(FABRIC_CONFIG_PATH),
-    ]);
+    const [rayfin, fabric] = await fabricLoad;
     loaded = {
         host: "fabric",
         rayfin: rayfin.runtimeConfig,

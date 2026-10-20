@@ -14,11 +14,11 @@ Everything is read-only, and stays in your tenant.
 | Microsoft 365 licences | Who has a Copilot licence | Always |
 | Entra ID, or a Workday export | Department, job title, manager and location | Always |
 | Microsoft 365 usage reports | Everyday Teams, Outlook, Word and other activity | On by default |
-| Agent 365 registry | Each agent, its owner and who can reach it | Optional, Fabric |
+| Agent 365 registry | Each agent, its owner and who can reach it | Optional. The API is Fabric only; Azure loads the export |
 | Copilot Studio, Cowork and Azure AI | Credits used, and what they cost | Optional |
 | Microsoft Defender, Azure Resource Graph | AI apps in use, agent risk and configuration, Foundry | Optional |
 | Copilot Studio transcripts | How well agents answer | Optional, Fabric |
-| Product feedback export | What people say about Copilot | Optional, Fabric |
+| Product feedback export | What people say about Copilot | Optional. The emailed export flow is Fabric only; Azure loads the exports |
 
 What each optional source needs: [Optional extras](PREREQUISITES.md#optional-extras). Each table
 and column: [Data dictionary](DATA-DICTIONARY.md).

@@ -12,6 +12,9 @@ param minCapacity string = '0.5'
 param maxCapacity int = 2
 param autoPauseDelayMinutes int = 60
 param useFreeLimit bool = false
+@description('With the free offer, when the month\'s free allowance runs out: pause until next month (AutoPause, max 4 vCores), or carry on and bill the extra at the serverless rate (BillOverUsage). Azure cannot switch BillOverUsage back.')
+@allowed(['AutoPause', 'BillOverUsage'])
+param freeLimitExhaustionBehavior string = 'AutoPause'
 @allowed(['Enabled', 'Disabled'])
 param publicNetworkAccess string = 'Enabled'
 
@@ -60,7 +63,7 @@ resource db 'Microsoft.Sql/servers/databases@2023-08-01-preview' = {
     minCapacity: json(minCapacity)
     autoPauseDelay: autoPauseDelayMinutes
     useFreeLimit: useFreeLimit
-    freeLimitExhaustionBehavior: useFreeLimit ? 'AutoPause' : null
+    freeLimitExhaustionBehavior: useFreeLimit ? freeLimitExhaustionBehavior : null
     requestedBackupStorageRedundancy: 'Local'
     zoneRedundant: false
   }

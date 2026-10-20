@@ -262,6 +262,8 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {string} [location]
  * @property {string} [sqlLocation] Region for Azure SQL when it differs from location (regional SQL capacity).
  * @property {boolean} [sqlFreeOffer] false once Azure turned down the Azure SQL free offer for a new database, which then uses the usual serverless price. Unset = ask for it.
+ * @property {boolean} [sqlScaleUp] A large tenant chose to pay for Azure SQL beyond the free offer: more vCores, and carrying on past the free allowance. Unset = no.
+ * @property {boolean} [webAlwaysOn] A large tenant chose to pay to keep one web app replica running, so the first visit doesn't wait. Unset = no.
  * @property {string} [namePrefix]
  * @property {string} [installId]
  * @property {Record<string, string>} [tags]
@@ -283,8 +285,8 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  *   `capacityId` hosts the workspace (semantic model definition APIs need a Fabric/Premium capacity) and, in private
  *   networking mode, the VNet data gateway `gatewayId` whose SQL connection `connectionId` the model is bound to.
  *   `consumptionDatasetId` is the Consumption model, deployed with credit consumption.
- * @property {AzureDrop} [drop] Private networking with credit consumption: the SharePoint folder the Studio flow and CSV uploads land in.
- * @property {boolean} [storageRole] The installer gave the signed-in user Storage Blob Data Contributor on the landing container, for the Studio flow.
+ * @property {AzureDrop} [drop] Private networking with credit consumption or a CSV export (Agent 365, product feedback): the SharePoint folder the Studio flow and CSV uploads land in.
+ * @property {boolean} [storageRole] The installer gave the signed-in user Storage Blob Data Contributor on the landing container, for the Studio flow and CSV uploads.
  * @property {{ assigned: string[], pending: string[] }} [graphRoles]
  * @property {string} [teamsPackage]
  * @property {{ id: string, externalId: string, version: string, sha256: string, publishedAt: string }} [teamsApp]  The Teams app the installer

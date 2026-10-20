@@ -10,7 +10,7 @@ import { DATA_CLI, deployApp, deploymentKey, ensureAppName, ensureFabricApp, FAB
 import { CONNECTION_SECRET_NAME, connectionName, definitionHash, ensureModelConnection, ensureSemanticModel, MODEL_PROBE, refreshModel, rotateModelSecret, verifyModel } from '../src/steps/model.js';
 import { blockedSettings } from '../src/steps/plan.js';
 import { buildModel, loadTemplateModel } from '../src/transform/model.js';
-import { fakeCtx, fakeFabric, fakeGraph, fakePowerBi, fakeUi, httpError, realSources } from './fakes.js';
+import { fakeCtx, fakeFabric, fakeGraph, fakePowerBi, fakeUi, httpError, realSources, throttledThenTaken } from './fakes.js';
 
 /** @param {any} item */
 const modelBim = (item) => JSON.parse(Buffer.from(item.content.parts.find((/** @type {any} */ p) => p.path === 'model.bim').payload, 'base64').toString('utf8'));
@@ -176,6 +176,24 @@ test('connection: retried while a new secret takes effect; a failure takes the s
   await assert.rejects(ensureModelConnection(bad.ctx), /couldn't set up the model's connection: Duplicate/);
   assert.deepEqual(bad.graph.passwords, []);
   assert.equal(bad.config.semanticModel.connectionId, undefined);
+});
+
+test('connection: one a throttled create made anyway is reused when the retry finds the name taken', async () => {
+  const t = setup();
+  await withModel(t);
+  const name = connectionName('ws-1');
+  const throttled = throttledThenTaken(t.fabric);
+  t.fabric.api.createConnection = throttled.createConnection;
+  await ensureModelConnection(t.ctx);
+  assert.deepEqual(throttled.sent, [`POST ${name}`, `POST ${name}`], 'the client sends it again after the 429, and Fabric answers 409');
+  assert.deepEqual(t.fabric.calls, ['addRoleAssignment sp-1 Viewer', 'updateConnection conn-throttled', `bindConnection Analytics Hub Model conn-throttled abc.datawarehouse.fabric.microsoft.com;ValueLens`]);
+  assert.equal(t.fabric.connections.length, 1);
+  assert.equal(/** @type {any} */ (t.fabric.connections[0].body).credentialDetails.credentials.servicePrincipalSecret, 'secret-1', 'given the secret again');
+  const sm = t.config.semanticModel;
+  assert.equal(sm.connectionId, 'conn-throttled');
+  assert.equal(sm.secretKeyId, 'key-1');
+  assert.equal(sm.bound, true);
+  assert.match(t.ui.text(), new RegExp(`Fabric already has a connection named "${name}", probably from an earlier request that it throttled or that timed out\\. Using that one\\.`));
 });
 
 test('connection: one with the same name is reused with a new secret; without rights to add one, the user pastes it', async () => {

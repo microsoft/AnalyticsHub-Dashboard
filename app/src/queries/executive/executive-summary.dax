@@ -30,6 +30,31 @@ VAR _noSecurityCopilot =
         ALL('Chat + Agent Interactions (Audit Logs)'[AppHost]),
         NOT CONTAINSSTRING('Chat + Agent Interactions (Audit Logs)'[AppHost], "SecurityCopilot")
     )
+VAR _seats = [Licensed Users (Filter-Aware)]
+// [Active Licensed Users] now tests each user ID with LEN(TRIM()) only when
+// Audit_UserId is filtered directly, but models deployed from older templates
+// still test every ID, which takes seconds on a large tenant. Counting the
+// licensed users with a usage row, less the blank IDs, gives the same number
+// on any model, so this inline count stays (as in executive-months.dax).
+VAR _blankIds =
+    FILTER(
+        ALL('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]),
+        LEN(TRIM('Chat + Agent Interactions (Audit Logs)'[Audit_UserId])) = 0
+    )
+VAR _licensedUsers =
+    CALCULATE(
+        DISTINCTCOUNT('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]),
+        KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Is Usage Row] = TRUE()),
+        KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[License Status] = "M365 Copilot Licensed")
+    )
+        - CALCULATE(
+            DISTINCTCOUNT('Chat + Agent Interactions (Audit Logs)'[Audit_UserId]),
+            KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[Is Usage Row] = TRUE()),
+            KEEPFILTERS('Chat + Agent Interactions (Audit Logs)'[License Status] = "M365 Copilot Licensed"),
+            KEEPFILTERS(_blankIds)
+        )
+// Blank rather than 0 when nobody is counted, as COUNTROWS gives.
+VAR _seatsInUse = IF(_licensedUsers > 0, _licensedUsers)
 RETURN
     ROW(
         "Hours", CALCULATE([Expert Equivalent Hours], 'Effort Scenario'[Scenario] = "Typical"),
@@ -44,9 +69,10 @@ RETURN
                 VALUES('Calendar'[Date])
             ),
         "Skills Available", [ValueLens Skills Available],
-        "Licensed Seats", [Licensed Users (Filter-Aware)],
-        "Seats In Use", [Active Licensed Users],
-        "Seats In Use Pct", [% Active Licensed Users],
+        "Licensed Seats", _seats,
+        "Seats In Use", _seatsInUse,
+        // [% Active Licensed Users].
+        "Seats In Use Pct", IF(_seats > 0 && _seatsInUse <= _seats, DIVIDE(_seatsInUse, _seats)),
         "Unlicensed Users", [Active Unlicensed Users],
         "Habit Month", [Last Full Month Start],
         "Habitual Pct", [Habitual Users %, Last Month],

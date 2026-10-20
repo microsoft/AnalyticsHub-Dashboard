@@ -27,6 +27,13 @@ export const TEAMS_APP_PENDING = 'Publish the Teams app';
 /** How long the app catalog sign-in can take before the install carries on without it. */
 export const CATALOG_SIGN_IN_MS = 5 * 60_000;
 
+/**
+ * How long after the installer publishes or updates the app a "not found" from the app catalog isn't believed.
+ * In a live run, Microsoft Graph took about 25 minutes to find a newly published app, so an uninstall soon after
+ * publishing got 404 and left the app in the catalog with no record of it. Waiting too long costs only a warning.
+ */
+export const CATALOG_SETTLE_MS = 24 * 60 * 60_000;
+
 const PERMISSION = '"Read and write to all app catalogs" (AppCatalog.ReadWrite.All)';
 const STEPS_LATER = 'The install carries on, and the steps to upload it by hand come at the end.';
 
@@ -269,6 +276,9 @@ export async function removeTeamsApp(ctx) {
       await /** @type {import('../../clients/graph.js').AppCatalogApi} */ (ctx.api.appCatalog).remove(rec.id);
     } catch (err) {
       if (!(err instanceof HttpError && err.status === 404)) return notRemoved(ctx, catalogErrorReason(err), steps);
+      const ms = ctx.now().getTime() - Date.parse(rec.publishedAt);
+      // Kept, so the record still points the installer at the app.
+      if (ms < CATALOG_SETTLE_MS) return notRemoved(ctx, `Microsoft Graph didn't find Analytics Hub, which the installer published or updated ${ago(ms)}. Graph can take half an hour or more to find a new app, so it may still be there.`, steps);
     }
     delete az.teamsApp;
     ctx.save();
@@ -282,6 +292,13 @@ export async function removeTeamsApp(ctx) {
 function notRemoved(ctx, reason, steps) {
   ctx.ui.warn(`Teams app: not removed from your org's app catalog. ${reason}`);
   ctx.ui.info(steps);
+}
+
+/** @param {number} ms */
+function ago(ms) {
+  const minutes = Math.max(1, Math.round(ms / 60_000));
+  if (minutes < 120) return `${minutes} minute${minutes === 1 ? '' : 's'} ago`;
+  return `${Math.round(minutes / 60)} hours ago`;
 }
 
 /**

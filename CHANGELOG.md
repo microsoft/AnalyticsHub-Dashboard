@@ -49,21 +49,141 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 The installer and Fabric by hand are unchanged.
 
-## Analytics Hub installer 0.6.7 (unreleased)
+**Azure: the Agent 365 registry, from its CSV export.** The `agent365` module now installs on
+Azure. Drop the Microsoft 365 admin center's export in `agent365/` in the `landing` container, or
+with private networking in the SharePoint drop folder's `agent365` folder. Each run loads the newest
+one into `dbo.agents_365` (migration `V009`), the table Fabric fills, so the same pages work. The
+Agent 365 API is Fabric only for now: `--data agent365=api` warns and uses the export. See
+[Agent 365 registry](azure/README.md#agent-365-registry).
 
-**Release preparation only.** 0.6.7 is not published. 0.6.6 remains Latest; whether 0.6.7
-is published as a stable release or a pre-release, and whether it becomes Latest, are separate
-decisions.
+**Azure: product feedback, from its CSV exports.** The `productFeedback` module now installs on
+Azure. Drop the Microsoft 365 admin center's exports in `product_feedback/`, in the same places as
+the Agent 365 export. Each run loads them all into `dbo.user_feedback` (migration `V010`), the table
+Fabric fills, with duplicates removed by Feedback Id. The emailed export flow is Fabric only for
+now: `--data productFeedback=flow` and `--feedback-flow` warn and use the exports. See
+[Product feedback](azure/README.md#product-feedback).
+
+**Power BI model: faster active-user counts.** In both Fabric templates, and so in the Azure model
+built from them, `[All Active Users]` and `[Active Licensed Users]` now take one distinct count
+instead of testing each user, as in
+[ValueLens #199](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot/pull/199). Adoption
+and the Executive summary should load sooner. The numbers don't change.
+
+**Azure: sizing for a tenant with more than 10,000 Copilot seats.** Smaller tenants are asked
+nothing new and deploy as before.
+
+- **Power BI capacity.** Setup recommends F64 or larger, suggests the first active capacity that
+  size, and warns when the semantic model would sit on shared capacity, where a model is limited
+  to 1 GB.
+- **Paid options, off unless chosen.** **Azure placement** offers Azure SQL that scales up to 4
+  vCores and carries on past the free offer's monthly allowance (about $30-80 a month), and a web
+  app that keeps one replica running (about $10-20 a month). `--yes` never turns them on, and
+  **Repair or change** keeps what was chosen. The ARM template takes a new
+  `sqlFreeLimitExhaustionBehavior` parameter, `AutoPause` by default.
+- **First load.** A new test checks that an audit collection cut off by the run job's 4-hour limit
+  carries on in the next run. The [installer README](installer/README.md#a-large-tenant-on-azure)
+  says what to expect at 20,000 seats.
+
+**Installer: fixes from the 0.6.7 Azure test, and release candidates.**
+
+- **A connection Fabric made while throttling is reused.** When Fabric answered the request for
+  the model's connection with 429 (too many requests) but made the connection anyway, the retry got
+  409 `DuplicateConnectionName` and the step failed until you chose **Retry**. Now the installer
+  finds the connection by name, reuses it and sets its credentials, on Fabric and on Azure. With
+  private networking on Azure, it reuses only a connection on the install's own gateway.
+- **Uninstall soon after publishing keeps track of the Teams app.** Microsoft Graph can take half an
+  hour or more to find an app the installer has just published to your org's app catalog. Before,
+  an Azure uninstall in that time took "not found" to mean the app was gone and forgot it, which
+  left the app in the catalog. Now, for a day after it publishes or updates the app, the installer
+  keeps its record and says how to delete the app in the Teams admin center.
+- **Azure uninstall deletes the Power BI workspace it created.** It used to leave the workspace, and
+  the semantic models in it, behind. Now it asks first, and the answer defaults to yes, so `--yes`
+  deletes it too. It never offers to delete a workspace you picked rather than had it create, or
+  one you've renamed since: it leaves those for you.
+- **Azure uninstall says a resource group is deleted only once it's gone.** It said "Deleted
+  resource group" as soon as Azure accepted the delete, which can take half an hour more to finish.
+  Now it waits up to 45 minutes for the group to go. If Azure is still deleting it then, it says
+  so; if Azure stopped, it gives the group's state and the uninstall fails. With `--no-wait`, it
+  stops once Azure accepts the delete and says that's what happened.
+- **The installer exe waits for antivirus rather than failing to start.** The exe unpacks to a new
+  folder, then renames it into place. Antivirus checking the new files can hold that folder for a
+  moment, and the exe tried the rename once and handled only one of the two errors Windows gives,
+  so "Access to the path … is denied" ended in "The installer couldn't start" until you ran it
+  again. Now it tries again for up to 50 seconds on either error, and stops as soon as another
+  copy has finished unpacking. If the folder is still held, it asks you to wait a minute and run
+  it again.
+- **Release candidates.** A version such as `0.6.8-rc.1` now builds: its `installer-v0.6.8-rc.1`
+  tag drafts a pre-release, whose notes say it's a release candidate and pin its own `install.ps1`.
+  `releases/latest` and the installer's update check skip it, and its Azure images are tagged with
+  that version, so they don't replace a release's. Before, the release notes step took only x.y.z,
+  so the tag's build and the signing pipeline failed. The Teams app inside has the release's
+  version, `0.6.8`, because Teams takes only x.y.z.
+
+**App and README:** both credit their creator, "Created by Keith McGrane", linked to his profile.
+In the app it's a small footer at the bottom of the sidebar, so it's on every page, in a browser
+and in Teams, Outlook and Microsoft 365.
+
+**Docs:**
+
+- **A shorter README, by path.** The [README](README.md) is now just the steps for Path 1 (Fabric)
+  and Path 2 (Azure), with the installer or by hand. Each path also has a folder of just its steps,
+  [1-fabric](1-fabric/) and [2-azure](2-azure/). The code stays in `fabric/` and `azure/`. What you
+  get, the data and the list of pages moved to [docs](docs/README.md). Old links and anchors still
+  work. The exe download is a plain link now, after the PowerShell command.
+  [Install](docs/INSTALL.md) now names the installer's first choice as it appears:
+  **Microsoft Fabric**.
+- The installer README lists Defender with the modules Azure supports.
+
+**App: Adoption now comes straight after the Executive summary, ahead of Value, Consumption and
+Efficiency.**
+
+**App: background loading can't stay paused after a throttle.** It still waits at least a minute,
+and until a query on screen to that model succeeds, but now for at most five minutes after the
+model's last throttle. Then it tries the model again, one query at a time. Before, it could wait for
+good if nothing on screen asked that model, and pages stopped loading ahead for every model.
+
+**App: on Fabric, the first query starts a round trip sooner.** The app now asks for its three
+config files at once, rather than ruling out an Azure config before it asks for the Fabric ones.
+Azure installs load their config as before.
+
+**Azure: credit consumption checked against Fabric.**
+
+- **Recommended sources on a new tick.** Ticking **Credit consumption** on Azure now starts from the
+  Copilot Studio credits flow and the Cowork CSV export. Before, both defaulted to left out.
+- **Installs that ticked it before 0.6.8.** If an Azure install ticked it without changing the advanced
+  settings and reads Azure AI from a subscription, Copilot Studio and Cowork stay left out, because its
+  record can't tell that from a choice. To turn them on, choose **Repair or change**, then **Module
+  connections**, and pick their sources. In a terminal, run `install` and say **Yes** to the advanced settings.
+- **`--data azureAi=skip` works on Azure.** The subscription question now defaults to leaving Azure AI
+  out, as it already did after **Leave Azure AI out**, so `--yes` no longer turns it on.
+- **Clear errors for Fabric-only options.** On Azure, `upload`, `install --csv` and `load-cowork` now
+  stop and name the folder to put exports in. `coworkCredits=api`, `--flow-identity app` and leaving
+  every credit source out warn.
+- **Unticking it works as on Fabric.** On Azure, unticking **Credit consumption**, or switching to demo
+  mode, keeps the Consumption Central model but hides its pages in the app. The jobs, the `refresh`
+  command and its scheduled refresh in Power BI stop refreshing it, and the installer stops giving access
+  to it. Ticking it again reuses the model. Before, the app kept the pages, with data that no longer updated.
+- **Parity documented.** The [Azure README](azure/README.md#parity-with-fabric) compares credit
+  consumption with Fabric source by source, says why the Viva Insights Dataflow, `--flow-identity app`
+  and installer uploads are Fabric only for now, and gives the steps to compare the two Consumption
+  Central models with `parity.mjs`.
+
+## 2026-10-19 — Analytics Hub installer 0.6.7
+
+**The current release.** 0.6.7 replaces 0.6.6 as Latest, so the `releases/latest` links, including
+the PowerShell command, now serve it. To pin this version, use
+`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.7/install.ps1 | iex`.
 
 **What changed:** clean-PC installer fixes preserve concurrent app deployments and report failed
 steps accurately. Azure adds personal-tab support in Outlook and the Microsoft 365 Copilot app,
 plus optional Teams org app-catalog publication. Value, Consumption and Efficiency follow the
-Executive summary. Simpler docs are included below.
+Executive summary, which now opens sooner. Simpler docs are included below.
 
-**Update an existing install:** once 0.6.7 is published, run that version and choose
-**Repair or change**. Azure app-catalog publication needs an additional sign-in with the admin
-role and consent described below; you can continue without it and upload the package by hand.
-Pinning remains manual. This preparation adds no new schema migration or model-reset requirement.
+**Update an existing install:** run the PowerShell command again, or open installer 0.6.7 and
+choose **Repair or change**. Azure app-catalog publication needs an additional sign-in with the
+admin role and consent described below; you can continue without it and upload the package by
+hand. Pinning the app in Teams remains manual. 0.6.7 adds no new schema migration or model-reset
+requirement. The tag also publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.7`.
 
 **Azure: the Teams tab also opens in Outlook and the Microsoft 365 Copilot app.**
 
@@ -76,20 +196,38 @@ Pinning remains manual. This preparation adds no new schema migration or model-r
   for a token, so people go straight to their data. If the host needs a prompt first, such as consent
   or MFA, the tab shows **Sign in with Microsoft**, which opens it in a pop-up. Before, sign-in in
   the tab failed with "The library has not yet been initialized", in Teams too.
+- **Keeps loading in Outlook on the web.** The tab reuses its token rather than ask for one per query.
 - **No wait in a browser.** The app starts TeamsJS only on the tab's address. Before, a browser
   window that another app opened could stay blank for up to a minute.
-- **Personal tab only.** The channel and group chat tab stays in Teams. The Teams package doesn't
-  change, so there's nothing to upload again.
+- **Personal tab only.** The channel and group chat tab stays in Teams.
+- **A new Teams package.** Its accent colour now starts with `#`, as the schema requires. Upload
+  `AnalyticsHub-Teams.zip` again, or let **Repair or change** republish it to the org catalog.
 
 Existing Azure installs get this on their next upgrade or **Repair or change**. Fabric is unchanged.
 
 **App: Value, Consumption and Efficiency now come straight after the Executive summary.**
+
+**App: the Executive summary opens sooner.**
+
+On F64 with 20,000 synthetic people and the model warm, the page was ready about 5 seconds after
+its first query, down from about 12 (medians of 6 test opens each).
+
+- **Its two slowest queries start sooner.** The summary and the monthly trend now start ahead of
+  other waiting queries. The pacing is unchanged: at most 4 queries in flight and 90 a minute.
+- **A quicker trend and summary.** The trend counts each month's active people once, and works out
+  the seat counts once rather than for every month. The summary counts the seats in use once.
+  Neither tests every user ID each time any more. The figures, and what the Fabric data agent is
+  told about them, don't change.
 
 **Azure: the installer publishes the Teams app to your org's app catalog.**
 
 - **No upload by hand.** After it writes `AnalyticsHub-Teams.zip`, the installer publishes it to
   your org's app catalog through Microsoft Graph. A few hours later, people find Analytics Hub in
   Teams under **Apps** > **Built for your org**, and in Outlook and the Microsoft 365 Copilot app.
+- **The catalog accepts the package.** Its accent colour is now `#6264A7`, as the Teams manifest
+  schema requires. Before, it had no `#`, so Microsoft Graph turned the package down with a 400
+  ("Schema validation failed at 'accentColor'") and the app never reached the catalog. A test now
+  checks the package against the schema.
 - **Updates the same app.** A re-run, **Repair or change**, **Update** or an upgrade updates the app
   already in the catalog, including one uploaded by hand, rather than add another. If the package
   hasn't changed, it leaves the app alone.

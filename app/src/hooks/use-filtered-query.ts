@@ -37,6 +37,8 @@ export interface FilteredQueryConfig {
      * columns; a query on another model takes none unless it says how.
      */
     filters?: FilterProfile;
+    /** The page's first view waits on this query: on screen it goes ahead of the other queries waiting. */
+    lead?: boolean;
 }
 
 /**
@@ -79,7 +81,7 @@ export function useFilteredQuery(config: FilteredQueryConfig, options: FilteredQ
         return applyDaxFilters(timed, [...resolved.expressions, ...extraFilters]);
     }, [timed, resolved.expressions, extraKey]);
 
-    const result = useSemanticModelQuery({ connection: config.connection, query });
+    const result = useSemanticModelQuery({ connection: config.connection, query, lead: config.lead });
     const waiting = Boolean(config.query) && !timed;
     const prefetching = useIsPrefetch();
     const isRefreshing = result.isLoading && result.data !== undefined;

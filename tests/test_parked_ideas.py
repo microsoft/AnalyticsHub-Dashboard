@@ -37,8 +37,9 @@ NOT_IN_IDEAS = {"package.json", "package-lock.json", "node_modules", "dist", "ge
                 "ms.config.json", "managed-app.config.json"}
 
 FRONT_DOOR = sorted(
-    {ROOT / p for p in ("README.md", "CONTRIBUTING.md", "CHANGELOG.md", "app/README.md", "fabric/README.md",
-                        "azure/README.md", "installer/README.md", "fabric/MANUAL-SETUP.md")}
+    {ROOT / p for p in ("README.md", "CONTRIBUTING.md", "CHANGELOG.md", "1-fabric/README.md", "2-azure/README.md",
+                        "app/README.md", "fabric/README.md", "azure/README.md", "installer/README.md",
+                        "fabric/MANUAL-SETUP.md")}
     | {p for p in (ROOT / "docs").glob("*.md") if p.name != "MANAGED-APP.md"}
     | set((ROOT / "docs" / "wiki").glob("*.md"))
     | {p for p in (ROOT / ".github" / "ISSUE_TEMPLATE").iterdir() if p.is_file()}

@@ -11,7 +11,7 @@ import { HttpError } from '../../http.js';
 import { commandLine } from '../../launch.js';
 import { rlsOn, rlsSettings } from '../../transform/access.js';
 import { buildConsumptionModel, buildModel, loadTemplateModel, PBISM } from '../../transform/model.js';
-import { deployModel, MODEL_UPDATE_NOTE, modelSignature, REFRESH_POLL_MS, settleReloads } from '../model.js';
+import { connectionCreatedAnyway, deployModel, MODEL_UPDATE_NOTE, modelSignature, REFRESH_POLL_MS, settleReloads } from '../model.js';
 import { addMonths, OPTIONAL_PERMISSION_EFFECTS, OPTIONAL_PERMISSIONS, SECRET_LIFETIME_MONTHS } from '../identity.js';
 import { addTrackedSecret, promoteSecret, removeRetired } from '../secrets.js';
 import { manifestVersion, writeTeamsPackage } from '../../azure/teams.js';
@@ -20,7 +20,7 @@ import { APP_ALIAS, CONSUMPTION_ALIAS } from '../app.js';
 import { AZURE_AI_ROLES, ensureAzureAiAccess, planConsumption } from '../consumption.js';
 import { AZURE_LANDING_DIRS, azureDropLabel, azureDropsToSharePoint, ensureFlows, flowsSummary, flowsWanted, offerStudioRun, planFlows } from '../flows.js';
 import { DEFAULT_CURRENCY } from '../../currency.js';
-import { askMoreHistory, askReportingCurrency, editSchedule, HISTORY_CHOICES, keepAwake, planCosts, reloadDetail, reloadLine } from '../plan.js';
+import { askMoreHistory, askReportingCurrency, editSchedule, HISTORY_CHOICES, keepAwake, planCosts, PRICING, reloadDetail, reloadLine } from '../plan.js';
 import { ensureResourceGraphAccess, planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from '../resource-graph.js';
 import { DATA_SOURCES } from '../../uploads.js';
 import { normaliseResourceGraph } from '../../config.js';
@@ -29,7 +29,7 @@ import { ensureOrgAccess, verifyOrgAccess } from '../org-access.js';
 import { askAdvanced, asksAdvanced } from '../advanced.js';
 import { askGrants, askLine, askMode, askParameters, ensureAzureAskAccess, planAzureAsk } from './ask.js';
 import { checkRegions, noRegionMessage, regionNotes, regionProblems, sqlProblem } from './regions.js';
-import { BIG_CAPACITY_SEATS, copilotSeats, LARGE_TENANT_SEATS, seatCount } from '../../seats.js';
+import { AZURE_LARGE_TENANT_SKU, AZURE_LARGE_TENANT_SQL_VCORES, BIG_CAPACITY_SEATS, copilotSeats, LARGE_TENANT_SEATS, seatCount } from '../../seats.js';
 
 /** @typedef {import('../../install.js').Ctx} Ctx */
 
@@ -42,7 +42,7 @@ export const PRIVATE_FEATURE = /** @type {[string, string]} */ (['Microsoft.Netw
 /** Capacities that can host a Power BI VNet data gateway: F (including trial), P and A4+; not PPU, EM or A1-A3. */
 export const supportsVnetGateway = (/** @type {{ sku?: string }} */ cap) => /^(F|FT|P\d|A[4-9])/i.test(String(cap.sku ?? '')) && !/^PP/i.test(String(cap.sku ?? ''));
 export const isPrivate = (/** @type {import('../../config.js').AzureConfig | undefined} */ az) => az?.publicNetworkAccess === false;
-export const AZURE_SUPPORTED_MODULES = /** @type {const} */ (['core', 'orgData', 'm365Activity', 'consumption', 'defender']);
+export const AZURE_SUPPORTED_MODULES = /** @type {const} */ (['core', 'orgData', 'm365Activity', 'agent365', 'productFeedback', 'consumption', 'defender']);
 export const WEB_APP_NAME = 'Analytics Hub (Azure)';
 /** Delegated: lets admins and group owners add and remove viewers from the app. Graph still checks they own the group or are a directory admin. */
 export const GROUP_SCOPE = 'GroupMember.ReadWrite.All';
@@ -66,7 +66,7 @@ export const TEAMS_CLIENTS = [
 const ARM = JSON.parse(readFileSync(new URL('../../azure/main.arm.json', import.meta.url), 'utf8'));
 export const REQUIRED_ARM_PARAMETERS = [
   'location', 'sqlLocation', 'namePrefix', 'installId', 'tags', 'imageRegistry', 'imageTag', 'imageRegistryResourceId', 'runSchedule', 'runSteps', 'sampleData', 'sqlAdminLogin', 'sqlAdminObjectId',
-  'sqlAdminPrincipalType', 'sqlMinCapacity', 'sqlMaxCapacity', 'sqlAutoPauseDelayMinutes', 'sqlUseFreeLimit', 'publicNetworkAccess', 'privateDnsZoneMode', 'privateDnsZonesResourceGroupId', 'deployWeb',
+  'sqlAdminPrincipalType', 'sqlMinCapacity', 'sqlMaxCapacity', 'sqlAutoPauseDelayMinutes', 'sqlUseFreeLimit', 'sqlFreeLimitExhaustionBehavior', 'publicNetworkAccess', 'privateDnsZoneMode', 'privateDnsZonesResourceGroupId', 'deployWeb',
   'webMinReplicas', 'webClientId', 'webAppIdUri', 'webAccess', 'modules', 'auditHistoryDays', 'powerBiWorkspaceId', 'semanticModels', 'sqlReaderName', 'sqlReaderClientId',
   'azureAiSubscriptionId', 'paygSubscriptionIds', 'dropSiteId', 'dropDriveId', 'dropFolder', 'argManagementGroup', 'argAgents', 'argFoundry', 'reportingCurrency', 'exchangeRate',
   'askMode', 'askEndpoint', 'askDeployment', 'askModelName', 'askModelVersion', 'askSku', 'askCapacity', 'askLocation',
@@ -80,12 +80,20 @@ export const DEFAULT_IMAGE_REGISTRY = 'ghcr.io/microsoft';
 /** The image tag to deploy: the installer's version unless the record pins another (`azure.images.tag`). */
 const imageTag = (/** @type {import('../../config.js').AzureConfig} */ az) => az.images?.tag || pkgVersion();
 
+/** Where a module's data comes from on Azure, when that differs from Fabric. */
+const AZURE_NOTES = /** @type {Partial<Record<import('../../catalog.js').ModuleId, string>>} */ ({
+  agent365: 'On Azure it comes from the CSV export: the Agent 365 API is Fabric only for now.',
+  productFeedback: 'On Azure it comes from the CSV export: the emailed export flow is Fabric only for now.',
+});
+const AGENT365_CSV_ONLY = 'On Azure the Agent 365 registry comes from its CSV export: the Agent 365 API is Fabric only for now.';
+const FEEDBACK_CSV_ONLY = 'On Azure product feedback comes from its CSV export: the emailed export flow is Fabric only for now.';
+
 /** @param {import('../../catalog.js').ModuleChoice} modules */
 export function azureModuleChoices(modules) {
   const box = (/** @type {import('../../catalog.js').ModuleId} */ id) => ({
     name: MODULES[id].label,
     value: id,
-    description: MODULES[id].azure.supported ? MODULES[id].description : `${MODULES[id].description} Coming soon on Azure.`,
+    description: MODULES[id].azure.supported ? [MODULES[id].description, AZURE_NOTES[id]].filter(Boolean).join(' ') : `${MODULES[id].description} Coming soon on Azure.`,
     disabled: MODULES[id].azure.supported ? (ESSENTIAL_MODULES.includes(/** @type {any} */ (id)) ? 'Always collected' : false) : 'Coming soon on Azure',
     checked: MODULES[id].azure.supported && (ESSENTIAL_MODULES.includes(/** @type {any} */ (id)) || !!modules[id]),
   });
@@ -267,8 +275,11 @@ export async function planAzure(ctx, pre, section) {
   if (editing('data')) {
     ui.heading('What to collect');
     const picked = await ui.checkbox('Tick the data you want. Unsupported modules are coming soon on Azure.', azureModuleChoices(config.modules));
-    config.modules = /** @type {import('../../catalog.js').ModuleChoice} */ ({ orgData: true, m365Activity: picked.includes('m365Activity'), agent365: false, productFeedback: false, consumption: picked.includes('consumption'), agentEvaluator: false, defender: picked.includes('defender') });
-    config.dataSources.productFeedback = 'skip';
+    config.modules = /** @type {import('../../catalog.js').ModuleChoice} */ ({ orgData: true, m365Activity: picked.includes('m365Activity'), agent365: picked.includes('agent365'), productFeedback: picked.includes('productFeedback'), consumption: picked.includes('consumption'), agentEvaluator: false, defender: picked.includes('defender') });
+    if (config.modules.productFeedback && config.dataSources.productFeedback === 'api') ui.warn(FEEDBACK_CSV_ONLY);
+    config.dataSources.productFeedback = config.modules.productFeedback ? 'csv' : 'skip';
+    if (config.modules.agent365 && config.dataSources.agent365 === 'api') ui.warn(AGENT365_CSV_ONLY);
+    config.dataSources.agent365 = config.modules.agent365 ? 'csv' : 'skip';
     config.dataSources.defender = config.modules.defender ? 'api' : 'skip';
     if (!section) await askAdvanced(
       ctx,
@@ -380,6 +391,7 @@ export async function planAzure(ctx, pre, section) {
       az.namePrefix ??= 'vlens';
       az.tags ??= {};
     }
+    await askAzureSizing(ctx, pre);
   }
   if (editing('networking')) {
     const previousAccess = az.publicNetworkAccess;
@@ -432,20 +444,32 @@ export async function planAzure(ctx, pre, section) {
     const sqlPolicy = sqlPrivate.map((n) => `"${n}"`).join(', ');
     const capacities = (await api.fabric.listCapacities().catch(() => [])).filter((cap) => cap.state === 'Active' && (!isPrivate(az) || supportsVnetGateway(cap)));
     if (isPrivate(az) && !capacities.length) throw new Error(`${sqlPrivate.length ? `Azure Policy ${sqlPolicy} keeps Azure SQL's public access off, so Analytics Hub needs Private networking here. ` : ''}Private networking needs an active Fabric (F or trial) or Power BI Premium (P, A4+) capacity you can assign workspaces to, to host the VNet data gateway. Start a Fabric trial or ask a capacity admin, then try again.`);
-    const capacityChoices = capacities.map((cap) => ({ name: `${cap.displayName} (${cap.sku}, ${cap.region})`, value: cap.id }));
+    const large = largeAzureTenant(az, pre.seats);
+    const recommended = /** @type {number} */ (capacityUnits(AZURE_LARGE_TENANT_SKU));
+    if (large) ui.note(`${AZURE_LARGE_TENANT_SKU} or larger is recommended for ${seatCount(pre.seats ?? 0)} Copilot seats.`);
+    const capacityChoices = capacities.map((cap) => ({
+      name: `${cap.displayName} (${cap.sku}, ${cap.region})`, value: cap.id,
+      ...(large && (capacityUnits(cap.sku) ?? recommended) < recommended ? { description: `Below the recommended ${AZURE_LARGE_TENANT_SKU} for a tenant this size.` } : {}),
+    }));
+    const shared = { name: 'None (shared capacity, Pro)', value: '', ...(large ? { description: 'Not recommended for a tenant this size: a semantic model there is limited to 1 GB.' } : {}) };
+    const firstChoice = (large ? capacities.find((cap) => (capacityUnits(cap.sku) ?? 0) >= recommended)?.id : undefined) ?? capacityChoices[0]?.value ?? '';
     az.powerBi.capacityId = await ui.select(
       isPrivate(az) ? 'Capacity for the Power BI workspace and VNet data gateway' : 'Capacity for the Power BI workspace',
-      isPrivate(az) ? capacityChoices : [...capacityChoices, { name: 'None (shared capacity, Pro)', value: '' }],
-      capacities.some((cap) => cap.id === az.powerBi?.capacityId) ? az.powerBi.capacityId : (capacityChoices[0]?.value ?? ''),
+      isPrivate(az) ? capacityChoices : [...capacityChoices, shared],
+      capacities.some((cap) => cap.id === az.powerBi?.capacityId) ? az.powerBi.capacityId : firstChoice,
     ) || undefined;
     const groups = await api.powerBi.groups().catch(() => []);
     const wsChoice = await ui.select('Power BI workspace', [{ name: 'Create a new workspace', value: 'new' }, ...groups.map((g) => ({ name: `Use "${g.name}"`, value: g.id }))], az.powerBi?.workspaceId ?? 'new');
+    // Uninstall deletes only a workspace the installer created, never one picked here.
+    if (wsChoice !== 'new' && wsChoice !== az.powerBi.workspaceId) delete az.powerBi.createdWorkspace;
     if (wsChoice === 'new') {
       if (az.powerBi.workspaceId && (az.deploymentConfig || az.powerBi.datasetId || az.powerBi.gatewayId)) throw new Error('The workspace is already in use by this install. Keep it; use a separate install record for a different workspace.');
       delete az.powerBi.workspaceId;
+      delete az.powerBi.createdWorkspace;
       az.workspaceName = await ui.input('New Power BI workspace name', { default: az.workspaceName ?? 'Analytics Hub' });
     }
     else az.powerBi.workspaceId = wsChoice;
+    if (large && (await modelOnSharedCapacity(ctx))) ui.warn(sharedCapacityWarning(pre.seats ?? 0));
   }
   if (editing('access')) {
     await planAccess(ctx);
@@ -469,7 +493,12 @@ export async function planAzure(ctx, pre, section) {
     ctx.runFirstLoad = ctx.reloadHistoryDays ? false : !advanced || (await ui.confirm('Run the first load as soon as setup finishes?', true));
     if (advanced) await askReportingCurrency(ctx);
   }
-  if (editing('sources')) await planAzureConsumption(ctx, subs);
+  if (editing('sources')) {
+    planAzureAgent365(ctx);
+    planAzureProductFeedback(ctx);
+    await planAzureConsumption(ctx, subs);
+    await planAzureDrop(ctx);
+  }
   if (editing('governance')) await planAzureResourceGraph(ctx);
   if (editing('ask')) await planAzureAsk(ctx);
   if (!section) await azurePreflight(ctx);
@@ -513,13 +542,80 @@ export function jobTemplateWith(job, env, opts = {}) {
 /** Credit consumption is collected: the module is on and the jobs read tenant data. @param {import('../../config.js').InstallConfig} config */
 export const azureConsumptionOn = (config) => !!config.modules.consumption && config.azure?.sampleData !== true;
 
+/** The Agent 365 registry is collected, from its CSV export: the module is on and the jobs read tenant data. @param {import('../../config.js').InstallConfig} config */
+export const azureAgent365On = (config) => !!config.modules.agent365 && config.azure?.sampleData !== true;
+
+/** Product feedback is collected, from its CSV exports: the module is on and the jobs read tenant data. @param {import('../../config.js').InstallConfig} config */
+export const azureProductFeedbackOn = (config) => !!config.modules.productFeedback && config.azure?.sampleData !== true;
+
+/** The jobs read files dropped for them: credit files, the Agent 365 export or product feedback exports. @param {import('../../config.js').InstallConfig} config */
+export const azureReadsDrop = (config) => azureConsumptionOn(config) || azureAgent365On(config) || azureProductFeedbackOn(config);
+
+const CREDIT_FILES = 'credit files';
+const AGENT365_EXPORT = 'the Agent 365 export';
+const FEEDBACK_EXPORTS = 'product feedback exports';
+
+/**
+ * What lands in the drop folder, for people: the credit files, the Agent 365 export and product feedback
+ * exports, as collected.
+ * @param {import('../../config.js').InstallConfig} config
+ * @returns {string[]}
+ */
+export function azureDropContents(config) {
+  const ds = config.dataSources;
+  return [
+    ...(azureConsumptionOn(config) && (ds.studioCredits !== 'skip' || ds.coworkCredits !== 'skip') ? [CREDIT_FILES] : []),
+    ...(azureAgent365On(config) ? [AGENT365_EXPORT] : []),
+    ...(azureProductFeedbackOn(config) ? [FEEDBACK_EXPORTS] : []),
+  ];
+}
+
+const joinList = (/** @type {string[]} */ names) => (names.length < 3 ? names.join(' and ') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
+const withThe = (/** @type {string} */ name) => (name.startsWith('the ') ? name : `the ${name}`);
+
 /** Microsoft Graph application permissions the jobs' managed identity needs. @param {import('../../config.js').InstallConfig} config */
-export const azureGraphRoles = (config) => [...azureGraphRolesFor(config.modules), ...(azureConsumptionOn(config) && azureDropsToSharePoint(config.azure) ? ['Sites.Selected'] : [])];
+export const azureGraphRoles = (config) => [...azureGraphRolesFor(config.modules), ...(azureReadsDrop(config) && azureDropsToSharePoint(config.azure) ? ['Sites.Selected'] : [])];
+
+/**
+ * The Agent 365 registry on Azure: its CSV export, which you drop where the jobs read it. Asks nothing;
+ * the Agent 365 API is Fabric only for now.
+ * @param {Ctx} ctx
+ */
+export function planAzureAgent365(ctx) {
+  const { ui, config } = ctx;
+  if (!config.modules.agent365) return;
+  if (config.azure?.sampleData) {
+    ui.note('Demo mode doesn\'t load the Agent 365 sample, so the Agent 365 registry is collected once you switch to your tenant\'s data.');
+    return;
+  }
+  const where = (DATA_SOURCES.find((s) => s.id === 'agent365')?.export?.where ?? 'Microsoft 365 admin center > Agents > All agents > Export.').replace(/\.$/, '');
+  const folder = isPrivate(config.azure) ? `an ${AZURE_LANDING_DIRS.agent365} folder in the SharePoint folder you choose for the jobs` : azureDropLabel(config.azure, AZURE_LANDING_DIRS.agent365);
+  ui.heading('Agent 365 registry');
+  ui.note(`${AGENT365_CSV_ONLY} Export it from ${where}, and drop the CSV in ${folder}. Each run loads the newest one.`);
+}
+
+/**
+ * Product feedback on Azure: its CSV exports, which you drop where the jobs read them. Asks nothing; the
+ * emailed export flow is Fabric only for now.
+ * @param {Ctx} ctx
+ */
+export function planAzureProductFeedback(ctx) {
+  const { ui, config } = ctx;
+  if (!config.modules.productFeedback) return;
+  if (config.azure?.sampleData) {
+    ui.note('Demo mode doesn\'t load the product feedback sample, so product feedback is collected once you switch to your tenant\'s data.');
+    return;
+  }
+  const where = (DATA_SOURCES.find((s) => s.id === 'productFeedback')?.export?.where ?? 'Microsoft 365 admin center > Health > Product feedback > Export.').replace(/\.$/, '');
+  const folder = isPrivate(config.azure) ? `a ${AZURE_LANDING_DIRS.productFeedback} folder in the SharePoint folder you choose for the jobs` : azureDropLabel(config.azure, AZURE_LANDING_DIRS.productFeedback);
+  ui.heading('Product feedback');
+  ui.note(`${FEEDBACK_CSV_ONLY} Export it from ${where}, and drop each CSV in ${folder}. Each run loads them all and removes duplicates by Feedback Id.`);
+}
 
 /**
  * Credit consumption on Azure: where Copilot Studio and Cowork credits come from, the subscriptions the
- * jobs read Azure AI and pay-as-you-go costs from, the Studio flow's environment, and, with private
- * networking, the SharePoint folder the flow and uploads land in.
+ * jobs read Azure AI and pay-as-you-go costs from, and the Studio flow's environment. With private
+ * networking, planAzureDrop then asks for the SharePoint folder the flow and uploads land in.
  * @param {Ctx} ctx
  * @param {{ subscriptionId: string, displayName: string }[]} subs
  */
@@ -527,7 +623,7 @@ export async function planAzureConsumption(ctx, subs) {
   const { ui, config } = ctx;
   const ds = config.dataSources;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
-  if (config.modules.consumption && az.sampleData) ui.note('Demo mode has no credit consumption sample, so credit consumption is collected once you switch to your tenant\'s data.');
+  if (config.modules.consumption && az.sampleData) ui.note('Demo mode leaves credit consumption out for now. Once you switch to your tenant\'s data, the installer deploys the Consumption Central model and collects credit consumption.');
   if (!azureConsumptionOn(config)) {
     ds.studioCredits = 'skip';
     ds.coworkCredits = 'skip';
@@ -535,8 +631,12 @@ export async function planAzureConsumption(ctx, subs) {
     return;
   }
   ui.heading('Credit consumption');
-  const studio = ds.studioCredits === 'csv' || ds.studioCredits === 'skip' ? ds.studioCredits : 'api';
-  const cowork = ds.coworkCredits === 'skip' ? 'skip' : 'csv';
+  // Ticked with no source picked yet (a new install, or ticked again after being off or in demo mode):
+  // start from the recommended sources.
+  const fresh = ds.studioCredits === 'skip' && ds.coworkCredits === 'skip' && ds.azureAi === 'skip';
+  if (ds.coworkCredits === 'api') ui.warn('On Azure, Cowork credits come from the Consumption Dashboard\'s CSV export; the Viva Insights Dataflow (coworkCredits=api) is Fabric only for now.');
+  const studio = fresh ? 'api' : ds.studioCredits === 'csv' || ds.studioCredits === 'skip' ? ds.studioCredits : 'api';
+  const cowork = fresh ? 'csv' : ds.coworkCredits === 'skip' ? 'skip' : 'csv';
   if (!asksAdvanced(ctx)) {
     ds.studioCredits = studio;
     ds.coworkCredits = cowork;
@@ -551,26 +651,49 @@ export async function planAzureConsumption(ctx, subs) {
       { name: 'Leave Cowork out', value: 'skip' },
     ], cowork);
   }
+  // Azure has no Data sources screen: Azure AI is the subscription question below. Left out already
+  // (--data azureAi=skip, or an earlier run), it defaults to staying out, so --yes keeps it out.
+  if (!fresh && ds.azureAi === 'skip') config.consumption.azureSubscriptionId = '';
   ds.azureAi = 'api';
   await planConsumption(ctx, /** @type {import('../plan.js').Preflight} */ (/** @type {unknown} */ ({ subscriptions: subs })));
-  if (config.uploads.flowIdentity === 'app' && ds.studioCredits === 'api') ui.warn('On Azure the Studio flow signs in as you; --flow-identity app is Fabric only for now.');
+  if ([ds.studioCredits, ds.coworkCredits, ds.azureAi].every((mode) => mode === 'skip')) {
+    ui.warn('Copilot Studio, Cowork and Azure AI are all left out, so credit consumption collects nothing, and the next run starts from the recommended sources again. To leave it out, untick Credit consumption.');
+  }
+  if (config.uploads.flowIdentity === 'app' && ds.studioCredits === 'api') ui.warn('--flow-identity app is Fabric only for now, so it\'s ignored: on Azure the Studio flow signs in as you, because the jobs\' managed identity has no secret a flow can sign in with.');
   await planFlows(ctx);
-  if (isPrivate(az) && (ds.studioCredits !== 'skip' || ds.coworkCredits !== 'skip')) {
-    ui.note(`Private networking keeps ${az.namePrefix ?? 'the'} storage off the internet, where Power Automate runs, so the flow and your uploads go to a SharePoint folder the jobs read instead.`);
-    const folderUrl = await ui.input('SharePoint folder for credit files (the address of a folder in a document library)', {
-      default: az.drop?.folderUrl ?? '',
-      validate: (v) => {
-        try {
-          parseDropFolder(v);
-          return true;
-        } catch (err) {
-          return /** @type {Error} */ (err).message;
-        }
-      },
-    });
-    const parsed = parseDropFolder(folderUrl);
-    az.drop = { ...parsed, granted: az.drop?.siteId === parsed.siteId ? az.drop?.granted : false };
-  } else delete az.drop;
+}
+
+/**
+ * With private networking, the SharePoint folder the jobs read dropped files from (the credit files, the
+ * Agent 365 export and product feedback exports), because Power Automate and your browser can't reach the
+ * storage account. Without private networking they land in the landing container. Leaves the folder alone
+ * when the jobs read no files.
+ * @param {Ctx} ctx
+ */
+export async function planAzureDrop(ctx) {
+  const { ui, config } = ctx;
+  const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
+  if (!azureReadsDrop(config)) return;
+  const contents = azureDropContents(config);
+  if (!isPrivate(az) || !contents.length) {
+    delete az.drop;
+    return;
+  }
+  const through = contents.includes(CREDIT_FILES) ? ', where Power Automate runs, so the flow and your uploads go' : ', so your uploads go';
+  ui.note(`Private networking keeps ${az.namePrefix ?? 'the'} storage off the internet${through} to a SharePoint folder the jobs read instead.`);
+  const folderUrl = await ui.input(`SharePoint folder for ${joinList(contents)} (the address of a folder in a document library)`, {
+    default: az.drop?.folderUrl ?? '',
+    validate: (v) => {
+      try {
+        parseDropFolder(v);
+        return true;
+      } catch (err) {
+        return /** @type {Error} */ (err).message;
+      }
+    },
+  });
+  const parsed = parseDropFolder(folderUrl);
+  az.drop = { ...parsed, granted: az.drop?.siteId === parsed.siteId ? az.drop?.granted : false };
 }
 
 /**
@@ -650,6 +773,30 @@ async function ensureAzureConsumptionAccess(ctx) {
   if (config.dataSources.studioCredits === 'skip' && config.dataSources.coworkCredits === 'skip') return;
   if (azureDropsToSharePoint(az)) await grantDropSite(ctx);
   else await grantLandingWrite(ctx);
+}
+
+/**
+ * Agent 365 export access: read on the SharePoint drop folder's site for the jobs' managed identity, or,
+ * without one, write on the landing container for you, so you can upload the export.
+ * @param {Ctx} ctx
+ */
+async function ensureAzureAgent365Access(ctx) {
+  const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
+  if (azureDropsToSharePoint(az)) await grantDropSite(ctx);
+  else await grantLandingWrite(ctx, 'to upload the Agent 365 export');
+  ctx.ui.info(`Drop the Agent 365 export in ${azureDropLabel(az, AZURE_LANDING_DIRS.agent365)}. Each run loads the newest one.`);
+}
+
+/**
+ * Product feedback export access: read on the SharePoint drop folder's site for the jobs' managed identity,
+ * or, without one, write on the landing container for you, so you can upload the exports.
+ * @param {Ctx} ctx
+ */
+async function ensureAzureProductFeedbackAccess(ctx) {
+  const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
+  if (azureDropsToSharePoint(az)) await grantDropSite(ctx);
+  else await grantLandingWrite(ctx, 'to upload product feedback exports');
+  ctx.ui.info(`Drop product feedback exports in ${azureDropLabel(az, AZURE_LANDING_DIRS.productFeedback)}. Each run loads them all and removes duplicates by Feedback Id.`);
 }
 
 /**
@@ -811,7 +958,7 @@ async function stopOnUntaggedCollisions(ctx) {
 export async function azureDeployment(ctx, o) {
   const { config, user } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure ?? {});
-  const liveSql = /** @type {{ minCapacity?: number, capacity?: number, autoPauseDelay?: number, useFreeLimit?: boolean }} */ (await liveSqlSettings(ctx).catch(() => ({})));
+  const sql = plannedSql(az, /** @type {LiveSql} */ (await liveSqlSettings(ctx).catch(() => ({}))));
   const params = {
     location: param(az.location), sqlLocation: param(az.sqlLocation ?? ''), namePrefix: param(az.namePrefix ?? 'vlens'), installId: param(az.installId ?? randomUUID()),
     tags: param({ ...(az.tags ?? {}), 'valuelens-install-id': az.installId }), imageRegistry: param(az.images?.registry || DEFAULT_IMAGE_REGISTRY), imageTag: param(imageTag(az)),
@@ -820,12 +967,13 @@ export async function azureDeployment(ctx, o) {
     // The jobs' managed identity stays the Entra admin (empty = identity) so migrate can run DDL.
     // The SQL reader only gets db_datareader, created by SID from sqlReaderClientId.
     sqlAdminLogin: param(''), sqlAdminObjectId: param(''), sqlAdminPrincipalType: param('Application'),
-    sqlMinCapacity: param(String(liveSql.minCapacity ?? '0.5')), sqlMaxCapacity: param(liveSql.capacity ?? 2), sqlAutoPauseDelayMinutes: param(liveSql.autoPauseDelay ?? 60), sqlUseFreeLimit: param(liveSql.useFreeLimit ?? az.sqlFreeOffer ?? true),
-    publicNetworkAccess: param(az.publicNetworkAccess === false ? 'Disabled' : 'Enabled'), deployWeb: param(true), webMinReplicas: param(0),
+    sqlMinCapacity: param(sql.minCapacity), sqlMaxCapacity: param(sql.maxCapacity), sqlAutoPauseDelayMinutes: param(sql.autoPauseDelay), sqlUseFreeLimit: param(sql.useFreeLimit),
+    sqlFreeLimitExhaustionBehavior: param(sql.freeLimitExhaustionBehavior),
+    publicNetworkAccess: param(az.publicNetworkAccess === false ? 'Disabled' : 'Enabled'), deployWeb: param(true), webMinReplicas: param(az.webAlwaysOn === true ? 1 : 0),
     privateDnsZoneMode: param(az.privateDns?.mode ?? 'create'), privateDnsZonesResourceGroupId: param(az.privateDns?.mode === 'existing' ? (az.privateDns.resourceGroupId ?? '') : ''),
     webClientId: param(o.pass === 2 ? (az.webApp?.clientId ?? '') : ''), webAppIdUri: param(o.pass === 2 ? (az.webApp?.appIdUri ?? '') : ''), webAccess: param(webAccess(config)),
     modules: param([...enabledAzureModuleIds(config.modules, az), ...(azureResourceGraphOn(config) ? ['resourceGraph'] : [])].join(',')), auditHistoryDays: param(Math.max(config.history.days, ctx.reloadHistoryDays ?? 0)), powerBiWorkspaceId: param(az.powerBi?.workspaceId ?? ''),
-    semanticModels: param(JSON.stringify(azureSemanticModels(az))),
+    semanticModels: param(JSON.stringify(azureSemanticModels(config))),
     sqlReaderName: param(SQL_READER_NAME), sqlReaderClientId: param(o.pass === 2 ? (az.sqlReader?.clientId ?? '') : ''),
     reportingCurrency: param(config.reporting?.currency ?? DEFAULT_CURRENCY), exchangeRate: param(config.reporting?.exchangeRate ? String(config.reporting.exchangeRate) : ''),
     ...consumptionParameters(config),
@@ -836,14 +984,23 @@ export async function azureDeployment(ctx, o) {
 }
 
 /**
- * The models the web app may query, by the alias the pages use.
- * @param {import('../../config.js').AzureConfig} az
+ * The Consumption model is in use: credit consumption is collected and the model is deployed. Like Fabric's
+ * consumptionModelDeployed, it gates the app's pages, the refreshes, the model's database credential, and viewer
+ * and org-scoped access, and pendingReloads checks the same. Unticked, or in demo mode, which publishes no credit
+ * tables, the model and its ID are kept with its scheduled refresh off, so ticking it again reuses them.
+ * @param {import('../../config.js').InstallConfig} config
  */
-export function azureSemanticModels(az) {
-  const pbi = az.powerBi ?? {};
+export const azureConsumptionModelDeployed = (config) => azureConsumptionOn(config) && !!config.azure?.powerBi?.consumptionDatasetId;
+
+/**
+ * The models the web app may query, by the alias the pages use. The jobs refresh the same models.
+ * @param {import('../../config.js').InstallConfig} config
+ */
+export function azureSemanticModels(config) {
+  const pbi = config.azure?.powerBi ?? {};
   return {
     ...(pbi.datasetId ? { [APP_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.datasetId } } : {}),
-    ...(pbi.consumptionDatasetId ? { [CONSUMPTION_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.consumptionDatasetId } } : {}),
+    ...(azureConsumptionModelDeployed(config) ? { [CONSUMPTION_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.consumptionDatasetId } } : {}),
   };
 }
 
@@ -857,7 +1014,7 @@ export function azureViewerModels(config) {
   if (!pbi.workspaceId) return [];
   return [
     ...(pbi.datasetId ? [{ workspaceId: pbi.workspaceId, datasetId: pbi.datasetId, name: config.semanticModel.name }] : []),
-    ...(pbi.consumptionDatasetId ? [{ workspaceId: pbi.workspaceId, datasetId: pbi.consumptionDatasetId, name: config.consumption.model.name }] : []),
+    ...(azureConsumptionModelDeployed(config) ? [{ workspaceId: pbi.workspaceId, datasetId: /** @type {string} */ (pbi.consumptionDatasetId), name: config.consumption.model.name }] : []),
   ];
 }
 
@@ -871,14 +1028,14 @@ export function webAccess(config) {
 }
 
 /**
- * What the run job reads for credit consumption: the Azure AI and pay-as-you-go subscriptions it has
- * access to, and with private networking, the SharePoint drop folder.
+ * What the run job reads for credit consumption and the CSV exports (Agent 365, product feedback): the Azure
+ * AI and pay-as-you-go subscriptions it has access to, and with private networking, the SharePoint drop folder.
  * @param {import('../../config.js').InstallConfig} config
  */
 export function consumptionParameters(config) {
   const on = azureConsumptionOn(config);
   const cc = config.consumption;
-  const drop = on ? config.azure?.drop : undefined;
+  const drop = azureReadsDrop(config) ? config.azure?.drop : undefined;
   return {
     azureAiSubscriptionId: param(on && config.dataSources.azureAi === 'api' && cc.azureAccess && cc.azureSubscriptionId ? cc.azureSubscriptionId : ''),
     paygSubscriptionIds: param(on && config.dataSources.azureAi === 'api' ? (cc.paygSubscriptions ?? []).filter((p) => p.access).map((p) => p.subscriptionId).join(',') : ''),
@@ -912,7 +1069,12 @@ export function enabledAzureModuleIds(modules, az) {
   return AZURE_SUPPORTED_MODULES.filter((id) => id === 'core' || (id === 'consumption' && az?.sampleData === true ? false : modules[/** @type {keyof import('../../catalog.js').ModuleChoice} */ (id)]));
 }
 
-/** @param {Ctx} ctx */
+/**
+ * The Azure SQL database's own settings, read back so a deployment keeps them.
+ * @typedef {{ minCapacity?: number, capacity?: number, autoPauseDelay?: number, useFreeLimit?: boolean, freeLimitExhaustionBehavior?: string }} LiveSql
+ */
+
+/** @param {Ctx} ctx @returns {Promise<LiveSql>} */
 async function liveSqlSettings(ctx) {
   const az = ctx.config.azure;
   const out = az?.outputs ?? {};
@@ -920,7 +1082,111 @@ async function liveSqlSettings(ctx) {
   if (!az?.subscriptionId || !az.resourceGroup) return {};
   const server = String(out.sqlServerFqdn).split('.')[0];
   const db = await ctx.api.arm.getSqlDatabase(/** @type {string} */ (az.subscriptionId), /** @type {string} */ (az.resourceGroup), server, String(out.sqlDatabaseName));
-  return { capacity: db?.sku?.capacity, minCapacity: db?.properties?.minCapacity, autoPauseDelay: db?.properties?.autoPauseDelay, useFreeLimit: db?.properties?.useFreeLimit };
+  return {
+    capacity: db?.sku?.capacity, minCapacity: db?.properties?.minCapacity, autoPauseDelay: db?.properties?.autoPauseDelay, useFreeLimit: db?.properties?.useFreeLimit,
+    freeLimitExhaustionBehavior: db?.properties?.freeLimitExhaustionBehavior,
+  };
+}
+
+/**
+ * The Azure SQL settings to deploy. An existing database keeps its own, including changes made in the Azure portal.
+ * Scaling up, once chosen, raises the max vCores and carries on past the free offer's monthly allowance.
+ * @param {import('../../config.js').AzureConfig} az @param {LiveSql} live
+ */
+export function plannedSql(az, live) {
+  const useFreeLimit = live.useFreeLimit ?? az.sqlFreeOffer ?? true;
+  const capacity = live.capacity ?? DEFAULT_SQL_MAX_VCORES;
+  const scaleUp = az.sqlScaleUp === true;
+  return {
+    minCapacity: String(live.minCapacity ?? '0.5'),
+    maxCapacity: scaleUp ? Math.max(capacity, AZURE_LARGE_TENANT_SQL_VCORES) : capacity,
+    autoPauseDelay: live.autoPauseDelay ?? 60,
+    useFreeLimit,
+    // Azure can't switch a database that bills past the free allowance back to pausing, so that sticks.
+    freeLimitExhaustionBehavior: useFreeLimit && (scaleUp || live.freeLimitExhaustionBehavior === 'BillOverUsage') ? 'BillOverUsage' : 'AutoPause',
+  };
+}
+
+/**
+ * More Copilot seats than the Azure defaults are sized for, collecting real data.
+ * @param {import('../../config.js').AzureConfig | undefined} az @param {number | undefined} seats
+ */
+export const largeAzureTenant = (az, seats) => !!seats && seats > LARGE_TENANT_SEATS && az?.sampleData !== true;
+
+/**
+ * A capacity's size in Fabric capacity units (F64 and P1 are 64, A1 and EM1 are 8), or undefined for one
+ * without a known size, such as PPU or a trial SKU without a number.
+ * @param {string | undefined} sku
+ */
+export function capacityUnits(sku) {
+  const m = /^(FTL|F|P|A|EM)(\d+)$/i.exec(sku ?? '');
+  if (!m) return undefined;
+  const family = m[1].toUpperCase();
+  const n = Number(m[2]);
+  if (family === 'F' || family === 'FTL') return n;
+  return n < 1 ? undefined : (family === 'P' ? 64 : 8) * 2 ** (n - 1);
+}
+
+/**
+ * Whether the semantic model will sit on shared capacity: no capacity chosen, and the workspace is new or an existing
+ * one on shared capacity (ensureWorkspaceCapacity leaves an existing workspace's capacity alone). False when it can't tell.
+ * @param {Ctx} ctx
+ */
+async function modelOnSharedCapacity(ctx) {
+  const pbi = ctx.config.azure?.powerBi;
+  if (pbi?.capacityId) return false;
+  if (!pbi?.workspaceId) return true;
+  try {
+    const ws = await ctx.api.fabric.getWorkspace(pbi.workspaceId);
+    return !!ws && !ws.capacityId;
+  } catch {
+    return false;
+  }
+}
+
+/** @param {number} seats */
+const sharedCapacityWarning = (seats) =>
+  `${seatCount(seats)} Copilot seats are assigned and the Power BI workspace is on shared capacity, where a semantic model is limited to 1 GB. ` +
+  `In Power BI, choose a Fabric capacity of ${AZURE_LARGE_TENANT_SKU} or larger (or its Premium equivalent), or ask your capacity admin for one. If policy keeps you on shared capacity, the model may stop refreshing as the data grows.`;
+
+/**
+ * For a large tenant, offers Azure SQL beyond the free offer and a web app that's always running, with what they cost.
+ * Each defaults to the recorded answer, so --yes never adds spend and a change keeps what the install chose. Smaller
+ * tenants aren't asked, unless they chose one before.
+ * @param {Ctx} ctx @param {{ seats?: number }} pre
+ */
+async function askAzureSizing(ctx, pre) {
+  const { ui } = ctx;
+  const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
+  const large = largeAzureTenant(az, pre.seats);
+  if (large) ui.note(`For ${seatCount(pre.seats ?? 0)} Copilot seats, Azure SQL and the web app can be sized up. Both cost extra, so nothing changes unless you choose it.`);
+  if (large || az.sqlScaleUp === true) {
+    const now = plannedSql({ ...az, sqlScaleUp: false }, await liveSqlSettings(ctx).catch(() => ({})));
+    const freeOffer = now.useFreeLimit && now.freeLimitExhaustionBehavior === 'AutoPause';
+    const scaleUp = now.maxCapacity < AZURE_LARGE_TENANT_SQL_VCORES;
+    if (!freeOffer && !scaleUp) {
+      ui.note(`Azure SQL already scales up to ${now.maxCapacity} vCores${now.useFreeLimit ? ' and carries on past the free offer\'s monthly allowance' : ''}, so it stays as it is.`);
+    } else {
+      const upTo = `up to ${AZURE_LARGE_TENANT_SQL_VCORES} vCores`;
+      const change = scaleUp ? `Scale ${upTo}${freeOffer ? ' and carry on past the free allowance' : ''}` : 'Carry on past the free allowance';
+      az.sqlScaleUp = await ui.select('Azure SQL compute', [
+        {
+          name: `Keep ${freeOffer ? 'the free offer, ' : ''}up to ${now.maxCapacity} vCores (no extra cost)`, value: false,
+          description: freeOffer ? 'When the month\'s free allowance runs out, Azure pauses the database until next month, and the jobs stop until then.' : 'Large loads take longer.',
+        },
+        {
+          name: `${change} (about ${SQL_SCALE_UP_COST} a month)`, value: true,
+          description: `${freeOffer ? 'The free allowance still comes off the bill; past it, Azure bills the serverless rate and can\'t switch the database back to pausing. ' : ''}An indicative list price: check ${PRICING.azure}.`,
+        },
+      ], az.sqlScaleUp === true);
+    }
+  }
+  if (large || az.webAlwaysOn === true) {
+    az.webAlwaysOn = await ui.select('Web app', [
+      { name: 'Scale to zero when idle (no extra cost)', value: false, description: 'The first visit after a quiet spell waits about 5-10 seconds while the web app starts.' },
+      { name: `Keep one replica running (about ${WEB_ALWAYS_ON_COST} a month)`, value: true, description: `No wait on the first visit. An indicative list price: check ${PRICING.azure}.` },
+    ], az.webAlwaysOn === true);
+  }
 }
 
 /** @param {Ctx} ctx */
@@ -953,8 +1219,10 @@ export function azurePlanReview(ctx) {
   const consumptionGrants = [];
   if (consumption && cc.azureSubscriptionId && ctx.config.dataSources.azureAi === 'api') consumptionGrants.push({ who: 'Collector managed identity', what: AZURE_AI_ROLES.map((r) => r.name).join(', '), where: `Subscription ${cc.azureSubscriptionName ?? cc.azureSubscriptionId}`, detail: 'Azure AI costs and metrics.' });
   if (consumption && cc.paygSubscriptions?.length) consumptionGrants.push({ who: 'Collector managed identity', what: 'Cost Management Reader', where: cc.paygSubscriptions.map((p) => p.name ?? p.subscriptionId).join(', '), detail: 'Copilot pay-as-you-go billed in Azure.' });
-  if (consumption && az.drop) consumptionGrants.push({ who: 'Collector managed identity', what: 'Sites.Selected (read)', where: az.drop.siteUrl ?? az.drop.folderUrl, detail: 'Reads the credit files. Needs a SharePoint or Global administrator.' });
+  const dropped = azureDropContents(ctx.config);
+  if (az.drop && dropped.length) consumptionGrants.push({ who: 'Collector managed identity', what: 'Sites.Selected (read)', where: az.drop.siteUrl ?? az.drop.folderUrl, detail: `Reads ${joinList(dropped.map(withThe))}. Needs a SharePoint or Global administrator.` });
   else if (consumption && (ctx.config.dataSources.studioCredits !== 'skip' || ctx.config.dataSources.coworkCredits !== 'skip')) consumptionGrants.push({ who: 'You', what: 'Storage Blob Data Contributor', where: 'The storage account', detail: 'So the Studio flow, signed in as you, and your uploads can write to the landing container.' });
+  else if (dropped.length) consumptionGrants.push({ who: 'You', what: 'Storage Blob Data Contributor', where: 'The storage account', detail: `So you can upload ${joinList(dropped)} to the landing container.` });
   else if (flowsWanted(ctx.config).includes('agents') && !az.drop) consumptionGrants.push({ who: 'You', what: 'Storage Blob Data Contributor', where: 'The storage account', detail: 'So the agent inventory flow can write to the landing container.' });
   const argGrants = azureResourceGraphOn(ctx.config) ? resourceGraphGrants(ctx.config, ctx.user?.tenantId ?? '', 'Collector managed identity', 'azureAccess') : [];
   return {
@@ -971,7 +1239,7 @@ export function azurePlanReview(ctx) {
     runsOn: [
       { what: 'Azure resources', where: `${az.subscriptionName ?? az.subscriptionId} / ${az.resourceGroup} / ${az.location}`, detail: `Incremental ARM deployment. Deletes are not applied by the template.${az.sqlLocation ? ` Azure SQL goes in ${az.sqlLocation}.` : ''}` },
       { what: 'Scheduled jobs', where: `Container Apps job, ${ctx.config.schedule.frequency} at ${ctx.config.schedule.time} UTC`, ...(az.sampleData ? { detail: 'Demo mode: each run publishes the synthetic sample instead of tenant data.' } : {}) },
-      { what: 'Cost', where: `Indicative Azure cost: about $5-40/month small tenants or $60-160/month large tenants, plus Power BI Pro/PPU licences.${isPrivate(az) ? ' Private networking adds about $30-40/month (4 private endpoints and DNS zones); the VNet data gateway uses capacity units on your Fabric/Premium capacity while refreshing.' : ''}` },
+      { what: 'Cost', where: `Indicative Azure cost: about $5-40/month small tenants or $60-160/month large tenants, plus Power BI Pro/PPU licences.${isPrivate(az) ? ' Private networking adds about $30-40/month (4 private endpoints and DNS zones); the VNet data gateway uses capacity units on your Fabric/Premium capacity while refreshing.' : ''}${sizingCost(az)}` },
       ...(ctx.reloadHistoryDays ? [{ what: 'History reload', where: reloadLine(ctx.reloadHistoryDays), detail: `The run job, once, with ${BACKFILL_ENV}=${ctx.reloadHistoryDays}. ${reloadDetail(ctx.reloadHistoryDays)}` }] : []),
     ],
     costs: planCosts(ctx.config),
@@ -979,12 +1247,25 @@ export function azurePlanReview(ctx) {
 }
 
 /**
+ * The sizing a large tenant chose to pay for, for the review's cost line.
+ * @param {import('../../config.js').AzureConfig} az
+ */
+function sizingCost(az) {
+  const chosen = [
+    ...(az.sqlScaleUp === true ? [`Azure SQL sized up (about ${SQL_SCALE_UP_COST}/month)`] : []),
+    ...(az.webAlwaysOn === true ? [`one web app replica always running (about ${WEB_ALWAYS_ON_COST}/month)`] : []),
+  ];
+  return chosen.length ? ` You chose ${chosen.join(' and ')}.` : '';
+}
+
+/**
  * What to tell someone whose Azure sizing looks too small for the seats assigned. Says which setting
  * changes it, and how to carry on when policy rules the change out. Only warns: nothing is resized.
- * @param {{ seats?: number, sampleData?: boolean, sqlFreeLimit?: boolean, sqlMaxVcores?: number, powerBiCapacityId?: string }} o
+ * @param {{ seats?: number, sampleData?: boolean, sqlFreeLimit?: boolean, sqlMaxVcores?: number, powerBiCapacityId?: string, sharedCapacity?: boolean }} o
+ *   sharedCapacity, when known, says whether the model sits on shared capacity; otherwise no powerBiCapacityId does.
  * @returns {string[]}
  */
-export function azureSizingWarnings({ seats, sampleData, sqlFreeLimit, sqlMaxVcores, powerBiCapacityId }) {
+export function azureSizingWarnings({ seats, sampleData, sqlFreeLimit, sqlMaxVcores, powerBiCapacityId, sharedCapacity }) {
   if (!seats || sampleData || seats <= LARGE_TENANT_SEATS) return [];
   const n = seatCount(seats);
   /** @type {string[]} */
@@ -992,24 +1273,20 @@ export function azureSizingWarnings({ seats, sampleData, sqlFreeLimit, sqlMaxVco
   if (sqlFreeLimit !== false) {
     out.push(
       `${n} Copilot seats are assigned and Azure SQL uses the free offer (100,000 vCore seconds and 32 GB a month). A tenant this size will likely use that up, and the database then pauses until next month. ` +
-        'After setup, open the database\'s Compute + storage in the Azure portal and choose to continue using it for additional charges when the free limit is reached, or ask your Azure admin to. If your organisation\'s policy keeps the free limit, expect the jobs to stop when it runs out.',
+        `In Azure placement, choose to carry on past the free allowance (about ${SQL_SCALE_UP_COST} a month), or after setup open the database's Compute + storage in the Azure portal and choose to continue using it for additional charges when the free limit is reached, or ask your Azure admin to. If your organisation's policy keeps the free limit, expect the jobs to stop when it runs out.`,
     );
   }
-  if (seats >= BIG_CAPACITY_SEATS && (sqlMaxVcores ?? DEFAULT_SQL_MAX_VCORES) < 4) {
+  if (seats >= BIG_CAPACITY_SEATS && (sqlMaxVcores ?? DEFAULT_SQL_MAX_VCORES) < AZURE_LARGE_TENANT_SQL_VCORES) {
     out.push(
-      `${n} Copilot seats are assigned and Azure SQL scales up to ${sqlMaxVcores ?? DEFAULT_SQL_MAX_VCORES} vCores. After setup, raise the database's max vCores to 4 or more in the Azure portal (Compute + storage), or ask your Azure admin to; a policy that caps vCores means slower loads.`,
+      `${n} Copilot seats are assigned and Azure SQL scales up to ${sqlMaxVcores ?? DEFAULT_SQL_MAX_VCORES} vCores. In Azure placement, choose to scale it up to ${AZURE_LARGE_TENANT_SQL_VCORES} vCores, or after setup raise the database's max vCores to ${AZURE_LARGE_TENANT_SQL_VCORES} or more in the Azure portal (Compute + storage), or ask your Azure admin to; a policy that caps vCores means slower loads.`,
     );
   }
   if (seats >= BIG_CAPACITY_SEATS) {
     out.push(
-      `${n} Copilot seats are assigned. Each run of the collector job has ${RUN_JOB_SIZE} and up to 4 hours, so a long first load may not fit in one run. In Schedule and loading, start with 30 days of history and reload more once the first load finishes.`,
+      `${n} Copilot seats are assigned. Each run of the collector job has ${RUN_JOB_SIZE} and up to 4 hours, so a long first load may not fit in one run; the next run carries on reading the audit log from where it stopped. In Schedule and loading, start with 30 days of history and reload more once the first load finishes.`,
     );
   }
-  if (!powerBiCapacityId) {
-    out.push(
-      `${n} Copilot seats are assigned and the Power BI workspace is on shared capacity, where a semantic model is limited to 1 GB. In Power BI, choose a Fabric (F) or Premium capacity, or ask your capacity admin for one. If policy keeps you on shared capacity, the model may stop refreshing as the data grows.`,
-    );
-  }
+  if (sharedCapacity ?? !powerBiCapacityId) out.push(sharedCapacityWarning(seats));
   return out;
 }
 
@@ -1017,6 +1294,12 @@ export function azureSizingWarnings({ seats, sampleData, sqlFreeLimit, sqlMaxVco
 const RUN_JOB_SIZE = '4 vCPU and 8 GiB';
 /** azure/infra/modules/sql.bicep maxCapacity, used when the database doesn't exist yet. */
 const DEFAULT_SQL_MAX_VCORES = 2;
+/**
+ * Indicative monthly list prices for a large tenant's sizing choices, from azure/DESIGN.md section 2.5. They vary by
+ * region and agreement, so the questions point to the Azure pricing calculator.
+ */
+const SQL_SCALE_UP_COST = '$30-80';
+const WEB_ALWAYS_ON_COST = '$10-20';
 
 /** @param {Ctx} ctx */
 export async function confirmAzurePlan(ctx) {
@@ -1033,6 +1316,8 @@ export async function confirmAzurePlan(ctx) {
   ui.info(`Prefix:      ${az.namePrefix}`);
   ui.info(`Power BI:    ${az.powerBi?.workspaceId ? `Workspace ${az.powerBi.workspaceId}` : `New workspace ${az.workspaceName ?? 'Analytics Hub'}`}`);
   ui.info(`Schedule:    ${config.schedule.frequency === 'weekly' ? `${config.schedule.weekday}s` : 'Daily'} at ${config.schedule.time} UTC`);
+  if (azureAgent365On(config)) ui.info(`Agent 365:   CSV export, in ${azureDropLabel(az, AZURE_LANDING_DIRS.agent365)}`);
+  if (azureProductFeedbackOn(config)) ui.info(`Feedback:    CSV exports, in ${azureDropLabel(az, AZURE_LANDING_DIRS.productFeedback)}`);
   if (azureConsumptionOn(config)) {
     const ds = config.dataSources;
     const studio = { api: 'Power Platform licensing API (daily flow)', csv: 'CSV exports', skip: 'Left out' }[ds.studioCredits] ?? ds.studioCredits;
@@ -1043,10 +1328,13 @@ export async function confirmAzurePlan(ctx) {
   if (azureResourceGraphOn(config)) ui.info(`Governance:  ${resourceGraphKinds(config)} from Azure Resource Graph, in ${scopeName(config)}`);
   ui.info(`Ask:         ${askLine(az)}`);
   if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)}`);
-  const liveSql = /** @type {{ capacity?: number, useFreeLimit?: boolean }} */ (await liveSqlSettings(ctx).catch(() => ({})));
+  const sql = plannedSql(az, await liveSqlSettings(ctx).catch(() => ({})));
+  if (az.sqlScaleUp === true) ui.info(`SQL compute: up to ${sql.maxCapacity} vCores${sql.useFreeLimit ? ', carrying on past the free offer' : ''} (about ${SQL_SCALE_UP_COST} a month)`);
+  if (az.webAlwaysOn === true) ui.info(`Web app:     one replica always running (about ${WEB_ALWAYS_ON_COST} a month)`);
   const sizing = azureSizingWarnings({
-    seats, sampleData: az.sampleData, sqlFreeLimit: liveSql.useFreeLimit ?? az.sqlFreeOffer ?? true,
-    sqlMaxVcores: liveSql.capacity, powerBiCapacityId: az.powerBi?.capacityId,
+    seats, sampleData: az.sampleData, sqlFreeLimit: sql.useFreeLimit && sql.freeLimitExhaustionBehavior === 'AutoPause',
+    sqlMaxVcores: sql.maxCapacity, powerBiCapacityId: az.powerBi?.capacityId,
+    sharedCapacity: largeAzureTenant(az, seats) ? await modelOnSharedCapacity(ctx) : undefined,
   });
   for (const w of sizing) ui.warn(w);
   // Before the review, which shows the answer. The web UI takes a question after the review as the plan's own.
@@ -1070,12 +1358,15 @@ export async function installAzure(ctx, opts) {
   await signInForTeamsApp(ctx, manifestVersion(pkgVersion()));
   az.imageTag = imageTag(az);
   const consumption = azureConsumptionOn(config);
+  const agent365 = azureAgent365On(config);
+  const feedback = azureProductFeedbackOn(config);
   const resourceGraph = azureResourceGraphOn(config);
   const flows = flowsWanted(config).length > 0;
   const withAccess = !!config.access;
   const askAccess = askMode(az) === 'existing';
   const titles = [
-    'Resource group', 'Azure resources', 'Entra applications', 'Microsoft Graph permissions', ...(consumption ? ['Credit consumption'] : []), ...(resourceGraph ? ['Resource Graph access'] : []),
+    'Resource group', 'Azure resources', 'Entra applications', 'Microsoft Graph permissions', ...(consumption ? ['Credit consumption'] : []), ...(agent365 ? ['Agent 365 export'] : []),
+    ...(feedback ? ['Product feedback export'] : []), ...(resourceGraph ? ['Resource Graph access'] : []),
     ...(askAccess ? ['Ask model access'] : []),
     'Power BI model', ...(withAccess ? ['Viewer access'] : []), 'Azure resources (final)', 'Database migration', ...(rlsOn(config) ? ['Org-scoped access'] : []),
     ...(flows ? ['Power Automate flow'] : []), 'Teams app', ...(ctx.reloadHistoryDays ? ['Reload audit history'] : ctx.runFirstLoad ? ['First load'] : []),
@@ -1113,6 +1404,18 @@ export async function installAzure(ctx, opts) {
   if (consumption) {
     step('Credit consumption');
     await ensureAzureConsumptionAccess(ctx);
+    ctx.save();
+  }
+
+  if (agent365) {
+    step('Agent 365 export');
+    await ensureAzureAgent365Access(ctx);
+    ctx.save();
+  }
+
+  if (feedback) {
+    step('Product feedback export');
+    await ensureAzureProductFeedbackAccess(ctx);
     ctx.save();
   }
 
@@ -1429,6 +1732,14 @@ async function ensureAzurePowerBi(ctx, sqlReaderSecret) {
   if (isPrivate(az)) await bindThroughVnetGateway(ctx, sqlReaderSecret);
   else await bindPowerBiCredentials(ctx, sqlReaderSecret);
   for (const id of [az.powerBi.datasetId, cc]) if (id) await api.powerBi.setRefreshSchedule(/** @type {string} */ (az.powerBi.workspaceId), id, refreshScheduleBody(ctx));
+  // A kept Consumption model stops refreshing; one deleted since has nothing to turn off. Power BI wants nothing
+  // else in a request that turns a schedule off.
+  const kept = azureConsumptionModelDeployed(config) ? undefined : az.powerBi.consumptionDatasetId;
+  if (kept) {
+    await api.powerBi.setRefreshSchedule(/** @type {string} */ (az.powerBi.workspaceId), kept, { value: { enabled: false } }).catch((err) => {
+      if (!(err instanceof HttpError && err.status === 404)) ui.warn(`Couldn't turn off the scheduled refresh of ${config.consumption.model.name}: ${err.message}. Turn it off in the model's settings in Power BI.`);
+    });
+  }
 }
 
 /**
@@ -1456,13 +1767,12 @@ async function ensureAzureConsumptionModel(ctx, server, database) {
   return m.id;
 }
 
-/** The Power BI models on this install. @param {import('../../config.js').AzureConfig} az */
-const azureDatasetIds = (az) => /** @type {string[]} */ ([az.powerBi?.datasetId, az.powerBi?.consumptionDatasetId].filter(Boolean));
+/** The Power BI models in use on this install, which read the database. @param {import('../../config.js').InstallConfig} config */
+const azureDatasetIds = (config) => /** @type {string[]} */ ([config.azure?.powerBi?.datasetId, azureConsumptionModelDeployed(config) && config.azure?.powerBi?.consumptionDatasetId].filter(Boolean));
 
 /** @param {Ctx} ctx @param {string} secret */
 async function bindPowerBiCredentials(ctx, secret) {
-  const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
-  for (const id of azureDatasetIds(az)) await bindPowerBiCredential(ctx, secret, id);
+  for (const id of azureDatasetIds(ctx.config)) await bindPowerBiCredential(ctx, secret, id);
 }
 
 /** @param {Ctx} ctx @param {string} secret @param {string} datasetId */
@@ -1594,27 +1904,37 @@ async function bindThroughVnetGateway(ctx, secret) {
   const name = connectionName(az);
   const server = String(az.outputs?.sqlServerFqdn);
   const database = String(az.outputs?.sqlDatabaseName ?? 'valuelens');
+  const ours = (/** @type {any} */ c) => c.displayName === name && c.gatewayId === gatewayId;
   let conn = pbi.connectionId ? await api.fabric.getConnection(pbi.connectionId).catch(() => null) : null;
-  conn ??= (await api.fabric.listConnections().catch(() => [])).find((c) => c.displayName === name && c.gatewayId === gatewayId) ?? null;
-  if (conn) {
+  conn ??= (await api.fabric.listConnections().catch(() => [])).find(ours) ?? null;
+  let created = false;
+  if (!conn) {
+    try {
+      conn = await whileSqlResumes(ui, () => api.fabric.createConnection({
+        connectivityType: 'VirtualNetworkGateway',
+        gatewayId,
+        displayName: name,
+        connectionDetails: { type: 'SQL', creationMethod: 'SQL', parameters: [{ dataType: 'Text', name: 'server', value: server }, { dataType: 'Text', name: 'database', value: database }] },
+        privacyLevel: 'Organizational',
+        credentialDetails: sqlConnectionCredentials(ctx, secret),
+      }));
+      created = true;
+    } catch (err) {
+      conn = await connectionCreatedAnyway(ctx, err, ours);
+      if (!conn) throw err;
+    }
+  }
+  if (created) {
+    ui.ok(`Created Power BI connection ${name}`);
+  } else {
     const id = conn.id;
     await whileSqlResumes(ui, () => api.fabric.updateConnection(id, { connectivityType: 'VirtualNetworkGateway', privacyLevel: 'Organizational', credentialDetails: sqlConnectionCredentials(ctx, secret) }));
     ui.ok(`Updated Power BI connection ${name}`);
-  } else {
-    conn = await whileSqlResumes(ui, () => api.fabric.createConnection({
-      connectivityType: 'VirtualNetworkGateway',
-      gatewayId,
-      displayName: name,
-      connectionDetails: { type: 'SQL', creationMethod: 'SQL', parameters: [{ dataType: 'Text', name: 'server', value: server }, { dataType: 'Text', name: 'database', value: database }] },
-      privacyLevel: 'Organizational',
-      credentialDetails: sqlConnectionCredentials(ctx, secret),
-    }));
-    ui.ok(`Created Power BI connection ${name}`);
   }
   pbi.connectionId = conn.id;
   ctx.save();
-  for (const id of azureDatasetIds(az)) await api.powerBi.bindToGateway(/** @type {string} */ (pbi.workspaceId), id, { gatewayObjectId: gatewayId, datasourceObjectIds: [/** @type {string} */ (conn.id)] });
-  ui.ok(`Bound the model${azureDatasetIds(az).length > 1 ? 's' : ''} to the VNet data gateway`);
+  for (const id of azureDatasetIds(ctx.config)) await api.powerBi.bindToGateway(/** @type {string} */ (pbi.workspaceId), id, { gatewayObjectId: gatewayId, datasourceObjectIds: [/** @type {string} */ (conn.id)] });
+  ui.ok(`Bound the model${azureDatasetIds(ctx.config).length > 1 ? 's' : ''} to the VNet data gateway`);
 }
 
 /** @param {Ctx} ctx */
@@ -1722,8 +2042,8 @@ export async function azureRefresh(ctx) {
   if (!az?.powerBi?.workspaceId || !az.powerBi.datasetId) throw new Error('No Azure Power BI model is recorded.');
   const requestId = await ctx.api.powerBi.refresh(az.powerBi.workspaceId, az.powerBi.datasetId, { type: 'full', commitMode: 'transactional', retryCount: 1 });
   ctx.ui.ok(`Started a refresh of ${ctx.config.semanticModel.name}`);
-  if (az.powerBi.consumptionDatasetId) {
-    await ctx.api.powerBi.refresh(az.powerBi.workspaceId, az.powerBi.consumptionDatasetId, { type: 'full', commitMode: 'transactional', retryCount: 1 });
+  if (azureConsumptionModelDeployed(ctx.config)) {
+    await ctx.api.powerBi.refresh(az.powerBi.workspaceId, /** @type {string} */ (az.powerBi.consumptionDatasetId), { type: 'full', commitMode: 'transactional', retryCount: 1 });
     ctx.ui.ok(`Started a refresh of ${ctx.config.consumption.model.name}`);
   }
   return { ok: true, status: requestId };
@@ -1740,6 +2060,8 @@ export async function azureStatus(ctx) {
   if (az.powerBi?.workspaceId) ui.info(`Power BI:       ${az.powerBi.workspaceId}${az.powerBi.datasetId ? ` / ${az.powerBi.datasetId}` : ''}`);
   if (az.powerBi?.consumptionDatasetId) ui.info(`Consumption:    ${az.powerBi.consumptionDatasetId}`);
   if (azureConsumptionOn(config) && config.dataSources.studioCredits !== 'skip') ui.info(`Credit files:   ${azureDropLabel(az)}`);
+  if (azureAgent365On(config)) ui.info(`Agent 365 CSV:  ${azureDropLabel(az, AZURE_LANDING_DIRS.agent365)}`);
+  if (azureProductFeedbackOn(config)) ui.info(`Feedback CSV:   ${azureDropLabel(az, AZURE_LANDING_DIRS.productFeedback)}`);
   if (az.teamsApp) ui.info(`Teams app:      Analytics Hub ${az.teamsApp.version} in your org's app catalog`);
   expiry(ctx, 'SQL reader secret', az.sqlReader?.secretExpiry);
   for (const p of az.graphRoles?.pending ?? []) ui.warn(`Pending admin action: grant ${p} to the managed identity.`);
@@ -1769,31 +2091,159 @@ export async function azureUpdate(ctx) {
   return installAzure(ctx, { wait: true });
 }
 
-/** @param {Ctx} ctx */
-export async function azureUninstall(ctx) {
+/** How often, and how many times, uninstall checks the resource group has gone: 45 minutes in all. */
+export const RG_DELETE_POLL_MS = 30_000;
+export const RG_DELETE_POLLS = 90;
+
+/**
+ * Waits for Azure to finish deleting a resource group. That can take half an hour after Azure
+ * accepts the delete, and can still fail.
+ * @param {Ctx} ctx @param {string} subscriptionId @param {string} rg
+ * @returns {Promise<string>}  'Gone', or the group's provisioning state when the wait ended.
+ */
+async function waitForGroupGone(ctx, subscriptionId, rg) {
+  const progress = ctx.ui.progress('Resource group');
+  let state = 'Deleting';
+  try {
+    progress.update(state);
+    for (let i = 0; i < RG_DELETE_POLLS; i++) {
+      await ctx.sleep(RG_DELETE_POLL_MS);
+      const g = await ctx.api.arm.getResourceGroup(subscriptionId, rg).catch(() => undefined);
+      if (g === null) return 'Gone';
+      if (g === undefined) continue;
+      state = g.properties?.provisioningState ?? 'Unknown';
+      progress.update(state);
+      // The first read can lag the delete, so it takes a second one to show the delete stopped.
+      if (state !== 'Deleting' && i > 0) break;
+    }
+  } finally {
+    progress.done();
+  }
+  return state;
+}
+
+/**
+ * Whether the recorded Power BI workspace is still the one the installer created. Before 0.6.8, picking
+ * another workspace in Repair or change kept the record's created flag. Power BI workspace names are
+ * unique, so a workspace under another name may be one the user picked.
+ * @param {Ctx} ctx @param {string} workspaceId @param {string} name  the name the installer gave it.
+ * @returns {Promise<{ state: 'created' | 'missing' } | { state: 'renamed', name: string } | { state: 'unknown', message: string }>}
+ */
+async function checkCreatedWorkspace(ctx, workspaceId, name) {
+  try {
+    const ws = (await ctx.api.powerBi.groups()).find((g) => g.id === workspaceId);
+    if (!ws) return { state: 'missing' };
+    return ws.name === name ? { state: 'created' } : { state: 'renamed', name: ws.name };
+  } catch (err) {
+    return { state: 'unknown', message: /** @type {Error} */ (err).message };
+  }
+}
+
+/**
+ * Forgets the Power BI workspace, so a new install creates another rather than deploying into one that's gone.
+ * @param {Ctx} ctx @param {NonNullable<import('../../config.js').AzureConfig['powerBi']>} pbi
+ */
+function forgetPowerBiWorkspace(ctx, pbi) {
+  const { config } = ctx;
+  const id = pbi.workspaceId;
+  delete pbi.workspaceId;
+  delete pbi.createdWorkspace;
+  delete pbi.datasetId;
+  delete pbi.consumptionDatasetId;
+  if (config.fabric.workspaceId === id) delete config.fabric.workspaceId;
+  ctx.save();
+}
+
+/**
+ * Deletes the Power BI workspace the installer created, then forgets it.
+ * @param {Ctx} ctx
+ * @param {NonNullable<import('../../config.js').AzureConfig['powerBi']>} pbi
+ * @param {string} name
+ */
+async function deletePowerBiWorkspace(ctx, pbi, name) {
+  const { ui, api } = ctx;
+  try {
+    await api.powerBi.deleteGroup(/** @type {string} */ (pbi.workspaceId));
+    ui.ok(`Deleted Power BI workspace "${name}"`);
+  } catch (err) {
+    if (!(err instanceof HttpError && err.status === 404)) {
+      ui.warn(`Couldn't delete Power BI workspace "${name}": ${/** @type {Error} */ (err).message}. A workspace admin can delete it in Power BI under Workspaces.`);
+      return;
+    }
+    ui.ok(`Power BI workspace "${name}" was already gone`);
+  }
+  forgetPowerBiWorkspace(ctx, pbi);
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {{ wait?: boolean }} [opts]  wait: false stops once Azure accepts the resource group delete.
+ * @returns {Promise<boolean>}  false when Azure didn't delete the resource group.
+ */
+export async function azureUninstall(ctx, opts = {}) {
   const { ui, config, api } = ctx;
   const az = config.azure;
   if (!az?.subscriptionId || !az.resourceGroup) throw new Error('Nothing is installed yet.');
+  const { subscriptionId, resourceGroup: rg } = az;
   ui.heading('Uninstalling Analytics Hub on Azure');
-  // First, so any sign-in it needs comes before the long deletes.
+  const pbi = az.powerBi;
+  const workspace = az.workspaceName ?? 'Analytics Hub';
+  const check = pbi?.workspaceId && pbi.createdWorkspace ? await checkCreatedWorkspace(ctx, pbi.workspaceId, workspace) : undefined;
+  // Asked first, and the Teams app's sign-in next, so nothing waits on a person during the long deletes.
+  const deleteWorkspace = check?.state === 'created' && (await ui.confirm(`Delete Power BI workspace "${workspace}" and everything in it, including the semantic models?`, true));
   await removeTeamsApp(ctx);
+  if (pbi?.workspaceId) {
+    if (deleteWorkspace) await deletePowerBiWorkspace(ctx, pbi, workspace);
+    else if (!check) ui.note('Left the Power BI workspace you chose alone, because the installer didn\'t create it. Delete the Analytics Hub semantic models in it if you no longer need them.');
+    else if (check.state === 'created') ui.note(`Left Power BI workspace "${workspace}" alone.`);
+    else if (check.state === 'renamed') ui.note(`Left Power BI workspace "${check.name}" alone, because the installer created one named "${workspace}". If you renamed it, delete it in Power BI under Workspaces.`);
+    else if (check.state === 'unknown') ui.warn(`Couldn't check Power BI workspace "${workspace}", so left it alone: ${check.message}. A workspace admin can delete it in Power BI under Workspaces.`);
+    else {
+      ui.note(`Didn't find Power BI workspace "${workspace}" among the workspaces you can see, so it's gone or you've lost access to it. If it's still there, a workspace admin can delete it in Power BI under Workspaces.`);
+      forgetPowerBiWorkspace(ctx, pbi);
+    }
+  }
   // The gateway holds a service association link on its subnet, so it must go before the VNet.
-  if (az.powerBi?.connectionId) {
-    await api.fabric.deleteConnection(az.powerBi.connectionId).then(() => ui.ok('Deleted the Power BI gateway connection'), (err) => ui.warn(`Couldn't delete Power BI connection ${az.powerBi?.connectionId}: ${err.message}`));
+  if (pbi?.connectionId) {
+    await api.fabric.deleteConnection(pbi.connectionId).then(() => ui.ok('Deleted the Power BI gateway connection'), (err) => ui.warn(`Couldn't delete Power BI connection ${pbi.connectionId}: ${err.message}`));
   }
-  if (az.powerBi?.createdGateway && az.powerBi.gatewayId) {
-    await api.fabric.deleteGateway(az.powerBi.gatewayId).then(() => ui.ok('Deleted the Power BI VNet data gateway'), (err) => ui.warn(`Couldn't delete Power BI gateway ${az.powerBi?.gatewayId}: ${err.message}`));
+  if (pbi?.createdGateway && pbi.gatewayId) {
+    await api.fabric.deleteGateway(pbi.gatewayId).then(() => ui.ok('Deleted the Power BI VNet data gateway'), (err) => ui.warn(`Couldn't delete Power BI gateway ${pbi.gatewayId}: ${err.message}`));
   }
+  let deleting = false;
   if (az.createdResourceGroup) {
-    await api.arm.deleteResourceGroup(az.subscriptionId, az.resourceGroup);
-    ui.ok(`Deleted resource group ${az.resourceGroup}`);
+    try {
+      await api.arm.deleteResourceGroup(subscriptionId, rg);
+      deleting = true;
+    } catch (err) {
+      if (!(err instanceof HttpError)) throw err;
+      if (err.status === 404) ui.ok(`Resource group ${rg} was already gone`);
+      else if (err.status === 409 && /ResourceGroupBeingDeleted/i.test(`${err.message} ${JSON.stringify(err.body ?? '')}`)) deleting = true;
+      else throw err;
+    }
   } else {
-    const resources = await api.arm.listResources(az.subscriptionId, az.resourceGroup);
+    const resources = await api.arm.listResources(subscriptionId, rg);
     const ours = resources.filter((r) => r.tags?.['valuelens-install-id'] === az.installId);
     for (const r of ours) await api.arm.deleteResource(r.id);
     ui.ok(`Deleted ${ours.length} tagged Azure resources and left everything else alone`);
   }
+  // Before the wait, so they go even if a Cloud Shell sign-out stops the installer during it.
   for (const app of [az.webApp, az.sqlReader]) if (app?.created && app.objectId) await api.graph.deleteApplication(app.objectId).catch((err) => ui.warn(`Couldn't delete app registration ${app.clientId}: ${err.message}`));
+  if (az.drop?.folderUrl) ui.note(`The SharePoint drop folder ${az.drop.folderUrl} and the files in it are left alone. Delete them yourself if you no longer need them.`);
+  if (!deleting) return true;
+  if (opts.wait === false) {
+    ui.ok(`Azure is deleting resource group ${rg}. That can take half an hour: it's done when the group no longer shows in the Azure portal.`);
+    return true;
+  }
+  ui.info(`Waiting for Azure to delete resource group ${rg}, which can take half an hour.`);
+  const state = await waitForGroupGone(ctx, subscriptionId, rg);
+  if (state === 'Gone') ui.ok(`Deleted resource group ${rg}`);
+  else if (state === 'Deleting') ui.warn(`Azure is still deleting resource group ${rg} after ${(RG_DELETE_POLL_MS * RG_DELETE_POLLS) / 60_000} minutes. It carries on without the installer: check it's gone in the Azure portal before you install again with the same name.`);
+  else {
+    ui.fail(`Azure didn't delete resource group ${rg}: it's ${state}. Its activity log in the Azure portal says why. Fix that, then run "${commandLine('uninstall')}" again.`);
+    return false;
+  }
+  return true;
 }
 
 /** @param {Ctx} ctx @param {{ ok?: boolean, pending?: string[] }} [opts]  pending: models still reloading after their update. */
@@ -1808,7 +2258,9 @@ export async function azureSummary(ctx, opts = {}) {
   ui.info(`Azure:      ${az.resourceGroup} in ${az.location}`);
   if (az.outputs?.webUrl) ui.info(`App:        ${az.outputs.webUrl}`);
   if (az.powerBi?.workspaceId) ui.info(`Power BI:   workspace ${az.powerBi.workspaceId}, model ${az.powerBi.datasetId ?? 'not deployed'}`);
-  if (az.powerBi?.consumptionDatasetId) ui.info(`Credits:    model ${az.powerBi.consumptionDatasetId}`);
+  if (azureConsumptionModelDeployed(config)) ui.info(`Credits:    model ${az.powerBi?.consumptionDatasetId}`);
+  if (azureAgent365On(config)) ui.info(`Agent 365:  drop the export in ${azureDropLabel(az, AZURE_LANDING_DIRS.agent365)}. Each run loads the newest one.`);
+  if (azureProductFeedbackOn(config)) ui.info(`Feedback:   drop exports in ${azureDropLabel(az, AZURE_LANDING_DIRS.productFeedback)}. Each run loads them all and removes duplicates by Feedback Id.`);
   const teamsPending = az.status?.pendingAdminActions?.find((a) => a.startsWith(`${TEAMS_APP_PENDING}: `));
   if (teamsPending) ui.info(`Teams:      Not published yet. A Teams Administrator needs to ${teamsPending.slice(TEAMS_APP_PENDING.length + 2)}`);
   else if (az.teamsApp) ui.info(`Teams:      Analytics Hub ${az.teamsApp.version} in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app.`);

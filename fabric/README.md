@@ -1,13 +1,15 @@
 # Fabric
 
+**Path 1.** Just the steps: [1-fabric](../1-fabric/). This page has the details.
+
 The recommended path. One installer sets everything up in your tenant and gives you the dashboard
 as an app in Fabric, called **Analytics Hub**. You don't need a terminal or Power BI Desktop.
 
-[![Download the Analytics Hub installer](https://img.shields.io/badge/Download-Analytics%20Hub%20installer-0078D4?style=for-the-badge)](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
-
-For Windows 10 or 11. Check [what you need](#before-you-start) first. If your organisation blocks
-downloaded exes, use the [PowerShell command](../docs/INSTALL.md#from-powershell) instead. If
-your PC can't run either, use [Azure Cloud Shell](../docs/INSTALL.md#locked-down-tenant--azure-cloud-shell).
+For Windows 10 or 11. Check [what you need](#before-you-start) first. Then paste the
+[PowerShell command](#install), or
+[download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
+and open it. If your PC can't run either, use
+[Azure Cloud Shell](../docs/INSTALL.md#locked-down-tenant--azure-cloud-shell).
 
 ## Before you start
 

@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.47.16.16243",
-      "templateHash": "11476349097750935280"
+      "templateHash": "16888325143569849407"
     }
   },
   "parameters": {
@@ -121,6 +121,17 @@
     "sqlUseFreeLimit": {
       "type": "bool",
       "defaultValue": false
+    },
+    "sqlFreeLimitExhaustionBehavior": {
+      "type": "string",
+      "defaultValue": "AutoPause",
+      "allowedValues": [
+        "AutoPause",
+        "BillOverUsage"
+      ],
+      "metadata": {
+        "description": "With the free offer, when the month's free allowance runs out: pause until next month (AutoPause) or bill the extra (BillOverUsage, which Azure cannot switch back)."
+      }
     },
     "publicNetworkAccess": {
       "type": "string",
@@ -264,7 +275,7 @@
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "Credit consumption, private networking: SharePoint site, drive and folder the Copilot Studio flow and the Viva export are dropped in. Empty = the storage account's landing container."
+        "description": "Private networking: SharePoint site, drive and folder the Copilot Studio flow and the CSV exports (Viva, Agent 365 and others) are dropped in, one subfolder per source. Empty = the storage account's landing container."
       }
     },
     "dropDriveId": {
@@ -919,6 +930,9 @@
           "useFreeLimit": {
             "value": "[parameters('sqlUseFreeLimit')]"
           },
+          "freeLimitExhaustionBehavior": {
+            "value": "[parameters('sqlFreeLimitExhaustionBehavior')]"
+          },
           "publicNetworkAccess": {
             "value": "[parameters('publicNetworkAccess')]"
           }
@@ -930,7 +944,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.47.16.16243",
-              "templateHash": "3618996990701594680"
+              "templateHash": "6492412378890925862"
             }
           },
           "parameters": {
@@ -975,6 +989,17 @@
             "useFreeLimit": {
               "type": "bool",
               "defaultValue": false
+            },
+            "freeLimitExhaustionBehavior": {
+              "type": "string",
+              "defaultValue": "AutoPause",
+              "allowedValues": [
+                "AutoPause",
+                "BillOverUsage"
+              ],
+              "metadata": {
+                "description": "With the free offer, when the month's free allowance runs out: pause until next month (AutoPause, max 4 vCores), or carry on and bill the extra at the serverless rate (BillOverUsage). Azure cannot switch BillOverUsage back."
+              }
             },
             "publicNetworkAccess": {
               "type": "string",
@@ -1046,7 +1071,7 @@
                 "minCapacity": "[json(parameters('minCapacity'))]",
                 "autoPauseDelay": "[parameters('autoPauseDelayMinutes')]",
                 "useFreeLimit": "[parameters('useFreeLimit')]",
-                "freeLimitExhaustionBehavior": "[if(parameters('useFreeLimit'), 'AutoPause', null())]",
+                "freeLimitExhaustionBehavior": "[if(parameters('useFreeLimit'), parameters('freeLimitExhaustionBehavior'), null())]",
                 "requestedBackupStorageRedundancy": "Local",
                 "zoneRedundant": false
               },

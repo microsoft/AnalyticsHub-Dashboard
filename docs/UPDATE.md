@@ -75,7 +75,7 @@ Open the installer and choose **Uninstall** (`uninstall`). It asks before it del
 | Where | What it deletes |
 |---|---|
 | Fabric | The workspace and everything in it, after its managed private endpoints. If the installer didn't create the workspace, the answer defaults to no. It waits up to ten minutes for the endpoints to go. |
-| Azure | The resource group the installer created. In a resource group you already had, only the resources tagged `valuelens-install-id`. Also the Power BI VNet data gateway and connection, and the **Analytics Hub** and SQL reader app registrations, if it created them. And the Teams app it looks after in your org's app catalog: the one it published, or a hand upload of the same app that it found there and took on. That takes one more sign-in as a Teams Administrator or Global Administrator. |
+| Azure | The resource group the installer created. It waits up to 45 minutes for Azure to finish deleting it; add `--no-wait` to stop once Azure has accepted the delete. In a resource group you already had, only the resources tagged `valuelens-install-id`. Also the Power BI workspace and its semantic models, if the installer created the workspace and you haven't renamed it: it asks, and the answer defaults to yes. And the Power BI VNet data gateway and connection, and the **Analytics Hub** and SQL reader app registrations, if it created them. And the Teams app it looks after in your org's app catalog: the one it published, or a hand upload of the same app that it found there and took on. That takes one more sign-in as a Teams Administrator or Global Administrator. |
 
 ### What's left behind
 
@@ -83,7 +83,8 @@ Uninstall leaves these alone. Remove them yourself if you no longer need them:
 
 - On Fabric, the **Analytics Hub Data Collector** app registration. Delete it in
   [Entra ID](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade).
-- On Azure, the Power BI workspace and its models.
+- On Azure, a Power BI workspace you picked rather than had the installer create, renamed, or
+  chose to keep, and the models in it.
 - On Azure, a Teams app in your org's app catalog that the installer never looked after, or one it
   couldn't delete. A Teams admin deletes it in the
   [Teams admin center](https://admin.teams.microsoft.com/policies/manage-apps) under **Teams apps** >

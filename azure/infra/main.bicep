@@ -47,6 +47,9 @@ param sqlMinCapacity string = '0.5'
 param sqlMaxCapacity int = 2
 param sqlAutoPauseDelayMinutes int = 60
 param sqlUseFreeLimit bool = false
+@description('With the free offer, when the month\'s free allowance runs out: pause until next month (AutoPause) or bill the extra (BillOverUsage, which Azure cannot switch back).')
+@allowed(['AutoPause', 'BillOverUsage'])
+param sqlFreeLimitExhaustionBehavior string = 'AutoPause'
 
 @allowed(['Enabled', 'Disabled'])
 param publicNetworkAccess string = 'Enabled'
@@ -94,7 +97,7 @@ param sqlReaderClientId string = ''
 param azureAiSubscriptionId string = ''
 @description('Credit consumption: other subscriptions (comma-separated) that Copilot pay-as-you-go billing policies charge.')
 param paygSubscriptionIds string = ''
-@description('Credit consumption, private networking: SharePoint site, drive and folder the Copilot Studio flow and the Viva export are dropped in. Empty = the storage account\'s landing container.')
+@description('Private networking: SharePoint site, drive and folder the Copilot Studio flow and the CSV exports (Viva, Agent 365 and others) are dropped in, one subfolder per source. Empty = the storage account\'s landing container.')
 param dropSiteId string = ''
 param dropDriveId string = ''
 param dropFolder string = ''
@@ -195,6 +198,7 @@ module sql 'modules/sql.bicep' = {
     maxCapacity: sqlMaxCapacity
     autoPauseDelayMinutes: sqlAutoPauseDelayMinutes
     useFreeLimit: sqlUseFreeLimit
+    freeLimitExhaustionBehavior: sqlFreeLimitExhaustionBehavior
     publicNetworkAccess: publicNetworkAccess
   }
 }
