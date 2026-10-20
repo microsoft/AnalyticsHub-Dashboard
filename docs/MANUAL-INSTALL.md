@@ -20,7 +20,7 @@ Everything in [Prerequisites](PREREQUISITES.md) for Fabric, plus:
 | An Entra **app registration** you create, with the Graph permissions in [Permissions](PERMISSIONS.md#core-sources-required), admin consent and a client secret | The notebooks sign in as it. The installer creates it for you |
 | Somewhere for the secret: an Azure **Key Vault** (with *Key Vault Secrets User* for whoever runs the notebooks), or the notebooks themselves | Key Vault keeps it from workspace viewers. See [Where the client secret goes](../fabric/README.md#where-the-client-secret-goes) |
 | A Fabric workspace with a **Lakehouse**, with **Lakehouse schemas** on | Where the data lands |
-| **Power BI Desktop** | To open the report template and publish it |
+| **Power BI Desktop**, June 2024 or later | To open the report template and publish it. Earlier releases show errors in most habit-stage visuals |
 | [Node.js](https://nodejs.org/) 24.15 or later, or 22.22 or later | Only to deploy the app |
 
 The Fabric admin's tenant settings are in
@@ -96,7 +96,7 @@ storage account, so your files are kept between sessions.
 
 | Who | What |
 |---|---|
-| **You** | Owner, or Contributor and User Access Administrator, on the subscription ([Azure roles](PREREQUISITES.md#azure-roles)). Can register apps. Power BI Pro, and Power BI Desktop on Windows |
+| **You** | Owner, or Contributor and User Access Administrator, on the subscription ([Azure roles](PREREQUISITES.md#azure-roles)). Can register apps. Power BI Pro, and Power BI Desktop on Windows, June 2024 or later |
 | **Entra admin** (Global Administrator or Privileged Role Administrator) | Step 3, about 2 minutes |
 | **Fabric admin** | Turns on *Service principals can call Fabric public APIs*, *Semantic Model Execute Queries REST API* and *Allow visuals created using the Power BI SDK* ([where](PREREQUISITES.md#fabric-admin-about-5-minutes)). If one is only on for security groups, adds who needs it: the managed identity for the first, after step 1, and the people you let in for the other two |
 | **Microsoft 365 admin** | Turns off concealed names in usage reports ([how](PREREQUISITES.md#microsoft-365-admin)) |

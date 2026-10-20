@@ -448,7 +448,7 @@ To keep your edits, use **File** > **Save a copy** in Power BI first and edit th
 checks it.
 
 Without the reports, publish the templates yourself: open `ValueLens - Fabric.pbit` in Power BI
-Desktop with the values the installer shows, and publish it to the workspace.
+Desktop (June 2024 or later) with the values the installer shows, and publish it to the workspace.
 
 ## Load status and reruns
 

@@ -55,9 +55,11 @@ VAR _licensedUsers =
         )
 // Blank rather than 0 when nobody is counted, as COUNTROWS gives.
 VAR _seatsInUse = IF(_licensedUsers > 0, _licensedUsers)
-// Agents In Use asked [Active Agent Users] about each agent, and that tests
-// each user ID with LEN(TRIM()). An agent is in use when its prompts in the
-// agent audience come from more user IDs than blank ones.
+// Agents In Use asked [Active Agent Users] about each agent. That measure now
+// tests each user ID with LEN(TRIM()) only when Audit_UserId is filtered
+// directly, but models deployed from older templates still test every ID, so
+// this inline count stays. As in the measure, an agent is in use when its
+// prompts in the agent audience come from more user IDs than blank ones.
 VAR _agents =
     CALCULATETABLE(
         ADDCOLUMNS(
