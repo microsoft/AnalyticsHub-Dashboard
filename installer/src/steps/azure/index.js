@@ -31,6 +31,12 @@ import { askGrants, askLine, askMode, askParameters, ensureAzureAskAccess, planA
 import { checkRegions, noRegionMessage, regionNotes, regionProblems, sqlProblem } from './regions.js';
 import { checkDeployRights, printAdminGrants, registrationMessage, reportProviders, roleAssignMessage } from './least-privilege.js';
 import { AZURE_LARGE_TENANT_SKU, AZURE_LARGE_TENANT_SQL_VCORES, BIG_CAPACITY_SEATS, copilotSeats, LARGE_TENANT_SEATS, seatCount } from '../../seats.js';
+import {
+  agentEvaluatorParameters, azureAgentEvaluatorConfirmLine, azureAgentEvaluatorModelDeployed, azureAgentEvaluatorOn, azureAgentEvaluatorReads, azureAgentEvaluatorRefreshes, azureAgentEvaluatorSummary,
+  azureTranscriptStatus, azureTranscriptStepWanted, ensureAzureTranscriptAccess, planAzureAgentEvaluator, removeAzureTranscriptAccess, transcriptAccessReview,
+} from './agent-evaluator.js';
+
+export { agentEvaluatorParameters, azureAgentEvaluatorModelDeployed, azureAgentEvaluatorOn, azureAgentEvaluatorReads, azureAgentEvaluatorRefreshes } from './agent-evaluator.js';
 
 /** @typedef {import('../../install.js').Ctx} Ctx */
 
@@ -45,7 +51,7 @@ export const supportsVnetGateway = (/** @type {{ sku?: string }} */ cap) => /^(F
 export const isPrivate = (/** @type {import('../../config.js').AzureConfig | undefined} */ az) => az?.publicNetworkAccess === false;
 /** The resource providers this install needs registered in its subscription. @param {import('../../config.js').AzureConfig | undefined} az */
 export const azureProviders = (az) => [...AZURE_PROVIDERS, ...(isPrivate(az) ? PRIVATE_PROVIDERS : []), ...(askMode(az) === 'create' ? ASK_PROVIDERS : [])];
-export const AZURE_SUPPORTED_MODULES = /** @type {const} */ (['core', 'orgData', 'm365Activity', 'agent365', 'productFeedback', 'consumption', 'defender']);
+export const AZURE_SUPPORTED_MODULES = /** @type {const} */ (['core', 'orgData', 'm365Activity', 'agent365', 'productFeedback', 'consumption', 'agentEvaluator', 'defender']);
 export const WEB_APP_NAME = 'Analytics Hub (Azure)';
 /** Delegated: lets admins and group owners add and remove viewers from the app. Graph still checks they own the group or are a directory admin. */
 export const GROUP_SCOPE = 'GroupMember.ReadWrite.All';
@@ -73,6 +79,7 @@ export const REQUIRED_ARM_PARAMETERS = [
   'webMinReplicas', 'webClientId', 'webAppIdUri', 'webAccess', 'modules', 'auditHistoryDays', 'powerBiWorkspaceId', 'semanticModels', 'sqlReaderName', 'sqlReaderClientId',
   'azureAiSubscriptionId', 'paygSubscriptionIds', 'dropSiteId', 'dropDriveId', 'dropFolder', 'argManagementGroup', 'argAgents', 'argFoundry', 'workdayOutputTable', 'workdayAllowBaseOverwrite', 'reportingCurrency', 'exchangeRate',
   'askMode', 'askEndpoint', 'askDeployment', 'askModelName', 'askModelVersion', 'askSku', 'askCapacity', 'askLocation',
+  'dataverseEnvironments',
 ];
 
 const last = (/** @type {string} */ path) => path.split(/[\\/]/).filter(Boolean).pop() ?? path;
@@ -279,7 +286,7 @@ export async function planAzure(ctx, pre, section) {
   if (editing('data')) {
     ui.heading('What to collect');
     const picked = await ui.checkbox('Tick the data you want. Unsupported modules are coming soon on Azure.', azureModuleChoices(config.modules));
-    config.modules = /** @type {import('../../catalog.js').ModuleChoice} */ ({ orgData: true, m365Activity: picked.includes('m365Activity'), agent365: picked.includes('agent365'), productFeedback: picked.includes('productFeedback'), consumption: picked.includes('consumption'), agentEvaluator: false, defender: picked.includes('defender') });
+config.modules = /** @type {import('../../catalog.js').ModuleChoice} */ ({ orgData: true, m365Activity: picked.includes('m365Activity'), agent365: picked.includes('agent365'), productFeedback: picked.includes('productFeedback'), consumption: picked.includes('consumption'), agentEvaluator: picked.includes('agentEvaluator'), defender: picked.includes('defender') });
     if (config.modules.productFeedback && config.dataSources.productFeedback === 'api') ui.warn(FEEDBACK_CSV_ONLY);
     config.dataSources.productFeedback = config.modules.productFeedback ? 'csv' : 'skip';
     if (config.modules.agent365 && config.dataSources.agent365 === 'api') ui.warn(AGENT365_CSV_ONLY);
@@ -501,6 +508,7 @@ export async function planAzure(ctx, pre, section) {
     planAzureAgent365(ctx);
     planAzureProductFeedback(ctx);
     await planAzureConsumption(ctx, subs);
+    await planAzureAgentEvaluator(ctx);
     await planAzureWorkday(ctx);
     await planAzureDrop(ctx);
   }
@@ -586,13 +594,6 @@ export function azureDropContents(config) {
 
 const joinList = (/** @type {string[]} */ names) => (names.length < 3 ? names.join(' and ') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`);
 const withThe = (/** @type {string} */ name) => (name.startsWith('the ') ? name : `the ${name}`);
-
-/**
- * The Agent Evaluator model is deployed: the module is on with environments chosen, and the jobs read
- * tenant data (demo mode publishes no Agent Evaluator tables).
- * @param {import('../../config.js').InstallConfig} config
- */
-export const azureAgentEvaluatorOn = (config) => !!config.modules.agentEvaluator && config.agentEvaluator.environments.length > 0 && config.azure?.sampleData !== true;
 
 /** Microsoft Graph application permissions the jobs' managed identity needs. @param {import('../../config.js').InstallConfig} config */
 export const azureGraphRoles = (config) => [...azureGraphRolesFor(config.modules), ...(azureReadsDrop(config) && azureDropsToSharePoint(config.azure) ? ['Sites.Selected'] : [])];
@@ -1049,7 +1050,7 @@ export async function azureDeployment(ctx, o) {
     publicNetworkAccess: param(az.publicNetworkAccess === false ? 'Disabled' : 'Enabled'), deployWeb: param(true), webMinReplicas: param(az.webAlwaysOn === true ? 1 : 0),
     privateDnsZoneMode: param(az.privateDns?.mode ?? 'create'), privateDnsZonesResourceGroupId: param(az.privateDns?.mode === 'existing' ? (az.privateDns.resourceGroupId ?? '') : ''),
     webClientId: param(o.pass === 2 ? (az.webApp?.clientId ?? '') : ''), webAppIdUri: param(o.pass === 2 ? (az.webApp?.appIdUri ?? '') : ''), webAccess: param(webAccess(config)),
-    modules: param([...enabledAzureModuleIds(config.modules, az), ...(azureResourceGraphOn(config) ? ['resourceGraph'] : []), ...(azureWorkdayOn(config) ? ['workday'] : [])].join(',')), auditHistoryDays: param(Math.max(config.history.days, ctx.reloadHistoryDays ?? 0)), powerBiWorkspaceId: param(az.powerBi?.workspaceId ?? ''),
+    modules: param([...enabledAzureModuleIds(config.modules, az, config), ...(azureResourceGraphOn(config) ? ['resourceGraph'] : []), ...(azureWorkdayOn(config) ? ['workday'] : [])].join(',')), auditHistoryDays: param(Math.max(config.history.days, ctx.reloadHistoryDays ?? 0)), powerBiWorkspaceId: param(az.powerBi?.workspaceId ?? ''),
     semanticModels: param(JSON.stringify(azureSemanticModels(config))),
     sqlReaderName: param(SQL_READER_NAME), sqlReaderClientId: param(o.pass === 2 ? (az.sqlReader?.clientId ?? '') : ''),
     reportingCurrency: param(config.reporting?.currency ?? DEFAULT_CURRENCY), exchangeRate: param(config.reporting?.exchangeRate ? String(config.reporting.exchangeRate) : ''),
@@ -1058,6 +1059,7 @@ export async function azureDeployment(ctx, o) {
     ...consumptionParameters(config),
     ...argParameters(config),
     ...askParameters(config),
+    ...agentEvaluatorParameters(config),
   };
   return { properties: { mode: 'Incremental', template: ARM, parameters: params } };
 }
@@ -1080,7 +1082,8 @@ export function azureSemanticModels(config) {
   return {
     ...(pbi.datasetId ? { [APP_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.datasetId } } : {}),
     ...(azureConsumptionModelDeployed(config) ? { [CONSUMPTION_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.consumptionDatasetId } } : {}),
-    ...(pbi.agentEvaluatorDatasetId ? { [EVALUATOR_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.agentEvaluatorDatasetId } } : {}),
+    // The jobs skip refreshing it until agentEvaluator is in VALUELENS_MODULES, once the managed identity can read an environment.
+    ...(azureAgentEvaluatorModelDeployed(config) ? { [EVALUATOR_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.agentEvaluatorDatasetId } } : {}),
   };
 }
 
@@ -1095,7 +1098,7 @@ export function azureViewerModels(config) {
   return [
     ...(pbi.datasetId ? [{ workspaceId: pbi.workspaceId, datasetId: pbi.datasetId, name: config.semanticModel.name }] : []),
     ...(azureConsumptionModelDeployed(config) ? [{ workspaceId: pbi.workspaceId, datasetId: /** @type {string} */ (pbi.consumptionDatasetId), name: config.consumption.model.name }] : []),
-    ...(pbi.agentEvaluatorDatasetId ? [{ workspaceId: pbi.workspaceId, datasetId: pbi.agentEvaluatorDatasetId, name: config.agentEvaluator.model.name }] : []),
+    ...(azureAgentEvaluatorModelDeployed(config) ? [{ workspaceId: pbi.workspaceId, datasetId: /** @type {string} */ (pbi.agentEvaluatorDatasetId), name: config.agentEvaluator.model.name }] : []),
   ];
 }
 
@@ -1145,9 +1148,13 @@ export function argParameters(config) {
   };
 }
 
-/** @param {import('../../catalog.js').ModuleChoice} modules @param {import('../../config.js').AzureConfig} [az] */
-export function enabledAzureModuleIds(modules, az) {
-  return AZURE_SUPPORTED_MODULES.filter((id) => id === 'core' || (id === 'consumption' && az?.sampleData === true ? false : modules[/** @type {keyof import('../../catalog.js').ModuleChoice} */ (id)]));
+/**
+ * The modules the jobs collect. Agent Evaluator is in only once the managed identity can read an environment, since the
+ * setting also decides whether the jobs refresh its model.
+ * @param {import('../../catalog.js').ModuleChoice} modules @param {import('../../config.js').AzureConfig} [az] @param {import('../../config.js').InstallConfig} [config]
+ */
+export function enabledAzureModuleIds(modules, az, config) {
+  return AZURE_SUPPORTED_MODULES.filter((id) => id === 'core' || (id === 'consumption' && az?.sampleData === true ? false : id === 'agentEvaluator' ? !!config && azureAgentEvaluatorReads(config) : modules[/** @type {keyof import('../../catalog.js').ModuleChoice} */ (id)]));
 }
 
 /**
@@ -1295,6 +1302,8 @@ export function azurePlanReview(ctx) {
   if (az.powerBi?.datasetId) creates.push({ kind: 'Semantic model', name: ctx.config.semanticModel.name, isNew: false, detail: MODEL_UPDATE_NOTE });
   if (consumption && ctx.sources.consumptionModelFile) creates.push({ kind: 'Semantic model', name: cc.model.name, isNew: !az.powerBi?.consumptionDatasetId, detail: `Credit consumption, reading Azure SQL like the main model.${az.powerBi?.consumptionDatasetId ? ` ${MODEL_UPDATE_NOTE}` : ''}` });
   if (azureAgentEvaluatorOn(ctx.config) && ctx.sources.agentEvaluatorModelFile) creates.push({ kind: 'Semantic model', name: ctx.config.agentEvaluator.model.name, isNew: !az.powerBi?.agentEvaluatorDatasetId, detail: `Agent Evaluator, reading Azure SQL like the main model.${az.powerBi?.agentEvaluatorDatasetId ? ` ${MODEL_UPDATE_NOTE}` : ''}` });
+  const transcripts = transcriptAccessReview(ctx.config);
+  creates.push(...transcripts.creates);
   if (consumption && flowsWanted(ctx.config).includes('studio')) creates.push({ kind: 'Power Automate flow', name: 'Copilot Studio credits', isNew: !ctx.config.uploads.flowIds?.studio, detail: `Daily, signed in as you; saves to ${azureDropLabel(az)}. The installer helps you sign in to its connections, then turns it on.` });
   if (flowsWanted(ctx.config).includes('agents')) creates.push({ kind: 'Power Automate flow', name: 'Agent inventory', isNew: !ctx.config.uploads.flowIds?.agents, detail: `Daily, signed in as an admin; saves to ${azureDropLabel(az, AZURE_LANDING_DIRS.argInventory)} for when Resource Graph returns no agents. The installer helps you sign in to its connections, then turns it on.` });
   /** @type {{ who: string, what: string, where: string, detail?: string }[]} */
@@ -1317,6 +1326,7 @@ export function azurePlanReview(ctx) {
       ...consumptionGrants,
       ...argGrants,
       ...askGrants(az),
+      ...transcripts.grants,
     ],
     runsOn: [
       { what: 'Azure resources', where: `${az.subscriptionName ?? az.subscriptionId} / ${az.resourceGroup} / ${az.location}`, detail: `Incremental ARM deployment. Deletes are not applied by the template.${az.sqlLocation ? ` Azure SQL goes in ${az.sqlLocation}.` : ''}` },
@@ -1409,6 +1419,7 @@ export async function confirmAzurePlan(ctx) {
     ui.info(`Azure AI:    ${ds.azureAi === 'api' && config.consumption.azureSubscriptionId ? config.consumption.azureSubscriptionName ?? config.consumption.azureSubscriptionId : 'Left out'}`);
   }
   if (azureResourceGraphOn(config)) ui.info(`Governance:  ${resourceGraphKinds(config)} from Azure Resource Graph, in ${scopeName(config)}`);
+  azureAgentEvaluatorConfirmLine(ctx);
   ui.info(`Ask:         ${askLine(az)}`);
   if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)}`);
   const sql = plannedSql(az, await liveSqlSettings(ctx).catch(() => ({})));
@@ -1451,7 +1462,7 @@ export async function installAzure(ctx, opts) {
   const titles = [
     'Resource group', 'Azure resources', 'Entra applications', 'Microsoft Graph permissions', ...(consumption ? ['Credit consumption'] : []), ...(agent365 ? ['Agent 365 export'] : []),
     ...(feedback ? ['Product feedback export'] : []), ...(workday ? ['Workday export'] : []), ...(resourceGraph ? ['Resource Graph access'] : []),
-    ...(askAccess ? ['Ask model access'] : []),
+    ...(askAccess ? ['Ask model access'] : []), ...(azureTranscriptStepWanted(config) ? ['Transcript access'] : []),
     'Power BI model', ...(withAccess ? ['Viewer access'] : []), 'Azure resources (final)', 'Database migration', ...(rlsOn(config) ? ['Org-scoped access'] : []),
     ...(flows ? ['Power Automate flow'] : []), 'Teams app', ...(ctx.reloadHistoryDays ? ['Reload audit history'] : ctx.runFirstLoad ? ['First load'] : []),
   ];
@@ -1518,6 +1529,13 @@ export async function installAzure(ctx, opts) {
   if (askAccess) {
     step('Ask model access');
     await ensureAzureAskAccess(ctx);
+  }
+
+  // Before the model, whose scheduled refresh waits until the jobs' managed identity can read an environment.
+  if (azureTranscriptStepWanted(config)) {
+    step('Transcript access');
+    await ensureAzureTranscriptAccess(ctx);
+    ctx.save();
   }
 
   step('Power BI model');
@@ -1822,13 +1840,21 @@ async function ensureAzurePowerBi(ctx, sqlReaderSecret) {
   const ae = await ensureAzureAgentEvaluatorModel(ctx, server, database);
   if (isPrivate(az)) await bindThroughVnetGateway(ctx, sqlReaderSecret);
   else await bindPowerBiCredentials(ctx, sqlReaderSecret);
-  for (const id of [az.powerBi.datasetId, cc, ae]) if (id) await api.powerBi.setRefreshSchedule(/** @type {string} */ (az.powerBi.workspaceId), id, refreshScheduleBody(ctx));
+  for (const id of [az.powerBi.datasetId, cc, azureAgentEvaluatorRefreshes(config) ? ae : undefined]) if (id) await api.powerBi.setRefreshSchedule(/** @type {string} */ (az.powerBi.workspaceId), id, refreshScheduleBody(ctx));
   // A kept Consumption model stops refreshing; one deleted since has nothing to turn off. Power BI wants nothing
   // else in a request that turns a schedule off.
   const kept = azureConsumptionModelDeployed(config) ? undefined : az.powerBi.consumptionDatasetId;
   if (kept) {
     await api.powerBi.setRefreshSchedule(/** @type {string} */ (az.powerBi.workspaceId), kept, { value: { enabled: false } }).catch((err) => {
       if (!(err instanceof HttpError && err.status === 404)) ui.warn(`Couldn't turn off the scheduled refresh of ${config.consumption.model.name}: ${err.message}. Turn it off in the model's settings in Power BI.`);
+    });
+  }
+  // A kept Agent Evaluator model, or one no environment can be read for yet, doesn't refresh; one deleted since has
+  // nothing to turn off. Power BI wants nothing else in a request that turns a schedule off.
+  const kept = azureAgentEvaluatorRefreshes(config) ? undefined : az.powerBi.agentEvaluatorDatasetId;
+  if (kept) {
+    await api.powerBi.setRefreshSchedule(/** @type {string} */ (az.powerBi.workspaceId), kept, { value: { enabled: false } }).catch((err) => {
+      if (!(err instanceof HttpError && err.status === 404)) ui.warn(`Couldn't turn off the scheduled refresh of ${config.agentEvaluator.model.name}: ${err.message}. Turn it off in the model's settings in Power BI.`);
     });
   }
 }
@@ -1885,7 +1911,7 @@ async function ensureAzureAgentEvaluatorModel(ctx, server, database) {
 }
 
 /** The Power BI models in use on this install, which read the database. @param {import('../../config.js').InstallConfig} config */
-const azureDatasetIds = (config) => /** @type {string[]} */ ([config.azure?.powerBi?.datasetId, azureConsumptionModelDeployed(config) && config.azure?.powerBi?.consumptionDatasetId, config.azure?.powerBi?.agentEvaluatorDatasetId].filter(Boolean));
+const azureDatasetIds = (config) => /** @type {string[]} */ ([config.azure?.powerBi?.datasetId, azureConsumptionModelDeployed(config) && config.azure?.powerBi?.consumptionDatasetId, azureAgentEvaluatorModelDeployed(config) && config.azure?.powerBi?.agentEvaluatorDatasetId].filter(Boolean));
 
 /** @param {Ctx} ctx @param {string} secret */
 async function bindPowerBiCredentials(ctx, secret) {
@@ -2163,8 +2189,8 @@ export async function azureRefresh(ctx) {
     await ctx.api.powerBi.refresh(az.powerBi.workspaceId, /** @type {string} */ (az.powerBi.consumptionDatasetId), { type: 'full', commitMode: 'transactional', retryCount: 1 });
     ctx.ui.ok(`Started a refresh of ${ctx.config.consumption.model.name}`);
   }
-  if (az.powerBi.agentEvaluatorDatasetId) {
-    await ctx.api.powerBi.refresh(az.powerBi.workspaceId, az.powerBi.agentEvaluatorDatasetId, { type: 'full', commitMode: 'transactional', retryCount: 1 });
+  if (azureAgentEvaluatorRefreshes(ctx.config)) {
+    await ctx.api.powerBi.refresh(az.powerBi.workspaceId, /** @type {string} */ (az.powerBi.agentEvaluatorDatasetId), { type: 'full', commitMode: 'transactional', retryCount: 1 });
     ctx.ui.ok(`Started a refresh of ${ctx.config.agentEvaluator.model.name}`);
   }
   return { ok: true, status: requestId };
@@ -2180,7 +2206,7 @@ export async function azureStatus(ctx) {
   if (az.outputs?.webUrl) ui.info(`Web app:        ${az.outputs.webUrl}`);
   if (az.powerBi?.workspaceId) ui.info(`Power BI:       ${az.powerBi.workspaceId}${az.powerBi.datasetId ? ` / ${az.powerBi.datasetId}` : ''}`);
   if (az.powerBi?.consumptionDatasetId) ui.info(`Consumption:    ${az.powerBi.consumptionDatasetId}`);
-  if (az.powerBi?.agentEvaluatorDatasetId) ui.info(`Evaluator:      ${az.powerBi.agentEvaluatorDatasetId}`);
+  if (azureAgentEvaluatorModelDeployed(config)) ui.info(`Evaluator:      ${az.powerBi?.agentEvaluatorDatasetId}`);
   if (azureConsumptionOn(config) && config.dataSources.studioCredits !== 'skip') ui.info(`Credit files:   ${azureDropLabel(az)}`);
   if (azureAgent365On(config)) ui.info(`Agent 365 CSV:  ${azureDropLabel(az, AZURE_LANDING_DIRS.agent365)}`);
   if (azureProductFeedbackOn(config)) ui.info(`Feedback CSV:   ${azureDropLabel(az, AZURE_LANDING_DIRS.productFeedback)}`);
@@ -2189,6 +2215,7 @@ export async function azureStatus(ctx) {
   expiry(ctx, 'SQL reader secret', az.sqlReader?.secretExpiry);
   for (const p of az.graphRoles?.pending ?? []) ui.warn(`Pending admin action: grant ${p} to the managed identity.`);
   for (const action of az.status?.pendingAdminActions ?? []) ui.warn(`Pending admin action: ${action}`);
+  await azureTranscriptStatus(ctx);
   for (const [label, name] of [['Run job', az.outputs?.runJobName], ['Migrate job', az.outputs?.migrateJobName]]) {
     if (!name) continue;
     ui.heading(label);
@@ -2316,6 +2343,8 @@ export async function azureUninstall(ctx, opts = {}) {
   // Asked first, and the Teams app's sign-in next, so nothing waits on a person during the long deletes.
   const deleteWorkspace = check?.state === 'created' && (await ui.confirm(`Delete Power BI workspace "${workspace}" and everything in it, including the semantic models?`, true));
   await removeTeamsApp(ctx);
+  // Before the resource group, which takes the managed identity with it.
+  await removeAzureTranscriptAccess(ctx);
   if (pbi?.workspaceId) {
     if (deleteWorkspace) await deletePowerBiWorkspace(ctx, pbi, workspace);
     else if (!check) ui.note('Left the Power BI workspace you chose alone, because the installer didn\'t create it. Delete the Analytics Hub semantic models in it if you no longer need them.');
@@ -2386,13 +2415,14 @@ export async function azureSummary(ctx, opts = {}) {
   if (azureAgent365On(config)) ui.info(`Agent 365:  drop the export in ${azureDropLabel(az, AZURE_LANDING_DIRS.agent365)}. Each run loads the newest one.`);
   if (azureProductFeedbackOn(config)) ui.info(`Feedback:   drop exports in ${azureDropLabel(az, AZURE_LANDING_DIRS.productFeedback)}. Each run loads them all and removes duplicates by Feedback Id.`);
   if (azureWorkdayOn(config)) ui.info(`Workday:    drop the export in ${azureDropLabel(az, AZURE_LANDING_DIRS.workday)}. Each run loads the newest one.`);
-  if (az.powerBi?.agentEvaluatorDatasetId) ui.info(`Evaluator:  model ${az.powerBi.agentEvaluatorDatasetId}`);
+  if (azureAgentEvaluatorModelDeployed(config)) ui.info(`Evaluator:  model ${az.powerBi?.agentEvaluatorDatasetId}`);
   const teamsPending = az.status?.pendingAdminActions?.find((a) => a.startsWith(`${TEAMS_APP_PENDING}: `));
   if (teamsPending) ui.info(`Teams:      Not published yet. A Teams Administrator needs to ${teamsPending.slice(TEAMS_APP_PENDING.length + 2)}`);
   else if (az.teamsApp) ui.info(`Teams:      Analytics Hub ${az.teamsApp.version} in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app.`);
   else if (az.teamsPackage) ui.info(`Teams:      ${az.teamsPackage}`);
   ui.info(`Ask:        ${askLine(az)}`);
   for (const line of accessSummaryLines(config)) ui.info(line);
+  azureAgentEvaluatorSummary(ctx);
   if (flowsWanted(config).length) flowsSummary(ctx);
   ui.info('Record:     Keep valuelens-install.json. It holds no secrets.');
 }

@@ -91,7 +91,7 @@ export const MODULES = {
     required: false,
     defaultOn: false,
     permissions: [],
-    azure: { supported: false, graphRoles: [] },
+    azure: { supported: true, graphRoles: [] },
     pipelineParameter: null,
   },
   defender: {

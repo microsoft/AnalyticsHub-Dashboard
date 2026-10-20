@@ -669,6 +669,24 @@ def test_collect_and_publish_follow_the_agent_evaluator_module(tmp_path, monkeyp
     assert ae.STATUS.startswith(ae.prefix("evaluator_status") + "/")
 
 
+def test_the_agent_evaluator_model_refreshes_only_once_transcripts_can_be_read(monkeypatch, caplog):
+    from valuelens_jobs import refresh as rf
+
+    refreshed = []
+    monkeypatch.setattr(rf.Refresher, "refresh", lambda self, ws, ds, **k: refreshed.append(ds))
+    models = {"vl": {"workspaceId": "ws", "itemId": "ds-vl"}, "ae": {"workspaceId": "ws", "itemId": "ds-ae"}}
+    caplog.set_level("INFO", logger="valuelens_jobs.refresh")
+    # The installer lists the model once it's deployed, and adds the module once some environment can be read.
+    assert rf.refresh_models(object(), Settings(modules=frozenset({"core"}), semantic_models=models)) == ["vl"]
+    assert refreshed == ["ds-vl"]
+    assert "ae skipped; agentEvaluator isn't in VALUELENS_MODULES" in caplog.text
+    refreshed.clear()
+    on = Settings(modules=frozenset({"core", "agentEvaluator"}), semantic_models=models)
+    assert rf.refresh_models(object(), on) == ["vl", "ae"]
+    assert refreshed == ["ds-vl", "ds-ae"]
+    assert rf.MODEL_MODULES == {"ae": "agentEvaluator"}
+
+
 def _v008_tables() -> dict:
     sql = V008.read_text(encoding="utf-8")
     out = {}

@@ -17,6 +17,7 @@ import { azureConsumptionModelDeployed, grantLandingWrite, isPrivate, startAndWa
 import { createdId } from './fabric.js';
 import { deployedRoles, refreshModel } from './model.js';
 import { BUSY_RETRIES, BUSY_WAIT_MS, capacityBusy, waitForJob } from './run.js';
+import { azureAgentEvaluatorModelDeployed } from './azure/agent-evaluator.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 /** @typedef {import('../transform/access.js').AccessModelKind} AccessModelKind */
@@ -253,7 +254,7 @@ export function rlsModels(config) {
     return [
       ...(pbi.datasetId ? [{ kind: /** @type {const} */ ('valuelens'), workspaceId: ws, datasetId: pbi.datasetId, name: config.semanticModel.name, model: config.semanticModel }] : []),
       ...(azureConsumptionModelDeployed(config) ? [{ kind: /** @type {const} */ ('consumption'), workspaceId: ws, datasetId: /** @type {string} */ (pbi.consumptionDatasetId), name: config.consumption.model.name, model: config.consumption.model }] : []),
-      ...(pbi.agentEvaluatorDatasetId ? [{ kind: /** @type {const} */ ('agentEvaluator'), workspaceId: ws, datasetId: pbi.agentEvaluatorDatasetId, name: config.agentEvaluator.model.name, model: config.agentEvaluator.model }] : []),
+      ...(azureAgentEvaluatorModelDeployed(config) ? [{ kind: /** @type {const} */ ('agentEvaluator'), workspaceId: ws, datasetId: /** @type {string} */ (pbi.agentEvaluatorDatasetId), name: config.agentEvaluator.model.name, model: config.agentEvaluator.model }] : []),
     ];
   }
   const ws = config.fabric.workspaceId;

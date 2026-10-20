@@ -22,6 +22,9 @@ ENHANCED_ALL = {**ENHANCED, "applyRefreshPolicy": False}
 STANDARD = {"notifyOption": "NoNotification"}
 # The template's incremental refresh policy reloads the 7 days before today (offset -1).
 INCREMENTAL_DAYS = 7
+# Models refreshed only while their module is on. VALUELENS_SEMANTIC_MODELS also feeds the web app, which lists
+# the Agent Evaluator model as soon as it's deployed; the jobs leave it alone until some environment can be read.
+MODEL_MODULES = {"ae": "agentEvaluator"}
 
 
 def needs_full_refresh(publish_results, today) -> bool:
@@ -112,6 +115,10 @@ def refresh_models(api, settings, *, all_partitions=False, **kwargs) -> list[str
     r = Refresher(api, **kwargs)
     done = []
     for name, ref in models.items():
+        module = MODEL_MODULES.get(name)
+        if module and not settings.has(module):
+            log.info("refresh: %s skipped; %s isn't in VALUELENS_MODULES, so nothing loads into it", name, module)
+            continue
         ws = (ref or {}).get("workspaceId") or settings.powerbi_workspace_id
         ds = (ref or {}).get("itemId") or (ref or {}).get("datasetId")
         if not ws or not ds:
