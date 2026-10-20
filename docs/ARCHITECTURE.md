@@ -92,6 +92,37 @@ flowchart LR
 <a id="copilot-managed-app"></a>
 Parked ideas, like the Copilot Managed App, are in [ideas](../ideas/README.md). They aren't supported.
 
+## How the app opens
+
+The app is the same on Fabric and Azure. It sends at most four queries at a time, and the rest
+wait their turn. A background query waits until nothing else is running or waiting. So when the
+app opens on the **Executive summary**, it sends only what that page's first view shows:
+
+- the date the data runs to, and the filter options;
+- one query that counts the rows in each optional source. If it fails for any reason but a busy
+  model, the app counts each source on its own;
+- the summary, its hours range and the hours trend, which go ahead of the other queries waiting.
+  With no date filter, the trend finds its own six months, so it doesn't wait for the dates. None
+  waits for the task times saved in the app: each is asked again only if the saved times differ;
+- Consumption Central's rates, and one query for its credits in the trend's months and in the date
+  range. The credits wait for the dates;
+- with [org-scoped access](PERMISSIONS.md#org-scoped-access-row-level-security) on, which orgs the
+  viewer can see.
+
+That's eight queries, or nine with org-scoped access. Two more load in the background: whether
+the last data load finished, and the org columns. The org columns are what a breakdown by org can
+group by, and what **Group by** lists, so **Group by** appears once they've loaded. They move on
+screen when a filter menu other than the dates opens, or when a breakdown by org shows; the
+Executive summary's first tab has none. What only a filter menu shows loads when a menu other
+than the dates first opens: the org values, and Consumption Central's org attributes, which also
+load once an org filter is set. The org menu lists values only once the org columns have settled
+which column is in use, so it never lists one column's values under another's name. Its first open
+takes about a second as the values load, or longer if the org columns are still loading: until
+they settle the column, the values of the column in use load beside them.
+
+Once the page has loaded, the app fetches each other page's first tab in the background. See
+[How pages load](../app/README.md#how-pages-load).
+
 ## Running costs
 
 Analytics Hub itself is free. It runs on services your organisation pays for. Prices vary by

@@ -6,7 +6,44 @@
 //-----------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
-import { ALL_UNKNOWN, isAbsent, readSourceState } from "./optional-sources";
+import {
+    ALL_UNKNOWN,
+    isAbsent,
+    mergedSourceProbe,
+    OPTIONAL_SOURCES,
+    readMergedSourceState,
+    readSourceState,
+    SOURCE_PROBES,
+} from "./optional-sources";
+
+describe("mergedSourceProbe", () => {
+    it("counts each source asked in one row, in a column named after it, as its own probe counts it", () => {
+        const query = mergedSourceProbe(["resourceGraph", "m365Activity"]);
+        expect(query).toBe(
+            `EVALUATE ROW(\n    "m365Activity", COUNTROWS('M365 Activity'),\n    "resourceGraph", COUNTROWS('Agent Configuration') + COUNTROWS('Foundry Resources')\n)`,
+        );
+        for (const source of OPTIONAL_SOURCES) {
+            const count = SOURCE_PROBES[source].replace(/^EVALUATE ROW\("Rows", (.*)\)$/, "$1");
+            expect(mergedSourceProbe(OPTIONAL_SOURCES)).toContain(`"${source}", ${count}`);
+        }
+    });
+
+    it("is empty when no source is asked", () => {
+        expect(mergedSourceProbe([])).toBe("");
+    });
+});
+
+describe("readMergedSourceState", () => {
+    it("reads each source's count from its own column, as its own probe's row is read", () => {
+        const row = { "[m365Activity]": 42, "[productFeedback]": 0, "[agentRegistry]": null, "[defender]": 3 };
+        expect(readMergedSourceState(row, "m365Activity")).toBe("present");
+        expect(readMergedSourceState(row, "productFeedback")).toBe("absent");
+        expect(readMergedSourceState(row, "agentRegistry")).toBe("absent");
+        expect(readMergedSourceState(row, "defender")).toBe("present");
+        expect(readMergedSourceState(row, "resourceGraph")).toBe("absent");
+        expect(readMergedSourceState(undefined, "defender")).toBe("absent");
+    });
+});
 
 describe("readSourceState", () => {
     it("waits while the probe hasn't answered", () => {

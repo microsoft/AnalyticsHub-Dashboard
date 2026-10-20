@@ -21,6 +21,11 @@ interface UseSemanticModelQueryOptions {
     bypassCache?: boolean;
     /** The page's first view waits on this query: on screen it goes ahead of the other queries waiting. */
     lead?: boolean;
+    /**
+     * Nothing on screen waits on this query, so it waits in the background lane until the screen
+     * has loaded. Turning it off moves a query still waiting to the screen's lane.
+     */
+    background?: boolean;
 }
 
 interface UseSemanticModelQueryResult {
@@ -88,7 +93,7 @@ type Execute = (fresh?: boolean, signal?: AbortSignal) => Promise<void>;
 export function useSemanticModelQuery(
     options: UseSemanticModelQueryOptions,
 ): UseSemanticModelQueryResult {
-    const { connection, query, bypassCache, lead } = options;
+    const { connection, query, bypassCache, lead, background } = options;
     const [data, setData] = useState<CachedQueryResult | undefined>();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<Error | undefined>();
@@ -110,7 +115,7 @@ export function useSemanticModelQuery(
     const leading = useRef(lead);
 
     const canExecute = Boolean(connection && query);
-    const priority = useIsPrefetch() ? "low" : "normal";
+    const priority = useIsPrefetch() || background ? "low" : "normal";
 
     // Declared before the effect that asks, so an ask made in the same commit sees the change.
     useEffect(() => {

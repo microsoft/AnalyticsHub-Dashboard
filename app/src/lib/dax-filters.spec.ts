@@ -6,7 +6,7 @@
 //-----------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
-import { addQueryDefinitions, applyDaxFilters, dateBetween, daxString, treatAs } from "./dax-filters";
+import { addQueryDefinitions, applyDaxFilters, dateBetween, daxString, evaluateBody, treatAs, wrapEvaluateBodies } from "./dax-filters";
 
 const squash = (text: string) => text.replace(/\s+/g, " ").trim();
 
@@ -74,6 +74,38 @@ describe("applyDaxFilters", () => {
     it("is case-insensitive about statement keywords", () => {
         const result = applyDaxFilters("evaluate ROW(\"A\", 1) order by [A]", ["F"]);
         expect(squash(result)).toBe(squash(`evaluate CALCULATETABLE( ROW("A", 1) , F ) order by [A]`));
+    });
+});
+
+describe("wrapEvaluateBodies", () => {
+    const wrap = (body: string) => `\nWRAPPED(\n${body}\n)\n`;
+
+    it("hands each EVALUATE body to the wrap, leaving DEFINE and ORDER BY where they are", () => {
+        const query = 'DEFINE\n    VAR X = 1\nEVALUATE\nROW("A", X)\nORDER BY [A]';
+        expect(wrapEvaluateBodies(query, wrap)).toBe('DEFINE\n    VAR X = 1\nEVALUATE\nWRAPPED(\nROW("A", X)\n)\nORDER BY [A]');
+    });
+
+    it("wraps every EVALUATE of a multi-statement query", () => {
+        expect(wrapEvaluateBodies("EVALUATE A\nEVALUATE B", (body) => ` W(${body})\n`)).toBe("EVALUATE W(A)\nEVALUATE W(B)\n");
+    });
+
+    it("leaves a query without an EVALUATE body alone", () => {
+        expect(wrapEvaluateBodies("DEFINE VAR X = 1", wrap)).toBe("DEFINE VAR X = 1");
+    });
+});
+
+describe("evaluateBody", () => {
+    it("returns the first EVALUATE's body without the statements around it", () => {
+        const query = 'DEFINE\n    VAR X = 1\nEVALUATE\nROW("A", X) // last\nORDER BY [A]\nEVALUATE ROW("B", 2)';
+        expect(evaluateBody(query)).toBe('ROW("A", X) // last');
+    });
+
+    it("ignores keywords inside strings and nested calls", () => {
+        expect(evaluateBody('EVALUATE ROW("ORDER BY", CALCULATE(1)) ORDER BY [ORDER BY]')).toBe('ROW("ORDER BY", CALCULATE(1))');
+    });
+
+    it("is empty when the query has no EVALUATE", () => {
+        expect(evaluateBody("DEFINE VAR X = 1")).toBe("");
     });
 });
 

@@ -43,10 +43,10 @@ afterEach(() => {
 });
 
 describe("useLoadStatus", () => {
-    it("reads the latest run's load outcomes from the ValueLens model, unfiltered", () => {
+    it("reads the latest run's load outcomes from the ValueLens model, unfiltered, in the background lane", () => {
         useSemanticModelQuery.mockReturnValue({ data: ROWS, isLoading: false, error: undefined, refetch: vi.fn() });
         const { result } = renderHook(() => useLoadStatus(true));
-        expect(useSemanticModelQuery).toHaveBeenCalledWith({ connection: "vl", query: loadStatus().query });
+        expect(useSemanticModelQuery).toHaveBeenCalledWith({ connection: "vl", query: loadStatus().query, background: true });
         expect(result.current).toEqual([
             {
                 activity: "Run_Agent_Evaluator_Transcripts",

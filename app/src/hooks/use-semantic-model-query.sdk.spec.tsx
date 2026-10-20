@@ -548,3 +548,82 @@ describe("useSemanticModelQuery once a card has moved on from a query", () => {
         },
     );
 });
+
+describe("useSemanticModelQuery in the background lane", () => {
+    function gate() {
+        let open!: () => void;
+        const shut = new Promise<void>((resolve) => {
+            open = resolve;
+        });
+        return { shut, open };
+    }
+    type Props = { background: boolean };
+
+    it("waits while a query on screen loads, and moves on screen, sent once, when it stops being background", async () => {
+        const probe = gate();
+        const { scheduler, sent } = setup(async (_model, query) => {
+            if (query === "PROBE") await probe.shut;
+            return ANSWER;
+        });
+        renderHook(() => useSemanticModelQuery({ connection: "vl", query: "PROBE" }));
+        const card = renderHook((props: Props) => useSemanticModelQuery({ connection: "vl", query: "Q", ...props }), {
+            initialProps: { background: true },
+        });
+        await tick(0);
+        expect(sent("Q")).toBe(0);
+        expect(scheduler.activity()).toMatchObject({ foreground: 1, background: 1 });
+
+        card.rerender({ background: false });
+        await tick(0);
+        expect(sent("Q")).toBe(1);
+        expect(card.result.current.data).toMatchObject({ status: "success" });
+        expect(card.result.current.error).toBeUndefined();
+        expect(scheduler.activity()).toMatchObject({ foreground: 1, background: 0 });
+
+        probe.open();
+        await tick(60_000);
+        expect(sent("Q")).toBe(1);
+    });
+
+    it("keeps a background query already sent: the card reads its answer rather than sending it again", async () => {
+        const answer = gate();
+        const { sent } = setup(async (_model, query) => {
+            if (query === "Q") await answer.shut;
+            return ANSWER;
+        });
+        const card = renderHook((props: Props) => useSemanticModelQuery({ connection: "vl", query: "Q", ...props }), {
+            initialProps: { background: true },
+        });
+        await tick(0);
+        expect(sent("Q")).toBe(1);
+
+        card.rerender({ background: false });
+        await tick(0);
+        answer.open();
+        await tick(0);
+        expect(card.result.current.data).toMatchObject({ status: "success" });
+        expect(sent("Q")).toBe(1);
+    });
+
+    it("stays in the background on a page fetched ahead, background or not", async () => {
+        const probe = gate();
+        const { scheduler, sent } = setup(async (_model, query) => {
+            if (query === "PROBE") await probe.shut;
+            return ANSWER;
+        });
+        renderHook(() => useSemanticModelQuery({ connection: "vl", query: "PROBE" }));
+        const card = renderHook((props: Props) => useSemanticModelQuery({ connection: "vl", query: "Q", ...props }), {
+            initialProps: { background: true },
+            wrapper: ({ children }) => <PrefetchContext.Provider value>{children}</PrefetchContext.Provider>,
+        });
+        await tick(0);
+        card.rerender({ background: false });
+        await tick(0);
+        expect(sent("Q")).toBe(0);
+        expect(scheduler.activity()).toMatchObject({ foreground: 1, background: 1 });
+
+        probe.open();
+        await tick(0);
+        expect(sent("Q")).toBe(1);
+    });
+});

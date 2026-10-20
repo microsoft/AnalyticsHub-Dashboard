@@ -6,41 +6,87 @@
 //-----------------------------------------------------------------------
 
 import { useMemo } from "react";
-import { readSourceState, SOURCE_PROBES, type SourceAvailability, type SourceState } from "@/lib/optional-sources";
-import { runtimeConfig } from "@/lib/runtime-config";
+import {
+    mergedSourceProbe,
+    OPTIONAL_SOURCES,
+    readMergedSourceState,
+    readSourceState,
+    SOURCE_PROBES,
+    type OptionalSource,
+    type SourceAvailability,
+    type SourceState,
+} from "@/lib/optional-sources";
+import { isBusyMessage } from "@/lib/query-scheduler";
+import { runtimeConfig, type RuntimeModules } from "@/lib/runtime-config";
 import { toSummaryRow } from "@/lib/summary-row";
 import { connection } from "@/queries/shared";
 import { useSemanticModelQuery } from "./use-semantic-model-query";
 
-function useProbe(query: string, configured: boolean | undefined): SourceState {
-    const disabled = configured === false;
-    const { data, error } = useSemanticModelQuery({ connection, query: disabled ? "" : query });
+/** The installer module behind each source. */
+const MODULE: Readonly<Record<OptionalSource, keyof RuntimeModules>> = {
+    m365Activity: "m365Activity",
+    productFeedback: "productFeedback",
+    agentRegistry: "agent365",
+    defender: "defender",
+    resourceGraph: "resourceGraph",
+};
+
+/** The installer says the admin left the source's module off. One that says nothing is probed. */
+function leftOff(modules: RuntimeModules | undefined, source: OptionalSource): boolean {
+    return modules?.[MODULE[source]] === false;
+}
+
+/** One source's own probe, asked only once the merged probe has failed. */
+function useProbe(source: OptionalSource, ask: boolean): SourceState {
+    const { data, error } = useSemanticModelQuery({ connection, query: ask ? SOURCE_PROBES[source] : "" });
     return useMemo(
-        () => {
-            if (disabled) return "notConfigured";
-            return readSourceState({
+        () =>
+            readSourceState({
                 row: data?.status === "success" ? toSummaryRow(data.table) : undefined,
                 loaded: data?.status === "success",
                 error: data?.status === "error" ? data.error.message : error?.message,
-            });
-        },
-        [data, disabled, error],
+            }),
+        [data, error],
     );
 }
 
 /**
- * Probes each optional source once, without the filter bar, so a filter that
- * empties the selection never takes a page away.
+ * Probes the optional sources once, without the filter bar, so a filter that
+ * empties the selection never takes a page away. One query counts every source
+ * the installer didn't leave off. A model missing any of their tables fails it,
+ * so when it fails for any reason but Power BI being busy, each source is asked
+ * on its own as before, and a missing table still reads as absent.
  */
 export function useSourceProbes(): SourceAvailability {
     const modules = runtimeConfig().modules;
-    const m365Activity = useProbe(SOURCE_PROBES.m365Activity, modules?.m365Activity);
-    const productFeedback = useProbe(SOURCE_PROBES.productFeedback, modules?.productFeedback);
-    const agentRegistry = useProbe(SOURCE_PROBES.agentRegistry, modules?.agent365);
-    const defender = useProbe(SOURCE_PROBES.defender, modules?.defender);
-    const resourceGraph = useProbe(SOURCE_PROBES.resourceGraph, modules?.resourceGraph);
-    return useMemo(
-        () => ({ m365Activity, productFeedback, agentRegistry, defender, resourceGraph }),
-        [m365Activity, productFeedback, agentRegistry, defender, resourceGraph],
-    );
+    const merged = useSemanticModelQuery({
+        connection,
+        query: mergedSourceProbe(OPTIONAL_SOURCES.filter((source) => !leftOff(modules, source))),
+    });
+    const failure = merged.data?.status === "error" ? merged.data.error.message : merged.error?.message;
+    const alone = failure !== undefined && !isBusyMessage(failure);
+    const m365Activity = useProbe("m365Activity", alone && !leftOff(modules, "m365Activity"));
+    const productFeedback = useProbe("productFeedback", alone && !leftOff(modules, "productFeedback"));
+    const agentRegistry = useProbe("agentRegistry", alone && !leftOff(modules, "agentRegistry"));
+    const defender = useProbe("defender", alone && !leftOff(modules, "defender"));
+    const resourceGraph = useProbe("resourceGraph", alone && !leftOff(modules, "resourceGraph"));
+    const answer = merged.data;
+    return useMemo(() => {
+        const own: SourceAvailability = { m365Activity, productFeedback, agentRegistry, defender, resourceGraph };
+        const row = answer?.status === "success" ? toSummaryRow(answer.table) : undefined;
+        const state = (source: OptionalSource): SourceState => {
+            if (leftOff(modules, source)) return "notConfigured";
+            if (alone) return own[source];
+            if (failure !== undefined) return "unknown";
+            if (answer?.status !== "success") return "checking";
+            return readMergedSourceState(row, source);
+        };
+        return {
+            m365Activity: state("m365Activity"),
+            productFeedback: state("productFeedback"),
+            agentRegistry: state("agentRegistry"),
+            defender: state("defender"),
+            resourceGraph: state("resourceGraph"),
+        };
+    }, [modules, answer, failure, alone, m365Activity, productFeedback, agentRegistry, defender, resourceGraph]);
 }

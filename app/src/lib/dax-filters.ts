@@ -100,12 +100,11 @@ function findTopLevelKeywords(query: string): KeywordHit[] {
 }
 
 /**
- * Wraps every `EVALUATE` body in `CALCULATETABLE(..., filters)`.
- * Returns the query unchanged when there is nothing to apply.
+ * Replaces every `EVALUATE` body with what `wrap` makes of it, leaving
+ * `DEFINE`, `ORDER BY` and `START AT` where they are. The body may end in a
+ * line comment, so `wrap` should start a new line after it.
  */
-export function applyDaxFilters(query: string, filters: readonly string[]): string {
-    if (filters.length === 0) return query;
-
+export function wrapEvaluateBodies(query: string, wrap: (body: string) => string): string {
     const hits = findTopLevelKeywords(query);
     let result = query;
 
@@ -118,12 +117,31 @@ export function applyDaxFilters(query: string, filters: readonly string[]): stri
         const body = query.slice(hit.end, bodyEnd).trim();
         if (!body) continue;
 
-        // The body goes on its own lines so a trailing line comment cannot swallow the filters.
-        const wrapped = `\nCALCULATETABLE(\n${body}\n,\n    ${filters.join(",\n    ")}\n)\n`;
-        result = result.slice(0, hit.end) + wrapped + result.slice(bodyEnd);
+        result = result.slice(0, hit.end) + wrap(body) + result.slice(bodyEnd);
     }
 
     return result;
+}
+
+/**
+ * Wraps every `EVALUATE` body in `CALCULATETABLE(..., filters)`.
+ * Returns the query unchanged when there is nothing to apply.
+ */
+export function applyDaxFilters(query: string, filters: readonly string[]): string {
+    if (filters.length === 0) return query;
+    // The body goes on its own lines so a trailing line comment cannot swallow the filters.
+    return wrapEvaluateBodies(query, (body) => `\nCALCULATETABLE(\n${body}\n,\n    ${filters.join(",\n    ")}\n)\n`);
+}
+
+/**
+ * The body of a query's first `EVALUATE`, without the statements around it,
+ * so it can be asked again inside another query. Empty when there is none.
+ */
+export function evaluateBody(query: string): string {
+    const hits = findTopLevelKeywords(query);
+    const index = hits.findIndex((hit) => hit.keyword === "EVALUATE");
+    if (index === -1) return "";
+    return query.slice(hits[index].end, hits[index + 1]?.start ?? query.length).trim();
 }
 
 /**

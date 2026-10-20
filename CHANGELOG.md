@@ -191,6 +191,36 @@ empty state, as they already did on Fabric, where an answer with no rows still n
 Tests run an answer with no rows through the SDK's own parsing for each of the five, on Azure and
 on Fabric.
 
+**App: the Executive summary opens with fewer queries.** On Fabric and Azure, it now sends 8
+queries as it opens, the hours range's among them, or 9 with org-scoped access, rather than 18. The
+app runs at most four queries at a time, so the page's own queries wait behind fewer others. Its
+figures don't change. The 0.6.8 plan estimates that the page is ready 1.4 to 1.7 s sooner on
+0.6.8-rc.1's model with 20,000 people (est.).
+
+- **Filter menus load their choices when first opened.** The org values, and Consumption Central's
+  org attributes, load when a filter menu other than the dates first opens, so the org menu's first
+  open can take about a second. Opened before the org columns have loaded, it also waits for them,
+  up to about three seconds on a large tenant: it lists values only once it knows which column is in
+  use. Consumption Central's org attributes also load once an org filter is set.
+- **Group by appears a few seconds later.** The org columns now load in the background, and on screen as
+  soon as a filter menu or a breakdown by org needs them. On a model whose `Organization` column is
+  empty, the org filter takes the name of the column it falls back to once they load.
+- **The org menu lists only the column in use.** After **Group by** changes the column, the org menu
+  says its values are loading until the new column's arrive, rather than listing the last column's.
+- **One query checks the optional sources.** It counts the rows in each of them at once. If it fails
+  for any reason but a busy model, the app counts each source on its own, as before.
+- **One query for the credits.** The summary's Copilot Studio and Cowork credits, for the trend's
+  months and for the date range, now come in one query. They still wait for the dates.
+- **The trend doesn't wait for the dates.** With no date filter, it finds its own six months and
+  starts with the page's first queries. Like the summary and its hours range, it no longer waits for
+  the task times saved in the app, and is asked again only if they differ.
+- **Load status loads in the background**, and the app asks which orgs the viewer can see only when
+  org-scoped access is on.
+- **On Azure, the app is told when org-scoped access is on.** The web app's `/app.config.json` now
+  passes on the org attribute that row-level security filters on, as the installer meant. So the app
+  still asks which orgs the viewer can see there, and the Share panel offers scoped delegation, which
+  the web app had left out until now.
+
 ## Analytics Hub installer 0.6.8-rc.1 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.1 is not published, and 0.6.7 remains Latest.

@@ -105,10 +105,13 @@ async function requireAuth(req, verifyToken, write, config, accessService) {
   return caller;
 }
 
-/** The parts of the access config the app shows: never more than the installer wrote. */
+/**
+ * The parts of the access config the app reads: never more than the installer wrote.
+ * `rlsOrgAttribute` tells it org-scoped access is on, so it asks who is signed in and offers scoped delegation.
+ */
 function publicAccess(access) {
-  const { groupId, groupName, contact, requestUrl } = access;
-  return { groupId, ...(groupName ? { groupName } : {}), ...(contact ? { contact } : {}), ...(requestUrl ? { requestUrl } : {}) };
+  const { groupId, groupName, contact, requestUrl, rlsOrgAttribute } = access;
+  return { groupId, ...(groupName ? { groupName } : {}), ...(contact ? { contact } : {}), ...(requestUrl ? { requestUrl } : {}), ...(rlsOrgAttribute ? { rlsOrgAttribute } : {}) };
 }
 
 export function start() {

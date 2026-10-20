@@ -154,11 +154,18 @@ interface MultiSelectFilterProps {
     allLabel: string;
     noun: string;
     choices: readonly string[] | undefined;
+    /** What the choices are values of, such as the org column. A search typed among them ends when it changes. */
+    choicesOf?: string;
 }
 
-function MultiSelectFilter({ filterKey, label, allLabel, noun, choices }: MultiSelectFilterProps) {
-    const { filters, setFilters } = useFilterContext();
+function MultiSelectFilter({ filterKey, label, allLabel, noun, choices, choicesOf }: MultiSelectFilterProps) {
+    const { filters, setFilters, requestFilterChoices } = useFilterContext();
     const [search, setSearch] = useState("");
+    const [searchedOf, setSearchedOf] = useState(choicesOf);
+    if (searchedOf !== choicesOf) {
+        setSearchedOf(choicesOf);
+        setSearch("");
+    }
     const selected = filters[filterKey];
     const searchId = useId();
 
@@ -181,6 +188,7 @@ function MultiSelectFilter({ filterKey, label, allLabel, noun, choices }: MultiS
             label={label}
             summary={summariseSelection(selected, allLabel, noun)}
             active={selected.length > 0}
+            onOpen={requestFilterChoices}
         >
             {() => (
                 <div className="flex flex-col gap-200">
@@ -242,10 +250,10 @@ function MultiSelectFilter({ filterKey, label, allLabel, noun, choices }: MultiS
  * which values the filter beside it offers.
  */
 function GroupByFilter() {
-    const { filters, setFilters, orgAttributes, orgAttribute } = useFilterContext();
+    const { filters, setFilters, orgAttributes, orgAttribute, requestFilterChoices } = useFilterContext();
 
     return (
-        <FilterMenu label="Group by" summary={orgAttribute.label} active={false}>
+        <FilterMenu label="Group by" summary={orgAttribute.label} active={false} onOpen={requestFilterChoices}>
             {(close) => (
                 <div className="flex flex-col gap-200">
                     <p className="px-200 text-[length:var(--text-200)] leading-200 text-muted-foreground">
@@ -339,13 +347,14 @@ export function FilterBar({ destinationLabel }: { destinationLabel: string }) {
             {has("dateRange") && <DateFilter />}
             {has("organizations") && orgAttributes.length > 1 && <GroupByFilter />}
             {has("organizations") && (
+                // Not keyed by the column: once the org columns load, they may change it while its menu is open.
                 <MultiSelectFilter
-                    key={orgAttribute.column}
                     filterKey="organizations"
                     label={orgAttribute.label}
                     allLabel={`All ${orgAttribute.plural}`}
                     noun={orgAttribute.plural}
                     choices={orgValues}
+                    choicesOf={orgAttribute.column}
                 />
             )}
             {has("licence") && (

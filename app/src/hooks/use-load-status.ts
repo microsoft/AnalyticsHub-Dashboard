@@ -25,12 +25,17 @@ export function clearLoadStatus(): void {
 /**
  * How each load went on the latest pipeline run, read once a session from the
  * ValueLens model's `Load Log` table, and only when `wanted`. A model without
- * the table, or a failed query, reads as no answer, never an error.
+ * the table, or a failed query, reads as no answer, never an error. Nothing on
+ * screen waits on it, so it's asked in the background lane, once the page has loaded.
  */
 export function useLoadStatus(wanted: boolean): readonly LoadStatus[] | undefined {
     const { semanticModels } = runtimeConfig();
     const ask = wanted && answer === undefined && isConnectionConfigured(semanticModels, QUERY.connection);
-    const { data, error } = useSemanticModelQuery({ connection: QUERY.connection, query: ask ? QUERY.query : "" });
+    const { data, error } = useSemanticModelQuery({
+        connection: QUERY.connection,
+        query: ask ? QUERY.query : "",
+        background: true,
+    });
 
     const fresh = useMemo(() => {
         if (!ask) return undefined;
