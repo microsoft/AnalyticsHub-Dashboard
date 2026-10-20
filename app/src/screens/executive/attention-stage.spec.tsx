@@ -8,7 +8,11 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { describe, expect, it, vi } from "vitest";
+import { FilterContext } from "@/hooks/filter.context";
 import { NavigationContext } from "@/hooks/navigation.context";
+import { DEPARTMENT_ADVICE } from "@/lib/department-coverage";
+import { defaultFilters } from "@/lib/filters";
+import { DEFAULT_ORG_ATTRIBUTE, describeOrgAttribute } from "@/lib/org-attribute";
 import type { SummaryRow } from "@/lib/summary-row";
 import { toDataTable } from "@/lib/to-data-table";
 import { agentEstateSummary } from "@/queries/agents";
@@ -79,6 +83,33 @@ function renderStage(shell?: ReactNode) {
 }
 
 const items = () => within(screen.getByRole("list")).getAllByRole("listitem");
+const trust = () => screen.getByRole("article", { name: "Can we trust these numbers?" });
+
+/**
+ * The stage with the summary's `[People With Organization]` at `have`, grouped
+ * by `column`. That measure counts everyone with a task once any org data is
+ * loaded, so nothing should be read from it.
+ */
+function renderWithOrgCount(have: number, column = DEFAULT_ORG_ATTRIBUTE) {
+    const row = { ...summaryRows[0], "[People With Organization]": have } as SummaryRow;
+    const filters = {
+        filters: defaultFilters,
+        setFilters: () => undefined,
+        options: undefined,
+        optionsError: undefined,
+        applicable: [],
+        orgAttribute: describeOrgAttribute(column),
+        orgAttributes: [DEFAULT_ORG_ATTRIBUTE, column],
+        orgValues: undefined,
+    };
+    render(
+        <FilterContext.Provider value={filters}>
+            <NavigationContext.Provider value={{ navigate: vi.fn() }}>
+                <AttentionStage data={{ ...data, summary: { ...data.summary, row } } as ExecutiveData} />
+            </NavigationContext.Provider>
+        </FilterContext.Provider>,
+    );
+}
 
 describe("What needs attention", () => {
     it("lists the decisions, the most people or ratings first, each saying whether it's a problem or an opportunity", () => {
@@ -106,7 +137,7 @@ describe("What needs attention", () => {
     it("says what the figures rest on", () => {
         renderStage();
         expect(screen.getByText("Reconciles with activity")).toBeTruthy();
-        expect(screen.getByText("180 of 180 people with a task have a department")).toBeTruthy();
+        expect(within(trust()).getByText("People with an organization").nextElementSibling?.textContent).toBe(DEPARTMENT_ADVICE);
         expect(
             screen.getByText(
                 "None of the 4,500 agent sessions match an agent it lists, so agents go by the names the audit log gives them. Updated 15 Sept 2026.",
@@ -114,13 +145,15 @@ describe("What needs attention", () => {
         ).toBeTruthy();
     });
 
-    it("says how to fill in departments when few people have one", () => {
-        const thin = { ...data, summary: { ...data.summary, row: { ...summaryRows[0], "[People With Organization]": 45 } } };
-        render(
-            <NavigationContext.Provider value={{ navigate: vi.fn() }}>
-                <AttentionStage data={thin as unknown as ExecutiveData} />
-            </NavigationContext.Provider>,
-        );
-        expect(screen.getByText(/^45 of 180 people with a task have a department\. .*Fill in Department on users in Microsoft Entra ID/)).toBeTruthy();
+    it.each([180, 45])("says how to fill in departments without counting who has one, whatever the summary counts (%i)", (have) => {
+        renderWithOrgCount(have);
+        expect(within(trust()).getByText("People with an organization").nextElementSibling?.textContent).toBe(DEPARTMENT_ADVICE);
+        expect(trust().textContent).not.toMatch(/have a department|people with a task|\d+ of [\d,]+ people/);
+    });
+
+    it("says nothing about people with another org attribute, which the summary never counted", () => {
+        renderWithOrgCount(180, "officeLocation");
+        expect(within(trust()).queryByText("People with an office location")).toBeNull();
+        expect(trust().textContent).not.toMatch(/people with a task/);
     });
 });
