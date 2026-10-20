@@ -1851,9 +1851,9 @@ async function ensureAzurePowerBi(ctx, sqlReaderSecret) {
   }
   // A kept Agent Evaluator model, or one no environment can be read for yet, doesn't refresh; one deleted since has
   // nothing to turn off. Power BI wants nothing else in a request that turns a schedule off.
-  const kept = azureAgentEvaluatorRefreshes(config) ? undefined : az.powerBi.agentEvaluatorDatasetId;
-  if (kept) {
-    await api.powerBi.setRefreshSchedule(/** @type {string} */ (az.powerBi.workspaceId), kept, { value: { enabled: false } }).catch((err) => {
+  const idleEvaluator = azureAgentEvaluatorRefreshes(config) ? undefined : az.powerBi.agentEvaluatorDatasetId;
+  if (idleEvaluator) {
+    await api.powerBi.setRefreshSchedule(/** @type {string} */ (az.powerBi.workspaceId), idleEvaluator, { value: { enabled: false } }).catch((err) => {
       if (!(err instanceof HttpError && err.status === 404)) ui.warn(`Couldn't turn off the scheduled refresh of ${config.agentEvaluator.model.name}: ${err.message}. Turn it off in the model's settings in Power BI.`);
     });
   }
