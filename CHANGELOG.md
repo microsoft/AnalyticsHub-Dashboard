@@ -75,6 +75,45 @@ everyone once any org data is loaded, so an answer could say everyone has one. T
 `/api/ask` now leaves that count out of what its model reads; the query is unchanged. On Fabric,
 Ask opens the Fabric data agent, which doesn't run that query.
 
+**Azure: a long history processes within the run job's memory and disk.** In an offline test at
+20,000 seats, processing 180 days of history spilled more than 40 GiB to disk and hadn't finished
+after 46 minutes; the run job has 8 GiB of memory and about as much disk. It now takes 25 to 35
+minutes, with at most 6.2 GiB of memory committed and 3.5 GiB spilled. A 30-day first run and a
+nightly run take about 3 and 5 minutes.
+
+- **In passes.** When the months to process hold more than 2 million audit rows, as a long backfill
+  or a large tenant's full rebuild can, `process` curates them in passes of whole months, oldest
+  first, and saves its progress after each one. A run that stops part-way carries on with the
+  months left. See [Steps](azure/jobs/README.md#steps).
+- **Less to hold.** `process` streams the rows it checks against changed conversations, updates
+  only the conversations that reach months it keeps, and drops each step's tables once it's done
+  with them.
+- **A memory cap with room to spare.** The run job caps DuckDB at 5 GiB
+  (`VALUELENS_DUCKDB_MEMORY_LIMIT`). At DuckDB's default of 80%, less than 1 GiB of the 8 was left
+  spare.
+- **The audit collector too.** Collecting those 180 days took 7.2 GiB of memory and 22 GiB of disk,
+  and in the job, DuckDB's default spill folder isn't writable. The collector now stages each page
+  of audit records gzip-compressed, merges more than 250,000 staged records in passes of whole
+  days, oldest first, under the same cap and with a temp folder of its own, and then frees its
+  local copy of the pages, so `process` has the disk. It now collects them in 18 minutes, with at
+  most 2.2 GiB committed, nothing spilled and 2.5 GiB on disk, plus the time the audit queries wait
+  in Microsoft's queue. Pages staged by an earlier version still merge. See
+  [Steps](azure/jobs/README.md#steps).
+- **A reload that runs out of time carries over.** Loading more history (**Repair or change** >
+  *Load more audit history*, or `run --backfill-days`) sets `VALUELENS_AUDIT_BACKFILL_DAYS` on one
+  run. If that run stopped at the job's 4 hours before merging, or a window failed, the next runs
+  dropped what was left without an error, while the install record said the history was loaded. The
+  run now records where the reload starts before it queries anything. Later runs plan from there
+  and query only what's missing, until a run has merged it all. Agent Evaluator records the reload
+  for each environment before any collector runs, and reads each one back that far until its read
+  finishes. On Azure, the installer's reload question and note now say a run stops at 4 hours and
+  the scheduled runs carry the reload on.
+- **Query timings.** Each audit window's log line gives how long it waited for a query slot, how
+  long its query took to be ready (and in how many polls), and how long its pages took to read. A
+  summary follows the fetch, so a longer reload can be sized against the 4 hours.
+- **After the upgrade.** The first run recomputes every month once, as after any change to the
+  processing code. On a large tenant it runs in passes.
+
 ## Analytics Hub installer 0.6.8-rc.1 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.1 is not published, and 0.6.7 remains Latest.

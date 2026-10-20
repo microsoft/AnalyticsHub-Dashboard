@@ -12,17 +12,21 @@ files, keyed on the transcript and its environment:
                                                 month-none when it has no start time
     raw/agent_catalogue/part-0.parquet          one row per agent, rebuilt from every session each run
     raw/evaluator_status/part-0.parquet         one row per environment: what the latest run read
-    raw/_state/agent_evaluator.json             when each environment was last read completely
+    raw/_state/agent_evaluator.json             when each environment was last read completely, and how far
+                                                back a reload not yet finished reads it
 
 Each run reads the lookback (VALUELENS_TRANSCRIPT_LOOKBACK_DAYS), stretched to cover any gap since the
 environment's last complete read; an environment no run has read completely goes back
-VALUELENS_TRANSCRIPT_FIRST_READ_DAYS. A transcript read again replaces all of its rows. The raw transcript
-`content` is never written anywhere: it's parsed in memory, and only the parsed rows (with 500-character text
-previews, as in Fabric) are spooled to a temporary folder before the merge.
+VALUELENS_TRANSCRIPT_FIRST_READ_DAYS. A reload (VALUELENS_AUDIT_BACKFILL_DAYS, set on one run) reads further
+back, and is remembered from the start of that run until each environment's read finishes, so a reload the run
+job stops before this collector carries over to the next runs. A transcript read again replaces all of its
+rows. The raw transcript `content` is never written anywhere: it's parsed in memory, and only the parsed rows
+(with 500-character text previews, as in Fabric) are spooled to a temporary folder before the merge.
 """
 from __future__ import annotations
 
 import logging
+import math
 import multiprocessing
 import os
 import queue
@@ -31,7 +35,7 @@ import tempfile
 import threading
 from collections import deque
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor, as_completed
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from urllib.parse import quote, urlsplit
 
@@ -44,6 +48,8 @@ from ..tables import ident, q, write_rows
 log = logging.getLogger("valuelens_jobs.collect.agent_evaluator")
 
 STATE = "raw/_state/agent_evaluator.json"
+# The state key holding, for each environment, where a reload not yet finished starts.
+BACKFILL_FROM = "backfill_from"
 CATALOGUE = "raw/agent_catalogue/part-0.parquet"
 STATUS = "raw/evaluator_status/part-0.parquet"
 PARSE_CHUNK = 200  # transcripts per parse task, as the notebook's PARSE_CHUNK_ROWS
@@ -490,6 +496,30 @@ def _write_status(store, rows) -> None:
     store.push([STATUS])
 
 
+def remember_backfill(store, settings, now=None) -> dict:
+    """Records a reload (VALUELENS_AUDIT_BACKFILL_DAYS, set on one run) in the state, so it outlives a run that
+    stops before an environment's read finishes: later runs read that environment back to the recorded start
+    until its read finishes. The job calls this before any collector runs. A reload already pending keeps the
+    earlier start. A lookback of 0 is a full pull every run, so there's nothing to remember."""
+    urls = [u for u, _ in settings.dataverse_environments]
+    if settings.audit_backfill_days <= 0 or settings.transcript_lookback_days <= 0 or not urls:
+        return {}
+    start = _utc(now) - timedelta(days=max(settings.audit_backfill_days, settings.transcript_first_read_days))
+    state = store.read_json(STATE, {}) or {}
+    pending = dict(state.get(BACKFILL_FROM) or {})
+    moved = 0
+    for url in urls:
+        held = tx._parse_time(pending.get(url))
+        if held is None or held > start:
+            pending[url] = start.isoformat()
+            moved += 1
+    if moved:
+        store.write_json(STATE, {**state, BACKFILL_FROM: pending})
+        log.info("Agent Evaluator: the reload from %s is remembered for %s environment(s) until each is read",
+                 start.date().isoformat(), moved)
+    return pending
+
+
 def collect_agent_evaluator(api, store, settings, *, now=None) -> dict:
     environments = list(settings.dataverse_environments)
     if not environments:
@@ -499,14 +529,20 @@ def collect_agent_evaluator(api, store, settings, *, now=None) -> dict:
     run_at = now.replace(tzinfo=None)
     urls = [u for u, _ in environments]
     names = {u: n for u, n in environments if n}
+    remember_backfill(store, settings, now)
     state = store.read_json(STATE, {}) or {}
     last = {u: t for u, t in (state.get("last_success") or {}).items() if u in urls}
+    reload_from = {u: t for u, t in (state.get(BACKFILL_FROM) or {}).items() if u in urls}
     env_days = {}
     for url in urls:
         days = tx.env_lookback(last.get(url), now, settings.transcript_lookback_days,
                                settings.transcript_first_read_days)
         if settings.audit_backfill_days > 0 and days > 0:
             days = max(days, settings.audit_backfill_days, settings.transcript_first_read_days)
+        held = tx._parse_time(reload_from.get(url))
+        if held is not None and days > 0:
+            # A reload a run before this one didn't finish: read back to where it starts.
+            days = max(days, math.ceil(max(0.0, (now - held).total_seconds()) / 86400))
         env_days[url] = days
         if url not in last and days:
             log.info("  %s: first complete read, so going back %s days", url, days)
@@ -586,8 +622,12 @@ def collect_agent_evaluator(api, store, settings, *, now=None) -> dict:
     _write_status(store, status)
     failed = {t[0] for t, _ in errs}
     done = now.isoformat()
-    last.update({url: done for url in urls if url not in bad and url not in failed})
-    store.write_json(STATE, {"last_success": last})
+    finished = [url for url in urls if url not in bad and url not in failed]
+    last.update({url: done for url in finished})
+    for url in finished:
+        if reload_from.pop(url, None):
+            log.info("  %s: the reload is read", url)
+    store.write_json(STATE, {"last_success": last, **({BACKFILL_FROM: reload_from} if reload_from else {})})
     for r in status:
         log.info("  %-9s %s: %s", r[5], r[1], r[6])
     summary.update(merged)

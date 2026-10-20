@@ -150,6 +150,17 @@ test('the web app gets the modules the installer turns on (VALUELENS_MODULES), a
   }
 });
 
+test('only the run job caps DuckDB, at 5 of its 8 GiB (VALUELENS_DUCKDB_MEMORY_LIMIT)', async () => {
+  // At DuckDB's default of 80%, `process` committed up to 7.46 GiB of the 8 at 20,000 seats (azure/DESIGN.md, risks).
+  const env = containerEnv(await installerParameters());
+  assert.equal(env.run.VALUELENS_DUCKDB_MEMORY_LIMIT, '5GiB');
+  assert.equal(env.migrate.VALUELENS_DUCKDB_MEMORY_LIMIT, undefined);
+  assert.equal(env.web.VALUELENS_DUCKDB_MEMORY_LIMIT, undefined);
+  const mod = TEMPLATE.resources.find((/** @type {any} */ r) => r.name === 'vl-containerapps');
+  const containers = Object.values(mod.properties.template.resources).flatMap((/** @type {any} */ r) => r.properties?.template?.containers ?? []);
+  assert.equal(containers.find((c) => c.name === 'run')?.resources?.memory, '8Gi', 'change the cap with the memory');
+});
+
 test('the template validates with only its required parameters (Deploy to Azure / az CLI)', () => {
   const required = Object.entries(TEMPLATE.parameters).filter(([, d]) => !('defaultValue' in d)).map(([n]) => n);
   assert.deepEqual(required.sort(), ['imageTag', 'installId']);

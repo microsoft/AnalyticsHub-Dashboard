@@ -572,6 +572,142 @@ def test_backfill_widens_the_first_read_but_not_a_full_pull(tmp_path):
             {"days": days, "transcripts": 1, "status": "ok"}, windows), sub
 
 
+class Stopped(BaseException):
+    """The run job's replica stopping at its 4-hour timeout: nothing after it runs."""
+
+
+def test_a_reload_the_run_stops_short_of_is_read_by_the_next_runs(tmp_path, monkeypatch):
+    from valuelens_jobs.collect import audit, graph
+
+    data = {ENV_A: [rec(1, USER_A, 1), rec(2, USER_A, 300)], ENV_B: [rec(3, USER_B, 2), rec(4, USER_B, 250)]}
+    store, s = LocalStore(tmp_path), settings(ENV_A, ENV_B)
+    ae.collect_agent_evaluator(make_api(Http(data)), store, s, now=NOW - timedelta(days=1))
+    before = store.read_json(ae.STATE)
+    assert len(rows(store, "agent_sessions")) == 2
+
+    # The reload's run: its audit fetch uses up the run job's 4 hours, so Agent Evaluator never starts.
+    seen = []
+
+    def stopped(*a, **k):
+        raise Stopped
+
+    remember = ae.remember_backfill
+    monkeypatch.setattr(ae, "remember_backfill", lambda st, se, now=None: remember(st, se, now or NOW))
+    monkeypatch.setattr(graph, "collect_licensed", lambda *a, **k: seen.append(store.read_json(ae.STATE)))
+    monkeypatch.setattr(audit, "collect_audit", stopped)
+    reload = Settings(modules=frozenset({"core", "agentEvaluator"}), dataverse_environments=s.dataverse_environments,
+                      audit_backfill_days=365, transcript_parse_workers=0)
+    with pytest.raises(Stopped):
+        jobs_main.collect(store, reload, api=object())
+    start = (NOW - timedelta(days=365)).isoformat()
+    assert seen == [{**before, ae.BACKFILL_FROM: {ENV_A: start, ENV_B: start}}]
+
+    # The next run has no reload setting, yet reads each environment back to where the reload starts.
+    at = NOW + timedelta(days=1, hours=6)
+    out = ae.collect_agent_evaluator(make_api(Http(data)), store, s, now=at)
+    assert {u: (e["days"], e["transcripts"]) for u, e in out["environments"].items()} == {
+        ENV_A: (367, 2), ENV_B: (367, 2)}
+    assert len(rows(store, "agent_sessions")) == 4
+    assert store.read_json(ae.STATE) == {"last_success": {ENV_A: at.isoformat(), ENV_B: at.isoformat()}}
+
+    # Read, so the run after that goes back to the lookback.
+    out = ae.collect_agent_evaluator(make_api(Http(data)), store, s, now=at + timedelta(days=1))
+    assert {u: e["days"] for u, e in out["environments"].items()} == {ENV_A: 14, ENV_B: 14}
+
+
+def test_an_environment_whose_read_fails_keeps_the_reload_and_the_others_clear_it(tmp_path):
+    data = {ENV_A: [rec(1, USER_A, 300)], ENV_B: [rec(2, USER_B, 300)], ENV_C: [rec(3, USER_C, 300)]}
+    store, start = LocalStore(tmp_path), (NOW - timedelta(days=365)).isoformat()
+    http = Http(data, fail=lambda u: u.startswith(ENV_A) and " lt " not in u)
+    out = ae.collect_agent_evaluator(make_api(http, bad=[ENV_B]), store,
+                                     settings(ENV_A, ENV_B, ENV_C, audit_backfill_days=365), now=NOW)
+    assert (out["windows_failed"], out["environments"][ENV_B]["status"]) == (1, "forbidden")
+    assert store.read_json(ae.STATE) == {"last_success": {ENV_C: NOW.isoformat()},
+                                         ae.BACKFILL_FROM: {ENV_A: start, ENV_B: start}}
+    at = NOW + timedelta(days=1)
+    out = ae.collect_agent_evaluator(make_api(Http(data)), store, settings(ENV_A, ENV_B, ENV_C), now=at)
+    assert {u: (e["days"], e["transcripts"]) for u, e in out["environments"].items()} == {
+        ENV_A: (366, 1), ENV_B: (366, 1), ENV_C: (14, 0)}
+    assert store.read_json(ae.STATE) == {"last_success": {u: at.isoformat() for u in (ENV_A, ENV_B, ENV_C)}}
+
+
+def test_a_pending_reload_only_moves_its_start_earlier(tmp_path):
+    store, later = LocalStore(tmp_path), NOW + timedelta(days=30)
+    ago = lambda days, at=NOW: (at - timedelta(days=days)).isoformat()  # noqa: E731
+    store.write_json(ae.STATE, {"last_success": {ENV_A: NOW.isoformat()}})
+    # A reload reads at least VALUELENS_TRANSCRIPT_FIRST_READ_DAYS back, as the run that has it does.
+    assert ae.remember_backfill(store, settings(ENV_A, audit_backfill_days=90), NOW) == {ENV_A: ago(180)}
+    assert ae.remember_backfill(store, settings(ENV_A, ENV_B, audit_backfill_days=365), NOW) == {
+        ENV_A: ago(365), ENV_B: ago(365)}
+    assert ae.remember_backfill(store, settings(ENV_A, ENV_B, audit_backfill_days=200), later) == {
+        ENV_A: ago(365), ENV_B: ago(365)}
+    ae.remember_backfill(store, settings(ENV_A, audit_backfill_days=400), later)
+    assert store.read_json(ae.STATE) == {"last_success": {ENV_A: NOW.isoformat()},
+                                         ae.BACKFILL_FROM: {ENV_A: ago(400, later), ENV_B: ago(365)}}
+
+
+def test_nothing_is_remembered_without_a_reload_or_with_a_full_pull(tmp_path):
+    store, full = LocalStore(tmp_path), settings(ENV_A, audit_backfill_days=365, transcript_lookback_days=0)
+    for s in (settings(ENV_A), full):
+        assert ae.remember_backfill(store, s, NOW) == {}
+    with pytest.raises(RuntimeError, match="Agent Evaluator read no environment"):
+        ae.collect_agent_evaluator(make_api(Http({}, deny=True)), store, full, now=NOW)
+    assert store.read_json(ae.STATE) is None
+    # A reload still pending when the lookback becomes 0: the full pull reads it, so it ends.
+    store.write_json(ae.STATE, {ae.BACKFILL_FROM: {ENV_A: (NOW - timedelta(days=365)).isoformat()}})
+    out = ae.collect_agent_evaluator(make_api(Http({ENV_A: [rec(1, USER_A, 500)]})), store, full, now=NOW)
+    assert (out["environments"][ENV_A], out["windows"]) == ({"days": 0, "transcripts": 1, "status": "ok"}, 1)
+    assert store.read_json(ae.STATE) == {"last_success": {ENV_A: NOW.isoformat()}}
+
+
+def test_an_environment_no_longer_listed_loses_its_reload(tmp_path):
+    store, start = LocalStore(tmp_path), (NOW - timedelta(days=365)).isoformat()
+    store.write_json(ae.STATE, {"last_success": {ENV_B: NOW.isoformat()},
+                                ae.BACKFILL_FROM: {ENV_A: start, ENV_B: start}})
+    http = Http({ENV_A: [rec(1, USER_A, 300)]}, fail=lambda u: u.startswith(ENV_A) and " lt " not in u)
+    out = ae.collect_agent_evaluator(make_api(http), store, settings(ENV_A), now=NOW + timedelta(days=1))
+    assert (out["environments"][ENV_A]["days"], out["windows_failed"]) == (366, 1)
+    assert store.read_json(ae.STATE) == {"last_success": {}, ae.BACKFILL_FROM: {ENV_A: start}}
+
+
+def test_a_run_that_raises_keeps_every_reload(tmp_path, monkeypatch):
+    data = {ENV_A: [rec(1, USER_A, 300)], ENV_B: [rec(2, USER_B, 300)]}
+    store, s, start = LocalStore(tmp_path), settings(ENV_A, ENV_B), (NOW - timedelta(days=365)).isoformat()
+    with pytest.raises(RuntimeError, match="Agent Evaluator read no environment"):
+        ae.collect_agent_evaluator(make_api(Http(data, deny=True)), store,
+                                   settings(ENV_A, ENV_B, audit_backfill_days=365), now=NOW)
+    pending = {ae.BACKFILL_FROM: {ENV_A: start, ENV_B: start}}
+    assert store.read_json(ae.STATE) == pending
+
+    def merge(*a, **k):
+        raise OSError("No space left on device")
+
+    monkeypatch.setattr(ae, "_merge", merge)
+    with pytest.raises(OSError, match="No space left on device"):
+        ae.collect_agent_evaluator(make_api(Http(data)), store, s, now=NOW + timedelta(days=1))
+    assert store.read_json(ae.STATE) == pending
+    monkeypatch.undo()
+    at = NOW + timedelta(days=2)
+    out = ae.collect_agent_evaluator(make_api(Http(data)), store, s, now=at)
+    assert {u: (e["days"], e["transcripts"]) for u, e in out["environments"].items()} == {
+        ENV_A: (367, 1), ENV_B: (367, 1)}
+    assert store.read_json(ae.STATE) == {"last_success": {ENV_A: at.isoformat(), ENV_B: at.isoformat()}}
+
+
+def test_collect_carries_on_when_the_reload_cant_be_remembered(tmp_path, monkeypatch, caplog):
+    called = []
+
+    def broken(*a, **k):
+        raise OSError("The state couldn't be written")
+
+    monkeypatch.setattr(ae, "remember_backfill", broken)
+    monkeypatch.setattr(ae, "collect_agent_evaluator", lambda *a, **k: called.append("ae") or {})
+    caplog.set_level("WARNING")
+    out = jobs_main.collect(LocalStore(tmp_path), settings(ENV_A, audit_backfill_days=30), api=object())
+    assert called == ["ae"] and "errors" not in out
+    assert "couldn't remember the reload for later runs: The state couldn't be written" in caplog.text
+
+
 def test_read_windows_and_lookback():
     assert tx.windows(8, 4, NOW) == [("2025-03-02T12:00:00Z", "2025-03-04T12:00:00Z"),
                                      ("2025-03-04T12:00:00Z", "2025-03-06T12:00:00Z"),

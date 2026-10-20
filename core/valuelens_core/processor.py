@@ -214,7 +214,12 @@ class Frame:
         return self
 
     def checkpoint(self) -> "Frame":
+        # The new table holds everything the earlier steps computed, so drop them now. Kept until
+        # cleanup(), every superseded table would hold memory, or spill to disk, for the rest of the run.
         self.name = self._new("TABLE", f"SELECT * FROM {q(self.name)}")
+        stale, self.objects = self.objects[:-1], self.objects[-1:]
+        for kind, name in reversed(stale):
+            self.con.execute(f"DROP {kind} IF EXISTS {q(name)}")
         return self
 
     @property
@@ -1151,10 +1156,14 @@ MESSAGE_COLS = [
 
 
 def conversation_predicate_sql(changed: str, column: str, alias: str = "r") -> str:
-    """Null-safe, case-insensitive membership; changed includes old AND replacement rows."""
-    return (f"EXISTS (SELECT 1 FROM {changed} AS d WHERE "
-            f"lower(CAST({alias}.{q(column)} AS VARCHAR)) IS NOT DISTINCT FROM "
-            f"lower(CAST(d.{q(column)} AS VARCHAR)))")
+    """Null-safe, case-insensitive membership; changed includes old AND replacement rows.
+
+    Uncorrelated on purpose: DuckDB checks it with a hash lookup and streams the rows it tests. A
+    correlated EXISTS buffers every row it tests, all columns, before it filters any of them."""
+    value = f"{alias}.{q(column)}"
+    keys = f"SELECT lower(CAST(d.{q(column)} AS VARCHAR)) FROM {changed} AS d WHERE d.{q(column)} IS NOT NULL"
+    nulls = f"EXISTS (SELECT 1 FROM {changed} AS d WHERE d.{q(column)} IS NULL)"
+    return f"(coalesce(lower(CAST({value} AS VARCHAR)) IN ({keys}), FALSE) OR ({value} IS NULL AND {nulls}))"
 
 
 def update_conversations(con, current: Source, changed: Source, *, output: str):

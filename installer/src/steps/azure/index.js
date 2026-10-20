@@ -20,7 +20,7 @@ import { APP_ALIAS, CONSUMPTION_ALIAS, EVALUATOR_ALIAS } from '../app.js';
 import { AZURE_AI_ROLES, ensureAzureAiAccess, planConsumption } from '../consumption.js';
 import { AZURE_LANDING_DIRS, azureDropLabel, azureDropsToSharePoint, ensureFlows, flowsSummary, flowsWanted, offerStudioRun, planFlows } from '../flows.js';
 import { DEFAULT_CURRENCY } from '../../currency.js';
-import { askMoreHistory, askReportingCurrency, editSchedule, HISTORY_CHOICES, keepAwake, planCosts, PRICING, reloadDetail, reloadLine } from '../plan.js';
+import { askMoreHistory, askReportingCurrency, editSchedule, HISTORY_CHOICES, keepAwake, planCosts, PRICING, reloadLine } from '../plan.js';
 import { ensureResourceGraphAccess, planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from '../resource-graph.js';
 import { DATA_SOURCES } from '../../uploads.js';
 import { normaliseResourceGraph } from '../../config.js';
@@ -487,7 +487,7 @@ export async function planAzure(ctx, pre, section) {
   }
 
   if (editing('schedule')) {
-    if (azureHistoryLoaded(az)) await askMoreHistory(ctx);
+    if (azureHistoryLoaded(az)) await askMoreHistory(ctx, azureReloadChoice);
     else {
       delete ctx.reloadHistoryDays;
       if (advanced) config.history.days = await ui.select('How much audit history should the first load pull?', HISTORY_CHOICES, config.history.days);
@@ -525,6 +525,17 @@ export const azureHistoryLoaded = (az) => !!(az.outputs?.runJobName && az.status
 
 /** The setting the run job's collector reads to load more history once, despite its high-water mark. */
 export const BACKFILL_ENV = 'VALUELENS_AUDIT_BACKFILL_DAYS';
+
+/**
+ * How long a reload takes on Azure, which has no pipeline. A run stops at 4 hours, and the scheduled
+ * runs after it carry on with whatever the reload hasn't loaded. Fabric's wording is `reloadDetail`'s.
+ * @param {number} days
+ */
+const azureReloadDetail = (days) =>
+  days > 30 ? 'A run stops at 4 hours. On a large tenant, the scheduled runs after it carry on with the reload until it has all loaded.' : 'Usually under an hour.';
+
+/** Repair or change's choice to reload `days` days of history, on Azure. @param {number} days */
+const azureReloadChoice = (days) => `Runs the job once with ${days} days of history. ${azureReloadDetail(days)}`;
 
 /**
  * The job's containers, with extra settings, for one execution. Container Apps runs a start request's
@@ -1333,7 +1344,7 @@ export function azurePlanReview(ctx) {
       { what: 'Azure resources', where: `${az.subscriptionName ?? az.subscriptionId} / ${az.resourceGroup} / ${az.location}`, detail: `Incremental ARM deployment. Deletes are not applied by the template.${az.sqlLocation ? ` Azure SQL goes in ${az.sqlLocation}.` : ''}` },
       { what: 'Scheduled jobs', where: `Container Apps job, ${ctx.config.schedule.frequency} at ${ctx.config.schedule.time} UTC`, ...(az.sampleData ? { detail: 'Demo mode: each run publishes the synthetic sample instead of tenant data.' } : {}) },
       { what: 'Cost', where: `Indicative Azure cost: about $5-40/month small tenants or $60-160/month large tenants, plus Power BI Pro/PPU licences.${isPrivate(az) ? ' Private networking adds about $30-40/month (4 private endpoints and DNS zones); the VNet data gateway uses capacity units on your Fabric/Premium capacity while refreshing.' : ''}${sizingCost(az)}` },
-      ...(ctx.reloadHistoryDays ? [{ what: 'History reload', where: reloadLine(ctx.reloadHistoryDays), detail: `The run job, once, with ${BACKFILL_ENV}=${ctx.reloadHistoryDays}. ${reloadDetail(ctx.reloadHistoryDays)}` }] : []),
+      ...(ctx.reloadHistoryDays ? [{ what: 'History reload', where: reloadLine(ctx.reloadHistoryDays), detail: `The run job, once, with ${BACKFILL_ENV}=${ctx.reloadHistoryDays}. ${azureReloadDetail(ctx.reloadHistoryDays)}` }] : []),
     ],
     costs: planCosts(ctx.config),
   };
@@ -2115,7 +2126,7 @@ export async function startAndWaitJob(ctx, kind, opts) {
   const executionName = started?.name ?? started?.properties?.name ?? started?.id?.split('/').pop();
   ctx.ui.ok(`Started ${label}${executionName ? ` (${executionName})` : ''}${opts.backfillDays ? ` with ${opts.backfillDays} days of audit history` : ''}`);
   if (opts.backfillDays) {
-    ctx.ui.note(`${reloadDetail(opts.backfillDays)} Job images older than this installer ignore ${BACKFILL_ENV} and run as usual: run "${commandLine('update')}" first if yours is.`);
+    ctx.ui.note(`${azureReloadDetail(opts.backfillDays)} Job images older than this installer ignore ${BACKFILL_ENV} and run as usual: run "${commandLine('update')}" first if yours is.`);
   }
   az.status ??= {};
   az.status[key] = { name: executionName, status: 'Running', startedAt: ctx.now().toISOString() };

@@ -30,6 +30,9 @@ class LocalStore:
     def push(self, rels) -> None:
         pass
 
+    def evict(self, prefix: str) -> None:
+        """Free the local copy of `prefix`. Here the local folder is the store, so it stays."""
+
     def list(self, prefix: str) -> list[str]:
         base = self.root / prefix
         if base.is_file():
@@ -116,6 +119,10 @@ class AdlsStore(LocalStore):
             container, name = self._split(rel)
             with open(self.path(rel), "rb") as fh:
                 self._container(container).upload_blob(name, fh, overwrite=True)
+
+    def evict(self, prefix: str) -> None:
+        """Free the local copy of `prefix`, leaving the blobs: `pull` brings it back."""
+        shutil.rmtree(self.root / prefix, ignore_errors=True)
 
     def remove(self, rels) -> None:
         for rel in rels:

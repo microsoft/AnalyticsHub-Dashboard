@@ -213,9 +213,16 @@ Each run of the collector job has 4 vCPU, 8 GiB and up to 4 hours, which Azure e
 loads the data and then refreshes the semantic models, waiting up to 2 hours for each refresh. On a
 large tenant the first load may not fit in one run. The audit collector records each time window as
 it finishes, so the next run (the next scheduled one, or **Run** on the home page) queries only the
-windows still to do, and then loads them all. The dashboard fills in once that's done. At 20,000
+windows still to do, and then loads them all. The dashboard fills in once that's done. A reload of
+more history carries over the same way: when a run stops at 4 hours, the next runs carry on with it,
+and the dashboard gets the extra history once a run has loaded all of it. At 20,000
 seats, start with 30 days of history and [load more](#load-more-audit-history) once the first load
-has finished. How long the refresh takes depends on the capacity and the history loaded.
+has finished. In an offline test at 20,000 seats, with the audit service simulated, the run stayed
+within the job's memory and disk. Collecting the audit records took about 3 minutes for the first
+30 days and 18 minutes for 180 days, plus the time each audit query waits in Microsoft's queue,
+which the test couldn't measure. Processing them took about 3 minutes for the first 30 days, 5
+minutes for a nightly run and 25 to 35 minutes for 180 days. How long the refresh takes depends on
+the capacity and the history loaded.
 
 ### Demo mode
 
@@ -553,6 +560,12 @@ take many hours.
 On the [Azure target](#azure-target), the reload starts the run job once with
 `VALUELENS_AUDIT_BACKFILL_DAYS` set, and leaves its usual settings alone. Job images older than
 this installer ignore it and run as usual: run `update` first if yours is.
+
+The run records the reload before it reads anything. If it stops short, at the run job's 4-hour
+limit or on a query that fails, the next runs carry the reload on and query only what's missing.
+The audit history and Agent Evaluator both carry it over until they've finished it: the audit
+history until a run has loaded every window, and Agent Evaluator until it has read each environment.
+The dashboard gets the extra history once a run has loaded all of it.
 
 ## Data sources and exports
 

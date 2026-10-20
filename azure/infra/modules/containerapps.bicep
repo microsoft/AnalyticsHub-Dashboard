@@ -117,6 +117,11 @@ var jobEnv = concat(commonEnv, [
   { name: 'VALUELENS_WORKDAY_OUTPUT_TABLE', value: workdayOutputTable }
   { name: 'VALUELENS_WORKDAY_ALLOW_BASE_OVERWRITE', value: workdayAllowBaseOverwrite ? 'true' : 'false' }
 ])
+// `process` caps DuckDB at 5 of the run job's 8 GiB: some DuckDB memory sits outside the cap, and its
+// default (80%) left under 1 GiB spare at 20,000 people. Change both together (azure/DESIGN.md, risks).
+var runJobEnv = concat(jobEnv, [
+  { name: 'VALUELENS_DUCKDB_MEMORY_LIMIT', value: '5GiB' }
+])
 var registries = empty(registryServer) ? [] : [{ server: registryServer, identity: identityId }]
 var identity = {
   type: 'UserAssigned'
@@ -143,7 +148,7 @@ resource runJob 'Microsoft.App/jobs@2024-03-01' = {
         name: 'run'
         image: jobsImage
         args: ['run', '--steps', runSteps]
-        env: jobEnv
+        env: runJobEnv
         resources: { cpu: json('4'), memory: '8Gi' }
       }]
     }

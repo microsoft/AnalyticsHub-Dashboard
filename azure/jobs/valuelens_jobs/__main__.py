@@ -66,6 +66,9 @@ CURATED_LEGACY = CURATED_PREFIX + "/part-0.parquet"
 PROCESS_STATE = "curated/_valuelens_process/state.json"
 PROCESS_CONTEXT = "curated/_valuelens_process/context"
 PROCESS_INPUTS = ("raw/copilot_interactions_parsed", "raw/copilot_licensed_users", "raw/agents_365")
+# Source rows one processing pass curates. More (a long backfill, or a full rebuild of a large tenant) run as
+# passes of whole months, oldest first, so memory and spill follow the largest pass, not the whole history.
+DEFAULT_PROCESS_PASS_ROWS = 2_000_000
 
 
 def q_lit(value: str) -> str:
@@ -100,7 +103,8 @@ def _truthy(value) -> bool:
 
 
 def process(store, *, exclude_agent_identities=True, include_raw_passthrough=False,
-            full_rebuild=False, lookback_days=DEFAULT_INCREMENTAL_LOOKBACK_DAYS) -> int:
+            full_rebuild=False, lookback_days=DEFAULT_INCREMENTAL_LOOKBACK_DAYS,
+            max_rows_per_pass=DEFAULT_PROCESS_PASS_ROWS) -> int:
     """Curate interactions into one Parquet file per month, recomputing only what changed.
 
     A month is recomputed when its parsed rows changed (row count + row hash) or it lies in the
@@ -110,6 +114,11 @@ def process(store, *, exclude_agent_identities=True, include_raw_passthrough=Fal
     values also propagate to their historical rows, preserving unrelated snapshot values.
     New settings, new core
     logic, a new source schema, the legacy single-file layout or `full_rebuild` rebuild everything.
+
+    Months holding more than `max_rows_per_pass` source rows in total are curated in passes of whole
+    months, oldest first (0: one pass). Each pass sees the history as nightly runs would have built it:
+    the kept months and the earlier passes, not the later ones. The state is saved after every pass,
+    so a run stopped part-way resumes with the months still to do.
     Returns the curated row count across all months.
     """
     for prefix in PROCESS_INPUTS:
@@ -122,13 +131,13 @@ def process(store, *, exclude_agent_identities=True, include_raw_passthrough=Fal
         con = duckdb.connect()
         try:
             return _process(con, store, interactions, spill, exclude_agent_identities,
-                            include_raw_passthrough, full_rebuild, lookback_days)
+                            include_raw_passthrough, full_rebuild, lookback_days, max_rows_per_pass)
         finally:
             con.close()
 
 
 def _process(con, store, interactions, spill, exclude_agent_identities, include_raw_passthrough,
-             full_rebuild, lookback_days) -> int:
+             full_rebuild, lookback_days, max_rows_per_pass) -> int:
     con.execute("SET TimeZone = 'UTC'")
     # Spill to local disk instead of failing when a large history doesn't fit in memory.
     con.execute(f"SET temp_directory = {q(spill)}")
@@ -167,30 +176,129 @@ def _process(con, store, interactions, spill, exclude_agent_identities, include_
     rows = dict((saved or {}).get("rows") or {}) if not plan["full"] else {}
 
     compute = [k for k in months if k in source_months]
-    written, removed = [], []
+    # Curated months without source rows give way: the plan's vanished months, and any a stopped run left.
+    vanished = sorted({k for k in months if k not in source_months}
+                      | {k for k in curated_files if k not in source_months})
+    # Months that left the source (a full rebuild's old files included) and the legacy single file.
+    stale = {r for files in (curated_files, context_files) for k, r in files.items() if k not in source_months}
+    if CURATED_LEGACY in store.list(CURATED_PREFIX):
+        stale.add(CURATED_LEGACY)
+    passes = _passes(compute, source_months, max_rows_per_pass)
+    if len(passes) > 1:
+        log.info("process: %s source rows to curate in %s passes of up to %s rows, oldest first: %s",
+                 sum(_source_rows(source_months[k]) for k in compute), len(passes), max_rows_per_pass,
+                 "; ".join(", ".join(p) for p in passes))
+    done, wrote = set(), set()
+    for i, part in enumerate(passes):
+        later = {k for p in passes[i + 1:] for k in p}
+        # A pass sees the history as nightly runs would have built it: the kept months and the earlier
+        # passes. The later passes' months stay hidden, and on a full rebuild so do this pass's old files.
+        hidden = later | (set(part) if plan["full"] else set())
+        written, counts = _curate_months(
+            con, store, interactions, month, compute=part, replaced=part + (vanished if i == 0 else []),
+            incremental=not plan["full"] or i > 0,
+            curated=[r for k, r in curated_files.items() if k not in hidden],
+            context=[context_files[k] for k in source_months
+                     if k in context_files and (k not in months or k in done)],
+            exclude_agent_identities=exclude_agent_identities, include_raw_passthrough=include_raw_passthrough)
+        store.push(written)
+        if i == 0 and stale:
+            store.remove(sorted(stale))
+            curated_files = {k: r for k, r in curated_files.items() if r not in stale}
+            context_files = {k: r for k, r in context_files.items() if r not in stale}
+        done.update(part)
+        wrote.update(counts)
+        rows.update(counts)
+        for key in counts:
+            curated_files[key] = _month_file(CURATED_PREFIX, key)
+            context_files[key] = _month_file(PROCESS_CONTEXT, key)
+        rows = {k: v for k, v in rows.items() if k in source_months}
+        # Saved after every pass: a run stopped part-way finds the later months missing and curates them.
+        finished = {k: v for k, v in source_months.items() if k not in later}
+        store.write_json(PROCESS_STATE, {**json.loads(build_processor_state(config, finished)),
+                                         "rows": {k: v for k, v in rows.items() if k in finished}})
+        if len(passes) > 1:
+            log.info("process: pass %s of %s done; wrote %s", i + 1, len(passes), ", ".join(sorted(counts)) or "nothing")
+    total = sum(int(v) for v in rows.values())
+    log.info("process: wrote %s month(s), including conversation dependencies; %s curated rows in total",
+             len(wrote), total)
+    return total
+
+
+def _source_rows(fingerprint: str) -> int:
+    return int(str(fingerprint).split(":", 1)[0])
+
+
+def _passes(compute, source_months, max_rows):
+    """Split the months to curate into passes of up to `max_rows` source rows, in order.
+
+    A month is never split, so a month above the budget is a pass of its own. Within the budget, or with
+    `max_rows` <= 0, it is one pass, as before. Always at least one pass, which may be empty."""
+    passes, size = [[]], 0
+    for key in compute:
+        n = _source_rows(source_months[key])
+        if max_rows > 0 and passes[-1] and size + n > max_rows:
+            passes.append([])
+            size = 0
+        passes[-1].append(key)
+        size += n
+    return passes
+
+
+# One pass's working views and tables, views first. A pass drops them all, so the next starts empty.
+_PASS_OBJECTS = (("VIEW", "__vl_write"), ("VIEW", "__vl_updated_rows"), ("VIEW", "__vl_current"),
+                 ("VIEW", "__vl_kept"), ("VIEW", "__vl_previous"), ("TABLE", "__vl_updated"),
+                 ("TABLE", "__vl_changed"), ("TABLE", "__vl_complete_out"), ("TABLE", "__vl_process_out"))
+# What writing the months reads. The rest of a pass's objects go before the writes start.
+_WRITE_INPUTS = {"__vl_write", "__vl_changed", "__vl_complete_out", "__vl_process_out"}
+
+
+def _drop(con, objects):
+    for kind, name in objects:
+        con.execute(f"DROP {kind} IF EXISTS {name}")
+
+
+def _curate_months(con, store, interactions, month, *, compute, replaced, incremental, curated, context,
+                   exclude_agent_identities, include_raw_passthrough):
+    """Curate the `compute` months, then write them and the other months whose conversation values changed.
+
+    `replaced` lists the months whose earlier rows give way (`compute`, and months that left the source).
+    `curated` lists the month files of the history the pass sees, and `context` the context files of the
+    months it sees but doesn't curate. Returns the files written and the row count of each month written.
+    """
+    written, rows = [], {}
     write_months = set(compute)
     if compute:
-        keep = [context_files[k] for k in source_months if k not in months and k in context_files]
-        context = (con.sql(f"SELECT * FROM read_parquet([{', '.join(q(store.path(r)) for r in keep)}], "
-                           f"union_by_name=true)") if keep else None)
+        context_rel = (con.sql(f"SELECT * FROM read_parquet([{', '.join(q(store.path(r)) for r in context)}], "
+                               f"union_by_name=true)") if context else None)
         src = con.sql(f"SELECT * FROM {interactions} t WHERE {month} IN ({', '.join(q_lit(k) for k in compute)})")
         curate(con, src, parquet_glob(store.root, PROCESS_INPUTS[1]), parquet_glob(store.root, PROCESS_INPUTS[2]),
                exclude_agent_identities=exclude_agent_identities, include_raw_passthrough=include_raw_passthrough,
-               context=context, output="__vl_process_out")
-    if not plan["full"] and months:
-        old_paths = ", ".join(q(store.path(r)) for r in curated_files.values())
-        con.execute(f"CREATE TEMP VIEW __vl_previous AS SELECT * FROM read_parquet([{old_paths}], "
-                    "union_by_name=true)")
+               context=context_rel, output="__vl_process_out")
+    incremental = incremental and bool(replaced)
+    if incremental:
+        if curated:
+            old_paths = ", ".join(q(store.path(r)) for r in curated)
+            con.execute(f"CREATE TEMP VIEW __vl_previous AS SELECT * FROM read_parquet([{old_paths}], "
+                        "union_by_name=true)")
+        else:
+            # The first pass of a backfill can come before every month curated so far.
+            con.execute("CREATE TEMP VIEW __vl_previous AS SELECT * FROM __vl_process_out WHERE FALSE")
         if not compute:
             con.execute("CREATE TEMP TABLE __vl_process_out AS SELECT * FROM __vl_previous WHERE FALSE")
-        changed_months = ", ".join(q_lit(k) for k in months)
+        changed_months = ", ".join(q_lit(k) for k in replaced)
         old_month = f"coalesce(strftime(MonthStart, '%Y-%m'), '{NULL_MONTH}')"
-        con.execute(f"CREATE TEMP VIEW __vl_changed AS SELECT ThreadId, Message_Id FROM __vl_previous "
-                    f"WHERE {old_month} IN ({changed_months}) UNION ALL "
-                    "SELECT ThreadId, Message_Id FROM __vl_process_out")
-        con.execute(f"CREATE TEMP VIEW __vl_current AS SELECT * FROM __vl_previous "
-                    f"WHERE {old_month} NOT IN ({changed_months}) UNION ALL BY NAME "
-                    "SELECT * FROM __vl_process_out")
+        kept = f"{old_month} NOT IN ({changed_months})"
+        con.execute(f"CREATE TEMP VIEW __vl_kept AS SELECT ThreadId, Message_Id FROM __vl_previous WHERE {kept}")
+        # Only conversations that reach a kept month can change values there. The other replaced and
+        # curated rows already hold values computed over their whole conversation, so they skip the update.
+        con.execute("CREATE TEMP TABLE __vl_changed AS SELECT ThreadId, Message_Id FROM ("
+                    f"SELECT ThreadId, Message_Id FROM __vl_previous WHERE NOT ({kept}) UNION ALL "
+                    "SELECT ThreadId, Message_Id FROM __vl_process_out) AS c "
+                    f"WHERE {conversation_predicate_sql('__vl_kept', 'ThreadId', 'c')} "
+                    f"OR {conversation_predicate_sql('__vl_kept', 'Message_Id', 'c')}")
+        con.execute(f"CREATE TEMP VIEW __vl_current AS SELECT * FROM __vl_previous WHERE {kept} "
+                    "UNION ALL BY NAME SELECT * FROM __vl_process_out")
         updated, dirty_months = update_conversations(con, "__vl_current", "__vl_changed", output="__vl_updated")
         updated.create_view("__vl_updated_rows")
         write_months.update(value.strftime("%Y-%m") if value is not None else NULL_MONTH for value in dirty_months)
@@ -198,44 +306,37 @@ def _process(con, store, interactions, spill, exclude_agent_identities, include_
             targets = ", ".join(q_lit(k) for k in sorted(write_months))
             thread = conversation_predicate_sql("__vl_changed", "ThreadId")
             message = conversation_predicate_sql("__vl_changed", "Message_Id")
+            unchanged = f"{old_month} IN ({targets}) AND NOT ({thread} OR {message})"
             # Materialise before replacing any input file: later months must not read a
             # mixture of old and already-updated Parquet files from this same run.
             con.execute("CREATE TEMP TABLE __vl_complete_out AS "
                         f"SELECT * FROM __vl_updated_rows WHERE {old_month} IN ({targets}) UNION ALL BY NAME "
-                        f"SELECT * FROM __vl_current r WHERE {old_month} IN ({targets}) "
-                        f"AND NOT ({thread} OR {message})")
-    output = "__vl_complete_out" if not plan["full"] and months else "__vl_process_out"
-    if write_months:
-        for key in sorted(write_months):
-            where = ("MonthStart IS NULL" if key == NULL_MONTH
-                     else f"strftime(MonthStart, '%Y-%m') = {q_lit(key)}")
-            for rel, sql in (
-                    (_month_file(CURATED_PREFIX, key), f"SELECT * FROM {output} WHERE {where}"),
-                    # Enough of the month for later runs' history-wide values, without re-reading it.
-                    (_month_file(PROCESS_CONTEXT, key),
-                     f"SELECT AgentId, AgentName, max(CreationDate) AS CreationDate FROM {output} "
-                     f"WHERE {where} AND (AgentId IS NOT NULL OR AgentName IS NOT NULL) "
-                     f"GROUP BY AgentId, AgentName")):
-                target = store.path(rel)
-                target.parent.mkdir(parents=True, exist_ok=True)
-                tmp = target.with_suffix(".tmp")
-                con.execute(f"COPY ({sql}) TO {q(tmp)} (FORMAT PARQUET)")
-                tmp.replace(target)
-                written.append(rel)
-            rows[key] = con.execute(f"SELECT count(*) FROM {output} WHERE {where}").fetchone()[0]
-    store.push(written)
-    # Months that left the source (a full rebuild's old files included) and the legacy single file.
-    stale = [r for files in (curated_files, context_files) for k, r in files.items() if k not in source_months]
-    if CURATED_LEGACY in store.list(CURATED_PREFIX):
-        stale.append(CURATED_LEGACY)
-    if stale:
-        store.remove(sorted(set(stale)))
-    rows = {k: v for k, v in rows.items() if k in source_months}
-    store.write_json(PROCESS_STATE, {**json.loads(build_processor_state(config, source_months)), "rows": rows})
-    total = sum(int(v) for v in rows.values())
-    log.info("process: wrote %s month(s), including conversation dependencies; %s curated rows in total",
-             len(write_months), total)
-    return total
+                        f"SELECT * FROM __vl_previous r WHERE {kept} AND {unchanged}")
+            # The curated rows are a table already, so the write reads them there instead of copying them.
+            con.execute("CREATE TEMP VIEW __vl_write AS SELECT * FROM __vl_complete_out UNION ALL BY NAME "
+                        f"SELECT * FROM __vl_process_out r WHERE {unchanged}")
+            # Only the rows to write are needed from here on; freeing the rest spares spilling it.
+            _drop(con, [o for o in _PASS_OBJECTS if o[1] not in _WRITE_INPUTS])
+    output = "__vl_write" if incremental else "__vl_process_out"
+    for key in sorted(write_months):
+        where = ("MonthStart IS NULL" if key == NULL_MONTH
+                 else f"strftime(MonthStart, '%Y-%m') = {q_lit(key)}")
+        for rel, sql in (
+                (_month_file(CURATED_PREFIX, key), f"SELECT * FROM {output} WHERE {where}"),
+                # Enough of the month for later runs' history-wide values, without re-reading it.
+                (_month_file(PROCESS_CONTEXT, key),
+                 f"SELECT AgentId, AgentName, max(CreationDate) AS CreationDate FROM {output} "
+                 f"WHERE {where} AND (AgentId IS NOT NULL OR AgentName IS NOT NULL) "
+                 f"GROUP BY AgentId, AgentName")):
+            target = store.path(rel)
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_suffix(".tmp")
+            con.execute(f"COPY ({sql}) TO {q(tmp)} (FORMAT PARQUET)")
+            tmp.replace(target)
+            written.append(rel)
+        rows[key] = con.execute(f"SELECT count(*) FROM {output} WHERE {where}").fetchone()[0]
+    _drop(con, _PASS_OBJECTS)
+    return written, rows
 
 
 def _api(settings):
@@ -294,8 +395,13 @@ def collect(store, settings, api=None) -> dict:
         jobs.append(("resource_graph", collect_resource_graph))
     if settings.has("agentEvaluator"):
         if settings.dataverse_environments:
-            from .collect.agent_evaluator import collect_agent_evaluator
+            from .collect.agent_evaluator import collect_agent_evaluator, remember_backfill
 
+            try:
+                # Before any collector runs: a reload this run stops short of is then read by the next runs.
+                remember_backfill(store, settings)
+            except Exception as exc:
+                log.warning("collect agent_evaluator: couldn't remember the reload for later runs: %s", exc)
             jobs.append(("agent_evaluator", collect_agent_evaluator))
         else:
             # The installer lists the environments once the managed identity can read one of them.
@@ -430,6 +536,7 @@ def main(argv=None, env=None) -> int:
     process_options = {
         "full_rebuild": _truthy(environ.get("VALUELENS_PROCESS_FULL_REBUILD")),
         "lookback_days": int(environ.get("VALUELENS_PROCESS_LOOKBACK_DAYS") or DEFAULT_INCREMENTAL_LOOKBACK_DAYS),
+        "max_rows_per_pass": int(environ.get("VALUELENS_PROCESS_PASS_ROWS") or DEFAULT_PROCESS_PASS_ROWS),
     }
 
     if args.cmd == "process":

@@ -1378,6 +1378,35 @@ test("Azure: a history reload that doesn't start leaves setup not finished, and 
   assert.match(started.ui.text(), /Started run job \(vlens-run-exec\) with 90 days of audit history/);
   assert.equal(started.config.history.days, 90);
   assert.doesNotMatch(started.ui.text(), /not finished/);
+  // One run stops at 4 hours, and the scheduled runs after it carry the reload on: Fabric's "many hours" doesn't fit.
+  assert.match(started.ui.text(), /A run stops at 4 hours\. On a large tenant, the scheduled runs after it carry on with the reload until it has all loaded\. Job images older than this installer ignore VALUELENS_AUDIT_BACKFILL_DAYS/);
+  assert.doesNotMatch(started.ui.text(), /many hours on a large tenant/);
+  const detail = (/** @type {number} */ days) => {
+    started.ctx.reloadHistoryDays = days;
+    return azurePlanReview(started.ctx).runsOn.find((r) => r.what === 'History reload')?.detail;
+  };
+  assert.equal(detail(90), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=90. A run stops at 4 hours. On a large tenant, the scheduled runs after it carry on with the reload until it has all loaded.');
+  assert.equal(detail(30), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=30. Usually under an hour.');
+
+  // Repair or change's question, the first place the wording shows, says the same: Azure has no pipeline.
+  const asking = fakeUi();
+  /** @type {{ message: string, choices: any[] }[]} */
+  const selects = [];
+  asking.ui.select = async (/** @type {string} */ message, /** @type {any[]} */ choices, /** @type {any} */ def) => {
+    selects.push({ message, choices });
+    return def;
+  };
+  const repair = fakeCtx({ ui: asking.ui, arm: fakeArm().api });
+  repair.config.target = 'azure';
+  repair.config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', outputs: { runJobName: 'vlens-run' }, status: { lastRun: { name: 'vlens-run-exec', status: 'Succeeded' } } };
+  repair.config.history.days = 30;
+  await planAzure(repair.ctx, { subscriptions: [{ subscriptionId: 'sub-1', displayName: 'Sub' }] }, 'schedule');
+  const reload = selects.find((s) => s.message.startsWith('Load more audit history?'));
+  assert.deepEqual(reload?.choices.map((c) => c.description), [
+    undefined,
+    'Runs the job once with 90 days of history. A run stops at 4 hours. On a large tenant, the scheduled runs after it carry on with the reload until it has all loaded.',
+    'Runs the job once with 180 days of history. A run stops at 4 hours. On a large tenant, the scheduled runs after it carry on with the reload until it has all loaded.',
+  ]);
 });
 
 /** Org-scoped access on, for the next run. @param {Awaited<ReturnType<typeof azureModelChanged>>} t */
