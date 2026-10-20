@@ -9,6 +9,7 @@ export function loadConfig(env = process.env) {
     appIdUri: env.VALUELENS_APP_ID_URI || '',
     storageAccount: env.VALUELENS_STORAGE_ACCOUNT || '',
     semanticModels,
+    modules: parseModules(env.VALUELENS_MODULES),
     access: parseAccess(env.VALUELENS_ACCESS),
     version: env.VALUELENS_VERSION || '0.0.0',
     releasesUrl: env.VALUELENS_RELEASES_URL || 'https://api.github.com/repos/microsoft/AnalyticsHub-Dashboard/releases?per_page=20',
@@ -53,6 +54,20 @@ export function parseSemanticModels(value) {
     return { vl: valueLensModel, ...rest };
   }
   return parsed;
+}
+
+const APP_MODULES = ['m365Activity', 'agent365', 'productFeedback', 'consumption', 'agentEvaluator', 'defender', 'resourceGraph'];
+
+/**
+ * The installer's comma list of modules (VALUELENS_MODULES, as the jobs read it) as the app's
+ * `modules` flags, in fabric.config.json's shape, so the app skips the checks for modules that
+ * are off. IDs that aren't app modules (core, orgData) are ignored. Undefined when the list is
+ * missing or empty, so the app checks every source.
+ */
+export function parseModules(value) {
+  const ids = new Set(String(value ?? '').split(',').map((id) => id.trim()).filter(Boolean));
+  if (ids.size === 0) return undefined;
+  return Object.fromEntries(APP_MODULES.map((id) => [id, ids.has(id)]));
 }
 
 /**

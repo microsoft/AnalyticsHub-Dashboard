@@ -172,6 +172,8 @@ Variants: App Service B1 Linux for the web app (+$13), or B1 Windows as in PnP (
 2. **Runtime config.** `runtime-config.ts` already reads `/fabric.config.json`. Add
    `/app.config.json` with
    `{ host: "azure", tenantId, clientId, apiScope, semanticModels: { alias: { workspaceId, datasetId } } }`.
+   It also says which modules the installer turned on (`modules`, from the web container's
+   `VALUELENS_MODULES`), as `fabric.config.json` does, so the app skips the off modules' checks.
    The host decides which client, auth and settings store to use. **One bundle** serves both hosts.
 3. **Auth.** `use-auth.tsx` gets an MSAL (browser) implementation and a Teams implementation
    (`@microsoft/teams-js` `authentication.getAuthToken()`). `AuthGate` only redirects to Fabric when

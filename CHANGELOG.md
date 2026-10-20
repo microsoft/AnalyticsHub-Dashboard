@@ -40,6 +40,15 @@ the same places as the Agent 365 export. After each Entra ID load, each run adds
 columns to `dbo.copilot_org_data`, matched on Primary Work Email, with the Fabric notebook's rules
 and checks. See [Workday org data](azure/README.md#workday-org-data).
 
+**Azure: the app skips the checks for modules that are off.** The web app now gets
+`VALUELENS_MODULES`, the list of modules the installer turned on, which only the jobs had before,
+and serves it in `/app.config.json` as `modules`, as `fabric.config.json` does on Fabric. When it
+opens, the app no longer runs those modules' checks (up to five small queries, and Governance's
+Resource Graph summary), and Governance says the Agent 365 registry or Defender isn't turned on,
+instead of how to connect it. The data doesn't change: an off module's tables were already empty,
+so its pages were already hidden. An Azure install gets this at its next **Update** or **Repair or
+change**; until then the app checks every source, as before. See [web](azure/web/README.md#routes).
+
 **Power BI model: faster active-user counts.** In both Fabric templates, and so in the Azure model
 built from them, `[All Active Users]` and `[Active Licensed Users]` now take one distinct count
 instead of testing each user, as in

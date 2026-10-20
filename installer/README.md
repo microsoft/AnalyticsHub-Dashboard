@@ -411,6 +411,10 @@ turned on:
 
 Older installs may not have `modules`; the app then probes the model as before.
 
+On Azure the web app serves the same `modules` in its `/app.config.json`, from the list the
+installer gives the jobs (`VALUELENS_MODULES`). An Azure install gets it at its next **Update** or
+**Repair or change**; until then the app probes as before.
+
 **Editing a report.** A new installer version may bring a new version of a report. **Update** and
 **Repair or change** then ask before replacing it, because that replaces edits made in Power BI.
 To keep your edits, use **File** > **Save a copy** in Power BI first and edit the copy.
