@@ -11,7 +11,7 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
 > 365 activity, credit consumption (Copilot Studio, Cowork, Azure AI and pay-as-you-go), and optionally
 > Defender shadow AI and agent risk, the Agent 365 registry, product feedback and Workday org data (all
 > from their CSV exports), and Copilot Studio transcripts for [Agent Evaluator](#agent-evaluator).
-> The other modules are coming. Try it in a demo or test tenant first.
+> Try it in a demo or test tenant first.
 
 ## Install it
 

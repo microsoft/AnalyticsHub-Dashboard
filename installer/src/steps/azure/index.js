@@ -285,8 +285,8 @@ export async function planAzure(ctx, pre, section) {
   const editing = (/** @type {string} */ id) => !section || section === id;
   if (editing('data')) {
     ui.heading('What to collect');
-    const picked = await ui.checkbox('Tick the data you want. Unsupported modules are coming soon on Azure.', azureModuleChoices(config.modules));
-config.modules = /** @type {import('../../catalog.js').ModuleChoice} */ ({ orgData: true, m365Activity: picked.includes('m365Activity'), agent365: picked.includes('agent365'), productFeedback: picked.includes('productFeedback'), consumption: picked.includes('consumption'), agentEvaluator: picked.includes('agentEvaluator'), defender: picked.includes('defender') });
+    const picked = await ui.checkbox('Tick the data you want.', azureModuleChoices(config.modules));
+    config.modules = /** @type {import('../../catalog.js').ModuleChoice} */ ({ orgData: true, m365Activity: picked.includes('m365Activity'), agent365: picked.includes('agent365'), productFeedback: picked.includes('productFeedback'), consumption: picked.includes('consumption'), agentEvaluator: picked.includes('agentEvaluator'), defender: picked.includes('defender') });
     if (config.modules.productFeedback && config.dataSources.productFeedback === 'api') ui.warn(FEEDBACK_CSV_ONLY);
     config.dataSources.productFeedback = config.modules.productFeedback ? 'csv' : 'skip';
     if (config.modules.agent365 && config.dataSources.agent365 === 'api') ui.warn(AGENT365_CSV_ONLY);
