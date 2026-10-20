@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { EVERYONE_ROLE, SCOPED_ROLE } from '../src/transform/access.js';
-import { buildModel, loadTemplateModel } from '../src/transform/model.js';
+import { buildAgentEvaluatorModel, buildModel, loadTemplateModel } from '../src/transform/model.js';
 import { deployedRoles, deployModel, definitionRoles } from '../src/steps/model.js';
 import {
   addScope,
@@ -144,7 +144,7 @@ test('describeScope: in words', () => {
   assert.equal(describeScope({ ...newRow({ upn: '*', type: 'org', value: 'France' }, by), Status: 'pending_group' }, 'country'), 'Anyone without a scope: country "France" (waiting for an admin)');
 });
 
-test('rlsModels: the deployed models on each target; Agent Evaluator only on Fabric', () => {
+test('rlsModels: the deployed models on each target', () => {
   const { config } = fakeCtx();
   config.semanticModel.enabled = true;
   config.semanticModel.id = 'ds-vl';
@@ -159,6 +159,10 @@ test('rlsModels: the deployed models on each target; Agent Evaluator only on Fab
   assert.deepEqual(rlsModels(config).map((m) => [m.kind, m.workspaceId, m.datasetId]), [['valuelens', 'pbi-ws', 'az-vl'], ['consumption', 'pbi-ws', 'az-cc']]);
   config.modules.consumption = false;
   assert.deepEqual(rlsModels(config).map((m) => m.kind), ['valuelens'], 'a Consumption model kept after an untick is left out, as on Fabric');
+  config.modules.consumption = true;
+  /** @type {any} */ (config.azure).powerBi.agentEvaluatorDatasetId = 'az-ae';
+  assert.deepEqual(rlsModels(config).map((m) => [m.kind, m.workspaceId, m.datasetId]), [['valuelens', 'pbi-ws', 'az-vl'], ['consumption', 'pbi-ws', 'az-cc'], ['agentEvaluator', 'pbi-ws', 'az-ae']]);
+  assert.equal(rlsModels(config)[2].model, config.agentEvaluator.model);
 });
 
 test('rlsBlockers: no model, a Pro workspace or private networking', () => {
@@ -363,4 +367,35 @@ test('apply on Azure: writes to the landing container, applies roles in the Powe
   assert.deepEqual(arm.jobTemplates[0].containers[0].args, ['run', '--steps', 'access,refresh']);
   assert.deepEqual(config.access?.rls?.applied, ['az-vl']);
   assert.ok(config.azure?.status?.lastAccess);
+});
+
+test('apply on Azure: the Agent Evaluator model gets its roles too', async () => {
+  const fabric = fakeFabric();
+  const store = files();
+  const dataLake = () => ({
+    readText: async (/** @type {string} */ container, /** @type {string} */ path) => store.read(`${container}/${path}`),
+    writeFile: async (/** @type {string} */ container, /** @type {string} */ path, /** @type {Uint8Array} */ bytes) => store.write(`${container}/${path}`, bytes),
+  });
+  const { ctx, config } = fakeCtx({ fabric: fabric.api, arm: fakeArm().api, dataLake, powerBi: fakePowerBi().api });
+  config.target = 'azure';
+  config.azure = /** @type {any} */ ({
+    subscriptionId: 'sub-1',
+    resourceGroup: 'rg-vl',
+    outputs: { storageAccountName: 'vlensstabc', runJobName: 'vlens-run', migrateJobName: 'vlens-migrate' },
+    powerBi: { workspaceId: 'pbi-ws', datasetId: 'az-vl', agentEvaluatorDatasetId: 'az-ae', capacityId: 'cap-1' },
+  });
+  config.fabric.workspaceId = 'pbi-ws';
+  config.access = /** @type {any} */ ({ ...config.access, groupId: 'g-1', rls: { enabled: true, orgAttribute: 'department', applied: [] } });
+  store.map.set(`landing/${AZURE_SCOPE_FILE}`, scopeCsv(seedRows(['ana@example.com'], by)));
+  deployedRoles(ctx).set('az-vl', builtRoles());
+  const evaluator = buildAgentEvaluatorModel(loadTemplateModel(/** @type {string} */ (realSources().agentEvaluatorModelFile)), { ...lake, access: { orgAttribute: 'department' } });
+  deployedRoles(ctx).set('az-ae', /** @type {any[]} */ (evaluator.model.roles));
+  fabric.jobs.push({ status: 'Completed' });
+
+  assert.equal(await applyOrgAccess(ctx), true);
+
+  const items = JSON.parse(store.map.get(`landing/${AZURE_ROLES_FILE}`) ?? '[]');
+  assert.deepEqual([...new Set(items.map((/** @type {any} */ i) => `${i.dataset}|${i.datasetId}`))], [`${config.semanticModel.name}|az-vl`, `${config.agentEvaluator.model.name}|az-ae`]);
+  assert.deepEqual(items.filter((/** @type {any} */ i) => i.datasetId === 'az-ae').map((/** @type {any} */ i) => i.role.name).sort(), [EVERYONE_ROLE, SCOPED_ROLE].sort());
+  assert.deepEqual(config.access?.rls?.applied, ['az-vl', 'az-ae']);
 });

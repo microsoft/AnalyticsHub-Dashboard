@@ -265,9 +265,9 @@ test('access: each target grants Build on the models its app queries', () => {
   config.semanticModel.enabled = true;
   config.semanticModel.id = 'ds-vl';
   config.modules.consumption = true;
-  config.azure = { powerBi: { workspaceId: 'pbi-ws', datasetId: 'az-vl', consumptionDatasetId: 'az-cc' } };
-  assert.deepEqual(azureViewerModels(config).map((m) => `${m.workspaceId}/${m.datasetId}`), ['pbi-ws/az-vl', 'pbi-ws/az-cc']);
+  config.azure = { powerBi: { workspaceId: 'pbi-ws', datasetId: 'az-vl', consumptionDatasetId: 'az-cc', agentEvaluatorDatasetId: 'az-ae' } };
+  assert.deepEqual(azureViewerModels(config).map((m) => `${m.workspaceId}/${m.datasetId}`), ['pbi-ws/az-vl', 'pbi-ws/az-cc', 'pbi-ws/az-ae']);
   assert.deepEqual(fabricViewerModels(config).map((m) => `${m.workspaceId}/${m.datasetId}`), ['ws-1/ds-vl']);
   config.modules.consumption = false;
-  assert.deepEqual(azureViewerModels(config).map((m) => m.datasetId), ['az-vl'], 'a Consumption model kept after an untick gets no new grants');
+  assert.deepEqual(azureViewerModels(config).map((m) => m.datasetId), ['az-vl', 'az-ae'], 'a Consumption model kept after an untick gets no new grants');
 });
