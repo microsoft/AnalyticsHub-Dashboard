@@ -110,6 +110,7 @@ app for you. A delegated permission: it acts as you.
 | Scope | Role | Reason |
 |---|---|---|
 | Subscription or resource group | **Owner**, or **Contributor** and **User Access Administrator**, for you | Deploying the resources and giving the managed identities their roles. Azure only |
+| Resource group your Azure admin creates | **Contributor**, and **Role Based Access Control Administrator** limited to the roles the installer gives, for you | The [least-privilege](AZURE-LEAST-PRIVILEGE.md) alternative to the row above. Your Azure admin creates the group, registers the resource providers and gives you these. Azure only |
 | Storage account | **Storage Blob Data Contributor**, for you | *(Optional.)* Saving files to the landing container. Turned on by **Copilot Studio credits** or **Copilot Cowork credits**, the agent inventory flow (without a SharePoint folder), or org-scoped access. Azure only; the installer gives it |
 | Azure AI subscription | **Reader**, **Cost Management Reader** and **Monitoring Reader**, for the app or managed identity | *(Optional.)* Reading Azure AI costs and usage. Turned on by the **Azure AI costs** card |
 | Each pay-as-you-go subscription | **Cost Management Reader**, for the app or managed identity | *(Optional.)* Reading Copilot pay-as-you-go costs. Turned on by the **Azure AI costs** card, when billing policies charge there |
@@ -118,7 +119,7 @@ app for you. A delegated permission: it acts as you.
 | Hub resource group with the private DNS zones | **Private DNS Zone Contributor**, for you | *(Optional.)* Linking the network to existing zones. Turned on by private networking with **Use existing zones** |
 | Key Vault | **Key Vault Secrets Officer**, or an access policy with Get, List and Set, for you | *(Optional.)* Writing the app's secret. Turned on by choosing Key Vault on Fabric. To only read it, **Key Vault Secrets User** |
 
-Apart from your own Owner or Contributor role, the installer gives these when you can assign roles
+Apart from your own roles in the first two rows, the installer gives these when you can assign roles
 there. Otherwise it gives you the command for someone who can.
 
 ### Other roles
@@ -171,7 +172,9 @@ The detail behind [At a glance](#at-a-glance), with links to Microsoft Learn.
 - [ ] **Azure:** [Owner](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#owner),
       or [Contributor](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#contributor)
       and [User Access Administrator](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#user-access-administrator),
-      on a subscription or resource group, and a Power BI workspace you can create or use.
+      on a subscription or resource group, and a Power BI workspace you can create or use. Or, for
+      [least privilege](AZURE-LEAST-PRIVILEGE.md), Contributor and a limited Role Based Access
+      Control Administrator on just a resource group your Azure admin creates.
 - [ ] **[Power BI Pro or Premium Per User](https://learn.microsoft.com/power-bi/fundamentals/service-features-license-type)**,
       to publish the models and reports.
 - [ ] **Permission to register an app** in Microsoft Entra ID. Everyone can by default
