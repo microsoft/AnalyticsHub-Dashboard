@@ -33,6 +33,12 @@ export interface AskTool {
     /** Columns that together count the people behind a row; rows under `minPeople` are left out. */
     people?: string[];
     /**
+     * Columns the query returns that the Azure `/api/ask` leaves out of the
+     * rows its model reads, because they aren't right to quote. The query
+     * still works them out.
+     */
+    omit?: string[];
+    /**
      * The model's measures and columns behind the figures, as `[Measure]` and
      * `'Table'[Column]`, when the query works some of them out itself for
      * speed. The Fabric data agent's instructions name these instead of the

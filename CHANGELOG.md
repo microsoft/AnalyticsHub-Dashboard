@@ -69,6 +69,12 @@ credential or VNet gateway binding, refresh schedule, viewer access and org-scop
 and the jobs' refresh see it as `ae`. Agent Variables and Conversation Transcripts (Raw) load empty, as
 they do on Fabric.
 
+**Ask on Azure no longer gives a count of the people with a department.** For the Executive
+summary's figures it runs that page's query, whose count of the people with a department takes in
+everyone once any org data is loaded, so an answer could say everyone has one. The web app's
+`/api/ask` now leaves that count out of what its model reads; the query is unchanged. On Fabric,
+Ask opens the Fabric data agent, which doesn't run that query.
+
 ## Analytics Hub installer 0.6.8-rc.1 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.1 is not published, and 0.6.7 remains Latest.
