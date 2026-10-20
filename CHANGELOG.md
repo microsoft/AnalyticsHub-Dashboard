@@ -159,6 +159,11 @@ Azure installs load their config as before.
   and installer uploads are Fabric only for now, and gives the steps to compare the two Consumption
   Central models with `parity.mjs`.
 
+**App: start-up code now downloads while the config loads.** The page now tells the browser to
+fetch the code for the app, and for the Executive summary it opens on, straight away. Before, the
+app asked for that code only after its config arrived. The code still runs only after that. Each
+build takes the list from its own imports, so the list keeps up as the code changes.
+
 ## 2026-10-19 — Analytics Hub installer 0.6.7
 
 **The current release.** 0.6.7 replaces 0.6.6 as Latest, so the `releases/latest` links, including
