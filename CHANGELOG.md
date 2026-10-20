@@ -181,6 +181,16 @@ more go out with Brotli or gzip, and the app's files, about 3 MB of start-up cod
 once when the image is built. The 0.6.8 plan estimates that Azure pages are ready 0.2 to 2.3 s
 sooner (est.); it hasn't been measured on Azure. Nothing changes on Fabric.
 
+**App on Azure: a chart whose query has no rows shows its empty state.** In 0.6.7 and 0.6.8-rc.1,
+on Azure, a chart whose query had no rows replaced the whole app with an error, the **Something went
+wrong** screen. On Azure an answer with no rows names no columns, and five charts that show only
+their largest categories looked up the column to rank by first: on Readiness, priority by
+organization and Cowork readiness by organization; on Value, the task breakdown; and on Adoption,
+activation by organization and the trend heatmap. With no rows they now rank nothing and show their
+empty state, as they already did on Fabric, where an answer with no rows still names its columns.
+Tests run an answer with no rows through the SDK's own parsing for each of the five, on Azure and
+on Fabric.
+
 ## Analytics Hub installer 0.6.8-rc.1 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.1 is not published, and 0.6.7 remains Latest.

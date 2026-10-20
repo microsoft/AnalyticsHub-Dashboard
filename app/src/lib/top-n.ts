@@ -55,6 +55,14 @@ function ranked(table: DataTable, label: number, by: number): unknown[] {
         .map(([name]) => name);
 }
 
+/**
+ * No categories, without looking up a column. On Azure the model's JSON answer
+ * names its columns only in its rows, so a query with no rows has no columns either.
+ */
+function nothingToRank(table: DataTable): Top {
+    return { table: { ...table, rows: [] }, shown: 0, of: 0 };
+}
+
 /** Rows of the kept categories, largest first, each category's rows in their original order. */
 function keptRows(table: DataTable, label: number, kept: readonly unknown[]): unknown[][] {
     const order = new Map(kept.map((name, index) => [name, index]));
@@ -67,6 +75,7 @@ function keptRows(table: DataTable, label: number, kept: readonly unknown[]): un
 
 /** The `n` largest categories by `by`. For rates, where an Other row would average away its meaning. */
 export function topRows(table: DataTable, { label, by, n = TOP_N }: TopOptions): Top {
+    if (table.rows.length === 0) return nothingToRank(table);
     const names = ranked(table, columnAt(table, label), columnAt(table, by));
     const kept = names.slice(0, n);
     return { table: { ...table, rows: keptRows(table, columnAt(table, label), kept) }, shown: kept.length, of: names.length };
@@ -78,6 +87,7 @@ export function topRows(table: DataTable, { label, by, n = TOP_N }: TopOptions):
  * so the chart still covers everyone in the result.
  */
 export function topWithOther(table: DataTable, { label, by, n = TOP_N, sum, other }: OtherOptions): Top {
+    if (table.rows.length === 0) return nothingToRank(table);
     const labelAt = columnAt(table, label);
     const names = ranked(table, labelAt, columnAt(table, by));
     if (names.length <= n) return { table: { ...table, rows: keptRows(table, labelAt, names) }, shown: names.length, of: names.length };
