@@ -11,8 +11,6 @@ import query from "./executive-summary.dax?raw";
 
 const columnMetadata: ColumnMetadataMap = {
     "[Hours]": { name: "Hours", displayName: "Expert-equivalent hours", format: FORMAT_HOURS },
-    "[Hours Conservative]": { name: "Hours Conservative", displayName: "Conservative hours", format: FORMAT_HOURS },
-    "[Hours Optimistic]": { name: "Hours Optimistic", displayName: "Optimistic hours", format: FORMAT_HOURS },
     "[Tasks]": { name: "Tasks", displayName: "Tasks delivered", format: FORMAT_WHOLE },
     "[People]": { name: "People", displayName: "People with a task", format: FORMAT_WHOLE },
     "[Weeks]": { name: "Weeks", displayName: "Weeks", format: FORMAT_WHOLE },
@@ -39,8 +37,8 @@ const columnMetadata: ColumnMetadataMap = {
 /**
  * The executive summary's headline figures in one round trip: the work done,
  * how many people use Copilot, how far it has become habit, and how they
- * rate it. Hours are at Typical effort, with Conservative and Optimistic as
- * the range.
+ * rate it. Hours are at Typical effort; `executiveHoursRange` has the
+ * Conservative to Optimistic range, asked beside this.
  */
 export function executiveSummary() {
     return { connection, query, columnMetadata };

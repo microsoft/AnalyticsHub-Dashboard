@@ -17,8 +17,9 @@ import { defaultFilters } from "@/lib/filters";
 import { DEFAULT_ORG_ATTRIBUTE, describeOrgAttribute } from "@/lib/org-attribute";
 import { agentEstateSummary } from "@/queries/agents";
 import registryRows from "@/queries/agents/__fixtures__/agent-estate-summary.rows.json";
-import { executiveWorkKinds } from "@/queries/executive";
+import { executiveHoursRange, executiveSummary, executiveWorkKinds } from "@/queries/executive";
 import departmentRows from "@/queries/executive/__fixtures__/executive-departments.rows.json";
+import rangeRows from "@/queries/executive/__fixtures__/executive-hours-range.rows.json";
 import monthRows from "@/queries/executive/__fixtures__/executive-months.rows.json";
 import summaryRows from "@/queries/executive/__fixtures__/executive-summary.rows.json";
 import workKindRows from "@/queries/executive/__fixtures__/executive-work-kinds.rows.json";
@@ -65,10 +66,11 @@ function answer(query: string): Rows | undefined {
         [feedbackCategory().query, themeRows],
         [agentEstateSummary().query, registryRows],
         [executiveWorkKinds().query, workKindRows],
+        [executiveSummary().query, summaryRows],
+        [executiveHoursRange().query, rangeRows],
     ]);
     if (exact.has(query)) return exact.get(query);
     // The month and department queries are written for the range and org column, so match them by what they return.
-    if (query.includes("Hours Conservative")) return summaryRows;
     if (query.includes("Hours Per Seat Month")) return departmentRows;
     if (query.includes('"Month Start"')) return monthRows;
     return undefined;

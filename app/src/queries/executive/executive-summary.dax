@@ -101,8 +101,6 @@ VAR _activeIds =
 RETURN
     ROW(
         "Hours", CALCULATE([Expert Equivalent Hours], 'Effort Scenario'[Scenario] = "Typical"),
-        "Hours Conservative", CALCULATE([Expert Equivalent Hours], 'Effort Scenario'[Scenario] = "Conservative"),
-        "Hours Optimistic", CALCULATE([Expert Equivalent Hours], 'Effort Scenario'[Scenario] = "Optimistic"),
         "Tasks", [AI Tasks],
         "People", [All Active Users],
         "Weeks",

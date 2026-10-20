@@ -13,8 +13,6 @@
 export const liveColumns = {
     executiveSummary: [
         "[Hours]",
-        "[Hours Conservative]",
-        "[Hours Optimistic]",
         "[Tasks]",
         "[People]",
         "[Weeks]",
@@ -33,6 +31,7 @@ export const liveColumns = {
         "[Feedback]",
         "[People With Organization]",
     ],
+    executiveHoursRange: ["[Hours Conservative]", "[Hours Optimistic]"],
     executiveMonths: [
         "[Month Start]",
         "[Copilot Hours]",

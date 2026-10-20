@@ -7,6 +7,7 @@
 
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import type { KpiDelta, KpiTrend } from "@/components/kpi-card";
+import type { SummaryResult } from "@/hooks/use-table-query";
 import { MIN_SPARK_POINTS, type SparkPoint } from "@/lib/sparkline";
 import {
     daysInMonth,
@@ -151,6 +152,33 @@ export function workRates(summary: SummaryRow | undefined): WorkRates {
         agentShare: ratio(readNumber(summary, "[Agent Hours]"), hours),
         habitRate: habitual === undefined && power === undefined ? undefined : (habitual ?? 0) + (power ?? 0),
     };
+}
+
+/** The Conservative to Optimistic range under the hours, as the bottom line can show it. */
+export type HoursRange =
+    | { status: "ready"; conservative: number; optimistic: number }
+    /** Both queries answered and the range came back blank, so there's no line, as when it was in the summary. */
+    | { status: "none" }
+    /** The range or the summary hasn't answered for the filters on show yet. */
+    | { status: "pending" }
+    | { status: "error"; message: string };
+
+/**
+ * The hours range from its own query, read against the summary it sits
+ * under. Both are asked together with the same filters and task times, so
+ * once neither is asking they answer the same question. While either is
+ * asking again, the range in hand may be for other filters or task times than
+ * the hours on show, so it's pending until both have answered.
+ */
+export function hoursRangeOf(summary: SummaryResult, range: SummaryResult): HoursRange {
+    if (summary.refreshing || range.refreshing) return { status: "pending" };
+    if (range.error !== undefined) return { status: "error", message: range.error };
+    if (!summary.loaded || !range.loaded) return { status: "pending" };
+    const conservative = readNumber(range.row, "[Hours Conservative]");
+    const optimistic = readNumber(range.row, "[Hours Optimistic]");
+    return conservative === undefined || optimistic === undefined
+        ? { status: "none" }
+        : { status: "ready", conservative, optimistic };
 }
 
 const listFormat = new Intl.ListFormat("en-GB", { style: "long", type: "conjunction" });

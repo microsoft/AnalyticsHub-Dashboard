@@ -18,6 +18,7 @@ import { reportingDateFilter } from "@/queries/consumption";
 import {
     executiveCredits,
     executiveDepartments,
+    executiveHoursRange,
     executiveMonths,
     executiveSummary,
     monthLabel,
@@ -38,6 +39,8 @@ type Source<T extends (...args: never[]) => unknown> = ReturnType<T>;
 export interface ExecutiveData {
     range: ExecutiveRangeState;
     summary: SummaryResult;
+    /** The Conservative to Optimistic range under the summary's hours, asked beside it. */
+    hoursRange: SummaryResult;
     /** Each month of the trend, with the rates the cards compare. */
     months: TableResult;
     monthsSource: Source<typeof executiveMonths>;
@@ -56,7 +59,9 @@ export interface ExecutiveData {
  * queries the page waits on, so they ask ahead of the other queries waiting.
  * The summary doesn't wait for the task times saved in the app either: it's
  * asked at the model's own minutes from the page's first query, and asked
- * again only if the saved times differ.
+ * again only if the saved times differ. The bottom line's hours range is its
+ * own query, asked beside the summary in the same way, so the summary's
+ * figures don't wait for it.
  */
 export function useExecutiveData(): ExecutiveData {
     const range = useExecutiveRange();
@@ -79,6 +84,9 @@ export function useExecutiveData(): ExecutiveData {
     );
 
     const summary = useSummaryQuery({ ...executiveSummary(), lead: true, speculate: true });
+    const hoursRange = useSummaryQuery(
+        show("the-bottom-line") ? { ...executiveHoursRange(), lead: true, speculate: true } : { ...executiveHoursRange(), ...SKIP },
+    );
     const months = useTableQuery(
         trend ? { ...monthsSource, lead: true } : { ...monthsSource, ...SKIP },
         trend ? [dateBetween("'Calendar'[Date]", window.from, window.to)] : [],
@@ -102,5 +110,5 @@ export function useExecutiveData(): ExecutiveData {
     const departmentsSource = useMemo(() => withOrgAttribute(executiveDepartments(), org), [org]);
     const departments = useTableQuery(byOrg ? departmentsSource : { ...departmentsSource, ...SKIP });
 
-    return { range, summary, months, monthsSource, credits, creditsSource, creditsInRange, departments };
+    return { range, summary, hoursRange, months, monthsSource, credits, creditsSource, creditsInRange, departments };
 }

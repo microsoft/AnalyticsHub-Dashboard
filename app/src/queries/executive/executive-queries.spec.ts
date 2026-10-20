@@ -11,6 +11,7 @@ import {
     executiveCreditDates,
     executiveCredits,
     executiveDepartments,
+    executiveHoursRange,
     executiveMonths,
     executiveSummary,
     executiveWorkKinds,
@@ -23,6 +24,7 @@ import { liveColumns } from "./live-columns.fixture";
 import creditDateRows from "./__fixtures__/executive-credit-dates.rows.json";
 import creditRows from "./__fixtures__/executive-credits.rows.json";
 import departmentRows from "./__fixtures__/executive-departments.rows.json";
+import rangeRows from "./__fixtures__/executive-hours-range.rows.json";
 import monthRows from "./__fixtures__/executive-months.rows.json";
 import summaryRows from "./__fixtures__/executive-summary.rows.json";
 import workKindRows from "./__fixtures__/executive-work-kinds.rows.json";
@@ -30,6 +32,7 @@ import hoursSpec from "./executive-hours.json";
 
 const modules = [
     { name: "executiveSummary", factory: executiveSummary, columns: liveColumns.executiveSummary, rows: summaryRows, connection: "vl" },
+    { name: "executiveHoursRange", factory: executiveHoursRange, columns: liveColumns.executiveHoursRange, rows: rangeRows, connection: "vl" },
     { name: "executiveMonths", factory: () => executiveMonths(), columns: liveColumns.executiveMonths, rows: monthRows, connection: "vl" },
     { name: "executiveDepartments", factory: executiveDepartments, columns: liveColumns.executiveDepartments, rows: departmentRows, connection: "vl" },
     { name: "executiveWorkKinds", factory: executiveWorkKinds, columns: liveColumns.executiveWorkKinds, rows: workKindRows, connection: "vl" },
@@ -175,6 +178,70 @@ describe("the summary's agents in use and people with an organization", () => {
         const { query } = executiveSummary();
         expect(query).not.toMatch(/\[Active Agent Users\]\s*>\s*0/);
         expect(query).not.toContain("VALUES('Chat + Agent Interactions (Audit Logs)'[Audit_UserId])");
+    });
+});
+
+describe("the hours range, asked beside the summary", () => {
+    // The Conservative to Optimistic range was a quarter of the summary's time on a large tenant, and
+    // every other figure in the summary waited for it, so it's a query of its own.
+    const lf = (query: string) => query.replace(/\r\n/g, "\n");
+    const summary = lf(executiveSummary().query);
+    const range = lf(executiveHoursRange().query);
+    /** Each one-line `"Name", <expression>` column a query asks, by name. */
+    const columnsOf = (query: string) =>
+        new Map([...query.matchAll(/^\s*"([^"]+)", (\S.*?),?$/gm)].map(([, name, expression]) => [name, expression]));
+
+    /** The summary's two range columns as 0.6.8-rc.1 asked them, byte for byte. */
+    const RANGE_BEFORE = {
+        "Hours Conservative": `CALCULATE([Expert Equivalent Hours], 'Effort Scenario'[Scenario] = "Conservative")`,
+        "Hours Optimistic": `CALCULATE([Expert Equivalent Hours], 'Effort Scenario'[Scenario] = "Optimistic")`,
+    };
+
+    /**
+     * SHA-256 of the summary with the range put back after its hours, as one query, with LF line ends.
+     * When the range moved out, this was the summary 0.6.8-rc.1 asked, byte for byte: the move changed
+     * no column.
+     */
+    const SUMMARY_WITH_RANGE = "4ee5fd16e58cca48865b7a553545c7d191876aa0b25f3569b32a5e4561762609";
+
+    it("asks the two columns the summary asked, byte for byte, and nothing else", () => {
+        expect(Object.fromEntries(columnsOf(range))).toEqual(RANGE_BEFORE);
+    });
+
+    it("works the range out as the summary works out its hours, at the other two scenarios", () => {
+        const hours = columnsOf(summary).get("Hours");
+        expect(hours).toContain(`'Effort Scenario'[Scenario] = "Typical"`);
+        expect(columnsOf(range).get("Hours Conservative")).toBe(hours?.replace(`"Typical"`, `"Conservative"`));
+        expect(columnsOf(range).get("Hours Optimistic")).toBe(hours?.replace(`"Typical"`, `"Optimistic"`));
+    });
+
+    it("is no longer asked by the summary", () => {
+        expect(summary).not.toMatch(/Conservative|Optimistic/);
+    });
+
+    it("puts back together with the summary, byte for byte, as the summary that asked it", async () => {
+        const lines = summary.split("\n");
+        const at = lines.findIndex((line) => line.trimStart().startsWith(`"Hours", `));
+        const indent = lines[at].slice(0, lines[at].length - lines[at].trimStart().length);
+        const moved = range
+            .split("\n")
+            .filter((line) => /^\s*"Hours (Conservative|Optimistic)", /.test(line))
+            .map((line) => `${indent}${line.trim().replace(/,?$/, ",")}`);
+        const whole = [...lines.slice(0, at + 1), ...moved, ...lines.slice(at + 1)].join("\n");
+        const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(whole));
+        const hex = [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+        expect(
+            hex,
+            "executive-summary.dax or executive-hours-range.dax changed. If you meant it, check the range is still " +
+                `worked out as the summary works out its hours, then set SUMMARY_WITH_RANGE to "${hex}".`,
+        ).toBe(SUMMARY_WITH_RANGE);
+    });
+
+    it("takes the filter bar as the summary does", () => {
+        // Neither has a filter profile of its own, so both take the ValueLens model's default.
+        // executive-lead-queries.spec.tsx checks the filters each is sent with.
+        expect(Object.keys(executiveHoursRange()).sort()).toEqual(Object.keys(executiveSummary()).sort());
+        expect(executiveHoursRange().connection).toBe(executiveSummary().connection);
     });
 });
 

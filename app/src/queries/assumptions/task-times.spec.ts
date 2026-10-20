@@ -118,6 +118,9 @@ describe("withTaskTimes", () => {
                 "../value/value-by-task.dax",
                 "../value/cost-vs-value-by-source.dax",
                 "../adoption/adoption-summary.dax",
+                // The bottom line's hours and their range: at the same task times, so the three figures agree.
+                "../executive/executive-summary.dax",
+                "../executive/executive-hours-range.dax",
             ]),
         );
         expect(reading).not.toContain("../adoption/adoption-summary-spuw.dax");

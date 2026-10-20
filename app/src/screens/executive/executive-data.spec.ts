@@ -7,9 +7,11 @@
 
 import { describe, expect, it } from "vitest";
 import type { QueryTable } from "@microsoft/fabric-app-data";
+import type { SummaryResult } from "@/hooks/use-table-query";
 import type { SummaryRow } from "@/lib/summary-row";
 import { toDataTable } from "@/lib/to-data-table";
 import { executiveMonths } from "@/queries/executive";
+import rangeRows from "@/queries/executive/__fixtures__/executive-hours-range.rows.json";
 import monthRows from "@/queries/executive/__fixtures__/executive-months.rows.json";
 import summaryRows from "@/queries/executive/__fixtures__/executive-summary.rows.json";
 import {
@@ -19,6 +21,7 @@ import {
     executiveRange,
     formatDay,
     formatMonth,
+    hoursRangeOf,
     joinNames,
     ratio,
     sumPresent,
@@ -200,5 +203,41 @@ describe("small helpers", () => {
         expect(formatMonth(summary["[Habit Month]"])).toBe("June");
         expect(formatDay(45000)).toBeUndefined();
         expect(formatMonth("June")).toBeUndefined();
+    });
+});
+
+describe("the hours range beside the summary", () => {
+    const answered = (row: SummaryRow | undefined): SummaryResult => ({ row, loaded: true, error: undefined, refetch: () => undefined });
+    const waiting: SummaryResult = { row: undefined, loaded: false, error: undefined, refetch: () => undefined };
+    const hours = answered(summary);
+    const range = answered(rangeRows[0] as SummaryRow);
+
+    it("reads the range once both have answered", () => {
+        expect(hoursRangeOf(hours, range)).toEqual({ status: "ready", conservative: 695.0666666666667, optimistic: 2257.75 });
+    });
+
+    it("waits for whichever of the two hasn't answered yet", () => {
+        expect(hoursRangeOf(hours, waiting)).toEqual({ status: "pending" });
+        expect(hoursRangeOf(waiting, range)).toEqual({ status: "pending" });
+    });
+
+    it("holds the range back while either is asked again, so it never sits under hours for other filters", () => {
+        expect(hoursRangeOf({ ...hours, refreshing: true }, range)).toEqual({ status: "pending" });
+        expect(hoursRangeOf(hours, { ...range, refreshing: true })).toEqual({ status: "pending" });
+        expect(hoursRangeOf(hours, { ...waiting, error: "Power BI is busy", refreshing: true })).toEqual({ status: "pending" });
+    });
+
+    it("says so when the range didn't load", () => {
+        expect(hoursRangeOf(hours, { ...waiting, error: "Power BI is busy" })).toEqual({
+            status: "error",
+            message: "Power BI is busy",
+        });
+    });
+
+    it("leaves the line out when the range came back blank", () => {
+        expect(hoursRangeOf(hours, answered(undefined))).toEqual({ status: "none" });
+        expect(hoursRangeOf(hours, answered({ "[Hours Conservative]": 10, "[Hours Optimistic]": null }))).toEqual({
+            status: "none",
+        });
     });
 });

@@ -19,7 +19,7 @@ import { ThemeContext } from "@/hooks/theme.context";
 import { defaultFilters } from "@/lib/filters";
 import { DEFAULT_ORG_ATTRIBUTE, describeOrgAttribute } from "@/lib/org-attribute";
 import { QueryScheduler, scheduledProxy } from "@/lib/query-scheduler";
-import { executiveSummary } from "@/queries/executive";
+import { executiveHoursRange, executiveSummary } from "@/queries/executive";
 import { filterOptions } from "@/queries/filters";
 import { ExecutiveScreen } from ".";
 
@@ -42,6 +42,7 @@ vi.mock("@/components/commercial-terms-provider", () => ({
 const THROTTLED = "Too many requests were sent to this model. Try again later.";
 const OPTIONS = filterOptions().query;
 const SUMMARY = executiveSummary().query;
+const RANGE = executiveHoursRange().query;
 const FILTERS_FAILED = "Filter choices didn't load, so only the date presets are available.";
 const tick = (ms: number) => act(() => vi.advanceTimersByTimeAsync(ms));
 
@@ -57,17 +58,19 @@ function answerTable(query: string): ArrayBuffer {
             ? { "[Kind]": ["firstDate", "lastDate"], "[Value]": ["2026-05-08", "2026-07-06"] }
             : query === SUMMARY
               ? { "[Hours]": [4321], "[Tasks]": [9876], "[Licensed Seats]": [20], "[Seats In Use]": [10] }
-              : { "[Value]": [] as string[] };
+              : query === RANGE
+                ? { "[Hours Conservative]": [1234], "[Hours Optimistic]": [5678] }
+                : { "[Value]": [] as string[] };
     return tableToIPC(tableFromArrays(columns), "stream").slice().buffer;
 }
 
-/** The real SDK and scheduler; every query to the model is throttled until `recover()`. */
-function setup() {
+/** The real SDK and scheduler; every query to the model, or each one `throttles` picks, is throttled until `recover()`. */
+function setup(throttles: (query: string) => boolean = () => true) {
     let throttling = true;
     const sent: string[] = [];
     const executeDax = vi.fn(async (_workspace: string, _model: string, query: string) => {
         sent.push(query);
-        return { requestId: "r", data: throttling ? throttleTable() : answerTable(query) };
+        return { requestId: "r", data: throttling && throttles(query) ? throttleTable() : answerTable(query) };
     });
     const inner = { semanticModel: { executeDax } } as unknown as IFabricApiProxy;
     state.client = new FabricClient({
@@ -138,6 +141,7 @@ describe("Executive summary after Power BI was busy", () => {
         const bottomLine = card("The bottom line");
         expect(within(bottomLine).queryByText("Power BI is busy")).toBeNull();
         expect(within(bottomLine).getByText("4,321")).toBeTruthy();
+        expect(within(bottomLine).getByText("1,234 – 5,678")).toBeTruthy();
     });
 
     it("asks the clicked card's own query first, then clears the page's other busy cards on that model", async () => {
@@ -174,6 +178,7 @@ describe("Executive summary after Power BI was busy", () => {
         expect(sent[before]).toBe(SUMMARY);
         expect(sent.slice(before).filter((query) => query === SUMMARY)).toHaveLength(1);
         expect(within(card("The bottom line")).getByText("4,321")).toBeTruthy();
+        expect(within(card("The bottom line")).getByText("1,234 – 5,678")).toBeTruthy();
         expect(screen.queryByText("Power BI is busy")).toBeNull();
     });
 
@@ -207,5 +212,46 @@ describe("Executive summary after Power BI was busy", () => {
         expect(screen.queryByText(FILTERS_FAILED)).toBeNull();
         expect(screen.queryByText("Power BI is busy")).toBeNull();
         expect(within(card("The bottom line")).getByText("4,321")).toBeTruthy();
+        expect(within(card("The bottom line")).getByText("1,234 – 5,678")).toBeTruthy();
+    });
+
+    it("keeps the hours when only their range was busy, and asks for the range alone again", async () => {
+        const { sent, recover } = setup((query) => query === RANGE);
+        render(
+            <FilterContext.Provider
+                value={{
+                    filters: defaultFilters,
+                    setFilters: () => undefined,
+                    options: { agentTypes: [], agentNames: [], activities: [], firstDate: "2026-05-08", lastDate: "2026-07-06" },
+                    optionsError: undefined,
+                    applicable: [],
+                    orgAttribute: describeOrgAttribute(DEFAULT_ORG_ATTRIBUTE),
+                    orgAttributes: [DEFAULT_ORG_ATTRIBUTE],
+                    orgValues: undefined,
+                }}
+            >
+                <Themed>
+                    <StageFilterContext.Provider value={onlyStages(["the-bottom-line"])}>
+                        <ExecutiveScreen />
+                    </StageFilterContext.Provider>
+                </Themed>
+            </FilterContext.Provider>,
+        );
+        await tick(2000);
+        const bottomLine = card("The bottom line");
+        expect(within(bottomLine).getByText("4,321")).toBeTruthy();
+        const rangeLine = within(bottomLine).getByText("Conservative to Optimistic").parentElement as HTMLElement;
+        expect(within(rangeLine).getByText("Power BI is busy")).toBeTruthy();
+        expect(within(bottomLine).getAllByRole("button", { name: "Try again" })).toHaveLength(1);
+
+        recover();
+        const before = sent.length;
+        fireEvent.click(within(rangeLine).getByRole("button", { name: "Try again" }));
+        await tick(1000);
+
+        expect(sent.slice(before)).toEqual([RANGE]);
+        expect(within(bottomLine).getByText("4,321")).toBeTruthy();
+        expect(within(bottomLine).getByText("1,234 – 5,678")).toBeTruthy();
+        expect(screen.queryByText("Power BI is busy")).toBeNull();
     });
 });
