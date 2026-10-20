@@ -201,7 +201,8 @@ Variants: App Service B1 Linux for the web app (+$13), or B1 Windows as in PnP (
     entry is used for at most 10 minutes after its exchange, and never past 5 minutes before the downstream token or
     the user's token expires, so an active user makes about one exchange every 10 minutes for each set of scopes. A
     user whose account is disabled, or whose sessions are revoked in Entra, keeps Power BI and Graph access through
-    the app for up to 10 minutes. The cache holds at most 2,000 entries, least recently used out first. MSAL's own
+    the app for up to 10 minutes, and can reopen results loaded in that time for up to 10 minutes after each was
+    fetched. The cache holds at most 2,000 entries, least recently used out first. MSAL's own
     cache is skipped and emptied after each exchange. Concurrent first requests share one exchange, a claims
     challenge always goes to Entra, and a token Power BI or Graph refuses (401 or 403) is dropped. Before this,
     every query made its own exchange.

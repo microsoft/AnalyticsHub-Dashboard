@@ -171,7 +171,8 @@ uncompressed. Now one sign-in client serves the whole process, and each user's P
 token is reused for up to 10 minutes, and never past 5 minutes before it, or the user's own token,
 expires: about one exchange per user every 10 minutes, not one per query. A user whose account is
 disabled, or whose sessions are revoked in Entra, keeps Power BI and Graph access through the app for
-up to 10 minutes. Removing an app role or workspace access is delayed only as before: a role until
+up to 10 minutes, and can reopen results loaded in that time for up to 10 minutes after each was
+fetched. Removing an app role or workspace access is delayed only as before: a role until
 the user's sign-in token expires, and results they've already loaded for up to 10 minutes. Tokens
 are kept under a SHA-256 of the user's token and the scopes, so one user's token never serves
 another, at most 2,000 at a time, and they're never logged. Queries that arrive together share one
