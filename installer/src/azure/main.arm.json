@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.47.16.16243",
-      "templateHash": "16888325143569849407"
+      "templateHash": "749734417960842937"
     }
   },
   "parameters": {
@@ -305,6 +305,20 @@
       "defaultValue": true,
       "metadata": {
         "description": "Azure Resource Graph: read Foundry accounts and projects from resources."
+      }
+    },
+    "workdayOutputTable": {
+      "type": "string",
+      "defaultValue": "dbo.copilot_org_data_workday_preview",
+      "metadata": {
+        "description": "Workday org data (data source workday): the table the enriched org data goes to. The default is a review copy; dbo.copilot_org_data (with workdayAllowBaseOverwrite) enriches the org data itself."
+      }
+    },
+    "workdayAllowBaseOverwrite": {
+      "type": "bool",
+      "defaultValue": false,
+      "metadata": {
+        "description": "Workday org data: allow workdayOutputTable to be dbo.copilot_org_data."
       }
     },
     "askMode": {
@@ -1690,6 +1704,12 @@
           "argFoundry": {
             "value": "[parameters('argFoundry')]"
           },
+          "workdayOutputTable": {
+            "value": "[parameters('workdayOutputTable')]"
+          },
+          "workdayAllowBaseOverwrite": {
+            "value": "[parameters('workdayAllowBaseOverwrite')]"
+          },
           "askEndpoint": "[if(equals(parameters('askMode'), 'create'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'vl-ask'), '2025-04-01').outputs.endpoint.value), if(equals(parameters('askMode'), 'existing'), createObject('value', parameters('askEndpoint')), createObject('value', '')))]",
           "askDeployment": "[if(equals(parameters('askMode'), 'create'), createObject('value', reference(resourceId('Microsoft.Resources/deployments', 'vl-ask'), '2025-04-01').outputs.deploymentName.value), if(equals(parameters('askMode'), 'existing'), createObject('value', parameters('askDeployment')), createObject('value', '')))]"
         },
@@ -1700,7 +1720,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.47.16.16243",
-              "templateHash": "370049888728491602"
+              "templateHash": "16130129418597659368"
             }
           },
           "parameters": {
@@ -1837,6 +1857,14 @@
               "type": "bool",
               "defaultValue": true
             },
+            "workdayOutputTable": {
+              "type": "string",
+              "defaultValue": "dbo.copilot_org_data_workday_preview"
+            },
+            "workdayAllowBaseOverwrite": {
+              "type": "bool",
+              "defaultValue": false
+            },
             "registryServer": {
               "type": "string",
               "defaultValue": ""
@@ -1902,7 +1930,7 @@
                 "value": "[parameters('semanticModels')]"
               }
             ],
-            "jobEnv": "[concat(variables('commonEnv'), createArray(createObject('name', 'VALUELENS_MODULES', 'value', parameters('modules')), createObject('name', 'VALUELENS_AUDIT_HISTORY_DAYS', 'value', string(parameters('auditHistoryDays'))), createObject('name', 'VALUELENS_SQL_READER_NAME', 'value', parameters('sqlReaderName')), createObject('name', 'VALUELENS_SQL_READER_CLIENT_ID', 'value', parameters('sqlReaderClientId')), createObject('name', 'VALUELENS_SAMPLE_DATA', 'value', if(parameters('sampleData'), 'true', 'false')), createObject('name', 'VALUELENS_AZURE_AI_SUBSCRIPTION', 'value', parameters('azureAiSubscriptionId')), createObject('name', 'VALUELENS_PAYG_SUBSCRIPTIONS', 'value', parameters('paygSubscriptionIds')), createObject('name', 'VALUELENS_DROP_SITE_ID', 'value', parameters('dropSiteId')), createObject('name', 'VALUELENS_DROP_DRIVE_ID', 'value', parameters('dropDriveId')), createObject('name', 'VALUELENS_DROP_FOLDER', 'value', parameters('dropFolder')), createObject('name', 'VALUELENS_ARG_MANAGEMENT_GROUP', 'value', parameters('argManagementGroup')), createObject('name', 'VALUELENS_ARG_AGENTS', 'value', if(parameters('argAgents'), 'true', 'false')), createObject('name', 'VALUELENS_ARG_FOUNDRY', 'value', if(parameters('argFoundry'), 'true', 'false'))))]",
+            "jobEnv": "[concat(variables('commonEnv'), createArray(createObject('name', 'VALUELENS_MODULES', 'value', parameters('modules')), createObject('name', 'VALUELENS_AUDIT_HISTORY_DAYS', 'value', string(parameters('auditHistoryDays'))), createObject('name', 'VALUELENS_SQL_READER_NAME', 'value', parameters('sqlReaderName')), createObject('name', 'VALUELENS_SQL_READER_CLIENT_ID', 'value', parameters('sqlReaderClientId')), createObject('name', 'VALUELENS_SAMPLE_DATA', 'value', if(parameters('sampleData'), 'true', 'false')), createObject('name', 'VALUELENS_AZURE_AI_SUBSCRIPTION', 'value', parameters('azureAiSubscriptionId')), createObject('name', 'VALUELENS_PAYG_SUBSCRIPTIONS', 'value', parameters('paygSubscriptionIds')), createObject('name', 'VALUELENS_DROP_SITE_ID', 'value', parameters('dropSiteId')), createObject('name', 'VALUELENS_DROP_DRIVE_ID', 'value', parameters('dropDriveId')), createObject('name', 'VALUELENS_DROP_FOLDER', 'value', parameters('dropFolder')), createObject('name', 'VALUELENS_ARG_MANAGEMENT_GROUP', 'value', parameters('argManagementGroup')), createObject('name', 'VALUELENS_ARG_AGENTS', 'value', if(parameters('argAgents'), 'true', 'false')), createObject('name', 'VALUELENS_ARG_FOUNDRY', 'value', if(parameters('argFoundry'), 'true', 'false')), createObject('name', 'VALUELENS_WORKDAY_OUTPUT_TABLE', 'value', parameters('workdayOutputTable')), createObject('name', 'VALUELENS_WORKDAY_ALLOW_BASE_OVERWRITE', 'value', if(parameters('workdayAllowBaseOverwrite'), 'true', 'false'))))]",
             "registries": "[if(empty(parameters('registryServer')), createArray(), createArray(createObject('server', parameters('registryServer'), 'identity', parameters('identityId'))))]",
             "identity": {
               "type": "UserAssigned",

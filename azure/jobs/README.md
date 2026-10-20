@@ -17,6 +17,7 @@ in step with the Fabric notebooks by the golden tests in `tests/`. No Spark or J
 | | Copilot Studio credits and Viva (Copilot Chat) credits from the drop folder; Azure AI spend, tokens and Copilot pay-as-you-go from Azure Resource Manager | consumption |
 | | The Agent 365 registry, from the newest CSV export in the drop folder | agent365 |
 | | Product feedback, from every CSV export in the drop folder | productFeedback |
+| | Workday org data, from the newest CSV export in the drop folder, after the org data | workday (a data source, with orgData) |
 | | Shadow AI and agent risk from Microsoft Defender (`ThreatHunting.Read.All`, `CloudApp-Discovery.Read.All`) | defender |
 | process | Curates interactions with `valuelens_core.curate()` into `curated/copilot_interactions_curated`, recomputing only the months that changed or fall in the lookback window | core |
 | publish | Loads curated and raw tables into Azure SQL, rewriting only the days that changed | per module |
@@ -91,14 +92,15 @@ model reads `dbo.<table>` in Azure SQL. Each collector fails on its own, and the
 
 Files in the drop folder are never moved or deleted. Every run re-reads all of them and merges the
 results idempotently into the state kept in `curated/<table>/part-0.parquet`, as Fabric does with
-its Delta tables. The Agent 365 collector is the exception: it reads only the newest export. The
-product feedback collector reads every export and rebuilds `user_feedback` from them each run.
+its Delta tables. The Agent 365 and Workday collectors are the exceptions: they read only the newest
+export. The product feedback collector reads every export and rebuilds `user_feedback` from them each
+run.
 
-The drop folder has the subfolders `studio/`, `viva/`, `agent365/`, `product_feedback/` and `arg_inventory/`. The Power Automate flow's `flows/`
+The drop folder has the subfolders `studio/`, `viva/`, `agent365/`, `product_feedback/`, `workday/` and `arg_inventory/`. The Power Automate flow's `flows/`
 state is ignored. Where the folder lives depends on the networking mode:
 
 - Public networking uses the storage account's `landing` container (`landing/studio/`,
-  `landing/viva/`, `landing/agent365/`, `landing/product_feedback/`).
+  `landing/viva/`, `landing/agent365/`, `landing/product_feedback/`, `landing/workday/`).
 - Private networking uses SharePoint when `VALUELENS_DROP_SITE_ID` is set. The job reads it
   through Microsoft Graph with the managed identity, which needs `Sites.Selected` and a read grant
   on the site.
@@ -178,6 +180,46 @@ the emailed export, `Copilot_ProductFeedback_Email_to_OneLake`, is Fabric only f
 `azure/sql/migrations/V010__product_feedback.sql` creates it up front, with the 23 columns,
 `SourceFile` and `LoadDate`. Publish adds any other column the exports have.
 
+## Workday org data (data source `workday`)
+
+Optional and off by default. It's a data source that comes with org data, not a module: the job runs
+it when `VALUELENS_MODULES` has both `orgData` and `workday`. `collect/workday.py` runs the rules of
+the Fabric notebook `Copilot_Org_Data_Workday_Lander`, ported to `valuelens_core.workday`. After the
+org data, it reads the newest `.csv` or `.txt` in the drop folder's `workday/` (by modified time,
+then name) and logs how many older files it ignored.
+
+- **Where it writes.** `VALUELENS_WORKDAY_OUTPUT_TABLE` picks the table. The default, as in the
+  notebook, is `copilot_org_data_workday_preview`, a copy to review; the model keeps reading
+  `copilot_org_data`. The installer sets `copilot_org_data` and
+  `VALUELENS_WORKDAY_ALLOW_BASE_OVERWRITE=true`, as Fabric's installer does, so each run enriches the
+  org data itself after the Entra ID load. Any other table fails the step.
+- **Matching.** `VALUELENS_WORKDAY_MODE` is `auto` (the default), `enrich` or `standalone`. With
+  org data in `raw/copilot_org_data`, `auto` enriches it: the export adds the columns the org data
+  doesn't have, matched on its email column (`primaryWorkEmail`, ignoring case and spaces) to
+  `PersonId`. The org data's people and values win, even blank ones, and people only in Workday are
+  left out. With no org data yet, `auto` lands the export on its own, as the notebook does.
+- **Checks.** An export with no rows, a missing or blank email, or two different rows for one email
+  fails the step before it writes, as does org data with a blank or repeated `PersonId`, a match rate
+  below `VALUELENS_WORKDAY_MIN_MATCH_RATE` (default 0.5) or an empty result. Exact duplicate rows are
+  kept once. The org data is then as the Entra ID load left it, and the run carries on.
+- **If the org data step fails**, the last enriched org data is the baseline. Its Workday columns
+  keep their values, because the org data's values win, until the next good Entra ID load.
+- **No data.** With no export, nothing is written.
+- **Unlike the notebook**, only the newest export is read (the notebook combines every file in its
+  folder, where the Fabric installer keeps one), a file that isn't UTF-8 fails with a message saying
+  so, and a column name longer than 128 characters can't be a SQL column, so it's dropped with a
+  warning.
+- **Turned off**, its columns stay in `copilot_org_data`, empty from the next publish.
+- **Demo mode** doesn't load a Workday sample, and doesn't publish the preview.
+
+| Table | Publish |
+|---|---|
+| `copilot_org_data` | snapshot, with the export's columns when the output is the org data |
+| `copilot_org_data_workday_preview` | snapshot, only when the output is the preview |
+
+There's no migration: publish creates the preview table and adds the export's columns to
+`copilot_org_data`.
+
 ## Defender (module `defender`)
 
 Optional and off by default. It mirrors `Copilot_Defender_Ingester.ipynb` on Fabric; both run
@@ -217,7 +259,11 @@ The job reads its settings from environment variables. Bicep sets them.
 | `VALUELENS_ARG_AGENTS`, `VALUELENS_ARG_FOUNDRY` | resourceGraph: `false` turns off the agent or Foundry probes. Both default to `true`. |
 | `VALUELENS_AZURE_AI_SUBSCRIPTION` | consumption: the subscription for Azure OpenAI / AI Foundry costs and metrics. When it is empty, Azure AI and pay-as-you-go are skipped. |
 | `VALUELENS_PAYG_SUBSCRIPTIONS` | consumption: other subscriptions, as a comma list, whose Copilot pay-as-you-go costs are read |
-| `VALUELENS_DROP_SITE_ID`, `VALUELENS_DROP_DRIVE_ID`, `VALUELENS_DROP_FOLDER` | consumption, agent365 and productFeedback, private networking: the SharePoint drop folder (see above). When unset, the job reads the `landing` container. |
+| `VALUELENS_DROP_SITE_ID`, `VALUELENS_DROP_DRIVE_ID`, `VALUELENS_DROP_FOLDER` | consumption, agent365, productFeedback and workday, private networking: the SharePoint drop folder (see above). When unset, the job reads the `landing` container. |
+| `VALUELENS_WORKDAY_MODE` | workday: `auto` (the default), `enrich` or `standalone`, as the notebook's `MODE` |
+| `VALUELENS_WORKDAY_OUTPUT_TABLE`, `VALUELENS_WORKDAY_ALLOW_BASE_OVERWRITE` | workday: `dbo.copilot_org_data_workday_preview` (the default) or `dbo.copilot_org_data`, which needs the overwrite set to `true`. Bicep sets both from the installer, so a redeploy resets them. |
+| `VALUELENS_WORKDAY_MIN_MATCH_RATE` | workday: the share of the export's people that must match the org data, from 0 to 1 (default 0.5) |
+| `VALUELENS_WORKDAY_EMAIL_COLUMN` | workday: the export's work-email header (default `primaryWorkEmail`), matched ignoring case and spaces |
 | `VALUELENS_AUDIT_HISTORY_DAYS` / `VALUELENS_AUDIT_LOOKBACK_DAYS` | The first-run backfill (default 30) and the re-read window on later runs (default 7) |
 | `VALUELENS_PROCESS_LOOKBACK_DAYS` | Days before the newest audit record whose months `process` always recomputes (default 14) |
 | `VALUELENS_PROCESS_FULL_REBUILD` | `true` makes `process` recompute every month. Set it on a single execution, not on the job. |
@@ -244,6 +290,8 @@ The job reads its settings from environment variables. Bicep sets them.
 | `landing/agent365/` | agent365: the drop folder for the export in public networking. It is read only. |
 | `raw/user_feedback/part-0.parquet` | productFeedback: every product feedback export, deduplicated by `Feedback Id` |
 | `landing/product_feedback/` | productFeedback: the drop folder for the exports in public networking. It is read only. |
+| `raw/copilot_org_data_workday_preview/part-0.parquet` | workday: the enriched org data to review, when that's the output. Otherwise the export's columns are in `raw/copilot_org_data/`. |
+| `landing/workday/` | workday: the drop folder for the export in public networking. It is read only. |
 | `raw/defender_*/` | defender: one parquet file per day for the two daily tables, a snapshot for the rest |
 | `landing/defender/ai_watchlist.csv` | defender: the AI watchlist. The first run writes it; after that it is only read |
 

@@ -88,6 +88,9 @@ for _name in RESOURCE_GRAPH:
 TARGETS["agents_365"] = Target("agents_365", "raw/agents_365", incremental=False)
 # Product feedback by CSV (module `productFeedback`): every export, deduplicated, replaced each run.
 TARGETS["user_feedback"] = Target("user_feedback", "raw/user_feedback", incremental=False)
+# Workday org data (data source `workday`) when it writes its review table rather than the org data.
+TARGETS["copilot_org_data_workday_preview"] = Target(
+    "copilot_org_data_workday_preview", "raw/copilot_org_data_workday_preview", incremental=False)
 
 
 def b(name: str) -> str:

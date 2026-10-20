@@ -33,6 +33,12 @@ class Settings:
     arg_management_group: str = ""
     arg_agents: bool = True
     arg_foundry: bool = True
+    # Data source `workday`. Blank means the notebook's default; a bad value fails only the Workday job.
+    workday_mode: str = ""
+    workday_output_table: str = ""
+    workday_allow_base_overwrite: bool = False
+    workday_min_match_rate: str = ""
+    workday_email_column: str = ""
 
     def has(self, module: str) -> bool:
         return module in self.modules
@@ -73,6 +79,11 @@ class Settings:
             arg_management_group=(env.get("VALUELENS_ARG_MANAGEMENT_GROUP") or "").strip(),
             arg_agents=_bool(env, "VALUELENS_ARG_AGENTS", True),
             arg_foundry=_bool(env, "VALUELENS_ARG_FOUNDRY", True),
+            workday_mode=(env.get("VALUELENS_WORKDAY_MODE") or "").strip().lower(),
+            workday_output_table=(env.get("VALUELENS_WORKDAY_OUTPUT_TABLE") or "").strip(),
+            workday_allow_base_overwrite=_bool(env, "VALUELENS_WORKDAY_ALLOW_BASE_OVERWRITE", False),
+            workday_min_match_rate=(env.get("VALUELENS_WORKDAY_MIN_MATCH_RATE") or "").strip(),
+            workday_email_column=(env.get("VALUELENS_WORKDAY_EMAIL_COLUMN") or "").strip(),
         )
 
 

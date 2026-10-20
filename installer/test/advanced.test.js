@@ -174,6 +174,7 @@ const AZURE_ADVANCED = [
   'How often should the job run?',
   'Run the first load as soon as setup finishes?',
   'Which currency should the Value page report in?',
+  'Workday org data?',
 ];
 
 /** @param {{ ui: import('../src/ui.js').Ui }} u */
