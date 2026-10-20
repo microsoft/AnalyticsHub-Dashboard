@@ -133,6 +133,9 @@ def test_relative_links_and_anchors_resolve(path):
         ("docs/wiki/Home.md", "copilot-managed-app-preview"),
         ("docs/ARCHITECTURE.md", "copilot-managed-app"),
         ("docs/PERMISSIONS.md", "copilot-managed-app"),
+        # Hard-coded in azure/infra/main.bicepparam, web-app-registration.json and
+        # installer/test/azure-by-hand.test.js.
+        ("docs/MANUAL-INSTALL.md", "azure"),
     ],
 )
 def test_old_anchors_still_land(page, anchor):

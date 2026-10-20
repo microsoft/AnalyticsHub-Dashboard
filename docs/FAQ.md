@@ -56,8 +56,8 @@ you'd rather not use Fabric. See [Getting started](../README.md#getting-started)
 ## Installer or by hand?
 
 Use the [installer](INSTALL.md). It's quicker, runs on Fabric or Azure, and repairs and updates
-itself. Set it up [by hand](MANUAL-INSTALL.md) only if no install route works for you. By hand is
-Fabric only.
+itself. Set it up [by hand](MANUAL-INSTALL.md) only if no install route works for you. By hand
+works for Fabric and Azure, but you update it yourself.
 
 ## What does it cost?
 

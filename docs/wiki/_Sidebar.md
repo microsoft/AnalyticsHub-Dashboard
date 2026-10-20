@@ -17,6 +17,10 @@
 2. [Install](../MANUAL-INSTALL.md#2-install)
 3. [Check it worked](../MANUAL-INSTALL.md#3-verify)
 
+**Azure by hand**
+
+- [Steps](../MANUAL-INSTALL.md#azure)
+
 **Operate**
 
 - [Update or remove](../UPDATE.md)

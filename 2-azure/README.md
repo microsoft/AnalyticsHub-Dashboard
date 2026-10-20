@@ -30,8 +30,9 @@ Analytics Hub in your own Azure subscription, without Fabric.
 
 ## By hand
 
-Not supported. Some steps only the installer can do: see
-[Azure](../docs/MANUAL-INSTALL.md#azure). If your PC can't run the installer, run it in
+No installer: [seven steps in Azure Cloud Shell](../docs/MANUAL-INSTALL.md#azure), from the
+installer's own template and report. They need a release that includes them: **Get the files**
+checks for one. Or run the installer itself in
 [Azure Cloud Shell](../docs/INSTALL.md#locked-down-tenant--azure-cloud-shell).
 
 ## Then

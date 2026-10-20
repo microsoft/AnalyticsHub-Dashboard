@@ -16,7 +16,7 @@ Pick a path. Both load the data and publish the models.
 | | [**1. Fabric**](1-fabric/) (recommended) | [**2. Azure**](2-azure/) |
 |---|---|---|
 | **You need** | A Fabric capacity, F2 or larger, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager) | An Azure subscription or resource group, and a Power BI workspace |
-| **Set up with** | The installer, or by hand | The installer |
+| **Set up with** | The installer, or by hand | The installer, or by hand |
 | **Takes** | About 20 minutes. The first data arrives about 25 minutes after **Go ahead** | The same as Fabric |
 | **Costs** | The Fabric capacity | About $5–40 a month for a small tenant |
 
@@ -52,7 +52,8 @@ Analytics Hub itself is free. See [Architecture and costs](docs/ARCHITECTURE.md)
 3. [Check it worked](docs/INSTALL.md#check-it-worked). The Done page lists anything left to do, and
    who does it.
 
-**By hand:** not supported. [Why](docs/MANUAL-INSTALL.md#azure)
+**By hand:** [seven steps in Azure Cloud Shell](docs/MANUAL-INSTALL.md#azure), with no installer.
+They need a release that includes them: **Get the files** checks for one.
 
 ## Run the installer
 

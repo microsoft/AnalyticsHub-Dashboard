@@ -36,6 +36,8 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
    Administrator, it also publishes the tab to your org's app catalog, after one more sign-in
    ([what it needs](teams/README.md#give-it-to-everyone)).
 
+No installer? Set it up [by hand](../docs/MANUAL-INSTALL.md#azure) in Azure Cloud Shell.
+
 ## Share it
 
 Who can open the web app and the Teams tab is one Entra group, **Analytics Hub Viewers**, which the
@@ -356,3 +358,5 @@ ARM can't do these, so the installer:
   where the credit files land, the Consumption Central model, and the Copilot Studio Power Automate flow.
 - With the Agent 365 registry, product feedback or Workday org data: write access to the `landing`
   container for you, or, with private networking, read on the SharePoint site for the managed identity.
+
+To do them by hand, see [Azure, by hand](../docs/MANUAL-INSTALL.md#azure).

@@ -2,7 +2,8 @@
 
 <a id="update"></a>
 Keep Analytics Hub current, change what it collects, replace secrets before they expire, or
-[remove it](#uninstall). Set it up by hand? See [Manual install: Update](MANUAL-INSTALL.md#update).
+[remove it](#uninstall). Set it up by hand? See [Manual install: Update](MANUAL-INSTALL.md#update)
+for Fabric, or [Azure](MANUAL-INSTALL.md#azure).
 
 ## Get a new version
 

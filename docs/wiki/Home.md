@@ -10,7 +10,7 @@ Not sure? Use **Fabric**, with the installer.
 | | **1. Fabric** (recommended) | **2. Azure** |
 |---|---|---|
 | **Runs on** | Your Fabric capacity | Your Azure subscription |
-| **Set up with** | The installer, or by hand | The installer |
+| **Set up with** | The installer, or by hand | The installer, or by hand |
 | **Loads the data** | Yes | Yes |
 
 <a id="automatic-installer"></a>
@@ -29,6 +29,11 @@ Not sure? Use **Fabric**, with the installer.
    create.
 2. [Install](../MANUAL-INSTALL.md#2-install): notebooks, report, pipeline, then the app.
 3. [Check it worked](../MANUAL-INSTALL.md#3-verify): the pipeline run, the data and the report.
+
+## Azure by hand
+
+[Seven steps in Azure Cloud Shell](../MANUAL-INSTALL.md#azure), from the installer's own template
+and report. They need a release that includes them: **Get the files** checks for one.
 
 ## Operate
 

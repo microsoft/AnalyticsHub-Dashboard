@@ -97,6 +97,7 @@ jobs:
         run: |
           az bicep install
           az bicep build --file "azure/infra/main.bicep" --outfile "${{ runner.temp }}/main.arm.json"
+          az bicep build-params --file "azure/infra/main.bicepparam" --outfile "${{ runner.temp }}/main.parameters.json"
       - name: Compare with the installer's copy
         shell: python
         run: |
