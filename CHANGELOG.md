@@ -34,6 +34,12 @@ Fabric fills, with duplicates removed by Feedback Id. The emailed export flow is
 now: `--data productFeedback=flow` and `--feedback-flow` warn and use the exports. See
 [Product feedback](azure/README.md#product-feedback).
 
+**Azure: Workday org data, from its CSV export.** Workday now installs on Azure too, with org data,
+under the advanced settings or with `--data workday=csv`. Drop the Workday export in `workday/`, in
+the same places as the Agent 365 export. After each Entra ID load, each run adds the newest one's
+columns to `dbo.copilot_org_data`, matched on Primary Work Email, with the Fabric notebook's rules
+and checks. See [Workday org data](azure/README.md#workday-org-data).
+
 **Power BI model: faster active-user counts.** In both Fabric templates, and so in the Azure model
 built from them, `[All Active Users]` and `[Active Licensed Users]` now take one distinct count
 instead of testing each user, as in

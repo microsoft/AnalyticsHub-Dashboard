@@ -107,6 +107,10 @@ param argManagementGroup string = ''
 param argAgents bool = true
 @description('Azure Resource Graph: read Foundry accounts and projects from resources.')
 param argFoundry bool = true
+@description('Workday org data (data source workday): the table the enriched org data goes to. The default is a review copy; dbo.copilot_org_data (with workdayAllowBaseOverwrite) enriches the org data itself.')
+param workdayOutputTable string = 'dbo.copilot_org_data_workday_preview'
+@description('Workday org data: allow workdayOutputTable to be dbo.copilot_org_data.')
+param workdayAllowBaseOverwrite bool = false
 
 @description('Ask (/api/ask): off, create an Azure AI Services account and model deployment here, or use an existing Azure OpenAI endpoint.')
 @allowed(['off', 'create', 'existing'])
@@ -294,6 +298,8 @@ module apps 'modules/containerapps.bicep' = {
     argManagementGroup: argManagementGroup
     argAgents: argAgents
     argFoundry: argFoundry
+    workdayOutputTable: workdayOutputTable
+    workdayAllowBaseOverwrite: workdayAllowBaseOverwrite
     askEndpoint: askEndpointValue
     askDeployment: askDeploymentValue
   }

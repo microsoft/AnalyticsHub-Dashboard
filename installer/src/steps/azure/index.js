@@ -71,7 +71,7 @@ export const REQUIRED_ARM_PARAMETERS = [
   'location', 'sqlLocation', 'namePrefix', 'installId', 'tags', 'imageRegistry', 'imageTag', 'imageRegistryResourceId', 'runSchedule', 'runSteps', 'sampleData', 'sqlAdminLogin', 'sqlAdminObjectId',
   'sqlAdminPrincipalType', 'sqlMinCapacity', 'sqlMaxCapacity', 'sqlAutoPauseDelayMinutes', 'sqlUseFreeLimit', 'sqlFreeLimitExhaustionBehavior', 'publicNetworkAccess', 'privateDnsZoneMode', 'privateDnsZonesResourceGroupId', 'deployWeb',
   'webMinReplicas', 'webClientId', 'webAppIdUri', 'webAccess', 'modules', 'auditHistoryDays', 'powerBiWorkspaceId', 'semanticModels', 'sqlReaderName', 'sqlReaderClientId',
-  'azureAiSubscriptionId', 'paygSubscriptionIds', 'dropSiteId', 'dropDriveId', 'dropFolder', 'argManagementGroup', 'argAgents', 'argFoundry', 'reportingCurrency', 'exchangeRate',
+  'azureAiSubscriptionId', 'paygSubscriptionIds', 'dropSiteId', 'dropDriveId', 'dropFolder', 'argManagementGroup', 'argAgents', 'argFoundry', 'workdayOutputTable', 'workdayAllowBaseOverwrite', 'reportingCurrency', 'exchangeRate',
   'askMode', 'askEndpoint', 'askDeployment', 'askModelName', 'askModelVersion', 'askSku', 'askCapacity', 'askLocation',
 ];
 
@@ -287,7 +287,7 @@ export async function planAzure(ctx, pre, section) {
     config.dataSources.defender = config.modules.defender ? 'api' : 'skip';
     if (!section) await askAdvanced(
       ctx,
-      'demo mode, the Azure SQL region, the name prefix, tags, networking, who can view, audit history, the schedule, where credits come from, agent configuration and Foundry, the first load and the Value page currency',
+      'demo mode, the Azure SQL region, the name prefix, tags, networking, who can view, audit history, the schedule, where credits come from, Workday org data, agent configuration and Foundry, the first load and the Value page currency',
     );
   }
   const advanced = !!section || asksAdvanced(ctx);
@@ -501,6 +501,7 @@ export async function planAzure(ctx, pre, section) {
     planAzureAgent365(ctx);
     planAzureProductFeedback(ctx);
     await planAzureConsumption(ctx, subs);
+    await planAzureWorkday(ctx);
     await planAzureDrop(ctx);
   }
   if (editing('governance')) await planAzureResourceGraph(ctx);
@@ -552,16 +553,24 @@ export const azureAgent365On = (config) => !!config.modules.agent365 && config.a
 /** Product feedback is collected, from its CSV exports: the module is on and the jobs read tenant data. @param {import('../../config.js').InstallConfig} config */
 export const azureProductFeedbackOn = (config) => !!config.modules.productFeedback && config.azure?.sampleData !== true;
 
-/** The jobs read files dropped for them: credit files, the Agent 365 export or product feedback exports. @param {import('../../config.js').InstallConfig} config */
-export const azureReadsDrop = (config) => azureConsumptionOn(config) || azureAgent365On(config) || azureProductFeedbackOn(config);
+/**
+ * Workday org data is collected, from its CSV export: the source is csv, org data is on and the jobs read
+ * tenant data. It enriches the org data, so it's a data source rather than a module.
+ * @param {import('../../config.js').InstallConfig} config
+ */
+export const azureWorkdayOn = (config) => config.dataSources?.workday === 'csv' && !!config.modules.orgData && config.azure?.sampleData !== true;
+
+/** The jobs read files dropped for them: credit files, the Agent 365 export, product feedback exports or the Workday export. @param {import('../../config.js').InstallConfig} config */
+export const azureReadsDrop = (config) => azureConsumptionOn(config) || azureAgent365On(config) || azureProductFeedbackOn(config) || azureWorkdayOn(config);
 
 const CREDIT_FILES = 'credit files';
 const AGENT365_EXPORT = 'the Agent 365 export';
 const FEEDBACK_EXPORTS = 'product feedback exports';
+const WORKDAY_EXPORT = 'the Workday export';
 
 /**
- * What lands in the drop folder, for people: the credit files, the Agent 365 export and product feedback
- * exports, as collected.
+ * What lands in the drop folder, for people: the credit files, the Agent 365 export, product feedback
+ * exports and the Workday export, as collected.
  * @param {import('../../config.js').InstallConfig} config
  * @returns {string[]}
  */
@@ -571,6 +580,7 @@ export function azureDropContents(config) {
     ...(azureConsumptionOn(config) && (ds.studioCredits !== 'skip' || ds.coworkCredits !== 'skip') ? [CREDIT_FILES] : []),
     ...(azureAgent365On(config) ? [AGENT365_EXPORT] : []),
     ...(azureProductFeedbackOn(config) ? [FEEDBACK_EXPORTS] : []),
+    ...(azureWorkdayOn(config) ? [WORKDAY_EXPORT] : []),
   ];
 }
 
@@ -614,6 +624,38 @@ export function planAzureProductFeedback(ctx) {
   const folder = isPrivate(config.azure) ? `a ${AZURE_LANDING_DIRS.productFeedback} folder in the SharePoint folder you choose for the jobs` : azureDropLabel(config.azure, AZURE_LANDING_DIRS.productFeedback);
   ui.heading('Product feedback');
   ui.note(`${FEEDBACK_CSV_ONLY} Export it from ${where}, and drop each CSV in ${folder}. Each run loads them all and removes duplicates by Feedback Id.`);
+}
+
+/** What the Workday export does to the org data, for people. */
+const WORKDAY_ADDS = 'It adds the Workday columns Entra ID doesn\'t have to the org data, matched on Primary Work Email. Where Entra ID already has a column, its values stay, even blank ones, and people only in Workday are left out.';
+
+/**
+ * Workday org data on Azure: its CSV export, which you drop where the jobs read it. Asked behind Advanced
+ * settings, or set with --data workday=csv. It enriches the org data, so it needs that module.
+ * @param {Ctx} ctx
+ */
+export async function planAzureWorkday(ctx) {
+  const { ui, config } = ctx;
+  const ds = config.dataSources;
+  if (!config.modules.orgData) return;
+  if (config.azure?.sampleData) {
+    if (ds.workday === 'csv') ui.note('Demo mode doesn\'t load a Workday sample, so Workday org data is collected once you switch to your tenant\'s data.');
+    return;
+  }
+  const source = DATA_SOURCES.find((s) => s.id === 'workday');
+  const asked = asksAdvanced(ctx);
+  if (asked) {
+    ui.heading('Workday org data');
+    ds.workday = await ui.select(`${source?.label ?? 'Workday org data'}?`, [
+      { name: 'Upload a CSV export', value: 'csv', description: WORKDAY_ADDS },
+      { name: 'Leave it out', value: 'skip' },
+    ], ds.workday === 'csv' ? 'csv' : 'skip');
+  } else ds.workday = ds.workday === 'csv' ? 'csv' : 'skip';
+  if (ds.workday !== 'csv') return;
+  if (!asked) ui.heading('Workday org data');
+  const where = (source?.export?.where ?? 'Workday: run a report of active workers that includes Primary Work Email, then export it to CSV.').replace(/^Workday: run/, 'In Workday, run');
+  const folder = isPrivate(config.azure) ? `a ${AZURE_LANDING_DIRS.workday} folder in the SharePoint folder you choose for the jobs` : azureDropLabel(config.azure, AZURE_LANDING_DIRS.workday);
+  ui.note(`${where} Drop the CSV in ${folder}. Each run loads the newest one. ${WORKDAY_ADDS}`);
 }
 
 /**
@@ -669,7 +711,7 @@ export async function planAzureConsumption(ctx, subs) {
 
 /**
  * With private networking, the SharePoint folder the jobs read dropped files from (the credit files, the
- * Agent 365 export and product feedback exports), because Power Automate and your browser can't reach the
+ * Agent 365 export, product feedback exports and the Workday export), because Power Automate and your browser can't reach the
  * storage account. Without private networking they land in the landing container. Leaves the folder alone
  * when the jobs read no files.
  * @param {Ctx} ctx
@@ -801,6 +843,18 @@ async function ensureAzureProductFeedbackAccess(ctx) {
   if (azureDropsToSharePoint(az)) await grantDropSite(ctx);
   else await grantLandingWrite(ctx, 'to upload product feedback exports');
   ctx.ui.info(`Drop product feedback exports in ${azureDropLabel(az, AZURE_LANDING_DIRS.productFeedback)}. Each run loads them all and removes duplicates by Feedback Id.`);
+}
+
+/**
+ * Workday export access: read on the SharePoint drop folder's site for the jobs' managed identity, or,
+ * without one, write on the landing container for you, so you can upload the export.
+ * @param {Ctx} ctx
+ */
+async function ensureAzureWorkdayAccess(ctx) {
+  const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
+  if (azureDropsToSharePoint(az)) await grantDropSite(ctx);
+  else await grantLandingWrite(ctx, 'to upload the Workday export');
+  ctx.ui.info(`Drop the Workday export in ${azureDropLabel(az, AZURE_LANDING_DIRS.workday)}. Each run loads the newest one.`);
 }
 
 /**
@@ -988,10 +1042,12 @@ export async function azureDeployment(ctx, o) {
     publicNetworkAccess: param(az.publicNetworkAccess === false ? 'Disabled' : 'Enabled'), deployWeb: param(true), webMinReplicas: param(az.webAlwaysOn === true ? 1 : 0),
     privateDnsZoneMode: param(az.privateDns?.mode ?? 'create'), privateDnsZonesResourceGroupId: param(az.privateDns?.mode === 'existing' ? (az.privateDns.resourceGroupId ?? '') : ''),
     webClientId: param(o.pass === 2 ? (az.webApp?.clientId ?? '') : ''), webAppIdUri: param(o.pass === 2 ? (az.webApp?.appIdUri ?? '') : ''), webAccess: param(webAccess(config)),
-    modules: param([...enabledAzureModuleIds(config.modules, az), ...(azureResourceGraphOn(config) ? ['resourceGraph'] : [])].join(',')), auditHistoryDays: param(Math.max(config.history.days, ctx.reloadHistoryDays ?? 0)), powerBiWorkspaceId: param(az.powerBi?.workspaceId ?? ''),
+    modules: param([...enabledAzureModuleIds(config.modules, az), ...(azureResourceGraphOn(config) ? ['resourceGraph'] : []), ...(azureWorkdayOn(config) ? ['workday'] : [])].join(',')), auditHistoryDays: param(Math.max(config.history.days, ctx.reloadHistoryDays ?? 0)), powerBiWorkspaceId: param(az.powerBi?.workspaceId ?? ''),
     semanticModels: param(JSON.stringify(azureSemanticModels(config))),
     sqlReaderName: param(SQL_READER_NAME), sqlReaderClientId: param(o.pass === 2 ? (az.sqlReader?.clientId ?? '') : ''),
     reportingCurrency: param(config.reporting?.currency ?? DEFAULT_CURRENCY), exchangeRate: param(config.reporting?.exchangeRate ? String(config.reporting.exchangeRate) : ''),
+    // As on Fabric, the Workday export enriches the org data itself. Without these, the jobs write a review copy.
+    workdayOutputTable: param('dbo.copilot_org_data'), workdayAllowBaseOverwrite: param(true),
     ...consumptionParameters(config),
     ...argParameters(config),
     ...askParameters(config),
@@ -1044,7 +1100,7 @@ export function webAccess(config) {
 }
 
 /**
- * What the run job reads for credit consumption and the CSV exports (Agent 365, product feedback): the Azure
+ * What the run job reads for credit consumption and the CSV exports (Agent 365, product feedback, Workday): the Azure
  * AI and pay-as-you-go subscriptions it has access to, and with private networking, the SharePoint drop folder.
  * @param {import('../../config.js').InstallConfig} config
  */
@@ -1334,6 +1390,7 @@ export async function confirmAzurePlan(ctx) {
   ui.info(`Schedule:    ${config.schedule.frequency === 'weekly' ? `${config.schedule.weekday}s` : 'Daily'} at ${config.schedule.time} UTC`);
   if (azureAgent365On(config)) ui.info(`Agent 365:   CSV export, in ${azureDropLabel(az, AZURE_LANDING_DIRS.agent365)}`);
   if (azureProductFeedbackOn(config)) ui.info(`Feedback:    CSV exports, in ${azureDropLabel(az, AZURE_LANDING_DIRS.productFeedback)}`);
+  if (azureWorkdayOn(config)) ui.info(`Workday:     CSV export, in ${azureDropLabel(az, AZURE_LANDING_DIRS.workday)}`);
   if (azureConsumptionOn(config)) {
     const ds = config.dataSources;
     const studio = { api: 'Power Platform licensing API (daily flow)', csv: 'CSV exports', skip: 'Left out' }[ds.studioCredits] ?? ds.studioCredits;
@@ -1376,13 +1433,14 @@ export async function installAzure(ctx, opts) {
   const consumption = azureConsumptionOn(config);
   const agent365 = azureAgent365On(config);
   const feedback = azureProductFeedbackOn(config);
+  const workday = azureWorkdayOn(config);
   const resourceGraph = azureResourceGraphOn(config);
   const flows = flowsWanted(config).length > 0;
   const withAccess = !!config.access;
   const askAccess = askMode(az) === 'existing';
   const titles = [
     'Resource group', 'Azure resources', 'Entra applications', 'Microsoft Graph permissions', ...(consumption ? ['Credit consumption'] : []), ...(agent365 ? ['Agent 365 export'] : []),
-    ...(feedback ? ['Product feedback export'] : []), ...(resourceGraph ? ['Resource Graph access'] : []),
+    ...(feedback ? ['Product feedback export'] : []), ...(workday ? ['Workday export'] : []), ...(resourceGraph ? ['Resource Graph access'] : []),
     ...(askAccess ? ['Ask model access'] : []),
     'Power BI model', ...(withAccess ? ['Viewer access'] : []), 'Azure resources (final)', 'Database migration', ...(rlsOn(config) ? ['Org-scoped access'] : []),
     ...(flows ? ['Power Automate flow'] : []), 'Teams app', ...(ctx.reloadHistoryDays ? ['Reload audit history'] : ctx.runFirstLoad ? ['First load'] : []),
@@ -1432,6 +1490,12 @@ export async function installAzure(ctx, opts) {
   if (feedback) {
     step('Product feedback export');
     await ensureAzureProductFeedbackAccess(ctx);
+    ctx.save();
+  }
+
+  if (workday) {
+    step('Workday export');
+    await ensureAzureWorkdayAccess(ctx);
     ctx.save();
   }
 
@@ -2078,6 +2142,7 @@ export async function azureStatus(ctx) {
   if (azureConsumptionOn(config) && config.dataSources.studioCredits !== 'skip') ui.info(`Credit files:   ${azureDropLabel(az)}`);
   if (azureAgent365On(config)) ui.info(`Agent 365 CSV:  ${azureDropLabel(az, AZURE_LANDING_DIRS.agent365)}`);
   if (azureProductFeedbackOn(config)) ui.info(`Feedback CSV:   ${azureDropLabel(az, AZURE_LANDING_DIRS.productFeedback)}`);
+  if (azureWorkdayOn(config)) ui.info(`Workday CSV:    ${azureDropLabel(az, AZURE_LANDING_DIRS.workday)}`);
   if (az.teamsApp) ui.info(`Teams app:      Analytics Hub ${az.teamsApp.version} in your org's app catalog`);
   expiry(ctx, 'SQL reader secret', az.sqlReader?.secretExpiry);
   for (const p of az.graphRoles?.pending ?? []) ui.warn(`Pending admin action: grant ${p} to the managed identity.`);
@@ -2277,6 +2342,7 @@ export async function azureSummary(ctx, opts = {}) {
   if (azureConsumptionModelDeployed(config)) ui.info(`Credits:    model ${az.powerBi?.consumptionDatasetId}`);
   if (azureAgent365On(config)) ui.info(`Agent 365:  drop the export in ${azureDropLabel(az, AZURE_LANDING_DIRS.agent365)}. Each run loads the newest one.`);
   if (azureProductFeedbackOn(config)) ui.info(`Feedback:   drop exports in ${azureDropLabel(az, AZURE_LANDING_DIRS.productFeedback)}. Each run loads them all and removes duplicates by Feedback Id.`);
+  if (azureWorkdayOn(config)) ui.info(`Workday:    drop the export in ${azureDropLabel(az, AZURE_LANDING_DIRS.workday)}. Each run loads the newest one.`);
   const teamsPending = az.status?.pendingAdminActions?.find((a) => a.startsWith(`${TEAMS_APP_PENDING}: `));
   if (teamsPending) ui.info(`Teams:      Not published yet. A Teams Administrator needs to ${teamsPending.slice(TEAMS_APP_PENDING.length + 2)}`);
   else if (az.teamsApp) ui.info(`Teams:      Analytics Hub ${az.teamsApp.version} in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app.`);

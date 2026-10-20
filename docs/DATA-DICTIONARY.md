@@ -264,6 +264,13 @@ from `Job_Profile`. It does not invent a manager hierarchy or a matching audit i
 > For recurring no-Entra refreshes, explicitly choose `MODE='standalone'`: auto checks table
 > existence and would otherwise see the table created by its first standalone run.
 
+**On Azure**, the jobs' `workday` collector applies the same rules (`valuelens_core.workday`, a
+port of this notebook) to the newest CSV in the drop folder's `workday/`, after each Entra ID org
+load. The notebook's settings are `VALUELENS_WORKDAY_*` variables with the same defaults, so
+without the installer it writes the preview, `dbo.copilot_org_data_workday_preview`. The installer
+sets the output to `dbo.copilot_org_data` and allows the overwrite, as it does on Fabric. See
+[Workday org data](../azure/README.md#workday-org-data).
+
 ---
 
 ## Optional tables

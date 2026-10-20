@@ -40,6 +40,8 @@ param dropFolder string = ''
 param argManagementGroup string = ''
 param argAgents bool = true
 param argFoundry bool = true
+param workdayOutputTable string = 'dbo.copilot_org_data_workday_preview'
+param workdayAllowBaseOverwrite bool = false
 param registryServer string = ''
 @description('Subnet delegated to Microsoft.App/environments (private networking). Empty = no VNet.')
 param infrastructureSubnetId string = ''
@@ -107,6 +109,8 @@ var jobEnv = concat(commonEnv, [
   { name: 'VALUELENS_ARG_MANAGEMENT_GROUP', value: argManagementGroup }
   { name: 'VALUELENS_ARG_AGENTS', value: argAgents ? 'true' : 'false' }
   { name: 'VALUELENS_ARG_FOUNDRY', value: argFoundry ? 'true' : 'false' }
+  { name: 'VALUELENS_WORKDAY_OUTPUT_TABLE', value: workdayOutputTable }
+  { name: 'VALUELENS_WORKDAY_ALLOW_BASE_OVERWRITE', value: workdayAllowBaseOverwrite ? 'true' : 'false' }
 ])
 var registries = empty(registryServer) ? [] : [{ server: registryServer, identity: identityId }]
 var identity = {

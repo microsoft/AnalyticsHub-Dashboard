@@ -10,7 +10,7 @@ import { MODULES, azureGraphRolesFor } from '../src/catalog.js';
 import { HttpError } from '../src/http.js';
 import { armApi, armErrors, waitForDeployment } from '../src/clients/azure.js';
 import { runCommand } from '../src/install.js';
-import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, armParameterNames, askTarget, azureAgent365On, azureConsumptionOn, azureCron, azureDeployment, azureDropContents, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureProductFeedbackOn, azureRefresh, azureRotateSecret, azureSemanticModels, azureStatus, azureSummary, azureUninstall, confirmAzurePlan, consumptionParameters, enabledAzureModuleIds, installAzure, parseDropFolder, planAzure, planAzureAgent365, planAzureDrop, planAzureProductFeedback, planAzureConsumption, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
+import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, armParameterNames, askTarget, azureAgent365On, azureConsumptionOn, azureCron, azureDeployment, azureDropContents, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureProductFeedbackOn, azureRefresh, azureRotateSecret, azureSemanticModels, azureStatus, azureSummary, azureUninstall, azureWorkdayOn, confirmAzurePlan, consumptionParameters, enabledAzureModuleIds, installAzure, parseDropFolder, planAzure, planAzureAgent365, planAzureDrop, planAzureProductFeedback, planAzureConsumption, planAzureWorkday, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
 import { AZURE_AI_ROLES } from '../src/steps/consumption.js';
 import { azureFlowTarget, connectionSteps, flowDefinitions, flowsWanted } from '../src/steps/flows.js';
 import { RG_DELETE_POLL_MS, RG_DELETE_POLLS } from '../src/steps/azure/index.js';
@@ -898,6 +898,183 @@ test('Azure plan with product feedback: the review lists the access the exports 
   s.az().drop = parseDropFolder(DROP_FOLDER);
   assert.deepEqual(feedback(azurePlanReview(s.ctx).grants), [
     { who: 'Collector managed identity', what: 'Sites.Selected (read)', where: 'https://contoso.sharepoint.com/sites/Analytics', detail: 'Reads the Agent 365 export and the product feedback exports. Needs a SharePoint or Global administrator.' },
+  ]);
+});
+
+/** @param {import('../src/config.js').InstallConfig} config @param {Partial<import('../src/config.js').AzureConfig>} [az] */
+function withAzureWorkday(config, az = {}) {
+  config.target = 'azure';
+  config.dataSources.workday = 'csv';
+  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub', ...az };
+}
+
+const WORKDAY_NOTE = /In Workday, run a report of active workers that includes Primary Work Email and the fields you want \(cost centre, level, location\), then export it to CSV\. Drop the CSV in the storage account > landing\/workday\. Each run loads the newest one\. It adds the Workday columns Entra ID doesn't have to the org data, matched on Primary Work Email\. Where Entra ID already has a column, its values stay, even blank ones, and people only in Workday are left out\./;
+
+test('Workday org data on Azure: asked behind Advanced settings or set with --data, and the plan says where to drop the export', async () => {
+  const plan = async (/** @type {{ az?: Partial<import('../src/config.js').AzureConfig>, workday?: 'csv' | 'skip', advanced?: boolean, orgData?: boolean, answers?: any[] }} */ o = {}) => {
+    const u = fakeUi({ answers: o.answers ?? [] });
+    const { ctx, config } = fakeCtx({ ui: u.ui });
+    withAzureWorkday(config, o.az);
+    config.dataSources.workday = o.workday ?? 'skip';
+    if (o.orgData === false) config.modules.orgData = false;
+    if (o.advanced !== undefined) ctx.advanced = o.advanced;
+    await planAzureWorkday(ctx);
+    return { text: u.text(), asked: u.asked, config };
+  };
+
+  const picked = await plan({ answers: ['csv'] });
+  assert.deepEqual(picked.asked, ['Workday org data?']);
+  assert.equal(picked.config.dataSources.workday, 'csv');
+  assert.match(picked.text, WORKDAY_NOTE);
+  assert.equal(azureWorkdayOn(picked.config), true);
+  assert.deepEqual(azureDropContents(picked.config), ['the Workday export']);
+
+  const declined = await plan({ workday: 'csv', answers: ['skip'] });
+  assert.equal(declined.config.dataSources.workday, 'skip');
+  assert.doesNotMatch(declined.text, /Drop the CSV/);
+  assert.equal(azureWorkdayOn(declined.config), false);
+  assert.deepEqual(azureDropContents(declined.config), []);
+
+  const flag = await plan({ workday: 'csv', advanced: false });
+  assert.deepEqual(flag.asked, [], 'without Advanced settings, --data workday=csv or the saved choice stands');
+  assert.equal(flag.config.dataSources.workday, 'csv');
+  assert.match(flag.text, WORKDAY_NOTE);
+  assert.equal((await plan({ advanced: false })).text, '');
+
+  assert.match((await plan({ workday: 'csv', advanced: false, az: { outputs: { storageAccountName: 'vlensst' } } })).text, /Drop the CSV in vlensst > landing\/workday\./);
+  assert.match((await plan({ workday: 'csv', advanced: false, az: { publicNetworkAccess: false } })).text, /Drop the CSV in a workday folder in the SharePoint folder you choose for the jobs\./);
+
+  const demo = await plan({ workday: 'csv', az: { sampleData: true } });
+  assert.deepEqual(demo.asked, []);
+  assert.match(demo.text, /Demo mode doesn't load a Workday sample, so Workday org data is collected once you switch to your tenant's data\./);
+  assert.equal(demo.config.dataSources.workday, 'csv', 'kept for when you switch');
+  assert.equal(azureWorkdayOn(demo.config), false);
+  assert.deepEqual(azureDropContents(demo.config), []);
+  assert.equal((await plan({ az: { sampleData: true } })).text, '');
+
+  const noOrg = await plan({ workday: 'csv', orgData: false });
+  assert.deepEqual(noOrg.asked, [], 'it enriches the org data, so it needs it');
+  assert.equal(azureWorkdayOn(noOrg.config), false);
+});
+
+test('Workday org data on Azure with private networking: the export shares the SharePoint folder with the other drops', async () => {
+  const ask = async (/** @type {(config: import('../src/config.js').InstallConfig) => void} */ setUp) => {
+    const u = fakeUi({ answers: [DROP_FOLDER] });
+    const { ctx, config } = fakeCtx({ ui: u.ui });
+    withAzureWorkday(config, { publicNetworkAccess: false });
+    setUp(config);
+    await planAzureDrop(ctx);
+    return { asked: u.asked, config };
+  };
+  const only = await ask(() => {});
+  assert.deepEqual(only.asked, ['SharePoint folder for the Workday export (the address of a folder in a document library)']);
+  assert.ok(azureGraphRoles(only.config).includes('Sites.Selected'), 'the jobs read the folder');
+
+  const all = await ask((config) => {
+    withAzureConsumption(config, { publicNetworkAccess: false });
+    Object.assign(config.modules, { agent365: true, productFeedback: true });
+    Object.assign(config.dataSources, { agent365: 'csv', productFeedback: 'csv' });
+  });
+  assert.deepEqual(all.asked, ['SharePoint folder for credit files, the Agent 365 export, product feedback exports and the Workday export (the address of a folder in a document library)']);
+  assert.deepEqual(azureDropContents(all.config), ['credit files', 'the Agent 365 export', 'product feedback exports', 'the Workday export']);
+});
+
+/** An Azure install against fakes that records each deployment's parameters. */
+function workdayInstall(/** @type {Partial<import('../src/config.js').AzureConfig>} */ az = {}) {
+  const arm = fakeArm();
+  /** @type {any[]} */
+  const deployments = [];
+  const deploy = /** @type {(...a: any[]) => Promise<any>} */ (arm.api.deployTemplate);
+  arm.api.deployTemplate = async (/** @type {any[]} */ ...args) => {
+    deployments.push(args[3]);
+    return deploy(...args);
+  };
+  const graph = fakeAzureGraph();
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds', connectionDetails: { server: 'vlens-sql.database.windows.net', database: 'valuelens' } }]);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui });
+  withAzureWorkday(config, az);
+  ctx.runFirstLoad = false;
+  const params = () => deployments.at(-1).properties.parameters;
+  return { arm, graph, ui, ctx, config, params, modules: () => /** @type {string} */ (params().modules.value).split(',') };
+}
+
+test('Azure install with Workday org data: write on the landing container for you, the jobs enrich the org data in place, and where to drop the export', async () => {
+  const s = workdayInstall();
+  await installAzure(s.ctx, { wait: true });
+  const role = `assignRole /subscriptions/sub-1/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/vlensstabc ${ROLES.storageBlobDataContributor} user-1 User`;
+  assert.deepEqual(s.arm.calls.filter((c) => c.startsWith('assignRole')), [role]);
+  const az = /** @type {any} */ (s.config.azure);
+  assert.equal(az.storageRole, true);
+  assert.ok(!s.graph.calls.some((c) => c.startsWith('grantSiteRead')));
+  const out = s.ui.text();
+  assert.match(out, /Drop the Workday export in vlensstabc > landing\/workday\. Each run loads the newest one\./);
+  assert.match(out, /Workday: +drop the export in vlensstabc > landing\/workday\. Each run loads the newest one\./, 'in the summary');
+
+  assert.ok(s.modules().includes('workday'), 'the jobs collect it');
+  assert.equal(s.params().workdayOutputTable.value, 'dbo.copilot_org_data', 'into the org data, as on Fabric');
+  assert.equal(s.params().workdayAllowBaseOverwrite.value, true);
+  assert.equal(s.params().dropSiteId.value, '');
+
+  await azureStatus(s.ctx);
+  assert.match(s.ui.text(), /Workday CSV: +vlensstabc > landing\/workday/);
+
+  // Leaving it out stops the jobs collecting it.
+  s.config.dataSources.workday = 'skip';
+  s.arm.calls.length = 0;
+  await installAzure(s.ctx, { wait: true });
+  assert.ok(!s.modules().includes('workday'));
+  assert.ok(!s.arm.calls.some((c) => c.startsWith('assignRole')));
+});
+
+test('Azure install with Workday org data and private networking: a read grant on the SharePoint site, which uninstall leaves alone', async () => {
+  // Public endpoints keep the fakes simple; the folder is what matters here.
+  const s = workdayInstall({ drop: parseDropFolder(DROP_FOLDER), createdResourceGroup: true });
+  await installAzure(s.ctx, { wait: true });
+  const az = /** @type {any} */ (s.config.azure);
+  assert.equal(s.graph.calls.filter((c) => c.startsWith('grantSiteRead')).length, 1);
+  assert.ok(s.graph.calls.some((c) => c.startsWith('grantSiteRead site:contoso.sharepoint.com:/sites/Analytics')));
+  assert.equal(az.drop.granted, true);
+  assert.ok(az.graphRoles.assigned.includes('Sites.Selected'));
+  assert.ok(!s.arm.calls.some((c) => c.includes('storageAccounts/')), 'no storage role for you when the export goes to SharePoint');
+  assert.match(s.ui.text(), /Drop the Workday export in https:\/\/contoso\.sharepoint\.com\/sites\/Analytics\/Shared Documents\/ValueLens\/workday\. Each run loads the newest one\./);
+  assert.equal(s.params().dropSiteId.value, 'contoso.sharepoint.com:/sites/Analytics');
+  assert.equal(s.params().dropFolder.value, 'Shared Documents/ValueLens');
+
+  await azureUninstall(s.ctx);
+  assert.ok(s.arm.calls.includes('deleteResourceGroup rg'));
+  assert.match(s.ui.text(), /The SharePoint drop folder https:\/\/contoso\.sharepoint\.com\/sites\/Analytics\/Shared Documents\/ValueLens and the files in it are left alone\./);
+});
+
+test('Azure install with Workday org data in demo mode grants nothing for it, and the jobs leave it out', async () => {
+  const s = workdayInstall({ sampleData: true });
+  await installAzure(s.ctx, { wait: true });
+  assert.ok(!s.arm.calls.some((c) => c.startsWith('assignRole')));
+  assert.ok(!s.modules().includes('workday'));
+  assert.doesNotMatch(s.ui.text(), /Workday export|Workday CSV/);
+});
+
+test('Azure plan with Workday org data: the review lists the access the export needs', async () => {
+  const s = teamsCatalogInstall({ answers: [false, true] });
+  /** @type {any[]} */
+  const plans = [];
+  const review = s.ui.ui.review;
+  s.ui.ui.review = (plan) => {
+    plans.push(plan);
+    review(plan);
+  };
+  s.ctx.config.dataSources.workday = 'csv';
+  assert.equal(await confirmAzurePlan(s.ctx), true);
+  assert.match(s.ui.text(), /Workday: +CSV export, in the storage account > landing\/workday/);
+  const workday = (/** @type {{ detail?: string }[]} */ grants) => grants.filter((g) => /Workday/.test(g.detail ?? ''));
+  assert.deepEqual(workday(plans[0].grants), [
+    { who: 'You', what: 'Storage Blob Data Contributor', where: 'The storage account', detail: 'So you can upload the Workday export to the landing container.' },
+  ]);
+
+  s.az().drop = parseDropFolder(DROP_FOLDER);
+  assert.deepEqual(workday(azurePlanReview(s.ctx).grants), [
+    { who: 'Collector managed identity', what: 'Sites.Selected (read)', where: 'https://contoso.sharepoint.com/sites/Analytics', detail: 'Reads the Workday export. Needs a SharePoint or Global administrator.' },
   ]);
 });
 
