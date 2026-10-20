@@ -1,7 +1,8 @@
 # Agent Evaluator on Azure: live test
 
 **Don't run any of this until it's approved.** It changes a tenant and costs money: see
-[What it changes](#what-it-changes).
+[What it changes](#what-it-changes). Run it on installer 0.6.8-rc.2, the first release candidate
+with Agent Evaluator on Azure.
 
 This test runs Agent Evaluator end to end on the Azure path, against real Copilot Studio
 transcripts:
@@ -27,7 +28,7 @@ are in `ContainerAppConsoleLogs` (columns `ContainerGroupName` and `Log`), not
 | **Dataverse** | The jobs' managed identity becomes an application user with the **Bot Transcript Viewer** role in one or two environments. The installer adds it in A; you add it by hand in B (step 7). Steps 9 to 11 and uninstall remove the user the installer added, or print the steps. You remove B's yourself (step 14). |
 | **Data read** | Up to 180 days of Copilot Studio transcripts from those environments. The jobs keep only parsed rows: prompts, replies and error messages as 500-character previews; feedback comments as written, up to 4,000 characters; and each person's Entra object ID and UPN. They're kept in the test install's storage account and Azure SQL database, and are deleted with its resource group. |
 | **Spend** | One Azure install in a new resource group that holds nothing else. If you build the images (step 0), also an Azure Container Registry in its own resource group. Both are deleted the same day. See [What it costs](../docs/PREREQUISITES.md#what-it-costs). |
-| **Power BI** | A new workspace with the install's models. Uninstall leaves it, so you delete it in step 14. |
+| **Power BI** | A new workspace with the install's models. Uninstall asks whether to delete it, and you say yes (step 13). |
 | **Teams** (optional) | Publishing the Teams app to the org catalog, to check the pages in Teams, Outlook and the Microsoft 365 app. It's a Teams change, so it needs separate approval. |
 | **Graph** | No new permission. The UPN lookup uses `User.Read.All`, which the identity already has for the core data. |
 
@@ -59,7 +60,7 @@ are in `ContainerAppConsoleLogs` (columns `ContainerGroupName` and `Log`), not
 Clone the branch under test into a new folder, and keep the install record outside the clone:
 
 ```powershell
-git clone --branch <branch under test> https://github.com/microsoft/AnalyticsHub-Dashboard "$HOME\ae-live-test\src"
+git clone --branch <rc.2 tag or branch under test> https://github.com/microsoft/AnalyticsHub-Dashboard "$HOME\ae-live-test\src"
 $rec = "$HOME\ae-live-test\valuelens-install.json"
 ```
 
@@ -70,10 +71,10 @@ pins others, the registry is `ghcr.io/microsoft` and the tag is the version in
 The released images don't have Agent Evaluator on Azure, so always pin a tag that does. Do one of
 these:
 
-- **Release candidate images**, once they're published:
+- **Release candidate images**, once rc.2's are published:
 
   ```powershell
-  [IO.File]::WriteAllText($rec, '{"version":1,"target":"azure","azure":{"images":{"tag":"<RC tag>"}}}')
+  [IO.File]::WriteAllText($rec, '{"version":1,"target":"azure","azure":{"images":{"tag":"<rc.2 tag>"}}}')
   ```
 
 - **Your own build**, in a new registry in its own resource group.
@@ -435,8 +436,10 @@ Run `update`, choose **Repair or change**, open **Module connections**, and unti
 - `status` still shows `Evaluator:      <model ID>`, then `Agents:         no environments chosen`.
 - The Agent Evaluation pages still show the sessions already read.
 - `Get-Schedule` says `false`: nothing new can load, so the model's scheduled refresh is off.
-- The next run has no `Agent Evaluator:` or `publish agent_` lines, and says
-  `refresh: ae skipped; agentEvaluator isn't in VALUELENS_MODULES, so nothing loads into it`.
+- The next run has no `Agent Evaluator:` line. It says
+  `collect agent_evaluator: VALUELENS_DATAVERSE_ENVIRONMENTS lists no environment yet; skipped` and
+  `refresh: ae skipped; VALUELENS_DATAVERSE_ENVIRONMENTS lists no environment yet, so nothing loads into it`.
+  Its `publish agent_…` lines publish what was already read again, with no day rewritten.
 
 Then tick A and B again. Expect the role given in A as in step 9,
 `The jobs' managed identity can read transcripts in B`, `Get-Schedule` saying `true`, and a next
@@ -483,10 +486,11 @@ npx valuelens-install uninstall --config $rec
 ```
 
 Expect:
-- before it deletes the resource group, A's user removed as in step 9, and B's left with the note
-  as in step 10;
-- it deletes the resource group, and the app registrations it created;
-- it leaves the Power BI workspace.
+- first, a question whether to delete the Power BI workspace it created. Say yes;
+- then, before any deletes, A's user removed as in step 9, and B's left with the note as in
+  step 10;
+- it deletes the workspace with its models, the resource group, and the app registrations it
+  created.
 
 Check A and B with `Get-Dv` and in the admin center.
 
@@ -495,7 +499,7 @@ Check A and B with `Get-Dv` and in the admin center.
 - B's user: in the admin center, select it under **Application users**, **Deactivate** it, then
   **Delete** it. Only a deactivated application user can be deleted.
 - A's user, the same way, if Dataverse wouldn't delete it in step 9 or 13.
-- The Power BI workspace, which uninstall leaves.
+- The Power BI workspace, if uninstall couldn't delete it in step 13.
 - The registry's resource group, if you built the images:
   `az group delete -n <registry resource group> --yes`.
 - The Teams app, if a Teams admin uploaded it and it's still in the Teams admin center.
@@ -522,7 +526,7 @@ Check A and B with `Get-Dv` and in the admin center.
 | 10 | No environment: pages kept; schedule off; `refresh: ae skipped`; B's user left; both back | |
 | 11 | Module off: pages gone, schedule off, model and ID kept; back on: the same ID, schedule on | |
 | 12 | Optional demo mode: no Dataverse change; pages and schedule off, then back | |
-| 13 | A's user removed, or the steps printed; B's user left; the resource group gone | |
+| 13 | A's user removed, or the steps printed; B's user left; the workspace and the resource group gone | |
 | 14 | Clean-up done | |
 
 ## Optional: compare with Fabric
