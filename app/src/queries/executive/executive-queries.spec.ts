@@ -200,9 +200,9 @@ describe("the hours range, asked beside the summary", () => {
     /**
      * SHA-256 of the summary with the range put back after its hours, as one query, with LF line ends.
      * When the range moved out, this was the summary 0.6.8-rc.1 asked, byte for byte: the move changed
-     * no column.
+     * no column. Since then, only the summary's comment on [Active Agent Users] has changed.
      */
-    const SUMMARY_WITH_RANGE = "4ee5fd16e58cca48865b7a553545c7d191876aa0b25f3569b32a5e4561762609";
+    const SUMMARY_WITH_RANGE = "79af161d91f8ef8b7de5f3569e9dfbd70d98527ebfbd9a8f1f0f320d26fa9a6e";
 
     it("asks the two columns the summary asked, byte for byte, and nothing else", () => {
         expect(Object.fromEntries(columnsOf(range))).toEqual(RANGE_BEFORE);
