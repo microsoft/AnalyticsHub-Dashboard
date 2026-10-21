@@ -113,6 +113,18 @@ resource group.
   **Update** redeploys the run job's settings. Runs then go back to recomputing only recent and
   changed months.
 
+**Fixed:**
+
+- **Fabric: Repair or change redeploys the app after an update.** It pushed the new version's
+  semantic model, notebooks and pipeline, but its question about the app, "Deploy it again?",
+  defaulted to no unless the app's pages, currency or who can view it had changed. So with the
+  defaults, the app stayed at the earlier version, on the new model. Installers up to 0.6.7 have
+  this problem, on Fabric only; on Azure, both Update and Repair or change redeploy the web app.
+  Now the install record keeps the installer version that deployed the app. When another version
+  deployed it, or the record has none, as with every install from 0.6.7 and earlier, the question
+  says the app needs redeploying to update it to this version, and defaults to yes. Answer no, and
+  the next Repair or change asks again. **Update** already defaulted to redeploying the app.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its
