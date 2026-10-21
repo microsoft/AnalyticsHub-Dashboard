@@ -1007,7 +1007,7 @@ export async function azurePreflight(ctx) {
     throw err;
   });
   az.status.whatIf = changes?.properties?.changes ?? changes?.changes ?? [];
-  await stopOnUntaggedCollisions(ctx);
+  await stopOnUntaggedCollisions(ctx, deployment);
   await printAdminGrants(ctx);
 }
 
@@ -1036,12 +1036,56 @@ export function newResourceGroupResources(az) {
   ].map(([resourceType, name]) => ({ resourceType, name, changeType: 'Create' }));
 }
 
-/** @param {Ctx} ctx */
-async function stopOnUntaggedCollisions(ctx) {
+/** The privatelink zones network.bicep creates with private networking and DNS mode create. The installer deploys to the public cloud only. */
+const PRIVATE_DNS_ZONES = ['privatelink.database.windows.net', 'privatelink.blob.core.windows.net', 'privatelink.dfs.core.windows.net', 'privatelink.table.core.windows.net'];
+/** And these too when it creates the Ask model's Azure AI Services account. */
+const ASK_PRIVATE_DNS_ZONES = ['privatelink.cognitiveservices.azure.com', 'privatelink.openai.azure.com', 'privatelink.services.ai.azure.com'];
+
+/**
+ * The private DNS zones a deployment declares in its own resource group: none unless it uses private networking with DNS mode create.
+ * @param {Record<string, any>} parameters  The deployment's ARM parameters.
+ */
+export function declaredDnsZones(parameters) {
+  if (parameters.publicNetworkAccess?.value !== 'Disabled' || parameters.privateDnsZoneMode?.value !== 'create') return [];
+  return [...PRIVATE_DNS_ZONES, ...(parameters.askMode?.value === 'create' ? ASK_PRIVATE_DNS_ZONES : [])];
+}
+
+/**
+ * ARM updates a declared zone that's already in the resource group in place, and tags it as this install's, so uninstall would
+ * try to delete it. Says which declared zones are there without this install's tag, and how to go on, or '' when there are none.
+ * @param {import('../../config.js').AzureConfig} az @param {string[]} declared @param {any[]} resources  The resource group's.
+ */
+function dnsZoneCollision(az, declared, resources) {
+  const found = new Map(resources.filter((r) => /^Microsoft\.Network\/privateDnsZones$/i.test(String(r.type ?? ''))).map((r) => [String(r.name ?? '').toLowerCase(), r]));
+  const owner = (/** @type {string} */ zone) => found.get(zone)?.tags?.['valuelens-install-id'];
+  const taken = declared.filter((z) => found.has(z) && owner(z) !== az.installId);
+  if (!taken.length) return '';
+  const others = taken.filter((z) => owner(z));
+  const missing = declared.filter((z) => !found.has(z));
+  const rg = /** @type {string} */ (az.resourceGroup);
+  const it = taken.length === 1 ? 'it' : 'them';
+  const otherIt = others.length === 1 ? 'it' : 'them';
+  const whose = others.length === taken.length ? (taken.length === 1 ? 'It belongs' : 'They belong') : `${joinList(others)} ${others.length === 1 ? 'belongs' : 'belong'}`;
+  return [
+    `Private DNS zone collision: ${joinList(taken)} already ${taken.length === 1 ? 'exists' : 'exist'} in resource group ${rg} without this install's tag. `
+      + `With private networking, this install would update ${it} in place and tag ${it} as its own, so its uninstall would try to delete ${it} and every record in ${it}. `
+      + (others.length ? `${whose} to another Analytics Hub install, and its uninstall would try to delete ${otherIt} even while this install uses ${otherIt}. ` : '')
+      + 'Analytics Hub will not modify resources it did not create. To go on, either:',
+    '  - Use the zones in this resource group: run the installer again, choose advanced options and Private networking, then "Use existing zones in another resource group", '
+      + `and give /subscriptions/${az.subscriptionId}/resourceGroups/${rg} as the resource group that holds them. On the setup page, that's Networking, then "Use existing zones" with the same resource group ID.`
+      + (missing.length ? ` Every zone the install uses must then be in it, so first create ${joinList(missing)} there, for example with az network private-dns zone create -g ${rg} -n <zone name>.` : ''),
+    '  - Or install into another resource group.',
+  ].join('\n');
+}
+
+/** @param {Ctx} ctx @param {{ properties: { parameters: Record<string, any> } }} deployment  What the install would deploy. */
+async function stopOnUntaggedCollisions(ctx, deployment) {
   const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
   const resources = await ctx.api.arm.listResources(/** @type {string} */ (az.subscriptionId), /** @type {string} */ (az.resourceGroup)).catch(() => []);
   const offenders = resources.filter((r) => String(r.name ?? '').toLowerCase().startsWith(String(az.namePrefix).toLowerCase()) && r.tags?.['valuelens-install-id'] !== az.installId);
   if (offenders.length) throw new Error(`Resource name collision: ${offenders.map((r) => `${r.type}/${r.name}`).join(', ')} already exists without this install's tag. Analytics Hub will not modify resources it did not create.`);
+  const zones = dnsZoneCollision(az, declaredDnsZones(deployment.properties.parameters), resources);
+  if (zones) throw new Error(zones);
 }
 
 /** @param {Ctx} ctx @param {{ pass: 1 | 2 }} o */

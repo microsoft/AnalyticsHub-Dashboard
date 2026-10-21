@@ -45,6 +45,23 @@ when a long first load reaches the scheduled time. If it does, stop the newer ru
 history once the other has finished, as [Troubleshooting](docs/TROUBLESHOOTING.md#azure) shows. A
 fuller fix is planned.
 
+**Azure: private networking no longer takes over private DNS zones already in the resource
+group.** With private networking, an install creates its `privatelink.*` zones in its resource group
+unless you choose otherwise. When an existing resource group already had a zone of the same name,
+the deployment updated it in place and tagged it as the install's own, so uninstalling tried to
+delete it, with every record in it. A second install, in a group where an earlier one had created
+the zones, did the same to the first install's zones. Now the preflight stops before anything is
+deployed when a zone the install would create is already there without its tag. It names the zones
+and says how to go on: choose **Use existing zones in another resource group** and give that
+resource group, after creating any of the zones that aren't there yet, or install into another
+resource group.
+
+- **Still goes ahead:** a Repair or Update over zones the install created itself, public networking,
+  **Use existing zones**, **Leave DNS to Azure Policy or the network team**, and `privatelink.*`
+  zones the install doesn't create, such as Key Vault's.
+- **An install that already took over a zone** isn't detected: the zone now has that install's tag,
+  and the install record doesn't say which zones were there before it.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its

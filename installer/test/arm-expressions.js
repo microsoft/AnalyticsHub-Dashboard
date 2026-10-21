@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto';
 
 const hash = (/** @type {unknown[]} */ args) => createHash('sha256').update(args.map(String).join('|')).digest('hex');
 /** Functions whose value only exists while the deployment runs; expressions using them are skipped. */
-export const RUNTIME_FUNCTIONS = /\b(reference|list\w*|environment|deployment|managementGroup|tenant|pickZones|newGuid|utcNow)\s*\(/i;
+export const RUNTIME_FUNCTIONS = /\b(reference|list\w*|deployment|managementGroup|tenant|pickZones|newGuid|utcNow)\s*\(/i;
 
 /** @param {string} src */
 function tokenize(src) {
@@ -134,6 +134,8 @@ export function armEvaluator(template, parameters, scope = {}) {
     },
     resourcegroup: () => rg,
     subscription: () => ({ id: `/subscriptions/${sub}`, subscriptionId: sub, tenantId: '00000000-0000-0000-0000-0000000000aa' }),
+    // The installer deploys to the public cloud only.
+    environment: () => ({ name: 'AzureCloud', suffixes: { sqlServerHostname: '.database.windows.net', storage: 'core.windows.net' } }),
     concat: (a) => (a.every(Array.isArray) ? a.flat() : a.map(String).join('')),
     format: ([f, ...a]) => String(f).replace(/\{(\d+)(:[^}]*)?\}/g, (_, i) => {
       if (Number(i) >= a.length) throw new Error(`format('${f}') has no argument {${i}}`);

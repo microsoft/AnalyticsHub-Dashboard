@@ -256,7 +256,12 @@ Under [Advanced settings](#advanced-settings), the wizard asks how the app, jobs
   app keeps public ingress, so people can open it.
   - **Private DNS zones.** Landing zones often deny private DNS zones outside a hub subscription, or
     let a policy add the DNS records. The wizard then asks how to handle the `privatelink.*` zones:
-    - **Create them in this resource group** (default).
+    - **Create them in this resource group** (default). If the resource group already has one of
+      them that this install didn't create, yours or another Analytics Hub install's, the preflight
+      names it and stops before deploying: the install would tag the zone as its own, so its
+      uninstall would try to delete it. To use the zones there, choose **Use existing zones in
+      another resource group** and give this resource group's ID, after creating any of the zones
+      that aren't there yet. Or install into another resource group.
     - **Use existing zones in another resource group.** Give the resource ID of the hub resource group that holds them. Every
       zone must already exist there, including the three AI zones when Ask is created. The installer
       links the VNet to them, which needs **Private DNS Zone Contributor** on that group.

@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { azureDeployment } from '../src/steps/azure/index.js';
+import { azureDeployment, declaredDnsZones } from '../src/steps/azure/index.js';
 import { armEvaluator, RUNTIME_FUNCTIONS, validateArmTemplate } from './arm-expressions.js';
 import { fakeCtx } from './fakes.js';
 
@@ -88,6 +88,54 @@ test('the private network module locks down every subnet and follows the DNS zon
   const ofType = (/** @type {string} */ t) => Object.values(network.resources).find((/** @type {any} */ r) => r.type === t);
   assert.match(ofType('Microsoft.Network/privateDnsZones').condition, /'create'/);
   assert.match(ofType('Microsoft.Network/privateEndpoints/privateDnsZoneGroups').condition, /'none'/);
+});
+
+test('the installer knows which private DNS zones each deployment creates in its own resource group', async () => {
+  // The preflight stops when one of them is already there without this install's tag, so this list must match the template.
+  /** @type {{ module: string, resource: any }[]} */
+  const declared = [];
+  const walk = (/** @type {any} */ template, /** @type {string} */ module) => {
+    for (const r of Object.values(template.resources ?? {})) {
+      if (/^Microsoft\.Network\/privateDnsZones$/i.test(r.type)) declared.push({ module, resource: r });
+      if (r.properties?.template) walk(r.properties.template, r.name);
+    }
+  };
+  walk(TEMPLATE, 'main');
+  assert.deepEqual(declared.map((d) => d.module), ['vl-network'], 'only the network module creates private DNS zones');
+  const zones = declared[0].resource;
+  assert.equal(zones.name, "[variables('zoneNames')[copyIndex()]]");
+  assert.equal(zones.copy.count, "[length(variables('zoneNames'))]");
+  const mod = TEMPLATE.resources.find((/** @type {any} */ r) => r.name === 'vl-network');
+  const dnsGroup = `/subscriptions/${SCOPE.subscriptionId}/resourceGroups/${SCOPE.resourceGroup}`;
+  /** @type {Record<string, (az: any) => void>} */
+  const cases = {
+    'private networking': (az) => (az.publicNetworkAccess = false),
+    'private networking with Ask': (az) => Object.assign(az, { publicNetworkAccess: false, ask: { mode: 'create' } }),
+    'private networking with an existing Ask deployment': (az) => Object.assign(az, { publicNetworkAccess: false, ask: { mode: 'existing', endpoint: 'https://ask.example.com/', deployment: 'chat' } }),
+    'existing private DNS zones': (az) => Object.assign(az, { publicNetworkAccess: false, ask: { mode: 'create' }, privateDns: { mode: 'existing', resourceGroupId: dnsGroup } }),
+    'private DNS left to Azure Policy': (az) => Object.assign(az, { publicNetworkAccess: false, ask: { mode: 'create' }, privateDns: { mode: 'none' } }),
+    'public networking': (az) => (az.ask = { mode: 'create' }),
+  };
+  const seen = new Set();
+  for (const [name, tweak] of Object.entries(cases)) {
+    const params = await installerParameters(tweak);
+    const outer = armEvaluator(TEMPLATE, params, SCOPE);
+    // Values only known while deploying, such as the Ask account's id, get a stand-in.
+    const inner = Object.fromEntries(
+      Object.entries(mod.properties.parameters).map(([k, v]) => {
+        try {
+          return [k, outer.evalValue(v)];
+        } catch {
+          return [k, { value: `${dnsGroup}/providers/Microsoft.Resources/deployments/runtime-${k}` }];
+        }
+      }),
+    );
+    const ev = armEvaluator(mod.properties.template, inner, SCOPE);
+    const created = outer.evalValue(mod.condition) && ev.evalValue(zones.condition) ? ev.variable('zoneNames') : [];
+    assert.deepEqual(declaredDnsZones(params), created, name);
+    seen.add(created.length);
+  }
+  assert.deepEqual([...seen].sort((a, b) => a - b), [0, 4, 7], 'the cases cover no zones, the four data zones, and those plus the three AI zones');
 });
 
 test('no SQL firewall rule deploys when public access is off (private, or forced off by Azure Policy)', async () => {
