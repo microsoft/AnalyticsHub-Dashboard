@@ -69,8 +69,8 @@ resource group.
   keeps Azure SQL private. Power BI tests the SQL reader's sign-in when it takes the models'
   credentials, but the reader's database user is made by the database migration, which ran later.
   Now a new **Power BI credentials** step sets them after **Database migration**. Private networking
-  is unchanged. To finish an install that stopped there, run setup again. 0.6.5 to 0.6.7 have this
-  problem too.
+  is unchanged. To finish an install that stopped there, run setup again. Every earlier installer
+  with the Azure path (0.5.0 to 0.6.7) has this problem.
 
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
