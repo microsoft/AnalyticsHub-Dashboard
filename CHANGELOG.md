@@ -98,6 +98,21 @@ resource group.
   days of transcripts, and a reload reads up to 180 days, so it picks up the older ones the
   environment still keeps.
 
+**Fixed:**
+
+- **Azure: runs after the first load no longer fail at `process`.** Each run of the run job starts
+  in a new container, with none of the earlier runs' files on its disk. `process` downloaded only
+  its inputs, then read the months that earlier runs had curated from that disk. So every run after
+  the first load, other than a full rebuild, failed there with
+  `No files found that match the pattern` and a path ending in `month-….parquet`. Those runs didn't
+  publish or refresh, so the dashboard stopped updating, and `status` showed them as Failed. Azure
+  installs on 0.6.6 and 0.6.7 have this problem; Fabric doesn't. Now `process` downloads the month
+  files it reads, each once a run. A full rebuild reads none of them, so it downloads none. The
+  failed runs still collected their data, and the next run after you update processes it. If you
+  set `VALUELENS_PROCESS_FULL_REBUILD=true` on the run job to get by, updating removes it, since
+  **Update** redeploys the run job's settings. Runs then go back to recomputing only recent and
+  changed months.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its

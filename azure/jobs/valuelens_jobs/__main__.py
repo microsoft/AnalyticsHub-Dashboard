@@ -188,6 +188,17 @@ def _process(con, store, interactions, spill, exclude_agent_identities, include_
         log.info("process: %s source rows to curate in %s passes of up to %s rows, oldest first: %s",
                  sum(_source_rows(source_months[k]) for k in compute), len(passes), max_rows_per_pass,
                  "; ".join(", ".join(p) for p in passes))
+    # Only the inputs were pulled: on Azure each run starts with an empty local copy, in a new container.
+    # So a pass pulls the month files it reads just before reading them, each once a run; the files this
+    # run wrote are local already. A full rebuild reads none of the history, so it pulls none of it.
+    local = set()
+
+    def fetch(rels):
+        for rel in rels:
+            if rel not in local:
+                store.pull(rel)
+                local.add(rel)
+
     done, wrote = set(), set()
     for i, part in enumerate(passes):
         later = {k for p in passes[i + 1:] for k in p}
@@ -199,9 +210,10 @@ def _process(con, store, interactions, spill, exclude_agent_identities, include_
             incremental=not plan["full"] or i > 0,
             curated=[r for k, r in curated_files.items() if k not in hidden],
             context=[context_files[k] for k in source_months
-                     if k in context_files and (k not in months or k in done)],
+                     if k in context_files and (k not in months or k in done)], fetch=fetch,
             exclude_agent_identities=exclude_agent_identities, include_raw_passthrough=include_raw_passthrough)
         store.push(written)
+        local.update(written)
         if i == 0 and stale:
             store.remove(sorted(stale))
             curated_files = {k: r for k, r in curated_files.items() if r not in stale}
@@ -258,17 +270,19 @@ def _drop(con, objects):
         con.execute(f"DROP {kind} IF EXISTS {name}")
 
 
-def _curate_months(con, store, interactions, month, *, compute, replaced, incremental, curated, context,
+def _curate_months(con, store, interactions, month, *, compute, replaced, incremental, curated, context, fetch,
                    exclude_agent_identities, include_raw_passthrough):
     """Curate the `compute` months, then write them and the other months whose conversation values changed.
 
     `replaced` lists the months whose earlier rows give way (`compute`, and months that left the source).
     `curated` lists the month files of the history the pass sees, and `context` the context files of the
-    months it sees but doesn't curate. Returns the files written and the row count of each month written.
+    months it sees but doesn't curate. `fetch` makes the files it is given local, and is called with the
+    files just before they're read. Returns the files written and the row count of each month written.
     """
     written, rows = [], {}
     write_months = set(compute)
     if compute:
+        fetch(context)
         context_rel = (con.sql(f"SELECT * FROM read_parquet([{', '.join(q(store.path(r)) for r in context)}], "
                                f"union_by_name=true)") if context else None)
         src = con.sql(f"SELECT * FROM {interactions} t WHERE {month} IN ({', '.join(q_lit(k) for k in compute)})")
@@ -278,6 +292,7 @@ def _curate_months(con, store, interactions, month, *, compute, replaced, increm
     incremental = incremental and bool(replaced)
     if incremental:
         if curated:
+            fetch(curated)
             old_paths = ", ".join(q(store.path(r)) for r in curated)
             con.execute(f"CREATE TEMP VIEW __vl_previous AS SELECT * FROM read_parquet([{old_paths}], "
                         "union_by_name=true)")
