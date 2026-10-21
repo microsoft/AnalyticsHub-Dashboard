@@ -35,7 +35,7 @@ const DEV = 'https://contoso-dev.crm4.dynamics.com';
 /**
  * One Dataverse environment: its application users, business units and roles. Its roles are a fakeRoleStore's, with Bot
  * Transcript Viewer as ROLE-1.
- * @param {{ bu?: string | null, role?: string | null, units?: string[], copies?: boolean, roles?: import('./fakes.js').FakeRole[], transcripts?: string[] }} [o]
+ * @param {{ bu?: string | null, role?: string | null, units?: string[], copies?: boolean, roles?: import('./fakes.js').FakeRole[], transcripts?: string[], teamRoles?: Record<string, string[]> }} [o]
  */
 function fakeEnvironment(o = {}) {
   /** @type {string[]} */
@@ -46,13 +46,14 @@ function fakeEnvironment(o = {}) {
   const users = [];
   /** @type {Record<string, string[]>} */
   const userRoles = {};
+  const teamRoles = o.teamRoles ?? {};
   const bu = o.bu === undefined ? 'bu-root' : o.bu;
   const role = o.role === undefined ? 'ROLE-1' : o.role;
   const fail = (/** @type {string} */ method) => {
     const err = failures[method]?.shift();
     if (err) throw err;
   };
-  const store = fakeRoleStore({ calls, fail, userRoles, root: bu, viewer: role, units: o.units, copies: o.copies, roles: o.roles, transcripts: o.transcripts });
+  const store = fakeRoleStore({ calls, fail, userRoles, teamRoles, root: bu, viewer: role, units: o.units, copies: o.copies, roles: o.roles, transcripts: o.transcripts });
   const api = {
     ...store.api,
     /** @param {string} appId */
@@ -71,7 +72,7 @@ function fakeEnvironment(o = {}) {
       return user.systemuserid;
     },
   };
-  return { api, calls, failures, users, userRoles, roles: store.roles, holds: store.holds };
+  return { api, calls, failures, users, userRoles, teamRoles, roles: store.roles, holds: store.holds };
 }
 
 /** @param {{ answers?: any[], yes?: boolean, instances?: any[] | Error }} [o] */
@@ -354,6 +355,8 @@ test('access: the app is added with Bot Transcript Viewer and a role that reads 
     `findRole ${TRANSCRIPT_ROLE} bu-root`,
     'assignRole user-1 ROLE-1',
     `createRole ${role.name} bu-root`,
+    'roleCopies read-1',
+    'roleHolders read-1',
     ...PLATFORM_PRIVILEGES.map((p) => `removePrivilege read-1 ${p}`),
     'addPrivileges read-1 prvReadconversationtranscript bu-root',
     'assignRole user-1 read-1',
@@ -401,6 +404,8 @@ test('access: the read role ends holding exactly transcript read, after a run st
   assert.deepEqual(env.calls, [
     'findAppUser',
     `findRole ${TRANSCRIPT_ROLE} bu-root`,
+    'roleCopies read-1',
+    'roleHolders read-1',
     ...PLATFORM_PRIVILEGES.map((p) => `removePrivilege read-1 ${p}`),
     'addPrivileges read-1 prvReadconversationtranscript bu-root',
     'assignRole user-1 read-1',
@@ -423,7 +428,13 @@ test('access: the read role ends holding exactly transcript read, after a run st
   const fixed = await addTranscriptReader(/** @type {any} */ (changed.api), 'app-1', role);
   assert.equal(fixed.result, 'ok', 'nothing new was given');
   assert.equal(fixed.fixedReadRole, true);
-  assert.deepEqual(changed.calls.slice(2), ['removePrivilege read-7 prvReadconversationtranscript', 'removePrivilege read-7 prvReadbot', 'addPrivileges read-7 prvReadconversationtranscript bu-root']);
+  assert.deepEqual(changed.calls.slice(2), [
+    'roleCopies read-7',
+    'roleHolders read-7',
+    'removePrivilege read-7 prvReadconversationtranscript',
+    'removePrivilege read-7 prvReadbot',
+    'addPrivileges read-7 prvReadconversationtranscript bu-root',
+  ], 'only the reader has it, so it\'s fixed');
   assert.deepEqual(changed.holds('read-7'), ['prvReadconversationtranscript:Global']);
 });
 
@@ -463,7 +474,7 @@ test('access: in a child business unit, the user is given the role\'s copy there
   const grant = await addTranscriptReader(/** @type {any} */ (env.api), 'app-1', role);
   assert.equal(grant.result, 'added');
   assert.deepEqual({ readRoleId: grant.readRoleId, assignedReadRoleId: grant.assignedReadRoleId }, { readRoleId: 'read-1', assignedReadRoleId: 'read-1-bu-child' });
-  assert.deepEqual(env.calls.slice(-2), [`findRole ${role.name} bu-child`, 'assignRole u-1 read-1-bu-child']);
+  assert.deepEqual(env.calls.slice(-2), ['roleCopy read-1 bu-child', 'assignRole u-1 read-1-bu-child']);
   assert.deepEqual(env.holds('read-1-bu-child'), ['prvReadconversationtranscript:Global'], 'the copy holds what the role holds');
 
   const early = fakeEnvironment({ units: ['bu-child'], copies: false });
@@ -472,6 +483,83 @@ test('access: in a child business unit, the user is given the role\'s copy there
   assert.equal(waiting.result, 'no-copy');
   assert.equal(waiting.assignedReadRoleId, undefined);
   assert.equal(waiting.createdReadRole, true, 'the role is still the installer\'s to delete');
+});
+
+test('access: in a child business unit, a role that only shares the name there is never given', async () => {
+  const role = readRole('ws-1', 'the install in Fabric workspace', 'the app');
+  // Listed before the copy, so a lookup by name and business unit would find it first.
+  const env = fakeEnvironment({
+    units: ['bu-child'],
+    roles: [{ roleid: 'lookalike', name: role.name, description: role.description, bu: 'bu-child', privileges: new Map([['priv-bot', 'Global']]) }],
+  });
+  env.users.push({ systemuserid: 'u-1', applicationid: 'app-1', _businessunitid_value: 'bu-child' });
+  const grant = await addTranscriptReader(/** @type {any} */ (env.api), 'app-1', role);
+  assert.deepEqual([grant.result, grant.assignedReadRoleId], ['added', 'read-1-bu-child']);
+  assert.deepEqual(env.userRoles['u-1'], ['ROLE-1', 'read-1-bu-child'], 'the copy of the role whose privileges were read back');
+  assert.ok(!env.calls.some((c) => c.includes('lookalike')), 'the lookalike isn\'t changed or given');
+  assert.deepEqual(env.holds('lookalike'), ['prvReadbot:Global']);
+});
+
+test('access: the install\'s role isn\'t changed or given while a user or team other than the reader has it, or a copy of it', async () => {
+  const role = readRole('ws-1', 'the install in Fabric workspace', 'the app');
+  /**
+   * A role with the install's name and description, which anyone who can create roles could make.
+   * @param {Partial<import('./fakes.js').FakeRole>} [o]
+   * @returns {import('./fakes.js').FakeRole}
+   */
+  const decoy = (o = {}) => ({ roleid: 'decoy-1', name: role.name, description: role.description, bu: 'bu-root', privileges: new Map(), ...o });
+  /** @param {string} label @param {ReturnType<typeof fakeEnvironment>} env */
+  const leftAlone = async (label, env) => {
+    const grant = await addTranscriptReader(/** @type {any} */ (env.api), 'app-1', role);
+    assert.equal(grant.result, 'held', label);
+    assert.deepEqual([grant.readRoleId, grant.createdReadRole, grant.assignedReadRoleId], [undefined, undefined, undefined], `${label}: nothing is noted for Uninstall`);
+    assert.ok(!env.calls.some((c) => /^(createRole|removePrivilege|addPrivileges|deleteRole)/.test(c)), `${label}: nothing is created or changed`);
+    assert.deepEqual(env.holds('decoy-1'), [], `${label}: no privilege is added`);
+    assert.deepEqual(env.userRoles['user-1'], ['ROLE-1'], `${label}: only Bot Transcript Viewer is given`);
+  };
+
+  const user = fakeEnvironment({ roles: [decoy()] });
+  user.userRoles.someone = ['decoy-1'];
+  await leftAlone('a user', user);
+  assert.deepEqual(user.calls.slice(-2), ['roleCopies decoy-1', 'roleHolders decoy-1']);
+
+  await leftAlone('a team', fakeEnvironment({ roles: [decoy()], teamRoles: { 'team-1': ['decoy-1'] } }));
+
+  // A user in a child business unit holds Dataverse's copy there, not the role.
+  const root = decoy();
+  const child = fakeEnvironment({ units: ['bu-child'], roles: [root, { ...root, roleid: 'decoy-1-bu-child', bu: 'bu-child', parent: 'decoy-1' }] });
+  child.userRoles.someone = ['decoy-1-bu-child'];
+  await leftAlone('a copy\'s user', child);
+  assert.deepEqual(child.calls.slice(-3), ['roleCopies decoy-1', 'roleHolders decoy-1', 'roleHolders decoy-1-bu-child']);
+
+  // More copies or holders than a page counts as someone else.
+  const copies = fakeEnvironment({ roles: [decoy()] });
+  const listCopies = copies.api.roleCopies;
+  copies.api.roleCopies = async (/** @type {string} */ id) => ({ ...(await listCopies(id)), more: true });
+  await leftAlone('more copies than a page', copies);
+  const holders = fakeEnvironment({ roles: [decoy()] });
+  const listHolders = holders.api.roleHolders;
+  holders.api.roleHolders = async (/** @type {string} */ id) => ({ ...(await listHolders(id)), more: true });
+  await leftAlone('more holders than a page', holders);
+
+  // A check that fails can't tell, so nothing is added, given or noted.
+  for (const method of ['roleCopies', 'roleHolders']) {
+    const failing = fakeEnvironment({ roles: [decoy()] });
+    failing.failures[method] = [httpError(500, 'Boom')];
+    await assert.rejects(addTranscriptReader(/** @type {any} */ (failing.api), 'app-1', role), (/** @type {any} */ err) => {
+      assert.deepEqual(err.grant, { createdUser: true, userId: 'user-1', roleId: 'ROLE-1', viewer: true }, method);
+      return true;
+    });
+    assert.ok(!failing.calls.some((c) => /^(removePrivilege|addPrivileges)/.test(c)), method);
+    assert.deepEqual(failing.holds('decoy-1'), [], method);
+    assert.deepEqual(failing.userRoles['user-1'], ['ROLE-1'], method);
+  }
+
+  // One that already holds exactly transcript read at Organization depth gives no one anything new, so it isn't checked.
+  const reads = fakeEnvironment({ roles: [decoy({ privileges: new Map([['priv-transcript', 'Global']]) })] });
+  reads.userRoles.someone = ['decoy-1'];
+  assert.equal((await addTranscriptReader(/** @type {any} */ (reads.api), 'app-1', role)).result, 'added');
+  assert.ok(!reads.calls.some((c) => c.startsWith('roleHolders')));
 });
 
 test('access: Dataverse is asked whether the reader can read one transcript', async () => {
@@ -628,6 +716,54 @@ test('access: the read role is only given when it holds exactly transcript read'
   (unread.envs[PROD] = fakeEnvironment({ transcripts: ['tx-1'] })).api.principalAccess = async () => 'None';
   await ensureTranscriptAccess(unread.ctx);
   assert.match(unread.ui.text(), /Dataverse shows ValueLens Data Collector can't read a transcript in Contoso yet\. Role changes can take a few minutes\. If the next run still finds no transcripts there, check its security roles in the Power Platform admin center\./);
+});
+
+test('access: the install\'s role that a user or team other than the app has is left alone, with what an admin does', async () => {
+  /** @type {[string, (env: ReturnType<typeof fakeEnvironment>) => void][]} */
+  const holders = [
+    ['a user', (env) => void (env.userRoles.someone = ['decoy-1'])],
+    ['a team', (env) => void (env.teamRoles['team-1'] = ['decoy-1'])],
+  ];
+  for (const [who, hold] of holders) {
+    const t = setup();
+    t.config.agentEvaluator.environments = [{ url: PROD, name: 'Contoso' }];
+    const role = appReadRole(t.config);
+    const env = (t.envs[PROD] = fakeEnvironment({ roles: [{ roleid: 'decoy-1', name: role.name, description: role.description, bu: 'bu-root', privileges: new Map() }] }));
+    hold(env);
+    assert.equal(await ensureTranscriptAccess(t.ctx), true, `${who}: it reads what's shared with it`);
+    assert.deepEqual(t.config.agentEvaluator.environments, [{ url: PROD, name: 'Contoso', access: true }], `${who}: checked again on the next run`);
+    assert.deepEqual(env.holds('decoy-1'), [], who);
+    assert.deepEqual(env.userRoles['user-1'], ['ROLE-1'], who);
+    assert.equal(t.config.fabric.transcriptAccess, undefined, `${who}: nothing for Uninstall to remove`);
+    const text = t.ui.text();
+    assert.ok(
+      text.includes(
+        `A user or team other than ValueLens Data Collector has the "${role.name}" role in Contoso, so the installer didn't change it or give it to ValueLens Data Collector. It reads only the transcripts shared with it there.`,
+      ),
+      who,
+    );
+    assert.ok(
+      text.includes(
+        'Transcript read on the role would reach them too. A System Administrator can see who has it in the Power Platform admin center, under Manage > Environments > the environment > ' +
+          'Settings > Users + permissions > Security roles: select the role, then More actions (...) > Members. Remove them from it, or delete the role, then run the installer again.',
+      ),
+      who,
+    );
+    assert.ok(text.includes(`Gave ValueLens Data Collector the ${TRANSCRIPT_ROLE} role in Contoso`), who);
+    assert.doesNotMatch(text, /Created the|Set the/, who);
+    env.calls.length = 0;
+    await removeFabricReadRoles(t.ctx);
+    assert.deepEqual(env.calls, [], `${who}: Uninstall leaves the role`);
+
+    // Once they no longer have it, the next run sets the role and gives it.
+    env.userRoles.someone = [];
+    env.teamRoles['team-1'] = [];
+    t.ui.out.length = 0;
+    assert.equal(await ensureTranscriptAccess(t.ctx), true);
+    assert.deepEqual(env.holds('decoy-1'), ['prvReadconversationtranscript:Global'], who);
+    assert.deepEqual(env.userRoles['user-1'], ['ROLE-1', 'decoy-1'], who);
+    assert.match(t.ui.text(), new RegExp(`Set the "${role.name}" role in Contoso to read only Copilot Studio conversation transcripts`), who);
+  }
 });
 
 test('access: unticking an environment or the module, or uninstalling, removes only the role the installer added', async () => {

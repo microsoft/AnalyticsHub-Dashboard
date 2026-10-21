@@ -57,6 +57,16 @@ const q = (value) => encodeURIComponent(value);
 /** @param {string} value  A string for an OData filter, quoted. */
 const literal = (value) => `'${value.replace(/'/g, "''")}'`;
 
+/**
+ * A collection's rows. An answer without them is an error, so a check that relies on them never passes by accident.
+ * @param {any} res @param {string} what
+ * @returns {any[]}
+ */
+const rows = (res, what) => {
+  if (!Array.isArray(res?.value)) throw new Error(`Dataverse returned no list of ${what}.`);
+  return res.value;
+};
+
 /** @param {import('../http.js').HttpClient} http */
 export function discoveryApi(http) {
   return {
@@ -121,6 +131,41 @@ export function dataverseApi(http, url) {
     rolesByName: async (name, businessUnitId) =>
       (await http.get(`/roles?$select=roleid,description&$filter=${q(`name eq ${literal(name)} and _businessunitid_value eq ${businessUnitId}`)}`, { headers: ODATA }))
         ?.value ?? [],
+    /**
+     * A root business unit's role and the copies Dataverse made of it in child business units, whose ParentRootRoleId
+     * is the role. See https://learn.microsoft.com/power-apps/developer/data-platform/reference/entities/role#BKMK_ParentRootRoleId
+     * @param {string} roleId
+     * @returns {Promise<{ ids: string[], more: boolean }>}  more: Dataverse has more than this page.
+     */
+    async roleCopies(roleId) {
+      const res = await http.get(`/roles?$select=roleid&$filter=${q(`roleid eq ${roleId} or _parentrootroleid_value eq ${roleId}`)}`, { headers: ODATA });
+      return { ids: rows(res, "the role's copies").map((r) => String(r.roleid)), more: !!res['@odata.nextLink'] };
+    },
+    /**
+     * Dataverse's copy of a root business unit's role in a child business unit.
+     * @param {string} roleId  The role in the root business unit.
+     * @param {string} businessUnitId
+     * @returns {Promise<string | undefined>}
+     */
+    roleCopy: async (roleId, businessUnitId) =>
+      (await http.get(`/roles?$select=roleid&$filter=${q(`_parentrootroleid_value eq ${roleId} and _businessunitid_value eq ${businessUnitId}`)}`, { headers: ODATA }))
+        ?.value?.[0]?.roleid,
+    /**
+     * The users and teams that hold a role. See
+     * https://learn.microsoft.com/power-apps/developer/data-platform/reference/entities/role#BKMK_systemuserroles_association
+     * and #BKMK_teamroles_association.
+     * @param {string} roleId
+     * @returns {Promise<{ users: string[], teams: string[], more: boolean }>}  more: Dataverse has more than these pages.
+     */
+    async roleHolders(roleId) {
+      const users = await http.get(`/roles(${roleId})/systemuserroles_association?$select=systemuserid`, { headers: ODATA });
+      const teams = await http.get(`/roles(${roleId})/teamroles_association?$select=teamid`, { headers: ODATA });
+      return {
+        users: rows(users, "the role's users").map((u) => String(u.systemuserid)),
+        teams: rows(teams, "the role's teams").map((t) => String(t.teamid)),
+        more: !!(users['@odata.nextLink'] || teams['@odata.nextLink']),
+      };
+    },
     /**
      * Creates a security role and returns its roleid. Dataverse gives a new role some platform
      * privileges of its own, so the caller sets the exact set afterwards.

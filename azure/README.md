@@ -298,7 +298,9 @@ System Administrator of the environment:
    and says so. Role changes can take a few minutes, so a "can't read it yet" is only a warning.
 
 It never changes a role it didn't create. A role with the same name that an admin made is given only
-if it already holds exactly that one privilege.
+if it already holds exactly that one privilege. It adds transcript read to its own role only while
+no user or team other than the managed identity has the role; otherwise it leaves the role as it
+is, and prints the steps for a System Administrator.
 
 When it can't add them (Dataverse answers 401 or 403), it prints the managed identity's name and
 client ID, and the steps for a System Administrator of the environment in the

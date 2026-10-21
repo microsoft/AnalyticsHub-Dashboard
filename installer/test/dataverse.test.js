@@ -109,6 +109,40 @@ test("Dataverse: roles and privileges by name, a sample transcript, and a user's
   for (const r of requests) assert.equal(r.opts.headers['OData-Version'], '4.0');
 });
 
+test("Dataverse: a role's copies in child business units, its copy in one, and the users and teams that hold a role", async () => {
+  const roles = (/** @type {string} */ filter) => `/roles?$select=roleid&$filter=${encodeURIComponent(filter)}`;
+  const NEXT = 'https://env.example.com/api/data/v9.2/next';
+  const { dv, requests } = recorded({
+    [roles('roleid eq r-1 or _parentrootroleid_value eq r-1')]: { value: [{ roleid: 'r-1' }, { roleid: 'r-1-child' }] },
+    [roles('_parentrootroleid_value eq r-1 and _businessunitid_value eq bu-child')]: { value: [{ roleid: 'r-1-child' }] },
+    [roles('_parentrootroleid_value eq r-1 and _businessunitid_value eq bu-other')]: { value: [] },
+    '/roles(r-1)/systemuserroles_association?$select=systemuserid': { value: [{ systemuserid: 'u-1' }] },
+    '/roles(r-1)/teamroles_association?$select=teamid': { value: [{ teamid: 't-1' }] },
+    [roles('roleid eq r-2 or _parentrootroleid_value eq r-2')]: { value: [{ roleid: 'r-2' }], '@odata.nextLink': NEXT },
+    '/roles(r-2)/systemuserroles_association?$select=systemuserid': { value: [] },
+    '/roles(r-2)/teamroles_association?$select=teamid': { value: [{ teamid: 't-1' }], '@odata.nextLink': NEXT },
+    '/roles(r-3)/systemuserroles_association?$select=systemuserid': { value: [] },
+  });
+  assert.deepEqual(await dv.roleCopies('r-1'), { ids: ['r-1', 'r-1-child'], more: false });
+  assert.equal(await dv.roleCopy('r-1', 'bu-child'), 'r-1-child');
+  assert.equal(await dv.roleCopy('r-1', 'bu-other'), undefined);
+  assert.deepEqual(await dv.roleHolders('r-1'), { users: ['u-1'], teams: ['t-1'], more: false });
+  assert.deepEqual(requests.map((r) => `${r.method} ${r.path}`), [
+    `GET ${roles('roleid eq r-1 or _parentrootroleid_value eq r-1')}`,
+    `GET ${roles('_parentrootroleid_value eq r-1 and _businessunitid_value eq bu-child')}`,
+    `GET ${roles('_parentrootroleid_value eq r-1 and _businessunitid_value eq bu-other')}`,
+    'GET /roles(r-1)/systemuserroles_association?$select=systemuserid',
+    'GET /roles(r-1)/teamroles_association?$select=teamid',
+  ]);
+  for (const r of requests) assert.equal(r.opts.headers['OData-Version'], '4.0');
+
+  // More than a page says so, and an answer without a list is an error rather than no one.
+  assert.equal((await dv.roleCopies('r-2')).more, true);
+  assert.deepEqual(await dv.roleHolders('r-2'), { users: [], teams: ['t-1'], more: true });
+  await assert.rejects(dv.roleCopies('r-3'), /^Error: Dataverse returned no list of the role's copies\.$/);
+  await assert.rejects(dv.roleHolders('r-3'), /^Error: Dataverse returned no list of the role's teams\.$/);
+});
+
 test('Dataverse: privilege depths by name', () => {
   assert.deepEqual([0, 1, 2, 3, '3', 'Global', 'Basic'].map(depthName), ['Basic', 'Local', 'Deep', 'Global', 'Global', 'Global', 'Basic']);
 });

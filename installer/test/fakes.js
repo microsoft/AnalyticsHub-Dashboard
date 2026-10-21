@@ -1025,13 +1025,15 @@ export const PLATFORM_PRIVILEGES = Object.freeze([
  * One Dataverse environment's security roles, privileges and role assignments, and its conversation transcripts. Like
  * Dataverse, a role created in the root business unit comes with PLATFORM_PRIVILEGES at Organization depth, and has a
  * copy in each child business unit in `units` unless `copies` is false; deleting a role deletes its copies and takes
- * them from their users; and a role or assignment that isn't there answers 404. Bot Transcript Viewer is `viewer` in
- * every business unit, or missing when that's null. A user can read the transcripts once one of its roles holds
- * ConversationTranscript read at Organization depth. Changes are logged, with privileges by name.
- * @param {{ calls: string[], fail: (method: string) => void, userRoles: Record<string, string[]>, root: string | null, viewer: string | null, units?: string[], copies?: boolean, roles?: FakeRole[], transcripts?: string[] }} o
+ * them from their users and teams; and a role or assignment that isn't there answers 404. Bot Transcript Viewer is
+ * `viewer` in every business unit, or missing when that's null. `teamRoles` are the roles teams hold. A user can read the
+ * transcripts once one of its roles holds ConversationTranscript read at Organization depth. Changes, and the lookups
+ * of a role's copies and holders, are logged, with privileges by name.
+ * @param {{ calls: string[], fail: (method: string) => void, userRoles: Record<string, string[]>, teamRoles?: Record<string, string[]>, root: string | null, viewer: string | null, units?: string[], copies?: boolean, roles?: FakeRole[], transcripts?: string[] }} o
  */
 export function fakeRoleStore(o) {
   const { calls, fail, userRoles } = o;
+  const teamRoles = o.teamRoles ?? {};
   /** Privilege names, by ID. @type {Map<string, string>} */
   const privileges = new Map([
     ['priv-transcript', 'prvReadconversationtranscript'],
@@ -1039,6 +1041,7 @@ export function fakeRoleStore(o) {
     ...PLATFORM_PRIVILEGES.map((name, i) => /** @type {[string, string]} */ ([`priv-${i + 1}`, name])),
   ]);
   const label = (/** @type {string} */ id) => privileges.get(id) ?? id;
+  const same = (/** @type {string | undefined} */ a, /** @type {string | undefined} */ b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
   /** @type {FakeRole[]} */
   const roles = o.roles ?? [];
   let n = 0;
@@ -1060,6 +1063,25 @@ export function fakeRoleStore(o) {
       fail('rolesByName');
       return roles.filter((r) => r.name === name && r.bu === businessUnitId).map((r) => ({ roleid: r.roleid, description: r.description ?? null }));
     },
+    /** @param {string} roleId */
+    roleCopies: async (roleId) => {
+      calls.push(`roleCopies ${roleId}`);
+      fail('roleCopies');
+      return { ids: roles.filter((r) => same(r.roleid, roleId) || same(r.parent, roleId)).map((r) => r.roleid), more: false };
+    },
+    /** @param {string} roleId @param {string} businessUnitId */
+    roleCopy: async (roleId, businessUnitId) => {
+      calls.push(`roleCopy ${roleId} ${businessUnitId}`);
+      fail('roleCopy');
+      return roles.find((r) => same(r.parent, roleId) && same(r.bu, businessUnitId))?.roleid;
+    },
+    /** @param {string} roleId */
+    roleHolders: async (roleId) => {
+      calls.push(`roleHolders ${roleId}`);
+      fail('roleHolders');
+      const has = (/** @type {string[]} */ ids) => ids.some((id) => same(id, roleId));
+      return { users: Object.keys(userRoles).filter((u) => has(userRoles[u])), teams: Object.keys(teamRoles).filter((t) => has(teamRoles[t])), more: false };
+    },
     /** @param {{ name: string, businessUnitId: string, description: string }} role */
     createRole: async (role) => {
       calls.push(`createRole ${role.name} ${role.businessUnitId}`);
@@ -1079,6 +1101,7 @@ export function fakeRoleStore(o) {
       const gone = new Set(roles.filter((r) => r === role || r.parent === role.roleid).map((r) => r.roleid));
       roles.splice(0, roles.length, ...roles.filter((r) => !gone.has(r.roleid)));
       for (const user of Object.keys(userRoles)) userRoles[user] = userRoles[user].filter((r) => !gone.has(r));
+      for (const team of Object.keys(teamRoles)) teamRoles[team] = teamRoles[team].filter((r) => !gone.has(r));
       return null;
     },
     /** @param {readonly string[]} names */
@@ -1144,7 +1167,7 @@ export function fakeRoleStore(o) {
  * One Dataverse environment's application users and their roles, for the transcript reader. `failures` scripts an
  * error for each call of a method, in order. Like Dataverse, it deletes only a deactivated user, and answers 404 for a
  * user or role assignment that isn't there. Its roles are a fakeRoleStore's.
- * @param {{ bu?: string | null, role?: string | null, users?: { systemuserid: string, applicationid: string, isdisabled?: boolean, _businessunitid_value?: string }[], userRoles?: Record<string, string[]>, units?: string[], copies?: boolean, roles?: FakeRole[], transcripts?: string[] }} [o]
+ * @param {{ bu?: string | null, role?: string | null, users?: { systemuserid: string, applicationid: string, isdisabled?: boolean, _businessunitid_value?: string }[], userRoles?: Record<string, string[]>, teamRoles?: Record<string, string[]>, units?: string[], copies?: boolean, roles?: FakeRole[], transcripts?: string[] }} [o]
  */
 export function fakeTranscriptEnvironment(o = {}) {
   /** @type {string[]} */
@@ -1154,6 +1177,8 @@ export function fakeTranscriptEnvironment(o = {}) {
   const users = structuredClone(o.users ?? []);
   /** @type {Record<string, string[]>} */
   const userRoles = structuredClone(o.userRoles ?? {});
+  /** @type {Record<string, string[]>} */
+  const teamRoles = structuredClone(o.teamRoles ?? {});
   const bu = o.bu === undefined ? 'bu-root' : o.bu;
   const role = o.role === undefined ? 'role-btv' : o.role;
   let n = 0;
@@ -1166,7 +1191,7 @@ export function fakeTranscriptEnvironment(o = {}) {
     if (!user) throw httpError(404);
     return user;
   };
-  const store = fakeRoleStore({ calls, fail, userRoles, root: bu, viewer: role, units: o.units, copies: o.copies, roles: structuredClone(o.roles ?? []), transcripts: o.transcripts });
+  const store = fakeRoleStore({ calls, fail, userRoles, teamRoles, root: bu, viewer: role, units: o.units, copies: o.copies, roles: structuredClone(o.roles ?? []), transcripts: o.transcripts });
   const api = {
     ...store.api,
     /** @param {string} appId */
@@ -1208,7 +1233,7 @@ export function fakeTranscriptEnvironment(o = {}) {
       return null;
     },
   };
-  return { api, calls, failures, users, userRoles, roles: store.roles, holds: store.holds };
+  return { api, calls, failures, users, userRoles, teamRoles, roles: store.roles, holds: store.holds };
 }
 
 /** Power BI refreshes. `states` scripts what each poll of a refresh returns. */

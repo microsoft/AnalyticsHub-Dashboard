@@ -50,8 +50,9 @@ import { bindModel, deployModel, modelUrl, waitForSqlEndpoint } from './model.js
 /**
  * What adding a reader to an environment did.
  * @typedef {object} TranscriptGrant
- * @property {'ok' | 'added' | 'disabled' | 'no-role' | 'no-copy' | 'unverified'} result  no-copy: the user's business unit has
+ * @property {'ok' | 'added' | 'disabled' | 'no-role' | 'no-copy' | 'unverified' | 'held'} result  no-copy: the user's business unit has
  *   no copy of the read role yet. unverified: the read role doesn't hold exactly what it should, so it wasn't given.
+ *   held: a user or team other than the reader has the read role, or a copy of it, so it wasn't changed or given.
  * @property {string} [userId]  Its application user.
  * @property {boolean} [createdUser]  The application user was created now.
  * @property {string} [roleId]  The Bot Transcript Viewer role, when it was assigned now.
@@ -285,6 +286,24 @@ export async function planAgentEvaluator(ctx, opts = {}) {
 }
 
 /**
+ * Whether a user or team other than the reader has the role, or a copy Dataverse made of it in a child business unit.
+ * More than a page of copies or holders counts as someone else.
+ * @param {import('../clients/dataverse.js').DataverseApi} dv
+ * @param {string} roleId  The role in the root business unit.
+ * @param {string} userId  The reader's application user.
+ * @returns {Promise<boolean>}
+ */
+async function othersHold(dv, roleId, userId) {
+  const copies = await dv.roleCopies(roleId);
+  if (copies.more) return true;
+  for (const id of [roleId, ...copies.ids.filter((id) => !sameId(id, roleId))]) {
+    const holders = await dv.roleHolders(id);
+    if (holders.more || holders.teams.length || holders.users.some((u) => !sameId(u, userId))) return true;
+  }
+  return false;
+}
+
+/**
  * Adds the app as an application user with the Bot Transcript Viewer role and the install's read role.
  * @param {import('../clients/dataverse.js').DataverseApi} dv
  * @param {string} appId
@@ -300,8 +319,10 @@ export async function grantTranscriptAccess(dv, appId, role) {
  * it added, so that only that is removed later. The read role is created in the root business unit when it isn't
  * there, and its privileges are set to exactly ConversationTranscript read at Organization depth, then read back: a new
  * role comes with platform privileges of its own, and a run stopped part way leaves them. A role that only shares the
- * name is never changed, only given when it already holds exactly that. When a step fails after something was found or
- * added, the error carries the grant so far as `grant`.
+ * name is never changed, only given when it already holds exactly that. Transcript read is added to the installer's
+ * role only while no user or team other than the reader has the role or a copy of it; otherwise the role is left as it
+ * is, not given, and not noted as the installer's. When a step fails after something was found or added, the error
+ * carries the grant so far as `grant`.
  * @param {import('../clients/dataverse.js').DataverseApi} dv
  * @param {string} appId
  * @param {ReadRole} role
@@ -340,15 +361,18 @@ export async function addTranscriptReader(dv, appId, role) {
     const top = await rootUnit();
     const named = await dv.rolesByName(role.name, top);
     const mine = named.find((r) => ours(r, role));
-    let readRoleId = (mine ?? named[0])?.roleid;
-    if (!readRoleId) {
-      readRoleId = await dv.createRole({ name: role.name, businessUnitId: top, description: role.description });
-      made.newReadRole = true;
-    }
+    const existing = (mine ?? named[0])?.roleid;
+    const readRoleId = existing ?? (await dv.createRole({ name: role.name, businessUnitId: top, description: role.description }));
+    if (!existing) made.newReadRole = true;
     const owned = !!mine || !!made.newReadRole;
-    made.readRoleId = readRoleId;
-    made.readRoleName = role.name;
-    if (owned) made.createdReadRole = true;
+    const claim = () => {
+      made.readRoleId = readRoleId;
+      made.readRoleName = role.name;
+      if (owned) made.createdReadRole = true;
+    };
+    // A role created now is noted at once, so it's deleted even if a later step fails. One found by its description is
+    // noted only once the installer may change it.
+    if (!owned || made.newReadRole) claim();
 
     const found = await dv.findPrivileges(TRANSCRIPT_READ_PRIVILEGES);
     /** The privileges the role holds, by lower-case ID, to their IDs as Dataverse gave them. @type {Map<string, string>} */
@@ -361,10 +385,13 @@ export async function addTranscriptReader(dv, appId, role) {
     const right = (/** @type {{ id: string, depth: string }} */ p) => want.has(p.id.toLowerCase()) && p.depth === 'Global';
     if (owned) {
       const before = await dv.rolePrivileges(readRoleId);
-      // Off first, then on: a privilege at the wrong depth is taken off and added again at Organization depth.
-      for (const p of before.filter((p) => !right(p))) await dv.removePrivilege(readRoleId, p.id);
       const kept = new Set(before.filter(right).map((p) => p.id.toLowerCase()));
       const missing = [...want].filter(([key]) => !kept.has(key)).map(([, id]) => id);
+      // Transcript read would reach whoever else has the role, so then it's left as it is. Taking privileges off needs no check.
+      if (missing.length && (await othersHold(dv, readRoleId, userId))) return { result: 'held', ...made };
+      claim();
+      // Off first, then on: a privilege at the wrong depth is taken off and added again at Organization depth.
+      for (const p of before.filter((p) => !right(p))) await dv.removePrivilege(readRoleId, p.id);
       if (missing.length) await dv.addPrivileges(readRoleId, missing, top);
       if (!made.newReadRole && (missing.length || before.some((p) => !right(p)))) made.fixedReadRole = true;
     }
@@ -373,7 +400,8 @@ export async function addTranscriptReader(dv, appId, role) {
     if (!exact) return { result: 'unverified', ...made, holds: now.map((p) => `${p.name ?? p.id}:${p.depth}`).sort() };
 
     // Dataverse copies a root business unit's roles into each child unit, and a user holds the copy in its own unit.
-    const copy = bu.toLowerCase() === top.toLowerCase() ? readRoleId : await dv.findRole(role.name, bu);
+    // The copy is found by the role it was made from, so a role that only shares the name there is never given.
+    const copy = bu.toLowerCase() === top.toLowerCase() ? readRoleId : await dv.roleCopy(readRoleId, bu);
     if (!copy) return { result: 'no-copy', ...made };
     if (!held.has(copy.toLowerCase())) {
       await dv.assignRole(userId, copy);
@@ -493,8 +521,9 @@ export async function ensureTranscriptAccess(ctx, reader = appReader(ctx)) {
     reader.record?.(env, grant);
     ctx.save();
     const role = `"${grant.readRoleName ?? reader.readRole.name}"`;
-    if (grant.newReadRole && grant.result !== 'unverified') ui.ok(`Created the ${role} role in ${where}: it reads every Copilot Studio conversation transcript there, and nothing else`);
-    else if (grant.fixedReadRole && grant.result !== 'unverified') ui.ok(`Set the ${role} role in ${where} to read only Copilot Studio conversation transcripts`);
+    const settled = grant.result !== 'unverified' && grant.result !== 'held';
+    if (grant.newReadRole && settled) ui.ok(`Created the ${role} role in ${where}: it reads every Copilot Studio conversation transcript there, and nothing else`);
+    else if (grant.fixedReadRole && settled) ui.ok(`Set the ${role} role in ${where} to read only Copilot Studio conversation transcripts`);
     const gave = [...(grant.roleId ? [TRANSCRIPT_ROLE] : []), ...(grant.gaveReadRole ? [role] : [])];
     if (gave.length) ui.ok(`Gave ${app} the ${gave.join(' and ')} role${gave.length > 1 ? 's' : ''} in ${where}`);
     else if (env.readAll) ui.ok(`${App} can read every transcript in ${where}`);
@@ -509,6 +538,12 @@ export async function ensureTranscriptAccess(ctx, reader = appReader(ctx)) {
         grant.createdReadRole
           ? 'Run the installer again. If this persists, a System Administrator can delete the role, and the installer creates it again.'
           : 'The installer didn\'t create that role, so it leaves it alone. Rename or delete it, then run the installer again.',
+      );
+    } else if (grant.result === 'held') {
+      ui.warn(`A user or team other than ${app} has the ${role} role in ${where}, so the installer didn't change it or give it to ${app}. It reads only the transcripts shared with it there.`);
+      ui.info(
+        'Transcript read on the role would reach them too. A System Administrator can see who has it in the Power Platform admin center, under Manage > Environments > the environment > ' +
+          'Settings > Users + permissions > Security roles: select the role, then More actions (...) > Members. Remove them from it, or delete the role, then run the installer again.',
       );
     }
     if (grant.sample === 'read') ui.ok(`Checked one transcript in ${where}: ${app} can read it`);

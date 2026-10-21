@@ -26,12 +26,14 @@ const OFF = { value: { enabled: false } };
 const READ_ROLE = 'Analytics Hub transcript reader install-';
 
 /**
- * The calls that create the install's read role in the root business unit, set its privileges to exactly transcript
- * read at Organization depth, and give it to a user.
+ * The calls that create the install's read role in the root business unit, check that no one else has it, set its
+ * privileges to exactly transcript read at Organization depth, and give it to a user.
  * @param {string} user @param {string} [role]
  */
 const readRoleCalls = (user, role = 'read-1') => [
   `createRole ${READ_ROLE} bu-root`,
+  `roleCopies ${role}`,
+  `roleHolders ${role}`,
   ...PLATFORM_PRIVILEGES.map((p) => `removePrivilege ${role} ${p}`),
   `addPrivileges ${role} prvReadconversationtranscript bu-root`,
   `assignRole ${user} ${role}`,
@@ -570,6 +572,31 @@ test('Azure transcript access: an admin\'s access with the user they added keeps
   const text = t.ui.text();
   assert.ok(text.includes(`Deleted the "${READ_ROLE}" role in Example`));
   assert.ok(text.includes('The jobs\' managed identity (client ID mi-client) is still an application user in Example. It was added outside the installer, so the installer leaves it'));
+});
+
+test('Azure transcript access: a role with the install\'s name that someone else has is left alone, and Uninstall leaves it', async () => {
+  // Made to look like the installer's, and given to another user, before the install.
+  const decoy = { roleid: 'decoy-1', name: READ_ROLE, description: 'Created by the Analytics Hub installer for the Azure install install-1.', bu: 'bu-root', privileges: new Map() };
+  const env = fakeTranscriptEnvironment({ roles: [decoy], userRoles: { someone: ['decoy-1'] } });
+  const t = await aeInstall({ dataverse: { [ENV]: env } });
+  assert.deepEqual(env.calls, ['findAppUser mi-client', 'createAppUser mi-client bu-root', 'findRole Bot Transcript Viewer bu-root', 'assignRole user-1 role-btv', 'roleCopies decoy-1', 'roleHolders decoy-1']);
+  assert.deepEqual(env.holds('decoy-1'), [], 'not changed');
+  assert.deepEqual(env.userRoles['user-1'], ['role-btv'], 'not given');
+  assert.deepEqual(t.az.transcriptAccess, [{ url: ENV, appId: 'mi-client', name: 'Example', userId: 'user-1', createdUser: true, roleId: 'role-btv' }], 'nothing noted of the role');
+  assert.deepEqual(t.config.agentEvaluator.environments[0], { url: ENV, id: 'env-1', name: 'Example', access: true, accessAppId: 'mi-client' }, 'checked again on the next run');
+  assert.ok(
+    t.ui.text().includes(
+      `A user or team other than the jobs' managed identity has the "${READ_ROLE}" role in Example, so the installer didn't change it or give it to the jobs' managed identity. It reads only the transcripts shared with it there.`,
+    ),
+  );
+
+  env.calls.length = 0;
+  t.config.agentEvaluator.environments = [];
+  assert.equal(await ensureAzureTranscriptAccess(t.ctx), false);
+  assert.deepEqual(env.calls, ['removeRole user-1 role-btv', 'disableUser user-1', 'deleteUser user-1'], 'only what the installer added');
+  assert.deepEqual(env.roles.map((r) => r.roleid), ['decoy-1']);
+  assert.deepEqual(env.userRoles.someone, ['decoy-1']);
+  assert.equal(t.az.transcriptAccess, undefined);
 });
 
 test('Azure transcript access: a user Dataverse won\'t delete is activated again without its role, and the admin center steps printed', async () => {

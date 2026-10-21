@@ -931,7 +931,9 @@ the app reads every transcript in the environment, whoever owns it, and nothing 
 Bot Transcript Viewer on its own reads only the transcripts the application user owns, or that are
 shared with it. A new role comes with 9 platform privileges of its own, so the installer takes those
 off, and reads the role's privileges back before it gives it. It never changes a role it didn't
-create. Installs from before 0.6.8 get the role on **Update**, or **Repair or change**.
+create. It adds transcript read to its own role only while no user or team other than the app has
+the role; otherwise it leaves the role as it is, and prints the steps for a System Administrator.
+Installs from before 0.6.8 get the role on **Update**, or **Repair or change**.
 
 If you aren't a System Administrator in an environment you pick, ask one to:
 

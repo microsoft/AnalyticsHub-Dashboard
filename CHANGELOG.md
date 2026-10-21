@@ -85,6 +85,7 @@ resource group.
   that, gives it to the reader beside Bot Transcript Viewer, and asks Dataverse whether the reader
   can read a transcript. Unticking the environment or **Agent Evaluator**, or uninstalling, takes
   the role away and deletes it. The installer never changes or deletes a role it didn't create.
+  It adds transcript read to its role only while no user or team other than the reader has the role.
   Creating the role needs a System Administrator of the environment, as adding the reader does;
   otherwise the installer prints the admin center steps. To fix an existing install, run
   **Update** or **Repair or change** as a System Administrator of each environment, then reload
