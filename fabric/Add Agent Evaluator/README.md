@@ -52,8 +52,10 @@ transcript in the environment, whoever owns it.
 The installer does both steps itself when you're a System Administrator of the environment. It
 creates the role for the install, named *Analytics Hub transcript reader* followed by the first 8
 characters of the workspace's ID, with only ConversationTranscript read at Organization depth.
-**Update**, or **Repair or change**, adds it to installs from before 0.6.8. When you untick the
-environment or the module, or uninstall, it takes the role away and deletes it. See
+**Update**, or **Repair or change**, adds it to installs from before 0.6.8; then reload the history
+once, for example with `run --backfill-days 30`, so the notebook reads the transcripts older than
+14 days too. When you untick the environment or the module, or uninstall, it takes the role away
+and deletes it. See
 [Agent Evaluator](../../installer/README.md#agent-evaluator) in the installer's README.
 
 The UPN lookup (below) uses Microsoft Graph **User.Read.All** (application), which ValueLens'

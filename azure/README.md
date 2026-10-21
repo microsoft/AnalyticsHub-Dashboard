@@ -342,7 +342,10 @@ transcript reader role:
 **Installs from before 0.6.8.** Their managed identity has only Bot Transcript Viewer, so the jobs
 found no transcripts. **Update**, or **Repair or change**, runs the Transcript access step again and
 adds the transcript reader role. Once an environment's managed identity has both roles, later runs
-don't check it again.
+don't check it again. Those runs read only the last 14 days of transcripts, so then
+[load more audit history](../installer/README.md#load-more-audit-history) once, for example with
+`run --backfill-days 30`: a reload reads up to 180 days of transcripts, so it picks up the older
+ones the environment still keeps.
 
 **When the pages show and refresh.**
 

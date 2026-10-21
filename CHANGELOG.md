@@ -87,7 +87,10 @@ resource group.
   the role away and deletes it. The installer never changes or deletes a role it didn't create.
   Creating the role needs a System Administrator of the environment, as adding the reader does;
   otherwise the installer prints the admin center steps. To fix an existing install, run
-  **Update** or **Repair or change** as a System Administrator of each environment.
+  **Update** or **Repair or change** as a System Administrator of each environment, then reload
+  the history once, for example with `run --backfill-days 30`. Later runs read only the last 14
+  days of transcripts, and a reload reads up to 180 days, so it picks up the older ones the
+  environment still keeps.
 
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 

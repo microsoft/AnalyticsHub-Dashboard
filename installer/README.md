@@ -917,7 +917,10 @@ are none, the Agent Evaluation page says where it looked and how far back. To ad
 choose **Repair or change**, then **Agent Evaluator**. If an environment has transcripts but none
 are found, the reader likely has only Bot Transcript Viewer there, as on installs from before 0.6.8:
 choose **Update**, or **Repair or change**, as a System Administrator of the environment, so the
-installer adds the role that reads every transcript.
+installer adds the role that reads every transcript. Then
+[load more audit history](#load-more-audit-history) once, for example with
+`run --backfill-days 30`: later runs read only the last 14 days of transcripts, and a reload reads
+up to 180 days, so it picks up the older ones the environment still keeps.
 
 **Who reads them.** On Fabric, the transcript notebook signs in as the app registration. In each
 environment you pick, the installer adds it as an application user with the **Bot Transcript
