@@ -88,9 +88,12 @@ covers the app on Fabric, and the jobs' managed identity on Azure.
   Governance page says *Not collected: permission missing* for the agents.
 
 > **Add-ons.** [Agent Evaluator](../fabric/Add%20Agent%20Evaluator/README.md) needs a Dataverse
-> **application user** with the **Bot Transcript Viewer** role in each environment it reads: the app
-> registration on Fabric, or the jobs' managed identity on Azure
-> ([Agent Evaluator on Azure](../azure/README.md#agent-evaluator)).
+> **application user** in each environment it reads, with the **Bot Transcript Viewer** role and a
+> role that reads every conversation transcript there: the app registration on Fabric, or the jobs'
+> managed identity on Azure ([Agent Evaluator on Azure](../azure/README.md#agent-evaluator)). The
+> installer creates that role for the install, with one privilege: ConversationTranscript read at
+> Organization depth. Bot Transcript Viewer alone reads only the transcripts the application user
+> owns, or that are shared with it.
 > [Credit consumption](../fabric/Add%20Credit%20Consumption/README.md) lists its own roles.
 
 ---
@@ -129,7 +132,7 @@ covers the app on Fabric, and the jobs' managed identity on Azure.
 | Agent 365 registry (module `agent365`) | No Graph permission: the Agent 365 API is Fabric only for now. Export the registry from the Microsoft 365 admin center (roles in [Optional sources](#optional-sources-opt-in)) and drop it in the `agent365` folder. Dropping it takes the same access as the flow rows above: **Storage Blob Data Contributor** on the storage account (the installer assigns it to the person installing), or with private networking adding files to the SharePoint folder, whose site the managed identity reads with **Sites.Selected** |
 | Product feedback (module `productFeedback`) | No permission: there is no API, and the emailed export flow is Fabric only for now. Export it from the Microsoft 365 admin center (roles in [Optional sources](#optional-sources-opt-in)) and drop it in the `product_feedback` folder, with the same access as the Agent 365 export |
 | Azure Resource Graph (module `resourceGraph`) | The jobs' managed identity gets **Reader** at the management group, or the tenant root group, for Foundry, and needs an Entra role such as **Global Reader** for agents. See [Azure Resource Graph](#azure-resource-graph) |
-| Agent Evaluator (module `agentEvaluator`) | The jobs' managed identity as a Dataverse **application user** with the **Bot Transcript Viewer** security role in each environment it reads. The installer adds it when the person installing is a **System Administrator** of the environment; otherwise a System Administrator adds it in the Power Platform admin center, searching for the managed identity by its client ID. The web app's registration gets no Dataverse access. See [Agent Evaluator](../azure/README.md#agent-evaluator) |
+| Agent Evaluator (module `agentEvaluator`) | The jobs' managed identity as a Dataverse **application user** in each environment it reads, with the **Bot Transcript Viewer** security role and the installer's **Analytics Hub transcript reader** role, which holds only ConversationTranscript read at Organization depth, so it reads every transcript there, whoever owns it. The installer adds both, and creates the role in the root business unit, when the person installing is a **System Administrator** of the environment; otherwise a System Administrator does it in the Power Platform admin center, searching for the managed identity by its client ID. Uninstalling removes only what the installer added. The web app's registration gets no Dataverse access. See [Agent Evaluator](../azure/README.md#agent-evaluator) |
 
 ---
 

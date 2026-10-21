@@ -5,10 +5,29 @@
  */
 
 export const DISCOVERY_URL = 'https://globaldisco.crm.dynamics.com/api/discovery/v2.0';
-/** Created by Copilot Studio in each environment. Reads conversation transcripts. */
+/**
+ * Created by Copilot Studio in each environment. Its transcript read is at Basic depth, so on its
+ * own it reads only the transcripts the reader owns or that are shared with it. Copilot Studio's
+ * service user owns them, so for an app registration or managed identity that's usually none.
+ */
 export const TRANSCRIPT_ROLE = 'Bot Transcript Viewer';
+/**
+ * The whole of the role the installer creates for the transcript reader, at Organization depth.
+ * Agent (bot) read isn't here: nothing the reader runs uses it yet.
+ */
+export const TRANSCRIPT_READ_PRIVILEGES = Object.freeze(['prvReadconversationtranscript']);
+/** The start of the description of a role the installer created, so it never touches a role that only shares the name. */
+export const READ_ROLE_MARK = 'Created by the Analytics Hub installer';
 
 const ODATA = { 'OData-MaxVersion': '4.0', 'OData-Version': '4.0' };
+/** Dataverse's privilege depths, in the order of their numbers. Global is Organization in the admin center. */
+const DEPTHS = ['Basic', 'Local', 'Deep', 'Global'];
+
+/**
+ * A privilege depth by name. Dataverse returns "Global"; some endpoints return 3.
+ * @param {unknown} depth
+ */
+export const depthName = (depth) => (/^\d+$/.test(String(depth)) ? (DEPTHS[Number(depth)] ?? String(depth)) : String(depth));
 
 /**
  * An environment the signed-in user is a member of.
@@ -34,6 +53,9 @@ export const dataverseScope = (url) => /** @type {`https://${string}/.default`} 
 
 /** @param {string} value */
 const q = (value) => encodeURIComponent(value);
+
+/** @param {string} value  A string for an OData filter, quoted. */
+const literal = (value) => `'${value.replace(/'/g, "''")}'`;
 
 /** @param {import('../http.js').HttpClient} http */
 export function discoveryApi(http) {
@@ -88,8 +110,96 @@ export function dataverseApi(http, url) {
      * @returns {Promise<string | undefined>}
      */
     findRole: async (name, businessUnitId) =>
-      (await http.get(`/roles?$select=roleid&$filter=${q(`name eq '${name.replace(/'/g, "''")}' and _businessunitid_value eq ${businessUnitId}`)}`, { headers: ODATA }))
+      (await http.get(`/roles?$select=roleid&$filter=${q(`name eq ${literal(name)} and _businessunitid_value eq ${businessUnitId}`)}`, { headers: ODATA }))
         ?.value?.[0]?.roleid,
+    /**
+     * The roles with this name in a business unit, with their descriptions.
+     * @param {string} name
+     * @param {string} businessUnitId
+     * @returns {Promise<{ roleid: string, description?: string | null }[]>}
+     */
+    rolesByName: async (name, businessUnitId) =>
+      (await http.get(`/roles?$select=roleid,description&$filter=${q(`name eq ${literal(name)} and _businessunitid_value eq ${businessUnitId}`)}`, { headers: ODATA }))
+        ?.value ?? [],
+    /**
+     * Creates a security role and returns its roleid. Dataverse gives a new role some platform
+     * privileges of its own, so the caller sets the exact set afterwards.
+     * @param {{ name: string, businessUnitId: string, description: string }} role
+     */
+    async createRole(role) {
+      const res = await http.request('POST', '/roles', {
+        headers: { ...ODATA, Prefer: 'return=representation' },
+        body: { name: role.name, description: role.description, 'businessunitid@odata.bind': `/businessunits(${role.businessUnitId})` },
+        once: true,
+      });
+      const id = res?.data?.roleid ?? /\(([0-9a-f-]{36})\)\s*$/i.exec(res?.headers?.get('odata-entityid') ?? '')?.[1];
+      if (!id) throw new Error('Dataverse created the role but returned no ID.');
+      return /** @type {string} */ (id);
+    },
+    /**
+     * Deletes a security role.
+     * @param {string} roleId
+     */
+    deleteRole: (roleId) => http.request('DELETE', `/roles(${roleId})`, { headers: ODATA }),
+    /**
+     * The privileges with these names.
+     * @param {readonly string[]} names
+     * @returns {Promise<{ privilegeid: string, name: string, canbeglobal?: boolean }[]>}
+     */
+    findPrivileges: async (names) =>
+      (await http.get(`/privileges?$select=privilegeid,name,canbeglobal&$filter=${q(names.map((n) => `name eq ${literal(n)}`).join(' or '))}`, { headers: ODATA }))
+        ?.value ?? [],
+    /**
+     * A role's privileges, with their depths by name.
+     * @param {string} roleId
+     * @returns {Promise<{ id: string, name?: string, depth: string }[]>}
+     */
+    rolePrivileges: async (roleId) =>
+      ((await http.get(`/RetrieveRolePrivilegesRole(RoleId=@r)?@r=${roleId}`, { headers: ODATA }))?.RolePrivileges ?? []).map((/** @type {any} */ p) => ({
+        id: String(p.PrivilegeId),
+        name: p.PrivilegeName || undefined,
+        depth: depthName(p.Depth),
+      })),
+    /**
+     * Adds privileges to a role at Organization (Global) depth.
+     * @param {string} roleId
+     * @param {readonly string[]} privilegeIds
+     * @param {string} businessUnitId  The role's business unit.
+     */
+    addPrivileges: (roleId, privilegeIds, businessUnitId) =>
+      http.request('POST', `/roles(${roleId})/Microsoft.Dynamics.CRM.AddPrivilegesRole`, {
+        headers: ODATA,
+        body: {
+          Privileges: privilegeIds.map((id) => ({ '@odata.type': 'Microsoft.Dynamics.CRM.RolePrivilege', Depth: 'Global', PrivilegeId: id, BusinessUnitId: businessUnitId })),
+        },
+      }),
+    /**
+     * Takes one privilege off a role.
+     * @param {string} roleId
+     * @param {string} privilegeId
+     */
+    removePrivilege: (roleId, privilegeId) =>
+      http.request('POST', `/roles(${roleId})/Microsoft.Dynamics.CRM.RemovePrivilegeRole`, {
+        headers: ODATA,
+        body: { Privilege: { '@odata.type': 'Microsoft.Dynamics.CRM.privilege', privilegeid: privilegeId } },
+      }),
+    /**
+     * One conversation transcript's ID, if there are any the signed-in user can see.
+     * @returns {Promise<string | undefined>}
+     */
+    firstTranscript: async () =>
+      (await http.get('/conversationtranscripts?$top=1&$select=conversationtranscriptid', { headers: ODATA }))?.value?.[0]?.conversationtranscriptid,
+    /**
+     * A user's access to one row, as Dataverse lists it: "ReadAccess", "ReadAccess, WriteAccess" or "None".
+     * @param {string} userId
+     * @param {string} target  The row, e.g. `conversationtranscripts(<id>)`.
+     * @returns {Promise<string>}
+     */
+    principalAccess: async (userId, target) =>
+      String(
+        (await http.get(`/systemusers(${userId})/Microsoft.Dynamics.CRM.RetrievePrincipalAccess(Target=@t)?@t=${q(JSON.stringify({ '@odata.id': target }))}`, { headers: ODATA }))
+          ?.AccessRights ?? '',
+      ),
     /**
      * @param {string} userId
      * @returns {Promise<string[]>}

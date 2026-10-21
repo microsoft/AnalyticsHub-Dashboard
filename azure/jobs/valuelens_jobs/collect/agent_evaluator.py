@@ -2,7 +2,8 @@
 
 The Azure port of the Fabric parser notebook (fabric/notebooks/agent-evaluator/
 Copilot_Agent_Transcript_Parser.ipynb). The jobs' managed identity reads each environment's
-`conversationtranscripts` (it's an application user there with the Bot Transcript Viewer role) in parallel
+`conversationtranscripts` (it's an application user there with the Bot Transcript Viewer role and the
+installer's transcript reader role, which reads every transcript in the environment, whoever owns it) in parallel
 date windows, following nextLink pages; `Api` retries throttling (429, honouring Retry-After) and transient
 errors. Worker processes parse the transcripts (valuelens_jobs.transcripts) and the rows are merged into month
 files, keyed on the transcript and its environment:
@@ -109,8 +110,9 @@ def fetch_window(api, base: str, start, end, on_page, page_size: int = 1000) -> 
             continue
         if r.status_code in (401, 403):
             raise HttpError(f"Dataverse {host} returned HTTP {r.status_code}: the jobs' managed identity needs to be "
-                            "an application user there with the Bot Transcript Viewer role (the installer's Repair "
-                            f"or change adds it). {(getattr(r, 'text', '') or '')[:300]}".strip(), r.status_code)
+                            "an application user there with the Bot Transcript Viewer role and the installer's "
+                            "transcript reader role (the installer's Repair or change adds them). "
+                            f"{(getattr(r, 'text', '') or '')[:300]}".strip(), r.status_code)
         raise_for_status(r, f"Dataverse {host} conversationtranscripts")
         body = r.json()
         page = body.get("value") or []

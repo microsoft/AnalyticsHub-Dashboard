@@ -31,13 +31,30 @@ you list.
 
 ### 1. Give the app registration access
 
-Use the same app registration as ValueLens. In **each** environment you want to read:
+Use the same app registration as ValueLens. In **each** environment you want to read, in the
+[Power Platform admin centre](https://admin.powerplatform.microsoft.com) → **Manage** →
+**Environments** → your environment → **Settings** → **Users + permissions**:
 
-1. [Power Platform admin centre](https://admin.powerplatform.microsoft.com) → **Manage** →
-   **Environments** → your environment → **Settings** → **Users + permissions** →
-   **Application users** → **New app user**.
-2. Add the app registration, choose the root business unit, and give it the
-   **Bot Transcript Viewer** security role.
+1. **Security roles** → **+ New role**. Name it, for example *Analytics Hub transcript reader*, keep
+   the root business unit, turn off **Include App Opener privileges for running Model-Driven apps**,
+   and **Save**. Then set the **ConversationTranscript** table's **Read** to **Organization**, and
+   **Save**. The role needs nothing else.
+2. **Application users** → **New app user**. Add the app registration, choose the root business
+   unit, and give it the **Bot Transcript Viewer** security role and the new role. If it's an
+   application user there already, open it, choose **Edit security roles**, tick the new role, and
+   **Save**.
+
+Bot Transcript Viewer on its own reads transcripts at Basic depth: only the ones the application
+user owns, or that are shared with it. In a test environment, Copilot Studio's own service user
+owned the transcripts, so a reader with that role alone found none. The new role reads every
+transcript in the environment, whoever owns it.
+
+The installer does both steps itself when you're a System Administrator of the environment. It
+creates the role for the install, named *Analytics Hub transcript reader* followed by the first 8
+characters of the workspace's ID, with only ConversationTranscript read at Organization depth.
+**Update**, or **Repair or change**, adds it to installs from before 0.6.8. When you untick the
+environment or the module, or uninstall, it takes the role away and deletes it. See
+[Agent Evaluator](../../installer/README.md#agent-evaluator) in the installer's README.
 
 The UPN lookup (below) uses Microsoft Graph **User.Read.All** (application), which ValueLens'
 org data notebook already needs.

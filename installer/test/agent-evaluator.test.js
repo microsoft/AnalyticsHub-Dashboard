@@ -7,21 +7,35 @@ import { test } from 'node:test';
 import { MODULES, notebooksFor, OPTIONAL_MODULES } from '../src/catalog.js';
 import { TRANSCRIPT_ROLE } from '../src/clients/dataverse.js';
 import { AGENT_EVALUATOR_MODEL_NAME, CONFIG_VERSION, emptyConfig, loadConfig } from '../src/config.js';
-import { agentEvaluatorSummary, ensureAgentEvaluatorModel, ensureTranscriptAccess, environmentsWithAgents, grantTranscriptAccess, planAgentEvaluator } from '../src/steps/agent-evaluator.js';
+import {
+  addTranscriptReader,
+  agentEvaluatorSummary,
+  appReadRole,
+  ensureAgentEvaluatorModel,
+  ensureTranscriptAccess,
+  environmentsWithAgents,
+  fabricReadRoleReview,
+  fabricReadRoleWanted,
+  grantTranscriptAccess,
+  planAgentEvaluator,
+  readRole,
+  removeFabricReadRoles,
+} from '../src/steps/agent-evaluator.js';
 import { appModels, pagesChange } from '../src/steps/app.js';
 import { agentEvaluatorModelDeployed, agentEvaluatorOn, ensureNotebooks, ENVIRONMENTS_FIND, notebookSettings, pipelineSignature } from '../src/steps/fabric.js';
 import { ensureModelConnection, ensureSemanticModel } from '../src/steps/model.js';
 import { buildAgentEvaluatorModel, loadTemplateModel } from '../src/transform/model.js';
 import { cellText, findAssignmentCell, MARKER, prepareNotebook } from '../src/transform/notebook.js';
 import { AGENT_EVALUATOR_ACTIVITY, AGENT_EVALUATOR_REFRESH_ACTIVITY, buildPipeline, findActivity, TRANSCRIPT_BACKFILL_DAYS, TRANSCRIPT_LOOKBACK_DAYS } from '../src/transform/pipeline.js';
-import { fakeCtx, fakeFabric, fakeGraph, fakePowerBi, fakeUi, httpError, realSources } from './fakes.js';
+import { fakeCtx, fakeFabric, fakeGraph, fakePowerBi, fakeRoleStore, fakeUi, httpError, PLATFORM_PRIVILEGES, realSources } from './fakes.js';
 
 const PROD = 'https://contoso.crm.dynamics.com';
 const DEV = 'https://contoso-dev.crm4.dynamics.com';
 
 /**
- * One Dataverse environment: its application users, business units and roles.
- * @param {{ bu?: string | null, role?: string | null }} [o]
+ * One Dataverse environment: its application users, business units and roles. Its roles are a fakeRoleStore's, with Bot
+ * Transcript Viewer as ROLE-1.
+ * @param {{ bu?: string | null, role?: string | null, units?: string[], copies?: boolean, roles?: import('./fakes.js').FakeRole[], transcripts?: string[] }} [o]
  */
 function fakeEnvironment(o = {}) {
   /** @type {string[]} */
@@ -38,7 +52,9 @@ function fakeEnvironment(o = {}) {
     const err = failures[method]?.shift();
     if (err) throw err;
   };
+  const store = fakeRoleStore({ calls, fail, userRoles, root: bu, viewer: role, units: o.units, copies: o.copies, roles: o.roles, transcripts: o.transcripts });
   const api = {
+    ...store.api,
     /** @param {string} appId */
     findAppUser: async (appId) => {
       calls.push('findAppUser');
@@ -54,21 +70,8 @@ function fakeEnvironment(o = {}) {
       users.push(user);
       return user.systemuserid;
     },
-    /** @param {string} name @param {string} businessUnitId */
-    findRole: async (name, businessUnitId) => {
-      calls.push(`findRole ${name} ${businessUnitId}`);
-      return role ?? undefined;
-    },
-    /** @param {string} userId */
-    userRoleIds: async (userId) => [...(userRoles[userId] ?? [])],
-    /** @param {string} userId @param {string} roleId */
-    assignRole: async (userId, roleId) => {
-      calls.push(`assignRole ${userId} ${roleId}`);
-      (userRoles[userId] ??= []).push(roleId);
-      return null;
-    },
   };
-  return { api, calls, failures, users, userRoles };
+  return { api, calls, failures, users, userRoles, roles: store.roles, holds: store.holds };
 }
 
 /** @param {{ answers?: any[], yes?: boolean, instances?: any[] | Error }} [o] */
@@ -95,6 +98,22 @@ function setup(o = {}) {
   config.app.displayName = 'ValueLens Data Collector';
   const made = fakeCtx({ ui: ui.ui, fabric: fabric.api, graph: graph.api, powerBi: powerBi.api, discovery, dataverse, config });
   return { ...made, fabric, graph, powerBi, ui, envs, discoveryCalls };
+}
+
+/**
+ * Records the names of the choices each select offers.
+ * @param {ReturnType<typeof fakeUi>} ui
+ */
+function offers(ui) {
+  /** @type {string[][]} */
+  const offered = [];
+  const ux = /** @type {any} */ (ui.ui);
+  const select = ux.select;
+  ux.select = async (/** @type {string} */ message, /** @type {{ name: string }[]} */ choices, /** @type {any} */ def) => {
+    offered.push(choices.map((ch) => ch.name));
+    return select(message, choices, def);
+  };
+  return offered;
 }
 
 const instance = (/** @type {string} */ url, /** @type {string} */ name, /** @type {any} */ extra = {}) => ({
@@ -324,43 +343,172 @@ test('plan: without discovery, environment URLs are typed in and checked', async
   await assert.rejects(planAgentEvaluator(bad.ctx), /isn't an https URL/);
 });
 
-test('access: the app is added with the Bot Transcript Viewer role once', async () => {
+test('access: the app is added with Bot Transcript Viewer and a role that reads every transcript, once', async () => {
+  const role = readRole('ws-1', 'the install in Fabric workspace', 'the app');
+  assert.equal(role.name, 'Analytics Hub transcript reader ws-1');
   const env = fakeEnvironment();
-  assert.equal(await grantTranscriptAccess(/** @type {any} */ (env.api), 'app-1'), 'added');
-  assert.deepEqual(env.calls, ['findAppUser', 'createAppUser app-1 bu-root', `findRole ${TRANSCRIPT_ROLE} bu-root`, 'assignRole user-1 ROLE-1']);
+  assert.equal(await grantTranscriptAccess(/** @type {any} */ (env.api), 'app-1', role), 'added');
+  assert.deepEqual(env.calls, [
+    'findAppUser',
+    'createAppUser app-1 bu-root',
+    `findRole ${TRANSCRIPT_ROLE} bu-root`,
+    'assignRole user-1 ROLE-1',
+    `createRole ${role.name} bu-root`,
+    ...PLATFORM_PRIVILEGES.map((p) => `removePrivilege read-1 ${p}`),
+    'addPrivileges read-1 prvReadconversationtranscript bu-root',
+    'assignRole user-1 read-1',
+  ]);
+  assert.deepEqual(env.holds('read-1'), ['prvReadconversationtranscript:Global'], 'transcript read at Organization depth, and nothing else');
+  assert.match(String(env.roles[0].description), /^Created by the Analytics Hub installer for the install in Fabric workspace ws-1\. /);
   env.calls.length = 0;
-  env.userRoles['user-1'] = ['role-1'];
-  assert.equal(await grantTranscriptAccess(/** @type {any} */ (env.api), 'app-1'), 'ok', 'role IDs compare without case');
-  assert.ok(!env.calls.some((c) => c.startsWith('assignRole')));
+  env.userRoles['user-1'] = ['role-1', 'READ-1'];
+  assert.equal(await grantTranscriptAccess(/** @type {any} */ (env.api), 'app-1', role), 'ok', 'role IDs compare without case');
+  assert.deepEqual(env.calls, ['findAppUser', `findRole ${TRANSCRIPT_ROLE} bu-root`], 'nothing is created, changed or given again');
 
   const existing = fakeEnvironment();
   existing.users.push({ systemuserid: 'u-9', applicationid: 'app-1', _businessunitid_value: 'bu-root' });
-  assert.equal(await grantTranscriptAccess(/** @type {any} */ (existing.api), 'app-1'), 'added');
-  assert.deepEqual(existing.calls.slice(-1), ['assignRole u-9 ROLE-1']);
+  assert.equal(await grantTranscriptAccess(/** @type {any} */ (existing.api), 'app-1', role), 'added');
+  assert.deepEqual(existing.calls.filter((c) => c.startsWith('assignRole')), ['assignRole u-9 ROLE-1', 'assignRole u-9 read-1']);
 
   const disabled = fakeEnvironment();
   disabled.users.push({ systemuserid: 'u-1', applicationid: 'app-1', isdisabled: true });
-  assert.equal(await grantTranscriptAccess(/** @type {any} */ (disabled.api), 'app-1'), 'disabled');
+  assert.equal(await grantTranscriptAccess(/** @type {any} */ (disabled.api), 'app-1', role), 'disabled');
 
   const noStudio = fakeEnvironment({ role: null });
-  assert.equal(await grantTranscriptAccess(/** @type {any} */ (noStudio.api), 'app-1'), 'no-role');
+  assert.equal(await grantTranscriptAccess(/** @type {any} */ (noStudio.api), 'app-1', role), 'no-role');
+  assert.ok(!noStudio.calls.some((c) => c.startsWith('createRole')), 'no role is created where Copilot Studio isn\'t set up');
 
   const noBu = fakeEnvironment({ bu: null });
-  await assert.rejects(grantTranscriptAccess(/** @type {any} */ (noBu.api), 'app-1'), /root business unit/);
+  await assert.rejects(grantTranscriptAccess(/** @type {any} */ (noBu.api), 'app-1', role), /root business unit/);
+});
+
+test('access: the read role ends holding exactly transcript read, after a run stopped part way or an admin changed it', async () => {
+  const role = readRole('ws-1', 'the install in Fabric workspace', 'the app');
+  const env = fakeEnvironment();
+  env.failures.removePrivilege = [httpError(500, 'Boom')];
+  await assert.rejects(addTranscriptReader(/** @type {any} */ (env.api), 'app-1', role), (/** @type {any} */ err) => {
+    assert.match(err.message, /Boom/);
+    assert.deepEqual(err.grant, { createdUser: true, userId: 'user-1', roleId: 'ROLE-1', viewer: true, newReadRole: true, readRoleId: 'read-1', readRoleName: role.name, createdReadRole: true });
+    return true;
+  });
+  assert.equal(env.holds('read-1').length, PLATFORM_PRIVILEGES.length, 'the new role still holds what Dataverse gave it');
+  assert.deepEqual(env.userRoles['user-1'], ['ROLE-1'], 'and isn\'t given');
+  env.calls.length = 0;
+  const again = await addTranscriptReader(/** @type {any} */ (env.api), 'app-1', role);
+  assert.equal(again.result, 'added');
+  assert.equal(again.fixedReadRole, true);
+  assert.equal(again.newReadRole, undefined, 'the same role, found by its description');
+  assert.deepEqual(env.calls, [
+    'findAppUser',
+    `findRole ${TRANSCRIPT_ROLE} bu-root`,
+    ...PLATFORM_PRIVILEGES.map((p) => `removePrivilege read-1 ${p}`),
+    'addPrivileges read-1 prvReadconversationtranscript bu-root',
+    'assignRole user-1 read-1',
+  ]);
+  assert.deepEqual(env.holds('read-1'), ['prvReadconversationtranscript:Global']);
+
+  const stopped = fakeEnvironment();
+  stopped.failures.addPrivileges = [httpError(500, 'Boom')];
+  await assert.rejects(addTranscriptReader(/** @type {any} */ (stopped.api), 'app-1', role), /Boom/);
+  assert.deepEqual(stopped.holds('read-1'), [], 'the platform privileges came off, and transcript read wasn\'t added');
+  assert.equal((await addTranscriptReader(/** @type {any} */ (stopped.api), 'app-1', role)).result, 'added');
+  assert.deepEqual(stopped.holds('read-1'), ['prvReadconversationtranscript:Global']);
+
+  // An admin changed the installer's role: transcript read down to Business Unit, and agent read added.
+  const changed = fakeEnvironment({
+    roles: [{ roleid: 'read-7', name: role.name, description: role.description, bu: 'bu-root', privileges: new Map([['priv-transcript', 'Local'], ['priv-bot', 'Global']]) }],
+  });
+  changed.users.push({ systemuserid: 'u-1', applicationid: 'app-1', _businessunitid_value: 'bu-root' });
+  changed.userRoles['u-1'] = ['ROLE-1', 'read-7'];
+  const fixed = await addTranscriptReader(/** @type {any} */ (changed.api), 'app-1', role);
+  assert.equal(fixed.result, 'ok', 'nothing new was given');
+  assert.equal(fixed.fixedReadRole, true);
+  assert.deepEqual(changed.calls.slice(2), ['removePrivilege read-7 prvReadconversationtranscript', 'removePrivilege read-7 prvReadbot', 'addPrivileges read-7 prvReadconversationtranscript bu-root']);
+  assert.deepEqual(changed.holds('read-7'), ['prvReadconversationtranscript:Global']);
+});
+
+test('access: a role the installer didn\'t create is never changed, and given only when it holds exactly transcript read', async () => {
+  const role = readRole('ws-1', 'the install in Fabric workspace', 'the app');
+  /** @param {[string, string][]} privileges */
+  const theirs = (privileges) => [{ roleid: 'theirs-1', name: role.name, description: 'Made by an admin', bu: 'bu-root', privileges: new Map(privileges) }];
+
+  const wide = fakeEnvironment({ roles: theirs([['priv-transcript', 'Global'], ['priv-bot', 'Global']]) });
+  const grant = await addTranscriptReader(/** @type {any} */ (wide.api), 'app-1', role);
+  assert.equal(grant.result, 'unverified');
+  assert.deepEqual(grant.holds, ['prvReadbot:Global', 'prvReadconversationtranscript:Global']);
+  assert.equal(grant.createdReadRole, undefined);
+  assert.ok(!wide.calls.some((c) => /^(createRole|removePrivilege|addPrivileges|deleteRole)/.test(c)), 'nothing is created or changed');
+  assert.deepEqual(wide.userRoles['user-1'], ['ROLE-1'], 'and it isn\'t given');
+
+  // Another install whose ID starts with the same 8 characters has a role of the same name, but it isn't this install's.
+  const mine = readRole('0000aaaa-1111-2222-3333-444455556666', 'the install in Fabric workspace', 'the app');
+  const another = readRole('0000aaaa-9999-8888-7777-666655554444', 'the install in Fabric workspace', 'the app');
+  assert.equal(mine.name, another.name);
+  const shared = fakeEnvironment({ roles: [{ roleid: 'theirs-1', name: another.name, description: another.description, bu: 'bu-root', privileges: new Map([['priv-transcript', 'Basic']]) }] });
+  assert.equal((await addTranscriptReader(/** @type {any} */ (shared.api), 'app-1', mine)).result, 'unverified', 'another install\'s role is left alone');
+  assert.deepEqual(shared.holds('theirs-1'), ['prvReadconversationtranscript:Basic']);
+  assert.ok(!shared.calls.some((c) => /^(createRole|removePrivilege|addPrivileges|deleteRole)/.test(c)));
+
+  const exact = fakeEnvironment({ roles: theirs([['priv-transcript', 'Global']]) });
+  const given = await addTranscriptReader(/** @type {any} */ (exact.api), 'app-1', role);
+  assert.equal(given.result, 'added');
+  assert.deepEqual({ readRoleId: given.readRoleId, createdReadRole: given.createdReadRole, assignedReadRoleId: given.assignedReadRoleId }, { readRoleId: 'theirs-1', createdReadRole: undefined, assignedReadRoleId: 'theirs-1' });
+  assert.ok(!exact.calls.some((c) => /^(createRole|removePrivilege|addPrivileges)/.test(c)));
+});
+
+test('access: in a child business unit, the user is given the role\'s copy there', async () => {
+  const role = readRole('ws-1', 'the install in Fabric workspace', 'the app');
+  const env = fakeEnvironment({ units: ['bu-child'] });
+  env.users.push({ systemuserid: 'u-1', applicationid: 'app-1', _businessunitid_value: 'bu-child' });
+  const grant = await addTranscriptReader(/** @type {any} */ (env.api), 'app-1', role);
+  assert.equal(grant.result, 'added');
+  assert.deepEqual({ readRoleId: grant.readRoleId, assignedReadRoleId: grant.assignedReadRoleId }, { readRoleId: 'read-1', assignedReadRoleId: 'read-1-bu-child' });
+  assert.deepEqual(env.calls.slice(-2), [`findRole ${role.name} bu-child`, 'assignRole u-1 read-1-bu-child']);
+  assert.deepEqual(env.holds('read-1-bu-child'), ['prvReadconversationtranscript:Global'], 'the copy holds what the role holds');
+
+  const early = fakeEnvironment({ units: ['bu-child'], copies: false });
+  early.users.push({ systemuserid: 'u-1', applicationid: 'app-1', _businessunitid_value: 'bu-child' });
+  const waiting = await addTranscriptReader(/** @type {any} */ (early.api), 'app-1', role);
+  assert.equal(waiting.result, 'no-copy');
+  assert.equal(waiting.assignedReadRoleId, undefined);
+  assert.equal(waiting.createdReadRole, true, 'the role is still the installer\'s to delete');
+});
+
+test('access: Dataverse is asked whether the reader can read one transcript', async () => {
+  const role = readRole('ws-1', 'the install in Fabric workspace', 'the app');
+  const env = fakeEnvironment({ transcripts: ['tx-1'] });
+  assert.equal((await addTranscriptReader(/** @type {any} */ (env.api), 'app-1', role)).sample, 'read');
+
+  const late = fakeEnvironment({ transcripts: ['tx-1'] });
+  late.api.principalAccess = async () => 'None';
+  assert.equal((await addTranscriptReader(/** @type {any} */ (late.api), 'app-1', role)).sample, 'unread');
+
+  const denied = fakeEnvironment({ transcripts: ['tx-1'] });
+  denied.failures.principalAccess = [httpError(403, 'Forbidden')];
+  const grant = await addTranscriptReader(/** @type {any} */ (denied.api), 'app-1', role);
+  assert.deepEqual([grant.result, grant.sample], ['added', undefined], 'only a check');
+
+  const empty = fakeEnvironment();
+  assert.equal((await addTranscriptReader(/** @type {any} */ (empty.api), 'app-1', role)).sample, undefined, 'no transcripts to check');
 });
 
 test('access: each environment is set up; without rights the steps are shown and the rest carry on', async () => {
   const t = setup();
-  t.config.agentEvaluator.environments = [{ url: PROD, name: 'Contoso' }, { url: DEV, name: 'Dev' }, { url: 'https://ok.crm.dynamics.com', access: true }];
+  t.config.agentEvaluator.environments = [{ url: PROD, name: 'Contoso' }, { url: DEV, name: 'Dev' }, { url: 'https://ok.crm.dynamics.com', access: true, readAll: true }];
   t.envs[DEV] = fakeEnvironment();
   t.envs[DEV].failures.findAppUser = [httpError(403, 'Forbidden')];
   assert.equal(await ensureTranscriptAccess(t.ctx), true);
   assert.deepEqual(t.config.agentEvaluator.environments.map((e) => !!e.access), [true, false, true]);
+  assert.deepEqual(t.config.agentEvaluator.environments.map((e) => !!e.readAll), [true, false, true]);
   const text = t.ui.text();
-  assert.match(text, new RegExp(`Gave ValueLens Data Collector the ${TRANSCRIPT_ROLE} role in Contoso`));
+  const role = appReadRole(t.config).name;
+  assert.match(text, new RegExp(`Created the "${role}" role in Contoso: it reads every Copilot Studio conversation transcript there, and nothing else`));
+  assert.match(text, new RegExp(`Gave ValueLens Data Collector the ${TRANSCRIPT_ROLE} and "${role}" roles in Contoso`));
   assert.match(text, /can't add ValueLens Data Collector to Dev/);
-  assert.match(text, /New app user\. Pick ValueLens Data Collector \(app-1\)/);
-  assert.equal(t.envs['https://ok.crm.dynamics.com'], undefined, 'environments with access are left alone');
+  assert.match(text, /New app user\. Pick ValueLens Data Collector \(app-1\), the root business unit, and the Bot Transcript Viewer role and the new role\./);
+  assert.match(text, /Security roles > \+ New role\. Name it, for example "Analytics Hub transcript reader", keep the root business unit, turn off Include App Opener privileges for running Model-Driven apps, and Save\. Then set the ConversationTranscript table's Read to Organization, and Save\./);
+  assert.equal(t.envs['https://ok.crm.dynamics.com'], undefined, 'environments the app reads all of are left alone');
+  assert.deepEqual(t.config.fabric.transcriptAccess, [{ url: PROD, appId: 'app-1', name: 'Contoso', userId: 'user-1', readRoleId: 'read-1', readRoleName: role, createdReadRole: true, assignedReadRoleId: 'read-1' }]);
 
   const told = setup({ answers: [true] });
   told.config.agentEvaluator.environments = [{ url: DEV }];
@@ -368,6 +516,8 @@ test('access: each environment is set up; without rights the steps are shown and
   told.envs[DEV].failures.findAppUser = [httpError(401, 'Unauthorized')];
   assert.equal(await ensureTranscriptAccess(told.ctx), true, 'the user says an admin already added it');
   assert.equal(told.config.agentEvaluator.environments[0].access, true);
+  assert.equal(told.config.agentEvaluator.environments[0].readAll, true);
+  assert.equal(told.config.fabric.transcriptAccess, undefined, 'nothing the installer added');
 
   const unattended = setup({ yes: true });
   unattended.config.agentEvaluator.environments = [{ url: DEV }];
@@ -394,6 +544,127 @@ test('access: each environment is set up; without rights the steps are shown and
   noStudio.envs[DEV] = fakeEnvironment({ role: null });
   assert.equal(await ensureTranscriptAccess(noStudio.ctx), false);
   assert.match(noStudio.ui.text(), /has no Bot Transcript Viewer role/);
+});
+
+test('access: an install from before the read role gets it on Update or Repair', async () => {
+  const t = setup();
+  t.config.agentEvaluator.environments = [{ url: PROD, name: 'Contoso', access: true }];
+  const env = (t.envs[PROD] = fakeEnvironment({ transcripts: ['tx-1'] }));
+  env.users.push({ systemuserid: 'u-1', applicationid: 'app-1', _businessunitid_value: 'bu-root' });
+  env.userRoles['u-1'] = ['ROLE-1'];
+  assert.equal(await ensureTranscriptAccess(t.ctx), true);
+  const role = appReadRole(t.config).name;
+  assert.deepEqual(env.calls.filter((c) => c.startsWith('assignRole')), ['assignRole u-1 read-1'], 'Bot Transcript Viewer is kept, not given again');
+  assert.deepEqual(env.holds('read-1'), ['prvReadconversationtranscript:Global']);
+  assert.deepEqual(t.config.agentEvaluator.environments, [{ url: PROD, name: 'Contoso', access: true, readAll: true }]);
+  const text = t.ui.text();
+  assert.match(text, new RegExp(`Gave ValueLens Data Collector the "${role}" role in Contoso`));
+  assert.match(text, /Checked one transcript in Contoso: ValueLens Data Collector can read it/);
+
+  env.calls.length = 0;
+  t.ui.out.length = 0;
+  assert.equal(await ensureTranscriptAccess(t.ctx), true);
+  assert.deepEqual(env.calls, [], 'the next run leaves it alone');
+  assert.match(t.ui.text(), /ValueLens Data Collector can read every transcript in Contoso/);
+});
+
+test('access: without the rights to create the role, an app that has Bot Transcript Viewer keeps reading what\'s shared with it', async () => {
+  for (const method of ['rolesByName', 'createRole']) {
+    const t = setup({ answers: [false] });
+    const offered = offers(t.ui);
+    t.config.agentEvaluator.environments = [{ url: PROD, name: 'Contoso', access: true }];
+    const env = (t.envs[PROD] = fakeEnvironment());
+    env.users.push({ systemuserid: 'u-1', applicationid: 'app-1', _businessunitid_value: 'bu-root' });
+    env.userRoles['u-1'] = ['ROLE-1'];
+    env.failures[method] = [httpError(403, 'Forbidden')];
+    assert.equal(await ensureTranscriptAccess(t.ctx), true, `${method}: it still reads what's shared with it`);
+    assert.deepEqual(t.config.agentEvaluator.environments, [{ url: PROD, name: 'Contoso', access: true }], `${method}: it gets the role on a later run`);
+    assert.equal(t.config.fabric.transcriptAccess, undefined);
+    const text = t.ui.text();
+    assert.match(text, /You can't give ValueLens Data Collector a role that reads every transcript in Contoso, so it reads only the transcripts shared with it there until someone does\./);
+    assert.match(text, /A System Administrator of Contoso can give it the role in the Power Platform admin center/);
+    assert.match(text, /Application users > ValueLens Data Collector \(app-1\) > Edit security roles\. Tick the new role, and Save\./);
+    assert.doesNotMatch(text, /New app user/);
+    assert.deepEqual(offered, [['Carry on for now', 'It already reads every transcript']]);
+  }
+
+  const fresh = setup({ answers: [true] });
+  fresh.config.agentEvaluator.environments = [{ url: DEV, name: 'Dev' }];
+  const env = (fresh.envs[DEV] = fakeEnvironment());
+  env.failures.createRole = [httpError(403, 'Forbidden')];
+  assert.equal(await ensureTranscriptAccess(fresh.ctx), true);
+  assert.deepEqual(env.userRoles['user-1'], ['ROLE-1'], 'Bot Transcript Viewer was given before the role failed');
+  assert.deepEqual(fresh.config.agentEvaluator.environments, [{ url: DEV, name: 'Dev', access: true, readAll: true }], 'the user says an admin gave it the role');
+});
+
+test('access: the read role is only given when it holds exactly transcript read', async () => {
+  const t = setup();
+  t.config.agentEvaluator.environments = [{ url: PROD, name: 'Contoso' }];
+  const role = appReadRole(t.config);
+  const env = (t.envs[PROD] = fakeEnvironment({ roles: [{ roleid: 'theirs-1', name: role.name, description: 'Made by an admin', bu: 'bu-root', privileges: new Map([['priv-transcript', 'Global'], ['priv-bot', 'Global']]) }] }));
+  assert.equal(await ensureTranscriptAccess(t.ctx), true, 'it reads what\'s shared with it');
+  assert.deepEqual(t.config.agentEvaluator.environments, [{ url: PROD, name: 'Contoso', access: true }]);
+  assert.deepEqual(env.userRoles['user-1'], ['ROLE-1']);
+  const text = t.ui.text();
+  assert.match(
+    text,
+    new RegExp(`The "${role.name}" role in Contoso should hold only ConversationTranscript read at Organization depth, but holds prvReadbot:Global, prvReadconversationtranscript:Global, so the installer didn't give it to ValueLens Data Collector\\. It reads only the transcripts shared with it there\\.`),
+  );
+  assert.match(text, /The installer didn't create that role, so it leaves it alone\. Rename or delete it, then run the installer again\./);
+  assert.match(text, new RegExp(`Gave ValueLens Data Collector the ${TRANSCRIPT_ROLE} role in Contoso`));
+  assert.deepEqual(t.config.fabric.transcriptAccess, undefined, 'nothing to remove: the role isn\'t the installer\'s, and it wasn\'t given');
+
+  const child = setup();
+  child.config.agentEvaluator.environments = [{ url: PROD, name: 'Contoso' }];
+  const unit = (child.envs[PROD] = fakeEnvironment({ units: ['bu-child'], copies: false }));
+  unit.users.push({ systemuserid: 'u-1', applicationid: 'app-1', _businessunitid_value: 'bu-child' });
+  assert.equal(await ensureTranscriptAccess(child.ctx), true);
+  assert.deepEqual(child.config.agentEvaluator.environments, [{ url: PROD, name: 'Contoso', access: true }]);
+  assert.match(child.ui.text(), new RegExp(`Contoso has no copy of the "${role.name}" role in the business unit of ValueLens Data Collector's application user yet, so it reads only the transcripts shared with it there\\. Run the installer again in a few minutes\\.`));
+  assert.deepEqual(child.config.fabric.transcriptAccess, [{ url: PROD, appId: 'app-1', name: 'Contoso', userId: 'u-1', readRoleId: 'read-1', readRoleName: role.name, createdReadRole: true }], 'the role is deleted on uninstall');
+
+  const unread = setup();
+  unread.config.agentEvaluator.environments = [{ url: PROD, name: 'Contoso' }];
+  (unread.envs[PROD] = fakeEnvironment({ transcripts: ['tx-1'] })).api.principalAccess = async () => 'None';
+  await ensureTranscriptAccess(unread.ctx);
+  assert.match(unread.ui.text(), /Dataverse shows ValueLens Data Collector can't read a transcript in Contoso yet\. Role changes can take a few minutes\. If the next run still finds no transcripts there, check its security roles in the Power Platform admin center\./);
+});
+
+test('access: unticking an environment or the module, or uninstalling, removes only the role the installer added', async () => {
+  const t = setup();
+  t.config.agentEvaluator.environments = [{ url: PROD, name: 'Contoso' }, { url: DEV, name: 'Dev' }];
+  await ensureTranscriptAccess(t.ctx);
+  const role = appReadRole(t.config).name;
+  assert.equal(t.config.fabric.transcriptAccess?.length, 2);
+  const prod = t.envs[PROD];
+  const dev = t.envs[DEV];
+
+  t.config.agentEvaluator.environments = [{ url: PROD, name: 'Contoso', access: true, readAll: true }];
+  assert.deepEqual(fabricReadRoleReview(t.config), [
+    {
+      kind: 'Dataverse security role',
+      name: `${role} in Contoso`,
+      isNew: false,
+      detail: 'Reads every Copilot Studio conversation transcript there, and nothing else. Created for this install, given to the app, and deleted on uninstall.',
+    },
+    { kind: 'Dataverse security role', name: `${role} in Dev`, isNew: false, detail: 'No longer chosen, so the installer takes it away and deletes the role it created.' },
+  ]);
+  dev.calls.length = 0;
+  t.ui.out.length = 0;
+  await removeFabricReadRoles(t.ctx, (e) => e.url === PROD);
+  assert.deepEqual(dev.calls, ['removeRole user-1 read-1', 'deleteRole read-1']);
+  assert.deepEqual(dev.userRoles['user-1'], ['ROLE-1'], 'Bot Transcript Viewer and the app user stay, as before');
+  assert.deepEqual(dev.roles, []);
+  assert.deepEqual(t.config.fabric.transcriptAccess?.map((e) => e.url), [PROD]);
+  assert.match(t.ui.text(), new RegExp(`Deleted the "${role}" role in Dev`));
+
+  // The module is unticked: the role goes in every environment.
+  t.config.modules.agentEvaluator = false;
+  assert.deepEqual(fabricReadRoleReview(t.config).map((r) => r.name), [`${role} in Contoso`]);
+  await removeFabricReadRoles(t.ctx, (e) => fabricReadRoleWanted(t.config, e));
+  assert.deepEqual(prod.calls.slice(-2), ['removeRole user-1 read-1', 'deleteRole read-1']);
+  assert.equal(t.config.fabric.transcriptAccess, undefined);
+  assert.deepEqual(t.config.agentEvaluator.environments, [{ url: PROD, name: 'Contoso', access: true }], 'so it gets the role again when ticked');
 });
 
 test('notebooks: the transcript notebook is pushed again when the environments change', async () => {
@@ -504,12 +775,14 @@ test('app: built with the ae alias once the Agent Evaluator model is bound', () 
 
 test('summary: readable environments, those waiting for an admin, and the model', () => {
   const t = setup();
-  t.config.agentEvaluator.environments = [{ url: PROD, name: 'Contoso', access: true }, { url: DEV }];
+  t.config.agentEvaluator.environments = [{ url: PROD, name: 'Contoso', access: true, readAll: true }, { url: DEV }, { url: 'https://contoso-test.crm.dynamics.com', access: true }];
   Object.assign(t.config.agentEvaluator.model, { id: 'ae-1', bound: true });
   agentEvaluatorSummary(t.ctx);
   const text = t.ui.text();
   assert.match(text, /Contoso/);
-  assert.match(text, /contoso-dev\.crm4\.dynamics\.com.*waiting for ValueLens Data Collector to be added with Bot Transcript Viewer/);
+  assert.doesNotMatch(text, /Contoso .*waiting/);
+  assert.match(text, /contoso-dev\.crm4\.dynamics\.com.*waiting for ValueLens Data Collector to be added with Bot Transcript Viewer and a role that reads every transcript/);
+  assert.match(text, /contoso-test\.crm\.dynamics\.com.*waiting for ValueLens Data Collector to be given a role that reads every transcript/);
   assert.match(text, /datasets\/ae-1/);
   assert.match(text, /fill after the pipeline's first run/);
 });

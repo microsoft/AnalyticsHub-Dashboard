@@ -914,25 +914,52 @@ transcripts for 30 days by default, so a first run usually finds about a month's
 **When it finds none.** The parser records what it read in each environment in
 `evaluator_status`: how many transcripts, over how many days, and why any are missing. When there
 are none, the Agent Evaluation page says where it looked and how far back. To add environments,
-choose **Repair or change**, then **Agent Evaluator**.
+choose **Repair or change**, then **Agent Evaluator**. If an environment has transcripts but none
+are found, the reader likely has only Bot Transcript Viewer there, as on installs from before 0.6.8:
+choose **Update**, or **Repair or change**, as a System Administrator of the environment, so the
+installer adds the role that reads every transcript.
+
+**Who reads them.** On Fabric, the transcript notebook signs in as the app registration. In each
+environment you pick, the installer adds it as an application user with the **Bot Transcript
+Viewer** role, and gives it a role the installer creates for the install in the root business unit:
+*Analytics Hub transcript reader* followed by the first 8 characters of the workspace's ID. That
+role holds exactly one privilege, read on the ConversationTranscript table at Organization depth, so
+the app reads every transcript in the environment, whoever owns it, and nothing else through it.
+Bot Transcript Viewer on its own reads only the transcripts the application user owns, or that are
+shared with it. A new role comes with 9 platform privileges of its own, so the installer takes those
+off, and reads the role's privileges back before it gives it. It never changes a role it didn't
+create. Installs from before 0.6.8 get the role on **Update**, or **Repair or change**.
 
 If you aren't a System Administrator in an environment you pick, ask one to:
 
 1. Open the [Power Platform admin center](https://admin.powerplatform.microsoft.com) and go to
-   **Manage** > **Environments** > the environment > **Settings** > **Users + permissions** >
-   **Application users** > **New app user**.
-2. Pick the app registration, the root business unit and the **Bot Transcript Viewer** role.
+   **Manage** > **Environments** > the environment > **Settings** > **Users + permissions**.
+2. **Security roles** > **+ New role**. Name it, for example *Analytics Hub transcript reader*, keep
+   the root business unit, turn off **Include App Opener privileges for running Model-Driven apps**,
+   and **Save**. Then set the **ConversationTranscript** table's **Read** to **Organization**, and
+   **Save**.
+3. **Application users** > **New app user**. Pick the app registration, the root business unit, and
+   the **Bot Transcript Viewer** role and the new role. If the app is an application user there
+   already, open it, choose **Edit security roles**, tick the new role, and **Save**.
 
-Then choose **Repair or change**.
+Then choose **Repair or change**, and when it asks, say the app already has access, or already
+reads every transcript.
+
+When you untick an environment or the module, or uninstall, the installer takes the transcript
+reader role away from the app, and deletes the role if it created it. On Fabric it leaves the app's
+application user and its Bot Transcript Viewer role, as before.
 
 **On Azure.** Tick **Agent Evaluator** under **Data collection**, then pick its environments under
 **Module connections**, from the same list. The jobs read the transcripts as their managed identity,
 the one they already run as, so it's the managed identity that needs to be an application user with
-the **Bot Transcript Viewer** role in each environment. The web app's registration gets no Dataverse
-access. The **Transcript access** step adds it when you're a System Administrator of the
-environment. When it can't, it prints the steps above with the managed identity's name and client
-ID, then asks whether to **Leave it out for now** or whether **It already has access**. In step 2 the
-admin chooses **+ Add an app** and searches for the client ID, not the name. `--yes` leaves it out.
+the **Bot Transcript Viewer** role and the transcript reader role in each environment. The role is
+named for the install's ID. The web app's registration gets no Dataverse access. The **Transcript
+access** step adds both when you're a System Administrator of the environment. When it can't, it
+prints the steps above with the managed identity's name and client ID, then asks whether to **Leave
+it out for now** or whether **It already has access**. When the managed identity has Bot Transcript
+Viewer already, it asks whether to **Carry on for now**, reading only the transcripts shared with
+it, or whether **It already reads every transcript**. In step 3 the admin chooses **+ Add an app**
+and searches for the client ID, not the name. `--yes` leaves it out, or carries on.
 
 The Agent Evaluator pages show while the module is on and its model is deployed, outside
 [demo mode](#demo-mode), even before the managed identity can read an environment. They stay empty
@@ -941,7 +968,8 @@ refresh and gives the jobs the environments to read only once the managed identi
 them. The jobs' modules include `agentEvaluator` whenever the module is ticked, as on Fabric.
 
 When you untick an environment or the module, or uninstall, the installer removes only what it
-added there: the role it gave, and the application user if it created it. Unticking the module
+added there: the transcript reader role it gave, and the role itself if it created it, then the Bot
+Transcript Viewer role it gave, and the application user if it created it. Unticking the module
 keeps the model, hides its pages and turns off its scheduled refresh; ticking it again reuses the
 model. Demo mode reads no transcripts and adds no access. Switching to it removes nothing, so the
 managed identity keeps its access for when you switch back. See

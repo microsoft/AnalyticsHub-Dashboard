@@ -268,32 +268,81 @@ environments under **Module connections**, from the same list as on Fabric: see
 [Agent Evaluator](../installer/README.md#agent-evaluator) in the installer's README.
 
 **Who reads them.** The jobs' managed identity, the one they already run as, with a token for
-`<environment URL>/.default`. In each environment it has to be an application user with the **Bot
-Transcript Viewer** security role. The web app's registration gets no Dataverse access.
+`<environment URL>/.default`. In each environment it's an application user with two security roles:
 
-The installer's **Transcript access** step adds it through the Dataverse Web API when you're a
-System Administrator of the environment: it creates the application user for the managed identity's
-client ID in the root business unit and gives it the role. When it can't (Dataverse answers 401 or
-403), it prints the managed identity's name and client ID, and the steps for a System Administrator
-of the environment in the [Power Platform admin center](https://admin.powerplatform.microsoft.com):
+- **Bot Transcript Viewer**, which Copilot Studio ships. Its transcript read is at Basic depth: it
+  covers only the transcripts the application user owns, or that are shared with it. In a test
+  environment, Copilot Studio's own service user owned the transcripts, so this role alone read none.
+- **Analytics Hub transcript reader** followed by the first 8 characters of the install's ID, which
+  the installer creates for this install in the environment's root business unit. It holds exactly
+  one privilege: read on the ConversationTranscript table at Organization depth. So the managed
+  identity reads every transcript in the environment, whoever owns it, and nothing else through this
+  role. It doesn't read the agents (the `bot` table): the jobs take each agent from the transcript.
 
-1. **Manage** > **Environments** > the environment > **Settings** > **Users + permissions** >
-   **Application users** > **+ New app user**.
-2. **+ Add an app**, and search for the managed identity by its **client ID**, not its name.
+The web app's registration gets no Dataverse access.
+
+The installer's **Transcript access** step adds both through the Dataverse Web API when you're a
+System Administrator of the environment:
+
+1. It creates the application user for the managed identity's client ID in the root business unit,
+   unless it's there, and gives it Bot Transcript Viewer.
+2. It creates the transcript reader role in the root business unit, unless it's there. A new role
+   comes with 9 platform privileges at Organization depth: read on SDK messages, their processing
+   steps and step images, plug-in types and plug-in assemblies, and SharePoint documents and data,
+   and create and write on SharePoint data. The installer takes those off, adds ConversationTranscript
+   read at Organization depth, and reads the role's privileges back. If they aren't exactly that one,
+   it doesn't give the role, and says why. A run stopped part way is finished by the next one.
+3. It gives the role to the managed identity. If the application user is in a child business unit,
+   it gives it the copy of the role that Dataverse makes there.
+4. If the environment has a transcript, it asks Dataverse whether the managed identity can read it,
+   and says so. Role changes can take a few minutes, so a "can't read it yet" is only a warning.
+
+It never changes a role it didn't create. A role with the same name that an admin made is given only
+if it already holds exactly that one privilege.
+
+When it can't add them (Dataverse answers 401 or 403), it prints the managed identity's name and
+client ID, and the steps for a System Administrator of the environment in the
+[Power Platform admin center](https://admin.powerplatform.microsoft.com), under **Manage** >
+**Environments** > the environment > **Settings** > **Users + permissions**:
+
+1. **Security roles** > **+ New role**. Name it, for example *Analytics Hub transcript reader*, keep
+   the root business unit, turn off **Include App Opener privileges for running Model-Driven apps**,
+   and **Save**. Then set the **ConversationTranscript** table's **Read** to **Organization**, and
+   **Save**.
+2. **Application users** > **+ New app user** > **+ Add an app**, and search for the managed identity
+   by its **client ID**, not its name.
    [Manage application users](https://learn.microsoft.com/en-us/power-platform/admin/manage-application-users)
    says the same: enter a managed identity's application ID, not its name.
-3. Pick the root business unit, add the **Bot Transcript Viewer** security role, and choose
-   **Create**.
+3. Pick the root business unit, add the **Bot Transcript Viewer** security role and the new role,
+   and choose **Create**.
 
-Then it asks:
+If the managed identity is an application user with Bot Transcript Viewer already, for example on
+an install from before 0.6.8, step 1 is the same, and step 2 is **Application users** > the one with
+the managed identity's client ID > **Edit security roles**: tick the new role, and **Save**.
+
+Then it asks, when it couldn't add the application user:
 
 - **Leave it out for now**: the jobs skip the environment. Run the installer again once it's added,
   so it's checked and the jobs read it.
-- **It already has access**: an admin has added it, so the jobs read it from their next run. The
-  installer doesn't check; if it hasn't been added, `status` shows the environment as `forbidden`
-  after that run.
+- **It already has access**: an admin has added it with both roles, so the jobs read it from their
+  next run. The installer doesn't check; if it hasn't been added, `status` shows the environment as
+  `forbidden` after that run.
 
-`--yes` leaves it out.
+Or, when the application user is there with Bot Transcript Viewer, but it couldn't give the
+transcript reader role:
+
+- **Carry on for now**: the jobs read the environment, but only the transcripts shared with the
+  managed identity. Run the installer again once an admin has given it the role.
+- **It already reads every transcript**: an admin has given it a role like that. The installer
+  doesn't check; if the role's missing, the jobs find no transcripts there, and `status` shows the
+  environment as `empty`.
+
+`--yes` leaves it out, or carries on for now.
+
+**Installs from before 0.6.8.** Their managed identity has only Bot Transcript Viewer, so the jobs
+found no transcripts. **Update**, or **Repair or change**, runs the Transcript access step again and
+adds the transcript reader role. Once an environment's managed identity has both roles, later runs
+don't check it again.
 
 **When the pages show and refresh.**
 
@@ -312,19 +361,24 @@ Then it asks:
 **Taking it away.**
 
 - **Untick an environment**, the module, or uninstall, and the installer removes only what it added
-  there. It takes away the Bot Transcript Viewer role it gave, and deletes the application user if
-  it created it. Dataverse deletes only an inactive application user, so it deactivates the user
-  first. If Dataverse still won't delete it, the installer activates it again (it has no role now,
-  so it can't read transcripts), warns, and prints the steps for a System Administrator:
+  there, in this order. It takes away the transcript reader role it gave, and deletes the role if it
+  created it. Then it takes away the Bot Transcript Viewer role it gave, and deletes the application
+  user if it created it. Dataverse deletes only an inactive application user, so it deactivates the
+  user first. If Dataverse still won't delete it, the installer activates it again (it has no role
+  now, so it can't read transcripts), warns, and prints the steps for a System Administrator:
   **Application users** > the one with the managed identity's client ID > **Deactivate**, then
-  **Delete**. It leaves an application user an admin added. If it added nothing there, it says once
-  how a System Administrator removes that user.
+  **Delete**. It leaves an application user an admin added, and a role it didn't create. If it added
+  nothing there, it says once how a System Administrator removes that user.
+- If it can't take the transcript reader role away, it leaves the rest in that environment, and
+  prints the steps for a System Administrator: **Edit security roles** on the application user,
+  clear the roles, and **Save**, then delete the role under **Security roles**. If only deleting the
+  role fails, the managed identity no longer has it, and the installer prints where to delete it.
 - **Untick the module**, and the installer also keeps the model and its ID, hides the pages and
   turns off the model's scheduled refresh. Tick it again and it reuses the same model; nothing new is
   created.
 - **Demo mode** has no Agent Evaluator sample, so it reads no transcripts and hides the pages.
-  Switching to it removes no application users, so an admin needn't add them again when you switch
-  back to your tenant's data.
+  Switching to it removes no application users or roles, so an admin needn't add them again when you
+  switch back to your tenant's data.
 - **Uninstall** removes what the installer added in each environment before it deletes the Azure
   resources, the managed identity among them.
 
@@ -463,7 +517,7 @@ ARM can't do these, so the installer:
 - With the Agent 365 registry, product feedback or Workday org data: write access to the `landing`
   container for you, or, with private networking, read on the SharePoint site for the managed identity.
 - With Agent Evaluator: the Agent Evaluator model, and the managed identity as an application user
-  with the Bot Transcript Viewer role in each environment you pick. See
-  [Agent Evaluator](#agent-evaluator).
+  in each environment you pick, with the Bot Transcript Viewer role and a transcript reader role the
+  installer creates there. See [Agent Evaluator](#agent-evaluator).
 
 To do them by hand, see [Azure, by hand](../docs/MANUAL-INSTALL.md#azure).

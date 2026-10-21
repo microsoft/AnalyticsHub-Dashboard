@@ -1,10 +1,12 @@
 // @ts-check
 /**
  * Uninstall on Fabric: the workspace, after its managed private endpoints, which Fabric won't
- * delete a workspace without, then the model's SQL connection, which lives outside the workspace.
+ * delete a workspace without, then the model's SQL connection, which lives outside the workspace,
+ * then the transcript read roles the installer gave the app in Dataverse environments.
  */
 import { secretMode } from '../config.js';
 import { HttpError } from '../http.js';
+import { removeFabricReadRoles } from './agent-evaluator.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 
@@ -100,9 +102,10 @@ export async function fabricUninstall(ctx) {
     ui.ok(`Workspace "${name}" was already gone`);
   }
   await deleteModelConnection(ctx);
+  await removeFabricReadRoles(ctx);
   ui.note(
     `Left alone: the app registration ${config.app.displayName ?? config.app.appId ?? ''}, ${secretMode(config) === 'notebook' ? '' : 'the Key Vault and its secret, '}any Power Automate flows, ` +
-      'the app\'s access to Dataverse environments, and the roles it was given. Remove them yourself if nothing else uses them.',
+      'the app\'s application users in Dataverse environments with their Bot Transcript Viewer role, and the other roles it was given. Remove them yourself if nothing else uses them.',
   );
   ui.note('The install record still names the deleted workspace. Move it aside before installing again.');
   return true;

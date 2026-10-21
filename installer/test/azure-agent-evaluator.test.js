@@ -13,7 +13,7 @@ import {
 import { MODEL_UPDATE_NOTE, pendingReloads } from '../src/steps/model.js';
 import { AZURE_ROLES_FILE, rlsModels } from '../src/steps/org-access.js';
 import { buildAgentEvaluatorModel, loadTemplateModel, mParameter } from '../src/transform/model.js';
-import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeTranscriptEnvironment, fakeUi, httpError, realSources } from './fakes.js';
+import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeTranscriptEnvironment, fakeUi, httpError, PLATFORM_PRIVILEGES, realSources } from './fakes.js';
 
 const AE_MODEL = 'Analytics Hub Agent Evaluator Model';
 const SERVER = 'vlens-sql.database.windows.net';
@@ -22,6 +22,26 @@ const REPO = fileURLToPath(new URL('../../', import.meta.url));
 const ENV = 'https://env.example.com';
 const DEV = 'https://dev.example.com';
 const OFF = { value: { enabled: false } };
+/** The read role the installer creates for install-1 in each environment. */
+const READ_ROLE = 'Analytics Hub transcript reader install-';
+
+/**
+ * The calls that create the install's read role in the root business unit, set its privileges to exactly transcript
+ * read at Organization depth, and give it to a user.
+ * @param {string} user @param {string} [role]
+ */
+const readRoleCalls = (user, role = 'read-1') => [
+  `createRole ${READ_ROLE} bu-root`,
+  ...PLATFORM_PRIVILEGES.map((p) => `removePrivilege ${role} ${p}`),
+  `addPrivileges ${role} prvReadconversationtranscript bu-root`,
+  `assignRole ${user} ${role}`,
+];
+
+/** What the installer records of a read role it created and gave. @param {string} [role] */
+const readRoleRecord = (role = 'read-1') => ({ readRoleId: role, readRoleName: READ_ROLE, createdReadRole: true, assignedReadRoleId: role });
+
+/** What removing a user the installer created takes back: the read role, then Bot Transcript Viewer, then the user. @param {string} [user] @param {string} [role] */
+const removalCalls = (user = 'user-1', role = 'read-1') => [`removeRole ${user} ${role}`, `deleteRole ${role}`, `removeRole ${user} role-btv`, `disableUser ${user}`, `deleteUser ${user}`];
 
 /**
  * An Azure install with Agent Evaluator ticked and, unless a test says otherwise, one environment chosen. Each
@@ -195,22 +215,37 @@ test('Azure install with Agent Evaluator: a third model, reading Azure SQL, boun
   assert.deepEqual(deployedAliases(t.deployments), ['ae', 'vl'], 'the app can query it, and the jobs refresh it');
   assert.ok(t.ui.text().includes(`Evaluator:  model ${ae.id}`));
 
-  // The jobs' managed identity is added to the environment, and what was added is noted for removal.
-  assert.deepEqual(t.dv[ENV].calls, ['findAppUser mi-client', 'createAppUser mi-client bu-root', 'findRole Bot Transcript Viewer bu-root', 'assignRole user-1 role-btv']);
-  assert.deepEqual(t.az.transcriptAccess, [{ url: ENV, appId: 'mi-client', name: 'Example', userId: 'user-1', createdUser: true, roleId: 'role-btv' }]);
-  assert.deepEqual(t.config.agentEvaluator.environments[0], { url: ENV, id: 'env-1', name: 'Example', access: true, accessAppId: 'mi-client' });
+  // The jobs' managed identity is added to the environment with Bot Transcript Viewer and the install's read role, which
+  // reads every transcript, whoever owns it, and nothing else. What was added is noted for removal.
+  const dv = t.dv[ENV];
+  assert.deepEqual(dv.calls, ['findAppUser mi-client', 'createAppUser mi-client bu-root', 'findRole Bot Transcript Viewer bu-root', 'assignRole user-1 role-btv', ...readRoleCalls('user-1')]);
+  assert.deepEqual(dv.holds('read-1'), ['prvReadconversationtranscript:Global'], 'exactly transcript read, at Organization depth');
+  assert.deepEqual(dv.userRoles['user-1'], ['role-btv', 'read-1']);
+  const [made] = dv.roles;
+  assert.deepEqual([made.name, made.bu], [READ_ROLE, 'bu-root']);
+  assert.match(
+    made.description ?? '',
+    /^Created by the Analytics Hub installer for the Azure install install-1\. It lets the jobs' managed identity (\S+ )?\(client ID mi-client\) read every Copilot Studio conversation transcript in this environment, and nothing else\./,
+  );
+  const recorded = { url: ENV, appId: 'mi-client', name: 'Example', userId: 'user-1', createdUser: true, roleId: 'role-btv', ...readRoleRecord() };
+  assert.deepEqual(t.az.transcriptAccess, [recorded]);
+  assert.deepEqual(t.config.agentEvaluator.environments[0], { url: ENV, id: 'env-1', name: 'Example', access: true, readAll: true, accessAppId: 'mi-client' });
   assert.ok(jobSettings(t.deployments).modules.includes('agentEvaluator'), 'the jobs read the transcripts');
   assert.deepEqual(jobSettings(t.deployments).environments, [{ url: ENV, name: 'Example' }]);
-  assert.ok(t.ui.text().includes('Gave the jobs\' managed identity the Bot Transcript Viewer role in Example'));
+  const text = t.ui.text();
+  assert.ok(text.includes(`Created the "${READ_ROLE}" role in Example: it reads every Copilot Studio conversation transcript there, and nothing else`));
+  assert.ok(text.includes(`Gave the jobs' managed identity the Bot Transcript Viewer and "${READ_ROLE}" roles in Example`));
 
   // A repair leaves it as it is.
   t.fabric.calls.length = 0;
-  t.dv[ENV].calls.length = 0;
+  dv.calls.length = 0;
+  t.ui.out.length = 0;
   assert.equal(await installAzure(t.ctx, { wait: true }), true);
   assert.ok(!t.fabric.calls.some((c) => c.startsWith('createSemanticModel') || c.startsWith('updateSemanticModel')));
   assert.equal(t.az.powerBi.agentEvaluatorDatasetId, ae.id);
-  assert.deepEqual(t.dv[ENV].calls, [], 'access already found is not asked for again');
-  assert.equal(t.az.transcriptAccess.length, 1);
+  assert.deepEqual(dv.calls, [], 'access already found is not asked for again');
+  assert.deepEqual(t.az.transcriptAccess, [recorded]);
+  assert.ok(t.ui.text().includes('The jobs\' managed identity can read every transcript in Example'));
 });
 
 test('Azure install with Agent Evaluator: no model in demo mode, without an environment or without its template', async () => {
@@ -384,9 +419,11 @@ test('Azure Agent Evaluator, with every environment removed: its pages stay, and
   t.dv[ENV].calls.length = 0;
   t.ui.out.length = 0;
   assert.equal(await installAzure(t.ctx, { wait: true }), true);
-  assert.deepEqual(t.dv[ENV].calls, ['removeRole user-1 role-btv', 'disableUser user-1', 'deleteUser user-1']);
+  assert.deepEqual(t.dv[ENV].calls, removalCalls());
   assert.deepEqual(t.dv[ENV].users, []);
+  assert.deepEqual(t.dv[ENV].roles, [], 'the role it created is deleted');
   assert.equal(t.az.transcriptAccess, undefined);
+  assert.ok(t.ui.text().includes(`Deleted the "${READ_ROLE}" role in Example`));
   assert.ok(t.ui.text().includes('Removed the application user for the jobs\' managed identity (client ID mi-client) from Example'));
   assert.equal(t.az.powerBi.agentEvaluatorDatasetId, id, 'the model is kept');
   assert.ok(!t.fabric.calls.some((c) => /^(create|update|delete)/.test(c) && c.includes(AE_MODEL)));
@@ -431,7 +468,7 @@ test('Azure Agent Evaluator, unticked or in demo mode: its model is kept but unu
     await azureRefresh(t.ctx);
     assert.ok(!t.powerBi.calls.includes(`refresh ${id} full`), label);
     if (label === 'unticked') {
-      assert.deepEqual(t.dv[ENV].calls, ['removeRole user-1 role-btv', 'disableUser user-1', 'deleteUser user-1'], 'unticked, what the installer added goes');
+      assert.deepEqual(t.dv[ENV].calls, removalCalls(), 'unticked, what the installer added goes');
       assert.equal(t.az.transcriptAccess, undefined);
     } else {
       assert.deepEqual(t.dv[ENV].calls, [], 'demo mode leaves Dataverse alone');
@@ -468,7 +505,8 @@ test('Azure Agent Evaluator, ticked again: the recorded model is used again, and
   assert.deepEqual(usedBy(t, id), { app: true, viewers: true, rls: true });
   assert.equal(t.schedules.get(id)?.at(-1).value.enabled, true);
   assert.ok(jobSettings(t.deployments).modules.includes('agentEvaluator'));
-  assert.deepEqual(t.dv[ENV].calls, ['findAppUser mi-client', 'createAppUser mi-client bu-root', 'findRole Bot Transcript Viewer bu-root', 'assignRole user-2 role-btv']);
+  assert.deepEqual(t.dv[ENV].calls, ['findAppUser mi-client', 'createAppUser mi-client bu-root', 'findRole Bot Transcript Viewer bu-root', 'assignRole user-2 role-btv', ...readRoleCalls('user-2', 'read-2')]);
+  assert.deepEqual(t.dv[ENV].holds('read-2'), ['prvReadconversationtranscript:Global']);
 });
 
 test('Azure Agent Evaluator: turning its schedule off ignores a model Power BI no longer has, and says how when it fails', async () => {
@@ -485,20 +523,23 @@ test('Azure Agent Evaluator: turning its schedule off ignores a model Power BI n
   assert.match(t.ui.text(), new RegExp(`Couldn't turn off the scheduled refresh of ${AE_MODEL}: Server error\\. Turn it off in the model's settings in Power BI\\.`));
 });
 
-test('Azure transcript access: from a user an admin added, only the role the installer gave is taken back', async () => {
+test('Azure transcript access: from a user an admin added, only the roles the installer gave are taken back, and the role it created deleted', async () => {
   const existing = fakeTranscriptEnvironment({ users: [{ systemuserid: 'admin-made', applicationid: 'MI-CLIENT' }] });
   const t = await aeInstall({ dataverse: { [ENV]: existing } });
-  assert.deepEqual(t.az.transcriptAccess, [{ url: ENV, appId: 'mi-client', name: 'Example', userId: 'admin-made', roleId: 'role-btv' }]);
+  assert.deepEqual(existing.calls, ['findAppUser mi-client', 'findRole Bot Transcript Viewer bu-root', 'assignRole admin-made role-btv', ...readRoleCalls('admin-made')]);
+  assert.deepEqual(t.az.transcriptAccess, [{ url: ENV, appId: 'mi-client', name: 'Example', userId: 'admin-made', roleId: 'role-btv', ...readRoleRecord() }]);
   existing.calls.length = 0;
   t.config.agentEvaluator.environments = [];
   assert.equal(await ensureAzureTranscriptAccess(t.ctx), false);
-  assert.deepEqual(existing.calls, ['removeRole admin-made role-btv']);
+  assert.deepEqual(existing.calls, ['removeRole admin-made read-1', 'deleteRole read-1', 'removeRole admin-made role-btv']);
   assert.deepEqual(existing.users.map((u) => u.systemuserid), ['admin-made'], 'the user is left');
   assert.deepEqual(existing.userRoles['admin-made'], []);
+  assert.deepEqual(existing.roles, []);
   assert.equal(t.az.transcriptAccess, undefined);
+  assert.ok(t.ui.text().includes(`Deleted the "${READ_ROLE}" role in Example`));
   assert.ok(t.ui.text().includes('Took the Bot Transcript Viewer role away from the jobs\' managed identity (client ID mi-client) in Example'));
 
-  // A role an admin already took away is fine.
+  // Roles an admin already took away are fine.
   t.config.agentEvaluator.environments = [{ url: ENV, id: 'env-1', name: 'Example' }];
   await ensureAzureTranscriptAccess(t.ctx);
   existing.userRoles['admin-made'] = [];
@@ -506,9 +547,29 @@ test('Azure transcript access: from a user an admin added, only the role the ins
   t.ui.out.length = 0;
   t.config.agentEvaluator.environments = [];
   await ensureAzureTranscriptAccess(t.ctx);
-  assert.deepEqual(existing.calls, ['removeRole admin-made role-btv']);
+  assert.deepEqual(existing.calls, ['removeRole admin-made read-2', 'deleteRole read-2', 'removeRole admin-made role-btv']);
   assert.ok(t.ui.text().includes('Took the Bot Transcript Viewer role away'));
   assert.doesNotMatch(t.ui.text(), /Couldn't/);
+});
+
+test('Azure transcript access: an admin\'s access with the user they added keeps the user, and the read role is still taken back', async () => {
+  // An admin added the managed identity with Bot Transcript Viewer before the installer could, so only the read role is
+  // the installer's.
+  const existing = fakeTranscriptEnvironment({ users: [{ systemuserid: 'admin-made', applicationid: 'mi-client', _businessunitid_value: 'bu-root' }], userRoles: { 'admin-made': ['role-btv'] } });
+  const t = await aeInstall({ dataverse: { [ENV]: existing } });
+  assert.deepEqual(existing.calls, ['findAppUser mi-client', 'findRole Bot Transcript Viewer bu-root', ...readRoleCalls('admin-made')]);
+  assert.deepEqual(t.az.transcriptAccess, [{ url: ENV, appId: 'mi-client', name: 'Example', userId: 'admin-made', ...readRoleRecord() }]);
+  assert.ok(t.ui.text().includes(`Gave the jobs' managed identity the "${READ_ROLE}" role in Example`));
+  existing.calls.length = 0;
+  t.ui.out.length = 0;
+  t.config.agentEvaluator.environments = [];
+  assert.equal(await ensureAzureTranscriptAccess(t.ctx), false);
+  assert.deepEqual(existing.calls, ['removeRole admin-made read-1', 'deleteRole read-1'], 'Bot Transcript Viewer and the user are the admin\'s');
+  assert.deepEqual(existing.userRoles['admin-made'], ['role-btv']);
+  assert.equal(t.az.transcriptAccess, undefined);
+  const text = t.ui.text();
+  assert.ok(text.includes(`Deleted the "${READ_ROLE}" role in Example`));
+  assert.ok(text.includes('The jobs\' managed identity (client ID mi-client) is still an application user in Example. It was added outside the installer, so the installer leaves it'));
 });
 
 test('Azure transcript access: a user Dataverse won\'t delete is activated again without its role, and the admin center steps printed', async () => {
@@ -518,20 +579,21 @@ test('Azure transcript access: a user Dataverse won\'t delete is activated again
   dv.calls.length = 0;
   t.config.agentEvaluator.environments = [];
   await ensureAzureTranscriptAccess(t.ctx);
-  assert.deepEqual(dv.calls, ['removeRole user-1 role-btv', 'disableUser user-1', 'deleteUser user-1', 'enableUser user-1']);
+  assert.deepEqual(dv.calls, [...removalCalls(), 'enableUser user-1']);
   assert.deepEqual(dv.users.map((u) => [u.systemuserid, !!u.isdisabled]), [['user-1', false]], 'not left deactivated');
   assert.deepEqual(dv.userRoles['user-1'], []);
+  assert.deepEqual(dv.roles, []);
   assert.equal(t.az.transcriptAccess, undefined, 'said once, then dropped');
   const text = t.ui.text();
   assert.ok(text.includes('Dataverse wouldn\'t delete the application user for the jobs\' managed identity (client ID mi-client) in Example (The \'Delete\' method does not support entities of type \'systemuser\'). It has no role now, so it can\'t read transcripts.'));
   assert.ok(text.includes('A System Administrator can delete it: Power Platform admin center > Manage > Environments > Example > Settings > Users + permissions > Application users > the one with client ID mi-client > Deactivate, then Delete.'));
 
-  // Ticked again, the active user gets the role back, and only the role is noted as the installer's.
+  // Ticked again, the active user gets the roles back, and only the roles are noted as the installer's.
   t.config.agentEvaluator.environments = [{ url: ENV, id: 'env-1', name: 'Example' }];
   dv.calls.length = 0;
   assert.equal(await ensureAzureTranscriptAccess(t.ctx), true);
-  assert.deepEqual(dv.calls, ['findAppUser mi-client', 'findRole Bot Transcript Viewer bu-root', 'assignRole user-1 role-btv']);
-  assert.deepEqual(t.az.transcriptAccess, [{ url: ENV, appId: 'mi-client', name: 'Example', userId: 'user-1', roleId: 'role-btv' }]);
+  assert.deepEqual(dv.calls, ['findAppUser mi-client', 'findRole Bot Transcript Viewer bu-root', 'assignRole user-1 role-btv', ...readRoleCalls('user-1', 'read-2')]);
+  assert.deepEqual(t.az.transcriptAccess, [{ url: ENV, appId: 'mi-client', name: 'Example', userId: 'user-1', roleId: 'role-btv', ...readRoleRecord('read-2') }]);
 });
 
 test('Azure transcript access: a user Dataverse won\'t delete or activate again is left deactivated, with both ways out', async () => {
@@ -542,7 +604,7 @@ test('Azure transcript access: a user Dataverse won\'t delete or activate again 
   dv.calls.length = 0;
   t.config.agentEvaluator.environments = [];
   await ensureAzureTranscriptAccess(t.ctx);
-  assert.deepEqual(dv.calls, ['removeRole user-1 role-btv', 'disableUser user-1', 'deleteUser user-1', 'enableUser user-1']);
+  assert.deepEqual(dv.calls, [...removalCalls(), 'enableUser user-1']);
   assert.equal(dv.users[0].isdisabled, true);
   assert.equal(t.az.transcriptAccess, undefined);
   const text = t.ui.text();
@@ -557,12 +619,59 @@ test('Azure transcript access: a role Dataverse won\'t take back is printed for 
   dv.calls.length = 0;
   t.config.modules.agentEvaluator = false;
   await ensureAzureTranscriptAccess(t.ctx);
-  assert.deepEqual(dv.calls, ['removeRole user-1 role-btv'], 'the user isn\'t deactivated while it keeps the role');
+  assert.deepEqual(dv.calls, ['removeRole user-1 read-1'], 'nothing else is removed while it keeps the read role');
+  assert.deepEqual(dv.holds('read-1'), ['prvReadconversationtranscript:Global'], 'the role is kept while it\'s held');
   assert.equal(t.az.transcriptAccess, undefined, 'said once, then dropped');
   assert.equal(t.config.agentEvaluator.environments[0].access, true, 'it can still read the environment');
-  const text = t.ui.text();
+  assert.equal(t.config.agentEvaluator.environments[0].readAll, undefined, 'checked again if ticked again');
+  let text = t.ui.text();
+  assert.ok(text.includes(`Couldn't take the "${READ_ROLE}" role away from the jobs' managed identity (client ID mi-client) in Example (Forbidden), so it can still read every transcript there.`));
+  assert.ok(
+    text.includes(
+      `A System Administrator can: Power Platform admin center > Manage > Environments > Example > Settings > Users + permissions > Application users > the one with client ID mi-client > Edit security roles, clear "${READ_ROLE}" and Bot Transcript Viewer, and Save. Then Deactivate it, and Delete it. ` +
+        `Then delete the role: Power Platform admin center > Manage > Environments > Example > Settings > Users + permissions > Security roles > "${READ_ROLE}" > Delete.`,
+    ),
+  );
+
+  // Bot Transcript Viewer is taken back after the read role, whose assignment an admin may have taken already.
+  const u = await aeInstall();
+  const udv = u.dv[ENV];
+  udv.failures.removeRole = [httpError(404), httpError(403, 'Forbidden')];
+  udv.calls.length = 0;
+  u.config.modules.agentEvaluator = false;
+  await ensureAzureTranscriptAccess(u.ctx);
+  assert.deepEqual(udv.calls, ['removeRole user-1 read-1', 'deleteRole read-1', 'removeRole user-1 role-btv'], 'the user isn\'t deactivated while it keeps a role');
+  assert.deepEqual(udv.roles, []);
+  assert.equal(u.config.agentEvaluator.environments[0].access, true);
+  text = u.ui.text();
+  assert.ok(text.includes(`Deleted the "${READ_ROLE}" role in Example`));
   assert.ok(text.includes('Couldn\'t take the Bot Transcript Viewer role away from the jobs\' managed identity (client ID mi-client) in Example (Forbidden), so it can still read transcripts there.'));
   assert.ok(text.includes('Edit security roles, clear Bot Transcript Viewer and Save. Then Deactivate it, and Delete it.'));
+});
+
+test('Azure transcript access: a role Dataverse won\'t delete is printed for an admin, and the rest is still removed', async () => {
+  const t = await aeInstall();
+  const dv = t.dv[ENV];
+  dv.failures.deleteRole = [httpError(403, 'Forbidden')];
+  dv.calls.length = 0;
+  t.config.agentEvaluator.environments = [];
+  await ensureAzureTranscriptAccess(t.ctx);
+  assert.deepEqual(dv.calls, removalCalls());
+  assert.deepEqual(dv.roles.map((r) => r.roleid), ['read-1'], 'left for an admin');
+  assert.deepEqual(dv.users, []);
+  assert.equal(t.az.transcriptAccess, undefined, 'said once, then dropped');
+  const text = t.ui.text();
+  assert.ok(text.includes(`Couldn't delete the "${READ_ROLE}" role in Example (Forbidden). The jobs' managed identity (client ID mi-client) doesn't have it now.`));
+  assert.ok(text.includes(`A System Administrator can delete it: Power Platform admin center > Manage > Environments > Example > Settings > Users + permissions > Security roles > "${READ_ROLE}" > Delete.`));
+  assert.ok(text.includes('Removed the application user for the jobs\' managed identity (client ID mi-client) from Example'));
+
+  // A role already gone is fine.
+  const u = await aeInstall();
+  u.dv[ENV].failures.deleteRole = [httpError(404)];
+  u.config.agentEvaluator.environments = [];
+  await ensureAzureTranscriptAccess(u.ctx);
+  assert.ok(u.ui.text().includes(`The "${READ_ROLE}" role in Example is already gone`));
+  assert.doesNotMatch(u.ui.text(), /Couldn't/);
 });
 
 test('Azure transcript access: access an admin gave is left for them to take back, said once', async () => {
@@ -590,12 +699,14 @@ test('Azure transcript access: a new managed identity replaces the old one\'s ac
   t.az.outputs.identityClientId = 'mi-new';
   t.dv[ENV].calls.length = 0;
   assert.equal(await ensureAzureTranscriptAccess(t.ctx), true);
+  // The old one's roles and user go first, so the role is created again for the new one.
   assert.deepEqual(t.dv[ENV].calls, [
-    'removeRole user-1 role-btv', 'disableUser user-1', 'deleteUser user-1',
-    'findAppUser mi-new', 'createAppUser mi-new bu-root', 'findRole Bot Transcript Viewer bu-root', 'assignRole user-2 role-btv',
+    ...removalCalls(),
+    'findAppUser mi-new', 'createAppUser mi-new bu-root', 'findRole Bot Transcript Viewer bu-root', 'assignRole user-2 role-btv', ...readRoleCalls('user-2', 'read-2'),
   ]);
-  assert.deepEqual(t.az.transcriptAccess, [{ url: ENV, appId: 'mi-new', name: 'Example', userId: 'user-2', createdUser: true, roleId: 'role-btv' }]);
+  assert.deepEqual(t.az.transcriptAccess, [{ url: ENV, appId: 'mi-new', name: 'Example', userId: 'user-2', createdUser: true, roleId: 'role-btv', ...readRoleRecord('read-2') }]);
   assert.equal(t.config.agentEvaluator.environments[0].accessAppId, 'mi-new');
+  assert.match(t.dv[ENV].roles[0].description ?? '', /\(client ID mi-new\)/);
 
   // Access an admin gave the old one is checked again for the new one.
   t.config.agentEvaluator.environments[0].accessAppId = 'mi-old';
@@ -612,9 +723,13 @@ test('Azure uninstall takes back what the installer added in each environment, b
   t.dv[DEV].calls.length = 0;
   t.ui.out.length = 0;
   await azureUninstall(t.ctx);
-  for (const url of [ENV, DEV]) assert.deepEqual(t.dv[url].calls, ['removeRole user-1 role-btv', 'disableUser user-1', 'deleteUser user-1'], url);
+  for (const url of [ENV, DEV]) {
+    assert.deepEqual(t.dv[url].calls, removalCalls(), url);
+    assert.deepEqual(t.dv[url].roles, [], url);
+  }
   assert.equal(t.az.transcriptAccess, undefined);
   const text = t.ui.text();
+  assert.ok(text.includes(`Deleted the "${READ_ROLE}" role in Dev`));
   const removed = text.indexOf('Removed the application user for the jobs\' managed identity (client ID mi-client) from Dev');
   assert.ok(removed >= 0);
   assert.ok(removed < text.search(/Deleted (resource group|\d+ tagged)/), 'before the resource group');
@@ -622,6 +737,65 @@ test('Azure uninstall takes back what the installer added in each environment, b
   const none = await aeInstall({ environments: false });
   await azureUninstall(none.ctx);
   assert.deepEqual(Object.keys(none.dv), [], 'nothing to take back');
+});
+
+test('Azure transcript access: an install from an earlier version, with only Bot Transcript Viewer, gets the read role on Update', async () => {
+  const legacy = fakeTranscriptEnvironment({ users: [{ systemuserid: 'user-1', applicationid: 'mi-client', _businessunitid_value: 'bu-root' }], userRoles: { 'user-1': ['role-btv'] }, transcripts: ['tx-1'] });
+  const t = await aeInstall({
+    environments: [{ url: ENV, id: 'env-1', name: 'Example', access: true, accessAppId: 'mi-client' }],
+    az: { transcriptAccess: [{ url: ENV, appId: 'mi-client', name: 'Example', userId: 'user-1', createdUser: true, roleId: 'role-btv' }] },
+    dataverse: { [ENV]: legacy },
+  });
+  assert.equal(t.ok, true);
+  assert.deepEqual(legacy.calls, ['findAppUser mi-client', 'findRole Bot Transcript Viewer bu-root', ...readRoleCalls('user-1')]);
+  assert.deepEqual(legacy.holds('read-1'), ['prvReadconversationtranscript:Global']);
+  assert.deepEqual(legacy.userRoles['user-1'], ['role-btv', 'read-1']);
+  assert.deepEqual(t.az.transcriptAccess, [{ url: ENV, appId: 'mi-client', name: 'Example', userId: 'user-1', createdUser: true, roleId: 'role-btv', ...readRoleRecord() }], 'what it added before is kept');
+  assert.equal(t.config.agentEvaluator.environments[0].readAll, true);
+  const text = t.ui.text();
+  assert.ok(text.includes(`Created the "${READ_ROLE}" role in Example: it reads every Copilot Studio conversation transcript there, and nothing else`));
+  assert.ok(text.includes(`Gave the jobs' managed identity the "${READ_ROLE}" role in Example`));
+  assert.ok(text.includes('Checked one transcript in Example: the jobs\' managed identity can read it'));
+
+  // Uninstalling takes back all of it.
+  legacy.calls.length = 0;
+  await azureUninstall(t.ctx);
+  assert.deepEqual(legacy.calls, removalCalls());
+});
+
+test('Azure plan: the read role is listed in each chosen environment, and what the installer removes', async () => {
+  const t = await aeInstall({ environments: [{ url: ENV, id: 'env-1', name: 'Example' }, { url: DEV, id: 'env-2', name: 'Dev' }], dataverse: { [DEV]: blockedEnvironment() } });
+  const rows = () => azurePlanReview(t.ctx).creates.filter((r) => r.kind.startsWith('Dataverse'));
+  const user = 'With the Bot Transcript Viewer role and the transcript reader role, so the jobs read the environment\'s Copilot Studio transcripts. A System Administrator adds it if you can\'t.';
+  const role = 'Reads every Copilot Studio conversation transcript there, and nothing else. Created for this install, given to the jobs\' managed identity, and deleted on uninstall.';
+  assert.deepEqual(rows(), [
+    { kind: 'Dataverse application user', name: 'Jobs\' managed identity in Example', isNew: false, detail: user },
+    { kind: 'Dataverse application user', name: 'Jobs\' managed identity in Dev', isNew: true, detail: user },
+    { kind: 'Dataverse security role', name: `${READ_ROLE} in Example`, isNew: false, detail: role },
+    { kind: 'Dataverse security role', name: `${READ_ROLE} in Dev`, isNew: true, detail: role },
+  ]);
+  assert.deepEqual(azurePlanReview(t.ctx).grants.filter((g) => g.what.startsWith('Dataverse')), [
+    {
+      who: 'Collector managed identity',
+      what: 'Dataverse application user with the Bot Transcript Viewer role and a role that reads every transcript',
+      where: 'Dev',
+      detail: 'So the jobs read every Copilot Studio transcript. Needs a System Administrator of each environment.',
+    },
+  ]);
+
+  // An admin's access that reads every transcript gets no role from the installer.
+  Object.assign(t.config.agentEvaluator.environments[1], { access: true, readAll: true, accessAppId: 'mi-client' });
+  assert.deepEqual(rows().map((r) => `${r.name} ${r.isNew}`), ['Jobs\' managed identity in Example false', 'Jobs\' managed identity in Dev false', `${READ_ROLE} in Example false`]);
+  assert.deepEqual(azurePlanReview(t.ctx).grants.filter((g) => g.what.startsWith('Dataverse')), []);
+
+  // Unticked, what the installer added there is listed for removal.
+  t.config.agentEvaluator.environments = [{ url: DEV, id: 'env-2', name: 'Dev' }];
+  assert.deepEqual(rows(), [
+    { kind: 'Dataverse application user', name: 'Jobs\' managed identity in Dev', isNew: true, detail: user },
+    { kind: 'Dataverse security role', name: `${READ_ROLE} in Dev`, isNew: true, detail: role },
+    { kind: 'Dataverse application user', name: 'Jobs\' managed identity in Example', isNew: false, detail: 'No longer chosen, so the installer deletes the application user it created.' },
+    { kind: 'Dataverse security role', name: `${READ_ROLE} in Example`, isNew: false, detail: 'No longer chosen, so the installer takes it away and deletes the role it created.' },
+  ]);
 });
 
 test('Azure status shows what the jobs last read in each environment', async () => {
