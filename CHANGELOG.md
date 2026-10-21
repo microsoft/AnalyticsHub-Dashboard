@@ -20,6 +20,49 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+## Analytics Hub installer 0.6.8-rc.2 (unreleased)
+
+**Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its
+tag, `installer-v0.6.8-rc.2`, drafts a pre-release, which `releases/latest` and the installer's
+update check skip.
+
+**What changed since 0.6.8-rc.1:** Agent Evaluator works on Azure, so every module now does. The
+installer offers it and gives the jobs' managed identity access to the Copilot Studio transcripts,
+the jobs read them into Azure SQL, and its model deploys as a third Power BI model. On Azure, a long
+history loads and processes within the run job's memory and disk, and a reload of more history that
+doesn't finish in one run carries on in the scheduled runs after it. The app's Executive summary no
+longer says everyone has a department. Neither does Ask on Azure. On Azure, a chart whose query has
+no rows shows its empty state, instead of replacing the whole app with an error. The Executive
+summary opens with fewer queries, and several of the app's slowest queries are faster: the summary's
+hours range is its own query, twelve of the ValueLens model's measures count their users in one
+pass, the Adoption summary is two queries asked at once, and Leaderboards' share card shows the top
+1%, 5% and 25% without the curve. On Azure, the web app reuses each user's Power BI and Graph tokens
+for up to 10 minutes, and compresses what it sends. The details are below.
+
+**Update an existing install:** once 0.6.8-rc.2 is published, run its pinned command, or open it
+from its release page, and choose **Update**. On Azure, that redeploys with this version's images,
+adds the Agent Evaluator tables (migration `V008`), and redeploys and reloads the ValueLens model
+with the faster measures. The jobs' next run recomputes every month once. To turn on Agent
+Evaluator, choose **Repair or change**, tick **Agent Evaluator** under **Data collection**, and pick
+its environments under **Module connections**. On Fabric, Update redeploys and reloads the ValueLens
+model with the faster measures, and updates and republishes the Ask data agent. Let it redeploy the
+app too: the other changes are in the app. From 0.6.7, the 0.6.8-rc.1 notes below apply too.
+
+**Open the ValueLens templates in Power BI Desktop June 2024 or later.** Earlier releases show
+errors in most habit-stage visuals. The app, published reports and Desktop connected live to a
+published model aren't affected.
+
+**Azure, by hand:** [the guide](docs/MANUAL-INSTALL.md#azure) now sets each model's parameters again
+after you publish it. Power BI Desktop puts the template's values back when Load fails, as it always
+does there, which left the published model with no data source to set credentials for. The guide
+also covers an Azure Policy that turns off public network access, a Publish that times out, and how
+long Remove takes.
+
+**Known issue:** on an Azure install done by hand, the browser's developer tools show 400 "Cannot
+find table" errors. They're expected: the guide publishes the ValueLens template without the tables
+the installer adds, so the parts of the app that need them stay off, as
+[Azure, by hand](docs/MANUAL-INSTALL.md#azure) lists.
+
 **App: the Executive summary no longer says everyone has a department.** Its count of the people
 with a task who have one took in everyone once any org data was loaded, so it said everyone had
 one and its low-coverage note never showed. Now the app gives no count, just where the department
@@ -221,11 +264,12 @@ figures don't change. The 0.6.8 plan estimates that the page is ready 1.4 to 1.7
   still asks which orgs the viewer can see there, and the Share panel offers scoped delegation, which
   the web app had left out until now.
 
-## Analytics Hub installer 0.6.8-rc.1 (unreleased)
+## 2026-10-20 — Analytics Hub installer 0.6.8-rc.1 (pre-release)
 
-**Release candidate preparation only.** 0.6.8-rc.1 is not published, and 0.6.7 remains Latest.
-Its tag, `installer-v0.6.8-rc.1`, drafts a pre-release, which `releases/latest` and the
-installer's update check skip. Agent Evaluator on Azure isn't in this candidate.
+**A pre-release, for testing.** 0.6.7 stays Latest, so the `releases/latest` links still serve it.
+To install 0.6.8-rc.1, use
+`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.8-rc.1/install.ps1 | iex`.
+Agent Evaluator on Azure isn't in this candidate; it comes in 0.6.8-rc.2.
 
 **What changed:** on Azure, the Agent 365 registry, product feedback and Workday org data now
 install from their exports, credit consumption is checked against Fabric, the app skips the checks
@@ -237,8 +281,8 @@ Fabric, the app shows saved task times, report packs and commercial terms again:
 after updating. Azure by hand, in Azure Cloud Shell, is documented; it works once a release that
 includes it is Latest. The details are below.
 
-**Update an existing install:** once 0.6.8-rc.1 is published, run it from its release page and
-choose **Update**. On Azure, that redeploys with this version's images, adds the Agent 365 and
+**Update an existing install:** run the pinned command, or open installer 0.6.8-rc.1 and choose
+**Update**. On Azure, that redeploys with this version's images, adds the Agent 365 and
 product feedback tables (migrations `V009` and `V010`), and redeploys any model whose definition
 changed. On Fabric, it redeploys the model and notebooks, and offers to replace the pipeline and
 redeploy the app. To turn on a module Azure now supports, choose **Repair or change**, then **Data
