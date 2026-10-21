@@ -13,7 +13,7 @@ import { commandLine } from '../launch.js';
 import { ACCESS_INVENTORY, ACCESS_PEOPLE_TABLE, ORG_ATTRIBUTES, rlsOn, roleDefinitions } from '../transform/access.js';
 import { prepareNotebook, serialiseNotebook } from '../transform/notebook.js';
 import { ensureViewerGroup } from './access.js';
-import { azureConsumptionModelDeployed, grantLandingWrite, isPrivate, startAndWaitJob } from './azure/index.js';
+import { azureConsumptionModelDeployed, grantLandingWrite, isPrivate, onceRunFinished, startAndWaitJob } from './azure/index.js';
 import { createdId } from './fabric.js';
 import { deployedRoles, refreshModel } from './model.js';
 import { BUSY_RETRIES, BUSY_WAIT_MS, capacityBusy, waitForJob } from './run.js';
@@ -490,7 +490,7 @@ async function ensureAzureAccessNotebook(ctx) {
  * @param {Ctx} ctx
  * @param {{ refresh?: boolean }} [opts]
  * @returns {Promise<boolean | null>} true when applied; false when it failed, saying how to try again; null when it only
- *   warned: no model can take its roles yet, or Azure's job that loads them couldn't be followed.
+ *   warned: no model can take its roles yet, or on Azure a run was already going, or the job that loads them couldn't be followed.
  */
 export async function applyOrgAccess(ctx, opts = {}) {
   const { ui, config } = ctx;
@@ -525,6 +525,11 @@ export async function applyOrgAccess(ctx, opts = {}) {
     // The jobs load the list into SQL, then refresh the models so it takes effect.
     if (ok && opts.refresh !== false) {
       const job = await startAndWaitJob(ctx, 'run', { wait: true, steps: 'access,refresh', timeoutMs: 30 * 60_000 });
+      // A run was already going. Scheduled runs load the list and refresh the models too, so the next one applies it.
+      if (!job.started) {
+        ui.note(onceRunFinished(`apply org-scoped access again from "${commandLine('access')}", or the next scheduled run does`));
+        return null;
+      }
       // Started, but it couldn't be followed: that warns and says how to check it.
       if (job.unfollowed) return null;
       ok = job.ok;

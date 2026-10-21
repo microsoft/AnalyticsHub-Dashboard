@@ -561,6 +561,8 @@ export function fakeArm() {
   const restrictedSqlRegions = new Set();
   /** @type {any[]} */
   const executions = [];
+  /** What listing each job's executions returns, by job name. Separate from `executions`, which polling takes in turn. @type {Record<string, any[]>} */
+  const jobExecutions = {};
   /** @type {any[]} */
   const jobTemplates = [];
   /** @type {Record<string, Error[]>} */
@@ -757,7 +759,11 @@ export function fakeArm() {
       properties: { template: { containers: [{ name: 'jobs', image: 'img:1', command: ['python'], env: [{ name: 'VALUELENS_AUDIT_HISTORY_DAYS', value: '30' }, { name: 'VALUELENS_AUDIT_BACKFILL_DAYS', value: '7' }] }] } },
     }),
     getContainerAppJobExecution: async () => executions.shift() ?? { properties: { status: 'Succeeded' } },
-    listContainerAppJobExecutions: async () => executions,
+    listContainerAppJobExecutions: async (/** @type {string} */ _sub, /** @type {string} */ _rg, /** @type {string} */ name) => {
+      calls.push(`listJobExecutions ${name}`);
+      fail('listContainerAppJobExecutions');
+      return jobExecutions[name] ?? [];
+    },
     deleteResourceGroup: async (/** @type {string} */ _sub, /** @type {string} */ rg) => {
       calls.push(`deleteResourceGroup ${rg}`);
       fail('deleteResourceGroup');
@@ -806,7 +812,7 @@ export function fakeArm() {
       return { ...structuredClone(resources[at]), properties: { ...resources[at].properties, provisioningState: state } };
     },
   };
-  return { api, calls, resources, groups, executions, jobTemplates, failures, restrictedSqlRegions, ai, regions, perms, deleteStates, inUse, locks };
+  return { api, calls, resources, groups, executions, jobExecutions, jobTemplates, failures, restrictedSqlRegions, ai, regions, perms, deleteStates, inUse, locks };
 }
 
 /** Rich Graph fake for Azure app registration work. */

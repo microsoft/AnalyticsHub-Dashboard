@@ -9,6 +9,7 @@ import { POWER_BI_APP_ID, adminConsentUrl, apiPermissionsUrl, resolveAppRoles } 
 import { apiVersionResolver, armErrors, resourceIdParts, ROLES } from '../../clients/azure.js';
 import { HttpError } from '../../http.js';
 import { commandLine } from '../../launch.js';
+import { formatDuration } from '../../ui.js';
 import { rlsOn, rlsSettings } from '../../transform/access.js';
 import { buildAgentEvaluatorModel, buildConsumptionModel, buildModel, loadTemplateModel, PBISM } from '../../transform/model.js';
 import { connectionCreatedAnyway, deployModel, MODEL_UPDATE_NOTE, modelSignature, REFRESH_POLL_MS, settleReloads } from '../model.js';
@@ -1599,9 +1600,11 @@ export async function installAzure(ctx, opts) {
     step('Reload audit history');
     const days = ctx.reloadHistoryDays;
     try {
-      await startAndWaitJob(ctx, 'run', { wait: false, backfillDays: days });
-      config.history.days = days;
-      ctx.save();
+      const reload = await startAndWaitJob(ctx, 'run', { wait: false, backfillDays: days });
+      if (reload.started) {
+        config.history.days = days;
+        ctx.save();
+      } else ui.note(onceRunFinished(`run "${commandLine(`run --backfill-days ${days}`)}" to reload ${days} days of audit history`));
     } catch (err) {
       stepsOk = false;
       ui.fail(`The history reload didn't start: ${/** @type {Error} */ (err).message}`);
@@ -1609,7 +1612,8 @@ export async function installAzure(ctx, opts) {
     }
   } else if (ctx.runFirstLoad) {
     step('First load');
-    await startAndWaitJob(ctx, 'run', { wait: false });
+    const load = await startAndWaitJob(ctx, 'run', { wait: false });
+    if (!load.started) ui.note(onceRunFinished(`run "${commandLine('run')}" to load your changes, or they load on the next scheduled run`));
   }
   const ok = reloads.ok && stepsOk;
   await azureSummary(ctx, { ...reloads, ok });
@@ -2098,13 +2102,41 @@ function refreshScheduleBody(ctx) {
   return { value: { enabled: true, localTimeZoneId: 'UTC', times: [`${String((hour + 1) % 24).padStart(2, '0')}:${String(minute).padStart(2, '0')}`], days: ctx.config.schedule.frequency === 'weekly' ? [ctx.config.schedule.weekday] : undefined } };
 }
 
+/** A run that started longer ago than this is stuck, not running. */
+const STUCK_MS = 24 * 3_600_000;
+
+/**
+ * The run job's execution that's going, if any: Running or Processing, and started less than a day ago.
+ * None when the executions can't be listed, so a failed check starts the run as before.
+ * @param {Ctx} ctx @param {string} sub @param {string} rg @param {string} name
+ */
+async function runningExecution(ctx, sub, rg, name) {
+  const now = ctx.now().getTime();
+  const runs = (await ctx.api.arm.listContainerAppJobExecutions(sub, rg, name).catch(() => [])).map((r) => ({
+    name: r.name ?? last(r.id ?? ''),
+    status: r.properties?.status ?? r.status ?? '',
+    // NaN without a start time, which counts as going.
+    age: now - Date.parse(r.properties?.startTime ?? r.startTime ?? ''),
+  }));
+  return runs.find((r) => /^(Running|Processing)$/i.test(r.status) && !(r.age > STUCK_MS));
+}
+
+/**
+ * What to do once the run that's going has finished, when startAndWaitJob didn't start another.
+ * @param {string} then
+ */
+export const onceRunFinished = (then) => `Check on it with "${commandLine('status')}". Once it has finished, ${then}.`;
+
 /**
  * Starts the run or migrate job, and waits for it when asked. `steps` runs only those steps of the run
  * job; such a run isn't recorded as the last run, which tells whether the history was loaded.
+ * It doesn't start the run job while a run of it is going: two at once share the audit staging area and
+ * the tenant's audit queries. If the check fails, it starts the run anyway.
  * @param {Ctx} ctx @param {'run' | 'migrate'} kind
  * @param {{ wait: boolean, timeoutMs?: number, backfillDays?: number, steps?: string }} opts
- * @returns {Promise<{ ok: boolean, status: string, unfollowed?: boolean }>} unfollowed: started, but Azure didn't say
- *   which run it is, so it couldn't be waited for. That only warns.
+ * @returns {Promise<{ ok: boolean, status: string, started: boolean, unfollowed?: boolean }>} started: false when a run was
+ *   already going, so this didn't start one. It warns, and the caller says what to do next (see onceRunFinished).
+ *   unfollowed: started, but Azure didn't say which run it is, so it couldn't be waited for. That only warns.
  */
 export async function startAndWaitJob(ctx, kind, opts) {
   const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
@@ -2112,6 +2144,14 @@ export async function startAndWaitJob(ctx, kind, opts) {
   if (!name) throw new Error(`The ARM deployment did not return ${kind} job name.`);
   const sub = /** @type {string} */ (az.subscriptionId);
   const rg = /** @type {string} */ (az.resourceGroup);
+  if (kind === 'run') {
+    const running = await runningExecution(ctx, sub, rg, name);
+    if (running) {
+      const which = [running.name, running.age >= 0 ? `started ${formatDuration(running.age)} ago` : ''].filter(Boolean).join(', ');
+      ctx.ui.warn(`The run job is already running${which ? ` (${which})` : ''}, so this didn't start another.`);
+      return { ok: false, status: running.status, started: false };
+    }
+  }
   let template;
   if (opts.backfillDays) {
     template = jobTemplateWith(await ctx.api.arm.getContainerAppJob(sub, rg, name), [{ name: BACKFILL_ENV, value: String(opts.backfillDays) }]);
@@ -2131,10 +2171,10 @@ export async function startAndWaitJob(ctx, kind, opts) {
   az.status ??= {};
   az.status[key] = { name: executionName, status: 'Running', startedAt: ctx.now().toISOString() };
   ctx.save();
-  if (!opts.wait) return { ok: true, status: 'Running' };
+  if (!opts.wait) return { ok: true, status: 'Running', started: true };
   if (!executionName) {
     ctx.ui.warn(`Azure didn't say which run of the ${label} this is, so the installer can't follow it to the end. Check it in the portal, or with "${commandLine('status')}".`);
-    return { ok: false, status: 'Unknown', unfollowed: true };
+    return { ok: false, status: 'Unknown', unfollowed: true, started: true };
   }
   const progress = ctx.ui.progress(kind === 'run' ? 'Run job' : 'Migrate job');
   const deadline = Date.now() + (opts.timeoutMs ?? 15 * 60_000);
@@ -2156,10 +2196,10 @@ export async function startAndWaitJob(ctx, kind, opts) {
   ctx.save();
   if (/Succeeded|Completed/i.test(state)) {
     ctx.ui.ok(`${kind === 'run' ? 'Run' : 'Migration'} job finished`);
-    return { ok: true, status: state };
+    return { ok: true, status: state, started: true };
   }
   ctx.ui.fail(`${kind === 'run' ? 'Run' : 'Migration'} job ${/Failed|Canceled|Cancelled/i.test(state) ? 'failed' : 'did not finish'} (${state}). Check Log Analytics for the Container Apps job logs.`);
-  return { ok: false, status: state };
+  return { ok: false, status: state, started: true };
 }
 
 /** @param {Ctx} ctx */
@@ -2177,13 +2217,19 @@ async function writeAzureTeamsPackage(ctx) {
 }
 
 /**
- * Starts the run job. With `backfillDays` it reloads that much audit history, once.
+ * Starts the run job. With `backfillDays` it reloads that much audit history, once. It doesn't start one
+ * while a run is going.
  * @param {Ctx} ctx
  * @param {{ backfillDays?: number }} [opts]
  */
 export async function azureRun(ctx, opts = {}) {
   if (azureConsumptionOn(ctx.config)) await offerStudioRun(ctx, { pipelineNext: true });
   const result = await startAndWaitJob(ctx, 'run', { wait: false, backfillDays: opts.backfillDays });
+  if (!result.started) {
+    const days = opts.backfillDays;
+    ctx.ui.note(onceRunFinished(days ? `run "${commandLine(`run --backfill-days ${days}`)}" to reload ${days} days of audit history` : `run "${commandLine('run')}" to start a new run`));
+    return result;
+  }
   if (opts.backfillDays && opts.backfillDays > ctx.config.history.days) {
     ctx.config.history.days = opts.backfillDays;
     ctx.save();

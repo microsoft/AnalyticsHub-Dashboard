@@ -142,6 +142,13 @@ sign-in broker: nothing loads them when the installer runs.
   storage account. See [Org-scoped access](PERMISSIONS.md#org-scoped-access-row-level-security).
 - **Container Apps logs can't be queried from a public network** with private networking, without
   an Azure Monitor Private Link Scope.
+- **The schedule can start a run while another is going,** for example when a long first load
+  reaches the scheduled time. The installer doesn't, but the jobs don't hold a lock yet. If
+  `status` shows two runs of the run job going, stop the newer one with the Azure CLI:
+  `az containerapp job execution list -n <run job> -g <resource group> -o table` shows when each
+  started, and
+  `az containerapp job stop -n <run job> -g <resource group> --job-execution-name <newer run>`
+  stops it. The run job's name ends in `-run`. The next run carries on from where that one stopped.
 
 ### Data
 

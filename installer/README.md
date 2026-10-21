@@ -311,7 +311,8 @@ steps are skipped.
 
 Azure commands:
 
-- `run` starts the Container Apps run job.
+- `run` starts the Container Apps run job, unless a run of it is already going. Then it says which
+  one, and to run `run` again once it has finished.
 - `status` shows job executions, the web URL, pending admin actions, and SQL reader secret expiry.
   With Agent Evaluator it also shows which environments the jobs' managed identity can read, and
   what the jobs' last read found in each.
@@ -550,7 +551,8 @@ work:
 
 - **Repair or change** asks *Load more audit history?* once the first load has finished, offering
   only more than you have. Keep is the default. The plan shows the reload, and it runs once,
-  straight after the repair. Later runs load only what's new.
+  straight after the repair. Later runs load only what's new. If a run is already going, the reload
+  doesn't start: use `run --backfill-days <n>` once that run has finished.
 - On the home page, the **Run** row has an **Audit history** picker: the usual run, or 30, 90 or
   180 days.
 - In the terminal: `run --backfill-days <n>`, with `<n>` from 1 to 180.
