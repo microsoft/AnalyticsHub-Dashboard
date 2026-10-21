@@ -410,6 +410,23 @@ test('when the resource group cannot be listed, the app registrations still go a
   assert.match(gone.ui.text(), /Resource group rg-shared was already gone/);
 });
 
+test('a record with no install ID leaves everything in a resource group it did not create alone, untagged resources too, and says why', async () => {
+  const t = existingGroupInstall();
+  // Saved with an existing group chosen, before the install got as far as deploying anything.
+  t.config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg-shared', resourceGroupMode: 'existing' };
+  const noTags = /** @type {any} */ (resource(armId('Microsoft.Storage/storageAccounts', 'theirstoo')));
+  delete noTags.tags;
+  t.arm.resources.push(noTags, resource(armId('Microsoft.ManagedIdentity/userAssignedIdentities', 'their-id'), {}, {}));
+  const before = remaining(t.arm);
+  assert.equal(await runCommand(t.ctx, 'uninstall', { wait: true }), true);
+  assert.deepEqual(t.arm.calls.filter((c) => c.startsWith('deleteResource') || c.startsWith('getResource')), [], 'nothing deleted or waited for');
+  assert.deepEqual(remaining(t.arm), before, 'everything is still there');
+  assert.deepEqual(appDeletes(t.graph), []);
+  const text = t.ui.text();
+  assert.match(text, /Left everything in resource group rg-shared alone: this install record has no install ID, and the installer saves one before it deploys anything, so this install deployed nothing there\./);
+  assert.doesNotMatch(text, /Couldn't|isn't all gone|Deleted/);
+});
+
 test('a resource group the installer created is still deleted whole', async () => {
   const t = existingGroupInstall();
   t.az.createdResourceGroup = true;

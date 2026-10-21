@@ -2471,6 +2471,12 @@ async function deleteTaggedResources(ctx, opts) {
   // azureUninstall checked both.
   const subscriptionId = /** @type {string} */ (az.subscriptionId);
   const rg = /** @type {string} */ (az.resourceGroup);
+  // Without an install ID, every resource without the tag would match. And this install deployed nothing: installAzure
+  // saves the ID before it creates anything.
+  if (!az.installId) {
+    ui.note(`Left everything in resource group ${rg} alone: this install record has no install ID, and the installer saves one before it deploys anything, so this install deployed nothing there.`);
+    return [];
+  }
   /** @type {any[]} */
   let resources;
   try {
