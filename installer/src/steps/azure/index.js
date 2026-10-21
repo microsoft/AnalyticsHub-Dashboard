@@ -6,7 +6,7 @@ import { readFileSync } from 'node:fs';
 import { GRAPH_APP_ID, azureGraphRolesFor, collectedLabels, ESSENTIAL_MODULES, MODULES, OPTIONAL_MODULES } from '../../catalog.js';
 import { semanticModelDefinition } from '../../clients/fabric.js';
 import { POWER_BI_APP_ID, adminConsentUrl, apiPermissionsUrl, resolveAppRoles } from '../../clients/graph.js';
-import { armErrors, ROLES } from '../../clients/azure.js';
+import { apiVersionResolver, armErrors, resourceIdParts, ROLES } from '../../clients/azure.js';
 import { HttpError } from '../../http.js';
 import { commandLine } from '../../launch.js';
 import { rlsOn, rlsSettings } from '../../transform/access.js';
@@ -2338,10 +2338,187 @@ async function deletePowerBiWorkspace(ctx, pbi, name) {
   forgetPowerBiWorkspace(ctx, pbi);
 }
 
+/** How long uninstall waits for Azure to delete each resource in a resource group it didn't create, and how often it checks. */
+export const RESOURCE_DELETE_WAIT_MS = 20 * 60_000;
+export const RESOURCE_DELETE_POLL_MS = 10_000;
+/**
+ * How long uninstall keeps asking Azure to delete a resource that's still in use. A subnet can stay in use for a
+ * while after the Container Apps environment or the Power BI gateway that used it has gone.
+ */
+export const IN_USE_WAIT_MS = 15 * 60_000;
+const IN_USE_RETRY_MS = [15_000, 30_000, 60_000];
+
+/**
+ * The order uninstall deletes what it tagged in a resource group it didn't create, by lower-case type: each
+ * resource before the ones it depends on. A child type, such as a SQL database, ranks with its parent. Other
+ * types come after these, and the managed identity last.
+ */
+const DELETE_ORDER = [
+  ['microsoft.app/containerapps', 'microsoft.app/jobs'],
+  ['microsoft.app/managedenvironments'],
+  ['microsoft.network/privateendpoints'],
+  ['microsoft.network/privatednszones/virtualnetworklinks'],
+  ['microsoft.network/privatednszones'],
+  ['microsoft.network/virtualnetworks'],
+  ['microsoft.network/networksecuritygroups'],
+  ['microsoft.sql/servers'],
+  ['microsoft.storage/storageaccounts'],
+  ['microsoft.cognitiveservices/accounts'],
+  ['microsoft.operationalinsights/workspaces'],
+];
+const IDENTITY_TYPE = 'microsoft.managedidentity/userassignedidentities';
+/** What the Power BI VNet data gateway's subnet keeps in use until the gateway has gone. */
+const GATEWAY_HELD = /^microsoft\.network\/(virtualnetworks|networksecuritygroups)$/i;
+
+/** @param {string} type  e.g. Microsoft.Sql/servers/databases */
+function deleteRank(type) {
+  for (let t = type.toLowerCase(); t.includes('/'); t = t.slice(0, t.lastIndexOf('/'))) {
+    if (t === IDENTITY_TYPE) return DELETE_ORDER.length + 1;
+    const at = DELETE_ORDER.findIndex((group) => group.includes(t));
+    if (at >= 0) return at;
+  }
+  return DELETE_ORDER.length;
+}
+
+const gone = (/** @type {unknown} */ err) => err instanceof HttpError && err.status === 404;
+
+/** What Azure said, without the request line. @param {unknown} err */
+function azureReason(err) {
+  if (!(err instanceof HttpError)) return /** @type {Error} */ (err).message;
+  const message = err.body?.error?.message ?? err.body?.message;
+  return err.code && typeof message === 'string' ? `${err.code}: ${message}` : err.message;
+}
+
+/**
+ * Whether Azure refused a delete because something still uses the resource, which clears once that has gone:
+ * a subnet's service association link, say, or the apps in a Container Apps environment.
+ * @param {unknown} err
+ */
+function inUse(err) {
+  if (!(err instanceof HttpError) || (err.status !== 400 && err.status !== 409)) return false;
+  const text = `${err.code ?? ''} ${err.message} ${JSON.stringify(err.body ?? '')}`;
+  if (/ScopeLocked|NoRegisteredProviderFound|InvalidApiVersion|InvalidResourceType/i.test(text)) return false;
+  return err.status === 409 || /InUse|in use|ServiceAssociationLink|nested resources|still contains|HasContainerApps|AnotherOperationInProgress|CannotDelete/i.test(text);
+}
+
+/**
+ * Deletes a resource and waits for Azure to finish. While `waitWhileInUse`, it asks again, for up to
+ * IN_USE_WAIT_MS, when something Azure is still taking down uses the resource.
+ * @param {Ctx} ctx
+ * @param {{ id: string, label: string, apiVersion: string }} r
+ * @param {boolean} waitWhileInUse
+ * @returns {Promise<{ gone: true, already?: boolean } | { gone: false, reason: string }>}
+ */
+async function deleteAndWait(ctx, r, waitWhileInUse) {
+  const arm = ctx.api.arm;
+  const progress = ctx.ui.progress(r.label);
+  try {
+    /** @type {{ status: number, retryAfterMs?: number }} */
+    let accepted;
+    for (let attempt = 0, blocked = 0; ; attempt++) {
+      try {
+        accepted = await arm.deleteResource(r.id, r.apiVersion);
+        break;
+      } catch (err) {
+        if (gone(err)) return { gone: true, already: true };
+        if (!waitWhileInUse || !inUse(err) || blocked >= IN_USE_WAIT_MS) return { gone: false, reason: azureReason(err) };
+        progress.update('In use, trying again');
+        const ms = IN_USE_RETRY_MS[Math.min(attempt, IN_USE_RETRY_MS.length - 1)];
+        await ctx.sleep(ms);
+        blocked += ms;
+      }
+    }
+    progress.update('Deleting');
+    const pollMs = Math.min(Math.max(accepted.retryAfterMs ?? 0, RESOURCE_DELETE_POLL_MS), 60_000);
+    let waited = 0;
+    // 202: Azure carries on deleting it. Otherwise it's usually gone already.
+    if (accepted.status === 202) {
+      await ctx.sleep(pollMs);
+      waited += pollMs;
+    }
+    /** @type {string | undefined} */
+    let state;
+    for (;;) {
+      try {
+        const res = await arm.getResource(r.id, r.apiVersion);
+        if (res === null) return { gone: true };
+        state = res?.properties?.provisioningState ?? state;
+        if (state) progress.update(state);
+      } catch (err) {
+        // http.js has already retried throttling and server errors, so waiting won't clear this.
+        return { gone: false, reason: `Azure accepted the delete, but checking on it failed: ${azureReason(err)}` };
+      }
+      if (waited >= RESOURCE_DELETE_WAIT_MS) break;
+      await ctx.sleep(pollMs);
+      waited += pollMs;
+    }
+    return { gone: false, reason: `Azure hadn't finished deleting it after ${RESOURCE_DELETE_WAIT_MS / 60_000} minutes${state ? ` (${state})` : ''}` };
+  } finally {
+    progress.done();
+  }
+}
+
+/**
+ * Uninstall from a resource group the installer didn't create: deletes the resources this install tagged, each
+ * before what it depends on and with an api-version its provider accepts, and waits for each to go.
+ * @param {Ctx} ctx
+ * @param {{ gatewayLeft: boolean }} opts  gatewayLeft: the Power BI gateway, which holds a subnet, is still there.
+ * @returns {Promise<string[] | undefined>}  what's left, in the order to delete it; undefined when the group couldn't be read.
+ */
+async function deleteTaggedResources(ctx, opts) {
+  const { ui, api } = ctx;
+  const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
+  // azureUninstall checked both.
+  const subscriptionId = /** @type {string} */ (az.subscriptionId);
+  const rg = /** @type {string} */ (az.resourceGroup);
+  /** @type {any[]} */
+  let resources;
+  try {
+    resources = await api.arm.listResources(subscriptionId, rg);
+  } catch (err) {
+    if (gone(err)) {
+      ui.ok(`Resource group ${rg} was already gone`);
+      return [];
+    }
+    ui.warn(`Couldn't list the resources in resource group ${rg}: ${azureReason(err)}`);
+    return undefined;
+  }
+  const parts = (/** @type {any} */ r) => {
+    try {
+      return resourceIdParts(String(r.id));
+    } catch {
+      return { type: String(r.type ?? ''), name: String(r.name ?? r.id), parent: undefined };
+    }
+  };
+  const ours = resources.filter((r) => r.tags?.['valuelens-install-id'] === az.installId).map((r) => ({ id: String(r.id), ...parts(r) }));
+  const ids = new Set(ours.map((r) => r.id.toLowerCase()));
+  // A child goes with its parent, as a SQL database does with its server, unless it must go first.
+  const todo = ours
+    .filter((r) => !(r.parent && ids.has(r.parent.toLowerCase()) && deleteRank(r.type) >= deleteRank(r.type.slice(0, r.type.lastIndexOf('/')))))
+    .sort((a, b) => deleteRank(a.type) - deleteRank(b.type));
+  const apiVersion = apiVersionResolver((namespace) => api.arm.getProvider(subscriptionId, namespace));
+  /** @type {string[]} */
+  const left = [];
+  for (const r of todo) {
+    const label = `${r.name} (${r.type})`;
+    // Once something is left, what depends on it would only wait in vain. So would the VNet while the Power BI
+    // gateway still holds its subnet.
+    const wait = !left.length && !(opts.gatewayLeft && GATEWAY_HELD.test(r.type));
+    const result = await deleteAndWait(ctx, { id: r.id, label, apiVersion: await apiVersion(r.type) }, wait);
+    if (result.gone) ui.ok(result.already ? `${label} was already gone` : `Deleted ${label}`);
+    else {
+      ui.warn(`Couldn't delete ${label}: ${result.reason}`);
+      left.push(label);
+    }
+  }
+  if (!left.length) ui.ok(`Deleted ${ours.length} tagged Azure resource${ours.length === 1 ? '' : 's'} and left everything else alone`);
+  return left;
+}
+
 /**
  * @param {Ctx} ctx
  * @param {{ wait?: boolean }} [opts]  wait: false stops once Azure accepts the resource group delete.
- * @returns {Promise<boolean>}  false when Azure didn't delete the resource group.
+ * @returns {Promise<boolean>}  false when Azure didn't delete the resource group, or some of what the install tagged in a group it didn't create.
  */
 export async function azureUninstall(ctx, opts = {}) {
   const { ui, config, api } = ctx;
@@ -2370,12 +2547,25 @@ export async function azureUninstall(ctx, opts = {}) {
   }
   // The gateway holds a service association link on its subnet, so it must go before the VNet.
   if (pbi?.connectionId) {
-    await api.fabric.deleteConnection(pbi.connectionId).then(() => ui.ok('Deleted the Power BI gateway connection'), (err) => ui.warn(`Couldn't delete Power BI connection ${pbi.connectionId}: ${err.message}`));
+    await api.fabric.deleteConnection(pbi.connectionId).then(
+      () => ui.ok('Deleted the Power BI gateway connection'),
+      (err) => (gone(err) ? ui.ok('The Power BI gateway connection was already gone') : ui.warn(`Couldn't delete Power BI connection ${pbi.connectionId}: ${err.message}`)),
+    );
   }
+  let gatewayLeft = false;
   if (pbi?.createdGateway && pbi.gatewayId) {
-    await api.fabric.deleteGateway(pbi.gatewayId).then(() => ui.ok('Deleted the Power BI VNet data gateway'), (err) => ui.warn(`Couldn't delete Power BI gateway ${pbi.gatewayId}: ${err.message}`));
+    await api.fabric.deleteGateway(pbi.gatewayId).then(
+      () => ui.ok('Deleted the Power BI VNet data gateway'),
+      (err) => {
+        if (gone(err)) return ui.ok('The Power BI VNet data gateway was already gone');
+        gatewayLeft = true;
+        ui.warn(`Couldn't delete Power BI gateway ${pbi.gatewayId}: ${err.message}`);
+      },
+    );
   }
   let deleting = false;
+  /** @type {string[] | undefined} */
+  let left = [];
   if (az.createdResourceGroup) {
     try {
       await api.arm.deleteResourceGroup(subscriptionId, rg);
@@ -2387,14 +2577,25 @@ export async function azureUninstall(ctx, opts = {}) {
       else throw err;
     }
   } else {
-    const resources = await api.arm.listResources(subscriptionId, rg);
-    const ours = resources.filter((r) => r.tags?.['valuelens-install-id'] === az.installId);
-    for (const r of ours) await api.arm.deleteResource(r.id);
-    ui.ok(`Deleted ${ours.length} tagged Azure resources and left everything else alone`);
+    left = await deleteTaggedResources(ctx, { gatewayLeft });
   }
   // Before the wait, so they go even if a Cloud Shell sign-out stops the installer during it.
-  for (const app of [az.webApp, az.sqlReader]) if (app?.created && app.objectId) await api.graph.deleteApplication(app.objectId).catch((err) => ui.warn(`Couldn't delete app registration ${app.clientId}: ${err.message}`));
+  for (const app of [az.webApp, az.sqlReader]) {
+    if (app?.created && app.objectId) {
+      await api.graph.deleteApplication(app.objectId).catch((err) => {
+        if (!gone(err)) ui.warn(`Couldn't delete app registration ${app.clientId}: ${err.message}`);
+      });
+    }
+  }
   if (az.drop?.folderUrl) ui.note(`The SharePoint drop folder ${az.drop.folderUrl} and the files in it are left alone. Delete them yourself if you no longer need them.`);
+  if (!left) {
+    ui.fail(`Couldn't see what's left of Analytics Hub in resource group ${rg}. Fix that, then run "${commandLine('uninstall')}" again.`);
+    return false;
+  }
+  if (left.length) {
+    ui.fail(`Analytics Hub isn't all gone from resource group ${rg}. Still there: ${left.join(', ')}. Run "${commandLine('uninstall')}" again to finish, or delete them in the Azure portal in that order: they have the tag valuelens-install-id = ${az.installId}.`);
+    return false;
+  }
   if (!deleting) return true;
   if (opts.wait === false) {
     ui.ok(`Azure is deleting resource group ${rg}. That can take half an hour: it's done when the group no longer shows in the Azure portal.`);

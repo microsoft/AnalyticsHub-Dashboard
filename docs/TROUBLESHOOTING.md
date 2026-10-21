@@ -68,6 +68,13 @@ the installer's version.
 | An export isn't recognised, or is `set to Skip` | Check it's the export the card names, unedited. Or set its source to **Upload CSV** with **Repair or change**. Files the pipeline couldn't place are in `analytics_hub_uploads/_unrecognised`. |
 | A page is blank | Its source is skipped, or no export has arrived yet. See [Data sources and exports](../installer/README.md#data-sources-and-exports). |
 
+## Uninstall
+
+| Problem | What to do |
+|---|---|
+| `Analytics Hub isn't all gone from resource group …` (Azure, in a resource group you already had) | The warnings above it say why each resource is left. Run **Uninstall** again: it carries on from the install record. Remove a resource lock (`ScopeLocked`) first. A VNet stays in use while the Power BI VNet data gateway is there, and for a while after it and the Container Apps environment have gone. To finish by hand, delete the resources tagged `valuelens-install-id` with the ID it shows, in the Azure portal, in this order: the web app and jobs, the Container Apps environment, the private endpoints, the private DNS zones' virtual network links, the private DNS zones, the virtual network, the network security group, the SQL server, the storage account, the Azure AI services account, the Log Analytics workspace, and the managed identity last. Then delete the **Analytics Hub** and SQL reader app registrations in [Entra ID](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade), if they're still there. |
+| `Couldn't see what's left of Analytics Hub in resource group …` (Azure) | Uninstall couldn't list the resources in the group, so it deleted none of them. The warning above it says why: usually you've lost access to the group. Once you can read it again, and delete in it, run **Uninstall** again. |
+
 ## Known issues
 
 Limits we know about, and what to do.
