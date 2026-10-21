@@ -10,6 +10,7 @@ import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { toSummaryRow, type SummaryRow } from "@/lib/summary-row";
 import type { FilterProfile, NotFiltered } from "@/lib/filter-profiles";
 import type { FilterKey } from "@/lib/filters";
+import { splitQueryParts } from "@/lib/query-parts";
 import { toDataTable, type ColumnMetadataMap } from "@/lib/to-data-table";
 import { useFilteredQuery } from "./use-filtered-query";
 
@@ -21,6 +22,8 @@ export interface TableSource {
     filters?: FilterProfile;
     /** The page's first view waits on this query: on screen it goes ahead of the other queries waiting. */
     lead?: boolean;
+    /** While the saved task times load, ask the query at the model's own minutes: see `FilteredQueryConfig.speculate`. */
+    speculate?: boolean;
 }
 
 export interface TableResult {
@@ -59,7 +62,13 @@ export function useTableQuery(
     ignore?: readonly FilterKey[],
 ): TableResult {
     const result = useFilteredQuery(
-        { connection: source.connection, query: source.query, filters: source.filters, lead: source.lead },
+        {
+            connection: source.connection,
+            query: source.query,
+            filters: source.filters,
+            lead: source.lead,
+            speculate: source.speculate,
+        },
         { extra, ignore },
     );
     const table = useMemo(
@@ -68,6 +77,43 @@ export function useTableQuery(
     );
     const error = result.data?.status === "error" ? result.data.error.message : undefined;
     return { table, error, isLoading: !table && !error, refetch: result.refetch, notFilteredBy: result.notFilteredBy };
+}
+
+/**
+ * {@link useTableQuery} for a query that asks several tables at once, each
+ * row naming its table in a `[Part]` column: one result for each of `parts`.
+ * They load, fail and ask again together. Pass `parts` as a constant.
+ */
+export function useTablePartsQuery<P extends string>(
+    source: TableSource,
+    parts: readonly P[],
+    extra: readonly string[] = [],
+    ignore?: readonly FilterKey[],
+): Record<P, TableResult> {
+    const result = useFilteredQuery(
+        {
+            connection: source.connection,
+            query: source.query,
+            filters: source.filters,
+            lead: source.lead,
+            speculate: source.speculate,
+        },
+        { extra, ignore },
+    );
+    const tables = useMemo(() => {
+        if (result.data?.status !== "success") return undefined;
+        const split = splitQueryParts(result.data.table, parts);
+        return new Map(parts.map((part) => [part, toDataTable(split[part], source.columnMetadata)]));
+    }, [result.data, parts, source.columnMetadata]);
+    const error = result.data?.status === "error" ? result.data.error.message : undefined;
+    const { refetch, notFilteredBy } = result;
+    return useMemo(() => {
+        const each = parts.map((part): [P, TableResult] => {
+            const table = tables?.get(part);
+            return [part, { table, error, isLoading: !table && !error, refetch, notFilteredBy }];
+        });
+        return Object.fromEntries(each) as Record<P, TableResult>;
+    }, [parts, tables, error, refetch, notFilteredBy]);
 }
 
 /** A one-row query, keyed by DAX column name. */

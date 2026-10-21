@@ -18,6 +18,8 @@ interface FilterMenuProps {
     active: boolean;
     children: (close: () => void) => ReactNode;
     panelClassName?: string;
+    /** Called each time the panel opens. */
+    onOpen?: () => void;
 }
 
 const GAP = 6;
@@ -27,10 +29,15 @@ const EDGE = 8;
  * A filter trigger and its dropdown panel, built on the native popover API so
  * light-dismiss, Escape and focus return behave as the platform does.
  */
-export function FilterMenu({ label, summary, active, children, panelClassName }: FilterMenuProps) {
+export function FilterMenu({ label, summary, active, children, panelClassName, onOpen }: FilterMenuProps) {
     const panelId = useId();
     const triggerRef = useRef<HTMLButtonElement>(null);
     const panelRef = useRef<HTMLDivElement>(null);
+    const opened = useRef(onOpen);
+
+    useEffect(() => {
+        opened.current = onOpen;
+    });
 
     useEffect(() => {
         const panel = panelRef.current;
@@ -47,6 +54,7 @@ export function FilterMenu({ label, summary, active, children, panelClassName }:
             const open = (event as ToggleEvent).newState === "open";
             trigger.setAttribute("aria-expanded", String(open));
             if (!open) return;
+            opened.current?.();
             place();
             panel.querySelector<HTMLElement>("[data-autofocus], input, button")?.focus();
         };

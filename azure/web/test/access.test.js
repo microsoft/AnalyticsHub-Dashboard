@@ -52,6 +52,13 @@ test('the app config tells the app the group and who to ask', async () => {
   });
 });
 
+test('the app config says when org-scoped access is on, with the org attribute it filters on', async () => {
+  const scoped = { ...ACCESS, rlsOrgAttribute: 'department' };
+  await withServer({ config: { access: scoped } }, async (baseUrl) => {
+    assert.deepEqual((await (await request(baseUrl, '/app.config.json')).json()).access, scoped);
+  });
+});
+
 test('viewers get in through a role or the group; anyone else gets NotAViewer', async () => {
   const graph = fakeGraph({ overageMember: false });
   await withServer({ fetchImpl: graph.fetchImpl }, async (baseUrl) => {

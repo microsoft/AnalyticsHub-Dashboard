@@ -5,6 +5,8 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
+import { wrapEvaluateBodies } from "@/lib/dax-filters";
+import { TREND_MONTHS } from "@/lib/month-over-month";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { connection, FORMAT_HOURS, FORMAT_PERCENT, FORMAT_WHOLE } from "../shared";
 import query from "./executive-months.dax?raw";
@@ -33,4 +35,30 @@ const columnMetadata: ColumnMetadataMap = {
  */
 export function executiveMonths(params?: MonthlyTrendParams) {
     return { connection, query, columnMetadata, vegaLiteSpec: shapeMonthlyTrend(spec, params) };
+}
+
+// The filter options' last date is the latest activity in the model, read past every filter, and the
+// trend with no date filter covers the six months to it: `trendWindow` from that date.
+const recentQuery = wrapEvaluateBodies(
+    query,
+    (body) => `
+// With no date filter, the trend covers the ${TREND_MONTHS} months to the last day of activity.
+VAR _trendEnd = CALCULATE(MAX('Chat + Agent Interactions (Audit Logs)'[ActivityDate]), REMOVEFILTERS())
+VAR _trendFrom = EOMONTH(_trendEnd, -${TREND_MONTHS}) + 1
+RETURN
+    CALCULATETABLE(
+${body}
+,
+        FILTER(ALL('Calendar'[Date]), 'Calendar'[Date] >= _trendFrom && 'Calendar'[Date] <= _trendEnd)
+    )
+`,
+);
+
+/**
+ * {@link executiveMonths} when no date filter is set. The query finds the
+ * last day of activity itself, as the filter options do, so it needn't wait
+ * for them: the page asks it with its first queries.
+ */
+export function executiveRecentMonths(params?: MonthlyTrendParams) {
+    return { ...executiveMonths(params), query: recentQuery };
 }

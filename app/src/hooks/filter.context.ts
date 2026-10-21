@@ -5,10 +5,11 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { createContext, useContext, type Dispatch, type SetStateAction } from "react";
+import { createContext, useContext, useEffect, type Dispatch, type SetStateAction } from "react";
 import type { FilterOptions } from "@/queries/filters";
 import { defaultFilters, type FilterKey, type FilterState } from "@/lib/filters";
 import { DEFAULT_ORG_ATTRIBUTE, describeOrgAttribute, type OrgAttribute } from "@/lib/org-attribute";
+import { useIsPrefetch } from "./prefetch.context";
 
 interface FilterContextValue {
     /** The current filters, with `orgAttribute` resolved to a column the model has. */
@@ -25,14 +26,27 @@ interface FilterContextValue {
     orgAttribute: OrgAttribute;
     /** Every org column worth grouping by; `Organization` alone until they load. */
     orgAttributes: readonly string[];
-    /** Values of the org column in use; `undefined` while they load. */
+    /**
+     * Values of the org column in use. `undefined` until a filter menu first
+     * opens, then while they load, and while the org columns, which settle
+     * that column, load.
+     */
     orgValues: readonly string[] | undefined;
     /**
      * The org attributes Consumption Central holds for people: `undefined`
      * while they load (or when no provider supplies them), empty when the
-     * model isn't connected or can't say.
+     * model isn't connected or can't say. Only an org filter reads them, so
+     * they load once a filter menu opens or an org filter is set.
      */
     consumptionOrgAttributes?: readonly string[];
+    /**
+     * Loads what only the filter menus show — the org values and Consumption
+     * Central's org attributes — and the org columns on screen. A filter menu
+     * other than the dates calls it as it opens.
+     */
+    requestFilterChoices?: () => void;
+    /** Loads the org columns on screen rather than in the background: a breakdown by org groups by one. */
+    requestOrgAttributes?: () => void;
 }
 
 const noop = () => {};
@@ -59,7 +73,17 @@ export function useFilterContext(): FilterContextValue {
     return useContext(FilterContext);
 }
 
-/** The org column that breakdowns "by organization" should group by. */
-export function useOrgAttribute(): OrgAttribute {
-    return useContext(FilterContext).orgAttribute;
+/**
+ * The org column that breakdowns "by organization" should group by. The org
+ * columns load in the background, since the landing page groups nothing by
+ * org. While `wanted` — a breakdown by org is on screen — they load on screen
+ * instead, so the breakdown doesn't wait behind the page's other queries.
+ */
+export function useOrgAttribute(wanted = true): OrgAttribute {
+    const { orgAttribute, requestOrgAttributes } = useContext(FilterContext);
+    const prefetching = useIsPrefetch();
+    useEffect(() => {
+        if (wanted && !prefetching) requestOrgAttributes?.();
+    }, [wanted, prefetching, requestOrgAttributes]);
+    return orgAttribute;
 }

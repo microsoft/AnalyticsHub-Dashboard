@@ -6,13 +6,20 @@
 //-----------------------------------------------------------------------
 
 import { describe, expect, it } from "vitest";
+import { applyDaxFilters, evaluateBody } from "@/lib/dax-filters";
+import { TREND_MONTHS } from "@/lib/month-over-month";
+import { reportingDateFilter } from "@/queries/consumption/options";
+import { filterOptions } from "@/queries/filters/filter-options";
 import {
+    CREDIT_PARTS,
     EXCLUDED_KINDS,
     executiveCreditDates,
+    executiveCreditParts,
     executiveCredits,
     executiveDepartments,
     executiveHoursRange,
     executiveMonths,
+    executiveRecentMonths,
     executiveSummary,
     executiveWorkKinds,
     FADED_OPACITY,
@@ -34,6 +41,13 @@ const modules = [
     { name: "executiveSummary", factory: executiveSummary, columns: liveColumns.executiveSummary, rows: summaryRows, connection: "vl" },
     { name: "executiveHoursRange", factory: executiveHoursRange, columns: liveColumns.executiveHoursRange, rows: rangeRows, connection: "vl" },
     { name: "executiveMonths", factory: () => executiveMonths(), columns: liveColumns.executiveMonths, rows: monthRows, connection: "vl" },
+    {
+        name: "executiveRecentMonths",
+        factory: () => executiveRecentMonths(),
+        columns: liveColumns.executiveMonths,
+        rows: monthRows,
+        connection: "vl",
+    },
     { name: "executiveDepartments", factory: executiveDepartments, columns: liveColumns.executiveDepartments, rows: departmentRows, connection: "vl" },
     { name: "executiveWorkKinds", factory: executiveWorkKinds, columns: liveColumns.executiveWorkKinds, rows: workKindRows, connection: "vl" },
     { name: "executiveCredits", factory: () => executiveCredits(), columns: liveColumns.executiveCredits, rows: creditRows, connection: "cc" },
@@ -166,9 +180,66 @@ describe("the per-person breadth measures", () => {
     it.each([
         ["executiveSummary", executiveSummary().query],
         ["executiveMonths", executiveMonths().query],
+        ["executiveRecentMonths", executiveRecentMonths().query],
         ["executiveDepartments", executiveDepartments().query],
     ])("are not in %s", (_, query) => {
         expect(query).not.toMatch(/Skills Per Person|Broad Users|Agent With Most Users/);
+    });
+});
+
+describe("the trend with no date filter", () => {
+    const { query } = executiveRecentMonths();
+    const squash = (text: string) => text.replace(/\s+/g, " ").trim();
+
+    it("is the trend's own query, limited to the six months to the last day of activity", () => {
+        expect(query.match(/\bEVALUATE\b/g)).toHaveLength(1);
+        expect(squash(evaluateBody(query))).toContain(
+            squash(`CALCULATETABLE(
+${evaluateBody(executiveMonths().query)}
+,
+        FILTER(ALL('Calendar'[Date]), 'Calendar'[Date] >= _trendFrom && 'Calendar'[Date] <= _trendEnd)
+    )`),
+        );
+        expect(query).toContain(`VAR _trendFrom = EOMONTH(_trendEnd, -${TREND_MONTHS}) + 1`);
+        expect(query.trimEnd()).toMatch(/\nORDER BY \[Month Start\]$/);
+    });
+
+    it("ends on the last day the filter options give the page, read past every filter", () => {
+        const lastDay = "MAX('Chat + Agent Interactions (Audit Logs)'[ActivityDate])";
+        expect(filterOptions().query).toContain(`FORMAT(${lastDay}, "yyyy-MM-dd")`);
+        expect(query).toContain(`VAR _trendEnd = CALCULATE(${lastDay}, REMOVEFILTERS())`);
+    });
+
+    it("keeps its months when the page's filters wrap it", () => {
+        const filtered = applyDaxFilters(query, ["F"]);
+        expect(filtered.match(/\bEVALUATE\b/g)).toHaveLength(1);
+        expect(evaluateBody(filtered)).toBe(`CALCULATETABLE(\n${evaluateBody(query)}\n,\n    F\n)`);
+    });
+});
+
+describe("the credits for the trend and the date range", () => {
+    const DATES = { trend: { from: "2026-02-01", to: "2026-07-06" }, range: { from: "2026-05-08", to: "2026-07-06" } };
+    const { query, columnMetadata, connection } = executiveCreditParts(DATES);
+    const squash = (text: string) => text.replace(/\s+/g, " ").trim();
+    /** What the page asked for one part in a query of its own: the credits query, filtered to the part's dates. */
+    const alone = (part: (typeof CREDIT_PARTS)[number]) =>
+        evaluateBody(applyDaxFilters(executiveCredits().query, [reportingDateFilter(DATES[part].from, DATES[part].to)]));
+
+    it("asks each part as the page asked it alone, in one query", () => {
+        expect(query.match(/\bEVALUATE\b/g)).toHaveLength(1);
+        expect(squash(evaluateBody(query))).toBe(
+            squash(`UNION( ${CREDIT_PARTS.map((part) => `ADDCOLUMNS( ${alone(part)}, "Part", "${part}" )`).join(", ")} )`),
+        );
+        expect(query.trimEnd()).toMatch(/\nORDER BY \[Part\], \[Month Start\]$/);
+    });
+
+    it("reads its rows as the credits query's, from the same model", () => {
+        expect(connection).toBe(executiveCredits().connection);
+        expect(columnMetadata).toEqual(executiveCredits().columnMetadata);
+    });
+
+    it("names each part as the page splits them", () => {
+        expect([...query.matchAll(/"Part", "(\w+)"/g)].map((match) => match[1])).toEqual([...CREDIT_PARTS]);
     });
 });
 

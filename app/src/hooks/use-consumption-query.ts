@@ -9,6 +9,7 @@ import { useMemo } from "react";
 import { useCommercialTerms } from "@/hooks/commercial-terms.context";
 import {
     useSummaryQuery,
+    useTablePartsQuery,
     useTableQuery,
     type SummaryResult,
     type TableResult,
@@ -52,6 +53,27 @@ export function useConsumptionTable(
             columnMetadata: source.columnMetadata,
             filters: source.filters ?? CONSUMPTION_METADATA,
         },
+        extra,
+        ignore,
+    );
+}
+
+/** {@link useConsumptionTable} for a query that asks several tables at once, as {@link useTablePartsQuery} splits them. */
+export function useConsumptionTableParts<P extends string>(
+    source: TableSource,
+    parts: readonly P[],
+    extra: readonly string[] = [],
+    ignore: readonly FilterKey[] = [],
+): Record<P, TableResult> {
+    const query = usePricedQuery(source.query);
+    return useTablePartsQuery(
+        {
+            connection: source.connection,
+            query,
+            columnMetadata: source.columnMetadata,
+            filters: source.filters ?? CONSUMPTION_METADATA,
+        },
+        parts,
         extra,
         ignore,
     );
