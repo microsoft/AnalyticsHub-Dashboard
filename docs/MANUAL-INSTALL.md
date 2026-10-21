@@ -82,6 +82,9 @@ On Fabric, the installer does these. By hand, you do them yourself or go without
 - The upload router and its folders, and **Upload CSV** for exports.
 - Load status cards, **Check status**, **Check the data**, **Rerun failed loads**, secret
   rotation and update checks. These need an [install record](INSTALL.md#run-it).
+- Microsoft 365 activity, Defender and Azure Resource Graph in the app, org-scoped access and the
+  reporting currency. These need the model the installer builds; the optional notebooks still load
+  their data into the Lakehouse.
 - The settings for [a large tenant](../fabric/notebooks/README.md#a-large-tenant), set for you.
 
 Want them? Use the [installer](INSTALL.md) instead, in a new workspace.
@@ -91,8 +94,8 @@ Want them? Use the [installer](INSTALL.md) instead, in a new workspace.
 Set up the [Azure version](../azure/README.md) in [Azure Cloud Shell](https://shell.azure.com), in
 **Bash**, from the installer's own template, images and report. It needs a release that includes
 it, so do **Get the files** before you ask your admins. It's seven steps, plus Teams if you want
-it: about an hour, then about 25 minutes for the first load. When Cloud Shell first asks, mount a
-storage account, so your files are kept between sessions.
+it: about an hour, then about an hour more for the first load. When Cloud Shell first asks, mount
+a storage account, so your files are kept between sessions.
 
 | Who | What |
 |---|---|
@@ -164,8 +167,12 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
    }
    deploy
    ```
-   If Azure SQL can't go in that region, run `put sqlLocation <region>` with another region, then
-   paste the block again.
+   If Azure SQL can't go in that region (`RegionDoesNotAllowProvisioning`), run
+   `put sqlLocation <region>` with another region, then paste the block again. If it fails with
+   `DenyPublicEndpointEnabled`, an Azure Policy turns off the public network access this setup
+   uses. Ask your Azure admin to exempt this resource group, then paste the block again. Or, to
+   keep the policy, do **Remove** below, then use the [installer](INSTALL.md) in a new resource
+   group: it names the policy and uses private networking.
 2. **Register the apps:** the web app people sign in to, and the SQL reader that Power BI reads
    the database as.
    ```bash
@@ -210,14 +217,18 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
    make_workspace
    ```
    - In Cloud Shell, choose **Manage files** > **Download**, enter `ValueLens.pbit`, and open it
-     in Power BI Desktop.
+     in Power BI Desktop, signed in to the tenant you're installing in.
    - Set **Fabric SQL Endpoint** to the server and **Lakehouse Name** to the database. Set
      **Enable_ProductFeedback** and **Enable_Agent365** to `Exclude`. Leave the rest.
-   - Select **Load**, then **Cancel** when it asks you to sign in. The tables fill in at step 6.
-   - Save it as **Analytics Hub Model**, and **Publish** it to **Analytics Hub (Azure)**.
-   - Back in Cloud Shell:
+   - Select **Load**. Desktop can't load the data from your machine, so it asks you to sign in or
+     shows a firewall error: close it. The tables fill in at step 6.
+   - Save it as **Analytics Hub Model**, and **Publish** it to **Analytics Hub (Azure)**. If
+     Publish times out, publish again.
+   - Back in Cloud Shell, save the model's ID and set its parameters again: Desktop puts the
+     template's values back when Load fails.
      ```bash
      put model $(az rest -u $API/groups/$WS/datasets --resource $PBI --query "value[?name=='Analytics Hub Model'].id" -o tsv)
+     az rest -m POST -u $API/groups/$WS/datasets/$(get model)/Default.UpdateParameters --resource $PBI -b "{\"updateDetails\": [{\"name\": \"Fabric SQL Endpoint\", \"newValue\": \"$(out sqlServerFqdn)\"}, {\"name\": \"Lakehouse Name\", \"newValue\": \"$(out sqlDatabaseName)\"}, {\"name\": \"Enable_ProductFeedback\", \"newValue\": \"Exclude\"}, {\"name\": \"Enable_Agent365\", \"newValue\": \"Exclude\"}]}"
      ```
 5. **Create the tables** (about 5 minutes). This deploys again with the new IDs, then makes the
    tables and the SQL reader's database user.
@@ -227,7 +238,7 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
    ```
    Then run `az containerapp job execution list -g $RG -n job-vlens-migrate -o table` until it
    shows **Succeeded**.
-6. **Load the data** (about 25 minutes).
+6. **Load the data** (about an hour).
    - Make the SQL reader a key, which lasts a year:
      `az ad app credential reset --id $READER --append --display-name "Power BI SQL credential"`.
    - In Power BI, open **Analytics Hub Model**'s **Settings** > **Data source credentials** >
@@ -289,9 +300,10 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
    cp "fabric/Add Credit Consumption/Consumption Central - Fabric.pbit" ~/ConsumptionCentral.pbit
    echo "Server: $(out sqlServerFqdn)  Database: $(out sqlDatabaseName)"
    ```
-   Then:
+   Then save its ID and set its parameters again, as in step 4:
    ```bash
    put consumptionModel $(az rest -u $API/groups/$WS/datasets --resource $PBI --query "value[?name=='Analytics Hub Consumption Model'].id" -o tsv)
+   az rest -m POST -u $API/groups/$WS/datasets/$(get consumptionModel)/Default.UpdateParameters --resource $PBI -b "{\"updateDetails\": [{\"name\": \"FabricSQLEndpoint\", \"newValue\": \"$(out sqlServerFqdn)\"}, {\"name\": \"LakehouseName\", \"newValue\": \"$(out sqlDatabaseName)\"}]}"
    ```
 5. Run step 5 again, then step 6 for **Analytics Hub Consumption Model**. Share it as in step 7.
 
@@ -328,6 +340,11 @@ remove_all() {
 remove_all
 ```
 
+Deleting the resource group takes about 30 minutes, so paste the block again every 5 minutes or
+so. The last paste can print a `ResourceGroupNotFound` error just before **Removed**: that's
+expected. Remove leaves the Power BI connection that step 6's **Edit credentials** made. It can't
+reach anything once the server and the SQL reader are gone.
+
 **What you don't get by hand on Azure.** The installer does these:
 
 - **Check status**, **Repair or change**, update checks, key rotation and **Uninstall**. These
@@ -344,3 +361,6 @@ remove_all
 - A [least-privilege install](AZURE-LEAST-PRIVILEGE.md) into a resource group your Azure admin creates.
 
 Want them? Use the [installer](INSTALL.md) instead, in a new resource group.
+
+The app still looks for the tables the installer adds, so 400 "Cannot find table" errors in the
+browser's developer tools are expected.
