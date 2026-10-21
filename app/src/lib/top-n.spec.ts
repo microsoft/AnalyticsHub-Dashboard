@@ -88,6 +88,32 @@ describe("topRows", () => {
     });
 });
 
+describe("an empty result", () => {
+    it("ranks nothing when the answer has no columns either, as a query with no rows does on Azure", () => {
+        const empty: DataTable = { columns: [], rows: [] };
+        const nothing = { table: { columns: [], rows: [] }, shown: 0, of: 0 };
+
+        expect(topRows(empty, { label: "Org", by: "Active" })).toEqual(nothing);
+        expect(topWithOther(empty, { label: "Org", by: "Active", sum: ["Active", "Inactive"], other })).toEqual(nothing);
+    });
+
+    it("keeps the columns of an empty answer that has them, as on Fabric", () => {
+        const nothing = { table: orgs(0), shown: 0, of: 0 };
+
+        expect(topRows(orgs(0), { label: "Org", by: "Active" })).toEqual(nothing);
+        expect(topWithOther(orgs(0), { label: "Org", by: "Active", sum: ["Active", "Inactive"], other })).toEqual(nothing);
+    });
+
+    it("still names a missing column once there are rows to rank", () => {
+        const table: DataTable = { columns: [{ name: "Org" }], rows: [["Org 1"]] };
+
+        expect(() => topRows(table, { label: "Org", by: "Active" })).toThrow('Column "Active" was not found.');
+        expect(() => topWithOther(table, { label: "Org", by: "Active", sum: ["Active"], other })).toThrow(
+            'Column "Active" was not found.',
+        );
+    });
+});
+
 describe("topNote", () => {
     it("says when a chart shows only the top of the list", () => {
         expect(topNote({ shown: 15, of: 1_204 }, "organizations", "active users")).toBe(
