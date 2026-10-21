@@ -1570,8 +1570,25 @@ test("Azure run: doesn't start a second run while one is going, but ignores one 
     assert.deepEqual(az.status.lastRun, lastRun, `${status}: the last run is left as it was`);
   }
 
+  // Not waiting, the command doesn't fail, as on Fabric. A run with no start time still counts as going.
+  for (const [execution, warning] of /** @type {[any, string][]} */ ([
+    [{ name: 'vlens-run-going', properties: { status: 'Running' } }, "! The run job is already running (vlens-run-going), so this didn't start another."],
+    [{ properties: { status: 'Running' } }, "! The run job is already running, so this didn't start another."],
+  ])) {
+    t.ui.out.length = 0;
+    t.arm.jobExecutions['vlens-run'] = [execution];
+    const before = starts();
+    assert.equal(await runCommand(t.ctx, 'run', { wait: false }), true, warning);
+    assert.equal(starts(), before, warning);
+    assert.ok(t.ui.text().includes(warning), t.ui.text());
+    assert.doesNotMatch(t.ui.text(), /started .* ago/);
+    assert.match(t.ui.text(), /Once it has finished, run "valuelens-install run" to start a new run\./);
+    assert.deepEqual(az.status.lastRun, lastRun);
+  }
+
   // Asked for more history: the days aren't recorded, and the note gives the command again.
   t.ui.out.length = 0;
+  t.arm.jobExecutions['vlens-run'] = runGoing('Running', 30);
   const templates = t.arm.jobTemplates.length;
   assert.equal(await runCommand(t.ctx, 'run', { wait: true, backfillDays: 90 }), false);
   assert.equal(t.config.history.days, 30);

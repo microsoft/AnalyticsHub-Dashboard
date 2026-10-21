@@ -41,8 +41,9 @@ offers it again. As on Fabric, `run` then exits with an error, a run that starte
 hours ago doesn't count, and if the installer can't check, it starts the run as before.
 
 **Known issue:** on Azure, the schedule can still start a run while another is going, for example
-when a long first load reaches the scheduled time. If it does, stop the newer run, as
-[Troubleshooting](docs/TROUBLESHOOTING.md#azure) shows. A lock in the jobs comes in 0.6.9.
+when a long first load reaches the scheduled time. If it does, stop the newer run, then reload the
+history once the other has finished, as [Troubleshooting](docs/TROUBLESHOOTING.md#azure) shows. A
+lock in the jobs comes in 0.6.9.
 
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
