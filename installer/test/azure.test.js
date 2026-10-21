@@ -1409,7 +1409,7 @@ test("Azure: a history reload that doesn't start leaves setup not finished, and 
   ]);
 });
 
-/** Org-scoped access on, for the next run. @param {Awaited<ReturnType<typeof azureModelChanged>>} t */
+/** Org-scoped access on, for the next run. @param {Pick<Awaited<ReturnType<typeof azureModelChanged>>, 'config' | 'graph' | 'powerBi'>} t */
 function orgAccessOn(t) {
   t.config.access = /** @type {any} */ ({ ...t.config.access, groupId: 'group-1', groupName: 'Analytics Hub Viewers', rls: { enabled: true, orgAttribute: 'department', applied: [] } });
   Object.assign(t.graph.api, { getGroup: async (/** @type {string} */ id) => ({ id, displayName: 'Analytics Hub Viewers' }) });
@@ -1779,6 +1779,229 @@ test('a failed migration stops the install before the first load', async () => {
   assert.ok(arm.calls.includes('startJob vlens-migrate'));
   assert.ok(!arm.calls.includes('startJob vlens-run'), 'first load is not started');
   assert.equal(config.azure?.status?.lastMigrate?.status, 'Failed');
+  // With public endpoints, Power BI isn't given the SQL reader before the migration has made its database user.
+  assert.ok(!powerBi.calls.some((c) => c.startsWith('updateDatasource')));
+  const r = /** @type {any} */ (config.azure).sqlReader;
+  assert.equal(r.secretKeyId, undefined);
+  assert.equal(r.pendingSecretKeyIds.length, 1, 'the new secret stays pending until Power BI uses it');
+});
+
+/**
+ * A first Azure install that records the migration, the models' SQL credentials, refresh schedules and refreshes,
+ * and the SQL reader secret put in use and the ones removed, each with the step it ran in. Like Power BI, a public
+ * data source won't take the SQL reader's credentials until a migration has made the reader's database user, which
+ * it does only once a deployment has named the reader.
+ * @param {{ publicNetworkAccess: boolean }} o
+ */
+async function azureBindRecorder(o) {
+  const arm = fakeArm();
+  const graph = fakeAzureGraph();
+  const fabric = fakeFabric();
+  const powerBi = fakePowerBi();
+  if (o.publicNetworkAccess) powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds', connectionDetails: { server: 'vlens-sql.database.windows.net', database: 'valuelens' } }]);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fabric.api, powerBi: powerBi.api, ui: ui.ui });
+  Object.assign(config, {
+    target: 'azure',
+    azure: {
+      subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: '12345678-aaaa', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] },
+      publicNetworkAccess: o.publicNetworkAccess, workspaceName: 'Analytics Hub', ...(o.publicNetworkAccess ? {} : { powerBi: { capacityId: 'cap-f' } }),
+    },
+  });
+  ctx.runFirstLoad = false;
+
+  /** @type {{ n: number, total: number, title: string }[]} */
+  const steps = [];
+  const showStep = ui.ui.step;
+  ui.ui.step = (n, total, title) => {
+    steps.push({ n, total, title });
+    return showStep(n, total, title);
+  };
+  /** @type {string[]} */
+  const events = [];
+  const record = (/** @type {string} */ event) => events.push(`${event} @ ${steps.at(-1)?.title}`);
+
+  let readerNamed = false;
+  let readerUser = false;
+  let started = '';
+  const deployTemplate = arm.api.deployTemplate;
+  arm.api.deployTemplate = async (sub, rg, name, deployment) => {
+    readerNamed = !!deployment?.properties?.parameters?.sqlReaderClientId?.value;
+    return deployTemplate(sub, rg, name, deployment);
+  };
+  const startJob = arm.api.startContainerAppJob;
+  arm.api.startContainerAppJob = async (sub, rg, name, template) => {
+    started = name;
+    if (name === 'vlens-migrate') record('migrate');
+    return startJob(sub, rg, name, template);
+  };
+  const execution = arm.api.getContainerAppJobExecution;
+  arm.api.getContainerAppJobExecution = async () => {
+    const e = await execution();
+    if (started === 'vlens-migrate' && e?.properties?.status === 'Succeeded' && readerNamed) readerUser = true;
+    return e;
+  };
+  const updateDatasource = powerBi.api.updateDatasource;
+  powerBi.api.updateDatasource = async (gw, ds, body) => {
+    if (!readerUser) {
+      record('updateDatasource refused');
+      const code = 'DM_GWPipeline_Gateway_DataSourceAccessError';
+      throw new HttpError(`PATCH /v1.0/myorg/gateways/${gw}/datasources/${ds} returned 400 ${code}`, { status: 400, method: 'PATCH', url: `https://api.powerbi.com/v1.0/myorg/gateways/${gw}/datasources/${ds}`, code, body: { error: { code } } });
+    }
+    record('updateDatasource');
+    return updateDatasource(gw, ds, body);
+  };
+  const bindToGateway = powerBi.api.bindToGateway;
+  powerBi.api.bindToGateway = async (ws, dataset, body) => {
+    record('bindToGateway');
+    return bindToGateway(ws, dataset, body);
+  };
+  const setRefreshSchedule = powerBi.api.setRefreshSchedule;
+  powerBi.api.setRefreshSchedule = async (ws, dataset) => {
+    record('setRefreshSchedule');
+    return setRefreshSchedule(ws, dataset);
+  };
+  const refresh = powerBi.api.refresh;
+  powerBi.api.refresh = async (ws, id, body) => {
+    record('refresh');
+    return refresh(ws, id, body);
+  };
+  const removePassword = graph.api.removePassword;
+  graph.api.removePassword = async (id, keyId) => {
+    record(`removePassword ${keyId}`);
+    return removePassword(id, keyId);
+  };
+  const reader = () => /** @type {any} */ (config.azure)?.sqlReader ?? {};
+  let inUse = reader().secretKeyId;
+  const save = ctx.save;
+  ctx.save = () => {
+    if (reader().secretKeyId !== inUse) record(`secret ${reader().secretKeyId} in use`);
+    inUse = reader().secretKeyId;
+    save();
+  };
+  return {
+    arm, graph, fabric, powerBi, ui, ctx, config, steps, events, reader,
+    /** The events in order, each once however many models it was for. */
+    order: () => events.filter((e, i) => e !== events[i - 1]),
+    /** The step titles from the one given. @param {string} title */
+    titlesFrom: (title) => steps.map((s) => s.title).slice(steps.findIndex((s) => s.title === title)),
+  };
+}
+
+test('Azure, public endpoints: a first install gives Power BI the SQL reader once the migration has made its database user', async () => {
+  const t = await azureBindRecorder({ publicNetworkAccess: true });
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  const key = t.reader().secretKeyId;
+  assert.ok(key);
+  assert.deepEqual(t.order(), [
+    'migrate @ Database migration',
+    'updateDatasource @ Power BI credentials',
+    'setRefreshSchedule @ Power BI credentials',
+    `secret ${key} in use @ Power BI credentials`,
+  ]);
+  assert.deepEqual(t.graph.passwords.map((p) => p.keyId), [key]);
+  assert.match(t.ui.text(), /✓ Bound the models? to Azure SQL as Analytics Hub SQL Reader/);
+});
+
+test('Azure, private networking: the models are still bound through the gateway at Power BI model, before the migration', async () => {
+  const t = await azureBindRecorder({ publicNetworkAccess: false });
+  await azurePreflight(t.ctx);
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  const key = t.reader().secretKeyId;
+  assert.deepEqual(t.order(), [
+    'bindToGateway @ Power BI model',
+    'setRefreshSchedule @ Power BI model',
+    `secret ${key} in use @ Power BI model`,
+    'migrate @ Database migration',
+  ]);
+  assert.equal(t.fabric.connections[0].body.credentialDetails.skipTestConnection, true);
+});
+
+test('Azure, public endpoints: Repair keeps the secret Power BI has until it takes the new one, after the migration', async () => {
+  const t = await azureBindRecorder({ publicNetworkAccess: true });
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  const old = t.reader().secretKeyId;
+  // The update replaces the model, which is then owed a reload.
+  t.config.semanticModel.signature = 'from an older version';
+
+  // Power BI turns the new credential down: it keeps the one it has, and that secret stays.
+  t.powerBi.failures.updateDatasource = [new HttpError('Internal', { status: 500, method: 'PATCH', url: 'https://x' })];
+  await assert.rejects(installAzure(t.ctx, { wait: true }), /Internal/);
+  assert.equal(t.reader().secretKeyId, old);
+  const turnedDown = t.reader().pendingSecretKeyIds;
+  assert.equal(turnedDown.length, 1);
+  assert.ok(!t.events.some((e) => e.startsWith('removePassword')));
+  assert.ok(!t.events.some((e) => e.startsWith('refresh')), 'not reloaded with the old credential');
+
+  t.events.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  const now = t.reader().secretKeyId;
+  assert.ok(![old, ...turnedDown].includes(now));
+  assert.deepEqual(t.order(), [
+    'migrate @ Database migration',
+    'updateDatasource @ Power BI credentials',
+    'setRefreshSchedule @ Power BI credentials',
+    `secret ${now} in use @ Power BI credentials`,
+    `removePassword ${old} @ Power BI credentials`,
+    `removePassword ${turnedDown[0]} @ Power BI credentials`,
+    // restoreAzureModels, before the next step.
+    'refresh @ Power BI credentials',
+  ]);
+  assert.deepEqual(t.graph.passwords.map((p) => p.keyId), [now]);
+});
+
+test('Azure, public endpoints: a re-run finishes an install that stopped before its migration, as 0.6.7 did', async () => {
+  const t = await azureBindRecorder({ publicNetworkAccess: true });
+  // Where 0.6.7 stopped: the models deployed and the new secret pending, without the final deployment that names
+  // the SQL reader, or the migration that makes its database user.
+  const deployTemplate = t.arm.api.deployTemplate;
+  t.arm.api.deployTemplate = async (sub, rg, name, deployment) => {
+    if (deployment?.properties?.parameters?.sqlReaderClientId?.value) throw new Error('Deployment stopped');
+    return deployTemplate(sub, rg, name, deployment);
+  };
+  await assert.rejects(installAzure(t.ctx, { wait: true }), /Deployment stopped/);
+  assert.ok(t.config.semanticModel.id);
+  assert.equal(t.reader().secretKeyId, undefined);
+  const stopped = t.reader().pendingSecretKeyIds;
+  assert.equal(stopped.length, 1);
+  assert.deepEqual(t.order(), []);
+
+  t.arm.api.deployTemplate = deployTemplate;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  const key = t.reader().secretKeyId;
+  assert.deepEqual(t.order(), [
+    'migrate @ Database migration',
+    'updateDatasource @ Power BI credentials',
+    'setRefreshSchedule @ Power BI credentials',
+    `secret ${key} in use @ Power BI credentials`,
+    `removePassword ${stopped[0]} @ Power BI credentials`,
+  ]);
+  assert.deepEqual(t.graph.passwords.map((p) => p.keyId), [key]);
+});
+
+test('Azure: Power BI credentials is a step only with public endpoints, after the migration and before org-scoped access', async () => {
+  /** @param {Awaited<ReturnType<typeof azureBindRecorder>>} t */
+  const counted = (t) => t.steps.every((s, i) => s.n === i + 1 && s.total === t.steps.length);
+
+  const pub = await azureBindRecorder({ publicNetworkAccess: true });
+  await installAzure(pub.ctx, { wait: true });
+  assert.deepEqual(pub.titlesFrom('Power BI model'), ['Power BI model', 'Azure resources (final)', 'Database migration', 'Power BI credentials', 'Teams app']);
+  assert.ok(counted(pub));
+
+  const priv = await azureBindRecorder({ publicNetworkAccess: false });
+  await azurePreflight(priv.ctx);
+  priv.steps.length = 0;
+  await installAzure(priv.ctx, { wait: true });
+  assert.deepEqual(priv.titlesFrom('Power BI model'), ['Power BI model', 'Azure resources (final)', 'Database migration', 'Teams app']);
+  assert.ok(counted(priv));
+  assert.deepEqual(priv.steps.map((s) => s.title), pub.steps.map((s) => s.title).filter((s) => s !== 'Power BI credentials'));
+
+  // Org-scoped access may refresh the models, so they have their credentials first.
+  const rls = await azureBindRecorder({ publicNetworkAccess: true });
+  orgAccessOn(rls);
+  await installAzure(rls.ctx, { wait: true });
+  assert.deepEqual(rls.titlesFrom('Power BI model'), ['Power BI model', 'Viewer access', 'Azure resources (final)', 'Database migration', 'Power BI credentials', 'Org-scoped access', 'Teams app']);
+  assert.ok(counted(rls));
 });
 
 test('private networking deploys a VNet, binds the model through a VNet data gateway, rotates and uninstalls it', async () => {
