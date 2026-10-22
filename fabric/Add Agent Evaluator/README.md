@@ -106,7 +106,8 @@ Publish to your workspace. Schedule the notebook, then the report's refresh **af
 
 Copied from [microsoft/AgentEvaluator-for-Copilot-Studio ↗](https://github.com/microsoft/AgentEvaluator-for-Copilot-Studio)
 (MIT) at commit `e37b1ac`, where the full documentation lives. The notebook adds a UPN lookup
-(cell *8c*) so department views work; set `RESOLVE_UPNS = False` to turn it off. In Fabric mode
+(cell *8c*) so department views work; set `RESOLVE_UPNS = False` to turn it off. It also compacts
+the tables each run wrote (`OPTIMIZE ... VORDER`; `RUN_OPTIMIZE = False` turns it off). In Fabric mode
 the report's **Credit Consumption** page reads `credit_consumption_agent`, `_user` and `_tenant`
 when they have rows, else the tables [Add Credit Consumption](../Add%20Credit%20Consumption/)
 loads (`studio_agent`, `studio_user`, `studio_tenant_daily`, latest snapshot). Without either,

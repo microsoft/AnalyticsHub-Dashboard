@@ -231,6 +231,10 @@ sets the number. On Fabric and Azure.
   every row. The Cowork usage cohorts swap a per-row ranking for a per-row count, which is cheaper
   but still runs once per row. `Weeks Active` and `Weeks Over Limit` are unchanged. The overall
   saving still needs timing on a large copy.
+- The Microsoft 365 activity and Agent Evaluator notebooks now compact the tables they wrote
+  (`OPTIMIZE ... VORDER`) once at the end of each run, so the daily and incremental writes no
+  longer pile up small files that slow down refresh. A failed compaction is reported and the load
+  still succeeds. Set `RUN_OPTIMIZE = False` to turn it off.
 
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 

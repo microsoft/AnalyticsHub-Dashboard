@@ -123,6 +123,7 @@ class FakeSpark:
         self.created = []
         self.saves = []
         self.sqls = []
+        self.fail_sql = ()
 
     def createDataFrame(self, rows, schema=None):
         self.created.append({"rows": rows, "schema": schema})
@@ -130,6 +131,8 @@ class FakeSpark:
 
     def sql(self, statement):
         self.sqls.append(statement)
+        if any(table in statement for table in self.fail_sql):
+            raise RuntimeError("compaction is busy")
 
 
 @contextlib.contextmanager
@@ -174,30 +177,43 @@ def helper_namespace(spark):
 class FakeOutputFrame:
     """Stands in for one of the parsed Spark DataFrames the writer cell receives."""
 
-    def __init__(self, columns, rows=0):
+    def __init__(self, columns, rows=0, spark=None):
         self.columns = list(columns)
         self.rows = rows
+        self.schema = None
+        self.spark = spark
 
     def count(self):
         return self.rows
 
+    @property
+    def write(self):
+        return FakeWriter(self.spark, self)
 
-def run_agent_writer_cell(write_mode, existing=()):
-    spark = FakeSpark(existing)
+
+def run_agent_writer_cell(write_mode, existing=(), rows=0, spark=None, **settings):
+    spark = spark or FakeSpark(existing)
     ns = helper_namespace(spark)
+
+    def frame(columns):
+        return FakeOutputFrame(columns, rows, spark)
+
     ns.update({
         "spark": spark,
         "WRITE_MODE": write_mode,
         "OUTPUT_PREFIX": "dbo",
-        "sessions": FakeOutputFrame(["conversation_id", "agent_name"]),
-        "turns": FakeOutputFrame(["turn_id"]),
-        "errors": FakeOutputFrame(["conversation_id", "error_timestamp_utc", "error_code"]),
-        "subagents": FakeOutputFrame([
+        "RAW_TABLE": "dbo.conversationtranscripts_raw",
+        "RUN_OPTIMIZE": True,
+        "sessions": frame(["conversation_id", "agent_name"]),
+        "turns": frame(["turn_id"]),
+        "errors": frame(["conversation_id", "error_timestamp_utc", "error_code"]),
+        "subagents": frame([
             "conversation_id", "invocation_timestamp_utc", "connected_agent_schema", "plan_step_id",
         ]),
-        "agent_dim": FakeOutputFrame(["agent_schema"]),
-        "agent_performance": FakeOutputFrame(["ConversationTranscriptId"]),
+        "agent_dim": frame(["agent_schema"]),
+        "agent_performance": frame(["ConversationTranscriptId"]),
     })
+    ns.update(settings)
     source = notebook_cell_source("for name, pdf in outputs.items():")
     output = io.StringIO()
     with fake_pyspark_types(), contextlib.redirect_stdout(output):
@@ -235,6 +251,48 @@ class AgentEvaluatorNotebookWriteTests(unittest.TestCase):
                 self.assertEqual([], spark.created)
                 self.assertEqual(AGENT_TABLES, spark.catalog.lookups)
                 self.assertIn("unchanged (no rows)", output)
+
+    def test_tables_written_this_run_are_compacted_once_at_the_end(self):
+        for write_mode in ("append", "overwrite"):
+            with self.subTest(write_mode=write_mode):
+                spark, output = run_agent_writer_cell(write_mode, rows=5)
+                self.assertEqual(AGENT_TABLES, [save["table"] for save in spark.saves])
+                optimize = [s for s in spark.sqls if s.startswith("OPTIMIZE")]
+                self.assertEqual([f"OPTIMIZE {t} VORDER" for t in AGENT_TABLES], optimize)
+                self.assertGreater(spark.sqls.index(optimize[0]), max(
+                    (i for i, s in enumerate(spark.sqls) if s.startswith("DROP")), default=-1))
+                self.assertEqual(6, output.count("compacted (OPTIMIZE VORDER)"))
+
+    def test_the_raw_table_is_compacted_only_when_this_run_wrote_it(self):
+        spark, _ = run_agent_writer_cell("append", rows=5, _raw_writes=1)
+        self.assertEqual("OPTIMIZE dbo.conversationtranscripts_raw VORDER", spark.sqls[-1])
+        spark, _ = run_agent_writer_cell("append", rows=5, _raw_writes=1, RAW_TABLE="")
+        self.assertNotIn("raw", " ".join(spark.sqls))
+        spark, _ = run_agent_writer_cell("append", rows=5, _raw_writes=0)
+        self.assertNotIn("raw", " ".join(spark.sqls))
+
+    def test_empty_or_unchanged_tables_are_not_compacted(self):
+        for write_mode, existing in (("append", ()), ("merge", AGENT_TABLES), ("overwrite", ())):
+            with self.subTest(write_mode=write_mode, existing=bool(existing)):
+                spark, output = run_agent_writer_cell(write_mode, existing=existing)
+                self.assertFalse([s for s in spark.sqls if s.startswith("OPTIMIZE")])
+                self.assertNotIn("compacted", output)
+
+    def test_compaction_can_be_turned_off(self):
+        spark, output = run_agent_writer_cell("append", rows=5, RUN_OPTIMIZE=False)
+        self.assertEqual(AGENT_TABLES, [save["table"] for save in spark.saves])
+        self.assertFalse([s for s in spark.sqls if s.startswith("OPTIMIZE")])
+
+    def test_a_failed_compaction_never_fails_the_load(self):
+        spark = FakeSpark()
+        spark.fail_sql = ("dbo.agent_turns",)
+        spark, output = run_agent_writer_cell("append", rows=5, spark=spark)
+        self.assertEqual(len(AGENT_TABLES), len([s for s in spark.sqls if s.startswith("OPTIMIZE")]))
+        self.assertIn("! dbo.agent_turns: not compacted (RuntimeError: compaction is busy)", output)
+        self.assertEqual(5, output.count("compacted (OPTIMIZE VORDER)"))
+
+    def test_run_optimize_is_a_config_setting(self):
+        self.assertRegex(notebook_cell_source("# === CONFIG ==="), r"(?m)^RUN_OPTIMIZE\s+= True\b")
 
     def test_zero_row_notebook_messages_are_accurate(self):
         text = NOTEBOOK.read_text(encoding="utf-8")

@@ -86,6 +86,18 @@ Left as they are:
 
 The other calculated columns only read their own row.
 
+### Lakehouse compaction
+
+Two notebooks wrote small Delta files on every run and never compacted them, so each refresh read
+more files: `Copilot_M365_Activity_Ingester` replaces one day at a time in `m365_activity_daily`
+and `m365_report_status`, and `Copilot_Agent_Transcript_Parser` appends or merges into the `agent_*`
+tables (and the raw transcript table, when `RAW_TABLE` is set). Both now run `OPTIMIZE <table>
+VORDER` once per run, after the writes, on the tables that run wrote, as
+`Copilot_Audit_Log_Processor` already does. `RUN_OPTIMIZE = False` in the config cell turns it off.
+Unlike the processor, a failed compaction is printed and the run carries on, so compaction never
+fails a load; the next run tries again. The parser skips tables that were empty or unchanged.
+Azure needs nothing: its jobs write whole Parquet files and publish to Azure SQL, with no Delta log.
+
 ## Deploy order
 
 1. **Update the processor**, on Fabric (`Repair or change`) or Azure (the jobs image, which runs
