@@ -755,10 +755,18 @@ interactions from the last 2 days (if there are none, for any record from the la
 which it found, with who fixes what: consent (a Global Administrator or Privileged Role
 Administrator), the secret (`rotate-secret`), or audit logging (a Compliance Administrator, in
 Purview > Audit). The search can take a few minutes. Installs and updates run the token check on
-their own after consent, when the secret is to hand (it's just been made, or Key Vault gives it);
-`--check-audit` adds the search, on Fabric. On Azure, `check-audit` checks the jobs' managed
-identity has the role. `check-audit` reads the app's secret from Key Vault where it can, and
-otherwise asks you to paste one.
+their own when the secret is to hand (it's just been made, or Key Vault gives it): once after
+consent, where a problem is only noted as Entra may not have caught up, and again once the pipeline
+is deployed, which reports and keeps what it finds. `--check-audit` adds the search, on Fabric. On
+Azure, `check-audit` checks the jobs' managed identity has the role. `check-audit` reads the app's
+secret from Key Vault where it can, and otherwise asks you to paste one. Once a load has run, a
+problem it finds also says how to reload the days read as empty: rename
+`Files/_audit_staging/_manifest.json` in the Lakehouse, then run `run --backfill-days <n>`.
+
+An app registration you bring must be registered in your tenant, with a service principal there.
+The installer stops if it finds only another tenant's app, or if the app has no service principal
+and you can't create one; it says who can (the app's owner or an Application Administrator, or a
+Global Administrator through the admin consent link).
 
 On the Azure target, `upload`, `--csv`, `load-cowork`, `--flow-identity app` and
 `coworkCredits=api` are Fabric only for now. `upload`, `--csv` and `load-cowork` stop and name the

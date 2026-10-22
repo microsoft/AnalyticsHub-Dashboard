@@ -6,7 +6,11 @@ import { parseCli } from '../src/cli.js';
 import { HttpError } from '../src/http.js';
 import {
   appSecretFor,
+  AUDIT_LOOKBACK_DAYS,
+  AUDIT_MANIFEST,
+  AUDIT_REUSE_HOURS,
   AUDIT_ROLE,
+  auditReloadSteps,
   checkAppToken,
   checkAuditAccess,
   checkAuditCommand,
@@ -90,6 +94,20 @@ test('checkAppToken: a token for another tenant is the wrong tenant, whatever it
 
   const missing = setup({ tokens: [new Error('AADSTS700016: Application with identifier app-1 was not found in the directory')] });
   assert.equal((await checkAppToken(missing.ctx, 'app-1', 's')).result, 'wrong-tenant');
+});
+
+test('checkAppToken: AADSTS700016 is retried like a new secret, as Entra is slow to show a new app', async () => {
+  const notFound = new Error('AADSTS700016: Application with identifier app-1 was not found in the directory');
+  const fresh = setup({ tokens: [notFound, notFound, GOOD] });
+  assert.equal((await checkAppToken(fresh.ctx, 'app-1', 's')).result, 'ok');
+  assert.deepEqual(fresh.sleeps, [SECRET_RETRY_MS, SECRET_RETRY_MS]);
+
+  const gone = setup({ tokens: [notFound] });
+  const r = await checkAppToken(gone.ctx, 'app-1', 's');
+  assert.equal(r.result, 'wrong-tenant');
+  assert.match(r.detail ?? '', /isn't in tenant tenant-1/);
+  assert.equal(gone.used.length, TOKEN_ATTEMPTS, 'only after every try');
+  assert.deepEqual(gone.sleeps, Array(TOKEN_ATTEMPTS - 1).fill(SECRET_RETRY_MS));
 });
 
 test('checkAppToken: no role is no-role; right after consent it waits for the role to arrive', async () => {
@@ -213,6 +231,67 @@ test('checkAuditAccess: during install it checks the token once, says who fixes 
   assert.equal(await checkAuditAccess(azure.ctx), undefined);
 });
 
+/** The finding kept in the install record, read fresh so TypeScript doesn't narrow it. @param {{ config: any }} t */
+const kept = (t) => t.config.auditCheck;
+
+test('checkAuditAccess: a provisional problem is only noted, not kept, and the later check still runs', async () => {
+  const t = setup({ tokens: [jwt({ tid: 'tenant-1' })] });
+  t.ctx.appSecret = 's';
+  assert.equal(await checkAuditAccess(t.ctx, { consented: true, provisional: true }), 'no-role');
+  assert.match(t.ui.text(), /audit log access isn't confirmed yet \(the app's token lacks AuditLogsQuery\.Read\.All\)[^\n]*checked again once the pipeline is deployed/);
+  assert.doesNotMatch(t.ui.text(), /Grant admin consent/, 'no fix-it advice yet');
+  assert.equal(kept(t), undefined, 'not kept');
+  assert.equal(t.saves(), 0);
+  assert.equal(t.ctx.auditChecked, undefined);
+
+  // Entra caught up by the later check: ok, and kept.
+  const later = setup({ tokens: [jwt({ tid: 'tenant-2' })] });
+  later.ctx.appSecret = 's';
+  assert.equal(await checkAuditAccess(later.ctx, { provisional: true }), 'wrong-tenant');
+  assert.equal(kept(later), undefined, 'wrong tenant isn\'t kept from the early check either');
+  later.ctx.api.appGraph = () => /** @type {any} */ ({ token: async () => GOOD, audit: fakeAudit().audit });
+  assert.equal(await checkAuditAccess(later.ctx), 'ok');
+  assert.equal(later.config.auditCheck?.result, 'ok');
+  assert.equal(await checkAuditAccess(later.ctx), undefined, 'done for this run');
+
+  // Still wrong at the later check: reported and kept.
+  assert.equal(await checkAuditAccess(t.ctx, { consented: true }), 'no-role');
+  assert.match(t.ui.text(), /Grant admin consent/);
+  assert.equal(t.config.auditCheck?.result, 'no-role');
+
+  const ok = setup();
+  ok.ctx.appSecret = 's';
+  assert.equal(await checkAuditAccess(ok.ctx, { provisional: true }), 'ok');
+  assert.equal(ok.ctx.auditChecked, true);
+  assert.equal(await checkAuditAccess(ok.ctx), undefined, 'a passing early check isn\'t repeated');
+});
+
+test('reportAudit: once a load has run, a problem says how to reload the windows read as empty (Fabric only)', async () => {
+  const loaded = setup({ audit: fakeAudit({ records: [0, 0] }).audit });
+  loaded.ctx.appSecret = 's';
+  loaded.config.firstRun = { jobId: 'job-1' };
+  assert.equal(await checkAuditCommand(loaded.ctx), 'empty-log');
+  const text = loaded.ui.text();
+  assert.match(text, new RegExp(`rename ${AUDIT_MANIFEST.replace(/[./]/g, '\\$&')} \\(for example to _manifest\\.old\\.json\\)`));
+  assert.match(text, /run --backfill-days <n>/);
+  assert.match(text, new RegExp(`reused: recent ones for ${AUDIT_REUSE_HOURS} hours, and ones older than ${AUDIT_LOOKBACK_DAYS} days are never read again`));
+
+  const before = setup({ audit: fakeAudit({ records: [0, 0] }).audit });
+  before.ctx.appSecret = 's';
+  assert.equal(await checkAuditCommand(before.ctx), 'empty-log');
+  assert.doesNotMatch(before.ui.text(), /_manifest\.json/, 'nothing to reload before the first load');
+
+  const fine = setup();
+  fine.ctx.appSecret = 's';
+  fine.config.firstRun = { jobId: 'job-1' };
+  assert.equal(await checkAuditAccess(fine.ctx), 'ok');
+  assert.doesNotMatch(fine.ui.text(), /_manifest\.json/);
+
+  const azure = setup().config;
+  azure.target = 'azure';
+  assert.deepEqual(auditReloadSteps(azure), [], 'the Azure jobs keep no such manifest');
+});
+
 test('saveAuditCheck: a passing token check doesn\'t replace an earlier live search\'s finding', () => {
   const t = setup();
   saveAuditCheck(t.ctx, { result: 'empty-log' });
@@ -277,8 +356,12 @@ test('emptyAuditHelp: most likely causes first, narrowed by the last audit check
 
   t.config.auditCheck = { at: 'x', result: 'no-copilot' };
   assert.doesNotMatch(emptyAuditHelp(t.config).causes.join(' '), /Admin consent|Audit logging is off/);
+  assert.deepEqual(emptyAuditHelp(t.config).after, [], 'nothing to fix, so nothing to reload');
   t.config.auditCheck = { at: 'x', result: 'bad-secret' };
   assert.match(emptyAuditHelp(t.config).causes[0], /rotate-secret/);
+  assert.deepEqual(emptyAuditHelp(t.config).after, auditReloadSteps(t.config));
+  assert.equal(none.after.length, 2);
+  assert.match(none.after.join(' '), /_manifest\.json[\s\S]*run --backfill-days <n>/);
 });
 
 test('cli: --check-audit goes with install or update on Fabric; check-audit is a command', () => {
