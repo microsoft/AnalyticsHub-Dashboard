@@ -120,7 +120,7 @@ which column is in use, so it never lists one column's values under another's na
 takes about a second as the values load, or longer if the org columns are still loading: until
 they settle the column, the values of the column in use load beside them.
 
-Once the page has loaded, the app fetches each other page's first tab in the background. See
+Once the page has loaded, the app fetches the first tab of the next two pages in the background. See
 [How pages load](../app/README.md#how-pages-load).
 
 ## Running costs

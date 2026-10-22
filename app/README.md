@@ -92,10 +92,12 @@ The app is built to stay quick for a large tenant (about 20,000 people):
 - **Long lists wait for a click.** The leaderboard ranking and the by-organization and by-person
   lists load when you choose **Show …**. The cards above them still count everyone, and downloads
   and report packs still print the lists in full.
-- **Other pages load in the background.** Once the page on screen has loaded, the app fetches the
-  first tab of each other page, one query at a time, and waits whenever the page on screen is
-  loading. If you open a page while its query is waiting, the query starts at once.
-  `PREFETCH` in `src/components/prefetcher.tsx` turns this off.
+- **The next pages load in the background.** Once the page on screen has loaded, the app fetches
+  the first tab of the next two pages in the menu, one query at a time, and waits whenever the page
+  on screen is loading. Opening another page fetches the two after that one. If you open a page
+  while its query is waiting, the query starts at once. `PREFETCH` in
+  `src/components/prefetcher.tsx` turns this off, and `PREFETCH_AHEAD` in
+  `src/components/prefetch-targets.ts` sets how many tabs are fetched.
 - **A busy model slows down on its own.** If Power BI throttles a model, even inside a normal
   reply, only that model's queries wait: 1, 2, 4, 8, then 15 seconds, one query at a time, for
   up to a minute. A `Retry-After` is kept in full: if it's longer than the wait left, the card
