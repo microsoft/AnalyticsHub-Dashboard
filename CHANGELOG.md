@@ -225,6 +225,13 @@ sets the number. On Fabric and Azure.
 
 - Installer: M365 Activity now refreshes incrementally (12 months kept, the last 35 days reloaded), instead of reloading the whole table on every refresh. The first refresh after an install or **Repair or change** still loads it all once.
 
+- Consumption Central refresh does less work for large user counts, with the same results. The
+  Studio and GitHub usage intensity groups find each percentile cut once instead of ranking every
+  user against every other user, and `Weeks Ago` no longer looks up the latest week separately for
+  every row. The Cowork usage cohorts swap a per-row ranking for a per-row count, which is cheaper
+  but still runs once per row. `Weeks Active` and `Weeks Over Limit` are unchanged. The overall
+  saving still needs timing on a large copy.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its

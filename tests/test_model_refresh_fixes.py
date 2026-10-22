@@ -60,9 +60,9 @@ def load_script():
 class ModelRefreshFixes(unittest.TestCase):
     def test_templates_are_current(self):
         script = load_script()
-        for relative, queries, functions, response_seconds in script.TARGETS:
+        for relative, queries, functions, dax in script.TARGETS:
             original = (ROOT / relative).read_bytes()
-            rebuilt, changed = script.build(original, queries, functions, response_seconds)
+            rebuilt, changed = script.build(original, queries, functions, dax)
             self.assertEqual(changed, [], relative)
             self.assertEqual(rebuilt, original, relative)
 
