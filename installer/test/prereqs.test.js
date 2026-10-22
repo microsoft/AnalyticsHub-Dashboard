@@ -5,7 +5,11 @@ import { armApi, ROLES } from '../src/clients/azure.js';
 import { FABRIC_ADMIN_ROLE, graphApi } from '../src/clients/graph.js';
 import { emptyConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
-import { canAssignDirectoryRoles, checkPrereqs } from '../src/prereqs.js';
+import { readFile } from 'node:fs/promises';
+import { canAssignDirectoryRoles, checkPrereqs, preflightVerdict, reportPreflight } from '../src/prereqs.js';
+import { flowsWanted } from '../src/steps/flows.js';
+import { preflight } from '../src/steps/plan.js';
+import { fakeUi } from './fakes.js';
 
 const GA = '62e90394-69f5-4237-9190-012177145e10';
 const USER = /** @type {any} */ ({ id: 'user-1', upn: 'admin@contoso.com', tenantId: 't-1' });
@@ -424,4 +428,156 @@ test('canAssignDirectoryRoles: true only with Global Administrator or Privileged
   assert.equal(await canAssignDirectoryRoles(fakeApis({ roles: [{ roleTemplateId: 'e8611ab8-c189-46e8-94e1-60213ab1f814', displayName: 'Privileged Role Administrator' }] })), true);
   assert.equal(await canAssignDirectoryRoles(fakeApis({ roles: [{ roleTemplateId: FABRIC_ADMIN_ROLE, displayName: 'Fabric Administrator' }] })), false);
   assert.equal(await canAssignDirectoryRoles(fakeApis({ roles: [] })), false);
+});
+
+/** @param {Partial<import('../src/prereqs.js').Prereq> & { id: string }} p @returns {import('../src/prereqs.js').Prereq} */
+const row = (p) => ({ label: p.id, detail: '', neededFor: 'x', howTo: `how to fix ${p.id}`, status: 'missing', ...p });
+
+/** A Fabric config with no flows, Agent Evaluator, credit consumption or semantic model. */
+const plainConfig = () => {
+  const config = emptyConfig();
+  Object.assign(config.dataSources, { productFeedback: 'csv', studioCredits: 'csv', resourceGraph: 'off' });
+  config.modules.agentEvaluator = false;
+  config.modules.consumption = false;
+  config.semanticModel.enabled = false;
+  assert.deepEqual(flowsWanted(config), []);
+  return config;
+};
+
+/** A preflight ctx on the fake APIs, with a UI that records what it prints. @param {any} [over] @param {{ yes?: boolean, config?: any }} [o] */
+const preflightCtx = (over = {}, o = {}) => {
+  const t = fakeUi({ yes: o.yes });
+  const ctx = /** @type {any} */ ({ ui: t.ui, api: fakeApis(over), user: USER, config: o.config ?? plainConfig() });
+  return { ctx, t };
+};
+
+test('preflightVerdict: shows only what needs attention for what was chosen; met, hidden and optional "couldn\'t check" rows stay out', () => {
+  const config = plainConfig();
+  const items = [
+    row({ id: 'consent-role', optional: true }),
+    row({ id: 'fabric-admin', optional: true }),
+    row({ id: 'power-platform-admin', optional: true }),
+    row({ id: 'register-apps', status: 'met' }),
+    row({ id: 'audit-ingestion' }),
+    row({ id: 'power-bi-pro', status: 'unknown' }),
+    row({ id: 'copilot-licences', optional: true }),
+    row({ id: 'power-automate-premium', optional: true }),
+    row({ id: 'fabric-capacity' }),
+    row({ id: 'azure-rbac', optional: true }),
+    row({ id: 'key-vault', status: 'eligible', optional: true }),
+    row({ id: 'environments', optional: true }),
+    row({ id: 'viva-analyst', status: 'unknown', optional: true }),
+    row({ id: 'tenant-settings', status: 'unknown' }),
+  ];
+  const v = preflightVerdict(items, { config });
+  assert.deepEqual(v.block, []);
+  assert.deepEqual(v.warn.map((it) => it.id), ['consent-role', 'audit-ingestion', 'power-bi-pro', 'copilot-licences', 'key-vault'],
+    'the capacity (preflight stops on it itself), the Fabric admin role and the Viva analyst role are left out, and so are flows, environments, Azure access and unreadable tenant settings, none of which this install uses');
+
+  // Consent already granted: the role to grant it doesn't matter.
+  const consented = preflightVerdict(items.map((it) => (it.id === 'audit-ingestion' ? { ...it, status: /** @type {const} */ ('met') } : it)), { config });
+  assert.ok(!consented.warn.some((it) => it.id === 'consent-role'));
+
+  // With the flows, Agent Evaluator, credit consumption and the model on, their rows show.
+  const full = plainConfig();
+  Object.assign(full.dataSources, { productFeedback: 'api' });
+  full.keyVault.mode = 'keyvault';
+  full.modules.agentEvaluator = true;
+  full.modules.consumption = true;
+  full.semanticModel.enabled = true;
+  assert.ok(flowsWanted(full).length);
+  assert.deepEqual(preflightVerdict(items, { config: full }).warn.map((it) => it.id),
+    ['consent-role', 'power-platform-admin', 'audit-ingestion', 'power-bi-pro', 'copilot-licences', 'power-automate-premium', 'azure-rbac', 'key-vault', 'environments', 'tenant-settings']);
+  // System Administrator in an environment already: the Power Platform Administrator role isn't needed.
+  const sysAdmin = preflightVerdict(items.map((it) => (it.id === 'environments' ? { ...it, status: /** @type {const} */ ('met') } : it)), { config: full });
+  assert.ok(!sysAdmin.warn.some((it) => it.id === 'power-platform-admin'));
+});
+
+test('preflightVerdict: only can\'t-register-apps with --yes blocks an install; "couldn\'t check" and update never block', () => {
+  const config = plainConfig();
+  const cant = [row({ id: 'register-apps' })];
+  assert.deepEqual(preflightVerdict(cant, { config }).block, [], 'asked, the plan offers an app you already have or the admin pack');
+  assert.deepEqual(preflightVerdict(cant, { config, yes: true }).block.map((it) => it.id), ['register-apps']);
+  assert.deepEqual(preflightVerdict(cant, { config, yes: true, update: true }).block, [], 'an update never blocks');
+  assert.deepEqual(preflightVerdict([row({ id: 'register-apps', status: 'unknown' })], { config, yes: true }).block, [], '"couldn\'t check" never blocks');
+  const brought = plainConfig();
+  brought.app.appId = 'app-1';
+  assert.deepEqual(preflightVerdict(cant, { config: brought, yes: true }).block, []);
+  const pack = plainConfig();
+  pack.app.adminPack = /** @type {any} */ ({ writtenAt: '2026-06-01' });
+  assert.deepEqual(preflightVerdict(cant, { config: pack, yes: true }).block, []);
+  // Everything else only warns, even with --yes.
+  const missing = ['audit-ingestion', 'power-bi-pro', 'tenant-settings', 'key-vault', 'consent-role'].map((id) => row({ id }));
+  assert.deepEqual(preflightVerdict(missing, { config, yes: true }).block, []);
+});
+
+test('checkPrereqs: a check that takes too long is "couldn\'t check" rather than holding preflight up', async () => {
+  const never = () => new Promise(() => {});
+  const started = Date.now();
+  const items = await checkPrereqs({ api: fakeApis({ roles: [], licences: undefined, envs: undefined }), user: USER, config: plainConfig() }, { timeoutMs: 20 });
+  assert.ok(items.every((it) => it.status !== 'unknown' || !/longer than/.test(it.detail)), 'nothing slow, nothing timed out');
+  const slow = fakeApis();
+  slow.graph.myLicenseDetails = never;
+  slow.graph.usersCanRegisterApps = never;
+  slow.graph.myDirectoryRoles = async () => [];
+  const timed = Object.fromEntries((await checkPrereqs({ api: slow, user: USER, config: plainConfig() }, { timeoutMs: 20 })).map((i) => [i.id, i]));
+  assert.equal(timed['power-bi-pro'].status, 'unknown');
+  assert.equal(timed['power-bi-pro'].detail, 'Couldn\'t check: it took longer than 20 ms');
+  assert.equal(timed['register-apps'].status, 'unknown');
+  assert.equal(timed['fabric-capacity'].status, 'met', 'the others still answer');
+  assert.ok(Date.now() - started < 5000);
+  assert.deepEqual(preflightVerdict(Object.values(timed), { config: plainConfig(), yes: true }).block, [], 'a timeout never blocks');
+});
+
+test('preflight: prints only the prerequisites that need attention, before the plan, and carries on', async () => {
+  const { ctx, t } = preflightCtx({ roles: [], usersCanRegister: false });
+  const pre = await preflight(ctx);
+  assert.equal(pre.canCreateApps, false);
+  const text = t.text();
+  assert.match(text, /4 prerequisites need attention\. The install carries on\./);
+  assert.match(text, /Register apps in Entra/);
+  assert.match(text, /Global Administrator or Privileged Role Administrator/);
+  assert.match(text, /Audit log access for Copilot interactions/);
+  assert.doesNotMatch(text, /Power BI Pro or Premium Per User licence/, 'met rows stay out');
+  assert.doesNotMatch(text, /Viva Insights analyst/, 'it can never be checked');
+  assert.match(text, /prereqs" for the full list/);
+  assert.doesNotMatch(text, /You can't grant admin consent for Microsoft Graph/, 'the list says it once');
+  assert.ok(text.indexOf('Register apps in Entra') > text.indexOf('active Fabric capacity'), 'after the tenant checks');
+});
+
+test('preflight: with --yes, no way to register the app stops it before anything is created', async () => {
+  const { ctx, t } = preflightCtx({ roles: [], usersCanRegister: false }, { yes: true });
+  await assert.rejects(preflight(ctx), /can't create its app registration\. Run it without --yes to choose an app registration you already have or get the admin pack/);
+  assert.match(t.text(), /Stopped before creating anything: Register apps in Entra\./);
+});
+
+test('preflight: the list prints before preflight\'s own stops, such as no Fabric capacity', async () => {
+  const { ctx, t } = preflightCtx({ roles: [], usersCanRegister: false, capacities: [] });
+  await assert.rejects(preflight(ctx), /Start a Fabric trial/);
+  const text = t.text();
+  assert.ok(text.indexOf('Register apps in Entra') >= 0 && text.indexOf('Register apps in Entra') < text.indexOf('No active Fabric capacity you can use.'));
+  assert.doesNotMatch(text, /Active Fabric capacity\n/, 'preflight says it itself, once');
+});
+
+test('reportPreflight: nothing missing says so; an update warns and carries on; no checks says where to find them', () => {
+  const met = fakeUi();
+  reportPreflight(/** @type {any} */ ({ ui: met.ui, config: plainConfig() }), [row({ id: 'register-apps', status: 'met' })]);
+  assert.match(met.text(), /Prerequisites: nothing missing for what you chose/);
+
+  const upd = fakeUi({ yes: true });
+  const v = reportPreflight(/** @type {any} */ ({ ui: upd.ui, config: plainConfig() }), [row({ id: 'register-apps' })], { update: true });
+  assert.deepEqual(v.block, []);
+  assert.match(upd.text(), /1 prerequisite needs attention\. The update carries on\./);
+
+  const none = fakeUi();
+  reportPreflight(/** @type {any} */ ({ ui: none.ui, config: plainConfig() }), null);
+  assert.match(none.text(), /Couldn't check the prerequisites\. Run ".*prereqs" for the full list\./);
+});
+
+test('update: checks the prerequisites before changing anything, on Fabric and Azure, and never stops on them', async () => {
+  const src = await readFile(new URL('../src/install.js', import.meta.url), 'utf8');
+  const body = src.slice(src.indexOf('export async function update('), src.indexOf('export async function finishUpdate('));
+  assert.match(body, /if \(config\.target === 'azure'\) \{\s*await updatePrereqs\(ctx\);\s*return azureUpdate\(ctx\);/);
+  assert.ok(body.indexOf('await updatePrereqs(ctx);', body.indexOf('Nothing is installed yet')) < body.indexOf('ensureKeyVault(ctx)'));
+  assert.match(src, /async function updatePrereqs\(ctx\) \{[^}]*reportPreflight\(ctx, await preflightChecks\(ctx\), \{ update: true \}\)/);
 });
