@@ -1538,10 +1538,151 @@ test('Azure: a job run with no execution name is not counted as finished', async
   const t = await azureModelChanged();
   t.arm.api.startContainerAppJob = async () => /** @type {any} */ ({});
   const { startAndWaitJob } = await import('../src/steps/azure/index.js');
-  assert.deepEqual(await startAndWaitJob(t.ctx, 'run', { wait: true, steps: 'access,refresh' }), { ok: false, status: 'Unknown', unfollowed: true });
+  assert.deepEqual(await startAndWaitJob(t.ctx, 'run', { wait: true, steps: 'access,refresh' }), { ok: false, status: 'Unknown', unfollowed: true, started: true });
   assert.match(t.ui.text(), /Azure didn't say which run of the run job \(access,refresh\) this is, so the installer can't follow it to the end/);
   // Not waiting, it is only started, which is all that is claimed.
-  assert.deepEqual(await startAndWaitJob(t.ctx, 'run', { wait: false }), { ok: true, status: 'Running' });
+  assert.deepEqual(await startAndWaitJob(t.ctx, 'run', { wait: false }), { ok: true, status: 'Running', started: true });
+});
+
+/** A run of the run job that's going, as Azure lists it, started `ago` minutes before the fake clock's 12:00. */
+const runGoing = (/** @type {string} */ status, /** @type {number} */ ago, name = 'vlens-run-going') => [
+  { name, properties: { status, startTime: new Date(Date.parse('2026-06-01T12:00:00Z') - ago * 60_000).toISOString() } },
+  { name: 'vlens-run-earlier', properties: { status: 'Succeeded', startTime: '2026-05-31T12:00:00Z', endTime: '2026-05-31T13:00:00Z' } },
+];
+
+test("Azure run: doesn't start a second run while one is going, but ignores one going for over a day, and starts when it can't check", async () => {
+  const t = await azureModelChanged();
+  const az = /** @type {any} */ (t.config.azure);
+  const lastRun = { name: 'vlens-run-earlier', status: 'Succeeded', finishedAt: '2026-05-31T13:00:00.000Z' };
+  az.status.lastRun = structuredClone(lastRun);
+  const starts = () => t.arm.calls.filter((c) => c === 'startJob vlens-run').length;
+
+  for (const status of ['Running', 'Processing']) {
+    t.ui.out.length = 0;
+    t.arm.jobExecutions['vlens-run'] = runGoing(status, 30);
+    const before = starts();
+    // As Fabric's run does, the command fails: it didn't do what was asked.
+    assert.equal(await runCommand(t.ctx, 'run', { wait: true }), false, status);
+    assert.equal(starts(), before, `${status}: no second run`);
+    assert.match(t.ui.text(), /! The run job is already running \(vlens-run-going, started 30m 00s ago\), so this didn't start another\./, status);
+    assert.match(t.ui.text(), /Check on it with "valuelens-install status"\. Once it has finished, run "valuelens-install run" to start a new run\./, status);
+    assert.doesNotMatch(t.ui.text(), /Started run job/, status);
+    assert.deepEqual(az.status.lastRun, lastRun, `${status}: the last run is left as it was`);
+  }
+
+  // Not waiting, the command doesn't fail, as on Fabric. A run with no start time still counts as going.
+  for (const [execution, warning] of /** @type {[any, string][]} */ ([
+    [{ name: 'vlens-run-going', properties: { status: 'Running' } }, "! The run job is already running (vlens-run-going), so this didn't start another."],
+    [{ properties: { status: 'Running' } }, "! The run job is already running, so this didn't start another."],
+  ])) {
+    t.ui.out.length = 0;
+    t.arm.jobExecutions['vlens-run'] = [execution];
+    const before = starts();
+    assert.equal(await runCommand(t.ctx, 'run', { wait: false }), true, warning);
+    assert.equal(starts(), before, warning);
+    assert.ok(t.ui.text().includes(warning), t.ui.text());
+    assert.doesNotMatch(t.ui.text(), /started .* ago/);
+    assert.match(t.ui.text(), /Once it has finished, run "valuelens-install run" to start a new run\./);
+    assert.deepEqual(az.status.lastRun, lastRun);
+  }
+
+  // Asked for more history: the days aren't recorded, and the note gives the command again.
+  t.ui.out.length = 0;
+  t.arm.jobExecutions['vlens-run'] = runGoing('Running', 30);
+  const templates = t.arm.jobTemplates.length;
+  assert.equal(await runCommand(t.ctx, 'run', { wait: true, backfillDays: 90 }), false);
+  assert.equal(t.config.history.days, 30);
+  assert.match(t.ui.text(), /Once it has finished, run "valuelens-install run --backfill-days 90" to reload 90 days of audit history\./);
+  assert.equal(t.arm.jobTemplates.length, templates, 'nothing was started with the history');
+
+  // Started over a day ago, it's stuck, not running.
+  t.arm.jobExecutions['vlens-run'] = runGoing('Running', 25 * 60);
+  let before = starts();
+  assert.equal(await runCommand(t.ctx, 'run', { wait: true }), true);
+  assert.equal(starts(), before + 1, 'a run going for over a day is ignored');
+  assert.equal(az.status.lastRun.name, 'vlens-run-exec');
+
+  // Only finished runs.
+  t.arm.jobExecutions['vlens-run'] = [{ name: 'vlens-run-done', properties: { status: 'Succeeded', startTime: '2026-06-01T11:00:00Z' } }, { name: 'vlens-run-failed', properties: { status: 'Failed', startTime: '2026-06-01T10:00:00Z' } }];
+  before = starts();
+  assert.equal(await runCommand(t.ctx, 'run', { wait: true }), true);
+  assert.equal(starts(), before + 1);
+
+  // A check that fails starts the run, as before.
+  t.arm.jobExecutions['vlens-run'] = runGoing('Running', 30);
+  t.arm.failures.listContainerAppJobExecutions = [new HttpError('Internal', { status: 500, method: 'GET', url: 'https://x' })];
+  before = starts();
+  t.ui.out.length = 0;
+  assert.equal(await runCommand(t.ctx, 'run', { wait: true, backfillDays: 90 }), true);
+  assert.equal(starts(), before + 1, "a check that fails doesn't stop the run");
+  assert.equal(t.config.history.days, 90);
+  assert.doesNotMatch(t.ui.text(), /already running/);
+});
+
+test("Azure: the migrate job isn't held back by a run that's going", async () => {
+  const t = await azureModelChanged();
+  const { startAndWaitJob } = await import('../src/steps/azure/index.js');
+  t.arm.jobExecutions['vlens-run'] = runGoing('Running', 30);
+  t.arm.jobExecutions['vlens-migrate'] = runGoing('Running', 30, 'vlens-migrate-going');
+  t.arm.calls.length = 0;
+  assert.deepEqual(await startAndWaitJob(t.ctx, 'migrate', { wait: true }), { ok: true, status: 'Succeeded', started: true });
+  assert.deepEqual(t.arm.calls.filter((c) => c.includes('Job')), ['startJob vlens-migrate']);
+  assert.doesNotMatch(t.ui.text(), /already running/);
+});
+
+test('Azure Repair or change during the first load: no second run, and it says when the change loads', async () => {
+  const t = await azureModelChanged();
+  const az = /** @type {any} */ (t.config.azure);
+  // The first load started 53 minutes ago and is still going.
+  const firstLoad = { name: 'vlens-run-going', status: 'Running', startedAt: '2026-06-01T11:07:00.000Z' };
+  az.status.lastRun = structuredClone(firstLoad);
+  t.arm.jobExecutions['vlens-run'] = runGoing('Running', 53);
+  t.ctx.runFirstLoad = true;
+  t.arm.calls.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.ok(!t.arm.calls.includes('startJob vlens-run'), 'no second run');
+  assert.ok(t.arm.calls.includes('listJobExecutions vlens-run'));
+  const text = t.ui.text();
+  assert.match(text, /! The run job is already running \(vlens-run-going, started 53m 00s ago\), so this didn't start another\./);
+  assert.match(text, /Check on it with "valuelens-install status"\. Once it has finished, run "valuelens-install run" to load your changes, or they load on the next scheduled run\./);
+  assert.deepEqual(az.status.lastRun, firstLoad, 'the first load is still the last run');
+  assert.match(text, /Analytics Hub is set up/);
+  assert.doesNotMatch(text, /not finished/);
+});
+
+test("Azure: a history reload that can't start while a run is going isn't recorded, and gives the command for later", async () => {
+  const t = await azureModelChanged();
+  t.ctx.reloadHistoryDays = 90;
+  t.arm.jobExecutions['vlens-run'] = runGoing('Processing', 5);
+  t.arm.calls.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.ok(!t.arm.calls.includes('startJob vlens-run'));
+  assert.equal(t.config.history.days, 30, 'the reload is offered again next time');
+  assert.equal(/** @type {any} */ (t.config.azure).status.lastRun, undefined);
+  const text = t.ui.text();
+  assert.match(text, /! The run job is already running \(vlens-run-going, started 5m 00s ago\), so this didn't start another\./);
+  assert.match(text, /Once it has finished, run "valuelens-install run --backfill-days 90" to reload 90 days of audit history\./);
+  assert.doesNotMatch(text, /with 90 days of audit history|The history reload didn't start/);
+});
+
+test("Azure: org-scoped access waits for a run that's going, rather than starting its job beside it", async () => {
+  const t = await azureModelChanged();
+  orgAccessOn(t);
+  /** @type {any} */ (t.config.azure).powerBi.capacityId = 'cap-1';
+  t.ctx.api.dataLake = /** @type {any} */ (() => ({ readText: async () => null, writeFile: async () => {} }));
+  t.fabric.jobs.push({ status: 'Completed' });
+  t.arm.jobExecutions['vlens-run'] = runGoing('Running', 10);
+  t.arm.calls.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.ok(!t.arm.calls.includes('startJob vlens-run'), "the access job isn't started");
+  const text = t.ui.text();
+  assert.match(text, /! The run job is already running \(vlens-run-going, started 10m 00s ago\), so this didn't start another\./);
+  assert.match(text, /Check on it with "valuelens-install status"\. Once it has finished, apply org-scoped access again from "valuelens-install access", or the next scheduled run does\./);
+  assert.doesNotMatch(text, /Org-scoped access applied/);
+  assert.equal(/** @type {any} */ (t.config.azure).status.lastAccess, undefined);
+  assert.deepEqual(t.config.access?.rls?.applied, [], 'still owed, so the next update applies it again');
+  assert.match(text, /Analytics Hub is set up/);
+  assert.doesNotMatch(text, /not finished/);
 });
 
 test('Azure update from the page: a declined reset or a failed reload ends as failed, not done', async () => {

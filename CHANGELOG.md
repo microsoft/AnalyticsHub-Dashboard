@@ -31,6 +31,20 @@ Deployment instructions do **not** live here. They live in the READMEs:
   what's left and exits with an error: run **Uninstall** again to finish. Uninstall from a resource
   group the installer created still deletes the whole group. 0.6.7 has this problem too.
 
+**Azure: the installer doesn't start a run while one is going.** It used to start the run job
+without checking, so a **Repair or change** during a long first load started a second run beside
+it, and the two shared the audit staging area and the tenant's audit queries. Now the installer
+checks the run job before the first load, a history reload, org-scoped access or `run` starts it.
+If a run is going, it doesn't start another: it says which run is going, and what to run once it
+has finished. A history reload that doesn't start isn't recorded, so the next **Repair or change**
+offers it again. As on Fabric, `run` then exits with an error, a run that started more than 24
+hours ago doesn't count, and if the installer can't check, it starts the run as before.
+
+**Known issue:** on Azure, the schedule can still start a run while another is going, for example
+when a long first load reaches the scheduled time. If it does, stop the newer run, then reload the
+history once the other has finished, as [Troubleshooting](docs/TROUBLESHOOTING.md#azure) shows. A
+fuller fix is planned.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its

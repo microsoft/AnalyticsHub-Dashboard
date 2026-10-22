@@ -101,7 +101,7 @@ container registry is needed in the customer's subscription.
 python:3.12-slim plus DuckDB: no JVM, a few hundred MB, and 2–4 GiB is enough for the daily run (DuckDB
 spills to disk for a large backfill). The bottleneck is Purview audit API throttling, not compute. The ingesters run
 in parallel within the process, then the processor, then publish, then the model refresh. The installer's
-`run` command starts the job execution through ARM.
+`run` command starts the job execution through ARM, unless one is already running.
 
 ### 2.3 Storage options (replacing the Lakehouse)
 
