@@ -62,6 +62,16 @@ resource group.
 - **An install that already took over a zone** isn't detected: the zone now has that install's tag,
   and the install record doesn't say which zones were there before it.
 
+**Fixed:**
+
+- **Azure: a first install with public endpoints no longer stops at Power BI model** with
+  `DM_GWPipeline_Gateway_DataSourceAccessError`. Public endpoints are the default unless a policy
+  keeps Azure SQL private. Power BI tests the SQL reader's sign-in when it takes the models'
+  credentials, but the reader's database user is made by the database migration, which ran later.
+  Now a new **Power BI credentials** step sets them after **Database migration**. Private networking
+  is unchanged. To finish an install that stopped there, run setup again. Every earlier installer
+  with the Azure path (0.5.0 to 0.6.7) has this problem.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its

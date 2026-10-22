@@ -1516,11 +1516,15 @@ export async function installAzure(ctx, opts) {
   const flows = flowsWanted(config).length > 0;
   const withAccess = !!config.access;
   const askAccess = askMode(az) === 'existing';
+  // Power BI sets a public data source's credentials only after signing in to Azure SQL as the SQL reader, whose
+  // database user the migrate job creates. So with public endpoints the models are bound after 'Database migration'.
+  const bindAfterMigration = !isPrivate(az);
   const titles = [
     'Resource group', 'Azure resources', 'Entra applications', 'Microsoft Graph permissions', ...(consumption ? ['Credit consumption'] : []), ...(agent365 ? ['Agent 365 export'] : []),
     ...(feedback ? ['Product feedback export'] : []), ...(workday ? ['Workday export'] : []), ...(resourceGraph ? ['Resource Graph access'] : []),
     ...(askAccess ? ['Ask model access'] : []), ...(azureTranscriptStepWanted(config) ? ['Transcript access'] : []),
-    'Power BI model', ...(withAccess ? ['Viewer access'] : []), 'Azure resources (final)', 'Database migration', ...(rlsOn(config) ? ['Org-scoped access'] : []),
+    'Power BI model', ...(withAccess ? ['Viewer access'] : []), 'Azure resources (final)', 'Database migration',
+    ...(bindAfterMigration ? ['Power BI credentials'] : []), ...(rlsOn(config) ? ['Org-scoped access'] : []),
     ...(flows ? ['Power Automate flow'] : []), 'Teams app', ...(ctx.reloadHistoryDays ? ['Reload audit history'] : ctx.runFirstLoad ? ['First load'] : []),
   ];
   let n = 0;
@@ -1596,8 +1600,11 @@ export async function installAzure(ctx, opts) {
   }
 
   step('Power BI model');
-  await ensureAzurePowerBi(ctx, sqlSecret.value);
-  await useSqlSecret(ctx, sqlSecret);
+  const models = await deployAzurePowerBi(ctx);
+  if (!bindAfterMigration) {
+    await bindAzurePowerBi(ctx, sqlSecret.value, models);
+    await useSqlSecret(ctx, sqlSecret);
+  }
   ctx.save();
 
   if (withAccess) {
@@ -1615,6 +1622,15 @@ export async function installAzure(ctx, opts) {
     throw new Error(`The database migration job did not succeed (${migration.status}), so setup stopped before the first load. ` +
       `See its logs with: az containerapp job logs show -g ${az.resourceGroup} -n ${az.outputs?.migrateJobName} --execution ${az.status?.lastMigrate?.name} --container migrate. ` +
       'Re-run install once it is fixed; finished steps are skipped.');
+  }
+
+  // Before anything refreshes the models. Until now they kept the credential they had, so the secret it uses is
+  // removed only once the new one is set.
+  if (bindAfterMigration) {
+    step('Power BI credentials');
+    await bindAzurePowerBi(ctx, sqlSecret.value, models);
+    await useSqlSecret(ctx, sqlSecret);
+    ctx.save();
   }
 
   const loads = !!(ctx.runFirstLoad || ctx.reloadHistoryDays);
@@ -1868,8 +1884,11 @@ async function assignManagedIdentityGraphRoles(ctx) {
   }
 }
 
-/** @param {Ctx} ctx @param {string} sqlReaderSecret */
-async function ensureAzurePowerBi(ctx, sqlReaderSecret) {
+/**
+ * Deploys the Power BI workspace and models. Binding them to Azure SQL is bindAzurePowerBi's.
+ * @param {Ctx} ctx
+ */
+async function deployAzurePowerBi(ctx) {
   const { config, api, ui, sources } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
   az.powerBi ??= {};
@@ -1898,22 +1917,37 @@ async function ensureAzurePowerBi(ctx, sqlReaderSecret) {
   Object.assign(sm, { server, database, bound: true });
   const cc = await ensureAzureConsumptionModel(ctx, server, database);
   const ae = await ensureAzureAgentEvaluatorModel(ctx, server, database);
+  return { cc, ae };
+}
+
+/**
+ * Binds the models to Azure SQL as the SQL reader, with the secret given, and sets their refresh schedules.
+ * @param {Ctx} ctx @param {string} sqlReaderSecret
+ * @param {{ cc?: string, ae?: string }} models  The Consumption and Agent Evaluator models deployAzurePowerBi returned.
+ */
+async function bindAzurePowerBi(ctx, sqlReaderSecret, { cc, ae }) {
+  const { config, api, ui } = ctx;
+  const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
+  const pbi = /** @type {NonNullable<import('../../config.js').AzureConfig['powerBi']>} */ (az.powerBi);
   if (isPrivate(az)) await bindThroughVnetGateway(ctx, sqlReaderSecret);
-  else await bindPowerBiCredentials(ctx, sqlReaderSecret);
-  for (const id of [az.powerBi.datasetId, cc, azureAgentEvaluatorRefreshes(config) ? ae : undefined]) if (id) await api.powerBi.setRefreshSchedule(/** @type {string} */ (az.powerBi.workspaceId), id, refreshScheduleBody(ctx));
+  else {
+    await bindPowerBiCredentials(ctx, sqlReaderSecret);
+    ui.ok(`Bound the model${azureDatasetIds(config).length > 1 ? 's' : ''} to Azure SQL as ${SQL_READER_NAME}`);
+  }
+  for (const id of [pbi.datasetId, cc, azureAgentEvaluatorRefreshes(config) ? ae : undefined]) if (id) await api.powerBi.setRefreshSchedule(/** @type {string} */ (pbi.workspaceId), id, refreshScheduleBody(ctx));
   // A kept Consumption model stops refreshing; one deleted since has nothing to turn off. Power BI wants nothing
   // else in a request that turns a schedule off.
-  const kept = azureConsumptionModelDeployed(config) ? undefined : az.powerBi.consumptionDatasetId;
+  const kept = azureConsumptionModelDeployed(config) ? undefined : pbi.consumptionDatasetId;
   if (kept) {
-    await api.powerBi.setRefreshSchedule(/** @type {string} */ (az.powerBi.workspaceId), kept, { value: { enabled: false } }).catch((err) => {
+    await api.powerBi.setRefreshSchedule(/** @type {string} */ (pbi.workspaceId), kept, { value: { enabled: false } }).catch((err) => {
       if (!(err instanceof HttpError && err.status === 404)) ui.warn(`Couldn't turn off the scheduled refresh of ${config.consumption.model.name}: ${err.message}. Turn it off in the model's settings in Power BI.`);
     });
   }
   // A kept Agent Evaluator model, or one no environment can be read for yet, doesn't refresh; one deleted since has
   // nothing to turn off. Power BI wants nothing else in a request that turns a schedule off.
-  const idleEvaluator = azureAgentEvaluatorRefreshes(config) ? undefined : az.powerBi.agentEvaluatorDatasetId;
+  const idleEvaluator = azureAgentEvaluatorRefreshes(config) ? undefined : pbi.agentEvaluatorDatasetId;
   if (idleEvaluator) {
-    await api.powerBi.setRefreshSchedule(/** @type {string} */ (az.powerBi.workspaceId), idleEvaluator, { value: { enabled: false } }).catch((err) => {
+    await api.powerBi.setRefreshSchedule(/** @type {string} */ (pbi.workspaceId), idleEvaluator, { value: { enabled: false } }).catch((err) => {
       if (!(err instanceof HttpError && err.status === 404)) ui.warn(`Couldn't turn off the scheduled refresh of ${config.agentEvaluator.model.name}: ${err.message}. Turn it off in the model's settings in Power BI.`);
     });
   }
