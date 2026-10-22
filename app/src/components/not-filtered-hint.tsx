@@ -8,7 +8,7 @@
 import { Info } from "lucide-react";
 import { useFilterContext } from "@/hooks/filter.context";
 import { groupNotFiltered, type NotFiltered } from "@/lib/filter-profiles";
-import { filterLabel, isFilterActive, type FilterKey } from "@/lib/filters";
+import { filterLabel, isFilterInEffect, type FilterKey } from "@/lib/filters";
 
 function joinLabels(keys: readonly FilterKey[], orgLabel: string): string {
     const labels = keys.map((key) => filterLabel(key, orgLabel));
@@ -31,8 +31,8 @@ interface NotFilteredHintProps {
  * renders when every filter applies.
  */
 export function NotFilteredHint({ from = [], ignored = [], reason }: NotFilteredHintProps) {
-    const { filters, applicable, orgAttribute } = useFilterContext();
-    const skipped = ignored.filter((key) => applicable.includes(key) && isFilterActive(filters, key));
+    const { filters, applicable, orgAttribute, options } = useFilterContext();
+    const skipped = ignored.filter((key) => applicable.includes(key) && isFilterInEffect(filters, key, options));
     const groups = groupNotFiltered([...from, reason ? skipped.map((key) => ({ key, reason })) : []]);
     if (groups.length === 0) return null;
 

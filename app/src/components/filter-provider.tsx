@@ -9,7 +9,7 @@ import { useCallback, useMemo, useState, type ReactNode } from "react";
 import { FilterContext } from "@/hooks/filter.context";
 import { useSemanticModelQuery, useSpeculativeQuery } from "@/hooks/use-semantic-model-query";
 import { isConnectionConfigured } from "@/lib/connections";
-import { defaultFilters, type FilterKey, type FilterState } from "@/lib/filters";
+import { tenantDefaultFilters, type FilterKey, type FilterState } from "@/lib/filters";
 import { DEFAULT_ORG_ATTRIBUTE, describeOrgAttribute } from "@/lib/org-attribute";
 import { runtimeConfig } from "@/lib/runtime-config";
 import {
@@ -50,6 +50,10 @@ function consumptionAttributesConfig() {
  * the model does not have — or the default, on a model whose `Organization`
  * column is empty — falls back to the first column worth grouping by.
  *
+ * Every session starts on the tenant's default dates — the last 12 weeks on a
+ * large tenant, every date on a small one — which each query works out for
+ * itself, so the page's first queries don't wait for the options.
+ *
  * Only the filter options load with the page. The org columns load in the
  * background lane, and on screen once a breakdown by org or a filter menu
  * other than the dates asks for them. What only a menu shows — the org
@@ -62,7 +66,8 @@ function consumptionAttributesConfig() {
  * changes, so a menu opened early waits for the slower of the two, not both.
  */
 export function FilterProvider({ applicable, children }: { applicable: readonly FilterKey[]; children: ReactNode }) {
-    const [state, setFilters] = useState<FilterState>(defaultFilters);
+    // The tenant's default date window from the first query: each query decides in the model whether it narrows.
+    const [state, setFilters] = useState<FilterState>(tenantDefaultFilters);
     const [menuOpened, setMenuOpened] = useState(false);
     const [orgColumnsWanted, setOrgColumnsWanted] = useState(false);
     const requestFilterChoices = useCallback(() => setMenuOpened(true), []);

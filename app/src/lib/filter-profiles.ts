@@ -6,7 +6,17 @@
 //-----------------------------------------------------------------------
 
 import { dateBetween, daxString, treatAs } from "./dax-filters";
-import { FILTER_COLUMNS, FILTER_KEYS, filterExpression, isFilterActive, type FilterKey, type FilterState } from "./filters";
+import {
+    FILTER_COLUMNS,
+    FILTER_KEYS,
+    filterExpression,
+    isFilterActive,
+    isFilterInEffect,
+    isTenantDefaultRange,
+    type DateRange,
+    type FilterKey,
+    type FilterState,
+} from "./filters";
 import { describeOrgAttribute, orgColumnRef } from "./org-attribute";
 
 /**
@@ -37,6 +47,12 @@ export interface FilterEnvironment {
      * attribute is there until they have loaded.
      */
     consumptionOrgAttributes?: readonly string[];
+    /**
+     * Whether the filter options say the tenant is large, `undefined` while
+     * they load. The tenant's default date window narrows only on a large
+     * tenant, so a query that can't take it says so only then.
+     */
+    largeTenant?: boolean;
 }
 
 /** An active filter a query left out, for a "Not filtered by" hint. */
@@ -69,7 +85,9 @@ export function resolveFilters(
         if (!isFilterActive(state, key)) continue;
         const rule = profile[key];
         const outcome = typeof rule === "function" ? rule(state, env) : rule;
-        if (isNotApplied(outcome)) notFilteredBy.push({ key, reason: outcome.reason });
+        if (isNotApplied(outcome)) {
+            if (isFilterInEffect(state, key, env)) notFilteredBy.push({ key, reason: outcome.reason });
+        }
         else expressions.push(outcome);
     }
     return { expressions, notFilteredBy };
@@ -144,6 +162,26 @@ export const SHADOW_AI: FilterProfile = unfiltered(
     "Defender's shadow AI findings are a recent snapshot by device and tool, not linked to these filters.",
 );
 
+/**
+ * Why a model other than ValueLens keeps every date under the tenant's
+ * default window: the window follows the last day of Copilot activity and
+ * the tenant's size in ValueLens, which another model can't read.
+ */
+function keepsOwnDates(model: string): NotApplied {
+    return notApplied(`the default last 12 weeks follows Copilot activity, so ${model} keeps every date until you choose a range.`);
+}
+
+/**
+ * A date rule for a model other than ValueLens: fixed dates as `rule` applies
+ * them, and every date under the tenant's default window.
+ */
+function ownDates(model: string, rule: (range: DateRange) => string): FilterRule {
+    return (state) => {
+        const range = state.dateRange!;
+        return isTenantDefaultRange(range) ? keepsOwnDates(model) : rule(range);
+    };
+}
+
 // ── Agent Evaluator ──────────────────────────────────────────────────────
 
 /** The org columns the Agent Evaluator's own copy of the org data holds. */
@@ -164,7 +202,7 @@ export const EVALUATOR_ORG_COLUMNS: readonly string[] = [
  * with ValueLens. Its own slicers are applied with these, so both narrow.
  */
 export const EVALUATOR: FilterProfile = {
-    dateRange: valueLens("dateRange"),
+    dateRange: ownDates("the Agent Evaluator", (range) => dateBetween(FILTER_COLUMNS.date, range.from, range.to)),
     organizations: (state) =>
         EVALUATOR_ORG_COLUMNS.includes(state.orgAttribute)
             ? treatAs(orgColumnRef(state.orgAttribute), state.organizations)
@@ -224,8 +262,7 @@ const consumptionOrg = (state: FilterState, env: FilterEnvironment): string | No
     return `TREATAS(${people}, 'Org'[UserPrincipalName])`;
 };
 
-const reportingDate = (state: FilterState) =>
-    dateBetween("'Reporting Date'[Date]", state.dateRange!.from, state.dateRange!.to);
+const reportingDate = ownDates("Consumption Central", (range) => dateBetween("'Reporting Date'[Date]", range.from, range.to));
 
 const agentBridge = (state: FilterState) => treatAs("'Agent Bridge'[Agent Name]", state.agentNames);
 

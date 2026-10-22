@@ -7,6 +7,7 @@
 
 import { describe, expect, it } from "vitest";
 import { applyDaxFilters, evaluateBody } from "@/lib/dax-filters";
+import { tenantDefaultDates } from "@/lib/filters";
 import { TREND_MONTHS } from "@/lib/month-over-month";
 import { reportingDateFilter } from "@/queries/consumption/options";
 import { filterOptions } from "@/queries/filters/filter-options";
@@ -208,6 +209,8 @@ ${evaluateBody(executiveMonths().query)}
         const lastDay = "MAX('Chat + Agent Interactions (Audit Logs)'[ActivityDate])";
         expect(filterOptions().query).toContain(`FORMAT(${lastDay}, "yyyy-MM-dd")`);
         expect(query).toContain(`VAR _trendEnd = CALCULATE(${lastDay}, REMOVEFILTERS())`);
+        // The tenant's default window ends on the same day, so the trend's months are the same under it.
+        expect(tenantDefaultDates()).toContain(`VAR __TenantLastDate = CALCULATE(${lastDay}, REMOVEFILTERS())`);
     });
 
     it("keeps its months when the page's filters wrap it", () => {

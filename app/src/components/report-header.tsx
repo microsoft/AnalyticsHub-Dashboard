@@ -62,7 +62,7 @@ export function ReportHeader({
     downloadable = true,
     meta,
 }: ReportHeaderProps) {
-    const { filters, orgAttribute } = useFilterContext();
+    const { filters, orgAttribute, options } = useFilterContext();
     const exporter = useReportExport();
 
     const start = (format: ExportFormat) =>
@@ -70,7 +70,7 @@ export function ReportHeader({
             name: title,
             description: blurb,
             root: contentRef.current,
-            filters: describeFilters(filters, filterKeys, orgAttribute.label),
+            filters: describeFilters(filters, filterKeys, orgAttribute.label, options),
             freshness: describeFreshness(sources, dates),
             dataTo: earliestDate(sources.map((source) => dates[source])),
             missing,

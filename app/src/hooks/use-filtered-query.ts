@@ -69,7 +69,8 @@ export interface FilteredQueryConfig {
  * never collapses the page back to skeletons.
  */
 export function useFilteredQuery(config: FilteredQueryConfig, options: FilteredQueryOptions = {}) {
-    const { filters, applicable, consumptionOrgAttributes } = useFilterContext();
+    const { filters, applicable, consumptionOrgAttributes, options: filterOptions } = useFilterContext();
+    const largeTenant = filterOptions?.largeTenant;
     const profile = config.filters ?? defaultProfile(config.connection, valueLensConnection);
     const taskTimes = useTaskTimes();
     const { ignore, extra } = options;
@@ -89,8 +90,8 @@ export function useFilteredQuery(config: FilteredQueryConfig, options: FilteredQ
     const resolved = useMemo(() => {
         const ignored = new Set(ignoreKey ? ignoreKey.split("|") : []);
         const keys = applicable.filter((key) => !ignored.has(key));
-        return resolveFilters(profile, filters, keys, { consumptionOrgAttributes });
-    }, [profile, filters, applicable, ignoreKey, consumptionOrgAttributes]);
+        return resolveFilters(profile, filters, keys, { consumptionOrgAttributes, largeTenant });
+    }, [profile, filters, applicable, ignoreKey, consumptionOrgAttributes, largeTenant]);
 
     const filtered = useCallback((dax: string) => {
         if (!dax) return "";

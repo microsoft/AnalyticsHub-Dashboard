@@ -22,6 +22,7 @@ import {
     DATE_PRESET_LABELS,
     formatDateRange,
     isFilterActive,
+    isTenantDefaultRange,
     presetRange,
     type DatePreset,
 } from "@/lib/filters";
@@ -111,8 +112,11 @@ export function OverviewStage() {
     const { theme } = useThemeContext();
     const [preset, setPreset] = useState<OverviewPreset>("all");
     const { filters, applicable } = useFilterContext();
-    // The filter bar's dates, when set, take over from this stage's own preset.
-    const barRange = applicable.includes("dateRange") && isFilterActive(filters, "dateRange") ? filters.dateRange : undefined;
+    // The filter bar's dates, when chosen, take over from this stage's own preset; the tenant's default window doesn't reach Consumption Central.
+    const barRange =
+        applicable.includes("dateRange") && isFilterActive(filters, "dateRange") && !isTenantDefaultRange(filters.dateRange)
+            ? filters.dateRange
+            : undefined;
 
     const dates = useConsumptionSummary(consumptionDates());
     const first = isoDate(dates.row?.["[First Date]"]);
