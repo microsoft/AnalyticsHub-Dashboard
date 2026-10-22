@@ -15,7 +15,8 @@ import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } fr
 import { ErrorFallback } from "@/ErrorFallback";
 import { FilterContext } from "@/hooks/filter.context";
 import { ThemeContext } from "@/hooks/theme.context";
-import { defaultFilters } from "@/lib/filters";
+import { evaluateBody } from "@/lib/dax-filters";
+import { defaultFilters, type FilterKey } from "@/lib/filters";
 import { HttpFabricProxy } from "@/lib/http-fabric-proxy";
 import { DEFAULT_ORG_ATTRIBUTE, describeOrgAttribute, ORG_TABLE, withOrgAttribute } from "@/lib/org-attribute";
 import { QueryScheduler, scheduledProxy } from "@/lib/query-scheduler";
@@ -111,21 +112,25 @@ function rowOf({ columnMetadata }: Query): Record<string, unknown>[] {
     return [Object.fromEntries(Object.keys(columnMetadata).map((key) => [key, key.endsWith("Headline]") ? "Use is steady" : 1]))];
 }
 
+type Rows = Record<string, unknown>[] | "error";
+type Asked = string | ((query: string) => boolean);
+
 /**
  * The app's client on Azure: the SDK's JSON protocol through the same-origin API, with `fetch`
  * answering each query as it was told to, or holding the answer back until it is released.
+ * A query is named by its text, or by a test of its text, as for one the filter bar has wrapped.
  */
 function azure() {
-    const answers = new Map<string, Record<string, unknown>[] | "error">();
-    const held = new Map<string, { answered: Promise<void>; release: () => void }>();
+    const answers = new Map<Asked, Rows>();
+    const held = new Map<Asked, { answered: Promise<void>; release: () => void }>();
     const sent: string[] = [];
     vi.stubGlobal(
         "fetch",
         vi.fn(async (_url: string, init: RequestInit) => {
             const { query } = JSON.parse(String(init.body)) as { query: string };
             sent.push(query);
-            await held.get(query)?.answered;
-            const rows = answers.get(query);
+            await find(held, query)?.answered;
+            const rows = find(answers, query);
             if (rows === undefined || rows === "error") {
                 const error = { error: { code: "QueryFailed", message: "The query failed." } };
                 return new Response(JSON.stringify(error), { status: 400, headers: JSON_HEADERS });
@@ -141,50 +146,63 @@ function azure() {
     } as FabricClientConfig);
     return {
         sent,
-        answer(query: string, rows: Record<string, unknown>[] | "error") {
+        answer(query: Asked, rows: Rows) {
             answers.set(query, rows);
         },
-        hold(query: string) {
+        hold(query: Asked) {
             let release = () => {};
             const answered = new Promise<void>((resolve) => (release = resolve));
             held.set(query, { answered, release });
         },
-        release(query: string) {
+        release(query: Asked) {
             held.get(query)?.release();
             held.delete(query);
         },
     };
 }
 
+/** What the fake model was told for `query`: by its text first, then by the first test it passes. */
+function find<T>(told: Map<Asked, T>, query: string): T | undefined {
+    if (told.has(query)) return told.get(query);
+    for (const [asked, value] of told) if (typeof asked !== "string" && asked(query)) return value;
+    return undefined;
+}
+
+/** `query` once the filter bar has wrapped it: another query that still holds its body. */
+const filteredFrom = ({ query }: Query) => (asked: string) => asked !== query && asked.includes(evaluateBody(query));
+
 function Themed({ children }: { children: ReactNode }) {
     const theme = useCssTheme();
     return <ThemeContext.Provider value={{ theme, isDark: false, toggleTheme: () => {} }}>{children}</ThemeContext.Provider>;
 }
 
-/** The filter bar, grouping by `column`. */
-function GroupBy({ column, children }: { column: string; children: ReactNode }) {
+const APPLICABLE: FilterKey[] = ["organizations"];
+const NO_ORGS: string[] = [];
+
+/** The filter bar, grouping by `column`, and filtered to `organizations` when there are any. */
+function GroupBy({ column, organizations, children }: { column: string; organizations: string[]; children: ReactNode }) {
     const value = useMemo(
         () => ({
-            filters: { ...defaultFilters, orgAttribute: column },
+            filters: { ...defaultFilters, orgAttribute: column, organizations },
             setFilters: () => {},
             options: undefined,
             optionsError: undefined,
-            applicable: [],
+            applicable: APPLICABLE,
             orgAttribute: describeOrgAttribute(column),
             orgAttributes: [ORGANIZATION, OFFICE, CITY],
             orgValues: undefined,
         }),
-        [column],
+        [column, organizations],
     );
     return <FilterContext.Provider value={value}>{children}</FilterContext.Provider>;
 }
 
 /** One stage grouped by `column`, under the root's error boundary, so a stage that throws shows the error screen as the app does. */
-function page(Stage: ComponentType, column: string) {
+function page(Stage: ComponentType, column: string, organizations = NO_ORGS) {
     return (
         <Themed>
             <ErrorBoundary FallbackComponent={ErrorFallback}>
-                <GroupBy column={column}>
+                <GroupBy column={column} organizations={organizations}>
                     <Stage />
                 </GroupBy>
             </ErrorBoundary>
@@ -302,5 +320,29 @@ describe.each(STAGES)("$name, when the Group by changes", ({ Stage, ranked, fiel
         expectNoCrash();
         await waitFor(() => expect(drawn(field)).toEqual(answerFor(OFFICE)));
         expect(screen.queryAllByRole("alert")).toEqual([]);
+    });
+
+    it("keeps the last answer on screen while a changed filter loads, as before", async () => {
+        const model = answering();
+        const { rerender } = render(page(Stage, ORGANIZATION));
+        await waitFor(() => expect(drawn(field)).toEqual(answerFor(ORGANIZATION)));
+
+        const byOrg = ranked(ORGANIZATION);
+        const finance = filteredFrom(byOrg);
+        const financeRows = rowsFor(byOrg, ORGANIZATION).filter((row) => row[`${ORG_TABLE}[${ORGANIZATION}]`] === "Finance");
+        for (const other of others) model.answer(filteredFrom(other), rowOf(other));
+        model.answer(finance, financeRows);
+        model.hold(finance);
+
+        rerender(page(Stage, ORGANIZATION, ["Finance"]));
+        expectNoCrash();
+        expect(drawn(field)).toEqual(answerFor(ORGANIZATION));
+        await waitFor(() => expect(model.sent.some(finance)).toBe(true));
+        await settle();
+        expect(drawn(field)).toEqual(answerFor(ORGANIZATION));
+
+        model.release(finance);
+        await waitFor(() => expect(drawn(field)).toEqual({ label: LABELS[ORGANIZATION], values: ["Finance"] }));
+        expectNoCrash();
     });
 });
