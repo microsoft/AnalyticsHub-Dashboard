@@ -103,7 +103,14 @@ export async function checkAppToken(ctx, appId, secret, o = {}) {
         }
         return { result: 'bad-secret', detail: /AADSTS7000222/.test(msg) ? 'The client secret has expired.' : 'Microsoft Entra rejected the client secret.' };
       }
-      if (/AADSTS700016/.test(msg)) return { result: 'wrong-tenant', detail: `The app registration ${appId} isn't in tenant ${ctx.user.tenantId}.` };
+      // Also what Entra says for a minute or so after it creates an app, so it's tried again first.
+      if (/AADSTS700016/.test(msg)) {
+        if (!last) {
+          await ctx.sleep(SECRET_RETRY_MS);
+          continue;
+        }
+        return { result: 'wrong-tenant', detail: `The app registration ${appId} isn't in tenant ${ctx.user.tenantId}.` };
+      }
       if (/AADSTS7000112/.test(msg)) return { result: 'refused', detail: `The app registration ${appId} is disabled in this tenant.` };
       return { result: 'error', detail: firstLine(msg) };
     }
@@ -124,9 +131,13 @@ export async function checkAppToken(ctx, appId, secret, o = {}) {
 /**
  * The install's check, after admin consent: whether the app's own token can read the audit log.
  * Fabric only (Azure's jobs use a managed identity, with no secret to test). Never stops the
- * install: it says what's wrong and who fixes it. Runs once per run.
+ * install: it says what's wrong and who fixes it. Once it has an answer that isn't provisional, it
+ * isn't run again this run.
  * @param {Ctx} ctx
- * @param {{ consented?: boolean }} [o]  consented: consent is in place, so a missing role is waited for.
+ * @param {{ consented?: boolean, provisional?: boolean }} [o]
+ *   consented: consent is in place, so a missing role is waited for.
+ *   provisional: straight after the app, its secret or consent may be new, and Entra can take
+ *   minutes to honour them. A problem is only noted, not kept, and the later check decides.
  * @returns {Promise<AuditResult | undefined>}  undefined when it couldn't run.
  */
 export async function checkAuditAccess(ctx, o = {}) {
@@ -136,8 +147,14 @@ export async function checkAuditAccess(ctx, o = {}) {
   if (!appId) return undefined;
   const secret = await appSecretFor(ctx);
   if (!secret) return undefined;
-  ctx.auditChecked = true;
   const r = await checkAppToken(ctx, appId, secret, { waitForRole: !!o.consented });
+  if (r.result !== 'ok' && o.provisional) {
+    ui.note(
+      `The app's audit log access isn't confirmed yet (${AUDIT_CHECK_LABELS[r.result]}). Entra can take a few minutes to apply a new app, secret or consent, so it's checked again once the pipeline is deployed.`,
+    );
+    return r.result;
+  }
+  ctx.auditChecked = true;
   reportAudit(ctx, r);
   saveAuditCheck(ctx, r);
   return r.result;
@@ -217,7 +234,6 @@ export async function checkAuditCommand(ctx) {
       `The app's client secret isn't readable from Key Vault here. Run ${commandLine('check-audit')} without --yes to paste a client secret of ${appId}, or run it where you can read the vault.`,
     );
   }
-  ctx.auditChecked = true;
   const token = await checkAppToken(ctx, appId, secret);
   if (token.result !== 'ok') {
     reportAudit(ctx, token);
@@ -260,12 +276,44 @@ export const AUDIT_LOGGING_STEPS = [
   'New records then take from 60 minutes to 24 hours to appear.',
 ];
 
+/** Where the audit notebook keeps track of the windows it has read, in the Lakehouse. */
+export const AUDIT_MANIFEST = 'Files/_audit_staging/_manifest.json';
+/** The notebook reuses a recent window it read this many hours ago, and never rereads one older than this many days. */
+export const AUDIT_REUSE_HOURS = 6;
+export const AUDIT_LOOKBACK_DAYS = 7;
+
 /**
- * Says what a check found and who fixes it.
+ * After consent or audit logging is fixed: the audit notebook keeps the windows it already read
+ * as empty, so they are reloaded by hand. Fabric only.
+ * @param {import('../config.js').InstallConfig} config
+ * @returns {string[]}
+ */
+export function auditReloadSteps(config) {
+  if (config.target === 'azure') return [];
+  return [
+    `Once it's fixed, reload what the audit load already read as empty. Otherwise those windows are reused: recent ones for ${AUDIT_REUSE_HOURS} hours, and ones older than ${AUDIT_LOOKBACK_DAYS} days are never read again.`,
+    `In the Lakehouse, rename ${AUDIT_MANIFEST} (for example to _manifest.old.json), then run ${commandLine('run --backfill-days <n>')}, with <n> covering the days to reload.`,
+  ];
+}
+
+/**
+ * Says what a check found and who fixes it. Once a load has run, a problem that left it empty
+ * also says how to reload.
  * @param {Ctx} ctx
  * @param {{ result: AuditResult, detail?: string }} r
  */
 export function reportAudit(ctx, r) {
+  reportAuditResult(ctx, r);
+  if (AUDIT_CHECK_FAILS.includes(r.result) && ctx.config.firstRun?.jobId) {
+    for (const line of auditReloadSteps(ctx.config)) ctx.ui.info(line);
+  }
+}
+
+/**
+ * @param {Ctx} ctx
+ * @param {{ result: AuditResult, detail?: string }} r
+ */
+function reportAuditResult(ctx, r) {
   const { ui, config, user } = ctx;
   const appId = config.app.appId ?? 'the app registration';
   const detail = r.detail ? ` ${r.detail}` : '';
@@ -329,11 +377,21 @@ export function saveAuditCheck(ctx, r) {
 
 /**
  * Why the audit load found no Copilot interactions, most likely first, for the data check. Uses
- * the last check's finding when there is one.
+ * the last check's finding when there is one. `after` is what to do once the cause is fixed.
+ * @param {import('../config.js').InstallConfig} config
+ * @returns {{ lead: string, causes: string[], after: string[] }}
+ */
+export function emptyAuditHelp(config) {
+  const help = emptyAuditCauses(config);
+  const after = help.causes.length && config.auditCheck?.result !== 'no-copilot' ? auditReloadSteps(config) : [];
+  return { ...help, after };
+}
+
+/**
  * @param {import('../config.js').InstallConfig} config
  * @returns {{ lead: string, causes: string[] }}
  */
-export function emptyAuditHelp(config) {
+function emptyAuditCauses(config) {
   const check = config.auditCheck?.result;
   const consent = `Admin consent for ${AUDIT_ROLE} is missing or not yet in effect. A Global Administrator or Privileged Role Administrator grants it on the app's API permissions page.`;
   const logging = 'Audit logging is off in Microsoft Purview. A Compliance Administrator turns it on in Purview > Audit; records then take 60 minutes to 24 hours to appear.';

@@ -938,6 +938,7 @@ test('printDataCheck says when the audit log had no Copilot activity at all', ()
   assert.match(ui.text(), /The audit load found no Copilot interactions/);
   assert.match(ui.text(), /1\. Admin consent for AuditLogsQuery\.Read\.All/);
   assert.match(ui.text(), /check-audit/);
+  assert.match(ui.text(), /rename Files\/_audit_staging\/_manifest\.json[^\n]*run --backfill-days <n>/);
   assert.doesNotMatch(ui.text(), /test or admin activity/);
 });
 

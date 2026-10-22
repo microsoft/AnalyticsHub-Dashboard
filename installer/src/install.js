@@ -377,7 +377,8 @@ export async function install(ctx, opts) {
   step('Microsoft Graph permissions');
   const consented = await ensureConsent(ctx, /** @type {import('./steps/plan.js').Preflight} */ (pre));
   // With Key Vault, the secret is known by now: check the app's own token can read the audit log.
-  if (consented) await checkAuditAccess(ctx, { consented });
+  // A new app, secret or consent can take minutes to apply, so a problem here is confirmed later.
+  if (consented) await checkAuditAccess(ctx, { consented, provisional: true });
   step('Workspace and Lakehouse');
   await ensureWorkspace(ctx);
   await ensureLakehouse(ctx);
@@ -425,7 +426,8 @@ export async function install(ctx, opts) {
   await ensureSparkSettings(ctx);
   await ensurePipeline(ctx);
   await ensureSchedule(ctx);
-  // Without Key Vault, the secret is only known once the notebooks have it.
+  // Without Key Vault, the secret is only known once the notebooks have it. Otherwise this
+  // confirms what the first check couldn't, now Entra has had time to catch up.
   if (consented) await checkAuditAccess(ctx, { consented });
   if (ctx.checkAudit) await auditProbe(ctx, consented);
   // Before the first load or refresh, so the models open to viewers as soon as they have data.
@@ -674,7 +676,7 @@ export async function update(ctx, opts = {}) {
   await ensureKeyVault(ctx);
   await ensureApp(ctx);
   const consented = await ensureConsent(ctx, { canConsent: await canConsent(ctx) });
-  if (consented) await checkAuditAccess(ctx, { consented });
+  if (consented) await checkAuditAccess(ctx, { consented, provisional: true });
   await ensureWorkspace(ctx);
   await ensureLakehouse(ctx);
   await ensureVaultEndpoint(ctx);

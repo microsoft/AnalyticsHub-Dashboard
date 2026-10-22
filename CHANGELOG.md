@@ -266,11 +266,13 @@ sets the number. On Fabric and Azure.
 
 ### Installer: audit-ingestion checks, and the Viva Insights sign-in first (0.6.9 candidate)
 
-- **The installer checks the app can read the audit log.** Straight after admin consent, it gets the
-  app's own token and checks it's for this tenant and has `AuditLogsQuery.Read.All`. If not, it
-  says why the audit load would find nothing (consent missing, the secret not working, or an app
-  registration from another tenant) and who fixes it. On Azure, it checks the jobs' managed
-  identity has the role.
+- **The installer checks the app can read the audit log.** After admin consent, it gets the app's
+  own token and checks it's for this tenant and has `AuditLogsQuery.Read.All`. Straight after
+  consent, a problem is only noted, as Entra can take a few minutes to apply a new app, secret or
+  consent (an app it can't find yet is tried again too). Once the pipeline is deployed it checks
+  again, and then says why the audit load would find nothing (consent missing, the secret not
+  working, or an app registration from another tenant) and who fixes it. On Azure, it checks the
+  jobs' managed identity has the role.
 - **New `check-audit` command** (**Check audit ingestion** in the browser), and `--check-audit` for
   `install` and `update` on Fabric. As well as the token check, it runs a small audit search and
   warns, rather than passing quietly, when it finds no Copilot interactions, or no records at all
@@ -278,7 +280,12 @@ sets the number. On Fabric and Azure.
 - **A Prerequisites row for audit ingestion.** It shows whether the app has the role, or whether
   you can grant it, and the last check's result.
 - **Clearer 0-record data checks.** When the audit load finds nothing, the data check lists the
-  likely causes in order, narrowed by the last audit check.
+  likely causes in order, narrowed by the last audit check. It also says how to reload the days
+  already read as empty once the cause is fixed: on Fabric, rename
+  `Files/_audit_staging/_manifest.json` in the Lakehouse and run `run --backfill-days <n>`.
+- **A brought app registration must be in this tenant.** The installer stops, and says who can fix
+  it, when it finds only another tenant's app, or an app with no service principal that you can't
+  create.
 - **Sign in to Viva Insights first.** With Cowork credits from the Dataflow, the installer creates
   `AnalyticsHub_Cowork_Credits` early, asks you to sign it in, and checks the connections are saved
   before it deploys the notebooks and pipeline and runs the first load. No more coming back to the
