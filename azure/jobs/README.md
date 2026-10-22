@@ -37,7 +37,9 @@ rows, so it equals a full rebuild. Every month is recomputed when the settings, 
 `valuelens_core` code or the source columns change, on the first run after the old single
 `part-0.parquet` layout (which that run removes), and with `--full-rebuild` or
 `VALUELENS_PROCESS_FULL_REBUILD=true`. Months that aren't recomputed keep the licence and
-agent-registry values from when they were last processed.
+agent-registry values from when they were last processed. Each run on Azure starts with an empty
+disk, so `process` downloads the month files it reads, each once a run: the curated months, and
+the context of the months it keeps. A full rebuild reads none of them, so it downloads none.
 
 **Long histories run in passes.** When the months to recompute hold more than
 `VALUELENS_PROCESS_PASS_ROWS` source rows (default 2 million), as a long backfill or a large

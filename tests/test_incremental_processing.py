@@ -2,20 +2,22 @@
 
 The Azure job curates with valuelens_core one month file at a time. These tests feed it a history,
 then add late-arriving rows (inside and outside the lookback window) and drop a month, and check the
-incremental result against a from-scratch full rebuild of the same source.
+incremental result against a from-scratch full rebuild of the same source. Others run each `process`
+as the Azure run job does, in a new container: an AdlsStore over the same blobs, with an empty folder.
 """
 from __future__ import annotations
 
 import datetime
 import shutil
 from pathlib import Path
+from types import SimpleNamespace
 
 import duckdb
 import pytest
 
 from valuelens_core import incremental as inc
 from valuelens_jobs import __main__ as jobs_main
-from valuelens_jobs.storage import LocalStore
+from valuelens_jobs.storage import AdlsStore, LocalStore
 
 ROOT = Path(__file__).resolve().parents[1]
 PARSED = "raw/copilot_interactions_parsed"
@@ -282,6 +284,122 @@ def test_stopped_chunked_run_resumes_with_the_months_left(tmp_path, sample_rows,
     assert jobs_main.process(store, lookback_days=0, max_rows_per_pass=1) == total
     assert len(calls) == 5
     assert _curated(store) == _curated(whole)
+
+
+# ---------------------------------------------------------------- Azure job: a new container every run
+class _BlobService:
+    """Blob containers in memory, as AdlsStore sees them, noting each blob downloaded and uploaded."""
+
+    def __init__(self):
+        self.blobs, self.downloads, self.uploads = {}, [], []
+
+    def get_container_client(self, container):
+        return _BlobContainer(self, container)
+
+    def upload_folder(self, root):
+        """Upload every file under a local folder laid out like the store."""
+        for f in sorted(Path(root).rglob("*")):
+            if f.is_file():
+                container, _, name = f.relative_to(root).as_posix().partition("/")
+                self.blobs[(container, name)] = f.read_bytes()
+
+
+class _BlobContainer:
+    def __init__(self, service, container):
+        self.service, self.container = service, container
+
+    def list_blobs(self, name_starts_with, include=None):
+        return [SimpleNamespace(name=n, metadata={}, last_modified=None)
+                for c, n in sorted(self.service.blobs) if c == self.container and n.startswith(name_starts_with)]
+
+    def download_blob(self, name):
+        self.service.downloads.append(f"{self.container}/{name}")
+        data = self.service.blobs[(self.container, name)]
+        return SimpleNamespace(readinto=lambda fh: fh.write(data))
+
+    def upload_blob(self, name, fh, overwrite=False):
+        self.service.uploads.append(f"{self.container}/{name}")
+        self.service.blobs[(self.container, name)] = fh.read()
+
+    def delete_blob(self, name):
+        self.service.blobs.pop((self.container, name), None)
+
+
+def _new_container(tmp_path, name, service):
+    # What every Azure run gets: an AdlsStore over the same blobs, with a new, empty local folder.
+    return AdlsStore("acct", root=tmp_path / name, service=service)
+
+
+def _files(prefix, months):
+    return {f"{prefix}/month-{m}.parquet" for m in months}
+
+
+def _month_blobs(names):
+    """The month files among blob names, sorted, with any repeats."""
+    return sorted(n for n in names if "/month-" in n)
+
+
+def test_incremental_run_in_a_new_container_pulls_the_months_it_keeps(tmp_path, sample_rows, caplog):
+    base, con = sample_rows
+    seed, service = _new_store(tmp_path, "seed", base), _BlobService()
+    _write_parsed(seed, con)
+    service.upload_folder(seed.root)
+    first_run = _new_container(tmp_path, "run1", service)
+    first = jobs_main.process(first_run)
+    service.downloads.clear()
+    service.uploads.clear()
+
+    with caplog.at_level("INFO", logger="valuelens_jobs"):
+        assert jobs_main.process(_new_container(tmp_path, "run2", service)) == first
+    # The next run is incremental: July and August lie outside the 14-day lookback window, so they're kept.
+    assert "process: incremental (incremental); 2 month(s) to curate: 2026-09, 2026-10" in caplog.text
+    # It pulls the kept months' context and the curated months it reads, and rewrites only its own months.
+    assert _month_blobs(service.downloads) == sorted(
+        _files(CURATED, ["202607", "202608", "202609", "202610"])
+        | _files(jobs_main.PROCESS_CONTEXT, ["202607", "202608"]))
+    assert _month_blobs(service.uploads) == sorted(
+        _files(CURATED, ["202609", "202610"]) | _files(jobs_main.PROCESS_CONTEXT, ["202609", "202610"]))
+    stored = _new_container(tmp_path, "stored", service)
+    stored.pull(CURATED)
+    assert _curated(stored) == _curated(first_run)
+
+
+def test_new_container_pulls_each_file_once_in_passes_and_none_on_a_full_rebuild(tmp_path, sample_rows, caplog):
+    base, con = sample_rows
+    late = "(CreationDate::VARCHAR LIKE '2026-07-2%' AND hash(Id) % 2 = 0)"
+    seed, service = _new_store(tmp_path, "seed", base), _BlobService()
+    _write_parsed(seed, con, f"NOT {late}")
+    service.upload_folder(seed.root)
+    jobs_main.process(_new_container(tmp_path, "run1", service), lookback_days=3)
+    _write_parsed(seed, con)                # the late July rows arrive
+    service.upload_folder(seed.root)
+    service.downloads.clear()
+
+    # July (late rows) and October (lookback), in passes of one month.
+    with caplog.at_level("INFO", logger="valuelens_jobs"):
+        total = jobs_main.process(_new_container(tmp_path, "run2", service), lookback_days=3,
+                                  max_rows_per_pass=1)
+    assert "2 month(s) to curate: 2026-07, 2026-10" in caplog.text and "in 2 passes" in caplog.text
+    # The July pass pulls the kept months' context and the curated months it sees. The October pass then
+    # pulls only October's: it reads July as the July pass wrote it, and the kept months the July pass pulled.
+    assert _month_blobs(service.downloads) == sorted(
+        _files(CURATED, ["202607", "202608", "202609", "202610"])
+        | _files(jobs_main.PROCESS_CONTEXT, ["202608", "202609"]))
+    local = _new_store(tmp_path, "local", base)
+    _write_parsed(local, con, f"NOT {late}")
+    jobs_main.process(local, lookback_days=3)
+    _write_parsed(local, con)
+    assert jobs_main.process(local, lookback_days=3, max_rows_per_pass=1) == total
+    stored = _new_container(tmp_path, "stored", service)
+    stored.pull(CURATED)
+    assert _curated(stored) == _curated(local)
+
+    # A full rebuild reads only the months it writes, in passes too, so it pulls none of the history.
+    service.downloads.clear()
+    assert jobs_main.process(_new_container(tmp_path, "run3", service), full_rebuild=True,
+                             max_rows_per_pass=1) == total
+    assert not _month_blobs(service.downloads)
+
 
 # ---------------------------------------------------------------- Fabric processor notebook
 PROCESSOR_NB = ROOT / "fabric" / "notebooks" / "Copilot_Audit_Log_Processor.ipynb"
