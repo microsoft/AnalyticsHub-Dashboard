@@ -4,14 +4,15 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { APP_CATALOG_SCOPE, checkTokens, createCredential, createTokenProvider, decodeJwt, GRAPH_CLI_APP_ID } from './auth.js';
+import { ClientSecretCredential } from '@azure/identity';
+import { APP_CATALOG_SCOPE, APP_GRAPH_SCOPE, checkTokens, createCredential, createTokenProvider, decodeJwt, GRAPH_CLI_APP_ID } from './auth.js';
 import { notebooksFor, permissionsFor } from './catalog.js';
 import { armApi, keyVaultApi } from './clients/azure.js';
 import { connectionsApi, POWERAPPS_URL } from './clients/connections.js';
 import { dataverseApi, dataverseScope, DISCOVERY_URL, discoveryApi, orgUrl } from './clients/dataverse.js';
 import { FLOW_URL, flowApi } from './clients/flow.js';
 import { fabricApi, scheduleBody } from './clients/fabric.js';
-import { appCatalogApi, CONSENT_ROLES, graphApi } from './clients/graph.js';
+import { appCatalogApi, auditApi, CONSENT_ROLES, graphApi } from './clients/graph.js';
 import { dataLakeApi, dataLakeUrl, ONELAKE_URL, oneLakeApi } from './clients/onelake.js';
 import { powerBiApi } from './clients/powerbi.js';
 import { POWER_PLATFORM_URL, powerPlatformApi } from './clients/powerplatform.js';
@@ -21,7 +22,8 @@ import { commandLine } from './launch.js';
 import { ensureConsent, ensureApp, ensureKeyVault, newSecret, notebookSecretDays } from './steps/identity.js';
 import { agentEvaluatorModelWanted, agentEvaluatorSummary, ensureAgentEvaluatorModel, ensureTranscriptAccess } from './steps/agent-evaluator.js';
 import { appDeployedSince, deployApp, ensureAppName, ensureFabricApp } from './steps/app.js';
-import { COWORK_DATAFLOW_NAME, consumptionModelWanted, consumptionSummary, ensureAzureAiAccess, ensureConsumptionModel, ensureCoworkDataflow, ensureLandingFolders } from './steps/consumption.js';
+import { COWORK_DATAFLOW_NAME, connectCowork, consumptionModelWanted, consumptionSummary, ensureAzureAiAccess, ensureConsumptionModel, ensureLandingFolders } from './steps/consumption.js';
+import { checkAuditAccess, checkAuditCommand } from './steps/audit-check.js';
 import { coworkDataflowDefinition, isVivaId } from './transform/dataflow.js';
 import {
   agentEvaluatorModelDeployed,
@@ -77,6 +79,7 @@ import { reviewSetup } from './setup.js';
  * @property {import('./clients/connections.js').ConnectionsApi} [connections]  Power Platform connections, for signing the flows in.
  * @property {(url: string) => import('./clients/dataverse.js').DataverseApi} dataverse  A Dataverse environment, by org URL.
  * @property {(account: string) => import('./clients/onelake.js').DataLakeApi} dataLake  An Azure storage account's files, by account name.
+ * @property {(appId: string, secret: string) => { token: () => Promise<string>, audit: import('./clients/graph.js').AuditApi }} [appGraph]  Graph as the app registration, signed in with its client secret, to check what the loads can read. Each call gets a fresh token.
  *
  * @typedef {{ id: string, upn: string, tenantId: string, displayName?: string }} User
  *
@@ -91,6 +94,9 @@ import { reviewSetup } from './setup.js';
  * @property {(ms: number) => Promise<void>} sleep
  * @property {() => Date} now
  * @property {string} [pendingSecret]  A secret the user pasted, held in memory until it is in Key Vault or the notebooks.
+ * @property {string} [appSecret]  The app's client secret this run made, was given or read, held in memory only, for the audit check.
+ * @property {boolean} [auditChecked]  The audit check has run this run.
+ * @property {boolean} [checkAudit]  --check-audit: also run a live audit search before the first load.
  * @property {boolean} [secretInNotebook]  --no-key-vault (or --secret-in-notebook): keep the secret in the notebooks instead of Key Vault.
  * @property {boolean} [useKeyVault]  --key-vault: keep the secret in Key Vault, not the notebooks (the default for a new Fabric install).
  * @property {boolean} [allowModelReset]  --allow-model-reset: when Fabric can't update a model and keep its data, clear it and reload it without asking. --yes alone never does.
@@ -143,6 +149,11 @@ export async function connect(opts) {
   };
   if (opts.checkTokens) await checkTokens(getToken);
   const claims = decodeJwt(await getToken('graph'));
+  api.appGraph = (appId, secret) => {
+    const appToken = createTokenProvider(new ClientSecretCredential(opts.tenantId || claims.tid, appId, secret), { debug: opts.debug });
+    const token = () => appToken(APP_GRAPH_SCOPE);
+    return { token, audit: auditApi(createClient({ baseUrl: 'https://graph.microsoft.com/beta', getToken: token, debug: opts.debug })) };
+  };
   if (opts.method !== 'azure-cli') {
     // The app the installer signs in with can't ask for the app catalog scope, so publishing the
     // Teams app signs in once more with Microsoft Graph Command Line Tools, the first time it's used.
@@ -333,11 +344,13 @@ export async function install(ctx, opts) {
   const withAccess = withModel && !!config.access;
   // Once, straight after the app is deployed and before the long first load.
   const withShare = withApp && withAccess && config.access?.appShared !== true;
+  const withViva = withConsumption && config.dataSources.coworkCredits === 'api';
   const titles = [
     'Key Vault',
     'App registration',
     'Microsoft Graph permissions',
     'Workspace and Lakehouse',
+    ...(withViva ? ['Viva Insights connection'] : []),
     ...(withModel ? ['Semantic model'] : []),
     ...(withConsumption ? ['Credit consumption'] : []),
     ...(withAgentEvaluator ? ['Copilot Studio transcripts'] : []),
@@ -360,10 +373,17 @@ export async function install(ctx, opts) {
   await ensureApp(ctx);
   step('Microsoft Graph permissions');
   const consented = await ensureConsent(ctx, /** @type {import('./steps/plan.js').Preflight} */ (pre));
+  // With Key Vault, the secret is known by now: check the app's own token can read the audit log.
+  if (consented) await checkAuditAccess(ctx, { consented });
   step('Workspace and Lakehouse');
   await ensureWorkspace(ctx);
   await ensureLakehouse(ctx);
   const vaultReachable = await ensureVaultEndpoint(ctx);
+  // Before the long steps, so the user signs in once and doesn't come back to it after the install.
+  if (withViva) {
+    step('Viva Insights connection');
+    await connectCowork(ctx);
+  }
   if (withModel) {
     step('Semantic model');
     await ensureSemanticModel(ctx);
@@ -402,6 +422,9 @@ export async function install(ctx, opts) {
   await ensureSparkSettings(ctx);
   await ensurePipeline(ctx);
   await ensureSchedule(ctx);
+  // Without Key Vault, the secret is only known once the notebooks have it.
+  if (consented) await checkAuditAccess(ctx, { consented });
+  if (ctx.checkAudit) await auditProbe(ctx, consented);
   // Before the first load or refresh, so the models open to viewers as soon as they have data.
   if ((await ensureOrgAccess(ctx, { refresh: false })) === false) stepsOk = false;
   if (withAccess) {
@@ -512,8 +535,24 @@ export function loadState(result) {
 async function consumptionSteps(ctx, opts = {}) {
   await ensureAzureAiAccess(ctx);
   await ensureLandingFolders(ctx);
-  await ensureCoworkDataflow(ctx);
   if (consumptionModelWanted(ctx)) await ensureConsumptionModel(ctx, opts);
+}
+
+/**
+ * --check-audit: the live audit search, which never stops the install or update.
+ * @param {Ctx} ctx
+ * @param {boolean} consented
+ */
+async function auditProbe(ctx, consented) {
+  if (!consented) {
+    ctx.ui.warn(`The audit check needs admin consent first. Once it's granted, run ${commandLine('check-audit')}.`);
+    return;
+  }
+  try {
+    await checkAuditCommand(ctx);
+  } catch (err) {
+    ctx.ui.warn(`Couldn't run the audit check: ${/** @type {Error} */ (err).message}`);
+  }
 }
 
 /**
@@ -627,10 +666,12 @@ export async function update(ctx, opts = {}) {
   ui.note(`From ${ctx.sources.dir}`);
   await ensureKeyVault(ctx);
   await ensureApp(ctx);
-  await ensureConsent(ctx, { canConsent: await canConsent(ctx) });
+  const consented = await ensureConsent(ctx, { canConsent: await canConsent(ctx) });
+  if (consented) await checkAuditAccess(ctx, { consented });
   await ensureWorkspace(ctx);
   await ensureLakehouse(ctx);
   await ensureVaultEndpoint(ctx);
+  await connectCowork(ctx);
   if (sm.enabled) {
     await ensureSemanticModel(ctx, { force: true });
     await ensureModelConnection(ctx);
@@ -648,6 +689,8 @@ export async function update(ctx, opts = {}) {
   await ensureSparkSettings(ctx);
   await ensurePipeline(ctx, { force: true });
   await ensureSchedule(ctx);
+  if (consented) await checkAuditAccess(ctx, { consented });
+  if (ctx.checkAudit) await auditProbe(ctx, consented);
   if ((await ensureOrgAccess(ctx, { refresh: false })) === false) stepsOk = false;
   if (sm.enabled && config.fabricApp.enabled) {
     if (await ui.confirm('Rebuild and redeploy the Analytics Hub app too?', true)) stepsOk = (await tryDeployApp(ctx, { force: true })) && stepsOk;
@@ -800,6 +843,8 @@ export async function runCommand(ctx, command, opts) {
     case 'prereqs':
       await showPrereqs(ctx);
       return true;
+    case 'check-audit':
+      return ['ok', 'records'].includes(await checkAuditCommand(ctx));
     case 'access': {
       const azure = ctx.config.target === 'azure';
       const before = ctx.config.access?.groupId;

@@ -655,6 +655,21 @@ export function keyVaultApi(http) {
         throw err;
       }
     },
+    /**
+     * A secret's value, or null if there is no such secret. Only held in memory, for a check.
+     * @param {string} vaultUri
+     * @param {string} name
+     * @returns {Promise<string | null>}
+     */
+    async secretValue(vaultUri, name) {
+      try {
+        const res = await http.get(`${vaultUri.replace(/\/$/, '')}/secrets/${name}`, { query: { 'api-version': '7.4' } });
+        return typeof res?.value === 'string' ? res.value : null;
+      } catch (err) {
+        if (err instanceof HttpError && err.status === 404) return null;
+        throw err;
+      }
+    },
   };
 }
 

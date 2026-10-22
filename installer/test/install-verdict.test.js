@@ -312,6 +312,19 @@ test("install: a load that failed on a busy capacity counts; one that loads when
   }
 });
 
+test('install: the Cowork Dataflow is made and its Viva Insights sign-in checked before the notebooks and pipeline', async (t) => {
+  const run = await runInstall(t, { cowork: true });
+  const calls = run.fabric.calls;
+  const dataflow = calls.findIndex((c) => c.startsWith('createDataflow'));
+  const checked = calls.findIndex((c) => c.startsWith('getDataflowDefinition'));
+  const pipeline = calls.findIndex((c) => c.startsWith('createPipeline'));
+  const notebook = calls.findIndex((c) => c.startsWith('createNotebook'));
+  assert.ok(dataflow >= 0 && checked > dataflow, 'made, then checked');
+  assert.ok(pipeline > checked && notebook > checked, 'before the notebooks and the pipeline');
+  assert.match(run.text, /Viva Insights connection[\s\S]*✓ AnalyticsHub_Cowork_Credits is signed in to Viva Insights and the Lakehouse/);
+  setUp(run);
+});
+
 test("install: the Cowork Dataflow failing while its sign-in is still to do doesn't count; failing on a busy capacity does", async (t) => {
   for (const reload of [undefined, 90]) {
     const run = await runInstall(t, { cowork: true, loads: { [COWORK_DATAFLOW_ACTIVITY]: [unsigned] }, reload });

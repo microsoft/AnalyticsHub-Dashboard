@@ -527,6 +527,7 @@ export async function ensureSecret(ctx) {
       await claimSecretName(ctx);
     }
     await writeSecret(ctx, ctx.pendingSecret, { contentType: `Client secret for ${app.appId}` });
+    ctx.appSecret = ctx.pendingSecret;
     delete ctx.pendingSecret;
     kv.secretSetAt = ctx.now().toISOString();
     ctx.save();
@@ -680,6 +681,7 @@ export async function newSecret(ctx) {
     );
   }
   app.secretExpires = credential.endDateTime;
+  ctx.appSecret = credential.secretText;
   kv.secretSetAt = ctx.now().toISOString();
   const unsure = (kv.pendingSecretKeyIds ?? []).filter((k) => k !== credential.keyId);
   // Earlier secrets stay on the app until they expire, as a run already going may still use one.
@@ -725,6 +727,9 @@ export async function ensureConsent(ctx, who) {
   }
 
   ui.warn(`A Global Administrator or Privileged Role Administrator needs to approve: ${todo.map((r) => r.value).join(', ')}`);
+  if (todo.some((r) => r.value === 'AuditLogsQuery.Read.All')) {
+    ui.info('Until they do, the audit load can\'t read Copilot interactions (AuditLogsQuery.Read.All), so most pages stay empty.');
+  }
   ui.info(`Send them this page and ask them to select "Grant admin consent":`);
   ui.info(apiPermissionsUrl(appId));
   ui.note(`Or the direct consent link: ${adminConsentUrl(ctx.user.tenantId, appId)}`);
