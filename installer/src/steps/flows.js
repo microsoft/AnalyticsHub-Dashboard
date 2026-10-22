@@ -10,7 +10,7 @@
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { isConnected } from '../clients/connections.js';
+import { isConnected, signedInAs } from '../clients/connections.js';
 import { orgUrl } from '../clients/dataverse.js';
 import { flowIdentity, secretMode } from '../config.js';
 import { commandLine } from '../launch.js';
@@ -41,6 +41,7 @@ import {
 } from '../transform/flows.js';
 import { c } from '../ui.js';
 import { UPLOAD_DIR } from '../uploads.js';
+import { accountMatches, collectorAccount } from './collector.js';
 import { ensureWorkspaceRole } from './model.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
@@ -414,6 +415,7 @@ export const CONNECT_POLLS = 12;
  * @property {string} displayName
  * @property {Record<string, string>} parameters  The connector's connection parameters.
  * @property {string} who  Who signs in to it.
+ * @property {string} [account]  The data-collector account that must sign in to it, if one is named.
  */
 
 /**
@@ -429,11 +431,13 @@ export function ownedConnections(ctx, kinds) {
   /** @type {OwnedConnection[]} */
   const out = [];
   if (used.has(CONNECTORS.entra.name)) {
+    const upn = collectorAccount(config);
     out.push({
       ref: CONNECTORS.entra.name,
       displayName: CONNECTION_NAMES.ppApi,
       parameters: { baseResourceUrl: PPAPI, 'token:ResourceUri': PPAPI },
-      who: kinds.includes('agents') ? 'a Power Platform administrator' : 'a Power Platform, Billing or Global administrator',
+      who: upn ? `${upn} (the data-collector account)` : kinds.includes('agents') ? 'a Power Platform administrator' : 'a Power Platform, Billing or Global administrator',
+      ...(upn ? { account: upn } : {}),
     });
   }
   const storageName = ownedConnectionName(config, CONNECTORS.storage.name);
@@ -457,6 +461,14 @@ export function ownedConnections(ctx, kinds) {
   }
   return out;
 }
+
+/**
+ * Whether a connection is signed in to, and, with a data-collector account named, not as someone
+ * else. When Power Platform doesn't say who signed in, it counts.
+ * @param {OwnedConnection} want
+ * @param {import('../clients/connections.js').Connection | undefined} conn
+ */
+const ready = (want, conn) => isConnected(conn) && accountMatches(conn, want.account) !== false;
 
 /** Whether the signed-in user made the connection. @param {Ctx} ctx @param {import('../clients/connections.js').Connection} c */
 const madeByMe = (ctx, c) => !!ctx.user.id && c.properties?.createdBy?.id?.toLowerCase() === ctx.user.id.toLowerCase();
@@ -504,6 +516,8 @@ export async function connectFlows(ctx) {
     }
     const pending = kinds.filter((k) => !on.has(k));
     ctx.save();
+    const upn = collectorAccount(config);
+    if (upn && on.size) await checkCollectorSignIn(ctx, env, details.filter((f) => f?.properties?.state === 'Started'), upn);
     const wanted = ownedConnections(ctx, pending);
     if (!pending.length || !wanted.length) return on;
 
@@ -516,8 +530,8 @@ export async function connectFlows(ctx) {
       const same = existing.filter((c) => c.properties?.displayName === want.displayName && sameTarget(c, want));
       const saved = up.flowConnections?.[want.ref];
       const found =
-        same.find((c) => isConnected(c) && madeByMe(ctx, c)) ??
-        same.find(isConnected) ??
+        same.find((c) => ready(want, c) && madeByMe(ctx, c)) ??
+        same.find((c) => ready(want, c)) ??
         same.find((c) => c.name === saved) ??
         same.find((c) => madeByMe(ctx, c));
       if (found) {
@@ -530,7 +544,11 @@ export async function connectFlows(ctx) {
     up.flowConnections = { ...up.flowConnections, ...Object.fromEntries([...chosen].map(([ref, c]) => [ref, c.name])) };
     ctx.save();
 
-    const left = () => wanted.filter((w) => !isConnected(chosen.get(w.ref)));
+    const left = () => wanted.filter((w) => !ready(w, chosen.get(w.ref)));
+    for (const w of left()) {
+      const who = signedInAs(chosen.get(w.ref));
+      if (isConnected(chosen.get(w.ref)) && who) ui.warn(`${w.displayName} is signed in as ${who}, not ${w.account}. Sign in to it again as ${w.account}.`);
+    }
     if (left().length) {
       await showSignIns(ctx, env, left(), chosen, page);
       if (!ui.yes) await waitForSignIns(ctx, env, wanted, chosen);
@@ -539,6 +557,7 @@ export async function connectFlows(ctx) {
 
     const defs = flowDefinitions(config, ctx.user.tenantId);
     const owned = new Set(wanted.map((w) => w.ref));
+    const wants = new Map(wanted.map((w) => [w.ref, w]));
     const byName = new Map(existing.map((conn) => [conn.name, conn]));
     for (const conn of chosen.values()) byName.set(conn.name, conn);
     let waiting = false;
@@ -553,9 +572,10 @@ export async function connectFlows(ctx) {
       for (const ref of connectorsUsed(definition)) {
         const conn = chosen.get(ref);
         const bound = current[ref]?.connectionName;
-        const boundOk = typeof bound === 'string' && bound !== '' && (owned.has(ref) ? isConnected(byName.get(bound)) : true);
+        const want = wants.get(ref);
+        const boundOk = typeof bound === 'string' && bound !== '' && (want ? ready(want, byName.get(bound)) : true);
         if (boundOk) refs[ref] = current[ref];
-        else if (conn && isConnected(conn)) refs[ref] = { connectionName: conn.name, source: 'Embedded', id: `/providers/Microsoft.PowerApps/apis/${WEBCONTENTS}`, tier: 'NotSpecified' };
+        else if (conn && want && ready(want, conn)) refs[ref] = { connectionName: conn.name, source: 'Embedded', id: `/providers/Microsoft.PowerApps/apis/${WEBCONTENTS}`, tier: 'NotSpecified' };
         else missing.push(ref);
       }
       if (missing.length) {
@@ -589,6 +609,28 @@ const boundTo = (flows) =>
   flows.flatMap((f) => Object.values(f?.properties?.connectionReferences ?? {}).map((r) => r?.connectionName).filter((n) => typeof n === 'string' && n));
 
 /**
+ * For flows already on: warns when their Power Platform API connection is signed in as someone other
+ * than the data-collector account, with a link to sign in to it again. Changes nothing itself.
+ * @param {Ctx} ctx
+ * @param {string} env
+ * @param {any[]} flows  The flows that are on.
+ * @param {string} upn
+ */
+async function checkCollectorSignIn(ctx, env, flows, upn) {
+  const { ui, api } = ctx;
+  const connections = /** @type {import('../clients/connections.js').ConnectionsApi} */ (api.connections);
+  const names = [...new Set(flows.map((f) => f?.properties?.connectionReferences?.[CONNECTORS.entra.name]?.connectionName).filter((n) => typeof n === 'string' && n))];
+  for (const name of names) {
+    const conn = await connections.get(env, WEBCONTENTS, name).catch(() => undefined);
+    if (!conn || accountMatches(conn, upn) !== false) continue;
+    const page = `${MAKER}environments/${env}/connections`;
+    const link = await connections.consentLink(env, WEBCONTENTS, name, page).catch(() => undefined);
+    ui.warn(`The flows' connection ${conn.properties?.displayName ?? name} is signed in as ${signedInAs(conn)}, not the data-collector account ${upn}. The flows run as ${signedInAs(conn)} until you sign in to it again as ${upn}:`);
+    ui.info(`  ${link ?? `${page} (find "${conn.properties?.displayName ?? name}" and click Fix connection)`}`);
+  }
+}
+
+/**
  * One sign-in link for each connection, and who signs in.
  * @param {Ctx} ctx
  * @param {string} env
@@ -615,6 +657,8 @@ async function showSignIns(ctx, env, wanted, chosen, page) {
   }
   ui.note('  If a link opens nothing, your browser blocked the pop-up: allow pop-ups for make.powerautomate.com and login.microsoftonline.com, then open it again.');
   ui.note(`  If a link has expired, open ${page}, find the connection by its name and click Fix connection.`);
+  const account = wanted.find((w) => w.account)?.account;
+  if (account) ui.note(`  Sign in as ${account}, not as yourself: in the sign-in window choose "Use another account", or open the link in a private window.`);
   ui.note('  HTTP with Microsoft Entra ID (preauthorized) is a Premium connector: whoever signs in, and you as the flows\' owner, need a Power Automate Premium licence.');
 }
 
@@ -630,7 +674,7 @@ async function showSignIns(ctx, env, wanted, chosen, page) {
 async function waitForSignIns(ctx, env, wanted, chosen) {
   const { ui, api } = ctx;
   const connections = /** @type {import('../clients/connections.js').ConnectionsApi} */ (api.connections);
-  const left = () => wanted.filter((w) => !isConnected(chosen.get(w.ref)));
+  const left = () => wanted.filter((w) => !ready(w, chosen.get(w.ref)));
   for (;;) {
     const choice = await ui.select(
       'Signed in to the connections?',
@@ -713,6 +757,8 @@ export function connectionSteps(config, kind) {
   if (kind === 'feedback') return [`${CONNECTORS.outlook.label}: sign in as the mailbox the export is emailed to.`, storage];
   const ppApi = `${CONNECTORS.entra.label}: Base Resource URL and Resource URI ${PPAPI}.`;
   const ppActions = `Its actions end in "via Power Platform API".${orPick(CONNECTORS.entra.name)}`;
+  const upn = collectorAccount(config);
+  if (upn) return [`${ppApi} Sign in as ${upn}, the data-collector account. ${ppActions}`, storage];
   if (kind === 'agents') {
     return [`${ppApi} Sign in as a Power Platform administrator, or an admin with Global Reader: the inventory API takes delegated sign-ins only. ${ppActions}`, storage];
   }
@@ -883,6 +929,35 @@ async function flowEnvironmentId(ctx) {
   env.id = found.EnvironmentId;
   ctx.save();
   return env.id;
+}
+
+/**
+ * The flows' Power Platform API connection, for status: the one a flow is bound to, or else the one
+ * the installer made. Whether it's signed in to, and as whom when Power Platform says. Undefined when
+ * there's none, or it can't be read. Reads only.
+ * @param {Ctx} ctx
+ * @returns {Promise<{ displayName: string, connected: boolean, who?: string, page: string } | undefined>}
+ */
+export async function ppApiSignIn(ctx) {
+  const { config, api } = ctx;
+  const up = config.uploads;
+  if (!api.connections || !up.flowEnvironment) return undefined;
+  const env = await flowEnvironmentId(ctx);
+  if (!env) return undefined;
+  /** @type {string | undefined} */
+  let name;
+  for (const kind of /** @type {FlowKind[]} */ (['studio', 'agents'])) {
+    const id = up.flowIds?.[kind];
+    if (!id || name) continue;
+    const flow = await api.flow.getFlowDetails(env, id).catch(() => undefined);
+    const bound = flow?.properties?.connectionReferences?.[CONNECTORS.entra.name]?.connectionName;
+    if (typeof bound === 'string' && bound) name = bound;
+  }
+  name ??= up.flowConnections?.[CONNECTORS.entra.name];
+  if (!name) return undefined;
+  const conn = await api.connections.get(env, WEBCONTENTS, name);
+  if (!conn) return undefined;
+  return { displayName: conn.properties?.displayName ?? name, connected: isConnected(conn), who: signedInAs(conn), page: `${MAKER}environments/${env}/connections` };
 }
 
 /**

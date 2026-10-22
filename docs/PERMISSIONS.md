@@ -40,8 +40,8 @@ reports** is off (Microsoft 365 admin center → Settings → Org settings → S
 | Source | API? | Automated-pull permission | Manual-export role |
 |---|---|---|---|
 | **Product feedback** (OCV / M365 Health) | ❌ export-only | None — there is no API. Landed by the Power Automate flow (Fabric), or dropped in the landing folder (Azure), then ingested. | Global Administrator or Reports Reader |
-| **Copilot Studio credits** | ✅ Power Platform licensing API (installer flow, the default) | The flow's Power Platform API connection (**HTTP with Microsoft Entra ID**, resource `https://api.powerplatform.com`) signs in as a **Power Platform Administrator**, **Billing Administrator** or **Global Administrator**. Per-user figures come from an undocumented route, best effort. | Power Platform Administrator, for the optional PPAC Licensing exports |
-| **Cowork credits** | ✅ Viva Insights query via Dataflow Gen2 | The person who signs in to the Dataflow needs the Viva Insights **Insights Analyst** role, and the query on Auto-refresh. | Insights Analyst, for the Consumption Dashboard export |
+| **Copilot Studio credits** | ✅ Power Platform licensing API (installer flow, the default) | The flow's Power Platform API connection (**HTTP with Microsoft Entra ID**, resource `https://api.powerplatform.com`) signs in as a **Power Platform Administrator**, **Billing Administrator** or **Global Administrator**. Per-user figures come from an undocumented route, best effort. To keep it working when that person leaves, see [Data-collector account](#data-collector-account). | Power Platform Administrator, for the optional PPAC Licensing exports |
+| **Cowork credits** | ✅ Viva Insights query via Dataflow Gen2 | The person who signs in to the Dataflow needs the Viva Insights **Insights Analyst** role, and the query on Auto-refresh. Or a [data-collector account](#data-collector-account) signs in. | Insights Analyst, for the Consumption Dashboard export |
 | **Agents 365** | ✅ Graph | `CopilotPackages.Read.All` + `Application.Read.All` (+ `User.Read.All` to resolve creators and, on Fabric, check whether each owner's account is still active), admin-consented, **and an Agent 365 licence** in the tenant (else `403`). Used by `Copilot_Agent365_Registry_Ingester` (Fabric only) and ValueLens's `Get-Agents365Registry.ps1`. | Global Administrator or Reports Reader (with **AI Admin** in a Frontier-enrolled tenant), for the CSV fallback via the admin centre (the only route on Azure for now) |
 | **Defender** (shadow AI and agent risk) | ✅ Graph | `ThreatHunting.Read.All` for advanced hunting (`POST /security/runHuntingQuery`: devices, installed software and AI agents), and `CloudApp-Discovery.Read.All` for Cloud Discovery, admin-consented. **Licences:** Defender for Endpoint P2 (or Microsoft Defender XDR) for the device and agent probes, Defender for Cloud Apps for Cloud Discovery. A probe without its permission or licence is skipped and logged in `defender_status`; the rest of the load carries on. Used by `Copilot_Defender_Ingester` (Fabric) and the `defender` module of the Azure jobs. | None: there is no export |
 
@@ -130,6 +130,81 @@ covers the app on Fabric, and the jobs' managed identity on Azure.
 | Product feedback (module `productFeedback`) | No permission: there is no API, and the emailed export flow is Fabric only for now. Export it from the Microsoft 365 admin center (roles in [Optional sources](#optional-sources-opt-in)) and drop it in the `product_feedback` folder, with the same access as the Agent 365 export |
 | Azure Resource Graph (module `resourceGraph`) | The jobs' managed identity gets **Reader** at the management group, or the tenant root group, for Foundry, and needs an Entra role such as **Global Reader** for agents. See [Azure Resource Graph](#azure-resource-graph) |
 | Agent Evaluator (module `agentEvaluator`) | The jobs' managed identity as a Dataverse **application user** with the **Bot Transcript Viewer** security role in each environment it reads. The installer adds it when the person installing is a **System Administrator** of the environment; otherwise a System Administrator adds it in the Power Platform admin center, searching for the managed identity by its client ID. The web app's registration gets no Dataverse access. See [Agent Evaluator](../azure/README.md#agent-evaluator) |
+
+---
+
+<a id="data-collector-account"></a>
+
+## Data-collector account (optional)
+
+Most sources use the app's own permissions, and that stays the default. A few only take a
+person's sign-in:
+
+- **Copilot Studio credits** and the **agent inventory** fallback: the flows' Power Platform API
+  connection. "Power Platform API uses delegated permissions only at this time"
+  ([Microsoft Learn](https://learn.microsoft.com/power-platform/admin/programmability-authentication-v2)).
+- **Cowork credits** (Fabric): the `AnalyticsHub_Cowork_Credits` Dataflow's Viva Insights and
+  Lakehouse connections. The Viva Insights connector only takes an Insights Analyst's sign-in.
+
+By default the person installing signs in to these. The daily runs then stop when that person
+leaves, their PIM role lapses or their password is reset. Instead, you can name a dedicated
+**data-collector account** that signs in to them once. Choose it under the installer's advanced
+settings, or pass `--collector-account <upn>`.
+
+**What the installer does and doesn't do**
+
+- It keeps only the account's user principal name in the install record.
+- It holds no tokens. There's no ROPC (password) sign-in, and no password or refresh token in the
+  installer, the install record or Key Vault. Power Automate and Fabric keep the tokens in their own
+  connection stores, as for any connection.
+- It reuses the existing connections and flows. There's no new pipeline.
+- It prints the commands to set the account up. It never creates the account, assigns roles or buys
+  licences.
+- Its prerequisite check reads the account's roles and licence. `status` shows who each connection
+  is signed in as, where the API says, and flags any that need a new sign-in or are signed in as
+  someone else. Fabric doesn't say who signed in to a Dataflow's connections.
+
+**The 4 admin steps** (the installer prints them with the account's name filled in)
+
+1. Create the account: cloud-only (not synced from on-premises), with MFA. It doesn't need a mailbox
+   or Teams. For example: `az ad user create --display-name "Analytics Hub data collector" --user-principal-name <upn> --password "<temporary password>" --force-change-password-next-sign-in true`.
+2. Give it only what the chosen sources need, as **permanent (active)** assignments:
+   - Flows: **Power Platform Administrator**, or **Billing Administrator** if you only want
+     Copilot Studio credits (the agent inventory needs Power Platform Administrator). And a
+     **Power Automate Premium** licence, which is a purchase.
+   - Cowork credits: **Insights Analyst** in Viva Insights (or the Cowork query shared with it), and
+     **Contributor** on the Analytics Hub workspace.
+3. Run the installer and choose **A dedicated data-collector account**, or pass
+   `--collector-account <upn>`.
+4. When the installer shows the sign-in links, sign in as the account once on each one: the flows'
+   Power Platform API connection, then the Dataflow's two connections. A private browser window, or
+   **Use another account**, keeps your own account out of the way. Then `status` shows who each is
+   signed in as.
+
+**Hardening**
+
+- **Least privilege.** Only the roles above. Never **Global Administrator**: the prerequisite check
+  flags it.
+- **Keep MFA on**, phishing-resistant if you can, and don't exclude the account from any MFA policy.
+  It only signs in interactively at setup and when a connection needs a new sign-in.
+- **Permanent, not PIM.** A PIM activation lapses and breaks the connections, so make this account's
+  roles active assignments. Do this for this account only, and keep its roles narrow.
+- **Conditional Access.** A sign-in-frequency policy can end the connections' sessions. If it does,
+  exclude this account from that policy only, and keep it in every other policy. Alert on any
+  interactive sign-in by the account (for example, in Microsoft Entra ID Protection or Microsoft
+  Sentinel), as it should rarely sign in.
+- **Token lifetime.** The connections' sign-ins end after 90 days without use, or when the account's
+  password is reset. The daily runs keep them in use. After a reset, run `status`, then `update`, and
+  sign in again.
+
+**Unverified**
+
+- Whether a smaller Power Platform role than Power Platform Administrator or Billing Administrator is
+  enough for the licensing routes. Test before relying on one.
+- Whether a service principal works on the Power Platform licensing routes, which would make this
+  account unnecessary for Copilot Studio credits.
+- Whether Power Platform always says who signed in to an HTTP with Microsoft Entra ID connection.
+  When it doesn't, the installer counts the connection as signed in and says it can't tell as whom.
 
 ---
 

@@ -10,6 +10,7 @@ import { DATA_CHECK_FILE } from '../transform/notebook.js';
 import { AGENT_EVALUATOR_ACTIVITY, COWORK_DATAFLOW_ACTIVITY, COWORK_WRAPPER_ACTIVITY, firstRunParameters, REFRESH_ACTIVITY, SKIP_COWORK_PARAMETER } from '../transform/pipeline.js';
 import { c, formatDuration } from '../ui.js';
 import { emptyAuditHelp } from './audit-check.js';
+import { printSignIns } from './collector.js';
 import { coworkConnections, coworkNextStep, coworkSignInSteps, VIVA_LOAD_FILE } from './consumption.js';
 import { agentEvaluatorOn, coworkDataflowOn, modelDeployed } from './fabric.js';
 import { modelRefreshes } from './model.js';
@@ -584,6 +585,7 @@ export async function status(ctx) {
   if (config.fabricApp?.itemId) ui.info(`App:       ${config.fabricApp.name}  ${c.dim(config.fabricApp.url ?? '')}`);
   expiry(ctx, 'Client secret', config.app.secretExpires);
   if (sm?.connectionId) expiry(ctx, 'Model connection secret', sm.secretExpires);
+  await printSignIns(ctx);
 
   ui.heading('Recent runs');
   const jobs = (await api.fabric.listJobs(f.workspaceId, f.pipelineId))

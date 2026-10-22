@@ -1050,3 +1050,72 @@ test('ownedConnections: Azure Storage names its account; the SharePoint drop and
   appConfig.uploads = { flowIdentity: 'app' };
   assert.deepEqual(ownedConnections(app, ['studio']).map((w) => w.displayName), [CONNECTION_NAMES.ppApi], 'the app writes with its secret, so no OneLake connection');
 });
+
+const COLLECTOR = 'analytics-collector@contoso.com';
+
+test('ownedConnections: with a data-collector account, it signs in to the Power Platform API connection; OneLake is unchanged', () => {
+  const { ctx, config } = fakeCtx();
+  config.dataSources.studioCredits = 'api';
+  config.fabric.workspaceName = 'Analytics';
+  assert.equal(ownedConnections(ctx, ['studio'])[0].account, undefined, 'nothing changes by default');
+  config.collectorAccount = COLLECTOR;
+  const [pp, lake] = ownedConnections(ctx, ['studio']);
+  assert.equal(pp.who, `${COLLECTOR} (the data-collector account)`);
+  assert.equal(pp.account, COLLECTOR);
+  assert.equal(lake.account, undefined);
+});
+
+test('ensureFlows with a data-collector account: a connection signed in as someone else isn\'t used; once signed in as the account, it is', async () => {
+  const ok = [{ status: 'Connected' }];
+  const conns = fakeConnections({
+    existing: [
+      { name: 'pp-admin', properties: { displayName: CONNECTION_NAMES.ppApi, statuses: ok, createdBy: { id: 'user-1' }, authenticatedUser: { name: 'admin@contoso.com' }, connectionParameters: PP_PARAMS } },
+      { name: 'lake', properties: { displayName: CONNECTION_NAMES.oneLake, statuses: ok, createdBy: { id: 'user-1' }, authenticatedUser: { name: 'admin@contoso.com' } } },
+    ],
+  });
+  const { ui, text, asked } = fakeUi({ answers: ['later'] });
+  const { ctx, config, pa } = connectCtx({ ui, conns });
+  config.collectorAccount = COLLECTOR;
+
+  await ensureFlows(ctx);
+  assert.ok(!conns.calls.some((x) => x.startsWith('create')), 'the same connection: signing in again replaces whose it is');
+  assert.ok(!pa.calls.some((x) => x.startsWith('setConnections') || x.startsWith('start')), 'not bound while it\'s someone else\'s');
+  const out = text();
+  assert.match(out, /Analytics Hub - Power Platform API is signed in as admin@contoso\.com, not analytics-collector@contoso\.com\. Sign in to it again as analytics-collector@contoso\.com/);
+  assert.match(out, /Analytics Hub - Power Platform API.*sign in as analytics-collector@contoso\.com \(the data-collector account\)/);
+  assert.ok(out.includes('https://consent.example/pp-admin'));
+  assert.doesNotMatch(out, /consent\.example\/lake/, 'OneLake needs no particular account');
+  assert.match(out, /Sign in as analytics-collector@contoso\.com, not as yourself/);
+  assert.deepEqual(asked, ['Signed in to the connections?']);
+
+  conns.conns[0].properties.authenticatedUser = { name: 'Analytics-Collector@contoso.com' };
+  await ensureFlows(ctx);
+  assert.ok(pa.calls.includes('setConnections flow-1 shared_webcontents=pp-admin shared_webcontents_storage=lake'));
+  assert.ok(pa.calls.includes('start flow-1'));
+});
+
+test('ensureFlows with a data-collector account: a flow already on as someone else gets a warning and a link, and stays on', async () => {
+  const ok = [{ status: 'Connected' }];
+  const conns = fakeConnections({
+    existing: [
+      { name: 'pp-admin', properties: { displayName: CONNECTION_NAMES.ppApi, statuses: ok, authenticatedUser: { name: 'admin@contoso.com' }, connectionParameters: PP_PARAMS } },
+      { name: 'lake', properties: { displayName: CONNECTION_NAMES.oneLake, statuses: ok } },
+    ],
+  });
+  const { ui, text } = fakeUi();
+  const { ctx, config, pa } = connectCtx({ ui, conns });
+  await ensureFlows(ctx);
+  assert.ok(pa.calls.includes('start flow-1'), 'on, signed in as the admin, before an account was named');
+  const before = text().length;
+  config.collectorAccount = COLLECTOR;
+  await ensureFlows(ctx);
+  const out = text().slice(before);
+  assert.match(out, /The flows' connection Analytics Hub - Power Platform API is signed in as admin@contoso\.com, not the data-collector account analytics-collector@contoso\.com/);
+  assert.ok(out.includes('https://consent.example/pp-admin'));
+  assert.ok(!pa.calls.some((x) => x.startsWith('stop')), 'nothing is changed');
+
+  const fine = text().length;
+  conns.conns[0].properties.authenticatedUser = { name: COLLECTOR };
+  await ensureFlows(ctx);
+  assert.doesNotMatch(text().slice(fine), /not the data-collector account/);
+});

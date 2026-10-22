@@ -37,6 +37,7 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {AgentEvaluatorConfig} agentEvaluator
  * @property {ResourceGraphConfig} resourceGraph
  * @property {DataAgentConfig} dataAgent
+ * @property {string} [collectorAccount]  The UPN of a dedicated data-collector account that signs in to the delegated connections (the flows' Power Platform API connection and the Cowork Dataflow's). Only the name: its tokens stay in Power Platform's and Fabric's connection stores. Unset: whoever runs the installer signs in.
  * @property {{ completed: string[], runFirstLoad?: boolean, reloadHistoryDays?: number, baseRevision?: string, approved?: boolean, uploads?: { token?: string, name: string }[] }} [setup] Browser setup draft progress; never contains secrets. runFirstLoad and reloadHistoryDays are kept only in the draft, never in the install record.
  * @property {AuditCheck} [auditCheck]  What the last audit-ingestion check found, to explain an empty audit load.
  */

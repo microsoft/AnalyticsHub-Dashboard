@@ -54,6 +54,30 @@ Deployment instructions do **not** live here. They live in the READMEs:
   app registration or admin pack to use instead). Update only warns. `prereqs` still gives the full
   list.
 
+### Installer: an optional data-collector account (0.6.9 candidate)
+
+- **A dedicated account can sign in to the delegated connections.** Some consumption data has no
+  app-only route: Copilot Studio credits come from the Power Platform API, which only takes
+  delegated sign-ins, and Cowork credits from a Viva Insights query an Insights Analyst signs in
+  to. Under the advanced settings, **Who signs in to them?** now offers **A dedicated
+  data-collector account**, or use `install --collector-account <upn>`. That account signs in once
+  to the flows' Power Platform API connection and the Cowork Dataflow's connections, so they no
+  longer stop when the person who installed leaves, resets their password or loses a PIM role.
+  App-only stays the default for every other source, and nothing changes unless you choose it.
+- **The installer holds no tokens.** It keeps only the account's name in your answers. Microsoft's
+  connections keep the sign-in, as before. It prints the Azure CLI commands an admin runs to create the
+  account and give its roles, and creates, assigns and buys nothing itself.
+- **It checks who's signed in.** The sign-in links name the account, and a connection signed in as
+  someone else isn't used. A Prerequisites row checks the account exists, is enabled, has its roles
+  as permanent rather than PIM-eligible assignments, isn't a Global Administrator, and has a Power
+  Automate Premium licence. `status` lists each delegated connection, who it's signed in as, and
+  any that need a new sign-in.
+- **Hardening guidance** in [Permissions](docs/PERMISSIONS.md#data-collector-account): least
+  privilege, MFA with no exclusion, a permanent assignment for this account only, Conditional
+  Access sign-in frequency and alerts, and the 90-day and password-reset limits. Whether a smaller
+  Power Platform role is enough, and whether service principals work on the licensing routes, are
+  marked unverified.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its

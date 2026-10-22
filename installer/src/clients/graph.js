@@ -26,6 +26,8 @@ export const FABRIC_ADMIN_ROLE = 'a9ea8996-122f-4c74-9520-8edcd192826c';
 export const GLOBAL_READER_ROLE = 'f2ef992c-3afb-46b9-b7cf-a126ee74c451';
 export const AI_ADMIN_ROLE = 'd2562ede-74db-457e-a7b6-544e236ebb61';
 export const POWER_PLATFORM_ADMIN_ROLE = '11648597-926c-4cf3-9c36-bcebb0ba8dcc';
+export const BILLING_ADMIN_ROLE = 'b0f54661-2d74-4c50-afa3-1ec803f12efe';
+export const GLOBAL_ADMIN_ROLE = '62e90394-69f5-4237-9190-012177145e10';
 
 export const POWER_BI_APP_ID = '00000009-0000-0000-c000-000000000000';
 
@@ -332,6 +334,18 @@ export function graphApi(http) {
 
     /** A user by UPN or email-style sign-in name. Null when there's no such user. @param {string} upn */
     getUser: (upn) => getOrNull(`/users/${encodeURIComponent(upn)}?$select=id,displayName,userPrincipalName`),
+    /**
+     * A user with what the data-collector check needs. Null when there's no such user.
+     * @param {string} upn
+     * @returns {Promise<{ id: string, displayName?: string, userPrincipalName?: string, accountEnabled?: boolean, onPremisesSyncEnabled?: boolean | null, userType?: string } | null>}
+     */
+    getUserDetails: (upn) => getOrNull(`/users/${encodeURIComponent(upn)}?$select=id,displayName,userPrincipalName,accountEnabled,onPremisesSyncEnabled,userType`),
+    /**
+     * Another user's licences, with their service plans.
+     * @param {string} id
+     * @returns {Promise<{ skuPartNumber?: string, servicePlans?: { servicePlanName: string, provisioningStatus?: string }[] }[]>}
+     */
+    userLicenseDetails: (id) => http.list(`/users/${encodeURIComponent(id)}/licenseDetails`),
 
     /** @param {string} id */
     getGroup: (id) => getOrNull(`/groups/${encodeURIComponent(id)}?$select=id,displayName,securityEnabled`),

@@ -27,6 +27,7 @@ import { normaliseResourceGraph } from '../../config.js';
 import { accessReview, accessSummaryLines, ensureViewerGroup, grantModelAccess, planAccess, publicAccess } from '../access.js';
 import { ensureOrgAccess, verifyOrgAccess } from '../org-access.js';
 import { askAdvanced, asksAdvanced } from '../advanced.js';
+import { collectorGrants, collectorSummary, planCollector, printSignIns } from '../collector.js';
 import { askGrants, askLine, askMode, askParameters, ensureAzureAskAccess, planAzureAsk } from './ask.js';
 import { checkRegions, noRegionMessage, regionNotes, regionProblems, sqlProblem } from './regions.js';
 import { checkDeployRights, printAdminGrants, registrationMessage, reportProviders, roleAssignMessage } from './least-privilege.js';
@@ -511,6 +512,8 @@ export async function planAzure(ctx, pre, section) {
     await planAzureAgentEvaluator(ctx);
     await planAzureWorkday(ctx);
     await planAzureDrop(ctx);
+    // Only asked with the advanced settings, or to change an account already named.
+    if (advanced || config.collectorAccount) await planCollector(ctx);
   }
   if (editing('governance')) await planAzureResourceGraph(ctx);
   if (editing('ask')) await planAzureAsk(ctx);
@@ -1337,6 +1340,7 @@ export function azurePlanReview(ctx) {
       ...access.grants,
       ...consumptionGrants,
       ...argGrants,
+      ...collectorGrants(ctx.config, 'Your tenant'),
       ...askGrants(az),
       ...transcripts.grants,
     ],
@@ -1431,6 +1435,8 @@ export async function confirmAzurePlan(ctx) {
     ui.info(`Azure AI:    ${ds.azureAi === 'api' && config.consumption.azureSubscriptionId ? config.consumption.azureSubscriptionName ?? config.consumption.azureSubscriptionId : 'Left out'}`);
   }
   if (azureResourceGraphOn(config)) ui.info(`Governance:  ${resourceGraphKinds(config)} from Azure Resource Graph, in ${scopeName(config)}`);
+  const collector = collectorSummary(config);
+  if (collector) ui.info(`Sign-ins:    ${collector}`);
   azureAgentEvaluatorConfirmLine(ctx);
   ui.info(`Ask:         ${askLine(az)}`);
   if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)}`);
@@ -2228,6 +2234,7 @@ export async function azureStatus(ctx) {
   for (const p of az.graphRoles?.pending ?? []) ui.warn(`Pending admin action: grant ${p} to the managed identity.`);
   for (const action of az.status?.pendingAdminActions ?? []) ui.warn(`Pending admin action: ${action}`);
   await azureTranscriptStatus(ctx);
+  await printSignIns(ctx);
   for (const [label, name] of [['Run job', az.outputs?.runJobName], ['Migrate job', az.outputs?.migrateJobName]]) {
     if (!name) continue;
     ui.heading(label);

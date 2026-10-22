@@ -134,6 +134,7 @@ there. Otherwise it gives you the command for someone who can.
 | Fabric capacity | **Contributor**, for you | Putting the workspace on it. Fabric only |
 | Fabric workspace | **Viewer**, for the app | Letting the models read the Lakehouse. Fabric only; the installer gives it |
 | Fabric workspace | **Contributor**, for whoever signs in to the flows' OneLake connection | *(Optional.)* Saving files from the flows. With `--flow-identity app`, the app gets it instead |
+| Entra directory, Viva Insights and the Fabric workspace | **Power Platform Administrator** (or **Billing Administrator**), **Insights Analyst** and **Contributor**, for a data-collector account | *(Optional.)* A dedicated account that signs in to the flows' Power Platform API connection and the Cowork Dataflow, as permanent assignments. Never Global Administrator. An admin gives them; the installer doesn't. See [Data-collector account](PERMISSIONS.md#data-collector-account) |
 | Semantic models | **Build**, for the Analytics Hub Viewers group | Letting viewers query the models. The installer gives it |
 | Power BI workspace | **Member**, for the managed identity | Refreshing the models. Azure only; the installer gives it |
 | Entra directory | **Global Reader**, for the app or managed identity | *(Optional.)* Reading how each Copilot Studio agent is set up, from Azure Resource Graph. Turned on by **Agent configuration and Foundry**. Power Platform Administrator or AI Administrator also work |
@@ -237,6 +238,10 @@ feedback or agent inventory flows.
       [Licence types](https://learn.microsoft.com/power-platform/admin/power-automate-licensing/types).
 - [ ] **Someone signs in to the flow** once, after the install, as a Power Platform Administrator,
       Billing Administrator or Global Administrator. Often the same person.
+- [ ] *(Optional.)* So the flow and the Cowork Dataflow keep running when that person leaves, an
+      admin creates a dedicated **data-collector account** to sign in instead. The installer prints
+      the commands; it doesn't create the account. See
+      [Data-collector account](PERMISSIONS.md#data-collector-account).
 
 ### Viva Insights analyst: for Copilot Cowork credits
 

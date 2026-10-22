@@ -5,11 +5,12 @@
  * reports "unknown" rather than failing when it can't be read.
  */
 import { allowsAction, ROLES } from './clients/azure.js';
-import { APP_ROLES, CONSENT_ROLES, FABRIC_ADMIN_ROLE, POWER_PLATFORM_ADMIN_ROLE, TEAMS_PUBLISH_ROLES } from './clients/graph.js';
+import { APP_ROLES, BILLING_ADMIN_ROLE, CONSENT_ROLES, FABRIC_ADMIN_ROLE, GLOBAL_ADMIN_ROLE, POWER_PLATFORM_ADMIN_ROLE, TEAMS_PUBLISH_ROLES } from './clients/graph.js';
 import { secretMode } from './config.js';
 import { commandLine } from './launch.js';
 import { copilotLicences } from './seats.js';
 import { AUDIT_CHECK_FAILS, AUDIT_CHECK_LABELS, AUDIT_ROLE, PURVIEW_AUDIT_URL } from './steps/audit-check.js';
+import { collectorAccount, delegatedSignIns } from './steps/collector.js';
 import { flowsWanted } from './steps/flows.js';
 import { canWriteSecrets } from './steps/identity.js';
 import { blockedSettings, runsFabric } from './steps/plan.js';
@@ -527,6 +528,7 @@ export async function checkPrereqs(ctx, opts = {}) {
       },
     ),
     ...(config.dataSources?.resourceGraph === 'api' ? [resourceGraphPrereq(api, config, guard)] : []),
+    ...(collectorAccount(config) && delegatedSignIns(config).length ? [collectorPrereq(api, config, guard)] : []),
   ];
   return Promise.all(checks);
 }
@@ -562,6 +564,7 @@ export function preflightVerdict(items, { config, yes = false, update = false })
     'power-automate-premium': flows,
     // On Fabric, Azure access is only for the Key Vault (its own row) and credit consumption.
     'azure-rbac': azure || !!config.modules?.consumption,
+    'collector-account': !!collectorAccount(config),
   };
   /** @type {Prereq[]} */
   const block = [];
@@ -671,6 +674,90 @@ function resourceGraphPrereq(api, config, guard) {
       );
       const status = /** @type {PrereqStatus} */ (['missing', 'unknown', 'met'].find((st) => rows.some((r) => r.status === st)) ?? 'unknown');
       return { status, detail: rows.map((r) => `${r.name}: ${r.detail}`).join(' '), rows };
+    },
+  );
+}
+
+/**
+ * The data-collector account named for the delegated sign-ins: that it exists and is enabled, has the
+ * Power Platform role the flows need as an active assignment and not Global Administrator, and a
+ * Power Automate Premium licence. Insights Analyst can't be read, so it's only mentioned.
+ * @param {import('./install.js').Apis} api
+ * @param {import('./config.js').InstallConfig} config
+ * @param {(base: Omit<Prereq, 'status' | 'detail'>, fn: () => Promise<Pick<Prereq, 'status' | 'detail'> & Partial<Prereq>>) => Promise<Prereq>} guard
+ */
+function collectorPrereq(api, config, guard) {
+  const upn = /** @type {string} */ (collectorAccount(config));
+  const signIns = delegatedSignIns(config);
+  const flows = signIns.some((s) => s.id === 'ppApi');
+  const cowork = signIns.some((s) => s.id === 'viva');
+  const agents = flowsWanted(config).includes('agents');
+  /** @type {Record<string, string>} */
+  const wanted = agents
+    ? { [POWER_PLATFORM_ADMIN_ROLE]: 'Power Platform Administrator' }
+    : { [POWER_PLATFORM_ADMIN_ROLE]: 'Power Platform Administrator', [BILLING_ADMIN_ROLE]: 'Billing Administrator' };
+  const roleNames = Object.values(wanted).join(' or ');
+  return guard(
+    {
+      id: 'collector-account',
+      label: `Data-collector account (${upn})`,
+      neededFor: 'The delegated sign-ins: the flows\' Power Platform API connection and the Cowork credits Dataflow. They keep working when you leave or your role lapses.',
+      howTo: `An admin creates ${upn} and gives it ${[flows ? `${roleNames} as a permanent (active) assignment, and Power Automate Premium` : '', cowork ? 'Insights Analyst and Contributor on the workspace' : ''].filter(Boolean).join('; ')}. Not Global Administrator. See "Data-collector account" in docs/PERMISSIONS.md.`,
+      optional: true,
+    },
+    async () => {
+      const user = await api.graph.getUserDetails(upn);
+      if (!user) return { status: 'missing', detail: `${upn} wasn't found in this tenant. An admin creates it; the installer doesn't.` };
+      if (user.accountEnabled === false) return { status: 'missing', detail: `${upn} is blocked from signing in.` };
+      /** @type {string[]} */
+      const notes = [];
+      if (user.userType && user.userType !== 'Member') notes.push('It\'s a guest: use a member account in this tenant.');
+      if (user.onPremisesSyncEnabled) notes.push('It\'s synced from on-premises: a cloud-only account is safer, as an on-premises password reset ends its sign-ins.');
+      /** @type {PrereqStatus} */
+      let status = 'met';
+      if (flows) {
+        try {
+          const active = (await api.graph.directoryRoleAssignments(user.id)).map((r) => r.roleDefinitionId);
+          if (active.includes(GLOBAL_ADMIN_ROLE)) {
+            status = 'missing';
+            notes.push('It has Global Administrator: give it only the role it needs instead.');
+          }
+          const has = active.filter((id) => wanted[id]).map((id) => wanted[id]);
+          if (has.length) notes.push(`Active: ${[...new Set(has)].join(', ')}.`);
+          else {
+            /** @type {string[] | null} */
+            let elig = null;
+            try {
+              elig = (await api.graph.myEligibleRoles(user.id)).filter((r) => wanted[r.roleDefinitionId]).map((r) => wanted[r.roleDefinitionId]);
+            } catch {
+              // Reading PIM eligibility needs its own permission.
+            }
+            if (elig?.length) {
+              if (status === 'met') status = 'eligible';
+              notes.push(`Only eligible for ${[...new Set(elig)].join(', ')}: make it a permanent (active) assignment for this account, or the daily runs fail when it isn't activated.`);
+            } else {
+              status = 'missing';
+              notes.push(`It doesn't have ${roleNames} active.`);
+            }
+          }
+        } catch (err) {
+          if (status === 'met') status = 'unknown';
+          notes.push(`Couldn't read its roles: ${why(err)}`);
+        }
+        try {
+          const plans = (await api.graph.userLicenseDetails(user.id)).flatMap((l) => l.servicePlans ?? []).filter((p) => p.provisioningStatus === 'Success');
+          const found = plans.map((p) => PREMIUM_FLOW_PLANS[/** @type {keyof typeof PREMIUM_FLOW_PLANS} */ (p.servicePlanName)]).filter(Boolean);
+          if (found.length) notes.push(`Licence: ${[...new Set(found)].join(', ')}.`);
+          else {
+            if (status === 'met') status = 'missing';
+            notes.push('No Power Automate Premium (or per user) licence is assigned to it.');
+          }
+        } catch (err) {
+          notes.push(`Couldn't read its licences: ${why(err)}`);
+        }
+      }
+      if (cowork) notes.push('Insights Analyst and its workspace access can\'t be checked from here.');
+      return { status, detail: `${user.displayName ? `${user.displayName}. ` : ''}${notes.join(' ')}`.trim() };
     },
   );
 }

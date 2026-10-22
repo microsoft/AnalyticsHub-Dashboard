@@ -22,6 +22,7 @@ import { FLOW_NAMES, flowsSkipped, flowsWanted, planFlows } from './flows.js';
 import { adminPack, canWriteSecrets, checkExistingApp, MAX_SECRET_DAYS, NOTEBOOK_SECRET_DAYS, notebookSecretDays, reportAppCheck, ResumeLater, writeAdminPack } from './identity.js';
 import { planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from './resource-graph.js';
 import { askAdvanced, asksAdvanced } from './advanced.js';
+import { collectorGrants, collectorSummary, planCollector } from './collector.js';
 import { describeSchedule, displayNames, freeName, modelKey, PIPELINE_NAME, stoppedRunItem } from './fabric.js';
 import { connectionName, MODEL_UPDATE_NOTE } from './model.js';
 import { reportsWanted } from './report.js';
@@ -430,6 +431,8 @@ export async function plan(ctx, pre, section) {
     }
     config.modules = modulesFromSources(config.dataSources);
     if (config.modules.agentEvaluator) await planAgentEvaluator(ctx);
+    // Only asked with the advanced settings, or to change an account already named.
+    if (advanced() || config.collectorAccount) await planCollector(ctx);
   }
 
   if (editing('schedule')) {
@@ -1205,6 +1208,7 @@ export function planReview(ctx, pre) {
   if (withAzureAi && !cc.azureAccess) {
     grants.push({ who: appWho, what: AZURE_AI_ROLES.map((r) => r.name).join(', '), where: `Azure subscription ${cc.azureSubscriptionName ?? cc.azureSubscriptionId}`, detail: 'So the notebook can read Azure AI usage and cost.' });
   }
+  grants.push(...collectorGrants(config, `Workspace ${f.workspaceName ?? f.workspaceId}`));
   grants.push(...resourceGraphGrants(config, user.tenantId, appWho, 'access', { canAssign: pre?.canConsent }));
   const waiting = ae.environments.filter((e) => !e.access);
   if (config.modules.agentEvaluator && waiting.length) {
@@ -1294,6 +1298,8 @@ export async function confirmPlan(ctx, pre) {
     ui.info(`Agents:      ${envs.length ? `${names}${waiting}` : c.dim('no environments chosen')}`);
   }
   if (resourceGraphOn(config)) ui.info(`Governance:  ${resourceGraphKinds(config)} from Azure Resource Graph, in ${scopeName(config)}`);
+  const collector = collectorSummary(config);
+  if (collector) ui.info(`Sign-ins:    ${collector}`);
   if (ctx.runFirstLoad) ui.info(`First load:  ${config.history.days} days of history, straight after setup`);
   if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)} ${c.dim(`(${reloadDetail(ctx.reloadHistoryDays)})`)}`);
   ui.review(planReview(ctx, pre));

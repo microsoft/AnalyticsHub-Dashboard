@@ -19,6 +19,7 @@ const VERSION = '2016-11-01';
  *   connectionParameters?: Record<string, any>,
  *   createdBy?: { id?: string, email?: string, userPrincipalName?: string },
  *   createdTime?: string,
+ *   authenticatedUser?: { name?: string },
  * }} [properties]
  */
 
@@ -27,6 +28,16 @@ const VERSION = '2016-11-01';
  * @param {Connection | undefined} c
  */
 export const isConnected = (c) => (c?.properties?.statuses ?? []).some((s) => s.status === 'Connected');
+
+/**
+ * Who signed in to a connection, lower case, if Power Platform says. createdBy is who made it, which
+ * can differ. Not every connector fills authenticatedUser in, so undefined means "can't tell".
+ * @param {Connection | undefined} c
+ */
+export function signedInAs(c) {
+  const name = c?.properties?.authenticatedUser?.name;
+  return typeof name === 'string' && name.includes('@') ? name.trim().toLowerCase() : undefined;
+}
 
 /** @param {import('../http.js').HttpClient} http  A client whose base URL is POWERAPPS_URL. */
 export function connectionsApi(http) {

@@ -16,6 +16,7 @@ import { buildConsumptionModel, loadTemplateModel, PBISM } from '../transform/mo
 import { c } from '../ui.js';
 import { UPLOAD_DIR, modeLabel } from '../uploads.js';
 import { azureAiOn, coworkDataflowOn, createItem } from './fabric.js';
+import { collectorAccount } from './collector.js';
 import { bindModel, deployModel, modelUrl, waitForSqlEndpoint } from './model.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
@@ -55,10 +56,13 @@ export function coworkDataflowUrl(config) {
 export function coworkSignInSteps(config) {
   const name = config.consumption?.dataflowName ?? COWORK_DATAFLOW_NAME;
   const url = coworkDataflowUrl(config);
+  const upn = collectorAccount(config);
   return [
     `Open ${name} in ${config.fabric.workspaceName ?? 'the workspace'}${url ? `: ${url}` : ''}.`,
     `It shows "Configure connection" twice, once for each thing it connects to: the Viva Insights source (the VivaInsights query) and the Lakehouse destination (${config.fabric.lakehouseName ?? 'the Lakehouse'}).`,
-    'On each one, choose Configure connection, sign in, then Connect.',
+    upn
+      ? `On each one, choose Configure connection, sign in as ${upn} (the data-collector account), then Connect. In the sign-in window choose "Use another account", or open the Dataflow in a private window signed in as ${upn}.`
+      : 'On each one, choose Configure connection, sign in, then Connect.',
     'Choose Save, then wait until the Dataflow shows it has finished publishing before you run anything.',
     `Then choose Load Cowork now, or run "${commandLine('load-cowork')}". It refreshes the Dataflow, loads the Viva credits and refreshes the consumption model.`,
   ];
@@ -251,6 +255,8 @@ export async function connectCowork(ctx) {
   // The last step, loading Cowork, is for after the install.
   coworkSignInSteps(config).slice(0, -1).forEach((s, i) => ui.info(`${i + 1}. ${s}`));
   ui.note('The Viva Insights sign-in needs an account that can read the query: the Insights Analyst who made it, or someone they shared it with.');
+  const upn = collectorAccount(config);
+  if (upn) ui.note(`Sign in to both as ${upn}. It needs Insights Analyst (or the query shared with it) and Contributor on the workspace; the installer grants neither. Fabric doesn't say who signed in, so the installer can't check it.`);
   ui.note(STAGING_ITEMS_NOTE);
   if (ui.yes) {
     ui.warn('Carrying on without it. The first load leaves Cowork credits out until the Dataflow is signed in.');

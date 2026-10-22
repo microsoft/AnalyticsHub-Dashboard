@@ -53,7 +53,10 @@ When it finishes: [Check it worked](#check-it-worked).
       more to work asks for it next, such as the Power Platform environment for a flow. See
       [Data sources and exports](../installer/README.md#data-sources-and-exports).
    2. **Change the advanced settings?** **No** (the default) takes the defaults that suit most
-      organisations. See [Advanced settings](../installer/README.md#advanced-settings).
+      organisations. See [Advanced settings](../installer/README.md#advanced-settings). One of
+      them lets a dedicated
+      [data-collector account](PERMISSIONS.md#data-collector-account) sign in to the flows and
+      the Cowork Dataflow instead of you.
    3. **Capacity and workspace.** A new workspace is named `Analytics Hub` and its Lakehouse
       `Analytics_Hub`, or the next free name. F64 or larger is recommended for more than 10,000
       people. An existing install keeps its names. On Azure: the subscription, resource group,

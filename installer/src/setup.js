@@ -153,7 +153,7 @@ function changedCategories(before, after) {
     powerbi: [config.azure?.powerBi, config.azure?.workspaceName, config.semanticModel.enabled, config.semanticModel.reports, config.fabricApp.enabled],
     access: config.access,
     identity: [config.app, config.keyVault],
-    sources: [config.dataSources, config.consumption, config.agentEvaluator],
+    sources: [config.dataSources, config.consumption, config.agentEvaluator, config.collectorAccount ?? null],
     governance: [config.resourceGraph, config.uploads],
     ask: config.azure?.ask,
     schedule: [config.schedule, config.history, config.reporting, config.setup?.runFirstLoad, config.setup?.reloadHistoryDays],

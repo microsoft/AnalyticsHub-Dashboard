@@ -12,6 +12,7 @@ import { adoptUploadedRecord, cloudShellKeepsFiles, cloudShellRecordMessage, com
 import { runWizard } from './server.js';
 import { loadSources } from './sources.js';
 import { azureUploadError } from './steps/data-sources.js';
+import { isUpn } from './steps/collector.js';
 import { recordWorkspaceGone, staleRecordMessage } from './steps/fabric.js';
 import { isResumeLater, MAX_SECRET_DAYS, NOTEBOOK_SECRET_DAYS } from './steps/identity.js';
 import { isManagementGroupId, managementGroupId } from './steps/resource-graph.js';
@@ -83,6 +84,12 @@ Options:
                        app: the app registration, with its secret from Key Vault. The vault must
                        allow public network access. Fabric only: on Azure the Studio flow
                        always signs in as you.
+  --collector-account <upn>
+                       With install: a dedicated account, made by an admin, that signs in to
+                       the connections that only take a person's sign-in (the flows' Power
+                       Platform API connection and the Cowork Dataflow). The installer keeps
+                       only its name, never its password or tokens. Default: you sign in.
+                       See docs/PERMISSIONS.md, "Data-collector account"
   --viva-partition <id>
   --viva-query <id>    With install: the Viva Insights partition and query the Cowork credits
                        Dataflow reads (needs coworkCredits=api). Fabric only: on Azure, Cowork
@@ -149,6 +156,7 @@ export function parseCli(argv, env = process.env) {
       'studio-flow': { type: 'boolean' },
       'flow-environment': { type: 'string' },
       'flow-identity': { type: 'string' },
+      'collector-account': { type: 'string' },
       'viva-partition': { type: 'string' },
       'viva-query': { type: 'string' },
       'arg-management-group': { type: 'string' },
@@ -188,13 +196,15 @@ export function parseCli(argv, env = process.env) {
     secretDays = Number(values['secret-days']);
     if (!Number.isInteger(secretDays) || secretDays < 1 || secretDays > MAX_SECRET_DAYS) throw new Error(`--secret-days must be a whole number from 1 to ${MAX_SECRET_DAYS}.`);
   }
-  const installOnly = ['feedback-flow', 'studio-flow', 'flow-environment', 'flow-identity', 'viva-partition', 'viva-query', 'arg-management-group', 'no-arg-agents', 'no-arg-foundry', 'currency', 'exchange-rate'].filter((k) => values[/** @type {'feedback-flow'} */ (k)] !== undefined);
+  const installOnly = ['feedback-flow', 'studio-flow', 'flow-environment', 'flow-identity', 'collector-account', 'viva-partition', 'viva-query', 'arg-management-group', 'no-arg-agents', 'no-arg-foundry', 'currency', 'exchange-rate'].filter((k) => values[/** @type {'feedback-flow'} */ (k)] !== undefined);
   if ((values.data?.length || values.csv?.length || installOnly.length) && !['install', 'preview'].includes(command)) {
     throw new Error(`--data, --csv${installOnly.map((k) => ` and --${k}`).join('')} go with install. To add exports later, use upload.`);
   }
   const identity = values['flow-identity'];
   if (identity !== undefined && identity !== 'user' && identity !== 'app') throw new Error('--flow-identity must be "user" or "app".');
   if (identity === 'app' && noVaultFlag) throw new Error(`--flow-identity app reads the secret from Key Vault, so it can't go with ${noVaultFlag}.`);
+  const collectorAccount = values['collector-account']?.trim().toLowerCase();
+  if (collectorAccount !== undefined && !isUpn(collectorAccount)) throw new Error('--collector-account should be the account\'s user principal name, such as analytics-collector@contoso.com.');
   const dataSources = parseDataFlags(values.data ?? []);
   for (const k of /** @type {const} */ (['viva-partition', 'viva-query'])) {
     if (values[k] !== undefined && !isVivaId(values[k])) throw new Error(`--${k} should be a GUID, as Viva Insights shows it.`);
@@ -260,6 +270,7 @@ export function parseCli(argv, env = process.env) {
     studioFlow: values['studio-flow'],
     flowEnvironment,
     flowIdentity: /** @type {import('./config.js').FlowIdentity | undefined} */ (identity),
+    collectorAccount,
     vivaPartition: values['viva-partition']?.trim(),
     vivaQuery: values['viva-query']?.trim(),
     argManagementGroup,
@@ -288,7 +299,7 @@ export function version() {
  * Applies --data, the flow flags, the Viva IDs and the currency to the install record's answers. The
  * Data sources screen then opens with them, and --yes takes them as they are.
  * @param {import('./config.js').InstallConfig} config
- * @param {{ dataSources: Partial<import('./uploads.js').DataSourceModes>, feedbackFlow?: boolean, studioFlow?: boolean, flowEnvironment?: string, flowIdentity?: import('./config.js').FlowIdentity, vivaPartition?: string, vivaQuery?: string, argManagementGroup?: string, argAgents?: boolean, argFoundry?: boolean, currency?: string, exchangeRate?: number }} args
+ * @param {{ dataSources: Partial<import('./uploads.js').DataSourceModes>, feedbackFlow?: boolean, studioFlow?: boolean, flowEnvironment?: string, flowIdentity?: import('./config.js').FlowIdentity, collectorAccount?: string, vivaPartition?: string, vivaQuery?: string, argManagementGroup?: string, argAgents?: boolean, argFoundry?: boolean, currency?: string, exchangeRate?: number }} args
  */
 export function applyDataFlags(config, args) {
   // --studio-flow and --feedback-flow are from before each flow was its source's api mode: with csv (as the old docs had it) or alone, they mean api.
@@ -301,6 +312,7 @@ export function applyDataFlags(config, args) {
   }
   if (args.flowEnvironment && args.flowEnvironment !== config.uploads.flowEnvironment?.url) config.uploads.flowEnvironment = { url: args.flowEnvironment };
   if (args.flowIdentity) config.uploads.flowIdentity = args.flowIdentity;
+  if (args.collectorAccount) config.collectorAccount = args.collectorAccount;
   if (args.vivaPartition) config.consumption.vivaPartition = args.vivaPartition;
   if (args.vivaQuery) config.consumption.vivaQuery = args.vivaQuery;
   if (args.argManagementGroup !== undefined || args.argAgents !== undefined || args.argFoundry !== undefined) {

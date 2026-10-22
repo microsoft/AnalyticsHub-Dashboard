@@ -349,6 +349,7 @@ then **Yes**.
 | Run the first load as soon as setup finishes | Yes. |
 | Value page currency | US dollars. See below. |
 | [Agent configuration and Foundry](#agent-configuration-and-foundry) | The whole tenant, agents and Foundry. |
+| [Who signs in to the flows and the Cowork Dataflow](#power-automate-flows) | You. Or a dedicated data-collector account. Only asked when you chose one of them. |
 | [Ask data agent](#ask) | Yes, on a paid F2 or larger, or Premium, capacity. |
 
 **Currency for the Value page.** Licences and credits are billed in US dollars, so it reports in
@@ -693,6 +694,16 @@ can't take writes from Power Automate.
 dedicated admin account rather than your own, and add a co-owner. Sign in again if the account's
 password is reset, the account is disabled, or the flow hasn't run for about 90 days.
 
+**A data-collector account (optional).** Under the advanced settings, **Who signs in to them?**
+offers **A dedicated data-collector account**, or pass `install --collector-account <upn>`. That
+account then signs in to the flows' Power Platform API connection and the Cowork Dataflow's two
+connections, so they don't depend on you. The installer keeps only its name, prints the commands
+an admin runs to create it and give its roles, and creates, assigns and buys nothing itself. The
+sign-in links say to sign in as that account, a connection signed in as someone else isn't used,
+and `status` shows who each one is signed in as. See
+[Data-collector account](../docs/PERMISSIONS.md#data-collector-account) for the roles and the
+hardening.
+
 **Write as the app instead (optional).** `install --flow-identity app` makes the flows write as
 the app registration, with its secret read from Key Vault through an **Azure Key Vault**
 connection, and gives the app **Contributor** on the workspace. The Key Vault connector needs the
@@ -722,6 +733,7 @@ addresses, the M365 Copilot licence flag and the exact prepaid split.
 | Create the product feedback email flow | `install --data productFeedback=flow --flow-environment https://contoso.crm.dynamics.com` |
 | Read Copilot Studio credits with the flow | `install --data studioCredits=api --flow-environment https://contoso.crm.dynamics.com` |
 | Have the flows write as the app, with its secret in Key Vault | `install --flow-identity app` |
+| Have a dedicated account sign in to the flows and the Cowork Dataflow | `install --collector-account analytics-collector@contoso.com` |
 | Read Cowork credits with a Dataflow | `install --data coworkCredits=api --viva-partition <id> --viva-query <id>` |
 | Read agent configuration and Foundry from Resource Graph | `install --data resourceGraph=api --arg-management-group <id>` |
 | Report the Value page in another currency | `install --currency GBP --exchange-rate 0.79` |
