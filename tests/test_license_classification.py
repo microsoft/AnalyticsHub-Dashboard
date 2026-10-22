@@ -115,6 +115,28 @@ class LicenseClassificationTests(unittest.TestCase):
         self.assertTrue(any("Viral Trial" in line and "excluded" in line for line in lines))
         self.assertNotIn("count them all", output)
 
+    def test_users_in_copilot_usage_report_are_flagged(self):
+        code = cells(COPIES[0])
+        namespace = {"copilot_users": {"bob@contoso.com"}, "report_upn_col": "UPN"}
+        exec(compile(code[2], "config", "exec"), namespace)
+        namespace["rows"] = [{"UPN": "Ada@contoso.com", "Assigned Products": "Microsoft 365 Copilot"},
+                             {"UPN": " BOB@contoso.com ", "Assigned Products": "Microsoft 365 E3"},
+                             {"UPN": "cy@contoso.com", "Assigned Products": "Microsoft 365 E3"}]
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            exec(compile(code[8], "classifier", "exec"), namespace)
+        self.assertEqual([row["HasCopilot"] for row in namespace["rows"]], ["TRUE", "TRUE", "FALSE"])
+        self.assertEqual(namespace["matched_by"]["Copilot usage report"], 1)
+        self.assertIn("In Copilot usage report: 1 (1 counted only because of it)", output.getvalue())
+        self.assertNotIn("concealed", output.getvalue())
+
+        namespace["copilot_users"] = {"e58eef6a6bbd3d0293cb306d24a42057"}
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            exec(compile(code[8], "classifier", "exec"), namespace)
+        self.assertEqual([row["HasCopilot"] for row in namespace["rows"]], ["TRUE", "FALSE", "FALSE"])
+        self.assertIn("concealed", output.getvalue())
+
     def test_report_parsing_preserves_quoted_mixed_products_and_checks_header(self):
         code = cells(COPIES[0])[6]
         for text, valid in [

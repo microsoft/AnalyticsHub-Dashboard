@@ -1,7 +1,8 @@
 """Licensed-users snapshot: port of Copilot_Licensed_Users_Direct_Ingester.ipynb (pure Python).
 
-Input is the Graph `getOffice365ActiveUserDetail` CSV; output is the
-`copilot_licensed_users` table as (columns, rows) with the notebook's column names.
+Input is the Graph `getOffice365ActiveUserDetail` CSV, optionally with the users listed in
+the Microsoft 365 Copilot usage report; output is the `copilot_licensed_users` table as
+(columns, rows) with the notebook's column names.
 """
 from __future__ import annotations
 
@@ -104,6 +105,37 @@ def _validate_report_rows(rows, upn_col):
             )
 
 
+def _parse_copilot_usage_report(csv_text):
+    """Copilot usage user-detail CSV -> set of normalised UPNs. The report lists only Copilot-enabled users."""
+    csv_text = (csv_text or '').lstrip('\ufeff')
+    if not csv_text.strip():
+        return set()
+    reader = csv.reader(StringIO(csv_text))
+    fieldnames = next(reader, None) or []
+    upn_col = _pick_report_column(
+        fieldnames,
+        'User Principal Name',
+        'userPrincipalName',
+        'UserPrincipalName',
+        'User principal name',
+    )
+    if upn_col is None:
+        raise ValueError("Copilot usage report is missing 'User Principal Name'.")
+    index, expected = fieldnames.index(upn_col), len(fieldnames)
+    users = set()
+    for line_number, values in enumerate(reader, start=2):
+        if not values or not any((value or '').strip() for value in values):
+            continue
+        if len(values) != expected:
+            raise ValueError(
+                f'Copilot usage report row {line_number} has {len(values)} columns; expected {expected}.'
+            )
+        norm = _normalise_identity(values[index])
+        if norm:
+            users.add(norm)
+    return users
+
+
 def _normalise_product(value):
     return ' '.join((value or '').upper().split())
 
@@ -138,13 +170,46 @@ def sanitize(name: str) -> str:
     return _INVALID.sub('_', name)
 
 
-def build_snapshot(csv_text, *, patterns=None, exclude=None, table_exists=False, allow_empty=False):
-    """CSV text -> (columns, rows) for `copilot_licensed_users`. Mirrors the notebook cells 2-4."""
+def licence_sources(rows, upn_col, is_copilot, copilot_users):
+    """How each licensed user was found: by assigned product, by the Copilot usage report, or both."""
+    stats = {'by_product_only': 0, 'by_report_only': 0, 'by_both': 0, 'report_users': 0, 'report_not_in_active': 0}
+    if copilot_users is None:
+        return stats
+    active = set()
+    for row in rows:
+        norm = _normalise_identity(row.get(upn_col))
+        active.add(norm)
+        by_product = is_copilot(row.get('Assigned Products') or '')[0]
+        by_report = norm in copilot_users
+        if by_product and by_report:
+            stats['by_both'] += 1
+        elif by_product:
+            stats['by_product_only'] += 1
+        elif by_report:
+            stats['by_report_only'] += 1
+    stats['report_users'] = len(copilot_users)
+    stats['report_not_in_active'] = len(copilot_users - active)
+    return stats
+
+
+def build_snapshot(csv_text, *, patterns=None, exclude=None, table_exists=False, allow_empty=False,
+                   copilot_users=None, stats=None):
+    """CSV text -> (columns, rows) for `copilot_licensed_users`. Mirrors the notebook cells 2-4.
+
+    `copilot_users` is the set of normalised UPNs from the Copilot usage report, or None when it was not
+    fetched. A user in that set counts as licensed even if no assigned product matched. Pass a dict as
+    `stats` to receive the `licence_sources` counts.
+    """
     fieldnames, rows, upn_col, _products_col = _parse_active_user_report(csv_text)
     _validate_report_rows(rows, upn_col)
     is_copilot = make_classifier(patterns, exclude)
+    if stats is not None:
+        stats.update(licence_sources(rows, upn_col, is_copilot, copilot_users))
     for row in rows:
-        row['HasCopilot'] = 'TRUE' if is_copilot(row.get('Assigned Products') or '')[0] else 'FALSE'
+        ok = is_copilot(row.get('Assigned Products') or '')[0]
+        if not ok and copilot_users:
+            ok = _normalise_identity(row.get(upn_col)) in copilot_users
+        row['HasCopilot'] = 'TRUE' if ok else 'FALSE'
 
     # spark.createDataFrame(list_of_dicts) orders the inferred columns by key.
     columns = sorted(rows[0].keys()) if rows else list(fieldnames)

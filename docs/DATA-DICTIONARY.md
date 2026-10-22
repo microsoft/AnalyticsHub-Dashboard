@@ -204,6 +204,13 @@ UPN_Normalized       (lower(trim(UPN)) — dedupe + join key)
 … plus all Office365ActiveUserDetail columns (sanitized)
 ```
 
+`Has_license` is TRUE when an assigned product matches the Copilot patterns, or when the user is
+listed in the Microsoft 365 Copilot usage report
+([`getMicrosoft365CopilotUsageUserDetail`](https://learn.microsoft.com/microsoft-365/copilot/extensibility/api/admin-settings/reports/copilotreportroot-getmicrosoft365copilotusageuserdetail)),
+which lists every Copilot-enabled user, active or not. It needs the same `Reports.Read.All`
+permission. If that report returns 400, 403 or 404, the flag comes from assigned products only for
+that run.
+
 ### 3. `copilot_org_data` — Entra org / people data
 Dashboard normalizes dynamically (UPN/PersonId variants, `Department`→`Organization` when there's
 no `Organization` column) and adds `PersonId_Normalized` + `TotalEmployees` if missing.

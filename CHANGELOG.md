@@ -214,6 +214,15 @@ each runs longer and slows the ones in front of it. Pages further down the menu 
 as they did before the prefetcher. `PREFETCH_AHEAD` in `app/src/components/prefetch-targets.ts`
 sets the number. On Fabric and Azure.
 
+- **Licensed users: the Copilot usage report counts too.** The licensed-users ingest, in Fabric
+  and on Azure, now also reads the Microsoft 365 Copilot usage report, which lists every
+  Copilot-enabled user. A user in that report is flagged as licensed even when their assigned
+  product name doesn't match the Copilot patterns, for example a renamed or bundled SKU. It uses
+  the `Reports.Read.All` permission the ingest already has, so there's nothing new to grant. If the
+  report returns 400, 403 or 404, the run falls back to assigned products and says so in the log.
+  Other errors stop the run and keep the previous snapshot. The log shows how many users each
+  source found, and warns if no names match between the two reports (concealed names).
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its
