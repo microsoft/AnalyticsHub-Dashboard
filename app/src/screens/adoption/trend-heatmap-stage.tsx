@@ -51,21 +51,26 @@ export function TrendHeatmapStage() {
     const org = useOrgAttribute();
 
     const heatmap = useMemo(() => withOrgAttribute(trendHeatmap({ metric }), org), [metric, org]);
-    const heatmapResult = useFilteredQuery({ connection: heatmap.connection, query: heatmap.query });
+    const heatmapResult = useFilteredQuery({
+        connection: heatmap.connection,
+        query: heatmap.query,
+        columnMetadata: heatmap.columnMetadata,
+    });
     const headline = useMemo(() => trendHeatmapHeadline(), []);
     const headlineResult = useFilteredQuery({ connection: headline.connection, query: headline.query });
 
     // The fifteen organizations with the most people across the range. Every metric but the first is a
-    // rate, so the rest are left out rather than averaged into an Other row.
+    // rate, so the rest are left out rather than averaged into an Other row. The answer is read by the
+    // columns it was asked with: one for another Group by keys its org column differently.
     const top = useMemo(
         () =>
             heatmapResult.data?.status === "success"
-                ? topRows(toDataTable(heatmapResult.data.table, heatmap.columnMetadata), {
+                ? topRows(toDataTable(heatmapResult.data.table, heatmapResult.columnMetadata ?? heatmap.columnMetadata), {
                       label: TREND_HEATMAP_ORGANIZATION_FIELD,
                       by: "Active Users",
                   })
                 : undefined,
-        [heatmapResult.data, heatmap.columnMetadata],
+        [heatmapResult.data, heatmapResult.columnMetadata, heatmap.columnMetadata],
     );
     const heatmapTable = top?.table;
     const weeks = distinctValueCount(heatmapTable, TREND_HEATMAP_WEEK_FIELD);

@@ -10,6 +10,7 @@ import { type CachedQueryResult } from "@microsoft/fabric-app-data";
 import { getFabricClient, QUERY_CACHE_MAX_AGE_MS } from "@/lib/fabric-client";
 import { withPriority, type QueryCaller } from "@/lib/query-priority";
 import { isBusyMessage, onModelRecovered, recoveriesOf } from "@/lib/query-scheduler";
+import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { useIsPrefetch } from "./prefetch.context";
 
 interface UseSemanticModelQueryOptions {
@@ -26,10 +27,21 @@ interface UseSemanticModelQueryOptions {
      * has loaded. Turning it off moves a query still waiting to the screen's lane.
      */
     background?: boolean;
+    /**
+     * How the answer's columns are read. Each answer comes back with the
+     * metadata its query was asked with, so an answer kept on screen while
+     * a changed query loads is never read by that query's columns.
+     */
+    columnMetadata?: ColumnMetadataMap;
 }
 
 interface UseSemanticModelQueryResult {
     data: CachedQueryResult | undefined;
+    /**
+     * The column metadata to read `data` by: while `data` answers an earlier
+     * query, the metadata that query was asked with; otherwise the query's own.
+     */
+    columnMetadata: ColumnMetadataMap | undefined;
     isLoading: boolean;
     error: Error | undefined;
     /** Runs the query again; after an error it asks Power BI rather than the cache. */
@@ -47,6 +59,14 @@ function outdated(model: string | undefined, seen: number): boolean {
 }
 
 type Execute = (fresh?: boolean, signal?: AbortSignal) => Promise<void>;
+
+/** The answer a card shows, with the query it answers and the column metadata that query was asked with. */
+interface Shown {
+    data: CachedQueryResult;
+    connection: string;
+    query: string;
+    columnMetadata: ColumnMetadataMap | undefined;
+}
 
 /**
  * React hook that executes a DAX query against a Power BI semantic model
@@ -93,8 +113,9 @@ type Execute = (fresh?: boolean, signal?: AbortSignal) => Promise<void>;
 export function useSemanticModelQuery(
     options: UseSemanticModelQueryOptions,
 ): UseSemanticModelQueryResult {
-    const { connection, query, bypassCache, lead, background } = options;
-    const [data, setData] = useState<CachedQueryResult | undefined>();
+    const { connection, query, bypassCache, lead, background, columnMetadata } = options;
+    // Kept across a change of query, so the last answer stays on screen while the next loads.
+    const [shown, setShown] = useState<Shown | undefined>();
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<Error | undefined>();
     const latest = useRef<CachedQueryResult | undefined>(undefined);
@@ -113,6 +134,8 @@ export function useSemanticModelQuery(
      * depends on it, so a change mustn't call off and send again a query that is already on its way.
      */
     const leading = useRef(lead);
+    /** The column metadata as last rendered, which an ask pairs its answer with. */
+    const metadata = useRef(columnMetadata);
 
     const canExecute = Boolean(connection && query);
     const priority = useIsPrefetch() || background ? "low" : "normal";
@@ -120,6 +143,7 @@ export function useSemanticModelQuery(
     // Declared before the effect that asks, so an ask made in the same commit sees the change.
     useEffect(() => {
         leading.current = lead;
+        metadata.current = columnMetadata;
     });
 
     // Asks once. True when it ended busy on an answer from before its model last answered again.
@@ -129,6 +153,7 @@ export function useSemanticModelQuery(
         if (signal?.aborted) return false;
         const mine = ++asks.current;
         const current = () => asks.current === mine && !signal?.aborted;
+        const reading = metadata.current;
         busy.current = false;
         if (!canExecute) {
             setIsLoading(false);
@@ -165,7 +190,7 @@ export function useSemanticModelQuery(
             }
 
             latest.current = result;
-            setData(result);
+            setShown({ data: result, connection, query, columnMetadata: reading });
 
             if (result.status === "error") {
                 held = isBusyMessage(result.error.message);
@@ -218,7 +243,15 @@ export function useSemanticModelQuery(
         return execute(latest.current?.status !== "success", life.run.signal);
     }, [execute]);
 
-    return { data, isLoading, error, refetch };
+    // An answer to an earlier query keeps that query's columns until the new answer replaces it.
+    const earlier = shown !== undefined && (shown.connection !== connection || shown.query !== query);
+    return {
+        data: shown?.data,
+        columnMetadata: earlier ? shown.columnMetadata : columnMetadata,
+        isLoading,
+        error,
+        refetch,
+    };
 }
 
 /**

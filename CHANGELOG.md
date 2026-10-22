@@ -125,6 +125,20 @@ resource group.
   says the app needs redeploying to update it to this version, and defaults to yes. Answer no, and
   the next Repair or change asks again. **Update** already defaulted to redeploying the app.
 
+**Fixed:**
+
+- **App: changing Group by no longer crashes Adoption's Trend heatmap and Activation pages.** With
+  either page showing data, picking another attribute under **Group by**, such as Office location,
+  or going back to Organization, replaced the whole app with "Something went wrong" and
+  `Column "Chat + Agent Org DataOrganization" was not found.` **Try Again** recovered, but opened
+  the Executive summary grouped by Organization, so the filters were lost. The app in 0.6.7 and
+  0.6.6 has this problem too. While the answer for the new attribute loaded, these pages read the
+  previous answer by the new attribute's column names, so they couldn't find the column they rank
+  by. Now each answer is read by the column names of the query that asked for it: the previous
+  answer stays on screen, with its own labels, until the new one comes, as it does when a filter
+  changes. And a chart that can't find the column it ranks by shows its rows unranked, rather than
+  stop the app.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its
