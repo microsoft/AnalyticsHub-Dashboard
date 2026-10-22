@@ -10,7 +10,7 @@ import { MODULES, azureGraphRolesFor } from '../src/catalog.js';
 import { HttpError } from '../src/http.js';
 import { armApi, armErrors, waitForDeployment } from '../src/clients/azure.js';
 import { runCommand } from '../src/install.js';
-import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, armParameterNames, askTarget, azureAgent365On, azureConsumptionOn, azureCron, azureDeployment, azureDropContents, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureProductFeedbackOn, azureRefresh, azureRotateSecret, azureSemanticModels, azureStatus, azureSummary, azureUninstall, azureWorkdayOn, confirmAzurePlan, consumptionParameters, enabledAzureModuleIds, installAzure, parseDropFolder, planAzure, planAzureAgent365, planAzureDrop, planAzureProductFeedback, planAzureConsumption, planAzureWorkday, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
+import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, armParameterNames, askTarget, azureAgent365On, azureConsumptionOn, azureCron, azureDeployment, azureDropContents, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureProductFeedbackOn, azureRefresh, azureRotateSecret, azureSemanticModels, azureStatus, azureSummary, azureUninstall, azureUpdate, azureWorkdayOn, confirmAzurePlan, consumptionParameters, enabledAzureModuleIds, installAzure, parseDropFolder, planAzure, planAzureAgent365, planAzureDrop, planAzureProductFeedback, planAzureConsumption, planAzureWorkday, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
 import { AZURE_AI_ROLES } from '../src/steps/consumption.js';
 import { azureFlowTarget, connectionSteps, flowDefinitions, flowsWanted } from '../src/steps/flows.js';
 import { RG_DELETE_POLL_MS, RG_DELETE_POLLS } from '../src/steps/azure/index.js';
@@ -1912,6 +1912,75 @@ test('Azure never-touch collision and uninstall scope', async () => {
   config.azure.createdResourceGroup = true;
   await runCommand(ctx, 'uninstall', { wait: true });
   assert.ok(arm.calls.includes('deleteResourceGroup rg'));
+});
+
+const DATA_ZONES = ['privatelink.database.windows.net', 'privatelink.blob.core.windows.net', 'privatelink.dfs.core.windows.net', 'privatelink.table.core.windows.net'];
+/** A private DNS zone in resource group rg. @param {string} name @param {Record<string, string>} [tags] */
+const dnsZone = (name, tags = {}) => ({ id: `/subscriptions/sub-1/resourceGroups/rg/providers/Microsoft.Network/privateDnsZones/${name}`, name, type: 'Microsoft.Network/privateDnsZones', location: 'global', tags });
+
+/**
+ * An install into resource group rg, which already holds these resources, with private networking and DNS zones created in rg unless `az` says otherwise.
+ * @param {any[]} resources @param {Record<string, any>} [az]
+ */
+async function intoGroupWith(resources, az = {}) {
+  const arm = fakeArm();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: fakeAzureGraph().api, fabric: fakeFabric().api, powerBi: fakePowerBi().api });
+  config.target = 'azure';
+  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: false, workspaceName: 'Analytics Hub', powerBi: { capacityId: 'cap-f' }, ...az };
+  await arm.api.ensureResourceGroup('sub-1', 'rg', 'uksouth');
+  arm.resources.push(...resources);
+  ctx.runFirstLoad = false;
+  return { arm, ctx };
+}
+const deployed = (/** @type {ReturnType<typeof fakeArm>} */ arm) => arm.calls.some((c) => c.startsWith('deployTemplate'));
+
+test('Azure private networking stops before deploying when a private DNS zone it would create is already in the resource group without its tag', async () => {
+  // ARM would update the zone in place and tag it as this install's, and uninstall deletes what has the tag.
+  const { arm, ctx } = await intoGroupWith([dnsZone('privatelink.blob.core.windows.net')]);
+  const err = await azureUpdate(ctx).then(() => assert.fail('it went ahead'), (/** @type {Error} */ e) => e);
+  assert.equal(deployed(arm), false, 'nothing is deployed');
+  assert.equal(err.message, [
+    "Private DNS zone collision: privatelink.blob.core.windows.net already exists in resource group rg without this install's tag. With private networking, this install would update it in place and tag it as its own, so its uninstall would try to delete it and every record in it. Analytics Hub will not modify resources it did not create. To go on, either:",
+    '  - Use the zones in this resource group: run the installer again, choose advanced options and Private networking, then "Use existing zones in another resource group", and give /subscriptions/sub-1/resourceGroups/rg as the resource group that holds them. On the setup page, that\'s Networking, then "Use existing zones" with the same resource group ID. Every zone the install uses must then be in it, so first create privatelink.database.windows.net, privatelink.dfs.core.windows.net and privatelink.table.core.windows.net there, for example with az network private-dns zone create -g rg -n <zone name>.',
+    '  - Or install into another resource group.',
+  ].join('\n'));
+});
+
+test('Azure private networking goes ahead over private DNS zones this install created, as a Repair or upgrade does', async () => {
+  const { arm, ctx } = await intoGroupWith(DATA_ZONES.map((z) => dnsZone(z, { 'valuelens-install-id': 'install-1' })));
+  await azureUpdate(ctx);
+  assert.equal(deployed(arm), true);
+});
+
+test('Azure private networking stops over private DNS zones another Analytics Hub install created', async () => {
+  const theirs = { 'valuelens-install-id': 'install-0' };
+  const all = await intoGroupWith(DATA_ZONES.map((z) => dnsZone(z, theirs)));
+  const err = await azurePreflight(all.ctx).then(() => assert.fail('it went ahead'), (/** @type {Error} */ e) => e);
+  assert.match(err.message, /^Private DNS zone collision: privatelink\.database\.windows\.net, privatelink\.blob\.core\.windows\.net, privatelink\.dfs\.core\.windows\.net and privatelink\.table\.core\.windows\.net already exist in resource group rg without this install's tag\. With private networking, this install would update them in place and tag them as its own, so its uninstall would try to delete them and every record in them\. They belong to another Analytics Hub install, and its uninstall would try to delete them even while this install uses them\. /);
+  assert.doesNotMatch(err.message, /first create/, 'every zone the install uses is there already');
+
+  const some = await intoGroupWith([dnsZone('privatelink.database.windows.net', theirs), dnsZone('privatelink.blob.core.windows.net')]);
+  await assert.rejects(azurePreflight(some.ctx), /already exist in resource group rg without this install's tag\. .* privatelink\.database\.windows\.net belongs to another Analytics Hub install, and its uninstall would try to delete it even while this install uses it\. .*first create privatelink\.dfs\.core\.windows\.net and privatelink\.table\.core\.windows\.net there/s);
+});
+
+test('Azure private DNS zone check: zones the deployment does not create, public networking, and existing or no DNS zones go ahead', async () => {
+  const keyVault = await intoGroupWith([dnsZone('privatelink.vaultcore.azure.net'), dnsZone('privatelink.blob.core.windows.net.example.com')]);
+  await azurePreflight(keyVault.ctx);
+  const untagged = () => DATA_ZONES.map((z) => dnsZone(z));
+  await azurePreflight((await intoGroupWith(untagged(), { publicNetworkAccess: true })).ctx);
+  // Existing zones in the install's own resource group: the VNet is linked to them, and they're not tagged as this install's.
+  await azurePreflight((await intoGroupWith(untagged(), { privateDns: { mode: 'existing', resourceGroupId: '/subscriptions/sub-1/resourceGroups/rg' } })).ctx);
+  await azurePreflight((await intoGroupWith(untagged(), { privateDns: { mode: 'none' } })).ctx);
+});
+
+test('Azure private DNS zone check: the AI zones count only when the install creates the Ask account', async () => {
+  const openAi = () => [dnsZone('privatelink.openai.azure.com')];
+  await azurePreflight((await intoGroupWith(openAi())).ctx);
+  await azurePreflight((await intoGroupWith(openAi(), { ask: { mode: 'existing', endpoint: 'https://ask.example.com/', deployment: 'chat' } })).ctx);
+  await assert.rejects(
+    azurePreflight((await intoGroupWith(openAi(), { ask: { mode: 'create' } })).ctx),
+    /Private DNS zone collision: privatelink\.openai\.azure\.com already exists in resource group rg without this install's tag\..*first create privatelink\.database\.windows\.net, privatelink\.blob\.core\.windows\.net, privatelink\.dfs\.core\.windows\.net, privatelink\.table\.core\.windows\.net, privatelink\.cognitiveservices\.azure\.com and privatelink\.services\.ai\.azure\.com there/s,
+  );
 });
 
 /**

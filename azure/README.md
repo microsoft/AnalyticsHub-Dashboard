@@ -392,6 +392,12 @@ open it. Container Apps logs reach Log Analytics through a diagnostic setting, i
 | `existing` | Uses the zones in `privateDnsZonesResourceGroupId` (for example a Landing Zone hub) and links the VNet to them | The zones exist there, including the three AI ones when Ask is created, and you have **Private DNS Zone Contributor** on that group |
 | `none` | No zones, links or DNS zone groups | A deployIfNotExists policy or your network team adds the records. Until then the jobs can't reach SQL or Storage |
 
+With `create`, a zone of the same name that's already in the resource group is updated in place and
+gets the install's tags, so the installer's uninstall would try to delete it, with every record in
+it. The installer stops before deploying when a zone it would create is there without the install's
+`valuelens-install-id`, and names it. Use `existing` with that resource group instead, once every
+zone the install uses is there, or use another resource group.
+
 When Azure Policy blocks a deployment, the installer lists each policy, assignment and resource, and
 prints `az deployment group show -g <resource group> -n valuelens --query properties.error` for the
 full error. For any failed deployment it also reads the deployment operations, including nested
