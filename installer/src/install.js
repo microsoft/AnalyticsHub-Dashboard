@@ -44,7 +44,7 @@ import {
 } from './steps/fabric.js';
 import { ensureModelConnection, ensureSemanticModel, modelUrl, pendingReloads, refreshModel, rotateModelSecret, settleReloads, verifyModel } from './steps/model.js';
 import { confirmPlan, plan, preflight } from './steps/plan.js';
-import { checkPrereqs } from './prereqs.js';
+import { checkPrereqs, preflightChecks, reportPreflight } from './prereqs.js';
 import { ensureReports, reportsOn, reportsSummary } from './steps/report.js';
 import { dataAgentSummary, dataAgentWanted, ensureDataAgent } from './steps/data-agent.js';
 import { azureUploadError, dataSourcesSummary, ensureUploads, uploadCommand } from './steps/data-sources.js';
@@ -312,6 +312,11 @@ export async function install(ctx, opts) {
   if (ui.web) {
     go = await reviewSetup(ctx);
     if (go && config.target !== 'azure') pre = await preflight(ctx);
+    // An Azure install from the browser has its own preflight in the plan; this adds the prerequisites, as the terminal does.
+    else if (go) {
+      ui.heading('Checking prerequisites');
+      reportPreflight(ctx, await preflightChecks(ctx));
+    }
   }
   else {
     const wasAzure = config.target === 'azure';
@@ -668,8 +673,12 @@ async function tryDeployApp(ctx, opts = {}) {
  */
 export async function update(ctx, opts = {}) {
   const { ui, config } = ctx;
-  if (config.target === 'azure') return azureUpdate(ctx);
+  if (config.target === 'azure') {
+    await updatePrereqs(ctx);
+    return azureUpdate(ctx);
+  }
   if (!config.fabric.workspaceId || !config.fabric.lakehouseId) throw new Error('Nothing is installed yet. Run the installer first.');
+  await updatePrereqs(ctx);
   const sm = config.semanticModel;
   ui.heading('Updating Analytics Hub');
   ui.note(`From ${ctx.sources.dir}`);
@@ -788,6 +797,15 @@ export async function refresh(ctx, opts) {
   if (!ctx.config.semanticModel.id) throw new Error('There is no semantic model yet. Run the installer and choose to deploy it.');
   if (deployedModels(ctx.config).length < 2) return refreshModel(ctx, opts);
   return refreshModels(ctx, opts);
+}
+
+/**
+ * The prerequisites before an update changes anything: only what needs attention. It never stops an update.
+ * @param {Ctx} ctx
+ */
+async function updatePrereqs(ctx) {
+  ctx.ui.heading('Checking prerequisites');
+  reportPreflight(ctx, await preflightChecks(ctx), { update: true });
 }
 
 /**
