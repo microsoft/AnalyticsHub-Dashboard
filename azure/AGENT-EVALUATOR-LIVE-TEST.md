@@ -1,12 +1,15 @@
 # Agent Evaluator on Azure: live test
 
 **Don't run any of this until it's approved.** It changes a tenant and costs money: see
-[What it changes](#what-it-changes). Run it on installer 0.6.8-rc.2, the first release candidate
-with Agent Evaluator on Azure.
+[What it changes](#what-it-changes). Run it on a 0.6.8 pre-release that gives the jobs' managed
+identity the transcript reader role, so later than rc.2. rc.2 was the first release candidate with
+Agent Evaluator on Azure, but it gave the managed identity only Bot Transcript Viewer, which reads
+only the transcripts the identity owns or that are shared with it. In a test environment, that was
+none.
 
 This test runs Agent Evaluator end to end on the Azure path, against real Copilot Studio
 transcripts:
-- the install, and the application user it adds in Dataverse;
+- the install, and the application user and the role it adds in Dataverse;
 - the jobs reading and parsing the transcripts;
 - the Azure SQL tables;
 - the Agent Evaluator model;
@@ -25,7 +28,7 @@ are in `ContainerAppConsoleLogs` (columns `ContainerGroupName` and `Log`), not
 
 | | |
 |---|---|
-| **Dataverse** | The jobs' managed identity becomes an application user with the **Bot Transcript Viewer** role in one or two environments. The installer adds it in A; you add it by hand in B (step 7). Steps 9 to 11 and uninstall remove the user the installer added, or print the steps. You remove B's yourself (step 14). |
+| **Dataverse** | The jobs' managed identity becomes an application user with two roles in one or two environments: **Bot Transcript Viewer**, and a role the installer creates for the install, *Analytics Hub transcript reader* and the first 8 characters of the install's ID, which holds only ConversationTranscript read at Organization depth. The installer adds the user and both roles in A. In B you add the user and a role of your own by hand (step 7), and the installer then adds its role there too. Steps 9 to 11 and uninstall remove what the installer added, or print the steps. You remove B's user and your role yourself (step 14). |
 | **Data read** | Up to 180 days of Copilot Studio transcripts from those environments. The jobs keep only parsed rows: prompts, replies and error messages as 500-character previews; feedback comments as written, up to 4,000 characters; and each person's Entra object ID and UPN. They're kept in the test install's storage account and Azure SQL database, and are deleted with its resource group. |
 | **Spend** | One Azure install in a new resource group that holds nothing else. If you build the images (step 0), also an Azure Container Registry in its own resource group. Both are deleted the same day. See [What it costs](../docs/PREREQUISITES.md#what-it-costs). |
 | **Power BI** | A new workspace with the install's models. Uninstall asks whether to delete it, and you say yes (step 13). |
@@ -60,7 +63,7 @@ are in `ContainerAppConsoleLogs` (columns `ContainerGroupName` and `Log`), not
 Clone the branch under test into a new folder, and keep the install record outside the clone:
 
 ```powershell
-git clone --branch <rc.2 tag or branch under test> https://github.com/microsoft/AnalyticsHub-Dashboard "$HOME\ae-live-test\src"
+git clone --branch <pre-release tag or branch under test> https://github.com/microsoft/AnalyticsHub-Dashboard "$HOME\ae-live-test\src"
 $rec = "$HOME\ae-live-test\valuelens-install.json"
 ```
 
@@ -82,10 +85,10 @@ pins others, the registry is `ghcr.io/microsoft` and the tag is the version in
 The released images don't have Agent Evaluator on Azure, so always pin a tag that does. Do one of
 these:
 
-- **Release candidate images**, once rc.2's are published:
+- **Release candidate images**, once the pre-release's are published:
 
   ```powershell
-  [IO.File]::WriteAllText($rec, '{"version":1,"target":"azure","azure":{"images":{"tag":"<rc.2 tag>"}}}')
+  [IO.File]::WriteAllText($rec, '{"version":1,"target":"azure","azure":{"images":{"tag":"<pre-release tag>"}}}')
   ```
 
 - **Your own build**, in a new registry in its own resource group.
@@ -166,13 +169,19 @@ npx valuelens-install install --target azure --config $rec
   with agents.
 - When the plan asks whether to publish the Teams app, say no unless the Teams part was approved.
 
-The plan should list a **Dataverse application user**, **Jobs' managed identity in A**. The
-**Transcript access** step should then say
-`Gave the jobs' managed identity the Bot Transcript Viewer role in A`. The installer then starts
-the first run without waiting for it.
+The plan should list a **Dataverse application user**, **Jobs' managed identity in A**, and a
+**Dataverse security role**, **Analytics Hub transcript reader** followed by the first 8
+characters of the install's ID, **in A**. Below, `<ID>` is those 8 characters. The
+**Transcript access** step should then say:
+- `Created the "Analytics Hub transcript reader <ID>" role in A: it reads every Copilot Studio conversation transcript there, and nothing else`;
+- `Gave the jobs' managed identity the Bot Transcript Viewer and "Analytics Hub transcript reader <ID>" roles in A`;
+- `Checked one transcript in A: the jobs' managed identity can read it`. If it says instead that
+  Dataverse shows it can't read one yet, note that: role changes can take a few minutes.
 
-Check the user in Dataverse. The identity's name starts with `id-<prefix>-collector-`, and the
-default prefix is `vlens`.
+The installer then starts the first run without waiting for it.
+
+Check the user and the role in Dataverse. The identity's name starts with
+`id-<prefix>-collector-`, and the default prefix is `vlens`.
 
 ```powershell
 $rg = '<resource group>'
@@ -180,14 +189,23 @@ $mi = az identity list -g $rg --query "[?contains(name,'-collector-')].clientId 
 $u = Get-Dv $A ('systemusers?$select=systemuserid,fullname,isdisabled&$filter=applicationid eq {0}' -f $mi)
 $u
 Get-Dv $A ('systemusers({0})/systemuserroles_association?$select=name' -f $u.systemuserid)
-(Get-Content $rec -Raw | ConvertFrom-Json).azure.transcriptAccess
+$ta = (Get-Content $rec -Raw | ConvertFrom-Json).azure.transcriptAccess
+$ta
+$ra = $ta | Where-Object { $_.url -like "$A*" }
+$t = az account get-access-token --resource $A --query accessToken -o tsv
+(Invoke-RestMethod -Headers @{ Authorization = "Bearer $t"; Accept = 'application/json' } -Uri ("$A/api/data/v9.2/RetrieveRolePrivilegesRole(RoleId=@r)?@r={0}" -f $ra.readRoleId)).RolePrivileges | Select-Object PrivilegeName, Depth
 ```
 
-- One user, with `isdisabled` set to False and Bot Transcript Viewer among its roles.
+- One user, with `isdisabled` set to False, and Bot Transcript Viewer and
+  `Analytics Hub transcript reader <ID>` among its roles.
+- The role holds exactly one privilege: `prvReadconversationtranscript` at `Global` depth, which
+  the admin center calls Organization. It holds none of the platform privileges a new role comes
+  with.
 - In the admin center, A's **Settings** > **Users + permissions** > **Application users** lists
-  it. Note the name it shows there, for the docs.
-- The record has one entry, for A: its `appId` is `$mi`, and it has a `userId`, a `roleId` and
-  `createdUser` set to True. That's what tells uninstall to delete the user.
+  the user. Note the name it shows there, for the docs. **Security roles** lists the role.
+- The record has one entry, for A: its `appId` is `$mi`, and it has a `userId`, a `roleId`,
+  `createdUser` set to True, the role's `readRoleId` and `readRoleName`, `createdReadRole` set to
+  True, and an `assignedReadRoleId`. That's what tells uninstall to delete the user and the role.
 
 ## 3. The first run
 
@@ -230,6 +248,9 @@ Expect these lines, in this order:
 
 Check:
 
+- **Transcripts found.** A's status line says `ok`, not `empty` (`0 transcripts found in …`).
+  `empty`, when step 1 counted transcripts, means the managed identity can't read them: check its
+  roles as in step 2.
 - **Counts.**
   - The `+N` values add up to N on the status line.
   - That's also the Dataverse count from the earliest window's start: run step 1's count with
@@ -338,18 +359,35 @@ az containerapp job update -g $rg -n $job --remove-env-vars VALUELENS_TRANSCRIPT
 
 ## 7. A second environment, added by hand
 
-This checks the manual steps the installer prints.
+This checks the manual steps the installer prints. In the admin center, open environment B, then
+**Settings** > **Users + permissions**.
 
-1. In the admin center, open environment B, then **Settings** > **Users + permissions** >
-   **Application users** > **+ New app user** > **+ Add an app**.
-2. Search for the identity's client ID (`$mi`), not its name. Microsoft's docs say this search
+1. **Security roles** > **+ New role**. Name it *Analytics Hub transcript reader*, keep the root
+   business unit, turn off **Include App Opener privileges for running Model-Driven apps**, and
+   **Save**. Then set the **ConversationTranscript** table's **Read** to **Organization**, and
+   **Save**. Note anything the admin center names differently, so the docs can be fixed.
+2. **Application users** > **+ New app user** > **+ Add an app**.
+3. Search for the identity's client ID (`$mi`), not its name. Microsoft's docs say this search
    accepts a managed identity's client ID; note whether it found it.
-3. Pick the identity, choose the root business unit, add the **Bot Transcript Viewer** security
-   role, and select **Create**.
+4. Pick the identity, choose the root business unit, add the **Bot Transcript Viewer** security
+   role and the new role, and select **Create**.
 
 If the search doesn't find the identity, cancel, and note it so the docs' manual steps can be
-fixed. The installer then adds the user in B in the next step, as it did in A, and uninstall
-removes it.
+fixed. The installer then adds the user in B in the next step, with both roles, as it did in A,
+and uninstall removes them.
+
+Check that the role you made lets the identity read B's transcripts. As a System Administrator,
+ask Dataverse about one transcript:
+
+```powershell
+$ub = Get-Dv $B ('systemusers?$select=systemuserid&$filter=applicationid eq {0}' -f $mi)
+$tx = Get-Dv $B 'conversationtranscripts?$select=conversationtranscriptid&$top=1'
+$target = [uri]::EscapeDataString(('{{"@odata.id":"conversationtranscripts({0})"}}' -f $tx.conversationtranscriptid))
+$t = az account get-access-token --resource $B --query accessToken -o tsv
+Invoke-RestMethod -Headers @{ Authorization = "Bearer $t"; Accept = 'application/json' } -Uri ("$B/api/data/v9.2/systemusers({0})/Microsoft.Dynamics.CRM.RetrievePrincipalAccess(Target=@t)?@t={1}" -f $ub.systemuserid, $target)
+```
+
+`AccessRights` should include `ReadAccess`. With Bot Transcript Viewer alone, it's usually `None`.
 
 Then add B through Repair or change:
 
@@ -358,26 +396,36 @@ npx valuelens-install update --config $rec
 ```
 
 Choose **Repair or change**, open **Module connections**, and tick B as well as A. Expect:
-- `The jobs' managed identity can read transcripts in B`. It finds the user you made and doesn't
-  add another: check with `Get-Dv $B` as in step 2, and there's one user.
-- B's entry in the record has a `userId`, but no `roleId` and no `createdUser`, so uninstall leaves
-  B's user.
+- It finds the user you made and doesn't add another: check with `Get-Dv $B` as in step 2, and
+  there's one user.
+- You're a System Administrator of B, so it also creates its own role there, and gives it:
+  `Created the "Analytics Hub transcript reader <ID>" role in B: …`, then
+  `Gave the jobs' managed identity the "Analytics Hub transcript reader <ID>" role in B`. It
+  doesn't change the role you made.
+- B's entry in the record has a `userId`, a `readRoleId` with `createdReadRole` set to True, and
+  an `assignedReadRoleId`, but no `roleId` and no `createdUser`. So uninstall deletes the
+  installer's role in B, and leaves B's user, its Bot Transcript Viewer role and the role you made.
 - On the next run, B gets a first read of 180 days and A its usual 14 days. Use `run` if `update`
   doesn't start one. Both status lines say `ok`.
 - `status` says `Agents:         2 of 2 environment(s) readable`.
 
-Optional, the error path:
-1. In B, take Bot Transcript Viewer off the identity's user (edit the user's security roles).
-2. `run`, and check that:
-   - B's status line says `forbidden`, and the reason names the Bot Transcript Viewer role;
+Optional, the error paths:
+1. In B, take the two transcript reader roles off the identity's user, the installer's and yours,
+   and leave Bot Transcript Viewer (edit the user's security roles). `run`, and check that B's
+   status line says `empty` (`0 transcripts found in …`), as on rc.2, unless some of B's
+   transcripts are shared with the identity.
+2. Take Bot Transcript Viewer off too. `run`, and check that:
+   - B's status line says `forbidden`, and the reason names the Bot Transcript Viewer role and the
+     installer's transcript reader role;
    - A is still read.
-3. Give the role back.
+3. Give the three roles back.
 
 Optional, an environment you can't add the identity to. This needs an environment C where your
 account is a user but not a System Administrator.
 1. In `update`, tick C as well. The list says an admin adds the jobs' managed identity there.
-2. The installer can't add it, so it prints the steps for an admin, naming the identity and its
-   client ID, and asks what to do. Choose **Leave it out for now**.
+2. The installer can't add it, so it prints the steps for an admin: creating the role, then adding
+   the identity, by its client ID, with both roles. It asks what to do. Choose
+   **Leave it out for now**.
 3. Check that:
    - `status` says `2 of 3 environment(s) readable`, with `!` beside C;
    - the next run's status line for C says `forbidden`, and A and B are read;
@@ -419,30 +467,48 @@ slow. Look for long gaps between `+N` lines, many 429s, or OOMKilled. The run jo
 
 Run `update`, choose **Repair or change**, open **Module connections**, and untick A. Expect:
 - The plan's row for **Jobs' managed identity in A** says the installer deletes the application
-  user it created.
-- One of these. Note which: it shows whether Dataverse's Web API deletes an application user.
+  user it created. Its row for the **Analytics Hub transcript reader <ID>** role in A says it takes
+  the role away and deletes the role it created.
+- `Deleted the "Analytics Hub transcript reader <ID>" role in A`. Looking the role up by name finds
+  nothing: `Get-Dv $A ('roles?$select=roleid&$filter=name eq ''{0}''' -f $ra.readRoleName)`.
+- Then one of these. Note which: it shows whether Dataverse's Web API deletes an application user,
+  and whether a second delete removes one the first only soft-deleted.
   - `Removed the application user for the jobs' managed identity <name> (client ID <$mi>) from A`.
-    `Get-Dv $A` as in step 2 finds no user.
+    The installer read the user back after deleting it, deleting it again if it was still there,
+    and found it gone. `Get-Dv $A` as in step 2 finds no user.
+  - `Dataverse only soft-deleted the application user …`, saying it's deactivated with no role,
+    then how a System Administrator deletes it for good. `Get-Dv $A` as in step 2 finds it with
+    `isdisabled` True, and with neither role.
+    `Get-Dv $A ('systemusers?$select=isdisabled,deletedstate&$filter=applicationid eq {0}' -f $mi)`
+    shows `deletedstate` 1. Follow the printed steps, and note whether the admin center's filter
+    lists the user and deletes it.
   - `Dataverse wouldn't delete the application user …`, saying it has no role now, then the steps
     for a System Administrator. The installer turned the user back on, so `Get-Dv $A` finds it
-    with `isdisabled` False and without Bot Transcript Viewer.
+    with `isdisabled` False and with neither role.
 - The record has no entry for A.
 - The next run reads B only. A's sessions stay in the app until uninstall.
 
-Then tick A again. Expect `Gave the jobs' managed identity the Bot Transcript Viewer role in A`,
-and another 180-day first read of A on the next run. If Dataverse wouldn't delete the user, the
-installer finds it and only gives it the role back: A's entry has a `roleId` but no
-`createdUser`, so uninstall takes the role away and leaves the user for step 14.
+Then tick A again. Expect
+`Created the "Analytics Hub transcript reader <ID>" role in A: …`, then
+`Gave the jobs' managed identity the Bot Transcript Viewer and "Analytics Hub transcript reader <ID>" roles in A`,
+and another 180-day first read of A on the next run. The role has the same name as before and a
+new ID. If Dataverse wouldn't delete the user, the installer finds it and only gives it the roles:
+A's entry has a `roleId` and the read role's fields but no `createdUser`, so uninstall deletes the
+installer's role, takes Bot Transcript Viewer away, and leaves the user for step 14. If it only
+soft-deleted the user, and it's still there, the installer finds it disabled:
+`The jobs' managed identity's application user in A is disabled, so its transcripts are skipped.`
+Delete it for good as printed, then tick A again.
 
 ## 10. No environment to read
 
 Run `update`, choose **Repair or change**, open **Module connections**, and untick A and B. Leave
 **Agent Evaluator** ticked. Expect:
 - `No environments chosen, so the jobs don't read transcripts.`
-- A's user removed as in step 9.
-- For B: `The jobs' managed identity … is still an application user in B. It was added outside the
-  installer, so the installer leaves it`, then the steps for a System Administrator. `Get-Dv $B`
-  still finds the user with its role.
+- A's role deleted and its user removed, as in step 9.
+- For B: `Deleted the "Analytics Hub transcript reader <ID>" role in B`, then
+  `The jobs' managed identity … is still an application user in B. It was added outside the
+  installer, so the installer leaves it`, and the steps for a System Administrator. `Get-Dv $B`
+  still finds the user, with Bot Transcript Viewer and the role you made in step 7.
 - The record has no `transcriptAccess` entries.
 - `status` still shows `Evaluator:      <model ID>`, then `Agents:         no environments chosen`.
 - The Agent Evaluation pages still show the sessions already read.
@@ -452,15 +518,16 @@ Run `update`, choose **Repair or change**, open **Module connections**, and unti
   `refresh: ae skipped; VALUELENS_DATAVERSE_ENVIRONMENTS lists no environment yet, so nothing loads into it`.
   Its `publish agent_…` lines publish what was already read again, with no day rewritten.
 
-Then tick A and B again. Expect the role given in A as in step 9,
-`The jobs' managed identity can read transcripts in B`, `Get-Schedule` saying `true`, and a next
-run that reads both and ends with `refresh: ae`.
+Then tick A and B again. Expect A's roles as in step 9. In B, the installer finds the user and
+doesn't add another, and creates its role again and gives it, as in step 7. Then `Get-Schedule`
+says `true`, and the next run reads both and ends with `refresh: ae`.
 
 ## 11. Untick and tick Agent Evaluator
 
 Run `update`, choose **Repair or change**, open **Data collection**, and untick
 **Agent Evaluator**. Expect:
-- A's user removed as in step 9, and B's left as in step 10.
+- A's role deleted and its user removed as in step 9, and B's role deleted and its user left as in
+  step 10.
 - The Agent Evaluation pages are gone from the web app, once its new revision is running.
 - `status` has no `Evaluator:` or `Agents:` lines.
 - The model is still in the workspace, and the record keeps its ID:
@@ -470,8 +537,8 @@ Run `update`, choose **Repair or change**, open **Data collection**, and untick
 
 Then tick **Agent Evaluator** again. **Module connections** still has A and B ticked. Expect:
 - `status` shows the same `Evaluator:` ID, and the workspace still has one Agent Evaluator model.
-- The role given in A as in step 9. For B, `The jobs' managed identity can read transcripts in B`:
-  the installer knows it still can, and doesn't change Dataverse.
+- A's roles as in step 9. In B, the installer creates its role again and gives it, as in step 7:
+  unticking the module deleted it, and kept B's user with its other roles.
 - The pages are back, `Get-Schedule` says `true`, and the next run reads both and ends with
   `refresh: ae`.
 
@@ -482,13 +549,14 @@ Demo mode changes the whole install, not only Agent Evaluator, so this step is o
 **Demo mode (sample data)**. Expect:
 - No Dataverse rows in the plan, and the note `Demo mode reads no transcripts. The jobs' managed
   identity … keeps its access in 2 environments for when you switch to your tenant's data.`
-- `Get-Dv $A` and `Get-Dv $B` find both users as they were, each with its role.
+- `Get-Dv $A` and `Get-Dv $B` find both users as they were, each with its roles, and the
+  installer's role is still in both environments.
 - The Agent Evaluation pages are gone, `status` has no `Evaluator:` or `Agents:` lines, and
   `Get-Schedule` says `false`.
 
 Then switch back to **Your tenant's data**. Expect
-`The jobs' managed identity can read transcripts in A`, the same for B, no change in Dataverse,
-and the pages, the `status` lines and the schedule back, with the same model ID.
+`The jobs' managed identity can read every transcript in A`, the same for B, no change in
+Dataverse, and the pages, the `status` lines and the schedule back, with the same model ID.
 
 ## 13. Uninstall
 
@@ -498,18 +566,24 @@ npx valuelens-install uninstall --config $rec
 
 Expect:
 - first, a question whether to delete the Power BI workspace it created. Say yes;
-- then, before any deletes, A's user removed as in step 9, and B's left with the note as in
-  step 10;
+- then, before any deletes, A's role deleted and its user removed as in step 9, and B's role
+  deleted and its user left with the note as in step 10;
 - it deletes the workspace with its models, the resource group, and the app registrations it
   created.
 
-Check A and B with `Get-Dv` and in the admin center.
+Check A and B with `Get-Dv` and in the admin center. Neither has an
+*Analytics Hub transcript reader <ID>* role.
 
 ## 14. Clean up
 
 - B's user: in the admin center, select it under **Application users**, **Deactivate** it, then
   **Delete** it. Only a deactivated application user can be deleted.
-- A's user, the same way, if Dataverse wouldn't delete it in step 9 or 13.
+- The role you made in B: under **Security roles**, select it, then **Delete**.
+- A's user, the same way, if Dataverse wouldn't delete it in step 9 or 13. If it only
+  soft-deleted it, use the steps the installer printed: **Users** > **Filter** >
+  *Users not in Microsoft Entra ID and soft deleted in the environment* > the user > **Delete**.
+- Any *Analytics Hub transcript reader <ID>* role the installer couldn't delete, as for the role you
+  made.
 - The Power BI workspace, if uninstall couldn't delete it in step 13.
 - The registry's resource group, if you built the images:
   `az group delete -n <registry resource group> --yes`.
@@ -522,22 +596,22 @@ Check A and B with `Get-Dv` and in the admin center.
 | Step | Check | Result |
 |---|---|---|
 | 1 | Transcripts in A and B in the last 180 days | |
-| 2 | The installer added A's application user with Bot Transcript Viewer, and recorded that it created it; the name the admin center shows | |
-| 3 | The `+N` total = the status count = the Dataverse count | |
+| 2 | The installer added A's application user with Bot Transcript Viewer and its transcript reader role, and recorded that it created both; the role holds exactly `prvReadconversationtranscript` at `Global`; the one-transcript check; the name the admin center shows | |
+| 3 | A's status `ok`, not `empty`; the `+N` total = the status count = the Dataverse count | |
 | 3 | V − C − F = `agent_sessions` rows; parse failures; 429 lines; bot lookup | |
 | 4 | The `status` lines; schedule on; refresh Completed; DAX counts = published rows; preview ≤ 500 and feedback ≤ 4,000 characters | |
 | 4 | `parity.mjs`: every query `match` or `both-empty` | |
 | 4 | Pages, slicers and the freshness line, in a browser (and in Teams, Outlook and Microsoft 365) | |
 | 5 | 14-day windows; most days unchanged | |
 | 6 | Paging: the same counts at 5 a page | |
-| 7 | The admin center found the identity by client ID; no second user; B recorded as not created by the installer; B's first read | |
-| 7 | Optional: B `forbidden` without the role; C left out, `forbidden`, schedule still on | |
+| 7 | The role made by hand, and what the admin center put in it; the admin center found the identity by client ID; `ReadAccess` on a transcript; no second user; the installer's role created and given in B, and B's user recorded as not created by the installer; B's first read | |
+| 7 | Optional: B `empty` with only Bot Transcript Viewer, `forbidden` with no role; C left out, `forbidden`, schedule still on | |
 | 8 | Read, parse tail, merge, publish, refresh and whole-run times; 429s; no OOMKilled | |
-| 9 | Whether the Web API deleted A's user, or the installer turned it back on without the role; A's rows kept; A added again | |
-| 10 | No environment: pages kept; schedule off; `refresh: ae skipped`; B's user left; both back | |
-| 11 | Module off: pages gone, schedule off, model and ID kept; back on: the same ID, schedule on | |
+| 9 | A's role deleted; whether the Web API deleted A's user, only soft-deleted it, or wouldn't delete it and the installer turned it back on without its roles; A's rows kept; A added again, with the role created again | |
+| 10 | No environment: pages kept; schedule off; `refresh: ae skipped`; the installer's role deleted in B and B's user left; both back | |
+| 11 | Module off: pages gone, schedule off, model and ID kept, the installer's roles deleted; back on: the same ID, the roles created again, schedule on | |
 | 12 | Optional demo mode: no Dataverse change; pages and schedule off, then back | |
-| 13 | A's user removed, or the steps printed; B's user left; the workspace and the resource group gone | |
+| 13 | Both installer roles deleted; A's user removed, or the steps printed; B's user left; the workspace and the resource group gone | |
 | 14 | Clean-up done | |
 
 ## Optional: compare with Fabric

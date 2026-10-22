@@ -27,7 +27,7 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {{ frequency: 'daily' | 'weekly', time: string, weekday: string, timeZone: string }} schedule
  * @property {{ appId?: string, objectId?: string, servicePrincipalId?: string, displayName?: string, secretExpires?: string, secretKeyId?: string, retiredSecretKeyIds?: string[], pendingSecretKeyIds?: string[], secretAttempts?: { ref: string, at: string }[], existing?: boolean, adminPack?: string, secretDays?: number }} app  pendingSecretKeyIds: notebook secrets created by a run that hadn't finished writing them. secretAttempts: notebook secrets asked of Entra whose key ID isn't saved yet; the ref is in the secret's name. secretDays: how long a secret kept in the notebooks lasts (--secret-days). 90 when absent.
  * @property {{ subscriptionId?: string, resourceGroup?: string, name?: string, id?: string, uri?: string, location?: string, secretName: string, existing?: boolean, rbac?: boolean, private?: boolean, secretSetAt?: string, mode?: SecretMode, handoff?: SecretHandoff } & import('./steps/secrets.js').SecretSlot} keyVault  The secret* fields track the app secrets made for the vault (see steps/secrets.js); previousSecretKeyIds are replaced ones left on the app until they expire.
- * @property {{ capacityId?: string, workspaceId?: string, workspaceName?: string, lakehouseId?: string, lakehouseName?: string, notebooks: Partial<Record<import('./catalog.js').NotebookKey, string>>, notebookNames?: Partial<Record<import('./catalog.js').NotebookKey, string>>, notebookHashes?: Partial<Record<import('./catalog.js').NotebookKey, string>>, pipelineId?: string, pipelineName?: string, pipelineModules?: string, pipelineVersion?: number, scheduleId?: string, vaultEndpointId?: string, deployedRouter?: string, secretInNotebooks?: boolean, createdWorkspace?: boolean, pendingItems?: Record<string, { name: string, ref: string, at?: string, operation?: string }> }} fabric  pendingItems: the name and description ref of each item being created, and when, so a run stopped mid-create finds that item again and nothing else. operation: Fabric's URL for the create once it accepted it, to ask how it went.
+ * @property {{ capacityId?: string, workspaceId?: string, workspaceName?: string, lakehouseId?: string, lakehouseName?: string, notebooks: Partial<Record<import('./catalog.js').NotebookKey, string>>, notebookNames?: Partial<Record<import('./catalog.js').NotebookKey, string>>, notebookHashes?: Partial<Record<import('./catalog.js').NotebookKey, string>>, pipelineId?: string, pipelineName?: string, pipelineModules?: string, pipelineVersion?: number, scheduleId?: string, vaultEndpointId?: string, deployedRouter?: string, secretInNotebooks?: boolean, createdWorkspace?: boolean, pendingItems?: Record<string, { name: string, ref: string, at?: string, operation?: string }>, transcriptAccess?: FabricTranscriptAccess[] }} fabric  pendingItems: the name and description ref of each item being created, and when, so a run stopped mid-create finds that item again and nothing else. operation: Fabric's URL for the create once it accepted it, to ask how it went. transcriptAccess: each Dataverse environment where the installer gave the app the role that reads every transcript.
  * @property {{ jobId?: string, status?: string, startedAt?: string, finishedAt?: string, coworkSkipped?: boolean }} [firstRun]  coworkSkipped: the first load left out the Cowork Dataflow, which wasn't signed in yet.
  * @property {SemanticModelConfig} semanticModel
  * @property {FabricAppConfig} fabricApp
@@ -193,6 +193,9 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {string} [id]  The Power Platform environment ID.
  * @property {string} [name]
  * @property {boolean} [access]  The app is an application user there with the Bot Transcript Viewer role. On Azure, the jobs' managed identity is.
+ *   That role alone reads only the transcripts shared with it, so the transcripts are read in full only with `readAll`.
+ * @property {boolean} [readAll]  It also holds the role the installer creates there to read every transcript, or you said it reads them all.
+ *   Absent on installs from before that role, so Update or Repair gives it.
  * @property {string} [accessAppId]  Azure only: the client ID that `access` was found for, so that a new managed identity is checked again.
  */
 
@@ -322,6 +325,25 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {string} [userId]  Its application user (systemuserid). Absent when an admin said it already has access.
  * @property {boolean} [createdUser]  The installer created the application user, so it deletes it again.
  * @property {string} [roleId]  The Bot Transcript Viewer role the installer assigned, so it removes it again.
+ * @property {string} [readRoleId]  The role that reads every transcript, in the environment's root business unit.
+ * @property {string} [readRoleName]
+ * @property {boolean} [createdReadRole]  The installer created that role, so it deletes it again. One that only shares its name is left.
+ * @property {string} [assignedReadRoleId]  The copy of it, in the reader's business unit, that the installer gave the reader, so it takes it away again.
+ */
+
+/**
+ * One Dataverse environment where the installer gave the Fabric app the role that reads every transcript, so that
+ * unticking the environment, the module or uninstalling removes only that. The app's application user and its Bot
+ * Transcript Viewer role stay, as they always have on Fabric.
+ * @typedef {object} FabricTranscriptAccess
+ * @property {string} url  The environment's Dataverse org URL.
+ * @property {string} appId  The app's client ID.
+ * @property {string} [name]  The environment's name, for messages once it's no longer chosen.
+ * @property {string} [userId]  The app's application user there.
+ * @property {string} [readRoleId]  The role, in the environment's root business unit.
+ * @property {string} [readRoleName]
+ * @property {boolean} [createdReadRole]  The installer created the role, so it deletes it again.
+ * @property {string} [assignedReadRoleId]  The copy of it, in the app user's business unit, that the installer gave the app.
  */
 
 /**

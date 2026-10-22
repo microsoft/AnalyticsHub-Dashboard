@@ -72,6 +72,32 @@ resource group.
   is unchanged. To finish an install that stopped there, run setup again. Every earlier installer
   with the Azure path (0.5.0 to 0.6.7) has this problem.
 
+**Fixed:**
+
+- **Agent Evaluator reads every Copilot Studio transcript.** The installer gave the transcript
+  reader, the jobs' managed identity on Azure or the app on Fabric, only the
+  **Bot Transcript Viewer** role, which reads only the transcripts the reader owns or that are
+  shared with it. In a test environment, Copilot Studio's own service user owned them, so on Azure
+  the first load read none, and its status said `empty`. Fabric gave its app the same role. Now, in
+  each environment you pick, the installer also creates a role for the install,
+  *Analytics Hub transcript reader* followed by the first 8 characters of the install's ID, with one
+  privilege: ConversationTranscript read at Organization depth. It reads the role back to check
+  that, gives it to the reader beside Bot Transcript Viewer, and asks Dataverse whether the reader
+  can read a transcript. Unticking the environment or **Agent Evaluator**, or uninstalling, takes
+  the role away and deletes it. The installer never changes or deletes a role it didn't create.
+  It adds transcript read to its role only while no user or team other than the reader has the role.
+  On Azure, Dataverse's first delete of an application user the installer created only
+  soft-deletes it: the user stays, deactivated with no role, and ticking the environment again
+  found it disabled. Now the installer reads the user back and deletes it again, and says it
+  removed the user only once it's gone. Otherwise it warns, and prints how a System Administrator
+  deletes it for good.
+  Creating the role needs a System Administrator of the environment, as adding the reader does;
+  otherwise the installer prints the admin center steps. To fix an existing install, run
+  **Update** or **Repair or change** as a System Administrator of each environment, then reload
+  the history once, for example with `run --backfill-days 30`. Later runs read only the last 14
+  days of transcripts, and a reload reads up to 180 days, so it picks up the older ones the
+  environment still keeps.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its

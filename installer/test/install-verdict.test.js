@@ -12,7 +12,7 @@ import { test } from 'node:test';
 import { loadConfig, saveConfig } from '../src/config.js';
 import { createCtx, install, update } from '../src/install.js';
 import { COWORK_DATAFLOW_ACTIVITY } from '../src/transform/pipeline.js';
-import { fakeAzureGraph, fakeFabric, fakePowerBi, fakeUi, realSources } from './fakes.js';
+import { fakeAzureGraph, fakeFabric, fakePowerBi, fakeTranscriptEnvironment, fakeUi, realSources } from './fakes.js';
 
 const forbidden = async () => {
   throw new Error('Forbidden');
@@ -48,6 +48,8 @@ const unsigned = { status: 'Failed', error: { errorCode: 'JobInstanceFailed', me
  * @property {Record<string, { status: string, error?: object }[]>} [loads]  Loads that don't simply succeed: each one's
  *   attempts in the pipeline run, in order. The run itself completes.
  * @property {number} [reload]  Reload this many days of audit history instead of the first load.
+ * @property {boolean} [readRole]  Agent Evaluator is unticked, and the record shows the transcript read role the
+ *   installer created for the app in an environment.
  */
 
 /**
@@ -78,6 +80,18 @@ async function runInstall(t, o = {}) {
   }
   // A reload is a repair or change, once the first load has completed.
   if (o.reload) config.firstRun = { jobId: 'job-0', status: 'Completed' };
+  const ENV = 'https://contoso.crm.dynamics.com';
+  const role = 'Analytics Hub transcript reader ws-1';
+  const dv = fakeTranscriptEnvironment({
+    users: [{ systemuserid: 'user-1', applicationid: 'app-1', _businessunitid_value: 'bu-root' }],
+    userRoles: { 'user-1': ['role-btv', 'read-1'] },
+    roles: [{ roleid: 'read-1', name: role, bu: 'bu-root', privileges: new Map([['priv-transcript', 'Global']]) }],
+  });
+  if (o.readRole) {
+    config.modules.agentEvaluator = false;
+    config.agentEvaluator.environments = [{ url: ENV, name: 'Contoso', access: true, readAll: true }];
+    config.fabric.transcriptAccess = [{ url: ENV, appId: 'app-1', name: 'Contoso', userId: 'user-1', readRoleId: 'read-1', readRoleName: role, createdReadRole: true, assignedReadRoleId: 'read-1' }];
+  }
   /** @type {string[]} */
   const csvFiles = [];
   if (o.upload) {
@@ -177,6 +191,7 @@ async function runInstall(t, o = {}) {
       },
       discovery: {},
       powerPlatform: { billingPolicies: async () => [] },
+      dataverse: () => dv.api,
     }),
     user: { id: 'user-1', upn: 'admin@contoso.com', tenantId: 'tenant-1' },
     sources: { ...realSources(), appDir },
@@ -204,7 +219,7 @@ async function runInstall(t, o = {}) {
     assert.match(text, /The app step above failed, but the app was deployed afterwards \(2026-06-01 13:00 UTC\)/);
     assert.doesNotMatch(text, /Deploy the Analytics Hub app/, 'the app is deployed, so there is no card to deploy it');
   }
-  return { ok, text, ctx, ui, fabric, config };
+  return { ok, text, ctx, ui, fabric, config, dv };
 }
 
 /** @param {{ ok: boolean, text: string }} run */
@@ -224,6 +239,18 @@ function partlySetUp({ ok, text }) {
 
 test('install: an app deployed while the first load runs makes up for its failed step when nothing else failed', async (t) => {
   setUp(await runInstall(t));
+});
+
+test('install: with Agent Evaluator unticked, the transcript read role the installer created is taken back and deleted', async (t) => {
+  const run = await runInstall(t, { app: 'off', readRole: true });
+  setUp(run);
+  assert.deepEqual(run.dv.calls, ['removeRole user-1 read-1', 'deleteRole read-1']);
+  assert.deepEqual(run.dv.userRoles['user-1'], ['role-btv'], 'Bot Transcript Viewer and the app user stay, as before');
+  assert.match(run.text, /Copilot Studio transcripts/);
+  assert.match(run.text, /Deleted the "Analytics Hub transcript reader ws-1" role in Contoso/);
+  const saved = loadConfig(run.ctx.file).config;
+  assert.equal(saved.fabric.transcriptAccess, undefined);
+  assert.deepEqual(saved.agentEvaluator.environments, [{ url: 'https://contoso.crm.dynamics.com', name: 'Contoso', access: true }]);
 });
 
 test("install: a late app doesn't make up for a report that failed too", async (t) => {

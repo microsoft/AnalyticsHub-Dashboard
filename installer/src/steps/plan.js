@@ -15,7 +15,7 @@ import { c } from '../ui.js';
 import { CURRENCIES, DEFAULT_CURRENCY, describeReporting, parseRate } from '../currency.js';
 import { AGENT_EVALUATOR_MODEL_NAME, CONSUMPTION_MODEL_NAME, DATA_AGENT_NAME, flowIdentity, MODEL_NAME, secretMode } from '../config.js';
 import { MIN_NODE, nodeVersionOk } from './app.js';
-import { agentEvaluatorModelWanted, planAgentEvaluator } from './agent-evaluator.js';
+import { agentEvaluatorModelWanted, fabricReadRoleReview, planAgentEvaluator } from './agent-evaluator.js';
 import { AZURE_AI_ROLES, consumptionModelWanted, COWORK_DATAFLOW_NAME, planConsumption, planCowork } from './consumption.js';
 import { FLOW_NAMES, flowsSkipped, flowsWanted, planFlows } from './flows.js';
 import { adminPack, canWriteSecrets, checkExistingApp, MAX_SECRET_DAYS, NOTEBOOK_SECRET_DAYS, notebookSecretDays, reportAppCheck, ResumeLater, writeAdminPack } from './identity.js';
@@ -1147,6 +1147,7 @@ export function planReview(ctx, pre) {
     }
   }
   const access = sm.enabled ? accessReview(config, `Semantic models in workspace ${f.workspaceName ?? f.workspaceId}`) : { creates: [], grants: [] };
+  creates.push(...fabricReadRoleReview(config));
   creates.push(...access.creates);
 
   const appWho = `${appName} (app)`;
@@ -1195,13 +1196,13 @@ export function planReview(ctx, pre) {
     grants.push({ who: appWho, what: AZURE_AI_ROLES.map((r) => r.name).join(', '), where: `Azure subscription ${cc.azureSubscriptionName ?? cc.azureSubscriptionId}`, detail: 'So the notebook can read Azure AI usage and cost.' });
   }
   grants.push(...resourceGraphGrants(config, user.tenantId, appWho, 'access', { canAssign: pre?.canConsent }));
-  const waiting = ae.environments.filter((e) => !e.access);
+  const waiting = ae.environments.filter((e) => !e.access || !e.readAll);
   if (config.modules.agentEvaluator && waiting.length) {
     grants.push({
       who: appWho,
-      what: `Application user with the ${TRANSCRIPT_ROLE} role`,
+      what: `Application user with the ${TRANSCRIPT_ROLE} role and a role that reads every transcript`,
       where: waiting.map((e) => e.name ?? new URL(e.url).host).join(', '),
-      detail: 'So the notebook can read Copilot Studio transcripts from Dataverse.',
+      detail: 'So the notebook can read every Copilot Studio transcript from Dataverse.',
     });
   }
 
@@ -1279,7 +1280,7 @@ export async function confirmPlan(ctx, pre) {
   if (config.modules.agentEvaluator) {
     const envs = config.agentEvaluator.environments;
     const names = envs.map((e) => e.name ?? new URL(e.url).host).join(', ');
-    const waiting = envs.some((e) => !e.access) ? c.dim(' (the app is added to each with the Bot Transcript Viewer role)') : '';
+    const waiting = envs.some((e) => !e.access || !e.readAll) ? c.dim(' (the app is added to each with the Bot Transcript Viewer role and a role that reads every transcript)') : '';
     ui.info(`Agents:      ${envs.length ? `${names}${waiting}` : c.dim('no environments chosen')}`);
   }
   if (resourceGraphOn(config)) ui.info(`Governance:  ${resourceGraphKinds(config)} from Azure Resource Graph, in ${scopeName(config)}`);

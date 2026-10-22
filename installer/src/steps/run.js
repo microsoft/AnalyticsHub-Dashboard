@@ -574,8 +574,11 @@ export async function status(ctx) {
   if (am?.id) ui.info(`Model:     ${am.name}${am.bound ? '' : ' (not connected to the Lakehouse yet)'}`);
   if (config.modules.agentEvaluator && config.agentEvaluator.environments.length) {
     const envs = config.agentEvaluator.environments;
-    const waiting = envs.filter((e) => !e.access).length;
-    ui.info(`Agents:    ${envs.length - waiting} of ${envs.length} environment(s) readable${waiting ? c.dim(' (the rest are waiting for an admin to add the app)') : ''}`);
+    const waiting = envs.filter((e) => !e.access || !e.readAll).length;
+    ui.info(
+      `Agents:    ${envs.length - waiting} of ${envs.length} environment(s) readable` +
+        `${waiting ? c.dim(' (the rest are waiting for an admin to add the app, or give it the role that reads every transcript)') : ''}`,
+    );
   }
   if (config.fabricApp?.itemId) ui.info(`App:       ${config.fabricApp.name}  ${c.dim(config.fabricApp.url ?? '')}`);
   expiry(ctx, 'Client secret', config.app.secretExpires);

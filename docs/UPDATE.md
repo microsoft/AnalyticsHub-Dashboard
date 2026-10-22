@@ -74,8 +74,8 @@ Open the installer and choose **Uninstall** (`uninstall`). It asks before it del
 
 | Where | What it deletes |
 |---|---|
-| Fabric | The workspace and everything in it, after its managed private endpoints. If the installer didn't create the workspace, the answer defaults to no. It waits up to ten minutes for the endpoints to go. |
-| Azure | The resource group the installer created. It waits up to 45 minutes for Azure to finish deleting it; add `--no-wait` to stop once Azure has accepted the delete. In a resource group you already had, only the resources tagged `valuelens-install-id`, each before what it depends on, waiting for each to go. If any are left, it lists them: run **Uninstall** again to finish, or see [Troubleshooting](TROUBLESHOOTING.md#uninstall). Also the Power BI workspace and its semantic models, if the installer created the workspace and you haven't renamed it: it asks, and the answer defaults to yes. And the Power BI VNet data gateway and connection, and the **Analytics Hub** and SQL reader app registrations, if it created them. And the Teams app it looks after in your org's app catalog: the one it published, or a hand upload of the same app that it found there and took on. That takes one more sign-in as a Teams Administrator or Global Administrator. Before the resources go, what it added in each [Agent Evaluator](../azure/README.md#agent-evaluator) environment: the **Bot Transcript Viewer** role it gave the jobs' managed identity, and the application user if it created it. |
+| Fabric | The workspace and everything in it, after its managed private endpoints. If the installer didn't create the workspace, the answer defaults to no. It waits up to ten minutes for the endpoints to go. Then, in each [Agent Evaluator](../fabric/Add%20Agent%20Evaluator/README.md) environment, the transcript reader role it gave the app: it takes it away, and deletes the role if it created it. |
+| Azure | The resource group the installer created. It waits up to 45 minutes for Azure to finish deleting it; add `--no-wait` to stop once Azure has accepted the delete. In a resource group you already had, only the resources tagged `valuelens-install-id`, each before what it depends on, waiting for each to go. If any are left, it lists them: run **Uninstall** again to finish, or see [Troubleshooting](TROUBLESHOOTING.md#uninstall). Also the Power BI workspace and its semantic models, if the installer created the workspace and you haven't renamed it: it asks, and the answer defaults to yes. And the Power BI VNet data gateway and connection, and the **Analytics Hub** and SQL reader app registrations, if it created them. And the Teams app it looks after in your org's app catalog: the one it published, or a hand upload of the same app that it found there and took on. That takes one more sign-in as a Teams Administrator or Global Administrator. Before the resources go, what it added in each [Agent Evaluator](../azure/README.md#agent-evaluator) environment: the transcript reader role it gave the jobs' managed identity, and the role itself if it created it, then the **Bot Transcript Viewer** role it gave, and the application user if it created it. |
 
 ### What's left behind
 
@@ -94,7 +94,11 @@ Uninstall leaves these alone. Remove them yourself if you no longer need them:
 - The **Analytics Hub Viewers** group.
 - The Key Vault, if you used one, and its secret.
 - The Power Automate flows and their connections, and the Cowork Dataflow's connections.
-- Dataverse access for Agent Evaluator on Fabric, and the Azure and Entra roles the installer gave.
+- On Fabric, the app's application users for Agent Evaluator in Dataverse environments, with their
+  **Bot Transcript Viewer** role.
+- A transcript reader role an admin made, or one the installer couldn't take away or delete. The
+  installer prints how a System Administrator does it.
+- The Azure and Entra roles the installer gave.
 - On Azure, an Agent Evaluator application user an admin added for the jobs' managed identity, or
   one Dataverse wouldn't let the installer delete. The installer says which; a System Administrator
   removes it. See [Agent Evaluator](../azure/README.md#agent-evaluator).

@@ -19,7 +19,7 @@ in step with the Fabric notebooks by the golden tests in `tests/`. No Spark or J
 | | Product feedback, from every CSV export in the drop folder | productFeedback |
 | | Workday org data, from the newest CSV export in the drop folder, after the org data | workday (a data source, with orgData) |
 | | Shadow AI and agent risk from Microsoft Defender (`ThreatHunting.Read.All`, `CloudApp-Discovery.Read.All`) | defender |
-| | Copilot Studio conversation transcripts from Dataverse (an application user with Bot Transcript Viewer) | agentEvaluator |
+| | Copilot Studio conversation transcripts from Dataverse (an application user with Bot Transcript Viewer and the installer's transcript reader role) | agentEvaluator |
 | process | Curates interactions with `valuelens_core.curate()` into `curated/copilot_interactions_curated`, recomputing only the months that changed or fall in the lookback window | core |
 | publish | Loads curated and raw tables into Azure SQL, rewriting only the days that changed | per module |
 | refresh | Refreshes the configured Power BI semantic models and waits for them to finish. The Agent Evaluator model (`ae`) is skipped until `agentEvaluator` is in `VALUELENS_MODULES` and `VALUELENS_DATAVERSE_ENVIRONMENTS` lists an environment (`MODEL_MODULES` in `refresh.py`) | — |
@@ -291,8 +291,11 @@ tables, with the same columns, so the Agent Evaluator model reads `dbo.<table>` 
 
 - **Identity.** The job's managed identity reads `conversationtranscripts` in each environment of
   `VALUELENS_DATAVERSE_ENVIRONMENTS`, with a token for `<environment URL>/.default`. It needs to be an
-  application user in each environment with the **Bot Transcript Viewer** role; a 401 or 403 says so
-  in `evaluator_status`. UPNs that a transcript doesn't carry come from Graph `$batch` with
+  application user in each environment with the **Bot Transcript Viewer** role and the installer's
+  transcript reader role, which reads every transcript there, whoever owns it, at Organization depth.
+  Bot Transcript Viewer alone reads only the transcripts the application user owns, or that are shared
+  with it, so the job finds none and `evaluator_status` says `empty`. A 401 or 403 says so in
+  `evaluator_status`. UPNs that a transcript doesn't carry come from Graph `$batch` with
   `User.Read.All`, which core already grants. That lookup is best effort.
 - **Reading.** Each environment's days are split into `VALUELENS_TRANSCRIPT_WINDOWS` date windows, read
   up to `VALUELENS_TRANSCRIPT_PARALLEL` at a time, in pages of `VALUELENS_TRANSCRIPT_PAGE_SIZE`.

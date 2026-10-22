@@ -19,7 +19,9 @@ import { saveConfig, secretMode } from './config.js';
 import { createClient, defaultSleep } from './http.js';
 import { commandLine } from './launch.js';
 import { ensureConsent, ensureApp, ensureKeyVault, newSecret, notebookSecretDays } from './steps/identity.js';
-import { agentEvaluatorModelWanted, agentEvaluatorSummary, ensureAgentEvaluatorModel, ensureTranscriptAccess } from './steps/agent-evaluator.js';
+import {
+  agentEvaluatorModelWanted, agentEvaluatorSummary, ensureAgentEvaluatorModel, ensureTranscriptAccess, fabricReadRoleWanted, removeFabricReadRoles,
+} from './steps/agent-evaluator.js';
 import { appDeployedSince, deployApp, ensureAppName, ensureFabricApp } from './steps/app.js';
 import { COWORK_DATAFLOW_NAME, consumptionModelWanted, consumptionSummary, ensureAzureAiAccess, ensureConsumptionModel, ensureCoworkDataflow, ensureLandingFolders } from './steps/consumption.js';
 import { coworkDataflowDefinition, isVivaId } from './transform/dataflow.js';
@@ -325,7 +327,8 @@ export async function install(ctx, opts) {
   const withModel = !!sm.enabled;
   const withApp = withModel && !!config.fabricApp.enabled;
   const withConsumption = !!config.modules.consumption;
-  const withAgentEvaluator = !!config.modules.agentEvaluator;
+  // Unticked, the step still takes away the read roles the installer gave the app.
+  const withAgentEvaluator = !!config.modules.agentEvaluator || !!config.fabric.transcriptAccess?.length;
   const withUploads = routerWanted(config.dataSources) || !!ctx.pendingUploads?.length || flowsWanted(config).length > 0;
   const withResourceGraph = resourceGraphOn(config);
   const withReports = reportsOn(config);
@@ -517,11 +520,15 @@ async function consumptionSteps(ctx, opts = {}) {
 }
 
 /**
- * Access to the chosen environments' transcripts, and the Agent Evaluator model.
+ * Access to the chosen environments' transcripts, and the Agent Evaluator model. First, the read role the installer
+ * gave the app is taken away where it's no longer wanted: environments no longer chosen, or every one when the module
+ * is unticked.
  * @param {Ctx} ctx
  * @param {{ force?: boolean }} [opts]
  */
 async function agentEvaluatorSteps(ctx, opts = {}) {
+  await removeFabricReadRoles(ctx, (t) => fabricReadRoleWanted(ctx.config, t));
+  if (!ctx.config.modules.agentEvaluator) return;
   await ensureTranscriptAccess(ctx);
   if (agentEvaluatorModelWanted(ctx)) await ensureAgentEvaluatorModel(ctx, opts);
 }
@@ -636,7 +643,7 @@ export async function update(ctx, opts = {}) {
     await ensureModelConnection(ctx);
   }
   if (config.modules.consumption) await consumptionSteps(ctx, { force: true });
-  if (config.modules.agentEvaluator) await agentEvaluatorSteps(ctx, { force: true });
+  if (config.modules.agentEvaluator || config.fabric.transcriptAccess?.length) await agentEvaluatorSteps(ctx, { force: true });
   if (resourceGraphOn(config)) await ensureAppResourceGraphAccess(ctx);
   // As in install: a step that fails and lets the update carry on leaves it unfinished.
   let stepsOk = true;
