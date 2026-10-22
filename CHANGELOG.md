@@ -46,6 +46,13 @@ Deployment instructions do **not** live here. They live in the READMEs:
   `AnalyticsHub_Cowork_Credits` early, asks you to sign it in, and checks the connections are saved
   before it deploys the notebooks and pipeline and runs the first load. No more coming back to the
   installer after configuring the connection in Fabric. You can still skip it and finish later.
+- **Install and update check the prerequisites themselves.** You no longer have to run `prereqs`
+  first. Before anything is created, install lists only the prerequisites that are missing for what
+  you chose; update does the same before it changes anything. The checks run in parallel, each with
+  a 15-second limit, and one that takes longer shows as "couldn't check" and never stops you. Only a
+  true blocker stops an install: with `--yes`, no way to register the app (you can't, and there's no
+  app registration or admin pack to use instead). Update only warns. `prereqs` still gives the full
+  list.
 
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 

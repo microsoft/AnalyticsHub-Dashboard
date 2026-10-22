@@ -46,7 +46,8 @@ corresponding settings category directly.
 ## Before you start
 
 Moved to [Prerequisites](../docs/PREREQUISITES.md). Once you sign in, the **Prerequisites** panel
-(`prereqs` in the terminal) checks most of it, and changes nothing.
+(`prereqs` in the terminal) checks most of it, and changes nothing. `install` and `update` run the
+same checks first and list only what's missing for what you chose.
 
 ### Where the secret goes
 

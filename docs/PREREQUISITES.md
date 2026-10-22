@@ -2,7 +2,11 @@
 
 What you need before you install, and who to ask. Send each admin their row before you start,
 so you don't stop halfway. Once you sign in, the installer's **Prerequisites** panel (`prereqs`)
-checks most of it for you, and changes nothing. Setting it up by hand? On Fabric, you also need
+checks most of it for you, and changes nothing. You don't have to run it first: install and update
+check the same things before they create or change anything, and list only what's missing for what
+you chose. Each check has 15 seconds; one that takes longer shows as "couldn't check" and never
+stops you. Only a true blocker stops an install: with `--yes`, no way to register the app (you
+can't, and there's no app registration or admin pack to use instead). Setting it up by hand? On Fabric, you also need
 [these](MANUAL-INSTALL.md#1-prerequisites); on Azure, see [its list](MANUAL-INSTALL.md#azure).
 
 ## At a glance
