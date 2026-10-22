@@ -116,4 +116,6 @@ the page stays empty.
 The template also differs from upstream in its model, to refresh on large tenants:
 `'Agent Turns'[Response Seconds]` scans only the columns it needs, and **Agent Name Map** keeps
 both key columns unique (`AgentNameMapRows`), giving a blank or already claimed schema an
-`(unmatched) <name>` placeholder. `scripts/Update-Model-Refresh-Fixes.py` applies these changes.
+`(unmatched) <name>` placeholder. It also stops loading imported columns nothing reads
+(`error_message`, `content_preview`, the bot message and most `Var_ESS_*` copies).
+`scripts/Update-Model-Refresh-Fixes.py` applies these changes.

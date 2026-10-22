@@ -235,6 +235,9 @@ sets the number. On Fabric and Azure.
   (`OPTIMIZE ... VORDER`) once at the end of each run, so the daily and incremental writes no
   longer pile up small files that slow down refresh. A failed compaction is reported and the load
   still succeeds. Set `RUN_OPTIMIZE = False` to turn it off.
+- The Agent Evaluator report no longer loads eight columns that nothing in it reads: error
+  messages, the 500-character transcript preview, the first and last bot messages, and the
+  variable copies other than the user's UPN. Refresh reads less data and the model is smaller.
 
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 

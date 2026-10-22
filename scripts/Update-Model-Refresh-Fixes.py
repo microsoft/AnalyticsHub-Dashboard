@@ -16,6 +16,10 @@ Agent Evaluator:
   * Calculated columns that no measure, visual, sort-by, hierarchy, relationship or app query
     reads are dropped (UNUSED_COLUMNS). 'Knowledge Citations'[Topic (conversation)] scanned
     every activity event once per citation at refresh; the others were per-row text copies.
+  * Imported columns nothing reads are no longer loaded (UNUSED_IMPORTED_COLUMNS): error_message,
+    content_preview, the bot message and variable copies in Agent Performance. Agent Errors and
+    Agent Performance drop them with Table.RemoveColumns(..., MissingField.Ignore), so a source
+    without them still loads; Conversation Transcripts (Raw) no longer builds content_preview.
   * In Fabric mode the credit tables read credit_consumption_<name> when it has rows, else the
     Consumption Central add-on's studio_* tables (FabricCreditTable). Nothing in Fabric writes
     credit_consumption_*, so the Credit Consumption page used to stay empty.
@@ -343,6 +347,15 @@ def credit_source(name):
     )
 
 
+AGENT_PERFORMANCE_UNREAD = (
+    "FirstBotMessage",
+    "LastBotMessage",
+    "Var_ESS_Message_Disclaimer",
+    "Var_ESS_UserContext_RefreshInterval_Hours",
+    "Var_ESS_UserContext_Conversation_Initialized",
+    "AllVariables",
+)
+
 AGENT_EVALUATOR_QUERIES = {
     "Credit Consumption (Agent)": (credit_source("agent"),),
     "Credit Consumption (User)": (credit_source("user"),),
@@ -356,6 +369,54 @@ AGENT_EVALUATOR_QUERIES = {
             "\tT = Table.FromRecords(Rows, type table [",
             "\t// Both key columns are relationship keys, so each must be unique.\n"
             "\tT = Table.FromRecords(AgentNameMapRows(Rows), type table [",
+        ),
+    ),
+    "Agent Errors": (
+        (
+            '    Typed = Table.TransformColumnTypes(Promoted, {\n'
+            '        {"conversation_id", type text},\n'
+            '        {"error_timestamp_utc", type datetime},\n'
+            '        {"error_code", type text},\n'
+            '        {"error_sub_code", type text},\n'
+            '        {"error_message", type text},\n',
+            "    // Nothing in the report reads error_message, so it isn't loaded.\n"
+            '    Kept = Table.RemoveColumns(Promoted, {"error_message"}, MissingField.Ignore),\n'
+            '    Typed = Table.TransformColumnTypes(Kept, {\n'
+            '        {"conversation_id", type text},\n'
+            '        {"error_timestamp_utc", type datetime},\n'
+            '        {"error_code", type text},\n'
+            '        {"error_sub_code", type text},\n',
+        ),
+    ),
+    "Agent Performance": (
+        (
+            "    ChangedTypes = Table.TransformColumnTypes(\n        PromotedHeaders,\n",
+            "    // Nothing in the report reads these, so they aren't loaded. Var_ESS_UserContext_UPN stays:\n"
+            "    // [Unique Users] counts it.\n"
+            "    Trimmed = Table.RemoveColumns(PromotedHeaders, {"
+            + ", ".join(f'"{c}"' for c in AGENT_PERFORMANCE_UNREAD)
+            + "}, MissingField.Ignore),\n"
+            "    ChangedTypes = Table.TransformColumnTypes(\n        Trimmed,\n",
+        ),
+    ),
+    "Conversation Transcripts (Raw)": (
+        (
+            '"content_length", "content_preview"}, {}),',
+            '"content_length"}, {}),',
+        ),
+        (
+            '                WithPrev = Table.AddColumn(WithLen, "content_preview", each if [content] = null then null'
+            ' else Text.Start(Text.From([content]), 500), type text),\n'
+            "                Ren = Table.RenameColumns(WithPrev, ",
+            "                Ren = Table.RenameColumns(WithLen, ",
+        ),
+        (
+            '"content_length", "content_preview"}, MissingField.UseNull)',
+            '"content_length"}, MissingField.UseNull)',
+        ),
+        (
+            '{"name", type text}, {"content_preview", type text}})',
+            '{"name", type text}})',
         ),
     ),
 }
@@ -570,12 +631,15 @@ def model_references(model, table_name, column_name):
 def edit_unused_columns(document):
     changed = []
     model = document["model"]
-    for table_name, column_name in UNUSED_COLUMNS:
+    for table_name, column_name, imported in [(t, c, False) for t, c in UNUSED_COLUMNS] + [
+            (t, c, True) for t, c in UNUSED_IMPORTED_COLUMNS]:
         table = one(model["tables"], table_name, "DataModelSchema tables")
         hits = [c for c in table.get("columns", []) if c["name"] == column_name]
         if not hits:
             continue
-        if hits[0].get("type") != "calculated":
+        if imported and (hits[0].get("type", "data") != "data" or hits[0].get("sourceColumn") != column_name):
+            raise ValueError(f"{table_name}[{column_name}] is not an imported column")
+        if not imported and hits[0].get("type") != "calculated":
             raise ValueError(f"{table_name}[{column_name}] is not a calculated column")
         uses = model_references(model, table_name, column_name)
         if uses:
@@ -593,6 +657,13 @@ UNUSED_COLUMNS = (
     ("Agent Turns", "From"),
 )
 
+# Imported columns nothing reads; AGENT_EVALUATOR_QUERIES stops loading them.
+UNUSED_IMPORTED_COLUMNS = (
+    ("Agent Errors", "error_message"),
+    *(("Agent Performance", name) for name in AGENT_PERFORMANCE_UNREAD),
+    ("Conversation Transcripts (Raw)", "content_preview"),
+)
+
 
 def owned_mask_model(document, queries, functions, dax):
     result = copy.deepcopy(document)
@@ -604,7 +675,7 @@ def owned_mask_model(document, queries, functions, dax):
         model["expressions"] = [e for e in model["expressions"] if e["name"] not in names]
     if dax == "agent-evaluator":
         one(one(model["tables"], TURNS, "tables")["columns"], "Response Seconds", TURNS)["expression"] = "<owned>"
-        for table_name, column_name in UNUSED_COLUMNS:
+        for table_name, column_name in UNUSED_COLUMNS + UNUSED_IMPORTED_COLUMNS:
             table = one(model["tables"], table_name, "tables")
             table["columns"] = [c for c in table["columns"] if c["name"] != column_name]
     if dax == "consumption":

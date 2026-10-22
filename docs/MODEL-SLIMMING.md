@@ -52,6 +52,20 @@ citation, `Activity Events[Topic + Action]`, `Activity Events[Topic + Category]`
 `Agent Turns[Response Seconds]` is unchanged. The Metric Glossary sort-by fix
 (`Update-Glossary-Sort-Order.py`) was already in place.
 
+It also stops loading eight imported columns that nothing reads: `Agent Errors[error_message]`,
+`Conversation Transcripts (Raw)[content_preview]` and, in `Agent Performance`, `FirstBotMessage`,
+`LastBotMessage`, `AllVariables`, `Var_ESS_Message_Disclaimer`,
+`Var_ESS_UserContext_RefreshInterval_Hours` and `Var_ESS_UserContext_Conversation_Initialized`.
+`Agent Errors` and `Agent Performance` drop them with
+`Table.RemoveColumns(..., MissingField.Ignore)` before typing, so a source without them still
+loads. The raw transcripts query no longer builds the 500-character preview. The edit lands in the
+model's partitions and in `UnappliedChanges`. `Var_ESS_UserContext_UPN` stays, because
+`Agent Performance[Unique Users]` counts it. The `Parse_Errors` and `Parse_Performance` functions
+used by the Dataverse and CSV modes are unchanged. The installer still fills in missing columns
+in the empty fallbacks of these queries (`Table.RemoveColumns` counts as a pass-through step).
+The template and the transcript parser come from the upstream Agent Evaluator repo, so this
+change should go upstream too.
+
 ### Consumption Central (`Consumption Central - Fabric.pbit`)
 
 Refresh time grew faster than the user count: one measured refresh took 436 s at 20k users
@@ -276,6 +290,8 @@ later) against a lakehouse that the new processor has written:
    refresh time, and diff
    `SUMMARIZECOLUMNS('CoworkBilling'[UsageCohortRank], 'CoworkBilling'[UsageCohort], "Users", COUNTROWS('CoworkBilling'))`
    and `SUMMARIZECOLUMNS('Group By'[Attribute], 'Group By'[Group], "Users", COUNTROWS('Group By'))`.
+7. For Agent Evaluator, refresh in Fabric mode and in a Dataverse or CSV mode, and check the
+   Outcomes page's error visuals and `[Unique Users]` match the previous template.
 
 ## Follow-ups not in this change
 
@@ -283,9 +299,6 @@ later) against a lakehouse that the new processor has written:
   shown, so their cost grows with the square of the user count. The app no longer calls them (it
   ranks inside its own queries), but report pages that show them stay slow at 30–40k users. The fix
   is a per-user-per-month table the processor writes.
-- **Agent Evaluator imported columns.** `FirstBotMessage`, `LastBotMessage`, `AllVariables`,
-  `content_preview`, `error_message` and the `Var_ESS_*` columns are imported but unused. Dropping
-  them means editing the M in both the model and its unapplied changes.
 - **Consumption Central weekly columns.** `CoworkBilling[Weeks Active]` and `[Weeks Over Limit]`
   still scan `CreditsWeekly` once per user, so their cost grows with users times weekly rows. Any
   DAX form, `CALCULATETABLE` included, still filters the whole table once per user, and a second
