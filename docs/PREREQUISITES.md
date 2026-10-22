@@ -13,6 +13,7 @@ checks most of it for you, and changes nothing. Setting it up by hand? On Fabric
 | **Fabric admin** | Turns on four tenant settings, and lets you create Fabric items | Turns on three tenant settings | 5 min |
 | **Entra admin** (Global Administrator or Privileged Role Administrator) | Grants admin consent for read-only Graph permissions | The same, for the app and the managed identity. Plus one to manage viewers from the web app | 2 min |
 | **Microsoft 365 admin** | Turns off concealed names in usage reports | The same | 1 min |
+| **Compliance admin** | Makes sure audit logging is on in Microsoft Purview (it usually is) | The same | 1 min |
 | **Teams admin** | – | Publishes the Teams app to your org's app catalog | 2 min |
 | **Viewers** | In the Analytics Hub Viewers group. Power BI Pro below F64. | In the group. Power BI Pro. | – |
 
@@ -243,7 +244,9 @@ Only if you want **Copilot Cowork credits** from Viva Insights. Send them
       role.
 - [ ] Builds the query and sends you its partition ID and query ID, **before you start**. See
       [Running the Viva Insights query](VIVA-QUERY.md).
-- [ ] After the install, signs in to the `AnalyticsHub_Cowork_Credits` Dataflow once. See
+- [ ] Signs in to the `AnalyticsHub_Cowork_Credits` Dataflow once, when the installer asks. It
+      asks early in the install, before the notebooks and the first load, and checks the sign-in
+      worked. If it's you who has the role, sign in then. See
       [Credit consumption](../installer/README.md#credit-consumption).
 
 ### Entra admin: about 2 minutes
@@ -268,6 +271,25 @@ the installer does this itself, and you can skip this section.
 Some organisations make admins switch a role on before they use it (Privileged Identity
 Management). If yours does, switch the role on first, then sign in to the installer. A role that's
 not switched on shows as **can be activated** in the Prerequisites panel.
+
+Without consent for `AuditLogsQuery.Read.All`, the audit load reads nothing. The installer checks
+the app's token for it straight after consent, and the Prerequisites panel's **Audit log access
+for Copilot interactions** row shows whether it's in place. It must be an **Application**
+permission, not Delegated.
+
+### Compliance admin: audit logging
+
+A [Compliance Administrator](https://learn.microsoft.com/entra/identity/role-based-access-control/permissions-reference#compliance-administrator),
+or anyone with the Audit Logs role in Purview. Audit logging is on by default, so this is usually
+already done.
+
+- [ ] **Check audit logging is on.** Open [Microsoft Purview > Audit](https://purview.microsoft.com/audit/auditsearch).
+      If it offers **Start recording user and admin activity**, audit logging is off: select it.
+      New records then take from 60 minutes to 24 hours to appear.
+      [About audit logging](https://learn.microsoft.com/purview/audit-log-enable-disable).
+
+To test it end to end, run `check-audit` once the app has consent. It searches the audit log as the
+app, and says whether it found Copilot interactions, other records only, or nothing at all.
 
 ### Microsoft 365 admin
 

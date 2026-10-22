@@ -55,7 +55,7 @@ const run = async (/** @type {any} */ over, config = emptyConfig()) => {
 
 test('checkPrereqs: a well-equipped admin meets everything; each item says what it is for and how to get it', async () => {
   const items = await checkPrereqs({ api: fakeApis(), user: USER, config: emptyConfig() });
-  assert.deepEqual(items.map((i) => i.id), ['consent-role', 'fabric-admin', 'power-platform-admin', 'register-apps', 'power-bi-pro', 'copilot-licences', 'power-automate-premium', 'fabric-capacity', 'azure-rbac', 'key-vault', 'environments', 'viva-analyst', 'tenant-settings']);
+  assert.deepEqual(items.map((i) => i.id), ['consent-role', 'fabric-admin', 'power-platform-admin', 'register-apps', 'audit-ingestion', 'power-bi-pro', 'copilot-licences', 'power-automate-premium', 'fabric-capacity', 'azure-rbac', 'key-vault', 'environments', 'viva-analyst', 'tenant-settings']);
   for (const i of items) {
     assert.ok(i.neededFor && i.howTo && i.label, i.id);
   }
@@ -350,6 +350,49 @@ test('checkPrereqs: Power Automate Premium is optional, needed only for the flow
   assert.equal(perUser['power-automate-premium'].status, 'met');
   const seeded = await run({ licences: [{ servicePlans: [{ servicePlanName: 'FLOW_O365_P3', provisioningStatus: 'Success' }, { servicePlanName: 'FLOW_PER_USER', provisioningStatus: 'PendingActivation' }] }] });
   assert.equal(seeded['power-automate-premium'].status, 'missing', 'the Microsoft 365 flow plan has no premium connectors');
+});
+
+test('checkPrereqs: audit ingestion needs consent for AuditLogsQuery.Read.All, says who grants it and shows the last audit check', async () => {
+  const admin = await run({});
+  assert.equal(admin['audit-ingestion'].status, 'met');
+  assert.match(admin['audit-ingestion'].detail, /your Global Administrator role lets the installer grant it/);
+  assert.match(admin['audit-ingestion'].howTo, /Global Administrator or Privileged Role Administrator grants admin consent for AuditLogsQuery\.Read\.All/);
+  assert.match(admin['audit-ingestion'].howTo, /Compliance Administrator checks audit logging is on/);
+  assert.match(admin['audit-ingestion'].howTo, /check-audit/);
+
+  const user = await run({ roles: [] });
+  assert.equal(user['audit-ingestion'].status, 'missing');
+  assert.match(user['audit-ingestion'].detail, /A Global Administrator or Privileged Role Administrator needs to approve it/);
+
+  const graphSp = { id: 'graph-sp', appRoles: [{ id: 'role-audit', value: 'AuditLogsQuery.Read.All' }] };
+  /** @param {any[]} assigned */
+  const withApp = (assigned) => {
+    const api = fakeApis({ roles: [] });
+    api.graph.graphServicePrincipal = async () => graphSp;
+    api.graph.appRoleAssignments = async () => assigned;
+    return api;
+  };
+  const config = emptyConfig();
+  Object.assign(config.app, { appId: 'app-1', servicePrincipalId: 'sp-1' });
+  /** @param {any[]} assigned */
+  const audit = async (assigned) => (await checkPrereqs({ api: withApp(assigned), user: USER, config })).find((i) => i.id === 'audit-ingestion');
+
+  const granted = await audit([{ resourceId: 'graph-sp', appRoleId: 'role-audit' }]);
+  assert.equal(granted?.status, 'met');
+  assert.match(granted?.detail ?? '', /Admin consent is in place for the app app-1/);
+  assert.equal((await audit([{ resourceId: 'other', appRoleId: 'role-audit' }]))?.status, 'missing', 'another API\'s role doesn\'t count');
+
+  config.auditCheck = { at: '2026-06-01T12:00:00Z', result: 'empty-log' };
+  const empty = await audit([{ resourceId: 'graph-sp', appRoleId: 'role-audit' }]);
+  assert.equal(empty?.status, 'missing', 'consent alone isn\'t enough when the last check found the log empty');
+  assert.match(empty?.detail ?? '', /Last audit check \(2026-06-01\): the audit log is empty; audit logging may be off/);
+
+  const az = emptyConfig();
+  az.target = 'azure';
+  az.azure = /** @type {any} */ ({ graphRoles: { assigned: [], pending: ['AuditLogsQuery.Read.All'] } });
+  assert.equal((await run({}, az))['audit-ingestion'].status, 'missing');
+  az.azure = /** @type {any} */ ({ graphRoles: { assigned: ['AuditLogsQuery.Read.All'], pending: [] } });
+  assert.match((await run({}, az))['audit-ingestion'].detail, /The jobs' managed identity has it/);
 });
 
 test('checkPrereqs: Viva Insights analyst can\'t be read, so it is optional and "couldn\'t check", and says it can wait', async () => {
