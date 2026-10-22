@@ -264,6 +264,26 @@ sets the number. On Fabric and Azure.
   been in the web app since 0.6.0, but the Share panel offers scoped delegation on Azure only since
   0.6.8-rc.2, so released versions, 0.6.7 included, couldn't reach it from the app.
 
+### Installer: audit-ingestion checks, and the Viva Insights sign-in first (0.6.9 candidate)
+
+- **The installer checks the app can read the audit log.** Straight after admin consent, it gets the
+  app's own token and checks it's for this tenant and has `AuditLogsQuery.Read.All`. If not, it
+  says why the audit load would find nothing (consent missing, the secret not working, or an app
+  registration from another tenant) and who fixes it. On Azure, it checks the jobs' managed
+  identity has the role.
+- **New `check-audit` command** (**Check audit ingestion** in the browser), and `--check-audit` for
+  `install` and `update` on Fabric. As well as the token check, it runs a small audit search and
+  warns, rather than passing quietly, when it finds no Copilot interactions, or no records at all
+  (audit logging probably off in Purview).
+- **A Prerequisites row for audit ingestion.** It shows whether the app has the role, or whether
+  you can grant it, and the last check's result.
+- **Clearer 0-record data checks.** When the audit load finds nothing, the data check lists the
+  likely causes in order, narrowed by the last audit check.
+- **Sign in to Viva Insights first.** With Cowork credits from the Dataflow, the installer creates
+  `AnalyticsHub_Cowork_Credits` early, asks you to sign it in, and checks the connections are saved
+  before it deploys the notebooks and pipeline and runs the first load. No more coming back to the
+  installer after configuring the connection in Fabric. You can still skip it and finish later.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its

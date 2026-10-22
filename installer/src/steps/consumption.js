@@ -140,6 +140,7 @@ export async function planCowork(ctx) {
   if (config.dataSources.coworkCredits !== 'api') return;
   ui.note('A Dataflow reads Cowork credits from a Viva Insights query. A Viva Insights analyst (someone with the Insights Analyst role) builds it in Viva Insights > Create analysis > Create custom query > Consumption query, with Auto-refresh on; then, in Analysis results, the link icon copies its partition and query IDs.');
   ui.note(`Guide: ${DATAFLOW_GUIDE}`);
+  ui.note('Once the Lakehouse exists, early in the install, the installer makes the Dataflow and asks you to sign it in to Viva Insights in the browser, so the first load includes Cowork credits.');
   const toCsv = () => {
     config.dataSources.coworkCredits = 'csv';
     ui.note(`Cowork credits come from the Consumption Dashboard's CSV export. Drop it in ${UPLOAD_DIR}. To add the query later, run the installer again and set Copilot Cowork credits to ${modeLabel('coworkCredits', 'api')}.`);
@@ -215,12 +216,69 @@ export async function ensureCoworkDataflow(ctx) {
     cc.dataflowSignature = signature;
     ctx.save();
     ui.ok(`Dataflow ${name} reads Viva Insights query ${cc.vivaQuery} into ${COWORK_DATAFLOW_TABLE}`);
-    ui.info('Give it its sign-ins:');
-    coworkSignInSteps(config).forEach((step, i) => ui.info(`  ${i + 1}. ${step}`));
   } catch (err) {
     // A Dataflow that exists but never got its definition would only fail on every run.
     if (!cc.dataflowSignature) toCsv(`Couldn't set up the Cowork credits Dataflow (${/** @type {Error} */ (err).message}).`);
     else ui.warn(`Couldn't update Dataflow ${name} (${/** @type {Error} */ (err).message}). It still reads the last query it was given.`);
+  }
+}
+
+/**
+ * The Viva Insights connection, first: makes the Cowork Dataflow as soon as the Lakehouse exists,
+ * then waits while the user signs it in to Viva Insights and the Lakehouse, before the long steps.
+ * Fabric's API can't make the Viva Insights sign-in itself, so it's done once in the browser, here
+ * rather than after the install. Skipping carries on: the first load leaves Cowork out and the
+ * summary shows the step again.
+ * @param {Ctx} ctx
+ * @returns {Promise<'bound' | 'unbound' | 'unknown' | 'off'>}  off: no Cowork Dataflow to connect.
+ */
+export async function connectCowork(ctx) {
+  const { ui, config } = ctx;
+  if (!config.modules.consumption || config.dataSources.coworkCredits !== 'api') return 'off';
+  await ensureCoworkDataflow(ctx);
+  if (!coworkDataflowOn(config)) return 'off';
+  const name = config.consumption.dataflowName ?? COWORK_DATAFLOW_NAME;
+  let state = await coworkConnections(ctx);
+  if (state === 'bound') {
+    ui.ok(`${name} is signed in to Viva Insights and the Lakehouse`);
+    return state;
+  }
+  ui.warn(
+    state === 'unknown'
+      ? `Couldn't tell whether ${name} is signed in to Viva Insights yet. Check it now, so the first load can read Cowork credits:`
+      : `Sign ${name} in to Viva Insights now, so the first load can read Cowork credits. It takes a minute in the browser:`,
+  );
+  // The last step, loading Cowork, is for after the install.
+  coworkSignInSteps(config).slice(0, -1).forEach((s, i) => ui.info(`${i + 1}. ${s}`));
+  ui.note('The Viva Insights sign-in needs an account that can read the query: the Insights Analyst who made it, or someone they shared it with.');
+  ui.note(STAGING_ITEMS_NOTE);
+  if (ui.yes) {
+    ui.warn('Carrying on without it. The first load leaves Cowork credits out until the Dataflow is signed in.');
+    return state;
+  }
+  for (;;) {
+    const next = await ui.select(
+      'Once you have signed in to both and saved the Dataflow:',
+      [
+        { name: 'I\'ve signed in to both: check again', value: 'check' },
+        { name: 'Skip for now: finish it after the install', value: 'skip' },
+      ],
+      'check',
+    );
+    if (next === 'skip') {
+      ui.note('Carrying on. The first load leaves Cowork credits out, and the summary shows how to finish it.');
+      return state;
+    }
+    state = await coworkConnections(ctx);
+    if (state === 'bound') {
+      ui.ok(`${name} is signed in to Viva Insights and the Lakehouse`);
+      return state;
+    }
+    ui.warn(
+      state === 'unknown'
+        ? 'Fabric didn\'t say whether it\'s signed in. Make sure you chose Save and it finished publishing, then check again.'
+        : 'Not signed in yet: Fabric lists no connections saved with the Dataflow. Make sure you signed in to both, chose Save, and it finished publishing.',
+    );
   }
 }
 

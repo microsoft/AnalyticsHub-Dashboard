@@ -734,6 +734,8 @@ addresses, the M365 Copilot licence flag and the exact prepaid split.
 | Read agent configuration and Foundry from Resource Graph | `install --data resourceGraph=api --arg-management-group <id>` |
 | Report the Value page in another currency | `install --currency GBP --exchange-rate 0.79` |
 | Upload exports later, then load them now | `upload feedback.csv agents.csv --run` |
+| Check the app can read the audit log, and that it has Copilot records | `check-audit` |
+| Run that audit search during the install too | `install --check-audit` |
 | Run only the loads that failed last time | `rerun-failed` |
 | Delete the Fabric workspace and everything in it | `uninstall` |
 | After signing in to the Cowork Dataflow, refresh it and load Cowork credits | `load-cowork` |
@@ -755,6 +757,17 @@ whole tenant, and `--no-arg-agents` or `--no-arg-foundry` leaves agents or Found
 `--currency <code>` sets the Value page currency (US dollars by default), and `--exchange-rate <n>`
 how many of it make $1. Without the rate, set it under **Prices** in the app. In the browser, choose
 the currency under [Advanced settings](#advanced-settings) instead.
+
+`check-audit` gets the app's token for your tenant and checks it has `AuditLogsQuery.Read.All` as an
+Application permission with admin consent. It then runs a small audit search for Copilot
+interactions from the last 2 days (if there are none, for any record from the last day) and says
+which it found, with who fixes what: consent (a Global Administrator or Privileged Role
+Administrator), the secret (`rotate-secret`), or audit logging (a Compliance Administrator, in
+Purview > Audit). The search can take a few minutes. Installs and updates run the token check on
+their own after consent, when the secret is to hand (it's just been made, or Key Vault gives it);
+`--check-audit` adds the search, on Fabric. On Azure, `check-audit` checks the jobs' managed
+identity has the role. `check-audit` reads the app's secret from Key Vault where it can, and
+otherwise asks you to paste one.
 
 On the Azure target, `upload`, `--csv`, `load-cowork`, `--flow-identity app` and
 `coworkCredits=api` are Fabric only for now. `upload`, `--csv` and `load-cowork` stop and name the
@@ -812,15 +825,22 @@ Studio credits**, **Copilot Cowork credits** and **Azure AI costs**. Choose any 
   export until then, and you add the IDs with **Repair or change**. With the IDs, the installer
   creates the Dataflow Gen2 `AnalyticsHub_Cowork_Credits`, which loads the query into
   `viva_credits_dataflow`, and the pipeline refreshes it before each Viva load. Its connections
-  need signing in once, and the installer can't do that for you:
-  1. Open the Dataflow from the link on the **Done** page or at the end of the install.
+  need signing in once, and the installer can't do that for you. It asks you to straight after it
+  creates the Dataflow, under **Viva Insights connection**, before it deploys the notebooks and the
+  pipeline, so you don't have to come back to it later:
+  1. Open the Dataflow from the link the installer shows.
   2. It shows **Configure connection** twice, once for each thing it connects to: the Viva Insights
      source (the VivaInsights query) and the Lakehouse destination.
   3. On each one, choose **Configure connection**, sign in, then **Connect**.
   4. Choose **Save**, then wait until the Dataflow shows it has finished publishing.
-  5. Choose **Load Cowork now**, or run `load-cowork`. It waits for publishing to finish, refreshes
-     the Dataflow (trying once more a minute later if the refresh fails straight after the save),
-     then runs the Viva load and the consumption model refresh and says how many rows it loaded.
+  5. Back in the installer, choose **I've signed in to both: check again**. It reads the Dataflow's
+     saved connections and says whether it's signed in. Choose **Skip for now** to carry on and
+     sign in later: the first load then leaves Cowork credits out. With `--yes` it warns and
+     carries on.
+
+  After the install, **Load Cowork now** (or `load-cowork`) waits for publishing to finish, refreshes
+  the Dataflow (trying once more a minute later if the refresh fails straight after the save),
+  then runs the Viva load and the consumption model refresh and says how many rows it loaded.
 
   If the Dataflow isn't signed in yet when the first load starts, the installer leaves it out of
   that run (the pipeline's `SkipCowork` parameter), so the other loads aren't marked as failed,

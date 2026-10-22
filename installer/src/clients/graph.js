@@ -498,3 +498,40 @@ export function appCatalogApi(http, signIn = async () => {}) {
 }
 
 /** @typedef {ReturnType<typeof appCatalogApi>} AppCatalogApi */
+
+/**
+ * Microsoft Purview audit log search, as the app registration (Graph beta). Needs the
+ * AuditLogsQuery.Read.All application permission, the same call the audit notebook and job make.
+ * https://learn.microsoft.com/graph/api/security-auditcoreroot-post-queries
+ * @param {import('../http.js').HttpClient} http  A client on https://graph.microsoft.com/beta.
+ */
+export function auditApi(http) {
+  return {
+    /**
+     * Starts a search. Not retried after a network error: a second post starts a second search.
+     * @param {{ displayName: string, start: Date, end: Date, recordTypes?: string[] }} q
+     * @returns {Promise<{ id: string, status?: string }>}
+     */
+    startQuery: (q) =>
+      http.post(
+        '/security/auditLog/queries',
+        {
+          displayName: q.displayName,
+          filterStartDateTime: q.start.toISOString(),
+          filterEndDateTime: q.end.toISOString(),
+          ...(q.recordTypes?.length ? { recordTypeFilters: q.recordTypes } : {}),
+        },
+        { once: true },
+      ),
+    /** @param {string} id @returns {Promise<{ id: string, status?: string }>} */
+    getQuery: (id) => http.get(`/security/auditLog/queries/${encodeURIComponent(id)}`),
+    /**
+     * The first few records a finished search found.
+     * @param {string} id @param {number} [top]
+     * @returns {Promise<any[]>}
+     */
+    firstRecords: async (id, top = 1) => (await http.get(`/security/auditLog/queries/${encodeURIComponent(id)}/records`, { query: { $top: top } }))?.value ?? [],
+  };
+}
+
+/** @typedef {ReturnType<typeof auditApi>} AuditApi */

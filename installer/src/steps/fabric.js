@@ -850,6 +850,7 @@ export async function inlineSecret(ctx) {
 async function settleInlineSecret(ctx, fresh, outcome) {
   const { ui, config, api } = ctx;
   const app = config.app;
+  if (outcome !== 'unused' && ctx.pendingSecret) ctx.appSecret = ctx.pendingSecret;
   delete ctx.pendingSecret;
   const objectId = /** @type {string} */ (app.objectId);
   if (!fresh.keyId) {

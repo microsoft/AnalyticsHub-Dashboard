@@ -9,6 +9,7 @@ import { failedCards, fillRerun, loadCards, VIVA_ACTIVITY } from '../loads.js';
 import { DATA_CHECK_FILE } from '../transform/notebook.js';
 import { AGENT_EVALUATOR_ACTIVITY, COWORK_DATAFLOW_ACTIVITY, COWORK_WRAPPER_ACTIVITY, firstRunParameters, REFRESH_ACTIVITY, SKIP_COWORK_PARAMETER } from '../transform/pipeline.js';
 import { c, formatDuration } from '../ui.js';
+import { emptyAuditHelp } from './audit-check.js';
 import { coworkConnections, coworkNextStep, coworkSignInSteps, VIVA_LOAD_FILE } from './consumption.js';
 import { agentEvaluatorOn, coworkDataflowOn, modelDeployed } from './fabric.js';
 import { modelRefreshes } from './model.js';
@@ -517,7 +518,9 @@ function printAuditExcluded(ctx, excluded) {
   const { ui } = ctx;
   const parsed = Number(excluded?.parsed ?? 0);
   if (!parsed) {
-    ui.note('No Copilot activity was found in the audit log yet. It appears after people use Copilot and the pipeline runs again.');
+    const help = emptyAuditHelp(ctx.config);
+    ui.note(help.lead);
+    help.causes.forEach((cause, i) => ui.note(`${help.causes.length > 1 ? `${i + 1}. ` : ''}${cause}`));
     return;
   }
   const n = (/** @type {number} */ v) => v.toLocaleString('en-GB');
