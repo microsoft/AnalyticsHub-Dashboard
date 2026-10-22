@@ -56,6 +56,8 @@ export const AZURE_SUPPORTED_MODULES = /** @type {const} */ (['core', 'orgData',
 export const WEB_APP_NAME = 'Analytics Hub (Azure)';
 /** Delegated: lets admins and group owners add and remove viewers from the app. Graph still checks they own the group or are a directory admin. */
 export const GROUP_SCOPE = 'GroupMember.ReadWrite.All';
+/** Delegated, with GROUP_SCOPE: lets Share find people by email and show members' names. Basic profiles only, not User.Read.All. */
+export const PEOPLE_SCOPE = 'User.ReadBasic.All';
 export const SQL_READER_NAME = 'Analytics Hub SQL Reader';
 /** The SQL reader secret's name on its app, before the ref of the run that made it. */
 const SQL_READER_SECRET_LABEL = 'Power BI SQL credential';
@@ -1377,7 +1379,7 @@ export function azurePlanReview(ctx) {
     creates,
     grants: [
       { who: 'Collector managed identity', what: `Microsoft Graph application permissions: ${azureGraphRoles(ctx.config).join(', ')}`, where: 'Microsoft Graph', detail: 'Installer assigns app roles or records admin action if blocked.' },
-      { who: WEB_APP_NAME, what: `Delegated Power BI Dataset.Read.All and Graph User.Read${ctx.config.access ? ', GroupMember.ReadWrite.All' : ''}; app roles AnalyticsHub.User and AnalyticsHub.Admin`, where: 'Entra ID', ...(ctx.config.access ? { detail: 'GroupMember.ReadWrite.All lets admins and group owners manage viewers from Share in the app, as themselves.' } : {}) },
+      { who: WEB_APP_NAME, what: `Delegated Power BI Dataset.Read.All and Graph User.Read${ctx.config.access ? `, ${GROUP_SCOPE}, ${PEOPLE_SCOPE}` : ''}; app roles AnalyticsHub.User and AnalyticsHub.Admin`, where: 'Entra ID', ...(ctx.config.access ? { detail: `${GROUP_SCOPE} lets admins and group owners manage viewers from Share in the app, as themselves. ${PEOPLE_SCOPE} lets Share find people by email and show their names.` } : {}) },
       { who: 'Managed identity', what: 'Member', where: az.powerBi?.workspaceId ? `Power BI workspace ${az.powerBi.workspaceId}` : `Power BI workspace ${az.workspaceName ?? 'Analytics Hub'}` },
       ...access.grants,
       ...consumptionGrants,
@@ -1755,10 +1757,11 @@ async function ensureAzureWebApp(ctx) {
   const graphUserReadScopeId = graphSp.oauth2PermissionScopes?.find((s) => s.value === 'User.Read')?.id;
   const pbiScopeId = pbiSp.oauth2PermissionScopes?.find((s) => s.value === 'Dataset.Read.All')?.id;
   if (!graphUserReadScopeId || !pbiScopeId) throw new Error('Could not find Graph User.Read or Power BI Dataset.Read.All delegated scopes in this tenant.');
-  // With a viewer group, admins and group owners manage it from Share in the app, as themselves.
+  // With a viewer group, admins and group owners manage it from Share in the app, as themselves, and find people by email.
   const groups = !!config.access;
   const graphGroupScopeId = groups ? graphSp.oauth2PermissionScopes?.find((s) => s.value === GROUP_SCOPE)?.id : undefined;
-  const registration = { pbiScopeId, graphUserReadScopeId, graphGroupScopeId, groupClaims: groups, teamsClientIds: TEAMS_CLIENTS };
+  const graphPeopleScopeId = groups ? graphSp.oauth2PermissionScopes?.find((s) => s.value === PEOPLE_SCOPE)?.id : undefined;
+  const registration = { pbiScopeId, graphUserReadScopeId, graphGroupScopeId, graphPeopleScopeId, groupClaims: groups, teamsClientIds: TEAMS_CLIENTS };
   az.webApp ??= {};
   let app = az.webApp.clientId ? await api.graph.findApplication(az.webApp.clientId).catch(() => null) : null;
   if (!app) {
@@ -1780,6 +1783,7 @@ async function ensureAzureWebApp(ctx) {
     await api.graph.grantOauth2Permission({ clientId: sp.id, resourceId: pbiSp.id, scope: 'Dataset.Read.All' });
     await api.graph.grantOauth2Permission({ clientId: sp.id, resourceId: graphSp.id, scope: 'User.Read' });
     if (graphGroupScopeId) await api.graph.grantOauth2Permission({ clientId: sp.id, resourceId: graphSp.id, scope: GROUP_SCOPE });
+    if (graphPeopleScopeId) await api.graph.grantOauth2Permission({ clientId: sp.id, resourceId: graphSp.id, scope: PEOPLE_SCOPE });
     if (az.status?.pendingAdminActions) az.status.pendingAdminActions = az.status.pendingAdminActions.filter((a) => !a.startsWith('Grant delegated consent'));
   } catch (err) {
     ui.warn(`Couldn't grant delegated admin consent (${err instanceof Error ? err.message.split('\n')[0] : err}). Send this to an admin: ${adminConsentUrl(user.tenantId, /** @type {string} */ (az.webApp.clientId))}`);

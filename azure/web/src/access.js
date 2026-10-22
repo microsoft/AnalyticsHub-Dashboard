@@ -80,13 +80,15 @@ export class AccessService {
   async resolve(auth, name) {
     if (!name) return null;
     const quoted = name.replace(/'/g, "''");
+    // A 403 here is about Analytics Hub's own permission to look people and groups up, not about changing the group.
+    const lookUp = (path) => this.graph(auth, 'GET', path).catch((e) => Promise.reject(e.statusCode === 403 ? lookupDenied(name) : e));
     if (name.includes('@')) {
-      const user = await this.graph(auth, 'GET', `/users/${encodeURIComponent(name)}?$select=${PRINCIPAL_FIELDS}`).catch((e) => (e.statusCode === 404 ? null : Promise.reject(e)));
+      const user = await lookUp(`/users/${encodeURIComponent(name)}?$select=${PRINCIPAL_FIELDS}`).catch((e) => (e.statusCode === 404 ? null : Promise.reject(e)));
       if (user) return { ...user, '@odata.type': '#microsoft.graph.user' };
-      const byMail = await this.graph(auth, 'GET', `/users?$select=${PRINCIPAL_FIELDS}&$filter=mail eq '${encodeURIComponent(quoted)}'`);
+      const byMail = await lookUp(`/users?$select=${PRINCIPAL_FIELDS}&$filter=mail eq '${encodeURIComponent(quoted)}'`);
       return byMail?.value?.[0] ? { ...byMail.value[0], '@odata.type': '#microsoft.graph.user' } : null;
     }
-    const groups = await this.graph(auth, 'GET', `/groups?$select=id,displayName,mail&$filter=displayName eq '${encodeURIComponent(quoted)}'`);
+    const groups = await lookUp(`/groups?$select=id,displayName,mail&$filter=displayName eq '${encodeURIComponent(quoted)}'`);
     return groups?.value?.[0] ? { ...groups.value[0], '@odata.type': '#microsoft.graph.group' } : null;
   }
 
@@ -119,6 +121,12 @@ export class AccessService {
     }
     return text ? JSON.parse(text) : null;
   }
+}
+
+/** Graph refused a lookup: the web app's delegated User.ReadBasic.All (people) or GroupMember.ReadWrite.All (groups) is missing. */
+function lookupDenied(name) {
+  const what = name.includes('@') ? 'people by email' : 'groups by name';
+  return httpError(403, 'LookupDenied', `Microsoft Entra didn't let Analytics Hub look up ${what}. To fix it, run the installer again and choose Repair or change, or ask an Entra admin to grant admin consent for the Analytics Hub (Azure) app.`);
 }
 
 function principal(o) {

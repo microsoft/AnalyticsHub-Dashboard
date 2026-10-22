@@ -91,6 +91,7 @@ The app registration people sign in to. Delegated permissions: it acts as the pe
 | Power BI | `Dataset.Read.All` | Querying the models as the person viewing, so they see only what they can |
 | Graph | `User.Read` | Signing people in |
 | Graph | `GroupMember.ReadWrite.All` | *(Optional.)* Letting group owners and admins add viewers from **Share** in the app. Turned on by the viewer group (the default). Graph still only lets owners and admins change the group |
+| Graph | `User.ReadBasic.All` | *(Optional.)* Letting **Share** find people by email and show viewers' names. Turned on by the viewer group (the default). It reads only basic profiles: name, email address and photo |
 
 The web app also has two app roles, **AnalyticsHub.User** and **AnalyticsHub.Admin**. A second
 app registration, the SQL reader, is the Power BI refresh's sign-in to Azure SQL. It can only read
@@ -255,8 +256,9 @@ the installer does this itself, and you can skip this section.
 - [ ] **Grant admin consent** for the [Graph permissions](#permissions) above. All are read-only,
       except `GroupMember.ReadWrite.All` on the Azure web app, which lets group owners and admins
       add viewers from the app, and `AppCatalog.ReadWrite.All`, which lets the installer publish
-      the Teams app. The installer gives you a link to send for the app's permissions. The Teams
-      one is given at the installer's second sign-in, by whoever runs it.
+      the Teams app. The web app's `User.ReadBasic.All` lets **Share** find people by email, and
+      reads only basic profiles. The installer gives you a link to send for the app's permissions.
+      The Teams one is given at the installer's second sign-in, by whoever runs it.
       [About admin consent](https://learn.microsoft.com/entra/identity/enterprise-apps/grant-admin-consent).
 - [ ] **Optional: give the app or managed identity the Global Reader role**, only for agent
       configuration from Azure Resource Graph.

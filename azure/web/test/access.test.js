@@ -6,10 +6,15 @@ import { GRAPH_SCOPES } from '../src/auth.js';
 
 const ACCESS = { groupId: 'group-1', groupName: 'Analytics Hub viewers', contact: 'admin@example.com' };
 const NEW_USER = '22222222-2222-4222-8222-222222222222';
+/** Found only by their email address, which isn't their sign-in name. */
+const ALIAS = { id: '33333333-3333-4333-8333-333333333333', displayName: 'Alias Person', mail: 'alias@example.com', userPrincipalName: 'alias.person@example.com' };
 const json = (body, status = 200) => new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-/** A small Graph: one viewer group owned by owner-1, with one member. Records every call. */
-function fakeGraph({ overageMember = true, denyWrites = false } = {}) {
+/**
+ * A small Graph: one viewer group owned by owner-1, with one member. Records every call.
+ * denyLookups: the app may change the group but not look people or groups up, as before it had User.ReadBasic.All.
+ */
+function fakeGraph({ overageMember = true, denyWrites = false, denyLookups = false } = {}) {
   const calls = [];
   const members = [{ '@odata.type': '#microsoft.graph.user', id: 'viewer-1', displayName: 'Viewer', userPrincipalName: 'viewer@example.com' }];
   const fetchImpl = async (url, init = {}) => {
@@ -22,9 +27,10 @@ function fakeGraph({ overageMember = true, denyWrites = false } = {}) {
     if (p === '/groups/group-1/owners') return json({ value: [{ '@odata.type': '#microsoft.graph.user', id: 'owner-1', displayName: 'Owner', userPrincipalName: 'owner@example.com' }] });
     if (p === '/groups/group-1/members') return json({ value: members });
     if (p === '/groups/group-1') return json({ displayName: 'Analytics Hub viewers' });
+    if (denyLookups && (p.startsWith('/users') || p === '/groups')) return json({ error: { code: 'Authorization_RequestDenied', message: 'Insufficient privileges to complete the operation.' } }, 403);
     if (p === '/users/new%40example.com' || p === '/users/new@example.com') return json({ id: NEW_USER, displayName: 'New Person', userPrincipalName: 'new@example.com' });
     if (p.startsWith('/users/')) return json({ error: { message: 'Not found' } }, 404);
-    if (p === '/users') return json({ value: [] });
+    if (p === '/users') return json({ value: decodeURIComponent(u.search).includes(`mail eq '${ALIAS.mail}'`) ? [ALIAS] : [] });
     if (p === '/groups') return json({ value: [] });
     if (denyWrites) return json({ error: { message: 'Insufficient privileges to complete the operation.' } }, 403);
     if (p === '/groups/group-1/members/$ref' && method === 'POST') return json(undefined, 204);
@@ -99,6 +105,9 @@ test('viewers see the group; admins and owners also see and manage who is in it'
       assert.deepEqual(body.members, [{ id: 'viewer-1', name: 'Viewer', email: 'viewer@example.com', kind: 'user' }]);
       assert.deepEqual(body.owners.map((o) => o.id), ['owner-1']);
     }
+    // Graph returns members' names and emails only when asked for them, and the app may read people's basic profiles.
+    const lists = graph.calls.filter((c) => c.path.endsWith('/groups/group-1/members'));
+    assert.ok(lists.length && lists.every((c) => c.search.includes('$select=id,displayName,userPrincipalName,mail')));
   });
 });
 
@@ -126,12 +135,52 @@ test('admins add people by email and remove them by id; others cannot', async ()
   });
 });
 
+test('a person is found by their email address when it isn\'t their sign-in name', async () => {
+  const graph = fakeGraph();
+  await withServer({ fetchImpl: graph.fetchImpl }, async (baseUrl) => {
+    const added = await request(baseUrl, '/api/access/members', { method: 'POST', headers: { ...authHeader('owner'), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: ALIAS.mail }) });
+    assert.equal(added.status, 201);
+    assert.deepEqual(await added.json(), { id: ALIAS.id, name: 'Alias Person', email: 'alias.person@example.com', kind: 'user' });
+    const ref = graph.calls.find((c) => c.method === 'POST' && c.path.endsWith('/groups/group-1/members/$ref'));
+    assert.deepEqual(ref.body, { '@odata.id': `https://graph.microsoft.com/v1.0/directoryObjects/${ALIAS.id}` });
+  });
+});
+
 test('when Entra refuses a change, the app says only owners and directory admins can make it', async () => {
   const graph = fakeGraph({ denyWrites: true });
   await withServer({ fetchImpl: graph.fetchImpl }, async (baseUrl) => {
     const response = await request(baseUrl, `/api/access/members/${NEW_USER}`, { method: 'DELETE', headers: authHeader('admin') });
     assert.equal(response.status, 403);
     assert.equal((await response.json()).error.code, 'AccessManageDenied');
+    // The person was found, so it's the change to the group that was refused.
+    const added = await request(baseUrl, '/api/access/members', { method: 'POST', headers: { ...authHeader('admin'), 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'new@example.com' }) });
+    assert.equal(added.status, 403);
+    const { error } = await added.json();
+    assert.equal(error.code, 'AccessManageDenied');
+    assert.match(error.message, /Only owners of the viewer group and directory admins can change its members/);
+  });
+});
+
+test("when Entra won't let the app look people or groups up, Share says so and how to fix it", async () => {
+  const forgotten = [];
+  const tokenAcquirer = async (_t, _c, scopes) => (scopes?.[0]?.includes('graph') ? 'graph-token' : 'powerbi-token');
+  tokenAcquirer.forget = (token, scopes) => forgotten.push([token, scopes]);
+  const graph = fakeGraph({ denyLookups: true });
+  await withServer({ fetchImpl: graph.fetchImpl, tokenAcquirer }, async (baseUrl) => {
+    const post = (token, name) => request(baseUrl, '/api/access/members', { method: 'POST', headers: { ...authHeader(token), 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+    for (const [token, name, what] of [['admin', 'new@example.com', /look up people by email/], ['owner', 'Sales Team', /look up groups by name/]]) {
+      const response = await post(token, name);
+      assert.equal(response.status, 403, name);
+      const { error } = await response.json();
+      assert.equal(error.code, 'LookupDenied', name);
+      assert.match(error.message, what);
+      assert.match(error.message, /run the installer again and choose Repair or change/);
+      assert.match(error.message, /admin consent/);
+      assert.doesNotMatch(error.message, /Only owners/);
+    }
+    assert.ok(!graph.calls.some((c) => c.method === 'POST' && c.path.endsWith('/members/$ref')), 'nobody is added');
+    // After a Repair, the next try exchanges a fresh token with the new permission.
+    assert.deepEqual(forgotten, [['admin', GRAPH_SCOPES], ['owner', GRAPH_SCOPES]]);
   });
 });
 

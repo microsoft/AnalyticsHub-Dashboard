@@ -835,7 +835,12 @@ export function fakeAzureGraph() {
     { id: 'r-users', value: 'User.Read.All' },
     { id: 'r-settings', value: 'ReportSettings.Read.All' },
     { id: 'r-sites', value: 'Sites.Selected' },
-  ], oauth2PermissionScopes: [{ id: 's-user-read', value: 'User.Read' }] };
+  ], oauth2PermissionScopes: [
+    { id: 's-user-read', value: 'User.Read' },
+    { id: 's-group-members', value: 'GroupMember.ReadWrite.All' },
+    { id: 's-user-read-basic', value: 'User.ReadBasic.All' },
+    { id: 's-user-read-all', value: 'User.Read.All' },
+  ] };
   /** @type {Error[]} */
   const siteGrantFailures = [];
   /** The signed-in user's directory roles. None unless a test adds some. @type {{ roleTemplateId: string, displayName: string }[]} */
