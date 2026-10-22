@@ -776,6 +776,13 @@ On by default. It fills the app's **Work patterns** page.
 Microsoft 365 admin center, go to **Settings** > **Org settings** > **Services** > **Reports** and clear
 **Display concealed user, group, and site names in all reports**. Then choose **Run now**.
 
+The `M365 Activity` table refreshes incrementally, like the audit table. The model keeps 12 months
+of it, and each refresh reloads only the last 35 days. That covers every day the notebook can
+rewrite: Microsoft keeps 28 days of reports. The first refresh after installing, or after
+**Repair or change** adds the policy to an existing install, still loads all of it once. If you set the
+notebook's `RETAIN_DAYS`, make it 0 or at least 400: days it deletes within the last 12 months stay
+in the model until they're older than that.
+
 ## Credit consumption
 
 Optional. It fills the app's Consumption pages. See [Consumption Central](../fabric/Add%20Credit%20Consumption/).

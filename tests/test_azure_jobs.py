@@ -930,6 +930,18 @@ def test_refresh_reloads_all_partitions_when_old_days_were_republished():
     assert not refresh_mod.needs_full_refresh(None, today)
     assert refresh_mod.needs_full_refresh(recent + [{"oldest_day": "2026-09-29"}], today)
 
+    # M365 Activity's policy reloads 35 days, so the 28 days its collector can rewrite stay incremental.
+    m365 = {"table": "m365_activity_daily"}
+    assert not refresh_mod.needs_full_refresh([{**m365, "oldest_day": "2026-09-09"}], today)
+    assert not refresh_mod.needs_full_refresh([{**m365, "oldest_day": "2026-09-02"}], today)
+    assert refresh_mod.needs_full_refresh([{**m365, "oldest_day": "2026-09-01"}], today)
+    assert refresh_mod.needs_full_refresh([{**m365, "oldest_day": "2026-09-09"},
+                                           {"table": "copilot_interactions_curated", "oldest_day": "2026-09-29"}], today)
+    installer = (Path(__file__).resolve().parents[1] / "installer" / "src" / "transform" / "m365.js").read_text(encoding="utf-8")
+    rewrite = int(installer.split("M365_REWRITE_DAYS = ", 1)[1].split(";", 1)[0])
+    assert "incrementalPeriods: M365_REWRITE_DAYS + 7," in installer
+    assert refresh_mod.INCREMENTAL_DAYS_BY_TABLE["m365_activity_daily"] == rewrite + 7
+
     bodies = []
 
     def handler(m, url, kw):

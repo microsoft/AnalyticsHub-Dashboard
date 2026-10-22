@@ -1044,8 +1044,8 @@ Reads the `M365 Activity` table, which the [installer](../installer/README.md#mi
 adds to the ValueLens model. `Copilot_M365_Activity_Ingester` fills it from the Microsoft 365 usage
 reports in Graph: one row per person per day they were active in Teams, Outlook, SharePoint,
 OneDrive, Viva Engage or the Microsoft 365 apps. Microsoft keeps 28 days of these reports and
-publishes each day two to three days late, so history builds up from the first load. The date and
-organisation filters apply; the other filters don't.
+publishes each day two to three days late, so history builds up from the first load. The model
+keeps the last 12 months. The date and organisation filters apply; the other filters don't.
 
 Throughout, a **week** is seven loaded days, so a figure per person per week is the total ÷ (people
 active × days loaded ÷ 7).
