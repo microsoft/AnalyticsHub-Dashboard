@@ -471,9 +471,17 @@ Run `update`, choose **Repair or change**, open **Module connections**, and unti
   the role away and deletes the role it created.
 - `Deleted the "Analytics Hub transcript reader <ID>" role in A`. Looking the role up by name finds
   nothing: `Get-Dv $A ('roles?$select=roleid&$filter=name eq ''{0}''' -f $ra.readRoleName)`.
-- Then one of these. Note which: it shows whether Dataverse's Web API deletes an application user.
+- Then one of these. Note which: it shows whether Dataverse's Web API deletes an application user,
+  and whether a second delete removes one the first only soft-deleted.
   - `Removed the application user for the jobs' managed identity <name> (client ID <$mi>) from A`.
-    `Get-Dv $A` as in step 2 finds no user.
+    The installer read the user back after deleting it, deleting it again if it was still there,
+    and found it gone. `Get-Dv $A` as in step 2 finds no user.
+  - `Dataverse only soft-deleted the application user …`, saying it's deactivated with no role,
+    then how a System Administrator deletes it for good. `Get-Dv $A` as in step 2 finds it with
+    `isdisabled` True, and with neither role.
+    `Get-Dv $A ('systemusers?$select=isdisabled,deletedstate&$filter=applicationid eq {0}' -f $mi)`
+    shows `deletedstate` 1. Follow the printed steps, and note whether the admin center's filter
+    lists the user and deletes it.
   - `Dataverse wouldn't delete the application user …`, saying it has no role now, then the steps
     for a System Administrator. The installer turned the user back on, so `Get-Dv $A` finds it
     with `isdisabled` False and with neither role.
@@ -486,7 +494,10 @@ Then tick A again. Expect
 and another 180-day first read of A on the next run. The role has the same name as before and a
 new ID. If Dataverse wouldn't delete the user, the installer finds it and only gives it the roles:
 A's entry has a `roleId` and the read role's fields but no `createdUser`, so uninstall deletes the
-installer's role, takes Bot Transcript Viewer away, and leaves the user for step 14.
+installer's role, takes Bot Transcript Viewer away, and leaves the user for step 14. If it only
+soft-deleted the user, and it's still there, the installer finds it disabled:
+`The jobs' managed identity's application user in A is disabled, so its transcripts are skipped.`
+Delete it for good as printed, then tick A again.
 
 ## 10. No environment to read
 
@@ -568,7 +579,9 @@ Check A and B with `Get-Dv` and in the admin center. Neither has an
 - B's user: in the admin center, select it under **Application users**, **Deactivate** it, then
   **Delete** it. Only a deactivated application user can be deleted.
 - The role you made in B: under **Security roles**, select it, then **Delete**.
-- A's user, the same way, if Dataverse wouldn't delete it in step 9 or 13.
+- A's user, the same way, if Dataverse wouldn't delete it in step 9 or 13. If it only
+  soft-deleted it, use the steps the installer printed: **Users** > **Filter** >
+  *Users not in Microsoft Entra ID and soft deleted in the environment* > the user > **Delete**.
 - Any *Analytics Hub transcript reader <ID>* role the installer couldn't delete, as for the role you
   made.
 - The Power BI workspace, if uninstall couldn't delete it in step 13.
@@ -594,7 +607,7 @@ Check A and B with `Get-Dv` and in the admin center. Neither has an
 | 7 | The role made by hand, and what the admin center put in it; the admin center found the identity by client ID; `ReadAccess` on a transcript; no second user; the installer's role created and given in B, and B's user recorded as not created by the installer; B's first read | |
 | 7 | Optional: B `empty` with only Bot Transcript Viewer, `forbidden` with no role; C left out, `forbidden`, schedule still on | |
 | 8 | Read, parse tail, merge, publish, refresh and whole-run times; 429s; no OOMKilled | |
-| 9 | A's role deleted; whether the Web API deleted A's user, or the installer turned it back on without its roles; A's rows kept; A added again, with the role created again | |
+| 9 | A's role deleted; whether the Web API deleted A's user, only soft-deleted it, or wouldn't delete it and the installer turned it back on without its roles; A's rows kept; A added again, with the role created again | |
 | 10 | No environment: pages kept; schedule off; `refresh: ae skipped`; the installer's role deleted in B and B's user left; both back | |
 | 11 | Module off: pages gone, schedule off, model and ID kept, the installer's roles deleted; back on: the same ID, the roles created again, schedule on | |
 | 12 | Optional demo mode: no Dataverse change; pages and schedule off, then back | |

@@ -278,9 +278,25 @@ export function dataverseApi(http, url) {
     enableUser: (userId) => http.request('PATCH', `/systemusers(${userId})`, { headers: { ...ODATA, 'If-Match': '*' }, body: { isdisabled: false } }),
     /**
      * Deletes a deactivated application user. Some environments refuse this, so callers fall back to the admin center.
+     * Dataverse's first delete only soft-deletes a user: it stays, deactivated, with no role, and only a soft-deleted
+     * user can be deleted for good. See https://learn.microsoft.com/power-platform/admin/delete-users
      * @param {string} userId
      */
     deleteUser: (userId) => http.request('DELETE', `/systemusers(${userId})`, { headers: ODATA }),
+    /**
+     * A user, or undefined once it's gone. A soft-deleted user is still here, with DeletedState 1. See
+     * https://learn.microsoft.com/power-apps/developer/data-platform/reference/entities/systemuser#BKMK_DeletedState
+     * @param {string} userId
+     * @returns {Promise<{ systemuserid: string, isdisabled?: boolean, deletedstate?: number } | undefined>}
+     */
+    async getUser(userId) {
+      try {
+        return await http.get(`/systemusers(${userId})?$select=systemuserid,isdisabled,deletedstate`, { headers: ODATA });
+      } catch (err) {
+        if (/** @type {any} */ (err).status === 404) return undefined;
+        throw err;
+      }
+    },
     /**
      * Creates a cloud flow, turned off, owned by the signed-in user. Returns its workflowid.
      * @param {{ name: string, description: string, clientdata: string }} flow

@@ -86,6 +86,11 @@ resource group.
   can read a transcript. Unticking the environment or **Agent Evaluator**, or uninstalling, takes
   the role away and deletes it. The installer never changes or deletes a role it didn't create.
   It adds transcript read to its role only while no user or team other than the reader has the role.
+  On Azure, Dataverse's first delete of an application user the installer created only
+  soft-deletes it: the user stays, deactivated with no role, and ticking the environment again
+  found it disabled. Now the installer reads the user back and deletes it again, and says it
+  removed the user only once it's gone. Otherwise it warns, and prints how a System Administrator
+  deletes it for good.
   Creating the role needs a System Administrator of the environment, as adding the reader does;
   otherwise the installer prints the admin center steps. To fix an existing install, run
   **Update** or **Repair or change** as a System Administrator of each environment, then reload

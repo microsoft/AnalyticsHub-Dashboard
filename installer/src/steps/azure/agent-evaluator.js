@@ -201,10 +201,21 @@ function transcriptReader(ctx) {
 }
 
 /**
+ * How a System Administrator deletes a soft-deleted application user for good. See
+ * https://learn.microsoft.com/power-platform/admin/delete-users#permanently-delete-users-in-power-platform
+ * @param {string} where
+ */
+const deleteForGood = (where) =>
+  `A System Administrator can delete it for good: Power Platform admin center > Manage > Environments > ${where} > Settings > Users + permissions > Users > ` +
+  'Filter > Users not in Microsoft Entra ID and soft deleted in the environment > select it > Delete. Any records it owns must be reassigned first, and ' +
+  `Settings > Product > Features > Enable delete disabled users must be on. It can't be activated again, so delete it before you tick ${where} again.`;
+
+/**
  * Removes what the installer added for the jobs' managed identity in one environment: the read role it gave, and the
  * role itself if it created it, then the Bot Transcript Viewer role it assigned, then the application user it created,
- * which Dataverse deletes only once it's deactivated. What it can't remove, or an admin added, is printed once for a
- * System Administrator. Never throws.
+ * which Dataverse deletes only once it's deactivated. Dataverse's first delete only soft-deletes the user, which stays,
+ * deactivated with no role, so it's read back and deleted again, and said to be removed only once it's gone. What it
+ * can't remove, or an admin added, is printed once for a System Administrator. Never throws.
  * @param {Ctx} ctx @param {AzureTranscriptAccess} entry
  * @returns {Promise<boolean>}  Whether the managed identity lost the access the installer gave it there.
  */
@@ -270,6 +281,29 @@ async function removeTranscriptAccess(ctx, entry) {
         ui.info(`A System Administrator can delete it: ${user} > Deactivate, then Delete.`);
         return true;
       }
+    }
+    // Dataverse's first delete only soft-deletes the user: it's still there, deactivated with no role, so it's deleted
+    // again. A soft-deleted user can't be activated again, so unlike above, it's left deactivated if it stays.
+    /** @type {string | undefined} */
+    let why;
+    try {
+      if (await dv.getUser(userId)) {
+        try {
+          await dv.deleteUser(userId);
+        } catch (err) {
+          if (!gone(err)) why = message(err);
+        }
+        if (!why && (await dv.getUser(userId))) why = 'still there after a second delete';
+      }
+    } catch (err) {
+      ui.warn(`Couldn't check that the application user for ${who} is gone from ${where} (${message(err)}). If it's still there, it's deactivated with no role, so it can't sign in or read transcripts.`);
+      ui.info(deleteForGood(where));
+      return true;
+    }
+    if (why) {
+      ui.warn(`Dataverse only soft-deleted the application user for ${who} in ${where} (${why}). It's deactivated with no role, so it can't sign in or read transcripts.`);
+      ui.info(deleteForGood(where));
+      return true;
     }
     ui.ok(`Removed the application user for ${who} from ${where}`);
     return true;

@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { dataverseApi, depthName } from '../src/clients/dataverse.js';
+import { HttpError } from '../src/http.js';
 
 /**
  * A Dataverse Web API client whose requests are recorded.
@@ -35,6 +36,25 @@ test('Dataverse: taking a role back, and deactivating, activating and deleting a
   // A PATCH without If-Match would create a user that's already gone, rather than answer 404.
   assert.deepEqual(requests.map((r) => r.opts.headers['If-Match']), [undefined, '*', '*', undefined]);
   for (const r of requests) assert.equal(r.opts.headers['OData-Version'], '4.0');
+});
+
+test('Dataverse: reading an application user back, which a soft delete leaves, and a 404 once it\'s gone', async () => {
+  const PATH = '/systemusers(user-1)?$select=systemuserid,isdisabled,deletedstate';
+  const softDeleted = { systemuserid: 'user-1', isdisabled: true, deletedstate: 1 };
+  const { dv, requests } = recorded({ [PATH]: softDeleted });
+  assert.deepEqual(await dv.getUser('user-1'), softDeleted);
+  assert.deepEqual(requests.map((r) => `${r.method} ${r.path}`), [`GET ${PATH}`]);
+  assert.equal(requests[0].opts.headers['OData-Version'], '4.0');
+  for (const status of [404, 500]) {
+    const http = {
+      get: async () => {
+        throw new HttpError(`HTTP ${status}`, { status, method: 'GET', url: `https://env.example.com/api/data/v9.2${PATH}` });
+      },
+    };
+    const read = dataverseApi(/** @type {any} */ (http), 'https://env.example.com/').getUser('user-1');
+    if (status === 404) assert.equal(await read, undefined, 'gone');
+    else await assert.rejects(read, /HTTP 500/);
+  }
 });
 
 test('Dataverse: creating a security role, setting its privileges, reading them back and deleting it', async () => {

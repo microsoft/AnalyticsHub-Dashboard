@@ -1166,8 +1166,10 @@ export function fakeRoleStore(o) {
 /**
  * One Dataverse environment's application users and their roles, for the transcript reader. `failures` scripts an
  * error for each call of a method, in order. Like Dataverse, it deletes only a deactivated user, and answers 404 for a
- * user or role assignment that isn't there. Its roles are a fakeRoleStore's.
- * @param {{ bu?: string | null, role?: string | null, users?: { systemuserid: string, applicationid: string, isdisabled?: boolean, _businessunitid_value?: string }[], userRoles?: Record<string, string[]>, teamRoles?: Record<string, string[]>, units?: string[], copies?: boolean, roles?: FakeRole[], transcripts?: string[] }} [o]
+ * user or role assignment that isn't there. `softDeletes` is how many deletes of a user only soft-delete it, as
+ * Dataverse's first one does: the user stays, deactivated, with no role and deletedstate 1. Its roles are a
+ * fakeRoleStore's.
+ * @param {{ bu?: string | null, role?: string | null, users?: { systemuserid: string, applicationid: string, isdisabled?: boolean, deletedstate?: number, _businessunitid_value?: string }[], userRoles?: Record<string, string[]>, teamRoles?: Record<string, string[]>, units?: string[], copies?: boolean, roles?: FakeRole[], transcripts?: string[], softDeletes?: number }} [o]
  */
 export function fakeTranscriptEnvironment(o = {}) {
   /** @type {string[]} */
@@ -1179,6 +1181,8 @@ export function fakeTranscriptEnvironment(o = {}) {
   const userRoles = structuredClone(o.userRoles ?? {});
   /** @type {Record<string, string[]>} */
   const teamRoles = structuredClone(o.teamRoles ?? {});
+  /** Deletes so far, by user. @type {Record<string, number>} */
+  const deletes = {};
   const bu = o.bu === undefined ? 'bu-root' : o.bu;
   const role = o.role === undefined ? 'role-btv' : o.role;
   let n = 0;
@@ -1227,10 +1231,23 @@ export function fakeTranscriptEnvironment(o = {}) {
     deleteUser: async (userId) => {
       calls.push(`deleteUser ${userId}`);
       fail('deleteUser');
-      if (!find(userId).isdisabled) throw httpError(400, 'Only an inactive application user can be deleted.');
-      users.splice(users.findIndex((u) => u.systemuserid === userId), 1);
+      const user = find(userId);
+      if (!user.isdisabled) throw httpError(400, 'Only an inactive application user can be deleted.');
+      deletes[userId] = (deletes[userId] ?? 0) + 1;
+      if (deletes[userId] <= (o.softDeletes ?? 0)) {
+        user.deletedstate = 1;
+        userRoles[userId] = [];
+        return null;
+      }
+      users.splice(users.indexOf(user), 1);
       delete userRoles[userId];
       return null;
+    },
+    /** @param {string} userId */
+    getUser: async (userId) => {
+      calls.push(`getUser ${userId}`);
+      fail('getUser');
+      return users.find((u) => u.systemuserid === userId);
     },
   };
   return { api, calls, failures, users, userRoles, teamRoles, roles: store.roles, holds: store.holds };

@@ -43,7 +43,16 @@ const readRoleCalls = (user, role = 'read-1') => [
 const readRoleRecord = (role = 'read-1') => ({ readRoleId: role, readRoleName: READ_ROLE, createdReadRole: true, assignedReadRoleId: role });
 
 /** What removing a user the installer created takes back: the read role, then Bot Transcript Viewer, then the user. @param {string} [user] @param {string} [role] */
-const removalCalls = (user = 'user-1', role = 'read-1') => [`removeRole ${user} ${role}`, `deleteRole ${role}`, `removeRole ${user} role-btv`, `disableUser ${user}`, `deleteUser ${user}`];
+const deleteCalls = (user = 'user-1', role = 'read-1') => [`removeRole ${user} ${role}`, `deleteRole ${role}`, `removeRole ${user} role-btv`, `disableUser ${user}`, `deleteUser ${user}`];
+
+/** The same, and the user read back, which finds it gone. @param {string} [user] @param {string} [role] */
+const removalCalls = (user = 'user-1', role = 'read-1') => [...deleteCalls(user, role), `getUser ${user}`];
+
+/** How a System Administrator deletes a soft-deleted application user in Example for good. */
+const DELETE_FOR_GOOD =
+  'A System Administrator can delete it for good: Power Platform admin center > Manage > Environments > Example > Settings > Users + permissions > Users > ' +
+  'Filter > Users not in Microsoft Entra ID and soft deleted in the environment > select it > Delete. Any records it owns must be reassigned first, and ' +
+  'Settings > Product > Features > Enable delete disabled users must be on. It can\'t be activated again, so delete it before you tick Example again.';
 
 /**
  * An Azure install with Agent Evaluator ticked and, unless a test says otherwise, one environment chosen. Each
@@ -593,7 +602,7 @@ test('Azure transcript access: a role with the install\'s name that someone else
   env.calls.length = 0;
   t.config.agentEvaluator.environments = [];
   assert.equal(await ensureAzureTranscriptAccess(t.ctx), false);
-  assert.deepEqual(env.calls, ['removeRole user-1 role-btv', 'disableUser user-1', 'deleteUser user-1'], 'only what the installer added');
+  assert.deepEqual(env.calls, ['removeRole user-1 role-btv', 'disableUser user-1', 'deleteUser user-1', 'getUser user-1'], 'only what the installer added');
   assert.deepEqual(env.roles.map((r) => r.roleid), ['decoy-1']);
   assert.deepEqual(env.userRoles.someone, ['decoy-1']);
   assert.equal(t.az.transcriptAccess, undefined);
@@ -606,7 +615,7 @@ test('Azure transcript access: a user Dataverse won\'t delete is activated again
   dv.calls.length = 0;
   t.config.agentEvaluator.environments = [];
   await ensureAzureTranscriptAccess(t.ctx);
-  assert.deepEqual(dv.calls, [...removalCalls(), 'enableUser user-1']);
+  assert.deepEqual(dv.calls, [...deleteCalls(), 'enableUser user-1']);
   assert.deepEqual(dv.users.map((u) => [u.systemuserid, !!u.isdisabled]), [['user-1', false]], 'not left deactivated');
   assert.deepEqual(dv.userRoles['user-1'], []);
   assert.deepEqual(dv.roles, []);
@@ -631,12 +640,96 @@ test('Azure transcript access: a user Dataverse won\'t delete or activate again 
   dv.calls.length = 0;
   t.config.agentEvaluator.environments = [];
   await ensureAzureTranscriptAccess(t.ctx);
-  assert.deepEqual(dv.calls, [...removalCalls(), 'enableUser user-1']);
+  assert.deepEqual(dv.calls, [...deleteCalls(), 'enableUser user-1']);
   assert.equal(dv.users[0].isdisabled, true);
   assert.equal(t.az.transcriptAccess, undefined);
   const text = t.ui.text();
   assert.ok(text.includes('Dataverse wouldn\'t delete the application user for the jobs\' managed identity (client ID mi-client) in Example (No delete), or activate it again (No enable), so it\'s deactivated.'));
   assert.ok(text.includes('A System Administrator can delete it (Power Platform admin center > Manage > Environments > Example > Settings > Users + permissions > Application users > the one with client ID mi-client > Delete), or activate it (Activate) before you tick Example again.'));
+});
+
+test('Azure transcript access: a user Dataverse only soft-deletes is deleted again, and said to be removed once it\'s gone', async () => {
+  for (const softDeletes of [0, 1]) {
+    const env = fakeTranscriptEnvironment({ softDeletes });
+    const t = await aeInstall({ dataverse: { [ENV]: env } });
+    env.calls.length = 0;
+    t.ui.out.length = 0;
+    t.config.agentEvaluator.environments = [];
+    assert.equal(await ensureAzureTranscriptAccess(t.ctx), false);
+    assert.deepEqual(env.calls, [...removalCalls(), ...(softDeletes ? ['deleteUser user-1', 'getUser user-1'] : [])], `soft deletes: ${softDeletes}`);
+    assert.deepEqual(env.users, [], `soft deletes: ${softDeletes}`);
+    assert.equal(t.az.transcriptAccess, undefined);
+    let text = t.ui.text();
+    assert.ok(text.includes('Removed the application user for the jobs\' managed identity (client ID mi-client) from Example'), `soft deletes: ${softDeletes}`);
+    assert.doesNotMatch(text, /soft-deleted|Couldn't/, `soft deletes: ${softDeletes}`);
+
+    // Ticked again, a new user is added, rather than the old one found disabled.
+    t.config.agentEvaluator.environments = [{ url: ENV, id: 'env-1', name: 'Example' }];
+    env.calls.length = 0;
+    t.ui.out.length = 0;
+    assert.equal(await ensureAzureTranscriptAccess(t.ctx), true);
+    assert.deepEqual(env.calls, ['findAppUser mi-client', 'createAppUser mi-client bu-root', 'findRole Bot Transcript Viewer bu-root', 'assignRole user-2 role-btv', ...readRoleCalls('user-2', 'read-2')], `soft deletes: ${softDeletes}`);
+    text = t.ui.text();
+    assert.doesNotMatch(text, /is disabled|Enable it/, `soft deletes: ${softDeletes}`);
+  }
+});
+
+test('Azure transcript access: a user still there after a second delete is left deactivated with no role, and how to delete it for good printed', async () => {
+  const env = fakeTranscriptEnvironment({ softDeletes: 2 });
+  const t = await aeInstall({ dataverse: { [ENV]: env } });
+  env.calls.length = 0;
+  t.ui.out.length = 0;
+  t.config.modules.agentEvaluator = false;
+  await ensureAzureTranscriptAccess(t.ctx);
+  assert.deepEqual(env.calls, [...removalCalls(), 'deleteUser user-1', 'getUser user-1'], 'not activated again: a soft-deleted user can\'t be');
+  assert.deepEqual(env.users.map((u) => [u.systemuserid, u.isdisabled, u.deletedstate]), [['user-1', true, 1]]);
+  assert.deepEqual(env.userRoles['user-1'], []);
+  assert.deepEqual(env.roles, []);
+  assert.equal(t.az.transcriptAccess, undefined, 'said once, then dropped');
+  assert.equal(t.config.agentEvaluator.environments[0].access, undefined, 'it has no access now');
+  const text = t.ui.text();
+  assert.doesNotMatch(text, /Removed the application user/);
+  assert.ok(text.includes('Dataverse only soft-deleted the application user for the jobs\' managed identity (client ID mi-client) in Example (still there after a second delete). It\'s deactivated with no role, so it can\'t sign in or read transcripts.'));
+  assert.ok(text.includes(DELETE_FOR_GOOD));
+});
+
+test('Azure transcript access: a soft-deleted user Dataverse won\'t delete again is left deactivated, and how to delete it for good printed', async () => {
+  const env = fakeTranscriptEnvironment({ softDeletes: 1 });
+  const t = await aeInstall({ dataverse: { [ENV]: env } });
+  env.failures.deleteUser = [undefined, httpError(400, 'No delete')].map((e) => /** @type {Error} */ (e));
+  env.calls.length = 0;
+  t.ui.out.length = 0;
+  t.config.agentEvaluator.environments = [];
+  await ensureAzureTranscriptAccess(t.ctx);
+  assert.deepEqual(env.calls, [...removalCalls(), 'deleteUser user-1'], 'not activated again');
+  assert.deepEqual(env.users.map((u) => [u.systemuserid, u.isdisabled, u.deletedstate]), [['user-1', true, 1]]);
+  assert.equal(t.az.transcriptAccess, undefined);
+  const text = t.ui.text();
+  assert.doesNotMatch(text, /Removed the application user|Dataverse wouldn't delete/);
+  assert.ok(text.includes('Dataverse only soft-deleted the application user for the jobs\' managed identity (client ID mi-client) in Example (No delete). It\'s deactivated with no role, so it can\'t sign in or read transcripts.'));
+  assert.ok(text.includes(DELETE_FOR_GOOD));
+});
+
+test('Azure transcript access: a user that can\'t be read back isn\'t said to be removed, and how to delete it for good is printed', async () => {
+  for (const second of [false, true]) {
+    const env = fakeTranscriptEnvironment({ softDeletes: second ? 1 : 0 });
+    const t = await aeInstall({ dataverse: { [ENV]: env } });
+    env.failures.getUser = (second ? [undefined, httpError(500, 'Server error')] : [httpError(500, 'Server error')]).map((e) => /** @type {Error} */ (e));
+    env.calls.length = 0;
+    t.ui.out.length = 0;
+    t.config.agentEvaluator.environments = [];
+    await ensureAzureTranscriptAccess(t.ctx);
+    const label = second ? 'the second read-back' : 'the first read-back';
+    assert.deepEqual(env.calls, [...removalCalls(), ...(second ? ['deleteUser user-1', 'getUser user-1'] : [])], label);
+    assert.equal(t.az.transcriptAccess, undefined, label);
+    const text = t.ui.text();
+    assert.doesNotMatch(text, /Removed the application user/, label);
+    assert.ok(
+      text.includes('Couldn\'t check that the application user for the jobs\' managed identity (client ID mi-client) is gone from Example (Server error). If it\'s still there, it\'s deactivated with no role, so it can\'t sign in or read transcripts.'),
+      label,
+    );
+    assert.ok(text.includes(DELETE_FOR_GOOD), label);
+  }
 });
 
 test('Azure transcript access: a role Dataverse won\'t take back is printed for an admin, and the environment still counts as read', async () => {

@@ -372,7 +372,17 @@ ones the environment still keeps.
   user first. If Dataverse still won't delete it, the installer activates it again (it has no role
   now, so it can't read transcripts), warns, and prints the steps for a System Administrator:
   **Application users** > the one with the managed identity's client ID > **Deactivate**, then
-  **Delete**. It leaves an application user an admin added, and a role it didn't create. If it added
+  **Delete**. Dataverse's first delete only soft-deletes a user: it stays, deactivated with no
+  role. So the installer reads it back and deletes it again, and says it's removed only once it's
+  gone. If it's still there, the second delete fails, or the installer can't check, it warns that
+  the user is deactivated with no role, so it can't sign in or read transcripts, and prints how a
+  System Administrator
+  [deletes it for good](https://learn.microsoft.com/power-platform/admin/delete-users#permanently-delete-users-in-power-platform):
+  **Users** > **Filter** > *Users not in Microsoft Entra ID and soft deleted in the environment* >
+  **Delete**, once any records it owns are reassigned, with **Enable delete disabled users** on. It
+  doesn't activate it again: a soft-deleted user can't be. Delete it before you tick the
+  environment again, or the installer finds it disabled and skips that environment's transcripts.
+  It leaves an application user an admin added, and a role it didn't create. If it added
   nothing there, it says once how a System Administrator removes that user.
 - If it can't take the transcript reader role away, it leaves the rest in that environment, and
   prints the steps for a System Administrator: **Edit security roles** on the application user,
