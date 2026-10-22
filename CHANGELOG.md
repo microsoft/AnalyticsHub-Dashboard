@@ -139,6 +139,28 @@ resource group.
   changes. And a chart that can't find the column it ranks by shows its rows unranked, rather than
   stop the app.
 
+**Azure: Share adds people by email, and shows viewers' names.** In 0.6.7 and the 0.6.8 release
+candidates, on an Azure install with a viewer group, adding someone by email in **Share** failed,
+even for a directory admin, with "Microsoft Entra did not allow this change. Only owners of the
+viewer group and directory admins can change its members." Share also listed the people in the group
+by their object ID. The web app could change the group, but it had no permission to look people up.
+With the viewer group (the default), the installer now also gives it delegated Graph
+`User.ReadBasic.All`. That reads basic profiles only (name, email address and photo), not
+`User.Read.All`. Without a viewer group, nothing changes. Fabric isn't affected: there, Share opens
+the group in My Groups.
+
+- **Update an existing install:** run the installer and choose **Update**, or **Repair or change**.
+  It adds the permission to the web app's registration and grants it, with no other step. If you
+  can't grant admin consent, it gives you a link to send to an admin, as for the web app's other
+  permissions.
+- **When Entra refuses a lookup, Share says so.** It says Microsoft Entra didn't let Analytics Hub
+  look up people by email (or groups by name), and that **Repair or change** in the installer, or
+  an Entra admin's consent, fixes it. "Only owners of the viewer group and directory admins can
+  change its members" is now only for a change to the group that Entra refused. With org-scoped
+  access, an admin who gives or approves a scope gets the new message too, instead of a scope left
+  waiting for approval or the message about owners. A scope a leader gives still waits for an
+  admin.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its

@@ -92,6 +92,16 @@ export function mergePreAuthorizedApplications(current, clientIds, scopeId, scop
 }
 
 /**
+ * The web app's delegated Graph permissions: User.Read, and with the viewer group GroupMember.ReadWrite.All and
+ * User.ReadBasic.All, so that Share can change the group and find people by email.
+ * @param {{ graphUserReadScopeId: string, graphGroupScopeId?: string, graphPeopleScopeId?: string }} o
+ */
+const webAppGraphAccess = (o) => ({
+  resourceAppId: GRAPH_APP_ID,
+  resourceAccess: [o.graphUserReadScopeId, o.graphGroupScopeId, o.graphPeopleScopeId].flatMap((id) => (id ? [{ id, type: 'Scope' }] : [])),
+});
+
+/**
  * Entra takes a little while to replicate a new app and service principal, so
  * "not found" style 400/404 answers are retried for up to two minutes.
  * @type {import('../http.js').RequestOptions}
@@ -197,7 +207,7 @@ export function graphApi(http) {
       }),
     /**
      * Creates the Azure-hosted web application registration.
-     * @param {{ displayName: string, fqdn: string, pbiScopeId: string, graphUserReadScopeId: string, graphGroupScopeId?: string, groupClaims?: boolean, teamsClientIds: string[] }} o
+     * @param {{ displayName: string, fqdn: string, pbiScopeId: string, graphUserReadScopeId: string, graphGroupScopeId?: string, graphPeopleScopeId?: string, groupClaims?: boolean, teamsClientIds: string[] }} o
      */
     createAzureWebApplication(o) {
       const scopeId = crypto.randomUUID();
@@ -228,7 +238,7 @@ export function graphApi(http) {
         ],
         requiredResourceAccess: [
           { resourceAppId: POWER_BI_APP_ID, resourceAccess: [{ id: o.pbiScopeId, type: 'Scope' }] },
-          { resourceAppId: GRAPH_APP_ID, resourceAccess: [o.graphUserReadScopeId, ...(o.graphGroupScopeId ? [o.graphGroupScopeId] : [])].map((id) => ({ id, type: 'Scope' })) },
+          webAppGraphAccess(o),
         ],
         ...(o.groupClaims ? { groupMembershipClaims: 'SecurityGroup' } : {}),
         notes: 'Created by the Analytics Hub installer for the Azure-hosted web app.',
@@ -239,7 +249,7 @@ export function graphApi(http) {
      * Brings the web app registration up to date on every install, upgrade and Repair. Other scopes and
      * pre-authorised clients on it stay.
      * @param {any} application
-     * @param {{ fqdn: string, clientId: string, pbiScopeId: string, graphUserReadScopeId: string, graphGroupScopeId?: string, groupClaims?: boolean, teamsClientIds: string[] }} o
+     * @param {{ fqdn: string, clientId: string, pbiScopeId: string, graphUserReadScopeId: string, graphGroupScopeId?: string, graphPeopleScopeId?: string, groupClaims?: boolean, teamsClientIds: string[] }} o
      */
     async updateAzureWebApplication(application, o) {
       /** @type {any[]} */
@@ -275,7 +285,7 @@ export function graphApi(http) {
             ],
         requiredResourceAccess: [
           { resourceAppId: POWER_BI_APP_ID, resourceAccess: [{ id: o.pbiScopeId, type: 'Scope' }] },
-          { resourceAppId: GRAPH_APP_ID, resourceAccess: [o.graphUserReadScopeId, ...(o.graphGroupScopeId ? [o.graphGroupScopeId] : [])].map((id) => ({ id, type: 'Scope' })) },
+          webAppGraphAccess(o),
         ],
       });
       return scope.id;

@@ -34,8 +34,11 @@ function seedStore() {
   });
 }
 
-/** Graph and Power BI as the tests need them. Only admins and the group owner can add members. */
-function fakeCloud({ refreshStatus = 202 } = {}) {
+/**
+ * Graph and Power BI as the tests need them. Only admins and the group owner can add members.
+ * denyLookups: the app may not look people up, as before it had User.ReadBasic.All.
+ */
+function fakeCloud({ refreshStatus = 202, denyLookups = false } = {}) {
   const calls = [];
   const json = (status, body) => new Response(body === undefined ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
   const fetchImpl = async (url, init = {}) => {
@@ -43,6 +46,7 @@ function fakeCloud({ refreshStatus = 202 } = {}) {
     calls.push({ url: u, hostname, method: init.method || 'GET', caller, body: init.body ? JSON.parse(init.body) : undefined });
     if (hostname === 'api.powerbi.com') return json(refreshStatus, refreshStatus === 202 ? undefined : { error: { code: 'x', message: refreshStatus === 409 ? 'A refresh is in progress' : 'nope' } });
     const user = /\/users\/([^?]+)\?/.exec(u);
+    if (user && denyLookups) return json(403, { error: { code: 'Authorization_RequestDenied', message: 'Insufficient privileges to complete the operation.' } });
     if (user) {
       const upn = decodeURIComponent(user[1]);
       return upn.startsWith('ghost') ? json(404, { error: { message: 'not found' } }) : json(200, { id: `id-${upn}`, userPrincipalName: upn, displayName: upn });
@@ -216,6 +220,26 @@ test('only admins approve', async () => {
     const pending = (await call('leader', 'POST', '/api/delegations', { upn: 'r@example.com', scope: { type: 'hierarchy' } })).body.delegation;
     assert.equal((await call('leader', 'POST', `/api/delegations/${pending.id}/approve`)).status, 403);
     assert.equal((await call('owner', 'POST', `/api/delegations/${pending.id}/approve`)).status, 403);
+  } finally { server.close(); }
+});
+
+test("when Entra won't let the app look people up, an admin is told how to fix it; a leader's scope waits for an admin", async () => {
+  const { server, call, store } = await setup({ cloud: fakeCloud({ denyLookups: true }) });
+  try {
+    const add = await call('admin', 'POST', '/api/delegations', { upn: 'hr@example.com', scope: { type: 'org', value: 'Sales' } });
+    assert.equal(add.status, 403);
+    assert.equal(add.body.error.code, 'LookupDenied');
+    assert.match(add.body.error.message, /look up people by email/);
+    assert.match(add.body.error.message, /Repair or change/);
+    assert.equal((await store.list()).filter((r) => r.GrantedVia === 'share').length, 0, 'nothing is saved');
+
+    const pending = await call('leader', 'POST', '/api/delegations', { upn: 'report@example.com', scope: { type: 'hierarchy' } });
+    assert.equal(pending.status, 201);
+    assert.equal(pending.body.delegation.status, 'pending_group');
+    const approved = await call('admin', 'POST', `/api/delegations/${pending.body.delegation.id}/approve`);
+    assert.equal(approved.status, 403);
+    assert.equal(approved.body.error.code, 'LookupDenied', 'not that only owners and directory admins can add them');
+    assert.equal((await store.get({ UserPrincipalName: 'report@example.com', ScopeType: 'hierarchy', ScopeValue: 'leader@example.com' })).Status, 'pending_group');
   } finally { server.close(); }
 });
 

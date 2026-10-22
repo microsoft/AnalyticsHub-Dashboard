@@ -6,11 +6,11 @@ import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { MODULES, azureGraphRolesFor } from '../src/catalog.js';
+import { GRAPH_APP_ID, MODULES, azureGraphRolesFor } from '../src/catalog.js';
 import { HttpError } from '../src/http.js';
 import { armApi, armErrors, waitForDeployment } from '../src/clients/azure.js';
 import { runCommand } from '../src/install.js';
-import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, armParameterNames, askTarget, azureAgent365On, azureConsumptionOn, azureCron, azureDeployment, azureDropContents, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureProductFeedbackOn, azureRefresh, azureRotateSecret, azureSemanticModels, azureStatus, azureSummary, azureUninstall, azureUpdate, azureWorkdayOn, confirmAzurePlan, consumptionParameters, enabledAzureModuleIds, installAzure, parseDropFolder, planAzure, planAzureAgent365, planAzureDrop, planAzureProductFeedback, planAzureConsumption, planAzureWorkday, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
+import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, WEB_APP_NAME, armParameterNames, askTarget, azureAgent365On, azureConsumptionOn, azureCron, azureDeployment, azureDropContents, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureProductFeedbackOn, azureRefresh, azureRotateSecret, azureSemanticModels, azureStatus, azureSummary, azureUninstall, azureUpdate, azureWorkdayOn, confirmAzurePlan, consumptionParameters, enabledAzureModuleIds, installAzure, parseDropFolder, planAzure, planAzureAgent365, planAzureDrop, planAzureProductFeedback, planAzureConsumption, planAzureWorkday, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
 import { AZURE_AI_ROLES } from '../src/steps/consumption.js';
 import { azureFlowTarget, connectionSteps, flowDefinitions, flowsWanted } from '../src/steps/flows.js';
 import { RG_DELETE_POLL_MS, RG_DELETE_POLLS } from '../src/steps/azure/index.js';
@@ -2536,6 +2536,120 @@ test('delegated consent reuses an existing grant on re-runs', async () => {
   await g.grantOauth2Permission({ clientId: 'c', resourceId: 'r', scope: 'Dataset.Read.All' });
   await g.grantOauth2Permission({ clientId: 'c', resourceId: 'r', scope: 'User.Read' });
   assert.deepEqual(calls, ['post Dataset.Read.All', 'patch /oauth2PermissionGrants/g1 Dataset.Read.All User.Read']);
+});
+
+test('the web app registration asks for Graph User.ReadBasic.All with the viewer group, and only then', async () => {
+  /** @type {any[]} */ const bodies = [];
+  const g = graphApi(/** @type {any} */ ({
+    post: async (/** @type {string} */ _p, /** @type {any} */ body) => (bodies.push(body), { id: 'web-obj', appId: 'client' }),
+    patch: async (/** @type {string} */ _p, /** @type {any} */ body) => (bodies.push(body), {}),
+  }));
+  const o = { fqdn: 'vlens.example.com', clientId: 'client', pbiScopeId: 's-dataset', graphUserReadScopeId: 's-user-read', teamsClientIds: TEAMS_CLIENTS };
+  const viewers = { ...o, graphGroupScopeId: 's-group-members', graphPeopleScopeId: 's-user-read-basic', groupClaims: true };
+  await g.createAzureWebApplication({ displayName: WEB_APP_NAME, ...viewers });
+  await g.updateAzureWebApplication({ id: 'web-obj' }, viewers);
+  await g.createAzureWebApplication({ displayName: WEB_APP_NAME, ...o });
+  await g.updateAzureWebApplication({ id: 'web-obj' }, o);
+  const graphScopes = (/** @type {any} */ body) => body.requiredResourceAccess.find((/** @type {any} */ r) => r.resourceAppId === GRAPH_APP_ID).resourceAccess.map((/** @type {any} */ a) => `${a.type} ${a.id}`);
+  const withViewers = ['Scope s-user-read', 'Scope s-group-members', 'Scope s-user-read-basic'];
+  assert.deepEqual(bodies.map(graphScopes), [withViewers, withViewers, ['Scope s-user-read'], ['Scope s-user-read']]);
+});
+
+/** Delegated grants as Graph keeps them, behind the installer's own grantOauth2Permission. */
+function grantStore() {
+  /** @type {{ id: string, clientId: string, resourceId: string, consentType: string, scope: string }[]} */
+  const grants = [];
+  /** @type {string[]} */
+  const calls = [];
+  const { grantOauth2Permission } = graphApi(/** @type {any} */ ({
+    list: async (/** @type {string} */ _p, /** @type {any} */ o) => {
+      const [, clientId, resourceId] = /clientId eq '([^']*)' and resourceId eq '([^']*)'/.exec(o.query.$filter) ?? [];
+      return grants.filter((g) => g.clientId === clientId && g.resourceId === resourceId);
+    },
+    post: async (/** @type {string} */ _p, /** @type {any} */ body) => {
+      calls.push(`post ${body.resourceId} ${body.scope}`);
+      const grant = { id: `grant-${grants.length + 1}`, ...body };
+      grants.push(grant);
+      return grant;
+    },
+    patch: async (/** @type {string} */ p, /** @type {any} */ body) => {
+      calls.push(`patch ${p} ${body.scope}`);
+      const grant = grants.find((g) => p === `/oauth2PermissionGrants/${g.id}`);
+      if (grant) grant.scope = body.scope;
+      return {};
+    },
+  }));
+  /** The delegated scopes granted on a resource's service principal. @param {string} resourceId */
+  const scope = (resourceId) => grants.find((g) => g.resourceId === resourceId)?.scope;
+  return { grants, calls, grantOauth2Permission, scope };
+}
+
+/**
+ * An Azure install against fakes, recording the options the web app's registration is created and updated with,
+ * and its delegated grants.
+ * @param {{ viewers: boolean }} o
+ */
+async function webAppInstall(o) {
+  const arm = fakeArm();
+  const graph = fakeAzureGraph();
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds', connectionDetails: { server: 'vlens-sql.database.windows.net', database: 'valuelens' } }]);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui });
+  Object.assign(config, {
+    target: 'azure',
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+  });
+  if (o.viewers) {
+    config.access = /** @type {any} */ ({ ...config.access, groupId: 'group-1', groupName: 'Analytics Hub Viewers' });
+    Object.assign(graph.api, { getGroup: async (/** @type {string} */ id) => ({ id, displayName: 'Analytics Hub Viewers' }) });
+    Object.assign(powerBi.api, { datasetUsers: async () => [], addDatasetUser: async () => null });
+  }
+  /** @type {any[]} */
+  const registrations = [];
+  const store = grantStore();
+  const { createAzureWebApplication: create, updateAzureWebApplication: update } = graph.api;
+  Object.assign(graph.api, {
+    createAzureWebApplication: async (/** @type {any} */ body) => (registrations.push(body), create(body)),
+    updateAzureWebApplication: async (/** @type {any} */ app, /** @type {any} */ body) => (registrations.push(body), update(app, body)),
+    grantOauth2Permission: store.grantOauth2Permission,
+  });
+  ctx.runFirstLoad = false;
+  assert.equal(await installAzure(ctx, { wait: true }), true);
+  return { ctx, ui, registrations, store };
+}
+
+test('Azure with the viewer group: the web app gets Graph User.ReadBasic.All, so Share finds people by email and shows their names', async () => {
+  const t = await webAppInstall({ viewers: true });
+  assert.equal(t.registrations.length, 2, 'created, then brought up to date');
+  for (const r of t.registrations) assert.deepEqual([r.graphGroupScopeId, r.graphPeopleScopeId], ['s-group-members', 's-user-read-basic'], 'basic profiles only, not User.Read.All');
+  assert.equal(t.store.scope('graph-sp'), 'User.Read GroupMember.ReadWrite.All User.ReadBasic.All');
+  assert.equal(t.store.scope('pbi-sp'), 'Dataset.Read.All');
+  assert.doesNotMatch(t.ui.text(), /Couldn't grant delegated admin consent/);
+  const row = azurePlanReview(t.ctx).grants.find((g) => g.who === WEB_APP_NAME);
+  assert.match(row?.what ?? '', /Graph User\.Read, GroupMember\.ReadWrite\.All, User\.ReadBasic\.All;/);
+  assert.match(row?.detail ?? '', /User\.ReadBasic\.All lets Share find people by email and show their names/);
+});
+
+test("Azure without the viewer group: the web app's Graph permissions are as they were", async () => {
+  const t = await webAppInstall({ viewers: false });
+  for (const r of t.registrations) assert.deepEqual([r.graphGroupScopeId, r.graphPeopleScopeId], [undefined, undefined]);
+  assert.equal(t.store.scope('graph-sp'), 'User.Read');
+  const row = azurePlanReview(t.ctx).grants.find((g) => g.who === WEB_APP_NAME);
+  assert.doesNotMatch(`${row?.what} ${row?.detail ?? ''}`, /GroupMember|User\.ReadBasic/);
+});
+
+test('Azure Update or Repair adds User.ReadBasic.All to the grant an older install has, with no extra step', async () => {
+  const t = await webAppInstall({ viewers: true });
+  const grant = t.store.grants.find((g) => g.resourceId === 'graph-sp');
+  assert.ok(grant);
+  // As 0.6.7 left it.
+  grant.scope = 'User.Read GroupMember.ReadWrite.All';
+  t.store.calls.length = 0;
+  t.registrations.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.deepEqual(t.store.calls, [`patch /oauth2PermissionGrants/${grant.id} User.Read GroupMember.ReadWrite.All User.ReadBasic.All`]);
+  assert.deepEqual(t.registrations.map((r) => r.graphPeopleScopeId), ['s-user-read-basic'], 'its registration asks for it too');
 });
 
 test('askTarget: the Azure choice says what it runs, in plain words', async () => {

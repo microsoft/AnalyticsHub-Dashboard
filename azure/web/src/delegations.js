@@ -132,7 +132,8 @@ export class DelegationService {
     try {
       person = await this.access.resolve(auth, upn);
     } catch (error) {
-      if (error.statusCode === 403) return 'pending_group';
+      // Entra refused the lookup itself. An admin is told why; a leader's scope waits for an admin.
+      if (error.statusCode === 403 && !hasAdminRole(auth.claims)) return 'pending_group';
       throw error;
     }
     if (!person) throw httpError(404, 'PrincipalNotFound', `No one with the email ${upn} was found.`);
