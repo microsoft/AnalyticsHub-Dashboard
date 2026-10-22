@@ -322,7 +322,9 @@ Azure commands:
 - `uninstall` deletes the created resource group, or only tagged resources if you used an existing group.
   Before that it removes what it added in each Agent Evaluator environment: see
   [Agent Evaluator](#agent-evaluator).
-  It waits up to 45 minutes for Azure to finish deleting the group (`--no-wait` doesn't). It also deletes
+  It waits up to 45 minutes for Azure to finish deleting the group (`--no-wait` doesn't). In an existing
+  group it deletes each tagged resource before what it depends on, and waits for each to go. If any are
+  left, it lists them and fails: run `uninstall` again to finish. It also deletes
   the Power BI workspace if the installer created it, after asking.
 
 ## Run it

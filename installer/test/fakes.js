@@ -386,7 +386,9 @@ export function fakeFabric() {
     /** @param {string} id */
     deleteConnection: async (id) => {
       calls.push(`deleteConnection ${id}`);
-      connections.splice(connections.findIndex((x) => x.id === id), 1);
+      fail('deleteConnection');
+      const at = connections.findIndex((x) => x.id === id);
+      if (at >= 0) connections.splice(at, 1);
     },
     listCapacities: async () => [{ id: 'cap-f', displayName: 'Trial', sku: 'FTL64', region: 'West US 3', state: 'Active' }, { id: 'cap-ppu', displayName: 'PPU', sku: 'PP3', region: 'West US 3', state: 'Active' }],
     /** @param {string} id */
@@ -408,7 +410,9 @@ export function fakeFabric() {
     /** @param {string} id */
     deleteGateway: async (id) => {
       calls.push(`deleteGateway ${id}`);
-      gateways.splice(gateways.findIndex((g) => g.id === id), 1);
+      fail('deleteGateway');
+      const at = gateways.findIndex((g) => g.id === id);
+      if (at >= 0) gateways.splice(at, 1);
     },
     /** @param {string} _ws @param {string} id @param {any} binding */
     bindConnection: async (_ws, id, binding) => {
@@ -494,6 +498,57 @@ export function fakeGraph() {
   return { api, passwords, calls, failures };
 }
 
+/**
+ * The api-versions the fake ARM accepts for each type the Azure install tags, by lower-case type: a few of
+ * each provider's, as ARM accepts only a version the provider offers for the type. Of these, only Storage
+ * offers 2021-04-01, the version uninstall once sent for every type. Other types accept any version.
+ * @type {Record<string, string[]>}
+ */
+export const ARM_API_VERSIONS = (() => {
+  const app = ['2022-03-01', '2022-10-01', '2023-05-01', '2024-03-01', '2025-01-01', '2025-02-02-preview'];
+  const sql = ['2014-04-01', '2021-11-01', '2022-05-01-preview', '2023-08-01-preview', '2023-08-01'];
+  const network = ['2023-09-01', '2024-01-01', '2024-05-01', '2024-07-01'];
+  const dns = ['2018-09-01', '2020-06-01', '2024-06-01'];
+  return {
+    'microsoft.app/containerapps': app,
+    'microsoft.app/jobs': app,
+    'microsoft.app/managedenvironments': app,
+    'microsoft.sql/servers': sql,
+    'microsoft.sql/servers/databases': sql,
+    'microsoft.storage/storageaccounts': ['2021-04-01', '2023-01-01', '2023-05-01', '2024-01-01'],
+    'microsoft.operationalinsights/workspaces': ['2020-08-01', '2022-10-01', '2023-09-01', '2025-02-01'],
+    'microsoft.managedidentity/userassignedidentities': ['2018-11-30', '2023-01-31', '2024-11-30'],
+    'microsoft.cognitiveservices/accounts': ['2023-05-01', '2024-10-01', '2025-06-01'],
+    'microsoft.network/virtualnetworks': network,
+    'microsoft.network/networksecuritygroups': network,
+    'microsoft.network/privateendpoints': network,
+    'microsoft.network/privatednszones': dns,
+    'microsoft.network/privatednszones/virtualnetworklinks': dns,
+  };
+})();
+
+/** A resource ID's type, name and parent ID, worked out here rather than with the code under test. @param {string} id */
+function armParts(id) {
+  const at = id.toLowerCase().lastIndexOf('/providers/');
+  if (at < 0) return { type: '', name: id, parent: undefined };
+  const s = id.slice(at + '/providers/'.length).split('/');
+  return { type: [s[0], ...s.filter((_, i) => i % 2 === 1)].join('/'), name: s[s.length - 1], parent: s.length > 3 ? id.split('/').slice(0, -2).join('/') : undefined };
+}
+
+/**
+ * An error as http.js throws it for an ARM call.
+ * @param {number} status @param {string} code @param {string} message @param {string} method @param {string} id @param {string | undefined} apiVersion
+ */
+function armError(status, code, message, method, id, apiVersion) {
+  return new HttpError(`${method} ${id} returned ${status} ${code}: ${message}`, {
+    status,
+    method,
+    url: `https://management.azure.com${id}?api-version=${apiVersion}`,
+    code,
+    body: { error: { code, message } },
+  });
+}
+
 /** Azure Resource Manager fake for the Azure installer path. */
 export function fakeArm() {
   /** @type {string[]} */
@@ -533,6 +588,62 @@ export function fakeArm() {
     /** @type {any[]} */ assignments: [],
     /** @type {any[]} */ custom: [],
     /** @type {Record<string, any>} */ builtIn: {},
+  };
+  /** What each read of a resource reports while Azure deletes it, by ID. A resource given some is deleted with a 202, and goes after those reads. @type {Record<string, string[]>} */
+  const deleteStates = {};
+  /** How many more deletes of a resource, by ID, Azure refuses as in use, as it does a subnet for a while after what used it has gone. @type {Record<string, number>} */
+  const inUse = {};
+  /** Resources with a delete lock, by ID. @type {Set<string>} */
+  const locks = new Set();
+  /** @type {Set<string>} */
+  const deleting = new Set();
+  const same = (/** @type {string | undefined} */ a, /** @type {string} */ b) => !!a && a.toLowerCase() === b.toLowerCase();
+  const under = (/** @type {string | undefined} */ child, /** @type {string} */ id) => !!child && child.toLowerCase().startsWith(`${id.toLowerCase()}/`);
+  const find = (/** @type {string} */ id) => resources.findIndex((r) => same(String(r.id), id));
+  /** Removes a resource and its children, in place: tests hold `resources`. @param {string} id */
+  const remove = (id) => {
+    for (let i = resources.length - 1; i >= 0; i--) if (same(String(resources[i].id), id) || under(String(resources[i].id), id)) resources.splice(i, 1);
+  };
+  const remains = (/** @type {string} */ type, /** @type {(r: any) => boolean} */ match) => resources.some((r) => armParts(String(r.id)).type.toLowerCase() === type && match(r));
+  /** Whether something that's still there stops Azure deleting a resource. @param {string} id */
+  const blocked = (id) => {
+    switch (armParts(id).type.toLowerCase()) {
+      case 'microsoft.app/managedenvironments':
+        return ['microsoft.app/containerapps', 'microsoft.app/jobs'].some((t) => remains(t, (r) => same(r.properties?.environmentId ?? r.properties?.managedEnvironmentId, id)));
+      case 'microsoft.network/virtualnetworks':
+        return remains('microsoft.network/privateendpoints', (r) => under(r.properties?.subnet?.id, id)) || remains('microsoft.app/managedenvironments', (r) => under(r.properties?.vnetConfiguration?.infrastructureSubnetId, id));
+      case 'microsoft.network/networksecuritygroups':
+        return remains('microsoft.network/virtualnetworks', (r) => (r.properties?.subnets ?? []).some((/** @type {any} */ s) => same(s.properties?.networkSecurityGroup?.id, id)));
+      case 'microsoft.network/privatednszones':
+        return resources.some((r) => under(String(r.id), id));
+      default:
+        return false;
+    }
+  };
+  /** @param {string} id @param {string} apiVersion */
+  const inUseError = (id, apiVersion) => {
+    const { type, name } = armParts(id);
+    switch (type.toLowerCase()) {
+      case 'microsoft.network/virtualnetworks':
+        return armError(400, 'InUseSubnetCannotBeDeleted', `Subnet snet-apps is in use by ${id}/subnets/snet-apps/serviceAssociationLinks/legionservicelink and cannot be deleted. In order to delete the subnet, delete all the resources within the subnet. See aka.ms/deletesubnet.`, 'DELETE', id, apiVersion);
+      case 'microsoft.network/networksecuritygroups':
+        return armError(400, 'InUseNetworkSecurityGroupCannotBeDeleted', `Network security group ${id} cannot be deleted because it is in use by the following resources: (${id.replace(/networkSecurityGroups\/.*/i, 'virtualNetworks/vnet/subnets/snet-apps')}).`, 'DELETE', id, apiVersion);
+      case 'microsoft.network/privatednszones':
+        return armError(409, 'CannotDeleteResource', 'Can not delete resource before nested resources are deleted.', 'DELETE', id, apiVersion);
+      default:
+        return armError(409, 'Conflict', `Cannot delete ${name} because it still contains ContainerApps or Jobs.`, 'DELETE', id, apiVersion);
+    }
+  };
+  /** ARM's 400 for an api-version the type's provider doesn't offer. @param {string} method @param {string} id @param {string} apiVersion */
+  const checkApiVersion = (method, id, apiVersion) => {
+    const { type } = armParts(id);
+    const [ns, ...rest] = type.split('/');
+    const provider = Object.entries(regions.providers).find(([k]) => same(k, ns))?.[1];
+    const listed = provider?.resourceTypes?.find((/** @type {any} */ t) => same(t.resourceType, rest.join('/')))?.apiVersions;
+    /** @type {string[] | undefined} */
+    const offered = listed ?? ARM_API_VERSIONS[type.toLowerCase()];
+    if (!offered || offered.some((v) => same(v, String(apiVersion)))) return;
+    throw armError(400, 'NoRegisteredProviderFound', `No registered resource provider found for location 'uksouth' and API version '${apiVersion}' for type '${rest.join('/')}'. The supported api-versions are '${offered.join(', ')}'. The supported locations are 'uksouth'.`, method, id, apiVersion);
   };
   const api = {
     listSubscriptions: async () => [{ subscriptionId: 'sub-1', displayName: 'Sub', state: 'Enabled' }],
@@ -594,7 +705,10 @@ export function fakeArm() {
       calls.push('whatIfDeployment');
       return { properties: { changes: [{ changeType: 'Create', resourceType: 'Microsoft.App/jobs', resourceId: '/x/run' }] } };
     },
-    listResources: async () => resources,
+    listResources: async () => {
+      fail('listResources');
+      return resources;
+    },
     deployTemplate: async (/** @type {string} */ _sub, /** @type {string} */ _rg, /** @type {string} */ name, /** @type {any} */ deployment) => {
       calls.push(`deployTemplate ${name}`);
       const priv = deployment?.properties?.parameters?.publicNetworkAccess?.value === 'Disabled';
@@ -651,11 +765,48 @@ export function fakeArm() {
       if (groups[rg]?.deleteStates?.length) groups[rg].deleting = true;
       else delete groups[rg];
     },
-    deleteResource: async (/** @type {string} */ id) => {
+    /** @param {string} id @param {string} apiVersion */
+    deleteResource: async (id, apiVersion) => {
       calls.push(`deleteResource ${id}`);
+      fail('deleteResource');
+      checkApiVersion('DELETE', id, apiVersion);
+      if (locks.has(id)) throw armError(409, 'ScopeLocked', `The scope '${id}' cannot perform delete operation because following scope(s) are locked: '${id}'. Please remove the lock and try again.`, 'DELETE', id, apiVersion);
+      if (find(id) < 0) {
+        const { parent } = armParts(id);
+        if (parent && find(parent) < 0) throw armError(404, 'ParentResourceNotFound', `Can not perform requested operation on nested resource. Parent resource '${armParts(parent).name}' not found.`, 'DELETE', id, apiVersion);
+        return { status: 204 };
+      }
+      if (deleting.has(id)) return { status: 202, retryAfterMs: 15_000 };
+      if (inUse[id] > 0) {
+        inUse[id]--;
+        throw inUseError(id, apiVersion);
+      }
+      if (blocked(id)) throw inUseError(id, apiVersion);
+      if (deleteStates[id]?.length) {
+        deleting.add(id);
+        return { status: 202, retryAfterMs: 15_000 };
+      }
+      remove(id);
+      return { status: 200 };
+    },
+    /** @param {string} id @param {string} apiVersion */
+    getResource: async (id, apiVersion) => {
+      calls.push(`getResource ${id}`);
+      fail('getResource');
+      checkApiVersion('GET', id, apiVersion);
+      const at = find(id);
+      if (at < 0) return null;
+      if (!deleting.has(id)) return structuredClone(resources[at]);
+      const state = deleteStates[id]?.shift();
+      if (state === undefined) {
+        deleting.delete(id);
+        remove(id);
+        return null;
+      }
+      return { ...structuredClone(resources[at]), properties: { ...resources[at].properties, provisioningState: state } };
     },
   };
-  return { api, calls, resources, groups, executions, jobTemplates, failures, restrictedSqlRegions, ai, regions, perms };
+  return { api, calls, resources, groups, executions, jobTemplates, failures, restrictedSqlRegions, ai, regions, perms, deleteStates, inUse, locks };
 }
 
 /** Rich Graph fake for Azure app registration work. */
@@ -683,6 +834,8 @@ export function fakeAzureGraph() {
   /** The signed-in user's directory roles. None unless a test adds some. @type {{ roleTemplateId: string, displayName: string }[]} */
   const directoryRoles = [];
   const pbiSp = { id: 'pbi-sp', appId: '00000009-0000-0000-c000-000000000000', oauth2PermissionScopes: [{ id: 's-dataset', value: 'Dataset.Read.All' }] };
+  /** Errors each method throws next, by method. @type {Record<string, Error[]>} */
+  const failures = {};
   const api = {
     myDirectoryRoles: async () => structuredClone(directoryRoles),
     servicePrincipalByAppId: async (/** @type {string} */ appId) => (appId === pbiSp.appId ? pbiSp : graphSp),
@@ -741,6 +894,8 @@ export function fakeAzureGraph() {
     },
     deleteApplication: async (/** @type {string} */ id) => {
       calls.push(`deleteApplication ${id}`);
+      const err = failures.deleteApplication?.shift();
+      if (err) throw err;
     },
     site: async (/** @type {string} */ id) => ({ id: `site:${id}`, webUrl: `https://${id.replace(':', '')}` }),
     grantSiteRead: async (/** @type {string} */ siteId, /** @type {string} */ appId, /** @type {string} */ name) => {
@@ -749,7 +904,7 @@ export function fakeAzureGraph() {
       if (err) throw err;
     },
   };
-  return { api, calls, applications, servicePrincipals, siteGrantFailures, passwords, directoryRoles };
+  return { api, calls, applications, servicePrincipals, siteGrantFailures, passwords, directoryRoles, failures };
 }
 
 /**

@@ -20,6 +20,17 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**Fixed:**
+
+- **Azure uninstall from a resource group you already had.** It asked Azure to delete each resource
+  the install had tagged with API version 2021-04-01, which most of them don't support. So it
+  stopped part-way, with `NoRegisteredProviderFound`, and left the rest of those resources and the
+  **Analytics Hub** and SQL reader app registrations behind. Now it uses a version each resource's
+  provider offers, deletes each resource before what it depends on, and waits for Azure to finish
+  each one. If one can't be deleted, it carries on, still deletes the app registrations, then lists
+  what's left and exits with an error: run **Uninstall** again to finish. Uninstall from a resource
+  group the installer created still deletes the whole group. 0.6.7 has this problem too.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its

@@ -1,7 +1,7 @@
 // @ts-check
 /** Azure Resource Manager and Key Vault calls for storing the client secret. */
 import { randomUUID } from 'node:crypto';
-import { HttpError } from '../http.js';
+import { HttpError, retryDelayMs } from '../http.js';
 
 export const KEY_VAULT_API = '2023-07-01';
 const RESOURCES_API = '2021-04-01';
@@ -85,6 +85,78 @@ export function parseResourceId(id) {
   const m = /^\/subscriptions\/([^/]+)\/resourceGroups\/([^/]+)\/providers\/([^/]+\/[^/]+)\/([^/]+)$/i.exec(id);
   if (!m) throw new Error(`Not a resource ID: ${id}`);
   return { subscriptionId: m[1], resourceGroup: m[2], type: m[3], name: m[4] };
+}
+
+/**
+ * A resource ID's full type, name and, for a child resource such as a SQL database, its parent's ID.
+ * @param {string} id
+ * @returns {{ type: string, name: string, parent?: string }}
+ */
+export function resourceIdParts(id) {
+  const trimmed = id.replace(/\/+$/, '');
+  const at = trimmed.toLowerCase().lastIndexOf('/providers/');
+  const segments = at < 0 ? [] : trimmed.slice(at + '/providers/'.length).split('/');
+  if (segments.length < 3 || segments.length % 2 === 0) throw new Error(`Not a resource ID: ${id}`);
+  const type = [segments[0], ...segments.filter((_, i) => i % 2 === 1)].join('/');
+  const parent = segments.length > 3 ? trimmed.split('/').slice(0, -2).join('/') : undefined;
+  return { type, name: /** @type {string} */ (segments.at(-1)), parent };
+}
+
+/**
+ * The api-versions azure/infra deploys each resource type with, by lower-case type or provider namespace.
+ * ARM only accepts an api-version that a resource type's provider offers.
+ * @type {Record<string, string>}
+ */
+export const DEPLOYED_API_VERSIONS = {
+  'microsoft.app': '2024-03-01',
+  'microsoft.sql': '2023-08-01-preview',
+  'microsoft.storage': '2023-05-01',
+  'microsoft.operationalinsights': '2023-09-01',
+  'microsoft.managedidentity': '2023-01-31',
+  'microsoft.cognitiveservices': '2024-10-01',
+  'microsoft.network': '2024-05-01',
+  'microsoft.network/privatednszones': '2024-06-01',
+};
+
+/** The api-version azure/infra deploys a type with, if it deploys it. @param {string} type  e.g. Microsoft.Sql/servers/databases */
+function deployedApiVersion(type) {
+  for (let t = type.toLowerCase(); ; t = t.slice(0, t.lastIndexOf('/'))) {
+    if (DEPLOYED_API_VERSIONS[t]) return DEPLOYED_API_VERSIONS[t];
+    if (!t.includes('/')) return undefined;
+  }
+}
+
+/**
+ * The newest api-version that isn't a preview, else the newest.
+ * @param {string[] | undefined} versions
+ */
+export function pickApiVersion(versions) {
+  const newest = [...(versions ?? [])].sort().reverse();
+  return newest.find((v) => !/preview|alpha|beta/i.test(v)) ?? newest[0];
+}
+
+/**
+ * Works out which api-version to delete and read each resource type with. It prefers the version the
+ * installer deployed with, which worked in that region, when the provider still offers it. Otherwise it
+ * takes the newest version the provider offers. It reads each provider once and, if it can't,
+ * uses the deployed version.
+ * @param {(namespace: string) => Promise<{ resourceTypes?: { resourceType: string, apiVersions?: string[] }[] }>} getProvider
+ * @returns {(type: string) => Promise<string>}
+ */
+export function apiVersionResolver(getProvider) {
+  /** @type {Map<string, Promise<{ resourceTypes?: { resourceType: string, apiVersions?: string[] }[] } | null>>} */
+  const providers = new Map();
+  return async (type) => {
+    const [namespace, ...rest] = type.split('/');
+    const key = namespace.toLowerCase();
+    if (!providers.has(key)) providers.set(key, getProvider(namespace).catch(() => null));
+    const provider = await providers.get(key);
+    const want = rest.join('/').toLowerCase();
+    const offered = provider?.resourceTypes?.find((t) => t.resourceType?.toLowerCase() === want)?.apiVersions ?? [];
+    const deployed = deployedApiVersion(type);
+    if (deployed && offered.some((v) => v.toLowerCase() === deployed.toLowerCase())) return deployed;
+    return pickApiVersion(offered) ?? deployed ?? RESOURCES_API;
+  };
 }
 
 const parseJsonObject = (/** @type {string} */ s) => {
@@ -234,9 +306,9 @@ export function armApi(http, opts = {}) {
       http.get(`/subscriptions/${subscriptionId}/providers/Microsoft.Sql/locations/${location}/capabilities`, { query: { 'api-version': '2023-08-01-preview', include: 'supportedEditions' } }),
 
     /**
-     * A resource provider, with the regions each of its resource types is offered in (display names).
+     * A resource provider, with the regions (display names) and api-versions each of its resource types is offered in.
      * @param {string} subscriptionId @param {string} namespace
-     * @returns {Promise<{ resourceTypes?: { resourceType: string, locations?: string[] }[] }>}
+     * @returns {Promise<{ resourceTypes?: { resourceType: string, locations?: string[], apiVersions?: string[] }[] }>}
      */
     getProvider: (subscriptionId, namespace) => http.get(`/subscriptions/${subscriptionId}/providers/${namespace}`, { query: { 'api-version': RESOURCES_API } }),
 
@@ -335,8 +407,25 @@ export function armApi(http, opts = {}) {
     listResources: (subscriptionId, resourceGroup) =>
       http.list(`/subscriptions/${subscriptionId}/resourcegroups/${resourceGroup}/resources`, { query: { 'api-version': RESOURCES_API } }),
 
-    /** @param {string} id */
-    deleteResource: (id) => http.del(id, { query: { 'api-version': RESOURCES_API } }),
+    /**
+     * Starts deleting a resource. ARM only accepts an api-version the resource type's provider offers.
+     * @param {string} id @param {string} apiVersion
+     * @returns {Promise<{ status: number, retryAfterMs?: number }>}  202 while Azure carries on deleting it.
+     */
+    deleteResource: async (id, apiVersion) => {
+      const res = await http.request('DELETE', id, { query: { 'api-version': apiVersion } });
+      return { status: res.status, retryAfterMs: res.headers?.get('retry-after') ? retryDelayMs(res.headers, 0) : undefined };
+    },
+
+    /** A resource, or null once it's gone. @param {string} id @param {string} apiVersion */
+    getResource: async (id, apiVersion) => {
+      try {
+        return await http.get(id, { query: { 'api-version': apiVersion } });
+      } catch (err) {
+        if (err instanceof HttpError && err.status === 404) return null;
+        throw err;
+      }
+    },
 
     /** @param {string} subscriptionId @param {string} resourceGroup */
     deleteResourceGroup: (subscriptionId, resourceGroup) =>
