@@ -228,9 +228,10 @@ sets the number. On Fabric and Azure.
 - Consumption Central refresh does less work for large user counts, with the same results. The
   Studio and GitHub usage intensity groups find each percentile cut once instead of ranking every
   user against every other user, and `Weeks Ago` no longer looks up the latest week separately for
-  every row. The Cowork usage cohorts swap a per-row ranking for a per-row count, which is cheaper
-  but still runs once per row. `Weeks Active` and `Weeks Over Limit` are unchanged. The overall
-  saving still needs timing on a large copy.
+  every row. The Cowork usage cohorts are now worked out in the `CoworkBilling` query, which sorts
+  the credits once and compares each user with five cut values, instead of ranking every user for
+  every user. `Weeks Active` and `Weeks Over Limit` are unchanged. The overall saving still needs
+  timing on a large copy.
 - The Microsoft 365 activity and Agent Evaluator notebooks now compact the tables they wrote
   (`OPTIMIZE ... VORDER`) once at the end of each run, so the daily and incremental writes no
   longer pile up small files that slow down refresh. A failed compaction is reported and the load

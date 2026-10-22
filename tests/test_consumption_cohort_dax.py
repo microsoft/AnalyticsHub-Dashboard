@@ -3,11 +3,13 @@
 The old DAX ranked every row against the whole table for every row (RANKX), so refresh grew with
 the square of the users. The reference for the old columns is DuckDB's RANK(), which, like RANKX
 ascending with the default Skip ties, is 1 + the number of smaller values. The new columns are
-replayed step by step in Python with DAX's blank and DIVIDE rules, over generated values with
-ties, blanks, zeros, negatives and fractions, and table sizes from 0 up.
+replayed step by step in Python with DAX's blank and DIVIDE rules (and, for UsageCohortRank, the
+steps of CoworkBilling's query), over generated values with ties, blanks, zeros, negatives and
+fractions, and table sizes from 0 up.
 """
 import bisect
 import importlib.util
+import math
 import json
 import random
 import re
@@ -44,9 +46,13 @@ def code(dax):
     return "\n".join(line for line in dax.split("\n") if not line.lstrip().startswith("//"))
 
 
-def model():
+def read_part(name):
     with zipfile.ZipFile(CONSUMPTION) as archive:
-        return json.loads(archive.read("DataModelSchema").decode("utf-16-le").lstrip("\ufeff"))["model"]
+        return json.loads(archive.read(name).decode("utf-16-le").lstrip("\ufeff"))
+
+
+def model():
+    return read_part("DataModelSchema")["model"]
 
 
 def number(value):
@@ -110,18 +116,26 @@ def old_cohort_ranks(values):
     return [bucket for _, bucket in rows]
 
 
+def query_cut_rank(k, count):
+    """CutValue's Rank: the largest of Near - 2 .. Near + 2 in 1..count with rank / count <= k."""
+    near = math.floor(k * count)
+    fits = [r for r in range(near - 2, near + 3) if 1 <= r <= count and r / count <= k]
+    return max(fits) if fits else None
+
+
 def new_cohort_ranks(values):
-    """New UsageCohortRank: 1 + COUNTROWS( FILTER( ALL(table), [v] < v ) ), same DIVIDE and SWITCH."""
-    total = len(values)
-    keys = sorted(number(v) for v in values)
+    """New UsageCohortRank, replaying CoworkBilling's query: sort once, read five cuts, compare."""
+    ordered = sorted(number(v) for v in values)
+    count = len(ordered)
+    cuts = []
+    for k in CUTS:
+        rank = query_cut_rank(k, count)
+        cuts.append(None if rank is None else ordered[rank - 1])
     result = []
     for value in values:
-        rank = 1 + bisect.bisect_left(keys, number(value))
-        if total <= 60:
-            self_check = 1 + sum(1 for other in values if number(other) < number(value))
-            assert rank == self_check, (rank, self_check)
-        p = number(divide(rank, total))
-        result.append(next((i for i, cut in enumerate(CUTS, start=1) if p <= cut), 6))
+        used = number(value)
+        hits = [cut is not None and used <= cut for cut in cuts]
+        result.append(hits.index(True) + 1 if True in hits else 6)
     return result
 
 
@@ -189,6 +203,28 @@ class CohortEquivalence(unittest.TestCase):
             used = [float(number(v)) for v in values]
             self.assertEqual(new_intensity(used), old_intensity(used), used[:20])
 
+    def test_query_window_finds_the_largest_rank_under_each_cut(self):
+        # The query looks only near floor(k * N); that window must hold the true largest m.
+        sizes = [*range(0, 5001), 9999, 10000, 20000, 59999, 60000, 60001, 99999, 250000, 1000003]
+        for n in sizes:
+            for k in CUTS:
+                m = math.floor(k * n)
+                while m + 1 <= n and (m + 1) / n <= k:
+                    m += 1
+                while m >= 1 and m / n > k:
+                    m -= 1
+                self.assertEqual(query_cut_rank(k, n), m if m >= 1 else None, (n, k))
+
+    def test_query_ranks_match_the_per_row_count(self):
+        # The form shipped before the query: 1 + COUNTROWS( FILTER( ALL(table), [v] < v ) ).
+        for values in samples():
+            keys = sorted(number(v) for v in values)
+            counted = []
+            for value in values:
+                p = number(divide(1 + bisect.bisect_left(keys, number(value)), len(values)))
+                counted.append(next((i for i, cut in enumerate(CUTS, start=1) if p <= cut), 6))
+            self.assertEqual(new_cohort_ranks(values), counted, values[:20])
+
     def test_rank_share_is_monotone_at_every_size(self):
         # rank <= m stands in for DIVIDE( rank, N ) <= k only if the shares never dip back under k.
         for n in [*range(1, 401), 1000, 4999, 20000, 59999, 60000, 60001, 250000]:
@@ -223,16 +259,29 @@ class ShippedCohortDax(unittest.TestCase):
         for (table_name, column_name), (old, new) in FIXES.CONSUMPTION_COLUMNS.items():
             self.assertEqual(self.column(table_name, column_name), new, column_name)
             self.assertNotEqual(old, new)
-        rank = self.column("CoworkBilling", "UsageCohortRank")
-        self.assertIn("VAR Rk = 1 + COUNTROWS(FILTER(ALL('CoworkBilling'), 'CoworkBilling'[MonthlyCreditsUsed] < v))",
-                      rank)
-        self.assertNotIn("RANKX", code(rank))
         self.assertTrue(self.column("CoworkBilling", "UsageCohort").startswith("SWITCH('CoworkBilling'[UsageCohortRank],"))
         self.assertNotIn("CALCULATE", self.column("CreditsWeekly", "Weeks Ago"))
 
+    def test_usage_cohort_rank_is_loaded_by_the_query(self):
+        table = next(t for t in self.model["tables"] if t["name"] == "CoworkBilling")
+        column = next(c for c in table["columns"] if c["name"] == "UsageCohortRank")
+        self.assertEqual(column, {
+            "name": "UsageCohortRank", "dataType": "int64", "isHidden": True, "sourceColumn": "UsageCohortRank",
+            "lineageTag": "7b0e3f86-4d29-4c51-9f3a-8e2c6b9d4e73", "summarizeBy": "none",
+        })
+        sort_by = next(c for c in table["columns"] if c["name"] == "UsageCohort")
+        self.assertEqual(sort_by.get("sortByColumn"), "UsageCohortRank")
+        partition = joined(table["partitions"][0]["source"]["expression"])
+        pending = next(q for q in read_part("UnappliedChanges")["queries"] if q["name"] == "CoworkBilling")
+        for text in (partition, joined(pending["text"])):
+            self.assertIn(FIXES.COHORT_QUERY_STEPS, text)
+            self.assertTrue(text.endswith("\nin\n\tAddedCohortRank"))
+        self.assertIn("{0.50, 0.75, 0.90, 0.95, 0.99}", FIXES.COHORT_QUERY_STEPS)
+        self.assertEqual(json.loads(pending["lastLoadedAsTableFormulaText"])["RootFormulaText"], partition)
+
     def test_no_calculated_column_needs_a_context_transition_it_did_not_have(self):
         # A second CALCULATE in CoworkBilling next to Weeks Active risks a circular dependency.
-        for name in ("UsageCohortRank", "UsageCohort", "Weeks Over Limit"):
+        for name in ("UsageCohort", "Weeks Over Limit"):
             self.assertNotIn("CALCULATE", self.column("CoworkBilling", name), name)
 
     def test_group_by_ranks_each_product_once(self):
