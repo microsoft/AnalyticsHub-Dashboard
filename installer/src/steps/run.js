@@ -521,6 +521,7 @@ function printAuditExcluded(ctx, excluded) {
     const help = emptyAuditHelp(ctx.config);
     ui.note(help.lead);
     help.causes.forEach((cause, i) => ui.note(`${help.causes.length > 1 ? `${i + 1}. ` : ''}${cause}`));
+    help.after.forEach((line) => ui.note(line));
     return;
   }
   const n = (/** @type {number} */ v) => v.toLocaleString('en-GB');

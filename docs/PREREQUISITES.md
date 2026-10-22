@@ -291,6 +291,12 @@ already done.
 To test it end to end, run `check-audit` once the app has consent. It searches the audit log as the
 app, and says whether it found Copilot interactions, other records only, or nothing at all.
 
+If the audit load already ran before consent or audit logging was fixed, it has marked those days
+as read and empty: it reuses an empty window for 6 hours, and never reads one older than 7 days
+again. To reload them on Fabric, rename `Files/_audit_staging/_manifest.json` in the Lakehouse (for
+example to `_manifest.old.json`), then run `run --backfill-days <n>`, with `<n>` covering the days
+to reload. The Azure jobs keep no such manifest.
+
 ### Microsoft 365 admin
 
 - [ ] **Show real names in usage reports**, for Microsoft 365 activity (on by default). In the
