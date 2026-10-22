@@ -250,6 +250,8 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {string} [profile]
  * @property {string[]} [models]  Model aliases the app was built with. Older records mean just "vl".
  * @property {string} [deployedAt]
+ * @property {string} [installerVersion]  The installer version that last deployed the app, so another version offers to
+ *   deploy it again. Records from before 0.6.8 have none.
  * @property {import('./currency.js').ReportingConfig} [reporting]  The Value page currency a prebuilt app was deployed with.
  * @property {Record<string, string | boolean>} [access]  The viewer access the app was deployed with, so a change offers a redeploy.
  * @property {{ deployments: any, env?: string }} [rayfin]  Rayfin's `.deployments.json` and `.env` for the prebuilt app, which each installer version unpacks afresh.

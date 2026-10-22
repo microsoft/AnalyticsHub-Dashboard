@@ -39,6 +39,30 @@ export const FABRIC_CONFIG = 'fabric.config.json';
 export const isPrebuilt = (dir) => existsSync(join(dir, PREBUILT_MARKER));
 
 /**
+ * This installer's version. The install record keeps the version that deployed the app.
+ * @returns {string}
+ */
+export const installerVersion = () => JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8')).version;
+
+/**
+ * Whether installer version `a` came out after `b`. Both are x.y.z or x.y.z-rc.N, and a release comes after
+ * its release candidates. Any other version is never later.
+ * @param {string} a
+ * @param {string} b
+ */
+export function laterVersion(a, b) {
+  const order = (/** @type {string} */ v) => {
+    const m = /^(\d+)\.(\d+)\.(\d+)(?:-rc\.(\d+))?$/.exec(v);
+    return m ? [...m.slice(1, 4).map(Number), m[4] === undefined ? Infinity : Number(m[4])] : null;
+  };
+  const pa = order(a);
+  const pb = order(b);
+  if (!pa || !pb) return false;
+  for (let i = 0; i < pa.length; i++) if (pa[i] !== pb[i]) return pa[i] > pb[i];
+  return false;
+}
+
+/**
  * @typedef {{ cwd: string, inherit?: boolean, shell?: boolean, env?: NodeJS.ProcessEnv }} RunOptions
  * @typedef {(command: string, args: string[], opts: RunOptions) => Promise<{ code: number, output: string }>} Runner
  */
@@ -245,7 +269,7 @@ export function pagesChange(before, after) {
 }
 
 /**
- * Deploys the app unless it is already there with the same models.
+ * Deploys the app unless it is already there, deployed by this installer version with the same models.
  * @param {Ctx} ctx
  */
 export async function ensureFabricApp(ctx) {
@@ -255,14 +279,23 @@ export async function ensureFabricApp(ctx) {
     const ws = /** @type {string} */ (config.fabric.workspaceId);
     const item = await api.fabric.getItem(ws, fa.itemId).catch((err) => (err instanceof HttpError && err.status === 404 ? null : Promise.reject(err)));
     if (item) {
+      // The model, notebooks and pipeline are this version's once this run has deployed them, so an app another
+      // version deployed, older or newer, may not match them. Records from before 0.6.8 have no version.
+      const version = installerVersion();
+      const versionChanged = fa.installerVersion !== version;
       const pagesChanged = (fa.models ?? [APP_ALIAS]).join(',') !== appModels(config).join(',');
       // A prebuilt app reads its models and currency when it loads, so it only needs deploying.
       const prebuilt = !!ctx.sources.appDir && isPrebuilt(ctx.sources.appDir);
       const currencyChanged = prebuilt && !!config.reporting && reportingKey(fa.reporting) !== reportingKey(config.reporting);
       const accessChanged = accessKey(fa.access) !== accessKey(publicAccess(config));
-      const changed = pagesChanged || currencyChanged || accessChanged;
+      const changed = versionChanged || pagesChanged || currencyChanged || accessChanged;
       const again = prebuilt ? 'Deploy it again?' : 'Build and deploy it again?';
       const why = [
+        versionChanged
+          ? fa.installerVersion && laterVersion(fa.installerVersion, version)
+            ? `take it back from ${fa.installerVersion} to this version`
+            : 'update it to this version'
+          : '',
         pagesChanged ? pagesChange(fa.models ?? [APP_ALIAS], appModels(config)) : '',
         currencyChanged ? `show the Value page in ${config.reporting?.currency}` : '',
         accessChanged ? 'show who can view it and how to share it' : '',
@@ -346,6 +379,7 @@ export async function deployApp(ctx) {
     profile,
     models,
     deployedAt: record.deployedAt ?? ctx.now().toISOString(),
+    installerVersion: installerVersion(),
   });
   if (prebuilt && config.reporting) fa.reporting = { ...config.reporting };
   const access = publicAccess(config);

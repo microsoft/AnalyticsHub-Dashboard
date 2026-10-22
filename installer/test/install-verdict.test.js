@@ -7,10 +7,12 @@
 import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { test } from 'node:test';
 import { loadConfig, saveConfig } from '../src/config.js';
 import { createCtx, install, update } from '../src/install.js';
+import { installerVersion, PREBUILT_STATIC, RAYFIN_CLI } from '../src/steps/app.js';
+import { publicAccess } from '../src/steps/access.js';
 import { COWORK_DATAFLOW_ACTIVITY } from '../src/transform/pipeline.js';
 import { fakeAzureGraph, fakeFabric, fakePowerBi, fakeTranscriptEnvironment, fakeUi, realSources } from './fakes.js';
 
@@ -371,4 +373,52 @@ test('update: a step that fails leaves it not finished, never "Up to date"', asy
   assert.match(since(), /✗ The Analytics Hub Ask data agent wasn't set up: Data agent update failed/);
   assert.match(since(), /✗ The update isn't finished: a step above failed\. Fix what it says, then run ".*update" again\./);
   assert.doesNotMatch(since(), /Up to date|Updated\./);
+});
+
+/**
+ * Gives the run's prebuilt app its deploy tools and a deploy that works, and records the app as an installer up to
+ * 0.6.7 left it: deployed, with no version.
+ * @param {Awaited<ReturnType<typeof runInstall>>} run
+ * @returns {string[]}  The deploy tool's commands, as it runs them.
+ */
+function appFromEarlierInstaller(run) {
+  const dir = /** @type {string} */ (run.ctx.sources.appDir);
+  mkdirSync(dirname(join(dir, RAYFIN_CLI)), { recursive: true });
+  writeFileSync(join(dir, RAYFIN_CLI), '');
+  mkdirSync(join(dir, PREBUILT_STATIC), { recursive: true });
+  const item = run.fabric.add('AppBackend', 'Analytics Hub', null);
+  const fa = { enabled: true, itemId: item.id, name: 'Analytics Hub', models: ['vl'], deployedAt: '2026-05-01T12:00:00.000Z', access: publicAccess(run.config) };
+  Object.assign(run.config.fabricApp, fa);
+  run.ctx.save();
+  /** @type {string[]} */
+  const runs = [];
+  run.ctx.runner = async (_command, args) => {
+    runs.push(args[1]);
+    return { code: 0, output: '' };
+  };
+  return runs;
+}
+
+test('update: the app it redeploys records the installer version', async (t) => {
+  const run = await runInstall(t, { app: 'off' });
+  setUp(run);
+  const runs = appFromEarlierInstaller(run);
+  assert.equal(await update(run.ctx, { wait: true }), true);
+  assert.ok(run.ui.asked.includes('Rebuild and redeploy the Analytics Hub app too?'));
+  assert.deepEqual(runs, ['up'], 'it redeploys by default');
+  assert.equal(loadConfig(run.ctx.file).config.fabricApp.installerVersion, installerVersion());
+});
+
+test('Repair or change: an app an earlier installer deployed is redeployed by default, then left alone', async (t) => {
+  const run = await runInstall(t, { app: 'off' });
+  setUp(run);
+  const runs = appFromEarlierInstaller(run);
+  assert.equal(await install(run.ctx, { wait: true }), true);
+  assert.equal(run.ui.asked.filter((q) => q.startsWith('The app ')).at(-1), 'The app "Analytics Hub" needs redeploying to update it to this version. Deploy it again?');
+  assert.deepEqual(runs, ['up'], 'it redeploys by default');
+  assert.equal(loadConfig(run.ctx.file).config.fabricApp.installerVersion, installerVersion());
+
+  assert.equal(await install(run.ctx, { wait: true }), true);
+  assert.equal(run.ui.asked.filter((q) => q.startsWith('The app ')).at(-1), 'The app "Analytics Hub" is deployed. Deploy it again?');
+  assert.deepEqual(runs, ['up'], 'this version deployed it: left alone by default');
 });

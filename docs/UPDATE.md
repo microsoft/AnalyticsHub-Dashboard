@@ -33,6 +33,9 @@ Both keep your install record and skip what's already done.
 On Azure, both also update the Teams app in your org's app catalog when its package has changed,
 rather than add another. See [Give it to everyone](../azure/teams/README.md#give-it-to-everyone).
 
+On Fabric, when another installer version deployed the app, **Repair or change** offers to deploy
+it again, and the answer defaults to yes, so the app matches this version's semantic model.
+
 To [load more audit history](../installer/README.md#load-more-audit-history), choose **Repair or
 change** once the first load has finished, or `run --backfill-days <n>`.
 

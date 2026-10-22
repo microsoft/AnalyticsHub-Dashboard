@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { test } from 'node:test';
 import { emptyConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
-import { DATA_CLI, deployApp, deploymentKey, ensureAppName, ensureFabricApp, FABRIC_CONFIG, fabricConfigFile, findDeployment, nodeVersionOk, PREBUILT_MARKER, PREBUILT_STATIC, profileName, RAYFIN_CLI, rayfinEnv, rayfinSignedInAsOther, rayfinSignIn, yamlValue } from '../src/steps/app.js';
+import { DATA_CLI, deployApp, deploymentKey, ensureAppName, ensureFabricApp, FABRIC_CONFIG, fabricConfigFile, findDeployment, installerVersion, laterVersion, nodeVersionOk, PREBUILT_MARKER, PREBUILT_STATIC, profileName, RAYFIN_CLI, rayfinEnv, rayfinSignedInAsOther, rayfinSignIn, yamlValue } from '../src/steps/app.js';
 import { CONNECTION_SECRET_NAME, connectionName, definitionHash, ensureModelConnection, ensureSemanticModel, MODEL_PROBE, refreshModel, rotateModelSecret, verifyModel } from '../src/steps/model.js';
 import { blockedSettings } from '../src/steps/plan.js';
 import { buildModel, loadTemplateModel } from '../src/transform/model.js';
@@ -447,7 +447,7 @@ test('app helpers: Node version, YAML values, deployment lookup', () => {
 
 /**
  * A copy of the app folder's shape, with a runner that acts like the data CLI and rayfin.
- * @param {{ tools?: boolean, upFails?: boolean }} [o]
+ * @param {{ tools?: boolean, upFails?: boolean, answers?: any[] }} [o]
  */
 function appSetup(o = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'vl-app-'));
@@ -465,7 +465,7 @@ function appSetup(o = {}) {
   };
   if (o.tools !== false) tools();
 
-  const t = setup({ answers: [] });
+  const t = setup({ answers: o.answers ?? [] });
   Object.assign(t.config.semanticModel, { id: 'model-1', bound: true });
   t.config.fabricApp.enabled = true;
   /** @type {string[]} */
@@ -543,7 +543,7 @@ test('app: an app already deployed is left alone unless asked; a deleted one is 
   const t = appSetup();
   try {
     const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
-    t.config.fabricApp.itemId = item.id;
+    Object.assign(t.config.fabricApp, { itemId: item.id, installerVersion: installerVersion() });
     await ensureFabricApp(t.ctx);
     assert.deepEqual(t.runs, []);
     assert.ok(!t.fabric.calls.some((c) => c.startsWith('renameItem')));
@@ -602,7 +602,7 @@ test('app: a deployed app is offered a rebuild when who can view it changed, suc
   const t = appSetup();
   try {
     const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
-    t.config.fabricApp.itemId = item.id;
+    Object.assign(t.config.fabricApp, { itemId: item.id, installerVersion: installerVersion() });
     t.config.access = /** @type {import('../src/config.js').AccessConfig} */ ({ groupId: 'g-1', groupName: 'Analytics Hub Viewers' });
     await ensureFabricApp(t.ctx);
     assert.match(t.ui.asked.at(-1) ?? '', /needs rebuilding to show who can view it and how to share it/);
@@ -679,7 +679,7 @@ test('app: one still called AI in One 2.0 takes the new name without a rebuild; 
   const t = appSetup();
   try {
     const item = t.fabric.add('AppBackend', 'AI in One 2.0', null);
-    Object.assign(t.config.fabricApp, { itemId: item.id, name: 'AI in One 2.0' });
+    Object.assign(t.config.fabricApp, { itemId: item.id, name: 'AI in One 2.0', installerVersion: installerVersion() });
     await ensureFabricApp(t.ctx);
     assert.deepEqual(t.runs, []);
     assert.ok(t.fabric.calls.includes('renameItem AI in One 2.0 -> Analytics Hub'));
@@ -705,7 +705,7 @@ test('app: the credit consumption pages get the cc alias, and a deployed app is 
   const t = appSetup();
   try {
     const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
-    Object.assign(t.config.fabricApp, { itemId: item.id, models: ['vl'] });
+    Object.assign(t.config.fabricApp, { itemId: item.id, models: ['vl'], installerVersion: installerVersion() });
     t.config.modules.consumption = true;
     Object.assign(t.config.consumption.model, { id: 'cc-1', bound: true });
     await ensureFabricApp(t.ctx);
@@ -860,7 +860,7 @@ test('app: a prebuilt app is offered a redeploy, not a rebuild, when its pages c
   const t = prebuiltSetup();
   try {
     const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
-    Object.assign(t.config.fabricApp, { itemId: item.id, models: ['vl'] });
+    Object.assign(t.config.fabricApp, { itemId: item.id, models: ['vl'], installerVersion: installerVersion() });
     t.config.modules.consumption = true;
     Object.assign(t.config.consumption.model, { id: 'cc-1', bound: true });
     await ensureFabricApp(t.ctx);
@@ -877,7 +877,7 @@ test('app: a prebuilt app is offered a redeploy when the Value page currency cha
   const t = prebuiltSetup();
   try {
     const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
-    Object.assign(t.config.fabricApp, { itemId: item.id, models: ['vl'], reporting: { currency: 'USD' } });
+    Object.assign(t.config.fabricApp, { itemId: item.id, models: ['vl'], reporting: { currency: 'USD' }, installerVersion: installerVersion() });
     t.config.reporting = { currency: 'EUR', exchangeRate: 0.92 };
     await ensureFabricApp(t.ctx);
     assert.match(t.ui.asked.join('\n'), /needs redeploying to show the Value page in EUR\. Deploy it again\?/);
@@ -890,6 +890,89 @@ test('app: a prebuilt app is offered a redeploy when the Value page currency cha
   } finally {
     t.cleanup();
   }
+});
+
+test('app: an app an earlier installer deployed is redeployed by default, to update it to this version', async () => {
+  const t = prebuiltSetup();
+  try {
+    await deployApp(t.ctx);
+    const fa = t.config.fabricApp;
+    assert.equal(fa.installerVersion, installerVersion(), 'the deploy records the installer version');
+
+    t.runs.length = 0;
+    await ensureFabricApp(t.ctx);
+    assert.equal(t.ui.asked.at(-1), 'The app "Analytics Hub" is deployed. Deploy it again?');
+    assert.deepEqual(t.runs, [], 'this version deployed it and nothing else changed: left alone by default');
+
+    // Installers up to 0.6.7 recorded no version; later ones record theirs.
+    for (const earlier of [undefined, '0.6.7']) {
+      if (earlier) fa.installerVersion = earlier;
+      else delete fa.installerVersion;
+      t.runs.length = 0;
+      await ensureFabricApp(t.ctx);
+      assert.equal(t.ui.asked.at(-1), 'The app "Analytics Hub" needs redeploying to update it to this version. Deploy it again?');
+      assert.equal(t.runs.length, 1, 'it redeploys by default');
+      assert.equal(fa.installerVersion, installerVersion());
+    }
+
+    fa.installerVersion = '0.6.7';
+    t.config.modules.consumption = true;
+    Object.assign(t.config.consumption.model, { id: 'cc-1', bound: true });
+    await ensureFabricApp(t.ctx);
+    assert.equal(t.ui.asked.at(-1), 'The app "Analytics Hub" needs redeploying to update it to this version and add the credit consumption pages. Deploy it again?');
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('app: an app a later installer deployed is redeployed by default, to take it back to this version', async () => {
+  const t = prebuiltSetup();
+  try {
+    await deployApp(t.ctx);
+    t.config.fabricApp.installerVersion = '99.0.0';
+    t.runs.length = 0;
+    await ensureFabricApp(t.ctx);
+    assert.equal(t.ui.asked.at(-1), 'The app "Analytics Hub" needs redeploying to take it back from 99.0.0 to this version. Deploy it again?');
+    assert.equal(t.runs.length, 1, 'it redeploys by default');
+    assert.equal(t.config.fabricApp.installerVersion, installerVersion());
+  } finally {
+    t.cleanup();
+  }
+});
+
+test("app: answering no keeps the earlier version's record, so the next run offers the rebuild again", async () => {
+  const t = appSetup({ answers: [false] });
+  try {
+    const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
+    Object.assign(t.config.fabricApp, { itemId: item.id, installerVersion: '0.6.7' });
+    const question = 'The app "Analytics Hub" needs rebuilding to update it to this version. Build and deploy it again?';
+    await ensureFabricApp(t.ctx);
+    assert.equal(t.ui.asked.at(-1), question);
+    assert.deepEqual(t.runs, []);
+    assert.match(t.ui.text(), /App Analytics Hub is in place/);
+    assert.equal(t.config.fabricApp.installerVersion, '0.6.7');
+
+    await ensureFabricApp(t.ctx);
+    assert.equal(t.ui.asked.at(-1), question);
+    assert.equal(t.runs.length, 4, 'it rebuilds by default');
+    assert.equal(t.config.fabricApp.installerVersion, installerVersion());
+  } finally {
+    t.cleanup();
+  }
+});
+
+test('app: laterVersion orders installer releases and their release candidates', () => {
+  assert.equal(laterVersion('0.6.8', '0.6.7'), true);
+  assert.equal(laterVersion('0.7.0', '0.6.10'), true);
+  assert.equal(laterVersion('1.0.0', '0.99.99'), true);
+  assert.equal(laterVersion('0.6.8', '0.6.8-rc.2'), true, 'a release comes after its release candidates');
+  assert.equal(laterVersion('0.6.8-rc.10', '0.6.8-rc.2'), true);
+  assert.equal(laterVersion('0.6.9-rc.1', '0.6.8'), true);
+  assert.equal(laterVersion('0.6.8', '0.6.8'), false);
+  assert.equal(laterVersion('0.6.8-rc.2', '0.6.8'), false);
+  assert.equal(laterVersion('0.6.7', '0.6.8-rc.2'), false);
+  assert.equal(laterVersion('dev', '0.6.8'), false, 'any other version is never later');
+  assert.equal(laterVersion('0.6.8', ''), false);
 });
 
 test('app: fabricConfigFile lists only the models the app is built with', () => {
