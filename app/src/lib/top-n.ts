@@ -36,10 +36,20 @@ export interface OtherOptions extends TopOptions {
     other: (count: number) => string;
 }
 
+/** Where the column called `name` is, or -1 when the table has none. */
 function columnAt(table: DataTable, name: string): number {
-    const index = table.columns.findIndex((column) => column.name === name);
-    if (index < 0) throw new Error(`Column "${name}" was not found.`);
-    return index;
+    return table.columns.findIndex((column) => column.name === name);
+}
+
+/**
+ * The table as it came, when a column it's ranked by isn't in it: every row,
+ * with nothing said to be left out, rather than a page that fails. It warns,
+ * naming the column, so a column named wrongly still shows.
+ */
+function unranked(table: DataTable, label: number, missing: string): Top {
+    console.warn(`[top-n] Column "${missing}" was not found, so the table is shown unranked.`);
+    const count = label < 0 ? table.rows.length : new Set(table.rows.map((row) => row[label])).size;
+    return { table, shown: count, of: count };
 }
 
 function amount(value: unknown): number {
@@ -76,9 +86,12 @@ function keptRows(table: DataTable, label: number, kept: readonly unknown[]): un
 /** The `n` largest categories by `by`. For rates, where an Other row would average away its meaning. */
 export function topRows(table: DataTable, { label, by, n = TOP_N }: TopOptions): Top {
     if (table.rows.length === 0) return nothingToRank(table);
-    const names = ranked(table, columnAt(table, label), columnAt(table, by));
+    const labelAt = columnAt(table, label);
+    const byAt = columnAt(table, by);
+    if (labelAt < 0 || byAt < 0) return unranked(table, labelAt, labelAt < 0 ? label : by);
+    const names = ranked(table, labelAt, byAt);
     const kept = names.slice(0, n);
-    return { table: { ...table, rows: keptRows(table, columnAt(table, label), kept) }, shown: kept.length, of: names.length };
+    return { table: { ...table, rows: keptRows(table, labelAt, kept) }, shown: kept.length, of: names.length };
 }
 
 /**
@@ -89,12 +102,16 @@ export function topRows(table: DataTable, { label, by, n = TOP_N }: TopOptions):
 export function topWithOther(table: DataTable, { label, by, n = TOP_N, sum, other }: OtherOptions): Top {
     if (table.rows.length === 0) return nothingToRank(table);
     const labelAt = columnAt(table, label);
-    const names = ranked(table, labelAt, columnAt(table, by));
+    const byAt = columnAt(table, by);
+    if (labelAt < 0 || byAt < 0) return unranked(table, labelAt, labelAt < 0 ? label : by);
+    const names = ranked(table, labelAt, byAt);
     if (names.length <= n) return { table: { ...table, rows: keptRows(table, labelAt, names) }, shown: names.length, of: names.length };
 
+    const missing = sum.find((column) => columnAt(table, column) < 0);
+    if (missing !== undefined) return unranked(table, labelAt, missing);
     const kept = names.slice(0, n);
     const keep = new Set(kept);
-    const summed = new Set(sum.map((name) => columnAt(table, name)));
+    const summed = new Set(sum.map((column) => columnAt(table, column)));
     const name = other(names.length - n);
     const folded = new Map<string, unknown[]>();
     for (const row of table.rows) {

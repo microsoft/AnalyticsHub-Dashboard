@@ -10,6 +10,7 @@ import { applyDaxFilters } from "@/lib/dax-filters";
 import { defaultProfile, resolveFilters, type FilterProfile, type NotFiltered } from "@/lib/filter-profiles";
 import type { FilterKey } from "@/lib/filters";
 import { beginRefresh } from "@/lib/refresh-tracker";
+import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { readsTaskTimes, withTaskTimes } from "@/queries/assumptions/task-times";
 import { connection as valueLensConnection } from "@/queries/shared";
 import { useFilterContext } from "./filter.context";
@@ -48,6 +49,8 @@ export interface FilteredQueryConfig {
      * on, where an early answer is worth a wasted one when times are saved.
      */
     speculate?: boolean;
+    /** How the answer's columns are read: see `useSemanticModelQuery`'s `columnMetadata`. */
+    columnMetadata?: ColumnMetadataMap;
 }
 
 /**
@@ -97,7 +100,12 @@ export function useFilteredQuery(config: FilteredQueryConfig, options: FilteredQ
     const query = useMemo(() => filtered(timed), [filtered, timed]);
     const speculative = useMemo(() => filtered(untimed), [filtered, untimed]);
 
-    const result = useSemanticModelQuery({ connection: config.connection, query, lead: config.lead });
+    const result = useSemanticModelQuery({
+        connection: config.connection,
+        query,
+        lead: config.lead,
+        columnMetadata: config.columnMetadata,
+    });
     // After the card's query: once the times are known, a card asking the same query joins the early one where it waits.
     useSpeculativeQuery({ connection: config.connection, query: speculative, lead: config.lead });
     const isRefreshing = result.isLoading && result.data !== undefined;

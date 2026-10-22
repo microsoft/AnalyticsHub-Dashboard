@@ -5,7 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi, type MockInstance } from "vitest";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { topNote, topRows, topWithOther } from "./top-n";
 
@@ -103,14 +103,63 @@ describe("an empty result", () => {
         expect(topRows(orgs(0), { label: "Org", by: "Active" })).toEqual(nothing);
         expect(topWithOther(orgs(0), { label: "Org", by: "Active", sum: ["Active", "Inactive"], other })).toEqual(nothing);
     });
+});
 
-    it("still names a missing column once there are rows to rank", () => {
-        const table: DataTable = { columns: [{ name: "Org" }], rows: [["Org 1"]] };
+describe("a column the table doesn't have", () => {
+    let warn: MockInstance<typeof console.warn>;
 
-        expect(() => topRows(table, { label: "Org", by: "Active" })).toThrow('Column "Active" was not found.');
-        expect(() => topWithOther(table, { label: "Org", by: "Active", sum: ["Active"], other })).toThrow(
-            'Column "Active" was not found.',
-        );
+    beforeEach(() => {
+        warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+        warn.mockRestore();
+    });
+
+    // As an answer read by the wrong query's columns would be: the page shows it as it came rather than failing.
+    const table: DataTable = {
+        columns: [{ name: "Org" }, { name: "Week" }],
+        rows: [
+            ["Org 1", "w1"],
+            ["Org 2", "w1"],
+            ["Org 1", "w2"],
+        ],
+    };
+
+    it("leaves the table unranked, saying nothing is left out, and names the column", () => {
+        const top = topRows(table, { label: "Org", by: "Active" });
+
+        expect(top.table).toBe(table);
+        expect(top).toMatchObject({ shown: 2, of: 2 });
+        expect(topWithOther(table, { label: "Org", by: "Active", sum: ["Active"], other })).toEqual({ table, shown: 2, of: 2 });
+        expect(warn.mock.calls).toEqual([
+            ['[top-n] Column "Active" was not found, so the table is shown unranked.'],
+            ['[top-n] Column "Active" was not found, so the table is shown unranked.'],
+        ]);
+    });
+
+    it("counts rows when the column that names each category is the one missing", () => {
+        expect(topRows(table, { label: "Team", by: "Week" })).toEqual({ table, shown: 3, of: 3 });
+        expect(topWithOther(table, { label: "Team", by: "Week", sum: [], other })).toEqual({ table, shown: 3, of: 3 });
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('Column "Team" was not found'));
+    });
+
+    it("leaves the table unranked when a column Other would add up is missing", () => {
+        expect(topWithOther(orgs(20), { label: "Org", by: "Active", n: 3, sum: ["Active", "Seats"], other })).toEqual({
+            table: orgs(20),
+            shown: 20,
+            of: 20,
+        });
+        expect(warn).toHaveBeenCalledWith(expect.stringContaining('Column "Seats" was not found'));
+    });
+
+    it("doesn't look for the columns Other would add up when everything fits", () => {
+        expect(topWithOther(orgs(4), { label: "Org", by: "Active", sum: ["Seats"], other })).toMatchObject({ shown: 4, of: 4 });
+        expect(warn).not.toHaveBeenCalled();
+    });
+
+    it("adds no note to the chart's title", () => {
+        expect(topNote(topRows(table, { label: "Org", by: "Active" }), "organizations", "active users")).toBeUndefined();
     });
 });
 

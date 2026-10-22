@@ -12,6 +12,7 @@ import { createElement } from "react";
 import { useSemanticModelQuery, useSpeculativeQuery, clearQueryCache } from "@/hooks/use-semantic-model-query";
 import { currentCaller, type QueryCaller } from "@/lib/query-priority";
 import { BUSY_MESSAGE, QueryScheduler, recoveriesOf } from "@/lib/query-scheduler";
+import type { ColumnMetadataMap } from "@/lib/to-data-table";
 
 // Mock the Fabric client module so tests run offline.
 const mockClearCache = vi.fn();
@@ -290,6 +291,90 @@ describe("useSemanticModelQuery, once a card has moved on", () => {
         expect(sent).toHaveLength(2);
         expect(sent[1]).toMatchObject({ query: "Q", options: { bypassCache: true } });
         expect(sent[1].caller?.lead).toBe(to);
+    });
+
+    describe("the columns it reads an answer by", () => {
+        type Props = { connection: string; query: string; columnMetadata?: ColumnMetadataMap };
+        // As a Group by change rebinds a query: its org column is keyed by the attribute asked for.
+        const BY_ORG: ColumnMetadataMap = { "People[Organization]": { name: "Group", displayName: "Organization" } };
+        const BY_OFFICE: ColumnMetadataMap = { "People[Office]": { name: "Group", displayName: "Office location" } };
+        const valueOf = (data: unknown) => (data as ReturnType<typeof answer> | undefined)?.table.rows[0][0];
+
+        it("never reads an answer by another query's columns, from the render its query changes until the next answer", async () => {
+            const renders: { query: string; value: unknown; columnMetadata: ColumnMetadataMap | undefined }[] = [];
+            const { result, rerender } = renderHook(
+                (props: Props) => {
+                    const current = useSemanticModelQuery(props);
+                    renders.push({ query: props.query, value: valueOf(current.data), columnMetadata: current.columnMetadata });
+                    return current;
+                },
+                { initialProps: { connection: "a", query: "BY ORG", columnMetadata: BY_ORG } },
+            );
+            await act(async () => sent[0].answer(answer(1)));
+            expect(result.current).toMatchObject({ data: answer(1), columnMetadata: BY_ORG });
+
+            rerender({ connection: "a", query: "BY OFFICE", columnMetadata: BY_OFFICE });
+            expect(result.current).toMatchObject({ data: answer(1), columnMetadata: BY_ORG, isLoading: true });
+            await act(async () => sent[1].answer(answer(2)));
+            expect(result.current).toMatchObject({ data: answer(2), columnMetadata: BY_OFFICE, isLoading: false });
+
+            // Every render, the first after the change included, reads each answer by its own query's columns.
+            expect(renders.find(({ query, value }) => query === "BY OFFICE" && value === 1)).toBeDefined();
+            for (const { value, columnMetadata } of renders) {
+                if (value === 1) expect(columnMetadata).toBe(BY_ORG);
+                if (value === 2) expect(columnMetadata).toBe(BY_OFFICE);
+            }
+        });
+
+        it("keeps the last answer, and its columns, on screen while a changed filter loads", async () => {
+            const { result, rerender } = renderHook((props: Props) => useSemanticModelQuery(props), {
+                initialProps: { connection: "a", query: "BY ORG", columnMetadata: BY_ORG },
+            });
+            await act(async () => sent[0].answer(answer(1)));
+
+            rerender({ connection: "a", query: "BY ORG IN FINANCE", columnMetadata: BY_ORG });
+            expect(result.current).toMatchObject({ data: answer(1), columnMetadata: BY_ORG, isLoading: true });
+            await act(async () => sent[1].answer(answer(2)));
+            expect(result.current).toMatchObject({ data: answer(2), columnMetadata: BY_ORG, isLoading: false });
+        });
+
+        it("takes new columns for the same query at once, without asking again", async () => {
+            const relabelled: ColumnMetadataMap = { "People[Organization]": { name: "Group", displayName: "Team" } };
+            const { result, rerender } = renderHook((props: Props) => useSemanticModelQuery(props), {
+                initialProps: { connection: "a", query: "BY ORG", columnMetadata: BY_ORG },
+            });
+            await act(async () => sent[0].answer(answer(1)));
+
+            rerender({ connection: "a", query: "BY ORG", columnMetadata: relabelled });
+            expect(sent).toHaveLength(1);
+            expect(result.current).toMatchObject({ data: answer(1), columnMetadata: relabelled, isLoading: false });
+        });
+
+        it("ignores a late answer to the query it left, columns and all", async () => {
+            const { result, rerender } = renderHook((props: Props) => useSemanticModelQuery(props), {
+                initialProps: { connection: "a", query: "BY ORG", columnMetadata: BY_ORG },
+            });
+            rerender({ connection: "a", query: "BY OFFICE", columnMetadata: BY_OFFICE });
+            expect(result.current).toMatchObject({ data: undefined, columnMetadata: BY_OFFICE, isLoading: true });
+            await act(async () => sent[1].answer(answer(2)));
+
+            await act(async () => sent[0].answer(answer(1)));
+            expect(result.current).toMatchObject({ data: answer(2), columnMetadata: BY_OFFICE, isLoading: false });
+        });
+
+        it("reads the answer to the query it went back to by that query's columns", async () => {
+            const { result, rerender } = renderHook((props: Props) => useSemanticModelQuery(props), {
+                initialProps: { connection: "a", query: "BY ORG", columnMetadata: BY_ORG },
+            });
+            await act(async () => sent[0].answer(answer(1)));
+            rerender({ connection: "a", query: "BY OFFICE", columnMetadata: BY_OFFICE });
+            await act(async () => sent[1].answer(answer(2)));
+
+            rerender({ connection: "a", query: "BY ORG", columnMetadata: BY_ORG });
+            expect(result.current).toMatchObject({ data: answer(2), columnMetadata: BY_OFFICE, isLoading: true });
+            await act(async () => sent[2].answer(answer(1)));
+            expect(result.current).toMatchObject({ data: answer(1), columnMetadata: BY_ORG, isLoading: false });
+        });
     });
 });
 

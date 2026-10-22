@@ -185,19 +185,23 @@ function ActivationByOrg({ cohort, label }: { cohort: ActivationCohort; label: s
     const { theme } = useThemeContext();
     const org = useOrgAttribute();
     const byOrg = useMemo(() => withOrgAttribute(activationByOrg({ cohort }), org), [cohort, org]);
-    const orgResult = useFilteredQuery({ connection: byOrg.connection, query: byOrg.query }, { ignore: IGNORED });
-    // The largest fifteen by the cohort's active users, and everyone else in one Other bar.
+    const orgResult = useFilteredQuery(
+        { connection: byOrg.connection, query: byOrg.query, columnMetadata: byOrg.columnMetadata },
+        { ignore: IGNORED },
+    );
+    // The largest fifteen by the cohort's active users, and everyone else in one Other bar. The answer is
+    // read by the columns it was asked with: one for another Group by keys its org column differently.
     const top = useMemo(
         () =>
             orgResult.data?.status === "success"
-                ? topWithOther(toDataTable(orgResult.data.table, byOrg.columnMetadata), {
+                ? topWithOther(toDataTable(orgResult.data.table, orgResult.columnMetadata ?? byOrg.columnMetadata), {
                       label: byOrg.organization,
                       by: byOrg.active,
                       sum: ACTIVATION_COUNT_COLUMNS,
                       other: (count) => `Other (${count.toLocaleString("en-US")})`,
                   })
                 : undefined,
-        [orgResult.data, byOrg],
+        [orgResult.data, orgResult.columnMetadata, byOrg],
     );
     const orgTable = top?.table;
 

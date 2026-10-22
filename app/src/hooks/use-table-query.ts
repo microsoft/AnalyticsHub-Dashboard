@@ -68,12 +68,16 @@ export function useTableQuery(
             filters: source.filters,
             lead: source.lead,
             speculate: source.speculate,
+            columnMetadata: source.columnMetadata,
         },
         { extra, ignore },
     );
     const table = useMemo(
-        () => (result.data?.status === "success" ? toDataTable(result.data.table, source.columnMetadata) : undefined),
-        [result.data, source.columnMetadata],
+        () =>
+            result.data?.status === "success"
+                ? toDataTable(result.data.table, result.columnMetadata ?? source.columnMetadata)
+                : undefined,
+        [result.data, result.columnMetadata, source.columnMetadata],
     );
     const error = result.data?.status === "error" ? result.data.error.message : undefined;
     return { table, error, isLoading: !table && !error, refetch: result.refetch, notFilteredBy: result.notFilteredBy };
@@ -97,14 +101,16 @@ export function useTablePartsQuery<P extends string>(
             filters: source.filters,
             lead: source.lead,
             speculate: source.speculate,
+            columnMetadata: source.columnMetadata,
         },
         { extra, ignore },
     );
     const tables = useMemo(() => {
         if (result.data?.status !== "success") return undefined;
         const split = splitQueryParts(result.data.table, parts);
-        return new Map(parts.map((part) => [part, toDataTable(split[part], source.columnMetadata)]));
-    }, [result.data, parts, source.columnMetadata]);
+        const columnMetadata = result.columnMetadata ?? source.columnMetadata;
+        return new Map(parts.map((part) => [part, toDataTable(split[part], columnMetadata)]));
+    }, [result.data, result.columnMetadata, parts, source.columnMetadata]);
     const error = result.data?.status === "error" ? result.data.error.message : undefined;
     const { refetch, notFilteredBy } = result;
     return useMemo(() => {
