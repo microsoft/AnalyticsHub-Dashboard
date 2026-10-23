@@ -13,7 +13,7 @@ import { c, formatDuration } from '../ui.js';
 import { emptyAuditHelp } from './audit-check.js';
 import { coworkConnections, coworkNextStep, coworkSignInSteps, VIVA_LOAD_FILE } from './consumption.js';
 import { agentEvaluatorOn, coworkDataflowOn, modelDeployed } from './fabric.js';
-import { clearPendingHistory, fabricHistory, recordPendingHistory } from './history-progress.js';
+import { clearPendingHistory, fabricHistory, fabricJobGoing, recordPendingHistory } from './history-progress.js';
 import { modelRefreshes } from './model.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
@@ -378,8 +378,9 @@ export function firstRunStatus(config, status, runs) {
  * Whether the history has loaded. A first load that failed only in other loads did load it, so it is
  * marked completed. Installs from before the installer tracked the first load count any completed run.
  * @param {Ctx} ctx
+ * @param {any[]} [jobs]  The pipeline's runs, when they're listed already.
  */
-export async function historyLoaded(ctx) {
+export async function historyLoaded(ctx, jobs) {
   const { config, api } = ctx;
   const f = config.fabric;
   if (!f.workspaceId || !f.pipelineId) return false;
@@ -392,7 +393,7 @@ export async function historyLoaded(ctx) {
     ctx.save();
     return true;
   }
-  return (await api.fabric.listJobs(f.workspaceId, f.pipelineId).catch(() => [])).some((j) => j.status === 'Completed');
+  return (jobs ?? (await api.fabric.listJobs(f.workspaceId, f.pipelineId).catch(() => []))).some((j) => j.status === 'Completed');
 }
 
 /**
@@ -608,9 +609,9 @@ export async function status(ctx) {
   if (sm?.connectionId) expiry(ctx, 'Model connection secret', sm.secretExpires);
 
   ui.heading('Recent runs');
-  const jobs = (await api.fabric.listJobs(f.workspaceId, f.pipelineId))
-    .sort((a, b) => String(b.startTimeUtc ?? '').localeCompare(String(a.startTimeUtc ?? '')))
-    .slice(0, 5);
+  // Every run, newest first. The newest five are shown.
+  const all = (await api.fabric.listJobs(f.workspaceId, f.pipelineId)).sort((a, b) => String(b.startTimeUtc ?? '').localeCompare(String(a.startTimeUtc ?? '')));
+  const jobs = all.slice(0, 5);
   if (!jobs.length) ui.note('No runs yet.');
   for (const job of jobs) {
     const start = utc(job.startTimeUtc);
@@ -634,14 +635,15 @@ export async function status(ctx) {
     } else if (capacityBusy(latest.failureReason)) busyNote(ctx, 'run');
   }
 
-  if (config.firstRun?.jobId && !TERMINAL.has(config.firstRun.status ?? '') && config.firstRun.status !== 'Incomplete') {
-    const job = jobs.find((j) => j.id === config.firstRun?.jobId);
-    if (job && TERMINAL.has(job.status)) {
-      const runs = job.status === 'Completed' ? await activityRuns(ctx, job.id, job) : null;
-      config.firstRun = { ...config.firstRun, status: firstRunStatus(config, job.status, runs), finishedAt: utc(job.endTimeUtc)?.toISOString() };
-      ctx.save();
-    }
+  // From every run, not only those shown: the first load may have finished several runs ago.
+  const firstJob = config.firstRun?.jobId ? all.find((j) => j.id === config.firstRun?.jobId) : undefined;
+  if (firstJob && !TERMINAL.has(config.firstRun?.status ?? '') && config.firstRun?.status !== 'Incomplete' && TERMINAL.has(firstJob.status)) {
+    const runs = firstJob.status === 'Completed' ? await activityRuns(ctx, firstJob.id, firstJob) : null;
+    config.firstRun = { ...config.firstRun, status: firstRunStatus(config, firstJob.status, runs), finishedAt: utc(firstJob.endTimeUtc)?.toISOString() };
+    ctx.save();
   }
+  // Whether the history has loaded, decided as `run` decides it. A first load that's going isn't asked about until it ends.
+  const loaded = firstJob && fabricJobGoing(firstJob, ctx.now().getTime()) ? config.firstRun?.status === 'Completed' : await historyLoaded(ctx, all);
 
   for (const m of [sm, cm, am]) {
     if (!m?.id) continue;
@@ -681,7 +683,7 @@ export async function status(ctx) {
       ui.note(`It hasn't run yet. Run "${commandLine('check')}" to see what the pipeline loaded.`);
     }
   }
-  await fabricHistory(ctx, { jobs, summary });
+  await fabricHistory(ctx, { jobs: all, summary, loaded });
 }
 
 /**
