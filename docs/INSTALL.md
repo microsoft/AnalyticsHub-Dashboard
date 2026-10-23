@@ -57,7 +57,12 @@ When it finishes: [Check it worked](#check-it-worked).
    3. **Capacity and workspace.** A new workspace is named `Analytics Hub` and its Lakehouse
       `Analytics_Hub`, or the next free name. F64 or larger is recommended for more than 10,000
       people. An existing install keeps its names. On Azure: the subscription, resource group,
-      region and Power BI workspace.
+      region and Power BI workspace. Each workspace choice says what it needs. **Create a new
+      workspace** needs the *Create workspaces* tenant setting on for you, and on Azure a Power BI
+      Pro or Premium Per User licence. An existing workspace needs Admin or Member on it, or Admin
+      if it has to move onto the capacity; on Fabric, only those are listed. If you're a Fabric
+      admin and the setting leaves you out, the default is an existing workspace, if you have one.
+      See [Prerequisites](PREREQUISITES.md#you-the-person-who-runs-the-installer).
    4. **App registration:** create one, use your own (it's checked first), or let an admin
       register it. On Azure there are two apps: create them, use the ones an admin created for you,
       or have an admin create them from a script the installer writes, before anything is

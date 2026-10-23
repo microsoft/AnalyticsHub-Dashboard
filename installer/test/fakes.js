@@ -1318,6 +1318,8 @@ export function fakePowerBi() {
     },
     createGroup: async (/** @type {string} */ name) => {
       calls.push(`createGroup ${name}`);
+      const err = failures.createGroup?.shift();
+      if (err) throw err;
       return { id: 'pbi-ws-1', name };
     },
     deleteGroup: async (/** @type {string} */ id) => {

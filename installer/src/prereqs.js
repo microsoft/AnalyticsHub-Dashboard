@@ -13,7 +13,8 @@ import { AUDIT_CHECK_FAILS, AUDIT_CHECK_LABELS, AUDIT_ROLE, PURVIEW_AUDIT_URL } 
 import { adoptableApps, AZURE_APPS, appsRecorded, webAppGranted } from './steps/azure/apps.js';
 import { flowsWanted, ppApiFlows } from './steps/flows.js';
 import { canWriteSecrets } from './steps/identity.js';
-import { blockedSettings, POWER_BI_SETTINGS, settingLabel, usableCapacity, workspacesOnCapacity } from './steps/plan.js';
+import { WORKSPACE_ROLE } from './steps/fabric.js';
+import { blockedSettings, CREATE_WORKSPACES_FIX, createWorkspacesAccess, myGroups, POWER_BI_SETTINGS, settingLabel, usableCapacity, workspacesOnCapacity } from './steps/plan.js';
 import { rlsOn } from './transform/access.js';
 
 /**
@@ -79,10 +80,10 @@ const PIM_UNREAD = ' Couldn\'t check for roles you could activate yourself.';
  */
 export function settingsToConfirm(config) {
   const azure = config.target === 'azure';
-  // Without a recorded workspace, the installer creates one.
+  // Only while there's no workspace: the installer then creates one, unless you choose an existing one.
   const workspace = azure ? config.azure?.powerBi?.workspaceId : config.fabric?.workspaceId;
   return [
-    ...(workspace ? [] : ['"Create workspaces"']),
+    ...(workspace ? [] : [`"Create workspaces" (only to create a new workspace, not to use an existing one you're an ${WORKSPACE_ROLE} of)`]),
     ...(azure ? [] : ['"Users can create Fabric items"']),
     // As blockedSettings is asked below: the app's settings on Fabric, and on Azure the one its web app needs; the reports' always.
     ...POWER_BI_SETTINGS.filter((s) => !azure || !s.app || s.web).map((s) => settingLabel(s)),
@@ -636,21 +637,36 @@ export async function checkPrereqs(ctx, opts = {}) {
         howTo: `A Fabric administrator turns them on, for everyone or for a group you're in, in Fabric under Admin portal > Tenant settings: ${TENANT_SETTINGS_URL}`,
       },
       async () => {
-        /** @type {any[]} */
+        /** @type {any[] | undefined} */
         let list;
         try {
           list = await api.fabric.tenantSettings();
         } catch {
+          // Only Fabric administrators can read them.
+        }
+        // An empty list says nothing about them, so it's no more "on" than an unreadable one.
+        if (!list?.length) {
           const xmla = rlsOn(config) ? ' The capacity\'s XMLA endpoint must also be Read Write, which a capacity admin sets.' : '';
+          const why = list ? 'Fabric returned no tenant settings. Ask a Fabric administrator' : 'only a Fabric administrator can read tenant settings. Ask one';
           return {
             status: 'unknown',
-            detail: `Couldn't check: only a Fabric administrator can read tenant settings. Ask one to confirm these are on for you, or for a group you're in: ${settingsToConfirm(config).join('; ')}.${xmla}`,
+            detail: `Couldn't check: ${why} to confirm these are on for you, or for a group you're in: ${settingsToConfirm(config).join('; ')}.${xmla}`,
           };
         }
         const byName = Object.fromEntries(list.map((s) => [s.settingName, s]));
         const off = blockedSettings(byName, { app: !azure, web: azure, reports: true });
-        return off.length
-          ? { status: 'missing', detail: `Off: ${off.map((s) => settingLabel(s, byName[s.name]?.title)).join('; ')}.` }
+        // Only while there's no workspace yet. An existing one you're an Admin or Member of works without it.
+        const workspace = azure ? config.azure?.powerBi?.workspaceId : config.fabric?.workspaceId;
+        const create = workspace ? undefined : await createWorkspacesAccess(list, myGroups(api));
+        const offLine = off.length ? `Off: ${off.map((s) => settingLabel(s, byName[s.name]?.title)).join('; ')}.` : '';
+        const existing = `Or use an existing workspace you're an ${WORKSPACE_ROLE} of.`;
+        if (create?.status === 'missing') {
+          return { status: 'missing', detail: [offLine, `${create.reason} ${CREATE_WORKSPACES_FIX} ${existing}`].filter(Boolean).join(' ') };
+        }
+        const unsure = create?.status === 'unknown' ? `Couldn't confirm "Create workspaces": ${create.reason} If it leaves you out, use an existing workspace you're an ${WORKSPACE_ROLE} of.` : '';
+        if (off.length) return { status: 'missing', detail: [offLine, unsure].filter(Boolean).join(' ') };
+        return unsure
+          ? { status: 'unknown', detail: `The other settings Analytics Hub needs are on. ${unsure}` }
           : { status: 'met', detail: 'The settings Analytics Hub needs are on.' };
       },
     ),

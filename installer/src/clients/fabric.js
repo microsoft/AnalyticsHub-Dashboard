@@ -201,8 +201,25 @@ export function fabricApi(http) {
      */
     updateRoleAssignment: (workspaceId, assignmentId, role) => http.patch(`/workspaces/${workspaceId}/roleAssignments/${assignmentId}`, { role }),
 
-    /** Tenant settings. Needs a Fabric administrator; others get 401 or 403. */
-    tenantSettings: async () => /** @type {any[]} */ ((await http.get('/admin/tenantsettings'))?.tenantSettings ?? []),
+    /**
+     * Tenant settings, every page. Needs a Fabric administrator; others get 401 or 403. Learn documents the list
+     * under `value`, with a `continuationUri` to the next page; `tenantSettings` is the older shape.
+     * @returns {Promise<any[]>}
+     */
+    tenantSettings: async () => {
+      /** @type {any[]} */
+      const settings = [];
+      const seen = new Set();
+      /** @type {string | undefined} */
+      let next = '/admin/tenantsettings';
+      while (next && !seen.has(next)) {
+        seen.add(next);
+        const page = await http.get(next);
+        settings.push(...(page?.value ?? page?.tenantSettings ?? []));
+        next = page?.continuationUri ?? undefined;
+      }
+      return settings;
+    },
 
     /** @param {string} workspaceId @param {string} displayName @param {any} definition @param {ItemRef} [ref] */
     createSemanticModel: (workspaceId, displayName, definition, ref) =>

@@ -66,7 +66,7 @@ function planCtx(o = {}) {
   t.config.target = 'azure';
   t.config.azure = structuredClone({ ...BASE, ...o.azure, ...(o.powerBi ? { powerBi: o.powerBi } : {}) });
   return {
-    ...t, fabric, u,
+    ...t, fabric, powerBi, u,
     pbi: () => /** @type {any} */ (t.config.azure).powerBi,
     /** @param {{ answer?: string, yes?: boolean, section?: string, seats?: number }} [p] */
     async plan(p = {}) {
@@ -207,6 +207,35 @@ test('Azure capacity: a --yes Repair leaves a shared-capacity workspace where it
     assert.equal(t.fabric.workspaceCapacities['pbi-ws-1'], undefined, what);
     assert.equal(q.def, NONE, what);
   }
+});
+
+test('Azure capacity: when setup stopped after creating the workspace, a --yes Repair keeps it off a capacity', async () => {
+  // The workspace is created first, so a run can stop with it made and nothing deployed.
+  const t = planCtx();
+  await t.plan({ answer: NONE });
+  const arm = t.ctx.api.arm;
+  const ensureResourceGroup = arm.ensureResourceGroup;
+  arm.ensureResourceGroup = async () => {
+    throw new Error('Resource group refused');
+  };
+  await assert.rejects(t.deploy(), /Resource group refused/);
+  assert.equal(t.pbi().workspaceId, 'pbi-ws-1');
+  assert.equal(t.pbi().createdWorkspace, true);
+  assert.equal(/** @type {any} */ (t.config.azure).deploymentConfig, undefined, 'nothing deployed');
+
+  const before = t.u.asked.length;
+  const q = await t.plan({ yes: true });
+  assert.equal(q.def, NONE);
+  assert.equal(t.pbi().capacityId, undefined);
+  assert.equal(t.pbi().sharedCapacity, true);
+  assert.ok(!t.u.asked.slice(before).includes('Power BI workspace'), 'the workspace it created is kept without asking');
+  assert.equal(t.pbi().createdWorkspace, true, 'so Uninstall still deletes it');
+
+  arm.ensureResourceGroup = ensureResourceGroup;
+  assert.equal(await t.deploy(), true);
+  assert.deepEqual(t.fabric.calls.filter((c) => c.startsWith('assignToCapacity')), [], 'not moved onto a capacity');
+  assert.equal(t.fabric.workspaceCapacities['pbi-ws-1'], undefined);
+  assert.deepEqual(t.powerBi.calls.filter((c) => c.startsWith('createGroup')), ['createGroup Analytics Hub'], 'created once');
 });
 
 test('Azure capacity: with no saved capacity to offer, a Repair offers where the workspace is', async () => {

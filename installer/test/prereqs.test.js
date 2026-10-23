@@ -30,7 +30,8 @@ function fakeApis(over = {}) {
     graph: {
       myDirectoryRoles: async () => over.roles ?? [{ roleTemplateId: GA, displayName: 'Global Administrator' }, { roleTemplateId: FABRIC_ADMIN_ROLE, displayName: 'Fabric Administrator' }],
       myEligibleRoles: over.eligible ?? (async () => []),
-      myGroupIds: async () => ['group-1'],
+      myGroupIds: async () => over.myGroups ?? ['group-1'],
+      myDirectGroupIds: async () => over.directGroups ?? ['group-1'],
       myLicenseDetails: async () => over.licences ?? [{ servicePlans: [{ servicePlanName: 'BI_AZURE_P2', provisioningStatus: 'Success' }] }],
       subscribedSkus: over.skusFn ?? (async () => over.skus ?? []),
       usersCanRegisterApps: async () => over.usersCanRegister ?? true,
@@ -623,13 +624,14 @@ test('checkPrereqs: tenant settings that can\'t be read name each one to confirm
   const azure = emptyConfig();
   azure.target = 'azure';
   const az = settingsToConfirm(azure);
-  assert.ok(az.includes('"Create workspaces"'));
+  const createWorkspaces = (/** @type {string[]} */ list) => list.find((s) => s.startsWith('"Create workspaces"'));
+  assert.equal(createWorkspaces(az), '"Create workspaces" (only to create a new workspace, not to use an existing one you\'re an Admin or Member of)');
   assert.ok(!az.includes('"Users can create Fabric items"'), 'Fabric only');
   assert.ok(!az.some((s) => /Fabric apps/.test(s)), 'the Fabric app is Fabric only');
   assert.ok(az.includes('"Semantic Model Execute Queries REST API"'), 'Azure\'s web app queries the model through it');
   assert.ok(az.includes('"Allow visuals created using the Power BI SDK"'));
   azure.azure = /** @type {any} */ ({ powerBi: { workspaceId: 'ws-2' } });
-  assert.ok(!settingsToConfirm(azure).includes('"Create workspaces"'));
+  assert.equal(createWorkspaces(settingsToConfirm(azure)), undefined);
 });
 
 test('checkPrereqs: tenant settings that can be read name the ones that are off by their titles in the API', async () => {
@@ -648,10 +650,74 @@ test('checkPrereqs: tenant settings that can be read name the ones that are off 
   const settings = async () => [
     { settingName: 'DatasetExecuteQueries', title: 'Semantic Model Execute Queries REST API', enabled: false },
     { settingName: 'AppBackendTenant', title: 'The Fabric apps toggle', enabled: false },
+    { settingName: 'CreateAppWorkspaces', title: 'Create workspaces', enabled: true },
   ];
   const az = (await run({ subs: [], tenantSettings: settings }, azure))['tenant-settings'];
   assert.equal(az.status, 'missing', 'Azure\'s web app queries the model through it');
   assert.equal(az.detail, 'Off: "Semantic Model Execute Queries REST API".', 'the Fabric app\'s setting is Fabric only');
+});
+
+test('checkPrereqs: "Create workspaces", when it can be read, counts you in or out by the security groups it names, and points to an existing workspace', async () => {
+  const FIX = 'As a Fabric administrator, you can turn it on for you, or for a group you\'re in, in Fabric under Admin portal > Tenant settings.';
+  const EXISTING = 'Or use an existing workspace you\'re an Admin or Member of.';
+  /** @param {string} graphId @param {string} name */
+  const group = (graphId, name) => ({ graphId, name });
+  /** The tenant settings row, with "Create workspaces" as given. @param {any} create @param {any} [over] @param {any[]} [others] */
+  const tenant = async (create, over = {}, others = []) =>
+    (await run({ ...over, tenantSettings: async () => [...others, { settingName: 'CreateAppWorkspaces', title: 'Create workspaces', ...create }] }))['tenant-settings'];
+
+  const everyone = await tenant({ enabled: true });
+  assert.equal(everyone.status, 'met');
+  assert.equal(everyone.detail, 'The settings Analytics Hub needs are on.');
+  assert.equal((await tenant({ enabled: true, enabledSecurityGroups: [group('GROUP-1', 'Analysts')] })).status, 'met', 'a group you\'re in, whatever the case of its ID');
+  assert.equal((await tenant({ enabled: true, excludedSecurityGroups: [group('group-2', 'Finance')] })).status, 'met', 'excluding only groups you\'re not in');
+
+  const excluded = await tenant({ enabled: true, excludedSecurityGroups: [group('group-1', 'Contractors')] });
+  assert.equal(excluded.status, 'missing');
+  assert.equal(excluded.detail, `"Create workspaces" excludes the group "Contractors", which you're in. ${FIX} ${EXISTING}`);
+
+  const others = await tenant({ enabled: true, enabledSecurityGroups: [group('group-2', 'Finance'), group('group-3', 'HR')] });
+  assert.equal(others.status, 'missing');
+  assert.equal(others.detail, `"Create workspaces" is on only for groups you're not in: "Finance", "HR". ${FIX} ${EXISTING}`);
+
+  const executeQueries = { settingName: 'DatasetExecuteQueries', title: 'Semantic Model Execute Queries REST API', enabled: false };
+  const off = await tenant({ enabled: false }, {}, [executeQueries]);
+  assert.equal(off.status, 'missing');
+  assert.equal(off.detail, `Off: "Semantic Model Execute Queries REST API". "Create workspaces" is off for the whole organization. ${FIX} ${EXISTING}`);
+
+  // In group-2 only through group-1.
+  const nested = await tenant({ enabled: true, enabledSecurityGroups: [group('group-2', 'Finance')] }, { myGroups: ['group-1', 'group-2'] });
+  assert.equal(nested.status, 'unknown');
+  assert.equal(
+    nested.detail,
+    'The other settings Analytics Hub needs are on. Couldn\'t confirm "Create workspaces": it\'s on for the group "Finance", which you\'re in only through another group. ' +
+      'Learn doesn\'t say whether that counts. If it leaves you out, use an existing workspace you\'re an Admin or Member of.',
+  );
+  const nestedOff = await tenant({ enabled: true, excludedSecurityGroups: [group('group-2', 'Finance')] }, { myGroups: ['group-1', 'group-2'] }, [executeQueries]);
+  assert.equal(nestedOff.status, 'missing', 'another setting is off');
+  assert.match(nestedOff.detail, /^Off: "Semantic Model Execute Queries REST API"\. Couldn't confirm "Create workspaces": it excludes the group "Finance", which you're in only through another group\./);
+
+  const absent = (await run({ tenantSettings: async () => [{ ...executeQueries, enabled: true }] }))['tenant-settings'];
+  assert.equal(absent.status, 'unknown', 'not in a list that has others isn\'t on');
+  assert.match(absent.detail, /Couldn't confirm "Create workspaces": it isn't among the tenant settings Fabric returned\./);
+
+  const empty = (await run({ tenantSettings: async () => [] }))['tenant-settings'];
+  assert.equal(empty.status, 'unknown', 'an empty list isn\'t "on"');
+  assert.match(empty.detail, /^Couldn't check: Fabric returned no tenant settings\. Ask a Fabric administrator to confirm these are on for you, or for a group you're in: "Create workspaces" \(only to create a new workspace/);
+
+  const recorded = emptyConfig();
+  recorded.fabric.workspaceId = 'ws-1';
+  const refused = async () => [{ settingName: 'CreateAppWorkspaces', title: 'Create workspaces', enabled: false }];
+  assert.equal((await run({ tenantSettings: refused }, recorded))['tenant-settings'].status, 'met', 'a recorded workspace needs no new one');
+  assert.equal((await run({ subs: [], tenantSettings: refused }, azureConfig({ powerBi: { workspaceId: 'pbi-ws-1' } })))['tenant-settings'].status, 'met', 'nor on Azure');
+  assert.equal((await run({ subs: [], tenantSettings: refused }, azureConfig()))['tenant-settings'].status, 'missing', 'Azure creates a Power BI workspace too');
+
+  const unread = { myDirectGroupIds: async () => { throw new HttpError('403', { method: 'GET', url: 'x', status: 403 }); } };
+  const whole = await runWith({ tenantSettings: async () => [{ settingName: 'CreateAppWorkspaces', title: 'Create workspaces', enabled: true }] }, emptyConfig(), unread);
+  assert.equal(whole['tenant-settings'].status, 'met', 'your groups are read only when the setting names some');
+  const scoped = await runWith({ tenantSettings: async () => [{ settingName: 'CreateAppWorkspaces', title: 'Create workspaces', enabled: true, enabledSecurityGroups: [group('group-1', 'Analysts')] }] }, emptyConfig(), unread);
+  assert.equal(scoped['tenant-settings'].status, 'unknown');
+  assert.match(scoped['tenant-settings'].detail, /Couldn't confirm "Create workspaces": it's on only for some security groups, and the installer couldn't read the groups you're in\./);
 });
 
 test('checkPrereqs: with no capacity to create a workspace on, an Admin or Member workspace on a capacity is enough', async () => {
@@ -957,6 +1023,42 @@ test('preflight: with no capacity to create a workspace on, an Admin or Member w
 
   const offCapacity = preflightCtx({ capacities: [], workspaces: [{ id: 'ws-b', displayName: 'Shared', type: 'Workspace' }] });
   await assert.rejects(preflight(offCapacity.ctx), /Or ask to be an Admin or Member of a workspace that's already on a capacity/);
+});
+
+test('preflight: when "Create workspaces" leaves you out, --yes stops before anything is created and names both ways forward; without --yes the plan gets the reason', async () => {
+  const settings = async () => [{ settingName: 'CreateAppWorkspaces', title: 'Create workspaces', enabled: true, excludedSecurityGroups: [{ graphId: 'group-1', name: 'Contractors' }] }];
+  for (const target of ['fabric', 'azure']) {
+    const config = () => (target === 'azure' ? azureConfig() : plainConfig());
+    const yes = preflightCtx({ tenantSettings: settings }, { yes: true, config: config() });
+    await assert.rejects(preflight(yes.ctx), (err) => {
+      assert.equal(
+        /** @type {Error} */ (err).message,
+        'With --yes the installer creates a workspace. As a Fabric administrator, you can turn it on for you, or for a group you\'re in, in Fabric under Admin portal > Tenant settings. Then run it again. ' +
+          'Or run it without --yes and choose an existing workspace you\'re an Admin or Member of.',
+        target,
+      );
+      return true;
+    });
+    const text = yes.t.text();
+    assert.match(text, /You can't create a workspace: "Create workspaces" excludes the group "Contractors", which you're in\./, target);
+    assert.ok(text.indexOf('Fabric tenant settings') < text.indexOf('You can\'t create a workspace:'), 'after the prerequisites');
+
+    const asked = preflightCtx({ tenantSettings: settings }, { config: config() });
+    const pre = await preflight(asked.ctx);
+    assert.deepEqual(pre.createWorkspaces, { status: 'missing', reason: '"Create workspaces" excludes the group "Contractors", which you\'re in.' }, target);
+    assert.doesNotMatch(asked.t.text(), /You can't create a workspace:/, 'the workspace question says it');
+
+    const recorded = config();
+    if (target === 'azure') /** @type {any} */ (recorded.azure).powerBi = { workspaceId: 'pbi-ws-1' };
+    else recorded.fabric.workspaceId = 'ws-1';
+    const kept = preflightCtx({ tenantSettings: settings }, { yes: true, config: recorded });
+    assert.equal((await preflight(kept.ctx)).createWorkspaces, undefined, `${target}: a recorded workspace needs no new one`);
+
+    for (const tenantSettings of [undefined, async () => []]) {
+      const unread = preflightCtx({ tenantSettings }, { yes: true, config: config() });
+      assert.equal((await preflight(unread.ctx)).createWorkspaces, undefined, `${target}: settings it can't read don't stop it`);
+    }
+  }
 });
 
 test('reportPreflight: nothing missing says so; an update warns and carries on; no checks says where to find them', () => {

@@ -21,7 +21,8 @@ import { APP_ALIAS, CONSUMPTION_ALIAS, EVALUATOR_ALIAS } from '../app.js';
 import { AZURE_AI_ROLES, ensureAzureAiAccess, planConsumption } from '../consumption.js';
 import { AZURE_LANDING_DIRS, azureDropLabel, azureDropsToSharePoint, ensureFlows, flowsSummary, flowsWanted, offerStudioRun, planFlows } from '../flows.js';
 import { DEFAULT_CURRENCY } from '../../currency.js';
-import { askMoreHistory, askReportingCurrency, editSchedule, HISTORY_CHOICES, isGuid, keepAwake, planCosts, PRICING, reloadLine } from '../plan.js';
+import { askMoreHistory, askReportingCurrency, CREATE_WORKSPACES_FIX, editSchedule, HISTORY_CHOICES, isGuid, keepAwake, planCosts, PRICING, reloadLine } from '../plan.js';
+import { WORKSPACE_ROLE } from '../fabric.js';
 import { ensureResourceGraphAccess, planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from '../resource-graph.js';
 import { DATA_SOURCES } from '../../uploads.js';
 import { normaliseResourceGraph } from '../../config.js';
@@ -261,6 +262,19 @@ export async function resourcesIn(arm, subscriptionId, resourceGroup) {
 export const deploymentPinned = (az, resources) =>
   !!az.outputs?.sqlServerFqdn || !!az.deployments?.length || resources.some((r) => r.tags?.['valuelens-install-id'] === az.installId);
 
+/** What creating the Power BI workspace takes. It's created without a capacity, so a free licence isn't enough. */
+const AZURE_NEW_WORKSPACE_NEEDS = 'Needs the "Create workspaces" tenant setting on for you, or for a group you\'re in, and a Power BI Pro or Premium Per User licence.';
+
+/**
+ * What using an existing Power BI workspace takes: enough to add the managed identity and share the models, or Admin
+ * when it has to move onto the capacity you chose.
+ * @param {{ isOnDedicatedCapacity?: boolean }} group @param {string} capacityId  The capacity chosen, or '' for none.
+ */
+const azureWorkspaceNeeds = (group, capacityId) =>
+  capacityId && group.isOnDedicatedCapacity === false
+    ? 'It isn\'t on a capacity yet, so it needs Admin on it, to move it onto the capacity you chose.'
+    : `Needs ${WORKSPACE_ROLE} on it.`;
+
 /** @param {Ctx} ctx @param {any} pre @param {string} [section] */
 export async function planAzure(ctx, pre, section) {
   const { ui, config, api } = ctx;
@@ -466,17 +480,51 @@ export async function planAzure(ctx, pre, section) {
     az.powerBi.capacityId = capacityId || undefined;
     if (capacityId) delete az.powerBi.sharedCapacity;
     else az.powerBi.sharedCapacity = true;
-    const groups = await api.powerBi.groups().catch(() => []);
-    const wsChoice = await ui.select('Power BI workspace', [{ name: 'Create a new workspace', value: 'new' }, ...groups.map((g) => ({ name: `Use "${g.name}"`, value: g.id }))], az.powerBi?.workspaceId ?? 'new');
-    // Uninstall deletes only a workspace the installer created, never one picked here.
-    if (wsChoice !== 'new' && wsChoice !== az.powerBi.workspaceId) delete az.powerBi.createdWorkspace;
-    if (wsChoice === 'new') {
-      if (az.powerBi.workspaceId && (az.deploymentConfig || az.powerBi.datasetId || az.powerBi.gatewayId)) throw new Error('The workspace is already in use by this install. Keep it; use a separate install record for a different workspace.');
+    const listed = await api.powerBi.groups().catch(() => undefined);
+    const groups = listed ?? [];
+    // A run that stopped before the resource group can leave the workspace it created, which nothing uses yet. It's
+    // kept without asking, as Uninstall deletes only a workspace the installer created; forgotten only once it's gone.
+    const made = az.powerBi.createdWorkspace && !az.deploymentConfig ? az.powerBi.workspaceId : undefined;
+    const kept = made && (!listed || listed.some((g) => g.id === made));
+    if (made && !kept) {
       delete az.powerBi.workspaceId;
       delete az.powerBi.createdWorkspace;
-      az.workspaceName = await ui.input('New Power BI workspace name', { default: az.workspaceName ?? 'Analytics Hub' });
     }
-    else az.powerBi.workspaceId = wsChoice;
+    if (kept) ui.ok(`Power BI workspace: "${groups.find((g) => g.id === made)?.name ?? az.workspaceName ?? 'Analytics Hub'}", which the installer created`);
+    else {
+      // Only a Fabric administrator's tenant settings say so; with --yes, preflight has already stopped.
+      const useExisting = !az.powerBi.workspaceId && pre.createWorkspaces?.status === 'missing' && !ui.yes;
+      // Get Groups doesn't say what your role is; List Workspaces can, for the default.
+      const mine = useExisting ? new Set((await api.fabric.listWorkspaces(['Admin', 'Member']).catch(() => [])).map((w) => w.id)) : undefined;
+      const candidates = mine ? groups.filter((g) => mine.has(g.id)) : [];
+      // Preferably one where Member is enough: it needn't move onto the capacity.
+      const fallback = (candidates.find((g) => !capacityId || g.isOnDedicatedCapacity !== false) ?? candidates[0])?.id;
+      if (useExisting) {
+        ui.note(
+          fallback
+            ? `You can't create a workspace: ${pre.createWorkspaces.reason} So the default is a workspace you're an ${WORKSPACE_ROLE} of.`
+            : `You can't create a workspace: ${pre.createWorkspaces.reason} ${CREATE_WORKSPACES_FIX} ` +
+                `Or ask for ${WORKSPACE_ROLE} on an existing workspace. Then run the installer again.`,
+        );
+      }
+      const wsChoice = await ui.select(
+        'Power BI workspace',
+        [
+          { name: 'Create a new workspace', value: 'new', description: AZURE_NEW_WORKSPACE_NEEDS },
+          ...groups.map((g) => ({ name: `Use "${g.name}"`, value: g.id, description: azureWorkspaceNeeds(g, capacityId) })),
+        ],
+        az.powerBi?.workspaceId ?? fallback ?? 'new',
+      );
+      // Uninstall deletes only a workspace the installer created, never one picked here.
+      if (wsChoice !== 'new' && wsChoice !== az.powerBi.workspaceId) delete az.powerBi.createdWorkspace;
+      if (wsChoice === 'new') {
+        if (az.powerBi.workspaceId && (az.deploymentConfig || az.powerBi.datasetId || az.powerBi.gatewayId)) throw new Error('The workspace is already in use by this install. Keep it; use a separate install record for a different workspace.');
+        delete az.powerBi.workspaceId;
+        delete az.powerBi.createdWorkspace;
+        az.workspaceName = await ui.input('New Power BI workspace name', { default: az.workspaceName ?? 'Analytics Hub' });
+      }
+      else az.powerBi.workspaceId = wsChoice;
+    }
     if (large && (await modelOnSharedCapacity(ctx))) ui.warn(sharedCapacityWarning(pre.seats ?? 0));
   }
   if (editing('access')) {
@@ -744,7 +792,7 @@ async function chooseApp(ctx, pre, api, key, found) {
 
 /**
  * Records an app an admin made, so uninstall leaves it. Its service principal must exist, or the user must be able
- * to create it in install step 1.
+ * to create it in install step 2.
  * @param {Ctx} ctx @param {AppRights | undefined} pre @param {import('./apps.js').AzureAppKey} key @param {any} app
  */
 async function adoptApp(ctx, pre, key, app) {
@@ -800,7 +848,7 @@ export async function azureAppsGate(ctx, pre) {
     }
     return;
   }
-  // Install step 1 creates the apps.
+  // Install step 2 creates the apps.
   if (!az.adminScript && (!ui.yes || pre?.canCreateApps !== false)) return;
   az.adminScript = writeAzureAdminScript(ctx, await webAppScopes(api, config));
   ctx.save();
@@ -1819,7 +1867,7 @@ export async function installAzure(ctx, opts) {
   // database user the migrate job creates. So with public endpoints the models are bound after 'Database migration'.
   const bindAfterMigration = !isPrivate(az);
   const titles = [
-    'Entra applications', 'Resource group', 'Azure resources', 'Entra application settings', 'Microsoft Graph permissions', ...(consumption ? ['Credit consumption'] : []), ...(agent365 ? ['Agent 365 export'] : []),
+    'Power BI workspace', 'Entra applications', 'Resource group', 'Azure resources', 'Entra application settings', 'Microsoft Graph permissions', ...(consumption ? ['Credit consumption'] : []), ...(agent365 ? ['Agent 365 export'] : []),
     ...(feedback ? ['Product feedback export'] : []), ...(workday ? ['Workday export'] : []), ...(resourceGraph ? ['Resource Graph access'] : []),
     ...(askAccess ? ['Ask model access'] : []), ...(azureTranscriptStepWanted(config) ? ['Transcript access'] : []),
     'Power BI model', ...(withAccess ? ['Viewer access'] : []), 'Azure resources (final)', 'Database migration',
@@ -1829,7 +1877,12 @@ export async function installAzure(ctx, opts) {
   let n = 0;
   const step = (/** @type {string} */ title) => ui.step(++n, titles.length, title);
 
-  // Before anything in Azure: when an admin has to make the apps, nothing is created or billed.
+  // First, as it's free: when Power BI won't let you create a workspace, nothing in Entra or Azure has been made.
+  // Putting it on a capacity waits for 'Power BI model'.
+  step('Power BI workspace');
+  await ensureAzurePowerBiWorkspace(ctx);
+
+  // Before anything in Azure: when an admin has to make the apps, nothing in Azure is created or billed.
   step('Entra applications');
   const apps = await createAzureApps(ctx);
   ctx.save();
@@ -2048,12 +2101,13 @@ function recordDeployment(az, deployment) {
   az.deployments.push({ at: new Date().toISOString(), name: deployment?.name ?? 'valuelens', outputs: flat });
 }
 
-/** A refusal from Entra: the user isn't allowed to make this change. @param {unknown} err */
+/** A refusal, from Entra or Power BI: the user isn't allowed to make this change. @param {unknown} err */
 const refused = (err) => err instanceof HttpError && (err.status === 401 || err.status === 403);
 
 /**
- * Install step 1, before anything in Azure: the two app registrations and their service principals, or the ones an
- * admin made, confirmed. The web app gets its redirect URIs and identifier URI once the deploy gives it an address.
+ * Install step 2, after the free Power BI workspace and before anything in Azure: the two app registrations and their
+ * service principals, or the ones an admin made, confirmed. The web app gets its redirect URIs and identifier URI once
+ * the deploy gives it an address.
  * When Entra refuses, the installer writes the admin script and stops. Apps it made in this run stay recorded, and
  * the script uses them.
  * @param {Ctx} ctx
@@ -2289,6 +2343,39 @@ async function assignManagedIdentityGraphRoles(ctx) {
 }
 
 /**
+ * Install step 1: the Power BI workspace, unless the install has one. It's free, so it comes before anything in Entra
+ * or Azure: when Power BI refuses, nothing else has been made. Re-runs reuse it, and Uninstall deletes it. It goes on
+ * the chosen capacity with the models, in deployAzurePowerBi.
+ * @param {Ctx} ctx
+ */
+async function ensureAzurePowerBiWorkspace(ctx) {
+  const { config, api, ui } = ctx;
+  const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
+  az.powerBi ??= {};
+  if (az.powerBi.workspaceId) return;
+  const name = az.workspaceName ?? 'Analytics Hub';
+  /** @type {any} */
+  let g;
+  try {
+    g = await api.powerBi.createGroup(name);
+  } catch (err) {
+    if (!refused(err)) throw err;
+    // Learn documents no error codes for Create Group, so this names each cause.
+    throw new ResumeLater(
+      `Power BI didn't let you create the workspace "${name}" (${/** @type {Error} */ (err).message.split('\n')[0]}), so the installer stopped before anything in Entra or Azure. ` +
+        'Either the "Create workspaces" tenant setting doesn\'t include you: ask a Fabric administrator to turn it on for you, or for a group you\'re in. ' +
+        'Or your Power BI licence is the free one: creating a workspace takes Pro or Premium Per User. ' +
+        `Or ask for ${WORKSPACE_ROLE} on an existing workspace${az.powerBi.capacityId ? ' that\'s already on a capacity' : ''}. ` +
+        `Then run "${commandLine('install')}" again, and for the Power BI workspace choose that one, or "Create a new workspace".`,
+    );
+  }
+  az.powerBi.workspaceId = g.id;
+  az.powerBi.createdWorkspace = true;
+  ui.ok(`Created Power BI workspace ${name}`);
+  ctx.save();
+}
+
+/**
  * Deploys the Power BI workspace and models. Binding them to Azure SQL is bindAzurePowerBi's.
  * @param {Ctx} ctx
  */
@@ -2296,13 +2383,8 @@ async function deployAzurePowerBi(ctx) {
   const { config, api, ui, sources } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
   az.powerBi ??= {};
-  if (!az.powerBi.workspaceId) {
-    const g = await api.powerBi.createGroup(az.workspaceName ?? 'Analytics Hub');
-    az.powerBi.workspaceId = g.id;
-    az.powerBi.createdWorkspace = true;
-    ui.ok(`Created Power BI workspace ${az.workspaceName ?? 'Analytics Hub'}`);
-    ctx.save();
-  }
+  // Made at step 1; this covers a path that skipped it.
+  await ensureAzurePowerBiWorkspace(ctx);
   await ensureWorkspaceCapacity(ctx);
   if (az.outputs?.identityClientId) await api.powerBi.addGroupUser(/** @type {string} */ (az.powerBi.workspaceId), { identifier: az.outputs.identityPrincipalId ?? az.outputs.identityClientId, principalType: 'App', groupUserAccessRight: 'Member' }).catch((err) => { if (!/AddingAlreadyExists/i.test(String(err?.message) + JSON.stringify(err?.body ?? ''))) ui.warn(`Couldn't add the managed identity to the Power BI workspace: ${err.message}`); });
   if (!sources.modelFile) throw new Error('This checkout has no ValueLens model template to deploy.');
