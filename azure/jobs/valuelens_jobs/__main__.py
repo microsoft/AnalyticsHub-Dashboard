@@ -26,6 +26,8 @@ Data layout (same under a local directory or the ADLS account; first segment = c
                                                                also where the load had got to for the last process
                                                                step and the last publish, for `status`)
     raw/_state/refresh.json                                    (a full model refresh a later run still owes)
+    raw/_state/run.lock                                        (the run lock: leased by the run that's going, which
+                                                               records which run it is; see runlock.py)
     curated/copilot_interactions_curated/month-YYYYMM.parquet  (one file per month; month-none = no date)
     curated/_valuelens_process/state.json, context/            (incremental process bookkeeping)
     curated/<studio_* | viva_*>/part-0.parquet                 (module consumption, merged state)
@@ -59,8 +61,9 @@ from valuelens_core.incremental import (DEFAULT_INCREMENTAL_LOOKBACK_DAYS, NULL_
                                         processor_config_fingerprint)
 from valuelens_core.processor import conversation_predicate_sql, update_conversations
 
+from . import runlock
 from .config import Settings
-from .storage import LocalStore, open_store
+from .storage import LeaseHeld, LocalStore, open_store
 from .tables import parquet_glob, q
 
 log = logging.getLogger("valuelens_jobs")
@@ -795,11 +798,21 @@ def main(argv=None, env=None, clock=time.monotonic) -> int:
     }
 
     if args.cmd == "process":
-        process(LocalStore(args.data_dir), exclude_agent_identities=not args.keep_agent_identities,
-                include_raw_passthrough=args.raw_passthrough,
-                **{**process_options, "full_rebuild": args.full_rebuild or process_options["full_rebuild"]})
+        store = LocalStore(args.data_dir)
+        try:
+            lock = runlock.take(store, environ, settings, ["process"])
+        except LeaseHeld as held:
+            return runlock.stopped(held, ["process"], settings)
+        try:
+            process(store, exclude_agent_identities=not args.keep_agent_identities,
+                    include_raw_passthrough=args.raw_passthrough,
+                    **{**process_options, "full_rebuild": args.full_rebuild or process_options["full_rebuild"]})
+        finally:
+            if lock is not None:
+                lock.release()
         return 0
     if args.cmd == "migrate":
+        # No run lock: migrate doesn't open the store, and an install or update mustn't skip it.
         migrate_step(settings)
         return 0
     steps = [s.strip() for s in args.steps.split(",") if s.strip()]
@@ -807,21 +820,30 @@ def main(argv=None, env=None, clock=time.monotonic) -> int:
     if unknown:
         ap.error(f"unknown steps {unknown}; expected a subset of {list(STEPS)}")
     store = open_store(args.data_dir, settings) if {"collect", "process", "publish", "access"} & set(steps) else None
-    if store is not None and settings.sample_data:
-        import tempfile
-
-        # A throwaway store, so the tenant's collected data in Storage is neither read nor changed.
-        store = LocalStore(tempfile.mkdtemp(prefix="valuelens-sample-"))
-        log.warning("VALUELENS_SAMPLE_DATA is on: publishing the synthetic sample instead of tenant data")
+    # One run at a time (see runlock): a run that opens the store holds the run lock until it ends, and one that
+    # finds it held stops here. A refresh-only run has no store or state of its own, and Power BI waits while
+    # another refresh is going. A sample run holds it too, as it publishes to the same database.
+    lock = None
+    if store is not None:
+        try:
+            lock = runlock.take(store, environ, settings, steps)
+        except LeaseHeld as held:
+            return runlock.stopped(held, steps, settings)
     collect_errors = {}
     published = None
-    # The tenant's own data: not a sample run's throwaway store.
-    tenant = store is not None and not settings.sample_data
-    collects = "collect" in steps and tenant
-    budget = run_budget(store if tenant and {"collect", "process"} & set(steps) else None, environ, start=started,
-                        clock=clock, settle=collects)
-    recorded = False
+    collects = recorded = False
     try:
+        if store is not None and settings.sample_data:
+            import tempfile
+
+            # A throwaway store, so the tenant's collected data in Storage is neither read nor changed.
+            store = LocalStore(tempfile.mkdtemp(prefix="valuelens-sample-"))
+            log.warning("VALUELENS_SAMPLE_DATA is on: publishing the synthetic sample instead of tenant data")
+        # The tenant's own data: not a sample run's throwaway store.
+        tenant = store is not None and not settings.sample_data
+        collects = "collect" in steps and tenant
+        budget = run_budget(store if tenant and {"collect", "process"} & set(steps) else None, environ,
+                            start=started, clock=clock, settle=collects)
         for step in STEPS:
             if step not in steps:
                 continue
@@ -862,8 +884,13 @@ def main(argv=None, env=None, clock=time.monotonic) -> int:
                              clock=budget.clock, **owed)
             log.info("step %s: done", step)
     finally:
-        if collects and not recorded:
-            _close_merge(store)
+        try:
+            if collects and not recorded:
+                _close_merge(store)
+        finally:
+            if lock is not None:
+                lock.release()
+    # The run lock is released: what follows runs without it.
     if collect_errors:
         raise RuntimeError("the run published what it collected, but these sources failed and resume next run: "
                            + "; ".join(f"{k}: {v}" for k, v in collect_errors.items()))

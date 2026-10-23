@@ -180,9 +180,14 @@ sign-in broker: nothing loads them when the installer runs.
   Microsoft Graph ([Create permission](https://learn.microsoft.com/graph/api/site-post-permissions),
   delegated Sites.FullControl.All). **Check status** (`status`) keeps listing it after it's done.
 - **The schedule can start a run while another is going,** for example when a long first load
-  reaches the scheduled time. The installer doesn't, but the jobs don't hold a lock yet, and two
-  runs at once can leave some audit rows out. If `status` shows two runs of the run job going,
-  stop the newer one with the Azure CLI:
+  reaches the scheduled time. From 0.6.9 the run job holds a lock while a run is going, so the
+  second run stops straight away and changes nothing. Its log says which run is going and since
+  when. That run loads and publishes the history, so nothing needs stopping or reloading. A
+  history reload or org-scoped access that stops this way ends as failed, so nobody takes it as
+  done: once the other run has finished, run `run --backfill-days <n>` or `access` again.
+- **Before 0.6.9 the run job doesn't hold a lock,** and two runs at once can leave some audit rows
+  out. Run `update` to bring the new job image. Until then, if `status` shows two runs of the run
+  job going, stop the newer one with the Azure CLI:
   `az containerapp job execution list -n <run job> -g <resource group> -o table` shows when each
   started, and
   `az containerapp job stop -n <run job> -g <resource group> --job-execution-name <newer run>`
