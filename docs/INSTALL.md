@@ -40,8 +40,9 @@ When it finishes: [Check it worked](#check-it-worked).
    [Check the download](#check-the-download). If your organisation blocks either, use another
    route in the table above.
 2. The first time, it takes about a minute to unpack. Then it opens in your browser. Keep its
-   window open while you use the page, and keep the PC awake and plugged in until it finishes. If
-   you close the page, go back to that window and press **Enter** to open it again.
+   window open while you use the page, and keep the PC awake and plugged in until the installer
+   says setup is finished. If you close the page, go back to that window and press **Enter** to
+   open it again.
 3. Choose **Set up Analytics Hub** and sign in.
 4. Answer the questions. This takes about 5 minutes:
    1. **Data sources.** Each source has a card: **Connected (API)**, **Upload CSV** or **Skip**.
@@ -71,10 +72,14 @@ When it finishes: [Check it worked](#check-it-worked).
    including the defaults, and a **Costs** list of what's billed (the Fabric capacity, Power
    Automate Premium for the flows, the Azure resources), with links to the pricing pages. The
    installer stops Windows going to sleep while it runs.
-6. Wait for it to finish. Setting up takes about 15 minutes. The first data reaches the app about
-   25 minutes after you choose **Go ahead** with 30 days of history, or about 2 hours with 180 days
-   ([a large tenant](../installer/README.md#a-large-tenant) takes longer). Copilot Studio credits arrive after the Studio
-   flow's first run: see [Load the Studio credits now](../installer/README.md#power-automate-flows).
+6. Wait until the installer says setup is finished: about 15 minutes. Keep the PC awake until
+   then. The first load of audit history then carries on in Fabric or Azure, so you can close the
+   window, and `status` shows how far it has got. If you keep it open, the installer checks the
+   data when the load finishes and lists what's left. The plan gives an estimate for the first
+   load beside the history question: about 25 minutes for 30 days on Fabric with up to 10,000
+   people, and hours on [a large tenant](../installer/README.md#a-large-tenant). See
+   [How long it takes](PREREQUISITES.md#how-long-it-takes). Copilot Studio credits arrive after the
+   Studio flow's first run: see [Load the Studio credits now](../installer/README.md#power-automate-flows).
 7. When it finishes, open the link to the app.
 
 **Want to change an answer?** Choose **Back**, on any question or on the plan. It opens the
@@ -113,8 +118,9 @@ app registration. An install from an earlier version keeps the names it already 
    skipped or still running. A failed card says why and what to do. On Fabric, the same is in the
    Lakehouse table `dbo.load_log`. See [Load status and reruns](../installer/README.md#load-status-and-reruns).
 3. **Check status.** Open the installer again and choose **Check status** (`status`): recent runs,
-   model refreshes, secret expiry and the last data check. On Azure it also shows the job runs,
-   the web app's URL and pending admin actions. It changes nothing.
+   model refreshes, secret expiry and the last data check. It shows how much audit history has
+   loaded, and a load of history that couldn't start, with its command. On Azure it also shows the
+   job runs, the web app's URL and pending admin actions. It changes nothing.
 4. **Check the data** (Fabric). **Check the data** (`check`) reads the Lakehouse tables for row
    counts, date ranges and licence matches, without running the pipeline.
 5. **Open the app.** Open the link the installer gives you. Each page lists the latest date each
@@ -302,7 +308,9 @@ minute or two.
   on from a PC later, put the record in `Documents\Analytics Hub`.
 - **Idle timeout.** Cloud Shell ends a session after 20 minutes without input. If that stops the
   installer, run the same command again: it reuses what's in the install record, skips finished
-  steps and doesn't create a second app. `--no-wait` saves waiting for the first load.
+  steps and doesn't create a second app. With `--no-wait` the installer doesn't wait for the
+  first load: it stops once setup is finished, and the load carries on in Fabric or Azure. Run
+  `status` later to see how far it has got.
 - **The app.** The installer builds the app from source in Cloud Shell and deploys it with your
   installer sign-in, so Rayfin doesn't open a browser. The build needs a few hundred MB in your
   home folder (Cloud Shell gives you 5 GB). If deploying fails, copy the install record to a

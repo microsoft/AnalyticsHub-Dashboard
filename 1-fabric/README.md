@@ -4,7 +4,9 @@ Analytics Hub on your Fabric capacity. The recommended path.
 
 - **You need:** a Fabric capacity, F2 or larger, or a
   [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager).
-- **Takes:** about 20 minutes. The first data arrives about 25 minutes after **Go ahead**.
+- **Takes:** about 20 minutes to set up. The first data follows about 25 minutes later with 30 days
+  of history, or hours later on a large tenant: see
+  [How long it takes](../docs/PREREQUISITES.md#how-long-it-takes).
 - **Costs:** the Fabric capacity. Analytics Hub itself is free.
 
 ## Installer

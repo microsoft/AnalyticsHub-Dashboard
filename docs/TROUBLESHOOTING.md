@@ -74,6 +74,7 @@ the installer's version.
 | The Agent Evaluation pages are empty on Fabric, though the environments have transcripts | The app has only **Bot Transcript Viewer** there, as on installs from before 0.6.8. Run **Update**, or **Repair or change**, as a System Administrator of each environment, then reload the history once, for example with `run --backfill-days 30`, to read the transcripts older than 14 days. See [Add Agent Evaluator](../fabric/Add%20Agent%20Evaluator/README.md). |
 | Work patterns says the reports hide user names | See [Microsoft 365 activity](../installer/README.md#microsoft-365-activity). |
 | An export isn't recognised, or is `set to Skip` | Check it's the export the card names, unedited. Or set its source to **Upload CSV** with **Repair or change**. Files the pipeline couldn't place are in `analytics_hub_uploads/_unrecognised`. |
+| The reports are empty after the install, or have less history than you asked for | The first load may still be going: on a large tenant it takes hours, and can take more than one run. Run `status`. It shows the days you asked for, how much has been fetched from the audit log and what's in the reports. It also shows a load that couldn't start, such as a first load waiting for admin consent, with the command to run once that's fixed. See [How long the first load takes](../installer/README.md#how-long-the-first-load-takes). |
 | A page is blank | Its source is skipped, or no export has arrived yet. See [Data sources and exports](../installer/README.md#data-sources-and-exports). |
 
 ## Uninstall

@@ -267,6 +267,26 @@ offer is still a choice. With `--yes`, such an install stops before anything is 
 `--sql-scale-up` or `--sql-free-offer` says which. **Repair or change** and `--yes` keep an
 install's size and SQL choice, and the plan warns when the people counted have outgrown them.
 
+**An honest first-load estimate, and `status` shows how much history has loaded.** The docs said
+the first data arrived about 25 minutes after **Go ahead**, or about 2 hours with 180 days, and to
+keep the installer window open, while the installer said you could close it. On a large tenant the
+first load takes hours, and can take more than one run. Now one table of estimates, by target,
+tenant size and days of history, is in [How long it takes](docs/PREREQUISITES.md#how-long-it-takes).
+Its figures are scaled from two measured loads, and labelled estimates until timed runs of the
+installer replace them. The plan shows the estimate beside the history question, and the installer
+says it again when the first load or a reload starts, with what happens when a run can't fetch it
+all. On Fabric, the audit load stops at its time budget without writing anything, and the
+pipeline's retries carry on. On Azure, a run cut off at 4 hours publishes nothing, and the next run
+carries on. One rule replaces the others: keep the PC awake until the installer says setup is
+finished, then you can close the window. `status` now shows the days asked for, how much has been
+fetched from the audit log and what's in the reports. It reads the Fabric notebook's window
+manifest in the Lakehouse, or the Azure run job's state in its storage, with the access the
+installer already has. When it can't, for example on a private Azure install, it says why and lists
+the runs instead. A first load or reload that couldn't start, because admin consent or the Key
+Vault's private endpoint was waiting or a run was going, is kept in the install record without
+counting as loaded. `status` and the Done page show it, with its `run --backfill-days` command,
+until a run with it starts. Earlier installers ignore the new record field.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its

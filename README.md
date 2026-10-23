@@ -17,7 +17,7 @@ Pick a path. Both load the data and publish the models.
 |---|---|---|
 | **You need** | A Fabric capacity, F2 or larger, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager) | An Azure subscription or resource group, and a Power BI workspace |
 | **Set up with** | The installer, or by hand | The installer, or by hand |
-| **Takes** | About 20 minutes. The first data arrives about 25 minutes after **Go ahead** | The same as Fabric |
+| **Takes** | About 20 minutes to set up. The first data follows about 25 minutes later, or hours later on a large tenant: see [How long it takes](docs/PREREQUISITES.md#how-long-it-takes) | About 20 minutes to set up. The first data follows about an hour later, or hours later on a large tenant |
 | **Costs** | The Fabric capacity | About $5–40 a month for a small tenant |
 
 <a id="architecture-and-running-costs"></a>
