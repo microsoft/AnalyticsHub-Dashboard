@@ -102,7 +102,7 @@ export const DATA_SOURCES = [
     exportModes: ['api', 'csv'],
     modeLabels: { api: 'Power Automate (emailed export)', csv: 'Upload CSV' },
     hints: {
-      api: `Schedule the export to email you, and a Power Automate flow saves each one to the drop folder. Needs Power Automate Premium; you sign in to the flow's connections once.`,
+      api: `Schedule the export to email you, and a Power Automate flow saves each one to the drop folder. Needs Power Automate Premium for you, as the flow's owner; you sign in to its connections once.`,
       csv: 'Download the export and upload it yourself. No flow.',
     },
     export: {
@@ -121,7 +121,7 @@ export const DATA_SOURCES = [
     group: CREDIT_GROUP,
     modeLabels: { api: 'Connected (Power Automate flow)', csv: 'Upload CSV only' },
     hints: {
-      api: 'A daily Power Automate flow reads the licensing API. Needs Power Automate Premium for whoever signs in to the flow; you sign in to its connections once. Exports are optional and win for the months they cover.',
+      api: 'A daily Power Automate flow reads the licensing API. Needs Power Automate Premium for you, as the flow\'s owner. A Power Platform or Global administrator signs in to its Power Platform API connection once. Exports are optional and win for the months they cover.',
       csv: 'Upload the exports each month. No flow.',
     },
     export: {

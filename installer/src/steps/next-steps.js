@@ -11,7 +11,7 @@ import { commandLine } from '../launch.js';
 import { appItemUrl, shareAppPending, shareAppSteps, VIEWER_GROUP_NAME, myGroupsUrl } from './access.js';
 import { COWORK_DATAFLOW_NAME, coworkSignInSteps, DATAFLOW_GUIDE } from './consumption.js';
 import { coworkDataflowOn, modelDeployed } from './fabric.js';
-import { connectionSteps, FLOW_NAMES, flowsWanted } from './flows.js';
+import { connectionSteps, FLOW_NAMES, flowsWanted, ownerLeft, ppApiFlows, ppApiSigner, whoSignsIn } from './flows.js';
 import { APP_NAME } from './plan.js';
 import { AGENT_DIRECTORY_ROLES, resourceGraphOn } from './resource-graph.js';
 
@@ -152,24 +152,29 @@ function flowsStep(config, user) {
     const file = up.flowFiles?.[kind];
     const open = file ? `Import ${name} from ${file} into ${where}` : `Open ${name} in ${where}`;
     const signIns = connectionSteps(config, kind);
-    steps.push(`${open}, sign in to its connections, save it and turn it on.`);
+    steps.push(`${open}, sign in to its connections, save it and turn it on. ${whoSignsIn(config, kind)}`);
     details.push(`${name}${file ? ` (to import: ${file})` : ''}:`, ...numbered([open + '.', ...signIns, 'Save, then turn it on.']).map((s) => `  ${s}`), '');
   }
   const one = kinds.length === 1;
+  const them = one ? 'it' : 'them';
+  const ppApi = ppApiFlows(config);
   return {
     id: 'flows',
     title: `Sign in to the Power Automate ${one ? 'flow' : 'flows'}`,
-    why: `${one ? 'It stays' : 'They stay'} off until ${one ? 'its' : 'their'} connections are signed in, so ${one ? 'its data doesn\'t' : 'their data doesn\'t'} load.`,
-    who: 'You, or a Power Platform administrator',
+    why: `${one ? 'It stays' : 'They stay'} off until ${one ? 'its' : 'their'} connections are signed in, so ${one ? 'its data doesn\'t' : 'their data doesn\'t'} load. ${ownerLeft(one)}`,
+    who: kinds.some((k) => ppApi.includes(k)) ? `You, or ${ppApiSigner(config)}` : 'You',
     link,
     linkText: 'Open Power Automate',
     steps,
     message: letter(
       [
-        `Could you sign in to the connections of the Analytics Hub ${one ? 'flow' : 'flows'} in Power Automate and turn ${one ? 'it' : 'them'} on? ${one ? 'It is' : 'They are'} in ${where}: ${link}`,
+        `Could you sign in to the connections of the Analytics Hub ${one ? 'flow' : 'flows'} in Power Automate and turn ${them} on? ${one ? 'It is' : 'They are'} in ${where}: ${link}`,
         '',
         ...details,
-        'Signing in with a dedicated admin account and adding a co-owner keeps the flows running if people move on.',
+        // A flow imported from a file is owned by whoever imports it.
+        kinds.some((k) => up.flowFiles?.[k])
+          ? 'A flow runs on its owner\'s Power Automate Premium licence, and whoever imports one owns it. Whoever signs in to its connections doesn\'t need Premium. If the owner\'s account or licence is removed, Power Automate slows the flow down, and turns it off after 14 days unless someone takes it over.'
+          : `${one ? 'The flow runs' : 'The flows run'} on my Power Automate Premium licence, because I own ${them}, so you don't need Premium to sign in to ${one ? 'its' : 'their'} connections. If my account or licence is removed, Power Automate slows ${them} down, and turns ${them} off after 14 days unless someone takes ${them} over.`,
       ],
       user.upn,
     ),

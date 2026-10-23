@@ -11,7 +11,7 @@ import { commandLine } from './launch.js';
 import { copilotLicences } from './seats.js';
 import { AUDIT_CHECK_FAILS, AUDIT_CHECK_LABELS, AUDIT_ROLE, PURVIEW_AUDIT_URL } from './steps/audit-check.js';
 import { adoptableApps, AZURE_APPS, appsRecorded, webAppGranted } from './steps/azure/apps.js';
-import { flowsWanted, ppApiFlows } from './steps/flows.js';
+import { dataPolicyAsk, FLOW_NAMES, flowsWanted, INVENTORY_SIGNER, PP_API_SIGNER, ppApiFlows, PREMIUM_OWNER } from './steps/flows.js';
 import { canWriteSecrets } from './steps/identity.js';
 import { WORKSPACE_ROLE } from './steps/fabric.js';
 import { blockedSettings, CREATE_WORKSPACES_FIX, createWorkspacesAccess, myGroups, POWER_BI_SETTINGS, settingLabel, usableCapacity, workspacesOnCapacity } from './steps/plan.js';
@@ -30,6 +30,7 @@ import { rlsOn } from './transform/access.js';
  * @property {string} detail  What was found.
  * @property {string} neededFor
  * @property {string} howTo  How to get it when it's missing; for a hand-off, who does it.
+ * @property {string} [who]  Who confirms or does it when that's someone else, such as the data policy's Power Platform administrator.
  * @property {boolean} [optional]  Only some features need it.
  * @property {{ name: string, status: PrereqStatus, detail?: string }[]} [rows]  Per subscription or environment.
  * @property {boolean} [assignsDirectoryRoles]  On the consent-role row: false when it's met without a Global
@@ -71,6 +72,15 @@ const TEAMS_MANAGE_APPS_URL = 'https://admin.teams.microsoft.com/policies/manage
 const XMLA_SETTING = 'Allow XMLA endpoints and Analyze in Excel with on-premises semantic models';
 /** Ends an Entra role row's detail when the roles you could activate through PIM can't be read. */
 const PIM_UNREAD = ' Couldn\'t check for roles you could activate yourself.';
+/**
+ * A flow's connection signs in whenever the flow runs, and PIM ends each activation after at most 24 hours, as the
+ * organisation sets it per role.
+ */
+const PIM_FLOW_SIGNER =
+  ' The flows\' Power Platform API connection needs the role active whenever the flows run, and an activation lasts at most 24 hours, as your organisation sets it. Have someone with the role assigned permanently sign in to that connection.';
+/** Learn documents no API that reads data policies (DLP), so the data policy row is always "couldn't check". */
+const DATA_POLICY_UNREAD =
+  'Couldn\'t check: the installer can\'t read data policies (DLP). If one blocks the flows\' connectors, or puts them in different data groups, Power Automate won\'t save the flows or turn them on.';
 
 /**
  * The Fabric tenant settings this install needs, by their names in the admin portal, for someone who
@@ -386,17 +396,18 @@ export async function checkPrereqs(ctx, opts = {}) {
         optional: true,
       },
       { [POWER_PLATFORM_ADMIN_ROLE]: 'Power Platform Administrator' },
-    ).then(async (it) =>
+    ).then(async (it) => {
       // A System Administrator in an environment makes the flows there; only their Power Platform API connection needs an admin to sign in.
-      it.status === 'missing' && (await environments).status === 'met'
-        ? {
-            ...it,
-            status: /** @type {PrereqStatus} */ ('handoff'),
-            detail: 'You\'re a System Administrator in an environment, so you can make the flows there yourself. Only the flows\' Power Platform API connection needs an admin to sign in to it, and the installer gives you the steps to send them.',
-            howTo: 'The agents inventory flow\'s connection signs in as a Power Platform administrator, or an admin with Global Reader. The other flows that call the Power Platform API sign in as a Power Platform, Billing or Global administrator.',
-          }
-        : it,
-    ),
+      if (it.status === 'missing' && (await environments).status === 'met') {
+        return {
+          ...it,
+          status: /** @type {PrereqStatus} */ ('handoff'),
+          detail: 'You\'re a System Administrator in an environment, so you can make the flows there yourself. Only the flows\' Power Platform API connection needs an admin to sign in to it, and the installer gives you the steps to send them.',
+          howTo: `With the Copilot Studio credits flow, that connection signs in as ${PP_API_SIGNER}. With only the agent inventory flow, it signs in as ${INVENTORY_SIGNER}.`,
+        };
+      }
+      return it.status === 'eligible' && ppApiWanted(config) ? { ...it, detail: `${it.detail}${PIM_FLOW_SIGNER}` } : it;
+    }),
     ...(azure
       ? [
           entraRole(
@@ -524,8 +535,8 @@ export async function checkPrereqs(ctx, opts = {}) {
       {
         id: 'power-automate-premium',
         label: 'Power Automate Premium licence',
-        neededFor: 'Only the Power Automate flows: Copilot Studio credits and the product feedback export. Whoever signs in to the flow\'s connections needs it, because the flows use premium connectors.',
-        howTo: 'Ask your licence admin for Power Automate Premium for whoever will sign in to the flows. Without it, upload the CSV exports instead.',
+        neededFor: `Only the Power Automate flows: Copilot Studio credits, the agent inventory and the product feedback export, which use premium connectors. ${PREMIUM_OWNER}`,
+        howTo: 'Ask your licence admin for Power Automate Premium for yourself, as the flows\' owner. Without it, upload the CSV exports instead.',
         optional: true,
       },
       async () => {
@@ -534,9 +545,24 @@ export async function checkPrereqs(ctx, opts = {}) {
           .filter(Boolean);
         return found.length
           ? { status: 'met', detail: [...new Set(found)].join(', ') }
-          : { status: 'missing', detail: 'No Power Automate Premium (or per user) licence is assigned to you. Someone else who has one can sign in to the flows.' };
+          : { status: 'missing', detail: 'No Power Automate Premium licence is assigned to you, and you\'ll own the flows. Ask your licence admin for one, or upload the CSV exports instead.' };
       },
     ),
+    ...(flowsWanted(config).length
+      ? [
+          guard(
+            {
+              id: 'data-policy',
+              label: 'Data policy',
+              neededFor: `Only the Power Automate flows: ${flowsWanted(config).map((k) => FLOW_NAMES[k]).join(', ')}.`,
+              howTo: 'Ask a Power Platform administrator to confirm that the flows\' connectors are allowed, and in the same data group, in the environment the flows go in.',
+              who: 'A Power Platform administrator',
+              optional: true,
+            },
+            async () => ({ status: 'unknown', detail: DATA_POLICY_UNREAD, howTo: dataPolicyAsk(config) }),
+          ),
+        ]
+      : []),
     ...(azure
       ? []
       : [
@@ -696,14 +722,15 @@ function ppApiWanted(config) {
 
 /**
  * What install and update preflight make of the checks: what stops an install before anything is
- * created, what to show and carry on with, and what to hand off to someone else. Met rows, rows for
- * features not chosen, and optional rows that couldn't be checked are left out. A row that couldn't be
- * checked, or took too long, never blocks, and nor does a hand-off. An update never blocks: it's
- * already installed.
+ * created, what to show and carry on with, what to hand off to someone else, and what to confirm with
+ * someone because nobody can check it. Met rows, rows for features not chosen, and optional rows that
+ * couldn't be checked are left out; the data policy row, which can never be checked, is one to confirm.
+ * A row that couldn't be checked, or took too long, never blocks, and nor does a hand-off or a row to
+ * confirm. An update never blocks: it's already installed.
  * @param {Prereq[]} items
  * @param {{ config: import('./config.js').InstallConfig, yes?: boolean, update?: boolean }} opts
  *   yes: --yes, so nobody is asked and a choice that can't work fails late.
- * @returns {{ block: Prereq[], warn: Prereq[], handoff: Prereq[] }}
+ * @returns {{ block: Prereq[], warn: Prereq[], handoff: Prereq[], confirm: Prereq[] }}
  */
 export function preflightVerdict(items, { config, yes = false, update = false }) {
   const azure = config.target === 'azure';
@@ -715,10 +742,15 @@ export function preflightVerdict(items, { config, yes = false, update = false })
     // Consent is still to grant: on a re-run that already has it, the role doesn't matter. On Azure the row is the web app's
     // delegated consent, which its own check covers, not the managed identity's audit role.
     'consent-role': azure || status('audit-ingestion') !== 'met',
-    // As a hand-off, the role only signs in to the flows' Power Platform API connection.
-    'power-platform-admin': status('power-platform-admin') === 'handoff' ? ppApiWanted(config) : environments && status('environments') !== 'met',
+    // As a hand-off, the role only signs in to the flows' Power Platform API connection. Only eligible, it would sign in
+    // for a day at most, so it's worth a warning whenever that connection is wanted.
+    'power-platform-admin':
+      status('power-platform-admin') === 'handoff'
+        ? ppApiWanted(config)
+        : (environments && status('environments') !== 'met') || (status('power-platform-admin') === 'eligible' && ppApiWanted(config)),
     environments,
     'power-automate-premium': flows,
+    'data-policy': flows,
     // On Fabric, Azure access is only for the Key Vault (its own row) and credit consumption.
     'azure-rbac': azure || !!config.modules?.consumption,
     // Only Cowork credits read from Viva Insights, which is Fabric only.
@@ -730,10 +762,17 @@ export function preflightVerdict(items, { config, yes = false, update = false })
   const warn = [];
   /** @type {Prereq[]} */
   const handoff = [];
+  /** @type {Prereq[]} */
+  const confirm = [];
   for (const it of items) {
     if (it.status === 'met' || PREFLIGHT_HIDDEN.has(it.id) || relevant[it.id] === false) continue;
     if (it.status === 'handoff') {
       handoff.push(it);
+      continue;
+    }
+    // Nobody may need to do anything, so it's neither missing nor a hand-off: just something to confirm.
+    if (it.id === 'data-policy') {
+      confirm.push(it);
       continue;
     }
     if (it.status === 'unknown' && it.optional) continue;
@@ -744,7 +783,7 @@ export function preflightVerdict(items, { config, yes = false, update = false })
     if (!update && yes && !azure && it.id === 'register-apps' && it.status === 'missing' && !config.app.appId && !config.app.adminPack) block.push(it);
     else warn.push(it);
   }
-  return { block, warn, handoff };
+  return { block, warn, handoff, confirm };
 }
 
 /**
@@ -789,24 +828,26 @@ export async function preflightChecks(ctx, opts = {}) {
 }
 
 /**
- * Prints only what needs attention, then what to hand off to someone else, before anything is
- * created, and points to the full list. On install, stops when one is a true blocker.
+ * Prints only what needs attention, then what to hand off to someone else, then what to confirm with
+ * someone, before anything is created, and points to the full list. On install, stops when one is a
+ * true blocker.
  * @param {{ ui: import('./ui.js').Ui, config: import('./config.js').InstallConfig }} ctx
  * @param {Prereq[] | null} items  From preflightChecks.
  * @param {{ update?: boolean }} [opts]
- * @returns {{ block: Prereq[], warn: Prereq[], handoff: Prereq[] }}
+ * @returns {{ block: Prereq[], warn: Prereq[], handoff: Prereq[], confirm: Prereq[] }}
  */
 export function reportPreflight(ctx, items, opts = {}) {
   const { ui, config } = ctx;
   const full = `Run "${commandLine('prereqs')}" for the full list.`;
   if (!items) {
     ui.note(`Couldn't check the prerequisites. ${full}`);
-    return { block: [], warn: [], handoff: [] };
+    return { block: [], warn: [], handoff: [], confirm: [] };
   }
   const verdict = preflightVerdict(items, { config, yes: ui.yes, update: opts.update });
   const handoff = handoffsToShow(verdict.handoff, config);
+  const { confirm } = verdict;
   const shown = [...verdict.block, ...verdict.warn];
-  if (!shown.length && !handoff.length) {
+  if (!shown.length && !handoff.length && !confirm.length) {
     ui.ok('Prerequisites: nothing missing for what you chose');
     return { ...verdict, handoff };
   }
@@ -816,13 +857,17 @@ export function reportPreflight(ctx, items, opts = {}) {
     ui.warn(`${n} attention.${carry}`);
     ui.prereqs(shown);
   } else {
-    ui.ok('Prerequisites: you have what you need yourself');
+    ui.ok(handoff.length ? 'Prerequisites: you have what you need yourself' : 'Prerequisites: nothing missing for what you chose');
   }
   if (handoff.length) {
     const one = handoff.length === 1;
     // Said once: the attention line already says the install carries on.
     ui.info(`${one ? 'Hand-off' : 'Hand-offs'}: someone else does ${one ? 'this' : 'these'}.${shown.length ? '' : carry}`);
     ui.prereqs(handoff);
+  }
+  if (confirm.length) {
+    ui.info(`To confirm: the installer can't check ${confirm.length === 1 ? 'this' : 'these'}.`);
+    ui.prereqs(confirm);
   }
   ui.note(full);
   if (verdict.block.length) {

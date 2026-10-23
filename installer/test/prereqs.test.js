@@ -8,7 +8,7 @@ import { emptyConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
 import { readFile } from 'node:fs/promises';
 import { canAssignDirectoryRoles, checkPrereqs, preflightVerdict, reportPreflight, settingsToConfirm } from '../src/prereqs.js';
-import { flowsWanted, ppApiFlows } from '../src/steps/flows.js';
+import { dataPolicyAsk, flowsWanted, INVENTORY_SIGNER, PP_API_SIGNER, ppApiFlows, PREMIUM_OWNER } from '../src/steps/flows.js';
 import { preflight } from '../src/steps/plan.js';
 import { fakeUi } from './fakes.js';
 
@@ -366,8 +366,12 @@ test('checkPrereqs: Power Platform Administrator is a hand-off only for a System
   assert.equal(sysAdmin.environments.status, 'met');
   assert.equal(sysAdmin['power-platform-admin'].status, 'handoff');
   assert.match(sysAdmin['power-platform-admin'].detail, /Only the flows' Power Platform API connection needs an admin to sign in to it/);
-  assert.match(sysAdmin['power-platform-admin'].howTo, /agents inventory flow's connection signs in as a Power Platform administrator, or an admin with Global Reader/);
-  assert.match(sysAdmin['power-platform-admin'].howTo, /Power Platform, Billing or Global administrator/);
+  assert.equal(
+    sysAdmin['power-platform-admin'].howTo,
+    `With the Copilot Studio credits flow, that connection signs in as ${PP_API_SIGNER}. With only the agent inventory flow, it signs in as ${INVENTORY_SIGNER}.`,
+  );
+  assert.equal(PP_API_SIGNER, 'a Power Platform or Global administrator', 'the licensing routes name these two roles, not Billing');
+  assert.doesNotMatch(sysAdmin['power-platform-admin'].howTo, /Billing/);
 
   const notSysAdmin = await run({ roles: [], envs: [{ Url: 'https://org1.crm.dynamics.com', FriendlyName: 'Default', State: 0, IsUserSysAdmin: false }] });
   assert.equal(notSysAdmin.environments.status, 'missing');
@@ -380,12 +384,17 @@ test('checkPrereqs: Power Platform Administrator is a hand-off only for a System
   assert.equal(ppAdmin['power-platform-admin'].status, 'met');
 });
 
-test('checkPrereqs: Power Automate Premium is optional, needed only for the flows, and read from your own licences', async () => {
+test('checkPrereqs: Power Automate Premium is optional, needed only for the flows, and read from your own licences: the flows run on their owner\'s licence', async () => {
   const none = await run({});
   assert.equal(none['power-automate-premium'].status, 'missing');
   assert.equal(none['power-automate-premium'].optional, true);
   assert.match(none['power-automate-premium'].neededFor, /Copilot Studio credits/);
-  assert.match(none['power-automate-premium'].neededFor, /signs in to the flow/);
+  assert.ok(none['power-automate-premium'].neededFor.includes(PREMIUM_OWNER));
+  assert.equal(PREMIUM_OWNER, 'The flows run on your Power Automate Premium licence, because you\'ll own them. Whoever signs in to their connections doesn\'t need Premium.');
+  assert.equal(none['power-automate-premium'].detail, 'No Power Automate Premium licence is assigned to you, and you\'ll own the flows. Ask your licence admin for one, or upload the CSV exports instead.');
+  for (const text of [none['power-automate-premium'].detail, none['power-automate-premium'].howTo, none['power-automate-premium'].neededFor]) {
+    assert.doesNotMatch(text, /Someone else|signs in to the flow/, 'only the owner needs Premium, and someone else signing in doesn\'t change the owner');
+  }
   const premium = await run({ licences: [{ servicePlans: [{ servicePlanName: 'BI_AZURE_P2', provisioningStatus: 'Success' }, { servicePlanName: 'POWER_AUTOMATE_ATTENDED_RPA', provisioningStatus: 'Success' }] }] });
   assert.equal(premium['power-automate-premium'].status, 'met');
   assert.equal(premium['power-bi-pro'].status, 'met', 'one licence read serves both rows');
@@ -785,6 +794,150 @@ const preflightCtx = (over = {}, o = {}) => {
   const ctx = /** @type {any} */ ({ ui: t.ui, api: fakeApis(over), user: USER, config: o.config ?? plainConfig() });
   return { ctx, t };
 };
+
+/** plainConfig with only the Copilot Studio credits flow, made in an environment called Sales. */
+const studioConfig = () => {
+  const config = plainConfig();
+  config.dataSources.studioCredits = 'api';
+  config.uploads = { flowEnvironment: { url: 'https://org1.crm.dynamics.com', id: 'env-1', name: 'Sales' } };
+  assert.deepEqual(flowsWanted(config), ['studio']);
+  return config;
+};
+
+const PP_ADMIN = '11648597-926c-4cf3-9c36-bcebb0ba8dcc';
+const DATA_POLICY_DETAIL = 'Couldn\'t check: the installer can\'t read data policies (DLP). If one blocks the flows\' connectors, or puts them in different data groups, Power Automate won\'t save the flows or turn them on.';
+
+test('checkPrereqs: the data policy row shows only with the flows, is "couldn\'t check" for everyone, and names the connectors, addresses and environment to confirm', async () => {
+  assert.equal((await run({}, plainConfig()))['data-policy'], undefined, 'no flows, no row');
+  const config = studioConfig();
+  const people = {
+    'a Global Administrator': {},
+    'a Power Platform Administrator': { roles: [role(PP_ADMIN, 'Power Platform Administrator')] },
+    'someone with no admin roles': { roles: [] },
+    'someone in no environment': { roles: [], envs: [] },
+    'someone whose checks fail': { roles: [], licences: [], envs: [], eligible: async () => { throw new HttpError('403', { method: 'GET', url: 'x', status: 403 }); } },
+  };
+  for (const [who, over] of Object.entries(people)) {
+    const it = (await run(over, config))['data-policy'];
+    assert.equal(it.status, 'unknown', who);
+    assert.equal(it.label, 'Data policy');
+    assert.equal(it.optional, true, 'it never counts as missing');
+    assert.equal(it.who, 'A Power Platform administrator');
+    assert.equal(it.detail, DATA_POLICY_DETAIL);
+    assert.equal(it.neededFor, 'Only the Power Automate flows: Analytics Hub - Copilot Studio credits.');
+    assert.equal(it.howTo, dataPolicyAsk(config));
+    assert.equal(
+      it.howTo,
+      'Ask a Power Platform administrator to confirm that HTTP with Microsoft Entra ID (preauthorized) is allowed in Sales. If the policy filters endpoints for HTTP with Microsoft Entra ID (preauthorized), it must allow https://api.powerplatform.com and https://onelake.dfs.fabric.microsoft.com.',
+    );
+  }
+
+  // The ask follows the flows chosen, the target and the flow identity.
+  const app = studioConfig();
+  app.dataSources.productFeedback = 'api';
+  app.uploads.flowIdentity = 'app';
+  const appRow = (await run({}, app))['data-policy'];
+  assert.equal(appRow.neededFor, 'Only the Power Automate flows: Analytics Hub - Product feedback, Analytics Hub - Copilot Studio credits.');
+  assert.match(appRow.howTo, /^Ask a Power Platform administrator to confirm that HTTP with Microsoft Entra ID \(preauthorized\), HTTP, Office 365 Outlook and Azure Key Vault are allowed and in the same data group \(Business or Non-business\) in Sales\. If the policy filters endpoints for HTTP or HTTP with Microsoft Entra ID \(preauthorized\), it must allow https:\/\/api\.powerplatform\.com and https:\/\/onelake\.blob\.fabric\.microsoft\.com\.$/);
+  const azure = studioConfig();
+  azure.target = 'azure';
+  azure.modules.consumption = true;
+  azure.azure = /** @type {any} */ ({ outputs: { storageAccountName: 'acct' } });
+  assert.deepEqual(flowsWanted(azure), ['studio']);
+  assert.match((await run({}, azure))['data-policy'].howTo, /it must allow https:\/\/api\.powerplatform\.com and https:\/\/acct\.dfs\.core\.windows\.net\.$/);
+});
+
+test('checkPrereqs: a Power Platform Administrator role you can only activate warns that the flows\' connection needs it active whenever they run, without claiming how long an activation lasts', async () => {
+  const eligible = async () => [{ roleDefinitionId: PP_ADMIN, principalId: USER.id }];
+  const notSysAdmin = [{ Url: 'https://org1.crm.dynamics.com', FriendlyName: 'Default', State: 0, IsUserSysAdmin: false }];
+  const warning = ' The flows\' Power Platform API connection needs the role active whenever the flows run, and an activation lasts at most 24 hours, as your organisation sets it. Have someone with the role assigned permanently sign in to that connection.';
+  for (const envs of [notSysAdmin, undefined]) {
+    const it = (await run({ roles: [], eligible, envs }, studioConfig()))['power-platform-admin'];
+    assert.equal(it.status, 'eligible', 'a System Administrator in an environment still has the role to activate');
+    assert.match(it.detail, /^Not active yet: Power Platform Administrator\. You can activate this role in Entra \(Privileged Identity Management\): https:\/\/entra\.microsoft\.com\//);
+    assert.ok(it.detail.endsWith(warning), it.detail);
+    assert.doesNotMatch(it.detail, /default|\b8 hours/i, 'the organisation sets how long an activation lasts');
+  }
+
+  // Without a flow that signs in to the Power Platform API, there's nothing to warn about.
+  const feedback = plainConfig();
+  feedback.dataSources.productFeedback = 'api';
+  for (const config of [plainConfig(), feedback]) {
+    const it = (await run({ roles: [], eligible, envs: notSysAdmin }, config))['power-platform-admin'];
+    assert.equal(it.status, 'eligible');
+    assert.doesNotMatch(it.detail, /at most 24 hours/);
+  }
+  // An active role needs no warning.
+  const active = (await run({ roles: [role(PP_ADMIN, 'Power Platform Administrator')] }, studioConfig()))['power-platform-admin'];
+  assert.equal(active.status, 'met');
+  assert.doesNotMatch(active.detail, /at most 24 hours/);
+});
+
+test('preflightVerdict: a Power Platform Administrator role you can only activate shows while a flow signs in to the Power Platform API, even as a System Administrator', () => {
+  const items = [row({ id: 'power-platform-admin', status: 'eligible', optional: true }), row({ id: 'environments', status: 'met', optional: true })];
+  assert.deepEqual(preflightVerdict(items, { config: studioConfig() }).warn.map((it) => it.id), ['power-platform-admin']);
+  const feedback = plainConfig();
+  feedback.dataSources.productFeedback = 'api';
+  assert.deepEqual(preflightVerdict(items, { config: feedback }).warn, [], 'the feedback flow has no Power Platform API connection');
+  assert.deepEqual(preflightVerdict(items, { config: plainConfig() }).warn, []);
+});
+
+test('preflightVerdict: the data policy row is one to confirm whenever flows are chosen; it never blocks, never needs attention and isn\'t a hand-off, even with --yes', () => {
+  const policy = row({ id: 'data-policy', label: 'Data policy', status: 'unknown', optional: true });
+  const unread = [row({ id: 'copilot-licences', status: 'unknown', optional: true }), row({ id: 'power-automate-premium', status: 'unknown', optional: true })];
+  for (const opts of [{}, { yes: true }, { update: true }, { yes: true, update: true }]) {
+    const v = preflightVerdict([policy, ...unread], { config: studioConfig(), ...opts });
+    assert.deepEqual([v.block, v.warn, v.handoff], [[], [], []], JSON.stringify(opts));
+    assert.deepEqual(v.confirm.map((it) => it.id), ['data-policy'], 'other optional rows that couldn\'t be checked stay out');
+  }
+  assert.deepEqual(preflightVerdict([policy], { config: plainConfig() }).confirm, [], 'no flows, nothing to confirm');
+
+  // With --yes, can't-register-apps still blocks on its own.
+  const v = preflightVerdict([row({ id: 'register-apps' }), policy], { config: studioConfig(), yes: true });
+  assert.deepEqual(v.block.map((it) => it.id), ['register-apps']);
+  assert.deepEqual(v.confirm.map((it) => it.id), ['data-policy']);
+});
+
+test('reportPreflight: the data policy row prints last, as one to confirm, and the install carries on, even with --yes', () => {
+  const policy = row({ id: 'data-policy', label: 'Data policy', status: 'unknown', optional: true, detail: DATA_POLICY_DETAIL, howTo: 'Ask a Power Platform administrator to confirm.' });
+  for (const yes of [false, true]) {
+    const t = fakeUi({ yes });
+    const v = reportPreflight(/** @type {any} */ ({ ui: t.ui, config: studioConfig() }), [row({ id: 'register-apps', status: 'met' }), policy]);
+    assert.deepEqual([v.block, v.warn, v.handoff, v.confirm.map((it) => it.id)], [[], [], [], ['data-policy']]);
+    const text = t.text();
+    assert.match(text, /Prerequisites: nothing missing for what you chose\n/);
+    assert.match(text, /To confirm: the installer can't check this\.\n/);
+    assert.match(text, /Data policy \(optional\)\n/);
+    assert.match(text, /Couldn't check: the installer can't read data policies \(DLP\)\./);
+    assert.match(text, /How to get it: Ask a Power Platform administrator to confirm\.\n/);
+    assert.doesNotMatch(text, /needs? attention|Hand-off|Stopped before creating anything/);
+  }
+
+  // After what needs attention and the hand-offs, and before the pointer to the full list.
+  const t = fakeUi();
+  const consent = row({ id: 'consent-role', label: 'Can grant admin consent', status: 'handoff', optional: true });
+  reportPreflight(/** @type {any} */ ({ ui: t.ui, config: studioConfig() }), [row({ id: 'power-bi-pro', label: 'Power BI Pro' }), consent, policy]);
+  const text = t.text();
+  assert.match(text, /1 prerequisite needs attention\. The install carries on\./);
+  assert.equal(text.split('carries on.').length - 1, 1, 'said once');
+  const order = ['Power BI Pro', 'Hand-off: someone else does this.', 'To confirm: the installer can\'t check this.', 'for the full list'].map((s) => text.indexOf(s));
+  assert.ok(order.every((at, i) => at >= 0 && (i === 0 || at > order[i - 1])), text);
+});
+
+test('preflight: with the flows chosen, the data policy ask shows before anything is created, and --yes doesn\'t stop on it', async () => {
+  for (const yes of [false, true]) {
+    const { ctx, t } = preflightCtx({}, { yes, config: studioConfig() });
+    await preflight(ctx);
+    const text = t.text();
+    assert.match(text, /To confirm: the installer can't check this\./);
+    assert.match(text, /Data policy \(optional\)/);
+    assert.ok(text.includes(dataPolicyAsk(ctx.config)));
+    assert.doesNotMatch(text, /Stopped before creating anything/);
+  }
+  const { ctx, t } = preflightCtx({});
+  await preflight(ctx);
+  assert.doesNotMatch(t.text(), /Data policy/, 'no flows, no row');
+});
 
 test('preflightVerdict: shows only what needs attention for what was chosen; met, hidden and optional "couldn\'t check" rows stay out', () => {
   const config = plainConfig();

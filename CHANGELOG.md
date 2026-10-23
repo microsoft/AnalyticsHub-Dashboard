@@ -109,6 +109,48 @@ Deployment instructions do **not** live here. They live in the READMEs:
   - The installer reads the tenant settings from `value`, as Learn documents List Tenant Settings,
     as well as `tenantSettings`, and from every page. An empty list now shows as "couldn't check",
     instead of saying the settings Analytics Hub needs are on.
+- **Flow sign-in, licence and data policy are explained before the flows are made.**
+  - The plan, the flows' sign-in steps and the Done card now say who signs in to each of a flow's
+    connections, in the same words as the docs. With the Copilot Studio credits flow, the Power
+    Platform API connection signs in as a Power Platform or Global administrator; with only the
+    agent inventory flow, as a Power Platform, Dynamics 365 or Global administrator, or someone with
+    Global Reader. The storage connection signs in as someone with Contributor on the workspace, or
+    on Azure, Storage Blob Data Contributor on the storage account. None of them has to be you, so
+    the text saying the flows, or on Azure the Studio flow, always sign in as you is gone. Billing
+    Administrator is no longer listed, as Learn names Power Platform and Global administrators for
+    the licensing routes.
+  - Power Automate Premium is needed only by you, as the flows' owner. The flows run on their
+    owner's licence, so whoever signs in to their connections doesn't need it. The Prerequisites
+    row, the plan's costs, the sign-in steps and the docs say so. Without a licence, the row no
+    longer says someone else who has one can sign in instead, which wouldn't help: it says to ask
+    your licence admin for one, or to upload the CSV exports.
+  - The Done card, the message it drafts for an admin, the flows' summary and the docs say what
+    happens if the owner goes: Power Automate slows the flows down, and turns them off after 14
+    days unless someone takes them over, so in a large organisation install as an account that will
+    stay. They no longer say a dedicated admin account and a co-owner keep the flows running: the
+    flows run as their owner, whoever signs in.
+  - Whenever flows are chosen, a new optional **Data policy** row shows in the prerequisites and in
+    install and update preflight, in the terminal and the browser. Learn documents no API that
+    reads data policies (DLP), so it always shows "Couldn't check". Preflight lists it under "To
+    confirm", not as missing or a hand-off, and it never stops an install, even with `--yes`. It
+    says what to ask a Power Platform administrator: that the connectors the chosen flows use (HTTP
+    with Microsoft Entra ID (preauthorized), and HTTP, Office 365 Outlook, Azure Key Vault or
+    SharePoint where they're used) are allowed and in the same data group in the flows' environment,
+    and, if the policy filters endpoints for the HTTP connectors, the addresses it must allow:
+    `https://api.powerplatform.com` and the storage the flows write to. A new install in the
+    terminal checks the prerequisites before you choose the flows, so choosing their environment
+    shows the same ask.
+  - When Power Automate turns a flow down because of a data policy as the installer creates,
+    updates or turns it on, the warning says so, gives the same ask, and says what to do once the
+    policy allows them. Learn documents no error code for it, so the installer goes by the message.
+    Any other error is reported as before.
+  - When your Power Platform Administrator role is only eligible in Privileged Identity Management
+    and a flow uses the Power Platform API, the role's row warns that the connection needs the role
+    active whenever the flows run, and that an activation lasts at most 24 hours, as your
+    organisation sets it, so someone with the role assigned permanently should sign in to it.
+  - PREREQUISITES, PERMISSIONS, TROUBLESHOOTING (new rows for a data policy that turns a flow down,
+    and for flows turned off after their owner left), the installer and Azure READMEs, ARCHITECTURE
+    and `--help` say the same.
 
 ## 2026-10-26 — Analytics Hub installer 0.6.8
 
