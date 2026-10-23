@@ -42,8 +42,8 @@ Deployment instructions do **not** live here. They live in the READMEs:
     them, or an admin from a script the installer writes. If you can't register apps, it doesn't
     offer to create them.
   - **An admin will create the apps for me** writes `analytics-hub-azure-admin-script.md` next to
-    the install record, and the install stops once the plan has listed everything, before anything
-    in Azure or Entra changes. An Application Administrator or Cloud Application Administrator
+    the install record, and the install stops once the plan has listed everything, before it creates
+    anything in Azure or Entra. An Application Administrator or Cloud Application Administrator
     pastes the script into Azure Cloud Shell. It creates both apps and their service principals,
     makes you an owner of them, and approves the web app's delegated permissions. It makes no
     secrets, and it's safe to run again. The next run finds the apps itself, so nothing is sent
