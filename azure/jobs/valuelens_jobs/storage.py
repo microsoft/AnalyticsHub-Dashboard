@@ -11,9 +11,21 @@ import logging
 import os
 import shutil
 import tempfile
+import time
 from pathlib import Path
 
 log = logging.getLogger("valuelens_jobs.storage")
+# Lease Blob's error codes when another lease holds the blob.
+LEASE_TAKEN = ("LeaseAlreadyPresent", "LeaseIsBreakingAndCannotBeAcquired")
+
+
+class LeaseHeld(Exception):
+    """Another holder has the lease on `rel`. `holder` is what that holder recorded about itself, or {}."""
+
+    def __init__(self, rel: str, holder=None):
+        super().__init__(f"{rel} is leased by another holder")
+        self.rel = rel
+        self.holder = holder if isinstance(holder, dict) else {}
 
 
 class LocalStore:
@@ -61,6 +73,87 @@ class LocalStore:
         tmp.write_text(json.dumps(data, indent=2, sort_keys=True, default=str), encoding="utf-8")
         tmp.replace(p)
         self.push([rel])
+
+    def acquire_lease(self, rel: str, lease_id: str, seconds: float, holder=None):
+        """Leases `rel` to `lease_id` for `seconds`, recording `holder` in it. The same ID takes its own lease back;
+        another gets LeaseHeld until the lease is released or lapses. Returns the lease, to renew and release.
+
+        Here a file stands in for AdlsStore's blob lease, for tests and local runs. Between processes on one folder
+        it's best effort: two that find a lapsed lease at the same moment can both take it.
+        """
+        p = self.path(rel)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        record = {"id": lease_id, "expires": time.time() + seconds, "holder": holder or {}}
+        try:
+            fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+        except FileExistsError:
+            current = _file_lease(p, seconds)
+            if current["id"] != lease_id and current["expires"] > time.time():
+                raise LeaseHeld(rel, current["holder"]) from None
+            # This holder's own lease (a retry), or a lapsed one.
+            _write_file_lease(p, record)
+        else:
+            with os.fdopen(fd, "w", encoding="utf-8") as fh:
+                json.dump(record, fh)
+        return _FileLease(p, lease_id, seconds)
+
+
+def _file_lease(p: Path, seconds: float) -> dict:
+    """LocalStore's lease record in `p`. One that can't be read (being written, or left half-written) counts as held
+    until `seconds` after the file last changed."""
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        return {"id": data["id"], "expires": float(data["expires"]), "holder": data.get("holder") or {}}
+    except FileNotFoundError:
+        return {"id": None, "expires": 0.0, "holder": {}}
+    except (OSError, ValueError, TypeError, KeyError, AttributeError):
+        try:
+            changed = p.stat().st_mtime
+        except OSError:
+            changed = 0.0
+        return {"id": None, "expires": changed + seconds, "holder": {}}
+
+
+def _write_file_lease(p: Path, record: dict) -> None:
+    tmp = p.with_name(f"{p.name}.{record['id']}.tmp")
+    tmp.write_text(json.dumps(record), encoding="utf-8")
+    tmp.replace(p)
+
+
+class _FileLease:
+    """LocalStore's lease, renewed and released like the blob SDK's BlobLeaseClient."""
+
+    def __init__(self, path: Path, lease_id: str, seconds: float):
+        self.id, self._path, self._seconds = lease_id, path, seconds
+
+    def renew(self) -> None:
+        current = _file_lease(self._path, self._seconds)
+        if current["id"] != self.id:
+            raise RuntimeError(f"the lease on {self._path.name} was lost")
+        _write_file_lease(self._path, dict(current, expires=time.time() + self._seconds))
+
+    def release(self) -> None:
+        if _file_lease(self._path, self._seconds)["id"] == self.id:
+            self._path.unlink(missing_ok=True)
+
+
+def _storage_error(exc, codes, status) -> bool:
+    """Whether `exc` is a storage error with one of `codes`, or `status` when it carries no error code. The SDK's
+    codes are a str Enum, which equals its value but doesn't hash like it, so compare values."""
+    code = getattr(exc, "error_code", None)
+    code = getattr(code, "value", code)
+    if code:
+        return code in codes
+    return getattr(exc, "status_code", None) == status
+
+
+def _blob_json(blob) -> dict:
+    """The JSON object in `blob`, or {} when it can't be read."""
+    try:
+        data = json.loads(blob.download_blob().readall() or b"{}")
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 class AdlsStore(LocalStore):
@@ -133,6 +226,41 @@ class AdlsStore(LocalStore):
                 if "BlobNotFound" not in str(exc) and "404" not in str(exc):
                     raise
         super().remove(rels)
+
+    def acquire_lease(self, rel: str, lease_id: str, seconds: float, holder=None):
+        """Leases the blob `rel` to `lease_id` for `seconds` (15 to 60), creating the blob when it's missing, and
+        records `holder` in it. The same ID takes its own lease back; another gets LeaseHeld until the lease is
+        released or lapses. Returns the SDK's BlobLeaseClient, which renews and releases it."""
+        container, name = self._split(rel)
+        blob = self._container(container).get_blob_client(name)
+
+        def acquire():
+            try:
+                return blob.acquire_lease(lease_duration=int(seconds), lease_id=lease_id)
+            except Exception as exc:
+                if _storage_error(exc, LEASE_TAKEN, 409):
+                    raise LeaseHeld(rel, _blob_json(blob)) from None
+                raise
+
+        try:
+            lease = acquire()
+        except Exception as exc:
+            if not _storage_error(exc, ("BlobNotFound",), 404):
+                raise
+            try:
+                # If-None-Match: *, so a blob another holder has just created is left as it is.
+                blob.upload_blob(b"", overwrite=False)
+            except Exception as created:
+                if getattr(created, "status_code", None) not in (409, 412):
+                    raise
+            lease = acquire()
+        if holder:
+            try:
+                blob.upload_blob(json.dumps(holder, sort_keys=True, default=str).encode("utf-8"), overwrite=True,
+                                 lease=lease)
+            except Exception as exc:
+                log.warning("couldn't record the lease's holder in %s (%s)", rel, exc)
+        return lease
 
 
 def open_store(data_dir, settings):
