@@ -31,6 +31,21 @@ Deployment instructions do **not** live here. They live in the READMEs:
   what's left and exits with an error: run **Uninstall** again to finish. Uninstall from a resource
   group the installer created still deletes the whole group. 0.6.7 has this problem too.
 
+**Azure: Agent Evaluator gets its report.** On Fabric, Agent Evaluator comes with the **Agent
+Evaluator** Power BI report, but Azure deployed only its model. Now, when Agent Evaluator is on and
+its model is deployed, the Azure install publishes the same report from its template to the Power BI
+workspace, bound to the Agent Evaluator model, as on Fabric. **Repair or change** and **Update**
+keep it current: they ask before replacing a report whose template changed, bind it to the model
+again if it reads another one, and publish it again if it was deleted. The plan lists it, and the
+summary gives its link. Power BI can't share a report with a group through its API, so the summary
+says to share it once with the viewer group, which already has Build on the model. The web app is
+told the report's ID, so **Open in Agent Evaluator** on the app's Agents page opens the report
+rather than the model. That link comes with the Agents page, in the same release. Unticking Agent
+Evaluator keeps the report, as it keeps the model, and ticking it again reuses both. Uninstall
+deletes it with a workspace the installer created, and otherwise names it among what's left to
+delete. Demo mode publishes no report. If publishing fails, the rest of the install still finishes,
+and the next **Update** publishes it.
+
 **Azure: the installer doesn't start a run while one is going.** It used to start the run job
 without checking, so a **Repair or change** during a long first load started a second run beside
 it, and the two shared the audit staging area and the tenant's audit queries. Now the installer
