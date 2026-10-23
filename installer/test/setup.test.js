@@ -676,3 +676,38 @@ test('setup on Azure: someone who can\'t create apps chooses "An admin will crea
   assert.deepEqual(f.arm.calls.filter((c) => /^(ensureResourceGroup|deployTemplate)/.test(c)), []);
   assert.deepEqual(f.graph.calls.filter((c) => /^(create|update|add|grant|assign|fic)/.test(c)), []);
 });
+
+test('setup on Azure: when an admin made only the web app, it is used, the question is only about the SQL reader, and deploying stops for a script that makes just that', async (t) => {
+  const f = fixture(t);
+  const az = /** @type {any} */ (f.config.azure);
+  delete az.deploymentConfig;
+  f.config.setup = { completed: setupCategories(f.config).map((cat) => cat.id).filter((id) => id !== 'identity'), runFirstLoad: false };
+  f.ctx.save();
+  f.ctx.api.graph.usersCanRegisterApps = async () => false;
+  f.graph.applications.push({ id: 'web-obj', appId: 'web-1', displayName: 'Analytics Hub (Azure)', owners: ['user-1'] });
+  f.graph.servicePrincipals.push({ id: 'sp-web', appId: 'web-1' });
+  const file = join(dirname(f.ctx.file), AZURE_ADMIN_SCRIPT_FILE);
+  let settings = 0;
+  /** @type {any[]} */
+  const offered = [];
+  const asked = respond(f.ui, (e) => {
+    if (e.kind === 'settings') return ++settings === 1 ? 'identity' : 'deploy';
+    if (e.kind === 'select' && e.message === 'Who creates "Analytics Hub SQL Reader"?') {
+      offered.push(...e.choices.map((/** @type {any} */ ch) => ch.name));
+      assert.equal(e.choices[e.default].name, 'An admin will create it for me', 'the default for someone who can\'t create apps');
+      return e.default;
+    }
+    throw new Error(`Unexpected question: ${e.message}`);
+  });
+  await assert.rejects(reviewSetup(f.ctx), (/** @type {any} */ err) =>
+    isResumeLater(err) && err.message.includes(`An admin needs to create "Analytics Hub SQL Reader", so the installer stopped before deploying anything. Send ${file} to an Application Administrator`));
+  assert.deepEqual(offered, ['Use the one an admin created for me', 'An admin will create it for me']);
+  assert.ok(!asked.includes('Who creates the two Entra app registrations?'));
+  assert.ok(!asked.some((m) => m.startsWith('Client ID of')), 'no client ID asked for an app nobody made');
+  const draft = loadConfig(f.draft).config.azure;
+  assert.deepEqual([draft?.webApp?.clientId, draft?.webApp?.created], ['web-1', false], 'the web app is kept for the next run');
+  assert.equal(draft?.adminScript, file);
+  assert.ok(readFileSync(file, 'utf8').includes("WEB_APP=$(find_app 'web-1' 'Analytics Hub (Azure)'"), "the script reuses the admin's web app");
+  assert.deepEqual(f.arm.calls.filter((c) => /^(ensureResourceGroup|deployTemplate)/.test(c)), []);
+  assert.deepEqual(f.graph.calls.filter((c) => /^(create|update|add|grant|assign|fic)/.test(c)), []);
+});

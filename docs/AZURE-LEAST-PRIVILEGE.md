@@ -153,7 +153,8 @@ anything. If you can't, choose **An admin will create the apps for me** under **
 | Your app admin | Pastes the script into Azure Cloud Shell (Bash). It creates the two apps and their service principals, makes you an owner of them, and approves the web app's delegated permissions. It makes no secrets, and it's safe to run again | **Application Administrator** or **Cloud Application Administrator**. A Privileged Role Administrator can't create app registrations |
 | You | Run the installer again. It finds the apps itself, deploys, and finishes the apps as their owner once the web app exists | Owner of the two apps: the script makes you one |
 
-If an admin has already created the apps, choose **Use the apps an admin created for me** instead.
+If an admin has already created the apps, choose **Use the apps an admin created for me** instead. If
+they created only one of the two, the installer uses it and asks only about the other.
 Uninstall leaves apps an admin created, and names them for an admin to delete. See
 [If you can't register apps](../installer/README.md#if-you-cant-register-apps).
 
