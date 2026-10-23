@@ -438,23 +438,33 @@ export const historyChoices = (target, scale) =>
 const pipelineReloadChoice = (days, scale) => `Runs the pipeline with ${days} days of history. ${reloadDetail(days, scale)}`;
 
 /**
+ * What Repair or change says of the history, when the target knows more than the install record. Azure reads its
+ * run job's state, since a run that started may have published nothing.
+ * @typedef {object} HistorySaid
+ * @property {string} [question]  In place of "Load more audit history? N days are loaded now."
+ * @property {boolean} [loaded]  false: the history asked for may not be in the reports yet, so nothing says it's loaded.
+ */
+
+/**
  * Repair or change, once the history has loaded: offers to reload more of it after setup. Only
  * more than is loaded is offered. The answer goes on `ctx.reloadHistoryDays`; the install record
  * keeps the old number until the reload has started.
  * @param {Ctx} ctx
  * @param {(days: number) => string} [describe]  Each reload choice's description. Azure, which has no pipeline, passes its own.
+ * @param {HistorySaid} [said]
  */
-export async function askMoreHistory(ctx, describe = (days) => pipelineReloadChoice(days, ctx.config.scale)) {
+export async function askMoreHistory(ctx, describe = (days) => pipelineReloadChoice(days, ctx.config.scale), said = {}) {
   const { ui, config } = ctx;
   delete ctx.reloadHistoryDays;
   const current = config.history.days;
   const more = HISTORY_CHOICES.filter((ch) => ch.value > current);
   if (!more.length) {
-    ui.ok(`Audit history: ${current} days loaded, the most the installer loads`);
+    if (said.loaded === false) ui.info(`Audit history: ${current} days asked for, the most the installer loads`);
+    else ui.ok(`Audit history: ${current} days loaded, the most the installer loads`);
     return;
   }
   const days = await ui.select(
-    `Load more audit history? ${current} days are loaded now.`,
+    said.question ?? `Load more audit history? ${current} days are loaded now.`,
     [
       { name: `Keep ${current} days (the usual runs carry on from here)`, value: 0 },
       ...more.map((ch) => ({

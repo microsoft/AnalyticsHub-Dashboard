@@ -46,8 +46,8 @@ const STUCK_MS = DAY;
 /** @param {unknown} v @returns {v is Record<string, any>} */
 const isObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
-/** @param {number} ms */
-const day = (ms) => new Date(ms).toISOString().slice(0, 10);
+/** A time's UTC date, yyyy-mm-dd. @param {number} ms */
+export const day = (ms) => new Date(ms).toISOString().slice(0, 10);
 
 /** @param {number} v */
 const n = (v) => v.toLocaleString('en-GB');

@@ -618,7 +618,10 @@ The first load reads the history you chose: 30, 90 or 180 days. To load more lat
 work:
 
 - **Repair or change** asks *Load more audit history?* once the first load has finished, offering
-  only more than you have. Keep is the default. The plan shows the reload, and it runs once,
+  only more than you have. On Azure, it reads the run job's state to tell, since a run that started
+  may have published nothing. Where it can't read the state, on a private install or without read
+  access to the job's storage, it asks *You asked for N days of history. Load more?* instead, once
+  the installer has started a run. Keep is the default. The plan shows the reload, and it runs once,
   straight after the repair. Later runs load only what's new. If a run is already going, the reload
   doesn't start: use `run --backfill-days <n>` once that run has finished. The installer keeps
   the reload in the install record, and `status` and the Done page show it, with that command,

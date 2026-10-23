@@ -68,7 +68,10 @@ installer already has. When it can't, for example on a private Azure install, it
 the runs instead. A first load or reload that couldn't start, because admin consent or the Key
 Vault's private endpoint was waiting or a run was going, is kept in the install record without
 counting as loaded. `status` and the Done page show it, with its `run --backfill-days` command,
-until a run with it starts. Earlier installers ignore the new record field.
+until a run with it starts. Earlier installers ignore the new record field. On Azure, **Repair or
+change** no longer says history is loaded because a run has started, even one that published
+nothing: *Load more audit history?* reads the run job's state, and where it can't, it says what was
+asked for.
 
 ### Changed
 
