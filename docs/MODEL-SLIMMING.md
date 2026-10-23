@@ -52,6 +52,66 @@ citation, `Activity Events[Topic + Action]`, `Activity Events[Topic + Category]`
 `Agent Turns[Response Seconds]` is unchanged. The Metric Glossary sort-by fix
 (`Update-Glossary-Sort-Order.py`) was already in place.
 
+It also stops loading eight imported columns that nothing reads: `Agent Errors[error_message]`,
+`Conversation Transcripts (Raw)[content_preview]` and, in `Agent Performance`, `FirstBotMessage`,
+`LastBotMessage`, `AllVariables`, `Var_ESS_Message_Disclaimer`,
+`Var_ESS_UserContext_RefreshInterval_Hours` and `Var_ESS_UserContext_Conversation_Initialized`.
+`Agent Errors` and `Agent Performance` drop them with
+`Table.RemoveColumns(..., MissingField.Ignore)` before typing, so a source without them still
+loads. The raw transcripts query no longer builds the 500-character preview. The edit lands in the
+model's partitions and in `UnappliedChanges`. `Var_ESS_UserContext_UPN` stays, because
+`Agent Performance[Unique Users]` counts it. The `Parse_Errors` and `Parse_Performance` functions
+used by the Dataverse and CSV modes are unchanged. The installer still fills in missing columns
+in the empty fallbacks of these queries (`Table.RemoveColumns` counts as a pass-through step).
+The template and the transcript parser come from the upstream Agent Evaluator repo, so this
+change should go upstream too.
+
+### Consumption Central (`Consumption Central - Fabric.pbit`)
+
+Refresh time grew faster than the user count: one measured refresh took 436 s at 20k users
+and 3,322 s at 60k. `scripts/Update-Model-Refresh-Fixes.py` rewrites the refresh-time DAX
+that ranked every user against every other user. Each rewrite gives the same values as before,
+but not every one removes the per-row work: the cohort columns still scan the table once per row.
+
+| Before | After |
+|---|---|
+| `CoworkBilling[UsageCohortRank]`: `RANKX(ALL('CoworkBilling'), [MonthlyCreditsUsed],, ASC)` for every row | `1 + COUNTROWS(FILTER(ALL('CoworkBilling'), [MonthlyCreditsUsed] < v))`. An ascending rank that skips ties is 1 + the number of smaller values, with a blank counted as 0 in both. The percentile and thresholds are unchanged. This is still one scan of the table per row, so its cost still grows with the square of the rows; a filtered count per row is cheaper than ranking per row, but not linear |
+| `CoworkBilling[UsageCohort]`: the same `RANKX` again, with labels | `SWITCH([UsageCohortRank], 1, "1. Light", ...)`. Both columns used the same percentile, so the label follows from the rank |
+| `CreditsWeekly[Weeks Ago]`: `CALCULATE(MAX([MetricDate]), ALL('CreditsWeekly'))` for every row | `MAX([MetricDate])`. A calculated column has no filter context, so this is the same maximum without a context transition per row |
+| `Group By` (calculated table): Studio and GitHub usage intensity ran `RANKX` over all users for each user | Each percentile cut `k` is found once: the largest `m` with `DIVIDE(m, N) <= k`, and the `m`-th smallest value from `TOPN`. A user is in the bucket when their credits are at most that value, which is the same as their rank being at most `m` |
+
+`tests/test_consumption_cohort_dax.py` checks the old and new forms against each other on
+generated data with ties, blanks, zeros, negatives, fractions and table sizes from 0 up. DuckDB's
+`RANK()` is the reference for the old `RANKX`. No new `CALCULATE` was added to `CoworkBilling`:
+`[Weeks Active]` already has one, and a second context transition in the same table can make a
+circular dependency.
+
+How much refresh time this saves is not measured yet. Time the old and new template on a scratch
+copy of a 60k-user lakehouse (Desktop check 6) before quoting a figure.
+
+Left as they are:
+
+- `CoworkBilling[Weeks Active]` and `[Weeks Over Limit]` are unchanged and still scan
+  `CreditsWeekly` once per user (see the follow-ups).
+- `CreditsWeekly[Week Index]` ranks over the distinct weeks (`ALL('CreditsWeekly'[MetricDate])`),
+  so it grows with rows times weeks, not with the square of the rows.
+- `GitHub User[Included_Credits_From_Sep]` calls two `Settings` measures per developer, which is
+  linear.
+
+The other calculated columns only read their own row.
+
+### Lakehouse compaction
+
+Two notebooks wrote small Delta files on every run and never compacted them, so each refresh read
+more files: `Copilot_M365_Activity_Ingester` replaces one day at a time in `m365_activity_daily`
+and `m365_report_status`, and `Copilot_Agent_Transcript_Parser` appends or merges into the `agent_*`
+tables (and the raw transcript table, when `RAW_TABLE` is set). Both now run `OPTIMIZE <table>
+VORDER` once per run, after the writes, on the tables that run wrote, as
+`Copilot_Audit_Log_Processor` already does. `RUN_OPTIMIZE = False` in the config cell turns it off.
+Unlike the processor, a failed compaction is printed and the run carries on, so compaction never
+fails a load; the next run tries again. The parser skips tables that were empty or unchanged.
+Azure needs nothing: its jobs write whole Parquet files and publish to Azure SQL, with no Delta log.
+
 ## Deploy order
 
 1. **Update the processor**, on Fabric (`Repair or change`) or Azure (the jobs image, which runs
@@ -226,6 +286,12 @@ later) against a lakehouse that the new processor has written:
    placeholders, but that model must remain unavailable to users until the required data is populated.
 5. Check the model size (**Settings → Semantic model → Size**, or VertiPaq Analyzer) against the
    old template.
+6. For Consumption Central, refresh the old and new template on the same lakehouse, compare the
+   refresh time, and diff
+   `SUMMARIZECOLUMNS('CoworkBilling'[UsageCohortRank], 'CoworkBilling'[UsageCohort], "Users", COUNTROWS('CoworkBilling'))`
+   and `SUMMARIZECOLUMNS('Group By'[Attribute], 'Group By'[Group], "Users", COUNTROWS('Group By'))`.
+7. For Agent Evaluator, refresh in Fabric mode and in a Dataverse or CSV mode, and check the
+   Outcomes page's error visuals and `[Unique Users]` match the previous template.
 
 ## Follow-ups not in this change
 
@@ -233,13 +299,15 @@ later) against a lakehouse that the new processor has written:
   shown, so their cost grows with the square of the user count. The app no longer calls them (it
   ranks inside its own queries), but report pages that show them stay slow at 30–40k users. The fix
   is a per-user-per-month table the processor writes.
-- **Agent Evaluator imported columns.** `FirstBotMessage`, `LastBotMessage`, `AllVariables`,
-  `content_preview`, `error_message` and the `Var_ESS_*` columns are imported but unused. Dropping
-  them means editing the M in both the model and its unapplied changes.
-- **Consumption Central calculated columns.** 19 calculated columns. The costly ones are
-  `CoworkBilling[UsageCohort]` and `[UsageCohortRank]` (`RANKX(ALL('CoworkBilling'), ...)` per row,
-  so the cost grows with the square of the rows), `CoworkBilling[Weeks Over Limit]`
-  (`FILTER(ALL('CreditsWeekly'))` per user) and `CreditsWeekly[Weeks Ago]`. Move them into the
-  credit ingester, or rewrite `Weeks Over Limit` with `CALCULATETABLE`.
+- **Consumption Central weekly columns.** `CoworkBilling[Weeks Active]` and `[Weeks Over Limit]`
+  still scan `CreditsWeekly` once per user, so their cost grows with users times weekly rows. Any
+  DAX form, `CALCULATETABLE` included, still filters the whole table once per user, and a second
+  `CALCULATE` in `CoworkBilling` risks a circular dependency. Moving them upstream means a
+  per-user, per-week table with a defined user key. `CoworkBilling` keeps the roster's UPN as
+  given, while `CreditsWeekly` lower-cases and trims it. Today the match is the engine's text
+  comparison, so moving it needs an agreed key rather than a copy of that comparison.
+- **Consumption Central cohort columns.** `CoworkBilling[UsageCohortRank]` (and so `[UsageCohort]`)
+  counts the smaller values once per row, which still grows with the square of the rows. A linear
+  form computes the five percentile thresholds once and compares each row to them.
 - **Direct Lake.** The ValueLens fact table is now eligible. Other tables in the model still have
   calculated columns or Power Query steps.

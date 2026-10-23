@@ -69,6 +69,7 @@ Run these before the processor.
 | `INCREMENTAL_LOOKBACK_DAYS` | Processor | Days before the newest audit record whose months each `merge` run recomputes (default `14`), for records that arrive late. Other months are recomputed only when their rows change. |
 | `WRITE_MODE` | Processor | `'overwrite'` once to rebuild every month of `copilot_interactions_curated`, for example after a large licence or agent-registry change. Months a `merge` run doesn't recompute keep the licence and agent values from when they were processed. |
 | `TRANSCRIPT_STAGING_DIR`, `PARSE_CHUNK_ROWS` | Agent Evaluator | Where transcript pages are staged as JSONL (default `Files/_transcript_staging`), and how many transcripts each Spark task parses at a time (default `200`). |
+| `RUN_OPTIMIZE` | Processor, M365 activity ingester, Agent Evaluator | `False` to skip compacting the tables after the writes. On by default: each run ends with `OPTIMIZE ... VORDER` on the tables it wrote, so the semantic model reads a few large files. In the M365 activity ingester and Agent Evaluator a failed compaction is reported and the run carries on. |
 | `TIME_BUDGET_MIN` | Audit ingester | Minutes to spend fetching before the run stops and leaves the rest to the next run (default `0`, no limit). Set it below the pipeline activity's timeout. |
 
 ## An audit window keeps failing
