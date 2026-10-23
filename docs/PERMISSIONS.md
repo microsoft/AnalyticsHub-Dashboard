@@ -231,6 +231,8 @@ A person can have several scopes; they see the union. People without a scope of 
 
 A model definition deploy drops role members, so after every deploy the installer runs the **AnalyticsHub_Access_Scope** notebook, which applies the members through the XMLA endpoint, and then checks the result by querying as a seeded viewer.
 
+On Azure the scopes take effect when a run publishes after you turn it on or change them: the publish step loads `access_scope.csv` into `dbo.access_scope` and each person's manager chain from the org data into `dbo.access_people`, and the refresh after it brings them into the models. From 0.6.9 a run that reaches its time limit during a long first load still publishes what it has loaded, so org-scoped access applies once the first run publishes, while the history is still loading.
+
 | What | Role / requirement |
 |---|---|
 | Turn it on, change scopes | A workspace **Admin** or **Member** running the installer. On Azure also **Storage Blob Data Contributor** on the storage account (the installer assigns it if you can) |

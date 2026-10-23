@@ -209,6 +209,23 @@ test('only the run job caps DuckDB, at 5 of its 8 GiB (VALUELENS_DUCKDB_MEMORY_L
   assert.equal(containers.find((c) => c.name === 'run')?.resources?.memory, '8Gi', 'change the cap with the memory');
 });
 
+test('the run job reads its own replica timeout (VALUELENS_JOB_TIMEOUT_SEC), to publish what it has loaded before it is stopped', async () => {
+  const params = await installerParameters();
+  const env = containerEnv(params);
+  assert.equal(env.migrate.VALUELENS_JOB_TIMEOUT_SEC, undefined);
+  assert.equal(env.web.VALUELENS_JOB_TIMEOUT_SEC, undefined);
+  // The time budget is an override for testing; the template never sets it.
+  for (const vars of Object.values(env)) assert.equal(vars.VALUELENS_AUDIT_TIME_BUDGET_MIN, undefined);
+  const mod = TEMPLATE.resources.find((/** @type {any} */ r) => r.name === 'vl-containerapps');
+  const outer = armEvaluator(TEMPLATE, params, SCOPE);
+  const inner = Object.fromEntries(Object.entries(mod.properties.parameters).map(([k, v]) => [k, RUNTIME_FUNCTIONS.test(JSON.stringify(v)) ? { value: 'runtime' } : outer.evalValue(v)]));
+  const ev = armEvaluator(mod.properties.template, inner, SCOPE);
+  const job = Object.values(mod.properties.template.resources).find((/** @type {any} */ r) => r.properties?.template?.containers?.[0]?.name === 'run');
+  const timeout = ev.evalValue(job.properties.configuration.replicaTimeout);
+  assert.equal(timeout, 14400);
+  assert.equal(env.run.VALUELENS_JOB_TIMEOUT_SEC, String(timeout));
+});
+
 test('the template validates with only its required parameters (Deploy to Azure / az CLI)', () => {
   const required = Object.entries(TEMPLATE.parameters).filter(([, d]) => !('defaultValue' in d)).map(([n]) => n);
   assert.deepEqual(required.sort(), ['imageTag', 'installId']);

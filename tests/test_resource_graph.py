@@ -356,7 +356,7 @@ def test_collect_wiring_and_publish_targets(tmp_path, monkeypatch):
     assert called == ["collect_licensed", "collect_audit"]
     called.clear()
     jobs_main.collect(store, Settings(modules=frozenset({"core", "resourceGraph"})), api=object())
-    assert called == ["collect_licensed", "collect_audit", "collect_resource_graph"]
+    assert called == ["collect_licensed", "collect_resource_graph", "collect_audit"]
 
     assert jobs_main.publish_targets(Settings(modules=frozenset({"core", "resourceGraph"}))) == [
         "curated", "licensed", *pub.RESOURCE_GRAPH]

@@ -223,12 +223,15 @@ still works and the loads are slower. With up to 10,000 people, setup doesn't as
 or the web app, or warn, unless the install chose a paid option before, and deploys as before.
 
 Each run of the collector job has 4 vCPU, 8 GiB and up to 4 hours, which Azure enforces. The run
-loads the data and then refreshes the semantic models, waiting up to 2 hours for each refresh. On a
-large tenant the first load may not fit in one run. The audit collector records each time window as
-it finishes, so the next run (the next scheduled one, or **Run** on the home page) queries only the
-windows still to do, and then loads them all. A run cut off at 4 hours publishes nothing, so the
-dashboard fills in once one run has fetched everything left. A reload of more history carries over
-the same way. On a large tenant, start with 30 days of history and
+loads the data and then refreshes the semantic models, waiting up to 2 hours for each refresh, but
+no later than 10 minutes before the run's limit: a refresh still going then carries on in Power BI.
+On a large tenant the first load may not fit in one run. The audit collector runs after the other
+sources, fetches the newest weeks first, and stops fetching at least an hour before the limit, to
+leave time to publish. The run then publishes what it has loaded, so the dashboard fills in after
+each run, newest weeks first. The audit collector records each time window as it finishes, so the
+next run (the next scheduled one, or **Run** on the home page) carries on with only the windows
+still to do. A reload of more history carries over the same way. On a large tenant, start with 30
+days of history and
 [load more](#load-more-audit-history) once the first load has finished. In an offline test at
 20,000 seats, with the audit service simulated, the run stayed within the job's memory and disk,
 and processing a nightly run took about 5 minutes. For how long the first load takes, see
@@ -613,22 +616,23 @@ A load can take more than one run:
   `run`, or `run --backfill-days <n>` for a reload, a day later if it stopped at the search limit:
   it carries on from the windows already fetched. `status` gives the command, and after a stop at
   the search limit, the time a run can search again.
-- **Azure.** Each run of the run job gets up to 4 hours. A run cut off then publishes nothing, but
-  a run stopped at the search limit publishes what it has fetched. The next scheduled run, the next
-  day, carries on where it stopped, or start one sooner with `run`. The estimates count one run a
-  day, and no retry of a run that's cut off: on a weekly schedule, start the runs in between with
-  `run`.
+- **Azure.** Each run of the run job gets up to 4 hours, and fetches for up to about 3 of them,
+  newest weeks first, keeping at least the last hour to publish. It then publishes what it has
+  loaded, also when it stops at the search limit, so the reports fill in after each run. The next
+  scheduled run, the next day, carries on where it stopped, or start one sooner with `run`. The
+  estimates count one run a day: on a weekly schedule, start the runs in between with `run`.
 
 Keep the PC awake until the installer says setup is finished. After that you can close the window,
 and the load carries on. `status` shows how far it has got: the days asked for, how much has been
 fetched from the audit log, and what's in the reports. When the search limit stopped the load in
 the last day, it says when, and when a run can search again. What's been fetched isn't in the
 reports until it's written: on Fabric, a first load or a reload writes once every window is
-fetched, and on Azure, a run publishes what it fetched when it finishes. If `status` can't read the
-progress, for example on a private Azure install or without read access to the job's storage, it
-says so and lists the runs since. A load of history the installer couldn't start, such as a first
-load waiting for admin consent, stays in `status` and on the Done page, with its command, until it
-starts.
+fetched, and on Azure, each run publishes what it has loaded, also when it stops at its time limit,
+and `status` then says how far back the reports go and how many windows are left. If `status` can't
+read the progress, for example on a private Azure install or without read access to the job's
+storage, it says so and lists the runs since. A load of history the installer couldn't start, such
+as a first load waiting for admin consent, stays in `status` and on the Done page, with its command,
+until it starts.
 
 ### Load more audit history
 
@@ -637,7 +641,7 @@ work:
 
 - **Repair or change** asks *Load more audit history?* once the first load has finished, offering
   only more than you have. On Azure, it reads the run job's state to tell, since a run that started
-  may have published nothing. Where it can't read the state, on a private install or without read
+  may not have loaded all of it. Where it can't read the state, on a private install or without read
   access to the job's storage, it asks *You asked for N days of history. Load more?* instead, once
   the installer has started a run. Keep is the default. The plan shows the reload, and it runs once,
   straight after the repair. Later runs load only what's new. If a run is already going, the reload
@@ -656,12 +660,12 @@ On the [Azure target](#azure-target), the reload starts the run job once with
 `VALUELENS_AUDIT_BACKFILL_DAYS` set, and leaves its usual settings alone. Job images older than
 this installer ignore it and run as usual: run `update` first if yours is.
 
-The run records the reload before it reads anything. If it stops short, at the run job's 4-hour
-limit, at the tenant's audit search limit or on a query that fails, the next runs carry the reload
-on and query only what's missing.
-The audit history and Agent Evaluator both carry it over until they've finished it: the audit
-history until a run has loaded every window, and Agent Evaluator until it has read each environment.
-The dashboard gets the extra history once a run has loaded all of it.
+The run records the reload before it reads anything. If it stops short, at the run's time limit, at
+the tenant's audit search limit or on a query that fails, the next runs carry the reload on and
+query only what's missing. The audit history and Agent Evaluator both carry it over until they've
+finished it: the audit history until a run has loaded every window, and Agent Evaluator until it has
+read each environment. Each run publishes what it has loaded, so the dashboard gets the extra audit
+history newest weeks first, a run at a time.
 
 ## Data sources and exports
 

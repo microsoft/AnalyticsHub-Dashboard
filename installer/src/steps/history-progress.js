@@ -10,7 +10,10 @@
  *
  * Fetched isn't published. On Fabric, the manifest records the windows the audit load has fetched, and a first
  * load or a reload writes them to the table once every window is fetched. On Azure, the state's high-water mark
- * is the newest activity a run has merged, so it's in the reports; fetched windows reach them when a run merges.
+ * moves once a run has merged every window, so the history up to it is in the reports. Fetched windows reach the
+ * reports when a run merges them, near its end. A run of a job image from 0.6.9 fetches the newest windows first
+ * and merges what it fetched even when it stops at its time limit, and the state then says how far back the
+ * reports go and how many windows are left. An older image's run publishes only when it fetches everything left.
  */
 import { adminConsentUrl, apiPermissionsUrl } from '../clients/graph.js';
 import { HttpError } from '../http.js';
@@ -238,19 +241,25 @@ export function coverage(windows, { from, until, chunkHours }) {
   };
 }
 
+/** "1 window", "30 windows". @param {number} count */
+const windowCount = (count) => `${n(count)} ${count === 1 ? 'window' : 'windows'}`;
+
 /**
- * "about 47 of 180 days, 2025-12-03 to 2026-01-19; about 133 windows left".
+ * "about 47 of 180 days, 2025-12-03 to 2026-01-19; about 133 windows left". With `left`, the job's own count of
+ * the windows left, that count instead of an estimate.
  * @param {Coverage} cov
  * @param {number} days
  * @param {number} from
+ * @param {number} [left]
  */
-function fetchedText(cov, days, from) {
-  if (cov.fetchedHours <= 0) return 'none yet';
+function fetchedText(cov, days, from, left) {
+  const remaining = left === undefined ? `about ${windowCount(cov.windowsLeft)}` : windowCount(left);
+  if (cov.fetchedHours <= 0) return left === undefined ? 'none yet' : `none yet; ${remaining} left`;
   const range = cov.through !== undefined ? `, ${day(from)} to ${day(cov.through)}` : '';
   if (cov.complete) return `all ${n(days)} days${range}`;
   const whole = Math.min(Math.round(cov.fetchedHours / 24), days - 1);
   const got = whole < 1 ? `less than a day of ${n(days)}` : `about ${n(whole)} of ${n(days)} days${range}`;
-  return `${got}; about ${n(cov.windowsLeft)} ${cov.windowsLeft === 1 ? 'window' : 'windows'} left`;
+  return `${got}; ${remaining} left`;
 }
 
 /**
@@ -261,13 +270,18 @@ function fetchedText(cov, days, from) {
  * @property {boolean} [missing]  No file yet: no load has started on a window.
  * @property {number} [highWaterMark]  Azure: the newest activity a run has merged, so it's in the reports.
  * @property {number} [backfillFrom]  Azure: where a reload that no run has merged yet starts.
+ * @property {number} [windowsLeft]  Azure, from 0.6.9's job image: the windows the last run left for the next, when
+ *   it stopped at its time limit or the search limit, or a window failed. Not there while no run has stopped with
+ *   windows left.
+ * @property {number} [loadedBackTo]  Azure, from 0.6.9: how far back the windows merged so far go, newest first.
+ * @property {number} [pausedAt]  Azure, from 0.6.9: when the last run stopped at its time limit with windows left.
  */
 /** @typedef {'private' | 'forbidden' | 'unavailable' | 'unreadable' | 'error'} Unread */
 /** @typedef {{ read: false, reason: Unread }} NoProgress */
 
 /**
  * @param {Record<string, any>} entries
- * @param {{ missing?: boolean, highWaterMark?: number, backfillFrom?: number }} [extra]
+ * @param {Partial<Omit<Progress, 'read' | 'entries' | 'windows'>>} [extra]
  * @returns {Progress}
  */
 function progressOf(entries, extra = {}) {
@@ -319,6 +333,9 @@ export async function readAzureProgress(ctx) {
     return progressOf(isObject(doc.windows) ? doc.windows : {}, {
       highWaterMark: utcTime(doc.high_water_mark),
       backfillFrom: utcTime(doc.backfill_from),
+      windowsLeft: Number.isInteger(doc.windows_left) && doc.windows_left >= 0 ? doc.windows_left : undefined,
+      loadedBackTo: utcTime(doc.loaded_back_to),
+      pausedAt: utcTime(doc.paused_at),
     });
   } catch (err) {
     return { read: false, reason: unreadReason(err) };
@@ -452,7 +469,10 @@ const executionGoing = (r, now) => {
 
 /**
  * The audit history in `status` on Azure: what was asked for, what the reports have, and what's left to fetch.
- * A run publishes what it fetched only when it finishes, within its 4 hours.
+ * A run publishes what it has merged, near its end. From 0.6.9, the job fetches the newest windows first and
+ * merges what it fetched also when it stops at its time limit, and its state then says how far back that goes and
+ * how many windows are left. Without those fields (an older job image, or no run has stopped with windows left),
+ * the wording holds for either image: an older image's run publishes only when it fetches everything left.
  * @param {Ctx} ctx
  * @param {{ executions?: any[] }} [opts]  The run job's executions.
  */
@@ -465,41 +485,65 @@ export async function azureHistory(ctx, opts = {}) {
   const pending = pendingHistory(config);
   const executions = (opts.executions ?? []).filter((r) => !stepsOnly(r));
   const running = executions.some((r) => executionGoing(r, now));
+  const again = commandLine('run');
   ui.heading('Audit history');
   ui.info(askedLine(days, pending));
   const progress = await readAzureProgress(ctx);
   if (!progress.read) {
     ui.info(`How much has loaded can't be read from this PC: ${UNREAD.azure[progress.reason]}.`);
-    if (!pending) ui.note('The reports have the history asked for once a run of the run job succeeds. Its runs are listed above.');
+    if (!pending) ui.note("The reports fill in as the run job's runs publish, and have the history asked for once those runs have loaded all of it. The runs are listed above.");
     return;
   }
-  const { highWaterMark: hwm, backfillFrom } = progress;
+  const { highWaterMark: hwm, backfillFrom, windowsLeft, loadedBackTo, pausedAt } = progress;
+  // The job's own count of the windows the last run left for the next.
+  const left = windowsLeft !== undefined && windowsLeft > 0 ? windowsLeft : undefined;
+  const pausedOn = left !== undefined && pausedAt !== undefined ? day(pausedAt) : undefined;
   if (hwm !== undefined && backfillFrom === undefined) {
     ui.ok(`In the reports: activity up to ${day(hwm)}`);
+    // A scheduled run that reached its time limit before it had fetched every window.
+    if (left !== undefined && pausedOn !== undefined && !pending) {
+      ui.note(running
+        ? `A run is going now, and carries on with the ${windowCount(left)} the last run left.`
+        : `The last run reached its time limit on ${pausedOn} with ${windowCount(left)} left. The next scheduled run carries on with them, or start one now with "${again}".`);
+    }
     return;
   }
   const until = latest([...executions.map(startOf), utcTime(az.status?.lastRun?.startedAt), newestEnd(progress.entries)], now);
   const from = Math.min(until - days * DAY, backfillFrom ?? Infinity);
   const cov = coverage(progress.windows, { from, until, chunkHours: AZURE_CHUNK_HOURS });
   const empty = hwm === undefined && cov.complete && cov.allEmpty;
-  if (hwm !== undefined) ui.info(`In the reports: activity up to ${day(hwm)}. The reload from ${day(/** @type {number} */ (backfillFrom))} isn't all in them yet.`);
+  if (hwm !== undefined) {
+    const reached = loadedBackTo !== undefined ? ` It has loaded back to ${day(loadedBackTo)} so far, newest first.` : '';
+    ui.info(`In the reports: activity up to ${day(hwm)}. The reload from ${day(/** @type {number} */ (backfillFrom))} isn't all in them yet.${reached}`);
+  }
   if (empty) {
     ui.info(`Fetched from the audit log: all ${n(days)} days, with no Copilot activity in them`);
     ui.info('In the reports: no Copilot activity, because the audit log returned none for those days');
     return;
   }
-  ui.info(`Fetched from the audit log: ${fetchedText(cov, days, from)}`);
-  if (hwm === undefined) ui.info(`In the reports: ${cov.fetchedHours > 0 ? 'not all of it yet' : 'none of it yet'}`);
+  // The job counts the windows left when a run stops. While the next run is going, its entries move on: the estimate.
+  ui.info(`Fetched from the audit log: ${fetchedText(cov, days, from, running ? undefined : left)}`);
+  if (hwm === undefined) {
+    if (loadedBackTo !== undefined) ui.info(`In the reports: activity back to ${day(loadedBackTo)} so far, newest first`);
+    else ui.info(`In the reports: ${cov.fetchedHours > 0 ? 'not all of it yet' : 'none of it yet'}`);
+  }
   if (pending) return;
   const limit = cov.complete ? undefined : searchLimitStop(progress, now);
-  if (running) ui.note('A run is going now. What it fetches reaches the reports if it finishes within its 4 hours.');
-  else if (limit) {
+  if (running) {
+    ui.note(left !== undefined
+      ? 'A run is going now. It publishes what it has loaded when it finishes or reaches its time limit, and the next run carries on with any windows left.'
+      : 'A run is going now. What it fetches reaches the reports when it publishes, near the end of the run.');
+  } else if (limit) {
     const next = cov.fetchedHours > 0 ? 'carries on where it stopped' : 'starts loading it';
     ui.note(`The last run stopped at ${limit.at} UTC because the tenant's audit search limit was reached. ` +
-      `The next scheduled run ${next}, or start one after ${limit.after} UTC with "${commandLine('run')}".`);
-  } else if (cov.complete) ui.note(`The next run publishes it. Start one sooner with "${commandLine('run')}".`);
-  else if (cov.fetchedHours > 0) ui.note(`The next scheduled run carries on where it stopped, or start one now with "${commandLine('run')}".`);
-  else ui.note(`The next scheduled run starts loading it, or start one now with "${commandLine('run')}".`);
+      `The next scheduled run ${next}, or start one after ${limit.after} UTC with "${again}".`);
+  } else if (pausedOn !== undefined) {
+    ui.note(cov.fetchedHours > 0 || loadedBackTo !== undefined
+      ? `The last run reached its time limit on ${pausedOn} and published what it had loaded. The next scheduled run carries on with the rest, or start one now with "${again}".`
+      : `The last run reached its time limit on ${pausedOn} before any of it had loaded. The next scheduled run carries on, or start one now with "${again}".`);
+  } else if (cov.complete) ui.note(`The next run publishes it. Start one sooner with "${again}".`);
+  else if (cov.fetchedHours > 0) ui.note(`The next scheduled run carries on where it stopped, or start one now with "${again}".`);
+  else ui.note(`The next scheduled run starts loading it, or start one now with "${again}".`);
 }
 
 /**
