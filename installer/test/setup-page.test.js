@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { createContext, runInContext } from 'node:vm';
+import { emptyConfig } from '../src/config.js';
+import { setupCategories } from '../src/setup.js';
 
 /** A small DOM double exercises the real page renderers and their event payloads. */
 class Element {
@@ -80,6 +82,18 @@ test('settings page renders every category as a direct action and shows edits an
   const edit = all(root).find((el) => el.tag === 'button' && el.text.startsWith('Azure placement'));
   edit?.events.click();
   assert.equal(context.submitted[0], 'placement');
+});
+
+test('settings page: Azure\'s App registrations is a category of its own, after Viewer access, with who makes the two apps', () => {
+  const config = emptyConfig();
+  config.target = 'azure';
+  config.azure = /** @type {any} */ ({ adminScript: '/home/me/analytics-hub-azure-admin.md' });
+  const context = page();
+  const root = runInContext(`renderPrompt(${JSON.stringify({ id: 3, kind: 'settings', message: 'Review and fix setup', error: '', categories: setupCategories(config), notice: '', changes: [] })})`, context);
+  assert.match(root.text, /Viewer access.*App registrations.*Waiting for an admin's script: \/home\/me\/analytics-hub-azure-admin\.md/s);
+  const edit = all(root).find((el) => el.tag === 'button' && el.text.startsWith('App registrations'));
+  edit?.events.click();
+  assert.equal(context.submitted[0], 'identity');
 });
 
 test('grouped form submits all related fields together and explains locked fields', () => {

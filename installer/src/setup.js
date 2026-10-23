@@ -5,7 +5,8 @@ import { createHash } from 'node:crypto';
 import { archiveConfig, loadConfig, removeFile, saveConfig } from './config.js';
 import { armErrors } from './clients/azure.js';
 import { plan, preflight, confirmPlan } from './steps/plan.js';
-import { askTarget, azurePreflight, azureResourceGraphOn, confirmAzurePlan, deploymentPinned, planAzure, resourcesIn, supportsVnetGateway } from './steps/azure/index.js';
+import { askTarget, azureAppsGate, azurePreflight, azureResourceGraphOn, confirmAzurePlan, deploymentPinned, planAzure, resourcesIn, supportsVnetGateway } from './steps/azure/index.js';
+import { AZURE_APPS, appsRecorded } from './steps/azure/apps.js';
 import { checkRegions, regionProblems, sqlProblem, allowedFor, ASK_TYPE } from './steps/azure/regions.js';
 import { askModelIn } from './steps/azure/ask.js';
 import { isResumeLater } from './steps/identity.js';
@@ -18,6 +19,20 @@ import { checkStaged } from './staging.js';
 export const SETUP_SECTIONS = ['data', 'placement', 'networking', 'powerbi', 'access', 'identity', 'sources', 'governance', 'ask', 'schedule'];
 const draftFile = (/** @type {string} */ file) => `${file}.draft.json`;
 const recordRevision = (/** @type {string} */ file) => existsSync(file) ? createHash('sha256').update(readFileSync(file)).digest('hex') : 'new';
+
+/**
+ * Who makes the Azure install's two app registrations: the installer, an admin from the script it wrote, or the
+ * apps an admin made, by name and client ID.
+ * @param {import('./config.js').AzureConfig | undefined} az @param {boolean} visited
+ */
+function appsSummary(az, visited) {
+  if (az?.adminScript && !appsRecorded(az)) return `Waiting for an admin's script: ${az.adminScript}`;
+  if (!AZURE_APPS.some(({ key }) => az?.[key]?.clientId)) return visited ? 'Create the two apps' : 'Choose who creates the two apps';
+  return AZURE_APPS.map(({ key, name }) => {
+    const app = az?.[key];
+    return app?.clientId ? `${name} (${app.clientId}${app.created === false ? ', made by an admin' : ''})` : `${name}: create`;
+  }).join('; ');
+}
 
 /** @param {InstallConfig} config */
 export function setupCategories(config) {
@@ -38,6 +53,8 @@ export function setupCategories(config) {
     entry('powerbi', 'Power BI', azure ? `Workspace: ${az?.powerBi?.workspaceId ?? az?.workspaceName ?? 'not set'}; capacity: ${az?.powerBi?.capacityId ?? 'shared'}`
       : `Semantic model: ${config.semanticModel.enabled === false ? 'off' : 'on'}; reports: ${config.semanticModel.reports === false ? 'off' : 'on'}; app: ${config.fabricApp.enabled === false ? 'off' : 'on'}`),
     entry('access', 'Viewer access', config.access?.groupName ?? config.access?.groupId ?? 'Choose who can view'),
+    // An install that recorded both apps has made them, or adopted an admin's.
+    ...(azure ? [{ ...entry('identity', 'App registrations', appsSummary(az, done.has('identity'))), complete: done.has('identity') || appsRecorded(az) }] : []),
     ...(!azure ? [entry('identity', 'Identity and secrets', `${config.app.displayName ?? config.app.appId ?? 'App registration'}; ${config.keyVault.mode === 'notebook' ? 'secret in notebooks' : config.keyVault.name ?? 'Key Vault'}`)] : []),
     entry('sources', 'Module connections', 'Credit consumption, data sources and module-specific connections'),
     entry('governance', 'Governance and flows', `Resource Graph: ${resourceGraph}`),
@@ -152,7 +169,7 @@ function changedCategories(before, after) {
     networking: [config.azure?.publicNetworkAccess, config.azure?.privateDns],
     powerbi: [config.azure?.powerBi, config.azure?.workspaceName, config.semanticModel.enabled, config.semanticModel.reports, config.fabricApp.enabled],
     access: config.access,
-    identity: [config.app, config.keyVault],
+    identity: [config.app, config.keyVault, config.azure?.webApp, config.azure?.sqlReader, config.azure?.adminScript],
     sources: [config.dataSources, config.consumption, config.agentEvaluator],
     governance: [config.resourceGraph, config.uploads],
     ask: config.azure?.ask,
@@ -322,6 +339,7 @@ export async function reviewSetup(ctx) {
             }
           }
           await azurePreflight(ctx);
+          await azureAppsGate(ctx, pre);
         } else if (!pre.capacities.some((cap) => cap.id === ctx.config.fabric.capacityId) && !pre.workspacesOnCapacity?.some((w) => w.id === ctx.config.fabric.workspaceId)) {
           // With no capacity to create a workspace on, a chosen workspace that's already on one is enough.
           throw new Error('Review Fabric placement: the selected capacity is no longer active or accessible.');
