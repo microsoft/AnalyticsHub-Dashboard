@@ -28,6 +28,8 @@ const CREATOR = { ...SUBS, canCreateApps: true, canApproveDelegated: false, canM
 /** An Application Administrator. */
 const APP_ADMINISTRATOR = { ...SUBS, canCreateApps: true, canApproveDelegated: true, canManageApps: true };
 const WHO = 'Who creates the two Entra app registrations?';
+const WHO_WEB = `Who creates "${WEB_APP_NAME}"?`;
+const WHO_SQL = `Who creates "${SQL_READER_NAME}"?`;
 const WEB_ID = '11111111-1111-4111-8111-111111111111';
 const SQL_ID = '22222222-2222-4222-8222-222222222222';
 const OTHER_WEB_ID = '33333333-3333-4333-8333-333333333333';
@@ -109,6 +111,18 @@ function adminMade(graph, o = {}) {
   );
   if (o.sps !== false) graph.servicePrincipals.push({ id: 'sp-web', appId: WEB_ID }, { id: 'sp-sql', appId: SQL_ID });
 }
+
+/**
+ * Only the web app, made by an admin for the installer's user, with its service principal: nobody made the SQL reader.
+ * @param {{ applications: any[], servicePrincipals: any[] }} graph
+ */
+function webOnly(graph) {
+  graph.applications.push({ id: 'web-obj', appId: WEB_ID, displayName: WEB_APP_NAME, owners: ['user-1'] });
+  graph.servicePrincipals.push({ id: 'sp-web', appId: WEB_ID });
+}
+
+/** The apps created, of either kind. @param {string[]} calls */
+const appsCreated = (calls) => calls.filter((c) => /^create\w*Application /.test(c));
 
 /** Adopted apps, as the plan records them. */
 const ADOPTED = {
@@ -255,6 +269,96 @@ test('Azure apps plan: recorded apps ask nothing', async () => {
   assert.match(section.u.text(), new RegExp(`Using ${re(WEB_APP_NAME)} \\(${WEB_ID}\\), which an admin created`));
 });
 
+// When an admin made only one of the two
+
+test('Azure apps plan: when an admin made only the web app, someone who can create apps uses it, is asked only about the SQL reader, and creates only that', async () => {
+  const t = azureCtx();
+  webOnly(t.graph);
+  await planAzureApps(t.ctx, CREATOR);
+  assert.deepEqual(t.az().webApp, ADOPTED.webApp, 'used without asking');
+  assert.match(t.u.text(), new RegExp(`Using "${re(WEB_APP_NAME)}" \\(client ID ${WEB_ID}\\), which an admin created`));
+  assert.ok(!t.u.asked.includes(WHO) && !t.u.asked.includes(WHO_WEB), 'nothing asked about the web app');
+  const who = t.selects[WHO_SQL];
+  assert.deepEqual(values(who), ['create', 'adopt', 'admin']);
+  assert.equal(who.def, 'create');
+  assert.deepEqual(who.choices.map((c) => c.name), [`Create "${SQL_READER_NAME}" (recommended)`, 'Use the one an admin created for me', 'An admin will create it for me']);
+  assert.equal(who.choices[0].description, 'The installer creates the app before it deploys anything.', 'no consent link: the web app is made');
+  assert.equal(who.choices[1].description, 'Enter its client ID.');
+  await azureAppsGate(t.ctx, CREATOR);
+  assert.ok(!existsSync(t.script()));
+  assert.deepEqual(t.graph.calls, [], 'nothing is created before the install');
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.deepEqual(appsCreated(t.graph.calls), [`createApplication ${SQL_READER_NAME}`], 'no second web app');
+  assert.deepEqual([t.az().webApp.clientId, t.az().webApp.created], [WEB_ID, false]);
+  assert.equal(t.az().sqlReader.created, true);
+});
+
+test("Azure apps plan: when an admin made only the web app, someone who can't create apps uses it, and the admin's script makes only the SQL reader", async () => {
+  const t = azureCtx({ pick: { [WHO_SQL]: 'admin' } });
+  webOnly(t.graph);
+  await planAzureApps(t.ctx, NONE);
+  assert.deepEqual(t.az().webApp, ADOPTED.webApp);
+  assert.ok(!t.u.asked.includes(WHO));
+  const who = t.selects[WHO_SQL];
+  assert.deepEqual(values(who), ['adopt', 'admin']);
+  assert.equal(who.def, 'admin', 'nobody made it yet');
+  assert.deepEqual(who.choices.map((c) => c.name), ['Use the one an admin created for me', 'An admin will create it for me']);
+  assert.ok(!t.u.asked.includes(`Client ID of "${SQL_READER_NAME}"`), 'no client ID asked for an app nobody made');
+  const text = t.u.text();
+  assert.ok(text.includes(`An Application Administrator or Cloud Application Administrator can create "${SQL_READER_NAME}" for you.`), text);
+  assert.ok(text.includes(`An admin needs to create "${SQL_READER_NAME}". Send this file to an Application Administrator or Cloud Application Administrator:`), text);
+  assert.ok(text.includes('run the installer again: it finds the app itself.'), text);
+  assert.equal(t.az().adminScript, t.script());
+  const md = readFileSync(t.script(), 'utf8');
+  assert.ok(md.includes(`WEB_APP=$(find_app '${WEB_ID}' '${WEB_APP_NAME}'`), "the script reuses the admin's web app");
+  assert.ok(md.includes(`SQL_APP=$(find_app '' '${SQL_READER_NAME}'`));
+  await assert.rejects(azureAppsGate(t.ctx, NONE), (/** @type {Error} */ err) => {
+    assert.ok(isResumeLater(err));
+    assert.ok(err.message.includes(`An admin needs to create "${SQL_READER_NAME}", so the installer stopped before deploying anything. Send ${t.script()} to an Application Administrator or Cloud Application Administrator.`), err.message);
+    assert.match(err.message, /the installer finds the app itself\./);
+    return true;
+  });
+  assert.deepEqual(t.az().webApp, ADOPTED.webApp, 'kept for the next run');
+  assert.deepEqual(t.graph.calls, []);
+});
+
+test('Azure apps plan: with two adoptable web apps and no SQL reader, you pick the web app, then are asked only about the SQL reader', async () => {
+  const which = `Which "${WEB_APP_NAME}"?`;
+  const t = azureCtx({ pick: { [which]: OTHER_WEB_ID } });
+  webOnly(t.graph);
+  t.graph.applications.push({ id: 'web-obj-2', appId: OTHER_WEB_ID, displayName: WEB_APP_NAME, owners: ['user-1'] });
+  t.graph.servicePrincipals.push({ id: 'sp-web-2', appId: OTHER_WEB_ID });
+  await planAzureApps(t.ctx, NONE);
+  assert.ok(!t.u.asked.includes(WHO));
+  assert.deepEqual(values(t.selects[which]), [WEB_ID, OTHER_WEB_ID, '']);
+  assert.equal(t.az().webApp.clientId, OTHER_WEB_ID);
+  assert.ok(t.u.asked.indexOf(which) < t.u.asked.indexOf(WHO_SQL));
+  assert.equal(t.selects[WHO_SQL].def, 'admin');
+});
+
+test('Azure apps: a re-run after the admin made only one of the two uses it, and waits only for the other', async () => {
+  const t = azureCtx({ azure: { adminScript: 'C:\\old\\analytics-hub-azure-admin-script.md' } });
+  webOnly(t.graph);
+  await planAzureApps(t.ctx, NONE);
+  assert.deepEqual(t.az().webApp, ADOPTED.webApp);
+  assert.ok(!t.u.asked.includes(WHO));
+  const admin = t.selects[WHO_SQL].choices.find((c) => c.value === 'admin');
+  assert.equal(t.selects[WHO_SQL].def, 'admin');
+  assert.equal(admin.name, 'An admin will create it for me');
+  assert.match(admin.description, /^Still waiting for an admin to run the script in C:\\old\\analytics-hub-azure-admin-script\.md\./);
+  await assert.rejects(azureAppsGate(t.ctx, NONE), (/** @type {Error} */ err) => {
+    assert.ok(isResumeLater(err));
+    assert.match(err.message, new RegExp(`^Still waiting for an admin to create "${re(SQL_READER_NAME)}" with the script in .*, so the installer stopped again before deploying anything\\. .*the installer finds the app itself\\.$`));
+    return true;
+  });
+
+  const yes = azureCtx({ yes: true, azure: { adminScript: 'C:\\old\\analytics-hub-azure-admin-script.md' } });
+  webOnly(yes.graph);
+  await planAzureApps(yes.ctx, NONE);
+  await assert.rejects(azureAppsGate(yes.ctx, NONE), new RegExp(`Still waiting for an admin to create "${re(SQL_READER_NAME)}" with the script in `));
+  assert.deepEqual(yes.az().webApp, ADOPTED.webApp);
+});
+
 // --yes
 
 test('Azure apps --yes: with no way to create apps, the plan writes the admin file and stops after the preflight, before anything is created', async () => {
@@ -316,6 +420,44 @@ test('Azure apps --yes: someone who can create apps creates them at install time
   assert.equal(t.az().webApp, undefined);
 });
 
+test('Azure apps --yes: when an admin made only the web app, someone who can create apps uses it, and install step 1 creates only the SQL reader', async () => {
+  const t = azureCtx({ yes: true, fresh: true });
+  webOnly(t.graph);
+  await planAzure(t.ctx, CREATOR);
+  assert.deepEqual(t.az().webApp, ADOPTED.webApp);
+  assert.equal(t.az().sqlReader, undefined);
+  assert.equal(t.az().adminScript, undefined);
+  assert.ok(!existsSync(t.script()));
+  assert.deepEqual(t.graph.calls, []);
+
+  const install = azureCtx({ yes: true });
+  webOnly(install.graph);
+  await planAzureApps(install.ctx, CREATOR);
+  await azureAppsGate(install.ctx, CREATOR);
+  assert.deepEqual(install.az().webApp, ADOPTED.webApp);
+  assert.equal(await installAzure(install.ctx, { wait: true }), true);
+  assert.deepEqual(appsCreated(install.graph.calls), [`createApplication ${SQL_READER_NAME}`], 'no second web app');
+  assert.deepEqual([install.az().webApp.clientId, install.az().webApp.created], [WEB_ID, false]);
+  assert.equal(install.az().sqlReader.created, true);
+});
+
+test("Azure apps --yes: when an admin made only the web app, someone who can't create apps uses it, and the plan stops for a script that makes only the SQL reader", async () => {
+  const t = azureCtx({ yes: true, fresh: true });
+  webOnly(t.graph);
+  await assert.rejects(planAzure(t.ctx, NONE), (/** @type {Error} */ err) => {
+    assert.ok(isResumeLater(err), err.message);
+    assert.ok(err.message.includes(`An admin needs to create "${SQL_READER_NAME}", so the installer stopped before deploying anything. Send ${t.script()} to an Application Administrator or Cloud Application Administrator.`), err.message);
+    assert.match(err.message, /the installer finds the app itself\./);
+    return true;
+  });
+  assert.deepEqual(t.az().webApp, ADOPTED.webApp);
+  assert.equal(t.az().sqlReader, undefined);
+  assert.equal(t.az().adminScript, t.script());
+  assert.ok(readFileSync(t.script(), 'utf8').includes(`WEB_APP=$(find_app '${WEB_ID}' '${WEB_APP_NAME}'`), "the script reuses the admin's web app");
+  assert.ok(!t.arm.calls.some((c) => /^(ensureResourceGroup|deployTemplate)/.test(c)), t.arm.calls.join('\n'));
+  assert.deepEqual(t.graph.calls, []);
+});
+
 // Waiting for the admin's script
 
 test('Azure apps: a re-run while the admin script is still waiting stops again, with the file written again', async () => {
@@ -373,12 +515,16 @@ test('Azure status: says the install is waiting for the admin script, and where 
   done.config.azure = /** @type {any} */ ({ adminScript: 'C:\\records\\x.md', ...ADOPTED });
   await azureStatus(done.ctx);
   assert.doesNotMatch(done.u.text(), /Waiting for an admin/);
+  const one = azureCtx({ fresh: true });
+  one.config.azure = /** @type {any} */ ({ adminScript: 'C:\\records\\x.md', webApp: ADOPTED.webApp });
+  await azureStatus(one.ctx);
+  assert.ok(one.u.text().includes(`Waiting for an admin to create "${SQL_READER_NAME}" with the script in C:\\records\\x.md.`), one.u.text());
 });
 
 // Adopting by client ID
 
 test("Azure apps by ID: an app you don't own stops the plan, naming who adds you as an owner, and where", async () => {
-  const t = azureCtx({ answers: [WEB_ID] });
+  const t = azureCtx({ answers: [WEB_ID], pick: { [WHO_WEB]: 'adopt' } });
   adminMade(t.graph, { webOwner: 'user-2' });
   await assert.rejects(planAzureApps(t.ctx, NONE), (/** @type {Error} */ err) => {
     assert.ok(isResumeLater(err));
@@ -388,14 +534,16 @@ test("Azure apps by ID: an app you don't own stops the plan, naming who adds you
     );
     return true;
   });
-  assert.equal(t.selects[WHO].def, 'adopt', 'the SQL reader is adoptable');
+  assert.deepEqual(t.az().sqlReader, ADOPTED.sqlReader, 'the SQL reader you own is used without asking');
+  assert.ok(!t.u.asked.includes(WHO), 'the question is only about the web app');
+  assert.equal(t.selects[WHO_WEB].def, 'admin');
   assert.ok(t.u.asked.includes(`Client ID of "${WEB_APP_NAME}"`));
   assert.equal(t.az().webApp, undefined);
   assert.ok(t.saves() > 0);
 });
 
 test("Azure apps by ID: an Application Administrator can use an app they don't own", async () => {
-  const t = azureCtx({ answers: [WEB_ID], pick: { [WHO]: 'adopt' } });
+  const t = azureCtx({ answers: [WEB_ID], pick: { [WHO_WEB]: 'adopt' } });
   adminMade(t.graph, { webOwner: 'user-2' });
   await planAzureApps(t.ctx, APP_ADMINISTRATOR, 'identity');
   assert.deepEqual(t.az().webApp, ADOPTED.webApp);
@@ -403,7 +551,7 @@ test("Azure apps by ID: an Application Administrator can use an app they don't o
 });
 
 test('Azure apps by ID: a finished app warns that another install may use it, and the confirm defaults to No', async () => {
-  const t = azureCtx({ answers: [WEB_ID, 'not-a-guid'] });
+  const t = azureCtx({ answers: [WEB_ID, 'not-a-guid'], pick: { [WHO_WEB]: 'adopt' } });
   adminMade(t.graph);
   t.graph.applications[0].spa = { redirectUris: ['https://other.example.com/'] };
   await assert.rejects(planAzureApps(t.ctx, NONE), new RegExp(`Client ID of "${re(WEB_APP_NAME)}": Enter its Application \\(client\\) ID, a GUID\\.`), 'asked again');
@@ -411,13 +559,13 @@ test('Azure apps by ID: a finished app warns that another install may use it, an
   assert.match(t.u.text(), new RegExp(`"${re(WEB_APP_NAME)}" \\(client ID ${WEB_ID}\\) already has redirect URIs, so another install may use it\\. Finishing it for this install replaces its redirect URIs and identifier URI, and sign-in to the other install stops working\\.`));
   assert.equal(t.az().webApp, undefined);
 
-  const sure = azureCtx({ answers: [WEB_ID], confirm: { 'Use it anyway?': true } });
+  const sure = azureCtx({ answers: [WEB_ID], confirm: { 'Use it anyway?': true }, pick: { [WHO_WEB]: 'adopt' } });
   adminMade(sure.graph);
   sure.graph.applications[0].spa = { redirectUris: ['https://other.example.com/'] };
   await planAzureApps(sure.ctx, NONE);
   assert.deepEqual(sure.az().webApp, ADOPTED.webApp);
 
-  const secret = azureCtx({ answers: [SQL_ID, 'not-a-guid'], pick: { [WHO]: 'adopt' } });
+  const secret = azureCtx({ answers: [SQL_ID, 'not-a-guid'], pick: { [WHO_SQL]: 'adopt' } });
   adminMade(secret.graph);
   secret.graph.applications.splice(1, 1, { id: 'sql-obj', appId: SQL_ID, displayName: SQL_READER_NAME, owners: ['user-1'], passwordCredentials: [{ keyId: 'k' }] });
   await assert.rejects(planAzureApps(secret.ctx, NONE), /a GUID/);
@@ -425,7 +573,7 @@ test('Azure apps by ID: a finished app warns that another install may use it, an
 });
 
 test("Azure apps by ID: the other app's client ID, or one that isn't there, is asked for again", async () => {
-  const t = azureCtx({ answers: [SQL_ID, OTHER_WEB_ID, 'not-a-guid'] });
+  const t = azureCtx({ answers: [SQL_ID, OTHER_WEB_ID, 'not-a-guid'], pick: { [WHO_WEB]: 'adopt' } });
   t.graph.applications.push({ id: 'sql-obj', appId: SQL_ID, displayName: SQL_READER_NAME, owners: ['user-1'] });
   t.graph.servicePrincipals.push({ id: 'sp-sql', appId: SQL_ID });
   await assert.rejects(planAzureApps(t.ctx, NONE), /a GUID/);
