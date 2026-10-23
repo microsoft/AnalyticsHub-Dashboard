@@ -429,7 +429,7 @@ test('Azure apps --yes: someone who can create apps creates them at install time
   assert.equal(t.az().webApp, undefined);
 });
 
-test('Azure apps --yes: when an admin made only the web app, someone who can create apps uses it, and install step 1 creates only the SQL reader', async () => {
+test('Azure apps --yes: when an admin made only the web app, someone who can create apps uses it, and install step 2 creates only the SQL reader', async () => {
   const t = azureCtx({ yes: true, fresh: true });
   webOnly(t.graph);
   await planAzure(t.ctx, CREATOR);
@@ -607,7 +607,7 @@ test("Azure apps: an adopted app with no service principal stops the plan when y
   assert.deepEqual(t.graph.calls, []);
 });
 
-test('Azure apps: an adopted app with no service principal gets one in the first install step when you can create it', async () => {
+test('Azure apps: an adopted app with no service principal gets one in the Entra applications step when you can create it', async () => {
   const t = azureCtx();
   adminMade(t.graph, { sps: false });
   await planAzureApps(t.ctx, CREATOR);
@@ -623,12 +623,13 @@ test('Azure apps: an adopted app with no service principal gets one in the first
 
 // Installing: create before the deploy, finish after
 
-test('Azure install: Entra applications come first, and their settings follow the Azure resources', async () => {
+test('Azure install: the Power BI workspace, then the Entra applications, come first, and the apps\' settings follow the Azure resources', async () => {
   const t = azureCtx();
   assert.equal(await installAzure(t.ctx, { wait: true }), true);
   const text = t.u.text();
-  assert.match(text, /\[1\/\d+\] Entra applications/);
-  assert.match(text, /\[2\/\d+\] Resource group/);
+  assert.match(text, /\[1\/\d+\] Power BI workspace/);
+  assert.match(text, /\[2\/\d+\] Entra applications/);
+  assert.match(text, /\[3\/\d+\] Resource group/);
   const resources = text.search(/\[\d+\/\d+\] Azure resources/);
   const settings = text.search(/\[\d+\/\d+\] Entra application settings/);
   assert.ok(resources > 0 && settings > resources, 'settings after the deploy');
@@ -640,6 +641,55 @@ test('Azure install: Entra applications come first, and their settings follow th
   assert.ok(calls.includes('updateAzureWebApplication vlens.example.com'));
   assert.equal(t.az().webApp.created, true);
   assert.equal(t.az().sqlReader.created, true);
+});
+
+test('Azure install: a 401 or 403 creating the Power BI workspace stops before anything in Entra or Azure, saying what to ask for', async () => {
+  for (const [status, powerBi, existing] of /** @type {const} */ ([
+    [401, undefined, 'an existing workspace'],
+    [403, { capacityId: 'cap-f' }, 'an existing workspace that\'s already on a capacity'],
+  ])) {
+    const t = azureCtx({ azure: powerBi ? { powerBi } : {} });
+    t.powerBi.failures.createGroup = [httpError(status, 'Forbidden')];
+    await assert.rejects(installAzure(t.ctx, { wait: true }), (/** @type {Error} */ err) => {
+      assert.ok(isResumeLater(err), err.message);
+      assert.equal(
+        err.message.replace(RUN_AGAIN, 'run X again'),
+        'Power BI didn\'t let you create the workspace "Analytics Hub" (Forbidden), so the installer stopped before anything in Entra or Azure. ' +
+          'Either the "Create workspaces" tenant setting doesn\'t include you: ask a Fabric administrator to turn it on for you, or for a group you\'re in. ' +
+          'Or your Power BI licence is the free one: creating a workspace takes Pro or Premium Per User. ' +
+          `Or ask for Admin or Member on ${existing}. ` +
+          'Then run X again, and for the Power BI workspace choose that one, or "Create a new workspace".',
+      );
+      return true;
+    });
+    const text = t.u.text();
+    assert.match(text, /\[1\/\d+\] Power BI workspace\n/);
+    assert.doesNotMatch(text, /\[\d+\/\d+\] (Entra applications|Resource group|Azure resources)/, text);
+    assert.deepEqual(appsCreated(t.graph.calls), [], `${status}: no Entra app`);
+    assert.deepEqual(t.arm.calls.filter((c) => /^(ensureResourceGroup|deployTemplate)/.test(c)), [], `${status}: nothing in Azure`);
+    assert.equal(t.az().powerBi?.workspaceId, undefined);
+    assert.equal(t.az().powerBi?.createdWorkspace, undefined);
+  }
+  const other = azureCtx();
+  other.powerBi.failures.createGroup = [httpError(500, 'Internal error')];
+  await assert.rejects(installAzure(other.ctx, { wait: true }), (/** @type {Error} */ err) => !isResumeLater(err) && err.message === 'Internal error');
+});
+
+test('Azure install: when a later step fails, the Power BI workspace it created is recorded, and the next run reuses it', async () => {
+  const t = azureCtx();
+  const ensureResourceGroup = t.arm.api.ensureResourceGroup;
+  t.arm.api.ensureResourceGroup = async () => {
+    throw new Error('Resource group refused');
+  };
+  await assert.rejects(installAzure(t.ctx, { wait: true }), /Resource group refused/);
+  assert.equal(t.az().powerBi.workspaceId, 'pbi-ws-1');
+  assert.equal(t.az().powerBi.createdWorkspace, true, 'so Uninstall deletes it');
+  assert.equal(t.az().deploymentConfig, undefined);
+  t.arm.api.ensureResourceGroup = ensureResourceGroup;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.deepEqual(t.powerBi.calls.filter((c) => c.startsWith('createGroup')), ['createGroup Analytics Hub'], 'created once');
+  assert.equal(t.az().powerBi.workspaceId, 'pbi-ws-1');
+  assert.equal(t.az().powerBi.createdWorkspace, true);
 });
 
 test('Azure install: a 403 creating the apps writes the admin file and stops before the resource group or the deploy', async () => {

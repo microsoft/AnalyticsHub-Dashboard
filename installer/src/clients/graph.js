@@ -257,6 +257,11 @@ export function graphApi(http) {
     /** IDs of the groups the signed-in user is in, directly or through other groups. */
     myGroupIds: async () =>
       (await http.list('/me/transitiveMemberOf/microsoft.graph.group', { query: { $select: 'id' } })).map((g) => String(g.id)),
+    /**
+     * IDs of what the signed-in user is a direct member of: groups, and also directory roles and administrative
+     * units, whose IDs never match a group's. No type cast, which would need advanced query headers.
+     */
+    myDirectGroupIds: async () => (await http.list('/me/memberOf', { query: { $select: 'id' } })).map((g) => String(g.id)),
     /** @returns {Promise<{ skuPartNumber?: string, servicePlans?: { servicePlanName: string, provisioningStatus: string }[] }[]>} */
     myLicenseDetails: () => http.list('/me/licenseDetails'),
     /** @returns {Promise<{ skuPartNumber?: string, capabilityStatus?: string, consumedUnits?: number, prepaidUnits?: { enabled?: number }, servicePlans?: { servicePlanName: string, provisioningStatus?: string }[] }[]>} */

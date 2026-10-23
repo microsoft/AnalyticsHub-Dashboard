@@ -63,6 +63,12 @@ flowchart LR
   an earlier version keeps its names, such as `ValueLens Model`.
 - **Capacity.** F64 or larger is recommended for more than 10,000 people. A
   [large tenant](../installer/README.md#a-large-tenant) takes longer to load.
+- **Workspace.** Each workspace choice says what it needs. **Create a new workspace** needs the
+  *Create workspaces* tenant setting on for you, and on Azure a Power BI Pro or Premium Per User
+  licence. An existing workspace needs Admin or Member on it, or Admin if it has to move onto the
+  capacity; on Fabric, only those are listed. If you're a Fabric admin and the setting leaves you
+  out, the default is an existing workspace, if you have one. See
+  [Prerequisites](PREREQUISITES.md#you-the-person-who-runs-the-installer).
 - **Azure.** Only regions that pass the [region preflight](../installer/README.md#regions-and-images)
   are offered. For [private networking](../installer/README.md#networking), choose **Yes** for the
   advanced settings. More in [Azure target](../installer/README.md#azure-target).

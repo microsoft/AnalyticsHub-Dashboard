@@ -11,10 +11,11 @@ import { parseResourceId } from '../clients/azure.js';
 import { scheduleBody } from '../clients/fabric.js';
 import { normaliseResourceGraph, secretMode } from '../config.js';
 import { HttpError } from '../http.js';
+import { commandLine } from '../launch.js';
 import { rlsOn } from '../transform/access.js';
 import { INLINE_SECRET_NOTE, MARKER, prepareNotebook, pyString, serialiseNotebook } from '../transform/notebook.js';
 import { buildPipeline, PIPELINE_CHANGE, PIPELINE_VERSION } from '../transform/pipeline.js';
-import { addDays, notebookSecretDays } from './identity.js';
+import { addDays, notebookSecretDays, ResumeLater } from './identity.js';
 import { dropAttempt, findAttempts, refused, removeRetired, SECRET_SETTLE_MS, withSecretRef } from './secrets.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
@@ -281,6 +282,12 @@ export const staleRecordMessage = (gone) =>
     ? `The install record is for workspace "${gone.workspace}" in another tenant, not the one you signed in to.`
     : `This workspace no longer exists: "${gone.workspace}".`;
 
+/**
+ * What using an existing workspace takes. On Fabric it matches what the capacity check before install asks; on Azure,
+ * it's enough to add the jobs' managed identity and share the models.
+ */
+export const WORKSPACE_ROLE = 'Admin or Member';
+
 /** @param {Ctx} ctx */
 export async function ensureWorkspace(ctx) {
   const { ui, config, api } = ctx;
@@ -307,7 +314,22 @@ export async function ensureWorkspace(ctx) {
     }
   } else {
     if (!f.workspaceName || !f.capacityId) throw new Error('Workspace settings are incomplete. Run the installer without --yes to choose them.');
-    const ws = await api.fabric.createWorkspace(f.workspaceName, f.capacityId);
+    /** @type {any} */
+    let ws;
+    try {
+      ws = await api.fabric.createWorkspace(f.workspaceName, f.capacityId);
+    } catch (err) {
+      if (!(err instanceof HttpError) || (err.status !== 401 && err.status !== 403)) throw err;
+      // Learn documents no error code that says which of the two refused it, so this names both.
+      const capacity = (await api.fabric.listCapacities().catch(() => [])).find((c) => c.id === f.capacityId)?.displayName ?? f.capacityId;
+      throw new ResumeLater(
+        `Fabric didn't let you create the workspace "${f.workspaceName}" (${err.message.split('\n')[0]}), so the installer stopped before its other steps. ` +
+          'Either the "Create workspaces" tenant setting doesn\'t include you: ask a Fabric administrator to turn it on for you, or for a group you\'re in. ' +
+          `Or you can't add workspaces to the capacity "${capacity}": ask its capacity admin to make you a contributor. ` +
+          `Or ask for ${WORKSPACE_ROLE} on an existing workspace that's already on a capacity. ` +
+          `Then run "${commandLine('install')}" again, and for the workspace choose that one, or "Create a new workspace".`,
+      );
+    }
     f.workspaceId = ws.id;
     f.createdWorkspace = true;
     ui.ok(`Created workspace "${ws.displayName}"`);

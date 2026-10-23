@@ -354,10 +354,11 @@ export async function install(ctx, opts) {
   const withShare = withApp && withAccess && config.access?.appShared !== true;
   const withViva = withConsumption && config.dataSources.coworkCredits === 'api';
   const titles = [
+    'Workspace',
     'Key Vault',
     'App registration',
     'Microsoft Graph permissions',
-    'Workspace and Lakehouse',
+    'Lakehouse',
     ...(withViva ? ['Viva Insights connection'] : []),
     ...(withModel ? ['Semantic model'] : []),
     ...(withConsumption ? ['Credit consumption'] : []),
@@ -375,6 +376,9 @@ export async function install(ctx, opts) {
   let n = 0;
   const step = (/** @type {string} */ title) => ui.step(++n, titles.length, title);
 
+  // First, before anything else is created: the "Create workspaces" tenant setting can refuse it, and it needs nothing below.
+  step('Workspace');
+  await ensureWorkspace(ctx);
   step('Key Vault');
   await ensureKeyVault(ctx);
   step('App registration');
@@ -384,8 +388,7 @@ export async function install(ctx, opts) {
   // With Key Vault, the secret is known by now: check the app's own token can read the audit log.
   // A new app, secret or consent can take minutes to apply, so a problem here is confirmed later.
   if (consented) await checkAuditAccess(ctx, { consented, provisional: true });
-  step('Workspace and Lakehouse');
-  await ensureWorkspace(ctx);
+  step('Lakehouse');
   await ensureLakehouse(ctx);
   const vaultReachable = await ensureVaultEndpoint(ctx);
   // Before the long steps, so the user signs in once and doesn't come back to it after the install.

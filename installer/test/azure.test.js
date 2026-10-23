@@ -2313,23 +2313,125 @@ test('Azure uninstall deletes a workspace only while it has the name the install
 });
 
 test('Azure setup only marks a Power BI workspace for uninstall when the installer creates it', async () => {
-  /** @param {any[]} answers  the capacity, then the workspace, then a new workspace's name */
-  const plan = async (answers) => {
+  const deployed = { subscriptionId: 'sub-1', resourceGroup: 'rg' };
+  /**
+   * @param {any[]} answers  the capacity, then the workspace, then a new workspace's name
+   * @param {{ powerBi?: any, deploymentConfig?: any, groups?: any[] }} [o]
+   */
+  const plan = async (answers, o = {}) => {
     const powerBi = fakePowerBi();
-    /** @type {any} */ (powerBi.api).groups = async () => [{ id: 'pbi-ws-1', name: 'Analytics Hub' }, { id: 'theirs', name: 'Theirs' }];
-    const { ctx, config } = fakeCtx({ ui: fakeUi({ answers }).ui, arm: fakeArm().api, fabric: fakeFabric().api, powerBi: powerBi.api });
+    /** @type {any} */ (powerBi.api).groups = async () => o.groups ?? [{ id: 'pbi-ws-1', name: 'Analytics Hub' }, { id: 'theirs', name: 'Theirs' }];
+    const u = fakeUi({ answers });
+    const { ctx, config } = fakeCtx({ ui: u.ui, arm: fakeArm().api, fabric: fakeFabric().api, powerBi: powerBi.api });
     config.target = 'azure';
-    config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', workspaceName: 'Analytics Hub', powerBi: { workspaceId: 'pbi-ws-1', createdWorkspace: true } };
+    config.azure = {
+      subscriptionId: 'sub-1', resourceGroup: 'rg', workspaceName: 'Analytics Hub',
+      powerBi: o.powerBi ?? { workspaceId: 'pbi-ws-1', createdWorkspace: true },
+      ...('deploymentConfig' in o ? (o.deploymentConfig ? { deploymentConfig: o.deploymentConfig } : {}) : { deploymentConfig: deployed }),
+    };
     await planAzure(ctx, { subscriptions: [{ subscriptionId: 'sub-1', displayName: 'Sub' }] }, 'powerbi');
-    return /** @type {any} */ (config.azure).powerBi;
+    return Object.assign(/** @type {any} */ (config.azure).powerBi, { asked: u.asked, text: u.text() });
   };
   assert.equal((await plan(['', 'pbi-ws-1'])).createdWorkspace, true, 'keeping the workspace it created');
   const picked = await plan(['', 'theirs']);
   assert.equal(picked.workspaceId, 'theirs');
   assert.equal(picked.createdWorkspace, undefined, 'one picked from the list is never deleted');
-  const fresh = await plan(['', 'new', 'Analytics Hub 2']);
+  const fresh = await plan(['', 'new', 'Analytics Hub 2'], { powerBi: { workspaceId: 'theirs' }, deploymentConfig: null });
   assert.equal(fresh.workspaceId, undefined);
   assert.equal(fresh.createdWorkspace, undefined, 'set again only once setup creates the new one');
+
+  // The workspace is made first, so a run can stop with it created and nothing in Azure yet. A re-run keeps it,
+  // without asking, so Uninstall still deletes it.
+  const undeployed = await plan([''], { deploymentConfig: null });
+  assert.deepEqual(undeployed.asked, ['Capacity for the Power BI workspace']);
+  assert.equal(undeployed.workspaceId, 'pbi-ws-1');
+  assert.equal(undeployed.createdWorkspace, true);
+  assert.match(undeployed.text, /Power BI workspace: "Analytics Hub", which the installer created/);
+  const unlisted = await plan([''], { deploymentConfig: null, groups: [{ id: 'theirs', name: 'Theirs' }] });
+  assert.ok(unlisted.asked.includes('Power BI workspace'), 'once it\'s gone, the plan asks again');
+  assert.equal(unlisted.workspaceId, undefined);
+  assert.equal(unlisted.createdWorkspace, undefined);
+});
+
+test('Azure setup: each Power BI workspace choice says what it takes, and when you can\'t create one, the default is one you can use', async () => {
+  const NEW = 'Needs the "Create workspaces" tenant setting on for you, or for a group you\'re in, and a Power BI Pro or Premium Per User licence.';
+  const MEMBER = 'Needs Admin or Member on it.';
+  const ADMIN = 'It isn\'t on a capacity yet, so it needs Admin on it, to move it onto the capacity you chose.';
+  const refused = { status: 'missing', reason: '"Create workspaces" is off for the whole organization.' };
+  /**
+   * The Power BI section of a new Azure install. `mine` is what List Workspaces gives for Admin and Member.
+   * @param {{ capacity?: string, createWorkspaces?: any, mine?: string[] | Error, yes?: boolean }} o
+   */
+  const plan = async (o) => {
+    const powerBi = fakePowerBi();
+    /** @type {any} */ (powerBi.api).groups = async () => [
+      { id: 'shared', name: 'Team (shared)', isOnDedicatedCapacity: false },
+      { id: 'dedicated', name: 'Team (capacity)', isOnDedicatedCapacity: true },
+    ];
+    /** @type {any[]} */
+    const roles = [];
+    const fabric = {
+      ...fakeFabric().api,
+      listWorkspaces: async (/** @type {any} */ r) => {
+        roles.push(r);
+        if (o.mine instanceof Error) throw o.mine;
+        return (o.mine ?? []).map((id) => ({ id, type: 'Workspace' }));
+      },
+    };
+    const u = fakeUi({ yes: o.yes });
+    /** @type {Record<string, { choices: any[], def: any }>} */
+    const selects = {};
+    const select = u.ui.select;
+    u.ui.select = /** @type {any} */ (async (/** @type {string} */ m, /** @type {any[]} */ ch, /** @type {any} */ d) => {
+      selects[m] = { choices: ch, def: d };
+      return m.startsWith('Capacity') && o.capacity !== undefined ? o.capacity : select(m, ch, d);
+    });
+    const { ctx, config } = fakeCtx({ ui: u.ui, arm: fakeArm().api, fabric, powerBi: powerBi.api });
+    config.target = 'azure';
+    config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', workspaceName: 'Analytics Hub' };
+    await planAzure(ctx, { subscriptions: [{ subscriptionId: 'sub-1', displayName: 'Sub' }], createWorkspaces: o.createWorkspaces }, 'powerbi');
+    const q = selects['Power BI workspace'];
+    return { choices: q.choices, def: q.def, roles, text: u.text(), pbi: /** @type {any} */ (config.azure).powerBi };
+  };
+
+  const onCapacity = await plan({});
+  assert.deepEqual(onCapacity.choices, [
+    { name: 'Create a new workspace', value: 'new', description: NEW },
+    { name: 'Use "Team (shared)"', value: 'shared', description: ADMIN },
+    { name: 'Use "Team (capacity)"', value: 'dedicated', description: MEMBER },
+  ]);
+  assert.equal(onCapacity.def, 'new');
+  assert.deepEqual(onCapacity.roles, [], 'nothing to look up when you can create one');
+  assert.doesNotMatch(onCapacity.text, /You can't create a workspace/);
+  const shared = await plan({ capacity: '' });
+  assert.deepEqual(shared.choices.map((c) => c.description), [NEW, MEMBER, MEMBER], 'on shared capacity, nothing moves');
+
+  const pick = await plan({ createWorkspaces: refused, mine: ['shared', 'dedicated'] });
+  assert.equal(pick.def, 'dedicated', 'preferably one that needn\'t move onto the capacity');
+  assert.deepEqual(pick.roles, [['Admin', 'Member']]);
+  assert.ok(pick.text.includes(`You can't create a workspace: ${refused.reason} So the default is a workspace you're an Admin or Member of.`), pick.text);
+  assert.equal(pick.pbi.workspaceId, 'dedicated');
+  assert.equal(pick.pbi.createdWorkspace, undefined);
+  assert.equal((await plan({ createWorkspaces: refused, mine: ['shared'] })).def, 'shared');
+
+  for (const mine of [[], new Error('Forbidden')]) {
+    const none = await plan({ createWorkspaces: refused, mine });
+    assert.equal(none.def, 'new', String(mine));
+    assert.ok(
+      none.text.includes(
+        `You can't create a workspace: ${refused.reason} As a Fabric administrator, you can turn it on for you, or for a group you're in, in Fabric under Admin portal > Tenant settings. ` +
+          'Or ask for Admin or Member on an existing workspace. Then run the installer again.',
+      ),
+      none.text,
+    );
+  }
+
+  for (const o of [{ createWorkspaces: { status: 'unknown', reason: 'it isn\'t among the tenant settings Fabric returned.' }, mine: ['dedicated'] }, { createWorkspaces: refused, mine: ['dedicated'], yes: true }]) {
+    const quiet = await plan(o);
+    assert.equal(quiet.def, 'new', JSON.stringify(o));
+    assert.deepEqual(quiet.roles, []);
+    assert.doesNotMatch(quiet.text, /You can't create a workspace/);
+  }
 });
 
 test('Azure uninstall waits for the resource group to go, and says it is deleted only once it is', async () => {

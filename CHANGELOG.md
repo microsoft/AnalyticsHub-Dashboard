@@ -75,6 +75,40 @@ Deployment instructions do **not** live here. They live in the READMEs:
     Administrator or Global Administrator grants admin consent.
   - Uninstall leaves the apps an admin created, and names them with their client IDs for an admin to
     delete. `status` says when the install is waiting for the admin's script.
+- **The installer checks you can create a workspace before it creates anything.**
+  - The workspace is now the first thing install creates, on Fabric and Azure, in a new
+    **Workspace** or **Power BI workspace** step. When the *Create workspaces* tenant setting left
+    you out, the install used to fail with Fabric's or Power BI's own error once the app
+    registration, its consent and its secret, and any Key Vault, were made (on Azure, once the apps
+    and the Azure resources were). Now a 401 or 403 there stops it with nothing else made, keeps
+    your answers, and says what to ask for: a Fabric administrator to turn the setting on for you,
+    or for a group you're in; on Fabric, the capacity's admin to make you a contributor, as Learn
+    documents no error code that says which of the two refused it; on Azure, a Power BI Pro or
+    Premium Per User licence; or Admin or Member on an existing workspace, to choose when you run it
+    again.
+  - The workspace is recorded as created, as before: re-runs reuse it, and Uninstall deletes it.
+    Only its creation moved. On Azure it goes on the capacity at the same step as before, so a
+    `--yes` Repair still leaves a Pro install's workspace off a capacity. And a workspace a stopped
+    run created, which nothing uses yet, is kept on the next run without asking, so Uninstall still
+    finds it.
+  - When you're a Fabric administrator, the installer reads *Create workspaces*, with the security
+    groups it's on for or excludes, and checks them against the groups you're directly in. When it
+    leaves you out, the workspace question says why and defaults to an existing workspace you're an
+    Admin or Member of, if you have one, and with `--yes` the installer stops before it creates
+    anything. The Prerequisites row says what to ask for. A group you're in only through another
+    group, a setting that's off but delegated to other admins, or one Fabric doesn't return shows as
+    "couldn't confirm".
+  - Each workspace choice says what it needs: **Create a new workspace** the tenant setting, and on
+    Azure a Pro or Premium Per User licence; **Use "…"** Admin or Member, or Admin when it has to
+    move onto the capacity you chose. On Fabric, the list shows only workspaces you're an Admin or
+    Member of. Fabric's **Workspace and Lakehouse** step is now **Workspace**, first, and
+    **Lakehouse**, where it was.
+  - When only a Fabric administrator can read the tenant settings, the Prerequisites row says
+    *Create workspaces* is needed only for a new workspace, not to use an existing one you're an
+    Admin or Member of.
+  - The installer reads the tenant settings from `value`, as Learn documents List Tenant Settings,
+    as well as `tenantSettings`, and from every page. An empty list now shows as "couldn't check",
+    instead of saying the settings Analytics Hub needs are on.
 
 ## 2026-10-26 — Analytics Hub installer 0.6.8
 

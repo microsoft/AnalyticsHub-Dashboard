@@ -17,7 +17,7 @@ create the two apps, the plan writes a script for an admin to create them, and s
 | Who | Fabric | Azure | Time |
 |---|---|---|---|
 | **You**, who run the installer | Contributor on an F2 or larger capacity, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager), or an Admin or Member of a workspace already on a capacity. Power BI Pro. Can register an app, or an Application Administrator or Cloud Application Administrator registers it from the [admin pack](../installer/README.md#if-you-cant-register-apps). | Owner, or Contributor and User Access Administrator, on a subscription or resource group. Power BI Pro. Can register apps, or an Application Administrator or Cloud Application Administrator creates the two apps from a [script the installer writes](../installer/README.md#if-you-cant-register-apps). | 20 min |
-| **Fabric admin** | Turns on, or confirms, [the tenant settings](#fabric-admin-about-5-minutes), including letting you create Fabric items | Turns on, or confirms, the tenant settings | 5 min |
+| **Fabric admin** | Turns on, or confirms, [the tenant settings](#fabric-admin-about-5-minutes), including letting you create Fabric items, and a workspace unless you use an existing one | Turns on, or confirms, the tenant settings, including letting you create a workspace unless you use an existing one | 5 min |
 | **Entra admin** (Global Administrator or Privileged Role Administrator) | Grants admin consent for read-only Graph permissions | Gives the jobs' managed identity its read-only Graph roles. Approves the web app's delegated permissions, including one to manage viewers from the app: an Application Administrator or Cloud Application Administrator can approve those too | 2 min |
 | **Microsoft 365 admin** (Global Administrator) | Turns off concealed names in usage reports | The same | 1 min |
 | **Compliance admin** | Makes sure audit logging is on in Microsoft Purview (it usually is) | The same | 1 min |
@@ -181,14 +181,18 @@ The detail behind [At a glance](#at-a-glance), with links to Microsoft Learn.
       [Locked-down tenant / Azure Cloud Shell](INSTALL.md#locked-down-tenant--azure-cloud-shell).
 - [ ] **Fabric:** a Fabric capacity you can use. To create the workspace on a capacity, you need to
       be its admin or a Contributor on it: ask its capacity admin, or start a
-      [free trial](#what-it-costs). Or be an Admin or Member of a workspace that's already on a
-      capacity: the installer then puts Analytics Hub in that workspace, but can't create a new one,
-      or check the capacity's size or state. With `--yes`, that works only for the workspace the
+      [free trial](#what-it-costs). Creating a workspace also needs the *Create workspaces* tenant
+      setting on for you (see [Fabric admin](#fabric-admin-about-5-minutes)). Or be an Admin or
+      Member of a workspace that's already on a capacity: the installer then puts Analytics Hub in
+      that workspace, and needs neither. Without a role on a capacity, it can't create a new one, or
+      check the capacity's size or state. With `--yes`, that works only for the workspace the
       install record already names.
 - [ ] **Azure:** [Owner](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#owner),
       or [Contributor](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#contributor)
       and [User Access Administrator](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#user-access-administrator),
-      on a subscription or resource group, and a Power BI workspace you can create or use. Or, for
+      on a subscription or resource group, and a Power BI workspace: one you can create, with
+      *Create workspaces* on for you (see [Fabric admin](#fabric-admin-about-5-minutes)), or an
+      existing one you're an Admin or Member of. Or, for
       [least privilege](AZURE-LEAST-PRIVILEGE.md), Contributor and a limited Role Based Access
       Control Administrator on just a resource group your Azure admin creates.
 - [ ] **[Power BI Pro or Premium Per User](https://learn.microsoft.com/power-bi/fundamentals/service-features-license-type)**,
@@ -222,8 +226,10 @@ The detail behind [At a glance](#at-a-glance), with links to Microsoft Learn.
     to the capacity. Without it, Fabric says *Unable to create Import notebook* (or Lakehouse).
     It can take about 15 minutes to apply. Fabric only.
   - [*Create workspaces*](https://learn.microsoft.com/fabric/admin/portal-workspace#create-workspaces),
-    for the person who runs the installer, when the installer creates the workspace. Fabric and
-    Azure.
+    for the person who runs the installer, to create a new workspace. It isn't needed to use an
+    existing workspace they're an Admin or Member of. The installer creates the workspace before
+    anything else, so if Fabric or Power BI refuses, it stops with nothing else made, and says what
+    to ask for. Fabric and Azure.
   - [*Service principals can call Fabric public APIs*](https://learn.microsoft.com/fabric/admin/service-admin-portal-developer#service-principals-can-call-fabric-public-apis).
     Lets the daily loads run on their own. Fabric and Azure. Needed by the app registration
     (Fabric) or the managed identity (Azure).
@@ -245,7 +251,12 @@ The detail behind [At a glance](#at-a-glance), with links to Microsoft Learn.
       It's on by default. The Power Automate flows need it.
 
 If you're a Fabric admin yourself, the installer reads these settings and says which are off,
-apart from *Users can create Fabric items*, *Create workspaces* and the XMLA one.
+apart from *Users can create Fabric items* and the XMLA one. Until the install has a workspace, it
+also reads *Create workspaces*, including the security groups it's on for or excludes, and checks
+them against the groups you're directly in. A group you're in only through another group shows as
+"couldn't confirm", as Learn doesn't say whether it counts. When the setting leaves you out, the
+workspace question defaults to an existing workspace you're an Admin or Member of, if you have one,
+and with `--yes` the installer stops before it creates anything.
 
 ### Power Platform admin: for the Copilot Studio credits flow
 
