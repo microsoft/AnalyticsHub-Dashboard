@@ -2,7 +2,8 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { armApi, ROLES } from '../src/clients/azure.js';
-import { FABRIC_ADMIN_ROLE, graphApi, INSIGHTS_ANALYST_ROLE } from '../src/clients/graph.js';
+import { FABRIC_ADMIN_ROLE, graphApi, INSIGHTS_ANALYST_ROLE, POWER_BI_APP_ID } from '../src/clients/graph.js';
+import { GRAPH_APP_ID } from '../src/catalog.js';
 import { emptyConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
 import { readFile } from 'node:fs/promises';
@@ -439,6 +440,128 @@ test('checkPrereqs: audit ingestion needs consent for AuditLogsQuery.Read.All, s
   assert.match((await run({}, az))['audit-ingestion'].detail, /The jobs' managed identity has it/);
 });
 
+const PRA = 'e8611ab8-c189-46e8-94e1-60213ab1f814';
+const APP_ADMIN = '9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3';
+const CLOUD_APP_ADMIN = '158c047a-c907-4556-b7ef-446551a6b5f7';
+const APP_DEVELOPER = 'cf1c38e5-3621-4004-a7cb-879624dced7c';
+/** An active directory role. @param {string} roleTemplateId @param {string} displayName */
+const role = (roleTemplateId, displayName) => ({ roleTemplateId, displayName });
+
+/** An Azure install's config, with what it has recorded so far. @param {any} [azure] */
+const azureConfig = (azure = {}) => {
+  const config = emptyConfig();
+  config.target = 'azure';
+  config.azure = /** @type {any} */ ({ subscriptionId: 'sub-1', ...azure });
+  return config;
+};
+
+/**
+ * checkPrereqs with the Graph calls the Azure rows make on top of fakeApis.
+ * @param {any} over @param {import('../src/config.js').InstallConfig} config @param {Record<string, any>} [graph]
+ */
+const runWith = async (over, config, graph = {}) => {
+  const api = fakeApis(over);
+  Object.assign(api.graph, graph);
+  const items = await checkPrereqs({ api, user: USER, config });
+  return Object.fromEntries(items.map((i) => [i.id, i]));
+};
+
+test('checkPrereqs: a Privileged Role Administrator alone can\'t register apps, and an Application Developer can, on Fabric and Azure', async () => {
+  for (const config of [emptyConfig(), azureConfig()]) {
+    const pra = await run({ roles: [role(PRA, 'Privileged Role Administrator')], usersCanRegister: false }, config);
+    assert.equal(pra['register-apps'].status, 'missing', config.target);
+    const dev = await run({ roles: [role(APP_DEVELOPER, 'Application Developer')], usersCanRegister: false }, config);
+    assert.equal(dev['register-apps'].status, 'met', config.target);
+    assert.equal(dev['register-apps'].detail, 'Your Application Developer role allows it.');
+  }
+  const fabric = await run({ roles: [], usersCanRegister: false });
+  assert.equal(fabric['register-apps'].howTo, 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role, use an app registration you already have, or get the admin pack for an admin to register it.');
+});
+
+test('checkPrereqs: on Azure, registering apps is met by recorded apps, a role, the tenant setting, or one unfinished app of each name an admin made; otherwise the plan has an admin create them', async () => {
+  const locked = { roles: [], usersCanRegister: false };
+  const recorded = await run(locked, azureConfig({ webApp: { clientId: 'web-1' }, sqlReader: { clientId: 'sql-1' } }));
+  assert.equal(recorded['register-apps'].status, 'met');
+  assert.equal(recorded['register-apps'].detail, 'Uses the app registrations web-1 and sql-1.');
+  assert.equal((await run({ roles: [] }, azureConfig()))['register-apps'].detail, 'Users in this tenant can register apps.');
+
+  const web = { id: 'web-obj', appId: 'web-1', displayName: 'Analytics Hub (Azure)' };
+  const sql = { id: 'sql-obj', appId: 'sql-1', displayName: 'Analytics Hub SQL Reader' };
+  /** The apps the signed-in user owns, as ownedApplications finds them by exact name. @param {any[]} apps */
+  const owning = (apps) => ({ ownedApplications: async (/** @type {string} */ name) => apps.filter((a) => a.displayName === name) });
+  const made = await runWith(locked, azureConfig(), owning([web, sql]));
+  assert.equal(made['register-apps'].status, 'met');
+  assert.equal(made['register-apps'].detail, 'An admin created the apps for you: "Analytics Hub (Azure)" (web-1) and "Analytics Hub SQL Reader" (sql-1). The plan uses them.');
+  const one = await runWith(locked, azureConfig({ webApp: { clientId: 'web-1' } }), owning([sql]));
+  assert.equal(one['register-apps'].detail, 'An admin created the app for you: "Analytics Hub SQL Reader" (sql-1). The plan uses it.');
+  // Two of a name, an app another install finished, or only one of the two: the plan asks.
+  const finishedWeb = { ...web, spa: { redirectUris: ['https://other.example.com/'] } };
+  const finishedSql = { ...sql, passwordCredentials: [{ keyId: 'k' }] };
+  for (const apps of [[web, { ...web, appId: 'web-2' }, sql], [finishedWeb, sql], [web, finishedSql], [web]]) {
+    assert.equal((await runWith(locked, azureConfig(), owning(apps)))['register-apps'].status, 'missing', JSON.stringify(apps));
+  }
+
+  const cant = (await run(locked, azureConfig()))['register-apps'];
+  assert.equal(cant.status, 'missing');
+  assert.equal(cant.detail, 'Users in this tenant can\'t register apps, and you have no app admin role. The plan offers to have an admin create the two apps for you.');
+  assert.equal(cant.howTo, 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role, or choose \'An admin will create the apps for me\': the plan writes a script for an Application Administrator or Cloud Application Administrator, and stops before anything is deployed.');
+  assert.match(cant.neededFor, /"Analytics Hub \(Azure\)", for signing in to the web app, and "Analytics Hub SQL Reader", for Power BI/);
+});
+
+test('checkPrereqs: on Azure, the consent row is the web app\'s delegated permissions: met by four roles or by grants already made, otherwise a hand-off', async () => {
+  const none = (await run({ roles: [] }, azureConfig()))['consent-role'];
+  assert.equal(none.label, 'Application Administrator, Cloud Application Administrator, Privileged Role Administrator or Global Administrator');
+  assert.equal(none.neededFor, 'Approving the web app\'s delegated permissions (Power BI and Microsoft Graph), so people can use the web app.');
+  assert.equal(none.status, 'handoff');
+  assert.equal(none.optional, true);
+  assert.equal(none.detail, 'You don\'t need this yourself: after the deploy, the installer gives you a consent link to send, and carries on. People can use the web app once it\'s approved.');
+  assert.equal(none.howTo, 'An Application Administrator, Cloud Application Administrator, Privileged Role Administrator or Global Administrator approves the web app\'s delegated permissions (Power BI and Microsoft Graph) from the consent link. The admin script grants them too.');
+  /** @type {[string, string, boolean][]} */
+  const approvers = [[GA, 'Global Administrator', true], [PRA, 'Privileged Role Administrator', true], [APP_ADMIN, 'Application Administrator', false], [CLOUD_APP_ADMIN, 'Cloud Application Administrator', false]];
+  for (const [id, name, assigns] of approvers) {
+    const it = (await run({ roles: [role(id, name)] }, azureConfig()))['consent-role'];
+    assert.equal(it.status, 'met', name);
+    assert.equal(it.detail, `Active: ${name}`);
+    assert.equal(it.assignsDirectoryRoles, assigns, 'only a Global Administrator or Privileged Role Administrator assigns directory roles');
+  }
+  assert.equal((await run({ roles: [role(APP_DEVELOPER, 'Application Developer')] }, azureConfig()))['consent-role'].status, 'handoff', 'an Application Developer can\'t grant consent');
+
+  // Grants an admin already made for everyone, or the admin script made, meet it too.
+  const graphSp = { id: 'graph-sp', oauth2PermissionScopes: [{ id: 'g-1', value: 'User.Read' }] };
+  const pbiSp = { id: 'pbi-sp', oauth2PermissionScopes: [{ id: 'p-1', value: 'Dataset.Read.All' }] };
+  /** @param {any[] | Error} grants */
+  const granted = (grants) => ({
+    servicePrincipalByAppId: async (/** @type {string} */ appId) => (appId === GRAPH_APP_ID ? graphSp : appId === POWER_BI_APP_ID ? pbiSp : null),
+    oauth2Grants: async () => {
+      if (grants instanceof Error) throw grants;
+      return grants;
+    },
+  });
+  const all = [
+    { consentType: 'AllPrincipals', resourceId: 'pbi-sp', scope: 'Dataset.Read.All' },
+    { consentType: 'AllPrincipals', resourceId: 'graph-sp', scope: 'openid User.Read' },
+  ];
+  const config = azureConfig({ webApp: { clientId: 'web-1', servicePrincipalId: 'sp-web' } });
+  const done = (await runWith({ roles: [] }, config, granted(all)))['consent-role'];
+  assert.equal(done.status, 'met');
+  assert.equal(done.detail, 'Already approved: the web app has its delegated permissions for everyone.');
+  assert.equal(done.assignsDirectoryRoles, false);
+  assert.equal((await runWith({ roles: [] }, config, granted(all.slice(0, 1))))['consent-role'].status, 'handoff', 'one grant missing');
+  assert.equal((await runWith({ roles: [] }, config, granted(all.map((g) => ({ ...g, consentType: 'Principal' })))))['consent-role'].status, 'handoff', 'only for one person');
+  assert.equal((await runWith({ roles: [] }, config, granted(new HttpError('403', { method: 'GET', url: 'x', status: 403 }))))['consent-role'].status, 'handoff', 'grants that can\'t be read aren\'t assumed');
+  assert.equal((await runWith({ roles: [] }, azureConfig(), granted(all)))['consent-role'].status, 'handoff', 'no web app yet');
+});
+
+test('checkPrereqs: on Azure, the audit role is the jobs\' managed identity\'s, which a Privileged Role Administrator or Global Administrator grants after the deploy', async () => {
+  const az = (await run({ roles: [] }, azureConfig()))['audit-ingestion'];
+  assert.equal(az.status, 'handoff');
+  assert.equal(az.detail, 'Not granted yet, so the audit load finds 0 records until a Privileged Role Administrator or Global Administrator grants it to the jobs\' managed identity.');
+  assert.match(az.howTo, /^After the deploy, a Privileged Role Administrator or Global Administrator gives the jobs' managed identity its Microsoft Graph roles, including AuditLogsQuery\.Read\.All; the installer lists them\. A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: \S+ After install, run .*check-audit/);
+  assert.doesNotMatch(az.howTo, /consent/, 'no consent link: the managed identity\'s roles aren\'t a consent');
+  const fabric = (await run({ roles: [] }))['audit-ingestion'];
+  assert.match(fabric.howTo, /^A Global Administrator or Privileged Role Administrator grants admin consent for AuditLogsQuery\.Read\.All \(the installer gives you a link\)\./);
+});
+
 test('checkPrereqs: Viva Insights analyst is the Insights Analyst Entra role: met, can be activated, a hand-off, or couldn\'t check', async () => {
   const analyst = await run({ roles: [{ roleTemplateId: INSIGHTS_ANALYST_ROLE, displayName: 'Insights Analyst' }] });
   assert.equal(INSIGHTS_ANALYST_ROLE, '25df335f-86eb-4119-b717-0ff02de207e9');
@@ -655,6 +778,22 @@ test('preflightVerdict: only can\'t-register-apps with --yes blocks an install; 
   assert.deepEqual(handedOff.handoff.map((it) => it.id), ['consent-role']);
 });
 
+test('preflightVerdict: on Azure, can\'t-register-apps never blocks, even with --yes: the plan has an admin create the apps and stops before deploying', () => {
+  const cant = [row({ id: 'register-apps' })];
+  for (const opts of [{}, { yes: true }]) {
+    const v = preflightVerdict(cant, { config: azureConfig(), ...opts });
+    assert.deepEqual(v.block, [], JSON.stringify(opts));
+    assert.deepEqual(v.warn.map((it) => it.id), ['register-apps']);
+  }
+  assert.deepEqual(preflightVerdict(cant, { config: plainConfig(), yes: true }).block.map((it) => it.id), ['register-apps'], 'Fabric is as before');
+});
+
+test('preflightVerdict: on Azure the consent row is the web app\'s, so it shows whether or not the audit role is met', () => {
+  const items = [row({ id: 'consent-role', status: 'handoff', optional: true }), row({ id: 'audit-ingestion', status: 'met' })];
+  assert.deepEqual(preflightVerdict(items, { config: azureConfig() }).handoff.map((it) => it.id), ['consent-role']);
+  assert.deepEqual(preflightVerdict(items, { config: plainConfig() }).handoff, [], 'on Fabric the app\'s consent includes the audit role');
+});
+
 test('preflightVerdict: a hand-off never blocks and never needs attention; it shows only for what was chosen', () => {
   const items = [
     row({ id: 'consent-role', status: 'handoff', optional: true }),
@@ -743,6 +882,29 @@ test('preflight: with --yes, no way to register the app stops it before anything
   const { ctx, t } = preflightCtx({ roles: [], usersCanRegister: false }, { yes: true });
   await assert.rejects(preflight(ctx), /can't create its app registration\. Run it without --yes to choose an app registration you already have or get the admin pack/);
   assert.match(t.text(), /Stopped before creating anything: Register apps in Entra\./);
+});
+
+test('preflight: on Azure with --yes, no way to register apps doesn\'t stop preflight: the plan has an admin create them', async () => {
+  const { ctx, t } = preflightCtx({ roles: [], usersCanRegister: false }, { yes: true, config: azureConfig() });
+  const pre = await preflight(ctx);
+  assert.equal(pre.canCreateApps, false);
+  assert.match(t.text(), /Register apps in Entra/);
+  assert.doesNotMatch(t.text(), /Stopped before creating anything/);
+});
+
+test('preflight: an Application Developer can create the apps and a Privileged Role Administrator alone can\'t, on Fabric and Azure', async () => {
+  for (const config of [plainConfig(), azureConfig()]) {
+    const dev = preflightCtx({ roles: [role(APP_DEVELOPER, 'Application Developer')], usersCanRegister: false }, { config });
+    const canDo = await preflight(dev.ctx);
+    assert.equal(canDo.canCreateApps, true, config.target);
+    assert.equal(canDo.canApproveDelegated, false, 'an Application Developer can\'t grant consent');
+    const pra = preflightCtx({ roles: [role(PRA, 'Privileged Role Administrator')], usersCanRegister: false }, { config });
+    const pre = await preflight(pra.ctx);
+    assert.equal(pre.canCreateApps, false, config.target);
+    assert.equal(pre.canConsent, true, 'a Privileged Role Administrator still grants Microsoft Graph consent');
+    assert.equal(pre.canApproveDelegated, true);
+    assert.equal(pre.canManageApps, false);
+  }
 });
 
 test('preflight: the list prints before preflight\'s own stops, such as no Fabric capacity', async () => {

@@ -219,6 +219,37 @@ test('list follows Fabric, Graph and ARM paging links', async () => {
   assert.equal(f.calls[1].url, 'https://api.example.com/v1/things?ct=a');
 });
 
+test('graph ownedApplications: follows every page of /me/ownedObjects and keeps only app registrations with that exact name, each read again in full', async () => {
+  const WEB = 'Analytics Hub (Azure)';
+  const app = (/** @type {string} */ id, /** @type {string | null} */ displayName) => ({ '@odata.type': '#microsoft.graph.application', id, displayName });
+  /** @type {Record<string, any>} */
+  const full = {
+    a1: { id: 'a1', appId: 'c1', displayName: WEB, spa: { redirectUris: [] } },
+    a3: { id: 'a3', appId: 'c3', displayName: WEB },
+  };
+  const read = (/** @type {string} */ url) => {
+    const id = url.split('/').at(-1) ?? '';
+    return full[id] ? { body: full[id] } : { status: 404, body: { error: { code: 'Request_ResourceNotFound' } } };
+  };
+  const pages = () => [
+    () => ({ body: {
+      value: [app('a1', WEB), { '@odata.type': '#microsoft.graph.group', id: 'g1', displayName: WEB }, app('a2', `${WEB} old`)],
+      '@odata.nextLink': 'https://api.example.com/v1/me/ownedObjects?$skiptoken=b',
+    } }),
+    // An object the token can't read has no name, so it's read again; a name in another case isn't the same.
+    () => ({ body: { value: [{ '@odata.type': '#microsoft.graph.servicePrincipal', id: 's1', displayName: WEB }, app('a3', null), app('a4', WEB.toLowerCase()), app('a5', null)] } }),
+  ];
+  const f = fakeFetch([...pages(), read, read, read]);
+  const found = await graphApi(client(f).http).ownedApplications(WEB);
+  assert.deepEqual(found.map((a) => a.appId), ['c1', 'c3'], 'a5 has gone');
+  assert.deepEqual(f.calls.map((c) => c.url).slice(0, 2), ['https://api.example.com/v1/me/ownedObjects', 'https://api.example.com/v1/me/ownedObjects?$skiptoken=b']);
+  assert.deepEqual(f.calls.map((c) => c.url).slice(2).sort(), ['a1', 'a3', 'a5'].map((id) => `https://api.example.com/v1/applications/${id}`));
+
+  const all = fakeFetch(pages());
+  assert.deepEqual((await graphApi(client(all).http).ownedApplications()).map((a) => a.id), ['a1', 'a2', 'a3', 'a4', 'a5'], 'every app registration, and nothing else');
+  assert.equal(all.calls.length, 2, 'not read again');
+});
+
 test('retryDelayMs honours Retry-After and caps backoff', () => {
   assert.equal(retryDelayMs(new Headers({ 'Retry-After': '0' }), 0), 1000);
   assert.equal(retryDelayMs(new Headers({ 'Retry-After': '999' }), 0), 120_000);
