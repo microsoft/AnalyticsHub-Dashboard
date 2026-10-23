@@ -91,6 +91,31 @@ export async function editSchedule(ctx) {
 export const runsFabric = (capacity) => !/^(PP|A|EM)\d/i.test(String(capacity.sku ?? ''));
 
 /**
+ * A capacity Analytics Hub can create its workspace on: active, and able to run Fabric items.
+ * @param {{ state?: string, sku?: string }} capacity
+ */
+export const usableCapacity = (capacity) => capacity.state === 'Active' && runsFabric(capacity);
+
+/**
+ * For when no capacity is usable: workspaces you're an Admin or Member of that are already on a
+ * capacity, so Analytics Hub can go in one of them. Only the recorded workspace when there is one.
+ * A workspace on a capacity List Capacities shows as unusable (paused, or one that can't run Fabric
+ * items) doesn't count; the size and state of one it doesn't show can't be checked.
+ * @param {import('../install.js').Apis} api
+ * @param {import('../config.js').InstallConfig} config
+ * @param {any[]} [listed]  What List Capacities returned.
+ * @returns {Promise<any[]>}
+ */
+export async function workspacesOnCapacity(api, config, listed = []) {
+  const recorded = config.fabric?.workspaceId;
+  const workspaces = recorded
+    ? [await api.fabric.getWorkspace(recorded)]
+    : (await api.fabric.listWorkspaces(['Admin', 'Member'])).filter((w) => w.type === 'Workspace');
+  const unusable = new Set(listed.filter((cap) => !usableCapacity(cap)).map((cap) => String(cap.id).toLowerCase()));
+  return workspaces.filter((w) => w?.capacityId && !unusable.has(String(w.capacityId).toLowerCase()));
+}
+
+/**
  * F64 and up, or a Premium P capacity: what a large tenant usually runs on, so the tenant size starts at large.
  * A trial capacity (FTL<n>) counts as the F<n> it matches; a trial SKU without a size, such as FT1, doesn't.
  * @param {{ sku?: string }} capacity
@@ -103,11 +128,12 @@ export function largeCapacity(capacity) {
 /**
  * @typedef {object} Preflight
  * @property {any[]} capacities  Active capacities the user can use.
+ * @property {any[]} [workspacesOnCapacity]  Fabric, when no capacity is usable: workspaces you're an Admin or Member of that are already on one.
  * @property {any[]} subscriptions  Enabled Azure subscriptions.
  * @property {string[]} roles  Directory role names.
  * @property {boolean} canConsent
  * @property {boolean | undefined} canCreateApps  undefined when the policy can't be read.
- * @property {Record<string, { enabled?: boolean, delegateToCapacity?: boolean }>} [tenantSettings]  Only for Fabric administrators.
+ * @property {Record<string, { enabled?: boolean, delegateToCapacity?: boolean, title?: string }>} [tenantSettings]  Only for Fabric administrators.
  * @property {number} [seats]  Assigned Microsoft 365 Copilot seats; undefined when they can't be read.
  */
 
@@ -147,7 +173,9 @@ export function sizingWarnings({ seats, capacity, scale }) {
 
 /**
  * Tenant settings the semantic model, the reports and the app rely on, and what breaks without them.
- * @type {{ name: string, title: string, effect: string, app?: boolean, reports?: boolean }[]}
+ * `title` is the setting's name in the admin portal. Learn gives the Fabric apps setting no name,
+ * only its `section`. `web`: Azure's web app needs it too.
+ * @type {{ name: string, title: string, effect: string, app?: boolean, web?: boolean, reports?: boolean, section?: string }[]}
  */
 export const POWER_BI_SETTINGS = [
   {
@@ -160,10 +188,12 @@ export const POWER_BI_SETTINGS = [
     title: 'Semantic Model Execute Queries REST API',
     effect: 'The Analytics Hub app queries the model through it.',
     app: true,
+    web: true,
   },
   {
     name: 'AppBackendTenant',
     title: 'Fabric App items',
+    section: 'Fabric apps (preview)',
     effect: 'The Analytics Hub app is a Fabric App item.',
     app: true,
   },
@@ -178,14 +208,23 @@ export const POWER_BI_SETTINGS = [
 /**
  * Settings that look switched off. A setting delegated to capacity admins may still be on there.
  * @param {Preflight['tenantSettings']} settings
- * @param {{ app: boolean, reports?: boolean }} opts
+ * @param {{ app: boolean, web?: boolean, reports?: boolean }} opts  `web`: Azure's web app, which needs only some of the app's settings.
  */
 export function blockedSettings(settings, opts) {
   if (!settings) return [];
   return POWER_BI_SETTINGS.filter(
-    (s) => (opts.app || !s.app) && (opts.reports || !s.reports) && settings[s.name]?.enabled === false && !settings[s.name]?.delegateToCapacity,
+    (s) => (opts.app || !s.app || (!!opts.web && !!s.web)) && (opts.reports || !s.reports) && settings[s.name]?.enabled === false && !settings[s.name]?.delegateToCapacity,
   );
 }
+
+/**
+ * A tenant setting as someone looks for it in the admin portal: the name the API gives, when it gives
+ * one; else ours, or the section for the Fabric apps setting, which Learn doesn't name.
+ * @param {{ title: string, section?: string }} setting
+ * @param {string} [apiTitle]
+ */
+export const settingLabel = (setting, apiTitle) =>
+  apiTitle ? `"${apiTitle}"` : setting.section ? `the Fabric apps setting, under "${setting.section}"` : `"${setting.title}"`;
 
 /**
  * @param {Ctx} ctx
@@ -221,12 +260,36 @@ export async function preflight(ctx) {
   // Without these roles, the prerequisites below say what to do.
   if (canConsent) ui.ok(`You can grant admin consent (${roles.filter((r) => CONSENT_ROLES[/** @type {keyof typeof CONSENT_ROLES} */ (r.roleTemplateId)]).map((r) => r.displayName).join(', ')})`);
 
-  const capacities = ctx.config.target === 'azure' ? [] : (await api.fabric.listCapacities()).filter((cap) => cap.state === 'Active' && runsFabric(cap));
+  const listed = ctx.config.target === 'azure' ? [] : await api.fabric.listCapacities();
+  const capacities = listed.filter(usableCapacity);
+  /** @type {any[] | undefined} */
+  let onCapacity;
   if (ctx.config.target !== 'azure') {
-    if (!capacities.length) {
-      await stop('No active Fabric capacity you can use.', 'Start a Fabric trial, or ask a capacity admin to make you a contributor on an F2 or larger capacity, then run the installer again.');
+    if (capacities.length) ui.ok(`${capacities.length} active Fabric ${capacities.length === 1 ? 'capacity' : 'capacities'}`);
+    else {
+      // A workspace you're an Admin or Member of that's already on a capacity is enough.
+      onCapacity = await workspacesOnCapacity(api, ctx.config, listed).catch(() => []);
+      if (!onCapacity.length) {
+        await stop(
+          'No active Fabric capacity you can use.',
+          'To create the workspace on a capacity, you need to be that capacity\'s admin or contributor: ask its capacity admin, or start a Fabric trial. ' +
+            'Or ask to be an Admin or Member of a workspace that\'s already on a capacity. Then run the installer again.',
+        );
+      }
+      if (ui.yes && !ctx.config.fabric.workspaceId) {
+        await stop(
+          'No Fabric capacity you can create a workspace on.',
+          'With --yes the installer can\'t choose a workspace for you, and it can only create one on a capacity you\'re an admin or contributor of. ' +
+            'Run it without --yes to choose a workspace you\'re an Admin or Member of that\'s already on a capacity. ' +
+            'Or ask a capacity admin to make you that capacity\'s admin or contributor, or start a Fabric trial, then run it again.',
+        );
+      }
+      const recorded = onCapacity.find((w) => w.id === ctx.config.fabric.workspaceId);
+      const n = onCapacity.length;
+      ui.ok(
+        `No capacity you can create a workspace on, but ${recorded ? `the workspace "${recorded.displayName ?? recorded.id}" is` : `${n} ${n === 1 ? 'workspace' : 'workspaces'} you're an Admin or Member of ${n === 1 ? 'is' : 'are'}`} already on one`,
+      );
     }
-    ui.ok(`${capacities.length} active Fabric ${capacities.length === 1 ? 'capacity' : 'capacities'}`);
   }
 
   /** @type {any[]} */
@@ -266,7 +329,7 @@ export async function preflight(ctx) {
   }
 
   await report();
-  return { capacities, subscriptions, roles: roles.map((r) => r.displayName), canConsent, canCreateApps, tenantSettings, seats };
+  return { capacities, workspacesOnCapacity: onCapacity, subscriptions, roles: roles.map((r) => r.displayName), canConsent, canCreateApps, tenantSettings, seats };
 }
 
 /**
@@ -331,7 +394,7 @@ async function planPowerBi(ctx, pre) {
   }
   if (!sm.enabled) return;
   for (const s of blockedSettings(pre.tenantSettings, { app: !!fa.enabled, reports: !!sm.reports })) {
-    ui.warn(`The tenant setting "${s.title}" is off. ${s.effect}`);
+    ui.warn(`The tenant setting ${settingLabel(s, pre.tenantSettings?.[s.name]?.title)} is off. ${s.effect}`);
     ui.note('A Fabric administrator can switch it on in the admin portal, under Tenant settings.');
   }
 }
@@ -442,15 +505,36 @@ export async function plan(ctx, pre, section) {
   }
 
   const currentCapacity = () => pre.capacities.find((cap) => cap.id === config.fabric.capacityId);
+  /** With no usable capacity, the workspace you chose that's already on one. */
+  const currentOnCapacity = () => (pre.capacities.length ? undefined : pre.workspacesOnCapacity?.find((w) => w.id === config.fabric.workspaceId));
   if (editing('placement')) {
     ui.heading('Fabric');
-    ui.note(CAPACITY_HINT);
-    const capacityChoices = pre.capacities.map((cap) => ({ name: capacityLabel(cap), value: cap.id }));
-    config.fabric.capacityId = await ui.select(
-      'Which capacity should run it?',
-      capacityChoices,
-      pre.capacities.some((cap) => cap.id === config.fabric.capacityId) ? config.fabric.capacityId : pre.capacities[0].id,
-    );
+    const onCapacity = pre.capacities.length ? undefined : pre.workspacesOnCapacity;
+    if (onCapacity?.length) {
+      // No capacity to create a workspace on, so no capacity to choose: it's the chosen workspace's.
+      ui.note('No capacity lets you create a workspace on it, so Analytics Hub goes in a workspace you\'re an Admin or Member of that\'s already on one.');
+      if (!onCapacity.some((w) => w.id === config.fabric.workspaceId)) {
+        const choice = await ui.select(
+          'Workspace',
+          onCapacity.map((w) => ({ name: `Use "${w.displayName ?? w.id}"`, value: w.id })),
+          onCapacity[0].id,
+        );
+        config.fabric.workspaceId = choice;
+        config.fabric.workspaceName = onCapacity.find((w) => w.id === choice)?.displayName;
+      }
+      config.fabric.capacityId = currentOnCapacity()?.capacityId;
+      if ((pre.seats ?? 0) >= BIG_CAPACITY_SEATS) {
+        ui.note(`The installer can't see that capacity's size. With ${seatCount(pre.seats ?? 0)} Copilot seats assigned, F64 or larger is best: ask its capacity admin.`);
+      }
+    } else {
+      ui.note(CAPACITY_HINT);
+      const capacityChoices = pre.capacities.map((cap) => ({ name: capacityLabel(cap), value: cap.id }));
+      config.fabric.capacityId = await ui.select(
+        'Which capacity should run it?',
+        capacityChoices,
+        pre.capacities.some((cap) => cap.id === config.fabric.capacityId) ? config.fabric.capacityId : pre.capacities[0].id,
+      );
+    }
     const capacity = pre.capacities.find((cap) => cap.id === config.fabric.capacityId);
     await planDataAgent(ctx, pre, capacity, advanced());
     const scale = config.scale ?? defaultScale(capacity, pre.seats);
@@ -502,7 +586,9 @@ export async function plan(ctx, pre, section) {
   }
 
   if (editing('identity')) {
-    const capacity = currentCapacity();
+    // The Key Vault goes in the capacity's region; a workspace's capacity region when that's all there is.
+    const region = currentCapacity()?.region ?? currentOnCapacity()?.capacityRegion;
+    const location = region ? armLocation(region) : 'westeurope';
     ui.heading('App registration');
     /** Ask for the secret of an app the user brought, once the Key Vault section says where it goes. */
     let askSecret = false;
@@ -552,14 +638,14 @@ export async function plan(ctx, pre, section) {
         // The secret was in the notebooks, not a vault: the new vault needs one written.
         delete config.keyVault.secretSetAt;
         delete config.keyVault.handoff;
-        await planKeyVault(ctx, pre, capacity ? armLocation(capacity.region) : 'westeurope');
+        await planKeyVault(ctx, pre, location);
       }
     } else if (secretMode(config) === 'notebook') {
       ui.info('No Key Vault: the client secret is in the notebooks, where anyone with a role in the workspace can read it.');
     } else if (defaultsToNoVault(ctx)) {
-      await chooseSecretHome(ctx, pre, capacity ? armLocation(capacity.region) : 'westeurope');
+      await chooseSecretHome(ctx, pre, location);
     } else {
-      await planKeyVault(ctx, pre, capacity ? armLocation(capacity.region) : 'westeurope');
+      await planKeyVault(ctx, pre, location);
     }
     if (secretMode(config) === 'notebook' && !config.app.existing && advanced()) {
       const days = await ui.input(`Days before the client secret expires (1 to ${MAX_SECRET_DAYS}). Each install, repair or update replaces it.`, {
@@ -1046,7 +1132,7 @@ export function planCosts(config) {
  * What the plan creates, who it gives access to what, and where it runs: the record a
  * reviewer reads before saying go ahead.
  * @param {Ctx} ctx
- * @param {Pick<Preflight, 'capacities' | 'subscriptions' | 'canConsent'>} [pre]
+ * @param {Pick<Preflight, 'capacities' | 'subscriptions' | 'canConsent' | 'workspacesOnCapacity'>} [pre]
  * @returns {PlanReview}
  */
 export function planReview(ctx, pre) {
@@ -1218,12 +1304,18 @@ export function planReview(ctx, pre) {
   }
 
   const capacity = pre?.capacities.find((cap) => cap.id === f.capacityId);
+  // With no capacity to create a workspace on, the workspace chosen is already on one.
+  const onCapacity = capacity ? undefined : pre?.workspacesOnCapacity?.find((w) => w.id === f.workspaceId);
   const subscription = pre?.subscriptions.find((s) => s.subscriptionId === kv.subscriptionId);
   /** @type {ReviewRun[]} */
   const runsOn = [
     {
       what: sm.enabled ? `Notebooks, pipeline, semantic models${reportsWanted(ctx).length ? ', reports' : ''}${fa.enabled ? ' and the app' : ''}` : 'Notebooks and pipeline',
-      where: capacity ? `Fabric capacity ${capacity.displayName} (${capacity.sku}, ${capacity.region})` : `Fabric capacity ${f.capacityId ?? 'not chosen'}`,
+      where: capacity
+        ? `Fabric capacity ${capacity.displayName} (${capacity.sku}, ${capacity.region})`
+        : onCapacity
+          ? `The capacity the workspace "${onCapacity.displayName ?? onCapacity.id}" is already on${onCapacity.capacityRegion ? ` (${onCapacity.capacityRegion})` : ''}`
+          : `Fabric capacity ${f.capacityId ?? 'not chosen'}`,
     },
     ...(mode === 'notebook' ? [] : [{ what: 'Key Vault', where: `Azure subscription ${subscription?.displayName ?? kv.subscriptionId ?? 'already chosen'}`, detail: 'Standard tier.' }]),
     {

@@ -322,7 +322,8 @@ export async function reviewSetup(ctx) {
             }
           }
           await azurePreflight(ctx);
-        } else if (!pre.capacities.some((cap) => cap.id === ctx.config.fabric.capacityId)) {
+        } else if (!pre.capacities.some((cap) => cap.id === ctx.config.fabric.capacityId) && !pre.workspacesOnCapacity?.some((w) => w.id === ctx.config.fabric.workspaceId)) {
+          // With no capacity to create a workspace on, a chosen workspace that's already on one is enough.
           throw new Error('Review Fabric placement: the selected capacity is no longer active or accessible.');
         }
         checkpoint();

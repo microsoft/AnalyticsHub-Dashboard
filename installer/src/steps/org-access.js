@@ -497,7 +497,7 @@ async function runAccessNotebook(ctx, workspaceId, notebookId, params) {
   }
   if (job?.status === 'Completed') return true;
   ui.fail(`The roles weren't applied: ${job?.failureReason?.message ?? `the notebook ended as ${job?.status ?? 'unknown'}`}`);
-  ui.info('Check that the tenant setting "Allow XMLA endpoints" is on and the workspace capacity\'s XMLA endpoint is Read Write. Then try again from "access".');
+  ui.info('Check that the tenant setting "Allow XMLA endpoints and Analyze in Excel with on-premises semantic models" is on and the workspace capacity\'s XMLA endpoint is Read Write. Then try again from "access".');
   return false;
 }
 
@@ -762,7 +762,7 @@ async function turnOn(ctx, redeploy) {
     return false;
   }
   await showBypass(ctx);
-  ui.note('It needs the tenant setting "Allow XMLA endpoints" and a capacity whose XMLA endpoint is Read Write.');
+  ui.note('It needs the tenant setting "Allow XMLA endpoints and Analyze in Excel with on-premises semantic models" and a capacity whose XMLA endpoint is Read Write.');
   const group = await ensureViewerGroup(ctx);
   if (!group) return false;
   const existing = await readScopes(ctx);

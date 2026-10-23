@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { askAdvanced, asksAdvanced } from '../src/steps/advanced.js';
 import { planAzure } from '../src/steps/azure/index.js';
-import { capacityLabel, defaultsToNoVault, plan } from '../src/steps/plan.js';
+import { capacityLabel, defaultsToNoVault, plan, planReview } from '../src/steps/plan.js';
 import { planResourceGraph } from '../src/steps/resource-graph.js';
 import { fakeArm, fakeCtx, fakeFabric, fakePowerBi, fakeUi } from './fakes.js';
 
@@ -77,6 +77,59 @@ test('plan: a new install suggests Analytics Hub names and says what capacity si
   assert.equal(config.fabric.workspaceName, 'Analytics Hub');
   assert.equal(config.fabric.lakehouseName, 'Analytics_Hub');
   assert.match(t.text(), /F64 or larger is recommended for more than 10,000 people; small or trial capacities work but loads are slower\./);
+});
+
+/** No capacity to create a workspace on: preflight found these Admin or Member workspaces already on one. */
+const ON_CAPACITY = /** @type {any} */ ({
+  ...PRE,
+  capacities: [],
+  workspacesOnCapacity: [
+    { id: 'ws-a', displayName: 'Team analytics', type: 'Workspace', capacityId: 'cap-x', capacityRegion: 'North Europe' },
+    { id: 'ws-b', displayName: 'Finance', type: 'Workspace', capacityId: 'cap-y' },
+  ],
+});
+
+test('plan: with no capacity to create a workspace on, it offers only workspaces already on one, and asks no capacity question', async () => {
+  const t = fakeUi();
+  /** @type {{ message: string, choices: any[] }[]} */
+  const selects = [];
+  const select = t.ui.select;
+  t.ui.select = /** @type {any} */ (async (/** @type {string} */ m, /** @type {any[]} */ ch, /** @type {any} */ d) => (selects.push({ message: m, choices: ch }), select(m, ch, d)));
+  let listed = 0;
+  const fabric = fakeFabric().api;
+  const { ctx, config } = fakeCtx({ ui: t.ui, fabric: { ...fabric, listWorkspaces: async () => (listed++, [{ id: 'ws-x', type: 'Workspace', displayName: 'Other' }]) } });
+  delete config.fabric.workspaceId;
+  delete config.fabric.workspaceName;
+  delete config.fabric.capacityId;
+  delete config.fabric.lakehouseId;
+  delete config.fabric.lakehouseName;
+  await plan(ctx, ON_CAPACITY);
+  assert.ok(!t.asked.includes('Which capacity should run it?'));
+  assert.deepEqual(selects.filter((s) => s.message === 'Workspace').map((s) => s.choices.map((c) => c.value)), [['ws-a', 'ws-b']], 'no "Create a new workspace", and asked once');
+  assert.equal(listed, 0, 'only the workspaces preflight found');
+  assert.equal(config.fabric.workspaceId, 'ws-a');
+  assert.equal(config.fabric.workspaceName, 'Team analytics');
+  assert.equal(config.fabric.capacityId, 'cap-x', 'the chosen workspace\'s capacity');
+  assert.match(t.text(), /Analytics Hub goes in a workspace you're an Admin or Member of that's already on one/);
+  assert.doesNotMatch(t.text(), /F64 or larger is recommended/, 'there\'s no capacity to choose');
+  const where = planReview(ctx, ON_CAPACITY).runsOn[0].where;
+  assert.equal(where, 'The capacity the workspace "Team analytics" is already on (North Europe)');
+  assert.doesNotMatch(where, /not chosen/);
+});
+
+test('plan: with no capacity to create a workspace on, a recorded workspace already on one is used without asking, even with --yes', async () => {
+  const t = fakeUi({ yes: true });
+  const { ctx, config } = fakeCtx({ ui: t.ui, fabric: fakeFabric().api });
+  config.fabric.workspaceId = 'ws-b';
+  config.fabric.workspaceName = 'Finance';
+  delete config.fabric.capacityId;
+  await plan(ctx, { ...ON_CAPACITY, seats: 60_000 });
+  assert.ok(!t.asked.includes('Workspace') && !t.asked.includes('Which capacity should run it?'));
+  assert.equal(config.fabric.workspaceId, 'ws-b');
+  assert.equal(config.fabric.capacityId, 'cap-y');
+  assert.match(t.text(), /The installer can't see that capacity's size\. With 60,000 Copilot seats assigned, F64 or larger is best: ask its capacity admin\./);
+  assert.equal(config.scale, 'large', 'from the seats, with no capacity to go on');
+  assert.equal(planReview(ctx, ON_CAPACITY).runsOn[0].where, 'The capacity the workspace "Finance" is already on');
 });
 
 test('plan: an existing record keeps its names', async () => {
