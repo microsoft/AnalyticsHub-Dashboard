@@ -302,8 +302,10 @@ sets the number. On Fabric and Azure.
   the two apps for you.**
   - A new **App registrations** step in the plan, and in the browser's setup, asks who creates
     **Analytics Hub (Azure)** and **Analytics Hub SQL Reader**: you, or an admin who already created
-    them, or an admin from a script the installer writes. If you can't register apps, it doesn't
-    offer to create them.
+    them, or an admin from a script the installer writes. Only the default is marked recommended.
+    Creating them is offered even when the installer finds no role or setting that lets you
+    register apps, because it can't see custom roles. If Entra then refuses, the installer writes
+    the script and stops before it deploys anything.
   - **An admin will create the apps for me** writes `analytics-hub-azure-admin-script.md` next to
     the install record, and the install stops once the plan has listed everything, before it creates
     anything in Azure or Entra. An Application Administrator or Cloud Application Administrator
@@ -319,8 +321,10 @@ sets the number. On Fabric and Azure.
     register apps, it writes the script and stops.
   - The two apps are now created before the deploy, and finished after it with their redirect URIs,
     federated credential and grants. If Entra refuses to create them, the installer writes the
-    script and stops, with no resource group or deployment. If it refuses the update after the
-    deploy, the installer stops and says who adds you as an owner.
+    script and stops, with no resource group or deployment. If it refuses the web app's update or
+    the SQL reader's secret after the deploy, as it may for apps a custom role created without
+    making you their owner, the installer stops and says who adds you as an owner. When the
+    installer created both apps, that action names both, so one admin visit covers them.
   - A grant an admin already made is never reported as missing. When the installer can't read the
     grants and its own is refused, it says it couldn't check them.
   - A Privileged Role Administrator is no longer counted as able to register apps, on Fabric or

@@ -10,7 +10,7 @@ import { dirname, join } from 'node:path';
 import { after, test } from 'node:test';
 import { appRoleRights, applicationBody, azureWebApplicationBody, graphApi } from '../src/clients/graph.js';
 import { SQL_READER_NAME, WEB_APP_NAME, webAppScopes } from '../src/steps/azure/apps.js';
-import { azureAppsGate, azureStatus, installAzure, planAzure, planAzureApps } from '../src/steps/azure/index.js';
+import { azureAppsGate, azureRotateSecret, azureStatus, installAzure, planAzure, planAzureApps } from '../src/steps/azure/index.js';
 import { AZURE_ADMIN_SCRIPT_FILE, azureAdminScript, isResumeLater } from '../src/steps/identity.js';
 import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi, httpError } from './fakes.js';
 
@@ -41,6 +41,7 @@ const INSTALLED = {
 /** The command to run again, however the installer was started. */
 const RUN_AGAIN = /run "[^"]+" again/;
 const OWNERS_PATH = `Microsoft Entra admin center > Entra ID > App registrations > All applications > "${WEB_APP_NAME}" > Owners > Add owners`;
+const SQL_OWNERS_PATH = `Microsoft Entra admin center > Entra ID > App registrations > All applications > "${SQL_READER_NAME}" > Owners > Add owners`;
 const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 /** Escaped for a regular expression. @param {string} s */
 const re = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
@@ -189,12 +190,18 @@ test('App rights: Application Developer can create apps, a Privileged Role Admin
 
 // Planning: the "App registrations" step
 
-test('Azure apps plan: with no way to create apps, it offers the apps an admin made or an admin, not creating them', async () => {
+test("Azure apps plan: with no role or setting to create apps, an admin is the default, and creating them is still offered, unlabelled, for a custom role", async () => {
   const t = azureCtx();
   await planAzureApps(t.ctx, NONE);
-  assert.deepEqual(values(t.selects[WHO]), ['adopt', 'admin']);
+  assert.deepEqual(values(t.selects[WHO]), ['create', 'adopt', 'admin']);
   assert.equal(t.selects[WHO].def, 'admin', 'nothing to adopt yet');
-  assert.match(t.u.text(), /You can't create app registrations in this tenant\. An Application Administrator or Cloud Application Administrator can create them for you\./);
+  assert.deepEqual(t.selects[WHO].choices.map((c) => c.name), ['Create the two apps', 'Use the apps an admin created for me', 'An admin will create the apps for me'], 'only the default could be recommended, and the admin option never is');
+  assert.equal(
+    t.selects[WHO].choices[0].description,
+    "The installer found no role or setting that lets you register apps, but it can't see custom roles. Choose this only if a custom role lets you create them: if Entra refuses, the installer writes the admin script and stops before it deploys anything.",
+  );
+  assert.ok(t.u.text().includes("Users in this tenant can't register apps, and you have no app admin role. An Application Administrator or Cloud Application Administrator can create them for you."), t.u.text());
+  assert.doesNotMatch(t.u.text(), /You can't/);
   assert.equal(t.az().adminScript, t.script(), 'the file is recorded');
   assert.ok(existsSync(t.script()), 'the file is written');
   assert.match(t.u.text(), /Send this file to an Application Administrator or Cloud Application Administrator/);
@@ -237,6 +244,7 @@ test('Azure apps plan: apps an admin made for you are the default, and adopting 
   await planAzureApps(t.ctx, APP_ADMINISTRATOR);
   assert.deepEqual(values(t.selects[WHO]), ['create', 'adopt'], 'no admin needed');
   assert.equal(t.selects[WHO].def, 'adopt');
+  assert.deepEqual(t.selects[WHO].choices.map((c) => c.name), ['Create the two apps', 'Use the apps an admin created for me (recommended)'], "creating them again would duplicate the admin's");
   assert.match(t.selects[WHO].choices[1].description, /that you own are ready to use/);
   assert.deepEqual(t.az().webApp, ADOPTED.webApp);
   assert.deepEqual(t.az().sqlReader, ADOPTED.sqlReader);
@@ -300,9 +308,10 @@ test("Azure apps plan: when an admin made only the web app, someone who can't cr
   assert.deepEqual(t.az().webApp, ADOPTED.webApp);
   assert.ok(!t.u.asked.includes(WHO));
   const who = t.selects[WHO_SQL];
-  assert.deepEqual(values(who), ['adopt', 'admin']);
+  assert.deepEqual(values(who), ['create', 'adopt', 'admin']);
   assert.equal(who.def, 'admin', 'nobody made it yet');
-  assert.deepEqual(who.choices.map((c) => c.name), ['Use the one an admin created for me', 'An admin will create it for me']);
+  assert.deepEqual(who.choices.map((c) => c.name), [`Create "${SQL_READER_NAME}"`, 'Use the one an admin created for me', 'An admin will create it for me']);
+  assert.match(who.choices[0].description, /Choose this only if a custom role lets you create it:/);
   assert.ok(!t.u.asked.includes(`Client ID of "${SQL_READER_NAME}"`), 'no client ID asked for an app nobody made');
   const text = t.u.text();
   assert.ok(text.includes(`An Application Administrator or Cloud Application Administrator can create "${SQL_READER_NAME}" for you.`), text);
@@ -502,6 +511,7 @@ test('Azure apps: choosing to create the apps after all stops waiting for the ad
   await planAzureApps(t.ctx, CREATOR);
   assert.deepEqual(values(t.selects[WHO]), ['create', 'adopt', 'admin']);
   assert.equal(t.selects[WHO].def, 'admin', 'still the admin, as chosen before');
+  assert.ok(!t.selects[WHO].choices.some((c) => c.name.includes('(recommended)')), t.selects[WHO].choices.map((c) => c.name).join('\n'));
   assert.equal(t.az().adminScript, undefined);
   await azureAppsGate(t.ctx, CREATOR);
 });
@@ -666,6 +676,28 @@ test('Azure install: other errors creating the apps are not mistaken for a refus
   assert.ok(!existsSync(t.script()));
 });
 
+test("Azure install: someone with no role the installer can see can still choose to create the apps, and Entra's 403 then writes the admin file and stops before the resource group or the deploy", async () => {
+  const t = azureCtx({ pick: { [WHO]: 'create' } });
+  await planAzureApps(t.ctx, NONE);
+  assert.equal(t.selects[WHO].def, 'admin', 'chosen, not the default');
+  assert.equal(t.az().adminScript, undefined, 'no file until Entra refuses');
+  await azureAppsGate(t.ctx, NONE);
+  assert.ok(!existsSync(t.script()));
+  t.graph.failures.createAzureWebApplication = [httpError(403, 'Insufficient privileges to complete the operation.')];
+  await assert.rejects(installAzure(t.ctx, { wait: true }), (/** @type {Error} */ err) => {
+    assert.ok(isResumeLater(err), err.message);
+    assert.match(err.message, /^Entra didn't let you create the app registrations \(.*Insufficient privileges.*\), so the installer stopped before deploying anything\./);
+    assert.ok(err.message.includes(`Send ${t.script()} to an Application Administrator or Cloud Application Administrator.`), err.message);
+    assert.match(err.message, RUN_AGAIN);
+    return true;
+  });
+  assert.ok(existsSync(t.script()));
+  assert.equal(t.az().adminScript, t.script());
+  assert.deepEqual(t.arm.calls.filter((c) => /^(ensureResourceGroup|deployTemplate)/.test(c)), []);
+  assert.deepEqual(appsCreated(t.graph.calls), [`createAzureWebApplication ${WEB_APP_NAME}`], 'only the refused one');
+  assert.equal(t.az().webApp?.clientId, undefined);
+});
+
 test('Azure install: adopted apps are finished after the deploy: redirect URIs, the federated credential, the grants and the Admin role', async () => {
   const t = azureCtx({ azure: ADOPTED });
   adminMade(t.graph);
@@ -714,6 +746,78 @@ for (const step of /** @type {const} */ (['updateAzureWebApplication', 'addFeder
     assert.deepEqual(ownerActions(t.az()), []);
   });
 }
+
+test("Azure install: a 403 on the SQL reader's secret after the deploy stops with the owner step for it, kept until a secret is added", async () => {
+  const t = azureCtx({ azure: ADOPTED });
+  adminMade(t.graph);
+  const action = `An Application Administrator or Cloud Application Administrator adds admin@contoso.com as an owner of "${SQL_READER_NAME}" (client ID ${SQL_ID}): ${SQL_OWNERS_PATH}`;
+  t.graph.failures.addPassword = [httpError(403, 'Insufficient privileges to complete the operation.')];
+  await assert.rejects(installAzure(t.ctx, { wait: true }), (/** @type {Error} */ err) => {
+    assert.ok(isResumeLater(err), err.message);
+    assert.match(err.message, new RegExp(`^Entra didn't let you add a client secret to "${re(SQL_READER_NAME)}" \\(.*Insufficient privileges.*\\), so Power BI can't read the database yet\\.`));
+    assert.ok(err.message.includes(`${action}.`), err.message);
+    assert.match(err.message, RUN_AGAIN);
+    return true;
+  });
+  assert.ok(t.arm.calls.some((c) => c.startsWith('deployTemplate')), 'after the deploy');
+  assert.deepEqual(ownerActions(t.az()), [action]);
+  assert.equal(t.az().sqlReader.secretAttempts, undefined, 'a refused secret is not tracked');
+
+  // The re-run finishes the web app before it asks for the secret: that mustn't clear the SQL reader's action.
+  t.graph.failures.addPassword = [httpError(500, 'Internal error')];
+  await assert.rejects(installAzure(t.ctx, { wait: true }), (/** @type {Error} */ err) => !isResumeLater(err) && /Internal error/.test(err.message));
+  assert.ok(t.graph.calls.filter((c) => c === 'updateAzureWebApplication vlens.example.com').length >= 2, 'the web app was finished');
+  assert.deepEqual(ownerActions(t.az()), [action]);
+
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.deepEqual(ownerActions(t.az()), []);
+});
+
+test('Azure install: when the installer made both apps and Entra refuses to finish the web app, one owner action names both, and the SQL reader keeps its part until its secret is added', async () => {
+  const t = azureCtx();
+  t.graph.failures.updateAzureWebApplication = [httpError(403, 'Insufficient privileges to complete the operation.')];
+  let both = '';
+  await assert.rejects(installAzure(t.ctx, { wait: true }), (/** @type {Error} */ err) => {
+    assert.ok(isResumeLater(err), err.message);
+    const { webApp, sqlReader } = t.az();
+    assert.deepEqual([webApp.created, sqlReader.created], [true, true]);
+    both = `An Application Administrator or Cloud Application Administrator adds admin@contoso.com as an owner of "${WEB_APP_NAME}" (client ID ${webApp.clientId}) and "${SQL_READER_NAME}" (client ID ${sqlReader.clientId}): ${OWNERS_PATH}, and the same for "${SQL_READER_NAME}"`;
+    assert.match(err.message, new RegExp(`^Entra didn't let you finish "${re(WEB_APP_NAME)}" \\(.*\\), so people can't sign in to the web app yet\\.`));
+    assert.ok(err.message.includes(`${both}.`), err.message);
+    assert.match(err.message, RUN_AGAIN);
+    return true;
+  });
+  assert.deepEqual(ownerActions(t.az()), [both]);
+  assert.ok(!t.graph.calls.some((c) => c.startsWith('addPassword')), 'stopped before the secret');
+
+  // The admin added the owner of the web app only: it's finished, and the action is now for the SQL reader alone.
+  const sqlOnly = `An Application Administrator or Cloud Application Administrator adds admin@contoso.com as an owner of "${SQL_READER_NAME}" (client ID ${t.az().sqlReader.clientId}): ${SQL_OWNERS_PATH}`;
+  t.graph.failures.addPassword = [httpError(403, 'Insufficient privileges to complete the operation.')];
+  await assert.rejects(installAzure(t.ctx, { wait: true }), (/** @type {Error} */ err) => {
+    assert.ok(isResumeLater(err), err.message);
+    assert.ok(err.message.startsWith(`Entra didn't let you add a client secret to "${SQL_READER_NAME}"`), err.message);
+    return true;
+  });
+  assert.deepEqual(ownerActions(t.az()), [sqlOnly]);
+
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.deepEqual(ownerActions(t.az()), []);
+});
+
+test("Azure rotate-secret: a 403 on the SQL reader's secret records the owner step and says to run rotate-secret again", async () => {
+  const t = azureCtx({ azure: ADOPTED });
+  adminMade(t.graph);
+  t.graph.failures.addPassword = [httpError(403, 'Insufficient privileges to complete the operation.')];
+  await assert.rejects(azureRotateSecret(t.ctx), (/** @type {Error} */ err) => {
+    assert.ok(isResumeLater(err), err.message);
+    assert.ok(err.message.startsWith(`Entra didn't let you add a client secret to "${SQL_READER_NAME}"`), err.message);
+    assert.match(err.message, /run "[^"]* rotate-secret" again\.$/);
+    return true;
+  });
+  assert.deepEqual(ownerActions(t.az()), [`An Application Administrator or Cloud Application Administrator adds admin@contoso.com as an owner of "${SQL_READER_NAME}" (client ID ${SQL_ID}): ${SQL_OWNERS_PATH}`]);
+  await azureRotateSecret(t.ctx);
+  assert.deepEqual(ownerActions(t.az()), []);
+});
 
 // Grants
 

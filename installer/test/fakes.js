@@ -915,6 +915,7 @@ export function fakeAzureGraph(opts = {}) {
     },
     addPassword: async (/** @type {string} */ _id, /** @type {Date} */ end, /** @type {string} */ displayName = 'Analytics Hub installer') => {
       calls.push(`addPassword ${displayName}`);
+      fail('addPassword');
       const keyId = `key-${++n}`;
       passwords.push({ keyId, displayName });
       return { keyId, secretText: `secret-${n}`, endDateTime: end.toISOString() };
