@@ -19,7 +19,7 @@ import { manifestVersion, writeTeamsPackage } from '../../azure/teams.js';
 import { askToPublishTeamsApp, checkCatalogAccess, publishTeamsApp, removeTeamsApp, signInForTeamsApp, TEAMS_APP_PENDING, teamsAppPlanRow } from './teams-catalog.js';
 import { APP_ALIAS, CONSUMPTION_ALIAS, EVALUATOR_ALIAS } from '../app.js';
 import { AZURE_AI_ROLES, ensureAzureAiAccess, planConsumption } from '../consumption.js';
-import { AZURE_LANDING_DIRS, azureDropLabel, azureDropsToSharePoint, ensureFlows, flowsSummary, flowsWanted, offerStudioRun, planFlows } from '../flows.js';
+import { AZURE_LANDING_DIRS, azureDropLabel, azureDropsToSharePoint, ensureFlows, flowsSummary, flowsWanted, offerStudioRun, planFlows, PP_API_SIGNER, whoSignsIn } from '../flows.js';
 import { DEFAULT_CURRENCY } from '../../currency.js';
 import { askMoreHistory, askReportingCurrency, CREATE_WORKSPACES_FIX, editSchedule, HISTORY_CHOICES, isGuid, keepAwake, planCosts, PRICING, reloadLine } from '../plan.js';
 import { WORKSPACE_ROLE } from '../fabric.js';
@@ -1052,7 +1052,7 @@ export async function planAzureConsumption(ctx, subs) {
     ds.coworkCredits = cowork;
   } else {
     ds.studioCredits = await ui.select('Where should Copilot Studio credits come from?', [
-      { name: 'Power Platform licensing API (recommended)', value: 'api', description: 'A daily Power Automate flow, signed in as you, saves them for the jobs. The first run loads about six months.' },
+      { name: 'Power Platform licensing API (recommended)', value: 'api', description: `A daily Power Automate flow saves them for the jobs. Its Power Platform API connection signs in as ${PP_API_SIGNER}. The first run loads about six months.` },
       { name: 'CSV exports', value: 'csv', description: `Drop the Power Platform admin center's Copilot Studio exports in the ${AZURE_LANDING_DIRS.studio} folder yourself.` },
       { name: 'Leave Copilot Studio out', value: 'skip' },
     ], studio);
@@ -1069,7 +1069,7 @@ export async function planAzureConsumption(ctx, subs) {
   if ([ds.studioCredits, ds.coworkCredits, ds.azureAi].every((mode) => mode === 'skip')) {
     ui.warn('Copilot Studio, Cowork and Azure AI are all left out, so credit consumption collects nothing, and the next run starts from the recommended sources again. To leave it out, untick Credit consumption.');
   }
-  if (config.uploads.flowIdentity === 'app' && ds.studioCredits === 'api') ui.warn('--flow-identity app is Fabric only for now, so it\'s ignored: on Azure the Studio flow signs in as you, because the jobs\' managed identity has no secret a flow can sign in with.');
+  if (config.uploads.flowIdentity === 'app' && ds.studioCredits === 'api') ui.warn('--flow-identity app is Fabric only for now, so it\'s ignored: on Azure a person signs in to the connection the Studio flow saves through, because the jobs\' managed identity has no secret a flow can sign in with.');
   await planFlows(ctx);
 }
 
@@ -1708,17 +1708,17 @@ export function azurePlanReview(ctx) {
   if (azureAgentEvaluatorOn(ctx.config) && ctx.sources.agentEvaluatorModelFile) creates.push({ kind: 'Semantic model', name: ctx.config.agentEvaluator.model.name, isNew: !az.powerBi?.agentEvaluatorDatasetId, detail: `Agent Evaluator, reading Azure SQL like the main model.${az.powerBi?.agentEvaluatorDatasetId ? ` ${MODEL_UPDATE_NOTE}` : ''}` });
   const transcripts = transcriptAccessReview(ctx.config);
   creates.push(...transcripts.creates);
-  if (consumption && flowsWanted(ctx.config).includes('studio')) creates.push({ kind: 'Power Automate flow', name: 'Copilot Studio credits', isNew: !ctx.config.uploads.flowIds?.studio, detail: `Daily, signed in as you; saves to ${azureDropLabel(az)}. The installer helps you sign in to its connections, then turns it on.` });
-  if (flowsWanted(ctx.config).includes('agents')) creates.push({ kind: 'Power Automate flow', name: 'Agent inventory', isNew: !ctx.config.uploads.flowIds?.agents, detail: `Daily, signed in as an admin; saves to ${azureDropLabel(az, AZURE_LANDING_DIRS.argInventory)} for when Resource Graph returns no agents. The installer helps you sign in to its connections, then turns it on.` });
+  if (consumption && flowsWanted(ctx.config).includes('studio')) creates.push({ kind: 'Power Automate flow', name: 'Copilot Studio credits', isNew: !ctx.config.uploads.flowIds?.studio, detail: `Daily; saves to ${azureDropLabel(az)}. The installer helps you sign in to its connections, then turns it on. ${whoSignsIn(ctx.config, 'studio')}` });
+  if (flowsWanted(ctx.config).includes('agents')) creates.push({ kind: 'Power Automate flow', name: 'Agent inventory', isNew: !ctx.config.uploads.flowIds?.agents, detail: `Daily; saves to ${azureDropLabel(az, AZURE_LANDING_DIRS.argInventory)} for when Resource Graph returns no agents. The installer helps you sign in to its connections, then turns it on. ${whoSignsIn(ctx.config, 'agents')}` });
   /** @type {{ who: string, what: string, where: string, detail?: string }[]} */
   const consumptionGrants = [];
   if (consumption && cc.azureSubscriptionId && ctx.config.dataSources.azureAi === 'api') consumptionGrants.push({ who: 'Collector managed identity', what: AZURE_AI_ROLES.map((r) => r.name).join(', '), where: `Subscription ${cc.azureSubscriptionName ?? cc.azureSubscriptionId}`, detail: 'Azure AI costs and metrics.' });
   if (consumption && cc.paygSubscriptions?.length) consumptionGrants.push({ who: 'Collector managed identity', what: 'Cost Management Reader', where: cc.paygSubscriptions.map((p) => p.name ?? p.subscriptionId).join(', '), detail: 'Copilot pay-as-you-go billed in Azure.' });
   const dropped = azureDropContents(ctx.config);
   if (az.drop && dropped.length) consumptionGrants.push({ who: 'Collector managed identity', what: 'Sites.Selected (read)', where: az.drop.siteUrl ?? az.drop.folderUrl, detail: `Reads ${joinList(dropped.map(withThe))}. Needs a SharePoint or Global administrator.` });
-  else if (consumption && (ctx.config.dataSources.studioCredits !== 'skip' || ctx.config.dataSources.coworkCredits !== 'skip')) consumptionGrants.push({ who: 'You', what: 'Storage Blob Data Contributor', where: 'The storage account', detail: 'So the Studio flow, signed in as you, and your uploads can write to the landing container.' });
+  else if (consumption && (ctx.config.dataSources.studioCredits !== 'skip' || ctx.config.dataSources.coworkCredits !== 'skip')) consumptionGrants.push({ who: 'You', what: 'Storage Blob Data Contributor', where: 'The storage account', detail: 'So your uploads, and the Studio flow\'s storage connection if you sign in to it, can write to the landing container.' });
   else if (dropped.length) consumptionGrants.push({ who: 'You', what: 'Storage Blob Data Contributor', where: 'The storage account', detail: `So you can upload ${joinList(dropped)} to the landing container.` });
-  else if (flowsWanted(ctx.config).includes('agents') && !az.drop) consumptionGrants.push({ who: 'You', what: 'Storage Blob Data Contributor', where: 'The storage account', detail: 'So the agent inventory flow can write to the landing container.' });
+  else if (flowsWanted(ctx.config).includes('agents') && !az.drop) consumptionGrants.push({ who: 'You', what: 'Storage Blob Data Contributor', where: 'The storage account', detail: 'So the agent inventory flow\'s storage connection, if you sign in to it, can write to the landing container.' });
   const argGrants = azureResourceGraphOn(ctx.config) ? resourceGraphGrants(ctx.config, ctx.user?.tenantId ?? '', 'Collector managed identity', 'azureAccess') : [];
   return {
     creates,

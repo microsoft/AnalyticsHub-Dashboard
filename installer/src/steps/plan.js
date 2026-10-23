@@ -18,7 +18,7 @@ import { AGENT_EVALUATOR_MODEL_NAME, CONSUMPTION_MODEL_NAME, DATA_AGENT_NAME, fl
 import { MIN_NODE, nodeVersionOk } from './app.js';
 import { agentEvaluatorModelWanted, fabricReadRoleReview, planAgentEvaluator } from './agent-evaluator.js';
 import { AZURE_AI_ROLES, consumptionModelWanted, COWORK_DATAFLOW_NAME, planConsumption, planCowork } from './consumption.js';
-import { FLOW_NAMES, flowsSkipped, flowsWanted, planFlows } from './flows.js';
+import { FLOW_NAMES, flowsSkipped, flowsWanted, planFlows, whoSignsIn } from './flows.js';
 import { adminPack, canWriteSecrets, checkExistingApp, MAX_SECRET_DAYS, NOTEBOOK_SECRET_DAYS, notebookSecretDays, reportAppCheck, ResumeLater, writeAdminPack } from './identity.js';
 import { planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from './resource-graph.js';
 import { askAdvanced, asksAdvanced } from './advanced.js';
@@ -1246,7 +1246,7 @@ export function planCosts(config) {
   /** @type {ReviewCost[]} */
   const costs = [];
   if (!azure) costs.push({ what: 'Fabric capacity', detail: 'Runs the notebooks, pipeline and reports. Billed by capacity size; a trial capacity is free while it lasts.', url: PRICING.fabric });
-  if (flowsWanted(config).length) costs.push({ what: 'Power Automate Premium', detail: 'A licence for whoever signs in to the flows.', url: PRICING.powerAutomate });
+  if (flowsWanted(config).length) costs.push({ what: 'Power Automate Premium', detail: 'A licence for you, as the flows\' owner. Whoever signs in to their connections doesn\'t need one.', url: PRICING.powerAutomate });
   if (azure) costs.push({ what: 'Azure resources', detail: 'Azure SQL, the Container Apps jobs, the web app and storage, billed to your Azure subscription.', url: PRICING.azure });
   else if (secretMode(config) !== 'notebook') costs.push({ what: 'Azure Key Vault', detail: 'Holds the app\'s client secret. Billed to your Azure subscription.', url: PRICING.keyVault });
   return costs;
@@ -1340,7 +1340,9 @@ export function planReview(ctx, pre) {
       kind: 'Power Automate flow',
       name: FLOW_NAMES[kind],
       isNew: !config.uploads.flowIds?.[kind],
-      detail: env ? `In ${env.name ?? env.url}, turned off. The installer helps you sign in to its connections, then turns it on.` : 'Written to a file to import.',
+      detail: env
+        ? `In ${env.name ?? env.url}, turned off. The installer helps you sign in to its connections, then turns it on. ${whoSignsIn(config, kind)}`
+        : `Written to a file to import. ${whoSignsIn(config, kind)}`,
     });
   }
   if (sm.enabled) {

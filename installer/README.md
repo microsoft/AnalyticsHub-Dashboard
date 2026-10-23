@@ -212,10 +212,12 @@ prints the steps to upload it by hand and carries on.
 Every module is supported on Azure: `core`, `orgData`, `m365Activity`, `agent365`, `productFeedback`,
 `consumption`, `agentEvaluator` and `defender`. Credit consumption deploys the Consumption Central model,
 gives the jobs' managed identity Cost Management and Azure AI roles, and creates the Copilot Studio flow,
-signed in as you (`--flow-identity app` is Fabric only). With public endpoints the flow writes to the
-storage account's `landing` container and you get **Storage Blob Data Contributor** on it. With private
-networking it writes to a SharePoint folder you name, and the managed identity gets **Sites.Selected** read
-on that site (a SharePoint or Global administrator grants it). See
+which you own. A Power Platform or Global administrator signs in to its Power Platform API connection,
+and a person to the connection it saves through (`--flow-identity app` is Fabric only). With public
+endpoints the flow writes to the storage account's `landing` container and you get **Storage Blob Data
+Contributor** on it, though whoever has that role can sign in. With private networking it writes to a
+SharePoint folder you name, and the managed identity gets **Sites.Selected** read on that site (a
+SharePoint or Global administrator grants it). See
 [Azure](../azure/README.md#credit-consumption).
 The Agent 365 registry comes from its CSV export, which you drop in the same place, under
 `agent365`; the Agent 365 API is Fabric only for now. See
@@ -677,9 +679,18 @@ The Workday export goes in `workday/`, and each run adds the newest one to the o
 ### Power Automate flows
 
 The installer creates these flows in the Power Platform environment you pick, **turned off**, then
-helps you sign in to them and turns them on. It preselects the tenant's default environment. The
-environment's DLP policy must allow *HTTP with Microsoft Entra ID (preauthorized)*, and people with
-access to the environment can see the flows.
+helps you sign in to them and turns them on. It preselects the tenant's default environment, and
+people with access to the environment can see the flows.
+
+The environment's data policy (DLP) must allow the connectors the flows use, in the same data group
+(Business or Non-business): *HTTP with Microsoft Entra ID (preauthorized)*, plus *Office 365
+Outlook* for the feedback flow, *HTTP* and *Azure Key Vault* with `--flow-identity app`, or
+*SharePoint* when an Azure install drops files in SharePoint. The installer can't read data
+policies, so its **Data policy** prerequisite always says "Couldn't check" and never stops the
+install. It says what to ask a Power Platform administrator to confirm: those connectors, in that
+environment, and the addresses a policy that filters endpoints must allow
+(`https://api.powerplatform.com`, and the storage the flows write to). If a policy turns a flow down
+when the installer saves it or turns it on, the installer shows the same ask.
 
 | Flow | When | What it does | Sign in to |
 |---|---|---|---|
@@ -687,11 +698,29 @@ access to the environment can see the flows.
 | `Analytics Hub - Product feedback` | Product feedback set to **Power Automate (emailed export)**, on Fabric only for now | Saves product feedback exports emailed with the subject `Copilot Product Feedback` | Office 365 Outlook and OneLake |
 | `Analytics Hub - Agent inventory` | Agent configuration and Foundry set to **Connected**, with agents | Each day, an hour before the pipeline, saves the Power Platform inventory of Copilot Studio agents, environments and agent flows to `Files/arg_inventory`, for when Resource Graph won't give the app the agents | Power Platform API and OneLake |
 
-They need Power Automate Premium: whoever signs in to the HTTP with Microsoft Entra ID
-connections, and you as the flows' owner. See the
+The flows run on your Power Automate Premium licence, because you'll own them. Whoever signs in to
+their connections doesn't need Premium, and doesn't have to be you. If your account or licence is
+removed, Power Automate slows the flows down, and turns them off after 14 days unless someone takes
+them over. In a large organisation, install as an account that will stay. See the
 [Power Platform admin checklist](../docs/PREREQUISITES.md#power-platform-admin-for-the-copilot-studio-credits-flow).
 
-**The installer signs them in with you.** Straight after it creates the flows, it:
+Who signs in to each connection:
+
+- **Power Platform API** (Studio credits and agent inventory flows): a Power Platform or Global
+  administrator. With the agent inventory flow alone, a Power Platform, Dynamics 365 or Global
+  administrator, or someone with Global Reader. If that role is only eligible in Privileged
+  Identity Management (PIM), the connection needs it active whenever the flows run, and an
+  activation lasts at most 24 hours, as your organisation sets it: have someone with the role
+  assigned permanently sign in.
+- **Office 365 Outlook** (feedback flow): the mailbox the export is emailed to.
+- **OneLake**: someone with Contributor or higher on the workspace. On Azure, **Azure Storage**:
+  someone with Storage Blob Data Contributor on the storage account, or **SharePoint**: someone who
+  can add files to the drop folder.
+- **Azure Key Vault** (`--flow-identity app`): someone who can read secrets in the vault.
+
+The plan and the Done card say the same for each flow.
+
+**The installer helps you sign them in.** Straight after it creates the flows, it:
 
 1. Makes the HTTP with Microsoft Entra ID connections the flows need, with their URLs filled in,
    named `Analytics Hub - Power Platform API` and `Analytics Hub - OneLake` (on Azure,
@@ -708,20 +737,21 @@ connections, and you as the flows' owner. See the
 5. Deletes the connections it made before that nobody signed in to and no flow uses. It lists your
    other HTTP with Microsoft Entra ID connections that aren't signed in to, but never deletes them.
 
-The feedback flow's Outlook connection, and the Key Vault one with `--flow-identity app`, are still
-yours to sign in to in Power Automate. If the installer can't do any of this, it shows the steps
-below as soon as it creates the flows, and again at the end. If you leave the sign-ins for later,
-Copilot Studio data arrives after the flow runs and the next daily load.
+The installer doesn't make the feedback flow's Outlook connection, or the Key Vault one with
+`--flow-identity app`: sign in to those in Power Automate. If the installer can't do any of this,
+it shows the steps below as soon as it creates the flows, and again at the end. If you leave the
+sign-ins for later, Copilot Studio data arrives after the flow runs and the next daily load.
 
 To finish a flow by hand:
 
 1. Open it in Power Automate. Allow pop-ups for `make.powerautomate.com`: each sign-in opens one.
 2. Sign in to its connections, or pick the ones the installer made. Each action's name ends in the
    connection it uses: "via Power Platform API", "via OneLake" or "via Azure Storage".
-   - **HTTP with Microsoft Entra ID (preauthorized), for the Power Platform API** (Studio flow):
-     Base Resource URL and Resource URI `https://api.powerplatform.com`. Sign in as a Power
-     Platform, Billing or Global administrator. For the agent inventory flow, sign in as a Power
-     Platform administrator or Global Reader: the inventory API takes delegated sign-ins only.
+   - **HTTP with Microsoft Entra ID (preauthorized), for the Power Platform API** (Studio and agent
+     inventory flows): Base Resource URL and Resource URI `https://api.powerplatform.com`. Sign in
+     as a Power Platform or Global administrator. For the agent inventory flow alone, a Power
+     Platform, Dynamics 365 or Global administrator, or someone with Global Reader, can sign in:
+     the inventory API takes delegated sign-ins only.
    - **Office 365 Outlook** (feedback flow): sign in as the mailbox the export is emailed to.
    - **HTTP with Microsoft Entra ID (preauthorized), for OneLake**: Base Resource URL
      `https://onelake.dfs.fabric.microsoft.com`, Resource URI `https://storage.azure.com`. Sign in
@@ -745,9 +775,9 @@ connections. The Fabric tenant setting **Users can access data stored in OneLake
 external to Fabric** must be on (it is by default). Workspaces that block public inbound access
 can't take writes from Power Automate.
 
-**Keep them running.** A flow runs as the people who signed in to its connections. Sign in with a
-dedicated admin account rather than your own, and add a co-owner. Sign in again if the account's
-password is reset, the account is disabled, or the flow hasn't run for about 90 days.
+**Keep them running.** Each connection acts as whoever signed in to it, and the flows run on their
+owner's licence (above). Sign in to a connection again if its account's password is reset, the
+account is disabled, or the flow hasn't run for about 90 days.
 
 **Write as the app instead (optional).** `install --flow-identity app` makes the flows write as
 the app registration, with its secret read from Key Vault through an **Azure Key Vault**
@@ -827,8 +857,8 @@ Global Administrator through the admin consent link).
 
 On the Azure target, `upload`, `--csv`, `load-cowork`, `--flow-identity app` and
 `coworkCredits=api` are Fabric only for now. `upload`, `--csv` and `load-cowork` stop and name the
-folder to put exports in. The other two warn, then the Copilot Studio credits flow signs in as you
-and Cowork credits come from the CSV export. See
+folder to put exports in. The other two warn. A person then signs in to the connection the Copilot
+Studio credits flow saves through, and Cowork credits come from the CSV export. See
 [Parity with Fabric](../azure/README.md#parity-with-fabric).
 
 `uninstall` on Fabric asks before it deletes the workspace. If the installer didn't create the

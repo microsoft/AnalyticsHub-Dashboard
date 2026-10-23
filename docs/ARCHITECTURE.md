@@ -137,7 +137,7 @@ region and agreement; the installer's plan lists what's billed, with links to th
 | Compute and storage | A [Fabric capacity](https://azure.microsoft.com/pricing/details/microsoft-fabric/), F2 or larger. F64 or larger for more than 10,000 people. Or a [60-day free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager). | About $5–40 a month for a small tenant, or $60–160 a month for a large one: [Container Apps](https://azure.microsoft.com/pricing/details/container-apps/), [Storage](https://azure.microsoft.com/pricing/details/storage/blobs/), [Azure SQL](https://azure.microsoft.com/pricing/details/azure-sql-database/single/) and Log Analytics. |
 | Private networking | — | About $30–40 a month more, and gateway capacity units while refreshing. |
 | Viewers | [Power BI Pro or PPU](https://www.microsoft.com/power-platform/products/power-bi/pricing) each, below F64. | Power BI Pro or PPU each. |
-| Flows | [Power Automate Premium](https://www.microsoft.com/power-platform/products/power-automate/pricing) for whoever signs in to the Studio credits flow. | The same. |
+| Flows | [Power Automate Premium](https://www.microsoft.com/power-platform/products/power-automate/pricing) for you, as the flows' owner. Whoever signs in to their connections doesn't need Premium. | The same. |
 | Ask | Capacity units, on a paid capacity. Not on a trial. | Azure OpenAI tokens, per question. |
 | Key Vault | Only if you keep the secret there. [Billed per operation](https://azure.microsoft.com/pricing/details/key-vault/): small for a few reads a day. | Not used. |
 
