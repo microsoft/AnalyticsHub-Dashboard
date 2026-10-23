@@ -257,7 +257,7 @@ test('Azure apps plan: recorded apps ask nothing', async () => {
 
 // --yes
 
-test('Azure apps --yes: with no way to create apps, the plan writes the admin file and stops after the preflight, before anything changes', async () => {
+test('Azure apps --yes: with no way to create apps, the plan writes the admin file and stops after the preflight, before anything is created', async () => {
   const t = azureCtx({ yes: true, fresh: true });
   await assert.rejects(planAzure(t.ctx, NONE), (/** @type {Error} */ err) => {
     assert.ok(isResumeLater(err), err.message);
