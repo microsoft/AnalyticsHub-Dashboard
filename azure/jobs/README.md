@@ -29,6 +29,22 @@ The other commands are:
 - `migrate` applies `azure/sql/migrations/V*.sql` and grants the app's reader identity `db_datareader`. The installer runs it on every deploy.
 - `process --data-dir <dir>` runs only the processing step, on local files. Add `--full-rebuild` to recompute every month.
 
+**One run at a time.** A `run` that opens the store, whatever its steps, leases
+`raw/_state/run.lock` until it ends, and releases it in a `finally`, whether it succeeds or fails.
+So a second run, from the schedule, the installer or started by hand, can't run beside it. A run
+that finds the lock leased stops before its first step and changes nothing, and logs which
+run is going and since when. It exits 0 when it collects without a reload, as the schedule's runs do,
+so a long load doesn't leave a failed execution every day. A reload (`VALUELENS_AUDIT_BACKFILL_DAYS`),
+or steps without `collect` such as the installer's `access,refresh`, exits 75, so nobody takes it as
+done, and Container Apps retries it once. The lease lasts 60 seconds and a thread renews it every
+15, so the lock of a run that was stopped lapses within a minute. Its lease ID comes from
+`CONTAINER_APP_JOB_NAME` and `CONTAINER_APP_JOB_EXECUTION_NAME`, so a retry replica of the same
+execution takes its own lock back. When the lock can't be checked (a storage error), the run goes
+ahead without it and warns. It needs no access beyond the jobs' Storage Blob Data Contributor role.
+`run --steps refresh` doesn't take the lock, as it has no store, and Power BI waits while another
+refresh is going; nor does `migrate`, which install and update mustn't skip. `process --data-dir`
+takes the same lock in its folder.
+
 **Incremental processing.** `process` saves a fingerprint of each month's source rows. Each run
 recomputes only the months whose rows changed, plus the months within
 `VALUELENS_PROCESS_LOOKBACK_DAYS` (default 14) of the newest record, for audit records that arrive
@@ -413,6 +429,7 @@ The job reads its settings from environment variables. Bicep sets them.
 | `raw/copilot_interactions_parsed/` | Flattened audit records, one parquet file per day |
 | `raw/_audit_staging/`, `raw/_state/audit.json` | The audit pages of the windows the last run planned, gzip-compressed, and the manifest of windows: each one's status, with its query ID when it's `paused` at the time budget, and when it last merged (`merged_at`). Also the high-water mark, where a reload not yet merged starts, the last run's merge-to-publish time, and, while windows are left, the progress `status` reads (`loaded_back_to`, `windows_left`, `paused_at`). Merged isn't published: `processed` is where the load had got to when the last process step to finish started, and `published` is the same for the last publish that carried a process step's output, which `status` counts as in the reports. The next run reuses the finished windows and merges only those not merged yet. |
 | `raw/_state/refresh.json` | refresh: the full refreshes owed, per model, with the one a run left running, until a run sees one complete |
+| `raw/_state/run.lock` | The run lock: leased by the run that's going, which records its execution, when it started, its steps and its version in it. Between runs it isn't leased and names the last run. |
 | `raw/copilot_licensed_users/`, `raw/copilot_org_data/`, `raw/m365_activity_daily/` | Collector snapshots |
 | `curated/copilot_interactions_curated/month-YYYYMM.parquet` | The curated fact, one file per month (`month-none` for rows without a date). Each file is written atomically. |
 | `curated/_valuelens_process/` | process: the per-month source fingerprints (`state.json`) and the per-month context that incremental runs reuse |

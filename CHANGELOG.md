@@ -316,6 +316,23 @@ now count about 3 hours of fetching per run, still one run a day. The run job ge
 as `VALUELENS_JOB_TIMEOUT_SEC`, and assumes 4 hours without it. `VALUELENS_AUDIT_TIME_BUDGET_MIN`
 sets the audit fetch's budget instead, in minutes from the run's start.
 
+**Azure: a run that starts while another is going stops straight away.** The run job's daily
+schedule could start a run while another was still going, for example when a long first load
+reached the scheduled time. The two shared the audit staging area and the tenant's audit queries,
+and each saved its progress in the run job's state over the other's, so one could undo the other's
+and leave audit rows out. Now a run leases a lock in the run job's storage for as long as it's
+going, with the access the jobs already have: no new role or resource, and only a few storage
+operations a minute. A run that finds the lock leased stops before its first step and changes
+nothing. It logs which run is going and since when, and that that run loads and publishes the
+history, so nothing is lost. A scheduled run that stops this way doesn't fail, so a long load
+doesn't leave a failed run every day. A history reload or org-scoped access that stops this way
+ends as failed, so nobody takes it as done, and its log says to run it again once the other run
+has finished. The lease lasts a minute and the run keeps renewing it, so the lock of a run that was
+stopped, at its time limit or out of memory, lapses by itself, and when Container Apps retries a
+run that crashed, the retry takes its lock back. If the lock can't be checked, the run goes ahead
+as before and warns. Install and update still migrate the database while a run is going. This
+fixes 0.6.8's known issue once `update` brings the new job image.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its
