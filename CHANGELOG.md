@@ -190,6 +190,22 @@ the group in My Groups.
   Administrator for it (Azure portal > the storage account > **Access control (IAM)**), wait about
   5 minutes and try again, instead of showing the 403. Private networking and Fabric are unchanged.
 
+**Fixed:**
+
+- **Azure: Repair keeps a shared-capacity (Pro) install's workspace where it is.** A Repair with
+  `--yes`, or one that took every default, moved it onto your first active capacity. Installers up
+  to 0.6.7 have this problem, and 0.6.7's release notes list it as a known issue. The install record
+  didn't keep the choice **None (shared capacity, Pro)** at **Capacity for the Power BI workspace**,
+  so Repair suggested the first active capacity instead. Now the record keeps None, and Repair
+  suggests where the workspace is: the capacity you chose, if it's active; otherwise the active
+  capacity the workspace is on, or None if it's on shared capacity; failing that, None if that was
+  the choice. Earlier installers didn't keep None, so a record with a workspace and no capacity is
+  taken to have chosen it. If the capacity you chose is paused, Repair still suggests the first
+  active capacity, as before. A new install still suggests the first active capacity, and private
+  networking still needs a capacity. Choosing None doesn't move a workspace off a capacity: if a
+  Repair moved yours, set it back to Pro in the workspace's settings in Power BI, then run Repair
+  without `--yes` and choose None. Fabric isn't affected.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its
