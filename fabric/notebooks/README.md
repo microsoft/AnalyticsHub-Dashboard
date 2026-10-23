@@ -111,9 +111,10 @@ a manual Purview search of the same 8h fails too. For more than about 10,000 peo
 - Start with the default 30 days. Load more later with a backfill run.
 - Use an F64 or larger capacity, and don't run audit searches in the Purview portal while it runs.
 
-The installer does this when you choose **More than 10,000** people, which it chooses for a new
-install with more than 10,000 Copilot seats assigned. It also gives the loads and the model refresh
-longer time limits. For a smaller tenant it uses 24h windows, which need fewer queries each day.
+The installer does this when you choose **More than 10,000** people. A new install starts on that
+answer when the installer counts more than 10,000 people with a licence and an enabled account. It
+also gives the loads and the model refresh longer time limits. For a smaller tenant it uses 24h
+windows, which need fewer queries each day.
 
 The Agent 365 registry ingester refreshes each agent's detail on its own day of the week (a hash of
 the agent ID picks it), so a daily run refreshes about a seventh of the agents, not all of them on

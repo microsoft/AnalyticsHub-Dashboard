@@ -252,6 +252,21 @@ sets the number. On Fabric and Azure.
   **Reset filters**, and goes back to this default. Smaller tenants still start on **All dates**.
   Consumption Central and the Agent Evaluator keep every date until you choose a range.
 
+**The installer sizes for the number of people, not Copilot seats, and asks in the main flow.** It
+sized a new install from the Microsoft 365 Copilot seats assigned, and asked only under the
+advanced settings. So a tenant with tens of thousands of people and fewer seats got the settings
+for a small one, though Copilot Chat users' activity reaches the audit log too, and on Azure the
+free SQL offer could pause the database, and the jobs, when the month's allowance ran out. Now the
+prerequisite checks count the people with a licence and an enabled account, with Microsoft Graph
+and your own sign-in: no admin role or new permission. If that count isn't available, the installer
+uses the enabled accounts, then the Copilot seats. Placement asks **About how many people work in
+your organisation?** on both targets, starting from the count, and the plan shows the size and what
+was counted. On Azure, a new install of more than 10,000 people starts on letting Azure SQL carry
+on past the free allowance, for about $30-80 a month, with the cost in the plan; keeping the free
+offer is still a choice. With `--yes`, such an install stops before anything is deployed unless
+`--sql-scale-up` or `--sql-free-offer` says which. **Repair or change** and `--yes` keep an
+install's size and SQL choice, and the plan warns when the people counted have outgrown them.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its

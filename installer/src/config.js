@@ -22,7 +22,7 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {import('./uploads.js').DataSourceModes} dataSources  How each source arrives: API, uploaded CSV, or skipped.
  * @property {UploadsConfig} uploads
  * @property {{ days: number }} history
- * @property {import('./transform/pipeline.js').TenantScale} [scale]  How the loads are sized. Standard when absent.
+ * @property {import('./transform/pipeline.js').TenantScale} [scale]  The answer to "About how many people work in your organisation?", asked in placement on both targets. On Fabric it sizes the loads (standard when absent); on Azure, the sizing setup recommends. Until it's answered, the installer starts from the people counted.
  * @property {import('./currency.js').ReportingConfig} [reporting]  The currency the Value page reports in until one is saved in the app. Asked for when absent.
  * @property {{ frequency: 'daily' | 'weekly', time: string, weekday: string, timeZone: string }} schedule
  * @property {{ appId?: string, objectId?: string, servicePrincipalId?: string, displayName?: string, secretExpires?: string, secretKeyId?: string, retiredSecretKeyIds?: string[], pendingSecretKeyIds?: string[], secretAttempts?: { ref: string, at: string }[], existing?: boolean, adminPack?: string, secretDays?: number }} app  pendingSecretKeyIds: notebook secrets created by a run that hadn't finished writing them. secretAttempts: notebook secrets asked of Entra whose key ID isn't saved yet; the ref is in the secret's name. secretDays: how long a secret kept in the notebooks lasts (--secret-days). 90 when absent.
@@ -268,7 +268,7 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {string} [location]
  * @property {string} [sqlLocation] Region for Azure SQL when it differs from location (regional SQL capacity).
  * @property {boolean} [sqlFreeOffer] false once Azure turned down the Azure SQL free offer for a new database, which then uses the usual serverless price. Unset = ask for it.
- * @property {boolean} [sqlScaleUp] A large tenant chose to pay for Azure SQL beyond the free offer: more vCores, and carrying on past the free allowance. Unset = no.
+ * @property {boolean} [sqlScaleUp] The install chose to pay for Azure SQL beyond the free offer: more vCores, and carrying on past the free allowance. Set by the Azure SQL compute question, --sql-scale-up (true) or --sql-free-offer (false). Unset = no.
  * @property {boolean} [webAlwaysOn] A large tenant chose to pay to keep one web app replica running, so the first visit doesn't wait. Unset = no.
  * @property {string} [namePrefix]
  * @property {string} [installId]

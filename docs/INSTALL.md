@@ -52,12 +52,16 @@ When it finishes: [Check it worked](#check-it-worked).
       where to export the file, and you can pick the exports to upload now. A source that needs
       more to work asks for it next, such as the Power Platform environment for a flow. See
       [Data sources and exports](../installer/README.md#data-sources-and-exports).
-   2. **Change the advanced settings?** **No** (the default) takes the defaults that suit most
-      organisations. See [Advanced settings](../installer/README.md#advanced-settings).
-   3. **Capacity and workspace.** A new workspace is named `Analytics Hub` and its Lakehouse
-      `Analytics_Hub`, or the next free name. F64 or larger is recommended for more than 10,000
-      people. An existing install keeps its names. On Azure: the subscription, resource group,
-      region and Power BI workspace.
+   2. **Change the advanced settings?** **No** (the default) keeps what you chose last time, or
+      takes the defaults. See [Advanced settings](../installer/README.md#advanced-settings).
+   3. **Capacity, size and workspace.** A new workspace is named `Analytics Hub` and its Lakehouse
+      `Analytics_Hub`, or the next free name. An existing install keeps its names. On Azure: the
+      subscription, resource group, region and Power BI workspace. On both, **About how many
+      people work in your organisation?** starts from the installer's count of everyone with a
+      licence and an enabled account, not only those with Copilot. For more than 10,000, F64 or
+      larger is recommended, and on Azure, so is letting Azure SQL carry on past its free
+      allowance for about $30-80 a month; the plan shows the cost. See
+      [A large tenant](../installer/README.md#a-large-tenant).
    4. **App registration:** create one, use your own (it's checked first), or let an admin
       register it. See [If you can't register apps](../installer/README.md#if-you-cant-register-apps).
    5. **Where the secret goes** (Fabric only): in the notebooks by default, with nothing in Azure.
@@ -327,3 +331,8 @@ options. The exe takes the same commands, for example `AnalyticsHubInstaller.exe
 `install --yes` keeps the secret in the notebooks for a new Fabric install; read
 [the trade-off](../installer/README.md#where-the-secret-goes) first, and add `--key-vault` to use Key Vault instead.
 `--secret-days <n>` sets how long the secret in the notebooks lasts.
+On Azure, `install --target azure --yes` stops before anything is deployed for a new install of
+more than 10,000 people, until you choose what Azure SQL does when the free offer's monthly
+allowance runs out. Add `--sql-scale-up` to carry on past it (about $30-80 a month), or
+`--sql-free-offer` to keep the free offer, which pauses the database and the jobs until next month.
+See [A large tenant on Azure](../installer/README.md#a-large-tenant-on-azure).

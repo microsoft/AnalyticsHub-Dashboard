@@ -1346,6 +1346,7 @@ function renderReview(plan) {
   const fresh = plan.creates.filter((c) => c.isNew).length;
   const kept = plan.creates.length - fresh;
   return h('div', { class: 'review' },
+    plan.sizedFor ? h('p', { class: 'rv-sized' }, h('strong', null, 'Sized for: '), plan.sizedFor) : null,
     h('section', { class: 'rv' },
       h('div', { class: 'rv-head' }, h('h2', null, 'What it creates'), h('span', { class: 'sec-n' }, `${fresh} new${kept ? `, ${kept} already there` : ''}`)),
       table(['Item', 'Name', ''], plan.creates.map((c) => h('tr', null,
@@ -1867,6 +1868,7 @@ const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
 function reviewMarkdown(plan) {
   const L = [];
+  if (plan.sizedFor) L.push(`**Sized for:** ${plan.sizedFor}`, '');
   L.push('### What it creates', '', '| Item | Name | | Details |', '|---|---|---|---|');
   for (const c of plan.creates) L.push(`| ${cell(c.kind)} | ${cell(c.name)} | ${c.isNew ? 'New' : 'Already there'} | ${cell(c.detail)} |`);
   L.push('', '### Access it grants', '', '| Who | Gets | On | Details |', '|---|---|---|---|');

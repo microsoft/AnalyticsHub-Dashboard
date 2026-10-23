@@ -342,6 +342,19 @@ export function graphApi(http) {
 
     /** A user by UPN or email-style sign-in name. Null when there's no such user. @param {string} upn */
     getUser: (upn) => getOrNull(`/users/${encodeURIComponent(upn)}?$select=id,displayName,userPrincipalName`),
+    /**
+     * How many users match an OData filter. `$count` and filters such as `ne` are advanced queries, which need
+     * `ConsistencyLevel: eventual`; Graph answers with the number as plain text. Throws when Graph refuses the
+     * filter or doesn't answer with a number.
+     * @param {string} filter
+     * @returns {Promise<number>}
+     */
+    countUsers: async (filter) => {
+      const data = await http.get('/users/$count', { query: { $filter: filter }, headers: { ConsistencyLevel: 'eventual', Accept: 'text/plain' }, maxRetries: 2 });
+      const text = typeof data === 'number' ? String(data) : String(data ?? '').replace(/^\uFEFF/, '').trim();
+      if (!/^\d+$/.test(text)) throw new Error(`GET /users/$count returned "${text.slice(0, 80)}", not a count.`);
+      return Number(text);
+    },
 
     /** @param {string} id */
     getGroup: (id) => getOrNull(`/groups/${encodeURIComponent(id)}?$select=id,displayName,securityEnabled`),
