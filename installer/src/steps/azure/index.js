@@ -531,8 +531,19 @@ const scriptChosen = new WeakMap();
 const ownersPath = (name) => `Microsoft Entra admin center > Entra ID > App registrations > All applications > "${name}" > Owners > Add owners`;
 
 /**
+ * The apps not yet recorded, for messages about the admin making them: one by name, or both.
+ * @param {import('../../config.js').AzureConfig} az
+ */
+const stillNeeded = (az) => {
+  const left = AZURE_APPS.filter((a) => !az[a.key]?.clientId);
+  return left.length === 1 ? { what: `"${left[0].name}"`, them: 'the app' } : { what: 'the app registrations', them: 'the apps' };
+};
+
+/**
  * Who makes the two app registrations: the installer, or an admin, from the script the installer writes or by
- * themselves. Asked only when there's a choice; with --yes, azureAppsGate decides once preflight has printed.
+ * themselves. Each app is handled on its own. When an admin made both, the question offers them. Otherwise the one
+ * an admin made is used without asking, or picked when there are several, and the question is only about the
+ * other. Asked only when there's a choice; with --yes, azureAppsGate decides once preflight has printed.
  * @param {Ctx} ctx @param {AppRights | undefined} pre @param {string} [section]
  */
 export async function planAzureApps(ctx, pre, section) {
@@ -553,43 +564,46 @@ export async function planAzureApps(ctx, pre, section) {
   /** @type {Record<string, any[]>} */
   const found = {};
   for (const { key, name } of AZURE_APPS) if (!az[key]?.clientId) found[key] = await adoptableApps(api, name).catch(() => []);
-  const adoptable = () => AZURE_APPS.some((a) => !az[a.key]?.clientId && found[a.key]?.length);
-  if (canCreate && canApprove && !adoptable() && !az.adminScript && !section) return;
+  const unrecorded = () => AZURE_APPS.filter((a) => !az[a.key]?.clientId);
+  if (canCreate && canApprove && !unrecorded().some((a) => found[a.key]?.length) && !az.adminScript && !section) return;
 
   ui.heading('App registrations');
-  if (az.adminScript) {
-    // The admin has run the script: the installer finds the apps itself.
-    for (const { key } of AZURE_APPS) if (!az[key]?.clientId && found[key]?.length === 1) await adoptApp(ctx, pre, key, found[key][0]);
+  // Both apps there to use, and no script waiting: the question offers them. Otherwise any an admin made is used
+  // first, including after the admin script has run, so nothing an admin made is created again.
+  const ready = !az.adminScript && unrecorded().length === AZURE_APPS.length && unrecorded().every((a) => found[a.key]?.length);
+  if (!ready) {
+    for (const { key } of unrecorded()) if (found[key]?.length) await chooseApp(ctx, pre, api, key, found[key]);
     if (appsRecorded(az)) {
       delete az.adminScript;
       scriptChosen.delete(ctx);
       return;
     }
   }
-  const left = AZURE_APPS.filter((a) => !az[a.key]?.clientId);
-  const both = left.length === AZURE_APPS.length;
+  const left = unrecorded();
+  const one = left.length === 1 ? left[0].name : '';
   const offerAdmin = !canCreate || !canApprove || !!az.adminScript;
-  if (!canCreate) ui.info('You can\'t create app registrations in this tenant. An Application Administrator or Cloud Application Administrator can create them for you.');
+  if (!canCreate) ui.info(`You can't create app registrations in this tenant. An Application Administrator or Cloud Application Administrator can create ${one ? `"${one}"` : 'them'} for you.`);
   const choice = await ui.select(
-    both ? 'Who creates the two Entra app registrations?' : `Who creates "${left[0].name}"?`,
+    one ? `Who creates "${one}"?` : 'Who creates the two Entra app registrations?',
     [
       ...(canCreate
         ? [{
-            name: both ? 'Create the two apps (recommended)' : `Create "${left[0].name}" (recommended)`,
+            name: one ? `Create "${one}" (recommended)` : 'Create the two apps (recommended)',
             value: 'create',
-            description: canApprove
-              ? 'The installer creates them before it deploys anything.'
-              : 'The installer creates them before it deploys anything. Approving the web app\'s delegated permissions needs an admin: after the deploy, the installer gives you a consent link to send, and carries on.',
+            description: `The installer creates ${one ? 'the app' : 'them'} before it deploys anything.` +
+              (canApprove || !left.some((a) => a.key === 'webApp')
+                ? ''
+                : ' Approving the web app\'s delegated permissions needs an admin: after the deploy, the installer gives you a consent link to send, and carries on.'),
           }]
         : []),
       {
-        name: 'Use the apps an admin created for me',
+        name: one ? 'Use the one an admin created for me' : 'Use the apps an admin created for me',
         value: 'adopt',
-        description: adoptable() ? 'Apps with these names that you own are ready to use.' : 'Enter their client IDs.',
+        description: ready ? 'Apps with these names that you own are ready to use.' : one ? 'Enter its client ID.' : 'Enter their client IDs.',
       },
       ...(offerAdmin
         ? [{
-            name: 'An admin will create the apps for me',
+            name: one ? 'An admin will create it for me' : 'An admin will create the apps for me',
             value: 'admin',
             description: az.adminScript
               ? `Still waiting for an admin to run the script in ${az.adminScript}. The installer writes it again, and stops before it deploys anything.`
@@ -597,17 +611,19 @@ export async function planAzureApps(ctx, pre, section) {
           }]
         : []),
     ],
-    adoptable() ? 'adopt' : offerAdmin && (!canCreate || az.adminScript) ? 'admin' : 'create',
+    ready ? 'adopt' : offerAdmin && (!canCreate || az.adminScript) ? 'admin' : 'create',
   );
   if (choice === 'create') {
     delete az.adminScript;
     scriptChosen.delete(ctx);
   } else if (choice === 'admin') {
+    // The script makes only the apps not recorded: it reuses one this plan has just taken from an admin.
     scriptChosen.set(ctx, !!az.adminScript);
     az.adminScript = writeAzureAdminScript(ctx, await webAppScopes(api, config));
-    ui.warn('An admin needs to create the app registrations. Send this file to an Application Administrator or Cloud Application Administrator:');
+    const { what, them } = stillNeeded(az);
+    ui.warn(`An admin needs to create ${what}. Send this file to an Application Administrator or Cloud Application Administrator:`);
     ui.info(az.adminScript);
-    ui.info('The installer stops before it deploys anything. Once they\'ve run it, run the installer again: it finds the apps itself.');
+    ui.info(`The installer stops before it deploys anything. Once they've run it, run the installer again: it finds ${them} itself.`);
     ctx.save();
   } else {
     scriptChosen.delete(ctx);
@@ -736,12 +752,13 @@ export async function azureAppsGate(ctx, pre) {
   if (!az.adminScript && (!ui.yes || pre?.canCreateApps !== false)) return;
   az.adminScript = writeAzureAdminScript(ctx, await webAppScopes(api, config));
   ctx.save();
+  const { what, them } = stillNeeded(az);
   throw new ResumeLater(
     waiting
-      ? `Still waiting for an admin to create the app registrations with the script in ${az.adminScript}, so the installer stopped again before deploying anything. ` +
-          `Once an Application Administrator or Cloud Application Administrator has run it, run "${commandLine('install')}" again: the installer finds the apps itself.`
-      : `An admin needs to create the app registrations, so the installer stopped before deploying anything. Send ${az.adminScript} to an Application Administrator ` +
-          `or Cloud Application Administrator. Once they've run it, run "${commandLine('install')}" again: the installer finds the apps itself.`,
+      ? `Still waiting for an admin to create ${what} with the script in ${az.adminScript}, so the installer stopped again before deploying anything. ` +
+          `Once an Application Administrator or Cloud Application Administrator has run it, run "${commandLine('install')}" again: the installer finds ${them} itself.`
+      : `An admin needs to create ${what}, so the installer stopped before deploying anything. Send ${az.adminScript} to an Application Administrator ` +
+          `or Cloud Application Administrator. Once they've run it, run "${commandLine('install')}" again: the installer finds ${them} itself.`,
   );
 }
 
@@ -2662,7 +2679,7 @@ export async function azureRefresh(ctx) {
 export async function azureStatus(ctx) {
   const { ui, config, api } = ctx;
   const az = config.azure;
-  const waiting = az?.adminScript && !appsRecorded(az) ? `Waiting for an admin to create the app registrations with the script in ${az.adminScript}. Once they've run it, run "${commandLine('install')}" again.` : '';
+  const waiting = az?.adminScript && !appsRecorded(az) ? `Waiting for an admin to create ${stillNeeded(az).what} with the script in ${az.adminScript}. Once they've run it, run "${commandLine('install')}" again.` : '';
   if (!az?.subscriptionId || !az.resourceGroup) return ui.warn(waiting ? `Nothing is installed yet. ${waiting}` : 'Nothing is installed yet.');
   ui.heading('Analytics Hub on Azure');
   if (waiting) ui.warn(waiting);

@@ -151,6 +151,9 @@ registrations**, choose who creates them:
   permissions (Power BI and Microsoft Graph). It makes no secrets, and it's safe to run again. Then
   run the installer again: it finds the apps itself, so there's nothing to send back.
 
+If an admin created only one of the two, the installer uses it and asks only about the other. If you
+choose an admin for that one, the script creates only the missing app.
+
 With `--yes`, the installer uses an app an admin created when it finds exactly one with that name,
 and stops to list their client IDs when it finds more. Otherwise it creates the app if you can, or
 writes the script and stops.

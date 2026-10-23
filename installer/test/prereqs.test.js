@@ -500,11 +500,19 @@ test('checkPrereqs: on Azure, registering apps is met by recorded apps, a role, 
   for (const apps of [[web, { ...web, appId: 'web-2' }, sql], [finishedWeb, sql], [web, finishedSql], [web]]) {
     assert.equal((await runWith(locked, azureConfig(), owning(apps)))['register-apps'].status, 'missing', JSON.stringify(apps));
   }
+  // When an admin made only one of the two, the row names it and the one still needed.
+  const detail = async (/** @type {any} */ config, /** @type {any[]} */ apps) => (await runWith(locked, config, owning(apps)))['register-apps'].detail;
+  const sqlNeeded = 'An admin created "Analytics Hub (Azure)" (web-1) for you, and the plan uses it. "Analytics Hub SQL Reader" still needs creating: the plan offers to have an admin create it.';
+  assert.equal(await detail(azureConfig(), [web]), sqlNeeded);
+  assert.equal(await detail(azureConfig(), [web, finishedSql]), sqlNeeded);
+  assert.equal(await detail(azureConfig(), [finishedWeb, sql]), 'An admin created "Analytics Hub SQL Reader" (sql-1) for you, and the plan uses it. "Analytics Hub (Azure)" still needs creating: the plan offers to have an admin create it.');
+  assert.equal(await detail(azureConfig({ webApp: { clientId: 'web-1' } }), []), 'Users in this tenant can\'t register apps, and you have no app admin role. The plan offers to have an admin create "Analytics Hub SQL Reader" for you.');
+  assert.doesNotMatch(await detail(azureConfig(), [web, { ...web, appId: 'web-2' }, sql]), /still needs creating/, 'both have apps to use: the plan asks which web app');
 
   const cant = (await run(locked, azureConfig()))['register-apps'];
   assert.equal(cant.status, 'missing');
   assert.equal(cant.detail, 'Users in this tenant can\'t register apps, and you have no app admin role. The plan offers to have an admin create the two apps for you.');
-  assert.equal(cant.howTo, 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role, or choose \'An admin will create the apps for me\': the plan writes a script for an Application Administrator or Cloud Application Administrator, and stops before anything is deployed.');
+  assert.equal(cant.howTo, 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role. Or, in the plan, choose \'Use the apps an admin created for me\' if an admin has made them, or \'An admin will create the apps for me\': the plan writes a script for an Application Administrator or Cloud Application Administrator, and stops before anything is deployed.');
   assert.match(cant.neededFor, /"Analytics Hub \(Azure\)", for signing in to the web app, and "Analytics Hub SQL Reader", for Power BI/);
 });
 

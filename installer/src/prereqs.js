@@ -419,7 +419,7 @@ export async function checkPrereqs(ctx, opts = {}) {
           ? `Creating the two app registrations: "${AZURE_APPS[0].name}", for signing in to the web app, and "${AZURE_APPS[1].name}", for Power BI.`
           : 'Creating the app registration that collects the data.',
         howTo: azure
-          ? 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role, or choose \'An admin will create the apps for me\': the plan writes a script for an Application Administrator or Cloud Application Administrator, and stops before anything is deployed.'
+          ? 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role. Or, in the plan, choose \'Use the apps an admin created for me\' if an admin has made them, or \'An admin will create the apps for me\': the plan writes a script for an Application Administrator or Cloud Application Administrator, and stops before anything is deployed.'
           : 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role, use an app registration you already have, or get the admin pack for an admin to register it.',
       },
       async () => {
@@ -444,7 +444,13 @@ export async function checkPrereqs(ctx, opts = {}) {
           return { status: 'met', detail: `An admin created ${left.length === 1 ? 'the app' : 'the apps'} for you: ${found.map((f) => `"${f[0].displayName}" (${f[0].appId})`).join(' and ')}. The plan uses ${left.length === 1 ? 'it' : 'them'}.` };
         }
         if (users instanceof Error) throw users;
-        return { status: 'missing', detail: 'Users in this tenant can\'t register apps, and you have no app admin role. The plan offers to have an admin create the two apps for you.' };
+        // An admin made only one of the two: the plan uses it, and asks only about the other.
+        const used = found.flatMap((f) => (f.length === 1 ? [`"${f[0].displayName}" (${f[0].appId})`] : []));
+        const needed = left.filter((_, k) => !found[k].length).map((a) => `"${a.name}"`);
+        if (used.length && needed.length) {
+          return { status: 'missing', detail: `An admin created ${used[0]} for you, and the plan uses it. ${needed[0]} still needs creating: the plan offers to have an admin create it.` };
+        }
+        return { status: 'missing', detail: `Users in this tenant can't register apps, and you have no app admin role. The plan offers to have an admin create ${needed.length === 1 ? needed[0] : 'the two apps'} for you.` };
       },
     ),
     guard(

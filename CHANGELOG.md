@@ -312,9 +312,11 @@ sets the number. On Fabric and Azure.
     secrets, and it's safe to run again. The next run finds the apps itself, so nothing is sent
     back.
   - **Use the apps an admin created for me** finds the apps with these names that you own and no
-    install has finished, or takes their client IDs and checks you own them. With `--yes`, the
-    installer uses the only one of each name, and stops to list their client IDs when there are
-    more. If there's none and you can't register apps, it writes the script and stops.
+    install has finished, or takes their client IDs and checks you own them. If an admin created
+    only one of the two, the installer uses it and asks only about the other, and the script, if
+    chosen, creates only the missing app. With `--yes`, the installer uses the only one of each
+    name, and stops to list their client IDs when there are more. If there's none and you can't
+    register apps, it writes the script and stops.
   - The two apps are now created before the deploy, and finished after it with their redirect URIs,
     federated credential and grants. If Entra refuses to create them, the installer writes the
     script and stops, with no resource group or deployment. If it refuses the update after the
