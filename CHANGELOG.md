@@ -161,6 +161,19 @@ the group in My Groups.
   waiting for approval or the message about owners. A scope a leader gives still waits for an
   admin.
 
+**Fixed:**
+
+- **A user who isn't an Entra admin can create the viewer group.** Setup, `access` and turning on
+  org-scoped access stopped with Graph's 400 "Request contains a property with duplicate values"
+  when they kept **A new group**. Entra makes a user who isn't an admin an owner of a security
+  group they create, so Graph refused the request, which named them as owner too. Now, when Graph
+  refuses it for that reason, the installer sends it again without naming them, and Entra makes
+  them owner. An admin's group is created as before, naming them as owner. If Graph refuses the
+  group for another reason, the installer now warns that there's no viewer group yet, and says to
+  run `access` and choose **A group I already have**, instead of stopping with the error. And the
+  plan before **Go ahead?** says you own the viewer group only when the installer creates it. 0.6.7
+  has this problem too; its release notes list it as a Known issue.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its

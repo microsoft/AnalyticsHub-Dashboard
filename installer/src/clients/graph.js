@@ -349,18 +349,28 @@ export function graphApi(http) {
     findGroupByName: async (name) =>
       (await http.list('/groups', { query: { $filter: `displayName eq '${name.replace(/'/g, "''")}'`, $select: 'id,displayName,securityEnabled' } }))[0] ?? null,
     /**
-     * Creates a security group (not mail-enabled) with the given owner.
+     * Creates a security group (not mail-enabled) owned by `ownerId`, the signed-in user. Entra doesn't make an admin
+     * an owner of a security group they create, so the request names them. It does make a user who isn't an admin
+     * one, and Graph refuses a request that names them as well, with 400 "Request contains a property with duplicate
+     * values". Then the group is created without naming them.
      * @param {{ displayName: string, description: string, ownerId: string }} o
      */
-    createSecurityGroup: (o) =>
-      http.post('/groups', {
+    createSecurityGroup: async (o) => {
+      const group = {
         displayName: o.displayName,
         description: o.description,
         mailEnabled: false,
         mailNickname: o.displayName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'analytics-hub-viewers',
         securityEnabled: true,
-        'owners@odata.bind': [`https://graph.microsoft.com/v1.0/users/${o.ownerId}`],
-      }),
+      };
+      try {
+        return await http.post('/groups', { ...group, 'owners@odata.bind': [`https://graph.microsoft.com/v1.0/users/${o.ownerId}`] });
+      } catch (err) {
+        if (!(err instanceof HttpError) || err.status !== 400 || !/property with duplicate values/i.test(JSON.stringify(err.body ?? err.message))) throw err;
+        // Graph created nothing, so sending it again can't make a second group.
+        return http.post('/groups', group);
+      }
+    },
     /** Direct members of a group. @param {string} groupId @returns {Promise<{ id: string, displayName?: string, userPrincipalName?: string }[]>} */
     groupMembers: (groupId) => http.list(`/groups/${groupId}/members`, { query: { $select: 'id,displayName,userPrincipalName' } }),
     /**
