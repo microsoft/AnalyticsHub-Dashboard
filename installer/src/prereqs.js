@@ -65,6 +65,8 @@ const VIVA_ROLES_URL = 'https://learn.microsoft.com/viva/insights/advanced/setup
 /** Teams admin center > Teams apps > Manage apps, as in steps/azure/teams-catalog.js. */
 const TEAMS_MANAGE_APPS_URL = 'https://admin.teams.microsoft.com/policies/manage-apps';
 const XMLA_SETTING = 'Allow XMLA endpoints and Analyze in Excel with on-premises semantic models';
+/** Ends an Entra role row's detail when the roles you could activate through PIM can't be read. */
+const PIM_UNREAD = ' Couldn\'t check for roles you could activate yourself.';
 
 /**
  * The Fabric tenant settings this install needs, by their names in the admin portal, for someone who
@@ -235,7 +237,7 @@ export async function checkPrereqs(ctx, opts = {}) {
       if (elig?.length) {
         return { status: 'eligible', detail: `Not active yet: ${[...new Set(elig.map((r) => wanted[r.roleDefinitionId]))].join(', ')}. You can activate this role in Entra (Privileged Identity Management): ${PIM_URL} Then check again.` };
       }
-      const unread = elig ? '' : ' Couldn\'t check for roles you could activate yourself.';
+      const unread = elig ? '' : PIM_UNREAD;
       if (handoff) return { status: 'handoff', detail: `${handoff.detail}${unread}`, ...(handoff.howTo ? { howTo: handoff.howTo } : {}) };
       return { status: 'missing', detail: `You don't have ${Object.values(wanted).join(' or ')} active.${unread}` };
     });
@@ -328,11 +330,11 @@ export async function checkPrereqs(ctx, opts = {}) {
         id: 'consent-role',
         label: 'Global Administrator or Privileged Role Administrator',
         neededFor: 'Granting admin consent for the app registration\'s Microsoft Graph permissions.',
-        howTo: `A Privileged Role Administrator or Global Administrator approves them, from the link the installer gives you. An Application Administrator or Cloud Application Administrator can't approve Microsoft Graph application permissions: ${ADMIN_CONSENT_URL}`,
+        howTo: `A Privileged Role Administrator or Global Administrator approves the app's Microsoft Graph permissions from the installer's consent link. An Application Administrator or Cloud Application Administrator can't: ${ADMIN_CONSENT_URL}`,
         optional: true,
       },
       CONSENT_ROLES,
-      { detail: 'You don\'t need this yourself. A Privileged Role Administrator or Global Administrator approves the app\'s Microsoft Graph permissions. The installer gives you a link to send them and carries on.' },
+      { detail: 'You don\'t need this yourself: the installer gives you an admin consent link to send, and carries on.' },
     ),
     entraRole(
       {
@@ -683,15 +685,16 @@ function handoffsToShow(handoff, config) {
   if (config.target === 'azure' || !consent || !audit) return handoff;
   return handoff
     .filter((it) => it !== audit)
-    .map((it) =>
-      it === consent
-        ? {
-            ...it,
-            detail: `${it.detail} That consent includes ${AUDIT_ROLE}: until it's approved, the audit load finds 0 records.`,
-            howTo: `${it.howTo} A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: ${PURVIEW_AUDIT_URL} After install, run ${commandLine('check-audit')} to test it.`,
-          }
-        : it,
-    );
+    .map((it) => {
+      if (it !== consent) return it;
+      // The audit note follows the consent sentence it refers to; "couldn't check" stays last.
+      const unread = it.detail.endsWith(PIM_UNREAD) ? PIM_UNREAD : '';
+      return {
+        ...it,
+        detail: `${it.detail.slice(0, it.detail.length - unread.length)} That consent includes ${AUDIT_ROLE}: until it's approved, the audit load finds 0 records.${unread}`,
+        howTo: `${it.howTo} A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: ${PURVIEW_AUDIT_URL} After install, run ${commandLine('check-audit')} to test it.`,
+      };
+    });
 }
 
 /**
@@ -741,7 +744,8 @@ export function reportPreflight(ctx, items, opts = {}) {
   }
   if (handoff.length) {
     const one = handoff.length === 1;
-    ui.info(`${one ? 'Hand-off' : 'Hand-offs'}: someone else does ${one ? 'this' : 'these'}.${carry}`);
+    // Said once: the attention line already says the install carries on.
+    ui.info(`${one ? 'Hand-off' : 'Hand-offs'}: someone else does ${one ? 'this' : 'these'}.${shown.length ? '' : carry}`);
     ui.prereqs(handoff);
   }
   ui.note(full);

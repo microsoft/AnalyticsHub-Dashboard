@@ -97,10 +97,10 @@ test('checkPrereqs: only active roles count; one you can activate in PIM says so
 
   const none = await run({ roles: [], eligible: async () => { throw new HttpError('403', { method: 'GET', url: 'x', status: 403 }); } });
   assert.equal(none['consent-role'].status, 'handoff', 'someone else approves the consent; the install carries on');
-  assert.match(none['consent-role'].detail, /^You don't need this yourself\. A Privileged Role Administrator or Global Administrator approves the app's Microsoft Graph permissions\. The installer gives you a link to send them and carries on\./);
+  assert.match(none['consent-role'].detail, /^You don't need this yourself: the installer gives you an admin consent link to send, and carries on\./);
+  assert.doesNotMatch(none['consent-role'].detail, /Administrator/, 'the label and "Who does it" name who approves it');
   assert.match(none['consent-role'].detail, /Couldn't check for roles you could activate yourself/);
-  assert.match(none['consent-role'].howTo, /Privileged Role Administrator or Global Administrator approves them, from the link the installer gives you/);
-  assert.match(none['consent-role'].howTo, /Application Administrator or Cloud Application Administrator can't approve Microsoft Graph application permissions: https:\/\/learn\.microsoft\.com\/entra\/identity\/enterprise-apps\/grant-admin-consent/);
+  assert.equal(none['consent-role'].howTo, 'A Privileged Role Administrator or Global Administrator approves the app\'s Microsoft Graph permissions from the installer\'s consent link. An Application Administrator or Cloud Application Administrator can\'t: https://learn.microsoft.com/entra/identity/enterprise-apps/grant-admin-consent');
   assert.equal(none['register-apps'].status, 'met', 'users can register apps');
 
   const locked = await run({ roles: [], usersCanRegister: false });
@@ -726,10 +726,10 @@ test('preflight: prints only the prerequisites that need attention, then the han
   const text = t.text();
   assert.match(text, /2 prerequisites need attention\. The install carries on\./);
   assert.match(text, /Register apps in Entra/);
-  assert.match(text, /Hand-off: someone else does this\. The install carries on\./);
-  assert.match(text, /Privileged Role Administrator or Global Administrator approves the app's Microsoft Graph permissions/);
-  assert.match(text, /That consent includes AuditLogsQuery\.Read\.All: until it's approved, the audit load finds 0 records\./);
-  assert.match(text, /Who does it: /);
+  assert.match(text, /Hand-off: someone else does this\.\n/);
+  assert.equal(text.split('The install carries on.').length - 1, 1, 'said once, on the attention line');
+  assert.match(text, /You don't need this yourself: the installer gives you an admin consent link to send, and carries on\. That consent includes AuditLogsQuery\.Read\.All: until it's approved, the audit load finds 0 records\.\n/);
+  assert.match(text, /Who does it: A Privileged Role Administrator or Global Administrator approves the app's Microsoft Graph permissions from the installer's consent link\. An Application Administrator or Cloud Application Administrator can't: https:\/\/learn\.microsoft\.com\/entra\/identity\/enterprise-apps\/grant-admin-consent A Compliance Administrator checks audit logging is on/);
   assert.doesNotMatch(text, /Audit log access for Copilot interactions/, 'on Fabric the consent is one ask, not two');
   assert.doesNotMatch(text, /Power BI Pro or Premium Per User licence/, 'met rows stay out');
   assert.doesNotMatch(text, /Viva Insights analyst/, 'Cowork credits don\'t come from Viva Insights');
@@ -758,7 +758,7 @@ test('preflight: the list prints before preflight\'s own stops, such as no Fabri
   assert.doesNotMatch(text, /Active Fabric capacity\n/, 'preflight says it itself, once');
 });
 
-test('preflight: with no capacity to create a workspace on, an Admin or Member workspace on a capacity is enough, except with --yes and none recorded', async () => {
+test('preflight: with no capacity to create a workspace on, an Admin or Member workspace on a capacity is enough, except with --yes and none recorded, where the stop names both ways forward', async () => {
   const workspaces = [{ id: 'ws-a', displayName: 'Team analytics', type: 'Workspace', capacityId: 'cap-x', capacityRegion: 'North Europe' }];
   const { ctx, t } = preflightCtx({ capacities: [], workspaces });
   const pre = await preflight(ctx);
@@ -767,7 +767,15 @@ test('preflight: with no capacity to create a workspace on, an Admin or Member w
   assert.match(t.text(), /No capacity you can create a workspace on, but 1 workspace you're an Admin or Member of is already on one/);
 
   const yes = preflightCtx({ capacities: [], workspaces }, { yes: true });
-  await assert.rejects(preflight(yes.ctx), /With --yes the installer can't choose a workspace for you, and it can't create one without a capacity\./);
+  await assert.rejects(preflight(yes.ctx), (err) => {
+    assert.equal(
+      /** @type {Error} */ (err).message,
+      'With --yes the installer can\'t choose a workspace for you, and it can only create one on a capacity you\'re an admin or contributor of. ' +
+        'Run it without --yes to choose a workspace you\'re an Admin or Member of that\'s already on a capacity. ' +
+        'Or ask a capacity admin to make you that capacity\'s admin or contributor, or start a Fabric trial, then run it again.',
+    );
+    return true;
+  });
   assert.match(yes.t.text(), /No Fabric capacity you can create a workspace on\./);
 
   const config = plainConfig();
@@ -797,7 +805,7 @@ test('reportPreflight: nothing missing says so; an update warns and carries on; 
 });
 
 test('reportPreflight: hand-offs print on their own after what needs attention; the Fabric consent is one ask, Azure\'s are two', () => {
-  const consent = row({ id: 'consent-role', label: 'Can grant admin consent', status: 'handoff', optional: true, detail: 'You don\'t need this yourself.', howTo: 'A Privileged Role Administrator approves them.' });
+  const consent = row({ id: 'consent-role', label: 'Can grant admin consent', status: 'handoff', optional: true, detail: 'You don\'t need this yourself.', howTo: 'A Privileged Role Administrator approves the app\'s Microsoft Graph permissions.' });
   const audit = row({ id: 'audit-ingestion', label: 'Audit log access', status: 'handoff', detail: 'Not granted yet.', howTo: 'Approve it.' });
 
   const only = fakeUi();
@@ -808,7 +816,7 @@ test('reportPreflight: hand-offs print on their own after what needs attention; 
   assert.match(text, /Hand-off: someone else does this\. The install carries on\./);
   assert.match(text, /Can grant admin consent/);
   assert.match(text, /That consent includes AuditLogsQuery\.Read\.All: until it's approved, the audit load finds 0 records\./);
-  assert.match(text, /Who does it: A Privileged Role Administrator approves them\. A Compliance Administrator checks audit logging is on/);
+  assert.match(text, /Who does it: A Privileged Role Administrator approves the app's Microsoft Graph permissions\. A Compliance Administrator checks audit logging is on/);
   assert.match(text, /check-audit/);
   assert.doesNotMatch(text, /Audit log access/);
   assert.deepEqual(v.handoff.map((it) => it.id), ['consent-role']);
@@ -828,6 +836,24 @@ test('reportPreflight: hand-offs print on their own after what needs attention; 
   assert.match(blocked.text(), /1 prerequisite needs attention\.\n/);
   assert.match(blocked.text(), /Hand-off: someone else does this\.\n/, 'nothing carries on when something blocks');
   assert.ok(blocked.text().indexOf('Hand-off') < blocked.text().indexOf('Stopped before creating anything'));
+});
+
+test('reportPreflight: with rows that need attention and hand-offs, "carries on" is said once; on Fabric the audit note follows the consent sentence', () => {
+  const unread = ' Couldn\'t check for roles you could activate yourself.';
+  const consent = row({ id: 'consent-role', label: 'Global Administrator or Privileged Role Administrator', status: 'handoff', optional: true, detail: `You don't need this yourself: the installer gives you an admin consent link to send, and carries on.${unread}` });
+  const audit = row({ id: 'audit-ingestion', label: 'Audit log access', status: 'handoff', detail: 'Not granted yet.' });
+  const items = [row({ id: 'register-apps', label: 'Register apps in Entra' }), consent, audit];
+  for (const update of [false, true]) {
+    const word = update ? 'update' : 'install';
+    const t = fakeUi({ yes: update });
+    const v = reportPreflight(/** @type {any} */ ({ ui: t.ui, config: plainConfig() }), items, { update });
+    const text = t.text();
+    assert.deepEqual([v.block, v.warn.map((it) => it.id), v.handoff.map((it) => it.id)], [[], ['register-apps'], ['consent-role']]);
+    assert.match(text, new RegExp(`1 prerequisite needs attention\\. The ${word} carries on\\.\\n`));
+    assert.match(text, /Hand-off: someone else does this\.\n/);
+    assert.equal(text.split(`The ${word} carries on.`).length - 1, 1, `said once, for the ${word}`);
+    assert.match(text, /You don't need this yourself: the installer gives you an admin consent link to send, and carries on\. That consent includes AuditLogsQuery\.Read\.All: until it's approved, the audit load finds 0 records\. Couldn't check for roles you could activate yourself\.\n/);
+  }
 });
 
 test('update: checks the prerequisites before changing anything, on Fabric and Azure, and never stops on them', async () => {
