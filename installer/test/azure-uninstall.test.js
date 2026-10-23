@@ -438,6 +438,24 @@ test('a resource group the installer created is still deleted whole', async () =
   assert.deepEqual(appDeletes(t.graph), ['deleteApplication web-obj', 'deleteApplication sql-obj']);
 });
 
+test('uninstall leaves the app registrations an admin created, and names them for an admin to delete; the ones it created still go', async () => {
+  const t = existingGroupInstall();
+  t.az.webApp.created = false;
+  assert.equal(await runCommand(t.ctx, 'uninstall', { wait: true }), true);
+  assert.deepEqual(appDeletes(t.graph), ['deleteApplication sql-obj']);
+  const text = t.ui.text();
+  assert.match(text, /Left the app registration "Analytics Hub \(Azure\)" \(client ID web-client\) alone, because an admin created it\. If it's no longer needed, one of its owners or an Application Administrator deletes it in Microsoft Entra admin center > Entra ID > App registrations\./);
+  assert.doesNotMatch(text, /Analytics Hub SQL Reader" \(client ID sql-client\) alone/);
+
+  const both = existingGroupInstall();
+  both.az.webApp.created = false;
+  both.az.sqlReader.created = false;
+  assert.equal(await runCommand(both.ctx, 'uninstall', { wait: true }), true);
+  assert.deepEqual(appDeletes(both.graph), []);
+  assert.match(both.ui.text(), /Left the app registration "Analytics Hub \(Azure\)" \(client ID web-client\) alone/);
+  assert.match(both.ui.text(), /Left the app registration "Analytics Hub SQL Reader" \(client ID sql-client\) alone/);
+});
+
 test('uninstall reads an install record that the 0.6.8-rc.2 installer wrote for a resource group that was already there', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'valuelens-rc2-record-'));
   try {
