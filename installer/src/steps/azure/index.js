@@ -540,10 +540,59 @@ const stillNeeded = (az) => {
 };
 
 /**
+ * The admin action that makes the person installing an owner of these apps, so the installer can change them. Both
+ * apps go in one action, so one admin visit covers them.
+ * @param {Ctx} ctx @param {import('./apps.js').AzureAppKey[]} keys
+ */
+function ownerAction(ctx, keys) {
+  const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
+  const apps = AZURE_APPS.filter((a) => keys.includes(a.key));
+  return `An Application Administrator or Cloud Application Administrator adds ${ctx.user.upn} as an owner of ` +
+    `${apps.map((a) => `"${a.name}" (client ID ${az[a.key]?.clientId})`).join(' and ')}: ${ownersPath(apps[0].name)}${apps[1] ? `, and the same for "${apps[1].name}"` : ''}`;
+}
+
+/** The apps a pending admin action asks for an owner of, or none. @param {string} action */
+const ownerActionApps = (action) => (action.includes(' as an owner of "') ? AZURE_APPS.filter((a) => action.includes(`"${a.name}"`)).map((a) => a.key) : []);
+
+/**
+ * Records the owner action for these apps, in place of any owner action for only these apps.
+ * @param {Ctx} ctx @param {import('./apps.js').AzureAppKey[]} keys
+ */
+function recordOwnerAction(ctx, keys) {
+  const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
+  const action = ownerAction(ctx, keys);
+  const covered = (/** @type {string} */ a) => {
+    const named = ownerActionApps(a);
+    return named.length > 0 && named.every((k) => keys.includes(k));
+  };
+  az.status ??= {};
+  az.status.pendingAdminActions = [...(az.status.pendingAdminActions ?? []).filter((a) => !covered(a)), action];
+  ctx.save();
+  return action;
+}
+
+/**
+ * The installer could change this app: an owner action for it alone goes, and one for both apps keeps the other.
+ * @param {Ctx} ctx @param {import('./apps.js').AzureAppKey} key
+ */
+function ownerActionDone(ctx, key) {
+  const status = ctx.config.azure?.status;
+  if (!status?.pendingAdminActions?.some((a) => ownerActionApps(a).includes(key))) return;
+  status.pendingAdminActions = [...new Set(status.pendingAdminActions.flatMap((a) => {
+    const named = ownerActionApps(a);
+    if (!named.includes(key)) return [a];
+    const rest = named.filter((k) => k !== key);
+    return rest.length ? [ownerAction(ctx, rest)] : [];
+  }))];
+}
+
+/**
  * Who makes the two app registrations: the installer, or an admin, from the script the installer writes or by
  * themselves. Each app is handled on its own. When an admin made both, the question offers them. Otherwise the one
  * an admin made is used without asking, or picked when there are several, and the question is only about the
- * other. Asked only when there's a choice; with --yes, azureAppsGate decides once preflight has printed.
+ * other. Asked only when there's a choice; with --yes, azureAppsGate decides once preflight has printed. Creating
+ * them is always offered: roles are read from directoryRole, which has no custom roles, and one may allow it. Only
+ * the default is recommended.
  * @param {Ctx} ctx @param {AppRights | undefined} pre @param {string} [section]
  */
 export async function planAzureApps(ctx, pre, section) {
@@ -582,22 +631,25 @@ export async function planAzureApps(ctx, pre, section) {
   const left = unrecorded();
   const one = left.length === 1 ? left[0].name : '';
   const offerAdmin = !canCreate || !canApprove || !!az.adminScript;
-  if (!canCreate) ui.info(`You can't create app registrations in this tenant. An Application Administrator or Cloud Application Administrator can create ${one ? `"${one}"` : 'them'} for you.`);
+  const def = ready ? 'adopt' : offerAdmin && (!canCreate || az.adminScript) ? 'admin' : 'create';
+  const recommended = (/** @type {string} */ value) => (value === def ? ' (recommended)' : '');
+  if (!canCreate) ui.info(`Users in this tenant can't register apps, and you have no app admin role. An Application Administrator or Cloud Application Administrator can create ${one ? `"${one}"` : 'them'} for you.`);
   const choice = await ui.select(
     one ? `Who creates "${one}"?` : 'Who creates the two Entra app registrations?',
     [
-      ...(canCreate
-        ? [{
-            name: one ? `Create "${one}" (recommended)` : 'Create the two apps (recommended)',
-            value: 'create',
-            description: `The installer creates ${one ? 'the app' : 'them'} before it deploys anything.` +
-              (canApprove || !left.some((a) => a.key === 'webApp')
-                ? ''
-                : ' Approving the web app\'s delegated permissions needs an admin: after the deploy, the installer gives you a consent link to send, and carries on.'),
-          }]
-        : []),
       {
-        name: one ? 'Use the one an admin created for me' : 'Use the apps an admin created for me',
+        name: (one ? `Create "${one}"` : 'Create the two apps') + recommended('create'),
+        value: 'create',
+        description: canCreate
+          ? `The installer creates ${one ? 'the app' : 'them'} before it deploys anything.` +
+            (canApprove || !left.some((a) => a.key === 'webApp')
+              ? ''
+              : ' Approving the web app\'s delegated permissions needs an admin: after the deploy, the installer gives you a consent link to send, and carries on.')
+          : 'The installer found no role or setting that lets you register apps, but it can\'t see custom roles. ' +
+            `Choose this only if a custom role lets you create ${one ? 'it' : 'them'}: if Entra refuses, the installer writes the admin script and stops before it deploys anything.`,
+      },
+      {
+        name: (one ? 'Use the one an admin created for me' : 'Use the apps an admin created for me') + recommended('adopt'),
         value: 'adopt',
         description: ready ? 'Apps with these names that you own are ready to use.' : one ? 'Enter its client ID.' : 'Enter their client IDs.',
       },
@@ -611,7 +663,7 @@ export async function planAzureApps(ctx, pre, section) {
           }]
         : []),
     ],
-    ready ? 'adopt' : offerAdmin && (!canCreate || az.adminScript) ? 'admin' : 'create',
+    def,
   );
   if (choice === 'create') {
     delete az.adminScript;
@@ -2097,15 +2149,13 @@ async function finishAzureWebApp(ctx, scopes, app) {
     }
   } catch (err) {
     if (!refused(err)) throw err;
-    const action = `An Application Administrator or Cloud Application Administrator adds ${user.upn} as an owner of "${WEB_APP_NAME}" (client ID ${clientId}): ${ownersPath(WEB_APP_NAME)}`;
-    az.status ??= {};
-    az.status.pendingAdminActions = [...new Set([...(az.status.pendingAdminActions ?? []), action])];
-    ctx.save();
+    // Entra may refuse the secret on an SQL reader the installer made for the same reason, so one visit covers both.
+    const action = recordOwnerAction(ctx, az.sqlReader?.created === true ? ['webApp', 'sqlReader'] : ['webApp']);
     throw new ResumeLater(
       `Entra didn't let you finish "${WEB_APP_NAME}" (${/** @type {Error} */ (err).message.split('\n')[0]}), so people can't sign in to the web app yet. ${action}. Then run "${commandLine('install')}" again.`,
     );
   }
-  if (az.status?.pendingAdminActions) az.status.pendingAdminActions = az.status.pendingAdminActions.filter((a) => !a.includes(' as an owner of "'));
+  ownerActionDone(ctx, 'webApp');
   const spId = /** @type {string} */ (webApp.servicePrincipalId);
   try {
     for (const g of webAppGrants(scopes)) await api.graph.grantOauth2Permission({ clientId: spId, resourceId: g.resourceId, scope: g.scope });
@@ -2174,15 +2224,26 @@ async function createSqlReader(ctx) {
   az.sqlReader.servicePrincipalId = (await servicePrincipalFor(ctx, /** @type {string} */ (az.sqlReader.clientId))).id;
 }
 
-/** A new secret for the SQL reader, for Power BI's credential. @param {Ctx} ctx */
-async function sqlReaderSecret(ctx) {
+/**
+ * A new secret for the SQL reader, for Power BI's credential. When Entra refuses it, as for an app whose creator
+ * wasn't made its owner, an admin adds the person installing as an owner.
+ * @param {Ctx} ctx @param {string} [command]  The command to run again then.
+ */
+async function sqlReaderSecret(ctx, command = 'install') {
   const { config, ui } = ctx;
   const r = /** @type {NonNullable<import('../../config.js').AzureConfig['sqlReader']>} */ (config.azure?.sqlReader);
   const objectId = /** @type {string} */ (r.objectId);
   await removeRetired(ctx, r, objectId);
   // Tracked from before Entra is asked. It stays pending until Power BI's credential uses it, and
   // the one it replaces is removed only then.
-  const cred = await addTrackedSecret(ctx, r, objectId, SQL_READER_SECRET_LABEL, addMonths(ctx.now(), SECRET_LIFETIME_MONTHS));
+  const cred = await addTrackedSecret(ctx, r, objectId, SQL_READER_SECRET_LABEL, addMonths(ctx.now(), SECRET_LIFETIME_MONTHS)).catch((err) => {
+    if (!refused(err)) throw err;
+    const action = recordOwnerAction(ctx, ['sqlReader']);
+    throw new ResumeLater(
+      `Entra didn't let you add a client secret to "${SQL_READER_NAME}" (${/** @type {Error} */ (err).message.split('\n')[0]}), so Power BI can't read the database yet. ${action}. Then run "${commandLine(command)}" again.`,
+    );
+  });
+  ownerActionDone(ctx, 'sqlReader');
   ui.ok(`Created SQL reader secret expiring ${cred.endDateTime.slice(0, 10)}`);
   return { value: cred.secretText, keyId: cred.keyId, expires: cred.endDateTime };
 }
@@ -2708,7 +2769,7 @@ export async function azureStatus(ctx) {
 /** @param {Ctx} ctx */
 export async function azureRotateSecret(ctx) {
   await createSqlReader(ctx);
-  const secret = await sqlReaderSecret(ctx);
+  const secret = await sqlReaderSecret(ctx, 'rotate-secret');
   if (isPrivate(ctx.config.azure)) await bindThroughVnetGateway(ctx, secret.value);
   else await bindPowerBiCredentials(ctx, secret.value);
   await useSqlSecret(ctx, secret);

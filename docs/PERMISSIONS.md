@@ -32,12 +32,12 @@ On Azure the install has two app registrations, with no Graph application permis
 **Analytics Hub (Azure)**, which people sign in to the web app with, and **Analytics Hub SQL Reader**,
 which Power BI reads the database as.
 
-- **Who creates them:** the installer, before it deploys anything, if you can register apps. Every
-  user can, unless *Users can register applications* is off, and so can an **Application
-  Administrator**, **Cloud Application Administrator** or **Application Developer**. A Privileged
-  Role Administrator can't. Otherwise an Application Administrator or Cloud Application Administrator
-  creates them from a script the installer writes: see
-  [If you can't register apps](../installer/README.md#if-you-cant-register-apps).
+- **Who creates them:** the installer, before it deploys anything, if you can register apps. You can
+  if *Users can register applications* is on, as it is by default, or if you're an **Application
+  Administrator**, **Cloud Application Administrator** or **Application Developer**, or hold a
+  custom role that lets you. A Privileged Role Administrator can't. Otherwise an Application
+  Administrator or Cloud Application Administrator creates them from a script the installer writes:
+  see [If you can't register apps](../installer/README.md#if-you-cant-register-apps).
 - **Who approves the web app's delegated permissions** (Power BI `Dataset.Read.All` and Graph
   `User.Read`, plus `GroupMember.ReadWrite.All` and `User.ReadBasic.All` with viewer access): a
   **Global Administrator**, **Privileged Role Administrator**, **Application Administrator** or
