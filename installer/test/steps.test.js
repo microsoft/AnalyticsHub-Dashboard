@@ -8,10 +8,12 @@ import { ensureLakehouse, ensureNotebooks, ensurePipeline, ensureSchedule, freeN
 import { ensureConsent } from '../src/steps/identity.js';
 import { connectionName } from '../src/steps/model.js';
 import { APP_NAME, lakehouseNameFrom, largeCapacity, planCosts, planReview, reserveNames, validateNewLakehouseName } from '../src/steps/plan.js';
-import { BUSY_RETRIES, BUSY_WAIT_MS, capacityBusy, chooseLoad, firstLoadEstimate, firstRunStatus, historyLoaded, NETWORK_LOSSES, printDataCheck, ranSince, runDataCheck, runPipeline, status, waitForJob } from '../src/steps/run.js';
+import { BUSY_RETRIES, BUSY_WAIT_MS, capacityBusy, chooseLoad, firstRunStatus, historyLoaded, NETWORK_LOSSES, printDataCheck, ranSince, runDataCheck, runPipeline, status, waitForJob } from '../src/steps/run.js';
+import { firstLoadEstimate } from '../src/estimate.js';
+import { AUDIT_MANIFEST } from '../src/steps/history-progress.js';
 import { DATA_CHECK_FILE } from '../src/transform/notebook.js';
 import { PIPELINE_CHANGE, PIPELINE_VERSION, REFRESH_ACTIVITY } from '../src/transform/pipeline.js';
-import { fakeCtx, fakeFabric, fakeGraph as fakeGraphApi, fakePowerBi, fakeUi } from './fakes.js';
+import { fakeCtx, fakeFabric, fakeGraph as fakeGraphApi, fakePowerBi, fakeUi, httpError } from './fakes.js';
 
 const defaultNotebooks = notebooksFor(emptyConfig().modules);
 
@@ -635,7 +637,7 @@ test("run starts the first load again when the last one didn't load the history"
   assert.match(fabric.calls[0], /"AuditMode":"backfill"/);
   assert.match(fabric.calls[0], /"BackfillDays":30/);
   assert.match(ui.text(), /Started the first load: 30 days of audit history/);
-  assert.match(ui.text(), /usually takes under an hour/);
+  assert.match(ui.text(), /Estimate for 30 days of history, for an install with no tenant size set: about an hour, in one run\./);
   assert.equal(config.firstRun?.jobId, 'job-1');
   assert.equal(config.firstRun?.status, 'Incomplete', 'job-1 has no proof the history loaded');
 });
@@ -683,10 +685,10 @@ test('tenant size: a big capacity suggests a large tenant, and the first-load es
   for (const sku of ['F64', 'F128', 'P1', 'p3', 'FTL64', 'ftl128']) assert.equal(largeCapacity({ sku }), true, sku);
   for (const sku of ['F2', 'F32', 'FT1', 'FTL4', 'FTL32', 'Trial', 'A4', 'PP3', undefined]) assert.equal(largeCapacity({ sku }), false, String(sku));
 
-  assert.match(firstLoadEstimate(30, 'standard'), /under an hour/);
-  assert.match(firstLoadEstimate(30, undefined), /under an hour/);
-  assert.match(firstLoadEstimate(90, 'standard'), /90 days of history can take a few hours/);
-  assert.match(firstLoadEstimate(30, 'large'), /several hours.*picks up where the last stopped.*F64/);
+  assert.match(firstLoadEstimate(30, 'standard'), /^Estimate for 30 days of history, for up to 10,000 people: about 25 minutes, in one run\./);
+  assert.match(firstLoadEstimate(30, undefined), /for an install with no tenant size set: about an hour/);
+  assert.match(firstLoadEstimate(90, 'standard'), /^Estimate for 90 days of history, for up to 10,000 people: about an hour/);
+  assert.match(firstLoadEstimate(30, 'large'), /for more than 10,000 people: about 4 hours.*more than one run.*F64 or larger capacity helps/);
 
   const config = emptyConfig();
   const unsized = pipelineSignature(config);
@@ -907,6 +909,216 @@ test('status says when the last data check is out of date, or has never run', as
   jobs = [];
   text = await run();
   assert.doesNotMatch(text, /Data check|hasn't run/, 'nothing to check before the pipeline has loaded anything');
+});
+
+/**
+ * The audit notebook's manifest: `count` windows of `hours` it has fetched from `from` (UTC), and the one it's querying.
+ * @param {string} from @param {number} count @param {number} hours
+ */
+function auditManifest(from, count, hours) {
+  const iso = (/** @type {number} */ ms) => new Date(ms).toISOString().replace('.000Z', '+00:00');
+  const stamp = (/** @type {number} */ ms) => new Date(ms).toISOString().slice(0, 16).replace(/[-T:]/g, '');
+  /** @type {Record<string, any>} */
+  const manifest = {};
+  for (let i = 0, start = Date.parse(`${from}Z`); i <= count; i++, start += hours * 3_600_000) {
+    const end = start + hours * 3_600_000;
+    const range = { window_start: iso(start), window_end: iso(end) };
+    manifest[`v2_${stamp(start)}_${stamp(end)}`] = i < count ? { status: 'succeeded', ...range, rows: 12 } : { status: 'querying', ...range };
+  }
+  return manifest;
+}
+
+/** @param {string} text  From the "Audit history" heading on, a line at a time. */
+const historyLines = (text) => text.slice(text.indexOf('Audit history')).split('\n').map((s) => s.trim()).filter(Boolean);
+
+/**
+ * `status` on Fabric during the first load, with the manifest read as `readManifest` says.
+ * @param {() => Promise<any>} readManifest
+ */
+async function statusDuringFirstLoad(readManifest) {
+  const fabric = fakeFabric();
+  fabric.jobList.push({ id: 'job-1', status: 'InProgress', startTimeUtc: '2026-06-01T11:00:00' });
+  /** @type {string[]} */
+  const reads = [];
+  const oneLake = {
+    /** @param {string} ws @param {string} lh @param {string} path */
+    readJson: async (ws, lh, path) => {
+      reads.push(`${ws}/${lh}/${path}`);
+      return path === AUDIT_MANIFEST ? readManifest() : null;
+    },
+  };
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ fabric: fabric.api, oneLake, ui: ui.ui });
+  config.fabric.pipelineId = 'pipe-1';
+  config.firstRun = { jobId: 'job-1', status: 'NotStarted', startedAt: '2026-06-01T11:00:00.000Z' };
+  await status(ctx);
+  return { text: ui.text(), reads };
+}
+
+test('status shows how much audit history the first load has fetched, and that the reports have it only once it has all been', async () => {
+  const { text, reads } = await statusDuringFirstLoad(async () => auditManifest('2026-05-02T08:00:00', 30, 8));
+  assert.ok(reads.includes(`ws-1/lh-1/${AUDIT_MANIFEST}`), 'read with the OneLake client the install already uses');
+  assert.deepEqual(historyLines(text), [
+    'Audit history',
+    'Asked for: 30 days',
+    'Fetched from the audit log: about 10 of 30 days, 2026-05-02 to 2026-05-12; about 60 windows left',
+    'In the reports: not the full history yet. The first load writes it once every window is fetched.',
+    "The pipeline is running. If its audit load reaches its time budget, the pipeline's retries carry on from where it stopped.",
+  ]);
+});
+
+test("status doesn't fail when the audit history's progress can't be read, and says why", async () => {
+  for (const [label, read, line] of /** @type {[string, () => Promise<any>, string][]} */ ([
+    ['forbidden', () => Promise.reject(httpError(403, 'Forbidden')), "How much has been fetched can't be read from this PC: your account can't read the Lakehouse's files."],
+    ['network', () => Promise.reject(new Error('fetch failed')), "How much has been fetched can't be read from this PC: the Lakehouse couldn't be reached just now."],
+    ['missing', async () => null, 'Fetched from the audit log: none yet'],
+  ])) {
+    const { text } = await statusDuringFirstLoad(read);
+    assert.deepEqual(historyLines(text).slice(0, 4), [
+      'Audit history',
+      'Asked for: 30 days',
+      line,
+      'In the reports: not the full history yet. The first load writes it once every window is fetched.',
+    ], label);
+    assert.match(text, /Recent runs/, `${label}: the rest of status is there`);
+  }
+});
+
+test('status and run agree on whether the history has loaded, whichever runs status shows', async () => {
+  /**
+   * `status` on Fabric after these runs, with no progress file or data check to read.
+   * @param {any[]} jobs
+   * @param {Record<string, any[]>} runs  Each run's activity runs.
+   * @param {import('../src/config.js').InstallConfig['firstRun']} [firstRun]
+   */
+  const statusAfter = async (jobs, runs, firstRun) => {
+    const fabric = fakeFabric();
+    fabric.jobList.push(...jobs);
+    Object.assign(fabric.activityRuns, runs);
+    /** @type {string[]} */
+    const read = [];
+    const query = fabric.api.queryActivityRuns;
+    /** @type {any} */ (fabric.api).queryActivityRuns = async (/** @type {string} */ ws, /** @type {string} */ jobId) => {
+      read.push(jobId);
+      return query(ws, jobId);
+    };
+    const ui = fakeUi();
+    const { ctx, config } = fakeCtx({ fabric: fabric.api, oneLake: { readJson: async () => null }, ui: ui.ui });
+    config.fabric.pipelineId = 'pipe-1';
+    if (firstRun) config.firstRun = firstRun;
+    await status(ctx);
+    return { text: ui.text(), ctx, config, read };
+  };
+  const audit = [activity('Run_Audit_Log_Ingester', 'Succeeded'), activity('Run_Audit_Log_Processor', 'Succeeded')];
+  /** Five scheduled runs, the newest. @param {string} st */
+  const daily = (st) => [27, 28, 29, 30, 31].map((d) => ({ id: `daily-${d}`, status: st, startTimeUtc: `2026-05-${d}T02:00:00`, endTimeUtc: `2026-05-${d}T02:40:00`, invokeType: 'Scheduled' }));
+  const firstLoad = { id: 'job-1', status: 'Completed', startTimeUtc: '2026-05-26T11:00:00', endTimeUtc: '2026-05-26T13:30:00', invokeType: 'Manual' };
+
+  // A: the first load finished after its window was closed, and the five scheduled runs since leave it out of those shown.
+  const a = await statusAfter([firstLoad, ...daily('Completed')], { 'job-1': audit }, { jobId: 'job-1', status: 'NotStarted', startedAt: '2026-05-26T11:00:00.000Z' });
+  assert.equal(a.config.firstRun?.status, 'Completed');
+  assert.equal(a.config.firstRun?.finishedAt, '2026-05-26T13:30:00.000Z', 'settled from every run, not only those shown');
+  // And when Fabric doesn't list it at all, its activity runs still say.
+  const unlisted = await statusAfter(daily('Completed'), { 'job-1': audit }, { jobId: 'job-1', status: 'InProgress', startedAt: '2026-05-26T11:00:00.000Z' });
+  assert.equal(unlisted.config.firstRun?.status, 'Completed');
+
+  // B: the first load failed only in another load, so it did load the history.
+  const b = await statusAfter(
+    [{ ...firstLoad, status: 'Failed', startTimeUtc: '2026-06-01T08:00:00', endTimeUtc: '2026-06-01T10:30:00' }],
+    { 'job-1': [...audit, activity('Run_Org_Data_Ingester', 'Failed')] },
+    { jobId: 'job-1', status: 'InProgress', startedAt: '2026-06-01T08:00:00.000Z' },
+  );
+  assert.equal(b.config.firstRun?.status, 'Completed');
+  assert.match(b.text, /✗ Org data \(Entra ID\)/, 'the load that failed is still shown');
+
+  // C: an install from before the installer kept its first load, whose five newest runs failed.
+  const c = await statusAfter([{ ...firstLoad, id: 'old', startTimeUtc: '2026-05-20T02:00:00', endTimeUtc: '2026-05-20T02:40:00' }, ...daily('Failed')], {});
+  assert.equal(c.config.firstRun, undefined);
+
+  for (const [label, s] of Object.entries({ A: a, 'A, not listed': unlisted, B: b, C: c })) {
+    assert.deepEqual(historyLines(s.text), ['Audit history', 'Asked for: 30 days', 'In the reports: run "valuelens-install check" to see the dates.'], label);
+    assert.doesNotMatch(s.text, /not the full history yet|To carry on|To load it/, label);
+    assert.deepEqual(await chooseLoad(s.ctx, { wait: true }), { wait: true }, `${label}: run does the usual run too`);
+  }
+
+  // A first load that's going isn't asked about until it ends. One stuck for over a day is, as run counts it.
+  const going = { jobId: 'job-1', status: 'NotStarted', startedAt: '2026-06-01T11:00:00.000Z' };
+  assert.deepEqual((await statusAfter([{ id: 'job-1', status: 'InProgress', startTimeUtc: '2026-06-01T11:00:00' }], {}, going)).read, []);
+  const stuck = await statusAfter([{ id: 'job-1', status: 'InProgress', startTimeUtc: '2026-05-30T11:00:00' }], {}, { ...going, startedAt: '2026-05-30T11:00:00.000Z' });
+  assert.deepEqual(stuck.read, ['job-1']);
+});
+
+test('status on Fabric lists what is left, starting with a load of history that did not start', async () => {
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ fabric: fakeFabric().api, oneLake: { readJson: async () => null }, ui: ui.ui });
+  config.fabric.pipelineId = 'pipe-1';
+  config.history.pending = { days: 30, reason: 'consent', at: '2026-06-01T10:00:00.000Z', first: true };
+  assert.equal(await runCommand(ctx, 'status', { wait: true }), true);
+  const text = ui.text();
+  assert.match(text, /Asked for: 30 days, waiting to start \(see the step below\)/);
+  assert.match(text, /steps? left\n\s*1\. Load 30 days of audit history/);
+  assert.match(text, /The first load didn't start, because the data collector app's permissions haven't been approved yet\. Until it runs, the reports don't have the history\./);
+  assert.match(text, /Run "valuelens-install run --backfill-days 30"\./);
+  assert.doesNotMatch(text, /Start the first load with/, 'the step gives the command, once');
+});
+
+test("a load of history that a run going holds back is kept for later, unless it's that run, and cleared once a run with it starts", async () => {
+  const fabric = fakeFabric();
+  fabric.jobList.push({ id: 'j-running', status: 'InProgress', startTimeUtc: '2026-06-01T11:30:00' });
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ fabric: fabric.api, ui: ui.ui });
+  config.fabric.pipelineId = 'pipe-1';
+  // Read afresh each time, as the runs change it.
+  const pending = () => config.history.pending;
+
+  // The first load that's going is the load asked for: nothing waits.
+  config.firstRun = { jobId: 'j-running', status: 'InProgress', startedAt: '2026-06-01T11:30:00.000Z' };
+  assert.equal((await runPipeline(ctx, { backfillDays: 30, wait: false, first: true })).started, false);
+  assert.equal(pending(), undefined);
+  assert.match(ui.text(), /Once it has finished, run "valuelens-install run" to start a new run\./);
+
+  // A reload held back by a scheduled run waits, with its command.
+  config.firstRun = { jobId: 'job-0', status: 'Completed' };
+  ui.out.length = 0;
+  assert.equal((await runPipeline(ctx, { backfillDays: 90, wait: false })).started, false);
+  assert.deepEqual(pending(), { days: 90, reason: 'running', at: '2026-06-01T12:00:00.000Z' });
+  assert.match(ui.text(), /Once it has finished, run "valuelens-install run --backfill-days 90" to start a new run\./);
+
+  // A smaller reload started meanwhile doesn't clear it; the reload it was kept for does.
+  fabric.jobList.length = 0;
+  assert.equal((await runPipeline(ctx, { backfillDays: 60, wait: false })).started, true);
+  assert.equal(pending()?.days, 90);
+  assert.equal((await runPipeline(ctx, { backfillDays: 90, wait: false })).started, true);
+  assert.equal(pending(), undefined);
+  assert.match(ui.text(), /Estimate for 90 days of history, for an install with no tenant size set: about 3 hours, in one run\..*It runs in Fabric\. Check on it with "valuelens-install status"\./);
+});
+
+test('the first load says setup is finished, or not, before it waits for the pipeline', async () => {
+  for (const [setup, said, unsaid] of /** @type {[boolean, string, RegExp][]} */ ([
+    [
+      true,
+      'The first load carries on in Fabric, so you can press Ctrl+C now and see how far it has got with "valuelens-install status". If you keep this window open, the installer checks the data when the load finishes and lists what to do next.',
+      /isn't finished/,
+    ],
+    [
+      false,
+      "Setup isn't finished: a step above didn't work. Keep this window open, and when the load finishes the installer lists what's left. The load carries on in Fabric if you close it, and \"valuelens-install status\" shows how far it has got.",
+      /Setup is finished/,
+    ],
+  ])) {
+    const fabric = fakeFabric();
+    fabric.jobs.push({ status: 'Completed', startTimeUtc: '2026-06-01T12:00:00', endTimeUtc: '2026-06-01T12:21:30' });
+    const ui = fakeUi();
+    const { ctx, config } = fakeCtx({ fabric: fabric.api, ui: ui.ui });
+    config.fabric.pipelineId = 'pipe-1';
+    await runPipeline(ctx, { backfillDays: 30, wait: true, first: true, setup });
+    const text = ui.text();
+    assert.ok(text.includes(said), text);
+    assert.ok(text.indexOf(said) < text.indexOf('Pipeline finished'), 'said before the wait');
+    assert.equal(/✓ Setup is finished/.test(text), setup);
+    assert.doesNotMatch(text, unsaid);
+    assert.doesNotMatch(text, /the run carries on in Fabric/, 'not the note for a run outside setup');
+  }
 });
 
 test('printDataCheck flags missing core tables', () => {

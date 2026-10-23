@@ -13,6 +13,7 @@ import { HttpError } from '../http.js';
 import { commandLine, inCloudShell } from '../launch.js';
 import { c } from '../ui.js';
 import { CURRENCIES, DEFAULT_CURRENCY, describeReporting, parseRate } from '../currency.js';
+import { estimateShort } from '../estimate.js';
 import { AGENT_EVALUATOR_MODEL_NAME, CONSUMPTION_MODEL_NAME, DATA_AGENT_NAME, flowIdentity, MODEL_NAME, secretMode } from '../config.js';
 import { MIN_NODE, nodeVersionOk } from './app.js';
 import { agentEvaluatorModelWanted, fabricReadRoleReview, planAgentEvaluator } from './agent-evaluator.js';
@@ -403,21 +404,35 @@ export function collectChoices(modules) {
   ];
 }
 
-/** The audit history the first load can pull, and how long each takes. */
+/** The audit history the first load can pull. How long each takes is in estimate.js: see historyChoices. */
 export const HISTORY_CHOICES = [
   { name: '30 days (quickest; you can load more later)', value: 30 },
-  { name: '90 days (a few hours; longer on a large tenant)', value: 90 },
-  { name: '180 days (the most the audit log keeps by default; many hours)', value: 180 },
+  { name: '90 days', value: 90 },
+  { name: '180 days (the most the audit log keeps by default)', value: 180 },
 ];
 
 /**
- * What reloading `days` days of history runs, on Fabric: the pipeline, once.
- * @param {number} days
+ * The history question's choices, each with its estimate for the tenant size.
+ * @param {'fabric' | 'azure'} target
+ * @param {'standard' | 'large' | undefined} scale
  */
-const pipelineReloadChoice = (days) =>
-  days > 30
-    ? `Runs the pipeline once with ${days} days of history: a few hours, and many hours on a large tenant. The scheduled runs carry on after it.`
-    : `Runs the pipeline once with ${days} days of history, usually in under an hour.`;
+export const historyChoices = (target, scale) =>
+  HISTORY_CHOICES.map((ch) => ({ ...ch, description: estimateShort(ch.value, scale, target, { band: true }) }));
+
+/**
+ * What reloading `days` days of history runs, on Fabric: the pipeline.
+ * @param {number} days
+ * @param {'standard' | 'large' | undefined} scale
+ */
+const pipelineReloadChoice = (days, scale) => `Runs the pipeline with ${days} days of history. ${reloadDetail(days, scale)}`;
+
+/**
+ * What Repair or change says of the history, when the target knows more than the install record. Azure reads its
+ * run job's state, since a run that started may have published nothing.
+ * @typedef {object} HistorySaid
+ * @property {string} [question]  In place of "Load more audit history? N days are loaded now."
+ * @property {boolean} [loaded]  false: the history asked for may not be in the reports yet, so nothing says it's loaded.
+ */
 
 /**
  * Repair or change, once the history has loaded: offers to reload more of it after setup. Only
@@ -425,18 +440,20 @@ const pipelineReloadChoice = (days) =>
  * keeps the old number until the reload has started.
  * @param {Ctx} ctx
  * @param {(days: number) => string} [describe]  Each reload choice's description. Azure, which has no pipeline, passes its own.
+ * @param {HistorySaid} [said]
  */
-export async function askMoreHistory(ctx, describe = pipelineReloadChoice) {
+export async function askMoreHistory(ctx, describe = (days) => pipelineReloadChoice(days, ctx.config.scale), said = {}) {
   const { ui, config } = ctx;
   delete ctx.reloadHistoryDays;
   const current = config.history.days;
   const more = HISTORY_CHOICES.filter((ch) => ch.value > current);
   if (!more.length) {
-    ui.ok(`Audit history: ${current} days loaded, the most the installer loads`);
+    if (said.loaded === false) ui.info(`Audit history: ${current} days asked for, the most the installer loads`);
+    else ui.ok(`Audit history: ${current} days loaded, the most the installer loads`);
     return;
   }
   const days = await ui.select(
-    `Load more audit history? ${current} days are loaded now.`,
+    said.question ?? `Load more audit history? ${current} days are loaded now.`,
     [
       { name: `Keep ${current} days (the usual runs carry on from here)`, value: 0 },
       ...more.map((ch) => ({
@@ -490,7 +507,9 @@ export async function plan(ctx, pre, section) {
   if (editing('schedule')) {
     if (config.firstRun?.status !== 'Completed') {
       delete ctx.reloadHistoryDays;
-      if (advanced()) config.history.days = await ui.select('How much audit history should the first load pull?', HISTORY_CHOICES, config.history.days);
+      // The size is asked in placement, after this, so a full plan's estimate goes by the size it starts at there.
+      const scale = config.scale ?? (section ? undefined : defaultScale(pre?.capacities?.find((cap) => cap.id === config.fabric.capacityId), pre?.headcount));
+      if (advanced()) config.history.days = await ui.select('How much audit history should the first load pull?', historyChoices('fabric', scale), config.history.days);
     } else {
       await askMoreHistory(ctx);
     }
@@ -1277,8 +1296,10 @@ export function planReview(ctx, pre) {
       detail: mode === 'notebook' ? 'The schedule\'s owner refreshes the models; the secret is in the notebooks.' : 'The schedule\'s owner reads the secret and refreshes the models.',
     },
   ];
-  if (ctx.runFirstLoad) runsOn.push({ what: 'First load', where: `${config.history.days} days of audit history, straight after setup` });
-  if (ctx.reloadHistoryDays) runsOn.push({ what: 'History reload', where: reloadLine(ctx.reloadHistoryDays), detail: reloadDetail(ctx.reloadHistoryDays) });
+  if (ctx.runFirstLoad) {
+    runsOn.push({ what: 'First load', where: `${config.history.days} days of audit history, straight after setup`, detail: estimateShort(config.history.days, config.scale, 'fabric', { band: true }) });
+  }
+  if (ctx.reloadHistoryDays) runsOn.push({ what: 'History reload', where: reloadLine(ctx.reloadHistoryDays), detail: reloadDetail(ctx.reloadHistoryDays, config.scale) });
   return { creates, grants, runsOn, costs: planCosts(config), sizedFor: sizedFor(config.scale, pre) };
 }
 
@@ -1286,11 +1307,11 @@ export function planReview(ctx, pre) {
 export const reloadLine = (days) => `Reload ${days} days of history after setup`;
 
 /**
- * How long a reload takes.
+ * How long a reload takes, on Fabric.
  * @param {number} days
+ * @param {'standard' | 'large' | undefined} [scale]
  */
-export const reloadDetail = (days) =>
-  days > 30 ? 'One pipeline run: a few hours, and many hours on a large tenant. The scheduled runs carry on after it.' : 'One pipeline run, usually under an hour.';
+export const reloadDetail = (days, scale) => `${estimateShort(days, scale)} The scheduled runs carry on as usual after it.`;
 
 /**
  * Prints the plan and asks to go ahead.
@@ -1341,16 +1362,21 @@ export async function confirmPlan(ctx, pre) {
     ui.info(`Agents:      ${envs.length ? `${names}${waiting}` : c.dim('no environments chosen')}`);
   }
   if (resourceGraphOn(config)) ui.info(`Governance:  ${resourceGraphKinds(config)} from Azure Resource Graph, in ${scopeName(config)}`);
-  if (ctx.runFirstLoad) ui.info(`First load:  ${config.history.days} days of history, straight after setup`);
-  if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)} ${c.dim(`(${reloadDetail(ctx.reloadHistoryDays)})`)}`);
+  if (ctx.runFirstLoad) {
+    ui.info(`First load:  ${config.history.days} days of history, straight after setup ${c.dim(`(${estimateShort(config.history.days, config.scale, 'fabric', { band: true })})`)}`);
+  }
+  if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)} ${c.dim(`(${reloadDetail(ctx.reloadHistoryDays, config.scale)})`)}`);
   ui.review(planReview(ctx, pre));
   ui.note(keepAwake());
   return ui.confirm('Go ahead?', true);
 }
 
-/** Said before Go ahead: a PC that sleeps stops the setup part way. */
-export const KEEP_AWAKE = 'Keep this PC plugged in and awake until setup finishes.';
+/**
+ * Said before Go ahead: a PC that sleeps stops the setup part way. The loads run in Fabric or Azure, so only the
+ * setup needs the PC: the one rule, also in docs/PREREQUISITES.md.
+ */
+export const KEEP_AWAKE = 'Keep this PC plugged in and awake until the installer says setup is finished. After that you can close the window, and any load it started carries on.';
 /** The same in Azure Cloud Shell, where closing the tab ends the session. */
-export const KEEP_CLOUD_SHELL_OPEN = 'Keep this Cloud Shell tab open until setup finishes.';
+export const KEEP_CLOUD_SHELL_OPEN = 'Keep this Cloud Shell tab open until the installer says setup is finished. After that you can close it, and any load it started carries on.';
 /** @param {NodeJS.ProcessEnv} [env] */
 export const keepAwake = (env = process.env) => (inCloudShell(env) ? KEEP_CLOUD_SHELL_OPEN : KEEP_AWAKE);

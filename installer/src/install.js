@@ -50,6 +50,7 @@ import { ensureFlows, FLOW_FILES, flowDefinitions, flowsSummary, flowsWanted, of
 import { ensureAppResourceGraphAccess, resourceGraphOn } from './steps/resource-graph.js';
 import { routerWanted } from './uploads.js';
 import { checkData, chooseLoad, coworkSkipForFirstLoad, runDataCheck, runPipeline, status, TERMINAL } from './steps/run.js';
+import { recordPendingHistory } from './steps/history-progress.js';
 import { loadCoworkNow, rerunFailed } from './steps/rerun.js';
 import { prepareNotebook, serialiseNotebook } from './transform/notebook.js';
 import { rlsOn, rlsSettings } from './transform/access.js';
@@ -438,12 +439,14 @@ export async function install(ctx, opts) {
     step('First load');
     if (!consented) {
       ui.warn(`Skipped until admin consent is granted. Then run: ${commandLine(`run --backfill-days ${config.history.days}`)}`);
+      recordPendingHistory(ctx, { days: config.history.days, reason: 'consent', first: true });
     } else if (!vaultReachable) {
       ui.warn(`Skipped until the private endpoint to ${config.keyVault.name} is approved. Then run: ${commandLine(`run --backfill-days ${config.history.days}`)}`);
+      recordPendingHistory(ctx, { days: config.history.days, reason: 'keyVault', first: true });
     } else {
       if (modelDeployed(config)) ui.note(`The pipeline refreshes ${joinNames(deployedModels(config).map((m) => m.name))} as its last step.`);
       const skipCowork = await coworkSkipForFirstLoad(ctx);
-      const result = await runPipeline(ctx, { backfillDays: config.history.days, wait: opts.wait, first: true, skipCowork });
+      const result = await runPipeline(ctx, { backfillDays: config.history.days, wait: opts.wait, first: true, skipCowork, setup: stepsOk && appDeployed });
       load = loadState(result);
       if (result.status === 'Completed') {
         // A run completes even when a load in it failed.
@@ -459,11 +462,13 @@ export async function install(ctx, opts) {
     const later = commandLine(`run --backfill-days ${days}`);
     if (!consented) {
       ui.warn(`Skipped until admin consent is granted. Then run: ${later}`);
+      recordPendingHistory(ctx, { days, reason: 'consent' });
     } else if (!vaultReachable) {
       ui.warn(`Skipped until the private endpoint to ${config.keyVault.name} is approved. Then run: ${later}`);
+      recordPendingHistory(ctx, { days, reason: 'keyVault' });
     } else {
       if (modelDeployed(config)) ui.note(`The pipeline refreshes ${joinNames(deployedModels(config).map((m) => m.name))} as its last step.`);
-      const result = await runPipeline(ctx, { backfillDays: days, wait: opts.wait });
+      const result = await runPipeline(ctx, { backfillDays: days, wait: opts.wait, setup: stepsOk && appDeployed });
       load = loadState(result);
       if (result.started) {
         config.history.days = days;
@@ -794,7 +799,12 @@ export async function runCommand(ctx, command, opts) {
       return true;
     case 'status':
       if (ctx.config.target === 'azure') await azureStatus(ctx);
-      else await status(ctx);
+      else {
+        await status(ctx);
+        // The same steps as at the end of setup, which a window closed during the first load never shows.
+        const left = ctx.config.fabric.pipelineId ? nextSteps(ctx.config, ctx.user) : [];
+        if (left.length) ctx.ui.nextSteps(stepsLeftTitle(left), left);
+      }
       return true;
     case 'rotate-secret':
       if (ctx.config.target === 'azure') await azureRotateSecret(ctx);

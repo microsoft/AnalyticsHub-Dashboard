@@ -1363,6 +1363,7 @@ test('Azure: a model update Fabric can only make by clearing its data waits for 
 test("Azure: a history reload that doesn't start leaves setup not finished, and says how to try again", async () => {
   const failed = await azureModelChanged();
   failed.ctx.reloadHistoryDays = 90;
+  const getJob = failed.arm.api.getContainerAppJob;
   failed.arm.api.getContainerAppJob = async () => {
     throw new Error('Job not found');
   };
@@ -1371,22 +1372,39 @@ test("Azure: a history reload that doesn't start leaves setup not finished, and 
   assert.match(failed.ui.text(), /Try again with ".*run --backfill-days 90"\./);
   assert.match(failed.ui.text(), /Analytics Hub is set up, but not finished/);
   assert.equal(failed.config.history.days, 30);
+  // Kept in the record, so the command isn't lost when the window closes: the Done page and status show it.
+  assert.deepEqual(failed.config.history.pending, { days: 90, reason: 'failed', at: '2026-06-01T12:00:00.000Z' });
+  assert.match(failed.ui.text(), /1 step left\n\s*1\. Load 90 days of audit history {2}You\n\s*The reload of 90 days didn't start\. Until it runs, the reports keep the history they have\.\n\s*a\. Run "valuelens-install run --backfill-days 90"\./);
+  failed.ui.out.length = 0;
+  await azureStatus(failed.ctx);
+  assert.match(failed.ui.text(), /Asked for: 30 days, and a reload of 90 days waiting to start \(see the step below\)/);
+  assert.match(failed.ui.text(), /1\. Load 90 days of audit history/);
+  // A run with the reload clears it.
+  failed.arm.api.getContainerAppJob = getJob;
+  assert.equal(await runCommand(failed.ctx, 'run', { wait: false, backfillDays: 90 }), true);
+  assert.equal(failed.config.history.pending, undefined);
+  assert.equal(failed.config.history.days, 90);
 
   const started = await azureModelChanged();
   started.ctx.reloadHistoryDays = 90;
   assert.equal(await installAzure(started.ctx, { wait: true }), true);
   assert.match(started.ui.text(), /Started run job \(vlens-run-exec\) with 90 days of audit history/);
   assert.equal(started.config.history.days, 90);
-  assert.doesNotMatch(started.ui.text(), /not finished/);
-  // One run stops at 4 hours, and the scheduled runs after it carry the reload on: Fabric's "many hours" doesn't fit.
-  assert.match(started.ui.text(), /A run stops at 4 hours\. On a large tenant, the scheduled runs after it carry on with the reload until it has all loaded\. Job images older than this installer ignore VALUELENS_AUDIT_BACKFILL_DAYS/);
-  assert.doesNotMatch(started.ui.text(), /many hours on a large tenant/);
+  assert.equal(started.config.history.pending, undefined);
+  assert.doesNotMatch(started.ui.text(), /not finished|steps? left/);
+  assert.ok(started.ui.text().includes('Setup is finished. The reload carries on in Azure, so you can close this window. See how far it has got with "valuelens-install status".'));
+  // One run stops at 4 hours, and the scheduled runs after it carry the reload on: Fabric's time budget and retries don't fit.
+  assert.match(started.ui.text(), /Estimate for 90 days of history, for up to 10,000 people: about 3 hours, in one run\. The audit service's queue can add hours/);
+  assert.match(started.ui.text(), /Each run gets up to 4 hours\. A run cut off then publishes nothing, so the reports show the new history once one run fetches everything left\. .*Job images older than this installer ignore VALUELENS_AUDIT_BACKFILL_DAYS/);
+  assert.doesNotMatch(started.ui.text(), /many hours on a large tenant|time budget|pipeline's retries/);
   const detail = (/** @type {number} */ days) => {
     started.ctx.reloadHistoryDays = days;
     return azurePlanReview(started.ctx).runsOn.find((r) => r.what === 'History reload')?.detail;
   };
-  assert.equal(detail(90), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=90. A run stops at 4 hours. On a large tenant, the scheduled runs after it carry on with the reload until it has all loaded.');
-  assert.equal(detail(30), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=30. Usually under an hour.');
+  assert.equal(detail(90), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=90. Estimate: about 3 hours. A run stops at 4 hours, and the scheduled runs after it carry on with the reload until it has all loaded.');
+  assert.equal(detail(30), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=30. Estimate: about an hour.');
+  started.config.scale = 'large';
+  assert.equal(detail(180), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=180. Estimate: about 8 hours, over two or three runs. A run stops at 4 hours, and the scheduled runs after it carry on with the reload until it has all loaded.');
 
   // Repair or change's question, the first place the wording shows, says the same: Azure has no pipeline.
   const asking = fakeUi();
@@ -1401,11 +1419,13 @@ test("Azure: a history reload that doesn't start leaves setup not finished, and 
   repair.config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', outputs: { runJobName: 'vlens-run' }, status: { lastRun: { name: 'vlens-run-exec', status: 'Succeeded' } } };
   repair.config.history.days = 30;
   await planAzure(repair.ctx, { subscriptions: [{ subscriptionId: 'sub-1', displayName: 'Sub' }] }, 'schedule');
-  const reload = selects.find((s) => s.message.startsWith('Load more audit history?'));
+  // The record names no storage, so the run job's state can't be read: the question says what was asked for.
+  const reload = selects.find((s) => s.message.endsWith('Load more?'));
+  assert.equal(reload?.message, 'You asked for 30 days of history. Load more?');
   assert.deepEqual(reload?.choices.map((c) => c.description), [
     undefined,
-    'Runs the job once with 90 days of history. A run stops at 4 hours. On a large tenant, the scheduled runs after it carry on with the reload until it has all loaded.',
-    'Runs the job once with 180 days of history. A run stops at 4 hours. On a large tenant, the scheduled runs after it carry on with the reload until it has all loaded.',
+    'Runs the job once with 90 days of history. Estimate: about 3 hours. A run stops at 4 hours, and the scheduled runs after it carry on with the reload until it has all loaded.',
+    'Runs the job once with 180 days of history. Estimate: about 6 hours, over two runs. A run stops at 4 hours, and the scheduled runs after it carry on with the reload until it has all loaded.',
   ]);
 });
 
@@ -1532,6 +1552,185 @@ test('Azure with a first load, waiting: a replaced model is reloaded before the 
   assert.equal(await installAzure(failed.ctx, { wait: true }), false);
   assert.match(failed.ui.text(), /set up, but not finished/);
   assert.ok(failed.config.semanticModel.reload);
+  // Setup isn't finished, so it doesn't say so, but the load it started carries on.
+  assert.ok(failed.ui.text().includes('The first load carries on in Azure after this window closes. See how far it has got with "valuelens-install status".'), failed.ui.text());
+  assert.doesNotMatch(failed.ui.text(), /Setup is finished/);
+});
+
+test('Azure first load: the plan and its start give the estimate, once, and the summary says setup is finished', async () => {
+  const t = await azureModelChanged();
+  t.ctx.runFirstLoad = true;
+  const row = () => azurePlanReview(t.ctx).runsOn.find((r) => r.what === 'First load');
+  assert.deepEqual(row(), { what: 'First load', where: '30 days of audit history, straight after setup', detail: 'Estimate for up to 10,000 people: about an hour.' });
+  assert.equal(await confirmAzurePlan(t.ctx), true);
+  assert.match(t.ui.text(), /First load: +30 days of history, straight after setup .*Estimate for up to 10,000 people: about an hour\./);
+  assert.ok(t.ui.text().includes('Keep this PC plugged in and awake until the installer says setup is finished.'));
+
+  t.ui.out.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  let text = t.ui.text();
+  assert.ok(
+    text.includes("Estimate for 30 days of history, for up to 10,000 people: about an hour, in one run. The audit service's queue can add hours, and a large tenant's history can take more than one run. Each run gets up to 4 hours. A run cut off then publishes nothing, so the reports show the new history once one run fetches everything left."),
+    text,
+  );
+  assert.ok(text.includes('Setup is finished. The first load carries on in Azure, so you can close this window. See how far it has got with "valuelens-install status".'), text);
+  assert.equal(t.config.history.pending, undefined);
+  assert.equal(row(), undefined, 'once it has run, there is no first load to plan');
+  t.ui.out.length = 0;
+  assert.equal(await confirmAzurePlan(t.ctx), true);
+  assert.doesNotMatch(t.ui.text(), /First load:/);
+
+  // A later setup that runs the job loads changes, not the first load: no estimate.
+  t.ui.out.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  text = t.ui.text();
+  assert.doesNotMatch(text, /Estimate for/);
+  assert.ok(text.includes('Setup is finished. The run carries on in Azure, so you can close this window.'), text);
+});
+
+test("Azure status shows the history in the reports from the run job's state, and what was asked for when it can't read it", async () => {
+  const t = await azureModelChanged();
+  const az = /** @type {any} */ (t.config.azure);
+  az.status.lastRun = { name: 'vlens-run-earlier', status: 'Succeeded', finishedAt: '2026-05-31T13:00:00.000Z' };
+  t.arm.jobExecutions['vlens-run'] = [{ name: 'vlens-run-earlier', properties: { status: 'Succeeded', startTime: '2026-05-31T12:00:00Z', endTime: '2026-05-31T13:00:00Z' } }];
+  /** @type {string[]} */
+  const reads = [];
+  /** @param {() => Promise<any>} read */
+  const history = async (read) => {
+    t.ui.out.length = 0;
+    t.ctx.api.dataLake = /** @type {any} */ ((/** @type {string} */ account) => ({
+      readText: async (/** @type {string} */ container, /** @type {string} */ path) => {
+        reads.push(`${account} ${container}/${path}`);
+        return read();
+      },
+    }));
+    await azureStatus(t.ctx);
+    const text = t.ui.text();
+    assert.match(text, /vlens-run-earlier: Succeeded/, 'the runs are listed whatever happens');
+    return text.slice(text.indexOf('Audit history')).split('\n').map((s) => s.trim()).filter(Boolean);
+  };
+
+  // The high-water mark is the newest activity a run has merged, so it's in the reports. Fields it doesn't know are ignored.
+  const state = { high_water_mark: '2026-05-31T23:10:00.123456+00:00', windows: {}, a_later_field: { from: 'S5b' } };
+  assert.deepEqual(await history(async () => JSON.stringify(state)), ['Audit history', 'Asked for: 30 days', '✓ In the reports: activity up to 2026-05-31']);
+  assert.deepEqual(reads, ['vlensstabc raw/_state/audit.json'], 'read with the client and account the install already has');
+
+  // A reload that hasn't merged yet isn't claimed.
+  const reloading = await history(async () => JSON.stringify({ ...state, backfill_from: '2026-03-03T12:00:00+00:00' }));
+  assert.equal(reloading[2], "In the reports: activity up to 2026-05-31. The reload from 2026-03-03 isn't all in them yet.");
+  assert.match(reloading[3], /^Fetched from the audit log: /);
+
+  const asked = ['Audit history', 'Asked for: 30 days'];
+  const fallback = 'The reports have the history asked for once a run of the run job succeeds. Its runs are listed above.';
+  for (const [label, read, line] of /** @type {[string, () => Promise<any>, string][]} */ ([
+    ['forbidden', () => Promise.reject(httpError(403, 'AuthorizationPermissionMismatch')), "How much has loaded can't be read from this PC: your account can't read the job's storage."],
+    ['network', () => Promise.reject(new Error('fetch failed')), "How much has loaded can't be read from this PC: the job's storage couldn't be reached just now."],
+    ['unreadable', async () => '', "How much has loaded can't be read from this PC: the job's progress file is in a form this installer doesn't know."],
+  ])) {
+    assert.deepEqual(await history(read), [...asked, line, fallback], label);
+  }
+  assert.deepEqual(await history(async () => null), [
+    ...asked,
+    'Fetched from the audit log: none yet',
+    'In the reports: none of it yet',
+    'The next scheduled run starts loading it, or start one now with "valuelens-install run".',
+  ], 'missing');
+
+  // A private install's storage can't be reached from outside its network: it isn't tried.
+  reads.length = 0;
+  az.publicNetworkAccess = false;
+  assert.deepEqual(await history(async () => JSON.stringify(state)), [
+    ...asked,
+    "How much has loaded can't be read from this PC: it's a private install, so its storage can't be reached from outside its network.",
+    fallback,
+  ]);
+  assert.deepEqual(reads, []);
+});
+
+test("Azure Repair or change: Load more audit history? reads the run job's state, not the run the installer started", async () => {
+  const FIRST = 'How much audit history should the first load pull?';
+  /**
+   * Repair or change's schedule section, with the run job's state as `read` returns it.
+   * @param {{ read?: () => Promise<any>, lastRun?: string, days?: number, isPrivate?: boolean, demo?: boolean }} o  lastRun: the last run the installer started, by status.
+   */
+  const repair = async (o) => {
+    const asking = fakeUi();
+    /** @type {string[]} */
+    const messages = [];
+    asking.ui.select = async (/** @type {string} */ message, /** @type {any[]} */ _choices, /** @type {any} */ def) => {
+      messages.push(message);
+      return def;
+    };
+    const t = fakeCtx({ ui: asking.ui, arm: fakeArm().api });
+    t.config.target = 'azure';
+    t.config.azure = /** @type {any} */ ({
+      subscriptionId: 'sub-1',
+      resourceGroup: 'rg',
+      outputs: { runJobName: 'vlens-run', storageAccountName: 'vlensstabc' },
+      status: o.lastRun ? { lastRun: { name: 'vlens-run-exec', status: o.lastRun, finishedAt: '2026-05-31T13:00:00.000Z' } } : {},
+      ...(o.isPrivate ? { publicNetworkAccess: false } : {}),
+      ...(o.demo ? { sampleData: true } : {}),
+    });
+    t.config.history.days = o.days ?? 30;
+    /** @type {string[]} */
+    const reads = [];
+    t.ctx.api.dataLake = /** @type {any} */ ((/** @type {string} */ account) => ({
+      readText: async (/** @type {string} */ container, /** @type {string} */ path) => {
+        reads.push(`${account} ${container}/${path}`);
+        return (o.read ?? (async () => null))();
+      },
+    }));
+    await planAzure(t.ctx, { subscriptions: [{ subscriptionId: 'sub-1', displayName: 'Sub' }] }, 'schedule');
+    return { messages, more: messages.find((m) => /Load more/.test(m)), text: asking.text(), reads };
+  };
+  const json = (/** @type {any} */ state) => async () => JSON.stringify(state);
+  const fetched = { v2_202605300000_202605300800: { status: 'succeeded', completed_at: '2026-05-31T12:30:00+00:00' }, v2_202605300800_202605301600: { status: 'failed' } };
+
+  // Nothing is in the reports until a run merges every window: a failed run, a run that published nothing, and no state yet.
+  for (const [label, o] of /** @type {[string, Parameters<typeof repair>[0]][]} */ ([
+    ['failed run', { lastRun: 'Failed', read: json({ windows: fetched }) }],
+    ['published nothing', { lastRun: 'Succeeded', read: json({ windows: { v2_202605300000_202605300800: { status: 'succeeded', completed_at: '2026-05-31T12:30:00+00:00' } }, a_later_field: 1 }) }],
+    ['no state', { lastRun: 'Succeeded' }],
+  ])) {
+    const r = await repair(o);
+    assert.equal(r.more, undefined, label);
+    assert.deepEqual(r.messages.filter((m) => /loaded|history/.test(m)), [FIRST], `${label}: the first load's question, which the next run uses`);
+    assert.doesNotMatch(r.text, /days loaded/, label);
+    assert.deepEqual(r.reads, ['vlensstabc raw/_state/audit.json'], label);
+  }
+
+  // The high-water mark: the claim, with its date. One a scheduled run set counts too.
+  const hwm = { high_water_mark: '2026-05-31T23:10:00.123456+00:00', windows: {} };
+  assert.equal((await repair({ lastRun: 'Succeeded', read: json(hwm) })).more, 'Load more audit history? 30 days are loaded now, up to 2026-05-31.');
+  assert.equal((await repair({ read: json({ ...hwm, high_water_mark: '2026-05-20T08:00:00+00:00' }) })).more, 'Load more audit history? 30 days are loaded now, up to 2026-05-20.');
+  // A reload no run has merged yet isn't claimed.
+  assert.equal(
+    (await repair({ lastRun: 'Running', days: 90, read: json({ ...hwm, backfill_from: '2026-03-03T12:00:00+00:00' }) })).more,
+    "You asked for 90 days of history. The reload from 2026-03-03 isn't all in the reports yet. Load more?",
+  );
+
+  // Where the state can't be read, it says what was asked for, once the installer has started a run.
+  const asked = 'You asked for 30 days of history. Load more?';
+  const isPrivate = await repair({ lastRun: 'Succeeded', isPrivate: true, read: json(hwm) });
+  assert.equal(isPrivate.more, asked);
+  assert.deepEqual(isPrivate.reads, [], "a private install's storage isn't tried");
+  assert.equal((await repair({ lastRun: 'Succeeded', read: () => Promise.reject(httpError(403, 'AuthorizationPermissionMismatch')) })).more, asked);
+  assert.equal((await repair({ lastRun: 'Failed', read: () => Promise.reject(new Error('fetch failed')) })).more, asked);
+  assert.equal((await repair({ lastRun: 'Succeeded', read: async () => '' })).more, asked, 'unreadable');
+  const never = await repair({ isPrivate: true });
+  assert.equal(never.more, undefined);
+  assert.ok(never.messages.includes(FIRST), 'no run started: the first load');
+  const most = await repair({ lastRun: 'Succeeded', isPrivate: true, days: 180 });
+  assert.equal(most.more, undefined);
+  assert.match(most.text, /Audit history: 180 days asked for, the most the installer loads/);
+  assert.doesNotMatch(most.text, /days loaded/);
+  assert.match((await repair({ lastRun: 'Succeeded', days: 180, read: json(hwm) })).text, /✓ Audit history: 180 days loaded, the most the installer loads/);
+
+  // A demo install publishes the sample, not the tenant's history: its days are for when you switch.
+  const demo = await repair({ lastRun: 'Succeeded', demo: true, read: json(hwm) });
+  assert.equal(demo.more, undefined);
+  assert.ok(demo.messages.includes(FIRST));
+  assert.deepEqual(demo.reads, []);
 });
 
 test('Azure: a job run with no execution name is not counted as finished', async () => {
@@ -1586,12 +1785,13 @@ test("Azure run: doesn't start a second run while one is going, but ignores one 
     assert.deepEqual(az.status.lastRun, lastRun);
   }
 
-  // Asked for more history: the days aren't recorded, and the note gives the command again.
+  // Asked for more history: the days aren't raised, the reload is kept for later, and the note gives the command again.
   t.ui.out.length = 0;
   t.arm.jobExecutions['vlens-run'] = runGoing('Running', 30);
   const templates = t.arm.jobTemplates.length;
   assert.equal(await runCommand(t.ctx, 'run', { wait: true, backfillDays: 90 }), false);
   assert.equal(t.config.history.days, 30);
+  assert.deepEqual(t.config.history.pending, { days: 90, reason: 'running', at: '2026-06-01T12:00:00.000Z' });
   assert.match(t.ui.text(), /Once it has finished, run "valuelens-install run --backfill-days 90" to reload 90 days of audit history\./);
   assert.equal(t.arm.jobTemplates.length, templates, 'nothing was started with the history');
 
@@ -1601,6 +1801,7 @@ test("Azure run: doesn't start a second run while one is going, but ignores one 
   assert.equal(await runCommand(t.ctx, 'run', { wait: true }), true);
   assert.equal(starts(), before + 1, 'a run going for over a day is ignored');
   assert.equal(az.status.lastRun.name, 'vlens-run-exec');
+  assert.equal(t.config.history.pending?.days, 90, "a run without the reload doesn't clear it");
 
   // Only finished runs.
   t.arm.jobExecutions['vlens-run'] = [{ name: 'vlens-run-done', properties: { status: 'Succeeded', startTime: '2026-06-01T11:00:00Z' } }, { name: 'vlens-run-failed', properties: { status: 'Failed', startTime: '2026-06-01T10:00:00Z' } }];
@@ -1616,6 +1817,7 @@ test("Azure run: doesn't start a second run while one is going, but ignores one 
   assert.equal(await runCommand(t.ctx, 'run', { wait: true, backfillDays: 90 }), true);
   assert.equal(starts(), before + 1, "a check that fails doesn't stop the run");
   assert.equal(t.config.history.days, 90);
+  assert.equal(t.config.history.pending, undefined, 'the run with the reload clears it');
   assert.doesNotMatch(t.ui.text(), /already running/);
 });
 
@@ -1646,11 +1848,12 @@ test('Azure Repair or change during the first load: no second run, and it says w
   assert.match(text, /! The run job is already running \(vlens-run-going, started 53m 00s ago\), so this didn't start another\./);
   assert.match(text, /Check on it with "valuelens-install status"\. Once it has finished, run "valuelens-install run" to load your changes, or they load on the next scheduled run\./);
   assert.deepEqual(az.status.lastRun, firstLoad, 'the first load is still the last run');
+  assert.equal(t.config.history.pending, undefined, 'the run going is the first load: nothing waits');
   assert.match(text, /Analytics Hub is set up/);
-  assert.doesNotMatch(text, /not finished/);
+  assert.doesNotMatch(text, /not finished|steps? left/);
 });
 
-test("Azure: a history reload that can't start while a run is going isn't recorded, and gives the command for later", async () => {
+test("Azure: a history reload that can't start while a run is going is kept for later, with its command", async () => {
   const t = await azureModelChanged();
   t.ctx.reloadHistoryDays = 90;
   t.arm.jobExecutions['vlens-run'] = runGoing('Processing', 5);
@@ -1659,10 +1862,13 @@ test("Azure: a history reload that can't start while a run is going isn't record
   assert.ok(!t.arm.calls.includes('startJob vlens-run'));
   assert.equal(t.config.history.days, 30, 'the reload is offered again next time');
   assert.equal(/** @type {any} */ (t.config.azure).status.lastRun, undefined);
+  assert.deepEqual(t.config.history.pending, { days: 90, reason: 'running', at: '2026-06-01T12:00:00.000Z' });
   const text = t.ui.text();
   assert.match(text, /! The run job is already running \(vlens-run-going, started 5m 00s ago\), so this didn't start another\./);
   assert.match(text, /Once it has finished, run "valuelens-install run --backfill-days 90" to reload 90 days of audit history\./);
   assert.doesNotMatch(text, /with 90 days of audit history|The history reload didn't start/);
+  assert.match(text, /The reload of 90 days didn't start, because a run was already going\. Until it runs, the reports keep the history they have\.\n\s*a\. Wait for the run that's going to finish\. "valuelens-install status" shows it\.\n\s*b\. Run "valuelens-install run --backfill-days 90"\./);
+  assert.doesNotMatch(text, /carries on in Azure/, 'setup started no load');
 });
 
 test("Azure: org-scoped access waits for a run that's going, rather than starting its job beside it", async () => {
