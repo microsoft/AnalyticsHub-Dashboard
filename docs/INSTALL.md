@@ -59,7 +59,9 @@ When it finishes: [Check it worked](#check-it-worked).
       people. An existing install keeps its names. On Azure: the subscription, resource group,
       region and Power BI workspace.
    4. **App registration:** create one, use your own (it's checked first), or let an admin
-      register it. See [If you can't register apps](../installer/README.md#if-you-cant-register-apps).
+      register it. On Azure there are two apps: create them, use the ones an admin created for you,
+      or have an admin create them from a script the installer writes, before anything is
+      deployed. See [If you can't register apps](../installer/README.md#if-you-cant-register-apps).
    5. **Where the secret goes** (Fabric only): in the notebooks by default, with nothing in Azure.
       Or a Key Vault you create or pick; if you can't write to it, a vault admin can add the
       secret. See [Where the secret goes](../installer/README.md#where-the-secret-goes).
