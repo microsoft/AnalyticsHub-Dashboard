@@ -10,6 +10,7 @@ import { secretMode } from './config.js';
 import { commandLine } from './launch.js';
 import { copilotLicences } from './seats.js';
 import { AUDIT_CHECK_FAILS, AUDIT_CHECK_LABELS, AUDIT_ROLE, PURVIEW_AUDIT_URL } from './steps/audit-check.js';
+import { flowsWanted } from './steps/flows.js';
 import { canWriteSecrets } from './steps/identity.js';
 import { blockedSettings, runsFabric } from './steps/plan.js';
 
@@ -125,12 +126,20 @@ async function resourceGroupAccess(api, subscriptionId, resourceGroup, ids) {
   }
 }
 
+/** How long one check may take in install and update preflight before it counts as "couldn't check". */
+export const PREFLIGHT_CHECK_TIMEOUT_MS = 15_000;
+
+/** @param {number} ms */
+const duration = (ms) => (ms < 1000 ? `${ms} ms` : `${Math.round(ms / 1000)} s`);
+
 /**
  * @param {{ api: import('./install.js').Apis, user: import('./install.js').User, config: import('./config.js').InstallConfig }} ctx
+ * @param {{ timeoutMs?: number }} [opts]  timeoutMs: a check still running after this shows as "couldn't check".
  * @returns {Promise<Prereq[]>}
  */
-export async function checkPrereqs(ctx) {
+export async function checkPrereqs(ctx, opts = {}) {
   const { api, user, config } = ctx;
+  const { timeoutMs } = opts;
   const azure = config.target === 'azure';
 
   const roles = api.graph.myDirectoryRoles();
@@ -154,10 +163,23 @@ export async function checkPrereqs(ctx) {
    * @returns {Promise<Prereq>}
    */
   const guard = async (base, fn) => {
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let timer;
     try {
-      return { ...base, ...(await fn()) };
+      const check = fn();
+      const result = timeoutMs
+        ? await Promise.race([
+            check,
+            /** @type {Promise<never>} */ (new Promise((_, reject) => {
+              timer = setTimeout(() => reject(new Error(`it took longer than ${duration(timeoutMs)}`)), timeoutMs);
+            })),
+          ])
+        : await check;
+      return { ...base, ...result };
     } catch (err) {
       return { ...base, status: 'unknown', detail: `Couldn't check: ${why(err)}` };
+    } finally {
+      clearTimeout(timer);
     }
   };
 
@@ -507,6 +529,107 @@ export async function checkPrereqs(ctx) {
     ...(config.dataSources?.resourceGraph === 'api' ? [resourceGraphPrereq(api, config, guard)] : []),
   ];
   return Promise.all(checks);
+}
+
+/**
+ * Rows install and update preflight leave out even when not met: the Fabric capacity, which preflight
+ * checks and stops on itself; the Fabric administrator role, which the tenant settings row covers; and
+ * the Viva Insights analyst role, which can never be read.
+ */
+const PREFLIGHT_HIDDEN = new Set(['fabric-capacity', 'fabric-admin', 'viva-analyst']);
+
+/**
+ * What install and update preflight make of the checks: what stops an install before anything is
+ * created, and what to show and carry on with. Met rows, rows for features not chosen, and optional
+ * rows that couldn't be checked are left out. A row that couldn't be checked, or took too long, never
+ * blocks. An update never blocks: it's already installed.
+ * @param {Prereq[]} items
+ * @param {{ config: import('./config.js').InstallConfig, yes?: boolean, update?: boolean }} opts
+ *   yes: --yes, so nobody is asked and a choice that can't work fails late.
+ * @returns {{ block: Prereq[], warn: Prereq[] }}
+ */
+export function preflightVerdict(items, { config, yes = false, update = false }) {
+  const azure = config.target === 'azure';
+  const status = (/** @type {string} */ id) => items.find((it) => it.id === id)?.status;
+  const flows = flowsWanted(config).length > 0;
+  const environments = !!config.modules?.agentEvaluator || flows;
+  /** Optional rows only matter for some choices. @type {Record<string, boolean>} */
+  const relevant = {
+    // Consent is still to grant: on a re-run that already has it, the role doesn't matter.
+    'consent-role': status('audit-ingestion') !== 'met',
+    'power-platform-admin': environments && status('environments') !== 'met',
+    environments,
+    'power-automate-premium': flows,
+    // On Fabric, Azure access is only for the Key Vault (its own row) and credit consumption.
+    'azure-rbac': azure || !!config.modules?.consumption,
+  };
+  /** @type {Prereq[]} */
+  const block = [];
+  /** @type {Prereq[]} */
+  const warn = [];
+  for (const it of items) {
+    if (it.status === 'met' || PREFLIGHT_HIDDEN.has(it.id) || relevant[it.id] === false) continue;
+    if (it.status === 'unknown' && it.optional) continue;
+    // Only a Fabric administrator can read them, so "couldn't check" is the usual answer: it only matters with a model.
+    if (it.id === 'tenant-settings' && it.status === 'unknown' && !azure && !config.semanticModel?.enabled) continue;
+    // Asked, the plan offers an app you already have or the admin pack. With --yes it would try to create one, and fail.
+    if (!update && yes && it.id === 'register-apps' && it.status === 'missing' && !config.app.appId && !config.app.adminPack) block.push(it);
+    else warn.push(it);
+  }
+  return { block, warn };
+}
+
+/**
+ * The prerequisite checks in install and update preflight, run in parallel, each with a timeout.
+ * Never rejects: when the checks can't run at all, there's nothing to show.
+ * @param {{ api: import('./install.js').Apis, user: import('./install.js').User, config: import('./config.js').InstallConfig }} ctx
+ * @param {{ timeoutMs?: number }} [opts]
+ * @returns {Promise<Prereq[] | null>}
+ */
+export async function preflightChecks(ctx, opts = {}) {
+  try {
+    return await checkPrereqs(ctx, { timeoutMs: opts.timeoutMs ?? PREFLIGHT_CHECK_TIMEOUT_MS });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Prints only what needs attention, before anything is created, and points to the full list.
+ * On install, stops when one is a true blocker.
+ * @param {{ ui: import('./ui.js').Ui, config: import('./config.js').InstallConfig }} ctx
+ * @param {Prereq[] | null} items  From preflightChecks.
+ * @param {{ update?: boolean }} [opts]
+ * @returns {{ block: Prereq[], warn: Prereq[] }}
+ */
+export function reportPreflight(ctx, items, opts = {}) {
+  const { ui, config } = ctx;
+  const full = `Run "${commandLine('prereqs')}" for the full list.`;
+  if (!items) {
+    ui.note(`Couldn't check the prerequisites. ${full}`);
+    return { block: [], warn: [] };
+  }
+  const verdict = preflightVerdict(items, { config, yes: ui.yes, update: opts.update });
+  const shown = [...verdict.block, ...verdict.warn];
+  if (!shown.length) {
+    ui.ok('Prerequisites: nothing missing for what you chose');
+    return verdict;
+  }
+  const n = shown.length === 1 ? '1 prerequisite needs' : `${shown.length} prerequisites need`;
+  const carry = verdict.block.length ? '' : ` The ${opts.update ? 'update' : 'install'} carries on.`;
+  ui.warn(`${n} attention.${carry}`);
+  ui.prereqs(shown);
+  ui.note(full);
+  if (verdict.block.length) {
+    ui.fail(`Stopped before creating anything: ${verdict.block.map((it) => it.label).join('; ')}.`);
+    throw new Error(
+      verdict.block.some((it) => it.id === 'register-apps')
+        ? 'You can\'t register apps in this tenant and have no app admin role, so with --yes the installer can\'t create its app registration. ' +
+            'Run it without --yes to choose an app registration you already have or get the admin pack for an admin, or ask for the Application Administrator or Cloud Application Administrator role.'
+        : verdict.block.map((it) => it.howTo).join(' '),
+    );
+  }
+  return verdict;
 }
 
 const ARG_PROBES = {

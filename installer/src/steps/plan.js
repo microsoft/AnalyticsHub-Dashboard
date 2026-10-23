@@ -11,6 +11,7 @@ import { TRANSCRIPT_ROLE } from '../clients/dataverse.js';
 import { APP_ROLES, CONSENT_ROLES } from '../clients/graph.js';
 import { HttpError } from '../http.js';
 import { commandLine, inCloudShell } from '../launch.js';
+import { preflightChecks, reportPreflight } from '../prereqs.js';
 import { c } from '../ui.js';
 import { CURRENCIES, DEFAULT_CURRENCY, describeReporting, parseRate } from '../currency.js';
 import { AGENT_EVALUATOR_MODEL_NAME, CONSUMPTION_MODEL_NAME, DATA_AGENT_NAME, flowIdentity, MODEL_NAME, secretMode } from '../config.js';
@@ -194,6 +195,20 @@ export async function preflight(ctx) {
   const { ui, api, user } = ctx;
   ui.heading('Checking your tenant');
   ui.ok(`Signed in as ${user.upn} (tenant ${user.tenantId})`);
+  // In parallel with the checks below; the ones that need attention print before any stop, and before anything is created.
+  const checks = preflightChecks(ctx);
+  let reported = false;
+  const report = async () => {
+    if (reported) return;
+    reported = true;
+    reportPreflight(ctx, await checks);
+  };
+  /** @param {string} line @param {string} message @returns {Promise<never>} */
+  const stop = async (line, message) => {
+    await report().catch(() => {});
+    if (line) ui.fail(line);
+    throw new Error(message);
+  };
 
   const roles = await api.graph.myDirectoryRoles().catch(() => []);
   const roleIds = new Set(roles.map((r) => r.roleTemplateId));
@@ -203,17 +218,13 @@ export async function preflight(ctx) {
   let canCreateApps = canConsent || appAdmin ? true : undefined;
   if (canCreateApps === undefined) canCreateApps = await api.graph.usersCanRegisterApps().catch(() => undefined);
 
+  // Without these roles, the prerequisites below say what to do.
   if (canConsent) ui.ok(`You can grant admin consent (${roles.filter((r) => CONSENT_ROLES[/** @type {keyof typeof CONSENT_ROLES} */ (r.roleTemplateId)]).map((r) => r.displayName).join(', ')})`);
-  else ui.warn('You can\'t grant admin consent for Microsoft Graph. The installer will give you a link for a Global Administrator or Privileged Role Administrator to approve.');
-  if (!ctx.config.app.appId && canCreateApps === false) {
-    ui.warn('Users in this tenant can\'t register apps and you have no app admin role. Choose "Use an app registration I already have", or get an admin pack for an admin to register it.');
-  }
 
   const capacities = ctx.config.target === 'azure' ? [] : (await api.fabric.listCapacities()).filter((cap) => cap.state === 'Active' && runsFabric(cap));
   if (ctx.config.target !== 'azure') {
     if (!capacities.length) {
-      ui.fail('No active Fabric capacity you can use.');
-      throw new Error('Start a Fabric trial, or ask a capacity admin to make you a contributor on an F2 or larger capacity, then run the installer again.');
+      await stop('No active Fabric capacity you can use.', 'Start a Fabric trial, or ask a capacity admin to make you a contributor on an F2 or larger capacity, then run the installer again.');
     }
     ui.ok(`${capacities.length} active Fabric ${capacities.length === 1 ? 'capacity' : 'capacities'}`);
   }
@@ -227,17 +238,16 @@ export async function preflight(ctx) {
   }
   if (!subscriptions.length && !ctx.config.keyVault.uri && secretMode(ctx.config) !== 'notebook') {
     if (ctx.config.target === 'azure') {
-      ui.fail('No Azure subscription you can use.');
-      throw new Error('Analytics Hub on Azure needs an Azure subscription in this tenant. Ask for Contributor on one, then run the installer again.');
+      await stop('No Azure subscription you can use.', 'Analytics Hub on Azure needs an Azure subscription in this tenant. Ask for Contributor on one, then run the installer again.');
     }
     if (ctx.useKeyVault) {
-      ui.fail('No Azure subscription you can use, so no Key Vault.');
-      throw new Error('--key-vault needs an Azure subscription in this tenant. Ask for Contributor on one, or leave out --key-vault to keep the client secret in the notebooks.');
+      await stop('No Azure subscription you can use, so no Key Vault.', '--key-vault needs an Azure subscription in this tenant. Ask for Contributor on one, or leave out --key-vault to keep the client secret in the notebooks.');
     }
     // A Fabric install doesn't need one: the client secret can go in the notebooks instead of Key Vault.
     ui.info('No Azure subscription you can use, so no Key Vault: the client secret goes in the notebooks.');
     if (ui.yes && !ctx.secretInNotebook && !defaultsToNoVault(ctx)) {
-      throw new Error(
+      await stop(
+        '',
         'With no Azure subscription there\'s no Key Vault for the app secret. Add --no-key-vault to keep it in the notebooks, where anyone with a role in the workspace can read it, or ask for Contributor on a subscription.',
       );
     }
@@ -255,6 +265,7 @@ export async function preflight(ctx) {
     // Only Fabric administrators can read them.
   }
 
+  await report();
   return { capacities, subscriptions, roles: roles.map((r) => r.displayName), canConsent, canCreateApps, tenantSettings, seats };
 }
 
