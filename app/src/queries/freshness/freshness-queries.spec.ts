@@ -9,7 +9,6 @@ import { describe, expect, it } from "vitest";
 import {
     auditLogFreshness,
     consumptionFreshness,
-    evaluatorFreshness,
     m365ActivityFreshness,
     productFeedbackFreshness,
     registryFreshness,
@@ -24,7 +23,6 @@ const modules = [
     { name: "productFeedbackFreshness", factory: productFeedbackFreshness, columns: liveColumns.productFeedbackFreshness, connection: "vl" },
     { name: "registryFreshness", factory: registryFreshness, columns: liveColumns.registryFreshness, connection: "vl" },
     { name: "consumptionFreshness", factory: consumptionFreshness, columns: liveColumns.consumptionFreshness, connection: "cc" },
-    { name: "evaluatorFreshness", factory: evaluatorFreshness, columns: liveColumns.evaluatorFreshness, connection: "ae" },
 ];
 
 /** Characters `ColumnDef.name` strips from the original DAX column name. */
@@ -64,7 +62,6 @@ describe("freshness query contract", () => {
         expect(m365ActivityFreshness().query).toContain("MAX('M365 Activity'[ActivityDate])");
         expect(productFeedbackFreshness().query).toContain("MAX('ProductFeedback'[FeedbackDate])");
         expect(registryFreshness().query).toContain("[Agent Registry Freshness]");
-        expect(evaluatorFreshness().query).toContain("MAX('Agent Performance'[InteractionDate])");
         const credits = consumptionFreshness().query;
         expect(credits).toContain("MAX(CreditsWeekly[MetricDate])");
         expect(credits).toContain("MAX('Credit Consumption (Tenant)'[Usage_Date])");

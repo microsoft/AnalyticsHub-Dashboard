@@ -1,0 +1,26 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "width": "container",
+  "height": "container",
+  "mark": { "type": "bar", "cornerRadiusEnd": 2 },
+  "encoding": {
+    "y": {
+      "field": "Type",
+      "type": "nominal",
+      "title": null,
+      "sort": "-x",
+      "axis": { "labelLimit": 200 }
+    },
+    "x": {
+      "field": "People",
+      "type": "quantitative",
+      "title": "People",
+      "axis": { "labelExpr": "compactFormat(datum.value, '#,0')" }
+    },
+    "tooltip": [
+      { "field": "Type", "type": "nominal", "title": "Agent type" },
+      { "field": "People", "type": "quantitative", "title": "People", "format": ",.0f" },
+      { "field": "Sessions", "type": "quantitative", "title": "Sessions", "format": ",.0f" }
+    ]
+  }
+}

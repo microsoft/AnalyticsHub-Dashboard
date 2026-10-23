@@ -14,20 +14,12 @@ import { compile } from "vega-lite";
 import { parse, View, type Scene, type SceneItem } from "vega";
 import "@/test/vega-formats";
 import type { TopLevelSpec } from "vega-lite";
-import type { QueryTable } from "@microsoft/fabric-app-data";
-import type { Row as GridRow } from "@microsoft/fabric-datagrid";
-import { isGroupRow } from "@/lib/rollup-tree";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
-import { toDataTable } from "@/lib/to-data-table";
 import { surfaceUsage, type UsageLens } from "./surface-usage";
 import { taskBreakdown, taskDimensions, type TaskDimension } from "./task-breakdown";
-import { LEADERBOARD_LABEL_COLUMN, leaderboardPeople, toLeaderboardPeopleTree } from "./leaderboard-people";
-import { leaderboardTasks, toLeaderboardTaskTree } from "./leaderboard-tasks";
 import { workCohorts, cohortTaskField } from "./cohorts";
 import taskBreakdownRows from "./__fixtures__/task-breakdown.rows.json";
 import surfaceUsageRows from "./__fixtures__/surface-usage.rows.json";
-import leaderboardPeopleRows from "./__fixtures__/leaderboard-people.rows.json";
-import leaderboardTaskRows from "./__fixtures__/leaderboard-tasks.rows.json";
 
 type Row = Record<string, string | number | boolean | null>;
 
@@ -171,78 +163,5 @@ describe("surface usage renders", () => {
     it("has at least one null cohort value, so the null path is exercised", () => {
         const hasNull = usageRows.some((row) => row["[Unlicensed Tasks]"] === null);
         expect(hasNull).toBe(true);
-    });
-});
-
-describe("leaderboard trees", () => {
-    /** Rebuilds the positional `QueryTable` the SDK hands the app. */
-    function asQueryTable(rows: Row[]): QueryTable {
-        const names = Object.keys(rows[0]);
-        return {
-            columns: names.map((name) => ({ name, dataType: "string" })),
-            rows: rows.map((row) => names.map((name) => row[name])),
-        } as QueryTable;
-    }
-
-    const ORG = "Chat + Agent Org Data[Organization]";
-    const peopleRows = leaderboardPeopleRows as Row[];
-
-    function peopleTree(rows: Row[] = peopleRows) {
-        return toLeaderboardPeopleTree(
-            toDataTable(asQueryTable(rows), leaderboardPeople().columnMetadata),
-            "Unassigned organization",
-        );
-    }
-
-    const children = (row: GridRow) => (row._children as GridRow[] | undefined) ?? [];
-
-    it("folds each organization over its people, busiest first", () => {
-        const { rows } = peopleTree();
-
-        expect(rows.map((row) => row[LEADERBOARD_LABEL_COLUMN])).toEqual(["Sales", "IT"]);
-        for (const group of rows) {
-            expect(isGroupRow(group)).toBe(true);
-            const people = children(group);
-            expect(people.length).toBeGreaterThan(0);
-            const sessions = people.map((person) => person.Sessions as number);
-            expect(sessions).toEqual([...sessions].sort((a, b) => b - a));
-            for (const person of people) expect(String(person[LEADERBOARD_LABEL_COLUMN])).toMatch(/@/);
-        }
-    });
-
-    // The fixture holds a slice of the ranking, so the model's total is
-    // necessarily larger than anything summed from the rows it ships with.
-    it("carries the grand total and subtotals the model reports, not client-side sums", () => {
-        const { rows, total } = peopleTree();
-
-        expect(total?.Sessions).toBe(6300);
-        expect(total?.["Active Users"]).toBe(180);
-        const sales = rows[0];
-        expect(sales.Sessions).toBe(1655);
-        const sliceSum = children(sales).reduce((sum, person) => sum + (person.Sessions as number), 0);
-        expect(sales.Sessions).toBeGreaterThan(sliceSum);
-    });
-
-    it("names people missing from the org data instead of leaving a blank row", () => {
-        const unassigned = peopleRows.map((row) => (row[ORG] === "IT" ? { ...row, [ORG]: null } : row));
-        const { rows } = peopleTree(unassigned);
-
-        expect(rows.map((row) => row[LEADERBOARD_LABEL_COLUMN])).toEqual(["Sales", "Unassigned organization"]);
-        expect(children(rows[1]).length).toBeGreaterThan(0);
-    });
-
-    it("folds each app over the activities done there", () => {
-        const source = leaderboardTasks("all");
-        const { rows, total } = toLeaderboardTaskTree(
-            toDataTable(asQueryTable(leaderboardTaskRows as Row[]), source.columnMetadata),
-            source.levels,
-        );
-
-        expect(rows.map((row) => row[LEADERBOARD_LABEL_COLUMN])).toEqual(["autonomous", "Excel", "PowerPoint"]);
-        expect(total?.Sessions).toBe(6300);
-        for (const group of rows) {
-            expect(children(group).length).toBeGreaterThan(0);
-            for (const activity of children(group)) expect(isGroupRow(activity)).toBe(false);
-        }
     });
 });

@@ -906,9 +906,9 @@ test('app: built with the ae alias once the Agent Evaluator model is bound', () 
   Object.assign(config.consumption.model, { id: 'cc-1', bound: true });
   assert.deepEqual(appModels(config), ['vl', 'cc', 'ae']);
 
-  assert.equal(pagesChange(['vl'], ['vl', 'cc', 'ae']), 'add the credit consumption and agent evaluation pages');
-  assert.equal(pagesChange(['vl', 'cc'], ['vl', 'ae']), 'add the agent evaluation pages and remove the credit consumption pages');
-  assert.equal(pagesChange(['vl', 'ae'], ['vl']), 'remove the agent evaluation pages');
+  assert.equal(pagesChange(['vl'], ['vl', 'cc', 'ae']), 'add the credit consumption pages and the Agent Evaluator link');
+  assert.equal(pagesChange(['vl', 'cc'], ['vl', 'ae']), 'add the Agent Evaluator link and remove the credit consumption pages');
+  assert.equal(pagesChange(['vl', 'ae'], ['vl']), 'remove the Agent Evaluator link');
 });
 
 test('summary: readable environments, those waiting for an admin, and the model', () => {

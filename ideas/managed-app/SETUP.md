@@ -26,9 +26,9 @@ Fabric and Azure.
 
 | Model | Needed? | Pages |
 |---|---|---|
-| Analytics Hub Model (`vl`) | Yes | Every page except the two below |
+| Analytics Hub Model (`vl`) | Yes | Every page except Consumption |
 | Consumption Central (`cc`) | Optional | Consumption, and the credits on the Executive summary |
-| Agent Evaluator (`ae`) | Optional | Agent Evaluation |
+| Agent Evaluator (`ae`) | Optional | None: the Agents page links to it |
 
 ## Before you start
 

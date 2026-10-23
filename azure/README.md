@@ -260,8 +260,8 @@ Good to know:
 
 ## Agent Evaluator
 
-Tick **Agent Evaluator** to get the Agent Evaluation pages, from a third Power BI model (*Agent
-Evaluator*) that reads the same Azure SQL database. The jobs read the Copilot Studio conversation
+Tick **Agent Evaluator** to get a third Power BI model (*Agent Evaluator*) that reads the same
+Azure SQL database. The app's **Agents** page links to it. The jobs read the Copilot Studio conversation
 transcripts kept in Dataverse, in the Power Platform environments you pick, and parse them as the
 Fabric notebook does (see [Add Agent Evaluator](../fabric/Add%20Agent%20Evaluator/)). Pick the
 environments under **Module connections**, from the same list as on Fabric: see

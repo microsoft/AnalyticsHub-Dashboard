@@ -7,8 +7,8 @@ behind the assumptions.
 It applies to the Fabric and Azure paths here, and to the Power BI templates in
 [ValueLens](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot) (paths 3 Power Automate +
 Dataverse, 4 SharePoint and 5 Local CSV), which share one model. It also applies to the
-[Fabric App](../app/). The app reads the same model and adds three pages and a Value
-stage of its own ([§8](#8-fabric-app-only-consumption-agent-evaluation-cost-vs-value-and-work-patterns)). Every rule here is taken from
+[Fabric App](../app/). The app reads the same model and adds two pages and a Value
+stage of its own ([§8](#8-fabric-app-only-consumption-cost-vs-value-and-work-patterns)). Every rule here is taken from
 `fabric/ValueLens - Fabric.pbit` and the `Copilot_Audit_Log_Processor` notebook. If this page
 and the model ever disagree, the model is right. The template's **📖 Metric Glossary** page
 carries the same caveats inside the report.
@@ -25,7 +25,7 @@ carries the same caveats inside the report.
 5. [Estimated value](#5-estimated-value)
 6. [Page by page](#6-page-by-page)
 7. [Settings you can change](#7-settings-you-can-change)
-8. [Fabric App only: Consumption, Agent Evaluation, Cost vs value and Work patterns](#8-fabric-app-only-consumption-agent-evaluation-cost-vs-value-and-work-patterns)
+8. [Fabric App only: Consumption, Cost vs value and Work patterns](#8-fabric-app-only-consumption-cost-vs-value-and-work-patterns)
 9. [Known limits](#9-known-limits)
 10. [Appendix: time bands and sources](#appendix-time-bands-and-sources)
 
@@ -667,12 +667,12 @@ The Fabric App gathers the report's pages into eight of its thirteen pages:
 | Adoption | Activation, Adoption, Habit Formation, Trend Heatmap |
 | Value | Task Breakdown, Estimated Value, plus Cost vs value, which is app only ([§8.3](#83-cost-vs-value)) |
 | Efficiency | Cowork Fit, Model Fit |
-| Leaderboards | Leaderboard, plus the most-used agents |
+| Agents | Leaderboard's agents, plus agent use by week and by type. The people ranking stays in the report; Adoption shows how concentrated sessions are |
 | Readiness | License Readiness, License Allocation, Cowork Readiness |
 | Governance | Agent Registry, plus exposure, accountability, a review queue and Shadow AI from the optional Defender source, which are app only ([Governance](#governance-which-agents-need-a-review), [Shadow AI](#shadow-ai-what-other-ai-tools-are-in-use)) |
 | Feedback | User Feedback |
 | Appendix | Glossary, Signal → Impact |
-| Consumption, Agent Evaluation, Work patterns | App only ([§8](#8-fabric-app-only-consumption-agent-evaluation-cost-vs-value-and-work-patterns)) |
+| Consumption, Work patterns | App only ([§8](#8-fabric-app-only-consumption-cost-vs-value-and-work-patterns)) |
 | Assumptions | App only: the task times behind every hours figure, which you can change ([§7](#7-settings-you-can-change)) |
 
 ### Activation: who has started?
@@ -726,6 +726,8 @@ user) by organisation over time.
   automated sessions are excluded, because they would top every list.
 - **Agents** are ranked by users and sessions, with their registry descriptions. The LOB and Shared
   copies of one Copilot Studio agent are one agent here ([§2.2](#22-how-agents-are-linked-to-the-registry)).
+  The app's **Agents** page ranks them the same way and lists the top 200; its export holds up to
+  1,000.
 
 ### Agent Registry: what agents exist, and are they used?
 
@@ -920,10 +922,10 @@ saves exports emailed to an admin into that folder. With no export, the page sta
 
 ---
 
-## 8. Fabric App only: Consumption, Agent Evaluation, Cost vs value and Work patterns
+## 8. Fabric App only: Consumption, Cost vs value and Work patterns
 
-The Consumption and Agent Evaluation pages read optional models, not ValueLens. Each appears only
-when its model is connected in `fabric.yaml`. Cost vs value, at the end of the Value page, sets
+The Consumption page reads an optional model, not ValueLens. It appears only when that model is
+connected in `fabric.yaml`. Cost vs value, at the end of the Value page, sets
 ValueLens's estimated value against costs, most of them from Consumption Central. Work patterns
 reads an optional table the installer adds to the ValueLens model.
 
@@ -961,11 +963,12 @@ to project (under three days in); on track; at risk, with the date spend would p
 over, with the date it passed. With no budget, it shows the projected month-end only. This is a
 straight line, not a forecast: it ignores seasonality, packs running out and price changes.
 
-### 8.2 Agent Evaluation
+### 8.2 Agent Evaluator
 
-Reads a published [Agent Evaluator](https://github.com/microsoft/AgentEvaluator-for-Copilot-Studio)
-model. That model is built from Copilot Studio conversation transcripts in Dataverse. The app shows
-aggregates and feedback comments only. It never shows the conversations.
+[Agent Evaluator](https://github.com/microsoft/AgentEvaluator-for-Copilot-Studio) is its own model
+and Power BI report, built from Copilot Studio conversation transcripts in Dataverse. The app runs
+no queries on it: when it is connected, an agent's details on the **Agents** page link to it. Its
+main measures:
 
 | Measure | Definition |
 |---|---|
@@ -1090,25 +1093,20 @@ category or period, a tie for the lead, a zero or negative total, or fewer than 
 a share or a ranking. A peak is never compared with the period before, because the latest period
 may be incomplete.
 
-### 8.6 Concentration, value by habit and agent spotlights
+### 8.6 Concentration and value by habit
 
-- **Concentration** (Leaderboards, Consumption's Copilot Studio section, Value) ranks people by one
+- **Concentration** (Adoption, Consumption's Copilot Studio section, Value) ranks people by one
   measure and shows the share of the total taken by the top 1%, 5% and 25%. Consumption and Value
-  add a Pareto curve of cumulative share against cumulative people. Leaderboards shows only the
+  add a Pareto curve of cumulative share against cumulative people. Adoption shows only the
   three callouts, without the curve, and its query works out only those three slices. On
-  Leaderboards the measure is sessions under the page filters. On Consumption it is Copilot Studio
-  credits this month. On Value it is expert-equivalent hours in the last full month. A slice is the
+  Adoption the measure is sessions under the page filters, for the selected cohort. On Consumption
+  it is Copilot Studio credits this month. On Value it is expert-equivalent hours in the last full month. A slice is the
   top *pct × people*, rounded up, and its share is shown only when it covers at least five people.
 - **Value by habit** (Value) puts each person active in the last full month into a habit group by
   their active days (Power 16+, Habitual 11–15, Developing 6–10, Beginner 1–5), then shows each
   group's expert-equivalent hours per person that month under the selected effort scenario. A
   group under five people isn't shown.   It's a comparison, not a cause: more active days means more
     activity to count.
-- **Agent spotlights** (Leaderboards) name the agent with the most sessions, the one used by
-  the most job functions (distinct non-blank `Function` values in the org directory, among the
-  people behind its sessions), and the one reached across the most organisations. Ties name up to
-  two agents and count the rest. The job-functions and organisations cards are hidden below two,
-  and the job-functions card is hidden when the directory has no functions.
 
 ### 8.7 Data freshness and chart actions
 

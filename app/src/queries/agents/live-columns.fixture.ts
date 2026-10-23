@@ -23,6 +23,7 @@ export const liveColumns = {
         "[Agent User Share]",
         "[Agent Sessions]",
         "[Sessions Per User]",
+        "[Sessions Per User Per Week]",
     ],
     agentUsage: ["[Agent]", "[Sessions]", "[Users]", "[Organizations]"],
     agentEstateSummary: [
@@ -93,5 +94,9 @@ export const liveColumns = {
     ],
     // Authored from the model's measure definitions, not captured live: no published model was
     // reachable when these were written.
-    agentFunctions: ["[Agent]", "[Registry Id]", "[Agent Key]", "[Functions]", "[Leader Count]"],
+    // Authored from the model's measure definitions for the Agents page; not captured live.
+    agentWeekly: ["Chat + Agent Interactions (Audit Logs)[WeekStart]", "[Agent Users]", "[Agent Sessions]"],
+    agentTypes: ["[Type]", "[People]", "[Sessions]"],
+    agentTrend: ["Chat + Agent Interactions (Audit Logs)[WeekStart]", "[Users]", "[Sessions]"],
+    agentOrgs: ["Chat + Agent Org Data[Organization]", "[Users]", "[Sessions]"],
 } as const;

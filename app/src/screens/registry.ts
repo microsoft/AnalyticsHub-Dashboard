@@ -12,7 +12,7 @@ import type { DestinationId } from "@/components/destinations";
 export const SCREENS: Readonly<Record<DestinationId, ComponentType>> = {
     executive: lazy(() => import("./executive").then((module) => ({ default: module.ExecutiveScreen }))),
     adoption: lazy(() => import("./adoption").then((module) => ({ default: module.AdoptionScreen }))),
-    leaderboards: lazy(() => import("./leaderboards").then((module) => ({ default: module.LeaderboardsScreen }))),
+    agents: lazy(() => import("./agents").then((module) => ({ default: module.AgentsScreen }))),
     "work-patterns": lazy(() => import("./work-patterns").then((module) => ({ default: module.WorkPatternsScreen }))),
     readiness: lazy(() => import("./readiness").then((module) => ({ default: module.ReadinessScreen }))),
     consumption: lazy(() => import("./consumption").then((module) => ({ default: module.ConsumptionScreen }))),
@@ -20,9 +20,6 @@ export const SCREENS: Readonly<Record<DestinationId, ComponentType>> = {
     efficiency: lazy(() => import("./efficiency").then((module) => ({ default: module.EfficiencyScreen }))),
     feedback: lazy(() => import("./feedback").then((module) => ({ default: module.FeedbackScreen }))),
     ask: lazy(() => import("./ask").then((module) => ({ default: module.AskScreen }))),
-    "agent-evaluation": lazy(() =>
-        import("./agent-evaluation").then((module) => ({ default: module.AgentEvaluationScreen })),
-    ),
     governance: lazy(() => import("./governance").then((module) => ({ default: module.GovernanceScreen }))),
     assumptions: lazy(() => import("./assumptions").then((module) => ({ default: module.AssumptionsScreen }))),
     appendix: lazy(() => import("./appendix").then((module) => ({ default: module.AppendixScreen }))),

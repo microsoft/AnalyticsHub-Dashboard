@@ -440,6 +440,14 @@ describe("parseSemanticModels", () => {
         })).toEqual({ ae: { workspaceId: "w", itemId: "i" } });
     });
 
+    it("keeps a report on the model only when its ID is a GUID", () => {
+        const reportId = "33333333-3333-3333-3333-333333333333";
+        expect(parseSemanticModels({ semanticModels: { ae: { workspaceId: "w", itemId: "i", reportId: ` ${reportId} ` } } }))
+            .toEqual({ ae: { workspaceId: "w", itemId: "i", reportId } });
+        expect(parseSemanticModels({ semanticModels: { ae: { workspaceId: "w", itemId: "i", reportId: "report" } } }))
+            .toEqual({ ae: { workspaceId: "w", itemId: "i" } });
+    });
+
     describe("parseModules", () => {
         it("keeps the optional installer module choices", () => {
             expect(parseModules(deployedModels)).toEqual(deployedModels.modules);

@@ -19,7 +19,7 @@ import { agentEvaluatorModelDeployed, clearPending, consumptionModelDeployed, cr
 export const APP_ALIAS = 'vl';
 /** The alias the app's credit consumption pages query (`consumptionConnection` in the app). */
 export const CONSUMPTION_ALIAS = 'cc';
-/** The alias the app's agent evaluation pages query (`evaluatorConnection` in the app). */
+/** The alias of the Agent Evaluator model, which the app's Agents page links to (`evaluatorConnection` in the app). */
 export const EVALUATOR_ALIAS = 'ae';
 export const RAYFIN_CLI = join('node_modules', '@microsoft', 'rayfin-cli', 'scripts', 'main');
 export const DATA_CLI = join('node_modules', '@microsoft', 'fabric-app-data-cli', 'dist', 'cli.js');
@@ -229,8 +229,8 @@ export const appModels = (config) => [
   ...(agentEvaluatorModelDeployed(config) ? [EVALUATOR_ALIAS] : []),
 ];
 
-/** Pages each optional alias adds to the app. */
-const ALIAS_PAGES = { [CONSUMPTION_ALIAS]: 'credit consumption', [EVALUATOR_ALIAS]: 'agent evaluation' };
+/** What each optional alias adds to the app. */
+const ALIAS_PAGES = { [CONSUMPTION_ALIAS]: 'the credit consumption pages', [EVALUATOR_ALIAS]: 'the Agent Evaluator link' };
 
 /**
  * Gives the app item the name in `rayfin.yml` when it still has Rayfin's default (the app id) or
@@ -264,7 +264,7 @@ async function nameApp(ctx, ws, itemId, current) {
 export function pagesChange(before, after) {
   const added = after.filter((a) => !before.includes(a)).map((a) => ALIAS_PAGES[/** @type {keyof typeof ALIAS_PAGES} */ (a)]).filter(Boolean);
   const removed = before.filter((a) => !after.includes(a)).map((a) => ALIAS_PAGES[/** @type {keyof typeof ALIAS_PAGES} */ (a)]).filter(Boolean);
-  const pages = (/** @type {string[]} */ p) => `the ${p.join(' and ')} pages`;
+  const pages = (/** @type {string[]} */ p) => p.join(' and ');
   return [added.length ? `add ${pages(added)}` : '', removed.length ? `remove ${pages(removed)}` : ''].filter(Boolean).join(' and ') || 'match its models';
 }
 

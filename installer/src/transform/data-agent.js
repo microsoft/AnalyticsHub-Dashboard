@@ -166,9 +166,8 @@ export const MODEL_DESCRIPTIONS = /** @type {Record<ModelAlias, string>} */ ({
 const PAGE_LABELS = /** @type {Record<string, string>} */ ({
   executive: 'Executive summary',
   adoption: 'Adoption',
-  leaderboards: 'Leaderboards',
+  agents: 'Agents',
   'work-patterns': 'Work patterns',
-  'agent-evaluation': 'Agent evaluation',
   governance: 'Governance',
   readiness: 'Readiness',
   consumption: 'Consumption',

@@ -115,8 +115,8 @@ function cutTable(rows: unknown[][]): DataTable {
 
 /**
  * The cut rows the concentration queries return, worked out as their DAX
- * does: the counts each slice and, unless `curve` is false as on
- * Leaderboards, each curve point could round to, and for each the sum of
+ * does: the counts each slice and, unless `curve` is false as for
+ * Adoption's top slices, each curve point could round to, and for each the sum of
  * TOPN's rows, which keeps every tie at the cut, less the ties past it. Sum
  * strict winners plus the required boundary ties to avoid cancellation when
  * a large tied population shares a small decimal value.
@@ -248,9 +248,9 @@ describe("concentration from the model", () => {
         expect(tail(habitQuery)).toBe(tail(studioQuery));
     });
 
-    // Leaderboards shows the top slices without a curve, so its query keeps
+    // Adoption shows the top slices without a curve, so its query keeps
     // only their cuts, each summed by the same lines as the curve queries'.
-    it("works out Leaderboards' top slices as the curve queries do, without the curve", () => {
+    it("works out Adoption's top slices as the curve queries do, without the curve", () => {
         const code = (query: string) => {
             const lines = query.replace(/\r\n/g, "\n").split("\n").map((line) => line.trim());
             const body = lines.filter((line) => !/^(\/\/|--)/.test(line));

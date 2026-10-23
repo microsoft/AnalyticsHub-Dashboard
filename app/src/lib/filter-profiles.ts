@@ -17,7 +17,7 @@ import {
     type FilterKey,
     type FilterState,
 } from "./filters";
-import { describeOrgAttribute, orgColumnRef } from "./org-attribute";
+import { describeOrgAttribute } from "./org-attribute";
 
 /**
  * How one query takes the filter bar. For each filter it either gives the
@@ -182,37 +182,6 @@ function ownDates(model: string, rule: (range: DateRange) => string): FilterRule
     };
 }
 
-// ── Agent Evaluator ──────────────────────────────────────────────────────
-
-/** The org columns the Agent Evaluator's own copy of the org data holds. */
-export const EVALUATOR_ORG_COLUMNS: readonly string[] = [
-    "Organization",
-    "officeLocation",
-    "Function",
-    "Location",
-    "JobTitle",
-    "country",
-    "companyName",
-    "usageLocation",
-    "displayName",
-];
-
-/**
- * The Agent Evaluator model, which shares the Calendar and org table names
- * with ValueLens. Its own slicers are applied with these, so both narrow.
- */
-export const EVALUATOR: FilterProfile = {
-    dateRange: ownDates("the Agent Evaluator", (range) => dateBetween(FILTER_COLUMNS.date, range.from, range.to)),
-    organizations: (state) =>
-        EVALUATOR_ORG_COLUMNS.includes(state.orgAttribute)
-            ? treatAs(orgColumnRef(state.orgAttribute), state.organizations)
-            : notApplied(`the Agent Evaluator model has no ${describeOrgAttribute(state.orgAttribute).noun} column.`),
-    licence: notApplied("the Agent Evaluator model doesn't record licenses."),
-    audience: notApplied("the Agent Evaluator model holds agent conversations only."),
-    agentTypes: notApplied("the Agent Evaluator model doesn't record agent types."),
-    agentNames: notApplied("the Agent Evaluator names agents differently; use this page's Agent slicer."),
-};
-
 // ── Consumption Central ──────────────────────────────────────────────────
 
 /**
@@ -350,9 +319,6 @@ export const CONSUMPTION_AZURE: FilterProfile = {
 export const CONSUMPTION_METADATA: FilterProfile = unfiltered("it describes what Consumption Central holds.");
 
 const OTHER_MODEL: FilterProfile = unfiltered("this model has no matching column.");
-
-/** What the Agent Evaluator model holds — dates, agents, environments — rather than conversations. */
-export const EVALUATOR_METADATA: FilterProfile = unfiltered("it describes what the Agent Evaluator model holds.");
 
 /** The profile a query without its own takes: every filter on ValueLens, none elsewhere. */
 export function defaultProfile(connection: string, valueLensConnection: string): FilterProfile {

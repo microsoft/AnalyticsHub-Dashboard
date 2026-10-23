@@ -8,7 +8,7 @@
 import { describe, expect, it } from "vitest";
 import { destinations } from "@/components/destinations";
 import { MIN_PEOPLE } from "@/lib/headline";
-import { consumptionConnection, evaluatorConnection, connection } from "@/queries/shared";
+import { consumptionConnection, connection } from "@/queries/shared";
 import { askCatalogue } from "./catalogue";
 
 const queries = import.meta.glob<string>("../queries/**/*.dax", { query: "?raw", import: "default", eager: true });
@@ -20,7 +20,6 @@ const ISSUE_PROMPTS = [
     "Which tasks deliver the most expert-equivalent hours?",
     "Where are we using a premium model for simple work?",
     "Which agents have no active owner?",
-    "Which agent topics answer worst?",
 ];
 
 describe("ask catalogue", () => {
@@ -51,7 +50,7 @@ describe("ask catalogue", () => {
     });
 
     it("points every tool at a query the app runs, on a model it knows", () => {
-        const aliases = new Set([connection, consumptionConnection, evaluatorConnection]);
+        const aliases = new Set([connection, consumptionConnection]);
         for (const tool of askCatalogue.tools) {
             const text = queries[`../queries/${tool.query}`];
             expect(text, tool.query).toBeTypeOf("string");

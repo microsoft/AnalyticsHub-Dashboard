@@ -10,6 +10,7 @@ profiles:
       cc:
         workspaceId: "<Consumption Central workspace ID>"
         itemId: "<Consumption Central semantic model ID>"
+      # Optional. The app runs no queries on it: the Agents page links to it.
       ae:
         workspaceId: "<Agent Evaluator workspace ID>"
         itemId: "<Agent Evaluator semantic model ID>"

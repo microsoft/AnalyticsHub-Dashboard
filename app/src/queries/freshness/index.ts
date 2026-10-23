@@ -7,7 +7,6 @@
 
 export * from "./audit-log-freshness";
 export * from "./consumption-freshness";
-export * from "./evaluator-freshness";
 export * from "./load-status";
 export * from "./m365-activity-freshness";
 export * from "./product-feedback-freshness";

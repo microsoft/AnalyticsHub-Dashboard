@@ -4,7 +4,9 @@
 //        Licensed under the MIT license. See LICENSE file in the project root for full license information.
 // </copyright>
 //-----------------------------------------------------------------------
-import { runtimeConfig } from "@/lib/runtime-config";
+import { isConnectionConfigured } from "@/lib/connections";
+import { runtimeConfig, type RuntimeConfig } from "@/lib/runtime-config";
+import { evaluatorConnection } from "@/queries/shared";
 
 export interface FabricItemLinkConfig {
     portalUrl?: string;
@@ -16,7 +18,7 @@ export interface FabricItemLinkConfig {
     /** Link shape to build. */
     host?: "fabric" | "azure";
     /** The portal's path segment for the item type: the app item by default. */
-    itemType?: "appbackends" | "aiskills";
+    itemType?: "appbackends" | "aiskills" | "datasets" | "reports";
 }
 
 const MSIT_HOSTING = /\.msit\.fabricapps\.net$/i;
@@ -73,4 +75,45 @@ export function dataAgentUrl(agent: { workspaceId: string; itemId: string }, con
     if (config.host === "azure")
         return null;
     return fabricItemUrl({ ...config, ...agent, itemType: "aiskills" });
+}
+
+/**
+ * A semantic model's details page, from which its reports open: on the
+ * portal the app item lives on, or in Power BI for the Azure host.
+ */
+export function semanticModelUrl(model: { workspaceId: string; itemId: string }, config: FabricItemLinkConfig = fromRuntime()): string | null {
+    if (config.host === "azure")
+        return fabricItemUrl({ host: "azure", ...model });
+    const url = fabricItemUrl({ ...config, ...model, itemType: "datasets" });
+    if (!url)
+        return null;
+    const parsed = new URL(url);
+    parsed.pathname = `${parsed.pathname}/details`;
+    return parsed.toString();
+}
+
+/** A Power BI report: on the portal the app item lives on, or in Power BI for the Azure host. */
+export function reportUrl(report: { workspaceId: string; itemId: string }, config: FabricItemLinkConfig = fromRuntime()): string | null {
+    if (config.host === "azure")
+        return `https://app.powerbi.com/groups/${encodeURIComponent(report.workspaceId)}/reports/${encodeURIComponent(report.itemId)}`;
+    return fabricItemUrl({ ...config, ...report, itemType: "reports" });
+}
+
+/**
+ * The Agent Evaluator report the installer published, when the config names
+ * one, or else its model. The app doesn't query either; the Agents page only
+ * links to it.
+ */
+export function agentEvaluatorUrl(
+    runtime: Pick<RuntimeConfig, "semanticModels" | "modules"> = runtimeConfig(),
+    config: FabricItemLinkConfig = fromRuntime(),
+): string | null {
+    if (runtime.modules?.agentEvaluator === false || !isConnectionConfigured(runtime.semanticModels, evaluatorConnection))
+        return null;
+    const { workspaceId, itemId, reportId } = runtime.semanticModels[evaluatorConnection] ?? {};
+    if (!workspaceId || !itemId)
+        return null;
+    return reportId
+        ? reportUrl({ workspaceId: workspaceId.trim(), itemId: reportId.trim() }, config)
+        : semanticModelUrl({ workspaceId: workspaceId.trim(), itemId: itemId.trim() }, config);
 }

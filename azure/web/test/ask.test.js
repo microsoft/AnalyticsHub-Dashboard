@@ -84,7 +84,8 @@ test('Ask answers with the catalogue queries it ran, as the user, with small gro
   assert.match(ai[0].body.messages[0].content, /fewer than 5 people/);
   const names = ai[0].body.tools.map((t) => t.function.name);
   assert.ok(names.includes('activation_by_org') && names.includes('cowork_credits'));
-  assert.ok(!names.includes('agent_performance'), 'tools on a model this install lacks are not offered');
+  const catalogue = await loadAskCatalogue();
+  assert.deepEqual(names.sort(), catalogue.tools.filter((t) => t.model in MODELS).map((t) => t.name).sort(), 'only tools on a model this install has are offered');
 
   assert.equal(pbi.length, 1);
   assert.equal(pbi[0].auth, 'Bearer obo-token');

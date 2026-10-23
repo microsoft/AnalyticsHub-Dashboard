@@ -18,10 +18,9 @@ Screenshots use synthetic data. Every name in them is invented.
 | [Value](#value) | What was the work, and what was it worth? |
 | [Consumption](#consumption) | What credits did we use, and what did they cost? |
 | [Efficiency](#efficiency) | Is the right tool doing the job? |
-| [Leaderboards](#leaderboards) | Which people and agents do the most? |
+| [Agents](#agents) | Which agents do people use, and what is each one for? |
 | [Work patterns](#work-patterns) | How do people work across Microsoft 365, and where does Copilot fit? |
 | [Readiness](#readiness) | Who should get a licence next, and who is ready for Cowork? |
-| [Agent Evaluation](#agent-evaluation) | How well do our agents answer, and where do they fall short? |
 | [Governance](#governance) | Who owns our agents, who can reach them, and what needs a review? |
 | [Feedback](#feedback) | What do people say about it? |
 | [Assumptions](#assumptions) | How long would each task take without Copilot? |
@@ -57,7 +56,7 @@ Central when it's installed. **Filters:** dates, organisation.
 | Section | What it shows |
 |---|---|
 | Activation | How much of the population has picked Copilot up at all |
-| Adoption | How often active people come back, the same way across every surface |
+| Adoption | How often active people come back, the same way across every surface, and how much of the use the top 1%, 5% and 25% of people account for |
 | Habit formation | Where people sit on the ladder from licensed but idle to daily use |
 | Trend heatmap | Where and when use is concentrating or fading, week by week |
 
@@ -111,19 +110,24 @@ answer. **Filters:** all.
 | Model fit | Whether the model doing the work suits it |
 | How grading works | The rules behind both grades |
 
-## Leaderboards
+## Agents
 
-![Leaderboards](../media/pages/leaderboards.png)
+![Agents](../media/pages/agents.png)
 
-**Answers:** which people and agents do the most.
+**Answers:** which agents people use, how often, and what each one is for.
 
-**Reads:** the audit log, org data and the Agent 365 registry (for the agent columns).
-**Filters:** all.
+**Reads:** the audit log, org data and the Agent 365 registry (for the registered count, agent
+types and the agent columns). **Filters:** all.
 
-| Section | What it shows |
+| Part | What it shows |
 |---|---|
-| Leaderboard | Who uses Copilot most, and for what, ranked by sessions |
-| Agents | Which agents people actually use, and what each one is for |
+| Headline | Agents in use (and registered), people using agents, agent sessions, and sessions per person per week |
+| People using agents, weekly | Distinct people who used any agent each week |
+| People by agent type | People by the type of agent they used, when the registry is connected |
+| Agents table | The 200 most-used agents, by people then sessions. Search it, or export every match as CSV. Open a row for that agent's weekly use, top organisations and details |
+
+How well each agent answers is in [Agent Evaluator](#power-bi-reports), when that add-on is
+installed. An agent's details link to its report, or to its model when the install has no report.
 
 ## Work patterns
 
@@ -156,22 +160,6 @@ organisation.
 | License readiness | Who already reaches for Copilot without a licence, and which licences sit idle |
 | Heavy users without a licence | Last month's users, by how often they used Copilot and whether they had a licence |
 | Cowork readiness | Who to offer Cowork next, by how broad and deep their everyday use is |
-
-## Agent Evaluation
-
-*Optional: needs the Agent Evaluator add-on.*
-
-![Agent Evaluation](../media/pages/agent-evaluation.png)
-
-**Answers:** how well your Copilot Studio agents answer, and where they fall short.
-
-**Reads:** the Agent Evaluator model, built from the Copilot Studio transcripts in Dataverse. It
-never shows the conversations themselves. **Filters:** its own.
-
-| Section | What it shows |
-|---|---|
-| Performance | Conversations, how they ended, errors and hand-offs, and what people thought |
-| Conversations & topics | What people asked about, where answers came from, and what to fix first |
 
 ## Governance
 

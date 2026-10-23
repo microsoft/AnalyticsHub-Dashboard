@@ -13,7 +13,6 @@ import type { RuntimeConfig } from "@/lib/runtime-config";
 import {
     auditLogFreshness,
     consumptionFreshness,
-    evaluatorFreshness,
     m365ActivityFreshness,
 } from "@/queries/freshness";
 import { SourceAvailabilityContext } from "./source-availability.context";
@@ -90,10 +89,9 @@ describe("useSourceFreshness", () => {
 
     it("asks nothing of a model this install hasn't connected", () => {
         config.current = { semanticModels: { vl: model } };
-        const { result } = renderHook(() => useSourceFreshness(["cowork", "agentEvaluation"]), { wrapper: wrapper(ALL_UNKNOWN) });
+        const { result } = renderHook(() => useSourceFreshness(["cowork"]), { wrapper: wrapper(ALL_UNKNOWN) });
         expect(ranQueries()).toEqual([]);
         expect(result.current.cowork).toBeUndefined();
-        expect(result.current.agentEvaluation).toBeUndefined();
     });
 
     it("asks nothing of a source that has no data or was left out", () => {
@@ -105,9 +103,9 @@ describe("useSourceFreshness", () => {
     });
 
     it("hides a failed query rather than reporting it", () => {
-        answers[evaluatorFreshness().query] = { status: "error" };
-        const { result } = renderHook(() => useSourceFreshness(["agentEvaluation"]), { wrapper: wrapper(ALL_UNKNOWN) });
-        expect(result.current.agentEvaluation).toBeUndefined();
+        answers[m365ActivityFreshness().query] = { status: "error" };
+        const { result } = renderHook(() => useSourceFreshness(["m365Activity"]), { wrapper: wrapper(ALL_UNKNOWN) });
+        expect(result.current.m365Activity).toBeUndefined();
     });
 
     it("reads each source once a session", () => {

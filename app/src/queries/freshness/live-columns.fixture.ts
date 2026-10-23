@@ -16,5 +16,4 @@ export const liveColumns = {
     productFeedbackFreshness: ["[Last Date]"],
     registryFreshness: ["[Last Date]"],
     consumptionFreshness: ["[Cowork Last Date]", "[Studio Last Date]", "[Azure Last Date]"],
-    evaluatorFreshness: ["[Last Date]"],
 } as const;

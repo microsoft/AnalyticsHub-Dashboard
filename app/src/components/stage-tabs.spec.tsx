@@ -81,7 +81,7 @@ describe("openStage", () => {
     });
 
     it("falls back to the first built stage for a stage from elsewhere", () => {
-        expect(openStage(adoption, "leaderboard")).toBe(openStage(adoption));
+        expect(openStage(adoption, "agents")).toBe(openStage(adoption));
     });
 
     it("has nothing to open when no stage is built", () => {

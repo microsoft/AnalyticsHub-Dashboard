@@ -197,7 +197,7 @@ export function readConcentration(table: DataTable | undefined): Concentration |
  * The top slices alone, from cut rows like {@link readConcentration}'s. The
  * rows need hold only the slices' counts, not the curve's, and each slice
  * comes out as {@link readConcentration} gives it for the same people.
- * Leaderboards reads its rows this way.
+ * Adoption's top 1/5/25% reads its rows this way.
  */
 export function readConcentrationSlices(table: DataTable | undefined): ConcentrationSlices | undefined {
     const cuts = readCuts(table);

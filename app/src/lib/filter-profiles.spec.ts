@@ -12,7 +12,6 @@ import {
     CONSUMPTION_STUDIO_AGENT,
     consumptionOrgAttribute,
     defaultProfile,
-    EVALUATOR,
     FEEDBACK,
     groupNotFiltered,
     notApplied,
@@ -65,8 +64,7 @@ describe("profiles", () => {
             VALUE_LENS,
             FEEDBACK,
             REGISTRY,
-            EVALUATOR,
-            CONSUMPTION_REPORTING,
+                    CONSUMPTION_REPORTING,
             CONSUMPTION_COWORK,
             CONSUMPTION_STUDIO_AGENT,
         ]) {
@@ -81,12 +79,6 @@ describe("profiles", () => {
         expect(expressions[0]).toContain("'Agents 365'[Agent name]");
         expect(expressions[0]).toContain("'ProductFeedback'[AgentName]");
         expect(expressions[1]).toContain("'ProductFeedback'[AgentName]");
-    });
-
-    it("filters the Agent Evaluator's org data only where it holds the column", () => {
-        expect(resolveFilters(EVALUATOR, ACTIVE, ["organizations"]).expressions).toHaveLength(1);
-        const other = { ...ACTIVE, orgAttribute: "CostCenter" };
-        expect(resolveFilters(EVALUATOR, other, ["organizations"]).notFilteredBy).toHaveLength(1);
     });
 
     it("leaves a model other than ValueLens unfiltered unless the query says how", () => {
@@ -159,8 +151,8 @@ describe("resolveFilters under the tenant's default dates", () => {
         expect(resolveFilters(FEEDBACK, tenantDefaultFilters, ["dateRange"]).expressions).toEqual([tenantDefaultDates()]);
     });
 
-    it("keeps every date on Consumption Central and the Agent Evaluator, saying so only on a large tenant", () => {
-        for (const profile of [CONSUMPTION_REPORTING, EVALUATOR]) {
+    it("keeps every date on Consumption Central, saying so only on a large tenant", () => {
+        for (const profile of [CONSUMPTION_REPORTING]) {
             const large = resolveFilters(profile, tenantDefaultFilters, ["dateRange"], { largeTenant: true });
             expect(large.expressions).toEqual([]);
             expect(large.notFilteredBy).toHaveLength(1);
@@ -173,9 +165,8 @@ describe("resolveFilters under the tenant's default dates", () => {
         }
     });
 
-    it("still applies a chosen range on Consumption Central and the Agent Evaluator", () => {
+    it("still applies a chosen range on Consumption Central", () => {
         expect(resolveFilters(CONSUMPTION_REPORTING, ACTIVE, ["dateRange"]).expressions[0]).toContain("'Reporting Date'[Date]");
-        expect(resolveFilters(EVALUATOR, ACTIVE, ["dateRange"]).expressions[0]).toContain("'Calendar'[Date] >= DATE(2026, 1, 1)");
     });
 
     it("says a stage with its own period isn't filtered by the default only on a large tenant", () => {

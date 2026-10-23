@@ -16,10 +16,14 @@ import "@/test/vega-formats";
 import type { TopLevelSpec } from "vega-lite";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { agentLifecycle } from "./agent-lifecycle";
+import { agentTypes } from "./agent-types";
 import { agentUsage } from "./agent-usage";
+import { agentWeekly } from "./agent-weekly";
 import { coworkReadinessByOrg } from "./cowork-readiness-by-org";
 import lifecycleRows from "./__fixtures__/agent-lifecycle.rows.json";
+import typeRows from "./__fixtures__/agent-types.rows.json";
 import usageRows from "./__fixtures__/agent-usage.rows.json";
+import weeklyRows from "./__fixtures__/agent-weekly.rows.json";
 import readinessRows from "./__fixtures__/cowork-readiness-by-org.rows.json";
 
 type Row = Record<string, string | number | boolean | null>;
@@ -36,7 +40,12 @@ interface Bar {
  * renamed to the cleaned `ColumnDef.name` keys `VegaVisual` hands Vega; see
  * `work-render.spec.ts` for why `renderer: "none"` is enough.
  */
-async function renderBars(spec: unknown, rows: Row[], columnMetadata: ColumnMetadataMap): Promise<Bar[]> {
+async function renderBars(
+    spec: unknown,
+    rows: Row[],
+    columnMetadata: ColumnMetadataMap,
+    marktype = "rect",
+): Promise<Bar[]> {
     const rename = new Map(Object.entries(columnMetadata).map(([daxName, column]) => [daxName, column.name]));
     const values = rows.map((row) =>
         Object.fromEntries(Object.entries(row).map(([key, value]) => [rename.get(key) ?? key, value])),
@@ -49,7 +58,7 @@ async function renderBars(spec: unknown, rows: Row[], columnMetadata: ColumnMeta
     const bars: SceneItem[] = [];
     const walk = (node: Scene | SceneItem) => {
         const scene = node as Scene;
-        if (scene.marktype === "rect") bars.push(...(scene.items as SceneItem[]));
+        if (scene.marktype === marktype) bars.push(...(scene.items as SceneItem[]));
         for (const item of (scene.items ?? []) as (Scene | SceneItem)[]) {
             if ((item as Scene).marktype || (item as { items?: unknown }).items) walk(item);
         }
@@ -152,5 +161,36 @@ describe("cowork readiness by organization renders", () => {
 
         expectDrawable(bars, rows.length);
         expectProportional(bars, "Surfaces Per Day");
+    });
+});
+
+describe("agent types render", () => {
+    const rows = typeRows as Row[];
+
+    it("draws one bar per type, sized by people, the most-used type on top", async () => {
+        const { vegaLiteSpec, columnMetadata } = agentTypes();
+        const bars = await renderBars(vegaLiteSpec, rows, columnMetadata);
+
+        expectDrawable(bars, rows.length);
+        expectProportional(bars, "People");
+        const top = bars.reduce((first, bar) => (bar.bounds.y1 < first.bounds.y1 ? bar : first));
+        expect(top.datum.People).toBe(Math.max(...rows.map((row) => row["[People]"] as number)));
+    });
+});
+
+describe("people using agents weekly renders", () => {
+    const rows = weeklyRows as Row[];
+
+    it("plots one point per week, left to right, higher for more people", async () => {
+        const { vegaLiteSpec, columnMetadata } = agentWeekly();
+        const points = await renderBars(vegaLiteSpec, rows, columnMetadata, "symbol");
+
+        expect(points).toHaveLength(rows.length);
+        const xs = points.map((point) => (point as unknown as { x: number }).x);
+        expect(xs.every((x, index) => Number.isFinite(x) && (index === 0 || x > xs[index - 1]))).toBe(true);
+        const ys = new Map(points.map((point) => [point.datum["Agent Users"] as number, (point as unknown as { y: number }).y]));
+        const most = Math.max(...ys.keys());
+        const least = Math.min(...ys.keys());
+        expect(ys.get(most)!).toBeLessThan(ys.get(least)!);
     });
 });
