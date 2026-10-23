@@ -13,6 +13,8 @@ import { runWizard } from './server.js';
 import { loadSources } from './sources.js';
 import { azureUploadError } from './steps/data-sources.js';
 import { recordWorkspaceGone, staleRecordMessage } from './steps/fabric.js';
+import { SQL_SCALE_UP_COST, sqlFlagFabricError } from './steps/azure/index.js';
+import { AZURE_LARGE_TENANT_SQL_VCORES } from './seats.js';
 import { isResumeLater, MAX_SECRET_DAYS, NOTEBOOK_SECRET_DAYS } from './steps/identity.js';
 import { isManagementGroupId, managementGroupId } from './steps/resource-graph.js';
 import { isVivaId } from './transform/dataflow.js';
@@ -105,6 +107,11 @@ Options:
                        read it. Same as --secret-in-notebook.
   --key-vault          With install: keep the client secret in Azure Key Vault instead, so workspace
                        roles don't expose it. Needed with --yes to choose Key Vault for a new install.
+  --sql-scale-up       With install, Azure: let Azure SQL carry on past the free offer's monthly
+                       allowance and scale up to ${AZURE_LARGE_TENANT_SQL_VCORES} vCores (about ${SQL_SCALE_UP_COST} a month). Needed with
+                       --yes for a new install of a large organisation. Later runs keep the choice
+  --sql-free-offer     With install, Azure: keep the free Azure SQL offer. When the month's allowance
+                       runs out, the database pauses, and the jobs stop, until next month
   --secret-days <n>    With install or rotate-secret, and no Key Vault: how many days the secret in
                        the notebooks lasts, 1 to ${MAX_SECRET_DAYS} (default ${NOTEBOOK_SECRET_DAYS}). Each install, repair or update
                        replaces it.
@@ -161,6 +168,8 @@ export function parseCli(argv, env = process.env) {
       'secret-in-notebook': { type: 'boolean' },
       'no-key-vault': { type: 'boolean' },
       'key-vault': { type: 'boolean' },
+      'sql-scale-up': { type: 'boolean' },
+      'sql-free-offer': { type: 'boolean' },
       'secret-days': { type: 'string' },
       'allow-model-reset': { type: 'boolean' },
       help: { type: 'boolean', short: 'h' },
@@ -180,6 +189,11 @@ export function parseCli(argv, env = process.env) {
   if (values['key-vault'] && command !== 'install') throw new Error('--key-vault goes with install.');
   if (values['key-vault'] && values.target === 'azure') throw new Error('--key-vault is for the Fabric target only.');
   if (values['key-vault'] && noVaultFlag) throw new Error(`--key-vault can't go with ${noVaultFlag}.`);
+  const sqlFlag = values['sql-scale-up'] ? '--sql-scale-up' : values['sql-free-offer'] ? '--sql-free-offer' : undefined;
+  if (values['sql-scale-up'] && values['sql-free-offer']) throw new Error('Choose one of --sql-scale-up and --sql-free-offer.');
+  if (sqlFlag && command !== 'install') throw new Error(`${sqlFlag} goes with install.`);
+  if (sqlFlag && values.target === 'fabric') throw new Error(`${sqlFlag} is for the Azure target only.`);
+  if (sqlFlag && values.ui) throw new Error(`With --ui, choose Azure SQL compute in Azure placement. Leave out ${sqlFlag}.`);
   /** @type {number | undefined} */
   let secretDays;
   if (values['secret-days'] !== undefined) {
@@ -272,6 +286,7 @@ export function parseCli(argv, env = process.env) {
     checkAudit: !!values['check-audit'],
     secretInNotebook: !!noVaultFlag,
     useKeyVault: !!values['key-vault'],
+    sqlScaleUp: values['sql-scale-up'] ? true : values['sql-free-offer'] ? false : undefined,
     secretDays,
     allowModelReset: !!values['allow-model-reset'],
     help: !!values.help,
@@ -367,6 +382,7 @@ export async function main(argv) {
     const existed = loaded.existed;
     if (args.target) config.target = args.target;
     if (args.csvFiles.length && config.target === 'azure') throw azureUploadError(config, '--csv');
+    if (args.sqlScaleUp !== undefined && config.target === 'fabric') throw new Error(sqlFlagFabricError(args.sqlScaleUp));
     const sources = loadSources(args.sourceDir);
     applyDataFlags(config, args);
 
@@ -399,6 +415,7 @@ export async function main(argv) {
     ctx.csvFiles = args.csvFiles;
     if (args.secretInNotebook) ctx.secretInNotebook = true;
     if (args.useKeyVault) ctx.useKeyVault = true;
+    if (args.sqlScaleUp !== undefined) ctx.sqlChoice = args.sqlScaleUp;
     if (args.allowModelReset) ctx.allowModelReset = true;
   if (args.checkAudit) ctx.checkAudit = true;
     if (args.secretDays) config.app.secretDays = args.secretDays;

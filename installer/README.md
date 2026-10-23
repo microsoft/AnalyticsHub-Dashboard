@@ -191,24 +191,36 @@ names.
 
 ### A large tenant on Azure
 
-On a tenant with more than 10,000 Copilot seats, setup sizes Azure for the tenant and asks before
-anything costs more:
+**Azure placement** starts with **About how many people work in your organisation?**, filled in
+from the people the installer counted (see [A large tenant](#a-large-tenant)). With **More than
+10,000**, setup sizes Azure for the tenant and asks before anything costs more:
 
 - **Power BI capacity.** Setup recommends F64 or larger and suggests the first active capacity that
   size. It warns when the semantic model would sit on shared capacity, where a model is limited to
   1 GB.
-- **Azure SQL.** **Azure placement** offers to let the database scale up to 4 vCores and carry on
-  past the free offer's monthly allowance, for about $30-80 a month. Otherwise, when the allowance
-  runs out, Azure pauses the database until next month and the jobs stop until then.
+- **Azure SQL.** **Azure placement** recommends letting the database scale up to 4 vCores and carry
+  on past the free offer's monthly allowance, for about $30-80 a month, and a new install starts on
+  that answer. The plan shows what it costs before anything is deployed. Or keep the free offer:
+  when the allowance runs out, Azure pauses the database until next month and the jobs stop until
+  then.
 - **Web app.** **Azure placement** offers to keep one replica running, for about $10-20 a month, so
   the first visit after a quiet spell doesn't wait while the app starts.
 
 The prices are indicative: check the [Azure pricing calculator](https://azure.microsoft.com/pricing/calculator/).
-Neither paid option is on unless you choose it: `--yes` never turns one on, and **Repair or change**
-keeps what you chose. The plan also warns when the sizing looks small and says where to change it:
-the free offer, fewer than 4 max vCores from 30,000 seats, the run job's time limit, and shared
-capacity. If your organisation's policy rules a change out, setup still works and the loads are
-slower. Tenants with 10,000 seats or fewer aren't asked or warned, and deploy as before.
+`--yes` never adds spend nobody chose. A new install of more than 10,000 people with `--yes` stops
+before anything is deployed until you choose what Azure SQL does: add `--sql-scale-up` to carry on
+past the allowance, or `--sql-free-offer` to keep the free offer. The installer keeps the choice
+for later runs. **Repair or change**, and `--yes` on an install that has deployed, keep what the
+install chose, and the web app stays as it is unless you choose otherwise. The installer doesn't
+switch a database that carries on past the allowance back to pausing, so `--sql-free-offer` leaves
+one as it is and says so.
+
+The plan also warns when the sizing looks small and says where to change it: more than 10,000
+people counted for an install sized for up to 10,000, the free offer (an install that has deployed
+can run the installer again with `--sql-scale-up`), fewer than 4 max vCores from 30,000 people, the
+run job's time limit, and shared capacity. If your organisation's policy rules a change out, setup
+still works and the loads are slower. With up to 10,000 people, setup doesn't ask about Azure SQL
+or the web app, or warn, unless the install chose a paid option before, and deploys as before.
 
 Each run of the collector job has 4 vCPU, 8 GiB and up to 4 hours, which Azure enforces. The run
 loads the data and then refreshes the semantic models, waiting up to 2 hours for each refresh. On a
@@ -343,14 +355,14 @@ Moved to [Run it](../docs/INSTALL.md#run-it).
 After the data sources, the installer asks **Change the advanced settings?** With **No** (the
 default, and what `--yes` answers) it uses what you chose last time, or else the defaults below.
 With **Yes** it asks about each one as it comes. To change one later, choose **Repair or change**,
-then **Yes**.
+then **Yes**. The tenant size isn't one of them: placement asks it on both targets, so every
+install answers it. See [A large tenant](#a-large-tenant).
 
 | Setting | Default |
 |---|---|
 | [Power BI](#power-bi-reports) | The semantic model, the Power BI reports and the app. Or the model and reports, the model and app, the model only, or neither. |
 | Who can view | A new **Analytics Hub Viewers** group. You're who people ask for access. **Manage access** changes it later. |
 | [Audit history](#load-more-audit-history) for the first load | 30 days. Or 90 or 180. |
-| [How many people are in the tenant](#a-large-tenant) | More than 10,000 on an F64 or larger capacity or with more than 10,000 Copilot seats assigned, otherwise up to 10,000. An existing install keeps its size. |
 | Lakehouse name | `Analytics_Hub`, or the next free name (`ValueLens` on earlier installs, which keep it). Spaces and hyphens become underscores. |
 | A new Key Vault's resource group, region and name, and the secret's name | `rg-valuelens`, the capacity's region, `valuelens-` and six random characters, and the default secret name. If you can't use `rg-valuelens`, it asks. |
 | Schedule | Daily, at the default time. Or weekly, and the time (UTC). |
@@ -506,12 +518,21 @@ Each audit query waits a few minutes in Microsoft's queue, however little it ret
 load's time grows with the days of history. With 30 days a tenant of up to 10,000 people usually
 loads in one to two hours. Later runs load only what's new.
 
-On a tenant with tens of thousands of people, choose **More than 10,000** when asked how many
-people are in the tenant, under [Advanced settings](#advanced-settings). A new install chooses it
-for you on an F64 or larger capacity (a trial counts as the F size it matches, so FTL64 does), or
-when more than 10,000 Microsoft 365 Copilot seats are assigned. The installer reads the assigned seats in the prerequisite checks and shows them in the
-plan. An install that already has a tenant size keeps it, but the plan warns when the seats have
-outgrown it. Then:
+On a tenant with tens of thousands of people, choose **More than 10,000** when placement asks
+**About how many people work in your organisation?** It's asked on both targets: in **Fabric
+placement** after the capacity, and first in **Azure placement**. Count everyone with a licence,
+not only those with Copilot: Copilot Chat comes with Microsoft 365, so their use reaches the audit
+log too.
+
+The installer counts them for you in the prerequisite checks, with your own sign-in and no admin
+role: Microsoft Graph counts the enabled member accounts that have a licence. If Graph won't count
+by licence, it counts the enabled member accounts. If it can't count accounts, for example because
+your tenant stops members reading other users, it uses the Microsoft 365 Copilot seats assigned,
+and if it can't read those either, it asks with nothing counted. A new install starts from the
+count, and `--yes` takes it. With only the seats to go on, an F64 or larger capacity also starts it
+on **More than 10,000** (a trial counts as the F size it matches, so FTL64 does). The plan shows the
+size and what was counted. An install that already has a tenant size keeps it on **Repair or
+change** and with `--yes`, and the plan warns when the people counted have outgrown it. Then:
 
 - The audit log is read in 2-hour windows instead of 24-hour ones. A long window can hold too many
   records, and the audit service fails it after an hour or more. A window that fails is split after
@@ -536,14 +557,15 @@ first. Within a time budget set below the time limit (2 hours, or 4.5 hours for 
 the registry leaves any refreshes still to do to the next run and writes what it has; nothing is
 older than 7 days for long.
 
-With 30,000 or more seats on a capacity smaller than F64, the plan warns and says to choose an F64
+With 30,000 or more people on a capacity smaller than F64, the plan warns and says to choose an F64
 or larger capacity in **Fabric placement**. If your organisation's policy keeps you on the smaller
 capacity, setup still works, but the loads take longer and may hit their time limits.
 
 Expect the first load to take several hours. Start with 30 days, use an F64 or larger capacity,
 and [load more history](#load-more-audit-history) later. Don't run audit searches in the
-Purview portal while it loads. To change the tenant size, choose **Repair or change**, then **Yes**
-for the advanced settings. An install from an earlier version keeps its audit windows and time
+Purview portal while it loads. To change the tenant size, run the installer again and answer the
+size question: in the browser, choose **Repair or change**, then **Fabric placement** or **Azure
+placement**. An install from an earlier version keeps its audit windows and time
 limits until you do. An install that has a tenant size gets the new time limits on its next
 **Update** or **Repair or change**, and keeps its data and settings.
 
@@ -734,6 +756,8 @@ addresses, the M365 Copilot licence flag and the exact prepaid split.
 | Read Cowork credits with a Dataflow | `install --data coworkCredits=api --viva-partition <id> --viva-query <id>` |
 | Read agent configuration and Foundry from Resource Graph | `install --data resourceGraph=api --arg-management-group <id>` |
 | Report the Value page in another currency | `install --currency GBP --exchange-rate 0.79` |
+| Install a large tenant on Azure without the questions, letting Azure SQL carry on past the free allowance | `install --target azure --yes --sql-scale-up` |
+| The same, keeping Azure SQL's free offer | `install --target azure --yes --sql-free-offer` |
 | Upload exports later, then load them now | `upload feedback.csv agents.csv --run` |
 | Check the app can read the audit log, and that it has Copilot records | `check-audit` |
 | Run that audit search during the install too | `install --check-audit` |
@@ -758,6 +782,12 @@ whole tenant, and `--no-arg-agents` or `--no-arg-foundry` leaves agents or Found
 `--currency <code>` sets the Value page currency (US dollars by default), and `--exchange-rate <n>`
 how many of it make $1. Without the rate, set it under **Prices** in the app. In the browser, choose
 the currency under [Advanced settings](#advanced-settings) instead.
+`--sql-scale-up` lets Azure SQL scale up to 4 vCores and carry on past the free offer's monthly
+allowance, for about $30-80 a month; `--sql-free-offer` keeps the free offer, which pauses the
+database, and the jobs, when the month's allowance runs out. Use one, not both. On Azure, a new
+install of more than 10,000 people with `--yes` needs one of them, and later runs keep the choice.
+They're for `install` on the Azure target, and not with `--ui`: in the browser, choose under
+**Azure placement**. See [A large tenant on Azure](#a-large-tenant-on-azure).
 
 `check-audit` gets the app's token for your tenant and checks it has `AuditLogsQuery.Read.All` as an
 Application permission with admin consent. It then runs a small audit search for Copilot

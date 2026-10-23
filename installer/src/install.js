@@ -59,7 +59,7 @@ import { buildAgentEvaluatorModel, buildConsumptionModel, buildModel, loadTempla
 import { buildPipeline } from './transform/pipeline.js';
 import { c } from './ui.js';
 import { fabricUninstall } from './steps/fabric-uninstall.js';
-import { askTarget, azureRefresh, azureRotateSecret, azureRun, azureStatus, azureUninstall, azureUpdate, azureViewerModels, confirmAzurePlan, installAzure, planAzure } from './steps/azure/index.js';
+import { askTarget, azureRefresh, azureRotateSecret, azureRun, azureStatus, azureUninstall, azureUpdate, azureViewerModels, confirmAzurePlan, installAzure, planAzure, sqlFlagFabricError } from './steps/azure/index.js';
 import { accessCommand, ensureViewerGroup, grantModelAccess, myGroupsUrl, shareApp } from './steps/access.js';
 import { nextSteps, stepsLeftTitle } from './steps/next-steps.js';
 import { ensureOrgAccess, verifyOrgAccess } from './steps/org-access.js';
@@ -102,6 +102,7 @@ import { reviewSetup } from './setup.js';
  * @property {boolean} [secretInNotebook]  --no-key-vault (or --secret-in-notebook): keep the secret in the notebooks instead of Key Vault.
  * @property {boolean} [useKeyVault]  --key-vault: keep the secret in Key Vault, not the notebooks (the default for a new Fabric install).
  * @property {boolean} [allowModelReset]  --allow-model-reset: when Fabric can't update a model and keep its data, clear it and reload it without asking. --yes alone never does.
+ * @property {boolean} [sqlChoice]  Azure: --sql-scale-up (true) carries on past the free Azure SQL allowance, up to 4 vCores; --sql-free-offer (false) keeps the free offer.
  * @property {Apis} [liveApi]  While the plan's answers can be rewound, the clients without the cache, for checks the user repeats.
  * @property {boolean} [runFirstLoad]
  * @property {boolean} [advanced]  The plan's "Change the advanced settings?" answer. With false, those settings keep their saved value or default.
@@ -323,13 +324,14 @@ export async function install(ctx, opts) {
     await askTarget(ctx);
     // The CLI stops --csv on an Azure install before signing in, but a new install only chooses its target here.
     if (config.target === 'azure' && ctx.csvFiles?.length) throw azureUploadError(config, '--csv', !wasAzure);
+    if (config.target !== 'azure' && ctx.sqlChoice !== undefined) throw new Error(sqlFlagFabricError(ctx.sqlChoice));
     pre = await preflight(ctx);
     const checked = pre;
     go = await rewindable(ctx, async () => {
       if (config.target === 'azure') await planAzure(ctx, checked);
       else await plan(ctx, checked);
       ctx.save();
-      return config.target === 'azure' ? confirmAzurePlan(ctx) : confirmPlan(ctx, checked);
+      return config.target === 'azure' ? confirmAzurePlan(ctx, checked) : confirmPlan(ctx, checked);
     });
   }
   if (!go) {
