@@ -413,7 +413,7 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                     </div>
                     {showFilters && (
                         // Pinned as the page scrolls, as the filters always have been.
-                        <div data-print="hide" className="sticky top-0 z-10 border-b border-border bg-card">
+                        <div data-print="hide" className="z-10 border-b border-border bg-card sm:sticky sm:top-0">
                             <div className={COLUMN}>
                                 <FilterBar destinationLabel={title} />
                             </div>

@@ -40,7 +40,6 @@ describe("destinations", () => {
     it("give Consumption Central and Agent Evaluator one destination each, whose stages are their tabs", () => {
         expect(productDestinations(destinations, "consumption").map((destination) => destination.id)).toEqual(["consumption"]);
         expect(productDestinations(destinations, "evaluator").map((destination) => destination.id)).toEqual(["agent-evaluation"]);
-        expect(byId("consumption").stages.map((stage) => stage.id)).toContain("github-credits");
     });
 
     it("offer only the products with a destination available, in switcher order", () => {

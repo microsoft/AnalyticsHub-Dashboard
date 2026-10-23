@@ -120,7 +120,6 @@ export const destinations = [
             { id: "budget-runway", label: "Budget runway", ready: true },
             { id: "cowork-credits", label: "Cowork / Work IQ", ready: true },
             { id: "studio-credits", label: "Copilot Studio", ready: true },
-            { id: "github-credits", label: "GitHub Copilot", ready: true },
             { id: "azure-spend", label: "Azure", ready: true },
         ],
     },

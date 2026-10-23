@@ -447,7 +447,6 @@ describe("The band", () => {
             "Budget runway",
             "Cowork / Work IQ",
             "Copilot Studio",
-            "GitHub Copilot",
             "Azure",
         ]);
         expect(stages.querySelector("[aria-current=page]")?.textContent).toBe("All products");
