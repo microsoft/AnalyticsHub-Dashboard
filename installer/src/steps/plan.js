@@ -22,7 +22,7 @@ import { FLOW_NAMES, flowsSkipped, flowsWanted, planFlows } from './flows.js';
 import { adminPack, canWriteSecrets, checkExistingApp, MAX_SECRET_DAYS, NOTEBOOK_SECRET_DAYS, notebookSecretDays, reportAppCheck, ResumeLater, writeAdminPack } from './identity.js';
 import { planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from './resource-graph.js';
 import { askAdvanced, asksAdvanced } from './advanced.js';
-import { describeSchedule, displayNames, freeName, modelKey, PIPELINE_NAME, stoppedRunItem } from './fabric.js';
+import { describeSchedule, displayNames, freeName, modelKey, PIPELINE_NAME, stoppedRunItem, WORKSPACE_ROLE } from './fabric.js';
 import { connectionName, MODEL_UPDATE_NOTE } from './model.js';
 import { reportsWanted } from './report.js';
 import { DATA_AGENT_TYPE, dataAgentWanted, planDataAgent } from './data-agent.js';
@@ -136,6 +136,8 @@ export function largeCapacity(capacity) {
  * @property {boolean} [canApproveDelegated]  Can grant tenant-wide consent for delegated permissions, such as the Azure web app's.
  * @property {boolean} [canManageApps]  Can manage app registrations they don't own.
  * @property {Record<string, { enabled?: boolean, delegateToCapacity?: boolean, title?: string }>} [tenantSettings]  Only for Fabric administrators.
+ * @property {{ status: 'met' | 'missing' | 'unknown', reason: string }} [createWorkspaces]  Whether "Create workspaces"
+ *   lets you create one. Only for Fabric administrators.
  * @property {number} [seats]  Assigned Microsoft 365 Copilot seats; undefined when they can't be read.
  */
 
@@ -227,6 +229,92 @@ export function blockedSettings(settings, opts) {
  */
 export const settingLabel = (setting, apiTitle) =>
   apiTitle ? `"${apiTitle}"` : setting.section ? `the Fabric apps setting, under "${setting.section}"` : `"${setting.title}"`;
+
+/**
+ * The tenant setting that lets people create workspaces: its title in the admin portal, and the name List Tenant
+ * Settings is reported to give it, which Learn doesn't confirm, so the title matches too.
+ */
+export const CREATE_WORKSPACES = { name: 'CreateAppWorkspaces', title: 'Create workspaces' };
+
+/** What creating a workspace takes, for the workspace questions. */
+export const NEW_WORKSPACE_NEEDS = 'Needs the "Create workspaces" tenant setting on for you, or for a group you\'re in.';
+
+/**
+ * What using an existing Fabric workspace takes. One not on a capacity yet is moved onto the chosen one, which takes Admin.
+ * @param {{ capacityId?: string }} workspace
+ */
+export const fabricWorkspaceNeeds = (workspace) =>
+  workspace.capacityId
+    ? `Needs ${WORKSPACE_ROLE} on it. Only an Admin can let the pipeline's notebooks share one Spark session, or reach a private Key Vault.`
+    : 'It isn\'t on a capacity yet, so it needs Admin on it, to move it onto the capacity you chose.';
+
+/**
+ * Whether "Create workspaces" lets you create a workspace, from the tenant settings only a Fabric administrator can
+ * read. On for some security groups, it counts you in when you're directly in one of them; excluding a group you're
+ * directly in counts you out, as the most restrictive setting applies. Learn doesn't say whether a group you're in only
+ * through another group counts, so that's unknown; so is a setting turned off but delegated to other admins.
+ * A missing reason is a sentence; an unknown one follows 'Couldn't confirm "Create workspaces": '.
+ * @param {any[]} settings  What List Tenant Settings returned.
+ * @param {() => Promise<{ direct: string[], all: string[] }>} groups  Your groups: direct, and with nesting.
+ *   Only read when the setting names groups.
+ * @returns {Promise<{ status: 'met' | 'missing' | 'unknown', reason: string }>}
+ */
+export async function createWorkspacesAccess(settings, groups) {
+  const title = CREATE_WORKSPACES.title.toLowerCase();
+  const setting = settings.find((s) => s?.settingName === CREATE_WORKSPACES.name) ?? settings.find((s) => String(s?.title ?? '').trim().toLowerCase() === title);
+  const label = `"${setting?.title ?? CREATE_WORKSPACES.title}"`;
+  if (!setting) return { status: 'unknown', reason: 'it isn\'t among the tenant settings Fabric returned.' };
+  if (typeof setting.enabled !== 'boolean') return { status: 'unknown', reason: 'Fabric didn\'t say whether it\'s on.' };
+  if (!setting.enabled) {
+    return setting.delegateToCapacity || setting.delegateToDomain || setting.delegateToWorkspace
+      ? { status: 'unknown', reason: 'it\'s off for the organization, but delegated to other admins, who may have turned it on.' }
+      : { status: 'missing', reason: `${label} is off for the whole organization.` };
+  }
+  /** @type {any[]} */
+  const enabled = Array.isArray(setting.enabledSecurityGroups) ? setting.enabledSecurityGroups : [];
+  /** @type {any[]} */
+  const excluded = Array.isArray(setting.excludedSecurityGroups) ? setting.excludedSecurityGroups : [];
+  if (!enabled.length && !excluded.length) return { status: 'met', reason: `${label} is on for the whole organization.` };
+  /** @type {{ direct: Set<string>, all: Set<string> }} */
+  let mine;
+  try {
+    const { direct, all } = await groups();
+    const ids = (/** @type {string[]} */ list) => new Set(list.map((id) => String(id).toLowerCase()));
+    mine = { direct: ids(direct), all: ids([...direct, ...all]) };
+  } catch {
+    return { status: 'unknown', reason: 'it\'s on only for some security groups, and the installer couldn\'t read the groups you\'re in.' };
+  }
+  const id = (/** @type {any} */ g) => String(g?.graphId ?? '').toLowerCase();
+  const named = (/** @type {any} */ g) => `"${g?.name ?? g?.graphId}"`;
+  const nested = 'which you\'re in only through another group. Learn doesn\'t say whether that counts.';
+  const out = excluded.find((g) => mine.direct.has(id(g)));
+  if (out) return { status: 'missing', reason: `${label} excludes the group ${named(out)}, which you're in.` };
+  const outNested = excluded.find((g) => mine.all.has(id(g)));
+  if (outNested) return { status: 'unknown', reason: `it excludes the group ${named(outNested)}, ${nested}` };
+  if (!enabled.length) return { status: 'met', reason: `${label} is on for the whole organization, apart from groups you're not in.` };
+  const inGroup = enabled.find((g) => mine.direct.has(id(g)));
+  if (inGroup) return { status: 'met', reason: `${label} is on for the group ${named(inGroup)}, which you're in.` };
+  const inNested = enabled.find((g) => mine.all.has(id(g)));
+  if (inNested) return { status: 'unknown', reason: `it's on for the group ${named(inNested)}, ${nested}` };
+  const shown = enabled.slice(0, 3).map(named).join(', ');
+  return { status: 'missing', reason: `${label} is on only for groups you're not in: ${shown}${enabled.length > 3 ? ` and ${enabled.length - 3} more` : ''}.` };
+}
+
+/**
+ * The groups you're in, for createWorkspacesAccess: directly, and with nesting.
+ * @param {import('../install.js').Apis} api
+ */
+export const myGroups = (api) => async () => {
+  const [direct, all] = await Promise.all([api.graph.myDirectGroupIds(), api.graph.myGroupIds()]);
+  return { direct, all };
+};
+
+/**
+ * What to do when "Create workspaces" leaves you out, where the installer could tell: only a Fabric administrator can
+ * read tenant settings, so you're one.
+ */
+export const CREATE_WORKSPACES_FIX =
+  'As a Fabric administrator, you can turn it on for you, or for a group you\'re in, in Fabric under Admin portal > Tenant settings.';
 
 /**
  * @param {Ctx} ctx
@@ -321,18 +409,32 @@ export async function preflight(ctx) {
   const seats = await copilotSeats(api);
   if (seats) ui.ok(`${seatCount(seats)} Microsoft 365 Copilot ${seats === 1 ? 'seat' : 'seats'} assigned`);
 
-  /** @type {Preflight['tenantSettings']} */
-  let tenantSettings;
+  /** @type {any[] | undefined} */
+  let settings;
   try {
-    tenantSettings = Object.fromEntries((await api.fabric.tenantSettings()).map((s) => [s.settingName, s]));
+    const list = await api.fabric.tenantSettings();
+    // An empty list says nothing about them.
+    if (Array.isArray(list) && list.length) settings = list;
   } catch {
     // Only Fabric administrators can read them.
+  }
+  /** @type {Preflight['tenantSettings']} */
+  const tenantSettings = settings && Object.fromEntries(settings.map((s) => [s.settingName, s]));
+  // Only matters while there's no workspace yet. Nothing has been created, so with --yes stop now rather than at the workspace.
+  const recordedWorkspace = ctx.config.target === 'azure' ? ctx.config.azure?.powerBi?.workspaceId : ctx.config.fabric.workspaceId;
+  const createWorkspaces = settings && !recordedWorkspace ? await createWorkspacesAccess(settings, myGroups(api)) : undefined;
+  if (ui.yes && createWorkspaces?.status === 'missing') {
+    await stop(
+      `You can't create a workspace: ${createWorkspaces.reason}`,
+      `With --yes the installer creates a workspace. ${CREATE_WORKSPACES_FIX} Then run it again. ` +
+        `Or run it without --yes and choose an existing workspace you're an ${WORKSPACE_ROLE} of.`,
+    );
   }
 
   await report();
   return {
     capacities, workspacesOnCapacity: onCapacity, subscriptions, roles: roles.map((r) => r.displayName), canConsent, canCreateApps,
-    canApproveDelegated: !!rights.delegated, canManageApps: !!rights.manage, tenantSettings, seats,
+    canApproveDelegated: !!rights.delegated, canManageApps: !!rights.manage, tenantSettings, createWorkspaces, seats,
   };
 }
 
@@ -520,7 +622,7 @@ export async function plan(ctx, pre, section) {
       if (!onCapacity.some((w) => w.id === config.fabric.workspaceId)) {
         const choice = await ui.select(
           'Workspace',
-          onCapacity.map((w) => ({ name: `Use "${w.displayName ?? w.id}"`, value: w.id })),
+          onCapacity.map((w) => ({ name: `Use "${w.displayName ?? w.id}"`, value: w.id, description: fabricWorkspaceNeeds(w) })),
           onCapacity[0].id,
         );
         config.fabric.workspaceId = choice;
@@ -556,17 +658,35 @@ export async function plan(ctx, pre, section) {
     if (config.fabric.workspaceId) {
       ui.ok(`Workspace: ${config.fabric.workspaceName ?? config.fabric.workspaceId}`);
     } else {
-      const workspaces = (await api.fabric.listWorkspaces()).filter((w) => w.type === 'Workspace');
+      // As with no usable capacity, only workspaces you can put it in.
+      const workspaces = (await api.fabric.listWorkspaces(['Admin', 'Member'])).filter((w) => w.type === 'Workspace');
+      // With --yes, never someone's existing workspace: preflight has already stopped.
+      const useExisting = pre.createWorkspaces?.status === 'missing' && !ui.yes;
+      // One already on a capacity needs no move, so Member is enough.
+      const preferred = workspaces.find((w) => w.capacityId) ?? workspaces[0];
+      if (useExisting) {
+        ui.note(
+          workspaces.length
+            ? `You can't create a workspace: ${pre.createWorkspaces?.reason} So the default is a workspace you're an ${WORKSPACE_ROLE} of.`
+            : `You can't create a workspace: ${pre.createWorkspaces?.reason} ${CREATE_WORKSPACES_FIX} ` +
+                `Or ask for ${WORKSPACE_ROLE} on an existing workspace. Then run the installer again.`,
+        );
+      }
       const choice = await ui.select(
         'Workspace',
-        [{ name: 'Create a new workspace', value: '' }, ...workspaces.map((w) => ({ name: `Use "${w.displayName}"`, value: w.id }))],
-        '',
+        [
+          { name: 'Create a new workspace', value: '', description: NEW_WORKSPACE_NEEDS },
+          ...workspaces.map((w) => ({ name: `Use "${w.displayName}"`, value: w.id, description: fabricWorkspaceNeeds(w) })),
+        ],
+        useExisting && preferred ? preferred.id : '',
       );
       if (choice) {
         config.fabric.workspaceId = choice;
         config.fabric.workspaceName = workspaces.find((w) => w.id === choice)?.displayName;
       } else {
-        const taken = new Set(workspaces.map((w) => w.displayName.toLowerCase()));
+        // Any workspace you can see may have the name, whatever your role in it.
+        const visible = await api.fabric.listWorkspaces().catch(() => workspaces);
+        const taken = new Set(visible.filter((w) => w.type === 'Workspace').map((w) => String(w.displayName).toLowerCase()));
         config.fabric.workspaceName = await ui.input('New workspace name', {
           default: config.fabric.workspaceName ?? uniqueName(DEFAULT_WORKSPACE_NAME, taken),
           validate: (v) => (!v.trim() ? 'Required' : taken.has(v.trim().toLowerCase()) ? 'A workspace with that name exists.' : true),

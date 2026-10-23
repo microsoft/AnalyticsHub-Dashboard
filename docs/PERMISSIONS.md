@@ -122,6 +122,7 @@ covers the app on Fabric, and the jobs' managed identity on Azure.
 
 | What | Role / requirement |
 |---|---|
+| Create the workspace (when you choose **Create a new workspace**) | The installing person: the tenant setting **Create workspaces** on for them, or a group they're in, and admin or **Contributor** on the capacity. The installer creates the workspace before anything else, and stops there if Fabric refuses. Not needed with an existing workspace they're an **Admin** or **Member** of that's already on a capacity. On Azure, the Power BI workspace is created without a capacity and needs **Create workspaces** and a **Power BI Pro** or **Premium Per User** licence instead |
 | Run the notebooks / pipeline, write Delta to the Lakehouse | **Contributor** or **Member** on the Fabric workspace |
 | Let the pipeline's notebooks share one Spark session (the installer turns this on) | **Admin** on the Fabric workspace, to change the workspace Spark setting *High concurrency for pipeline running multiple notebooks*. Without it the installer warns and carries on, and each notebook starts its own session |
 | Record each run's load status in `dbo.load_log` | Nothing extra. The `AnalyticsHub_Load_Status` notebook reads the run it belongs to through the Fabric API, as the person the pipeline runs as (**Contributor** or **Member**) |
