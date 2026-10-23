@@ -13,7 +13,7 @@
 export async function askAdvanced(ctx, what) {
   const { ui } = ctx;
   ui.heading('Advanced settings');
-  ui.note(`The defaults suit most organisations. Choose Yes to change ${what}.`);
+  ui.note(`Choose Yes to change ${what}.`);
   ctx.advanced = await ui.confirm('Change the advanced settings?', false);
 }
 

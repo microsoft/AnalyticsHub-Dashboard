@@ -9,7 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { emptyConfig } from '../src/config.js';
 import { memoApi, rewindable } from '../src/install.js';
 import { mirror, reopenOnEnter, startServer } from '../src/server.js';
-import { collectChoices } from '../src/steps/plan.js';
+import { azurePlanReview } from '../src/steps/azure/index.js';
+import { collectChoices, planReview } from '../src/steps/plan.js';
 import { createWebUi, plainText, SECRET_MASK, toSegments } from '../src/web-ui.js';
 import { describeRecord, prereqsSnapshot, WEB_COMMANDS } from '../src/web-session.js';
 import { fakeCtx } from './fakes.js';
@@ -537,6 +538,31 @@ test('terminal: after Back it shows the question the user went back to, not the 
     '? Go ahead? (answer in the browser)',
     '  → Yes',
   ]);
+});
+
+test('web ui: the review says what the install is sized for, from the size chosen and the people counted', () => {
+  const pre = { capacities: [], subscriptions: [], canConsent: true, headcount: /** @type {const} */ ({ count: 61_234, source: 'licensed' }), seats: 3_000 };
+  const large = 'A large organisation (more than 10,000 people). Tenant: 61,234 people (licensed, enabled accounts), 3,000 Copilot seats';
+  const { ctx, config } = fakeCtx();
+  config.scale = 'large';
+  const fabric = planReview(ctx, pre);
+  assert.equal(fabric.sizedFor, large);
+  config.scale = 'standard';
+  assert.equal(planReview(ctx, { ...pre, headcount: { count: 4_000, source: 'enabled' }, seats: undefined }).sizedFor, 'Up to 10,000 people. Tenant: 4,000 people (enabled accounts)');
+  assert.equal(planReview(ctx, { ...pre, headcount: undefined, seats: undefined }).sizedFor, 'Up to 10,000 people', 'nothing counted');
+
+  config.target = 'azure';
+  delete config.scale;
+  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', powerBi: { capacityId: 'cap-f' } };
+  assert.equal(azurePlanReview(ctx, pre).sizedFor, large, 'with no size recorded, from the people counted');
+  config.azure.sampleData = true;
+  assert.equal(azurePlanReview(ctx, pre).sizedFor, undefined, "demo mode isn't sized");
+
+  const ui = createWebUi();
+  ui.review(fabric);
+  const e = latest(ui);
+  assert.equal(e.type, 'review');
+  assert.equal(e.plan.sizedFor, large);
 });
 
 test('web ui: load cards become one event, and the terminal shows each source with its fix', () => {

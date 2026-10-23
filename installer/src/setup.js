@@ -29,11 +29,12 @@ export function setupCategories(config) {
   const resourceGraph = (azure ? azureResourceGraphOn(config) : resourceGraphOn(config))
     ? `agents ${rg.agents ? 'on' : 'off'}, Foundry ${rg.foundry ? 'on' : 'off'}`
     : 'off';
+  const size = config.scale && !(azure && az?.sampleData) ? `; ${config.scale === 'large' ? 'more than' : 'up to'} 10,000 people` : '';
   return [
     entry('data', 'Data collection', `${azure && az?.sampleData ? 'Demo data; ' : ''}${Object.entries(config.modules).filter(([, on]) => on).map(([name]) => name).join(', ')}`),
     entry('placement', azure ? 'Azure placement' : 'Fabric placement', azure
-      ? `${az?.subscriptionName ?? az?.subscriptionId ?? 'Choose subscription'} / ${az?.resourceGroup ?? 'Choose resource group'}; Azure: ${az?.location ?? 'not set'}; SQL: ${az?.sqlLocation || az?.location || 'not set'}`
-      : `${config.fabric.workspaceName ?? 'Choose workspace'}; capacity: ${config.fabric.capacityId ?? 'not set'}`),
+      ? `${az?.subscriptionName ?? az?.subscriptionId ?? 'Choose subscription'} / ${az?.resourceGroup ?? 'Choose resource group'}; Azure: ${az?.location ?? 'not set'}; SQL: ${az?.sqlLocation || az?.location || 'not set'}${size}`
+      : `${config.fabric.workspaceName ?? 'Choose workspace'}; capacity: ${config.fabric.capacityId ?? 'not set'}${size}`),
     ...(azure ? [entry('networking', 'Networking', `${az?.publicNetworkAccess === false ? 'Private networking' : 'Public endpoints'}; DNS: ${az?.privateDns?.mode ?? 'create'}`)] : []),
     entry('powerbi', 'Power BI', azure ? `Workspace: ${az?.powerBi?.workspaceId ?? az?.workspaceName ?? 'not set'}; capacity: ${az?.powerBi?.capacityId ?? 'shared'}`
       : `Semantic model: ${config.semanticModel.enabled === false ? 'off' : 'on'}; reports: ${config.semanticModel.reports === false ? 'off' : 'on'}; app: ${config.fabricApp.enabled === false ? 'off' : 'on'}`),
@@ -326,7 +327,7 @@ export async function reviewSetup(ctx) {
           throw new Error('Review Fabric placement: the selected capacity is no longer active or accessible.');
         }
         checkpoint();
-        const go = ctx.config.target === 'azure' ? await confirmAzurePlan(ctx) : await confirmPlan(ctx, pre);
+        const go = ctx.config.target === 'azure' ? await confirmAzurePlan(ctx, pre) : await confirmPlan(ctx, pre);
         if (!go) continue;
         if (recordRevision(ctx.file) !== baseRevision) throw new Error('The install record changed while you edited this draft. Save and close, then reopen setup to keep the latest deployed IDs and resolve the draft conflict.');
         // Marked first so a draft a synced folder keeps locked is cleaned up next run, not treated as a conflict.
