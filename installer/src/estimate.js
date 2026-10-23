@@ -13,8 +13,9 @@
  * Fabric for up to 10,000 people, 2-hour windows for more, and 8-hour windows on Azure and on a Fabric install with
  * no tenant size set. A large tenant has about three times the records to fetch and process. On Fabric, the audit
  * load stops at its time budget (90 minutes, or 300 for a large tenant) and the pipeline's two retries carry on,
- * so one run fetches for up to three budgets. On Azure, a run stops at 4 hours, and no retry is counted on. The
- * audit service's queue on a busy day isn't counted: it can add hours.
+ * so one run fetches for up to three budgets. On Azure, a run has 4 hours and keeps at least the last hour to process
+ * and publish, so it fetches for up to about 3 hours (less what the other collectors take first), then publishes what
+ * it has loaded; no retry is counted on. The audit service's queue on a busy day isn't counted: it can add hours.
  */
 import { commandLine } from './launch.js';
 
@@ -47,13 +48,13 @@ export const FIRST_LOAD_ESTIMATES = {
   azure: {
     standard: {
       30: { time: 'about an hour', runs: [1, 1] },
-      90: { time: 'about 3 hours', runs: [1, 1] },
-      180: { time: 'about 6 hours', runs: [2, 2] },
+      90: { time: 'about 3 hours', runs: [1, 2] },
+      180: { time: 'about 6 hours', runs: [2, 3] },
     },
     large: {
       30: { time: '1 to 2 hours', runs: [1, 1] },
-      90: { time: 'about 4 hours', runs: [1, 2] },
-      180: { time: 'about 8 hours', runs: [2, 3] },
+      90: { time: 'about 4 hours', runs: [2, 2] },
+      180: { time: 'about 8 hours', runs: [3, 3] },
     },
   },
 };
@@ -143,7 +144,7 @@ export function firstLoadEstimate(days, scale, target = 'fabric', opts = {}) {
   const head = `Estimate for ${daysPhrase(days, est.days)} of history, ${BAND_LABELS[est.band]}: ${est.time}, ${runsPhrase(est.runs)}. ` +
     'The audit service\'s queue can add hours, and a large tenant\'s history can take more than one run. ';
   if (target === 'azure') {
-    return `${head}Each run gets up to 4 hours. A run cut off then publishes nothing, so the reports show the new history once one run fetches everything left. ` +
+    return `${head}Each run fetches for up to about 3 hours, newest weeks first, then publishes what it has loaded, so the reports fill in after each run. ` +
       `The next scheduled run carries on where it stopped, or start one sooner with "${commandLine('run')}". `;
   }
   const again = commandLine(opts.reload ? `run --backfill-days ${days}` : 'run');

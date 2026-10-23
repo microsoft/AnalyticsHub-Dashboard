@@ -276,7 +276,7 @@ Its figures are scaled from two measured loads, and labelled estimates until tim
 installer replace them. The plan shows the estimate beside the history question, and the installer
 says it again when the first load or a reload starts, with what happens when a run can't fetch it
 all. On Fabric, the audit load stops at its time budget without writing anything, and the
-pipeline's retries carry on. On Azure, a run cut off at 4 hours publishes nothing, and the next run
+pipeline's retries carry on. On Azure, each run publishes what it has loaded, and the next run
 carries on. One rule replaces the others: keep the PC awake until the installer says setup is
 finished, then you can close the window. `status` now shows the days asked for, how much has been
 fetched from the audit log and what's in the reports. It reads the Fabric notebook's window
@@ -289,6 +289,30 @@ until a run with it starts. Earlier installers ignore the new record field. On A
 change** no longer says history is loaded because a run has started, even one that published
 nothing: *Load more audit history?* reads the run job's state, and where it can't, it says what was
 asked for.
+
+**Azure: a run that runs out of time publishes what it has loaded, newest weeks first, and the next
+run carries on.** On a large tenant the first load of the audit history can take longer than the
+run job's 4 hours. A run cut off there published nothing, so the reports stayed empty until one run
+fetched everything left, a day or more later on the daily schedule. A throttled audit fetch could
+also use the whole 4 hours, so the sources after it never ran and nothing was published. Now the
+run job collects the audit log last, after the other sources, newest weeks first, within a time
+budget counted from the run's start: its 4 hours less a reserve of an hour, or 1.5 times the last
+run's merge-to-publish time if that's longer. The budget is checked in every wait: each poll, page
+and retry, and a throttled request. At the budget no new window starts, and a window with a query
+under way keeps it: the next run polls that query again if it's under 26 hours old, and otherwise
+starts a new one. A stop at the budget isn't a failure: the run merges the windows it finished,
+publishes and refreshes, and logs how far back the history is loaded and how many windows are
+left. The next run carries on and merges only the windows it hasn't merged, and `status` shows how
+far back the reports go while the load is under way. Months merged newest first can curate
+differently from one pass, so a load that took more than one run rebuilds every month once when
+it's complete. Org-scoped access applies once the first run publishes, while the history is still
+loading. The refresh step stops waiting 10 minutes before the run's limit, and a refresh still
+running then carries on in Power BI. When a run republishes days older than the incremental
+window, a full refresh is owed until a run sees one complete, so the next run does it if this one
+couldn't. The estimates in [How long it takes](docs/PREREQUISITES.md#how-long-it-takes) now count
+about 3 hours of fetching per run, still one run a day. The run job gets its time limit as
+`VALUELENS_JOB_TIMEOUT_SEC`, and assumes 4 hours without it. `VALUELENS_AUDIT_TIME_BUDGET_MIN` sets
+the audit fetch's budget instead, in minutes from the run's start.
 
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 

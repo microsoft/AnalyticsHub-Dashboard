@@ -330,8 +330,8 @@ def test_collect_wiring_and_publish_targets(tmp_path, monkeypatch):
     assert called == ["collect_licensed", "collect_audit"]
     called.clear()
     jobs_main.collect(store, Settings(modules=frozenset({"core", "agent365", "resourceGraph"})), api=object())
-    # Before Resource Graph, which maps agents to their Agent 365 titles through this table.
-    assert called == ["collect_licensed", "collect_audit", "collect_agent365", "collect_resource_graph"]
+    # Before Resource Graph, which maps agents to their Agent 365 titles through this table. Audit runs last.
+    assert called == ["collect_licensed", "collect_agent365", "collect_resource_graph", "collect_audit"]
 
     assert Settings.from_env({"VALUELENS_MODULES": "core,agent365"}).has("agent365")
     assert jobs_main.publish_targets(Settings(modules=frozenset({"core", "agent365"}))) == [

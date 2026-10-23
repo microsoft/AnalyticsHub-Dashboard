@@ -252,7 +252,10 @@ def test_audit_partial_failure_merges_finished_windows(tmp_path):
     assert len(rows) == 1
     assert "high_water_mark" not in store.read_json(audit_collect.STATE)
     api, _ = make_api(AuditGraph(records))
-    assert audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None)["rows"] == 2
+    # Only the window that failed merges now: the other merged in the first run, and the table has both rows.
+    assert audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None)["rows"] == 1
+    rows, _ = _parsed(store)
+    assert len(rows) == 2
     assert store.read_json(audit_collect.STATE)["high_water_mark"]
 
 
@@ -309,7 +312,9 @@ def test_audit_window_failing_at_minimum_size_holds_high_water_mark(tmp_path):
     assert "high_water_mark" not in store.read_json(audit_collect.STATE)
     fake.status = lambda ws, we, n: "succeeded"
     before = len(fake.created)
-    assert audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None, min_chunk_hours=4)["rows"] == 2
+    # Only the two windows that failed are fetched and merged again (they hold no records); the table has both rows.
+    assert audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None, min_chunk_hours=4)["rows"] == 0
+    assert len(_parsed(store)[0]) == 2 and store.read_json(audit_collect.STATE)["high_water_mark"]
     assert sorted(we - ws for ws, we in fake.created[before:]) == [timedelta(hours=4)] * 2
 
 
@@ -359,31 +364,35 @@ class ReplicaStopped(BaseException):
 
 
 def test_audit_first_collection_resumes_across_runs(tmp_path):
-    # A large tenant's first collection can outlast one run. The next run must query only the windows the
-    # stopped one didn't finish, then merge everything.
+    # A large tenant's first collection can outlast one run. Newest windows go first. The next run queries only
+    # the windows the stopped one didn't finish, and the look-back every run reads again, then merges everything.
     s = settings(audit_history_days=3, audit_lookback_days=1)
     records = [_record(i, NOW - timedelta(hours=75 - 8 * i)) for i in range(10)]  # one in each 8 h window
 
-    class StopsAfterFourWindows(AuditGraph):
+    class StopsAfterSevenWindows(AuditGraph):
         def __call__(self, method, url, kw):
-            if method == "POST" and len(self.created) >= 4:
+            if method == "POST" and len(self.created) >= 7:
                 raise ReplicaStopped()
             return super().__call__(method, url, kw)
 
     store = LocalStore(tmp_path)
-    api, _ = make_api(StopsAfterFourWindows(records))
+    api, _ = make_api(StopsAfterSevenWindows(records))
     with pytest.raises(ReplicaStopped):
         audit_collect.collect_audit(api, store, s, now=NOW, sleep=lambda x: None, max_concurrent=1)
     state = store.read_json(audit_collect.STATE)
     done = {k for k, w in state["windows"].items() if w["status"] == "succeeded"}
-    assert len(done) == 4 and "high_water_mark" not in state
+    assert len(done) == 7 and "high_water_mark" not in state
+    # The seven newest windows, back to 2026-09-08 08:00.
+    assert min(datetime.fromisoformat(state["windows"][k]["window_start"]) for k in done) == NOW - timedelta(hours=52)
     assert not list((store.root / audit_collect.PARSED).glob("*.parquet"))
 
     rerun = AuditGraph(records)
     api, _ = make_api(rerun)
-    assert audit_collect.collect_audit(api, store, s, now=NOW + timedelta(hours=1), sleep=lambda x: None)["rows"] == 10
+    assert audit_collect.collect_audit(api, store, s, now=NOW, sleep=lambda x: None)["rows"] == 10
     queried = {audit_collect.audit.stable_window_key(ws, we) for ws, we in rerun.created}
-    assert len(queried) == 6 and not queried & done
+    kept = {k for k in done if datetime.fromisoformat(state["windows"][k]["window_end"]) <= NOW - timedelta(days=1)}
+    # The three older windows it didn't reach and the four in the look-back; the three it fetched before that.
+    assert len(queried) == 7 and len(kept) == 3 and not queried & kept
     rows, _ = _parsed(store)
     assert len(rows) == 10
     state = store.read_json(audit_collect.STATE)
@@ -1037,10 +1046,13 @@ def test_audit_reload_cut_off_carries_over_until_a_run_merges_it(tmp_path):
     api, _ = make_api(rerun)
     assert audit_collect.collect_audit(api, store, s, now=nightly, sleep=lambda x: None)["rows"] == 12
     queried = {audit_collect.audit.stable_window_key(ws, we) for ws, we in rerun.created}
-    assert len(queried) == 12 and not queried & done
+    # Newest first: the stopped run fetched the four newest windows. Its last, partial one now ends later, so it's
+    # a new window; the other three are reused, and the nightly run queries the rest of the reload and the new days.
+    kept = done - {audit_collect.audit.stable_window_key(NOW - timedelta(hours=4), NOW)}
+    assert len(kept) == 3 and len(queried) == 13 and not queried & done
     assert len(_parsed(store)[0]) == 12
     state = store.read_json(audit_collect.STATE)
-    assert "backfill_from" not in state and done <= set(state["windows"])
+    assert "backfill_from" not in state and kept <= set(state["windows"])
 
     # Merged: the next run plans from the high-water mark and the look-back again, and prunes the reload's windows.
     later = nightly + timedelta(days=1)
@@ -1106,7 +1118,8 @@ def test_audit_reload_is_kept_after_a_failed_window_or_merge(tmp_path, monkeypat
         collect(store, failing, window_retries=0, min_chunk_hours=8)
     assert store.read_json(audit_collect.STATE)["backfill_from"] == since
     rerun = AuditGraph(records)
-    assert collect(store, rerun, days=0)["rows"] == 10
+    # Only the failed window (it holds no records) is fetched and merged now: the rest merged in the first run.
+    assert collect(store, rerun, days=0)["rows"] == 0 and len(_parsed(store)[0]) == 10
     assert rerun.created == [(first, first + timedelta(hours=8))]
     assert "backfill_from" not in store.read_json(audit_collect.STATE)
 
@@ -1292,17 +1305,23 @@ def test_collect_keeps_going_when_a_source_fails(tmp_path, monkeypatch):
     assert out["errors"] == {"audit": "RuntimeError: 3 audit window(s) failed"}
 
 
-def test_run_publishes_then_fails_when_a_source_failed(monkeypatch):
+def test_run_publishes_then_fails_when_a_source_failed(tmp_path, monkeypatch):
     ran = []
-    monkeypatch.setattr(jobs_main, "open_store", lambda *a: object())
-    monkeypatch.setattr(jobs_main, "collect", lambda *a: ran.append("collect") or {"errors": {"audit": "boom"}})
+    store = LocalStore(tmp_path)
+    monkeypatch.setattr(jobs_main, "open_store", lambda *a: store)
+    monkeypatch.setattr(jobs_main, "collect", lambda *a, **k: ran.append("collect") or {"errors": {"audit": "boom"}})
     monkeypatch.setattr(jobs_main, "process", lambda *a, **k: ran.append("process"))
     monkeypatch.setattr(jobs_main, "publish_step", lambda *a: ran.append("publish") or [{"oldest_day": "2020-01-01"}])
     monkeypatch.setattr(jobs_main, "refresh_step", lambda *a, **kw: ran.append(("refresh", kw)))
     monkeypatch.setattr(jobs_main.Settings, "from_env", classmethod(lambda cls, env=None: settings()))
     with pytest.raises(RuntimeError, match="audit: boom"):
-        jobs_main.main(["run"])
-    assert ran == ["collect", "process", "publish", ("refresh", {"publish_results": [{"oldest_day": "2020-01-01"}]})]
+        jobs_main.main(["run"], env={}, clock=lambda: 100.0)
+    (name, kw) = ran.pop()
+    assert ran == ["collect", "process", "publish"] and name == "refresh"
+    assert kw["publish_results"] == [{"oldest_day": "2020-01-01"}]
+    # The refresh stops waiting 10 minutes before the replica timeout, counted from the job's start, and a run
+    # that publishes carries an owed full refresh in its store.
+    assert kw["deadline"] == 100.0 + 14_400 - 600 and kw["store"] is store
 
 
 def test_full_local_pipeline_collect_to_publish(tmp_path, monkeypatch):

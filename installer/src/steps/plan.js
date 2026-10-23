@@ -428,7 +428,7 @@ const pipelineReloadChoice = (days, scale) => `Runs the pipeline with ${days} da
 
 /**
  * What Repair or change says of the history, when the target knows more than the install record. Azure reads its
- * run job's state, since a run that started may have published nothing.
+ * run job's state, since a run that started may not have loaded all of it.
  * @typedef {object} HistorySaid
  * @property {string} [question]  In place of "Load more audit history? N days are loaded now."
  * @property {boolean} [loaded]  false: the history asked for may not be in the reports yet, so nothing says it's loaded.

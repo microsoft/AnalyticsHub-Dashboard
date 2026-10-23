@@ -251,6 +251,56 @@ test('readAzureProgress: reads the job state with the Data Lake client, and igno
   assert.deepEqual(await readAzureProgress(noClient.ctx), { read: false, reason: 'unavailable' });
 });
 
+test("readAzureProgress: from 0.6.9's job image, how far back the reports go, the windows left and when the last run stopped", async () => {
+  const windows = {
+    'v2_202605311600_202606010000': { status: 'succeeded', rows: 3, window_start: '2026-05-31T16:00:00+00:00', window_end: '2026-06-01T00:00:00+00:00', merged_at: '2026-06-01T05:20:00+00:00' },
+    'v2_202605310800_202605311600': {
+      status: 'paused',
+      window_start: '2026-05-31T08:00:00+00:00',
+      window_end: '2026-05-31T16:00:00+00:00',
+      query_id: 'q-1',
+      query_created_at: '2026-06-01T04:40:00+00:00',
+      paused_at: '2026-06-01T05:00:00+00:00',
+      files: [],
+      pages: 0,
+      rows: 0,
+    },
+  };
+  const state = {
+    windows,
+    windows_left: 61,
+    loaded_back_to: '2026-05-31T16:00:00+00:00',
+    paused_at: '2026-06-01T05:00:00.123456+00:00',
+    pending_high_water_mark: '2026-05-31T23:58:00+00:00',
+    last_merge_to_publish_s: 1260.5,
+    merge_open: { started_at: '2026-06-01T05:10:00+00:00', clock: 11400.2, cutoff_s: 3000 },
+  };
+  const read = (/** @type {any} */ doc) => readAzureProgress(azureCtx(async () => JSON.stringify(doc)).ctx);
+  assert.deepEqual(await read(state), {
+    read: true,
+    entries: windows,
+    windows: [{ start: t('2026-05-31T16:00:00'), end: t('2026-06-01T00:00:00'), rows: 3 }],
+    windowsLeft: 61,
+    loadedBackTo: t('2026-05-31T16:00:00'),
+    pausedAt: t('2026-06-01T05:00:00.123'),
+  }, 'a paused window is not fetched, and a merged one is');
+  assert.equal(newestEnd({ ...windows, 'v2_202606010000_202606010200': { status: 'paused', query_id: 'q-2' } }), t('2026-06-01T02:00:00'), 'a paused window is one a run started on');
+  // Nothing merged yet: the job writes null.
+  assert.deepEqual(await read({ windows: {}, windows_left: 91, loaded_back_to: null, paused_at: '2026-06-01T05:00:00+00:00' }), {
+    read: true,
+    entries: {},
+    windows: [],
+    windowsLeft: 91,
+    pausedAt: t('2026-06-01T05:00:00'),
+  });
+  assert.equal(/** @type {any} */ (await read({ windows_left: 0 })).windowsLeft, 0);
+  for (const bad of [-1, '3', 1.5, null, true, {}]) assert.equal('windowsLeft' in (await read({ windows_left: bad })), false, JSON.stringify(bad));
+  for (const bad of ['soon', 5, '']) {
+    const p = await read({ loaded_back_to: bad, paused_at: bad });
+    assert.equal('loadedBackTo' in p || 'pausedAt' in p, false, JSON.stringify(bad));
+  }
+});
+
 /**
  * A Fabric install whose manifest `readJson` returns.
  * @param {() => Promise<any>} readJson
@@ -436,7 +486,7 @@ test('azureHistory: a first load with nothing published says what is fetched, no
   assert.deepEqual(lines(going.ui.text()).slice(2), [
     'Fetched from the audit log: none yet',
     'In the reports: none of it yet',
-    'A run is going now. What it fetches reaches the reports if it finishes within its 4 hours.',
+    'A run is going now. What it fetches reaches the reports when it publishes, near the end of the run.',
   ]);
 
   // A run that started over a day ago is stuck, not going.
@@ -455,6 +505,120 @@ test('azureHistory: windows that all came back empty mean no activity, not a loa
   ]);
 });
 
+/**
+ * Window entries as 0.6.9's job image writes them: a merged window has `merged_at`, and a paused one its query
+ * and when it paused.
+ * @param {Record<string, any>} e
+ */
+const asJob = (e) =>
+  Object.fromEntries(
+    Object.entries(e).map(([key, v]) => [
+      key,
+      v.status === 'succeeded'
+        ? { ...v, merged_at: '2026-06-01T05:20:00+00:00' }
+        : v.status === 'paused'
+          ? { ...v, query_id: `q-${key}`, query_created_at: '2026-06-01T04:40:00+00:00', paused_at: '2026-06-01T05:00:00+00:00', files: [], pages: 0, rows: 0 }
+          : v,
+    ]),
+  );
+const PAUSED_NOTE =
+  'The last run reached its time limit on 2026-06-01 and published what it had loaded. The next scheduled run carries on with the rest, or start one now with "valuelens-install run".';
+
+test('azureHistory: a first load that stopped at its time limit has its newest weeks in the reports, and the next run carries on', async () => {
+  // Newest first: the newest 30 windows merged, the next one paused at the time budget, and the rest not started.
+  assert.equal(AZ_WINDOWS.length, 91);
+  const state = {
+    windows: asJob(entries(AZ_WINDOWS, (i) => (i > 60 ? 'succeeded' : i === 60 ? 'paused' : undefined))),
+    pending_high_water_mark: '2026-06-01T01:58:00+00:00',
+    loaded_back_to: '2026-05-22T08:00:00+00:00',
+    windows_left: 61,
+    paused_at: '2026-06-01T05:00:00+00:00',
+  };
+  const paused = azureCtx(async () => JSON.stringify(state));
+  await azureHistory(paused.ctx, { executions: [exec('Succeeded', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(paused.ui.text()).slice(1), [
+    'Asked for: 30 days',
+    'Fetched from the audit log: about 10 of 30 days; 61 windows left',
+    'In the reports: activity back to 2026-05-22 so far, newest first',
+    PAUSED_NOTE,
+  ]);
+
+  // The next run is going: its entries move on, so what's left is the estimate, and it publishes at its end.
+  const going = azureCtx(async () => JSON.stringify(state));
+  await azureHistory(going.ctx, { executions: [exec('Running', '2026-06-01T11:00:00+00:00'), exec('Succeeded', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(going.ui.text()).slice(2), [
+    'Fetched from the audit log: about 10 of 30 days; about 61 windows left',
+    'In the reports: activity back to 2026-05-22 so far, newest first',
+    'A run is going now. It publishes what it has loaded when it finishes or reaches its time limit, and the next run carries on with any windows left.',
+  ]);
+
+  // The time limit came before any window had merged: the newest window's query was still waiting.
+  const none = azureCtx(async () =>
+    JSON.stringify({ windows: asJob(entries(AZ_WINDOWS, (i) => (i === 90 ? 'paused' : undefined))), loaded_back_to: null, windows_left: 91, paused_at: '2026-06-01T05:00:00+00:00' }),
+  );
+  await azureHistory(none.ctx, { executions: [exec('Succeeded', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(none.ui.text()).slice(2), [
+    'Fetched from the audit log: none yet; 91 windows left',
+    'In the reports: none of it yet',
+    'The last run reached its time limit on 2026-06-01 before any of it had loaded. The next scheduled run carries on, or start one now with "valuelens-install run".',
+  ]);
+  assert.doesNotMatch(`${paused.ui.text()}${going.ui.text()}${none.ui.text()}`, /activity up to|loaded now|4 hours|publishes nothing/);
+});
+
+test('azureHistory: a reload that stopped at its time limit says how far back it has loaded', async () => {
+  const windows = plan(t('2026-03-03T00:00:00'), t('2026-06-01T02:00:00'), 8);
+  const state = {
+    high_water_mark: '2026-05-31T23:59:00+00:00',
+    backfill_from: '2026-03-03T00:00:00+00:00',
+    windows: asJob(entries(windows, (i) => (i > 135 ? 'succeeded' : i === 135 ? 'paused' : undefined))),
+    loaded_back_to: '2026-04-17T08:00:00+00:00',
+    windows_left: 136,
+    paused_at: '2026-06-01T05:00:00+00:00',
+  };
+  const { ctx, ui } = azureCtx(async () => JSON.stringify(state), { days: 90 });
+  await azureHistory(ctx, { executions: [exec('Succeeded', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(ui.text()), [
+    'Audit history',
+    'Asked for: 90 days',
+    "In the reports: activity up to 2026-05-31. The reload from 2026-03-03 isn't all in them yet. It has loaded back to 2026-04-17 so far, newest first.",
+    'Fetched from the audit log: about 45 of 90 days; 136 windows left',
+    PAUSED_NOTE,
+  ]);
+});
+
+test('azureHistory: a scheduled run that stopped at its time limit leaves its windows for the next', async () => {
+  // The high-water mark holds until every window has merged, so the reports have at least that.
+  const state = {
+    high_water_mark: '2026-05-30T23:58:00+00:00',
+    windows: asJob(entries(AZ_WINDOWS, (i) => (i > 87 ? 'succeeded' : i === 87 ? 'paused' : undefined))),
+    pending_high_water_mark: '2026-06-01T01:58:00+00:00',
+    loaded_back_to: '2026-05-31T08:00:00+00:00',
+    windows_left: 4,
+    paused_at: '2026-06-01T05:00:00+00:00',
+  };
+  const stopped = azureCtx(async () => JSON.stringify(state));
+  await azureHistory(stopped.ctx, { executions: [exec('Succeeded', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(stopped.ui.text()).slice(2), [
+    '✓ In the reports: activity up to 2026-05-30',
+    'The last run reached its time limit on 2026-06-01 with 4 windows left. The next scheduled run carries on with them, or start one now with "valuelens-install run".',
+  ]);
+  const going = azureCtx(async () => JSON.stringify(state));
+  await azureHistory(going.ctx, { executions: [exec('Running', '2026-06-01T11:00:00+00:00')] });
+  assert.deepEqual(lines(going.ui.text()).slice(2), ['✓ In the reports: activity up to 2026-05-30', 'A run is going now, and carries on with the 4 windows the last run left.']);
+
+  // A failed window, with none paused, isn't a time limit: the run is listed as failed, and the next one retries it.
+  const { paused_at: _, ...failed } = state;
+  const retry = azureCtx(async () => JSON.stringify({ ...failed, windows_left: 1 }));
+  await azureHistory(retry.ctx, { executions: [exec('Failed', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(retry.ui.text()).slice(2), ['✓ In the reports: activity up to 2026-05-30']);
+
+  // A reload waiting to start has its own step.
+  const waiting = azureCtx(async () => JSON.stringify(state));
+  waiting.config.history.pending = { days: 90, reason: 'running', at: '2026-06-01T11:00:00.000Z' };
+  await azureHistory(waiting.ctx, { executions: [] });
+  assert.deepEqual(lines(waiting.ui.text()).slice(2), ['✓ In the reports: activity up to 2026-05-30']);
+});
+
 test('azureHistory: when the state cannot be read, it falls back to the runs, and never fails', async () => {
   const priv = azureCtx(async () => assert.fail('a private install is not read'));
   priv.az.publicNetworkAccess = false;
@@ -462,7 +626,7 @@ test('azureHistory: when the state cannot be read, it falls back to the runs, an
   assert.deepEqual(lines(priv.ui.text()).slice(1), [
     'Asked for: 30 days',
     "How much has loaded can't be read from this PC: it's a private install, so its storage can't be reached from outside its network.",
-    'The reports have the history asked for once a run of the run job succeeds. Its runs are listed above.',
+    "The reports fill in as the run job's runs publish, and have the history asked for once those runs have loaded all of it. The runs are listed above.",
   ]);
 
   for (const [err, reason] of /** @type {[Error, RegExp][]} */ ([

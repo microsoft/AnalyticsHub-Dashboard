@@ -41,13 +41,20 @@ def retry_after(response, attempt: int) -> float:
         return float(min(60, 2 ** attempt))
 
 
+class DeadlineReached(RuntimeError):
+    """A wait would run past the caller's deadline, so the caller stops instead of waiting."""
+
+
 class Api:
     """`request` retries throttling and transient errors, and refreshes the token once on 401.
 
     Other statuses are returned to the caller, which knows what a 400/403/404 means for it.
+    A caller with a time budget sets `deadline` (a `clock` reading): a retry wait that would run
+    past it raises DeadlineReached instead of sleeping.
     """
 
-    def __init__(self, tokens, session=None, sleep=time.sleep, attempts: int = 6, on_throttle=None):
+    def __init__(self, tokens, session=None, sleep=time.sleep, attempts: int = 6, on_throttle=None,
+                 clock=time.monotonic, deadline=None):
         if session is None:
             import requests
 
@@ -57,6 +64,14 @@ class Api:
         self.sleep = sleep
         self.attempts = attempts
         self.on_throttle = on_throttle  # called on every HTTP 429, e.g. to lower a caller's concurrency
+        self.clock = clock
+        self.deadline = deadline
+
+    def _retry_wait(self, wait: float, method: str, url: str, why: str) -> None:
+        if self.deadline is not None and self.clock() + wait >= self.deadline:
+            raise DeadlineReached(f"{method} {_short(url)} {why}; the time budget ends before a retry")
+        log.warning("%s %s %s; retrying in %.0fs", method, _short(url), why, wait)
+        self.sleep(wait)
 
     def request(self, method: str, url: str, *, scope: str = GRAPH, headers=None, timeout=120, **kwargs):
         refreshed = False
@@ -69,9 +84,7 @@ class Api:
             except Exception as exc:  # connection reset, DNS, read timeout
                 if attempt >= self.attempts or not _is_network_error(exc):
                     raise
-                wait = float(min(60, 2 ** attempt))
-                log.warning("%s %s failed (%s); retrying in %.0fs", method, _short(url), type(exc).__name__, wait)
-                self.sleep(wait)
+                self._retry_wait(float(min(60, 2 ** attempt)), method, url, f"failed ({type(exc).__name__})")
                 continue
             if r.status_code == 401 and not refreshed:
                 refreshed = True
@@ -83,9 +96,7 @@ class Api:
                 except Exception:  # a listener must never break the request
                     log.debug("on_throttle listener failed", exc_info=True)
             if r.status_code in TRANSIENT and attempt < self.attempts:
-                wait = retry_after(r, attempt)
-                log.warning("%s %s returned %s; retrying in %.0fs", method, _short(url), r.status_code, wait)
-                self.sleep(wait)
+                self._retry_wait(retry_after(r, attempt), method, url, f"returned {r.status_code}")
                 continue
             return r
 

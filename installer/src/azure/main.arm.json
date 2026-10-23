@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.47.16.16243",
-      "templateHash": "13927340243959713994"
+      "templateHash": "2017136607259602521"
     }
   },
   "parameters": {
@@ -1730,7 +1730,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.47.16.16243",
-              "templateHash": "808462801506716069"
+              "templateHash": "6761694916060589598"
             }
           },
           "parameters": {
@@ -1952,7 +1952,8 @@
               }
             ],
             "jobEnv": "[concat(variables('commonEnv'), createArray(createObject('name', 'VALUELENS_AUDIT_HISTORY_DAYS', 'value', string(parameters('auditHistoryDays'))), createObject('name', 'VALUELENS_SQL_READER_NAME', 'value', parameters('sqlReaderName')), createObject('name', 'VALUELENS_SQL_READER_CLIENT_ID', 'value', parameters('sqlReaderClientId')), createObject('name', 'VALUELENS_SAMPLE_DATA', 'value', if(parameters('sampleData'), 'true', 'false')), createObject('name', 'VALUELENS_AZURE_AI_SUBSCRIPTION', 'value', parameters('azureAiSubscriptionId')), createObject('name', 'VALUELENS_PAYG_SUBSCRIPTIONS', 'value', parameters('paygSubscriptionIds')), createObject('name', 'VALUELENS_DROP_SITE_ID', 'value', parameters('dropSiteId')), createObject('name', 'VALUELENS_DROP_DRIVE_ID', 'value', parameters('dropDriveId')), createObject('name', 'VALUELENS_DROP_FOLDER', 'value', parameters('dropFolder')), createObject('name', 'VALUELENS_DATAVERSE_ENVIRONMENTS', 'value', parameters('dataverseEnvironments')), createObject('name', 'VALUELENS_ARG_MANAGEMENT_GROUP', 'value', parameters('argManagementGroup')), createObject('name', 'VALUELENS_ARG_AGENTS', 'value', if(parameters('argAgents'), 'true', 'false')), createObject('name', 'VALUELENS_ARG_FOUNDRY', 'value', if(parameters('argFoundry'), 'true', 'false')), createObject('name', 'VALUELENS_WORKDAY_OUTPUT_TABLE', 'value', parameters('workdayOutputTable')), createObject('name', 'VALUELENS_WORKDAY_ALLOW_BASE_OVERWRITE', 'value', if(parameters('workdayAllowBaseOverwrite'), 'true', 'false'))))]",
-            "runJobEnv": "[concat(variables('jobEnv'), createArray(createObject('name', 'VALUELENS_DUCKDB_MEMORY_LIMIT', 'value', '5GiB')))]",
+            "runJobTimeoutSec": 14400,
+            "runJobEnv": "[concat(variables('jobEnv'), createArray(createObject('name', 'VALUELENS_DUCKDB_MEMORY_LIMIT', 'value', '5GiB'), createObject('name', 'VALUELENS_JOB_TIMEOUT_SEC', 'value', string(variables('runJobTimeoutSec')))))]",
             "registries": "[if(empty(parameters('registryServer')), createArray(), createArray(createObject('server', parameters('registryServer'), 'identity', parameters('identityId'))))]",
             "identity": {
               "type": "UserAssigned",
@@ -2011,7 +2012,7 @@
                 "configuration": {
                   "triggerType": "Schedule",
                   "registries": "[variables('registries')]",
-                  "replicaTimeout": 14400,
+                  "replicaTimeout": "[variables('runJobTimeoutSec')]",
                   "replicaRetryLimit": 1,
                   "scheduleTriggerConfig": {
                     "cronExpression": "[parameters('runSchedule')]",

@@ -74,8 +74,8 @@ test('historyChoices: each choice has its estimate for the target and tenant siz
   ]);
   assert.deepEqual(historyChoices('azure', 'large').map((c) => c.description), [
     'Estimate for more than 10,000 people: 1 to 2 hours.',
-    'Estimate for more than 10,000 people: about 4 hours, in one or two runs.',
-    'Estimate for more than 10,000 people: about 8 hours, over two or three runs.',
+    'Estimate for more than 10,000 people: about 4 hours, over two runs.',
+    'Estimate for more than 10,000 people: about 8 hours, over three runs.',
   ]);
   assert.deepEqual(historyChoices('azure', undefined).map((c) => [c.value, c.name]), HISTORY_CHOICES.map((c) => [c.value, c.name]));
 });
