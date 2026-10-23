@@ -28,6 +28,24 @@ One app registration covers all three on Fabric; on Azure, the jobs' managed ide
 app roles. On Fabric the app's secret goes in the notebooks by default, or in a Key Vault if you
 choose: see [Where the secret goes](../installer/README.md#where-the-secret-goes).
 
+On Azure the install has two app registrations, with no Graph application permissions:
+**Analytics Hub (Azure)**, which people sign in to the web app with, and **Analytics Hub SQL Reader**,
+which Power BI reads the database as.
+
+- **Who creates them:** the installer, before it deploys anything, if you can register apps. Every
+  user can, unless *Users can register applications* is off, and so can an **Application
+  Administrator**, **Cloud Application Administrator** or **Application Developer**. A Privileged
+  Role Administrator can't. Otherwise an Application Administrator or Cloud Application Administrator
+  creates them from a script the installer writes: see
+  [If you can't register apps](../installer/README.md#if-you-cant-register-apps).
+- **Who approves the web app's delegated permissions** (Power BI `Dataset.Read.All` and Graph
+  `User.Read`, plus `GroupMember.ReadWrite.All` and `User.ReadBasic.All` with viewer access): a
+  **Global Administrator**, **Privileged Role Administrator**, **Application Administrator** or
+  **Cloud Application Administrator**. The installer does it if you hold one of those roles, the
+  admin's script does it, or the installer gives you a consent link to send.
+- **Who gives the managed identity its Graph app roles:** a **Global Administrator** or
+  **Privileged Role Administrator**, after the deploy.
+
 The optional **Microsoft 365 activity** notebook (Fabric path, `m365_activity_daily`) reads the
 Microsoft 365 usage reports with the same `Reports.Read.All`, so it needs no extra permission.
 Its activity only matches people if a Global Administrator unticks **Conceal user, group, and site
@@ -202,7 +220,7 @@ The installer creates one Entra security group, **Analytics Hub Viewers**, with 
 | Open the Power BI models below F64 | Viewers need a **Power BI Pro** (or PPU) licence unless the workspace is on an F64 or larger capacity |
 | Open the Fabric app | Share the app item with the group once (**Share** on the item, enter the group, **Grant**). The installer asks you to straight after it deploys the app, and records it when you say it's done. After that, membership is enough |
 | Open the Azure web app | Membership of the group (the token's `groups` claim, checked with `checkMemberGroups` when a user is in too many groups), or the **AnalyticsHub.User** app role |
-| Add and remove viewers in the Azure app | Group **owners** and **AnalyticsHub.Admin**. The web app calls Graph as the signed-in person with the delegated **GroupMember.ReadWrite.All** scope, and **User.ReadBasic.All** to find people by email and show members' names (both admin-consented by the installer); Graph still only lets owners and admins change the group |
+| Add and remove viewers in the Azure app | Group **owners** and **AnalyticsHub.Admin**. The web app calls Graph as the signed-in person with the delegated **GroupMember.ReadWrite.All** scope, and **User.ReadBasic.All** to find people by email and show members' names (both admin-consented, by the installer or from its consent link); Graph still only lets owners and admins change the group |
 | Add and remove viewers on Fabric | Group owners, in My Groups. **Share** in the Fabric app says "To give someone access, add them to" the group, links to it in My Groups, and says "Anyone in the group can open it" only once the app item is recorded as shared. Until then it says the item still has to be shared, with a link to it |
 
 > **Keep viewers off workspace roles.** Even a workspace Viewer can query the Lakehouse's SQL endpoint, and Admins, Members and Contributors skip [org-scoped access](#org-scoped-access-row-level-security). Share the app and models through the group instead. Organizational apps (preview) can be an optional landing page that bundles the app and the reports.

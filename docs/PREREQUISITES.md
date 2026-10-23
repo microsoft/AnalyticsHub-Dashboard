@@ -7,17 +7,18 @@ check the same things before they create or change anything, and list only what'
 you chose. Each check has 15 seconds; one that takes longer shows as "couldn't check" and never
 stops you. A **Hand-off** (→ in the terminal) is work someone else does for you, such as an admin
 approving the app's permissions: the row says who, install and update list it on its own line, and
-the install carries on. Only a true blocker stops an install: with `--yes`, no way to register the app (you
-can't, and there's no app registration or admin pack to use instead). Setting it up by hand? On Fabric, you also need
+the install carries on. Only a true blocker stops an install: on Fabric with `--yes`, no way to register the app (you
+can't, and there's no app registration or admin pack to use instead). On Azure nothing stops it there: if you can't
+create the two apps, the plan writes a script for an admin to create them, and stops before it deploys anything. Setting it up by hand? On Fabric, you also need
 [these](MANUAL-INSTALL.md#1-prerequisites); on Azure, see [its list](MANUAL-INSTALL.md#azure).
 
 ## At a glance
 
 | Who | Fabric | Azure | Time |
 |---|---|---|---|
-| **You**, who run the installer | Contributor on an F2 or larger capacity, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager), or an Admin or Member of a workspace already on a capacity. Power BI Pro. Can register an app. | Owner, or Contributor and User Access Administrator, on a subscription or resource group. Power BI Pro. Can register an app. | 20 min |
+| **You**, who run the installer | Contributor on an F2 or larger capacity, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager), or an Admin or Member of a workspace already on a capacity. Power BI Pro. Can register an app, or an Application Administrator or Cloud Application Administrator registers it from the [admin pack](../installer/README.md#if-you-cant-register-apps). | Owner, or Contributor and User Access Administrator, on a subscription or resource group. Power BI Pro. Can register apps, or an Application Administrator or Cloud Application Administrator creates the two apps from a [script the installer writes](../installer/README.md#if-you-cant-register-apps). | 20 min |
 | **Fabric admin** | Turns on, or confirms, [the tenant settings](#fabric-admin-about-5-minutes), including letting you create Fabric items | Turns on, or confirms, the tenant settings | 5 min |
-| **Entra admin** (Global Administrator or Privileged Role Administrator) | Grants admin consent for read-only Graph permissions | The same, for the app and the managed identity. Plus one to manage viewers from the web app | 2 min |
+| **Entra admin** (Global Administrator or Privileged Role Administrator) | Grants admin consent for read-only Graph permissions | Gives the jobs' managed identity its read-only Graph roles. Approves the web app's delegated permissions, including one to manage viewers from the app: an Application Administrator or Cloud Application Administrator can approve those too | 2 min |
 | **Microsoft 365 admin** (Global Administrator) | Turns off concealed names in usage reports | The same | 1 min |
 | **Compliance admin** | Makes sure audit logging is on in Microsoft Purview (it usually is) | The same | 1 min |
 | **Teams admin** | – | Publishes the Teams app to your org's app catalog | 2 min |
@@ -194,7 +195,10 @@ The detail behind [At a glance](#at-a-glance), with links to Microsoft Learn.
       to publish the models and reports.
 - [ ] **Permission to register an app** in Microsoft Entra ID. Everyone can by default
       ([who can](https://learn.microsoft.com/entra/identity/role-based-access-control/delegate-app-roles#restrict-who-can-create-applications)).
-      If you can't, an admin registers it with the [admin pack](../installer/README.md#if-you-cant-register-apps).
+      If you can't, an Application Administrator or Cloud Application Administrator registers it: on
+      Fabric with the [admin pack](../installer/README.md#if-you-cant-register-apps), and on Azure
+      with the [script the installer writes](../installer/README.md#if-you-cant-register-apps). A
+      Privileged Role Administrator can't register apps.
 - [ ] **Optional: a Key Vault for the app's secret** (Fabric). By default, the installer writes
       the secret into the notebooks: nothing in Azure is needed, but anyone with a role in the
       workspace can read it. See [Where the secret goes](../installer/README.md#where-the-secret-goes).
@@ -291,6 +295,8 @@ the installer does this itself, and you can skip this section.
       add viewers from the app, and `AppCatalog.ReadWrite.All`, which lets the installer publish
       the Teams app. The web app's `User.ReadBasic.All` lets **Share** find people by email, and
       reads only basic profiles. The installer gives you a link to send for the app's permissions.
+      On Azure they're the web app's delegated permissions, so an Application Administrator or Cloud
+      Application Administrator can approve them too.
       The Teams one is given at the installer's second sign-in, by whoever runs it.
       [About admin consent](https://learn.microsoft.com/entra/identity/enterprise-apps/grant-admin-consent).
 - [ ] **Optional: give the app or managed identity the Global Reader role**, only for agent

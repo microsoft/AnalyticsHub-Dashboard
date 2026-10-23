@@ -526,7 +526,9 @@ ARM can't do these, so the installer:
 - Grant the managed identity its Graph app roles (`AuditLogsQuery.Read.All`, `Reports.Read.All`,
   `User.Read.All` and module extras).
 - Run the migrate job, which creates the database users.
-- Create the web app registration with a federated credential, and the Power BI workspace, models and refresh.
+- Finish the web app registration: its redirect URIs and a federated credential. The installer
+  creates both app registrations, or uses the ones an admin created, before the deploy.
+- Create the Power BI workspace, models and refresh.
 - Create or find the viewer group, give it Build on the models, and pass it to the web app as `VALUELENS_ACCESS`.
 - With credit consumption: the managed identity's Cost Management and Azure AI roles, write access to
   where the credit files land, the Consumption Central model, and the Copilot Studio Power Automate flow.
