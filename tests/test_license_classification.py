@@ -155,9 +155,10 @@ class LicenseClassificationTests(unittest.TestCase):
                         exec(compile(code, "report-fetch", "exec"), namespace)
 
     def test_active_pbits_consume_flags_not_assigned_product_classifiers(self):
+        # sharepoint/ holds unchanged ValueLens copies that don't read Fabric tables.
         paths = [p for p in ROOT.rglob("*.pbit")
                  if "archive" not in p.parts
-                 and not {"Add Credit Consumption", "Add Agent Evaluator"} & set(p.parts)]
+                 and not {"Add Credit Consumption", "Add Agent Evaluator", "sharepoint"} & set(p.parts)]
         self.assertEqual(len(paths), 2)
         for path in paths:
             with self.subTest(path=path), zipfile.ZipFile(path) as archive:
