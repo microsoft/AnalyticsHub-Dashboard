@@ -6,8 +6,8 @@
  * The figures are estimates, scaled from two measurements, until timed installer runs replace them:
  * - On Azure, 30 days of history took 58 minutes by hand: 90 queries of 8 hours, 5 at a time, so about 3 minutes
  *   for each round of 5, most of it waiting in the audit service's queue.
- * - In an offline test at 20,000 seats, with the audit service simulated (installer/README.md, "A large tenant on
- *   Azure"), collecting took about 3 minutes for 30 days and 18 for 180, and processing about 3 and 25 to 35.
+ * - In an offline test at 20,000 seats, with the audit service simulated (installer/README.md, "How long the first
+ *   load takes"), collecting took about 3 minutes for 30 days and 18 for 180, and processing about 3 and 25 to 35.
  *
  * They're scaled by the windows each load queries, at about 3 minutes for each round of 5: day-long windows on
  * Fabric for up to 10,000 people, 2-hour windows for more, and 8-hour windows on Azure and on a Fabric install with
