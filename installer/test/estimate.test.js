@@ -53,7 +53,8 @@ test('estimateShort: labelled an estimate, with who it is for when asked', () =>
   assert.equal(estimateShort(30, 'standard'), 'Estimate: about 25 minutes.');
   assert.equal(estimateShort(30, 'standard', 'fabric', { band: true }), `Estimate ${BAND_LABELS.standard}: about 25 minutes.`);
   assert.equal(estimateShort(180, 'large'), 'Estimate: a day or more, over two runs.');
-  assert.equal(estimateShort(90, 'large', 'azure', { band: true }), 'Estimate for more than 10,000 people: about 4 hours, in one or two runs.');
+  assert.equal(estimateShort(90, 'large', 'azure', { band: true }), 'Estimate for more than 10,000 people: about 4 hours, over two runs.');
+  assert.equal(estimateShort(90, 'standard', 'azure'), 'Estimate: about 3 hours, in one or two runs.', 'about 3 hours of fetching a run');
   assert.equal(estimateShort(0, 'large'), '');
 });
 
@@ -73,7 +74,9 @@ test('firstLoadEstimate: the estimate, the queue, and what each target does with
 
   const azure = firstLoadEstimate(30, 'standard', 'azure');
   assert.match(azure, /^Estimate for 30 days of history, for up to 10,000 people: about an hour, in one run\./);
-  assert.match(azure, /Each run gets up to 4 hours\. A run cut off then publishes nothing/);
+  assert.match(azure, /Each run fetches for up to about 3 hours, newest weeks first, then publishes what it has loaded, so the reports fill in after each run\./);
+  assert.doesNotMatch(azure, /publishes nothing|4 hours/, 'a run out of time publishes what it has loaded');
+  assert.match(firstLoadEstimate(180, 'large', 'azure'), /^Estimate for 180 days of history, for more than 10,000 people: about 8 hours, over three runs\./);
   assert.match(azure, /The next scheduled run carries on where it stopped, or start one sooner with "valuelens-install run"/);
   assert.doesNotMatch(azure, /time budget|retries|capacity/, 'Azure has no pipeline retries to count on, and no Fabric capacity');
   assert.doesNotMatch(`${fabric}${azure}`, /daily|usually takes under an hour/);

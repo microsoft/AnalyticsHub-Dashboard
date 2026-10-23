@@ -11,7 +11,7 @@ in step with the Fabric notebooks by the golden tests in `tests/`. No Spark or J
 
 | Step | What it does | Module |
 |---|---|---|
-| collect | Licensed users (`Reports.Read.All`), then Copilot interactions from the Purview audit log (`AuditLogsQuery.Read.All`) | core |
+| collect | Licensed users (`Reports.Read.All`) first, and Copilot interactions from the Purview audit log (`AuditLogsQuery.Read.All`) last, after every other collector and within the run's time budget | core |
 | | Org data from `/users` (`User.Read.All`) | orgData |
 | | Microsoft 365 daily activity reports (`Reports.Read.All`) | m365Activity |
 | | Copilot Studio credits and Viva (Copilot Chat) credits from the drop folder; Azure AI spend, tokens and Copilot pay-as-you-go from Azure Resource Manager | consumption |
@@ -22,7 +22,7 @@ in step with the Fabric notebooks by the golden tests in `tests/`. No Spark or J
 | | Copilot Studio conversation transcripts from Dataverse (an application user with Bot Transcript Viewer and the installer's transcript reader role) | agentEvaluator |
 | process | Curates interactions with `valuelens_core.curate()` into `curated/copilot_interactions_curated`, recomputing only the months that changed or fall in the lookback window | core |
 | publish | Loads curated and raw tables into Azure SQL, rewriting only the days that changed | per module |
-| refresh | Refreshes the configured Power BI semantic models and waits for them to finish. The Agent Evaluator model (`ae`) is skipped until `agentEvaluator` is in `VALUELENS_MODULES` and `VALUELENS_DATAVERSE_ENVIRONMENTS` lists an environment (`MODEL_MODULES` in `refresh.py`) | — |
+| refresh | Refreshes the configured Power BI semantic models and waits for them to finish, until 10 minutes before the run's time limit: a refresh still going then carries on in Power BI, and the run doesn't fail for it. A full refresh owed because older days were republished is kept in `raw/_state/refresh.json` until a run sees one complete, so the next run that publishes does it. The Agent Evaluator model (`ae`) is skipped until `agentEvaluator` is in `VALUELENS_MODULES` and `VALUELENS_DATAVERSE_ENVIRONMENTS` lists an environment (`MODEL_MODULES` in `refresh.py`) | — |
 
 The other commands are:
 
@@ -35,11 +35,13 @@ recomputes only the months whose rows changed, plus the months within
 late. It rewrites only those monthly files. A recomputed month is curated from all of its source
 rows, so it equals a full rebuild. Every month is recomputed when the settings, the
 `valuelens_core` code or the source columns change, on the first run after the old single
-`part-0.parquet` layout (which that run removes), and with `--full-rebuild` or
-`VALUELENS_PROCESS_FULL_REBUILD=true`. Months that aren't recomputed keep the licence and
-agent-registry values from when they were last processed. Each run on Azure starts with an empty
-disk, so `process` downloads the month files it reads, each once a run: the curated months, and
-the context of the months it keeps. A full rebuild reads none of them, so it downloads none.
+`part-0.parquet` layout (which that run removes), with `--full-rebuild` or
+`VALUELENS_PROCESS_FULL_REBUILD=true`, and once when a history loaded newest first over more than
+one run is complete (see [Long first loads publish as they go](#steps)). Months that aren't
+recomputed keep the licence and agent-registry values from when they were last processed. Each run
+on Azure starts with an empty disk, so `process` downloads the month files it reads, each once a
+run: the curated months, and the context of the months it keeps. A full rebuild reads none of
+them, so it downloads none.
 
 **Long histories run in passes.** When the months to recompute hold more than
 `VALUELENS_PROCESS_PASS_ROWS` source rows (default 2 million), as a long backfill or a large
@@ -59,11 +61,41 @@ staged pages, which stay in storage for the next run, so `process` has the disk.
 
 **A reload carries over until it's merged.** `VALUELENS_AUDIT_BACKFILL_DAYS` is set on one execution
 only. Before that run queries anything, it records in the audit state where the reload starts. Each
-later run plans from there too, reusing the windows already fetched, until a run merges every window
-and clears the record. The run after that plans from the high-water mark again, and prunes the
-reload's windows. So a reload that reaches the run job's 4-hour limit, or has a window fail, isn't
+later run plans from there too, reusing the windows already fetched, until every window has merged,
+and then clears the record. The run after that plans from the high-water mark again, and prunes the
+reload's windows. So a reload that stops at the run's time budget, or has a window fail, isn't
 lost: the scheduled runs finish it. Agent Evaluator remembers a reload the same way, for each
 environment (see [Agent Evaluator](#agent-evaluator-module-agentevaluator)).
+
+**The run's time budget.** The run job's time limit is its replica timeout, which the template also
+passes to the job as `VALUELENS_JOB_TIMEOUT_SEC` (14,400 seconds, 4 hours; the job assumes that when
+it's missing). It counts from the job's start. The audit collector runs after every other collector,
+so a slow or throttled history fetch can't keep them from running, and it fetches until a reserve
+before the limit: 60 minutes, or 1.5 times the last run's time from the audit merge to the end of
+publish when that's longer. The time the other collectors take comes out of the audit fetch: it has
+no minimum. The run logs how long each collector took (`collect <name>: took N min`) and the audit
+fetch's budget (`collect audit: fetching for up to N min ...`). `VALUELENS_AUDIT_TIME_BUDGET_MIN`
+replaces the budget with minutes counted from the job's start. A run that merged and was stopped
+before it published leaves `merge_open` in the audit state, and the next run keeps at least 1.5
+times the time that run had left.
+
+**Long first loads publish as they go.** The audit collector fetches the newest windows first. The
+time budget is checked before a window creates its query, on every poll, before every page of
+records, before every retry, and in the API client's throttling waits. At the budget no new window
+starts, and a window waiting on its query or paging its records is marked `paused` with its query
+ID; its pages so far are removed, so the next run reads it again from the start. A window waiting to
+retry pauses without a query ID. A budget stop isn't a query timeout, so it never splits a window.
+The run then merges the windows it finished, holds the high-water mark, keeps the reload's start
+and prunes nothing, and processes, publishes and refreshes as usual. It logs `audit: History loaded
+back to <date>. The next run carries on (<n> windows left).` and exits 0; a failed window still
+fails the run. The next run polls a paused query again while it's under 26 hours old, or starts a
+new one: how long Graph keeps a query isn't documented, so nothing depends on it. Each window merges
+once (`merged_at` in the manifest), and only the windows merging in a run have their staged pages
+downloaded; a window the look-back fetches again merges again. Months merged newest first can
+curate differently from one pass over the history (an agent named only in an older record links
+once that record is in), so once a load that took more than one run is complete, `process`
+rebuilds every month once: in the run that finishes the load if it has twice the reserve left,
+otherwise in the next.
 
 **Query timings.** The run logs a line for each audit window it fetches, `audit: window <key> +N
 record(s) in P page(s); slot wait Xs, ready Ys (Z poll(s)), drain Ws`. The slot wait is the time
@@ -74,6 +106,7 @@ median, p90 and longest ready times, and the median drain time a page, so you ca
 longer reload would take.
 
 Any failure is logged and the job exits with code 1, so Container Apps records the run as failed.
+A stop at the time budget isn't a failure: the run publishes what it has loaded and exits 0.
 
 ## Credit consumption (module `consumption`)
 
@@ -361,11 +394,13 @@ The job reads its settings from environment variables. Bicep sets them.
 | `VALUELENS_TRANSCRIPT_PARSE_WORKERS` | agentEvaluator: the parse processes. The default, -1, uses one per CPU up to four; 0 or 1 parses in the job's own process. |
 | `VALUELENS_TRANSCRIPT_RESOLVE_UPNS` | agentEvaluator: `false` stops looking up UPNs in Graph for users whose transcripts don't carry one. The default is `true`. |
 | `VALUELENS_AUDIT_HISTORY_DAYS` / `VALUELENS_AUDIT_LOOKBACK_DAYS` | The first-run backfill (default 30) and the re-read window on later runs (default 7) |
+| `VALUELENS_JOB_TIMEOUT_SEC` | The run job's time limit in seconds, which the run counts from the job's start. The template sets it from the same value as the run job's replica timeout (14,400); the job assumes 14,400 when it's missing. See [Steps](#steps). |
+| `VALUELENS_AUDIT_TIME_BUDGET_MIN` | Replaces the audit fetch's time budget: the minutes, counted from the job's start, after which no audit window starts and the waiting ones pause. Capped at the run's limit. The template doesn't set it; without it, the fetch stops a reserve before the limit (see [Steps](#steps)). |
 | `VALUELENS_PROCESS_LOOKBACK_DAYS` | Days before the newest audit record whose months `process` always recomputes (default 14) |
 | `VALUELENS_PROCESS_FULL_REBUILD` | `true` makes `process` recompute every month. Set it on a single execution, not on the job. |
 | `VALUELENS_PROCESS_PASS_ROWS` | The most source rows `process` curates in one pass (default 2,000,000; `0` means one pass). See [Steps](#steps). |
 | `VALUELENS_DUCKDB_MEMORY_LIMIT` | DuckDB's memory cap for `process`, the audit merge and the Agent Evaluator merge. The run job sets `5GiB` of its 8 GiB, since some of DuckDB's memory sits outside the cap. Past it, DuckDB spills to the job's temporary folder. Unset, `process` and the audit merge let DuckDB take 80% of the container's memory, and the Agent Evaluator merge uses `4GB`. |
-| `VALUELENS_AUDIT_BACKFILL_DAYS` | A one-off reload of this many days of audit history, even after the first run. The installer sets it on a single execution when **Repair or change** loads more history; don't set it on the job itself, or every run reloads. Agent Evaluator reads each environment back this many days or `VALUELENS_TRANSCRIPT_FIRST_READ_DAYS`, whichever is more. The reload is remembered from the start of that execution, so later runs carry on with it: the audit history until a run has merged every window, and Agent Evaluator until each environment's read finishes. |
+| `VALUELENS_AUDIT_BACKFILL_DAYS` | A one-off reload of this many days of audit history, even after the first run. The installer sets it on a single execution when **Repair or change** loads more history; don't set it on the job itself, or every run reloads. Agent Evaluator reads each environment back this many days or `VALUELENS_TRANSCRIPT_FIRST_READ_DAYS`, whichever is more. The reload is remembered from the start of that execution, so later runs carry on with it: the audit history until every window has merged, and Agent Evaluator until each environment's read finishes. |
 | `VALUELENS_POWERBI_WORKSPACE_ID`, `VALUELENS_SEMANTIC_MODELS` | The Power BI workspace, and a JSON object of the models to refresh |
 | `VALUELENS_SQL_READER_NAME`, `VALUELENS_SQL_READER_CLIENT_ID` | The web app's identity, granted read access by `migrate` |
 | `VALUELENS_MIGRATIONS_DIR` | Where the migrations are. The image sets this to `/app/sql/migrations`. |
@@ -376,7 +411,8 @@ The job reads its settings from environment variables. Bicep sets them.
 | Path | Contents |
 |---|---|
 | `raw/copilot_interactions_parsed/` | Flattened audit records, one parquet file per day |
-| `raw/_audit_staging/`, `raw/_state/audit.json` | The audit pages of the windows the last run planned, gzip-compressed, and the manifest of finished windows with the high-water mark and where a reload not yet merged starts. A run that is cut off reuses the finished windows. |
+| `raw/_audit_staging/`, `raw/_state/audit.json` | The audit pages of the windows the last run planned, gzip-compressed, and the manifest of windows: each one's status, with its query ID when it's `paused` at the time budget, and when it last merged (`merged_at`). Also the high-water mark, where a reload not yet merged starts, the last run's merge-to-publish time, and, while windows are left, the progress `status` reads (`loaded_back_to`, `windows_left`, `paused_at`). Merged isn't published: `processed` is where the load had got to when the last process step to finish started, and `published` is the same for the last publish that carried a process step's output, which `status` counts as in the reports. The next run reuses the finished windows and merges only those not merged yet. |
+| `raw/_state/refresh.json` | refresh: the full refreshes owed, per model, with the one a run left running, until a run sees one complete |
 | `raw/copilot_licensed_users/`, `raw/copilot_org_data/`, `raw/m365_activity_daily/` | Collector snapshots |
 | `curated/copilot_interactions_curated/month-YYYYMM.parquet` | The curated fact, one file per month (`month-none` for rows without a date). Each file is written atomically. |
 | `curated/_valuelens_process/` | process: the per-month source fingerprints (`state.json`) and the per-month context that incremental runs reuse |
@@ -424,5 +460,5 @@ The `azure-images` workflow builds the image on pull requests. On `installer-v*`
 - **Private networking login timeouts.** Behind a private endpoint, SQL's default Redirect policy can hang at login (`HYT00 Login timeout expired`), even though DNS and port 1433 work. The template sets the Proxy policy in private mode; check `az sql server conn-policy show` if you see this.
 - **Hierarchical namespace.** The storage account is ADLS Gen2, so blob listings include directory placeholders (`hdi_isfolder`). The store skips them; deleting one fails with `DirectoryIsNotEmpty`.
 - **Failed audit query windows.** Purview sometimes ends an audit query as `failed` or `cancelled` on large tenants. The audit collector works like the Fabric notebook: it sends the window again as a new query with a growing wait (`WINDOW_RETRIES`, default 3), then splits it in half down to `MIN_CHUNK_HOURS` (1h). After a failure or an HTTP 429, it runs fewer queries at once (`MAX_CONCURRENT_QUERIES`, default 5). Windows that finished are merged. While any window is still failing, the high-water mark doesn't move, the job exits with code 1 and lists the failed windows, and the next run queries only those again.
-- **Audit Search throttling.** Graph allows only a few audit queries at a time per tenant, so a first load over a long look-back sees many 429s and can take an hour or more. Windows that still fail are kept as failed in the manifest and the next run picks them up.
+- **Audit Search throttling.** Graph allows only a few audit queries at a time per tenant, so a first load over a long look-back sees many 429s and can take an hour or more. Windows that still fail are kept as failed in the manifest and the next run picks them up. A run that reaches its time budget isn't failing: its windows pause, it publishes what it has loaded and exits 0, and the next run carries on.
 - **Reading job logs.** `az containerapp job logs show -g <rg> -n <job> --execution <name> --container <migrate|run>` reads the console directly and works while Log Analytics ingestion is still catching up.

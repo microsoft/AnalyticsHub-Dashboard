@@ -57,12 +57,14 @@ it again when the load starts.
 | History | Fabric, up to 10,000 people | Fabric, more than 10,000 | Azure, up to 10,000 | Azure, more than 10,000 |
 |---|---|---|---|---|
 | 30 days | About 25 minutes | About 4 hours | About an hour | 1 to 2 hours |
-| 90 days | About an hour | About 12 hours | About 3 hours | About 4 hours, in one or two runs |
-| 180 days | 2 to 3 hours | A day or more, over two runs | About 6 hours, over two runs | About 8 hours, over two or three runs |
+| 90 days | About an hour | About 12 hours | About 3 hours, in one or two runs | About 4 hours, over two runs |
+| 180 days | 2 to 3 hours | A day or more, over two runs | About 6 hours, over two or three runs | About 8 hours, over three runs |
 
 The audit service's queue can add hours on a busy day, and a large tenant's history can take more
-than one run. On Azure the run job runs once a day, so a load over two runs finishes the next day,
-unless you start a run sooner. What each target does then is under
+than one run. On Azure each run fetches for up to about 3 hours, newest weeks first, then publishes
+what it has loaded, so the reports fill in after each run. The run job runs once a day, so a load
+over two runs finishes the next day, and one over three the day after, unless you start a run
+sooner. What each target does then is under
 [How long the first load takes](../installer/README.md#how-long-the-first-load-takes).
 
 ## Permissions
