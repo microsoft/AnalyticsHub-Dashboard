@@ -984,6 +984,70 @@ test("status doesn't fail when the audit history's progress can't be read, and s
   }
 });
 
+test('status and run agree on whether the history has loaded, whichever runs status shows', async () => {
+  /**
+   * `status` on Fabric after these runs, with no progress file or data check to read.
+   * @param {any[]} jobs
+   * @param {Record<string, any[]>} runs  Each run's activity runs.
+   * @param {import('../src/config.js').InstallConfig['firstRun']} [firstRun]
+   */
+  const statusAfter = async (jobs, runs, firstRun) => {
+    const fabric = fakeFabric();
+    fabric.jobList.push(...jobs);
+    Object.assign(fabric.activityRuns, runs);
+    /** @type {string[]} */
+    const read = [];
+    const query = fabric.api.queryActivityRuns;
+    /** @type {any} */ (fabric.api).queryActivityRuns = async (/** @type {string} */ ws, /** @type {string} */ jobId) => {
+      read.push(jobId);
+      return query(ws, jobId);
+    };
+    const ui = fakeUi();
+    const { ctx, config } = fakeCtx({ fabric: fabric.api, oneLake: { readJson: async () => null }, ui: ui.ui });
+    config.fabric.pipelineId = 'pipe-1';
+    if (firstRun) config.firstRun = firstRun;
+    await status(ctx);
+    return { text: ui.text(), ctx, config, read };
+  };
+  const audit = [activity('Run_Audit_Log_Ingester', 'Succeeded'), activity('Run_Audit_Log_Processor', 'Succeeded')];
+  /** Five scheduled runs, the newest. @param {string} st */
+  const daily = (st) => [27, 28, 29, 30, 31].map((d) => ({ id: `daily-${d}`, status: st, startTimeUtc: `2026-05-${d}T02:00:00`, endTimeUtc: `2026-05-${d}T02:40:00`, invokeType: 'Scheduled' }));
+  const firstLoad = { id: 'job-1', status: 'Completed', startTimeUtc: '2026-05-26T11:00:00', endTimeUtc: '2026-05-26T13:30:00', invokeType: 'Manual' };
+
+  // A: the first load finished after its window was closed, and the five scheduled runs since leave it out of those shown.
+  const a = await statusAfter([firstLoad, ...daily('Completed')], { 'job-1': audit }, { jobId: 'job-1', status: 'NotStarted', startedAt: '2026-05-26T11:00:00.000Z' });
+  assert.equal(a.config.firstRun?.status, 'Completed');
+  assert.equal(a.config.firstRun?.finishedAt, '2026-05-26T13:30:00.000Z', 'settled from every run, not only those shown');
+  // And when Fabric doesn't list it at all, its activity runs still say.
+  const unlisted = await statusAfter(daily('Completed'), { 'job-1': audit }, { jobId: 'job-1', status: 'InProgress', startedAt: '2026-05-26T11:00:00.000Z' });
+  assert.equal(unlisted.config.firstRun?.status, 'Completed');
+
+  // B: the first load failed only in another load, so it did load the history.
+  const b = await statusAfter(
+    [{ ...firstLoad, status: 'Failed', startTimeUtc: '2026-06-01T08:00:00', endTimeUtc: '2026-06-01T10:30:00' }],
+    { 'job-1': [...audit, activity('Run_Org_Data_Ingester', 'Failed')] },
+    { jobId: 'job-1', status: 'InProgress', startedAt: '2026-06-01T08:00:00.000Z' },
+  );
+  assert.equal(b.config.firstRun?.status, 'Completed');
+  assert.match(b.text, /✗ Org data \(Entra ID\)/, 'the load that failed is still shown');
+
+  // C: an install from before the installer kept its first load, whose five newest runs failed.
+  const c = await statusAfter([{ ...firstLoad, id: 'old', startTimeUtc: '2026-05-20T02:00:00', endTimeUtc: '2026-05-20T02:40:00' }, ...daily('Failed')], {});
+  assert.equal(c.config.firstRun, undefined);
+
+  for (const [label, s] of Object.entries({ A: a, 'A, not listed': unlisted, B: b, C: c })) {
+    assert.deepEqual(historyLines(s.text), ['Audit history', 'Asked for: 30 days', 'In the reports: run "valuelens-install check" to see the dates.'], label);
+    assert.doesNotMatch(s.text, /not the full history yet|To carry on|To load it/, label);
+    assert.deepEqual(await chooseLoad(s.ctx, { wait: true }), { wait: true }, `${label}: run does the usual run too`);
+  }
+
+  // A first load that's going isn't asked about until it ends. One stuck for over a day is, as run counts it.
+  const going = { jobId: 'job-1', status: 'NotStarted', startedAt: '2026-06-01T11:00:00.000Z' };
+  assert.deepEqual((await statusAfter([{ id: 'job-1', status: 'InProgress', startTimeUtc: '2026-06-01T11:00:00' }], {}, going)).read, []);
+  const stuck = await statusAfter([{ id: 'job-1', status: 'InProgress', startTimeUtc: '2026-05-30T11:00:00' }], {}, { ...going, startedAt: '2026-05-30T11:00:00.000Z' });
+  assert.deepEqual(stuck.read, ['job-1']);
+});
+
 test('status on Fabric lists what is left, starting with a load of history that did not start', async () => {
   const ui = fakeUi();
   const { ctx, config } = fakeCtx({ fabric: fakeFabric().api, oneLake: { readJson: async () => null }, ui: ui.ui });

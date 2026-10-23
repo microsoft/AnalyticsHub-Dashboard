@@ -324,7 +324,7 @@ function askedLine(days, pending) {
  * Whether a Fabric job is going: not finished, and started less than a day ago.
  * @param {any} job @param {number} now
  */
-const fabricJobGoing = (job, now) => {
+export const fabricJobGoing = (job, now) => {
   if (job?.status !== 'InProgress' && job?.status !== 'NotStarted') return false;
   const started = utcTime(job.startTimeUtc);
   return !(started !== undefined && now - started > STUCK_MS);
@@ -334,7 +334,9 @@ const fabricJobGoing = (job, now) => {
  * The audit history in `status` on Fabric: what was asked for, how much the audit load has fetched, and what the
  * reports have. The audit load writes a first load or a reload to the table only once every window is fetched.
  * @param {Ctx} ctx
- * @param {{ jobs?: any[], summary?: any }} [opts]  jobs: the pipeline's recent runs. summary: the last data check's.
+ * @param {{ jobs?: any[], summary?: any, loaded?: boolean }} [opts]  jobs: the pipeline's runs. summary: the last
+ *   data check's. loaded: whether the history has loaded, as `run` decides it; without it, from the install record
+ *   and these runs.
  */
 export async function fabricHistory(ctx, opts = {}) {
   const { ui, config } = ctx;
@@ -343,7 +345,7 @@ export async function fabricHistory(ctx, opts = {}) {
   const now = ctx.now().getTime();
   const pending = pendingHistory(config);
   const running = jobs.some((j) => fabricJobGoing(j, now));
-  const loaded = config.firstRun ? config.firstRun.status === 'Completed' : jobs.some((j) => j.status === 'Completed');
+  const loaded = opts.loaded ?? (config.firstRun ? config.firstRun.status === 'Completed' : jobs.some((j) => j.status === 'Completed'));
   ui.heading('Audit history');
   ui.info(askedLine(days, pending));
   const progress = await readFabricProgress(ctx);
