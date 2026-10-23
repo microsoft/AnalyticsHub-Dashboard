@@ -22,7 +22,10 @@ Port of the Fabric `Copilot_Audit_Log_Ingester` notebook:
   budget no window starts and a window part-way through pauses with its query ID. The windows that finished are
   merged, so the reports fill in after every run, and the next run carries on, polling a paused query again
   while it's under 26 hours old;
-* each window merges once: the manifest marks it merged, and a window fetched again merges again.
+* each window merges once: the manifest marks it merged, and a window fetched again merges again;
+* merged isn't published: the run job copies where the load had got to into `processed` when a process step
+  starts, and into `published` once a publish has carried that step's output, so the installer's `status` counts as
+  in the reports only what a run has published (see __main__).
 """
 from __future__ import annotations
 
@@ -85,6 +88,9 @@ PAUSED_QUERY_MAX_AGE_HOURS = 26
 RESUMABLE = ("paused", "waiting", "draining")
 # The load's progress while windows are left, for the installer's `status`. Removed once every window has merged.
 PROGRESS = ("loaded_back_to", "windows_left", "paused_at")
+# Where the load had got to. The run job copies these fields to `processed` when a process step starts, and to
+# `published` once a publish has carried that step's output, so `status` can tell merged from published.
+SEEN = ("high_water_mark", "pending_high_water_mark", "loaded_back_to", BACKFILL_FROM)
 
 
 class AuditQueryFailed(RuntimeError):
@@ -193,6 +199,21 @@ class AuditCollector:
             if pending is not None and pending <= start:
                 return
             self.state[BACKFILL_FROM] = start.isoformat()
+            self._save()
+
+    def seed_published(self):
+        """Count what an older job image merged as published, once, before this image fetches anything.
+
+        An older image kept no record of what its runs published, and `status` read what they had merged as in the
+        reports. Without a record, this image's first merge would make `status` read all of it as not yet
+        published. Before a reload is remembered, so a reload asked for now doesn't count as published. A state
+        this image has written (the record, or a window entry with `merged_at`) is left as it is.
+        """
+        with self._lock:
+            if "published" in self.state or any(isinstance(e, dict) and "merged_at" in e
+                                                for e in self.manifest.values()):
+                return
+            self.state["published"] = {k: self.state[k] for k in SEEN if self.state.get(k) is not None}
             self._save()
 
     def plan(self):
@@ -500,7 +521,7 @@ class AuditCollector:
     def _pause(self, key, **query):
         """Leave a window for a later run at the time budget: its pages so far are removed, its query kept.
 
-        A window merged in an earlier run (a look-back re-read) keeps `merged_at`: its rows are still in the reports.
+        A window merged in an earlier run (a look-back re-read) keeps `merged_at`: its rows are still in the day files.
         """
         self.store.remove(self._files(key))
         self._mark(key, "paused", files=[], pages=0, rows=0, timing=None, completed_at=None,
@@ -652,6 +673,7 @@ class AuditCollector:
     # -------------------------------------------------------------- run
     def run(self) -> dict:
         self.check_token()
+        self.seed_published()
         self.remember_backfill()
         windows, recheck, due = self.plan_rechecks(self.plan())
         with self._lock:
@@ -782,7 +804,8 @@ class AuditCollector:
         return result
 
     def _loaded_back_to(self, leaves):
-        """How far back the reports go: the start of the oldest window in the newest unbroken run of merged ones."""
+        """How far back the merged history goes: the start of the oldest window in the newest unbroken run of merged
+        ones. It reaches the reports when a run publishes (see `published` in the state)."""
         with self._lock:
             snapshot = dict(self.manifest)
         oldest = None
@@ -940,6 +963,9 @@ def collect_audit(api, store, settings, **kwargs) -> dict:
 def remember_backfill(store, settings, now=None):
     """Record a requested reload in the state before any collector runs, so a run stopped early keeps it.
 
-    The run job calls this first, as the audit collector runs last (see AuditCollector.remember_backfill).
+    The run job calls this first, as the audit collector runs last (see AuditCollector.remember_backfill). An older
+    image's state gets its `published` record first (see AuditCollector.seed_published).
     """
-    AuditCollector(None, store, settings, now=now).remember_backfill()
+    collector = AuditCollector(None, store, settings, now=now)
+    collector.seed_published()
+    collector.remember_backfill()

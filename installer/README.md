@@ -334,7 +334,8 @@ Azure commands:
   one, and to run `run` again once it has finished.
 - `status` shows job executions, the web URL, pending admin actions, and SQL reader secret expiry.
   It shows how much audit history is in the reports, read from the run job's state in its storage,
-  and a load of history that couldn't start, with its command. On a private install, or without
+  and history a run has loaded but not published yet, with the run that publishes it. It also
+  shows a load of history that couldn't start, with its command. On a private install, or without
   read access to the storage, it says it can't read the history and lists the runs instead.
   With Agent Evaluator it also shows which environments the jobs' managed identity can read, and
   what the jobs' last read found in each.
@@ -624,15 +625,17 @@ A load can take more than one run:
 
 Keep the PC awake until the installer says setup is finished. After that you can close the window,
 and the load carries on. `status` shows how far it has got: the days asked for, how much has been
-fetched from the audit log, and what's in the reports. When the search limit stopped the load in
-the last day, it says when, and when a run can search again. What's been fetched isn't in the
-reports until it's written: on Fabric, a first load or a reload writes once every window is
-fetched, and on Azure, each run publishes what it has loaded, also when it stops at its time limit,
-and `status` then says how far back the reports go and how many windows are left. If `status` can't
-read the progress, for example on a private Azure install or without read access to the job's
-storage, it says so and lists the runs since. A load of history the installer couldn't start, such
-as a first load waiting for admin consent, stays in `status` and on the Done page, with its command,
-until it starts.
+fetched from the audit log, and what's in the reports. When the search limit stopped the load in the
+last day, it says when, and when a run can search again. What's been fetched isn't in the reports
+until it's written: on Fabric, a first load or a reload writes once every window is fetched, and on
+Azure, each run publishes what it has loaded near its end, also when it stops at its time limit, and
+`status` then says how far back the reports go and how many windows are left. It counts as in the
+reports only what a run has published: history a run has loaded but not published, while that run is
+still going or after it stopped before publishing, shows as loaded, with the run that publishes it.
+If `status` can't read the progress, for example on a private Azure install or without read access
+to the job's storage, it says so and lists the runs since. A load of history the installer couldn't
+start, such as a first load waiting for admin consent, stays in `status` and on the Done page, with
+its command, until it starts.
 
 ### Load more audit history
 
