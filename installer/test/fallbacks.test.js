@@ -18,6 +18,7 @@ import { CREATE_SETTLE_MS, createdId, ensureNotebooks, ensurePipeline, modelKey,
 import { flowsSkipped, flowsWanted } from '../src/steps/flows.js';
 import {
   ADMIN_PACK_FILE,
+  adminPack,
   canWriteSecrets,
   checkExistingApp,
   ensureKeyVault,
@@ -1333,6 +1334,16 @@ test('admin pack: a script and portal steps for every permission, with the secre
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('admin pack: says an Application Administrator or Cloud Application Administrator registers the app, and a Privileged Role Administrator or Global Administrator grants its consent', () => {
+  const { script, checklist } = adminPack(fakeCtx().ctx);
+  const head = script.filter((l) => l.startsWith('#')).join('\n');
+  assert.match(head, /Registering the app needs an Application Administrator or Cloud\n# Application Administrator, or anyone who can register apps: a Privileged Role Administrator alone can't\./);
+  assert.match(head, /The admin-consent line needs a Privileged Role Administrator or Global Administrator\. A Global Administrator can run it all\./);
+  assert.doesNotMatch(head, /Privileged Role Administrator or Global Administrator (can )?registers?/);
+  assert.ok(script.findIndex((l) => l.startsWith('az ad app permission admin-consent')) > script.findIndex((l) => l.startsWith('APP_ID=$(az ad app create')));
+  assert.ok(checklist.includes('A Privileged Role Administrator or Global Administrator selects "Grant admin consent" and confirms every permission shows "Granted".'));
 });
 
 test('admin pack: the install stops until the admin sends the client ID, then checks it', async () => {

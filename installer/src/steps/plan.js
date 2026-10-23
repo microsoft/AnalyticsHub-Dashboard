@@ -8,7 +8,7 @@ import { rlsOn } from '../transform/access.js';
 import { auditSource, collectedLabels, ESSENTIAL_MODULES, graphHistoryOn, MANAGEMENT_API_ROLE, MODULES, notebooksFor, OPTIONAL_MODULES, permissionsFor, readsFeed } from '../catalog.js';
 import { allowsAction, armLocation, validateVaultName } from '../clients/azure.js';
 import { TRANSCRIPT_ROLE } from '../clients/dataverse.js';
-import { APP_ROLES, CONSENT_ROLES } from '../clients/graph.js';
+import { appRoleRights, CONSENT_ROLES } from '../clients/graph.js';
 import { HttpError } from '../http.js';
 import { commandLine, inCloudShell } from '../launch.js';
 import { preflightChecks, reportPreflight } from '../prereqs.js';
@@ -132,8 +132,10 @@ export function largeCapacity(capacity) {
  * @property {any[]} [workspacesOnCapacity]  Fabric, when no capacity is usable: workspaces you're an Admin or Member of that are already on one.
  * @property {any[]} subscriptions  Enabled Azure subscriptions.
  * @property {string[]} roles  Directory role names.
- * @property {boolean} canConsent
+ * @property {boolean} canConsent  Can grant admin consent for Microsoft Graph application permissions.
  * @property {boolean | undefined} canCreateApps  undefined when the policy can't be read.
+ * @property {boolean} [canApproveDelegated]  Can grant tenant-wide consent for delegated permissions, such as the Azure web app's.
+ * @property {boolean} [canManageApps]  Can manage app registrations they don't own.
  * @property {Record<string, { enabled?: boolean, delegateToCapacity?: boolean, title?: string }>} [tenantSettings]  Only for Fabric administrators.
  * @property {number} [seats]  Assigned Microsoft 365 Copilot seats; undefined when they can't be read.
  * @property {import('../seats.js').Headcount} [headcount]  How many people the tenant has; undefined when neither people
@@ -311,12 +313,11 @@ export async function preflight(ctx) {
   };
 
   const roles = await api.graph.myDirectoryRoles().catch(() => []);
-  const roleIds = new Set(roles.map((r) => r.roleTemplateId));
-  const canConsent = Object.keys(CONSENT_ROLES).some((id) => roleIds.has(id));
-  const appAdmin = Object.keys(APP_ROLES).some((id) => roleIds.has(id));
+  const rights = appRoleRights(roles);
+  const canConsent = !!rights.consent;
+  // A Privileged Role Administrator can grant consent, but can't register apps.
   /** @type {boolean | undefined} */
-  let canCreateApps = canConsent || appAdmin ? true : undefined;
-  if (canCreateApps === undefined) canCreateApps = await api.graph.usersCanRegisterApps().catch(() => undefined);
+  const canCreateApps = rights.create ? true : await api.graph.usersCanRegisterApps().catch(() => undefined);
 
   // Without these roles, the prerequisites below say what to do.
   if (canConsent) ui.ok(`You can grant admin consent (${roles.filter((r) => CONSENT_ROLES[/** @type {keyof typeof CONSENT_ROLES} */ (r.roleTemplateId)]).map((r) => r.displayName).join(', ')})`);
@@ -396,7 +397,10 @@ export async function preflight(ctx) {
   }
 
   await report();
-  return { capacities, workspacesOnCapacity: onCapacity, subscriptions, roles: roles.map((r) => r.displayName), canConsent, canCreateApps, tenantSettings, seats, headcount };
+  return {
+    capacities, workspacesOnCapacity: onCapacity, subscriptions, roles: roles.map((r) => r.displayName), canConsent, canCreateApps,
+    canApproveDelegated: !!rights.delegated, canManageApps: !!rights.manage, tenantSettings, seats, headcount,
+  };
 }
 
 /**
