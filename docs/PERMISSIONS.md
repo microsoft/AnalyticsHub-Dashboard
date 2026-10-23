@@ -227,7 +227,7 @@ A person can have several scopes; they see the union. People without a scope of 
 **How it works.** Scopes are kept outside the models, so redeploys never lose them: `Files/analytics_hub_access/access_scope.csv` in the Lakehouse on Fabric, `access/access_scope.csv` in the landing container on Azure (loaded into `dbo.access_scope`). When it's on, each model gets two hidden tables (**Access Scope** and **Access People**) and two roles:
 
 - **Everyone** filters nothing but the scope table. Its members are the people with an `all` scope.
-- **Scoped viewers** has the viewer group as its member and filters the model's org table (and the person-level tables it doesn't reach) to the person's scopes. Tenant-wide tables (Azure and pay-as-you-go spend, agent inventory, Defender, Resource Graph, product feedback) show only to `all`, so those pages drop out of a scoped viewer's sidebar.
+- **Scoped viewers** has the viewer group as its member and filters the model's org table (and the person-level tables it doesn't reach) to the person's scopes. Tenant-wide tables (Azure and pay-as-you-go spend, agent inventory, Defender, Resource Graph, product feedback) show only to `all`, so those pages drop out of a scoped viewer's tabs.
 
 A model definition deploy drops role members, so after every deploy the installer runs the **AnalyticsHub_Access_Scope** notebook, which applies the members through the XMLA endpoint, and then checks the result by querying as a seeded viewer.
 

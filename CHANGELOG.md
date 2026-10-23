@@ -251,6 +251,18 @@ sets the number. On Fabric and Azure.
   for large organizations, and **Show all dates** widens it in one click. **Clear filters** is now
   **Reset filters**, and goes back to this default. Smaller tenants still start on **All dates**.
   Consumption Central and the Agent Evaluator keep every date until you choose a range.
+- **The app has the App Editions' design.** It now looks and navigates like the ValueLens and
+  Consumption Central App Editions. A dark-teal band at the top has a switcher for **ValueLens**,
+  **Consumption Central** and **Agent Evaluator**, with the chosen product's pages as tabs, in
+  place of the sidebar. Each page's sections are a segmented control under its title, and the
+  filters sit under that and stick to the top as you scroll (from 640 pixels wide).
+  **Assumptions**, **Ask**, **Reports**, **Share** and the theme toggle are at the top right.
+  Colours, type and panels follow the App Editions in light and dark. The figures, queries,
+  row-level security, cache, viewer-group gating, settings and report packs are unchanged, and
+  the installer and both hosting paths deploy it as before; an existing install picks it up with
+  **Repair or change**. A product shows only when the app is connected to its model. GitHub
+  Copilot credits aren't in the switcher yet, because the installer doesn't load GitHub usage.
+  See [`app/DESIGN.md`](app/DESIGN.md). On Fabric and Azure.
 
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 

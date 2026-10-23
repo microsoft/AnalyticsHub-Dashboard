@@ -1,7 +1,12 @@
 # App guide
 
 What each page of the Analytics Hub app answers, what it reads, and how to read it. Each page is a
-short run of sections, top to bottom. The sidebar jumps to any of them.
+short run of sections, shown one at a time.
+
+- **Getting around.** The band at the top switches between **ValueLens**, **Consumption Central**
+  and **Agent Evaluator**, and shows the chosen product's pages as tabs. Below the page title, a
+  segmented control picks the section. **Assumptions**, **Ask**, **Reports**, **Share** and the
+  theme toggle sit at the top right. A product shows only when the app is connected to its model.
 
 Screenshots use synthetic data. Every name in them is invented.
 

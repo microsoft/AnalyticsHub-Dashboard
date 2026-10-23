@@ -7,6 +7,19 @@ The app keeps no copy of your data. Each page queries the semantic model live, a
 viewing it, so row-level security applies. How each figure is worked out is in the
 [methodology](../docs/METHODOLOGY.md).
 
+## Getting around
+
+The app looks and navigates like the ValueLens and Consumption Central App Editions. A dark-teal
+band across the top has a switcher for **ValueLens**, **Consumption Central** and **Agent
+Evaluator**, and the chosen product's pages as tabs. Each page has a title, a segmented control for
+its sections, and its filters. **Assumptions**, **Ask**, **Reports**, **Share** and the theme
+toggle sit at the top right and keep the product you were on. A product shows only when the app is
+connected to its model. Below 640 pixels wide the band stacks and its tabs scroll
+sideways. [`DESIGN.md`](DESIGN.md) has the design system and [`PRODUCT.md`](PRODUCT.md) who it's for.
+
+Every figure still comes from the models' own DAX measures, queried at the grain each view needs.
+The App Editions compute from uploaded CSVs in the browser; this app doesn't pull raw rows.
+
 ## Bounded detail lists
 
 Person and registry detail lists return the top 1,000 rows, with deterministic
@@ -101,7 +114,7 @@ The app is built to stay quick for a large tenant (about 20,000 people):
   lists load when you choose **Show …**. The cards above them still count everyone, and downloads
   and report packs still print the lists in full.
 - **The next pages load in the background.** Once the page on screen has loaded, the app fetches
-  the first tab of the next two pages in the menu, one query at a time, and waits whenever the page
+  the first tab of the next two pages in the app's page order, one query at a time, and waits whenever the page
   on screen is loading. Opening another page fetches the two after that one. If you open a page
   while its query is waiting, the query starts at once. `PREFETCH` in
   `src/components/prefetcher.tsx` turns this off, and `PREFETCH_AHEAD` in
@@ -146,7 +159,7 @@ The app saves these in a small SQL database under its item. The Power BI report 
 ## Reports
 
 A report pack is a named, ordered list of sections taken from any page. Packs are listed under
-**Reports** in the sidebar.
+**Reports** at the top right.
 
 - **Built-in packs.** *Exec pre-read*, *Finance weekly* and *Adoption review* come with the app.
   You can't edit or delete them, but **Save a copy** starts a new pack from one.
