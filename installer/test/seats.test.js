@@ -116,7 +116,7 @@ test('azure sizing: a large tenant is warned about the SQL free limit, vCores, j
   assert.match(all[0], /free offer.*Azure placement, choose to carry on past the free allowance \(about \$30-80 a month\), or run the installer again with --sql-scale-up.*Compute \+ storage.*continue using it for additional charges.*policy keeps the free limit/);
   const vcores = AZURE_LARGE_TENANT_SQL_VCORES;
   assert.match(all[1], new RegExp(`scales up to 2 vCores.*Azure placement, choose to scale it up to ${vcores} vCores.*max vCores to ${vcores} or more`));
-  assert.match(all[2], /4 vCPU and 8 GiB and up to 4 hours.*the next run carries on reading the audit log from where it stopped.*Schedule and loading, start with 30 days/);
+  assert.match(all[2], /4 vCPU and 8 GiB and up to 4 hours, so a long first load takes more than one run: each run fetches the newest weeks it can in about 3 hours and publishes them, and the next run carries on reading the audit log from where it stopped\..*Schedule and loading, start with 30 days/);
   assert.match(all[3], new RegExp(`shared capacity.*1 GB.*In Power BI, choose a Fabric capacity of ${AZURE_LARGE_TENANT_SKU} or larger \\(or its Premium equivalent\\)`));
 
   assert.deepEqual(azureSizingWarnings({ ...base, sqlFreeLimit: false, sqlMaxVcores: 8, powerBiCapacityId: 'cap-1', headcount: people(20_000) }), []);
