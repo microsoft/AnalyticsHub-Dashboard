@@ -882,8 +882,9 @@ export function adminPack(ctx) {
   const perms = permissionsFor(config.modules, config.dataSources);
   const mode = secretMode(config);
   const script = [
-    '# Run in Azure Cloud Shell (Bash) as someone who can register apps and grant admin consent,',
-    '# such as a Privileged Role Administrator or Global Administrator.',
+    '# Run in Azure Cloud Shell (Bash). Registering the app needs an Application Administrator or Cloud',
+    '# Application Administrator, or anyone who can register apps: a Privileged Role Administrator alone can\'t.',
+    '# The admin-consent line needs a Privileged Role Administrator or Global Administrator. A Global Administrator can run it all.',
     `APP_ID=$(az ad app create --display-name "${APP_NAME}" --sign-in-audience AzureADMyOrg --query appId -o tsv)`,
     'az ad sp create --id "$APP_ID" -o none',
     `GRAPH=${GRAPH_APP_ID}`,
@@ -918,7 +919,7 @@ export function adminPack(ctx) {
     `Entra admin center > App registrations > New registration. Name it "${APP_NAME}", single tenant, no redirect URI.`,
     'Copy the Application (client) ID from its Overview page.',
     `API permissions > Add a permission > Microsoft Graph > Application permissions. Add: ${perms.join(', ')}.`,
-    'Select "Grant admin consent" and confirm every permission shows "Granted".',
+    'A Privileged Role Administrator or Global Administrator selects "Grant admin consent" and confirms every permission shows "Granted".',
     mode === 'keyvault-admin' && kv.name
       ? `Certificates & secrets > New client secret (12 months). Copy its Value into Key Vault ${kv.name} > Secrets > Generate/Import, named ${kv.secretName}.`
       : 'Certificates & secrets > New client secret (12 months). Copy its Value.',
@@ -941,6 +942,10 @@ export function writeAdminPack(ctx) {
     '',
     'The person setting up Analytics Hub can\'t register apps or grant admin consent in this tenant.',
     'Run the script, or follow the portal steps, then send them the client ID.',
+    '',
+    'Registering the app needs an Application Administrator or Cloud Application Administrator, or anyone who can register apps:',
+    'a Privileged Role Administrator alone can\'t. Granting admin consent for its Microsoft Graph permissions needs a',
+    'Privileged Role Administrator or Global Administrator. A Global Administrator can do both.',
     '',
     '## Azure Cloud Shell (Bash)',
     '',

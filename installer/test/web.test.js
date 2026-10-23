@@ -750,4 +750,7 @@ test('prereqsSnapshot: says whether the signer can assign directory roles, from 
   assert.equal(prereqsSnapshot('admin@contoso.com', [row('missing')]).canAssignDirectoryRoles, false);
   assert.equal(prereqsSnapshot('admin@contoso.com', [row('handoff')]).canAssignDirectoryRoles, false, 'a hand-off means someone else has the role');
   assert.equal(prereqsSnapshot('admin@contoso.com', []).canAssignDirectoryRoles, false);
+  // On Azure an Application Administrator meets the consent row too, but can't assign directory roles.
+  assert.equal(prereqsSnapshot('admin@contoso.com', [{ ...row('met'), assignsDirectoryRoles: false }]).canAssignDirectoryRoles, false);
+  assert.equal(prereqsSnapshot('admin@contoso.com', [{ ...row('met'), assignsDirectoryRoles: true }]).canAssignDirectoryRoles, true);
 });
