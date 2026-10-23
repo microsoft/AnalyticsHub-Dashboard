@@ -52,6 +52,8 @@ const unsigned = { status: 'Failed', error: { errorCode: 'JobInstanceFailed', me
  * @property {number} [reload]  Reload this many days of audit history instead of the first load.
  * @property {boolean} [readRole]  Agent Evaluator is unticked, and the record shows the transcript read role the
  *   installer created for the app in an environment.
+ * @property {boolean} [noConsent]  Admin consent isn't in place, and the install carries on without it, skipping the
+ *   first load.
  */
 
 /**
@@ -154,11 +156,14 @@ async function runInstall(t, o = {}) {
   graph.applications.push({ id: 'obj-1', appId: 'app-1', displayName: 'Analytics Hub' });
   const powerBi = fakePowerBi();
   const ui = fakeUi();
-  if (o.reload) {
+  if (o.reload || o.noConsent) {
     const select = ui.ui.select;
     ui.ui.select = /** @type {any} */ (
-      async (/** @type {string} */ message, /** @type {any[]} */ choices, /** @type {any} */ def) =>
-        message.startsWith('Load more audit history?') ? o.reload : select(message, choices, def)
+      async (/** @type {string} */ message, /** @type {any[]} */ choices, /** @type {any} */ def) => {
+        if (o.reload && message.startsWith('Load more audit history?')) return o.reload;
+        if (o.noConsent && message === 'Once they have approved it:') return 'skip';
+        return select(message, choices, def);
+      }
     );
   }
   let sleeps = 0;
@@ -176,7 +181,7 @@ async function runInstall(t, o = {}) {
         ensureRequiredAccess: async () => false,
         findGroupByName: async (/** @type {string} */ name) => ({ id: 'group-1', displayName: name }),
         getGroup: async (/** @type {string} */ id) => ({ id, displayName: 'Analytics Hub Viewers' }),
-        appRoleAssignments: async () => (await graph.api.graphServicePrincipal()).appRoles.map((r) => ({ resourceId: 'graph-sp', appRoleId: r.id })),
+        appRoleAssignments: async () => (o.noConsent ? [] : (await graph.api.graphServicePrincipal()).appRoles.map((r) => ({ resourceId: 'graph-sp', appRoleId: r.id }))),
       },
       powerBi: { ...powerBi.api, datasetUsers: async () => [], addDatasetUser: async () => null },
       arm: { listSubscriptions: async () => [] },
@@ -209,7 +214,7 @@ async function runInstall(t, o = {}) {
   if (o.reload) {
     assert.match(text, /Reload audit history/);
     assert.equal(config.history.days, o.reload);
-  } else assert.equal(config.firstRun?.status, 'Completed', 'the history loaded, whatever else failed');
+  } else if (!o.noConsent) assert.equal(config.firstRun?.status, 'Completed', 'the history loaded, whatever else failed');
   if (o.cowork) {
     assert.match(text, /✓ Created Dataflow /);
     assert.doesNotMatch(text, /left out of this first load/, 'the run refreshed the Dataflow');
@@ -241,6 +246,16 @@ function partlySetUp({ ok, text }) {
 
 test('install: an app deployed while the first load runs makes up for its failed step when nothing else failed', async (t) => {
   setUp(await runInstall(t));
+});
+
+test("install: a first load skipped until admin consent is granted is kept in the record, with its command, so it isn't lost", async (t) => {
+  const run = await runInstall(t, { app: 'off', noConsent: true });
+  assert.match(run.text, /Skipped until admin consent is granted\. Then run: .*run --backfill-days 30/);
+  assert.equal(run.config.firstRun, undefined, 'no load started');
+  // Saved, so the next window's status and Done page still have it.
+  assert.deepEqual(loadConfig(run.ctx.file).config.history.pending, { days: 30, reason: 'consent', at: '2026-06-01T12:00:00.000Z', first: true });
+  assert.match(run.text, /\d\. Load 30 days of audit history {2}You\n\s*The first load didn't start, because the data collector app's permissions haven't been approved yet\. Until it runs, the reports don't have the history\./);
+  assert.match(run.text, /Run "valuelens-install run --backfill-days 30"\./);
 });
 
 test('install: with Agent Evaluator unticked, the transcript read role the installer created is taken back and deleted', async (t) => {

@@ -43,16 +43,32 @@ yourself, the installer does their part.
 |---|---|
 | Answering the questions | About 5 minutes |
 | Setting up, after you choose **Go ahead** | About 15 minutes |
-| First data in the app, with 30 days of history | About 25 minutes after **Go ahead** |
-| First data in the app, with 180 days of history | About 2 hours after **Go ahead** |
+| The first load of audit history, once setup is finished | See the estimates below |
 | Copilot Studio credits | After the Studio flow's first run. Run it straight away, or it runs the next day |
 
-A tenant with more than 10,000 people takes longer: see [A large tenant](../installer/README.md#a-large-tenant).
-Count everyone with a Microsoft 365 licence and an enabled account, not only those with a Copilot
-seat. The installer counts them for you and asks you to check.
+**Keep this PC awake and plugged in until the installer says setup is finished.** If the PC
+sleeps, setup stops until it wakes. After that you can close the window: the first load carries on
+in Fabric or Azure, and `status` shows how far it has got. In Azure Cloud Shell, keep the tab open
+until then.
 
-**Keep this PC awake and plugged in** until the installer says it's finished, and keep the
-installer window open. If the PC sleeps, setup stops until it wakes.
+The first load takes longer with more days of history and more people. Count everyone with a
+Microsoft 365 licence and an enabled account, not only those with a Copilot seat. The installer
+counts them for you and asks you to check.
+
+These are estimates, scaled from two measured loads, until timed runs of the installer replace
+them. The plan shows the one for your install beside the history question, and the installer says
+it again when the load starts.
+
+| History | Fabric, up to 10,000 people | Fabric, more than 10,000 | Azure, up to 10,000 | Azure, more than 10,000 |
+|---|---|---|---|---|
+| 30 days | About 25 minutes | About 4 hours | About an hour | 1 to 2 hours |
+| 90 days | About an hour | About 12 hours | About 3 hours | About 4 hours, in one or two runs |
+| 180 days | 2 to 3 hours | A day or more, over two runs | About 6 hours, over two runs | About 8 hours, over two or three runs |
+
+The audit service's queue can add hours on a busy day, and a large tenant's history can take more
+than one run. On Azure the run job runs once a day, so a load over two runs finishes the next day,
+unless you start a run sooner. What each target does then is under
+[How long the first load takes](../installer/README.md#how-long-the-first-load-takes).
 
 ## Permissions
 
