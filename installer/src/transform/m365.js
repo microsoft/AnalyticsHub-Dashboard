@@ -53,11 +53,31 @@ export function stableGuid(key) {
 
 const M_TYPES = /** @type {Record<M365ColumnKind, string>} */ ({ date: 'type date', text: 'type text', count: 'Int64.Type', flag: 'Int64.Type' });
 
+/** How many days the ingester can rewrite: Microsoft keeps the last 28 days of usage reports. */
+export const M365_REWRITE_DAYS = 28;
+
+/**
+ * The incremental refresh policy, shaped like the audit table's. A refresh reloads the last 35
+ * complete days: every day the ingester can rewrite, plus a week for a refresh that runs late.
+ * Older days are kept for 12 months, as the audit table's are.
+ */
+export const M365_REFRESH_POLICY = Object.freeze({
+  policyType: 'basic',
+  rollingWindowGranularity: 'month',
+  rollingWindowPeriods: 12,
+  incrementalGranularity: 'day',
+  incrementalPeriods: M365_REWRITE_DAYS + 7,
+  incrementalPeriodsOffset: -1,
+});
+
 /**
  * The partition's Power Query. Off, or before the first load, it yields an empty typed table.
+ * `ranged` filters on ActivityDate between RangeStart and RangeEnd, for the refresh policy.
+ * ActivityDate is a date and the parameters are datetimes, so they're compared as dates.
  * @param {boolean} on
+ * @param {boolean} [ranged]
  */
-export function m365PartitionExpression(on) {
+export function m365PartitionExpression(on, ranged = false) {
   const names = `{${M365_COLUMNS.map((c) => `"${c.name}"`).join(', ')}}`;
   const types = M365_COLUMNS.map((c) => `{"${c.name}", ${M_TYPES[c.kind]}}`).join(', ');
   return [
@@ -66,12 +86,19 @@ export function m365PartitionExpression(on) {
     on
       ? `    Source = try FabricTable("${M365_SOURCE_TABLE}") otherwise EmptyTable(Columns),`
       : '    Source = EmptyTable(Columns),',
-    '    Kept = Table.SelectColumns(Source, Columns, MissingField.UseNull),',
+    ...(ranged ? ['    Filtered = Table.SelectRows(Source, each [ActivityDate] >= Date.From(RangeStart) and [ActivityDate] < Date.From(RangeEnd)),'] : []),
+    `    Kept = Table.SelectColumns(${ranged ? 'Filtered' : 'Source'}, Columns, MissingField.UseNull),`,
     `    Typed = Table.TransformColumnTypes(Kept, {${types}})`,
     'in',
     '    Typed',
   ];
 }
+
+/**
+ * Whether the model has the RangeStart and RangeEnd parameters a refresh policy filters on.
+ * @param {import('./model.js').ModelBim['model']} model
+ */
+const hasRangeParameters = (model) => ['RangeStart', 'RangeEnd'].every((n) => model.expressions?.some((e) => e.name === n));
 
 /** @param {{ name: string, kind: M365ColumnKind }} c */
 function column(c) {
@@ -110,17 +137,21 @@ export function addM365CalendarRange(model) {
 
 /**
  * Adds the table, its relationships and the Calendar range. A template that already has the table is left alone.
+ * The table refreshes incrementally when the template has RangeStart and RangeEnd. Like the audit
+ * table's, its one partition is replaced by the policy's on the first refresh, which loads it all.
  * @param {import('./model.js').ModelBim['model']} model
  * @param {boolean} on
  */
 export function addM365Activity(model, on) {
   if (model.tables.some((t) => t.name === M365_TABLE)) return;
+  const ranged = hasRangeParameters(model);
   model.tables.push({
     name: M365_TABLE,
     description: 'One row per person per day from the Microsoft 365 usage reports. Loaded by Copilot_M365_Activity_Ingester.',
     lineageTag: stableGuid('table'),
+    ...(ranged ? { refreshPolicy: { ...M365_REFRESH_POLICY, sourceExpression: m365PartitionExpression(on, true) } } : {}),
     columns: M365_COLUMNS.map(column),
-    partitions: [{ name: M365_TABLE, mode: 'import', source: { type: 'm', expression: m365PartitionExpression(on) } }],
+    partitions: [{ name: M365_TABLE, mode: 'import', source: { type: 'm', expression: m365PartitionExpression(on, ranged) } }],
     annotations: [{ name: 'PBI_ResultType', value: 'Table' }],
   });
   const tables = new Set(model.tables.map((t) => t.name));

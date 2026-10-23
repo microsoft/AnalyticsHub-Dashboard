@@ -6,8 +6,8 @@ import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { defaultModules, MODULES, NOTEBOOKS_DIR, notebooksFor, OPTIONAL_MODULES, permissionsFor } from '../src/catalog.js';
 import { realSources } from './fakes.js';
-import { addM365CalendarRange, CALENDAR_RANGE, M365_COLUMNS, M365_RELATIONSHIPS, M365_SOURCE_TABLE, M365_TABLE, stableGuid } from '../src/transform/m365.js';
-import { buildModel, loadTemplateModel } from '../src/transform/model.js';
+import { addM365Activity, addM365CalendarRange, CALENDAR_RANGE, M365_COLUMNS, M365_REFRESH_POLICY, M365_RELATIONSHIPS, M365_REWRITE_DAYS, M365_SOURCE_TABLE, M365_TABLE, stableGuid } from '../src/transform/m365.js';
+import { AUDIT_TABLE, buildModel, loadTemplateModel } from '../src/transform/model.js';
 import { buildPipeline, findActivity, REFRESH_ACTIVITY } from '../src/transform/pipeline.js';
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -127,6 +127,44 @@ test('model: the Calendar spans the activity dates as well as the audit and feed
   const legacy = { tables: [{ name: 'Calendar', partitions: [{ source: { type: 'calculated', expression: ['VAR MinDate = MIN(x)'] } }] }] };
   addM365CalendarRange(/** @type {any} */ (legacy));
   assert.deepEqual(legacy.tables[0].partitions[0].source.expression, ['VAR MinDate = MIN(x)'], 'an older Calendar is left alone');
+});
+
+test('model: the table refreshes incrementally like the audit table, over every day the ingester can rewrite', () => {
+  const audit = template.model.tables.find((t) => t.name === AUDIT_TABLE).refreshPolicy;
+  const { sourceExpression: _, ...auditShape } = audit;
+  assert.deepEqual(Object.keys(M365_REFRESH_POLICY), Object.keys(auditShape), 'the same policy properties as the audit table');
+  for (const key of ['policyType', 'rollingWindowGranularity', 'rollingWindowPeriods', 'incrementalGranularity', 'incrementalPeriodsOffset']) {
+    assert.equal(M365_REFRESH_POLICY[/** @type {keyof typeof M365_REFRESH_POLICY} */ (key)], audit[key], `${key} matches the audit table`);
+  }
+  assert.equal(M365_REFRESH_POLICY.rollingWindowPeriods, 12);
+  assert.equal(M365_REFRESH_POLICY.incrementalGranularity, 'day');
+
+  const nb = JSON.parse(readFileSync(NOTEBOOK, 'utf8'));
+  const source = nb.cells.map((/** @type {any} */ c) => [].concat(c.source).join('')).join('\n');
+  const window = Number(/def days_to_load\([^)]*window_days=(\d+)\)/.exec(source)?.[1]);
+  assert.equal(window, M365_REWRITE_DAYS, 'the ingester rewrites days within Microsoft\'s 28-day window');
+  assert.ok(M365_REFRESH_POLICY.incrementalPeriods >= window + 7, 'the refreshed window covers the ingester\'s with a week to spare');
+
+  const filter = 'Filtered = Table.SelectRows(Source, each [ActivityDate] >= Date.From(RangeStart) and [ActivityDate] < Date.From(RangeEnd)),';
+  for (const modules of [on, off]) {
+    const table = buildModel(template, { ...lake, modules }).model.tables.find((t) => t.name === M365_TABLE);
+    const { sourceExpression, ...shape } = table.refreshPolicy;
+    assert.deepEqual(shape, { ...M365_REFRESH_POLICY });
+    assert.deepEqual(table.partitions[0].source.expression, sourceExpression, 'the partition matches the policy, as the audit table\'s does');
+    const expr = sourceExpression.join('\n');
+    assert.ok(expr.includes(filter), 'filters on the date column between RangeStart and RangeEnd');
+    assert.match(expr, /Kept = Table\.SelectColumns\(Filtered, /, 'everything after the filter reads it');
+    assert.ok(expr.indexOf('Filtered =') < expr.indexOf('Kept ='), 'filters straight after the source, so it folds');
+    assert.match(expr, /\{"ActivityDate", type date\}/, 'ActivityDate is a date, so the datetime parameters are compared as dates');
+  }
+  assert.ok(['RangeStart', 'RangeEnd'].every((n) => template.model.expressions?.some((e) => e.name === n)));
+
+  const older = structuredClone(template.model);
+  older.expressions = older.expressions?.filter((e) => e.name !== 'RangeStart' && e.name !== 'RangeEnd');
+  addM365Activity(older, true);
+  const plain = older.tables.find((t) => t.name === M365_TABLE);
+  assert.equal(plain.refreshPolicy, undefined, 'a template without RangeStart and RangeEnd gets no policy');
+  assert.doesNotMatch(plain.partitions[0].source.expression.join('\n'), /RangeStart|Filtered/);
 });
 
 test('model columns are all written by the notebook', () => {

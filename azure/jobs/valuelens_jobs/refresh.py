@@ -22,6 +22,8 @@ ENHANCED_ALL = {**ENHANCED, "applyRefreshPolicy": False}
 STANDARD = {"notifyOption": "NoNotification"}
 # The template's incremental refresh policy reloads the 7 days before today (offset -1).
 INCREMENTAL_DAYS = 7
+# Tables whose policy reloads a longer window: the installer's M365 Activity policy reloads 35 days.
+INCREMENTAL_DAYS_BY_TABLE = {"m365_activity_daily": 35}
 # Models refreshed only while their module is on and has something to read. VALUELENS_SEMANTIC_MODELS also feeds the
 # web app, which lists the Agent Evaluator model as soon as it's deployed, and VALUELENS_MODULES follows the module's
 # tick; the jobs leave the model alone until the installer lists the environments (VALUELENS_DATAVERSE_ENVIRONMENTS),
@@ -30,9 +32,12 @@ MODEL_MODULES = {"ae": "agentEvaluator"}
 
 
 def needs_full_refresh(publish_results, today) -> bool:
-    """True when publish rewrote or removed a day the incremental refresh window won't reload."""
-    oldest = min((r["oldest_day"] for r in publish_results or [] if r.get("oldest_day")), default=None)
-    return oldest is not None and oldest < (today - timedelta(days=INCREMENTAL_DAYS)).isoformat()
+    """True when publish rewrote or removed a day its table's incremental refresh window won't reload."""
+    def outside(r):
+        days = INCREMENTAL_DAYS_BY_TABLE.get(r.get("table"), INCREMENTAL_DAYS)
+        return r["oldest_day"] < (today - timedelta(days=days)).isoformat()
+
+    return any(outside(r) for r in publish_results or [] if r.get("oldest_day"))
 
 
 class Refresher:

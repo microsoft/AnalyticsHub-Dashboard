@@ -223,6 +223,8 @@ sets the number. On Fabric and Azure.
   Other errors stop the run and keep the previous snapshot. The log shows how many users each
   source found, and warns if no names match between the two reports (concealed names).
 
+- Installer: M365 Activity now refreshes incrementally (12 months kept, the last 35 days reloaded), instead of reloading the whole table on every refresh. The first refresh after an install or **Repair or change** still loads it all once.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its
