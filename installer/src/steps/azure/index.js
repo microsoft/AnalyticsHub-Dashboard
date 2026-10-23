@@ -698,7 +698,7 @@ async function adoptApp(ctx, pre, key, app) {
 /**
  * Runs once preflight has printed, so one run lists everything. It adopts the apps an admin made with the script, or
  * with --yes the only unfinished one of each name the user owns. Then, while an admin still has to create the apps,
- * it writes the script and stops, before anything in Azure or Entra changes.
+ * it writes the script and stops, before anything in Azure or Entra is created.
  * @param {Ctx} ctx @param {AppRights | undefined} [pre]
  */
 export async function azureAppsGate(ctx, pre) {

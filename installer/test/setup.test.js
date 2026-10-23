@@ -645,7 +645,7 @@ test('setup on Azure: an install from before "App registrations" deploys without
   assert.equal(notices[0], 'Review these categories first: App registrations.');
 });
 
-test('setup on Azure: someone who can\'t create apps chooses "An admin will create the apps for me", and deploying stops before anything in Azure or Entra changes', async (t) => {
+test('setup on Azure: someone who can\'t create apps chooses "An admin will create the apps for me", and deploying stops before anything in Azure or Entra is created', async (t) => {
   const f = fixture(t);
   const az = /** @type {any} */ (f.config.azure);
   delete az.deploymentConfig;
