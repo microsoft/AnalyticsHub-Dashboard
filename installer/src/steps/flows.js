@@ -118,6 +118,18 @@ export const flowsWanted = (config) => (appWithoutVault(config) ? [] : flowsChos
  */
 export const flowsSkipped = (config) => (appWithoutVault(config) ? flowsChosen(config).map((k) => FLOW_NAMES[k]) : []);
 
+/**
+ * The flows this install makes that use the Power Platform API connection, which an admin signs in to.
+ * @param {import('../config.js').InstallConfig} config
+ * @returns {FlowKind[]}
+ */
+export function ppApiFlows(config) {
+  const kinds = flowsWanted(config);
+  if (!kinds.length) return [];
+  const defs = flowDefinitions(config, '');
+  return kinds.filter((k) => connectorsUsed(defs[k].definition).includes(CONNECTORS.entra.name));
+}
+
 /** @param {string} v */
 function validateUrl(v) {
   if (!v.trim()) return true;

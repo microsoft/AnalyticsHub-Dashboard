@@ -168,17 +168,18 @@ export function createUi(opts = {}) {
       });
     },
     /**
-     * What the user has and lacks: met, missing, eligible (activate first) or couldn't check.
+     * What the user has and lacks: met, missing, eligible (activate first), couldn't check, or a
+     * hand-off (someone else does it, and the install carries on).
      * @param {import('./prereqs.js').Prereq[]} items
      */
     prereqs: (items) => {
-      const glyph = { met: c.green('✓'), missing: c.red('✗'), eligible: c.yellow('◐'), unknown: c.dim('?') };
+      const glyph = { met: c.green('✓'), missing: c.red('✗'), eligible: c.yellow('◐'), unknown: c.dim('?'), handoff: c.cyan('→') };
       for (const it of items) {
         line(`  ${glyph[it.status]} ${it.label}${it.optional ? c.dim(' (optional)') : ''}`);
         line(`    ${it.detail}`);
         for (const r of it.rows ?? []) line(`      ${glyph[r.status]} ${r.name}${r.detail ? c.dim(`: ${r.detail}`) : ''}`);
         line(`    ${c.dim(`Needed for: ${it.neededFor}`)}`);
-        if (it.status !== 'met') line(`    ${c.dim(`How to get it: ${it.howTo}`)}`);
+        if (it.status !== 'met') line(`    ${c.dim(`${it.status === 'handoff' ? 'Who does it' : 'How to get it'}: ${it.howTo}`)}`);
       }
     },
 
