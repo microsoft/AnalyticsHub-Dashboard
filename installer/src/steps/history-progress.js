@@ -281,7 +281,7 @@ export async function readAzureProgress(ctx) {
   }
 }
 
-/** Why the progress can't be read from this PC. None of them is fixed by adding access. @type {Record<'fabric' | 'azure', Record<Unread, string>>} */
+/** Why the progress can't be read from this PC. The installer doesn't add access to read it. @type {Record<'fabric' | 'azure', Record<Unread, string>>} */
 const UNREAD = {
   fabric: {
     private: "the Lakehouse can't be reached from this PC",
