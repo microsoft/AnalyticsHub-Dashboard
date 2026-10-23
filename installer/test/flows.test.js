@@ -574,7 +574,11 @@ test('isDataPolicyError: a data policy (DLP) refusal, by code or message; Condit
   assert.equal(isDataPolicyError(new HttpError('400 Bad Request', { method: 'POST', url: 'x', status: 400, code: 'CompanyDlpViolation' })), true);
   assert.equal(isDataPolicyError(new Error('The flow violates your organization\'s data policies.')), true);
   assert.equal(isDataPolicyError(new Error('DLP policy "Strict" puts these connectors in different groups')), true);
+  // Learn: the maker is told "the connector is blocked by policy". A connector's ID can have dots in it.
+  assert.equal(isDataPolicyError(new Error("The connector '/providers/Microsoft.PowerApps/apis/shared_office365' is blocked by policy.")), true);
+  assert.equal(isDataPolicyError(new Error('Blocked by policy: the HTTP with Microsoft Entra ID (preauthorized) connector.')), true);
   assert.equal(isDataPolicyError(new Error('AADSTS53003: Access has been blocked by Conditional Access policies.')), false);
+  assert.equal(isDataPolicyError(new Error("The connector's sign-in failed. AADSTS53003: Access has been blocked by Conditional Access policies.")), false);
   assert.equal(isDataPolicyError(new Error('Blocked by policy')), false, 'too vague: Conditional Access says it too');
   assert.equal(isDataPolicyError(new HttpError('403 No privilege', { method: 'POST', url: 'x', status: 403 })), false);
   assert.equal(isDataPolicyError(new HttpError('400 FlowMissingConnection', { method: 'PATCH', url: 'x', status: 400, code: '0x80060467' })), false);

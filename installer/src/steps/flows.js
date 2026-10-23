@@ -285,13 +285,18 @@ export function dataPolicyAsk(config) {
 
 /**
  * Whether Power Automate turned a flow down because of a data policy (DLP). Learn documents no error
- * code for saving or turning on a flow that breaks one, so this matches the message. A bare "blocked by
- * policy" isn't enough: Conditional Access says that too.
+ * code for saving or turning on a flow that breaks one, so this matches the message. Learn says the
+ * maker is told "the connector is blocked by policy"; a bare "blocked by policy", with no connector,
+ * isn't enough: Conditional Access says that too.
  * @param {unknown} err
  */
 export function isDataPolicyError(err) {
   const e = /** @type {any} */ (err);
-  return /DlpViolation|\bDLP\b|data loss prevention|data polic(?:y|ies)/i.test(`${e?.code ?? ''} ${e?.message ?? ''}`);
+  const text = `${e?.code ?? ''} ${e?.message ?? ''}`;
+  return (
+    /DlpViolation|\bDLP\b|data loss prevention|data polic(?:y|ies)/i.test(text) ||
+    /\bconnectors?\b.{0,200}?\bblocked by polic(?:y|ies)\b|\bblocked by polic(?:y|ies)\b.{0,200}?\bconnectors?\b/is.test(text)
+  );
 }
 
 /**
