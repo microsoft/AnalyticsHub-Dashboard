@@ -816,13 +816,22 @@ export function fakeArm() {
   return { api, calls, resources, groups, executions, jobExecutions, jobTemplates, failures, restrictedSqlRegions, ai, regions, perms, deleteStates, inUse, locks };
 }
 
-/** Rich Graph fake for Azure app registration work. */
-export function fakeAzureGraph() {
+/**
+ * Rich Graph fake for Azure app registration work. Apps it creates are owned by the fake user, user-1, as Entra makes
+ * the person who registers an app its owner.
+ * @param {{ usersCanRegister?: boolean }} [opts]
+ */
+export function fakeAzureGraph(opts = {}) {
   let n = 0;
   /** @type {string[]} */
   const calls = [];
-  /** @type {any[]} */
+  /** Each app has `owners`, the object IDs of its owners. @type {any[]} */
   const applications = [];
+  /** Delegated grants, as oauth2PermissionGrants lists them. @type {{ clientId: string, consentType: string, resourceId: string, scope: string }[]} */
+  const grants = [];
+  /** What createAzureWebApplication was asked to make. @type {any[]} */
+  const webAppBodies = [];
+  const state = { usersCanRegister: opts.usersCanRegister ?? true };
   /** @type {any[]} */
   const servicePrincipals = [];
   /** @type {any[]} */
@@ -848,40 +857,60 @@ export function fakeAzureGraph() {
   const pbiSp = { id: 'pbi-sp', appId: '00000009-0000-0000-c000-000000000000', oauth2PermissionScopes: [{ id: 's-dataset', value: 'Dataset.Read.All' }] };
   /** Errors each method throws next, by method. @type {Record<string, Error[]>} */
   const failures = {};
+  /** Throws the error scripted next for a method, if any. @param {string} method */
+  const fail = (method) => {
+    const err = failures[method]?.shift();
+    if (err) throw err;
+  };
   const api = {
     myDirectoryRoles: async () => structuredClone(directoryRoles),
+    usersCanRegisterApps: async () => state.usersCanRegister,
     servicePrincipalByAppId: async (/** @type {string} */ appId) => (appId === pbiSp.appId ? pbiSp : graphSp),
     graphServicePrincipal: async () => graphSp,
     findApplication: async (/** @type {string} */ appId) => applications.find((a) => a.appId === appId) ?? null,
     findServicePrincipal: async (/** @type {string} */ appId) => servicePrincipals.find((s) => s.appId === appId) ?? null,
+    ownedApplications: async (/** @type {string | undefined} */ displayName) => {
+      fail('ownedApplications');
+      return applications.filter((a) => a.owners?.includes('user-1') && (displayName === undefined || a.displayName === displayName));
+    },
+    oauth2Grants: async (/** @type {string} */ clientId) => {
+      fail('oauth2Grants');
+      return grants.filter((g) => g.clientId === clientId).map((g) => ({ ...g }));
+    },
     createAzureWebApplication: async (/** @type {any} */ body) => {
       calls.push(`createAzureWebApplication ${body.displayName}`);
-      const app = { id: `app-obj-${++n}`, appId: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`, displayName: body.displayName, api: { oauth2PermissionScopes: [{ id: 'scope-access', value: 'access_as_user' }] }, appRoles: [] };
+      fail('createAzureWebApplication');
+      webAppBodies.push(body);
+      const app = { id: `app-obj-${++n}`, appId: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`, displayName: body.displayName, api: { oauth2PermissionScopes: [{ id: 'scope-access', value: 'access_as_user' }] }, appRoles: [], owners: ['user-1'] };
       applications.push(app);
       return app;
     },
     updateAzureWebApplication: async (/** @type {any} */ app, /** @type {any} */ body) => {
       calls.push(`updateAzureWebApplication ${body.fqdn}`);
+      fail('updateAzureWebApplication');
       app.identifierUris = [`api://${body.fqdn}/${body.clientId}`];
       app.spa = { redirectUris: [`https://${body.fqdn}/`, `https://${body.fqdn}/?host=teams&auth=popup`] };
-      app.api = { oauth2PermissionScopes: [{ id: 'scope-access', value: 'access_as_user' }], preAuthorizedApplications: body.teamsClientIds.map((id) => ({ appId: id })) };
+      app.api = { oauth2PermissionScopes: [{ id: 'scope-access', value: 'access_as_user' }], preAuthorizedApplications: body.teamsClientIds.map((/** @type {string} */ id) => ({ appId: id })) };
       app.appRoles = [{ id: 'role-user', value: 'AnalyticsHub.User' }, { id: 'role-admin', value: 'AnalyticsHub.Admin' }];
       return 'scope-access';
     },
     createApplication: async (/** @type {string} */ name) => {
       calls.push(`createApplication ${name}`);
-      const app = { id: `app-obj-${++n}`, appId: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`, displayName: name };
+      fail('createApplication');
+      const app = { id: `app-obj-${++n}`, appId: `00000000-0000-4000-8000-${String(n).padStart(12, '0')}`, displayName: name, owners: ['user-1'] };
       applications.push(app);
       return app;
     },
     createServicePrincipal: async (/** @type {string} */ appId) => {
       calls.push(`createServicePrincipal ${appId}`);
+      fail('createServicePrincipal');
       const sp = { id: `sp-${appId}`, appId };
       servicePrincipals.push(sp);
       return sp;
     },
     addFederatedIdentityCredential: async (/** @type {string} */ id, /** @type {any} */ fic) => {
       calls.push(`fic ${id} ${fic.subject}`);
+      fail('addFederatedIdentityCredential');
       return fic;
     },
     addPassword: async (/** @type {string} */ _id, /** @type {Date} */ end, /** @type {string} */ displayName = 'Analytics Hub installer') => {
@@ -903,6 +932,10 @@ export function fakeAzureGraph() {
     appRoleAssignedTo: async (/** @type {string} */ resource) => roleAssignments.filter((a) => a.resourceId === resource),
     grantOauth2Permission: async (/** @type {any} */ g) => {
       calls.push(`oauth ${g.scope}`);
+      fail('grantOauth2Permission');
+      const grant = grants.find((x) => x.clientId === g.clientId && x.resourceId === g.resourceId && x.consentType === 'AllPrincipals');
+      if (!grant) grants.push({ clientId: g.clientId, consentType: 'AllPrincipals', resourceId: g.resourceId, scope: g.scope });
+      else if (!grant.scope.split(' ').includes(g.scope)) grant.scope = `${grant.scope} ${g.scope}`;
     },
     deleteApplication: async (/** @type {string} */ id) => {
       calls.push(`deleteApplication ${id}`);
@@ -916,7 +949,7 @@ export function fakeAzureGraph() {
       if (err) throw err;
     },
   };
-  return { api, calls, applications, servicePrincipals, siteGrantFailures, passwords, directoryRoles, failures };
+  return { api, calls, applications, servicePrincipals, siteGrantFailures, passwords, directoryRoles, failures, grants, webAppBodies, state };
 }
 
 /**
