@@ -129,6 +129,16 @@ def _state(store):
     return store.read_json(audit_collect.STATE, {}) or {}
 
 
+def _seen(state):
+    """Where the audit load has got to, as the job records it for `status` (see __main__._audit_seen)."""
+    return {k: state[k] for k in audit_collect.SEEN if state.get(k) is not None}
+
+
+def _position(record):
+    """A `processed` or `published` record without its timestamps."""
+    return {k: v for k, v in record.items() if k not in ("process_started_at", "published_at")}
+
+
 def _patch_audit(monkeypatch, clock, seen=None, **extra):
     """The job's audit collector, at NOW, one query at a time, sleeping on `clock`. `seen` gets each run's kwargs."""
     def collect_audit(api, store, s, **kw):
@@ -392,6 +402,8 @@ def test_a_paused_run_processes_publishes_and_refreshes_and_exits_0(tmp_path, mo
     st = _state(store)
     assert st["windows"][key(W2)]["status"] == "paused" and st["windows_left"] == 2
     assert st["last_merge_to_publish_s"] == 100.0 and "merge_open" not in st
+    # The newest weeks it merged are in the reports: `status` reads how far back from the record of its publish.
+    assert _position(st["published"]) == _seen(st) and set(_seen(st)) == {"pending_high_water_mark", "loaded_back_to"}
 
     # The installer's own access,refresh run stays incremental: it doesn't carry an owed full refresh.
     ran.clear()
@@ -399,6 +411,7 @@ def test_a_paused_run_processes_publishes_and_refreshes_and_exits_0(tmp_path, mo
     monkeypatch.setattr(jobs_main, "access_step", lambda st, s, conn=None: ran.append("access"))
     assert jobs_main.main(["run", "--steps", "access,refresh"], env=ENV, clock=clock) == 0
     assert ran == ["access", "refresh"] and "store" not in refreshed
+    assert _state(store)["published"] == st["published"]
 
 
 def test_a_failed_window_still_fails_the_run_after_it_publishes(tmp_path, monkeypatch):
@@ -416,6 +429,9 @@ def test_a_failed_window_still_fails_the_run_after_it_publishes(tmp_path, monkey
     st = _state(store)
     assert st["windows"][key(W3)]["status"] == "failed"
     assert st["windows_left"] == 1 and "paused_at" not in st
+    # It published before it failed, so what it merged is in the reports.
+    assert _position(st["published"]) == _seen(st) and "pending_high_water_mark" in st["published"]
+    assert st["published"]["process_started_at"] == st["processed"]["process_started_at"]
 
 
 # ---------------------------------------------------------------- carrying on
@@ -515,6 +531,8 @@ def test_a_run_stopped_after_its_merge_loses_nothing(tmp_path, monkeypatch, capl
     budget = jobs_main.run_budget(store, {}, start=0, clock=c1, settle=True)
     jobs_main.collect(store, settings(modules=frozenset({"core"})), clocked_api(g, c1), budget=budget)
     assert c1() == 10_770 and _state(store)["merge_open"]["cutoff_s"] == 3_630.0
+    # Merged, and not in the reports: `status` says so until a run publishes it.
+    assert _state(store)["published"] == {} and "processed" not in _state(store)
 
     # Run 2 keeps more time back, processes and publishes run 1's months too, and records its own time.
     c2, seen = Clock(), []
@@ -531,6 +549,7 @@ def test_a_run_stopped_after_its_merge_loses_nothing(tmp_path, monkeypatch, capl
     assert st["windows"][key(W1)]["status"] == "paused"
     assert conn.execute("SELECT count(*) FROM copilot_interactions_curated").fetchone() == (3,)
     assert st["last_merge_to_publish_s"] == 50.0 and "merge_open" not in st
+    assert _position(st["published"]) == _seen(st) and "pending_high_water_mark" in st["published"]
 
 
 # ---------------------------------------------------------------- months merged out of order (#31)
@@ -748,3 +767,127 @@ def test_a_paused_first_load_applies_org_scoped_access(tmp_path, monkeypatch):
     assert conn.execute("SELECT count(*) FROM access_scope").fetchone() == (3,)
     assert conn.execute("SELECT count(*) FROM access_people").fetchone() == (3,)
     assert conn.execute("SELECT count(*) FROM copilot_interactions_curated").fetchone() == (2,)
+
+
+# ---------------------------------------------------------------- what `status` counts as in the reports
+HWM_1 = "2026-09-09T09:00:00+00:00"
+HWM_2 = "2026-09-10T09:00:00+00:00"
+
+
+def _fake_steps(monkeypatch, store, fail=None, during_process=None):
+    """main() over `store`, with process and publish as fakes (`fail` names the one that raises) and no refresh."""
+    def step(name, then=None):
+        def fake(st, *a, **kw):
+            if then is not None:
+                then(st)
+            if name == fail:
+                raise RuntimeError(f"{name} failed")
+            return []
+        return fake
+
+    monkeypatch.setattr(jobs_main, "open_store", lambda data_dir, s: store)
+    monkeypatch.setattr(jobs_main, "process", step("process", during_process))
+    monkeypatch.setattr(jobs_main, "publish_step", step("publish"))
+    monkeypatch.setattr(jobs_main, "refresh_step", lambda s, **kw: None)
+
+
+def test_a_run_records_what_it_published_only_once_its_publish_has_finished(tmp_path, monkeypatch):
+    clock, store = Clock(), LocalStore(tmp_path)
+    _wire(monkeypatch, store, clocked_api(SlowGraph(RECORDS, clock), clock), clock)
+    during = {}
+
+    def process(st, **kw):
+        during["process"] = _state(st)
+
+    def publish(st, s, conn=None):
+        during["publish"] = _state(st)
+        return []
+
+    monkeypatch.setattr(jobs_main, "process", process)
+    monkeypatch.setattr(jobs_main, "publish_step", publish)
+    monkeypatch.setattr(jobs_main, "refresh_step", lambda s, **kw: None)
+    assert jobs_main.main(["run"], env=ENV, clock=clock) == 0
+    st = _state(store)
+    assert _seen(st) == {"high_water_mark": st["high_water_mark"]}
+    # The process step curates what was merged when it starts, and the record of that follows once it has finished.
+    assert _seen(during["process"]) == _seen(st) and "processed" not in during["process"]
+    # Nothing was in the reports before this run (a fresh install), and the record says so until its publish ends.
+    assert during["publish"]["published"] == {} and _position(during["publish"]["processed"]) == _seen(st)
+    assert st["published"] == dict(st["processed"], published_at=st["published"]["published_at"])
+    started, published = (datetime.fromisoformat(st["published"][k]) for k in ("process_started_at", "published_at"))
+    assert started <= published
+
+
+def test_a_run_that_stops_before_its_publish_ends_leaves_the_published_record(tmp_path, monkeypatch):
+    store = LocalStore(tmp_path)
+    processed = {"high_water_mark": HWM_1, "process_started_at": "2026-09-09T12:00:00+00:00"}
+    published = dict(processed, published_at="2026-09-09T12:30:00+00:00")
+    store.write_json(audit_collect.STATE, {"high_water_mark": HWM_2, "processed": processed, "published": published})
+
+    def run(steps, fail=None):
+        _fake_steps(monkeypatch, store, fail)
+        if fail is None:
+            assert jobs_main.main(["run", "--steps", steps], env=ENV) == 0
+        else:
+            with pytest.raises(RuntimeError, match=f"{fail} failed"):
+                jobs_main.main(["run", "--steps", steps], env=ENV)
+        return _state(store)
+
+    # Its process step failed, or the run was stopped at its hard deadline during it: no publish carries it.
+    st = run("process,publish", fail="process")
+    assert st["processed"] == processed and st["published"] == published
+    # Its publish failed, or the run was stopped during it.
+    st = run("process,publish", fail="publish")
+    assert _position(st["processed"]) == {"high_water_mark": HWM_2} and st["published"] == published
+    # A run that publishes without processing carries the output of the last process step to finish.
+    last = st["processed"]
+    st = run("publish")
+    assert st["published"] == dict(last, published_at=st["published"]["published_at"])
+    # With no process step on record, it records nothing.
+    store.write_json(audit_collect.STATE, {"high_water_mark": HWM_2, "published": published})
+    st = run("publish")
+    assert st["published"] == published and "processed" not in st
+
+
+def test_overlapping_runs_count_as_published_only_what_was_merged_when_the_process_step_started(tmp_path,
+                                                                                                monkeypatch):
+    store = LocalStore(tmp_path)
+    store.write_json(audit_collect.STATE, {"high_water_mark": HWM_1, "published": {}})
+
+    def merged_meanwhile(st):
+        # There's no run lock yet: another run merges newer windows while this one processes.
+        st.write_json(audit_collect.STATE, dict(_state(st), high_water_mark=HWM_2))
+
+    _fake_steps(monkeypatch, store, during_process=merged_meanwhile)
+    assert jobs_main.main(["run", "--steps", "process,publish"], env=ENV) == 0
+    st = _state(store)
+    assert st["high_water_mark"] == HWM_2
+    assert _position(st["processed"]) == _position(st["published"]) == {"high_water_mark": HWM_1}
+
+
+OLDER_ENTRY = {"status": "succeeded", "window_start": W4[0].isoformat(), "window_end": W4[1].isoformat(),
+               "completed_at": "2026-09-10T12:30:00+00:00", "rows": 1, "files": []}
+OLDER_RELOAD = "2026-09-01T12:00:00+00:00"
+
+
+@pytest.mark.parametrize("state, published", [
+    # An older image's state: its runs published what they merged, and it kept no record of that.
+    ({"high_water_mark": HWM_1, "windows": {key(W4): OLDER_ENTRY}}, {"high_water_mark": HWM_1}),
+    # ...with a reload its runs hadn't merged all of.
+    ({"high_water_mark": HWM_1, "backfill_from": OLDER_RELOAD},
+     {"high_water_mark": HWM_1, "backfill_from": OLDER_RELOAD}),
+    # A fresh install, or an older image's first load cut off before it merged: nothing is in the reports.
+    ({}, {}),
+    ({"windows": {key(W4): OLDER_ENTRY}}, {}),
+    # A state this image has written stays as it is: its record, or a window it merged before any record.
+    ({"high_water_mark": HWM_2, "published": {"high_water_mark": HWM_1}}, {"high_water_mark": HWM_1}),
+    ({"high_water_mark": HWM_1, "windows": {key(W4): dict(OLDER_ENTRY, merged_at=None)}}, None),
+])
+def test_this_images_first_run_counts_what_an_older_image_merged_as_published(tmp_path, state, published):
+    store = LocalStore(tmp_path)
+    store.write_json(audit_collect.STATE, state)
+    # The record is taken before the run remembers a reload asked for now, which isn't in the reports.
+    audit_collect.remember_backfill(store, settings(audit_backfill_days=2), now=NOW)
+    st = _state(store)
+    assert st.get("published") == published
+    assert st["backfill_from"] == state.get("backfill_from", (NOW - timedelta(days=2)).isoformat())

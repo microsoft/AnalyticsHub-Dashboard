@@ -22,7 +22,9 @@ Data layout (same under a local directory or the ADLS account; first segment = c
     raw/agent_<sessions|turns|errors|subagents|performance>/month-YYYYMM.parquet
                                                                (module agentEvaluator: Copilot Studio transcripts)
     raw/agent_catalogue/part-0.parquet, raw/evaluator_status/part-0.parquet  (module agentEvaluator)
-    raw/_state/audit.json, raw/_state/agent_evaluator.json     (what the incremental collectors last read)
+    raw/_state/audit.json, raw/_state/agent_evaluator.json     (what the incremental collectors last read; for audit
+                                                               also where the load had got to for the last process
+                                                               step and the last publish, for `status`)
     raw/_state/refresh.json                                    (a full model refresh a later run still owes)
     curated/copilot_interactions_curated/month-YYYYMM.parquet  (one file per month; month-none = no date)
     curated/_valuelens_process/state.json, context/            (incremental process bookkeeping)
@@ -46,6 +48,7 @@ import sys
 import tempfile
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
@@ -234,6 +237,45 @@ def _close_merge(store):
             store.write_json(STATE, state)
     except Exception as exc:
         log.warning("run: couldn't tidy the audit state (%s)", exc)
+
+
+def _audit_seen(store):
+    """Where the audit load had got to as a process step starts. The step curates what was merged by then, so a
+    publish that carries its output puts that history in the reports. None when the state can't be read."""
+    from .collect.audit import SEEN, STATE
+
+    try:
+        state = store.read_json(STATE, {}) or {}
+    except Exception as exc:
+        log.warning("process: couldn't read the audit load's progress in %s (%s); status keeps what the last "
+                    "publish carried", STATE, exc)
+        return None
+    return dict({k: state[k] for k in SEEN if state.get(k) is not None},
+                process_started_at=datetime.now(timezone.utc).isoformat())
+
+
+def _audit_processed(store):
+    """What the last process step to finish had seen as it started (see `_audit_seen`), or None."""
+    from .collect.audit import STATE
+
+    try:
+        processed = (store.read_json(STATE, {}) or {}).get("processed")
+    except Exception as exc:
+        log.warning("publish: couldn't read %s (%s); status keeps what the last publish carried", STATE, exc)
+        return None
+    return processed if isinstance(processed, dict) else None
+
+
+def _record_audit(store, name, value):
+    """Set `name` in the audit state. Left unset, `status` reads less as in the reports, never more."""
+    from .collect.audit import STATE
+
+    try:
+        state = store.read_json(STATE, {}) or {}
+        state[name] = value
+        store.write_json(STATE, state)
+    except Exception as exc:
+        log.warning("run: couldn't record %s in %s (%s)", name, STATE, exc)
 
 
 def q_lit(value: str) -> str:
@@ -794,12 +836,21 @@ def main(argv=None, env=None, clock=time.monotonic) -> int:
             elif step == "process":
                 full = _start_owed_rebuild(store, budget, process_options["full_rebuild"]) if tenant \
                     else process_options["full_rebuild"]
+                seen = _audit_seen(store) if tenant else None
                 process(store, **{**process_options, "full_rebuild": full})
+                if seen is not None:
+                    _record_audit(store, "processed", seen)
             elif step == "publish":
+                # The last process step to finish had curated what was merged when it started, so this publish
+                # carries at least that, also in a run that publishes without processing.
+                carried = _audit_processed(store) if tenant else None
                 published = publish_step(store, settings)
                 if collects:
                     _record_merge_to_publish(store, budget)
                     recorded = True
+                if carried is not None:
+                    _record_audit(store, "published",
+                                  dict(carried, published_at=datetime.now(timezone.utc).isoformat()))
             elif step == "access":
                 if "publish" not in steps:
                     access_step(store, settings)

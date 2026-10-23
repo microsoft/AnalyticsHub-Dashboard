@@ -544,9 +544,10 @@ export async function planAzure(ctx, pre, section) {
 /**
  * What Repair or change asks about more history, from the run job's state, or undefined when no history has
  * loaded and the first load's question applies. Once the collector has a high-water mark, more history needs a
- * reload. The high-water mark is set when a run merges every window, so that history is in the reports. A run
- * the installer started isn't history loaded: one that fails, or stops at its time limit with windows left, hasn't
- * loaded it all, though from 0.6.9 the newest weeks it fetched are in the reports. A first load part-way through
+ * reload. The high-water mark is set when a run merges every window. The question is about loading, and that
+ * history is loaded, though it reaches the reports only once a run publishes it (`status` says whether one has).
+ * A run the installer started isn't history loaded: one that fails, or stops at its time limit with windows left,
+ * hasn't loaded it all, though from 0.6.9 it merges the newest weeks it fetched. A first load part-way through
  * has no high-water mark, so its question is still the first load's; a reload part-way through keeps
  * `backfill_from`. Where the state can't be read (a private install, or no access to the job's storage), it says
  * what was asked for once the installer has started a run. A demo install publishes the sample, not the tenant's
