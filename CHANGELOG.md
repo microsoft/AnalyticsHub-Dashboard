@@ -285,6 +285,19 @@ sets the number. On Fabric and Azure.
   true blocker stops an install: with `--yes`, no way to register the app (you can't, and there's no
   app registration or admin pack to use instead). Update only warns. `prereqs` still gives the full
   list.
+- **Prerequisite checks say what to ask for, and who.** Admin work someone else does for you now
+  shows as **Hand-off** (→), not missing: approving the app's Graph permissions, granting the audit
+  log role, publishing the Teams app, the Fabric administrator and Insights Analyst roles, and the
+  Power Platform administrator role when you're a System Administrator in an environment, so only
+  the flows' sign-in needs it. Each says who does it and never stops an install; install and update
+  list them on a line of their own. The Viva Insights analyst row now checks the role in Entra. When
+  only a Fabric administrator can read the tenant settings, the row lists each one you need by its
+  current name, with *Create workspaces* and, for org-scoped access, the XMLA setting. On Azure it
+  now checks *Semantic Model Execute Queries REST API* too, which the web app uses. On Fabric, being
+  an Admin or Member of a workspace that's already on a capacity is enough, as the docs said. The
+  concealed-names fix names the Global Administrator and the setting's current label, a 403 on a
+  private Key Vault's endpoint names the workspace Admin role, and the browser page now says
+  Analytics Hub installer.
 
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 

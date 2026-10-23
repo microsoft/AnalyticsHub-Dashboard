@@ -20,7 +20,8 @@ the installer's version.
 | Problem | What to do |
 |---|---|
 | `This workspace no longer exists` | The workspace in the install record was deleted, or the record is for another tenant. Choose **Start fresh**. The old record is kept, renamed with the date and time. See [Run it](INSTALL.md#run-it). |
-| `No active Fabric capacity you can use` | Start a Fabric trial, or ask a capacity admin to make you a Contributor on a capacity. |
+| `No active Fabric capacity you can use` | Start a Fabric trial, or ask a capacity admin to make you a Contributor on a capacity. Or ask to be an Admin or Member of a workspace that's already on a capacity: the installer then puts Analytics Hub in that workspace. |
+| `No Fabric capacity you can create a workspace on` (with `--yes`) | Run the installer without `--yes`, and choose a workspace you're an Admin or Member of that's already on a capacity. |
 | `No Azure subscription you can use` | Ask for Contributor on a subscription, on a resource group, or for read access to an existing vault a vault admin can add the secret to. Or choose [no Key Vault](../installer/README.md#where-the-secret-goes) (`--no-key-vault`): anyone with a role in the workspace can then read the secret. |
 | `This workspace is connected to Git` | With no Key Vault, the installer won't write the client secret into a Git-connected workspace. Disconnect it under **Workspace settings** > **Git integration**, or run the installer again and choose Key Vault. |
 | `You can't write secrets to …` or `You can't change access policies on …` | Run the installer again without `--yes`, pick the vault, and choose **A vault admin will add the secret for me**. See [Where the secret goes](../installer/README.md#where-the-secret-goes). |

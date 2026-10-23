@@ -5,7 +5,9 @@ so you don't stop halfway. Once you sign in, the installer's **Prerequisites** p
 checks most of it for you, and changes nothing. You don't have to run it first: install and update
 check the same things before they create or change anything, and list only what's missing for what
 you chose. Each check has 15 seconds; one that takes longer shows as "couldn't check" and never
-stops you. Only a true blocker stops an install: with `--yes`, no way to register the app (you
+stops you. A **Hand-off** (→ in the terminal) is work someone else does for you, such as an admin
+approving the app's permissions: the row says who, install and update list it on its own line, and
+the install carries on. Only a true blocker stops an install: with `--yes`, no way to register the app (you
 can't, and there's no app registration or admin pack to use instead). Setting it up by hand? On Fabric, you also need
 [these](MANUAL-INSTALL.md#1-prerequisites); on Azure, see [its list](MANUAL-INSTALL.md#azure).
 
@@ -13,10 +15,10 @@ can't, and there's no app registration or admin pack to use instead). Setting it
 
 | Who | Fabric | Azure | Time |
 |---|---|---|---|
-| **You**, who run the installer | Contributor on an F2 or larger capacity, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager). Power BI Pro. Can register an app. | Owner, or Contributor and User Access Administrator, on a subscription or resource group. Power BI Pro. Can register an app. | 20 min |
-| **Fabric admin** | Turns on four tenant settings, and lets you create Fabric items | Turns on three tenant settings | 5 min |
+| **You**, who run the installer | Contributor on an F2 or larger capacity, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager), or an Admin or Member of a workspace already on a capacity. Power BI Pro. Can register an app. | Owner, or Contributor and User Access Administrator, on a subscription or resource group. Power BI Pro. Can register an app. | 20 min |
+| **Fabric admin** | Turns on, or confirms, [the tenant settings](#fabric-admin-about-5-minutes), including letting you create Fabric items | Turns on, or confirms, the tenant settings | 5 min |
 | **Entra admin** (Global Administrator or Privileged Role Administrator) | Grants admin consent for read-only Graph permissions | The same, for the app and the managed identity. Plus one to manage viewers from the web app | 2 min |
-| **Microsoft 365 admin** | Turns off concealed names in usage reports | The same | 1 min |
+| **Microsoft 365 admin** (Global Administrator) | Turns off concealed names in usage reports | The same | 1 min |
 | **Compliance admin** | Makes sure audit logging is on in Microsoft Purview (it usually is) | The same | 1 min |
 | **Teams admin** | – | Publishes the Teams app to your org's app catalog | 2 min |
 | **Viewers** | In the Analytics Hub Viewers group. Power BI Pro below F64. | In the group. Power BI Pro. | – |
@@ -132,7 +134,7 @@ there. Otherwise it gives you the command for someone who can.
 
 | Scope | Role | Reason |
 |---|---|---|
-| Fabric capacity | **Contributor**, for you | Putting the workspace on it. Fabric only |
+| Fabric capacity | **Contributor**, for you | Putting the workspace on it. Not needed if you use a workspace that's already on a capacity, as its Admin or Member. Fabric only |
 | Fabric workspace | **Viewer**, for the app | Letting the models read the Lakehouse. Fabric only; the installer gives it |
 | Fabric workspace | **Contributor**, for whoever signs in to the flows' OneLake connection | *(Optional.)* Saving files from the flows. With `--flow-identity app`, the app gets it instead |
 | Semantic models | **Build**, for the Analytics Hub Viewers group | Letting viewers query the models. The installer gives it |
@@ -172,9 +174,16 @@ The detail behind [At a glance](#at-a-glance), with links to Microsoft Learn.
 ### You: the person who runs the installer
 
 - [ ] **Windows 10 or 11** (64-bit), or [Azure Cloud Shell](INSTALL.md#locked-down-tenant--azure-cloud-shell),
-      or [Node.js](INSTALL.md#without-the-exe) on another system.
-- [ ] **Fabric:** a Fabric capacity you can use. You're a Contributor on a capacity, or an Admin
-      or Member of a workspace that's on one.
+      or [Node.js](INSTALL.md#without-the-exe) on another system. In Cloud Shell, you sign in with a
+      code, which a Conditional Access policy can block. If yours does, run the installer on a PC
+      that's allowed, or ask whoever manages Conditional Access. See
+      [Locked-down tenant / Azure Cloud Shell](INSTALL.md#locked-down-tenant--azure-cloud-shell).
+- [ ] **Fabric:** a Fabric capacity you can use. To create the workspace on a capacity, you need to
+      be its admin or a Contributor on it: ask its capacity admin, or start a
+      [free trial](#what-it-costs). Or be an Admin or Member of a workspace that's already on a
+      capacity: the installer then puts Analytics Hub in that workspace, but can't create a new one,
+      or check the capacity's size or state. With `--yes`, that works only for the workspace the
+      install record already names.
 - [ ] **Azure:** [Owner](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#owner),
       or [Contributor](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#contributor)
       and [User Access Administrator](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#user-access-administrator),
@@ -194,31 +203,45 @@ The detail behind [At a glance](#at-a-glance), with links to Microsoft Learn.
 
 - [ ] **Fabric: a capacity.** An F2 or larger [Fabric capacity](https://learn.microsoft.com/fabric/enterprise/licenses#capacity),
       or a [free trial](#what-it-costs). Use **F64 or larger** for a tenant with more than 10,000
-      people. Make the person who runs the installer a **Contributor** on it. A Premium P capacity
-      works too, but **Premium Per User (PPU)** workspaces can't hold notebooks or Lakehouses.
-- [ ] [*Users can create Fabric items*](https://learn.microsoft.com/fabric/admin/fabric-switch) turned on
-      for the person who runs the installer: for the whole organisation, a security group they're in, or
-      [delegated](https://learn.microsoft.com/fabric/admin/capacity-settings#delegated-tenant-settings)
-      to the capacity. Without it, Fabric says *Unable to create Import notebook* (or Lakehouse).
-      It can take about 15 minutes to apply. Fabric.
-- [ ] **Tenant settings** turned on, in the Fabric admin portal under **Tenant settings**. They
-      can be on for the whole organisation, or just for security groups. If just for groups, who
-      needs each one has to be in one of them:
+      people. Its capacity admin makes the person who runs the installer a **Contributor** on it.
+      Or a workspace's Admin makes them an Admin or Member of a workspace that's already on a
+      capacity. A Premium P capacity works too, but **Premium Per User (PPU)** workspaces can't
+      hold notebooks or Lakehouses.
+- [ ] **Tenant settings** turned on, in Fabric under **Admin portal** > **Tenant settings**
+      ([all tenant settings](https://learn.microsoft.com/fabric/admin/tenant-settings-index)).
+      They can be on for the whole organisation, or just for security groups. If just for groups,
+      who needs each one has to be in one of them. Only a Fabric admin can read them, so if you
+      aren't one, the installer lists the ones to confirm:
+  - [*Users can create Fabric items*](https://learn.microsoft.com/fabric/admin/fabric-switch), for
+    the person who runs the installer: for the whole organisation, a security group they're in, or
+    [delegated](https://learn.microsoft.com/fabric/admin/capacity-settings#delegated-tenant-settings)
+    to the capacity. Without it, Fabric says *Unable to create Import notebook* (or Lakehouse).
+    It can take about 15 minutes to apply. Fabric only.
+  - [*Create workspaces*](https://learn.microsoft.com/fabric/admin/portal-workspace#create-workspaces),
+    for the person who runs the installer, when the installer creates the workspace. Fabric and
+    Azure.
   - [*Service principals can call Fabric public APIs*](https://learn.microsoft.com/fabric/admin/service-admin-portal-developer#service-principals-can-call-fabric-public-apis).
     Lets the daily loads run on their own. Fabric and Azure. Needed by the app registration
     (Fabric) or the managed identity (Azure).
   - [*Semantic Model Execute Queries REST API*](https://learn.microsoft.com/fabric/admin/service-admin-portal-integration#semantic-model-execute-queries-rest-api).
     Lets the app's pages query the model, as the person using them. Fabric and Azure. Needed by
     the people who use the app.
-  - [*Fabric App items*](https://learn.microsoft.com/fabric/admin/tenant-settings-index#microsoft-fabric).
+  - [*Allow visuals created using the Power BI SDK*](https://learn.microsoft.com/fabric/admin/service-admin-portal-power-bi-visuals#allow-visuals-created-using-the-power-bi-sdk),
+    for the Power BI reports, or some visuals stay blank. Fabric and Azure. Needed by the people
+    who open the reports.
+  - The Fabric apps setting, under [**Fabric apps (preview)**](https://learn.microsoft.com/fabric/apps/create-app).
     Lets the installer create the Analytics Hub app in Fabric. Fabric only. Needed by whoever
     runs the installer.
-  - *Allow visuals created using the Power BI SDK*, for the Power BI reports, or some visuals stay
-    blank. Fabric and Azure. Needed by the people who open the reports.
-- [ ] **Leave on** *Users can access data stored in OneLake with apps external to Fabric*. It's on
-      by default. The Power Automate flows need it.
+  - [*Allow XMLA endpoints and Analyze in Excel with on-premises semantic models*](https://learn.microsoft.com/fabric/admin/service-admin-portal-integration#allow-xmla-endpoints-and-analyze-in-excel-with-on-premises-semantic-models),
+    only with [org-scoped access](PERMISSIONS.md#org-scoped-access-row-level-security), which
+    applies the models' role members through it. Fabric and Azure. The capacity's XMLA endpoint
+    must also be [Read Write](https://learn.microsoft.com/fabric/enterprise/powerbi/service-premium-connect-tools#enable-xmla-read-write),
+    which a capacity admin sets.
+- [ ] **Leave on** [*Users can access data stored in OneLake with apps external to Fabric*](https://learn.microsoft.com/fabric/admin/service-admin-portal-onelake#users-can-access-data-stored-in-onelake-with-apps-external-to-fabric).
+      It's on by default. The Power Automate flows need it.
 
-If you're a Fabric admin yourself, the installer checks these settings for you.
+If you're a Fabric admin yourself, the installer reads these settings and says which are off,
+apart from *Users can create Fabric items*, *Create workspaces* and the XMLA one.
 
 ### Power Platform admin: for the Copilot Studio credits flow
 
@@ -245,7 +268,10 @@ Only if you want **Copilot Cowork credits** from Viva Insights. Send them
 [the note above](#send-this-to-your-viva-insights-analyst-first) first.
 
 - [ ] Has the [Insights Analyst](https://learn.microsoft.com/viva/insights/advanced/setup-maint/assign-user-roles)
-      role.
+      role. A Global Administrator assigns it in the Microsoft 365 admin center, under **Settings** >
+      **Viva** > **Viva Insights**, or **Role assignments**. If your organisation uses Privileged
+      Identity Management, a Privileged Role Administrator can assign it there. You don't need the
+      role yourself if an analyst does the two items below for you.
 - [ ] Builds the query and sends you its partition ID and query ID, **before you start**. See
       [Running the Viva Insights query](VIVA-QUERY.md).
 - [ ] Signs in to the `AnalyticsHub_Cowork_Credits` Dataflow once, when the installer asks. It
@@ -303,9 +329,10 @@ to reload. The Azure jobs keep no such manifest.
 
 ### Microsoft 365 admin
 
-- [ ] **Show real names in usage reports**, for Microsoft 365 activity (on by default). In the
-      Microsoft 365 admin center, go to **Settings** > **Org settings** > **Services** > **Reports**
-      and clear **Display concealed user, group, and site names in all reports**.
+- [ ] **Show real names in usage reports**, for Microsoft 365 activity (on by default). A
+      [Global Administrator](https://learn.microsoft.com/entra/identity/role-based-access-control/permissions-reference#global-administrator),
+      in the Microsoft 365 admin center, goes to **Settings** > **Org settings** > **Services** >
+      **Reports** and unticks **Conceal user, group, and site names in all reports**.
       [Why](https://learn.microsoft.com/troubleshoot/microsoft-365/admin/miscellaneous/reports-show-anonymous-user-name).
 - [ ] **Schedule the product feedback export**, only if you want product feedback through the flow.
       In the Microsoft 365 admin center, go to **Health** > **Product feedback** and schedule the
@@ -343,7 +370,7 @@ nothing fails.
 
 | Card | What it needs, beyond the checklist |
 |---|---|
-| **Microsoft 365 activity** *(on by default)* | Real names in usage reports (Microsoft 365 admin). |
+| **Microsoft 365 activity** *(on by default)* | Real names in usage reports (a Global Administrator). |
 | **Agent 365 registry** | An [Agent 365](https://learn.microsoft.com/microsoft-agent-365/overview) licence for **Connected**, which is Fabric only for now. Without one, or on Azure, upload the export from the Microsoft 365 admin center. On Azure you drop it in the landing folder: see [Agent 365 registry](../azure/README.md#agent-365-registry). |
 | **Product feedback** | No API. With the flow: a Power Automate Premium licence, a mailbox for the exports, and the export schedule (Microsoft 365 admin). Or upload the export yourself. The flow and the upload are Fabric only for now: on Azure you drop the exports in the landing folder, see [Product feedback](../azure/README.md#product-feedback). |
 | **Workday org data** | A Workday report of active workers with **Primary Work Email**, uploaded as a CSV. |

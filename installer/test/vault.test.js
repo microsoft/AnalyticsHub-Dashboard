@@ -408,6 +408,26 @@ test('a vault connection belongs to the workspace whose ID it carries, before an
   assert.equal(fromWorkspace({ properties: { privateLinkServiceConnectionState: { status: 'Pending', description: 'Another team' } } }, ws), false);
 });
 
+test('private vault: a 403 creating the endpoint names the workspace Admin role, not the capacity', async () => {
+  const apis = fakeEndpointApis();
+  apis.fabric.createPrivateEndpoint = async () => {
+    throw new HttpError('returned 403 Forbidden', { status: 403, method: 'POST', url: 'https://api.fabric.microsoft.com/v1/workspaces/ws-1/managedPrivateEndpoints' });
+  };
+  const { ctx } = endpointCtx(apis);
+  await assert.rejects(ensureVaultEndpoint(ctx), (err) => {
+    const message = /** @type {Error} */ (err).message;
+    assert.match(message, /Fabric refused to create a managed private endpoint to kv-test/);
+    assert.match(message, /It takes the Admin role in the workspace: ask a workspace Admin to give you that role, then run the installer again\./);
+    assert.doesNotMatch(message, /capacity|region/);
+    return true;
+  });
+
+  apis.fabric.createPrivateEndpoint = async () => {
+    throw new HttpError('returned 400 Bad Request', { status: 400, method: 'POST', url: 'https://api.fabric.microsoft.com/v1/workspaces/ws-1/managedPrivateEndpoints' });
+  };
+  await assert.rejects(ensureVaultEndpoint(ctx), /They need an F or trial capacity in a region where Fabric Data Engineering runs\./, 'other failures keep the capacity hint');
+});
+
 test('private vault: someone who may not approve gets a link, and the first load can wait', async () => {
   const apis = fakeEndpointApis({ approvable: false });
   const ui = fakeUi({ yes: true });

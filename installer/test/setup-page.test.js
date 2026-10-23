@@ -195,3 +195,44 @@ test('run page: a load failure the install counts shows as failed with Rerun fai
   assert.deepEqual(other.waiting, ['Sign in to the Dataflow', null]);
   assert.match(other.outcome, /Some loads failed/);
 });
+
+const PREREQ_ITEMS = JSON.stringify([
+  {
+    id: 'consent-role', label: 'Admin consent for the app', status: 'handoff', optional: true,
+    detail: "You don't need this yourself.", neededFor: "The app's Microsoft Graph permissions",
+    howTo: 'A Privileged Role Administrator or Global Administrator approves it: https://learn.microsoft.com/entra/identity/enterprise-apps/grant-admin-consent',
+  },
+  { id: 'fabric-capacity', label: 'A Fabric capacity', status: 'missing', detail: 'None you can use.', neededFor: 'The workspace', howTo: 'Ask its capacity admin.' },
+  { id: 'fabric-licence', label: 'A Fabric licence', status: 'met', detail: 'You have one.', neededFor: 'Everything', howTo: 'Not shown.' },
+]);
+
+test('prerequisites: a hand-off reads "Hand-off" with its own glyph and says who does it; the others keep "How to get it"', () => {
+  const context = page();
+  const list = runInContext(`renderPrereqs(${PREREQ_ITEMS})`, context);
+  const [handoff, missing, met] = list.children;
+  assert.equal(/** @type {any} */ (handoff).className, 'prereq handoff');
+  assert.match(handoff.text, /^Admin consent for the app Hand-off, optional/);
+  assert.match(handoff.text, /Who does it: A Privileged Role Administrator or Global Administrator approves it/);
+  assert.doesNotMatch(handoff.text, /How to get it/);
+  const glyph = (/** @type {Element} */ li) => li.children[0].children[0].children[0].attributes.d;
+  assert.equal(glyph(handoff), runInContext('ICONS.link', context));
+  assert.notEqual(glyph(handoff), glyph(missing));
+  assert.match(missing.text, /Missing.*How to get it: Ask its capacity admin\./s);
+  assert.doesNotMatch(met.text, /How to get it|Who does it/, 'nothing to get for a row you have');
+});
+
+test('prerequisites: the home panel counts hand-offs as "to hand off", and the Markdown export marks them → with who does it', () => {
+  const context = page();
+  const panel = runInContext(`
+    app.state = { user: { upn: 'someone@example.com' }, prereqs: { at: 0, upn: 'someone@example.com', items: ${PREREQ_ITEMS} } };
+    prereqsPanel(false);
+  `, context);
+  assert.match(panel.text, /Checked as someone@example\.com at .+\. 1 you have it, 1 missing, 1 to hand off\. Only active roles count\./);
+
+  const md = runInContext(`itemMarkdown({ t: 'prereqs', items: ${PREREQ_ITEMS} }, 2).join('\\n')`, context);
+  assert.match(md, /^- → Admin consent for the app: Hand-off \(optional\)$/m);
+  assert.match(md, /^ {2}- Who does it: A Privileged Role Administrator or Global Administrator approves it/m);
+  assert.match(md, /^- ✗ A Fabric capacity: Missing$/m);
+  assert.match(md, /^ {2}- How to get it: Ask its capacity admin\.$/m);
+  assert.doesNotMatch(md, /Not shown/, 'a row you have has no how-to');
+});

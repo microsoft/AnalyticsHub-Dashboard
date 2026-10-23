@@ -26,6 +26,8 @@ export const FABRIC_ADMIN_ROLE = 'a9ea8996-122f-4c74-9520-8edcd192826c';
 export const GLOBAL_READER_ROLE = 'f2ef992c-3afb-46b9-b7cf-a126ee74c451';
 export const AI_ADMIN_ROLE = 'd2562ede-74db-457e-a7b6-544e236ebb61';
 export const POWER_PLATFORM_ADMIN_ROLE = '11648597-926c-4cf3-9c36-bcebb0ba8dcc';
+/** Viva Insights' Insights Analyst, a Microsoft Entra built-in role. */
+export const INSIGHTS_ANALYST_ROLE = '25df335f-86eb-4119-b717-0ff02de207e9';
 
 export const POWER_BI_APP_ID = '00000009-0000-0000-c000-000000000000';
 
