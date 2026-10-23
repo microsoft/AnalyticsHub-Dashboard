@@ -38,6 +38,22 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {ResourceGraphConfig} resourceGraph
  * @property {DataAgentConfig} dataAgent
  * @property {{ completed: string[], runFirstLoad?: boolean, reloadHistoryDays?: number, baseRevision?: string, approved?: boolean, uploads?: { token?: string, name: string }[] }} [setup] Browser setup draft progress; never contains secrets. runFirstLoad and reloadHistoryDays are kept only in the draft, never in the install record.
+ * @property {AuditCheck} [auditCheck]  What the last audit-ingestion check found, to explain an empty audit load.
+ */
+
+/**
+ * The last check that the app registration can read the audit log (steps/audit-check.js).
+ * - `ok`: its token has AuditLogsQuery.Read.All for this tenant; no live search was run.
+ * - `records`: a live search found Copilot interactions.
+ * - `no-copilot`: the audit log has records, but no Copilot interactions in the window.
+ * - `empty-log`: the audit log returned nothing at all, so audit logging is probably off.
+ * - `no-role`, `bad-secret`, `wrong-tenant`, `refused`: the app can't read the audit log, and why.
+ * - `timeout`: the live search was still running when the installer stopped waiting.
+ * - `error`: the check itself failed for another reason.
+ * @typedef {object} AuditCheck
+ * @property {string} at  When, as an ISO date.
+ * @property {'ok' | 'records' | 'no-copilot' | 'empty-log' | 'no-role' | 'bad-secret' | 'wrong-tenant' | 'refused' | 'timeout' | 'error'} result
+ * @property {string} [detail]
  */
 
 /**

@@ -20,7 +20,7 @@ import { c, createUi } from './ui.js';
 import { CURRENCIES, DEFAULT_CURRENCY, parseRate, toCurrencyCode } from './currency.js';
 import { DATA_SOURCE_IDS, modulesFromSources, parseDataFlags } from './uploads.js';
 
-const COMMANDS = ['install', 'update', 'run', 'rerun-failed', 'load-cowork', 'check', 'refresh', 'deploy-app', 'status', 'rotate-secret', 'access', 'upload', 'uninstall', 'prereqs', 'preview'];
+const COMMANDS = ['install', 'update', 'run', 'rerun-failed', 'load-cowork', 'check', 'check-audit', 'refresh', 'deploy-app', 'status', 'rotate-secret', 'access', 'upload', 'uninstall', 'prereqs', 'preview'];
 
 /** The `--help` text, naming the command the way it was started. */
 export const help = () => `Sets up Analytics Hub in Microsoft Fabric: the data pipeline, the semantic model and the app.
@@ -36,6 +36,8 @@ Commands:
   load-cowork      Once the Cowork Dataflow is signed in: refresh it, load the Viva credits
                    and refresh the consumption model. Fabric only
   check            Run the data check again, without the pipeline
+  check-audit      Check the app registration can read Copilot interactions in the audit log:
+                   its token, then a small live audit search. Says who fixes what it finds
   refresh          Refresh the semantic model now
   deploy-app       Deploy the Analytics Hub app again
   status           Show recent runs and refreshes, the last data check and when secrets expire
@@ -95,6 +97,9 @@ Options:
   --exchange-rate <n>  With --currency: how many of it to 1 US dollar, e.g. 0.79. Without it,
                        set the rate under Prices in the app
   --run                 With upload: run the pipeline straight after, to load the files now
+  --check-audit        With install or update: also run a small live audit search as the app,
+                       to check the audit log has Copilot interactions to load. It can take a
+                       few minutes. Fabric only
   --no-key-vault       With install: no Key Vault, the default for a new Fabric install. The client
                        secret goes in the notebooks, where anyone with a role in the workspace can
                        read it. Same as --secret-in-notebook.
@@ -152,6 +157,7 @@ export function parseCli(argv, env = process.env) {
       currency: { type: 'string' },
       'exchange-rate': { type: 'string' },
       run: { type: 'boolean' },
+      'check-audit': { type: 'boolean' },
       'secret-in-notebook': { type: 'boolean' },
       'no-key-vault': { type: 'boolean' },
       'key-vault': { type: 'boolean' },
@@ -166,6 +172,8 @@ export function parseCli(argv, env = process.env) {
   if (command !== 'upload' && positionals.length > 1) throw new Error(`Unexpected argument: ${positionals[1]}`);
   if (!COMMANDS.includes(command)) throw new Error(`Unknown command "${command}". Try --help.`);
   if (values.run && command !== 'upload') throw new Error('--run goes with upload.');
+  if (values['check-audit'] && command !== 'install' && command !== 'update') throw new Error('--check-audit goes with install or update. On its own, run check-audit.');
+  if (values['check-audit'] && values.target === 'azure') throw new Error('--check-audit is for the Fabric target only. On Azure, run check-audit.');
   const noVaultFlag = values['no-key-vault'] ? '--no-key-vault' : values['secret-in-notebook'] ? '--secret-in-notebook' : undefined;
   if (noVaultFlag && command !== 'install') throw new Error(`${noVaultFlag} goes with install.`);
   if (noVaultFlag && values.target === 'azure') throw new Error(`${noVaultFlag} is for the Fabric target only.`);
@@ -261,6 +269,7 @@ export function parseCli(argv, env = process.env) {
     exchangeRate,
     files,
     run: values.run,
+    checkAudit: !!values['check-audit'],
     secretInNotebook: !!noVaultFlag,
     useKeyVault: !!values['key-vault'],
     secretDays,
@@ -391,6 +400,7 @@ export async function main(argv) {
     if (args.secretInNotebook) ctx.secretInNotebook = true;
     if (args.useKeyVault) ctx.useKeyVault = true;
     if (args.allowModelReset) ctx.allowModelReset = true;
+  if (args.checkAudit) ctx.checkAudit = true;
     if (args.secretDays) config.app.secretDays = args.secretDays;
     try {
       const ok = await runCommand(ctx, args.command, { wait: args.wait, backfillDays: args.backfillDays, files: args.files, run: args.run });

@@ -41,6 +41,8 @@ export const API_NAMES = /** @type {Record<keyof typeof SCOPES, string>} */ ({
 export const GRAPH_CLI_APP_ID = '14d82eec-204b-4c2f-b7e8-296a70dab67e';
 /** Publishing the Teams app to the org's app catalog. Not in SCOPES, so checkTokens never asks for it. */
 export const APP_CATALOG_SCOPE = 'https://graph.microsoft.com/AppCatalog.ReadWrite.All';
+/** Microsoft Graph as an app registration: the token carries the app's consented application permissions. */
+export const APP_GRAPH_SCOPE = 'https://graph.microsoft.com/.default';
 
 /** Azure Cloud Shell's own sign-in, which the Azure CLI uses until you run az login, covers only some APIs. */
 const MSI_AUDIENCE = /not a supported MSI token audience/i;

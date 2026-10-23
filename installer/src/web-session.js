@@ -15,7 +15,7 @@ import { isResumeLater } from './steps/identity.js';
 import { routerWanted } from './uploads.js';
 import { SETUP_SECTIONS, setupRecovery } from './setup.js';
 
-export const WEB_COMMANDS = ['install', 'update', 'run', 'rerun-failed', 'load-cowork', 'check', 'refresh', 'deploy-app', 'status', 'rotate-secret', 'access', 'upload', 'uninstall', 'prereqs'];
+export const WEB_COMMANDS = ['install', 'update', 'run', 'rerun-failed', 'load-cowork', 'check', 'check-audit', 'refresh', 'deploy-app', 'status', 'rotate-secret', 'access', 'upload', 'uninstall', 'prereqs'];
 /** Commands that work before anything is installed. */
 const NO_RECORD = ['install', 'prereqs'];
 const METHODS = ['browser', 'device-code', 'azure-cli'];
@@ -55,6 +55,7 @@ export function describeRecord(config) {
       'rerun-failed': !azure && installed && !!f.pipelineId,
       'load-cowork': !azure && installed && !!f.pipelineId && coworkDataflowOn(config),
       check: !azure && installed && !!f.notebooks.dataCheck,
+      'check-audit': installed && (azure || !!config.app.appId),
       refresh: azure ? !!az?.powerBi?.datasetId : !!sm.id,
       'deploy-app': !azure && modelDeployed(config),
       status: true,
