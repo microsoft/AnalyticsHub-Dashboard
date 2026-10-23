@@ -30,8 +30,8 @@ choose: see [Where the secret goes](../installer/README.md#where-the-secret-goes
 
 The optional **Microsoft 365 activity** notebook (Fabric path, `m365_activity_daily`) reads the
 Microsoft 365 usage reports with the same `Reports.Read.All`, so it needs no extra permission.
-Its activity only matches people if **Display concealed user, group, and site names in all
-reports** is off (Microsoft 365 admin center → Settings → Org settings → Services → Reports).
+Its activity only matches people if a Global Administrator unticks **Conceal user, group, and site
+names in all reports** (Microsoft 365 admin center → Settings → Org settings → Services → Reports).
 
 ---
 
@@ -107,7 +107,7 @@ covers the app on Fabric, and the jobs' managed identity on Azure.
 | Run the notebooks / pipeline, write Delta to the Lakehouse | **Contributor** or **Member** on the Fabric workspace |
 | Let the pipeline's notebooks share one Spark session (the installer turns this on) | **Admin** on the Fabric workspace, to change the workspace Spark setting *High concurrency for pipeline running multiple notebooks*. Without it the installer warns and carries on, and each notebook starts its own session |
 | Record each run's load status in `dbo.load_log` | Nothing extra. The `AnalyticsHub_Load_Status` notebook reads the run it belongs to through the Fabric API, as the person the pipeline runs as (**Contributor** or **Member**) |
-| Land export-only files via the Power Automate flows | The flow's identity (app reg or workspace identity) as **Member/Contributor** on the workspace; tenant setting **“Service principals can use Fabric APIs”** enabled |
+| Land export-only files via the Power Automate flows | The flow's identity (app reg or workspace identity) as **Member/Contributor** on the workspace; tenant setting **“Service principals can call Fabric public APIs”** enabled |
 | Installer-created flows (product feedback, Copilot Studio credits) | The installing person: **Environment Maker** (or System Administrator) in the chosen Power Platform environment. The flow owner: a **Power Automate Premium** licence (HTTP with Microsoft Entra ID is premium). By default the flows write to OneLake as the person signed in to their OneLake connection (resource `https://storage.azure.com`), so that person needs **Contributor** or higher on the workspace, and the Fabric tenant setting **Users can access data stored in OneLake with apps external to Fabric** must be on. No secret or Key Vault. With `--flow-identity app`, the app registration gets **Contributor** from the installer instead, and the flow reads its secret through an **Azure Key Vault** connection: the person who signs in to it needs **Key Vault Secrets User**, and the vault must allow public network access |
 | Installer-created Cowork credits Dataflow | The installing person as **Contributor** or **Member** on the workspace. Whoever signs in to the Dataflow needs Viva Insights **Insights Analyst** |
 | Upload exports with the installer, Fabric or OneLake File Explorer (to `Files/analytics_hub_uploads`) | The signed-in person as **Contributor** or **Member** on the workspace. No extra API permission. |
@@ -234,7 +234,7 @@ A model definition deploy drops role members, so after every deploy the installe
 | What | Role / requirement |
 |---|---|
 | Turn it on, change scopes | A workspace **Admin** or **Member** running the installer. On Azure also **Storage Blob Data Contributor** on the storage account (the installer assigns it if you can) |
-| Apply role members | The tenant setting **Allow XMLA endpoints**, and a Fabric, Premium or Premium Per User capacity with the XMLA endpoint set to **Read Write**. A Pro workspace can't have role members applied, so the installer won't turn it on there |
+| Apply role members | The tenant setting **Allow XMLA endpoints and Analyze in Excel with on-premises semantic models**, and a Fabric, Premium or Premium Per User capacity with the XMLA endpoint set to **Read Write**. A Pro workspace can't have role members applied, so the installer won't turn it on there |
 | Azure | The Power BI workspace on a capacity, as above. The notebook runs in that workspace. Installs with private networking aren't supported yet, because the notebook can't reach the storage account |
 | "Below a person" scopes | Manager data in the org data. The installer warns when fewer than half the people have a manager |
 | Who skips it | Workspace **Admins, Members and Contributors** see every row whatever their scope. The installer lists them when you turn it on, and the app shows them "Showing: everyone (your workspace role)" |

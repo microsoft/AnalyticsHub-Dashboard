@@ -55,6 +55,16 @@ test('sends a bearer token, JSON body and query', async () => {
   assert.equal(f.calls[0].body, '{"name":"x"}');
 });
 
+test('Fabric listWorkspaces: the roles filter goes in the query, comma-separated; none lists them all', async () => {
+  const f = fakeFetch([() => ({ body: { value: [{ id: 'ws-a' }] } }), () => ({ body: { value: [] } })]);
+  const fabric = fabricApi(client(f).http);
+  assert.deepEqual(await fabric.listWorkspaces(['Admin', 'Member']), [{ id: 'ws-a' }]);
+  assert.equal(new URL(f.calls[0].url).pathname, '/v1/workspaces');
+  assert.equal(new URL(f.calls[0].url).searchParams.get('roles'), 'Admin,Member');
+  await fabric.listWorkspaces();
+  assert.equal(f.calls[1].url, 'https://api.example.com/v1/workspaces');
+});
+
 test('retries throttling using Retry-After', async () => {
   const f = fakeFetch([() => ({ status: 429, headers: { 'Retry-After': '7' } }), () => ({ body: { ok: true } })]);
   const { http, sleeps } = client(f);

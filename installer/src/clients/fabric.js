@@ -127,7 +127,8 @@ export function scheduleBody(schedule, now = new Date()) {
 export function fabricApi(http) {
   return {
     listCapacities: () => http.list('/capacities'),
-    listWorkspaces: () => http.list('/workspaces'),
+    /** @param {string[]} [roles]  Only workspaces you have one of these roles in, such as Admin or Member. */
+    listWorkspaces: (roles) => http.list('/workspaces', roles?.length ? { query: { roles: roles.join(',') } } : undefined),
     /** @param {string} id */
     getWorkspace: (id) => http.get(`/workspaces/${id}`),
     /** @param {string} displayName @param {string} capacityId */

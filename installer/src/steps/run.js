@@ -546,8 +546,8 @@ function printIdentityMatch(ctx, identity) {
   const n = (/** @type {number} */ v) => v.toLocaleString('en-GB');
   if (masked * 2 >= licensed) {
     ui.warn(`Licensed users: ${n(masked)} of ${n(licensed)} user names are hidden, so no licence matches Copilot activity`);
-    ui.note('In the Microsoft 365 admin center, go to Settings > Org settings > Reports and untick');
-    ui.note('"Display concealed user, group, and site names in all reports". The next pipeline run picks it up.');
+    ui.note('A Global Administrator unticks "Conceal user, group, and site names in all reports" in the Microsoft 365 admin center');
+    ui.note('(Settings > Org settings > Services > Reports). The next pipeline run picks it up.');
   } else if (!matched) {
     ui.warn(`Licensed users: none of the ${n(audit)} people using Copilot match a licensed user`);
     ui.note(`Open ${dataCheckName(config)} in Fabric to compare the user names in both tables.`);

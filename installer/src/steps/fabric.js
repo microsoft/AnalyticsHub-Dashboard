@@ -442,9 +442,12 @@ export async function ensureVaultEndpoint(ctx) {
         requestMessage: endpointRequest(ws),
       });
     } catch (err) {
+      // Creating a workspace's managed private endpoint takes the workspace Admin role.
       throw new Error(
-        `Fabric couldn't create a managed private endpoint to ${kv.name} (${/** @type {Error} */ (err).message}). ` +
-          'They need an F or trial capacity in a region where Fabric Data Engineering runs.',
+        err instanceof HttpError && err.status === 403
+          ? `Fabric refused to create a managed private endpoint to ${kv.name} (${err.message}). It takes the Admin role in the workspace: ask a workspace Admin to give you that role, then run the installer again.`
+          : `Fabric couldn't create a managed private endpoint to ${kv.name} (${/** @type {Error} */ (err).message}). ` +
+              'They need an F or trial capacity in a region where Fabric Data Engineering runs.',
       );
     }
     ui.ok(`Created a managed private endpoint from the workspace to ${kv.name}`);
