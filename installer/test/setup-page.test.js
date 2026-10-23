@@ -195,3 +195,17 @@ test('run page: a load failure the install counts shows as failed with Rerun fai
   assert.deepEqual(other.waiting, ['Sign in to the Dataflow', null]);
   assert.match(other.outcome, /Some loads failed/);
 });
+
+test('review page: the "Sized for" line comes first, on the page and in the saved plan, and only when the plan has one', () => {
+  const context = page();
+  const sizedFor = 'A large organisation (more than 10,000 people). Tenant: 61,234 people (licensed, enabled accounts), 3,000 Copilot seats';
+  const plan = JSON.stringify({ sizedFor, creates: [], grants: [], runsOn: [] });
+  const root = runInContext(`renderReview(${plan})`, context);
+  assert.equal(root.children[0].className, 'rv-sized');
+  assert.equal(root.children[0].text, `Sized for: ${sizedFor}`);
+  assert.deepEqual(JSON.parse(JSON.stringify(runInContext(`reviewMarkdown(${plan}).slice(0, 3)`, context))), [`**Sized for:** ${sizedFor}`, '', '### What it creates']);
+
+  const unsized = JSON.stringify({ creates: [], grants: [], runsOn: [] });
+  assert.ok(!all(runInContext(`renderReview(${unsized})`, context)).some((el) => /** @type {any} */ (el).className === 'rv-sized'), 'demo mode');
+  assert.equal(runInContext(`reviewMarkdown(${unsized})[0]`, context), '### What it creates');
+});

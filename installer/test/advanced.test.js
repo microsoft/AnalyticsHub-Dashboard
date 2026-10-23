@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { askAdvanced, asksAdvanced } from '../src/steps/advanced.js';
 import { planAzure } from '../src/steps/azure/index.js';
-import { capacityLabel, defaultsToNoVault, plan } from '../src/steps/plan.js';
+import { capacityLabel, defaultsToNoVault, plan, SIZE_QUESTION } from '../src/steps/plan.js';
 import { planResourceGraph } from '../src/steps/resource-graph.js';
 import { fakeArm, fakeCtx, fakeFabric, fakePowerBi, fakeUi } from './fakes.js';
 
@@ -21,7 +21,6 @@ const ADVANCED_QUESTIONS = [
   'Who can view Analytics Hub?',
   'Who should people ask for access? (email)',
   'How much audit history should the first load pull?',
-  'How many people are in the tenant?',
   'Lakehouse name',
   'How often should the pipeline run?',
   'Run the first load as soon as setup finishes?',
@@ -58,11 +57,51 @@ test('advanced: a Fabric plan with No asks only the essentials and keeps the def
   for (const q of ADVANCED_QUESTIONS) assert.ok(!asked.some((a) => a.startsWith(q)), `didn't ask "${q}"`);
   assert.equal(config.reporting, undefined, 'the Value page stays in US dollars');
   assert.equal(config.history.days, 30);
-  assert.equal(config.scale, 'large', 'from the F64');
+  assert.ok(asked.includes(SIZE_QUESTION), 'the size is asked without the advanced settings');
+  assert.equal(config.scale, 'large', 'from the F64, with no people counted');
   assert.equal(config.fabric.lakehouseName, 'Analytics_Hub', 'a new install suggests the new name');
   assert.equal(config.schedule.frequency, 'daily');
   assert.equal(ctx.runFirstLoad, true);
   assert.equal(config.access?.groupName, 'Analytics Hub Viewers');
+});
+
+test('plan: the size question is in the main flow, started from the people counted, and --yes takes it', async () => {
+  const F2 = { id: 'cap-2', displayName: 'F2', sku: 'F2', region: 'UK South', state: 'Active' };
+  /** @param {any} pre @param {{ yes?: boolean, scale?: 'standard' | 'large' }} [o] */
+  const sized = async (pre, o = {}) => {
+    const u = fakeUi({ yes: o.yes });
+    const { ctx, config } = fakeCtx({ ui: u.ui, fabric: fakeFabric().api });
+    if (o.scale) config.scale = o.scale;
+    await plan(ctx, { ...PRE, ...pre });
+    assert.ok(u.asked.includes(SIZE_QUESTION));
+    return { scale: config.scale, text: u.text() };
+  };
+  const few = await sized({ headcount: { count: 2_000, source: 'licensed' } });
+  assert.equal(few.scale, 'standard', 'people counted, so the F64 doesn\'t decide');
+  assert.match(few.text, /We found 2,000 people with a licence and an enabled account\./);
+
+  const many = await sized({ capacities: [F2], headcount: { count: 61_234, source: 'licensed' } }, { yes: true });
+  assert.equal(many.scale, 'large', '--yes takes the size counted');
+  assert.match(many.text, /61,234 people have a licence and an enabled account, and the capacity F2 is F2, below F64\./);
+
+  const enabled = await sized({ headcount: { count: 12_000, source: 'enabled' } }, { yes: true });
+  assert.equal(enabled.scale, 'large');
+  assert.match(enabled.text, /We found 12,000 enabled member accounts \(licences couldn't be counted\)\./);
+
+  const seats = await sized({ capacities: [F2], seats: 3_000, headcount: { count: 3_000, source: 'seats' } });
+  assert.equal(seats.scale, 'standard');
+  assert.match(seats.text, /this starts from the 3,000 Copilot seats assigned\. Count everyone who uses Microsoft 365, not only those with Copilot\./);
+
+  const none = await sized({ capacities: [F2] });
+  assert.equal(none.scale, 'standard');
+  assert.match(none.text, /We couldn't count the people in your organisation\./);
+
+  for (const yes of [false, true]) {
+    const kept = await sized({ headcount: { count: 61_234, source: 'licensed' } }, { yes, scale: 'standard' });
+    assert.equal(kept.scale, 'standard', 'a Repair keeps the size it recorded');
+    assert.match(kept.text, /This install is set up for up to 10,000 people, and stays so unless you choose otherwise\./);
+    assert.match(kept.text, /but the tenant size is "Up to 10,000"\. In Fabric placement, choose "More than 10,000"/);
+  }
 });
 
 test('plan: a new install suggests Analytics Hub names and says what capacity size suits', async () => {
@@ -192,6 +231,8 @@ test('advanced: an Azure plan with No asks only the essentials and keeps the def
   assert.ok(u.asked.includes('Azure subscription'));
   assert.ok(u.asked.includes('Azure region'));
   for (const q of AZURE_ADVANCED) assert.ok(!u.asked.includes(q), `didn't ask "${q}"`);
+  assert.ok(u.asked.indexOf(SIZE_QUESTION) >= 0 && u.asked.indexOf(SIZE_QUESTION) < u.asked.indexOf('Azure subscription'), 'the size first in Azure placement');
+  assert.equal(config.scale, 'standard', 'no people counted');
   const az = /** @type {import('../src/config.js').AzureConfig} */ (config.azure);
   assert.equal(az.sampleData, false);
   assert.equal(az.namePrefix, 'vlens');
