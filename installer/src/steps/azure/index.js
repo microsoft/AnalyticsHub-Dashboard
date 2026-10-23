@@ -930,22 +930,25 @@ async function grantDropSite(ctx) {
  * flow's storage connection, signed in as them, can write to the landing container.
  * @param {Ctx} ctx
  * @param {string} [why]  What the role is for, e.g. "for the Studio flow".
+ * @param {{ always?: boolean }} [opts]  `always` assigns it even when this install has given it before, since that may
+ *   have been to someone else, and leaves saying what to do when you can't assign it to the caller.
  * @returns {Promise<boolean>} false when you can't assign it.
  */
-export async function grantLandingWrite(ctx, why = 'for the Studio flow') {
+export async function grantLandingWrite(ctx, why = 'for the Studio flow', opts = {}) {
   const { ui, api, user } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
   const account = az.outputs?.storageAccountName;
   if (!account) return false;
-  if (az.storageRole) return true;
+  if (az.storageRole && !opts.always) return true;
   const scope = `/subscriptions/${az.subscriptionId}/resourceGroups/${az.resourceGroup}/providers/Microsoft.Storage/storageAccounts/${account}`;
   try {
-    await api.arm.assignRole(scope, ROLES.storageBlobDataContributor, user.id, 'User');
+    // false: you already had it.
+    const added = await api.arm.assignRole(scope, ROLES.storageBlobDataContributor, user.id, 'User');
     az.storageRole = true;
-    ui.ok(`Gave you Storage Blob Data Contributor on ${account}, ${why}`);
+    if (added !== false) ui.ok(`Gave you Storage Blob Data Contributor on ${account}, ${why}`);
   } catch (err) {
     if (!(err instanceof HttpError) || err.status !== 403) throw err;
-    ui.warn(`You can't assign roles on ${account}. Someone needs Storage Blob Data Contributor on it ${why}.`);
+    if (!opts.always) ui.warn(`You can't assign roles on ${account}. Someone needs Storage Blob Data Contributor on it ${why}.`);
     return false;
   } finally {
     ctx.save();
