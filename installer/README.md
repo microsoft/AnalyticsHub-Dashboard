@@ -111,7 +111,9 @@ notebooks to read the secret from the vault and removes the secret they held fro
 Everyone can register apps by default, unless *Users can register applications* is off. An
 Application Administrator, Cloud Application Administrator or Application Developer always can. A
 Privileged Role Administrator can't, though it can grant admin consent. The installer checks before
-anything is created.
+anything is created, but it can't see custom roles, so it still offers to create the apps. Choose
+that only if a custom role lets you register apps. On Azure, if Entra then refuses, the installer
+writes the admin script and stops before it deploys anything.
 
 **On Fabric**, choose **An admin will register the app for me** in the app registration question.
 Before anything is created, the installer writes `analytics-hub-admin-pack.md` next to the install
@@ -138,12 +140,16 @@ permissions cover won't load until they're fixed.
 sign in to, and **Analytics Hub SQL Reader**, which Power BI reads the database as. Under **App
 registrations**, choose who creates them:
 
-- **Create the two apps** (recommended), if you can register apps. The installer creates them
-  before it deploys anything, and finishes them once the web app exists.
-- **Use the apps an admin created for me.** The installer finds the apps with these names that you
-  own and no install has finished, or you enter their client IDs. You need to own each app, unless
-  you're an Application Administrator, Cloud Application Administrator or Global Administrator.
-  Uninstall leaves these apps, and names them for an admin to delete.
+- **Create the two apps**, recommended if you can register apps and an admin hasn't made them. The
+  installer creates them before it deploys anything, and finishes them once the web app exists.
+  It's offered even when the installer finds no role or setting that lets you, in case a custom
+  role does. If that role doesn't make you their owner, Entra may refuse to finish them after the
+  deploy. The installer then stops, and says who adds you as an owner.
+- **Use the apps an admin created for me**, recommended when the installer finds both. The installer
+  finds the apps with these names that you own and no install has finished, or you enter their
+  client IDs. You need to own each app, unless you're an Application Administrator, Cloud
+  Application Administrator or Global Administrator. Uninstall leaves these apps, and names them for
+  an admin to delete.
 - **An admin will create the apps for me.** The installer writes `analytics-hub-azure-admin-script.md`
   next to the install record, and stops before it deploys anything. An Application Administrator
   or Cloud Application Administrator pastes its script into Azure Cloud Shell. It creates both apps
