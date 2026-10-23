@@ -206,6 +206,14 @@ the group in My Groups.
   Repair moved yours, set it back to Pro in the workspace's settings in Power BI, then run Repair
   without `--yes` and choose None. Fabric isn't affected.
 
+**App: fetches ahead only the next two pages.** Once the page on screen has loaded, the app used
+to fetch the first tab of every other page in the background, about 45 queries per open. It now
+fetches the first tab of the next two pages in the menu, and the two after whichever page you open
+next. Those background queries share the capacity with the page on screen, and on large tenants
+each runs longer and slows the ones in front of it. Pages further down the menu load when opened,
+as they did before the prefetcher. `PREFETCH_AHEAD` in `app/src/components/prefetch-targets.ts`
+sets the number. On Fabric and Azure.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its

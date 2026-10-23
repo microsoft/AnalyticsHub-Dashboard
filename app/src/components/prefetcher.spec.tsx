@@ -154,7 +154,7 @@ describe("Prefetcher", () => {
         });
     });
 
-    it("moves on only once the page in hand has finished, then fetches the open page's other tabs", () => {
+    it("moves on only once the page in hand has finished, and stops after the next two", () => {
         const scheduler = fakeScheduler();
         scheduler.set({ finished: 1 });
         const { container } = renderPrefetcher(scheduler);
@@ -169,11 +169,10 @@ describe("Prefetcher", () => {
         act(() => vi.advanceTimersByTime(IDLE));
         expect(mounted(container)).toBe("value/task-breakdown");
         act(() => vi.advanceTimersByTime(IDLE));
-        expect(mounted(container)).toBe("executive/is-it-growing");
-        idleFor(2);
-        expect(mounted(container)).toBe("executive/what-needs-attention");
-        idleFor(3);
         expect(mounted(container)).toBeUndefined();
+        idleFor(5);
+        expect(mounted(container)).toBeUndefined();
+        expect([...new Set(seen.map((entry) => entry.page))]).toEqual(["adoption", "value"]);
     });
 
     it("waits while someone is waiting on the page on screen", () => {

@@ -61,10 +61,12 @@ interface PrefetcherProps {
 }
 
 /**
- * Once the page on screen has loaded, mounts the other pages one at a time,
- * hidden, so their first view's queries run in the scheduler's background
- * lane and land in the result cache before anyone opens them. It waits
- * whenever anything on screen is loading, and while the app's tab is hidden.
+ * Once the page on screen has loaded, mounts the next few pages (see
+ * `prefetchTargets`) one at a time, hidden, so their first view's queries
+ * run in the scheduler's background lane and land in the result cache
+ * before anyone opens them. Moving to another page fetches the pages after
+ * that one. It waits whenever anything on screen is loading, and while the
+ * app's tab is hidden.
  * A page opened while it is being fetched joins its queries in flight.
  *
  * Each page is fetched with the filters as they were when it started; a
