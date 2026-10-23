@@ -140,6 +140,23 @@ A few options need rights in another resource group too:
 
 On a new resource group, the subscription is checked instead, as before.
 
+## App registrations
+
+The roles above are Azure roles. They don't let you create Entra app registrations, and the install
+needs two: **Analytics Hub (Azure)** and **Analytics Hub SQL Reader**. Everyone can register apps by
+default, unless *Users can register applications* is off, and the installer checks before it creates
+anything. If you can't, choose **An admin will create the apps for me** under **App registrations**:
+
+| Who | Does | Needs |
+|---|---|---|
+| You | Run the installer. It writes `analytics-hub-azure-admin-script.md` next to the install record, and stops before it deploys anything | Nothing more |
+| Your app admin | Pastes the script into Azure Cloud Shell (Bash). It creates the two apps and their service principals, makes you an owner of them, and approves the web app's delegated permissions. It makes no secrets, and it's safe to run again | **Application Administrator** or **Cloud Application Administrator**. A Privileged Role Administrator can't create app registrations |
+| You | Run the installer again. It finds the apps itself, deploys, and finishes the apps as their owner once the web app exists | Owner of the two apps: the script makes you one |
+
+If an admin has already created the apps, choose **Use the apps an admin created for me** instead.
+Uninstall leaves apps an admin created, and names them for an admin to delete. See
+[If you can't register apps](../installer/README.md#if-you-cant-register-apps).
+
 ## Uninstalling
 
 Uninstall deletes the resources the installer tagged, and leaves the admin's resource group and
