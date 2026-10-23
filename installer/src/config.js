@@ -21,7 +21,7 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {import('./catalog.js').ModuleChoice} modules  Follows `dataSources`.
  * @property {import('./uploads.js').DataSourceModes} dataSources  How each source arrives: API, uploaded CSV, or skipped.
  * @property {UploadsConfig} uploads
- * @property {{ days: number }} history
+ * @property {{ days: number, pending?: import('./steps/history-progress.js').PendingHistory }} history  pending: a load of history the installer couldn't start, so its command isn't lost. Installers that don't know it ignore it.
  * @property {import('./transform/pipeline.js').TenantScale} [scale]  The answer to "About how many people work in your organisation?", asked in placement on both targets. On Fabric it sizes the loads (standard when absent); on Azure, the sizing setup recommends. Until it's answered, the installer starts from the people counted.
  * @property {import('./currency.js').ReportingConfig} [reporting]  The currency the Value page reports in until one is saved in the app. Asked for when absent.
  * @property {{ frequency: 'daily' | 'weekly', time: string, weekday: string, timeZone: string }} schedule
