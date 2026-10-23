@@ -22,7 +22,7 @@ import {
     VALUE_LENS,
     withRules,
 } from "./filter-profiles";
-import { defaultFilters, FILTER_KEYS, filterExpression, type FilterState } from "./filters";
+import { defaultFilters, FILTER_KEYS, filterExpression, tenantDefaultDates, tenantDefaultFilters, type FilterState } from "./filters";
 
 const ACTIVE: FilterState = {
     dateRange: { preset: "custom", from: "2026-01-01", to: "2026-03-31" },
@@ -146,5 +146,40 @@ describe("groupNotFiltered", () => {
             { keys: ["dateRange", "organizations"], reason: "a." },
             { keys: ["agentNames"], reason: "b." },
         ]);
+    });
+});
+
+describe("resolveFilters under the tenant's default dates", () => {
+    it("applies the window worked out in the query on ValueLens, whatever the options say", () => {
+        for (const largeTenant of [true, false, undefined]) {
+            const resolved = resolveFilters(VALUE_LENS, tenantDefaultFilters, FILTER_KEYS, { largeTenant });
+            expect(resolved.expressions).toEqual([tenantDefaultDates()]);
+            expect(resolved.notFilteredBy).toEqual([]);
+        }
+        expect(resolveFilters(FEEDBACK, tenantDefaultFilters, ["dateRange"]).expressions).toEqual([tenantDefaultDates()]);
+    });
+
+    it("keeps every date on Consumption Central and the Agent Evaluator, saying so only on a large tenant", () => {
+        for (const profile of [CONSUMPTION_REPORTING, EVALUATOR]) {
+            const large = resolveFilters(profile, tenantDefaultFilters, ["dateRange"], { largeTenant: true });
+            expect(large.expressions).toEqual([]);
+            expect(large.notFilteredBy).toHaveLength(1);
+            expect(large.notFilteredBy[0].reason).toMatch(/^the default last 12 weeks follows Copilot activity, so .+ keeps every date until you choose a range\.$/);
+
+            for (const largeTenant of [false, undefined]) {
+                const small = resolveFilters(profile, tenantDefaultFilters, ["dateRange"], { largeTenant });
+                expect(small).toEqual({ expressions: [], notFilteredBy: [] });
+            }
+        }
+    });
+
+    it("still applies a chosen range on Consumption Central and the Agent Evaluator", () => {
+        expect(resolveFilters(CONSUMPTION_REPORTING, ACTIVE, ["dateRange"]).expressions[0]).toContain("'Reporting Date'[Date]");
+        expect(resolveFilters(EVALUATOR, ACTIVE, ["dateRange"]).expressions[0]).toContain("'Calendar'[Date] >= DATE(2026, 1, 1)");
+    });
+
+    it("says a stage with its own period isn't filtered by the default only on a large tenant", () => {
+        expect(resolveFilters(CONSUMPTION_COWORK, tenantDefaultFilters, ["dateRange"], { largeTenant: true }).notFilteredBy).toHaveLength(1);
+        expect(resolveFilters(CONSUMPTION_COWORK, tenantDefaultFilters, ["dateRange"], { largeTenant: false }).notFilteredBy).toEqual([]);
     });
 });

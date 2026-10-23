@@ -82,6 +82,14 @@ check runs, or if it fails, and a page comes back on the next open once its data
 
 The app is built to stay quick for a large tenant (about 20,000 people):
 
+- **The last 12 weeks by default on a large tenant.** When more than 10,000 people have Copilot
+  activity, the date filter starts at **Last 12 weeks**: the 84 days to the last day with activity.
+  The filter bar shows the dates and says it's the default for large organizations; **Show all
+  dates** widens it in one click. Each query works out the tenant's size and the 12 weeks itself,
+  so the first page doesn't wait for the filter options. A smaller tenant starts on **All dates**.
+  **Reset filters** goes back to the tenant's default. Consumption Central and the Agent Evaluator
+  keep every date until you choose a range, and say so on a large tenant. `LARGE_TENANT_PEOPLE` in
+  `src/lib/filters.ts` sets the threshold.
 - **One tab at a time.** Each page shows one section at a time, as tabs, and opening a tab runs
   only that tab's queries. Downloads and report packs still include every section.
 - **The first page asks only what it shows.** The Executive summary opens with eight queries, or

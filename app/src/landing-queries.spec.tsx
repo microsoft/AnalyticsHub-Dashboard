@@ -17,7 +17,8 @@ import { clearLoadStatus } from "@/hooks/use-load-status";
 import { clearSourceFreshness } from "@/hooks/use-source-freshness";
 import { useAppTheme } from "@/hooks/use-theme";
 import { ACCESS_SCOPE_QUERY } from "@/lib/access-scope";
-import { filterLabel } from "@/lib/filters";
+import { applyDaxFilters } from "@/lib/dax-filters";
+import { filterLabel, tenantDefaultDates } from "@/lib/filters";
 import { mergedSourceProbe, OPTIONAL_SOURCES } from "@/lib/optional-sources";
 import { DEFAULT_ORG_ATTRIBUTE, describeOrgAttribute } from "@/lib/org-attribute";
 import { currentPriority, type QueryPriority } from "@/lib/query-priority";
@@ -73,8 +74,9 @@ vi.mock("@/lib/settings-store", async (original) => ({
 vi.mock("@/components/prefetcher", () => ({ Prefetcher: () => null }));
 
 const OPTIONS = filterOptions().query;
-const SUMMARY = executiveSummary().query;
-const HOURS_RANGE = executiveHoursRange().query;
+// The page starts on the tenant's default dates, which each query works out for itself.
+const SUMMARY = applyDaxFilters(executiveSummary().query, [tenantDefaultDates()]);
+const HOURS_RANGE = applyDaxFilters(executiveHoursRange().query, [tenantDefaultDates()]);
 const PROBE = mergedSourceProbe(OPTIONAL_SOURCES);
 const ORG_COLUMNS = orgAttributeOptions().query;
 const ORG_VALUES = orgValueOptions(describeOrgAttribute(DEFAULT_ORG_ATTRIBUTE)).query;
@@ -105,7 +107,7 @@ function named(query: string): string {
 type Columns = Record<string, unknown[]>;
 
 const ANSWERS = new Map<string, Columns>([
-    [OPTIONS, { "[Kind]": ["firstDate", "lastDate"], "[Value]": ["2026-05-08", "2026-07-06"] }],
+    [OPTIONS, { "[Kind]": ["firstDate", "lastDate", "people"], "[Value]": ["2026-05-08", "2026-07-06", "20000"] }],
     [SUMMARY, { "[Hours]": [4321], "[Tasks]": [9876], "[Licensed Seats]": [20], "[Seats In Use]": [10] }],
     [HOURS_RANGE, { "[Hours Conservative]": [1234], "[Hours Optimistic]": [5678] }],
     [PROBE, Object.fromEntries(OPTIONAL_SOURCES.map((source) => [`[${source}]`, [1]]))],
@@ -292,6 +294,30 @@ describe("The landing page's queries", () => {
         expect(onScreen()).toEqual([...LANDING, "c03 access scope"].sort());
         expect(inBackground()).toEqual(BACKGROUND);
         expect([...sent].sort()).toEqual([...LANDING, ...BACKGROUND, "c03 access scope"].sort());
+    });
+
+    it("ask the same queries, once each, when the filter options say the tenant is small", async () => {
+        const small = new Map([[OPTIONS, { "[Kind]": ["firstDate", "lastDate", "people"], "[Value]": ["2026-05-08", "2026-07-06", "50"] }]]);
+        const { sent, onScreen } = setup([], small);
+        renderApp();
+        await tick(5000);
+
+        // The default dates cover every date here, and stay as they were, so nothing is asked again.
+        expect(onScreen()).toEqual([...LANDING].sort());
+        expect([...sent].sort()).toEqual([...LANDING, ...BACKGROUND].sort());
+        expect(screen.getByRole("button", { name: /^Date/ }).textContent).toContain("All dates");
+    });
+
+    it("start the summary on the tenant's default dates before the filter options answer", async () => {
+        const { sent, open } = setup(["c02 filter options"]);
+        renderApp();
+        await tick(1000);
+        // Named so only as asked over the default window worked out in the query.
+        expect(sent).toEqual(expect.arrayContaining(["c16 summary", "c16 hours range"]));
+        open("c02 filter options");
+        await tick(1000);
+        expect(sent.filter((name) => name === "c16 summary")).toHaveLength(1);
+        expect(screen.getByRole("button", { name: /^Date/ }).textContent).toContain("Last 12 weeks");
     });
 
     it("start the trend with the first queries, while the credits wait for the activity's dates", async () => {

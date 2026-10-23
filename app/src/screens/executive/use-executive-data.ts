@@ -12,7 +12,7 @@ import { useConsumptionTableParts } from "@/hooks/use-consumption-query";
 import { useHueColors } from "@/hooks/use-palette-theme";
 import { useSummaryQuery, useTableQuery, type SummaryResult, type TableResult } from "@/hooks/use-table-query";
 import { dateBetween } from "@/lib/dax-filters";
-import type { FilterKey } from "@/lib/filters";
+import { isTenantDefaultRange, type FilterKey } from "@/lib/filters";
 import { withOrgAttribute } from "@/lib/org-attribute";
 import {
     CREDIT_PARTS,
@@ -74,7 +74,9 @@ export interface ExecutiveData {
 export function useExecutiveData(): ExecutiveData {
     const range = useExecutiveRange();
     const { window, start, end } = range.range ?? {};
-    const dated = useFilterContext().filters.dateRange !== undefined;
+    // The tenant's default window ends on the last day with activity, so the trend's own six months are the same.
+    const { dateRange } = useFilterContext().filters;
+    const dated = dateRange !== undefined && !isTenantDefaultRange(dateRange);
     const { show } = useStageFilter();
     const byOrg = show("where-it-is-landing") || show("what-needs-attention");
     // Only a breakdown by organization needs the column the organizations are in before the filter menu does.

@@ -102,7 +102,11 @@ app opens on the **Executive summary**, it sends only what that page's first vie
 - one query that counts the rows in each optional source. If it fails for any reason but a busy
   model, the app counts each source on its own;
 - the summary, its hours range and the hours trend, which go ahead of the other queries waiting.
-  With no date filter, the trend finds its own six months, so it doesn't wait for the dates. None
+  The page starts on the tenant's default dates: the last 12 weeks to the last day with activity
+  when more than 10,000 people have activity, and every date otherwise. Each query works this out
+  itself, so none waits for the filter options, and nothing is asked again when they arrive.
+  With no date filter, or the default, the trend finds its own six months, so it doesn't wait for
+  the dates. None
   waits for the task times saved in the app: each is asked again only if the saved times differ;
 - Consumption Central's rates, and one query for its credits in the trend's months and in the date
   range. The credits wait for the dates;

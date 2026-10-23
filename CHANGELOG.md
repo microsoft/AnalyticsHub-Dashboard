@@ -240,6 +240,18 @@ sets the number. On Fabric and Azure.
   messages, the 500-character transcript preview, the first and last bot messages, and the
   variable copies other than the user's UPN. Refresh reads less data and the model is smaller.
 
+**Changed:**
+
+- **The app opens on the last 12 weeks for a large organization.** When more than 10,000 people
+  have Copilot activity, the date filter starts at **Last 12 weeks**, the 84 days to the last day
+  with activity, rather than all dates. With 20,000 people, a three-month window made the
+  Adoption summary about 30% quicker and the org-to-person drill about 15% quicker; bigger
+  tenants gain more. Each query works out the tenant's size and the dates itself, so the first
+  page doesn't wait for anything extra. The filter bar shows the dates and says it's the default
+  for large organizations, and **Show all dates** widens it in one click. **Clear filters** is now
+  **Reset filters**, and goes back to this default. Smaller tenants still start on **All dates**.
+  Consumption Central and the Agent Evaluator keep every date until you choose a range.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its
