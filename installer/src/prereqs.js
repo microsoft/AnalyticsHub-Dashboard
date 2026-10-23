@@ -78,7 +78,10 @@ const PIM_UNREAD = ' Couldn\'t check for roles you could activate yourself.';
  */
 const PIM_FLOW_SIGNER =
   ' The flows\' Power Platform API connection needs the role active whenever the flows run, and an activation lasts at most 24 hours, as your organisation sets it. Have someone with the role assigned permanently sign in to that connection.';
-/** Learn documents no API that reads data policies (DLP), so the data policy row is always "couldn't check". */
+/**
+ * The installer doesn't read data policies (DLP): Learn documents the admin center, PowerShell and the Power
+ * Platform for Admins connector for that, but no public REST API. So the data policy row is always "couldn't check".
+ */
 const DATA_POLICY_UNREAD =
   'Couldn\'t check: the installer can\'t read data policies (DLP). If one blocks the flows\' connectors, or puts them in different data groups, Power Automate won\'t save the flows or turn them on.';
 
