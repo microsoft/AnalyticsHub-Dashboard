@@ -287,9 +287,11 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {Record<string, any>} [outputs]
  * @property {{ clientId?: string, objectId?: string, servicePrincipalId?: string, created?: boolean, appIdUri?: string }} [webApp]
  * @property {{ clientId?: string, objectId?: string, servicePrincipalId?: string, secretKeyId?: string, secretExpiry?: string, created?: boolean, secretAttempts?: { ref: string, at: string }[], pendingSecretKeyIds?: string[], retiredSecretKeyIds?: string[] }} [sqlReader]  The secret* fields track its app secrets (see steps/secrets.js).
- * @property {{ workspaceId?: string, createdWorkspace?: boolean, datasetId?: string, consumptionDatasetId?: string, agentEvaluatorDatasetId?: string, capacityId?: string, gatewayId?: string, createdGateway?: boolean, connectionId?: string, accessNotebookId?: string }} [powerBi]
+ * @property {{ workspaceId?: string, createdWorkspace?: boolean, datasetId?: string, consumptionDatasetId?: string, agentEvaluatorDatasetId?: string, capacityId?: string, sharedCapacity?: boolean, gatewayId?: string, createdGateway?: boolean, connectionId?: string, accessNotebookId?: string }} [powerBi]
  *   `capacityId` hosts the workspace (semantic model definition APIs need a Fabric/Premium capacity) and, in private
  *   networking mode, the VNet data gateway `gatewayId` whose SQL connection `connectionId` the model is bound to.
+ *   `sharedCapacity` records that None (shared capacity, Pro) was chosen instead, so Repair offers it again. Records
+ *   from before 0.6.8 don't have it: one with a `workspaceId` and no `capacityId` chose None.
  *   `consumptionDatasetId` is the Consumption model, deployed with credit consumption.
  *   `agentEvaluatorDatasetId` is the Agent Evaluator model, deployed with Agent Evaluator.
  * @property {AzureDrop} [drop] Private networking with credit consumption or a CSV export (Agent 365, product feedback, Workday): the SharePoint folder the Studio flow and CSV uploads land in.

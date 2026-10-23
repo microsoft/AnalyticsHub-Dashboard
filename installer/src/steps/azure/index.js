@@ -467,11 +467,23 @@ export async function planAzure(ctx, pre, section) {
     }));
     const shared = { name: 'None (shared capacity, Pro)', value: '', ...(large ? { description: 'Not recommended for a tenant this size: a semantic model there is limited to 1 GB.' } : {}) };
     const firstChoice = (large ? capacities.find((cap) => (capacityUnits(cap.sku) ?? 0) >= recommended)?.id : undefined) ?? capacityChoices[0]?.value ?? '';
-    az.powerBi.capacityId = await ui.select(
+    // Repair offers where the workspace is, so --yes doesn't move it: its saved capacity; else, looked up, the active
+    // capacity it's on, or None on shared capacity; else None if that was the choice. Records from before 0.6.8
+    // didn't save None, but one with a workspace and no capacity chose it.
+    const saved = capacities.find((cap) => cap.id === az.powerBi?.capacityId)?.id;
+    const ws = saved || isPrivate(az) || !capacities.length || !az.powerBi.workspaceId ? null
+      : await api.fabric.getWorkspace(az.powerBi.workspaceId).catch(() => null);
+    const onNow = !ws ? undefined
+      : ws.capacityId ? capacities.find((cap) => cap.id.toLowerCase() === String(ws.capacityId).toLowerCase())?.id : '';
+    const sharedBefore = !isPrivate(az) && (az.powerBi.sharedCapacity ?? (!az.powerBi.capacityId && !!az.powerBi.workspaceId));
+    const capacityId = await ui.select(
       isPrivate(az) ? 'Capacity for the Power BI workspace and VNet data gateway' : 'Capacity for the Power BI workspace',
       isPrivate(az) ? capacityChoices : [...capacityChoices, shared],
-      capacities.some((cap) => cap.id === az.powerBi?.capacityId) ? az.powerBi.capacityId : firstChoice,
-    ) || undefined;
+      saved ?? onNow ?? (sharedBefore ? '' : firstChoice),
+    );
+    az.powerBi.capacityId = capacityId || undefined;
+    if (capacityId) delete az.powerBi.sharedCapacity;
+    else az.powerBi.sharedCapacity = true;
     const groups = await api.powerBi.groups().catch(() => []);
     const wsChoice = await ui.select('Power BI workspace', [{ name: 'Create a new workspace', value: 'new' }, ...groups.map((g) => ({ name: `Use "${g.name}"`, value: g.id }))], az.powerBi?.workspaceId ?? 'new');
     // Uninstall deletes only a workspace the installer created, never one picked here.
@@ -2047,7 +2059,7 @@ export const connectionName = (az) => `Analytics Hub SQL ${az.resourceGroup ?? a
 
 /**
  * Puts the Power BI workspace on the chosen capacity. A workspace the installer didn't create that already sits on
- * another capacity stays there.
+ * another capacity stays there. With None (shared capacity) chosen, nothing moves.
  * @param {Ctx} ctx
  */
 async function ensureWorkspaceCapacity(ctx) {
