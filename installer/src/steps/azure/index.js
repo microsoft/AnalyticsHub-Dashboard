@@ -3,9 +3,9 @@
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { GRAPH_APP_ID, azureGraphRolesFor, collectedLabels, ESSENTIAL_MODULES, MODULES, OPTIONAL_MODULES } from '../../catalog.js';
+import { azureGraphRolesFor, collectedLabels, ESSENTIAL_MODULES, MODULES, OPTIONAL_MODULES } from '../../catalog.js';
 import { semanticModelDefinition } from '../../clients/fabric.js';
-import { POWER_BI_APP_ID, adminConsentUrl, apiPermissionsUrl, resolveAppRoles } from '../../clients/graph.js';
+import { adminConsentUrl, apiPermissionsUrl, resolveAppRoles } from '../../clients/graph.js';
 import { apiVersionResolver, armErrors, resourceIdParts, ROLES } from '../../clients/azure.js';
 import { HttpError } from '../../http.js';
 import { commandLine } from '../../launch.js';
@@ -13,7 +13,7 @@ import { formatDuration } from '../../ui.js';
 import { rlsOn, rlsSettings } from '../../transform/access.js';
 import { buildAgentEvaluatorModel, buildConsumptionModel, buildModel, loadTemplateModel, PBISM } from '../../transform/model.js';
 import { connectionCreatedAnyway, deployModel, MODEL_UPDATE_NOTE, modelSignature, REFRESH_POLL_MS, settleReloads } from '../model.js';
-import { addMonths, OPTIONAL_PERMISSION_EFFECTS, OPTIONAL_PERMISSIONS, SECRET_LIFETIME_MONTHS } from '../identity.js';
+import { addMonths, OPTIONAL_PERMISSION_EFFECTS, OPTIONAL_PERMISSIONS, ResumeLater, SECRET_LIFETIME_MONTHS, writeAzureAdminScript } from '../identity.js';
 import { addTrackedSecret, promoteSecret, removeRetired } from '../secrets.js';
 import { manifestVersion, writeTeamsPackage } from '../../azure/teams.js';
 import { askToPublishTeamsApp, checkCatalogAccess, publishTeamsApp, removeTeamsApp, signInForTeamsApp, TEAMS_APP_PENDING, teamsAppPlanRow } from './teams-catalog.js';
@@ -21,7 +21,7 @@ import { APP_ALIAS, CONSUMPTION_ALIAS, EVALUATOR_ALIAS } from '../app.js';
 import { AZURE_AI_ROLES, ensureAzureAiAccess, planConsumption } from '../consumption.js';
 import { AZURE_LANDING_DIRS, azureDropLabel, azureDropsToSharePoint, ensureFlows, flowsSummary, flowsWanted, offerStudioRun, planFlows } from '../flows.js';
 import { DEFAULT_CURRENCY } from '../../currency.js';
-import { askMoreHistory, askReportingCurrency, editSchedule, HISTORY_CHOICES, keepAwake, planCosts, PRICING, reloadLine } from '../plan.js';
+import { askMoreHistory, askReportingCurrency, editSchedule, HISTORY_CHOICES, isGuid, keepAwake, planCosts, PRICING, reloadLine } from '../plan.js';
 import { ensureResourceGraphAccess, planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from '../resource-graph.js';
 import { DATA_SOURCES } from '../../uploads.js';
 import { normaliseResourceGraph } from '../../config.js';
@@ -36,8 +36,10 @@ import {
   agentEvaluatorParameters, azureAgentEvaluatorConfirmLine, azureAgentEvaluatorModelDeployed, azureAgentEvaluatorOn, azureAgentEvaluatorRefreshes, azureAgentEvaluatorSummary,
   azureTranscriptStatus, azureTranscriptStepWanted, ensureAzureTranscriptAccess, planAzureAgentEvaluator, removeAzureTranscriptAccess, transcriptAccessReview,
 } from './agent-evaluator.js';
+import { AZURE_APPS, adoptableApps, appsRecorded, GROUP_SCOPE, PEOPLE_SCOPE, SQL_READER_NAME, unfinishedApp, WEB_APP_NAME, webAppGrants, webAppScopes } from './apps.js';
 
 export { agentEvaluatorParameters, azureAgentEvaluatorModelDeployed, azureAgentEvaluatorOn, azureAgentEvaluatorReads, azureAgentEvaluatorRefreshes } from './agent-evaluator.js';
+export { appsRecorded, GROUP_SCOPE, PEOPLE_SCOPE, SQL_READER_NAME, TEAMS_CLIENTS, WEB_APP_NAME } from './apps.js';
 
 /** @typedef {import('../../install.js').Ctx} Ctx */
 
@@ -53,28 +55,8 @@ export const isPrivate = (/** @type {import('../../config.js').AzureConfig | und
 /** The resource providers this install needs registered in its subscription. @param {import('../../config.js').AzureConfig | undefined} az */
 export const azureProviders = (az) => [...AZURE_PROVIDERS, ...(isPrivate(az) ? PRIVATE_PROVIDERS : []), ...(askMode(az) === 'create' ? ASK_PROVIDERS : [])];
 export const AZURE_SUPPORTED_MODULES = /** @type {const} */ (['core', 'orgData', 'm365Activity', 'agent365', 'productFeedback', 'consumption', 'agentEvaluator', 'defender']);
-export const WEB_APP_NAME = 'Analytics Hub (Azure)';
-/** Delegated: lets admins and group owners add and remove viewers from the app. Graph still checks they own the group or are a directory admin. */
-export const GROUP_SCOPE = 'GroupMember.ReadWrite.All';
-/** Delegated, with GROUP_SCOPE: lets Share find people by email and show members' names. Basic profiles only, not User.Read.All. */
-export const PEOPLE_SCOPE = 'User.ReadBasic.All';
-export const SQL_READER_NAME = 'Analytics Hub SQL Reader';
 /** The SQL reader secret's name on its app, before the ref of the run that made it. */
 const SQL_READER_SECRET_LABEL = 'Power BI SQL credential';
-/**
- * The Microsoft clients that run the Teams app's tab and get its sign-in token, pre-authorised on the web app's
- * `access_as_user` scope: Teams, and Outlook and the Microsoft 365 app, which show the personal tab too.
- * See https://learn.microsoft.com/microsoftteams/platform/tabs/how-to/authentication/tab-sso-register-aad
- */
-export const TEAMS_CLIENTS = [
-  '1fec8e78-bce4-4aaf-ab1b-5451cc387264', // Teams desktop and mobile
-  '5e3ce6c0-2b1f-4285-8d4b-75ee78787346', // Teams web
-  '4765445b-32c6-49b0-83e6-1d93765276ca', // Microsoft 365 web
-  '0ec893e0-5785-4de6-99da-4ed124e5296c', // Microsoft 365 desktop
-  'd3590ed6-52b3-4102-aeff-aad2292ab01c', // Microsoft 365 mobile and Outlook desktop
-  'bc59ab01-8403-45c6-8796-ac3ef710b3e3', // Outlook web
-  '27922004-5251-4030-b22d-91ecd9a37ea4', // Outlook mobile
-];
 const ARM = JSON.parse(readFileSync(new URL('../../azure/main.arm.json', import.meta.url), 'utf8'));
 export const REQUIRED_ARM_PARAMETERS = [
   'location', 'sqlLocation', 'namePrefix', 'installId', 'tags', 'imageRegistry', 'imageTag', 'imageRegistryResourceId', 'runSchedule', 'runSteps', 'sampleData', 'sqlAdminLogin', 'sqlAdminObjectId',
@@ -500,6 +482,7 @@ export async function planAzure(ctx, pre, section) {
   if (editing('access')) {
     await planAccess(ctx);
   }
+  if (editing('identity')) await planAzureApps(ctx, pre, section);
 
   if (editing('schedule')) {
     if (azureHistoryLoaded(az)) await askMoreHistory(ctx, azureReloadChoice);
@@ -529,7 +512,306 @@ export async function planAzure(ctx, pre, section) {
   }
   if (editing('governance')) await planAzureResourceGraph(ctx);
   if (editing('ask')) await planAzureAsk(ctx);
-  if (!section) await azurePreflight(ctx);
+  if (!section) {
+    await azurePreflight(ctx);
+    await azureAppsGate(ctx, pre);
+  }
+}
+
+/** @typedef {Pick<import('../plan.js').Preflight, 'canCreateApps' | 'canApproveDelegated' | 'canManageApps'>} AppRights */
+
+/**
+ * Set when the user chose "An admin will create the apps for me" in this run: true when the admin script was
+ * already waiting from an earlier run. azureAppsGate stops on it once preflight has printed.
+ * @type {WeakMap<object, boolean>}
+ */
+const scriptChosen = new WeakMap();
+
+/** Where an Application Administrator adds an owner to an app registration. @param {string} name */
+const ownersPath = (name) => `Microsoft Entra admin center > Entra ID > App registrations > All applications > "${name}" > Owners > Add owners`;
+
+/**
+ * The apps not yet recorded, for messages about the admin making them: one by name, or both.
+ * @param {import('../../config.js').AzureConfig} az
+ */
+const stillNeeded = (az) => {
+  const left = AZURE_APPS.filter((a) => !az[a.key]?.clientId);
+  return left.length === 1 ? { what: `"${left[0].name}"`, them: 'the app' } : { what: 'the app registrations', them: 'the apps' };
+};
+
+/**
+ * The admin action that makes the person installing an owner of these apps, so the installer can change them. Both
+ * apps go in one action, so one admin visit covers them.
+ * @param {Ctx} ctx @param {import('./apps.js').AzureAppKey[]} keys
+ */
+function ownerAction(ctx, keys) {
+  const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
+  const apps = AZURE_APPS.filter((a) => keys.includes(a.key));
+  return `An Application Administrator or Cloud Application Administrator adds ${ctx.user.upn} as an owner of ` +
+    `${apps.map((a) => `"${a.name}" (client ID ${az[a.key]?.clientId})`).join(' and ')}: ${ownersPath(apps[0].name)}${apps[1] ? `, and the same for "${apps[1].name}"` : ''}`;
+}
+
+/** The apps a pending admin action asks for an owner of, or none. @param {string} action */
+const ownerActionApps = (action) => (action.includes(' as an owner of "') ? AZURE_APPS.filter((a) => action.includes(`"${a.name}"`)).map((a) => a.key) : []);
+
+/**
+ * Records the owner action for these apps, in place of any owner action for only these apps.
+ * @param {Ctx} ctx @param {import('./apps.js').AzureAppKey[]} keys
+ */
+function recordOwnerAction(ctx, keys) {
+  const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
+  const action = ownerAction(ctx, keys);
+  const covered = (/** @type {string} */ a) => {
+    const named = ownerActionApps(a);
+    return named.length > 0 && named.every((k) => keys.includes(k));
+  };
+  az.status ??= {};
+  az.status.pendingAdminActions = [...(az.status.pendingAdminActions ?? []).filter((a) => !covered(a)), action];
+  ctx.save();
+  return action;
+}
+
+/**
+ * The installer could change this app: an owner action for it alone goes, and one for both apps keeps the other.
+ * @param {Ctx} ctx @param {import('./apps.js').AzureAppKey} key
+ */
+function ownerActionDone(ctx, key) {
+  const status = ctx.config.azure?.status;
+  if (!status?.pendingAdminActions?.some((a) => ownerActionApps(a).includes(key))) return;
+  status.pendingAdminActions = [...new Set(status.pendingAdminActions.flatMap((a) => {
+    const named = ownerActionApps(a);
+    if (!named.includes(key)) return [a];
+    const rest = named.filter((k) => k !== key);
+    return rest.length ? [ownerAction(ctx, rest)] : [];
+  }))];
+}
+
+/**
+ * Who makes the two app registrations: the installer, or an admin, from the script the installer writes or by
+ * themselves. Each app is handled on its own. When an admin made both, the question offers them. Otherwise the one
+ * an admin made is used without asking, or picked when there are several, and the question is only about the
+ * other. Asked only when there's a choice; with --yes, azureAppsGate decides once preflight has printed. Creating
+ * them is always offered: roles are read from directoryRole, which has no custom roles, and one may allow it. Only
+ * the default is recommended.
+ * @param {Ctx} ctx @param {AppRights | undefined} pre @param {string} [section]
+ */
+export async function planAzureApps(ctx, pre, section) {
+  const { ui, config } = ctx;
+  const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure ??= {});
+  if (appsRecorded(az)) {
+    delete az.adminScript;
+    if (section === 'identity') {
+      ui.heading('App registrations');
+      for (const { key, name } of AZURE_APPS) ui.ok(`Using ${name} (${az[key]?.clientId})${az[key]?.created === false ? ', which an admin created' : ''}`);
+    }
+    return;
+  }
+  if (ui.yes) return;
+  const api = ctx.liveApi ?? ctx.api;
+  const canCreate = pre?.canCreateApps !== false;
+  const canApprove = pre?.canApproveDelegated !== false;
+  /** @type {Record<string, any[]>} */
+  const found = {};
+  for (const { key, name } of AZURE_APPS) if (!az[key]?.clientId) found[key] = await adoptableApps(api, name).catch(() => []);
+  const unrecorded = () => AZURE_APPS.filter((a) => !az[a.key]?.clientId);
+  if (canCreate && canApprove && !unrecorded().some((a) => found[a.key]?.length) && !az.adminScript && !section) return;
+
+  ui.heading('App registrations');
+  // Both apps there to use, and no script waiting: the question offers them. Otherwise any an admin made is used
+  // first, including after the admin script has run, so nothing an admin made is created again.
+  const ready = !az.adminScript && unrecorded().length === AZURE_APPS.length && unrecorded().every((a) => found[a.key]?.length);
+  if (!ready) {
+    for (const { key } of unrecorded()) if (found[key]?.length) await chooseApp(ctx, pre, api, key, found[key]);
+    if (appsRecorded(az)) {
+      delete az.adminScript;
+      scriptChosen.delete(ctx);
+      return;
+    }
+  }
+  const left = unrecorded();
+  const one = left.length === 1 ? left[0].name : '';
+  const offerAdmin = !canCreate || !canApprove || !!az.adminScript;
+  const def = ready ? 'adopt' : offerAdmin && (!canCreate || az.adminScript) ? 'admin' : 'create';
+  const recommended = (/** @type {string} */ value) => (value === def ? ' (recommended)' : '');
+  if (!canCreate) ui.info(`Users in this tenant can't register apps, and you have no app admin role. An Application Administrator or Cloud Application Administrator can create ${one ? `"${one}"` : 'them'} for you.`);
+  const choice = await ui.select(
+    one ? `Who creates "${one}"?` : 'Who creates the two Entra app registrations?',
+    [
+      {
+        name: (one ? `Create "${one}"` : 'Create the two apps') + recommended('create'),
+        value: 'create',
+        description: canCreate
+          ? `The installer creates ${one ? 'the app' : 'them'} before it deploys anything.` +
+            (canApprove || !left.some((a) => a.key === 'webApp')
+              ? ''
+              : ' Approving the web app\'s delegated permissions needs an admin: after the deploy, the installer gives you a consent link to send, and carries on.')
+          : 'The installer found no role or setting that lets you register apps, but it can\'t see custom roles. ' +
+            `Choose this only if a custom role lets you create ${one ? 'it' : 'them'}: if Entra refuses, the installer writes the admin script and stops before it deploys anything.`,
+      },
+      {
+        name: (one ? 'Use the one an admin created for me' : 'Use the apps an admin created for me') + recommended('adopt'),
+        value: 'adopt',
+        description: ready ? 'Apps with these names that you own are ready to use.' : one ? 'Enter its client ID.' : 'Enter their client IDs.',
+      },
+      ...(offerAdmin
+        ? [{
+            name: one ? 'An admin will create it for me' : 'An admin will create the apps for me',
+            value: 'admin',
+            description: az.adminScript
+              ? `Still waiting for an admin to run the script in ${az.adminScript}. The installer writes it again, and stops before it deploys anything.`
+              : 'The installer writes a script for an Application Administrator or Cloud Application Administrator, and stops before it deploys anything.',
+          }]
+        : []),
+    ],
+    def,
+  );
+  if (choice === 'create') {
+    delete az.adminScript;
+    scriptChosen.delete(ctx);
+  } else if (choice === 'admin') {
+    // The script makes only the apps not recorded: it reuses one this plan has just taken from an admin.
+    scriptChosen.set(ctx, !!az.adminScript);
+    az.adminScript = writeAzureAdminScript(ctx, await webAppScopes(api, config));
+    const { what, them } = stillNeeded(az);
+    ui.warn(`An admin needs to create ${what}. Send this file to an Application Administrator or Cloud Application Administrator:`);
+    ui.info(az.adminScript);
+    ui.info(`The installer stops before it deploys anything. Once they've run it, run the installer again: it finds ${them} itself.`);
+    ctx.save();
+  } else {
+    scriptChosen.delete(ctx);
+    for (const { key } of left) await chooseApp(ctx, pre, api, key, found[key] ?? []);
+    delete az.adminScript;
+  }
+}
+
+/**
+ * The app an admin made for one of the two: the only one found, one the user picks, or one they enter the client
+ * ID of. An entered ID is checked: the user must own the app, or be able to manage apps they don't own.
+ * @param {Ctx} ctx @param {AppRights | undefined} pre @param {import('../../install.js').Apis} api
+ * @param {import('./apps.js').AzureAppKey} key @param {any[]} found  Adoptable apps with this name.
+ */
+async function chooseApp(ctx, pre, api, key, found) {
+  const { ui, config } = ctx;
+  const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
+  const name = /** @type {string} */ (AZURE_APPS.find((a) => a.key === key)?.name);
+  const other = AZURE_APPS.find((a) => a.key !== key);
+  if (found.length === 1) return adoptApp(ctx, pre, key, found[0]);
+  if (found.length > 1) {
+    const picked = await ui.select(
+      `Which "${name}"?`,
+      [...found.map((app) => ({ name: `${name} (${app.appId})`, value: String(app.appId) })), { name: 'Enter a client ID', value: '' }],
+      String(found[0].appId),
+    );
+    const app = found.find((a) => a.appId === picked);
+    if (app) return adoptApp(ctx, pre, key, app);
+  }
+  for (let attempt = 1; ; attempt++) {
+    const clientId = (await ui.input(`Client ID of "${name}"`, { validate: (v) => (isGuid(v.trim()) ? true : 'Enter its Application (client) ID, a GUID.') })).trim();
+    const app = await api.graph.findApplication(clientId).catch(() => null);
+    const retry = () => {
+      if (attempt >= 3) throw new Error(`No usable app registration for "${name}". Check its Application (client) ID with the admin who created it, then run "${commandLine('install')}" again.`);
+    };
+    if (!app) {
+      ui.warn(`No app registration with client ID ${clientId} in this tenant, or you can't read it.`);
+      retry();
+      continue;
+    }
+    if (other && (app.appId === az[other.key]?.clientId || app.displayName === other.name)) {
+      ui.warn(`That's the client ID of "${other.name}". Enter the client ID of "${name}".`);
+      retry();
+      continue;
+    }
+    if (!pre?.canManageApps && !(await api.graph.ownedApplications()).some((o) => o.id === app.id)) {
+      ctx.save();
+      throw new ResumeLater(
+        `You don't own "${app.displayName ?? name}" (client ID ${app.appId}), so the installer can't finish it for you. ` +
+          `An Application Administrator or Cloud Application Administrator adds you as an owner: ${ownersPath(app.displayName ?? name)}. Then run "${commandLine('install')}" again.`,
+      );
+    }
+    if (!unfinishedApp(name, app)) {
+      ui.warn(
+        `"${app.displayName ?? name}" (client ID ${app.appId}) already has ${name === SQL_READER_NAME ? 'a client secret' : 'redirect URIs'}, so another install may use it. ` +
+          `Finishing it for this install ${name === SQL_READER_NAME ? 'adds a client secret' : 'replaces its redirect URIs and identifier URI, and sign-in to the other install stops working'}.`,
+      );
+      if (!(await ui.confirm('Use it anyway?', false))) {
+        retry();
+        continue;
+      }
+    }
+    return adoptApp(ctx, pre, key, app);
+  }
+}
+
+/**
+ * Records an app an admin made, so uninstall leaves it. Its service principal must exist, or the user must be able
+ * to create it in install step 1.
+ * @param {Ctx} ctx @param {AppRights | undefined} pre @param {import('./apps.js').AzureAppKey} key @param {any} app
+ */
+async function adoptApp(ctx, pre, key, app) {
+  const { ui, config } = ctx;
+  const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
+  const api = ctx.liveApi ?? ctx.api;
+  const label = `"${app.displayName ?? AZURE_APPS.find((a) => a.key === key)?.name}" (client ID ${app.appId})`;
+  const sp = await api.graph.findServicePrincipal(app.appId).catch(() => null);
+  if (!sp && pre?.canCreateApps === false) {
+    ctx.save();
+    throw new ResumeLater(
+      `${label} has no service principal, and you can't create one. An Application Administrator or Cloud Application Administrator runs "az ad sp create --id ${app.appId}" in Azure Cloud Shell. Then run "${commandLine('install')}" again.`,
+    );
+  }
+  az[key] = { clientId: app.appId, objectId: app.id, created: false, ...(sp ? { servicePrincipalId: sp.id } : {}) };
+  ui.ok(`Using ${label}, which an admin created`);
+}
+
+/**
+ * Runs once preflight has printed, so one run lists everything. It adopts the apps an admin made with the script, or
+ * with --yes the only unfinished one of each name the user owns. Then, while an admin still has to create the apps,
+ * it writes the script and stops, before anything in Azure or Entra is created.
+ * @param {Ctx} ctx @param {AppRights | undefined} [pre]
+ */
+export async function azureAppsGate(ctx, pre) {
+  const { ui, config } = ctx;
+  const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure ??= {});
+  const chosen = scriptChosen.has(ctx);
+  const waiting = chosen ? !!scriptChosen.get(ctx) : !!az.adminScript;
+  scriptChosen.delete(ctx);
+  const api = ctx.liveApi ?? ctx.api;
+  if (!appsRecorded(az) && !chosen && (ui.yes || az.adminScript)) {
+    /** @type {string[]} */
+    const several = [];
+    for (const { key, name } of AZURE_APPS) {
+      if (az[key]?.clientId) continue;
+      const found = await adoptableApps(api, name).catch(() => []);
+      if (found.length === 1) await adoptApp(ctx, pre, key, found[0]);
+      else if (found.length > 1) several.push(`"${name}" (${found.map((a) => a.appId).join(', ')})`);
+    }
+    if (several.length) {
+      ctx.save();
+      throw new Error(
+        `You own more than one unfinished app registration called ${several.join(' and ')}, so the installer can't tell which to use. ` +
+          (ui.yes ? 'Run the installer without --yes to choose one, or to enter the client IDs.' : ui.web ? 'Choose one under App registrations.' : `Run "${commandLine('install')}" again to choose one.`),
+      );
+    }
+  }
+  if (appsRecorded(az)) {
+    if (az.adminScript) {
+      delete az.adminScript;
+      ctx.save();
+    }
+    return;
+  }
+  // Install step 1 creates the apps.
+  if (!az.adminScript && (!ui.yes || pre?.canCreateApps !== false)) return;
+  az.adminScript = writeAzureAdminScript(ctx, await webAppScopes(api, config));
+  ctx.save();
+  const { what, them } = stillNeeded(az);
+  throw new ResumeLater(
+    waiting
+      ? `Still waiting for an admin to create ${what} with the script in ${az.adminScript}, so the installer stopped again before deploying anything. ` +
+          `Once an Application Administrator or Cloud Application Administrator has run it, run "${commandLine('install')}" again: the installer finds ${them} itself.`
+      : `An admin needs to create ${what}, so the installer stopped before deploying anything. Send ${az.adminScript} to an Application Administrator ` +
+          `or Cloud Application Administrator. Once they've run it, run "${commandLine('install')}" again: the installer finds ${them} itself.`,
+  );
 }
 
 /**
@@ -1537,7 +1819,7 @@ export async function installAzure(ctx, opts) {
   // database user the migrate job creates. So with public endpoints the models are bound after 'Database migration'.
   const bindAfterMigration = !isPrivate(az);
   const titles = [
-    'Resource group', 'Azure resources', 'Entra applications', 'Microsoft Graph permissions', ...(consumption ? ['Credit consumption'] : []), ...(agent365 ? ['Agent 365 export'] : []),
+    'Entra applications', 'Resource group', 'Azure resources', 'Entra application settings', 'Microsoft Graph permissions', ...(consumption ? ['Credit consumption'] : []), ...(agent365 ? ['Agent 365 export'] : []),
     ...(feedback ? ['Product feedback export'] : []), ...(workday ? ['Workday export'] : []), ...(resourceGraph ? ['Resource Graph access'] : []),
     ...(askAccess ? ['Ask model access'] : []), ...(azureTranscriptStepWanted(config) ? ['Transcript access'] : []),
     'Power BI model', ...(withAccess ? ['Viewer access'] : []), 'Azure resources (final)', 'Database migration',
@@ -1546,6 +1828,11 @@ export async function installAzure(ctx, opts) {
   ];
   let n = 0;
   const step = (/** @type {string} */ title) => ui.step(++n, titles.length, title);
+
+  // Before anything in Azure: when an admin has to make the apps, nothing is created or billed.
+  step('Entra applications');
+  const apps = await createAzureApps(ctx);
+  ctx.save();
 
   step('Resource group');
   const rg = await api.arm.getResourceGroup(/** @type {string} */ (az.subscriptionId), /** @type {string} */ (az.resourceGroup)).catch(() => null);
@@ -1565,9 +1852,9 @@ export async function installAzure(ctx, opts) {
   recordDeployment(az, await deployOrExplain(ctx, { pass: 1 }));
   ctx.save();
 
-  step('Entra applications');
-  await ensureAzureWebApp(ctx);
-  const sqlSecret = await ensureSqlReader(ctx);
+  step('Entra application settings');
+  await finishAzureWebApp(ctx, apps.scopes, apps.webApp);
+  const sqlSecret = await sqlReaderSecret(ctx);
   ctx.save();
 
   step('Microsoft Graph permissions');
@@ -1761,52 +2048,133 @@ function recordDeployment(az, deployment) {
   az.deployments.push({ at: new Date().toISOString(), name: deployment?.name ?? 'valuelens', outputs: flat });
 }
 
-/** @param {Ctx} ctx */
-async function ensureAzureWebApp(ctx) {
-  const { config, api, user, ui } = ctx;
+/** A refusal from Entra: the user isn't allowed to make this change. @param {unknown} err */
+const refused = (err) => err instanceof HttpError && (err.status === 401 || err.status === 403);
+
+/**
+ * Install step 1, before anything in Azure: the two app registrations and their service principals, or the ones an
+ * admin made, confirmed. The web app gets its redirect URIs and identifier URI once the deploy gives it an address.
+ * When Entra refuses, the installer writes the admin script and stops. Apps it made in this run stay recorded, and
+ * the script uses them.
+ * @param {Ctx} ctx
+ * @returns {Promise<{ scopes: import('./apps.js').WebAppScopes, webApp: any }>}
+ */
+async function createAzureApps(ctx) {
+  const { config, api } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
-  const fqdn = az.outputs?.webFqdn;
-  if (!fqdn) throw new Error('The ARM deployment did not return webFqdn, so the web app sign-in cannot be set up.');
-  const graphSp = await api.graph.servicePrincipalByAppId(GRAPH_APP_ID);
-  const pbiSp = await api.graph.servicePrincipalByAppId(POWER_BI_APP_ID);
-  const graphUserReadScopeId = graphSp.oauth2PermissionScopes?.find((s) => s.value === 'User.Read')?.id;
-  const pbiScopeId = pbiSp.oauth2PermissionScopes?.find((s) => s.value === 'Dataset.Read.All')?.id;
-  if (!graphUserReadScopeId || !pbiScopeId) throw new Error('Could not find Graph User.Read or Power BI Dataset.Read.All delegated scopes in this tenant.');
-  // With a viewer group, admins and group owners manage it from Share in the app, as themselves, and find people by email.
-  const groups = !!config.access;
-  const graphGroupScopeId = groups ? graphSp.oauth2PermissionScopes?.find((s) => s.value === GROUP_SCOPE)?.id : undefined;
-  const graphPeopleScopeId = groups ? graphSp.oauth2PermissionScopes?.find((s) => s.value === PEOPLE_SCOPE)?.id : undefined;
-  const registration = { pbiScopeId, graphUserReadScopeId, graphGroupScopeId, graphPeopleScopeId, groupClaims: groups, teamsClientIds: TEAMS_CLIENTS };
-  az.webApp ??= {};
-  let app = az.webApp.clientId ? await api.graph.findApplication(az.webApp.clientId).catch(() => null) : null;
+  const scopes = await webAppScopes(api, config);
+  try {
+    const webApp = await createAzureWebApp(ctx, scopes);
+    await createSqlReader(ctx);
+    if (az.adminScript) delete az.adminScript;
+    return { scopes, webApp };
+  } catch (err) {
+    if (!refused(err)) throw err;
+    az.adminScript = writeAzureAdminScript(ctx, scopes);
+    ctx.save();
+    throw new ResumeLater(
+      `Entra didn't let you create the app registrations (${/** @type {Error} */ (err).message.split('\n')[0]}), so the installer stopped before deploying anything. ` +
+        `Send ${az.adminScript} to an Application Administrator or Cloud Application Administrator. Once they've run it, run "${commandLine('install')}" again: the installer finds the apps itself.`,
+    );
+  }
+}
+
+/**
+ * The recorded app registration. One the installer made and can't find is made again; one an admin made isn't, so
+ * its record goes and the next run asks again.
+ * @param {Ctx} ctx @param {import('./apps.js').AzureAppKey} key
+ */
+async function recordedApp(ctx, key) {
+  const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
+  const rec = az[key];
+  if (!rec?.clientId) return null;
+  if (rec.created !== false) return ctx.api.graph.findApplication(rec.clientId).catch(() => null);
+  const app = await ctx.api.graph.findApplication(rec.clientId);
+  const name = AZURE_APPS.find((a) => a.key === key)?.name;
   if (!app) {
-    app = await api.graph.createAzureWebApplication({ displayName: WEB_APP_NAME, fqdn, ...registration });
+    delete az[key];
+    ctx.save();
+    throw new Error(`Couldn't find "${name}" (client ID ${rec.clientId}), which an admin created for this install. Run "${commandLine('install')}" again to choose how to create it.`);
+  }
+  ctx.ui.ok(`Using "${name}" (client ID ${rec.clientId}), which an admin created`);
+  return app;
+}
+
+/** The app's service principal, made if it has none. @param {Ctx} ctx @param {string} clientId */
+async function servicePrincipalFor(ctx, clientId) {
+  return (await ctx.api.graph.findServicePrincipal(clientId).catch(() => null)) ?? ctx.api.graph.createServicePrincipal(clientId);
+}
+
+/**
+ * The web app's registration, without redirect URIs or an identifier URI until the deploy gives it an address, and
+ * its service principal.
+ * @param {Ctx} ctx @param {import('./apps.js').WebAppScopes} scopes
+ */
+async function createAzureWebApp(ctx, { registration }) {
+  const { config, api, ui } = ctx;
+  const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
+  let app = await recordedApp(ctx, 'webApp');
+  az.webApp ??= {};
+  if (!app) {
+    app = await api.graph.createAzureWebApplication({ displayName: WEB_APP_NAME, ...registration });
     Object.assign(az.webApp, { created: true, clientId: app.appId, objectId: app.id });
+    ctx.save();
     ui.ok(`Created app registration ${WEB_APP_NAME}`);
   }
-  await api.graph.updateAzureWebApplication(app, { fqdn, clientId: /** @type {string} */ (az.webApp.clientId), ...registration });
-  az.webApp.appIdUri = `api://${fqdn}/${az.webApp.clientId}`;
-  let sp = az.webApp.servicePrincipalId ? await api.graph.findServicePrincipal(/** @type {string} */ (az.webApp.clientId)).catch(() => null) : null;
-  if (!sp) sp = await api.graph.createServicePrincipal(/** @type {string} */ (az.webApp.clientId));
-  az.webApp.servicePrincipalId = sp.id;
+  az.webApp.objectId = app.id;
+  az.webApp.servicePrincipalId = (await servicePrincipalFor(ctx, /** @type {string} */ (az.webApp.clientId))).id;
+  return app;
+}
+
+/**
+ * Once the deploy has given the web app its address: its redirect URIs and identifier URI, the managed identity's
+ * federated credential, the delegated grants, and the Admin role for the person installing. The installer can
+ * change an app an admin made because the admin made them an owner.
+ * @param {Ctx} ctx @param {import('./apps.js').WebAppScopes} scopes @param {any} app  The web app's registration.
+ */
+async function finishAzureWebApp(ctx, scopes, app) {
+  const { config, api, user, ui } = ctx;
+  const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
+  const webApp = /** @type {NonNullable<import('../../config.js').AzureConfig['webApp']>} */ (az.webApp);
+  const clientId = /** @type {string} */ (webApp.clientId);
+  const fqdn = az.outputs?.webFqdn;
+  if (!fqdn) throw new Error('The ARM deployment did not return webFqdn, so the web app sign-in cannot be set up.');
   try {
-    await api.graph.addFederatedIdentityCredential(app.id, { name: 'managed-identity', issuer: `https://login.microsoftonline.com/${user.tenantId}/v2.0`, subject: az.outputs?.identityPrincipalId, audiences: ['api://AzureADTokenExchange'] });
+    await api.graph.updateAzureWebApplication(app, { fqdn, clientId, ...scopes.registration });
+    webApp.appIdUri = `api://${fqdn}/${clientId}`;
+    try {
+      await api.graph.addFederatedIdentityCredential(app.id, { name: 'managed-identity', issuer: `https://login.microsoftonline.com/${user.tenantId}/v2.0`, subject: az.outputs?.identityPrincipalId, audiences: ['api://AzureADTokenExchange'] });
+    } catch (err) {
+      if (!(err instanceof HttpError && err.status === 409)) throw err;
+    }
   } catch (err) {
-    if (!(err instanceof HttpError && err.status === 409)) throw err;
+    if (!refused(err)) throw err;
+    // Entra may refuse the secret on an SQL reader the installer made for the same reason, so one visit covers both.
+    const action = recordOwnerAction(ctx, az.sqlReader?.created === true ? ['webApp', 'sqlReader'] : ['webApp']);
+    throw new ResumeLater(
+      `Entra didn't let you finish "${WEB_APP_NAME}" (${/** @type {Error} */ (err).message.split('\n')[0]}), so people can't sign in to the web app yet. ${action}. Then run "${commandLine('install')}" again.`,
+    );
   }
+  ownerActionDone(ctx, 'webApp');
+  const spId = /** @type {string} */ (webApp.servicePrincipalId);
   try {
-    await api.graph.grantOauth2Permission({ clientId: sp.id, resourceId: pbiSp.id, scope: 'Dataset.Read.All' });
-    await api.graph.grantOauth2Permission({ clientId: sp.id, resourceId: graphSp.id, scope: 'User.Read' });
-    if (graphGroupScopeId) await api.graph.grantOauth2Permission({ clientId: sp.id, resourceId: graphSp.id, scope: GROUP_SCOPE });
-    if (graphPeopleScopeId) await api.graph.grantOauth2Permission({ clientId: sp.id, resourceId: graphSp.id, scope: PEOPLE_SCOPE });
+    for (const g of webAppGrants(scopes)) await api.graph.grantOauth2Permission({ clientId: spId, resourceId: g.resourceId, scope: g.scope });
     if (az.status?.pendingAdminActions) az.status.pendingAdminActions = az.status.pendingAdminActions.filter((a) => !a.startsWith('Grant delegated consent'));
   } catch (err) {
-    ui.warn(`Couldn't grant delegated admin consent (${err instanceof Error ? err.message.split('\n')[0] : err}). Send this to an admin: ${adminConsentUrl(user.tenantId, /** @type {string} */ (az.webApp.clientId))}`);
-    az.status ??= {};
-    const action = `Grant delegated consent on ${apiPermissionsUrl(/** @type {string} */ (az.webApp.clientId))}`;
-    az.status.pendingAdminActions = [...new Set([...(az.status.pendingAdminActions ?? []), action])];
+    if (/** @type {any} */ (err)?.unchecked) {
+      // The grants couldn't be read, so an admin may already have approved them: don't report them as missing.
+      ui.warn(
+        `Couldn't check whether an admin has already approved the web app's delegated permissions, and couldn't approve them yourself (${/** @type {Error} */ (err).message.split('\n')[0]}). ` +
+          `Check Microsoft Entra admin center > Entra ID > Enterprise apps > "${WEB_APP_NAME}" > Permissions. If they aren't approved, send this to an admin: ${adminConsentUrl(user.tenantId, clientId)}`,
+      );
+    } else {
+      ui.warn(`Couldn't grant delegated admin consent (${err instanceof Error ? err.message.split('\n')[0] : err}). Send this to an admin: ${adminConsentUrl(user.tenantId, clientId)}`);
+      az.status ??= {};
+      const action = `Grant delegated consent on ${apiPermissionsUrl(clientId)}`;
+      az.status.pendingAdminActions = [...new Set([...(az.status.pendingAdminActions ?? []), action])];
+    }
   }
-  await ensureInstallerIsAdmin(ctx, sp.id);
+  await ensureInstallerIsAdmin(ctx, spId);
 }
 
 /**
@@ -1833,32 +2201,49 @@ async function ensureInstallerIsAdmin(ctx, spId) {
         if (!(err instanceof HttpError && /already exists/i.test(err.message))) throw err;
       }
       ui.ok(`Gave ${user.upn} the Analytics Hub Admin role. Assign other users or groups at ${usersUrl}`);
+      ui.note('If your organisation blocks the Entra admin center for non-admins and the link doesn\'t open, ask an Application Administrator to assign them.');
     }
   } catch (err) {
     ui.warn(`Couldn't give you the Analytics Hub Admin role (${err instanceof Error ? err.message.split('\n')[0] : err}). Without a role the app's charts stay empty. Assign it at ${usersUrl}`);
   }
 }
 
-/** @param {Ctx} ctx */
-async function ensureSqlReader(ctx) {
+/** The SQL reader's app registration and service principal. @param {Ctx} ctx */
+async function createSqlReader(ctx) {
   const { config, api, ui } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
+  let app = await recordedApp(ctx, 'sqlReader');
   az.sqlReader ??= {};
-  let app = az.sqlReader.clientId ? await api.graph.findApplication(az.sqlReader.clientId).catch(() => null) : null;
   if (!app) {
     app = await api.graph.createApplication(SQL_READER_NAME, []);
     Object.assign(az.sqlReader, { clientId: app.appId, objectId: app.id, created: true });
+    ctx.save();
     ui.ok(`Created app registration ${SQL_READER_NAME}`);
   }
-  let sp = az.sqlReader.servicePrincipalId ? await api.graph.findServicePrincipal(/** @type {string} */ (az.sqlReader.clientId)).catch(() => null) : null;
-  if (!sp) sp = await api.graph.createServicePrincipal(/** @type {string} */ (az.sqlReader.clientId));
-  az.sqlReader.servicePrincipalId = sp.id;
-  const r = az.sqlReader;
-  r.objectId = app.id;
-  await removeRetired(ctx, r, app.id);
+  az.sqlReader.objectId = app.id;
+  az.sqlReader.servicePrincipalId = (await servicePrincipalFor(ctx, /** @type {string} */ (az.sqlReader.clientId))).id;
+}
+
+/**
+ * A new secret for the SQL reader, for Power BI's credential. When Entra refuses it, as for an app whose creator
+ * wasn't made its owner, an admin adds the person installing as an owner.
+ * @param {Ctx} ctx @param {string} [command]  The command to run again then.
+ */
+async function sqlReaderSecret(ctx, command = 'install') {
+  const { config, ui } = ctx;
+  const r = /** @type {NonNullable<import('../../config.js').AzureConfig['sqlReader']>} */ (config.azure?.sqlReader);
+  const objectId = /** @type {string} */ (r.objectId);
+  await removeRetired(ctx, r, objectId);
   // Tracked from before Entra is asked. It stays pending until Power BI's credential uses it, and
   // the one it replaces is removed only then.
-  const cred = await addTrackedSecret(ctx, r, app.id, SQL_READER_SECRET_LABEL, addMonths(ctx.now(), SECRET_LIFETIME_MONTHS));
+  const cred = await addTrackedSecret(ctx, r, objectId, SQL_READER_SECRET_LABEL, addMonths(ctx.now(), SECRET_LIFETIME_MONTHS)).catch((err) => {
+    if (!refused(err)) throw err;
+    const action = recordOwnerAction(ctx, ['sqlReader']);
+    throw new ResumeLater(
+      `Entra didn't let you add a client secret to "${SQL_READER_NAME}" (${/** @type {Error} */ (err).message.split('\n')[0]}), so Power BI can't read the database yet. ${action}. Then run "${commandLine(command)}" again.`,
+    );
+  });
+  ownerActionDone(ctx, 'sqlReader');
   ui.ok(`Created SQL reader secret expiring ${cred.endDateTime.slice(0, 10)}`);
   return { value: cred.secretText, keyId: cred.keyId, expires: cred.endDateTime };
 }
@@ -2355,8 +2740,10 @@ export async function azureRefresh(ctx) {
 export async function azureStatus(ctx) {
   const { ui, config, api } = ctx;
   const az = config.azure;
-  if (!az?.subscriptionId || !az.resourceGroup) return ui.warn('Nothing is installed yet.');
+  const waiting = az?.adminScript && !appsRecorded(az) ? `Waiting for an admin to create ${stillNeeded(az).what} with the script in ${az.adminScript}. Once they've run it, run "${commandLine('install')}" again.` : '';
+  if (!az?.subscriptionId || !az.resourceGroup) return ui.warn(waiting ? `Nothing is installed yet. ${waiting}` : 'Nothing is installed yet.');
   ui.heading('Analytics Hub on Azure');
+  if (waiting) ui.warn(waiting);
   ui.info(`Resource group: ${az.resourceGroup} (${az.location})`);
   if (az.outputs?.webUrl) ui.info(`Web app:        ${az.outputs.webUrl}`);
   if (az.powerBi?.workspaceId) ui.info(`Power BI:       ${az.powerBi.workspaceId}${az.powerBi.datasetId ? ` / ${az.powerBi.datasetId}` : ''}`);
@@ -2381,7 +2768,8 @@ export async function azureStatus(ctx) {
 
 /** @param {Ctx} ctx */
 export async function azureRotateSecret(ctx) {
-  const secret = await ensureSqlReader(ctx);
+  await createSqlReader(ctx);
+  const secret = await sqlReaderSecret(ctx, 'rotate-secret');
   if (isPrivate(ctx.config.azure)) await bindThroughVnetGateway(ctx, secret.value);
   else await bindPowerBiCredentials(ctx, secret.value);
   await useSqlSecret(ctx, secret);
@@ -2392,6 +2780,7 @@ export async function azureRotateSecret(ctx) {
 /** @param {Ctx} ctx */
 export async function azureUpdate(ctx) {
   await azurePreflight(ctx);
+  await azureAppsGate(ctx);
   if (!(await confirmAzurePlan(ctx))) return true;
   return installAzure(ctx, { wait: true });
 }
@@ -2734,6 +3123,15 @@ export async function azureUninstall(ctx, opts = {}) {
       await api.graph.deleteApplication(app.objectId).catch((err) => {
         if (!gone(err)) ui.warn(`Couldn't delete app registration ${app.clientId}: ${err.message}`);
       });
+    }
+  }
+  for (const { key, name } of AZURE_APPS) {
+    const app = az[key];
+    if (app?.clientId && app.created === false) {
+      ui.note(
+        `Left the app registration "${name}" (client ID ${app.clientId}) alone, because an admin created it. If it's no longer needed, one of its owners or an Application Administrator ` +
+          'deletes it in Microsoft Entra admin center > Entra ID > App registrations.',
+      );
     }
   }
   if (az.drop?.folderUrl) ui.note(`The SharePoint drop folder ${az.drop.folderUrl} and the files in it are left alone. Delete them yourself if you no longer need them.`);

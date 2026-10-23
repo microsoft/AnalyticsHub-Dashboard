@@ -303,6 +303,7 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {Record<string, any>} [outputs]
  * @property {{ clientId?: string, objectId?: string, servicePrincipalId?: string, created?: boolean, appIdUri?: string }} [webApp]
  * @property {{ clientId?: string, objectId?: string, servicePrincipalId?: string, secretKeyId?: string, secretExpiry?: string, created?: boolean, secretAttempts?: { ref: string, at: string }[], pendingSecretKeyIds?: string[], retiredSecretKeyIds?: string[] }} [sqlReader]  The secret* fields track its app secrets (see steps/secrets.js).
+ * @property {string} [adminScript]  The path of the Azure admin script the installer wrote for an admin to create the two app registrations, kept while it waits for them.
  * @property {{ workspaceId?: string, createdWorkspace?: boolean, datasetId?: string, consumptionDatasetId?: string, agentEvaluatorDatasetId?: string, capacityId?: string, sharedCapacity?: boolean, gatewayId?: string, createdGateway?: boolean, connectionId?: string, accessNotebookId?: string }} [powerBi]
  *   `capacityId` hosts the workspace (semantic model definition APIs need a Fabric/Premium capacity) and, in private
  *   networking mode, the VNet data gateway `gatewayId` whose SQL connection `connectionId` the model is bound to.
