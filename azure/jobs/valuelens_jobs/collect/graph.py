@@ -17,6 +17,8 @@ log = logging.getLogger("valuelens_jobs.collect")
 
 GRAPH_V1 = "https://graph.microsoft.com/v1.0"
 LICENSED_URL = f"{GRAPH_V1}/reports/getOffice365ActiveUserDetail(period='D7')"
+# Lists every Copilot-enabled user, active or not. Same permission as the active-user report.
+COPILOT_USAGE_URL = f"{GRAPH_V1}/copilot/reports/getMicrosoft365CopilotUsageUserDetail(period='D7')"
 
 
 def _permission(r, what: str, permission: str):
@@ -35,15 +37,40 @@ def _replace_snapshot(store, prefix: str, columns, rows) -> int:
     return count
 
 
+def _text(r) -> str:
+    return r.content.decode("utf-8-sig") if isinstance(r.content, bytes) else r.text
+
+
+def _copilot_users(api):
+    """Normalised UPNs from the Copilot usage report, or None when the tenant can't return it."""
+    r = api.get(COPILOT_USAGE_URL, timeout=300)
+    if r.status_code in (400, 403, 404):
+        log.warning("licensed: the Copilot usage report returned HTTP %s; licences come from assigned "
+                    "products only this run.", r.status_code)
+        return None
+    raise_for_status(r, "Copilot usage report")
+    return licensed._parse_copilot_usage_report(_text(r))
+
+
 def collect_licensed(api, store, settings, *, allow_empty=False) -> int:
     prefix = f"raw/{licensed.TABLE}"
     r = api.get(LICENSED_URL, timeout=300)
     _permission(r, "getOffice365ActiveUserDetail", "Reports.Read.All")
     raise_for_status(r, "licensed users report")
-    text = r.content.decode("utf-8-sig") if isinstance(r.content, bytes) else r.text
-    columns, rows = licensed.build_snapshot(text, table_exists=bool(store.list(prefix)), allow_empty=allow_empty)
+    text = _text(r)
+    copilot_users = _copilot_users(api)
+    stats = {}
+    columns, rows = licensed.build_snapshot(text, table_exists=bool(store.list(prefix)), allow_empty=allow_empty,
+                                            copilot_users=copilot_users, stats=stats)
     count = _replace_snapshot(store, prefix, columns, rows)
     log.info("licensed: %s users written", count)
+    if copilot_users is not None:
+        log.info("licensed: %s by product and report, %s by product only, %s by Copilot report only",
+                 stats["by_both"], stats["by_product_only"], stats["by_report_only"])
+        if copilot_users and not stats["by_both"] and not stats["by_report_only"]:
+            log.warning("licensed: none of the %s users in the Copilot usage report are in the active-user report. "
+                        "If one report shows concealed names, untick 'Display concealed user, group, and site "
+                        "names in all reports' in the Microsoft 365 admin center.", stats["report_users"])
     return count
 
 

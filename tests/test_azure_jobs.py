@@ -567,6 +567,7 @@ def test_collect_audit_frees_the_local_staging_copy_after_each_run(tmp_path):
 LICENSED_CSV = ("\ufeffReport Refresh Date,User Principal Name,Display Name,Assigned Products\n"
                 "2026-09-09,Ada@contoso.com,Ada,MICROSOFT 365 E5+MICROSOFT 365 COPILOT\n"
                 "2026-09-09,bob@contoso.com,Bob,Microsoft 365 E3\n")
+COPILOT_CSV = "\ufeffReport Refresh Date,User Principal Name,Display Name,Last Activity Date\n"
 
 
 def test_collect_licensed_and_org(tmp_path):
@@ -575,6 +576,8 @@ def test_collect_licensed_and_org(tmp_path):
     def handler(m, url, kw):
         if "getOffice365ActiveUserDetail" in url:
             return Resp(200, text=LICENSED_CSV, content=LICENSED_CSV.encode("utf-8-sig"))
+        if url == graph.COPILOT_USAGE_URL:
+            return Resp(200, text=COPILOT_CSV, content=COPILOT_CSV.encode())
         if url == graph.org.USERS_URL:
             return Resp(200, {"value": [{"userPrincipalName": "ceo@contoso.com", "displayName": "Ceo"}],
                               "@odata.nextLink": users_page2})
@@ -634,6 +637,59 @@ def test_collect_licensed_403_names_permission(tmp_path):
     api, _ = make_api(lambda m, u, kw: Resp(403, {}))
     with pytest.raises(PermissionError, match="Reports.Read.All"):
         graph.collect_licensed(api, LocalStore(tmp_path), settings())
+
+
+def _licensed_flags(store):
+    path = store.path('raw/copilot_licensed_users/part-0.parquet').as_posix()
+    return duckdb.sql(f"SELECT UPN_Normalized, Has_license FROM '{path}' ORDER BY 1").fetchall()
+
+
+def _licensed_api(copilot):
+    def handler(m, url, kw):
+        if "getOffice365ActiveUserDetail" in url:
+            return Resp(200, text=LICENSED_CSV, content=LICENSED_CSV.encode("utf-8-sig"))
+        if url == graph.COPILOT_USAGE_URL:
+            return copilot
+        raise AssertionError(url)
+    return make_api(handler)[0]
+
+
+def test_collect_licensed_counts_users_in_copilot_report(tmp_path, caplog):
+    text = COPILOT_CSV + "2026-09-09,BOB@contoso.com,Bob,\n2026-09-09,ada@contoso.com,Ada,2026-09-08\n"
+    store = LocalStore(tmp_path)
+    with caplog.at_level("INFO", logger="valuelens_jobs.collect"):
+        assert graph.collect_licensed(_licensed_api(Resp(200, text=text, content=text.encode("utf-8-sig"))),
+                                      store, settings()) == 2
+    assert _licensed_flags(store) == [("ada@contoso.com", "TRUE"), ("bob@contoso.com", "TRUE")]
+    assert "1 by product and report, 0 by product only, 1 by Copilot report only" in caplog.text
+    assert "concealed" not in caplog.text
+
+
+@pytest.mark.parametrize("status", [400, 403, 404])
+def test_collect_licensed_falls_back_when_copilot_report_unavailable(tmp_path, caplog, status):
+    store = LocalStore(tmp_path)
+    with caplog.at_level("WARNING", logger="valuelens_jobs.collect"):
+        assert graph.collect_licensed(_licensed_api(Resp(status, {})), store, settings()) == 2
+    assert _licensed_flags(store) == [("ada@contoso.com", "TRUE"), ("bob@contoso.com", "FALSE")]
+    assert f"returned HTTP {status}" in caplog.text
+
+
+def test_collect_licensed_keeps_old_snapshot_when_copilot_report_fails(tmp_path):
+    store = LocalStore(tmp_path)
+    graph.collect_licensed(_licensed_api(Resp(200, text=COPILOT_CSV, content=COPILOT_CSV.encode())), store, settings())
+    before = _licensed_flags(store)
+    with pytest.raises(Exception, match="Copilot usage report"):
+        graph.collect_licensed(_licensed_api(Resp(502, {})), store, settings())
+    assert _licensed_flags(store) == before
+
+
+def test_collect_licensed_warns_when_copilot_report_names_differ(tmp_path, caplog):
+    text = COPILOT_CSV + "2026-09-09,E58EEF6A6BBD3D0293CB306D24A42057,6A46,\n"
+    with caplog.at_level("WARNING", logger="valuelens_jobs.collect"):
+        graph.collect_licensed(_licensed_api(Resp(200, text=text, content=text.encode())), LocalStore(tmp_path),
+                               settings())
+    assert "none of the 1 users in the Copilot usage report" in caplog.text
+    assert "concealed" in caplog.text
 
 
 def test_collect_m365_writes_day_files(tmp_path):
@@ -1245,6 +1301,8 @@ def test_full_local_pipeline_collect_to_publish(tmp_path, monkeypatch):
     def handler(m, url, kw):
         if "getOffice365ActiveUserDetail" in url:
             return Resp(200, text=LICENSED_CSV, content=LICENSED_CSV.encode())
+        if url == graph.COPILOT_USAGE_URL:
+            return Resp(200, text=COPILOT_CSV, content=COPILOT_CSV.encode())
         return fake(m, url, kw)
 
     api, _ = make_api(handler)

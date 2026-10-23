@@ -86,6 +86,42 @@ def test_licensed_empty_guard():
     assert licensed.build_snapshot(header, allow_empty=True)[1] == []
 
 
+COPILOT_CSV = (
+    "\ufeffReport Refresh Date,User Principal Name,Display Name,Last Activity Date,Report Period\n"
+    "2026-03-01,ADA@contoso.com,Ada,2026-02-28,7\n"
+    "2026-03-01, bob@contoso.com ,Bob,,7\n"
+    ",,,,\n"
+    "2026-03-01,ghost@contoso.com,Ghost,,7\n"
+)
+
+
+def test_copilot_report_parse_matches_notebook(nb_licensed):
+    users = licensed._parse_copilot_usage_report(COPILOT_CSV)
+    assert users == {"ada@contoso.com", "bob@contoso.com", "ghost@contoso.com"}
+    assert nb_licensed["_parse_copilot_usage_report"](COPILOT_CSV) == users
+    for text in ("", "\ufeff", "Report Refresh Date,User Principal Name\n"):
+        assert licensed._parse_copilot_usage_report(text) == set()
+
+
+def test_copilot_report_parse_rejects_bad_input():
+    with pytest.raises(ValueError, match="User Principal Name"):
+        licensed._parse_copilot_usage_report("Report Refresh Date,Display Name\n2026-03-01,Ada\n")
+    with pytest.raises(ValueError, match="row 2 has 1 columns"):
+        licensed._parse_copilot_usage_report("User Principal Name,Display Name\nada@contoso.com\n")
+
+
+def test_licensed_snapshot_counts_users_in_copilot_report():
+    stats = {}
+    cols, rows = licensed.build_snapshot(CSV, copilot_users=licensed._parse_copilot_usage_report(COPILOT_CSV),
+                                         stats=stats)
+    assert [r[2] for r in rows] == ["TRUE", "TRUE", "FALSE"]
+    # Ada appears twice in the active-user report (an identical duplicate row).
+    assert stats == {"by_product_only": 0, "by_report_only": 1, "by_both": 2, "report_users": 3,
+                     "report_not_in_active": 1}
+    assert licensed.build_snapshot(CSV, copilot_users=None) == licensed.build_snapshot(CSV)
+    assert licensed.build_snapshot(CSV, copilot_users=set()) == licensed.build_snapshot(CSV)
+
+
 def test_org_matches_notebook():
     nb = notebook_source.namespace(ORG_NB, {"MAX_ORG_LEVELS", "HIER_FIXED", "HIER_LEVELS", "HIER_COLUMNS",
                                             "LOW_DEPARTMENT_COVERAGE"})
