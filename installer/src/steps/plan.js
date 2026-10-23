@@ -279,7 +279,9 @@ export async function preflight(ctx) {
       if (ui.yes && !ctx.config.fabric.workspaceId) {
         await stop(
           'No Fabric capacity you can create a workspace on.',
-          'With --yes the installer can\'t choose a workspace for you, and it can\'t create one without a capacity. Run it without --yes to choose a workspace you\'re an Admin or Member of that\'s already on a capacity.',
+          'With --yes the installer can\'t choose a workspace for you, and it can only create one on a capacity you\'re an admin or contributor of. ' +
+            'Run it without --yes to choose a workspace you\'re an Admin or Member of that\'s already on a capacity. ' +
+            'Or ask a capacity admin to make you that capacity\'s admin or contributor, or start a Fabric trial, then run it again.',
         );
       }
       const recorded = onCapacity.find((w) => w.id === ctx.config.fabric.workspaceId);
