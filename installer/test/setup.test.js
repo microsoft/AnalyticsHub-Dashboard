@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, existsSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, dirname } from 'node:path';
 import { test } from 'node:test';
 import fs from 'node:fs';
 import { syncBuiltinESMExports } from 'node:module';
@@ -14,6 +14,7 @@ import { parseForm } from '../src/ui.js';
 import { createWebUi } from '../src/web-ui.js';
 import { HttpError } from '../src/http.js';
 import { azureUninstall, planAzure } from '../src/steps/azure/index.js';
+import { AZURE_ADMIN_SCRIPT_FILE, isResumeLater } from '../src/steps/identity.js';
 import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi, httpError } from './fakes.js';
 
 /** @param {import('node:test').TestContext} t */
@@ -583,4 +584,95 @@ test('setupCategories: Governance says Resource Graph is off when that source is
   config.target = 'azure';
   config.azure = /** @type {any} */ ({ sampleData: true });
   assert.equal(governance(config), 'Resource Graph: off');
+});
+
+test('setupCategories: on Azure, "App registrations" follows Viewer access and says who makes the two apps; Fabric keeps Identity and secrets', () => {
+  const fabric = setupCategories(emptyConfig());
+  assert.equal(fabric.find((cat) => cat.id === 'identity')?.title, 'Identity and secrets');
+  assert.ok(!fabric.some((cat) => cat.title === 'App registrations'));
+
+  const config = emptyConfig();
+  config.target = 'azure';
+  const az = /** @type {any} */ (config.azure = /** @type {any} */ ({}));
+  const titles = setupCategories(config).map((cat) => cat.title);
+  assert.equal(titles[titles.indexOf('Viewer access') + 1], 'App registrations');
+  assert.ok(!titles.includes('Identity and secrets'));
+  const apps = () => /** @type {import('../src/ui.js').SettingsCategory} */ (setupCategories(config).find((cat) => cat.id === 'identity'));
+  assert.deepEqual([apps().summary, apps().complete], ['Choose who creates the two apps', false], 'a new install chooses');
+  config.setup = { completed: ['identity'] };
+  assert.deepEqual([apps().summary, apps().complete], ['Create the two apps', true]);
+  az.adminScript = join('installs', AZURE_ADMIN_SCRIPT_FILE);
+  az.webApp = { clientId: 'web-1', created: false };
+  assert.equal(apps().summary, `Waiting for an admin's script: ${az.adminScript}`, 'until both apps are found');
+  delete az.adminScript;
+  assert.equal(apps().summary, 'Analytics Hub (Azure) (web-1, made by an admin); Analytics Hub SQL Reader: create');
+  az.sqlReader = { clientId: 'sql-1', created: true };
+  assert.equal(apps().summary, 'Analytics Hub (Azure) (web-1, made by an admin); Analytics Hub SQL Reader (sql-1)');
+  // An install from before this category existed has both apps, so it's done.
+  config.setup = { completed: [] };
+  assert.equal(apps().complete, true);
+  az.sqlReader = {};
+  assert.equal(apps().complete, false, 'a create that was refused recorded no app');
+});
+
+test('setup on Azure: an install from before "App registrations" deploys without visiting it, and a new one must choose first', async (t) => {
+  const f = fixture(t);
+  Object.assign(/** @type {any} */ (f.config.azure), {
+    webApp: { clientId: 'web-1', objectId: 'web-obj', servicePrincipalId: 'web-sp', created: true },
+    sqlReader: { clientId: 'sql-1', objectId: 'sql-obj', servicePrincipalId: 'sql-sp', created: true },
+  });
+  const older = setupCategories(f.config).map((cat) => cat.id).filter((id) => id !== 'identity');
+  f.config.setup = { completed: older, runFirstLoad: false };
+  f.ctx.save();
+  f.ctx.setupRetry = true;
+  respond(f.ui, (e) => {
+    if (e.kind === 'confirm' && e.message === 'Go ahead?') return true;
+    throw new Error(`Unexpected question: ${e.message}`);
+  });
+  assert.equal(await reviewSetup(f.ctx), true);
+
+  const g = fixture(t);
+  g.config.setup = { completed: older, runFirstLoad: false };
+  g.ctx.save();
+  g.ctx.setupRetry = true;
+  /** @type {string[]} */
+  const notices = [];
+  respond(g.ui, (e) => {
+    if (e.kind === 'settings') return (notices.push(e.notice), 'close');
+    throw new Error(`Unexpected question: ${e.message}`);
+  });
+  assert.equal(await reviewSetup(g.ctx), false);
+  assert.equal(notices[0], 'Review these categories first: App registrations.');
+});
+
+test('setup on Azure: someone who can\'t create apps chooses "An admin will create the apps for me", and deploying stops before anything in Azure or Entra changes', async (t) => {
+  const f = fixture(t);
+  const az = /** @type {any} */ (f.config.azure);
+  delete az.deploymentConfig;
+  f.config.setup = { completed: setupCategories(f.config).map((cat) => cat.id).filter((id) => id !== 'identity'), runFirstLoad: false };
+  f.ctx.save();
+  f.ctx.api.graph.usersCanRegisterApps = async () => false;
+  const file = join(dirname(f.ctx.file), AZURE_ADMIN_SCRIPT_FILE);
+  /** @type {any[]} */
+  const settings = [];
+  /** @type {any[]} */
+  const offered = [];
+  respond(f.ui, (e) => {
+    if (e.kind === 'settings') return (settings.push(e), settings.length === 1 ? 'identity' : 'deploy');
+    if (e.kind === 'select' && e.message === 'Who creates the two Entra app registrations?') {
+      offered.push(...e.choices.map((/** @type {any} */ ch) => ch.name));
+      assert.equal(e.choices[e.default].name, 'An admin will create the apps for me', 'the default for someone who can\'t create apps');
+      return e.default;
+    }
+    throw new Error(`Unexpected question: ${e.message}`);
+  });
+  await assert.rejects(reviewSetup(f.ctx), (/** @type {any} */ err) =>
+    isResumeLater(err) && err.message.includes(`An admin needs to create the app registrations, so the installer stopped before deploying anything. Send ${file} to an Application Administrator`));
+  assert.deepEqual(offered, ['Use the apps an admin created for me', 'An admin will create the apps for me'], 'no "Create the two apps"');
+  const category = settings[1].categories.find((/** @type {any} */ cat) => cat.id === 'identity');
+  assert.deepEqual([category.title, category.summary, category.complete], ['App registrations', `Waiting for an admin's script: ${file}`, true]);
+  assert.ok(existsSync(file));
+  assert.equal(loadConfig(f.draft).config.azure?.adminScript, file, 'the draft keeps it for the next run');
+  assert.deepEqual(f.arm.calls.filter((c) => /^(ensureResourceGroup|deployTemplate)/.test(c)), []);
+  assert.deepEqual(f.graph.calls.filter((c) => /^(create|update|add|grant|assign|fic)/.test(c)), []);
 });
