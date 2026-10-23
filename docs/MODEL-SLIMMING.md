@@ -69,22 +69,28 @@ change should go upstream too.
 ### Consumption Central (`Consumption Central - Fabric.pbit`)
 
 Refresh time grew faster than the user count: one measured refresh took 436 s at 20k users
-and 3,322 s at 60k. `scripts/Update-Model-Refresh-Fixes.py` rewrites the refresh-time DAX
-that ranked every user against every other user. Each rewrite gives the same values as before,
-but not every one removes the per-row work: the cohort columns still scan the table once per row.
+and 3,322 s at 60k. `scripts/Update-Model-Refresh-Fixes.py` removes the refresh-time DAX
+that ranked every user against every other user. Each change gives the same values as before.
+`[Weeks Active]` and `[Weeks Over Limit]` still scan `CreditsWeekly` once per user (see below).
 
 | Before | After |
 |---|---|
-| `CoworkBilling[UsageCohortRank]`: `RANKX(ALL('CoworkBilling'), [MonthlyCreditsUsed],, ASC)` for every row | `1 + COUNTROWS(FILTER(ALL('CoworkBilling'), [MonthlyCreditsUsed] < v))`. An ascending rank that skips ties is 1 + the number of smaller values, with a blank counted as 0 in both. The percentile and thresholds are unchanged. This is still one scan of the table per row, so its cost still grows with the square of the rows; a filtered count per row is cheaper than ranking per row, but not linear |
+| `CoworkBilling[UsageCohortRank]`: a calculated column, `RANKX(ALL('CoworkBilling'), [MonthlyCreditsUsed],, ASC)` for every row | An imported column that `CoworkBilling`'s query adds. The query sorts the credits once and reads five cut values: for each cut `k`, the `m`-th smallest value, where `m` is the largest whole number with `m / N <= k`. Each row is compared to those five values. An ascending rank that skips ties is at most `m` exactly when the value is at most the `m`-th smallest, so the bucket is the same. A blank counts as 0, as in `RANKX`. The cost is one sort plus five comparisons per row. The column keeps its name, lineage tag and type, and `[UsageCohort]` still sorts by it |
 | `CoworkBilling[UsageCohort]`: the same `RANKX` again, with labels | `SWITCH([UsageCohortRank], 1, "1. Light", ...)`. Both columns used the same percentile, so the label follows from the rank |
 | `CreditsWeekly[Weeks Ago]`: `CALCULATE(MAX([MetricDate]), ALL('CreditsWeekly'))` for every row | `MAX([MetricDate])`. A calculated column has no filter context, so this is the same maximum without a context transition per row |
 | `Group By` (calculated table): Studio and GitHub usage intensity ran `RANKX` over all users for each user | Each percentile cut `k` is found once: the largest `m` with `DIVIDE(m, N) <= k`, and the `m`-th smallest value from `TOPN`. A user is in the bucket when their credits are at most that value, which is the same as their rank being at most `m` |
 
 `tests/test_consumption_cohort_dax.py` checks the old and new forms against each other on
 generated data with ties, blanks, zeros, negatives, fractions and table sizes from 0 up. DuckDB's
-`RANK()` is the reference for the old `RANKX`. No new `CALCULATE` was added to `CoworkBilling`:
-`[Weeks Active]` already has one, and a second context transition in the same table can make a
-circular dependency.
+`RANK()` is the reference for the old `RANKX`, and the query's steps are replayed in Python. The
+query looks for `m` only near `floor(k * N)`; the test checks that window against a full search
+for every size up to 5,000 and for larger sizes up to a million. The query is not run offline,
+so check the refreshed buckets in Desktop (check 6).
+
+No new `CALCULATE` was added to `CoworkBilling`: `[Weeks Active]` already has one, and a second
+context transition in the same table can make a circular dependency. The imported rank cannot
+make one: it is computed in Power Query, before any DAX runs. `[UsageCohort]` and
+`[UsageCohort Label]` only read it, and the `Group By` table reads the label.
 
 How much refresh time this saves is not measured yet. Time the old and new template on a scratch
 copy of a 60k-user lakehouse (Desktop check 6) before quoting a figure.
@@ -305,9 +311,12 @@ later) against a lakehouse that the new processor has written:
   `CALCULATE` in `CoworkBilling` risks a circular dependency. Moving them upstream means a
   per-user, per-week table with a defined user key. `CoworkBilling` keeps the roster's UPN as
   given, while `CreditsWeekly` lower-cases and trims it. Today the match is the engine's text
-  comparison, so moving it needs an agreed key rather than a copy of that comparison.
-- **Consumption Central cohort columns.** `CoworkBilling[UsageCohortRank]` (and so `[UsageCohort]`)
-  counts the smaller values once per row, which still grows with the square of the rows. A linear
-  form computes the five percentile thresholds once and compares each row to them.
+  comparison, so moving it needs an agreed key rather than a copy of that comparison. A per-user
+  summary reached by a relationship was considered and not shipped: a relationship matches keys
+  differently from `=` on blanks (a blank `UPN` matches an empty one with `=`, but not through a
+  relationship), and it cannot be shown offline to match on case and trailing spaces the same way.
+  Power Query's `Text.Lower` and `Text.Trim` are not the engine's comparison either. `[Weeks Over
+  Limit]` also compares each week with the user's own limit, so it needs a per-user, per-limit
+  join, not just a per-user total.
 - **Direct Lake.** The ValueLens fact table is now eligible. Other tables in the model still have
   calculated columns or Power Query steps.
