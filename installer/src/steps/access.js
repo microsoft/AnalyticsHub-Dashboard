@@ -96,8 +96,10 @@ export function accessReview(config, where) {
   const a = config.access;
   if (!a) return { creates: [], grants: [] };
   const name = a.groupName ?? VIEWER_GROUP_NAME;
+  // You may not own a group you picked. You own one the installer creates.
+  const owners = a.groupId && !a.createdGroup ? 'Its owners share it by adding people to it.' : 'You are its owner; share by adding people to it.';
   return {
-    creates: [{ kind: 'Entra group', name, isNew: !a.groupId, detail: 'Who can view Analytics Hub. You are its owner; share by adding people to it.' }],
+    creates: [{ kind: 'Entra group', name, isNew: !a.groupId, detail: `Who can view Analytics Hub. ${owners}` }],
     grants: [{ who: `${name} (group)`, what: 'Build (ReadExplore)', where, detail: 'So its members can view the app and reports.' }],
   };
 }
@@ -143,9 +145,14 @@ export async function ensureViewerGroup(ctx) {
     ui.ok(`Created the group "${group.displayName}", with you as owner`);
     return group;
   } catch (err) {
-    if (!(err instanceof HttpError) || (err.status !== 403 && err.status !== 401)) throw err;
-    ui.warn(`You can't create groups in this tenant, so there's no viewer group yet.`);
-    ui.info('Ask an Entra admin for a security group, then run "access" to use it.');
+    if (!(err instanceof HttpError)) throw err;
+    if (err.status === 403 || err.status === 401) {
+      ui.warn(`You can't create groups in this tenant, so there's no viewer group yet.`);
+      ui.info('Ask an Entra admin for a security group, then run "access" to use it.');
+    } else {
+      ui.warn(`Couldn't create the group "${name}", so there's no viewer group yet: ${err.message}`);
+      ui.info('Run "access" and choose "A group I already have" to use a security group you own, or ask an Entra admin for one.');
+    }
     return null;
   }
 }
