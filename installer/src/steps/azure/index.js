@@ -23,7 +23,7 @@ import { AZURE_AI_ROLES, ensureAzureAiAccess, planConsumption } from '../consump
 import { AZURE_LANDING_DIRS, azureDropLabel, azureDropsToSharePoint, ensureFlows, flowsSummary, flowsWanted, offerStudioRun, planFlows } from '../flows.js';
 import { DEFAULT_CURRENCY } from '../../currency.js';
 import { askMoreHistory, askReportingCurrency, askTenantSize, editSchedule, historyChoices, keepAwake, planCosts, PRICING, reloadLine, scaleLine, sizedFor } from '../plan.js';
-import { azureHistory, clearPendingHistory, recordPendingHistory, showHistoryStep } from '../history-progress.js';
+import { azureHistory, clearPendingHistory, day as isoDay, readAzureProgress, recordPendingHistory, showHistoryStep } from '../history-progress.js';
 import { ensureResourceGraphAccess, planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from '../resource-graph.js';
 import { DATA_SOURCES } from '../../uploads.js';
 import { normaliseResourceGraph } from '../../config.js';
@@ -510,7 +510,8 @@ export async function planAzure(ctx, pre, section) {
   }
 
   if (editing('schedule')) {
-    if (azureHistoryLoaded(az)) await askMoreHistory(ctx, (days) => azureReloadChoice(days, config.scale));
+    const history = await azureHistoryLoaded(ctx);
+    if (history) await askMoreHistory(ctx, (days) => azureReloadChoice(days, config.scale), history);
     else {
       delete ctx.reloadHistoryDays;
       if (advanced) config.history.days = await ui.select('How much audit history should the first load pull?', historyChoices('azure', config.scale ?? scaleFor(headcountOf(pre))), config.history.days);
@@ -541,10 +542,28 @@ export async function planAzure(ctx, pre, section) {
 }
 
 /**
- * The run job has run: its collector keeps a high-water mark, so more history needs a reload.
- * @param {import('../../config.js').AzureConfig} az
+ * What Repair or change asks about more history, from the run job's state, or undefined when no history has
+ * loaded and the first load's question applies. Once the collector has a high-water mark, more history needs a
+ * reload. The high-water mark is set when a run merges every window, so that history is in the reports. A run
+ * the installer started isn't history loaded: one that fails, or is cut off at 4 hours, may publish nothing.
+ * Where the state can't be read (a private install, or no access to the job's storage), it says what was asked
+ * for once the installer has started a run. A demo install publishes the sample, not the tenant's history.
+ * @param {Ctx} ctx
+ * @returns {Promise<import('../plan.js').HistorySaid | undefined>}
  */
-export const azureHistoryLoaded = (az) => !!(az.outputs?.runJobName && az.status?.lastRun);
+export async function azureHistoryLoaded(ctx) {
+  const az = ctx.config.azure;
+  if (!az?.outputs?.runJobName || az.sampleData) return undefined;
+  const days = ctx.config.history.days;
+  const progress = await readAzureProgress(ctx);
+  if (!progress.read) return az.status?.lastRun ? { question: `You asked for ${days} days of history. Load more?`, loaded: false } : undefined;
+  const { highWaterMark, backfillFrom } = progress;
+  if (highWaterMark === undefined) return undefined;
+  if (backfillFrom !== undefined) {
+    return { question: `You asked for ${days} days of history. The reload from ${isoDay(backfillFrom)} isn't all in the reports yet. Load more?`, loaded: false };
+  }
+  return { question: `Load more audit history? ${days} days are loaded now, up to ${isoDay(highWaterMark)}.`, loaded: true };
+}
 
 /** The setting the run job's collector reads to load more history once, despite its high-water mark. */
 export const BACKFILL_ENV = 'VALUELENS_AUDIT_BACKFILL_DAYS';

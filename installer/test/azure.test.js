@@ -1419,7 +1419,9 @@ test("Azure: a history reload that doesn't start leaves setup not finished, and 
   repair.config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', outputs: { runJobName: 'vlens-run' }, status: { lastRun: { name: 'vlens-run-exec', status: 'Succeeded' } } };
   repair.config.history.days = 30;
   await planAzure(repair.ctx, { subscriptions: [{ subscriptionId: 'sub-1', displayName: 'Sub' }] }, 'schedule');
-  const reload = selects.find((s) => s.message.startsWith('Load more audit history?'));
+  // The record names no storage, so the run job's state can't be read: the question says what was asked for.
+  const reload = selects.find((s) => s.message.endsWith('Load more?'));
+  assert.equal(reload?.message, 'You asked for 30 days of history. Load more?');
   assert.deepEqual(reload?.choices.map((c) => c.description), [
     undefined,
     'Runs the job once with 90 days of history. Estimate: about 3 hours. A run stops at 4 hours, and the scheduled runs after it carry on with the reload until it has all loaded.',
@@ -1643,6 +1645,92 @@ test("Azure status shows the history in the reports from the run job's state, an
     fallback,
   ]);
   assert.deepEqual(reads, []);
+});
+
+test("Azure Repair or change: Load more audit history? reads the run job's state, not the run the installer started", async () => {
+  const FIRST = 'How much audit history should the first load pull?';
+  /**
+   * Repair or change's schedule section, with the run job's state as `read` returns it.
+   * @param {{ read?: () => Promise<any>, lastRun?: string, days?: number, isPrivate?: boolean, demo?: boolean }} o  lastRun: the last run the installer started, by status.
+   */
+  const repair = async (o) => {
+    const asking = fakeUi();
+    /** @type {string[]} */
+    const messages = [];
+    asking.ui.select = async (/** @type {string} */ message, /** @type {any[]} */ _choices, /** @type {any} */ def) => {
+      messages.push(message);
+      return def;
+    };
+    const t = fakeCtx({ ui: asking.ui, arm: fakeArm().api });
+    t.config.target = 'azure';
+    t.config.azure = /** @type {any} */ ({
+      subscriptionId: 'sub-1',
+      resourceGroup: 'rg',
+      outputs: { runJobName: 'vlens-run', storageAccountName: 'vlensstabc' },
+      status: o.lastRun ? { lastRun: { name: 'vlens-run-exec', status: o.lastRun, finishedAt: '2026-05-31T13:00:00.000Z' } } : {},
+      ...(o.isPrivate ? { publicNetworkAccess: false } : {}),
+      ...(o.demo ? { sampleData: true } : {}),
+    });
+    t.config.history.days = o.days ?? 30;
+    /** @type {string[]} */
+    const reads = [];
+    t.ctx.api.dataLake = /** @type {any} */ ((/** @type {string} */ account) => ({
+      readText: async (/** @type {string} */ container, /** @type {string} */ path) => {
+        reads.push(`${account} ${container}/${path}`);
+        return (o.read ?? (async () => null))();
+      },
+    }));
+    await planAzure(t.ctx, { subscriptions: [{ subscriptionId: 'sub-1', displayName: 'Sub' }] }, 'schedule');
+    return { messages, more: messages.find((m) => /Load more/.test(m)), text: asking.text(), reads };
+  };
+  const json = (/** @type {any} */ state) => async () => JSON.stringify(state);
+  const fetched = { v2_202605300000_202605300800: { status: 'succeeded', completed_at: '2026-05-31T12:30:00+00:00' }, v2_202605300800_202605301600: { status: 'failed' } };
+
+  // Nothing is in the reports until a run merges every window: a failed run, a run that published nothing, and no state yet.
+  for (const [label, o] of /** @type {[string, Parameters<typeof repair>[0]][]} */ ([
+    ['failed run', { lastRun: 'Failed', read: json({ windows: fetched }) }],
+    ['published nothing', { lastRun: 'Succeeded', read: json({ windows: { v2_202605300000_202605300800: { status: 'succeeded', completed_at: '2026-05-31T12:30:00+00:00' } }, a_later_field: 1 }) }],
+    ['no state', { lastRun: 'Succeeded' }],
+  ])) {
+    const r = await repair(o);
+    assert.equal(r.more, undefined, label);
+    assert.deepEqual(r.messages.filter((m) => /loaded|history/.test(m)), [FIRST], `${label}: the first load's question, which the next run uses`);
+    assert.doesNotMatch(r.text, /days loaded/, label);
+    assert.deepEqual(r.reads, ['vlensstabc raw/_state/audit.json'], label);
+  }
+
+  // The high-water mark: the claim, with its date. One a scheduled run set counts too.
+  const hwm = { high_water_mark: '2026-05-31T23:10:00.123456+00:00', windows: {} };
+  assert.equal((await repair({ lastRun: 'Succeeded', read: json(hwm) })).more, 'Load more audit history? 30 days are loaded now, up to 2026-05-31.');
+  assert.equal((await repair({ read: json({ ...hwm, high_water_mark: '2026-05-20T08:00:00+00:00' }) })).more, 'Load more audit history? 30 days are loaded now, up to 2026-05-20.');
+  // A reload no run has merged yet isn't claimed.
+  assert.equal(
+    (await repair({ lastRun: 'Running', days: 90, read: json({ ...hwm, backfill_from: '2026-03-03T12:00:00+00:00' }) })).more,
+    "You asked for 90 days of history. The reload from 2026-03-03 isn't all in the reports yet. Load more?",
+  );
+
+  // Where the state can't be read, it says what was asked for, once the installer has started a run.
+  const asked = 'You asked for 30 days of history. Load more?';
+  const isPrivate = await repair({ lastRun: 'Succeeded', isPrivate: true, read: json(hwm) });
+  assert.equal(isPrivate.more, asked);
+  assert.deepEqual(isPrivate.reads, [], "a private install's storage isn't tried");
+  assert.equal((await repair({ lastRun: 'Succeeded', read: () => Promise.reject(httpError(403, 'AuthorizationPermissionMismatch')) })).more, asked);
+  assert.equal((await repair({ lastRun: 'Failed', read: () => Promise.reject(new Error('fetch failed')) })).more, asked);
+  assert.equal((await repair({ lastRun: 'Succeeded', read: async () => '' })).more, asked, 'unreadable');
+  const never = await repair({ isPrivate: true });
+  assert.equal(never.more, undefined);
+  assert.ok(never.messages.includes(FIRST), 'no run started: the first load');
+  const most = await repair({ lastRun: 'Succeeded', isPrivate: true, days: 180 });
+  assert.equal(most.more, undefined);
+  assert.match(most.text, /Audit history: 180 days asked for, the most the installer loads/);
+  assert.doesNotMatch(most.text, /days loaded/);
+  assert.match((await repair({ lastRun: 'Succeeded', days: 180, read: json(hwm) })).text, /✓ Audit history: 180 days loaded, the most the installer loads/);
+
+  // A demo install publishes the sample, not the tenant's history: its days are for when you switch.
+  const demo = await repair({ lastRun: 'Succeeded', demo: true, read: json(hwm) });
+  assert.equal(demo.more, undefined);
+  assert.ok(demo.messages.includes(FIRST));
+  assert.deepEqual(demo.reads, []);
 });
 
 test('Azure: a job run with no execution name is not counted as finished', async () => {
