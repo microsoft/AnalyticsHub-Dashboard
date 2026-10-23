@@ -283,6 +283,7 @@ test("readAzureProgress: from 0.6.9's job image, how far back the reports go, th
     windowsLeft: 61,
     loadedBackTo: t('2026-05-31T16:00:00'),
     pausedAt: t('2026-06-01T05:00:00.123'),
+    pendingHighWaterMark: t('2026-05-31T23:58:00'),
   }, 'a paused window is not fetched, and a merged one is');
   assert.equal(newestEnd({ ...windows, 'v2_202606010000_202606010200': { status: 'paused', query_id: 'q-2' } }), t('2026-06-01T02:00:00'), 'a paused window is one a run started on');
   // Nothing merged yet: the job writes null.
@@ -299,6 +300,33 @@ test("readAzureProgress: from 0.6.9's job image, how far back the reports go, th
     const p = await read({ loaded_back_to: bad, paused_at: bad });
     assert.equal('loadedBackTo' in p || 'pausedAt' in p, false, JSON.stringify(bad));
   }
+});
+
+test("readAzureProgress: from 0.6.9's job image, where the load had got to for the last publish", async () => {
+  const read = (/** @type {any} */ doc) => readAzureProgress(azureCtx(async () => JSON.stringify(doc)).ctx);
+  const p = /** @type {any} */ (
+    await read({
+      high_water_mark: '2026-05-31T23:58:00+00:00',
+      published: {
+        high_water_mark: '2026-05-30T23:58:00+00:00',
+        pending_high_water_mark: '2026-05-31T23:00:00+00:00',
+        loaded_back_to: '2026-05-31T08:00:00+00:00',
+        backfill_from: '2026-03-03T00:00:00+00:00',
+        process_started_at: '2026-06-01T05:25:00.123456+00:00',
+        published_at: '2026-06-01T05:40:00+00:00',
+      },
+    })
+  );
+  assert.deepEqual(p.published, {
+    highWaterMark: t('2026-05-30T23:58:00'),
+    pendingHighWaterMark: t('2026-05-31T23:00:00'),
+    loadedBackTo: t('2026-05-31T08:00:00'),
+    backfillFrom: t('2026-03-03T00:00:00'),
+  });
+  assert.deepEqual(/** @type {any} */ (await read({ published: {} })).published, {}, 'none published yet');
+  assert.deepEqual(/** @type {any} */ (await read({ published: { high_water_mark: 'soon', loaded_back_to: 5, backfill_from: null } })).published, {});
+  for (const bad of [null, [], 'x', 5, true]) assert.equal('published' in (await read({ published: bad })), false, JSON.stringify(bad));
+  assert.equal('published' in (await read({ high_water_mark: '2026-05-31T23:58:00+00:00' })), false, 'an older image keeps no record');
 });
 
 /**
@@ -524,16 +552,35 @@ const asJob = (e) =>
 const PAUSED_NOTE =
   'The last run reached its time limit on 2026-06-01 and published what it had loaded. The next scheduled run carries on with the rest, or start one now with "valuelens-install run".';
 
+/**
+ * What 0.6.9's run job records once a publish has carried a process step that saw `state`'s position (SEEN in
+ * its collector).
+ * @param {Record<string, any>} state
+ */
+const record = (state) => ({
+  ...Object.fromEntries(['high_water_mark', 'pending_high_water_mark', 'loaded_back_to', 'backfill_from'].filter((k) => state[k] != null).map((k) => [k, state[k]])),
+  process_started_at: '2026-06-01T05:25:00+00:00',
+  published_at: '2026-06-01T05:40:00+00:00',
+});
+/**
+ * A 0.6.9 state whose last publish carried everything it has merged.
+ * @template {Record<string, any>} T
+ * @param {T} state
+ */
+const allPublished = (state) => ({ ...state, published: record(state) });
+const UNPUBLISHED_NOTE = 'The run that loaded it stopped before publishing. The next scheduled run publishes it, or start one now with "valuelens-install run".';
+const GOING_NOTE = 'A run is going now. What has loaded reaches the reports when that run publishes, near its end.';
+
 test('azureHistory: a first load that stopped at its time limit has its newest weeks in the reports, and the next run carries on', async () => {
   // Newest first: the newest 30 windows merged, the next one paused at the time budget, and the rest not started.
   assert.equal(AZ_WINDOWS.length, 91);
-  const state = {
+  const state = allPublished({
     windows: asJob(entries(AZ_WINDOWS, (i) => (i > 60 ? 'succeeded' : i === 60 ? 'paused' : undefined))),
     pending_high_water_mark: '2026-06-01T01:58:00+00:00',
     loaded_back_to: '2026-05-22T08:00:00+00:00',
     windows_left: 61,
     paused_at: '2026-06-01T05:00:00+00:00',
-  };
+  });
   const paused = azureCtx(async () => JSON.stringify(state));
   await azureHistory(paused.ctx, { executions: [exec('Succeeded', '2026-06-01T02:00:00+00:00')] });
   assert.deepEqual(lines(paused.ui.text()).slice(1), [
@@ -554,7 +601,7 @@ test('azureHistory: a first load that stopped at its time limit has its newest w
 
   // The time limit came before any window had merged: the newest window's query was still waiting.
   const none = azureCtx(async () =>
-    JSON.stringify({ windows: asJob(entries(AZ_WINDOWS, (i) => (i === 90 ? 'paused' : undefined))), loaded_back_to: null, windows_left: 91, paused_at: '2026-06-01T05:00:00+00:00' }),
+    JSON.stringify(allPublished({ windows: asJob(entries(AZ_WINDOWS, (i) => (i === 90 ? 'paused' : undefined))), loaded_back_to: null, windows_left: 91, paused_at: '2026-06-01T05:00:00+00:00' })),
   );
   await azureHistory(none.ctx, { executions: [exec('Succeeded', '2026-06-01T02:00:00+00:00')] });
   assert.deepEqual(lines(none.ui.text()).slice(2), [
@@ -565,37 +612,55 @@ test('azureHistory: a first load that stopped at its time limit has its newest w
   assert.doesNotMatch(`${paused.ui.text()}${going.ui.text()}${none.ui.text()}`, /activity up to|loaded now|4 hours|publishes nothing/);
 });
 
-test('azureHistory: a reload that stopped at its time limit says how far back it has loaded', async () => {
+test('azureHistory: a reload that stopped at its time limit says how far back the reports have it', async () => {
   const windows = plan(t('2026-03-03T00:00:00'), t('2026-06-01T02:00:00'), 8);
-  const state = {
+  const state = allPublished({
     high_water_mark: '2026-05-31T23:59:00+00:00',
     backfill_from: '2026-03-03T00:00:00+00:00',
     windows: asJob(entries(windows, (i) => (i > 135 ? 'succeeded' : i === 135 ? 'paused' : undefined))),
     loaded_back_to: '2026-04-17T08:00:00+00:00',
     windows_left: 136,
     paused_at: '2026-06-01T05:00:00+00:00',
-  };
+  });
   const { ctx, ui } = azureCtx(async () => JSON.stringify(state), { days: 90 });
   await azureHistory(ctx, { executions: [exec('Succeeded', '2026-06-01T02:00:00+00:00')] });
   assert.deepEqual(lines(ui.text()), [
     'Audit history',
     'Asked for: 90 days',
-    "In the reports: activity up to 2026-05-31. The reload from 2026-03-03 isn't all in them yet. It has loaded back to 2026-04-17 so far, newest first.",
+    "In the reports: activity up to 2026-05-31. The reload from 2026-03-03 isn't all in them yet. They have it back to 2026-04-17 so far, newest first.",
     'Fetched from the audit log: about 45 of 90 days; 136 windows left',
     PAUSED_NOTE,
+  ]);
+
+  // The last run loaded further back, and stopped before it published that.
+  const behind = azureCtx(async () => JSON.stringify({ ...state, published: record({ ...state, loaded_back_to: '2026-05-02T08:00:00+00:00' }) }), { days: 90 });
+  await azureHistory(behind.ctx, { executions: [exec('Failed', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(behind.ui.text()).slice(2), [
+    "In the reports: activity up to 2026-05-31. The reload from 2026-03-03 isn't all in them yet. They have it back to 2026-05-02 so far, newest first.",
+    'Loaded: the reload back to 2026-04-17 so far, newest first',
+    'Fetched from the audit log: about 45 of 90 days; 136 windows left',
+    'The last run reached its time limit on 2026-06-01 and stopped before publishing what it had loaded. The next scheduled run publishes it and carries on with the rest, or start one now with "valuelens-install run".',
+  ]);
+
+  // The last publish came before the reload was asked for: the reports have the history up to the high-water mark.
+  const before = azureCtx(async () => JSON.stringify({ ...state, published: record({ high_water_mark: state.high_water_mark }) }), { days: 90 });
+  await azureHistory(before.ctx, { executions: [exec('Failed', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(before.ui.text()).slice(2, 4), [
+    "In the reports: activity up to 2026-05-31. The reload from 2026-03-03 isn't all in them yet.",
+    'Loaded: the reload back to 2026-04-17 so far, newest first',
   ]);
 });
 
 test('azureHistory: a scheduled run that stopped at its time limit leaves its windows for the next', async () => {
   // The high-water mark holds until every window has merged, so the reports have at least that.
-  const state = {
+  const state = allPublished({
     high_water_mark: '2026-05-30T23:58:00+00:00',
     windows: asJob(entries(AZ_WINDOWS, (i) => (i > 87 ? 'succeeded' : i === 87 ? 'paused' : undefined))),
     pending_high_water_mark: '2026-06-01T01:58:00+00:00',
     loaded_back_to: '2026-05-31T08:00:00+00:00',
     windows_left: 4,
     paused_at: '2026-06-01T05:00:00+00:00',
-  };
+  });
   const stopped = azureCtx(async () => JSON.stringify(state));
   await azureHistory(stopped.ctx, { executions: [exec('Succeeded', '2026-06-01T02:00:00+00:00')] });
   assert.deepEqual(lines(stopped.ui.text()).slice(2), [
@@ -617,6 +682,133 @@ test('azureHistory: a scheduled run that stopped at its time limit leaves its wi
   waiting.config.history.pending = { days: 90, reason: 'running', at: '2026-06-01T11:00:00.000Z' };
   await azureHistory(waiting.ctx, { executions: [] });
   assert.deepEqual(lines(waiting.ui.text()).slice(2), ['✓ In the reports: activity up to 2026-05-30']);
+
+  // The run stopped before it published what it had loaded, and then the next run is going.
+  const unpublished = { ...state, published: record({ high_water_mark: state.high_water_mark }) };
+  const stuck = azureCtx(async () => JSON.stringify(unpublished));
+  await azureHistory(stuck.ctx, { executions: [exec('Failed', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(stuck.ui.text()).slice(2), [
+    '✓ In the reports: activity up to 2026-05-30',
+    'Loaded: activity up to 2026-06-01',
+    'The last run reached its time limit on 2026-06-01 with 4 windows left, and stopped before publishing what it had loaded. The next scheduled run publishes it and carries on with them, or start one now with "valuelens-install run".',
+  ]);
+  const next = azureCtx(async () => JSON.stringify(unpublished));
+  await azureHistory(next.ctx, { executions: [exec('Running', '2026-06-01T11:00:00+00:00')] });
+  assert.deepEqual(lines(next.ui.text()).slice(2), [
+    '✓ In the reports: activity up to 2026-05-30',
+    'Loaded: activity up to 2026-06-01',
+    'A run is going now. What has loaded reaches the reports when that run publishes, near its end, and the next run carries on with any windows left.',
+  ]);
+});
+
+test('azureHistory: a first load that has merged every window is in the reports once a run has published it', async () => {
+  // The run that merged the last windows is processing and publishing them. The run before stopped at its time
+  // limit, and published the newest windows, back to 2026-05-12.
+  const state = {
+    high_water_mark: '2026-06-01T01:58:00+00:00',
+    windows: asJob(entries(AZ_WINDOWS, () => 'succeeded')),
+    last_merge_to_publish_s: 1260.5,
+    published: record({ pending_high_water_mark: '2026-05-31T01:58:00+00:00', loaded_back_to: '2026-05-12T00:00:00+00:00' }),
+  };
+  const going = azureCtx(async () => JSON.stringify(state));
+  await azureHistory(going.ctx, { executions: [exec('Running', '2026-06-01T02:00:00+00:00'), exec('Succeeded', '2026-05-31T02:00:00+00:00')] });
+  assert.deepEqual(lines(going.ui.text()).slice(1), [
+    'Asked for: 30 days',
+    'In the reports: activity back to 2026-05-12 so far, newest first',
+    'Loaded: all the history asked for, up to 2026-06-01',
+    GOING_NOTE,
+  ]);
+
+  // It stopped before it published: at its hard deadline, or its process or publish step failed.
+  const stopped = azureCtx(async () => JSON.stringify(state));
+  await azureHistory(stopped.ctx, { executions: [exec('Failed', '2026-06-01T02:00:00+00:00'), exec('Succeeded', '2026-05-31T02:00:00+00:00')] });
+  assert.deepEqual(lines(stopped.ui.text()).slice(2), [
+    'In the reports: activity back to 2026-05-12 so far, newest first',
+    'Loaded: all the history asked for, up to 2026-06-01',
+    UNPUBLISHED_NOTE,
+  ]);
+
+  // A first load that fitted in one run: none of it is in the reports until that run publishes.
+  const first = azureCtx(async () => JSON.stringify({ ...state, published: {} }));
+  await azureHistory(first.ctx, { executions: [exec('Running', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(first.ui.text()).slice(2), ['In the reports: none of it yet', 'Loaded: all the history asked for, up to 2026-06-01', GOING_NOTE]);
+  assert.doesNotMatch(`${going.ui.text()}${stopped.ui.text()}${first.ui.text()}`, /✓/);
+
+  const done = azureCtx(async () => JSON.stringify(allPublished(state)));
+  await azureHistory(done.ctx, { executions: [exec('Succeeded', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(done.ui.text()).slice(2), ['✓ In the reports: activity up to 2026-06-01']);
+});
+
+test('azureHistory: the newest activity a run has merged is in the reports once a run publishes it', async () => {
+  const yesterday = { high_water_mark: '2026-05-31T01:57:00+00:00' };
+  const state = {
+    high_water_mark: '2026-06-01T01:58:00+00:00',
+    windows: asJob(entries(AZ_WINDOWS.slice(-6), () => 'succeeded')),
+    published: record(yesterday),
+  };
+  // Between the run's merge and the end of its publish.
+  const going = azureCtx(async () => JSON.stringify(state));
+  await azureHistory(going.ctx, { executions: [exec('Running', '2026-06-01T02:00:00+00:00'), exec('Succeeded', '2026-05-31T02:00:00+00:00')] });
+  const goingLines = ['✓ In the reports: activity up to 2026-05-31', 'Loaded: activity up to 2026-06-01', GOING_NOTE];
+  assert.deepEqual(lines(going.ui.text()).slice(2), goingLines);
+
+  // A run with a collector error fails after it has published, so what it merged is in the reports.
+  const failed = azureCtx(async () => JSON.stringify(allPublished(state)));
+  await azureHistory(failed.ctx, { executions: [exec('Failed', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(failed.ui.text()).slice(2), ['✓ In the reports: activity up to 2026-06-01']);
+
+  // One stopped at its hard deadline before it published, or whose process or publish step failed, didn't publish.
+  const stopped = azureCtx(async () => JSON.stringify(state));
+  await azureHistory(stopped.ctx, { executions: [exec('Failed', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(stopped.ui.text()).slice(2), ['✓ In the reports: activity up to 2026-05-31', 'Loaded: activity up to 2026-06-01', UNPUBLISHED_NOTE]);
+
+  // Overlapping runs: one whose process step started before the other merged has published since. Its publish
+  // carried only what had merged by then, and the other run, still going, publishes the rest.
+  const overlap = azureCtx(async () =>
+    JSON.stringify({ ...state, published: { high_water_mark: '2026-05-31T23:58:00+00:00', process_started_at: '2026-06-01T01:00:00+00:00', published_at: '2026-06-01T05:40:00+00:00' } }),
+  );
+  await azureHistory(overlap.ctx, { executions: [exec('Running', '2026-06-01T02:00:00+00:00'), exec('Succeeded', '2026-06-01T00:30:00+00:00')] });
+  assert.deepEqual(lines(overlap.ui.text()).slice(2), goingLines);
+});
+
+test("azureHistory: an older job image's state reads as before 0.6.9, and a 0.6.9 load merged but never published doesn't", async () => {
+  // An older image kept no record of what its runs published, and its runs published only once they had merged it all.
+  const older = { high_water_mark: '2026-06-01T01:58:00+00:00', windows: entries(AZ_WINDOWS.slice(-3), () => 'succeeded') };
+  const before = azureCtx(async () => JSON.stringify(older));
+  await azureHistory(before.ctx, { executions: [exec('Running', '2026-06-01T11:00:00+00:00')] });
+  assert.deepEqual(lines(before.ui.text()).slice(2), ['✓ In the reports: activity up to 2026-06-01']);
+
+  // The first 0.6.9 run counts what the older image had merged as published, before it fetches anything.
+  const seeded = azureCtx(async () => JSON.stringify({ ...older, published: { high_water_mark: older.high_water_mark } }));
+  await azureHistory(seeded.ctx, { executions: [exec('Running', '2026-06-01T11:00:00+00:00')] });
+  assert.equal(seeded.ui.text(), before.ui.text());
+
+  // 0.6.9 merged the same windows, and no run has published them yet: with the job's empty record, or none.
+  const merged = { ...older, windows: asJob(older.windows) };
+  for (const state of [{ ...merged, published: {} }, merged]) {
+    const { ctx, ui } = azureCtx(async () => JSON.stringify(state));
+    await azureHistory(ctx, { executions: [exec('Running', '2026-06-01T11:00:00+00:00')] });
+    assert.deepEqual(lines(ui.text()).slice(2), ['In the reports: none of it yet', 'Loaded: all the history asked for, up to 2026-06-01', GOING_NOTE], JSON.stringify(Object.keys(state)));
+  }
+
+  // A first load part-way through, merged by 0.6.9 and never published.
+  const paused = {
+    windows: asJob(entries(AZ_WINDOWS, (i) => (i > 60 ? 'succeeded' : i === 60 ? 'paused' : undefined))),
+    pending_high_water_mark: '2026-06-01T01:58:00+00:00',
+    loaded_back_to: '2026-05-22T08:00:00+00:00',
+    windows_left: 61,
+    paused_at: '2026-06-01T05:00:00+00:00',
+  };
+  for (const state of [{ ...paused, published: {} }, paused]) {
+    const { ctx, ui } = azureCtx(async () => JSON.stringify(state));
+    await azureHistory(ctx, { executions: [exec('Failed', '2026-06-01T02:00:00+00:00')] });
+    assert.deepEqual(lines(ui.text()).slice(2), [
+      'Fetched from the audit log: about 10 of 30 days; 61 windows left',
+      'In the reports: none of it yet',
+      'Loaded: activity back to 2026-05-22 so far, newest first',
+      'The last run reached its time limit on 2026-06-01 and stopped before publishing what it had loaded. The next scheduled run publishes it and carries on with the rest, or start one now with "valuelens-install run".',
+    ], JSON.stringify(Object.keys(state)));
+  }
 });
 
 test('azureHistory: when the state cannot be read, it falls back to the runs, and never fails', async () => {

@@ -303,16 +303,18 @@ under way keeps it: the next run polls that query again if it's under 26 hours o
 starts a new one. A stop at the budget isn't a failure: the run merges the windows it finished,
 publishes and refreshes, and logs how far back the history is loaded and how many windows are
 left. The next run carries on and merges only the windows it hasn't merged, and `status` shows how
-far back the reports go while the load is under way. Months merged newest first can curate
-differently from one pass, so a load that took more than one run rebuilds every month once when
-it's complete. Org-scoped access applies once the first run publishes, while the history is still
-loading. The refresh step stops waiting 10 minutes before the run's limit, and a refresh still
-running then carries on in Power BI. When a run republishes days older than the incremental
-window, a full refresh is owed until a run sees one complete, so the next run does it if this one
-couldn't. The estimates in [How long it takes](docs/PREREQUISITES.md#how-long-it-takes) now count
-about 3 hours of fetching per run, still one run a day. The run job gets its time limit as
-`VALUELENS_JOB_TIMEOUT_SEC`, and assumes 4 hours without it. `VALUELENS_AUDIT_TIME_BUDGET_MIN` sets
-the audit fetch's budget instead, in minutes from the run's start.
+far back the reports go while the load is under way. It counts as in the reports only what a run
+has published: history a run has loaded but not published yet, while that run is still going or
+after it stopped before publishing, shows as loaded, with the run that publishes it. Months merged
+newest first can curate differently from one pass, so a load that took more than one run rebuilds
+every month once when it's complete. Org-scoped access applies once the first run publishes, while
+the history is still loading. The refresh step stops waiting 10 minutes before the run's limit, and
+a refresh still running then carries on in Power BI. When a run republishes days older than the
+incremental window, a full refresh is owed until a run sees one complete, so the next run does it
+if this one couldn't. The estimates in [How long it takes](docs/PREREQUISITES.md#how-long-it-takes)
+now count about 3 hours of fetching per run, still one run a day. The run job gets its time limit
+as `VALUELENS_JOB_TIMEOUT_SEC`, and assumes 4 hours without it. `VALUELENS_AUDIT_TIME_BUDGET_MIN`
+sets the audit fetch's budget instead, in minutes from the run's start.
 
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 

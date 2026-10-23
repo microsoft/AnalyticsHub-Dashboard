@@ -9,11 +9,14 @@
  * so and falls back to what was asked for and the runs since. It never fails because of it.
  *
  * Fetched isn't published. On Fabric, the manifest records the windows the audit load has fetched, and a first
- * load or a reload writes them to the table once every window is fetched. On Azure, the state's high-water mark
- * moves once a run has merged every window, so the history up to it is in the reports. Fetched windows reach the
- * reports when a run merges them, near its end. A run of a job image from 0.6.9 fetches the newest windows first
- * and merges what it fetched even when it stops at its time limit, and the state then says how far back the
- * reports go and how many windows are left. An older image's run publishes only when it fetches everything left.
+ * load or a reload writes them to the table once every window is fetched. On Azure, a run merges the windows it
+ * fetched into the job's files, and they reach the reports when that run, or a later one, publishes, near its end.
+ * The state's high-water mark moves once a run has merged every window. A run of a job image from 0.6.9 fetches the
+ * newest windows first and merges what it fetched even when it stops at its time limit, and the state then says how
+ * far back the merged windows go and how many are left. It also records where the load had got to for the last
+ * publish, so `status` counts as in the reports only what a run has published. An older image kept no such record,
+ * and its runs published only when they had fetched everything left, so its state reads as before 0.6.9: what was
+ * merged counts as in the reports.
  */
 import { adminConsentUrl, apiPermissionsUrl } from '../clients/graph.js';
 import { HttpError } from '../http.js';
@@ -219,17 +222,29 @@ function fetchedText(cov, days, from, left) {
 }
 
 /**
+ * @typedef {object} LoadPosition  Where an Azure audit load had got to, from the run job's state.
+ * @property {number} [highWaterMark]  The newest activity merged with every window before it.
+ * @property {number} [pendingHighWaterMark]  From 0.6.9: the newest activity merged while windows are left.
+ * @property {number} [loadedBackTo]  From 0.6.9: how far back the windows merged so far go, newest first.
+ * @property {number} [backfillFrom]  Where a reload that isn't all merged yet starts.
+ */
+
+/**
  * @typedef {object} Progress  What a load has recorded.
  * @property {true} read
  * @property {Record<string, any>} entries  The windows it has started on, by key.
  * @property {FetchedWindow[]} windows  Those fetched.
  * @property {boolean} [missing]  No file yet: no load has started on a window.
- * @property {number} [highWaterMark]  Azure: the newest activity a run has merged, so it's in the reports.
- * @property {number} [backfillFrom]  Azure: where a reload that no run has merged yet starts.
+ * @property {number} [highWaterMark]  Azure: the newest activity a run has merged with every window before it. It
+ *   reaches the reports when a run publishes (see `published`).
+ * @property {number} [pendingHighWaterMark]  Azure, from 0.6.9: the newest activity merged while windows are left.
+ * @property {number} [backfillFrom]  Azure: where a reload that isn't all merged yet starts.
  * @property {number} [windowsLeft]  Azure, from 0.6.9's job image: the windows the last run left for the next, when
  *   it stopped at its time limit or a window failed. Not there while no run has stopped with windows left.
  * @property {number} [loadedBackTo]  Azure, from 0.6.9: how far back the windows merged so far go, newest first.
  * @property {number} [pausedAt]  Azure, from 0.6.9: when the last run stopped at its time limit with windows left.
+ * @property {LoadPosition} [published]  Azure, from 0.6.9: where the load had got to for the history the last publish
+ *   carried, so what's in the reports. Not there from an older job image, which kept no record of it.
  */
 /** @typedef {'private' | 'forbidden' | 'unavailable' | 'unreadable' | 'error'} Unread */
 /** @typedef {{ read: false, reason: Unread }} NoProgress */
@@ -270,6 +285,26 @@ export async function readFabricProgress(ctx) {
 }
 
 /**
+ * A load's position from the job's fields, those it doesn't have left out.
+ * @param {Record<string, any>} doc
+ * @returns {LoadPosition}
+ */
+function positionOf(doc) {
+  /** @type {LoadPosition} */
+  const p = {};
+  for (const [k, v] of /** @type {[keyof LoadPosition, unknown][]} */ ([
+    ['highWaterMark', doc.high_water_mark],
+    ['pendingHighWaterMark', doc.pending_high_water_mark],
+    ['loadedBackTo', doc.loaded_back_to],
+    ['backfillFrom', doc.backfill_from],
+  ])) {
+    const ms = utcTime(v);
+    if (ms !== undefined) p[k] = ms;
+  }
+  return p;
+}
+
+/**
  * The run job's audit state. Never throws. A private install's storage can't be reached from outside its
  * network, so it isn't tried. Fields it doesn't know are ignored, and those missing count as unknown.
  * @param {Ctx} ctx
@@ -287,10 +322,12 @@ export async function readAzureProgress(ctx) {
     if (!isObject(doc)) return { read: false, reason: 'unreadable' };
     return progressOf(isObject(doc.windows) ? doc.windows : {}, {
       highWaterMark: utcTime(doc.high_water_mark),
+      pendingHighWaterMark: utcTime(doc.pending_high_water_mark),
       backfillFrom: utcTime(doc.backfill_from),
       windowsLeft: Number.isInteger(doc.windows_left) && doc.windows_left >= 0 ? doc.windows_left : undefined,
       loadedBackTo: utcTime(doc.loaded_back_to),
       pausedAt: utcTime(doc.paused_at),
+      published: isObject(doc.published) ? positionOf(doc.published) : undefined,
     });
   } catch (err) {
     return { read: false, reason: unreadReason(err) };
@@ -417,12 +454,58 @@ const executionGoing = (r, now) => {
   return !(started !== undefined && now - started > STUCK_MS);
 };
 
+/** A load with every window merged: it has a high-water mark, and no reload left. @param {LoadPosition} p */
+const allMerged = (p) => p.highWaterMark !== undefined && p.backfillFrom === undefined;
+
 /**
- * The audit history in `status` on Azure: what was asked for, what the reports have, and what's left to fetch.
- * A run publishes what it has merged, near its end. From 0.6.9, the job fetches the newest windows first and
- * merges what it fetched also when it stops at its time limit, and its state then says how far back that goes and
- * how many windows are left. Without those fields (an older job image, or no run has stopped with windows left),
- * the wording holds for either image: an older image's run publishes only when it fetches everything left.
+ * The newest activity merged: the high-water mark, or newer while windows are left. undefined when none.
+ * @param {LoadPosition} p
+ */
+const newestOf = (p) =>
+  p.highWaterMark === undefined && p.pendingHighWaterMark === undefined ? undefined : Math.max(p.highWaterMark ?? -Infinity, p.pendingHighWaterMark ?? -Infinity);
+
+/**
+ * What the load has merged since `pub`, where it had got to for the last publish, or undefined when nothing: it
+ * has finished, goes further back, or has newer activity. It reaches the reports when a run publishes.
+ * @param {LoadPosition} cur @param {LoadPosition} pub
+ * @returns {string | undefined}
+ */
+function loadedSince(cur, pub) {
+  if (allMerged(cur) && !allMerged(pub)) return `all the history asked for, up to ${day(/** @type {number} */ (cur.highWaterMark))}`;
+  if (!allMerged(cur) && cur.loadedBackTo !== undefined && (pub.loadedBackTo === undefined || cur.loadedBackTo < pub.loadedBackTo)) {
+    return `${cur.backfillFrom !== undefined ? 'the reload' : 'activity'} back to ${day(cur.loadedBackTo)} so far, newest first`;
+  }
+  const latestNow = newestOf(cur);
+  const latestThen = newestOf(pub);
+  return latestNow !== undefined && (latestThen === undefined || latestNow > latestThen) ? `activity up to ${day(latestNow)}` : undefined;
+}
+
+/**
+ * What the reports have, from where the load had got to for the last publish. Only history with every window in
+ * them gets the ✓.
+ * @param {LoadPosition} pub
+ * @param {number | undefined} reload  Where a reload not all in them starts.
+ * @param {string} none  What to say when they have no dates to give.
+ */
+function reportsLine(pub, reload, none) {
+  if (pub.highWaterMark !== undefined) {
+    if (reload === undefined) return { ok: true, text: `In the reports: activity up to ${day(pub.highWaterMark)}` };
+    const back = pub.backfillFrom !== undefined && pub.loadedBackTo !== undefined ? ` They have it back to ${day(pub.loadedBackTo)} so far, newest first.` : '';
+    return { ok: false, text: `In the reports: activity up to ${day(pub.highWaterMark)}. The reload from ${day(reload)} isn't all in them yet.${back}` };
+  }
+  if (pub.loadedBackTo !== undefined) return { ok: false, text: `In the reports: activity back to ${day(pub.loadedBackTo)} so far, newest first` };
+  return { ok: false, text: `In the reports: ${none}` };
+}
+
+/**
+ * The audit history in `status` on Azure: what was asked for, what the reports have, what has loaded and isn't in
+ * them yet, and what's left to fetch. A run merges what it fetched, then publishes, near its end. From 0.6.9 the
+ * job fetches the newest windows first, merges what it fetched also when it stops at its time limit, and records
+ * where the load had got to for the history the last publish carried (`published`). "In the reports" comes from
+ * that record, and only history in it gets the ✓. What has merged since shows as loaded, with what publishes it:
+ * a run between its merge and its publish, one stopped before it published, or one whose process step started
+ * before another run merged. A state with neither the record nor a window merged by 0.6.9 is an older image's, and
+ * reads as before: its high-water mark counts as in the reports.
  * @param {Ctx} ctx
  * @param {{ executions?: any[] }} [opts]  The run job's executions.
  */
@@ -444,14 +527,37 @@ export async function azureHistory(ctx, opts = {}) {
     if (!pending) ui.note("The reports fill in as the run job's runs publish, and have the history asked for once those runs have loaded all of it. The runs are listed above.");
     return;
   }
-  const { highWaterMark: hwm, backfillFrom, windowsLeft, loadedBackTo, pausedAt } = progress;
+  const { windowsLeft, pausedAt } = progress;
+  /** @type {LoadPosition} */
+  const cur = { highWaterMark: progress.highWaterMark, pendingHighWaterMark: progress.pendingHighWaterMark, loadedBackTo: progress.loadedBackTo, backfillFrom: progress.backfillFrom };
+  // A 0.6.9 image's state has the record, or a window that image merged, before any run of it publishes.
+  const recorded = progress.published !== undefined || Object.values(progress.entries).some((e) => isObject(e) && 'merged_at' in e);
+  const pub = recorded ? (progress.published ?? {}) : cur;
+  const loaded = recorded ? loadedSince(cur, pub) : undefined;
+  const reload = cur.backfillFrom ?? pub.backfillFrom;
   // The job's own count of the windows the last run left for the next.
   const left = windowsLeft !== undefined && windowsLeft > 0 ? windowsLeft : undefined;
   const pausedOn = left !== undefined && pausedAt !== undefined ? day(pausedAt) : undefined;
-  if (hwm !== undefined && backfillFrom === undefined) {
-    ui.ok(`In the reports: activity up to ${day(hwm)}`);
-    // A scheduled run that reached its time limit before it had fetched every window.
-    if (left !== undefined && pausedOn !== undefined && !pending) {
+  /** @param {string} none */
+  const inReports = (none) => {
+    const line = reportsLine(pub, reload, none);
+    if (line.ok) ui.ok(line.text);
+    else ui.info(line.text);
+    if (loaded !== undefined) ui.info(`Loaded: ${loaded}`);
+  };
+  /** @param {boolean} more  Windows may be left for the next run. */
+  const publishes = (more) =>
+    `A run is going now. What has loaded reaches the reports when that run publishes, near its end${more ? ', and the next run carries on with any windows left' : ''}.`;
+  if (allMerged(cur)) {
+    inReports(newestOf(pub) !== undefined ? 'not all of it yet' : 'none of it yet');
+    if (pending) return;
+    if (loaded !== undefined) {
+      if (running) ui.note(publishes(left !== undefined));
+      else if (left !== undefined && pausedOn !== undefined) {
+        ui.note(`The last run reached its time limit on ${pausedOn} with ${windowCount(left)} left, and stopped before publishing what it had loaded. The next scheduled run publishes it and carries on with them, or start one now with "${again}".`);
+      } else ui.note(`The run that loaded it stopped before publishing. The next scheduled run publishes it, or start one now with "${again}".`);
+    } else if (left !== undefined && pausedOn !== undefined) {
+      // A scheduled run that reached its time limit before it had fetched every window.
       ui.note(running
         ? `A run is going now, and carries on with the ${windowCount(left)} the last run left.`
         : `The last run reached its time limit on ${pausedOn} with ${windowCount(left)} left. The next scheduled run carries on with them, or start one now with "${again}".`);
@@ -459,13 +565,12 @@ export async function azureHistory(ctx, opts = {}) {
     return;
   }
   const until = latest([...executions.map(startOf), utcTime(az.status?.lastRun?.startedAt), newestEnd(progress.entries)], now);
-  const from = Math.min(until - days * DAY, backfillFrom ?? Infinity);
+  const from = Math.min(until - days * DAY, cur.backfillFrom ?? Infinity);
   const cov = coverage(progress.windows, { from, until, chunkHours: AZURE_CHUNK_HOURS });
-  const empty = hwm === undefined && cov.complete && cov.allEmpty;
-  if (hwm !== undefined) {
-    const reached = loadedBackTo !== undefined ? ` It has loaded back to ${day(loadedBackTo)} so far, newest first.` : '';
-    ui.info(`In the reports: activity up to ${day(hwm)}. The reload from ${day(/** @type {number} */ (backfillFrom))} isn't all in them yet.${reached}`);
-  }
+  const empty = cur.highWaterMark === undefined && cov.complete && cov.allEmpty;
+  // An older image's state has no dates for a first load part-way through: what has been fetched is the guide.
+  const none = (recorded ? newestOf(pub) !== undefined : cov.fetchedHours > 0) ? 'not all of it yet' : 'none of it yet';
+  if (pub.highWaterMark !== undefined) inReports(none);
   if (empty) {
     ui.info(`Fetched from the audit log: all ${n(days)} days, with no Copilot activity in them`);
     ui.info('In the reports: no Copilot activity, because the audit log returned none for those days');
@@ -473,17 +578,20 @@ export async function azureHistory(ctx, opts = {}) {
   }
   // The job counts the windows left when a run stops. While the next run is going, its entries move on: the estimate.
   ui.info(`Fetched from the audit log: ${fetchedText(cov, days, from, running ? undefined : left)}`);
-  if (hwm === undefined) {
-    if (loadedBackTo !== undefined) ui.info(`In the reports: activity back to ${day(loadedBackTo)} so far, newest first`);
-    else ui.info(`In the reports: ${cov.fetchedHours > 0 ? 'not all of it yet' : 'none of it yet'}`);
-  }
+  if (pub.highWaterMark === undefined) inReports(none);
   if (pending) return;
   if (running) {
-    ui.note(left !== undefined
-      ? 'A run is going now. It publishes what it has loaded when it finishes or reaches its time limit, and the next run carries on with any windows left.'
-      : 'A run is going now. What it fetches reaches the reports when it publishes, near the end of the run.');
+    ui.note(loaded !== undefined
+      ? publishes(true)
+      : left !== undefined
+        ? 'A run is going now. It publishes what it has loaded when it finishes or reaches its time limit, and the next run carries on with any windows left.'
+        : 'A run is going now. What it fetches reaches the reports when it publishes, near the end of the run.');
+  } else if (loaded !== undefined) {
+    ui.note(pausedOn !== undefined
+      ? `The last run reached its time limit on ${pausedOn} and stopped before publishing what it had loaded. The next scheduled run publishes it and carries on with the rest, or start one now with "${again}".`
+      : `The run that loaded it stopped before publishing. The next scheduled run publishes it and carries on with the rest, or start one now with "${again}".`);
   } else if (pausedOn !== undefined) {
-    ui.note(cov.fetchedHours > 0 || loadedBackTo !== undefined
+    ui.note(cov.fetchedHours > 0 || cur.loadedBackTo !== undefined
       ? `The last run reached its time limit on ${pausedOn} and published what it had loaded. The next scheduled run carries on with the rest, or start one now with "${again}".`
       : `The last run reached its time limit on ${pausedOn} before any of it had loaded. The next scheduled run carries on, or start one now with "${again}".`);
   } else if (cov.complete) ui.note(`The next run publishes it. Start one sooner with "${again}".`);
