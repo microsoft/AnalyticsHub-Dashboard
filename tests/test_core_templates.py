@@ -84,8 +84,9 @@ class CoreTemplateTests(unittest.TestCase):
             cls.templates.append((str(relative), members, model, docs))
 
     def test_exactly_two_active_templates(self):
+        # sharepoint/ holds unchanged ValueLens copies; tests/test_sharepoint_templates.py checks them.
         active = {p.relative_to(ROOT) for p in ROOT.rglob("*.pbit")
-                  if "archive" not in p.parts and not ADDONS & set(p.parts)}
+                  if "archive" not in p.parts and "sharepoint" not in p.parts and not ADDONS & set(p.parts)}
         self.assertEqual(active, set(TEMPLATES))
 
     def test_portable_parts_only(self):
