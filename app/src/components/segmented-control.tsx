@@ -17,7 +17,8 @@ interface SegmentedControlProps<T extends string> {
 }
 
 /**
- * The segmented toggle that replaces Power BI's bookmark buttons. Every
+ * The segmented toggle that replaces Power BI's bookmark buttons, drawn as
+ * the App Editions draw theirs: a quiet track with the chosen option raised. Every
  * destination uses it to swap between cohorts and lenses without refetching,
  * so it behaves identically wherever it appears.
  */
@@ -29,7 +30,11 @@ export function SegmentedControl<T extends string>({
     className,
 }: SegmentedControlProps<T>) {
     return (
-        <div role="group" aria-label={label} className={cn("flex rounded-md border border-border bg-card p-100-nudge", className)}>
+        <div
+            role="group"
+            aria-label={label}
+            className={cn("flex max-w-full gap-100-nudge overflow-x-auto rounded-[9px] bg-segment p-[3px] [scrollbar-width:none]", className)}
+        >
             {options.map((option) => (
                 <button
                     key={option.id}
@@ -39,12 +44,12 @@ export function SegmentedControl<T extends string>({
                     disabled={option.disabled}
                     title={option.hint}
                     className={cn(
-                        "rounded-sm px-300 py-100 text-[length:var(--text-200)] transition-colors",
+                        "h-[28px] shrink-0 rounded-md px-300 text-[13px] whitespace-nowrap transition-colors",
                         "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                         "disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:text-muted-foreground",
                         option.id === value
-                            ? "bg-accent font-semibold text-accent-foreground"
-                            : "text-muted-foreground hover:text-foreground",
+                            ? "bg-card font-semibold text-foreground shadow-[0_1px_2px_rgb(16_40_37/0.14)]"
+                            : "font-medium text-muted-foreground hover:text-foreground",
                     )}
                 >
                     {option.label}

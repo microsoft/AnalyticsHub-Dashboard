@@ -11,6 +11,7 @@ import { fabricItemUrl } from "@/lib/fabric-item-url";
 import { addViewer, loadAccess, removeViewer, type AccessPrincipal, type AccessState } from "@/lib/access-api";
 import { runtimeConfig, type AccessInfo } from "@/lib/runtime-config";
 import { ScopedDelegation } from "@/components/share-delegations";
+import { BandPopover } from "@/components/band-popover";
 import { cn } from "@/lib/utils";
 
 const TEXT = "text-[length:var(--text-200)] leading-200";
@@ -26,30 +27,18 @@ const BUTTON = "flex items-center justify-center gap-200 rounded-md border borde
  * that stays with admins, through the installer.
  */
 export function SharePanel() {
-    const [open, setOpen] = useState(false);
-    const panelId = useId();
     const config = runtimeConfig();
 
     return (
-        <div className="flex flex-col gap-200">
-            <button
-                type="button"
-                onClick={() => setOpen((value) => !value)}
-                aria-expanded={open}
-                aria-controls={panelId}
-                className="flex items-center gap-300 rounded-md border border-border px-300 py-200 text-[length:var(--text-300)] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-            >
-                <Share2 className="icon-size-200" aria-hidden="true" />
-                Share
-            </button>
-            {open && (
-                <section id={panelId} aria-label="Share Analytics Hub" className="flex flex-col gap-300 rounded-md border border-border p-300">
+        <BandPopover label="Share" icon={Share2}>
+            {() => (
+                <section aria-label="Share Analytics Hub" className="flex flex-col gap-300">
                     <CopyLink />
                     {config.host === "azure" ? <AzureAccess access={config.access} /> : <FabricAccess access={config.access} />}
                     {config.host === "azure" && config.access?.rlsOrgAttribute && <ScopedDelegation contact={config.access.contact} />}
                 </section>
             )}
-        </div>
+        </BandPopover>
     );
 }
 

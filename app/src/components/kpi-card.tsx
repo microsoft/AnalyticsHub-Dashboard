@@ -59,22 +59,22 @@ export function KpiCard({ label, value, format = "whole", prefix, delta, trend, 
     return (
         <div
             className={cn(
-                "flex flex-col gap-200 rounded-xl border border-border bg-card p-500",
-                emphasis && "border-primary/40 bg-accent/40",
+                "flex min-w-0 flex-col gap-100 rounded-xl border border-border bg-card px-400 pt-[14px] pb-[15px] shadow-card",
+                emphasis && "border-primary/40 bg-accent/60",
                 className,
             )}
         >
-            <span className="text-[length:var(--text-200)] leading-200 text-muted-foreground">
+            <span className="text-[13px] leading-[18px] font-medium text-muted-foreground">
                 {label}
             </span>
             <div className="[container-type:inline-size]">
                 <span
                     data-kpi-value=""
                     title={!isBlank && exact !== shown ? exact : undefined}
-                    style={{ fontSize: fitFontSize(shown, emphasis ? "--text-hero-900" : "--text-hero-800") }}
+                    style={{ fontSize: fitFontSize(shown, emphasis ? "--text-hero-800" : "--text-hero-700") }}
                     className={cn(
-                        "block whitespace-nowrap font-numeric font-semibold tabular-nums leading-hero-800 text-card-foreground",
-                        emphasis && "leading-hero-900",
+                        "block whitespace-nowrap font-numeric font-semibold tracking-[-0.01em] tabular-nums leading-hero-700 text-card-foreground",
+                        emphasis && "leading-hero-800",
                         isBlank && "text-muted-foreground",
                     )}
                 >
@@ -84,7 +84,7 @@ export function KpiCard({ label, value, format = "whole", prefix, delta, trend, 
             {delta && !isBlank && <KpiDeltaLine delta={delta} />}
             {trend && !isBlank && <Sparkline points={trend.points} description={trend.description} />}
             {detail && (
-                <div className="border-t border-border pt-200 text-[length:var(--text-200)] leading-300 text-muted-foreground">
+                <div className="mt-100 border-t border-border pt-200 text-[12.5px] leading-[18px] text-muted-foreground">
                     {detail}
                 </div>
             )}

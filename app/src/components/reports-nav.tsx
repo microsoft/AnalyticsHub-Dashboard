@@ -22,14 +22,14 @@ const ITEM = cn(
 );
 
 /**
- * The sidebar's Reports group: the packs, built-in and saved, each read as one
+ * The band's Reports list: the packs, built-in and saved, each read as one
  * page and exported as one document, and a way to make another.
  */
 export function ReportsNav({ activePack, onOpen, onCreate }: ReportsNavProps) {
     const { status, unavailableReason, packs } = useReportPacks();
 
     return (
-        <div className="flex flex-col gap-100 border-t border-border pt-400">
+        <div className="flex flex-col gap-100">
             <span id="nav-reports" className="px-300 text-[length:var(--text-200)] leading-200 font-semibold text-muted-foreground">
                 Reports
             </span>

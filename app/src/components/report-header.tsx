@@ -39,12 +39,15 @@ interface ReportHeaderProps {
     downloadable?: boolean;
     /** A further line under the freshness, such as whose data is shown. */
     meta?: ReactNode;
+    /** The product the page belongs to, shown above its title. */
+    crumb?: string;
 }
 
 const LABELS: Record<ExportFormat, string> = { pdf: "Download PDF", pptx: "Download PowerPoint" };
 
 /**
- * The heading of a destination or report pack: what it is, how fresh its data
+ * The page head of a destination or report pack, as the App Editions draw it
+ * in the toolbar: which product it belongs to, what it is, how fresh its data
  * is, and downloads of it as a PDF or a PowerPoint deck drawn with the
  * current filters.
  */
@@ -61,6 +64,7 @@ export function ReportHeader({
     actions,
     downloadable = true,
     meta,
+    crumb,
 }: ReportHeaderProps) {
     const { filters, orgAttribute, options } = useFilterContext();
     const exporter = useReportExport();
@@ -78,19 +82,22 @@ export function ReportHeader({
         });
 
     return (
-        <header className="flex flex-wrap items-center gap-400">
-            <span className="flex size-[48px] shrink-0 items-center justify-center rounded-lg bg-accent text-primary">
-                <Icon className="icon-size-400" aria-hidden="true" />
-            </span>
-            <span className="flex min-w-0 flex-1 flex-col gap-100">
-                <h1 className="text-[length:var(--text-hero-700)] leading-hero-700 font-semibold">{title}</h1>
+        <header className="flex flex-wrap items-start gap-x-600 gap-y-300">
+            <span className="flex min-w-[min(100%,320px)] flex-1 flex-col gap-100">
+                {crumb && (
+                    <span className={cn(SMALL, "flex items-center gap-100 font-medium text-muted-foreground")}>
+                        <Icon className="icon-size-100 shrink-0 text-primary" aria-hidden="true" />
+                        {crumb}
+                    </span>
+                )}
+                <h1 className="font-heading text-[21px] leading-[28px] font-semibold tracking-[-0.01em]">{title}</h1>
                 {blurb && <span className="text-[length:var(--text-300)] leading-300 text-muted-foreground">{blurb}</span>}
                 <FreshnessLabel sources={sources} dates={dates} />
                 {meta}
             </span>
             {downloadable && (
-                <span className="flex flex-col items-end gap-100" data-print="hide">
-                    <span role="group" aria-label={`Download ${title}`} className="flex flex-wrap items-center justify-end gap-200">
+                <span className="flex flex-col items-start gap-100 sm:items-end" data-print="hide">
+                    <span role="group" aria-label={`Download ${title}`} className="flex flex-wrap items-center gap-200 sm:justify-end">
                         {(["pdf", "pptx"] as const).map((format) => {
                             const FormatIcon = format === "pdf" ? FileDown : Presentation;
                             return (
@@ -109,7 +116,7 @@ export function ReportHeader({
                         })}
                         {actions}
                     </span>
-                    <span role="status" className={cn(SMALL, "max-w-[48ch] text-right text-muted-foreground")}>
+                    <span role="status" className={cn(SMALL, "max-w-[48ch] text-muted-foreground sm:text-right")}>
                         {exporter.message}
                     </span>
                 </span>

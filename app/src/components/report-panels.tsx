@@ -186,7 +186,7 @@ function ChartFrame({
     );
 
     return (
-        <div className="relative h-full min-h-0" data-export="" data-export-title={title}>
+        <div className="relative h-full min-h-0 rounded-xl shadow-card" data-export="" data-export-title={title}>
             <VisualContainer
                 ref={container}
                 header={{ title, subtitle }}
@@ -224,7 +224,7 @@ export function NoteCard({ title, notes, children }: { title: string; notes: rea
         <article aria-labelledby={headingId} className="flex flex-col rounded-xl border border-border bg-card" data-export="">
             <h3
                 id={headingId}
-                className="border-b border-border px-500 py-300 text-[length:var(--text-300)] leading-300 font-semibold text-foreground"
+                className="border-b border-border px-[18px] py-300 text-[15px] leading-300 font-semibold text-foreground"
             >
                 {title}
             </h3>

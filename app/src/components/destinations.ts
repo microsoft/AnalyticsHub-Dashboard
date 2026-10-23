@@ -51,6 +51,10 @@ import { consumptionConnection, evaluatorConnection } from "@/queries/shared";
  * another model lists the filters its queries' profiles can take (see
  * `filter-profiles.ts`); a card that still can't take one says so.
  *
+ * Each destination belongs to a `product`, one of the three apps in the
+ * band's switcher, and may carry a shorter `tab` name. Ask and the
+ * assumptions have `placement: "band"`: they sit beside the switcher.
+ *
  * The executive summary comes first and is where the app opens: one page
  * drawing on the others, each of its panels linking to the destination
  * that tells that part of the story in full. The rest follow in the order
@@ -63,6 +67,8 @@ export const destinations = [
     {
         id: "executive",
         label: "Executive summary",
+        tab: "Summary",
+        product: "valuelens",
         blurb: "What Copilot is delivering, and where",
         icon: LayoutDashboard as LucideIcon,
         filters: ["dateRange", "organizations"] as FilterKey[],
@@ -75,6 +81,7 @@ export const destinations = [
     },
     {
         id: "adoption",
+        product: "valuelens",
         label: "Adoption",
         blurb: "Who started, who stayed, who stuck",
         icon: TrendingUp as LucideIcon,
@@ -88,6 +95,7 @@ export const destinations = [
     },
     {
         id: "value",
+        product: "valuelens",
         label: "Value",
         blurb: "What the work was, and what it was worth",
         icon: Banknote as LucideIcon,
@@ -101,6 +109,7 @@ export const destinations = [
     },
     {
         id: "consumption",
+        product: "consumption",
         label: "Consumption",
         blurb: "Credits used, and what they cost",
         icon: Coins as LucideIcon,
@@ -111,11 +120,13 @@ export const destinations = [
             { id: "budget-runway", label: "Budget runway", ready: true },
             { id: "cowork-credits", label: "Cowork / Work IQ", ready: true },
             { id: "studio-credits", label: "Copilot Studio", ready: true },
+            { id: "github-credits", label: "GitHub Copilot", ready: true },
             { id: "azure-spend", label: "Azure", ready: true },
         ],
     },
     {
         id: "efficiency",
+        product: "valuelens",
         label: "Efficiency",
         blurb: "Whether the right tool is doing the job",
         icon: Gauge as LucideIcon,
@@ -128,6 +139,7 @@ export const destinations = [
     },
     {
         id: "leaderboards",
+        product: "valuelens",
         label: "Leaderboards",
         blurb: "The people and the agents doing the most",
         icon: Trophy as LucideIcon,
@@ -139,6 +151,7 @@ export const destinations = [
     },
     {
         id: "work-patterns",
+        product: "valuelens",
         label: "Work patterns",
         blurb: "How people work across Microsoft 365, and where Copilot fits",
         icon: Briefcase as LucideIcon,
@@ -152,6 +165,7 @@ export const destinations = [
     },
     {
         id: "readiness",
+        product: "valuelens",
         label: "Readiness",
         blurb: "Who to license next, and who is ready for Cowork",
         icon: KeyRound as LucideIcon,
@@ -164,6 +178,7 @@ export const destinations = [
     },
     {
         id: "agent-evaluation",
+        product: "evaluator",
         label: "Agent Evaluation",
         blurb: "How well your agents answer, and where they fall short",
         icon: BotMessageSquare as LucideIcon,
@@ -176,6 +191,7 @@ export const destinations = [
     },
     {
         id: "governance",
+        product: "valuelens",
         label: "Governance",
         blurb: "Who owns your agents, who can reach them, and what needs a review",
         icon: ShieldCheck as LucideIcon,
@@ -190,6 +206,7 @@ export const destinations = [
     },
     {
         id: "feedback",
+        product: "valuelens",
         label: "Feedback",
         blurb: "What people say about it",
         icon: MessageSquareQuote as LucideIcon,
@@ -199,6 +216,8 @@ export const destinations = [
     },
     {
         id: "ask",
+        product: "valuelens",
+        placement: "band",
         label: "Ask",
         blurb: "Questions about the data, in your own words",
         icon: Sparkles as LucideIcon,
@@ -208,6 +227,8 @@ export const destinations = [
     },
     {
         id: "assumptions",
+        product: "valuelens",
+        placement: "band",
         label: "Assumptions",
         blurb: "The task times behind every value figure",
         icon: Timer as LucideIcon,
@@ -218,6 +239,8 @@ export const destinations = [
     {
         id: "appendix",
         label: "Appendix",
+        tab: "Guide",
+        product: "valuelens",
         blurb: "What each metric means, and the value assumptions",
         icon: BookOpen as LucideIcon,
         filters: [] as FilterKey[],
@@ -228,6 +251,21 @@ export const destinations = [
         ],
     },
 ] as const;
+
+/**
+ * The three apps Analytics Hub brings together, each a product in the band's
+ * switcher: ValueLens (adoption and value), Consumption Central (credits and
+ * cost) and Agent Evaluator. A product with one destination shows that
+ * destination's stages as its tabs; one with several shows the destinations.
+ */
+export const products = [
+    { id: "valuelens", label: "ValueLens", blurb: "Adoption, value and readiness" },
+    { id: "consumption", label: "Consumption Central", blurb: "Credits used, and what they cost" },
+    { id: "evaluator", label: "Agent Evaluator", blurb: "How well your agents answer" },
+] as const;
+
+export type Product = (typeof products)[number];
+export type ProductId = Product["id"];
 
 export type Destination = (typeof destinations)[number];
 export type DestinationId = Destination["id"];
@@ -259,6 +297,37 @@ export function availableDestinations(models: ModelReferences, sources?: SourceA
             (!("connection" in destination) || isConnectionConfigured(models, destination.connection)) &&
             (!sources || !("source" in destination) || !isAbsent(sources, destination.source)),
     );
+}
+
+/** The product a destination belongs to. */
+export function productOf(destination: Destination): ProductId {
+    return destination.product;
+}
+
+/** The name a destination takes as a tab: shorter than its page title where one is set. */
+export function tabLabel(destination: Destination): string {
+    return "tab" in destination ? destination.tab : destination.label;
+}
+
+/**
+ * Ask and the assumptions sit in the band beside the switcher rather than
+ * among any product's tabs: Ask answers across every model, and the
+ * assumptions price every value figure.
+ */
+export function isBandDestination(destination: Destination): boolean {
+    return "placement" in destination && destination.placement === "band";
+}
+
+/** The products with at least one available destination, in switcher order. */
+export function availableProducts(available: readonly Destination[]): Product[] {
+    return products.filter((product) =>
+        available.some((destination) => destination.product === product.id && !isBandDestination(destination)),
+    );
+}
+
+/** A product's destinations that appear as its tabs, in order. */
+export function productDestinations(available: readonly Destination[], product: ProductId): Destination[] {
+    return available.filter((destination) => destination.product === product && !isBandDestination(destination));
 }
 
 /** The DOM id a stage's section carries, so a link can bring it into view. */

@@ -418,3 +418,40 @@ describe("The landing page's queries", () => {
         open("c00 freshness");
     });
 });
+
+describe("The band", () => {
+    it("switches between the products set up, ValueLens' pages its tabs and Consumption Central's stages", async () => {
+        setup();
+        renderApp();
+        await tick(5000);
+
+        const productsNav = screen.getByRole("navigation", { name: "Products" });
+        const products = [...productsNav.querySelectorAll("button")].map((button) => button.textContent);
+        // No Agent Evaluator model is set up here.
+        expect(products).toEqual(["ValueLens", "Consumption Central"]);
+        expect(screen.getByRole("button", { name: "ValueLens" })).toHaveAttribute("aria-current", "true");
+
+        const sections = screen.getByRole("navigation", { name: "Sections" });
+        expect(sections.querySelector("[aria-current=page]")?.textContent).toBe("Summary");
+        expect(sections.textContent).toContain("Adoption");
+        expect(sections.textContent).not.toContain("Budget runway");
+        expect(screen.getByRole("tab", { name: "The bottom line" })).toBeInTheDocument();
+
+        fireEvent.click(screen.getByRole("button", { name: "Consumption Central" }));
+        await tick(1000);
+
+        expect(screen.getByRole("button", { name: "Consumption Central" })).toHaveAttribute("aria-current", "true");
+        const stages = screen.getByRole("navigation", { name: "Sections" });
+        expect([...stages.querySelectorAll("a, button")].map((tab) => tab.textContent)).toEqual([
+            "All products",
+            "Budget runway",
+            "Cowork / Work IQ",
+            "Copilot Studio",
+            "GitHub Copilot",
+            "Azure",
+        ]);
+        expect(stages.querySelector("[aria-current=page]")?.textContent).toBe("All products");
+        // The stages are the tabs, so there are no sub-views as well.
+        expect(screen.queryByRole("tablist")).toBeNull();
+    });
+});

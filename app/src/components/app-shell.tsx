@@ -6,7 +6,7 @@
 //-----------------------------------------------------------------------
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { FileStack, Moon, Sun } from "lucide-react";
+import { FileStack, MessageSquareText, Moon, SlidersHorizontal, Sun } from "lucide-react";
 import { DataToContext } from "@/hooks/data-to.context";
 import { useReportPacks } from "@/hooks/report-packs.context";
 import { useSourceFreshness } from "@/hooks/use-source-freshness";
@@ -24,12 +24,16 @@ import { cn } from "@/lib/utils";
 import { getAccessToken } from "@/services/rayfin-auth.service";
 import {
     availableDestinations,
+    availableProducts,
     destinations,
+    isBandDestination,
     isDestinationReady,
     isPackable,
-    isReference,
-    type Destination,
+    productDestinations,
+    products,
+    tabLabel,
     type DestinationId,
+    type ProductId,
     type StageId,
 } from "./destinations";
 import { AccessScopeChip, NoScopeNotice } from "./access-scope";
@@ -38,6 +42,8 @@ import { ReportHeader } from "./report-header";
 import { PackActions } from "./report-pack-actions";
 import { ReportPackEditor } from "./report-pack-editor";
 import { ReportsNav } from "./reports-nav";
+import { BAND_BUTTON } from "./band-button";
+import { BandPopover } from "./band-popover";
 import { SharePanel } from "./share-panel";
 import { StageTabs } from "./stage-tabs";
 
@@ -69,20 +75,20 @@ function UpdateNotice() {
 
     const label = `Update available: ${version.latest ?? "latest"}`;
     return version.releaseUrl ? (
-        <a href={version.releaseUrl} className="px-200 text-[length:var(--text-200)] leading-200 text-muted-foreground underline">
+        <a href={version.releaseUrl} className="text-[12.5px] leading-200 text-band-muted underline underline-offset-2 hover:text-band-foreground">
             {label}
         </a>
     ) : (
-        <span className="px-200 text-[length:var(--text-200)] leading-200 text-muted-foreground">{label}</span>
+        <span className="text-[12.5px] leading-200 text-band-muted">{label}</span>
     );
 }
 
 const CREATOR_PROFILE_URL = "https://github.com/Keithland89";
 
-/** The sidebar's footer: who made the app, linked to their profile. */
+/** The page's footer: who made the app, linked to their profile. */
 function CreatorCredit() {
     return (
-        <footer className="px-200 text-[length:var(--text-200)] leading-200 text-muted-foreground">
+        <footer data-print="hide" className="mx-auto w-full max-w-[1480px] px-[var(--page-x)] pt-100 pb-600 text-[12.5px] leading-200 text-muted-foreground">
             Created by{" "}
             <a
                 href={CREATOR_PROFILE_URL}
@@ -108,29 +114,42 @@ interface AppShellProps {
     children: ReactNode;
 }
 
+interface BandTab {
+    key: string;
+    label: string;
+    current: boolean;
+    ready: boolean;
+    open: () => void;
+}
+
+const COLUMN = "mx-auto w-full max-w-[1480px] px-[var(--page-x)]";
+
 /**
- * Sidebar-and-canvas frame. The sidebar is the whole navigation model — the
- * destinations replacing the report's pages and bookmark bars, with the
- * active destination's stages listed beneath it as tabs, and the report's
- * appendix set apart below them as reference. A destination shows one stage
- * at a time, so a page only waits for, and queries, what is on screen.
+ * The App Editions' frame. A dark teal band carries the brand, a switcher
+ * across the three products — ValueLens, Consumption Central and Agent
+ * Evaluator — the open product's tabs, and the app-wide actions: the
+ * assumptions, Ask, report packs, sharing and the theme. Under it a white
+ * toolbar holds the page head, the page's sub-views as a segmented control,
+ * and its filters, which stay pinned as the page scrolls.
  *
- * Each destination carries its own palette: the sidebar shows every hue at
- * once so they read as distinct places, and the canvas — chrome and charts
- * alike — takes on the hue of the one that is open.
+ * ValueLens has a tab per destination, its stages the sub-views. Consumption
+ * Central and Agent Evaluator are one destination each, so their stages are
+ * the tabs. A page shows one stage at a time, so it only queries what is on
+ * screen. Charts still take each destination's series order; the chrome is
+ * the one teal everywhere.
  */
 export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellProps) {
     const themeContext = useThemeContext();
     const { isDark, toggleTheme } = themeContext;
     const active = view.kind === "destination" ? view.id : undefined;
     const activeStage = view.kind === "destination" ? view.stage : undefined;
-    // A pack takes on the hue of the destination it opens with.
+    // A pack takes on the series order of the destination it opens with.
     const palette: DestinationId = active ?? (view.kind === "pack" ? view.runs[0]?.destination.id : undefined) ?? "executive";
     const paletteTheme = usePaletteTheme(palette);
     const refreshing = useIsRefreshing();
     const current = destinations.find((destination) => destination.id === active);
     const viewKey = view.kind === "destination" ? view.id : `pack:${view.pack.id}`;
-    const mainRef = useRef<HTMLElement>(null);
+    const scrollRef = useRef<HTMLDivElement>(null);
     const contentRef = useRef<HTMLDivElement>(null);
     const { save } = useReportPacks();
     const [editing, setEditing] = useState<{ pack: ReportPack; heading: string }>();
@@ -146,7 +165,6 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
         () => pageStages(wholePage || !activeStage ? "all" : activeStage),
         [wholePage, activeStage],
     );
-    const tabs = useMemo(() => (current?.stages ?? []).filter((stage) => stage.ready), [current]);
     const showWholePage = useCallback(() => {
         setWholePage(true);
         return () => setWholePage(false);
@@ -166,205 +184,246 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
     const sources = useSourceAvailability();
     const accessScope = useAccessScope();
     const noScope = accessScope.kind === "none";
-    // Pages whose model the install didn't set up, or whose source has no data, are left out of the sidebar.
+    // Pages whose model the install didn't set up, or whose source has no data, are left out.
     const available = useMemo(() => availableDestinations(runtimeConfig().semanticModels, sources), [sources]);
+    const shownProducts = useMemo(() => availableProducts(available), [available]);
+
+    // The product the band shows: the open page's own, the first page of a
+    // pack's, or — for Ask and the assumptions, which belong to every
+    // product — whichever was showing before.
+    const ownProduct: ProductId | undefined =
+        current && !isBandDestination(current)
+            ? current.product
+            : view.kind === "pack"
+              ? view.runs[0]?.destination.product
+              : undefined;
+    const [lastProduct, setLastProduct] = useState<ProductId>(ownProduct ?? shownProducts[0]?.id ?? "valuelens");
+    if (ownProduct && ownProduct !== lastProduct) setLastProduct(ownProduct);
+    const product = ownProduct ?? lastProduct;
+    const productLabel = products.find((candidate) => candidate.id === product)?.label;
+
+    const productTabs = useMemo(() => productDestinations(available, product), [available, product]);
+    // A product of one destination shows that destination's stages as its tabs.
+    const single = productTabs.length === 1 ? productTabs[0] : undefined;
+    const bandTabs: BandTab[] = single
+        ? single.stages.map((stage) => ({
+              key: stage.id,
+              label: stage.label,
+              current: single.id === active && stage.id === activeStage,
+              ready: stage.ready,
+              open: () => onNavigate(single.id, stage.id),
+          }))
+        : productTabs.map((destination) => ({
+              key: destination.id,
+              label: tabLabel(destination),
+              current: destination.id === active,
+              ready: isDestinationReady(destination),
+              open: () => onNavigate(destination.id),
+          }));
+    const subViews = useMemo(
+        () => (current && current.id !== single?.id ? current.stages.filter((stage) => stage.ready) : []),
+        [current, single],
+    );
+    const showFilters = !noScope && !!title && filterKeys.length > 0;
+    const ask = available.find((destination) => destination.id === "ask");
+    const assumptions = available.find((destination) => destination.id === "assumptions");
 
     useEffect(() => {
-        if (mainRef.current) mainRef.current.scrollTop = 0;
+        if (scrollRef.current) scrollRef.current.scrollTop = 0;
     }, [viewKey, activeStage]);
 
-    const renderDestination = (destination: Destination) => {
-        const Icon = destination.icon;
-        const isActive = destination.id === active;
-        const ready = isDestinationReady(destination);
-        return (
-            <li key={destination.id} className={paletteClass(destination.id)}>
-                <button
-                    type="button"
-                    onClick={() => onNavigate(destination.id)}
-                    aria-current={isActive ? "page" : undefined}
-                    disabled={!ready}
-                    className={cn(
-                        "flex w-full items-center gap-300 rounded-md px-300 py-200 text-left transition-colors",
-                        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                        isActive
-                            ? "bg-accent text-accent-foreground"
-                            : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                        !ready && "cursor-not-allowed opacity-50 hover:bg-transparent",
-                    )}
-                >
-                    <Icon className="icon-size-200 shrink-0 text-primary" aria-hidden="true" />
-                    <span className="flex flex-col">
-                        <span className={cn("text-[length:var(--text-300)] leading-300", isActive && "font-semibold")}>
-                            {destination.label}
-                        </span>
-                        <span className="text-[length:var(--text-100)] leading-100 opacity-70">
-                            {ready ? destination.blurb : "Coming next"}
-                        </span>
-                    </span>
-                </button>
-
-                {isActive && destination.stages.length > 1 && (
-                    <ul
-                        aria-label={`${destination.label} stages`}
-                        className="mt-100 mb-200 ml-500 flex flex-col border-l border-border"
-                    >
-                        {destination.stages.map((stage) => {
-                            const isOpen = stage.id === activeStage;
-                            return (
-                                <li key={stage.id}>
-                                    {stage.ready ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => onNavigate(destination.id, stage.id)}
-                                            aria-current={isOpen ? "location" : undefined}
-                                            className={cn(
-                                                "-ml-px flex w-full border-l-2 py-100 pr-200 pl-[18px] text-left text-[length:var(--text-200)] leading-200 transition-colors",
-                                                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                                                isOpen
-                                                    ? "border-primary font-semibold text-foreground"
-                                                    : "border-transparent text-muted-foreground hover:text-foreground",
-                                            )}
-                                        >
-                                            {stage.label}
-                                        </button>
-                                    ) : (
-                                        <span className="-ml-px flex items-baseline justify-between gap-200 border-l-2 border-transparent py-100 pr-200 pl-[18px] text-[length:var(--text-200)] leading-200 text-muted-foreground opacity-60">
-                                            {stage.label}
-                                            <span className="text-[length:var(--text-100)] leading-100">Soon</span>
-                                        </span>
-                                    )}
-                                </li>
-                            );
-                        })}
-                    </ul>
-                )}
-            </li>
-        );
-    };
-
-    const reference = available.filter(isReference);
-
     return (
-        // The shell and both scroll areas are positioned so absolute descendants (sr-only text
+        // The shell and its scroll area are positioned so absolute descendants (sr-only text
         // especially) stay inside them; otherwise they extend the document and add a second scrollbar.
         <div
-            className={cn(
-                "relative flex h-screen w-full overflow-hidden bg-background text-foreground",
-                paletteClass(palette),
-            )}
+            className={cn("relative flex h-screen w-full flex-col overflow-hidden bg-background text-foreground", paletteClass(palette))}
             data-print="flow"
         >
-            <nav
-                aria-label="Sections"
-                data-print="hide"
-                className="relative flex w-[248px] shrink-0 flex-col gap-500 overflow-y-auto border-r border-border bg-card px-400 py-500"
-            >
-                <div className="flex flex-col gap-100 px-200">
-                    <span className="text-[length:var(--text-500)] leading-500 font-semibold">Analytics Hub</span>
-                    <span className="text-[length:var(--text-200)] leading-200 text-muted-foreground">
-                        for Microsoft Copilot
-                    </span>
-                </div>
+            <div ref={scrollRef} data-print="flow" className="relative flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-gutter:stable]">
+                <header data-band="" data-print="hide" className="bg-band text-band-foreground">
+                    <div className={cn(COLUMN, "relative flex flex-wrap items-center gap-x-600 gap-y-300 pt-400 pb-300-nudge")}>
+                        <div className="flex min-w-0 flex-col">
+                            <span className="font-heading text-[19px] leading-[24px] font-semibold tracking-[-0.01em]">Analytics Hub</span>
+                            <span className="text-[12.5px] leading-200 text-band-muted">for Microsoft Copilot</span>
+                        </div>
 
-                <ul className="flex flex-1 flex-col gap-100-nudge">
-                    {available.filter((destination) => !isReference(destination)).map(renderDestination)}
-                </ul>
+                        {shownProducts.length > 1 && (
+                            <nav aria-label="Products" className="order-last w-full lg:order-none lg:w-auto">
+                                <ul className="flex w-max max-w-full gap-100-nudge overflow-x-auto rounded-full bg-white/8 p-[3px] scrollbar-none">
+                                    {shownProducts.map((candidate) => {
+                                        const isCurrent = candidate.id === product && view.kind === "destination" && !!current && !isBandDestination(current);
+                                        return (
+                                            <li key={candidate.id} className="shrink-0">
+                                                <button
+                                                    type="button"
+                                                    title={candidate.blurb}
+                                                    aria-current={isCurrent ? "true" : undefined}
+                                                    onClick={() => {
+                                                        const first = productDestinations(available, candidate.id)[0];
+                                                        if (first) onNavigate(first.id);
+                                                    }}
+                                                    className={cn(
+                                                        "h-[30px] rounded-full px-400 text-[13px] whitespace-nowrap transition-colors",
+                                                        candidate.id === product
+                                                            ? "bg-band-foreground font-semibold text-band"
+                                                            : "font-medium text-band-muted hover:text-band-foreground",
+                                                    )}
+                                                >
+                                                    {candidate.label}
+                                                </button>
+                                            </li>
+                                        );
+                                    })}
+                                </ul>
+                            </nav>
+                        )}
 
-                {reference.length > 0 && (
-                    <div className="flex flex-col gap-100 border-t border-border pt-400">
-                        <span
-                            id="nav-reference"
-                            className="px-300 text-[length:var(--text-200)] leading-200 font-semibold text-muted-foreground"
-                        >
-                            Reference
-                        </span>
-                        <ul aria-labelledby="nav-reference" className="flex flex-col gap-100-nudge">
-                            {reference.map(renderDestination)}
-                        </ul>
+                        <div className="ml-auto flex flex-wrap items-center justify-end gap-200">
+                            <UpdateNotice />
+                            {assumptions && (
+                                <button
+                                    type="button"
+                                    title={assumptions.blurb}
+                                    onClick={() => onNavigate(assumptions.id)}
+                                    aria-current={active === assumptions.id ? "page" : undefined}
+                                    className={BAND_BUTTON}
+                                >
+                                    <SlidersHorizontal className="icon-size-200 shrink-0" aria-hidden="true" />
+                                    <span className="max-md:sr-only">{assumptions.label}</span>
+                                </button>
+                            )}
+                            {ask && (
+                                <button
+                                    type="button"
+                                    title={ask.blurb}
+                                    onClick={() => onNavigate(ask.id)}
+                                    aria-current={active === ask.id ? "page" : undefined}
+                                    className={BAND_BUTTON}
+                                >
+                                    <MessageSquareText className="icon-size-200 shrink-0" aria-hidden="true" />
+                                    <span className="max-md:sr-only">{ask.label}</span>
+                                </button>
+                            )}
+                            <BandPopover label="Reports" icon={FileStack} current={view.kind === "pack"}>
+                                {(close) => (
+                                    <ReportsNav
+                                        activePack={view.kind === "pack" ? view.pack.id : undefined}
+                                        onOpen={(id) => {
+                                            close();
+                                            onOpenPack(id);
+                                        }}
+                                        onCreate={() => {
+                                            close();
+                                            setEditing({ pack: { id: newPackId(), name: "", stages: [] }, heading: "New report pack" });
+                                        }}
+                                    />
+                                )}
+                            </BandPopover>
+                            <SharePanel />
+                            <button type="button" onClick={toggleTheme} aria-pressed={isDark} className={BAND_BUTTON}>
+                                {isDark ? (
+                                    <Sun className="icon-size-200 shrink-0" aria-hidden="true" />
+                                ) : (
+                                    <Moon className="icon-size-200 shrink-0" aria-hidden="true" />
+                                )}
+                                <span className="max-md:sr-only">{isDark ? "Light mode" : "Dark mode"}</span>
+                            </button>
+                        </div>
                     </div>
-                )}
 
-                <ReportsNav
-                    activePack={view.kind === "pack" ? view.pack.id : undefined}
-                    onOpen={onOpenPack}
-                    onCreate={() => setEditing({ pack: { id: newPackId(), name: "", stages: [] }, heading: "New report pack" })}
-                />
+                    <nav aria-label="Sections" className={COLUMN}>
+                        <ul aria-label={productLabel ? `${productLabel} tabs` : undefined} className="-mx-[14px] flex gap-100 overflow-x-auto scrollbar-none">
+                            {bandTabs.map((tab) => (
+                                <li key={tab.key} className="shrink-0">
+                                    <button
+                                        type="button"
+                                        onClick={tab.open}
+                                        disabled={!tab.ready}
+                                        title={tab.ready ? undefined : "Coming next"}
+                                        aria-current={tab.current ? "page" : undefined}
+                                        className={cn(
+                                            "relative px-[14px] pt-[10px] pb-300 text-[length:var(--text-300)] leading-300 whitespace-nowrap transition-colors",
+                                            "after:absolute after:inset-x-[14px] after:bottom-0 after:h-[3px] after:rounded-t-[3px]",
+                                            tab.current
+                                                ? "font-semibold text-band-foreground after:bg-band-accent"
+                                                : "font-medium text-band-muted hover:text-band-foreground",
+                                            !tab.ready && "cursor-not-allowed opacity-50 hover:text-band-muted",
+                                        )}
+                                    >
+                                        {tab.label}
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    </nav>
+                </header>
 
-                <SharePanel />
-
-                <UpdateNotice />
-
-                <button
-                    type="button"
-                    onClick={toggleTheme}
-                    aria-pressed={isDark}
-                    className="flex items-center gap-300 rounded-md border border-border px-300 py-200 text-[length:var(--text-300)] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                >
-                    {isDark ? (
-                        <Sun className="icon-size-200" aria-hidden="true" />
-                    ) : (
-                        <Moon className="icon-size-200" aria-hidden="true" />
-                    )}
-                    {isDark ? "Light mode" : "Dark mode"}
-                </button>
-
-                <CreatorCredit />
-            </nav>
-
-            <main ref={mainRef} data-print="flow" className="relative min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-                <div className="mx-auto flex max-w-[1400px] flex-col gap-600 px-700 pt-600 pb-800" data-print="flow">
-                    {view.kind === "pack" ? (
-                        <ReportHeader
-                            key={viewKey}
-                            icon={FileStack}
-                            title={view.pack.name}
-                            blurb={view.pack.description}
-                            sources={headerSources}
-                            dates={dates}
-                            filterKeys={filterKeys}
-                            missing={view.missing.map(stageLabel)}
-                            contentRef={contentRef}
-                            meta={<AccessScopeChip state={accessScope} />}
-                            downloadable={!noScope}
-                            actions={
-                                <PackActions
-                                    pack={view.pack}
-                                    onEdit={(pack, heading) => setEditing({ pack, heading })}
-                                    onDeleted={() => onNavigate("executive")}
+                <main data-print="flow" className="relative flex flex-1 flex-col">
+                    <div className={cn("bg-card", !showFilters && "border-b border-border")} data-print="flow">
+                        <div className={cn(COLUMN, "flex flex-col gap-400 pt-500", showFilters ? "pb-100" : "pb-400")}>
+                            {view.kind === "pack" ? (
+                                <ReportHeader
+                                    key={viewKey}
+                                    icon={FileStack}
+                                    crumb="Report pack"
+                                    title={view.pack.name}
+                                    blurb={view.pack.description}
+                                    sources={headerSources}
+                                    dates={dates}
+                                    filterKeys={filterKeys}
+                                    missing={view.missing.map(stageLabel)}
+                                    contentRef={contentRef}
+                                    meta={<AccessScopeChip state={accessScope} />}
+                                    downloadable={!noScope}
+                                    actions={
+                                        <PackActions
+                                            pack={view.pack}
+                                            onEdit={(pack, heading) => setEditing({ pack, heading })}
+                                            onDeleted={() => onNavigate("executive")}
+                                        />
+                                    }
                                 />
-                            }
-                        />
-                    ) : (
-                        current && (
-                            <ReportHeader
-                                key={viewKey}
-                                icon={current.icon}
-                                title={current.label}
-                                blurb={current.blurb}
-                                sources={headerSources}
-                                dates={dates}
-                                filterKeys={filterKeys}
-                                contentRef={contentRef}
-                                prepareExport={showWholePage}
-                                meta={<AccessScopeChip state={accessScope} />}
-                                downloadable={isPackable(current) && !noScope}
-                            />
-                        )
-                    )}
-                    {noScope ? (
-                        <NoScopeNotice />
-                    ) : (
-                        <>
-                            {title && filterKeys.length > 0 && <FilterBar destinationLabel={title} />}
-                            {current && tabs.length > 1 && (
+                            ) : (
+                                current && (
+                                    <ReportHeader
+                                        key={viewKey}
+                                        icon={current.icon}
+                                        crumb={isBandDestination(current) ? undefined : productLabel}
+                                        title={current.label}
+                                        blurb={current.blurb}
+                                        sources={headerSources}
+                                        dates={dates}
+                                        filterKeys={filterKeys}
+                                        contentRef={contentRef}
+                                        prepareExport={showWholePage}
+                                        meta={<AccessScopeChip state={accessScope} />}
+                                        downloadable={isPackable(current) && !noScope}
+                                    />
+                                )
+                            )}
+                            {!noScope && current && subViews.length > 1 && (
                                 <StageTabs
                                     label={`${current.label} stages`}
-                                    stages={tabs}
+                                    stages={subViews}
                                     open={activeStage}
                                     onOpen={(stage) => onNavigate(current.id, stage)}
                                 />
                             )}
+                        </div>
+                    </div>
+                    {showFilters && (
+                        // Pinned as the page scrolls, as the filters always have been.
+                        <div data-print="hide" className="sticky top-0 z-10 border-b border-border bg-card">
+                            <div className={COLUMN}>
+                                <FilterBar destinationLabel={title} />
+                            </div>
+                        </div>
+                    )}
+
+                    <div className={cn(COLUMN, "flex flex-col gap-600 pt-500 pb-800")} data-print="flow">
+                        {noScope ? (
+                            <NoScopeNotice />
+                        ) : (
                             <ThemeContext.Provider value={{ ...themeContext, theme: paletteTheme }}>
                                 <DataToContext.Provider value={dataTo}>
                                     <div
@@ -381,10 +440,12 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                                     </div>
                                 </DataToContext.Provider>
                             </ThemeContext.Provider>
-                        </>
-                    )}
-                </div>
-            </main>
+                        )}
+                    </div>
+                </main>
+
+                <CreatorCredit />
+            </div>
 
             {editing && (
                 <ReportPackEditor

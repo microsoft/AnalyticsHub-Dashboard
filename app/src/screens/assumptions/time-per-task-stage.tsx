@@ -502,7 +502,7 @@ export function TimePerTaskStage() {
                         <div
                             role="group"
                             aria-label="Changes to the task times"
-                            className="sticky bottom-0 z-10 -mx-700 flex flex-wrap items-center gap-x-400 gap-y-200 border-t border-border bg-background px-700 py-300"
+                            className="sticky bottom-0 z-10 -mx-[var(--page-x)] flex flex-wrap items-center gap-x-400 gap-y-200 border-t border-border bg-background px-[var(--page-x)] py-300"
                         >
                             <span className={cn(BODY, "mr-auto text-foreground")}>
                                 {pending > 0

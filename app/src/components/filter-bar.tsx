@@ -336,8 +336,8 @@ function LabelledSegment<T extends string>({ label, options, value, onChange }: 
 }
 
 /**
- * The slicers for the current destination, kept in reach at the top of the
- * canvas. Filters persist between destinations; one that is set but does not
+ * The slicers for the current destination, the last row of the toolbar,
+ * kept in reach at the top of the page as it scrolls. Filters persist between destinations; one that is set but does not
  * apply here is called out rather than silently dropped.
  */
 export function FilterBar({ destinationLabel }: { destinationLabel: string }) {
@@ -377,7 +377,7 @@ export function FilterBar({ destinationLabel }: { destinationLabel: string }) {
             role="group"
             aria-label="Filters"
             data-print="hide"
-            className="sticky top-0 z-10 -mx-700 flex flex-wrap items-center gap-x-400 gap-y-200 border-b border-border bg-background px-700 py-300"
+            className="flex flex-wrap items-center gap-x-400 gap-y-200 py-300"
         >
             {has("dateRange") && <DateFilter />}
             {has("organizations") && orgAttributes.length > 1 && <GroupByFilter />}

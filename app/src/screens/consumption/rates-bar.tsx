@@ -123,7 +123,7 @@ export function RatesBar({ azureCurrency }: { azureCurrency?: string }) {
         <div
             role="group"
             aria-label="Rates, packs and budgets"
-            className="sticky top-0 z-10 -mx-700 -mb-200 flex flex-wrap items-center gap-x-400 gap-y-200 border-b border-border bg-background px-700 py-300"
+            className="sticky top-0 z-10 -mx-[var(--page-x)] -mb-200 flex flex-wrap items-center gap-x-400 gap-y-200 border-b border-border bg-background px-[var(--page-x)] py-300"
         >
             <FilterMenu label="Rates & packs" summary={summary} active={overridden} panelClassName="w-[320px]">
                 {(close) => (
