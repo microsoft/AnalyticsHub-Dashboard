@@ -9,8 +9,8 @@ It uses the **same Lakehouse as ValueLens**. Its `agent_*` tables don't overlap 
 ValueLens reads or writes, and it reuses ValueLens' `copilot_org_data` table for department views.
 
 > **Using the [Fabric installer](../../installer/#agent-evaluator)?** Choose *Agent Evaluator*, pick
-> your environments, and it sets up access, the notebook, the pipeline step, the semantic model and
-> the app's Agent Evaluation pages for you.
+> your environments, and it sets up access, the notebook, the pipeline step, the semantic model,
+> the report and the app's link to it for you.
 
 ### What's here
 

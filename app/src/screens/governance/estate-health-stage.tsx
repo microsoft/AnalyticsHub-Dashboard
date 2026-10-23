@@ -30,7 +30,7 @@ function linkageMessage(linkage: RegistryLinkage): string | undefined {
             return (
                 `None of the ${formatKpi(linkage.unmatchedSessions, "whole")} agent sessions in the audit log ` +
                 `match an agent in the registry, so no registered agent shows any use and every shared agent ` +
-                `reads as unused. Leaderboards lists the agents people did use by their audit-log names.`
+                `reads as unused. Agents lists the agents people did use by their audit-log names.`
             );
         case "partial":
             return (
@@ -76,7 +76,7 @@ interface EstateHealthStageProps {
  * How big the registry is, how much of what was built here needs a review,
  * and where every registered agent sits in its lifecycle. The report's
  * Agent Health page, with the registry linkage note that used to sit on
- * Leaderboards.
+ * the report's Leaderboard page.
  */
 export function EstateHealthStage({ summary }: EstateHealthStageProps) {
     const estate = useSummaryQuery(ESTATE);

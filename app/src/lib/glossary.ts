@@ -108,7 +108,7 @@ export const GLOSSARY_PAGE_HOME: Readonly<Record<string, { destination: Destinat
     "Agent Health": { destination: "governance", stage: "estate-health" },
     Feedback: { destination: "feedback", stage: "feedback" },
     Heatmap: { destination: "adoption", stage: "trend-heatmap" },
-    Leaderboard: { destination: "leaderboards", stage: "leaderboard" },
+    Leaderboard: { destination: "adoption", stage: "adoption" },
     "Appendix: Glossary": { destination: "appendix", stage: "glossary" },
     "Appendix: Signal - Impact Table": { destination: "appendix", stage: "signal-impact" },
 };

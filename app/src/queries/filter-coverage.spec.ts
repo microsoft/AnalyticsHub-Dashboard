@@ -78,7 +78,6 @@ describe("query factories and the filter bar", () => {
     it("finds the factories on every model", () => {
         expect(byConnection("vl").length).toBeGreaterThan(50);
         expect(byConnection("cc").length).toBeGreaterThan(10);
-        expect(byConnection("ae").length).toBeGreaterThan(5);
     });
 
     it.each(factories.map((factory) => [factory.name, factory] as const))(
@@ -128,11 +127,7 @@ describe("query factories and the filter bar", () => {
         }
     });
 
-    it("narrows Agent Evaluator conversations by date and organization", () => {
-        const conversations = byConnection("ae").filter((factory) => applied(factory.name).length > 0);
-        expect(conversations.length).toBeGreaterThan(5);
-        for (const factory of conversations) {
-            expect(applied(factory.name)).toEqual(["dateRange", "organizations"]);
-        }
+    it("has no query on the Agent Evaluator model, which the app only links to", () => {
+        expect(byConnection("ae")).toEqual([]);
     });
 });

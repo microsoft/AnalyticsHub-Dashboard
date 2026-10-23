@@ -163,8 +163,8 @@ export function LandingStage({ data }: { data: ExecutiveData }) {
                             },
                         ]}
                     >
-                        <OpenDestinationFooter destination="leaderboards" stage="leaderboard">
-                            Open Leaderboards
+                        <OpenDestinationFooter destination="agents" stage="agents">
+                            Open Agents
                         </OpenDestinationFooter>
                     </NoteCard>
                 </div>

@@ -1,0 +1,16 @@
+EVALUATE
+// The organizations that use one agent most, by people then sessions.
+// The placeholder below is the filter that picks the agent out, as in agent-trend.dax.
+TOPN(
+    5,
+    SUMMARIZECOLUMNS(
+        'Chat + Agent Org Data'[Organization],
+        __AGENT__,
+        "Users", [Active Agent Users],
+        "Sessions", [Observed Agent Sessions]
+    ),
+    [Users], DESC,
+    [Sessions], DESC,
+    'Chat + Agent Org Data'[Organization], ASC
+)
+ORDER BY [Users] DESC, [Sessions] DESC, 'Chat + Agent Org Data'[Organization] ASC

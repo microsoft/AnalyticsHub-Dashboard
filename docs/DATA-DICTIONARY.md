@@ -700,5 +700,4 @@ replaces it on each run, with one row per environment. The columns are:
 - `Status`: *ok*, *empty*, *forbidden* or *error*.
 - `Reason`.
 
-When the model has no conversations, the Agent Evaluation page uses it to say where the parser
-looked, and how far back.
+When the model has no conversations, this table says where the parser looked, and how far back.

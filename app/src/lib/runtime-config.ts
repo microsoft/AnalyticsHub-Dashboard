@@ -295,7 +295,7 @@ export function parseReporting(json: unknown): InstallCurrency | undefined {
     return exchangeRate === undefined ? { currency } : { currency, exchangeRate };
 }
 
-/** Checks a config body has the `{ semanticModels: { alias: { workspaceId, itemId } } }` shape. */
+/** Checks a config body has the `{ semanticModels: { alias: { workspaceId, itemId, reportId? } } }` shape. */
 export function parseSemanticModels(json: unknown, path = FABRIC_CONFIG_PATH): ModelReferences {
     const models = isRecord(json) ? json.semanticModels : undefined;
     if (!isRecord(models))
@@ -305,7 +305,11 @@ export function parseSemanticModels(json: unknown, path = FABRIC_CONFIG_PATH): M
     for (const [alias, model] of Object.entries(models)) {
         if (!isRecord(model) || typeof model.workspaceId !== "string" || typeof model.itemId !== "string")
             throw new RuntimeConfigError(`${path} has no workspaceId and itemId for "${alias}".`);
-        parsed[alias] = { workspaceId: model.workspaceId, itemId: model.itemId };
+        parsed[alias] = {
+            workspaceId: model.workspaceId,
+            itemId: model.itemId,
+            ...(typeof model.reportId === "string" && GUID.test(model.reportId.trim()) ? { reportId: model.reportId.trim() } : {}),
+        };
     }
     return parsed;
 }

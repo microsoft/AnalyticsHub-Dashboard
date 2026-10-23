@@ -24,8 +24,8 @@ export interface AskTool {
     name: string;
     /** The destination whose figures the query reproduces, or `appendix`. */
     page: DestinationId;
-    /** The model alias the query reads: `vl`, `cc` or `ae`. */
-    model: "vl" | "cc" | "ae";
+    /** The model alias the query reads: `vl` or `cc`. */
+    model: "vl" | "cc";
     /** Path under `app/src/queries`. */
     query: string;
     /** The filter bar's filters the query accepts, applied as the page applies them. */

@@ -15,7 +15,7 @@ import { ConcentrationCallouts } from "./concentration-panel";
 
 const TITLE = "How concentrated sessions are";
 
-/** Leaderboards' cut rows for 15,447 people: the busiest 155, 773 and 3,862 of them. */
+/** Adoption's top-slice cut rows for 15,447 people: the busiest 155, 773 and 3,862 of them. */
 function cuts(rows: unknown[][]): DataTable {
     return {
         columns: ["Count", "Cumulative", "People", "Total"].map((name) => ({ name, displayName: name })),

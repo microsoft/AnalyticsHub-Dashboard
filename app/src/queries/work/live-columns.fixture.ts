@@ -43,55 +43,5 @@ export const liveColumns = {
         "[Unlicensed Tasks]",
         "[Agent Tasks]",
     ],
-    leaderboardSummary: {
-        all: ["[All Users]", "[All Sessions]", "[All Per User]", "[All Per Week]"],
-        licensed: [
-            "[Licensed Users]",
-            "[Licensed Sessions]",
-            "[Licensed Per User]",
-            "[Licensed Per Week]",
-            "[Licence Utilisation]",
-        ],
-        unlicensed: [
-            "[Unlicensed Users]",
-            "[Unlicensed Sessions]",
-            "[Unlicensed Per User]",
-            "[Unlicensed Per Week]",
-            "[Unlicensed Tasks]",
-        ],
-        agents: ["[Agent Users]", "[Agent Sessions]", "[Agent Per User]", "[Agent Per Week]", "[Agent Tasks]"],
-        cowork: ["[Cowork Users]", "[Cowork Sessions]", "[Cowork Per User]", "[Cowork Per Week]", "[Cowork Tasks]"],
-    },
     leaderboardConcentration: ["[Count]", "[Cumulative]", "[People]", "[Total]"],
-    leaderboardPeople: [
-        "Chat + Agent Org Data[Organization]",
-        "Chat + Agent Interactions (Audit Logs)[Audit_UserId]",
-        "[Is Grand Total]",
-        "[Is Group Total]",
-        "[Active Users]",
-        "[Sessions]",
-        "[Sessions Per User Per Week]",
-        "[Total]",
-    ],
-    leaderboardTasks: [
-        "Chat + Agent Interactions (Audit Logs)[AppHost]",
-        "Chat + Agent Interactions (Audit Logs)[Behavior_Enriched_Full]",
-        "[Is Grand Total]",
-        "[Is Group Total]",
-        "[Active Users]",
-        "[Sessions]",
-        "[Sessions Per User Per Week]",
-    ],
-    // The demo tenant has no Cowork sessions, so these were captured by
-    // running the same Task Category → Task Breakdown rollup with the Everyone
-    // measures; the Cowork query itself was confirmed to run live.
-    leaderboardCoworkTasks: [
-        "Chat + Agent Interactions (Audit Logs)[Task Breakdown Group]",
-        "Chat + Agent Interactions (Audit Logs)[Task Breakdown Category]",
-        "[Is Grand Total]",
-        "[Is Group Total]",
-        "[Active Users]",
-        "[Sessions]",
-        "[Sessions Per User Per Week]",
-    ],
 } as const;

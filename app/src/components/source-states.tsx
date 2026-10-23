@@ -12,9 +12,9 @@ import { BODY } from "@/lib/type-scale";
 interface SourceProps {
     /** The first stage's anchor, so the sidebar still has somewhere to land. */
     anchor: string;
-    /** The page's own name, e.g. "Agent Evaluation". */
+    /** The page's own name, e.g. "Consumption". */
     page: string;
-    /** The semantic model the page reads, e.g. "Agent Evaluator". */
+    /** The semantic model the page reads, e.g. "Consumption Central". */
     model: string;
 }
 

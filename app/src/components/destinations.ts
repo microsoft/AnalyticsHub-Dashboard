@@ -9,7 +9,7 @@ import type { LucideIcon } from "lucide-react";
 import {
     Banknote,
     BookOpen,
-    BotMessageSquare,
+    Bot,
     Briefcase,
     Coins,
     Gauge,
@@ -20,20 +20,20 @@ import {
     Sparkles,
     Timer,
     TrendingUp,
-    Trophy,
 } from "lucide-react";
 import { isConnectionConfigured, type ModelReferences } from "@/lib/connections";
 import type { FilterKey } from "@/lib/filters";
 import { isAbsent, type SourceAvailability } from "@/lib/optional-sources";
-import { consumptionConnection, evaluatorConnection } from "@/queries/shared";
+import { consumptionConnection } from "@/queries/shared";
 
 /**
  * The top-level destinations the report pages were folded into, each
  * holding its pages as stages read top to bottom, plus the app's assumptions
- * and the report's appendix as reference destinations below them. Consumption and Agent Evaluation
- * come from their own reports, Consumption Central and Agent Evaluator, and
- * bring their own slicers, so they take none of the filter bar's. Their
- * `connection` is optional: without it in `fabric.yaml` they are left out.
+ * and the report's appendix as reference destinations below them. Consumption
+ * comes from its own report, Consumption Central, and brings its own slicers,
+ * so it takes only the filters its queries can map. Its `connection` is
+ * optional: without it in `fabric.yaml` it is left out. Agent Evaluator stays
+ * its own report; the Agents page links out to it.
  * A destination with a `source` reads an optional module of the ValueLens
  * model, and is left out once the app has checked that source has no data.
  * Governance reads the Agent 365 registry, plus the optional Defender source
@@ -56,8 +56,8 @@ import { consumptionConnection, evaluatorConnection } from "@/queries/shared";
  * that tells that part of the story in full. The rest follow in the order
  * the sidebar lists them and the background loader warms them: who is
  * using it (Adoption), whether it is paying off (Value, Consumption,
- * Efficiency), who does the most and how people work, who is next, the
- * agents, then what people say.
+ * Efficiency), the agents people use, how people work, who is next, the
+ * agent estate, then what people say.
  */
 export const destinations = [
     {
@@ -127,15 +127,12 @@ export const destinations = [
         ],
     },
     {
-        id: "leaderboards",
-        label: "Leaderboards",
-        blurb: "The people and the agents doing the most",
-        icon: Trophy as LucideIcon,
+        id: "agents",
+        label: "Agents",
+        blurb: "Which agents people use, and how much",
+        icon: Bot as LucideIcon,
         filters: ["dateRange", "organizations", "licence", "audience", "agentTypes", "agentNames"] as FilterKey[],
-        stages: [
-            { id: "leaderboard", label: "Leaderboard", ready: true },
-            { id: "agents", label: "Agents", ready: true },
-        ],
+        stages: [{ id: "agents", label: "Agents", ready: true }],
     },
     {
         id: "work-patterns",
@@ -160,18 +157,6 @@ export const destinations = [
             { id: "license-readiness", label: "License readiness", ready: true },
             { id: "habit-licence", label: "Heavy users without a licence", ready: true },
             { id: "cowork-readiness", label: "Cowork readiness", ready: true },
-        ],
-    },
-    {
-        id: "agent-evaluation",
-        label: "Agent Evaluation",
-        blurb: "How well your agents answer, and where they fall short",
-        icon: BotMessageSquare as LucideIcon,
-        filters: ["dateRange", "organizations"] as FilterKey[],
-        connection: evaluatorConnection,
-        stages: [
-            { id: "agent-performance", label: "Performance", ready: true },
-            { id: "agent-conversations", label: "Conversations & topics", ready: true },
         ],
     },
     {

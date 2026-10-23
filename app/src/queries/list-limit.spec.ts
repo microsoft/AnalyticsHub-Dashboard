@@ -28,7 +28,6 @@ describe("per-person and per-agent lists", () => {
         "./governance/governance-review-queue.dax",
         "./licensing/license-candidates.dax",
         "./licensing/license-candidates-m365.dax",
-        "./work/leaderboard-people.dax",
     ];
 
     it.each(capped)("%s stops at LIST_LIMIT and counts the whole list", (path) => {

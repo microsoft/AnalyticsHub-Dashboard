@@ -1,0 +1,22 @@
+[
+  {
+    "[Type]": "Not in registry",
+    "[People]": 212,
+    "[Sessions]": 3604
+  },
+  {
+    "[Type]": "Maker: Copilot Studio",
+    "[People]": 96,
+    "[Sessions]": 1210
+  },
+  {
+    "[Type]": "Marketplace",
+    "[People]": 54,
+    "[Sessions]": 402
+  },
+  {
+    "[Type]": "Microsoft",
+    "[People]": 31,
+    "[Sessions]": 188
+  }
+]

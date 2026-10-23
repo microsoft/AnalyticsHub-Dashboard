@@ -14,12 +14,11 @@ import { toSummaryRow, type SummaryRow } from "@/lib/summary-row";
 import {
     auditLogFreshness,
     consumptionFreshness,
-    evaluatorFreshness,
     m365ActivityFreshness,
     productFeedbackFreshness,
     registryFreshness,
 } from "@/queries/freshness";
-import { consumptionConnection, evaluatorConnection } from "@/queries/shared";
+import { consumptionConnection } from "@/queries/shared";
 import { useSourceAvailability } from "./source-availability.context";
 import { useSemanticModelQuery } from "./use-semantic-model-query";
 
@@ -69,7 +68,6 @@ const QUERIES = {
     productFeedback: productFeedbackFreshness(),
     agentRegistry: registryFreshness(),
     consumption: consumptionFreshness(),
-    agentEvaluation: evaluatorFreshness(),
 };
 
 /**
@@ -100,10 +98,6 @@ export function useSourceFreshness(sources: readonly FreshnessSource[]): Freshne
         wants("agentRegistry") && modules?.agent365 !== false && !isAbsent(availability, "agentRegistry"),
     );
     const credits = useFreshnessRow(QUERIES.consumption, consumption);
-    const agentEvaluation = useFreshnessRow(
-        QUERIES.agentEvaluation,
-        wants("agentEvaluation") && modules?.agentEvaluator !== false && isConnectionConfigured(semanticModels, evaluatorConnection),
-    );
 
     return useMemo(
         () => ({
@@ -114,8 +108,7 @@ export function useSourceFreshness(sources: readonly FreshnessSource[]): Freshne
             cowork: readDate(credits, "[Cowork Last Date]"),
             copilotStudio: readDate(credits, "[Studio Last Date]"),
             azure: readDate(credits, "[Azure Last Date]"),
-            agentEvaluation: readDate(agentEvaluation, "[Last Date]"),
         }),
-        [auditLog, m365Activity, productFeedback, agentRegistry, credits, agentEvaluation],
+        [auditLog, m365Activity, productFeedback, agentRegistry, credits],
     );
 }

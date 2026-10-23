@@ -8,15 +8,20 @@
 import { describe, expect, it } from "vitest";
 import type { QueryTable } from "@microsoft/fabric-app-data";
 import { toDataTable } from "@/lib/to-data-table";
+import { describeOrgAttribute } from "@/lib/org-attribute";
 import { toSummaryRow } from "@/lib/summary-row";
 import {
     agentActivitySummary,
     agentEstateSummary,
-    agentFunctions,
     agentLeaderboard,
+    agentFilter,
     agentLifecycle,
+    agentOrgs,
     agentSurfaces,
+    agentTrend,
+    agentTypes,
     agentUsage,
+    agentWeekly,
     coworkCandidates,
     coworkFitSummary,
     coworkReadinessByOrg,
@@ -46,13 +51,19 @@ const modules = [
     { name: "coworkReadinessByOrg", factory: () => coworkReadinessByOrg(), columns: liveColumns.coworkReadinessByOrg },
     { name: "coworkCandidates", factory: () => coworkCandidates(), columns: liveColumns.coworkCandidates },
     { name: "coworkFitSummary", factory: () => coworkFitSummary(), columns: liveColumns.coworkFitSummary },
-    { name: "agentFunctions", factory: () => agentFunctions(), columns: liveColumns.agentFunctions },
+    { name: "agentWeekly", factory: () => agentWeekly(), columns: liveColumns.agentWeekly },
+    { name: "agentTypes", factory: () => agentTypes(), columns: liveColumns.agentTypes },
+    { name: "agentTrend", factory: () => agentTrend(agentFilter("registry:T1")!), columns: liveColumns.agentTrend },
+    { name: "agentOrgs", factory: () => agentOrgs(agentFilter("registry:T1")!), columns: liveColumns.agentOrgs },
 ];
 
 const specModules = [
     { name: "agentUsage", factory: () => agentUsage() },
     { name: "agentLifecycle", factory: () => agentLifecycle() },
     { name: "coworkReadinessByOrg", factory: () => coworkReadinessByOrg() },
+    { name: "agentWeekly", factory: () => agentWeekly() },
+    { name: "agentTypes", factory: () => agentTypes() },
+    { name: "agentTrend", factory: () => agentTrend(agentFilter("registry:T1")!) },
 ];
 
 /** Characters `ColumnDef.name` strips from the original DAX column name. */
@@ -135,6 +146,9 @@ describe("agents spec field references", () => {
     it.each(specModules)("$name only references columns the query returns", ({ factory }) => {
         const { columnMetadata, vegaLiteSpec } = factory();
         const available = new Set(Object.values(columnMetadata).map((def) => def.name));
+        // Fields a transform derives, such as the parsed week.
+        const transforms = (vegaLiteSpec as { transform?: { as?: string | string[] }[] }).transform ?? [];
+        for (const step of transforms) for (const name of [step.as ?? []].flat()) available.add(name);
         for (const field of collectFields(vegaLiteSpec)) {
             expect(available, `unknown field "${field}"`).toContain(field);
         }
@@ -265,32 +279,6 @@ describe("agent leaderboard", () => {
     });
 });
 
-describe("agent functions", () => {
-    const { query } = agentFunctions();
-
-    it("names agents as the leaderboard does, joining the registry one way", () => {
-        expect(query).toMatch(
-            /CROSSFILTER\(\s*'Chat \+ Agent Interactions \(Audit Logs\)'\[Agent_LinkID\],\s*'Agents 365'\[Title ID\],\s*OneWay\s*\)/,
-        );
-        expect(query).toContain("'Agents 365'[Agent name]");
-        expect(query).toContain('<> "Draft as 1P Agent"');
-        expect(query).toContain('"Unnamed agent"');
-    });
-
-    it("counts the non-blank job functions behind agent sessions only", () => {
-        expect(query).toContain("SUMMARIZE('Chat + Agent Interactions (Audit Logs)', 'Chat + Agent Org Data'[Function])");
-        expect(query).toContain("LEN(TRIM('Chat + Agent Org Data'[Function])) > 0");
-        expect(query).toContain("[Agent Filter (Normalized)] = \"Agents\"");
-        expect(query).toMatch(/NOT ISBLANK\(\[@Sessions\]\)/);
-    });
-
-    it("returns only the agents tied for the most functions", () => {
-        expect(query).toContain('FILTER(_all, _max > 0 && [Functions] = _max)');
-        expect(query).toContain('TOPN(2, _leaders, [Agent], ASC, [Agent Key], ASC)');
-        expect(query).toContain('"Leader Count", COUNTROWS(_leaders)');
-    });
-});
-
 describe("agent surfaces", () => {
     it.each([
         ["🤖 in Copilot", ["Copilot"]],
@@ -328,5 +316,62 @@ describe("cowork candidates", () => {
         const ranks = (candidateRows as Row[]).map((row) => row["[Rank]"] as number);
         expect(ranks).toEqual([...ranks].sort((a, b) => a - b));
         expect(ranks[0]).toBe(1);
+    });
+});
+
+describe("agent detail queries", () => {
+    it("picks a registered agent by its registry entry", () => {
+        expect(agentFilter("registry:T-1")).toBe(`TREATAS({"T-1"}, 'Agents 365'[Title ID])`);
+    });
+
+    // The agents table lists these from the audit log's blank registry row, so
+    // the detail has to look in the same place, or a registered agent sharing
+    // the name would be counted too.
+    it("picks an unregistered agent by its audit-log name, outside the registry", () => {
+        expect(agentFilter('audit:text:Say "hi"')).toBe(
+            `TREATAS({"Say ""hi"""}, 'Chat + Agent Interactions (Audit Logs)'[AgentName]), ` +
+                `FILTER(ALL('Agents 365'[Title ID]), ISBLANK('Agents 365'[Title ID]))`,
+        );
+        expect(agentFilter("audit:blank")).toBe(
+            `FILTER(ALL('Chat + Agent Interactions (Audit Logs)'[AgentName]), ISBLANK('Chat + Agent Interactions (Audit Logs)'[AgentName])), ` +
+                `FILTER(ALL('Agents 365'[Title ID]), ISBLANK('Agents 365'[Title ID]))`,
+        );
+    });
+
+    it("reads every key the agents table gives a row", () => {
+        const entries = toAgentEntries(toDataTable(asQueryTable(leaderboardRows as Row[]), agentLeaderboard().columnMetadata));
+        for (const entry of entries) expect(agentFilter(entry.agentKey), entry.agentKey).toBeDefined();
+        expect(agentFilter("registry:")).toBeUndefined();
+        expect(agentFilter("something else")).toBeUndefined();
+    });
+
+    it("fills the agent filter in, even when the name has replacement patterns", () => {
+        const filter = agentFilter("audit:text:Costs $& more")!;
+        for (const { query } of [agentTrend(filter), agentOrgs(filter)]) {
+            expect(query).not.toContain("__AGENT__");
+            expect(query).toContain(`TREATAS({"Costs $& more"}`);
+        }
+    });
+
+    it("shows the agent's top five organizations, or whichever org column is chosen", () => {
+        const filter = agentFilter("registry:T1")!;
+        expect(agentOrgs(filter).query).toMatch(/TOPN\(\s*5,/);
+        const { query, columnMetadata } = agentOrgs(filter, describeOrgAttribute("Department"));
+        expect(query).toContain("'Chat + Agent Org Data'[Department]");
+        expect(columnMetadata["Chat + Agent Org Data[Department]"]).toMatchObject({ displayName: "Department" });
+    });
+
+    it("counts people by registry type with the model's own agent measures", () => {
+        const { query } = agentTypes();
+        expect(query).toContain("'Agents 365'[Agent Type Label]");
+        expect(query).toContain("[Active Agent Users]");
+        expect(query).toContain('"Not in registry"');
+    });
+
+    it("trends people using agents week by week with the model's own measures", () => {
+        const { query } = agentWeekly();
+        expect(query).toContain("'Chat + Agent Interactions (Audit Logs)'[WeekStart]");
+        expect(query).toContain("[Active Agent Users]");
+        expect(query).toContain("[Observed Agent Sessions]");
     });
 });

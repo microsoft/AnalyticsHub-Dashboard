@@ -1,0 +1,20 @@
+EVALUATE
+// People who used an agent of each registry type. Agents the registry
+// doesn't know fall under the blank type, named "Not in registry" as on the
+// agents table. Someone who used two types counts once in each.
+SELECTCOLUMNS(
+    FILTER(
+        SUMMARIZECOLUMNS(
+            'Agents 365'[Agent Type Label],
+            "@People", [Active Agent Users],
+            "@Sessions", [Observed Agent Sessions]
+        ),
+        NOT ISBLANK([@People])
+    ),
+    "Type",
+        VAR _type = 'Agents 365'[Agent Type Label]
+        RETURN IF(ISBLANK(_type) || TRIM(_type) = "", "Not in registry", _type),
+    "People", [@People],
+    "Sessions", [@Sessions]
+)
+ORDER BY [People] DESC, [Type] ASC

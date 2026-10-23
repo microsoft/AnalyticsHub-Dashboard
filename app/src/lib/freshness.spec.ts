@@ -71,7 +71,7 @@ describe("PAGE_SOURCES", () => {
         expect(PAGE_SOURCES.feedback).toEqual(["productFeedback"]);
         expect(PAGE_SOURCES.governance).toEqual(["agentRegistry"]);
         expect(PAGE_SOURCES.consumption).toEqual(["cowork", "copilotStudio", "azure"]);
-        expect(PAGE_SOURCES["agent-evaluation"]).toEqual(["agentEvaluation"]);
+        expect(PAGE_SOURCES.agents).toEqual(["auditLog"]);
         expect(PAGE_SOURCES.assumptions).toEqual([]);
     });
 });

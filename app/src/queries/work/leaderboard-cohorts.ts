@@ -6,8 +6,9 @@
 //-----------------------------------------------------------------------
 
 /**
- * The report's Leaderboard bookmarks. Unlike the Work cohorts they count
- * sessions rather than tasks, and add Cowork: sessions in the Cowork surface.
+ * The report's Leaderboard bookmarks, which the session concentration on
+ * Adoption ranks. Unlike the Work cohorts they count sessions rather than
+ * tasks, and add Cowork: sessions in the Cowork surface.
  */
 export type LeaderboardCohort = "all" | "licensed" | "unlicensed" | "agents" | "cowork";
 
@@ -23,15 +24,12 @@ interface CohortDefinition {
     id: LeaderboardCohort;
     label: string;
     measures: LeaderboardMeasures;
-    /** Prefixes this cohort's columns in the summary query: `[Licensed Users]`, `[Licensed Sessions]`… */
-    summaryPrefix: string;
 }
 
 const definitions: readonly CohortDefinition[] = [
     {
         id: "all",
         label: "Everyone",
-        summaryPrefix: "All",
         measures: {
             users: "All Active Users",
             sessions: "Observed Sessions",
@@ -42,7 +40,6 @@ const definitions: readonly CohortDefinition[] = [
     {
         id: "licensed",
         label: "Licensed",
-        summaryPrefix: "Licensed",
         measures: {
             users: "Active Licensed Users",
             sessions: "Observed Licensed Sessions",
@@ -53,7 +50,6 @@ const definitions: readonly CohortDefinition[] = [
     {
         id: "unlicensed",
         label: "Unlicensed",
-        summaryPrefix: "Unlicensed",
         measures: {
             users: "Active Unlicensed Users",
             sessions: "Observed Unlicensed Sessions",
@@ -64,7 +60,6 @@ const definitions: readonly CohortDefinition[] = [
     {
         id: "agents",
         label: "Agents",
-        summaryPrefix: "Agent",
         measures: {
             users: "Active Agent Users",
             sessions: "Observed Agent Sessions",
@@ -75,7 +70,6 @@ const definitions: readonly CohortDefinition[] = [
     {
         id: "cowork",
         label: "Cowork",
-        summaryPrefix: "Cowork",
         measures: {
             users: "Cowork Users",
             sessions: "Observed Cowork Sessions",
@@ -101,17 +95,6 @@ export const leaderboardCohorts: { id: LeaderboardCohort; label: string }[] = de
 
 export function leaderboardMeasures(cohort: LeaderboardCohort): LeaderboardMeasures {
     return definition(cohort).measures;
-}
-
-/** The summary query's columns for one cohort. */
-export function leaderboardSummaryColumns(cohort: LeaderboardCohort): LeaderboardMeasures {
-    const prefix = definition(cohort).summaryPrefix;
-    return {
-        users: `[${prefix} Users]`,
-        sessions: `[${prefix} Sessions]`,
-        perUser: `[${prefix} Per User]`,
-        perWeek: `[${prefix} Per Week]`,
-    };
 }
 
 /**

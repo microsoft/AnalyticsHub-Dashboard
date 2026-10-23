@@ -18,8 +18,8 @@ export const connection = "vl";
 export const consumptionConnection = "cc";
 
 /**
- * The Agent Evaluator model, bound as a third connection so the Agent
- * Evaluation page can read how Copilot Studio agents perform.
+ * The Agent Evaluator model's alias in `fabric.yaml`. The app doesn't query
+ * it; an agent's detail on the Agents page links out to its report.
  */
 export const evaluatorConnection = "ae";
 

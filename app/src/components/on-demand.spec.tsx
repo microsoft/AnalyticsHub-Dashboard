@@ -23,7 +23,7 @@ afterEach(cleanup);
 
 describe("OnDemand", () => {
     it("holds the list back on a live page until asked", () => {
-        renderList("held", pageStages("leaderboard"));
+        renderList("held", pageStages("agents"));
         expect(screen.queryByText("The ranking")).toBeNull();
         expect(screen.getByText("Every person, ranked by sessions.")).toBeTruthy();
         fireEvent.click(screen.getByRole("button", { name: "Show the ranking" }));
@@ -32,18 +32,18 @@ describe("OnDemand", () => {
     });
 
     it("remembers an opened list for the rest of the session", () => {
-        renderList("remembered", pageStages("leaderboard"));
+        renderList("remembered", pageStages("agents"));
         fireEvent.click(screen.getByRole("button", { name: "Show the ranking" }));
         cleanup();
-        renderList("remembered", pageStages("leaderboard"));
+        renderList("remembered", pageStages("agents"));
         expect(screen.getByText("The ranking")).toBeTruthy();
         cleanup();
-        renderList("another", pageStages("leaderboard"));
+        renderList("another", pageStages("agents"));
         expect(screen.queryByText("The ranking")).toBeNull();
     });
 
     it("shows the list at once in a download, a report pack or outside a page", () => {
-        for (const filter of [pageStages("all"), onlyStages(["leaderboard"]), undefined]) {
+        for (const filter of [pageStages("all"), onlyStages(["agents"]), undefined]) {
             renderList("printed", filter);
             expect(screen.getByText("The ranking")).toBeTruthy();
             cleanup();

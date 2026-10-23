@@ -1,0 +1,47 @@
+{
+  "$schema": "https://vega.github.io/schema/vega-lite/v5.json",
+  "width": "container",
+  "height": "container",
+  "transform": [
+    {
+      "calculate": "toDate(datum['Chat + Agent Interactions (Audit Logs)WeekStart'])",
+      "as": "Week"
+    }
+  ],
+  "encoding": {
+    "x": {
+      "field": "Week",
+      "type": "temporal",
+      "title": null,
+      "axis": {
+        "tickCount": 4,
+        "labelExpr": "timeFormat(datum.value, '%-d %b')",
+        "labelAngle": 0
+      }
+    },
+    "y": {
+      "field": "Users",
+      "type": "quantitative",
+      "title": "People",
+      "axis": { "labelExpr": "compactFormat(datum.value, '#,0')", "tickCount": 3 }
+    }
+  },
+  "layer": [
+    {
+      "mark": { "type": "area", "interpolate": "monotone", "opacity": 0.25 }
+    },
+    {
+      "mark": { "type": "line", "interpolate": "monotone", "strokeWidth": 2 }
+    },
+    {
+      "mark": { "type": "point", "filled": true, "size": 30 },
+      "encoding": {
+        "tooltip": [
+          { "field": "Week", "type": "temporal", "title": "Week starting", "format": "%d %b %Y" },
+          { "field": "Users", "type": "quantitative", "title": "People", "format": ",.0f" },
+          { "field": "Sessions", "type": "quantitative", "title": "Sessions", "format": ",.0f" }
+        ]
+      }
+    }
+  ]
+}

@@ -30,7 +30,7 @@ VAR __Values =
         [@Value] > 0
     )
 // The cuts lib/concentration.ts reads: every top slice's size, rounded up.
-// Leaderboards shows the top 1%, 5% and 25% without a curve, so it asks for
+// Adoption shows the top 1%, 5% and 25% without a curve, so it asks for
 // no other cut. Each cut's sum takes the busiest people, less any tied past
 // the cut, as the Studio and Value queries work it out.
 VAR __Total = SUMX(__Values, [@Value])

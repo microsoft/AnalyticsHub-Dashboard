@@ -58,15 +58,15 @@ describe("FreshnessLabel", () => {
     });
 
     it("adds a line for each of the page's loads that failed or loaded with a warning, with its reason", () => {
-        useSourceFreshness.mockReturnValue({ agentEvaluation: "2026-10-07T00:00:00" });
+        useSourceFreshness.mockReturnValue({ productFeedback: "2026-10-07T00:00:00" });
         useLoadStatus.mockReturnValue([
-            { activity: "Run_Agent_Evaluator_Transcripts", source: "Agent transcripts", status: "Warning", reason: "It ran, but found nothing to load in Sales." },
+            { activity: "Run_ProductFeedback_Ingester", source: "Product feedback", status: "Warning", reason: "It ran, but found nothing to load in Sales." },
             { activity: "Run_Audit_Log_Ingester", source: "Copilot audit log", status: "Failed", reason: "It ran out of time." },
         ]);
-        render(<FreshnessLabel destination="agent-evaluation" />);
+        render(<FreshnessLabel destination="feedback" />);
         expect(useLoadStatus).toHaveBeenCalledWith(true);
-        expect(screen.getByText("Data: Agent evaluation to 7 Oct")).toBeInTheDocument();
-        expect(screen.getByText("Agent transcripts loaded with a warning: It ran, but found nothing to load in Sales.")).toBeInTheDocument();
+        expect(screen.getByText("Data: Product feedback to 7 Oct")).toBeInTheDocument();
+        expect(screen.getByText("Product feedback loaded with a warning: It ran, but found nothing to load in Sales.")).toBeInTheDocument();
         expect(screen.queryByText(/Copilot audit log/)).toBeNull();
     });
 
