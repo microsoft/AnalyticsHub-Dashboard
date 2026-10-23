@@ -174,6 +174,22 @@ the group in My Groups.
   plan before **Go ahead?** says you own the viewer group only when the installer creates it. 0.6.7
   has this problem too; its release notes list it as a Known issue.
 
+**Fixed:**
+
+- **Azure: turning on org-scoped access no longer fails with 403 AuthorizationPermissionMismatch.**
+  The installer read the scope list from the install's storage account before it gave you
+  **Storage Blob Data Contributor** there. So unless you already had that role, turning org-scoped
+  access on, opening `access` once it was on, and applying it during setup could fail with that
+  403. In testing, it turned on only once a test user was given the role by hand. 0.6.7 has this
+  problem too, and its release notes list it as a Known issue. Now, on Azure, the installer gives
+  you the role before it first reads or writes the scope list, then retries for a few minutes while
+  a new role takes effect. It asks every time, even if the install gave the role to someone before,
+  so a second admin gets it too; if you have it already, that counts as given. If you can't assign
+  roles on the storage account but someone gave you the role, it now goes ahead; before, it could
+  stop and say you needed the role. Without the role, it says to ask an Owner or User Access
+  Administrator for it (Azure portal > the storage account > **Access control (IAM)**), wait about
+  5 minutes and try again, instead of showing the 403. Private networking and Fabric are unchanged.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its

@@ -311,7 +311,7 @@ function store(ctx) {
  * @param {Ctx} ctx
  */
 export async function readScopes(ctx) {
-  return parseScopeCsv(await store(ctx).readScope());
+  return parseScopeCsv(await withStorageRole(ctx, () => store(ctx).readScope()));
 }
 
 /**
@@ -334,17 +334,65 @@ async function whileRoleArrives(ctx, fn) {
   }
 }
 
+/** Org-scoped access can't read or write its files on the storage account: you don't have the role it needs yet. */
+class NoStorageRole extends Error {}
+
+/** Whether this run could give you Storage Blob Data Contributor on the storage account, or found you have it: asked once a run. @type {WeakMap<Ctx, boolean>} */
+const storageRoles = new WeakMap();
+
+/**
+ * Runs a read or write of the scope list or the roles file. On Azure it first gives you Storage Blob
+ * Data Contributor on the storage account, every run, as the install may have given it to someone
+ * else; then retries while a new role takes effect. With private networking every call is refused
+ * anyway, so it asks for nothing.
+ * @template T
+ * @param {Ctx} ctx
+ * @param {() => Promise<T>} fn
+ * @returns {Promise<T>}
+ */
+async function withStorageRole(ctx, fn) {
+  const { config } = ctx;
+  if (config.target !== 'azure' || isPrivate(config.azure)) return fn();
+  let granted = storageRoles.get(ctx);
+  if (granted === undefined) {
+    granted = await grantLandingWrite(ctx, 'for org-scoped access', { always: true });
+    storageRoles.set(ctx, granted);
+  }
+  try {
+    // Without the right to assign it, you may still have it, given by hand.
+    return await (granted ? whileRoleArrives(ctx, fn) : fn());
+  } catch (err) {
+    if (!(err instanceof HttpError) || err.status !== 403) throw err;
+    const account = config.azure?.outputs?.storageAccountName;
+    const again = `then try again from "${commandLine('access')}".`;
+    throw new NoStorageRole(
+      granted
+        ? `Your Storage Blob Data Contributor role on the storage account ${account} hasn't taken effect yet. Wait about 5 minutes, ${again}`
+        : `You need Storage Blob Data Contributor on the storage account ${account} for org-scoped access, and you can't assign roles on it. Ask an Owner or User Access Administrator to give it to you (Azure portal > the storage account > Access control (IAM)), wait about 5 minutes, ${again}`,
+      { cause: err },
+    );
+  }
+}
+
+/**
+ * Says what to do when org-scoped access lacks its storage role, and gives null. Anything else is rethrown.
+ * @param {Ctx} ctx
+ * @param {unknown} err
+ * @returns {null}
+ */
+function storageRoleFailed(ctx, err) {
+  if (!(err instanceof NoStorageRole)) throw err;
+  ctx.ui.fail(err.message);
+  return null;
+}
+
 /**
  * Writes the scope list.
  * @param {Ctx} ctx
  * @param {ScopeRow[]} rows
  */
 export async function writeScopes(ctx, rows) {
-  if (ctx.config.target === 'azure' && !(await grantLandingWrite(ctx, 'to write the org-scoped access list'))) {
-    throw new Error('You need Storage Blob Data Contributor on the storage account to change org-scoped access.');
-  }
-  const s = store(ctx);
-  await whileRoleArrives(ctx, () => s.writeScope(scopeCsv(rows)));
+  await withStorageRole(ctx, () => store(ctx).writeScope(scopeCsv(rows)));
 }
 
 /**
@@ -501,21 +549,19 @@ export async function applyOrgAccess(ctx, opts = {}) {
     ui.info(`Fix ${blockers.length === 1 ? 'that' : 'those'}, or turn org-scoped access off from "${commandLine('access')}".`);
     return false;
   }
-  const rows = await readScopes(ctx);
+  const rows = await readScopes(ctx).catch((err) => storageRoleFailed(ctx, err));
+  if (!rows) return false;
   const { items, missing } = await roleItems(ctx, rows);
   for (const m of missing) ui.warn(`${m.name} wasn't deployed with org-scoped access by this installer. Run "${commandLine('update')}" to redeploy it.`);
   if (!items.length) return null;
 
-  if (config.target === 'azure' && !(await grantLandingWrite(ctx, 'to write the org-scoped access files'))) {
-    ui.fail('You need Storage Blob Data Contributor on the storage account to apply org-scoped access.');
-    ui.info(`Once you have it, try again from "${commandLine('access')}".`);
-    return false;
-  }
   const s = store(ctx);
-  await whileRoleArrives(ctx, async () => {
+  const written = await withStorageRole(ctx, async () => {
     await s.writeScope(scopeCsv(rows));
     await s.writeRoles(JSON.stringify(items, null, 2));
-  });
+    return true;
+  }).catch((err) => storageRoleFailed(ctx, err));
+  if (!written) return false;
 
   let ok;
   if (config.target === 'azure') {
