@@ -252,6 +252,18 @@ sets the number. On Fabric and Azure.
   **Reset filters**, and goes back to this default. Smaller tenants still start on **All dates**.
   Consumption Central and the Agent Evaluator keep every date until you choose a range.
 
+**Fixed:**
+
+- **Azure: scoped delegation in the Share panel no longer fails with 503.** With org-scoped access
+  on, the panel couldn't show, give, take back or approve scopes: each request failed at once with
+  "Couldn't reach the Analytics Hub database. Try again in a minute.", even with the database
+  online, and the web app logged `SQL connection failed` with "must be an instance of the token
+  credential class". The SQL driver copies its settings into plain objects, which dropped the
+  managed identity's `getToken`, so it refused the identity before connecting. Now the web app
+  hands the driver a credential with its own `getToken`, which survives the copy. The fault has
+  been in the web app since 0.6.0, but the Share panel offers scoped delegation on Azure only since
+  0.6.8-rc.2, so released versions, 0.6.7 included, couldn't reach it from the app.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its
