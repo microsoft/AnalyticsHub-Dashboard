@@ -18,7 +18,10 @@ const CONNECT_ATTEMPTS = 4;
 export class SqlScopeStore {
   constructor({ server, database, clientId, sqlModule, credential, sleep = (ms) => new Promise((r) => setTimeout(r, ms)) }) {
     this.server = server; this.database = database; this.sleep = sleep;
-    this.credential = credential || new ManagedIdentityCredential(clientId);
+    const source = credential || new ManagedIdentityCredential(clientId);
+    // mssql deep-copies the pool config into plain objects, dropping methods a credential's class
+    // defines, getToken among them, and tedious then refuses it. A getToken of its own survives.
+    this.credential = { getToken: (scopes, options) => source.getToken(scopes, options) };
     this.sqlModule = sqlModule; this.pool = null;
   }
 

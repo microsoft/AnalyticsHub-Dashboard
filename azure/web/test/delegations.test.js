@@ -314,3 +314,43 @@ test('the SQL store keys rows by person and scope, and explains missing tables',
   fail = 2627; await assert.rejects(store.insert(row), (e) => e.statusCode === 409);
   fail = 208; await assert.rejects(store.list(), (e) => e.statusCode === 503 && e.code === 'AccessTablesMissing');
 });
+
+test('the SQL store hands tedious a credential that survives mssql copying the pool config', async () => {
+  // The real mssql and tedious. tedious checks the credential when the pool creates a connection,
+  // then gets a connector that refuses, so the test looks up no name and opens no socket.
+  const mssql = (await import('mssql')).default;
+  const made = [];
+  class RecordingPool extends mssql.ConnectionPool {
+    constructor(config) {
+      super({ ...config, options: { ...config.options, connector: async () => { throw new Error('no sockets in tests'); } } });
+      made.push(this);
+    }
+  }
+  // Like ManagedIdentityCredential, getToken is on the class's prototype, not on the instance.
+  class PrototypeCredential {
+    scopes = [];
+    async getToken(scopes) { this.scopes.push(scopes); return { token: 'sql-token', expiresOnTimestamp: 1 }; }
+  }
+  const connect = async (credential) => {
+    const warnings = [];
+    const warn = console.warn;
+    console.warn = (...args) => { warnings.push(args.join(' ')); };
+    try {
+      const store = new SqlScopeStore({ server: 'sql.example.invalid', database: 'db', sqlModule: { ConnectionPool: RecordingPool }, credential, sleep: async () => {} });
+      await assert.rejects(store.connect(), (e) => e.statusCode === 503 && e.code === 'DatabaseUnavailable');
+    } finally {
+      console.warn = warn;
+    }
+    assert.ok(!warnings.some((w) => w.includes('must be an instance of the token credential class')), warnings.join('\n'));
+    assert.ok(warnings.some((w) => w.includes('no sockets in tests')), `tedious took the credential and tried to connect: ${warnings.join('\n')}`);
+    return made.at(-1).config.authentication.options.credential;
+  };
+
+  const credential = new PrototypeCredential();
+  const handed = await connect(credential);
+  assert.equal(typeof handed.getToken, 'function');
+  assert.deepEqual(await handed.getToken('https://database.windows.net/.default'), { token: 'sql-token', expiresOnTimestamp: 1 });
+  assert.deepEqual(credential.scopes, ['https://database.windows.net/.default']);
+  // With none given, the store uses the managed identity, which tedious takes the same way. It's never asked for a token.
+  assert.equal(typeof (await connect(undefined)).getToken, 'function');
+});
