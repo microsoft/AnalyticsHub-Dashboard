@@ -12,6 +12,14 @@ can't, and there's no app registration or admin pack to use instead). On Azure n
 create the two apps, the plan writes a script for an admin to create them, and stops before it deploys anything. Setting it up by hand? On Fabric, you also need
 [these](MANUAL-INSTALL.md#1-prerequisites); on Azure, see [its list](MANUAL-INSTALL.md#azure).
 
+**Requests for your admins.** For whatever someone else has to do, the installer drafts one message
+per admin that asks for all of it, so each admin gets one request, not one per row. In the browser,
+they're under the list in the **Prerequisites** panel, and in the run log after install and update
+check the prerequisites: each card says which admin and which rows it covers, and **Copy request**
+copies the message. In the terminal, `prereqs`, install and update print them after the list, under
+"Requests for your admins: copy each one and send it.", each with "For:" and then the message under
+"Copy and send:". They never include a secret.
+
 ## At a glance
 
 | Who | Fabric | Azure | Time |

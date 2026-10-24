@@ -643,6 +643,10 @@ function apply(e) {
       ensureRoot(run, e.at);
       add(run, { t: 'prereqs', items: e.items ?? [] });
       return;
+    case 'admin-requests':
+      ensureRoot(run, e.at);
+      add(run, { t: 'admin-requests', requests: e.requests ?? [] });
+      return;
     case 'auto':
       ensureRoot(run, e.at);
       add(run, { t: 'qa', message: e.message, display: e.display, auto: true });
@@ -953,6 +957,8 @@ function renderItem(it) {
       return null;
     case 'prereqs':
       return renderPrereqs(it.items);
+    case 'admin-requests':
+      return renderAdminRequests(it.requests);
     default:
       return null;
   }
@@ -1011,6 +1017,20 @@ function copyButton(text, labelText) {
       }
     },
   }, icon('copy'), label);
+}
+
+/** One request per admin for the prerequisites someone else does: who it's for, what it covers, and the message to copy. */
+function renderAdminRequests(requests) {
+  if (!(requests ?? []).length) return null;
+  return h('section', { class: 'admin-requests', 'aria-label': 'Requests for your admins' },
+    h('h3', null, 'Requests for your admins'),
+    h('p', { class: 'hint' }, 'One message per admin. Copy each one and send it: it asks for everything that admin does.'),
+    h('ol', { class: 'next-list' }, requests.map((r) => h('li', { class: 'next-card' },
+      h('div', { class: 'next-head' },
+        h('span', { class: 'next-name' }, r.who),
+        h('span', { class: 'next-who' }, `For: ${r.rows.join('; ')}`)),
+      h('details', { class: 'next-message' }, h('summary', null, 'The request to send'), h('pre', null, r.message)),
+      h('div', { class: 'actions' }, copyButton(r.message, 'Copy request'))))));
 }
 
 /**
@@ -1657,6 +1677,7 @@ function prereqsPanel(busy) {
     body = [
       h('p', { class: 'hint' }, `Checked as ${p.upn} at ${when}. ${counts.map(([s, n]) => `${n} ${s === 'handoff' ? 'to hand off' : PREREQ_STATE[s].toLowerCase()}`).join(', ')}. Only active roles count. A role you can activate yourself in Entra (Privileged Identity Management) needs activating first.`),
       renderPrereqs(p.items),
+      renderAdminRequests(p.requests),
     ];
   } else if (st.user) {
     body = [h('p', { class: 'hint' }, 'Checking your roles, licences and access in the background. This takes a few seconds.')];
@@ -1930,6 +1951,13 @@ function itemMarkdown(it, depth) {
         `  - Needed for: ${p.neededFor}`,
         ...(p.status !== 'met' ? [`  - ${prereqHow(p.status)}: ${p.howTo}`] : []),
       ]);
+    case 'admin-requests':
+      return it.requests.length
+        ? ['', '**Requests for your admins**', '', ...it.requests.flatMap((r, i) => [
+          `${i + 1}. **${r.who}** (for: ${r.rows.join('; ')})`,
+          ...r.asks.map((a) => `   - ${a}`),
+        ]), '']
+        : [];
     default:
       return [];
   }

@@ -247,6 +247,10 @@ export function createWebUi(opts = {}) {
     prereqs: (items) => {
       emit({ type: 'prereqs', items });
     },
+    /** @param {import('./steps/handoff.js').AdminRequest[]} requests */
+    adminRequests: (requests) => {
+      if (requests.length) emit({ type: 'admin-requests', requests });
+    },
 
     /**
      * @template T
