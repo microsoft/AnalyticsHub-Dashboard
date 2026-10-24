@@ -127,7 +127,8 @@ test('Fabric access: Reader for the app on the tenant root group, or the chosen 
   d.config.resourceGraph = { managementGroup: 'mg-1', agents: true, foundry: true };
   assert.equal(await ensureAppResourceGraphAccess(d.ctx), false);
   assert.ok(denied.calls.includes(`assignRole /providers/Microsoft.Management/managementGroups/mg-1 ${ROLES.reader} sp-1 ServicePrincipal`));
-  assert.match(dui.text(), /az role assignment create --assignee app-1 --role Reader --scope \/providers\/Microsoft\.Management\/managementGroups\/mg-1/);
+  assert.match(dui.text(), /\n {4}az role assignment create --assignee-object-id sp-1 --assignee-principal-type ServicePrincipal --role "Reader" --scope \/providers\/Microsoft\.Management\/managementGroups\/mg-1\n/, 'by the object ID, on a line of its own');
+  assert.doesNotMatch(dui.text(), /--assignee app-1|--assignee-object-id app-1/, 'never by the client ID');
   assert.equal(d.config.resourceGraph?.access, undefined);
 
   const told = fakeArm();

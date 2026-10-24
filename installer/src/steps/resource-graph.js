@@ -4,6 +4,7 @@
  * there for whoever runs the load, and the Entra role agents need: Global Reader, given when the
  * person running the installer can, or else the steps for someone who can.
  */
+import { objectIdOrLookup, roleAssignmentCommand } from '../admin-commands.js';
 import { ROLES } from '../clients/azure.js';
 import { AI_ADMIN_ROLE, GLOBAL_READER_ROLE, POWER_PLATFORM_ADMIN_ROLE } from '../clients/graph.js';
 import { normaliseResourceGraph } from '../config.js';
@@ -62,8 +63,12 @@ export function resourceGraphKinds(config) {
   return kinds.length ? kinds.join(' and ') : 'nothing';
 }
 
-/** @param {string} who @param {string} scope */
-export const readerCommand = (who, scope) => `az role assignment create --assignee ${who} --role Reader --scope ${scope}`;
+/**
+ * Reader at the scope Resource Graph reads, by the principal's object ID.
+ * @param {string} objectId  The enterprise application's object ID, the managed identity's principal ID, or a lookup.
+ * @param {string} scope
+ */
+export const readerCommand = (objectId, scope) => roleAssignmentCommand(objectId, 'Reader', scope);
 
 /**
  * The steps for a Global Administrator or Privileged Role Administrator to give the app Global Reader.
@@ -185,7 +190,8 @@ export async function ensureResourceGraphAccess(ctx, who, key) {
   } catch (err) {
     if (!(err instanceof HttpError) || ![403, 404].includes(err.status)) throw err;
     ui.warn(`You can't assign Azure roles on ${where}, so Foundry can't be read yet.${err.status === 404 ? ' Check the management group ID.' : ''}`);
-    ui.info(`An Owner or User Access Administrator there can give ${who.name} Reader with: ${readerCommand(who.appId ?? who.id, scope)}`);
+    ui.info(`An Owner or User Access Administrator there can give ${who.name} Reader, in Azure Cloud Shell (Bash):`);
+    ui.info(readerCommand(objectIdOrLookup(who.id, who.appId), scope));
     await ensureAgentDirectoryRole(ctx, who, key);
     const has = !ui.yes && (await ui.select('Then:', [
       { name: 'Leave Foundry out for now', value: false, description: 'The load reports Foundry as not readable until the role is there. Run the installer again then.' },

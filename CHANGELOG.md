@@ -171,6 +171,37 @@ Deployment instructions do **not** live here. They live in the READMEs:
   role that's pending twice is asked for once. They never include a secret. Resource Graph's
   request, and its prerequisite row, ask for Global Reader and Reader for the app, or on Azure the
   jobs' managed identity, because the load runs as that identity, not as you.
+- **Admin commands you can paste.** Where the installer can't give a role itself, it prints a
+  command for the admin who can, to paste into Azure Cloud Shell (Bash), and their request under
+  **Requests for your admins** includes it. No command includes a secret.
+  - The commands for credit consumption's Azure AI roles (Reader, Cost Management Reader and
+    Monitoring Reader), for its pay-as-you-go Cost Management Reader and for Resource Graph's Reader
+    name the app, or on Azure the jobs' managed identity, by its object ID, with
+    `--assignee-object-id` and `--assignee-principal-type ServicePrincipal`, as Learn asks for a
+    service principal. Before, the installer named it by its client ID. If the installer doesn't
+    know the object ID, the command looks it up. Resource Graph's request includes its Reader
+    command, and the installer README's example matches.
+  - When you can't give the jobs' managed identity its Microsoft Graph roles, the installer now
+    prints one warning after the deploy, and one command that gives each role still pending, once.
+    Before, it warned for each role, with no command. `status` lists each pending role once and
+    repeats the command, and the request for a Privileged Role Administrator or Global
+    Administrator includes it. The command skips a role this tenant doesn't have yet, and says so.
+    The installer README and PERMISSIONS say the same, and MANUAL-INSTALL says that `$MI` is the
+    managed identity's principal (object) ID, not its client ID.
+  - On Fabric, only the app question's default says "(recommended)". When the installer finds no
+    role or setting that lets you register apps, **Create** says it can't see custom roles, so
+    choose it only if one lets you. **An admin will register the app for me** shows whenever the
+    installer can't confirm you can. If Entra refuses, the installer says to run it again and choose
+    that, instead of pointing at a page in the repo, and that it reuses what it has made.
+  - On Azure, when the installer finds no role or setting that lets you register apps, **Create the
+    two apps** also says that if your custom role doesn't make you their owner, Entra may refuse to
+    finish them after the deploy. The register-apps prerequisite and the stop with `--yes` say that
+    if a custom role lets you register apps, you can create them yourself (without `--yes`). The
+    installer README recommends **Create** only when no admin script is waiting, as the plan does.
+  - Fabric's Done card that asks for Global Reader goes once the installer has given the role. The
+    terminal links to the least-privilege guide on GitHub, not to a path in the repo. The drop
+    site's request goes to a SharePoint Administrator. In the run log the browser saves, each
+    command is in a code block.
 
 ## 2026-10-26 — Analytics Hub installer 0.6.8
 

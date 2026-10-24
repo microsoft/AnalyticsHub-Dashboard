@@ -474,9 +474,11 @@ export async function ensureApp(ctx) {
       application = await api.graph.createApplication(APP_NAME, roles);
     } catch (err) {
       if (!isStatus(err, 403)) throw err;
+      // The plan offers the admin option whenever it can't confirm you can register apps (plan.js, "App registration").
       throw new Error(
-        'You can\'t create app registrations in this tenant. Ask an admin to create one with the permissions in docs/PERMISSIONS.md, ' +
-          'then run the installer again and choose "Use an app registration I already have".',
+        `Entra didn't let you create the app registration (${/** @type {Error} */ (err).message.split('\n')[0]}). ` +
+          `Run "${commandLine('install')}" again${ui.yes ? ' without --yes' : ''} and choose "An admin will register the app for me": you get an admin pack to send to an Application Administrator or Cloud Application Administrator. ` +
+          'Or, if an admin has already made one, choose "Use an app registration I already have". The installer reuses what it has made, such as the workspace.',
       );
     }
     app.appId = application.appId;
@@ -1134,7 +1136,8 @@ export function writeAzureAdminScript(ctx, scopes) {
     '- It adds no redirect URIs, identifier URI or federated credential, and assigns no app roles. The installer adds',
     `  those as ${upn}, once the web app exists.`,
     '- It grants no Microsoft Graph application permissions. After the deploy, a Privileged Role Administrator or',
-    '  Global Administrator gives the jobs\' managed identity its Microsoft Graph roles. The installer lists them.',
+    '  Global Administrator gives the jobs\' managed identity its Microsoft Graph roles, with a command the',
+    '  installer prints.',
     '',
     '## Run it',
     '',

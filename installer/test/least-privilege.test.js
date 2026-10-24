@@ -4,7 +4,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { HttpError } from '../src/http.js';
 import { ASK_PROVIDERS, AZURE_PROVIDERS, PRIVATE_FEATURE, PRIVATE_PROVIDERS, azurePreflight, azureProviders } from '../src/steps/azure/index.js';
-import { LEAST_PRIVILEGE_DOC, TEMPLATE_ROLES, adminGrants, providerCommands, registrationMessage, roleAssignMessage, roleCondition } from '../src/steps/azure/least-privilege.js';
+import { LEAST_PRIVILEGE_DOC, LEAST_PRIVILEGE_URL, TEMPLATE_ROLES, adminGrants, providerCommands, registrationMessage, roleAssignMessage, roleCondition } from '../src/steps/azure/least-privilege.js';
 import { AZURE_AI_ROLES } from '../src/steps/consumption.js';
 import { fakeArm, fakeCtx, fakeFabric, fakePowerBi, fakeUi } from './fakes.js';
 
@@ -27,6 +27,10 @@ const GUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/gi;
 
 /** Matches `s` literally inside a RegExp. @param {string} s */
 const literal = (s) => s.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+/** The least-privilege page on GitHub: the installer doesn't ship the repo's docs folder. */
+const LINK = literal(LEAST_PRIVILEGE_URL);
+/** The repo path on its own, not as part of the link. */
+const BARE_PATH = /(?<!blob\/main\/)docs\/AZURE-LEAST-PRIVILEGE\.md/;
 
 /** @param {string} method @param {string} path */
 const forbidden = (method, path) => new HttpError(`${method} ${path} returned 403 AuthorizationFailed`, { status: 403, method, url: `https://management.azure.com${path}`, code: 'AuthorizationFailed' });
@@ -86,13 +90,15 @@ test('least privilege: registered providers say nothing; ones you can\'t registe
   await azurePreflight(denied.ctx);
   assert.match(denied.text(), /You can't register resource providers in this subscription, and Microsoft\.App and Microsoft\.Sql aren't registered yet\. Registering needs Contributor or Owner on the subscription, so ask your Azure admin to run this once:\n +az provider register --subscription sub-1 --namespace Microsoft\.App --wait\n +az provider register --subscription sub-1 --namespace Microsoft\.Sql --wait\n/);
   assert.doesNotMatch(denied.text(), /namespace Microsoft\.Storage/, 'only the ones not registered');
-  assert.match(denied.text(), /Until then, Azure can't create the resources that need them\. See docs\/AZURE-LEAST-PRIVILEGE\.md\./);
+  assert.match(denied.text(), new RegExp(`Until then, Azure can't create the resources that need them\\. See ${LINK}$`, 'm'));
+  assert.doesNotMatch(denied.text(), BARE_PATH, 'the console prints the link, not the repo path');
   assert.ok(denied.arm.calls.includes('validateDeployment'), 'it carries on, and ARM validate says if the deployment can\'t');
 
   const unread = await setup();
   unread.arm.failures.ensureProvider = [forbidden('GET', `${SUB}/providers/Microsoft.App`)];
   await azurePreflight(unread.ctx);
-  assert.match(unread.text(), /Couldn't check whether Microsoft\.App is registered in this subscription\. If Azure says one isn't, your Azure admin registers it once: see docs\/AZURE-LEAST-PRIVILEGE\.md\./);
+  assert.match(unread.text(), new RegExp(`Couldn't check whether Microsoft\\.App is registered in this subscription\\. If Azure says one isn't, your Azure admin registers it once: see ${LINK}$`, 'm'));
+  assert.doesNotMatch(unread.text(), BARE_PATH);
   assert.doesNotMatch(unread.text(), /You can't register/);
 
   const broken = await setup();
@@ -143,7 +149,8 @@ test('least privilege: missing rights stop before anything is checked or created
   read.arm.perms[RG] = READ;
   await assert.rejects(azurePreflight(read.ctx), (/** @type {Error} */ err) => {
     assert.match(err.message, /^You can't install into resource group rg: you can't deploy resources or assign roles there\.\n/);
-    assert.match(err.message, /\n {2}- Owner\n {2}- Contributor and User Access Administrator\n {2}- Least privilege, on just this resource group: Contributor, and Role Based Access Control Administrator limited to the roles the installer assigns\. Your Azure admin can set it up with docs\/AZURE-LEAST-PRIVILEGE\.md\.\n/);
+    assert.match(err.message, new RegExp(`\\n {2}- Owner\\n {2}- Contributor and User Access Administrator\\n {2}- Least privilege, on just this resource group: Contributor, and Role Based Access Control Administrator limited to the roles the installer assigns\\. Your Azure admin can set it up with ${LINK}\\n`));
+    assert.doesNotMatch(err.message, BARE_PATH);
     assert.match(err.message, /Privileged Identity Management/);
     return true;
   });
@@ -158,7 +165,7 @@ test('least privilege: missing rights stop before anything is checked or created
   await assert.rejects(azurePreflight(fresh.ctx), (/** @type {Error} */ err) => {
     assert.match(err.message, /^You can't create resource group rg-new and install into it: you can't create resource groups, deploy resources or assign roles in subscription Production\.\n/);
     assert.match(err.message, /Owner, or Contributor and User Access Administrator, on the subscription/);
-    assert.match(err.message, /ask your Azure admin to create the resource group .*docs\/AZURE-LEAST-PRIVILEGE\.md.*pick it as an existing resource group\./);
+    assert.match(err.message, new RegExp(`ask your Azure admin to create the resource group and give you access to just that group \\(${LINK}\\)\\. Then run the installer again and pick it as an existing resource group\\.`));
     return true;
   });
   assert.ok(!fresh.arm.calls.some((c) => c.startsWith('ensureResourceGroup')), 'nothing is created');
@@ -176,7 +183,7 @@ test('least privilege: ARM errors for an unregistered provider or a role you can
     assert.equal(err.message, [
       "Azure says Microsoft.App isn't registered in this subscription. Someone with Contributor or Owner on the subscription registers it once:",
       'az provider register --subscription sub-1 --namespace Microsoft.App --wait',
-      'Then run the installer again. See docs/AZURE-LEAST-PRIVILEGE.md.',
+      `Then run the installer again. See ${LEAST_PRIVILEGE_URL}`,
     ].join('\n'));
     return true;
   });
@@ -192,7 +199,7 @@ test('least privilege: ARM errors for an unregistered provider or a role you can
   const scope = `${RG}/providers/Microsoft.Storage/storageAccounts/stvlens`;
   const denied = roleAssignMessage(refused('AuthorizationFailed', `The client 'admin@contoso.com' with object id 'user-1' does not have authorization to perform action 'Microsoft.Authorization/roleAssignments/write' over scope '${scope}/providers/Microsoft.Authorization/roleAssignments/abc' or the scope is invalid.`));
   assert.match(denied, new RegExp(`^Azure wouldn't let you assign a role on ${literal(scope)}\\.\\n`));
-  assert.match(denied, /Owner, User Access Administrator, or Role Based Access Control Administrator with a condition that allows these roles, on the resource group \(docs\/AZURE-LEAST-PRIVILEGE\.md\)/);
+  assert.match(denied, new RegExp(`Owner, User Access Administrator, or Role Based Access Control Administrator with a condition that allows these roles, on the resource group \\(${LINK}\\)`));
   assert.equal(roleAssignMessage(refused('AuthorizationFailed', "does not have authorization to perform action 'Microsoft.Sql/servers/write'")), '', 'only role assignments');
 
   const failed = await setup();

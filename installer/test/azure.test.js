@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { GRAPH_APP_ID, MODULES, azureGraphRolesFor } from '../src/catalog.js';
+import { graphRolesCommand, pendingGraphRoles } from '../src/admin-commands.js';
 import { HttpError } from '../src/http.js';
 import { armApi, armErrors, waitForDeployment } from '../src/clients/azure.js';
 import { runCommand } from '../src/install.js';
@@ -620,6 +621,81 @@ test('Azure install with Agent 365 and private networking: the jobs read the Sha
   await azureUninstall(ctx);
   assert.ok(arm.calls.includes('deleteResourceGroup rg'));
   assert.match(ui.text(), /The SharePoint drop folder https:\/\/contoso\.sharepoint\.com\/sites\/Analytics\/Shared Documents\/ValueLens and the files in it are left alone\./);
+});
+
+/**
+ * An Azure install with core, Microsoft 365 activity, Defender and a SharePoint drop, where Entra refuses the jobs'
+ * managed identity every Microsoft Graph role, as it does for someone who isn't a Privileged Role Administrator.
+ * @param {{ defenderRoles: boolean }} o  Whether Microsoft Graph in the tenant has Defender's optional roles.
+ */
+async function refusedGraphRoles(o) {
+  const graph = fakeAzureGraph();
+  const graphSp = await graph.api.graphServicePrincipal();
+  if (o.defenderRoles) graphSp.appRoles.push({ id: 'r-hunting', value: 'ThreatHunting.Read.All' }, { id: 'r-discovery', value: 'CloudApp-Discovery.Read.All' });
+  const assign = graph.api.assignPrincipalToAppRole;
+  graph.api.assignPrincipalToAppRole = async (/** @type {string} */ principal, /** @type {string} */ resource, /** @type {string} */ role) => {
+    if (principal === 'mi-sp') throw httpError(403, 'Authorization_RequestDenied');
+    return assign(principal, resource, role);
+  };
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds' }]);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: fakeArm().api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui });
+  // An earlier run's refusal is listed again each run.
+  withAzureAgent365(config, { drop: parseDropFolder(DROP_FOLDER), createdResourceGroup: true, graphRoles: { assigned: [], pending: ['Reports.Read.All', 'Reports.Read.All'] } });
+  config.modules.m365Activity = true;
+  config.modules.defender = true;
+  ctx.runFirstLoad = false;
+  await installAzure(ctx, { wait: true });
+  return { ctx, config, ui };
+}
+
+/** The lines that hold a Microsoft Graph role command for the managed identity. @param {string} text */
+const graphCommandLines = (text) => text.split('\n').map((l) => l.trim()).filter((l) => l.startsWith('MI='));
+/** The roles a Microsoft Graph role command gives. @param {string} cmd */
+const commandRoles = (cmd) => (/ for P in ([^;]+); do /.exec(cmd)?.[1] ?? '').split(' ');
+/** @param {string} text @param {string} s */
+const count = (text, s) => text.split(s).length - 1;
+
+test("Azure install: when Entra refuses the managed identity's Microsoft Graph roles, one command gives them all, and status repeats it", async () => {
+  const { ctx, config, ui } = await refusedGraphRoles({ defenderRoles: true });
+  const { graphRoles } = /** @type {import('../src/config.js').AzureConfig} */ (config.azure);
+  assert.ok(graphRoles, 'the install record has the roles');
+  const wanted = azureGraphRoles(config);
+  for (const r of ['AuditLogsQuery.Read.All', 'ReportSettings.Read.All', 'ThreatHunting.Read.All', 'CloudApp-Discovery.Read.All', 'Sites.Selected']) assert.ok(wanted.includes(r), r);
+  assert.deepEqual(graphRoles.assigned, []);
+  assert.ok(graphRoles.pending.length > wanted.length, 'the install record lists a role more than once');
+
+  const printed = graphCommandLines(ui.text());
+  assert.equal(printed.length, 1, 'printed once, after the grants');
+  assert.equal(printed[0], graphRolesCommand('mi-sp', pendingGraphRoles(graphRoles)));
+  assert.ok(printed[0].startsWith('MI=mi-sp; '), "the managed identity's principal ID");
+  assert.ok(!ui.text().includes('mi-client'), 'never its client ID');
+  const given = commandRoles(printed[0]);
+  assert.deepEqual([...given].sort(), [...wanted].sort(), 'every role the install wants');
+  assert.equal(new Set(given).size, given.length, 'each once');
+  assert.match(ui.text(), /Only a Privileged Role Administrator or Global Administrator can give the managed identity these Microsoft Graph application permissions: .+\. They can run this in Azure Cloud Shell \(Bash\):/);
+  assert.ok(!ui.text().includes('An admin must grant'), 'one warning for them all');
+
+  const status = fakeUi();
+  ctx.ui = status.ui;
+  await azureStatus(ctx);
+  assert.deepEqual(graphCommandLines(status.text()), printed, 'status prints the same command, once');
+  for (const r of wanted) assert.equal(count(status.text(), `Pending admin action: grant ${r} to the managed identity.`), 1, r);
+  assert.match(status.text(), /A Privileged Role Administrator or Global Administrator can give them in Azure Cloud Shell \(Bash\):/);
+});
+
+test("Azure install: the managed identity's Microsoft Graph role command leaves out a role the tenant doesn't have yet", async () => {
+  const { config, ui } = await refusedGraphRoles({ defenderRoles: false });
+  assert.match(ui.text(), /Microsoft Graph in this tenant has no ThreatHunting\.Read\.All permission yet\./);
+  const printed = graphCommandLines(ui.text());
+  assert.equal(printed.length, 1);
+  const given = commandRoles(printed[0]);
+  assert.ok(given.includes('AuditLogsQuery.Read.All'));
+  for (const r of ['ThreatHunting.Read.All', 'CloudApp-Discovery.Read.All']) {
+    assert.ok(azureGraphRoles(config).includes(r), `the install wants ${r}`);
+    assert.ok(!given.includes(r), `but the tenant has no ${r}`);
+  }
 });
 
 test('Azure install with Agent 365 in demo mode grants nothing for it', async () => {
