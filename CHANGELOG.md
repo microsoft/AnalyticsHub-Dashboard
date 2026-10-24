@@ -42,6 +42,10 @@ Deployment instructions do **not** live here. They live in the READMEs:
   audit ingester set up by hand. So older rows were lost, including any the audit log no longer
   keeps. Now a reload replaces rows from the first record it reads onwards, and keeps older ones.
   Rows already lost aren't brought back. 0.6.8 has this problem too.
+- **Azure: Azure AI costs keep older days.** Each run of the run job replaced every Azure AI table
+  with only the last 90 days. Now it replaces those days and keeps older ones, in storage and in the
+  SQL tables the reports read. The monthly tables replace whole months. Totals over all available
+  days grow, as on Fabric. Days already dropped aren't brought back. 0.6.8 has this problem too.
 
 ## 2026-10-26 — Analytics Hub installer 0.6.8
 
