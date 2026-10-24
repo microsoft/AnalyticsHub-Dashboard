@@ -11,6 +11,7 @@ import { bundled, commandLine, installerWindow, launcher, reopenHint, updateHint
 import { checkPrereqs } from './prereqs.js';
 import { loadSources } from './sources.js';
 import { coworkDataflowOn, describeSchedule, modelDeployed, recordWorkspaceGone, staleRecordMessage } from './steps/fabric.js';
+import { adminRequests } from './steps/handoff.js';
 import { isResumeLater } from './steps/identity.js';
 import { routerWanted } from './uploads.js';
 import { SETUP_SECTIONS, setupRecovery } from './setup.js';
@@ -71,13 +72,16 @@ export function describeRecord(config) {
  * What the home page keeps of a prerequisites check. canAssignDirectoryRoles: Global Administrator or
  * Privileged Role Administrator is active, so the user can assign directory roles themselves. On Azure the
  * consent row is met by an Application Administrator too, so the row says whether it was one of those two.
+ * requests: one request per admin to copy and send, for the rows that need someone else.
  * @param {string} upn
  * @param {import('./prereqs.js').Prereq[]} items
+ * @param {import('./config.js').InstallConfig} [config]  The install the check was for: without it, no requests.
  */
-export const prereqsSnapshot = (upn, items) => ({
+export const prereqsSnapshot = (upn, items, config) => ({
   at: new Date().toISOString(),
   upn,
   items,
+  requests: config ? adminRequests(items, config, { from: upn }) : [],
   canAssignDirectoryRoles: items.some((i) => i.id === 'consent-role' && i.status === 'met' && i.assignsDirectoryRoles !== false),
 });
 
@@ -143,7 +147,7 @@ export function createSession(o) {
     checking = checkPrereqs({ api, user, config })
       .then((items) => {
         if (signedIn?.user !== user) return;
-        prereqs = prereqsSnapshot(user.upn, items);
+        prereqs = prereqsSnapshot(user.upn, items, config);
         o.ui.emit({ type: 'prereqs-ready' });
       })
       .catch((err) => o.debug?.(`Prerequisites check failed: ${describeError(err)}`));
@@ -213,7 +217,7 @@ export function createSession(o) {
       let ok = true;
       if (command === 'prereqs') {
         const items = await showPrereqs(ctx);
-        prereqs = prereqsSnapshot(signedIn.user.upn, items);
+        prereqs = prereqsSnapshot(signedIn.user.upn, items, ctx.config);
       } else ok = await runCommand(ctx, command, { wait: req.wait !== false, backfillDays: req.backfillDays });
       ui.emit({ type: 'command', command, state: ok ? 'done' : 'failed', ...(ok ? {} : { error: 'It didn\'t finish successfully. The details are above.' }) });
     } catch (err) {
