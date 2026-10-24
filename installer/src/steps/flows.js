@@ -148,6 +148,13 @@ function validateUrl(v) {
 export async function planFlows(ctx) {
   if (!flowsWanted(ctx.config).length) return;
   await pickFlowEnvironment(ctx);
+  // After install preflight: the flows' rows it would have shown had they been chosen, each once. Imported here,
+  // since prereqs.js imports this module.
+  if (ctx.preflightSeen) {
+    const { reportFlowPrereqs } = await import('../prereqs.js');
+    reportFlowPrereqs(ctx);
+    return;
+  }
   const ask = dataPolicyAsk(ctx.config);
   if (ask) ctx.ui.note(ask);
 }
@@ -197,7 +204,7 @@ export function signerOf(config, ref) {
   if (ref === CONNECTORS.sharePoint.name) return `someone who can add files to ${config.azure?.drop?.folderUrl ?? 'the drop folder'}`;
   if (ref !== CONNECTORS.storage.name) return 'whoever the connection is for';
   return config.target === 'azure'
-    ? `someone with Storage Blob Data Contributor on ${config.azure?.outputs?.storageAccountName ?? '<storage account>'}`
+    ? `someone with Storage Blob Data Contributor on ${config.azure?.outputs?.storageAccountName ?? 'the new storage account'}`
     : `someone with Contributor or higher on ${config.fabric.workspaceName ?? 'the workspace'}`;
 }
 
@@ -251,6 +258,15 @@ export function dataPolicyConnectors(config) {
 }
 
 /**
+ * Before an Azure install deploys, its storage account has no name yet.
+ * @param {import('../config.js').InstallConfig} config
+ */
+const azureDfsHost = (config) => {
+  const account = config.azure?.outputs?.storageAccountName;
+  return account ? `https://${account}.dfs.core.windows.net` : 'the new storage account\'s address (https://<name>.dfs.core.windows.net), which the installer shows once it\'s made';
+};
+
+/**
  * The addresses the chosen flows call, which a data policy that filters endpoints for the HTTP
  * connectors must allow: the Power Platform API, and the storage the flows write to. A SharePoint drop
  * adds none.
@@ -260,7 +276,7 @@ export function dataPolicyHosts(config) {
   if (!flowsWanted(config).length) return [];
   const pp = ppApiFlows(config).length ? [PPAPI] : [];
   if (config.target === 'azure') {
-    return azureDropsToSharePoint(config.azure) ? pp : [...pp, `https://${config.azure?.outputs?.storageAccountName ?? '<storage account>'}.dfs.core.windows.net`];
+    return azureDropsToSharePoint(config.azure) ? pp : [...pp, azureDfsHost(config)];
   }
   return [...pp, flowIdentity(config) === 'app' ? ONELAKE_DFS.replace('.dfs.', '.blob.') : ONELAKE_DFS];
 }

@@ -129,18 +129,27 @@ Deployment instructions do **not** live here. They live in the READMEs:
     days unless someone takes them over, so in a large organisation install as an account that will
     stay. They no longer say a dedicated admin account and a co-owner keep the flows running: the
     flows run as their owner, whoever signs in.
-  - Whenever flows are chosen, a new optional **Data policy** row shows in the prerequisites and in
-    install and update preflight, in the terminal and the browser. It always shows "Couldn't check",
+  - Whenever flows are chosen, a new **Data policy** row shows in the prerequisites and in install
+    and update preflight, in the terminal and the browser. It always shows "Couldn't check",
     because the installer doesn't read data policies (DLP): Learn documents the admin center,
     PowerShell and an admin connector for that, but no public REST API. Preflight lists it under "To
     confirm", not as missing or a hand-off, and it never stops an install, even with `--yes`. It
-    says what to ask a Power Platform administrator: that the connectors the chosen flows use (HTTP
-    with Microsoft Entra ID (preauthorized), and HTTP, Office 365 Outlook, Azure Key Vault or
-    SharePoint where they're used) are allowed and in the same data group in the flows' environment,
-    and, if the policy filters endpoints for the HTTP connectors, the addresses it must allow:
-    `https://api.powerplatform.com` and the storage the flows write to. A new install in the
-    terminal checks the prerequisites before you choose the flows, so choosing their environment
-    shows the same ask.
+    isn't tagged optional: whatever the policy says applies to the flows. It says what to ask a
+    Power Platform administrator: that the connectors the chosen flows use (HTTP with Microsoft
+    Entra ID (preauthorized), and HTTP, Office 365 Outlook, Azure Key Vault or SharePoint where
+    they're used) are allowed and in the same data group in the flows' environment, and, if the
+    policy filters endpoints for the HTTP connectors, the addresses it must allow:
+    `https://api.powerplatform.com` and the storage the flows write to. Before a new Azure install
+    makes its storage account, the ask calls it the new storage account's address, which the
+    installer shows once it's made.
+  - A new install in the terminal checks the prerequisites before its plan asks about the flows.
+    Once you choose the flows and their environment, and before you confirm the plan, it now shows
+    the rows preflight would have shown for them: the Power Automate Premium licence, the Power
+    Platform Administrator role (with its PIM warning, or as a hand-off), the environments and the
+    data policy. Each row shows once, so a repair or `--studio-flow` doesn't repeat what preflight
+    showed, unless you pick another environment for the flows: then the data policy ask shows again,
+    naming it. None of them stops the install, even with `--yes`. Before, a new install could
+    create the flows without saying you had no Premium licence.
   - When Power Automate turns a flow down because of a data policy as the installer creates,
     updates or turns it on, the warning says so, gives the same ask, and says what to do once the
     policy allows them. Learn documents no error code for it, so the installer goes by the message.

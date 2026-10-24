@@ -4,6 +4,7 @@ import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { createContext, runInContext } from 'node:vm';
 import { emptyConfig } from '../src/config.js';
+import { dataPolicyPrereq } from '../src/prereqs.js';
 import { setupCategories } from '../src/setup.js';
 
 /** A small DOM double exercises the real page renderers and their event payloads. */
@@ -249,4 +250,27 @@ test('prerequisites: the home panel counts hand-offs as "to hand off", and the M
   assert.match(md, /^- ✗ A Fabric capacity: Missing$/m);
   assert.match(md, /^ {2}- How to get it: Ask its capacity admin\.$/m);
   assert.doesNotMatch(md, /Not shown/, 'a row you have has no how-to');
+});
+
+test('prerequisites: the data policy row isn\'t tagged optional in the list or the Markdown export; other optional rows keep their tag', () => {
+  const config = emptyConfig();
+  Object.assign(config.dataSources, { productFeedback: 'csv', studioCredits: 'api', resourceGraph: 'skip' });
+  const policy = dataPolicyPrereq(config);
+  assert.equal(policy.neededFor, 'Only the Power Automate flows: Analytics Hub - Copilot Studio credits.');
+  const items = JSON.stringify([
+    { id: 'power-automate-premium', label: 'Power Automate Premium licence', status: 'missing', optional: true, detail: 'None assigned to you.', neededFor: 'Only the Power Automate flows.', howTo: 'Ask your licence admin.' },
+    policy,
+  ]);
+  const context = page();
+  const [premium, row] = runInContext(`renderPrereqs(${items})`, context).children;
+  assert.match(premium.text, /^Power Automate Premium licence Missing, optional/);
+  assert.equal(/** @type {any} */ (row).className, 'prereq unknown');
+  assert.match(row.text, /^Data policy Couldn't check/);
+  assert.doesNotMatch(row.text, /optional/);
+  assert.match(row.text, /How to get it: Ask a Power Platform administrator to confirm that HTTP with Microsoft Entra ID \(preauthorized\) is allowed in /);
+
+  const md = runInContext(`itemMarkdown({ t: 'prereqs', items: ${items} }, 2).join('\\n')`, context);
+  assert.match(md, /^- ✗ Power Automate Premium licence: Missing \(optional\)$/m);
+  assert.match(md, /^- \? Data policy: Couldn't check$/m);
+  assert.doesNotMatch(md.slice(md.indexOf('Data policy')), /optional/);
 });

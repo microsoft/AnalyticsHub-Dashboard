@@ -1269,3 +1269,13 @@ test('whoSignsIn: one sentence per flow, from the same signers as the sign-in li
   assert.equal(whoSignsIn(app, 'studio'), `Who signs in: Power Platform API (${PP_API_SIGNER}); Azure Key Vault (someone who can read secrets in kv-1).`);
   for (const text of [PP_API_SIGNER, INVENTORY_SIGNER]) assert.doesNotMatch(text, /Billing/);
 });
+
+test('dataPolicyHosts, dataPolicyAsk and whoSignsIn: before a new Azure install makes its storage account, they say what the address will be', () => {
+  const { config } = dataPolicyConfig('azure');
+  delete (/** @type {any} */ (config.azure)).outputs.storageAccountName;
+  const pending = 'the new storage account\'s address (https://<name>.dfs.core.windows.net), which the installer shows once it\'s made';
+  assert.deepEqual(dataPolicyHosts(config), [PPAPI, pending]);
+  assert.ok(dataPolicyAsk(config).endsWith(`it must allow ${PPAPI} and ${pending}.`), dataPolicyAsk(config));
+  assert.equal(whoSignsIn(config, 'studio'), `Who signs in: Power Platform API (${PP_API_SIGNER}); Azure Storage (someone with Storage Blob Data Contributor on the new storage account).`);
+  for (const text of [dataPolicyAsk(config), whoSignsIn(config, 'studio')]) assert.ok(!text.includes('<storage account>'), text);
+});
