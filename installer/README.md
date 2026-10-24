@@ -690,7 +690,12 @@ policies, so its **Data policy** prerequisite always says "Couldn't check" and n
 install. It says what to ask a Power Platform administrator to confirm: those connectors, in that
 environment, and the addresses a policy that filters endpoints must allow
 (`https://api.powerplatform.com`, and the storage the flows write to). If a policy turns a flow down
-when the installer saves it or turns it on, the installer shows the same ask.
+when the installer saves it or turns it on, the installer shows the same ask. In the terminal, a new
+install checks the prerequisites before it asks about the flows, so once you pick their environment
+it shows the flows' rows it would have shown: the Power Automate Premium licence, the Power Platform
+Administrator role, the environments and the data policy. That's before anything is created, and
+each row shows once, unless you pick another environment for the flows: then the data policy ask
+shows again, naming it.
 
 | Flow | When | What it does | Sign in to |
 |---|---|---|---|

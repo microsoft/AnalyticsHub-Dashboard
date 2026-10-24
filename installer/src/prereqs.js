@@ -5,6 +5,7 @@
  * reports "unknown" rather than failing when it can't be read.
  */
 import { allowsAction, ROLES } from './clients/azure.js';
+import { orgUrl } from './clients/dataverse.js';
 import { CONSENT_ROLES, CREATE_APPS_ROLES, DELEGATED_CONSENT_ROLES, FABRIC_ADMIN_ROLE, INSIGHTS_ANALYST_ROLE, POWER_PLATFORM_ADMIN_ROLE, TEAMS_PUBLISH_ROLES } from './clients/graph.js';
 import { secretMode } from './config.js';
 import { commandLine } from './launch.js';
@@ -35,6 +36,12 @@ import { rlsOn } from './transform/access.js';
  * @property {{ name: string, status: PrereqStatus, detail?: string }[]} [rows]  Per subscription or environment.
  * @property {boolean} [assignsDirectoryRoles]  On the consent-role row: false when it's met without a Global
  *   Administrator or Privileged Role Administrator, which on Azure an Application Administrator can do.
+ */
+/**
+ * What install preflight checked and showed, so the rows for flows chosen after it show once, before anything is created.
+ * @typedef {object} PreflightSeen
+ * @property {Prereq[] | null} items  From preflightChecks; null when the checks couldn't run.
+ * @property {Map<string, string>} shown  Each row shown so far, by ID, as asShown reads it.
  */
 
 /** Subscriptions and environments checked one by one; more than this would slow the home screen down. */
@@ -84,6 +91,43 @@ const PIM_FLOW_SIGNER =
  */
 const DATA_POLICY_UNREAD =
   'Couldn\'t check: the installer can\'t read data policies (DLP). If one blocks the flows\' connectors, or puts them in different data groups, Power Automate won\'t save the flows or turn them on.';
+
+/**
+ * The data policy row for the flows chosen: always "couldn't check", naming what a Power Platform administrator
+ * confirms. It isn't tagged optional, since whatever the policy says applies to the flows, but it never blocks and
+ * never counts as missing.
+ * @param {import('./config.js').InstallConfig} config
+ * @returns {Prereq}
+ */
+export function dataPolicyPrereq(config) {
+  let howTo = 'Ask a Power Platform administrator to confirm that the flows\' connectors are allowed, and in the same data group, in the environment the flows go in.';
+  try {
+    howTo = dataPolicyAsk(config) || howTo;
+  } catch {
+    // Without the flow definitions, the general ask.
+  }
+  return {
+    id: 'data-policy',
+    label: 'Data policy',
+    status: 'unknown',
+    detail: DATA_POLICY_UNREAD,
+    neededFor: `Only the Power Automate flows: ${flowsWanted(config).map((k) => FLOW_NAMES[k]).join(', ')}.`,
+    howTo,
+    who: 'A Power Platform administrator',
+  };
+}
+
+/**
+ * The Power Platform Administrator row, warning that a role you can only activate won't keep the flows' Power
+ * Platform API connection signed in.
+ * @param {Prereq} it
+ * @param {import('./config.js').InstallConfig} config
+ * @returns {Prereq}
+ */
+function withFlowSigner(it, config) {
+  if (it.status !== 'eligible' || !ppApiWanted(config) || it.detail.endsWith(PIM_FLOW_SIGNER)) return it;
+  return { ...it, detail: `${it.detail}${PIM_FLOW_SIGNER}` };
+}
 
 /**
  * The Fabric tenant settings this install needs, by their names in the admin portal, for someone who
@@ -409,7 +453,7 @@ export async function checkPrereqs(ctx, opts = {}) {
           howTo: `With the Copilot Studio credits flow, that connection signs in as ${PP_API_SIGNER}. With only the agent inventory flow, it signs in as ${INVENTORY_SIGNER}.`,
         };
       }
-      return it.status === 'eligible' && ppApiWanted(config) ? { ...it, detail: `${it.detail}${PIM_FLOW_SIGNER}` } : it;
+      return withFlowSigner(it, config);
     }),
     ...(azure
       ? [
@@ -551,21 +595,7 @@ export async function checkPrereqs(ctx, opts = {}) {
           : { status: 'missing', detail: 'No Power Automate Premium licence is assigned to you, and you\'ll own the flows. Ask your licence admin for one, or upload the CSV exports instead.' };
       },
     ),
-    ...(flowsWanted(config).length
-      ? [
-          guard(
-            {
-              id: 'data-policy',
-              label: 'Data policy',
-              neededFor: `Only the Power Automate flows: ${flowsWanted(config).map((k) => FLOW_NAMES[k]).join(', ')}.`,
-              howTo: 'Ask a Power Platform administrator to confirm that the flows\' connectors are allowed, and in the same data group, in the environment the flows go in.',
-              who: 'A Power Platform administrator',
-              optional: true,
-            },
-            async () => ({ status: 'unknown', detail: DATA_POLICY_UNREAD, howTo: dataPolicyAsk(config) }),
-          ),
-        ]
-      : []),
+    ...(flowsWanted(config).length ? [Promise.resolve(dataPolicyPrereq(config))] : []),
     ...(azure
       ? []
       : [
@@ -831,36 +861,46 @@ export async function preflightChecks(ctx, opts = {}) {
 }
 
 /**
- * Prints only what needs attention, then what to hand off to someone else, then what to confirm with
- * someone, before anything is created, and points to the full list. On install, stops when one is a
- * true blocker.
- * @param {{ ui: import('./ui.js').Ui, config: import('./config.js').InstallConfig }} ctx
- * @param {Prereq[] | null} items  From preflightChecks.
- * @param {{ update?: boolean }} [opts]
- * @returns {{ block: Prereq[], warn: Prereq[], handoff: Prereq[], confirm: Prereq[] }}
+ * The flows' environment, as asShown keeps it, or '' before it's picked.
+ * @param {import('./config.js').InstallConfig} config
  */
-export function reportPreflight(ctx, items, opts = {}) {
-  const { ui, config } = ctx;
-  const full = `Run "${commandLine('prereqs')}" for the full list.`;
-  if (!items) {
-    ui.note(`Couldn't check the prerequisites. ${full}`);
-    return { block: [], warn: [], handoff: [], confirm: [] };
+const flowEnvironmentKey = (config) => {
+  const url = config.uploads?.flowEnvironment?.url;
+  try {
+    return url ? orgUrl(url) : '';
+  } catch {
+    return url ?? '';
   }
-  const verdict = preflightVerdict(items, { config, yes: ui.yes, update: opts.update });
-  const handoff = handoffsToShow(verdict.handoff, config);
-  const { confirm } = verdict;
-  const shown = [...verdict.block, ...verdict.warn];
-  if (!shown.length && !handoff.length && !confirm.length) {
-    ui.ok('Prerequisites: nothing missing for what you chose');
-    return { ...verdict, handoff };
-  }
-  const carry = verdict.block.length ? '' : ` The ${opts.update ? 'update' : 'install'} carries on.`;
+};
+
+/**
+ * How a row read when it was shown, so the same row isn't shown twice. Its how-to is left out, but the data
+ * policy row keeps the environment its ask names, after a last "|".
+ * @param {Prereq} it
+ * @param {import('./config.js').InstallConfig} config
+ */
+const asShown = (it, config) => `${it.status}|${it.detail}|${it.neededFor}${it.id === 'data-policy' ? `|${flowEnvironmentKey(config)}` : ''}`;
+
+/**
+ * Whether a row reads as it did when it was shown. The data policy ask shown before the flows' environment was
+ * picked still does once it names one, since that alone isn't news; naming another environment is.
+ * @param {Prereq} it
+ * @param {string | undefined} was  asShown when it was shown.
+ * @param {string} now  asShown now.
+ */
+const asWhenShown = (it, was, now) => was === now || (it.id === 'data-policy' && was !== undefined && was.endsWith('|') && now.startsWith(was));
+
+/**
+ * Prints the rows that need attention, then the hand-offs, then the rows to confirm, each group with its line.
+ * @param {import('./ui.js').Ui} ui
+ * @param {{ shown: Prereq[], handoff: Prereq[], confirm: Prereq[] }} groups
+ * @param {string} carry  Said once, after the first group's line: " The install carries on.", or nothing before a stop.
+ */
+function printPrereqGroups(ui, { shown, handoff, confirm }, carry) {
   if (shown.length) {
     const n = shown.length === 1 ? '1 prerequisite needs' : `${shown.length} prerequisites need`;
     ui.warn(`${n} attention.${carry}`);
     ui.prereqs(shown);
-  } else {
-    ui.ok(handoff.length ? 'Prerequisites: you have what you need yourself' : 'Prerequisites: nothing missing for what you chose');
   }
   if (handoff.length) {
     const one = handoff.length === 1;
@@ -872,6 +912,36 @@ export function reportPreflight(ctx, items, opts = {}) {
     ui.info(`To confirm: the installer can't check ${confirm.length === 1 ? 'this' : 'these'}.`);
     ui.prereqs(confirm);
   }
+}
+
+/**
+ * Prints only what needs attention, then what to hand off to someone else, then what to confirm with
+ * someone, before anything is created, and points to the full list. On install, stops when one is a
+ * true blocker. Keeps what it checked and showed on `ctx`, for reportFlowPrereqs.
+ * @param {{ ui: import('./ui.js').Ui, config: import('./config.js').InstallConfig, preflightSeen?: PreflightSeen }} ctx
+ * @param {Prereq[] | null} items  From preflightChecks.
+ * @param {{ update?: boolean }} [opts]
+ * @returns {{ block: Prereq[], warn: Prereq[], handoff: Prereq[], confirm: Prereq[] }}
+ */
+export function reportPreflight(ctx, items, opts = {}) {
+  const { ui, config } = ctx;
+  const full = `Run "${commandLine('prereqs')}" for the full list.`;
+  if (!items) {
+    ctx.preflightSeen = { items: null, shown: new Map() };
+    ui.note(`Couldn't check the prerequisites. ${full}`);
+    return { block: [], warn: [], handoff: [], confirm: [] };
+  }
+  const verdict = preflightVerdict(items, { config, yes: ui.yes, update: opts.update });
+  const handoff = handoffsToShow(verdict.handoff, config);
+  const { confirm } = verdict;
+  const shown = [...verdict.block, ...verdict.warn];
+  ctx.preflightSeen = { items, shown: new Map([...shown, ...handoff, ...confirm].map((it) => [it.id, asShown(it, config)])) };
+  if (!shown.length && !handoff.length && !confirm.length) {
+    ui.ok('Prerequisites: nothing missing for what you chose');
+    return { ...verdict, handoff };
+  }
+  if (!shown.length) ui.ok(handoff.length ? 'Prerequisites: you have what you need yourself' : 'Prerequisites: nothing missing for what you chose');
+  printPrereqGroups(ui, { shown, handoff, confirm }, verdict.block.length ? '' : ` The ${opts.update ? 'update' : 'install'} carries on.`);
   ui.note(full);
   if (verdict.block.length) {
     ui.fail(`Stopped before creating anything: ${verdict.block.map((it) => it.label).join('; ')}.`);
@@ -883,6 +953,37 @@ export function reportPreflight(ctx, items, opts = {}) {
     );
   }
   return { ...verdict, handoff };
+}
+
+/** The rows that depend on which flows are chosen. */
+const FLOW_ROWS = ['power-platform-admin', 'power-automate-premium', 'environments', 'data-policy'];
+
+/**
+ * Once the flows and their environment are chosen, the rows for them that install preflight would have shown
+ * had they been chosen then, each once: the Power Automate Premium licence, the Power Platform Administrator
+ * role (with its PIM warning, or as a hand-off), the environments, and the data policy. In the terminal, a new
+ * install checks the prerequisites before its plan asks about the flows. The data policy ask shows again only for
+ * another environment than the one it named. Reads nothing from the tenant, and never stops the install. Without a
+ * preflight, does nothing.
+ * @param {{ ui: import('./ui.js').Ui, config: import('./config.js').InstallConfig, preflightSeen?: PreflightSeen }} ctx
+ */
+export function reportFlowPrereqs(ctx) {
+  const { ui, config } = ctx;
+  const seen = ctx.preflightSeen;
+  if (!seen || !flowsWanted(config).length) return;
+  const rows = [
+    ...(seen.items ?? [])
+      .filter((it) => FLOW_ROWS.includes(it.id) && it.id !== 'data-policy')
+      .map((it) => (it.id === 'power-platform-admin' ? withFlowSigner(it, config) : it)),
+    dataPolicyPrereq(config),
+  ];
+  const verdict = preflightVerdict(rows, { config, yes: ui.yes });
+  const fresh = (/** @type {Prereq[]} */ list) => list.filter((it) => !asWhenShown(it, seen.shown.get(it.id), asShown(it, config)));
+  const groups = { shown: fresh([...verdict.block, ...verdict.warn]), handoff: fresh(handoffsToShow(verdict.handoff, config)), confirm: fresh(verdict.confirm) };
+  const printed = [...groups.shown, ...groups.handoff, ...groups.confirm];
+  if (!printed.length) return;
+  printPrereqGroups(ui, groups, ' The install carries on.');
+  for (const it of printed) seen.shown.set(it.id, asShown(it, config));
 }
 
 const ARG_PROBES = {

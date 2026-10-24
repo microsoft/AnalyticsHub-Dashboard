@@ -279,9 +279,10 @@ feedback or agent inventory flows.
       for HTTP or HTTP with Microsoft Entra ID (preauthorized), it must allow
       `https://api.powerplatform.com` (Copilot Studio credits and the agent inventory) and where the
       flows save: `https://onelake.dfs.fabric.microsoft.com` on Fabric
-      (`https://onelake.blob.fabric.microsoft.com` with `--flow-identity app`), or
-      `https://<storage account>.dfs.core.windows.net` on Azure. A SharePoint folder adds none. A
-      policy change can take up to 24 hours to apply.
+      (`https://onelake.blob.fabric.microsoft.com` with `--flow-identity app`), or on Azure the
+      storage account's address, `https://<name>.dfs.core.windows.net`, which the installer shows
+      once the account is made. A SharePoint folder adds none. A policy change can take up to 24
+      hours to apply.
 - [ ] **A Power Automate Premium licence for you.** The flows run on your Power Automate Premium
       licence, because you'll own them. Whoever signs in to their connections doesn't need Premium.
       HTTP with Microsoft Entra ID is a premium connector. The installer checks your licence.

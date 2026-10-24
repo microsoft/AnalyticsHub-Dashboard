@@ -1,16 +1,21 @@
 // @ts-check
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { armApi, ROLES } from '../src/clients/azure.js';
 import { FABRIC_ADMIN_ROLE, graphApi, INSIGHTS_ANALYST_ROLE, POWER_BI_APP_ID } from '../src/clients/graph.js';
 import { GRAPH_APP_ID } from '../src/catalog.js';
-import { emptyConfig } from '../src/config.js';
+import { emptyConfig, loadConfig, saveConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
+import { createCtx, install } from '../src/install.js';
 import { readFile } from 'node:fs/promises';
-import { canAssignDirectoryRoles, checkPrereqs, preflightVerdict, reportPreflight, settingsToConfirm } from '../src/prereqs.js';
-import { dataPolicyAsk, flowsWanted, INVENTORY_SIGNER, PP_API_SIGNER, ppApiFlows, PREMIUM_OWNER } from '../src/steps/flows.js';
+import { canAssignDirectoryRoles, checkPrereqs, dataPolicyPrereq, preflightVerdict, reportFlowPrereqs, reportPreflight, settingsToConfirm } from '../src/prereqs.js';
+import { planAzureConsumption } from '../src/steps/azure/index.js';
+import { dataPolicyAsk, FLOW_ENVIRONMENT_HINT, flowsWanted, INVENTORY_SIGNER, planFlows, PP_API_SIGNER, ppApiFlows, PREMIUM_OWNER } from '../src/steps/flows.js';
 import { preflight } from '../src/steps/plan.js';
-import { fakeUi } from './fakes.js';
+import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi, httpError, realSources } from './fakes.js';
 
 const GA = '62e90394-69f5-4237-9190-012177145e10';
 const USER = /** @type {any} */ ({ id: 'user-1', upn: 'admin@contoso.com', tenantId: 't-1' });
@@ -788,9 +793,9 @@ const plainConfig = () => {
   return config;
 };
 
-/** A preflight ctx on the fake APIs, with a UI that records what it prints. @param {any} [over] @param {{ yes?: boolean, config?: any }} [o] */
+/** A preflight ctx on the fake APIs, with a UI that records what it prints. @param {any} [over] @param {{ yes?: boolean, config?: any, answers?: any[] }} [o] */
 const preflightCtx = (over = {}, o = {}) => {
-  const t = fakeUi({ yes: o.yes });
+  const t = fakeUi({ yes: o.yes, answers: o.answers });
   const ctx = /** @type {any} */ ({ ui: t.ui, api: fakeApis(over), user: USER, config: o.config ?? plainConfig() });
   return { ctx, t };
 };
@@ -821,7 +826,7 @@ test('checkPrereqs: the data policy row shows only with the flows, is "couldn\'t
     const it = (await run(over, config))['data-policy'];
     assert.equal(it.status, 'unknown', who);
     assert.equal(it.label, 'Data policy');
-    assert.equal(it.optional, true, 'it never counts as missing');
+    assert.equal(it.optional, undefined, 'not tagged optional, beside a detail saying Power Automate won\'t save the flows');
     assert.equal(it.who, 'A Power Platform administrator');
     assert.equal(it.detail, DATA_POLICY_DETAIL);
     assert.equal(it.neededFor, 'Only the Power Automate flows: Analytics Hub - Copilot Studio credits.');
@@ -883,7 +888,7 @@ test('preflightVerdict: a Power Platform Administrator role you can only activat
 });
 
 test('preflightVerdict: the data policy row is one to confirm whenever flows are chosen; it never blocks, never needs attention and isn\'t a hand-off, even with --yes', () => {
-  const policy = row({ id: 'data-policy', label: 'Data policy', status: 'unknown', optional: true });
+  const policy = row({ id: 'data-policy', label: 'Data policy', status: 'unknown' });
   const unread = [row({ id: 'copilot-licences', status: 'unknown', optional: true }), row({ id: 'power-automate-premium', status: 'unknown', optional: true })];
   for (const opts of [{}, { yes: true }, { update: true }, { yes: true, update: true }]) {
     const v = preflightVerdict([policy, ...unread], { config: studioConfig(), ...opts });
@@ -899,7 +904,7 @@ test('preflightVerdict: the data policy row is one to confirm whenever flows are
 });
 
 test('reportPreflight: the data policy row prints last, as one to confirm, and the install carries on, even with --yes', () => {
-  const policy = row({ id: 'data-policy', label: 'Data policy', status: 'unknown', optional: true, detail: DATA_POLICY_DETAIL, howTo: 'Ask a Power Platform administrator to confirm.' });
+  const policy = row({ id: 'data-policy', label: 'Data policy', status: 'unknown', detail: DATA_POLICY_DETAIL, howTo: 'Ask a Power Platform administrator to confirm.' });
   for (const yes of [false, true]) {
     const t = fakeUi({ yes });
     const v = reportPreflight(/** @type {any} */ ({ ui: t.ui, config: studioConfig() }), [row({ id: 'register-apps', status: 'met' }), policy]);
@@ -907,7 +912,8 @@ test('reportPreflight: the data policy row prints last, as one to confirm, and t
     const text = t.text();
     assert.match(text, /Prerequisites: nothing missing for what you chose\n/);
     assert.match(text, /To confirm: the installer can't check this\.\n/);
-    assert.match(text, /Data policy \(optional\)\n/);
+    assert.match(text, /\? Data policy\n/);
+    assert.doesNotMatch(text, /optional/, 'not tagged optional');
     assert.match(text, /Couldn't check: the installer can't read data policies \(DLP\)\./);
     assert.match(text, /How to get it: Ask a Power Platform administrator to confirm\.\n/);
     assert.doesNotMatch(text, /needs? attention|Hand-off|Stopped before creating anything/);
@@ -930,7 +936,8 @@ test('preflight: with the flows chosen, the data policy ask shows before anythin
     await preflight(ctx);
     const text = t.text();
     assert.match(text, /To confirm: the installer can't check this\./);
-    assert.match(text, /Data policy \(optional\)/);
+    assert.match(text, /\? Data policy\n/);
+    assert.doesNotMatch(text, /Data policy \(optional\)/);
     assert.ok(text.includes(dataPolicyAsk(ctx.config)));
     assert.doesNotMatch(text, /Stopped before creating anything/);
   }
@@ -1287,4 +1294,359 @@ test('update: checks the prerequisites before changing anything, on Fabric and A
   assert.match(body, /if \(config\.target === 'azure'\) \{\s*await updatePrereqs\(ctx\);\s*return azureUpdate\(ctx\);/);
   assert.ok(body.indexOf('await updatePrereqs(ctx);', body.indexOf('Nothing is installed yet')) < body.indexOf('ensureKeyVault(ctx)'));
   assert.match(src, /async function updatePrereqs\(ctx\) \{[^}]*reportPreflight\(ctx, await preflightChecks\(ctx\), \{ update: true \}\)/);
+});
+
+// A new terminal install checks the prerequisites before its plan asks about the flows. Once they're chosen, the rows
+// for them that preflight would have shown, had they been chosen then, show before anything is created, and never stop it.
+
+const PIM_WARNING = ' The flows\' Power Platform API connection needs the role active whenever the flows run, and an activation lasts at most 24 hours, as your organisation sets it. Have someone with the role assigned permanently sign in to that connection.';
+const PREMIUM_ROW = '  ✗ Power Automate Premium licence (optional)\n';
+const PREMIUM_MISSING = '    No Power Automate Premium licence is assigned to you, and you\'ll own the flows. Ask your licence admin for one, or upload the CSV exports instead.\n';
+const PP_ADMIN_HANDOFF = '    Hand-off: someone else does this.\n  → Power Platform Administrator (optional)\n';
+const PP_ADMIN_ELIGIBLE = '  ◐ Power Platform Administrator (optional)\n';
+const ENVIRONMENTS_ROW = '  ✗ Power Platform environments, System Administrator in each (optional)\n';
+const DATA_POLICY_ROW = '    To confirm: the installer can\'t check this.\n  ? Data policy\n';
+/** Written where the install asks "Go ahead?". */
+const GO_AHEAD = '<<Go ahead?>>\n';
+/** Power Platform Administrator to activate in PIM, and System Administrator in no environment. */
+const ELIGIBLE = {
+  roles: [],
+  eligible: async () => [{ roleDefinitionId: PP_ADMIN, principalId: USER.id }],
+  envs: [{ Url: 'https://org1.crm.dynamics.com', FriendlyName: 'Default', State: 0, IsUserSysAdmin: false }],
+};
+/** A Power Automate Premium licence and the Power Platform Administrator role, active. */
+const EQUIPPED = {
+  roles: [role(GA, 'Global Administrator'), role(PP_ADMIN, 'Power Platform Administrator')],
+  licences: [{ servicePlans: [{ servicePlanName: 'BI_AZURE_P2', provisioningStatus: 'Success' }, { servicePlanName: 'POWER_AUTOMATE_ATTENDED_RPA', provisioningStatus: 'Success' }] }],
+};
+
+/** How many times `part` is in `text`. @param {string} text @param {string} part */
+const count = (text, part) => text.split(part).length - 1;
+
+/** Whether each part is in `text`, in this order. @param {string} text @param {string[]} parts */
+const inOrder = (text, parts) => {
+  let at = 0;
+  for (const part of parts) {
+    const i = text.indexOf(part, at);
+    if (i < 0) return false;
+    at = i + part.length;
+  }
+  return true;
+};
+
+/** Each prerequisite row printed, with its detail line. @param {string} text */
+const rowLines = (text) => {
+  const lines = text.split('\n');
+  return lines.flatMap((line, i) => (/^  [✗◐?→] /.test(line) ? [`${line}\n${lines[i + 1]}`] : []));
+};
+
+/** The rows' first lines. @param {string} text */
+const rowNames = (text) => rowLines(text).map((r) => r.split('\n')[0]);
+
+/**
+ * A new terminal install on Fabric: preflight with no flows chosen, then the plan picks the Copilot Studio credits flow
+ * and its environment.
+ * @param {any} [over] @param {{ yes?: boolean }} [o]
+ */
+async function flowsAfterPreflight(over = {}, o = {}) {
+  const { ctx, t } = preflightCtx(over, o);
+  await preflight(ctx);
+  const before = t.text();
+  ctx.config.dataSources.studioCredits = 'api';
+  await planFlows(ctx);
+  return { ctx, before, after: t.text().slice(before.length), text: t.text() };
+}
+
+test('planFlows: a flow picked after a new install\'s preflight shows the Premium licence and Power Platform Administrator rows preflight would have, then the data policy ask, and --yes carries on', async () => {
+  for (const yes of [false, true]) {
+    const { ctx, before, after, text } = await flowsAfterPreflight({}, { yes });
+    for (const part of [PREMIUM_ROW, 'Power Platform Administrator', 'Data policy']) assert.ok(!before.includes(part), `no flow chosen yet: ${part}`);
+    assert.ok(
+      inOrder(after, [FLOW_ENVIRONMENT_HINT, '  ! 1 prerequisite needs attention. The install carries on.\n', PREMIUM_ROW, PREMIUM_MISSING, PP_ADMIN_HANDOFF, DATA_POLICY_ROW, dataPolicyAsk(ctx.config)]),
+      after,
+    );
+    assert.match(dataPolicyAsk(ctx.config), / is allowed in Default\. /, 'the environment just picked');
+    assert.equal(count(text, dataPolicyAsk(ctx.config)), 1, 'the ask is said once');
+    assert.equal(count(after, 'The install carries on.'), 1);
+    assert.doesNotMatch(after, /Stopped before|for the full list/);
+  }
+});
+
+test('planFlows: after a new install\'s preflight, a Power Platform Administrator role you can only activate shows with its PIM warning once a flow is picked, without claiming how long an activation lasts', async () => {
+  for (const yes of [false, true]) {
+    const { before, after, text } = await flowsAfterPreflight(ELIGIBLE, { yes });
+    assert.ok(!before.includes('Power Platform Administrator (optional)'), 'no flow chosen yet');
+    assert.ok(inOrder(after, ['  ! 3 prerequisites need attention. The install carries on.\n', PP_ADMIN_ELIGIBLE, PREMIUM_ROW, ENVIRONMENTS_ROW, DATA_POLICY_ROW]), after);
+    const detail = after.slice(after.indexOf(PP_ADMIN_ELIGIBLE) + PP_ADMIN_ELIGIBLE.length).split('\n')[0];
+    assert.ok(detail.endsWith(PIM_WARNING), detail);
+    assert.doesNotMatch(detail, /default|\b8 hours/i, 'the organisation sets how long an activation lasts');
+    assert.equal(count(text, PIM_WARNING), 1);
+    assert.doesNotMatch(after, /Stopped before|for the full list/);
+  }
+});
+
+test('planFlows: after a new install\'s preflight, someone with Premium and the role active sees only the data policy ask; for everyone, the rows are the ones preflight shows with the flow chosen up front', async () => {
+  for (const yes of [false, true]) {
+    const { after } = await flowsAfterPreflight(EQUIPPED, { yes });
+    assert.deepEqual(rowNames(after), ['  ? Data policy'], after);
+    assert.ok(after.includes(DATA_POLICY_ROW));
+    assert.doesNotMatch(after, /needs? attention|Hand-off/);
+  }
+  for (const over of [{}, ELIGIBLE, EQUIPPED]) {
+    const upFront = plainConfig();
+    upFront.dataSources.studioCredits = 'api';
+    upFront.uploads = { flowEnvironment: { url: 'https://org1.crm.dynamics.com', name: 'Default' } };
+    const { ctx, t } = preflightCtx(over, { config: upFront });
+    await preflight(ctx);
+    const { before, after } = await flowsAfterPreflight(over);
+    assert.deepEqual([...rowLines(before), ...rowLines(after)].sort(), rowLines(t.text()).sort());
+  }
+});
+
+test('planFlows: with --studio-flow, preflight shows the flow\'s rows and the data policy ask, and the plan doesn\'t repeat them', async () => {
+  for (const yes of [false, true]) {
+    // --studio-flow sets the source before preflight.
+    const config = plainConfig();
+    config.dataSources.studioCredits = 'api';
+    const { ctx, t } = preflightCtx({}, { yes, config });
+    await preflight(ctx);
+    const before = t.text();
+    await planFlows(ctx);
+    const after = t.text().slice(before.length);
+    for (const part of [PREMIUM_ROW, PP_ADMIN_HANDOFF, DATA_POLICY_ROW]) assert.ok(before.includes(part), part);
+    assert.ok(after.includes(FLOW_ENVIRONMENT_HINT), 'the plan still asks where the flows go');
+    assert.equal(ctx.config.uploads.flowEnvironment?.name, 'Default');
+    assert.deepEqual(rowLines(after), [], after);
+    assert.equal(count(t.text(), '  ? Data policy\n'), 1);
+  }
+});
+
+test('planFlows: a terminal repair with the flows says the data policy ask once, in preflight; another environment says it again, for that one', async () => {
+  const envs = [
+    { Url: 'https://org1.crm.dynamics.com', EnvironmentId: 'env-1', FriendlyName: 'Sales', State: 0, IsUserSysAdmin: true },
+    { Url: 'https://org2.crm.dynamics.com', EnvironmentId: 'env-2', FriendlyName: 'Marketing', State: 0, IsUserSysAdmin: true },
+  ];
+  for (const yes of [false, true]) {
+    const { ctx, t } = preflightCtx({ envs }, { yes, config: studioConfig() });
+    await preflight(ctx);
+    const before = t.text();
+    await planFlows(ctx);
+    const after = t.text().slice(before.length);
+    assert.equal(ctx.config.uploads.flowEnvironment?.name, 'Sales', 'the saved environment');
+    assert.ok(before.includes(dataPolicyAsk(ctx.config)), before);
+    assert.equal(count(t.text(), dataPolicyAsk(ctx.config)), 1, 'said once');
+    assert.deepEqual(rowLines(after), [], 'nor any other row again');
+  }
+  const { ctx, t } = preflightCtx({ envs }, { config: studioConfig(), answers: ['https://org2.crm.dynamics.com'] });
+  await preflight(ctx);
+  const before = t.text();
+  await planFlows(ctx);
+  const after = t.text().slice(before.length);
+  assert.equal(ctx.config.uploads.flowEnvironment?.name, 'Marketing');
+  assert.match(dataPolicyAsk(ctx.config), / is allowed in Marketing\. /);
+  assert.ok(inOrder(after, [DATA_POLICY_ROW, dataPolicyAsk(ctx.config)]), after);
+  assert.deepEqual(rowNames(after), ['  ? Data policy'], 'only the ask, for the other environment');
+});
+
+test('reportFlowPrereqs: nothing without install preflight or flows; when preflight couldn\'t check, the data policy ask still shows, once', () => {
+  const t = fakeUi();
+  reportFlowPrereqs(/** @type {any} */ ({ ui: t.ui, config: studioConfig() }));
+  assert.equal(t.text(), '', 'no install preflight');
+  /** @type {import('../src/prereqs.js').PreflightSeen} */
+  const seen = { items: null, shown: new Map() };
+  reportFlowPrereqs(/** @type {any} */ ({ ui: t.ui, config: plainConfig(), preflightSeen: seen }));
+  assert.equal(t.text(), '', 'no flows');
+  const ctx = /** @type {any} */ ({ ui: t.ui, config: studioConfig(), preflightSeen: seen });
+  reportFlowPrereqs(ctx);
+  const once = t.text();
+  assert.ok(once.startsWith(DATA_POLICY_ROW), once);
+  assert.ok(once.includes(dataPolicyAsk(ctx.config)));
+  assert.deepEqual(rowNames(once), ['  ? Data policy']);
+  reportFlowPrereqs(ctx);
+  assert.equal(t.text(), once, 'said once');
+});
+
+test('ui.prereqs: the terminal tags optional rows, but not the data policy row', () => {
+  const t = fakeUi();
+  t.ui.prereqs([row({ id: 'power-automate-premium', label: 'Power Automate Premium licence', optional: true }), dataPolicyPrereq(studioConfig())]);
+  const text = t.text();
+  assert.ok(text.includes(PREMIUM_ROW), text);
+  assert.ok(text.includes('  ? Data policy\n'), text);
+  assert.doesNotMatch(text, /Data policy \(optional\)/);
+});
+
+/** A new Azure install with credit consumption: nothing recorded yet, and no flows until its plan picks the Copilot Studio source. */
+const newAzureConfig = () => {
+  const config = emptyConfig();
+  config.target = 'azure';
+  config.modules.consumption = true;
+  config.modules.agentEvaluator = false;
+  config.azure = /** @type {any} */ ({
+    subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {},
+    graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub',
+  });
+  assert.deepEqual(flowsWanted(config), []);
+  return config;
+};
+
+test('planAzureConsumption: a new Azure install defaults Copilot Studio credits to the flow, so its Premium licence row, any PIM warning and the data policy ask show after preflight; --yes carries on', async () => {
+  const pending = 'the new storage account\'s address (https://<name>.dfs.core.windows.net), which the installer shows once it\'s made';
+  for (const [who, over] of /** @type {[string, any][]} */ ([['', {}], ['eligible', ELIGIBLE]])) {
+    for (const yes of [false, true]) {
+      const { ctx, t } = preflightCtx(over, { yes, config: newAzureConfig() });
+      ctx.advanced = false;
+      await preflight(ctx);
+      const before = t.text();
+      await planAzureConsumption(ctx, []);
+      const after = t.text().slice(before.length);
+      const ask = dataPolicyAsk(ctx.config);
+      assert.equal(ctx.config.dataSources.studioCredits, 'api');
+      assert.ok(!before.includes(PREMIUM_ROW), `no flow chosen yet ${who}`);
+      assert.ok(inOrder(after, [FLOW_ENVIRONMENT_HINT, PREMIUM_ROW, PREMIUM_MISSING, DATA_POLICY_ROW, ask]), after);
+      assert.ok(ask.endsWith(`it must allow https://api.powerplatform.com and ${pending}.`), ask);
+      assert.equal(count(t.text(), PREMIUM_ROW), 1, who);
+      assert.equal(count(t.text(), ask), 1, who);
+      assert.equal(count(t.text(), PIM_WARNING), who ? 1 : 0, who);
+      if (who) assert.ok(inOrder(after, [PP_ADMIN_ELIGIBLE, PREMIUM_ROW, ENVIRONMENTS_ROW]), after);
+      assert.doesNotMatch(after, /Stopped before|for the full list/);
+    }
+  }
+});
+
+test('Azure install: the Copilot Studio credits flow a new install\'s plan picks shows its Premium licence row before the plan is confirmed, and declining creates nothing', async () => {
+  const PIM = async () => [{ roleDefinitionId: PP_ADMIN, principalId: 'user-1' }];
+  for (const eligible of [async () => [], PIM]) {
+    for (const yes of [false, true]) {
+      const u = fakeUi({ yes });
+      const arm = fakeArm();
+      // Each change in Azure is marked where it happens in the output.
+      const armApi = /** @type {any} */ ({ ...arm.api });
+      for (const [name, fn] of Object.entries(arm.api)) {
+        if (!/^(ensure|deploy|assign|start|delete)/.test(name)) continue;
+        armApi[name] = (/** @type {any[]} */ ...args) => {
+          u.out.push(`<<ARM ${name}>>\n`);
+          return /** @type {any} */ (fn)(...args);
+        };
+      }
+      const graph = fakeAzureGraph();
+      const config = emptyConfig();
+      config.target = 'azure';
+      config.tenantId = 'tenant-1';
+      config.modules.consumption = true;
+      const { ctx } = fakeCtx({
+        config,
+        ui: u.ui,
+        arm: armApi,
+        fabric: fakeFabric().api,
+        powerBi: fakePowerBi().api,
+        graph: {
+          ...graph.api,
+          myDirectoryRoles: async () => [role(GA, 'Global Administrator')],
+          myEligibleRoles: eligible,
+          myGroupIds: async () => [],
+          myDirectGroupIds: async () => [],
+          myLicenseDetails: async () => [],
+          subscribedSkus: async () => [],
+          usersCanRegisterApps: async () => true,
+        },
+        discovery: { instances: async () => [{ Url: 'https://org1.crm.dynamics.com', FriendlyName: 'Default', State: 0, IsUserSysAdmin: true }] },
+      });
+      delete config.fabric.workspaceId;
+      const ui = /** @type {any} */ (u.ui);
+      const { confirm } = ui;
+      ui.confirm = async (/** @type {string} */ message, /** @type {boolean} */ def) => {
+        if (message !== 'Go ahead?') return confirm(message, def);
+        u.out.push(GO_AHEAD);
+        return false;
+      };
+      assert.equal(await install(ctx, { wait: false }), true);
+      const text = u.text();
+      assert.ok(inOrder(text, ['Checking your tenant', FLOW_ENVIRONMENT_HINT, PREMIUM_ROW, PREMIUM_MISSING, DATA_POLICY_ROW, 'Ready to set up', GO_AHEAD, 'Stopped before changing anything.']), text);
+      assert.equal(count(text, PREMIUM_ROW), 1);
+      assert.equal(count(text, '  ? Data policy\n'), 1);
+      assert.equal(count(text, PIM_WARNING), eligible === PIM ? 1 : 0);
+      // Checking Azure registers resource providers before "Go ahead?", as it did before; the row shows first.
+      const firstChange = text.indexOf('<<ARM ');
+      assert.ok(text.indexOf(PREMIUM_MISSING) < (firstChange < 0 ? text.length : firstChange), text);
+      assert.deepEqual(arm.calls.filter((c) => /^(ensureResourceGroup|deployTemplate|assignRole|startContainerAppJob|delete)/.test(c)), [], 'nothing created');
+    }
+  }
+});
+
+test('Fabric install: the Copilot Studio credits flow picked on a new install\'s Data sources screen shows its Premium licence row before the plan is confirmed and before the first step', async (t) => {
+  const forbidden = async () => {
+    throw new Error('Forbidden');
+  };
+  for (const yes of [false, true]) {
+    const dir = mkdtempSync(join(tmpdir(), 'ah-flow-prereqs-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const file = join(dir, 'valuelens-install.json');
+    const config = loadConfig(file).config;
+    config.target = 'fabric';
+    config.tenantId = 'tenant-1';
+    config.keyVault.mode = 'notebook';
+    config.semanticModel.enabled = false;
+    config.fabricApp.enabled = false;
+    saveConfig(file, config);
+    const fabric = fakeFabric();
+    const graph = fakeAzureGraph();
+    const u = fakeUi({ yes });
+    const ui = /** @type {any} */ (u.ui);
+    const { sources, confirm } = ui;
+    // Copilot Studio credits from the flow, on the Data sources screen.
+    ui.sources = async (/** @type {string} */ message, /** @type {any[]} */ cards, /** @type {{ lockModes?: boolean } | undefined} */ o) => {
+      const picked = await sources(message, cards, o);
+      if (!o?.lockModes) picked.modes.studioCredits = 'api';
+      return picked;
+    };
+    ui.confirm = async (/** @type {string} */ message, /** @type {boolean} */ def) => {
+      if (message === 'Go ahead?') u.out.push(GO_AHEAD);
+      return confirm(message, def);
+    };
+    const ctx = createCtx({
+      ui: u.ui,
+      config,
+      file,
+      api: /** @type {any} */ ({
+        // Fabric refuses the workspace, the first thing the install creates.
+        fabric: {
+          ...fabric.api,
+          tenantSettings: forbidden,
+          listWorkspaces: async () => [],
+          createWorkspace: async () => {
+            u.out.push('<<createWorkspace>>\n');
+            throw httpError(403, 'Forbidden');
+          },
+        },
+        graph: {
+          ...graph.api,
+          subscribedSkus: forbidden,
+          myDirectoryRoles: async () => [],
+          myEligibleRoles: async () => [],
+          myGroupIds: async () => [],
+          myDirectGroupIds: async () => [],
+          myLicenseDetails: async () => [],
+          usersCanRegisterApps: async () => true,
+          ensureRequiredAccess: async () => false,
+        },
+        powerBi: fakePowerBi().api,
+        arm: { listSubscriptions: async () => [] },
+        keyVault: {},
+        oneLake: {},
+        discovery: { instances: async () => [{ Url: 'https://org1.crm.dynamics.com', FriendlyName: 'Default', State: 0, IsUserSysAdmin: true }] },
+        powerPlatform: { billingPolicies: async () => [] },
+      }),
+      user: { id: 'user-1', upn: 'admin@contoso.com', tenantId: 'tenant-1' },
+      sources: realSources(),
+      sleep: async () => {},
+      now: () => new Date('2026-06-01T12:00:00Z'),
+    });
+    await assert.rejects(install(ctx, { wait: true }), /Fabric didn't let you create the workspace/);
+    const text = u.text();
+    assert.ok(inOrder(text, ['Checking your tenant', FLOW_ENVIRONMENT_HINT, PREMIUM_ROW, PREMIUM_MISSING, PP_ADMIN_HANDOFF, DATA_POLICY_ROW, 'Ready to set up', GO_AHEAD, '[1/', '<<createWorkspace>>']), text);
+    assert.equal(count(text, '<<createWorkspace>>'), 1, 'the first thing created');
+    assert.equal(count(text, PREMIUM_ROW), 1);
+    assert.equal(count(text, '  ? Data policy\n'), 1);
+    assert.deepEqual(fabric.calls.filter((c) => /^create/.test(c)), [], 'nothing created in Fabric');
+  }
 });
