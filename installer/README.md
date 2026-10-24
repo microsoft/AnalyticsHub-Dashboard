@@ -892,9 +892,10 @@ On by default. It fills the app's **Work patterns** page.
 **Turn off concealed names**, or the organisation filters won't work on that page. A Global
 Administrator, in the Microsoft 365 admin center, goes to **Settings** > **Org settings** >
 **Services** > **Reports** and unticks **Conceal user, group, and site names in all reports**.
-Unless the data check shows names already, the end of the install has a request for it, for a
-Global Administrator. There's nothing to run afterwards: the next load, scheduled or **Run now**,
-uses names, and each load reloads the last 28 days of activity that Microsoft keeps.
+Unless the data check shows names already, the end of the install asks a Global Administrator for
+it. If you're one, it's a step for you instead. There's nothing to run afterwards: the next load,
+scheduled or **Run now**, uses names, and each load reloads the last 28 days of activity that
+Microsoft keeps.
 
 The `M365 Activity` table refreshes incrementally, like the audit table. The model keeps 12 months
 of it, and each refresh reloads only the last 35 days. That covers every day the notebook can

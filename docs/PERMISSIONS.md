@@ -53,8 +53,8 @@ The optional **Microsoft 365 activity** notebook (Fabric path, `m365_activity_da
 Microsoft 365 usage reports with the same `Reports.Read.All`, so it needs no extra permission.
 Its activity only matches people if a Global Administrator unticks **Conceal user, group, and site
 names in all reports** (Microsoft 365 admin center → Settings → Org settings → Services → Reports).
-Unless the data check shows names already, the end of the install has a request for it, for a
-Global Administrator, under **Still to do by your admins**.
+Unless the data check shows names already, the end of the install asks a Global Administrator for
+it, under **Still to do by your admins**. If you're one, it's a step for you instead.
 
 ---
 
