@@ -18,6 +18,7 @@ import { addMonths, OPTIONAL_PERMISSION_EFFECTS, OPTIONAL_PERMISSIONS, SECRET_LI
 import { addTrackedSecret, promoteSecret, removeRetired } from '../secrets.js';
 import { manifestVersion, writeTeamsPackage } from '../../azure/teams.js';
 import { askToPublishTeamsApp, checkCatalogAccess, publishTeamsApp, removeTeamsApp, signInForTeamsApp, TEAMS_APP_PENDING, teamsAppPlanRow } from './teams-catalog.js';
+import { ensureRunJobSelfStart, selfStartGrants } from './self-start.js';
 import { APP_ALIAS, CONSUMPTION_ALIAS, EVALUATOR_ALIAS } from '../app.js';
 import { AZURE_AI_ROLES, ensureAzureAiAccess, planConsumption } from '../consumption.js';
 import { AZURE_LANDING_DIRS, azureDropLabel, azureDropsToSharePoint, ensureFlows, flowsSummary, flowsWanted, offerStudioRun, planFlows } from '../flows.js';
@@ -574,15 +575,16 @@ export const BACKFILL_ENV = 'VALUELENS_AUDIT_BACKFILL_DAYS';
 
 /**
  * How long a reload takes on Azure, which has no pipeline. A run fetches for about 3 hours, newest weeks first,
- * and publishes what it has loaded; the scheduled runs after it carry on with whatever the reload hasn't loaded.
- * Fabric's wording is `reloadDetail`'s.
+ * and publishes what it has loaded; the runs after it carry on with whatever the reload hasn't loaded. The plan
+ * comes before the deploy that settles whether the run job can start itself, so it says both. Fabric's wording is
+ * `reloadDetail`'s.
  * @param {number} days
  * @param {'standard' | 'large' | undefined} [scale]
  */
 const azureReloadDetail = (days, scale) => {
   const estimate = estimateShort(days, scale, 'azure');
   return days > 30
-    ? `${estimate} A run fetches for about 3 hours and publishes what it has loaded, and the scheduled runs after it carry on with the reload until it has all loaded.`
+    ? `${estimate} A run fetches for about 3 hours and publishes what it has loaded, and the runs after it carry on with the reload until it has all loaded. A run stopped at its time limit starts the next one straight away if the run job can start itself; otherwise, and after a stop at the search limit, the next scheduled run carries on.`
     : estimate;
 };
 
@@ -1511,6 +1513,7 @@ export function azurePlanReview(ctx, pre) {
       { who: 'Collector managed identity', what: `Microsoft Graph application permissions: ${azureGraphRoles(ctx.config).join(', ')}`, where: 'Microsoft Graph', detail: 'Installer assigns app roles or records admin action if blocked.' },
       { who: WEB_APP_NAME, what: `Delegated Power BI Dataset.Read.All and Graph User.Read${ctx.config.access ? `, ${GROUP_SCOPE}, ${PEOPLE_SCOPE}` : ''}; app roles AnalyticsHub.User and AnalyticsHub.Admin`, where: 'Entra ID', ...(ctx.config.access ? { detail: `${GROUP_SCOPE} lets admins and group owners manage viewers from Share in the app, as themselves. ${PEOPLE_SCOPE} lets Share find people by email and show their names.` } : {}) },
       { who: 'Managed identity', what: 'Member', where: az.powerBi?.workspaceId ? `Power BI workspace ${az.powerBi.workspaceId}` : `Power BI workspace ${az.workspaceName ?? 'Analytics Hub'}` },
+      ...selfStartGrants(az),
       ...access.grants,
       ...consumptionGrants,
       ...argGrants,
@@ -1769,6 +1772,7 @@ export async function installAzure(ctx, opts) {
   step('Azure resources (final)');
   recordDeployment(az, await deployOrExplain(ctx, { pass: 2 }));
   ctx.save();
+  await ensureRunJobSelfStart(ctx);
 
   step('Database migration');
   const migration = await startAndWaitJob(ctx, 'migrate', { wait: true, timeoutMs: 15 * 60_000 });
@@ -2413,9 +2417,9 @@ export async function startAndWaitJob(ctx, kind, opts) {
   const executionName = started?.name ?? started?.properties?.name ?? started?.id?.split('/').pop();
   ctx.ui.ok(`Started ${label}${executionName ? ` (${executionName})` : ''}${opts.backfillDays ? ` with ${opts.backfillDays} days of audit history` : ''}`);
   if (opts.backfillDays) {
-    ctx.ui.note(`${firstLoadEstimate(opts.backfillDays, ctx.config.scale, 'azure', { reload: true })}Job images older than this installer ignore ${BACKFILL_ENV} and run as usual: run "${commandLine('update')}" first if yours is.`);
+    ctx.ui.note(`${firstLoadEstimate(opts.backfillDays, ctx.config.scale, 'azure', { reload: true, selfStart: az.runJobSelfStart })}Job images older than this installer ignore ${BACKFILL_ENV} and run as usual: run "${commandLine('update')}" first if yours is.`);
   } else if (firstLoad) {
-    ctx.ui.note(firstLoadEstimate(ctx.config.history.days, ctx.config.scale, 'azure').trim());
+    ctx.ui.note(firstLoadEstimate(ctx.config.history.days, ctx.config.scale, 'azure', { selfStart: az.runJobSelfStart }).trim());
   }
   az.status ??= {};
   az.status[key] = { name: executionName, status: 'Running', startedAt: ctx.now().toISOString() };

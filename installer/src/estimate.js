@@ -28,8 +28,9 @@
  * doesn't carry a first load or a reload on: each run after the first is started by hand. On Azure, a run has
  * 4 hours and keeps at least the last hour to process and publish, so it fetches for up to about 3 hours (less
  * what the other collectors take first), then publishes what it has loaded; no retry is counted on. A load whose
- * high end reaches 4 hours can take a second run, and the scheduled runs carry a load on. The audit service's queue
- * on a busy day isn't counted: it can add hours.
+ * high end reaches 4 hours can take a second run. If the run job can start itself, a run stopped at its time limit
+ * starts the next one straight away; otherwise, and after a stop at the search limit, the next scheduled run carries
+ * the load on. The audit service's queue on a busy day isn't counted: it can add hours.
  *
  * The figures are for Microsoft Graph audit search, which Azure and a Fabric install with the Graph source read. A
  * Fabric install that reads the Office 365 Management Activity API (feed, or auto after Microsoft Sentinel) loads
@@ -266,6 +267,25 @@ function heldEstimate(source, days, opts) {
 }
 
 /**
+ * Within the search allowance: what carries an Azure load on once a run stops at its time limit. Ends with a space.
+ * @param {boolean | undefined} selfStart  true when the run job can start its next run itself, false while that waits
+ *   for an admin, undefined when it isn't known: on an install from before 0.6.9 until an update or a repair, or in
+ *   demo mode, which gives no role.
+ */
+function azureNextRun(selfStart) {
+  const sooner = `start one sooner with "${commandLine('run')}"`;
+  if (selfStart) {
+    return 'The next run then starts by itself and carries on where it stopped, until the history is loaded. ' +
+      'If a run ends with an error or fetches nothing, the next scheduled run carries on instead. ';
+  }
+  if (selfStart === false) {
+    return `The next scheduled run carries on where it stopped, or ${sooner}. ` +
+      `An admin can let the next run start straight away: see the pending admin action in "${commandLine('status')}". `;
+  }
+  return `If the run job can start itself, the next run starts straight away and carries on where it stopped; if not, the next scheduled run does, or ${sooner}. `;
+}
+
+/**
  * What to expect when the first load, or a reload of more history, starts: the estimate, what can make it longer,
  * and what each target does when a run can't fetch it all. Ends with a space, for the note that follows. A feed or
  * auto load that doesn't read Graph (graphHistory not true) says the days it holds instead, and how to load the
@@ -273,7 +293,9 @@ function heldEstimate(source, days, opts) {
  * @param {number} days
  * @param {string | undefined} scale
  * @param {EstimateTarget} [target]
- * @param {{ reload?: boolean } & SourceOpts} [opts]  reload: a reload of more history, which on Fabric takes its own command to carry on.
+ * @param {{ reload?: boolean, selfStart?: boolean } & SourceOpts} [opts]  reload: a reload of more history, which on
+ *   Fabric takes its own command to carry on. selfStart: on Azure, whether the run job can start its next run itself,
+ *   as `azureNextRun`.
  */
 export function firstLoadEstimate(days, scale, target = 'fabric', opts = {}) {
   const est = estimateFor(target, days, scale);
@@ -292,11 +314,13 @@ export function firstLoadEstimate(days, scale, target = 'fabric', opts = {}) {
   if (target === 'azure') {
     const each = 'Each run fetches for up to about 3 hours, newest weeks first, then publishes what it has loaded, so the reports fill in after each run. ';
     if (over) {
-      return `${head}${each}A run stopped at the search limit does the same. ` +
-        `The next scheduled run carries on where it stopped. The estimate counts a run a day: on a weekly schedule, start the runs in between with "${commandLine('run')}". `;
+      const next = opts.selfStart
+        ? 'A run stopped at its time limit then starts the next one by itself; after a stop at the search limit, the next scheduled run carries on where it stopped. '
+        : `The next scheduled run carries on where it stopped. ${opts.selfStart === false ? `An admin can let a run stopped at its time limit start the next one straight away: see the pending admin action in "${commandLine('status')}". ` : ''}`;
+      return `${head}${each}A run stopped at the search limit does the same. ${next}` +
+        `The estimate counts a run a day: on a weekly schedule, start the runs in between with "${commandLine('run')}". `;
     }
-    return `${head}${each}` +
-      `The next scheduled run carries on where it stopped, or start one sooner with "${commandLine('run')}". `;
+    return `${head}${each}${azureNextRun(opts.selfStart)}`;
   }
   // A reload that read the older days from Graph carries on reading them from Graph.
   const viaGraph = opts.graphHistory === true && !!opts.source && readsFeed(opts.source) ? ' --graph-history' : '';

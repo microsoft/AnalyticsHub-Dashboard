@@ -715,11 +715,15 @@ class AuditCollector:
         # Done: fetched in this run, or kept from an earlier one. Failed: ran out of retries in this run. Left: the
         # rest, for the next run (paused at the time budget, left at the search limit, or not started).
         done, failed, left = [], [], []
+        # Windows of the history this run fetched: not the trailing look-back's, which every run fetches again.
+        loaded, look_back = 0, self.end - timedelta(days=self.lookback)
         for ws, we in leaves:
             key = audit.stable_window_key(ws, we)
             entry = snapshot.get(key) or {}
             if entry.get("status") == "succeeded" and (key in finished or key in reused):
                 done.append(key)
+                if key in finished and audit._as_utc_datetime(we) <= look_back:
+                    loaded += 1
             elif outcomes.get(key) == "failed":
                 failed.append(f"{_range(ws, we)}: {entry.get('error') or entry.get('status')}")
             else:
@@ -779,7 +783,7 @@ class AuditCollector:
             back_to = self.state.get("loaded_back_to")
             log.info("audit: History loaded back to %s. The next run carries on (%s windows left).",
                      back_to[:10] if back_to else "nothing yet", len(left))
-            return dict(result, paused=True, windows_left=len(left), loaded_back_to=back_to)
+            return dict(result, paused=True, windows_left=len(left), windows_loaded=loaded, loaded_back_to=back_to)
         if done and not any(int((snapshot.get(key) or {}).get("rows") or 0) for key in done):
             log.warning("audit: every audit window succeeded, but none had Copilot interaction records (%s to %s). "
                         "If people used Copilot then, check that the jobs' managed identity has %s (re-run the "

@@ -316,6 +316,7 @@ output storageAccountName string = storage.outputs.name
 output sqlServerFqdn string = sql.outputs.serverFqdn
 output sqlDatabaseName string = sql.outputs.databaseName
 output runJobName string = names.runJob
+output runJobPrincipalId string = apps.outputs.runJobPrincipalId
 output migrateJobName string = names.migrateJob
 output webUrl string = apps.outputs.webUrl
 output webFqdn string = apps.outputs.webFqdn
