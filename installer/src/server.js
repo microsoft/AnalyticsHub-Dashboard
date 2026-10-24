@@ -10,7 +10,7 @@ import { createServer } from 'node:http';
 import { installerWindow, updateHint } from './launch.js';
 import { createSession } from './web-session.js';
 import { clearStaged, sizeOk, stageUpload } from './staging.js';
-import { c } from './ui.js';
+import { c, DONE_REQUESTS_TITLE } from './ui.js';
 import { checkForUpdate } from './update-check.js';
 import { MAX_UPLOAD_BYTES } from './uploads.js';
 import { createWebUi } from './web-ui.js';
@@ -385,6 +385,12 @@ export function mirror(write) {
       case 'next-steps':
         line(`  ${c.bold(c.yellow(e.title))}`);
         for (const s of /** @type {import('./steps/next-steps.js').NextStep[]} */ (e.steps)) line(`  ${SYMBOL.warn} ${s.title}${c.dim(`  ${s.who}`)}`);
+        break;
+      case 'done-requests':
+        line(`  ${c.bold(c.yellow(`${DONE_REQUESTS_TITLE}: copy each request from the Done page and send it.`))}`);
+        for (const r of /** @type {import('./steps/handoff.js').AdminRequest[]} */ (e.requests)) {
+          line(`  ${SYMBOL.warn} ${r.who}${r.optional ? ' (optional)' : ''}${c.dim(`  For: ${r.rows.join('; ')}`)}`);
+        }
         break;
     }
   };

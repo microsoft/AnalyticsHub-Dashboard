@@ -470,6 +470,49 @@ sets the number. On Fabric and Azure.
     terminal links to the least-privilege guide on GitHub, not to a path in the repo. The drop
     site's request goes to a SharePoint Administrator. In the run log the browser saves, each
     command is in a code block.
+- **What's left for your admins, at the end.** An install or Repair now ends with what's still left
+  for admins, under **Still to do by your admins**, on the Done page and at the end of the terminal
+  output: one request per admin, with what it's for, the message to copy and send (**Copy
+  request** in the browser), and what you do once the admin has done it. The requests come from the
+  install record and that run, not from your roles, so they don't ask for what the installer did
+  itself. Preflight's requests don't change, and stay in the run log. An update doesn't list them.
+  No request includes a secret. The Done page's cards are now only what you do: deploy and share
+  the app, and sign in to the flows and the Cowork Dataflow.
+  - **Global Reader.** Fabric's Done card that asked for it is now a request to a Privileged Role
+    Administrator or Global Administrator, with the same steps and command. On Azure, the jobs'
+    managed identity's Global Reader, which the installer only printed, is a request too.
+  - **Admin consent** (Fabric). When the run couldn't grant it, the request has the consent link,
+    and says what you run once it's granted: `run --backfill-days <n>` for the audit history the run
+    skipped, or, for 30, 90 or 180 days, **Run now** with that much audit history.
+  - **Concealed names.** A request to a Global Administrator to show user names in the Microsoft
+    365 usage reports, which Microsoft conceals by default. It says why, that the setting is
+    org-wide, and that showing names is logged in the Microsoft Purview audit log. On Fabric it's
+    left out when the run's data check, or else the last one the Lakehouse holds, shows names. On
+    Azure the first load runs in the background, so it's always there, and says to skip it if the
+    reports already show names. If you're a Global Administrator, it's a card for you instead.
+  - **The product feedback export** (Fabric). The Done card is now a request to a Microsoft 365
+    admin to schedule it to your mailbox. The flows' summary points to it instead of repeating the
+    step.
+  - **The Azure roles the load needs**, to an Azure Owner or User Access Administrator, each with
+    its command: credit consumption's Azure AI roles, Cost Management Reader on each pay-as-you-go
+    subscription, and Reader on the Foundry resources. When the Azure AI roles are refused, the
+    installer doesn't try the pay-as-you-go subscriptions, so the request asks for those too. Each
+    says to run the installer again without `--yes`, and which option to choose: the installer
+    counts a role an admin gave only when you choose it.
+  - **On Azure, the pending admin actions**: the jobs' managed identity's Microsoft Graph roles,
+    with their one command, the web app's consent, the Teams app, app ownership and the drop site's
+    access, each to its admin, with what a re-run does. The summary's Teams line points to the
+    request.
+  - **The Cowork credits query** (Fabric, optional). The Done card is now an optional request to an
+    Insights Analyst.
+  - **The Agent Evaluator.** One request per environment the installer can't read in full, to a
+    System Administrator of it, with the steps the install printed: add the app (on Azure, the
+    jobs' managed identity) as an application user, give it the role that reads every transcript,
+    or activate it if it's disabled. On Azure, the summary's ✓ uses the same test, so an
+    environment can't show both a ✓ and a request.
+  - In the browser, the installer's own window lists who each request goes to, and points to the
+    Done page. The run log the browser saves has each request once. INSTALL, PREREQUISITES,
+    PERMISSIONS, MANUAL-INSTALL and the READMEs say the same.
 
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 

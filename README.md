@@ -32,7 +32,7 @@ Analytics Hub itself is free. See [Architecture and costs](docs/ARCHITECTURE.md)
 1. Send each admin their row of the [prerequisites](docs/PREREQUISITES.md), Fabric column.
 2. [Run the installer](#run-the-installer). Choose **Microsoft Fabric**.
 3. [Check it worked](docs/INSTALL.md#check-it-worked). The Done page lists anything left to do, and
-   who does it.
+   who does it, with a request to copy and send to each admin.
 
 <a id="manual-step-by-step"></a>
 **By hand** · [🎥 Watch it first](fabric/README.md#set-it-up-by-hand)
@@ -50,7 +50,7 @@ Analytics Hub itself is free. See [Architecture and costs](docs/ARCHITECTURE.md)
 1. Send each admin their row of the [prerequisites](docs/PREREQUISITES.md), Azure column.
 2. [Run the installer](#run-the-installer). Choose **Your Azure subscription**.
 3. [Check it worked](docs/INSTALL.md#check-it-worked). The Done page lists anything left to do, and
-   who does it.
+   who does it, with a request to copy and send to each admin.
 
 **By hand:** [seven steps in Azure Cloud Shell](docs/MANUAL-INSTALL.md#azure), with no installer.
 They need a release that includes them: **Get the files** checks for one.

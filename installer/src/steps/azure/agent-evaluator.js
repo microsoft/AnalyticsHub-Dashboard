@@ -11,7 +11,7 @@ import { TRANSCRIPT_ROLE } from '../../clients/dataverse.js';
 import { HttpError } from '../../http.js';
 import { EVALUATOR_STATUS_TABLE } from '../../transform/load-log.js';
 import { c } from '../../ui.js';
-import { agentEvaluatorSummary, appUsers, ensureTranscriptAccess, planAgentEvaluator, readRole, readRoleRecord, removeReadRole } from '../agent-evaluator.js';
+import { agentEvaluatorSummary, appUsers, ensureTranscriptAccess, planAgentEvaluator, readRole, readRoleRecord, removeReadRole, transcriptAsks } from '../agent-evaluator.js';
 
 /** @typedef {import('../../install.js').Ctx} Ctx */
 /** @typedef {import('../../config.js').InstallConfig} InstallConfig */
@@ -192,12 +192,25 @@ function transcriptReader(ctx) {
     notes: {
       none: 'No environments chosen, so the jobs don\'t read transcripts.',
       leaveOut: 'Run the installer again once it\'s added, so it\'s checked and the jobs read the environment.',
+      added: 'Then the jobs read the environment from their next run.',
       unread: 'The jobs\' managed identity can\'t read any of the environments yet, so the jobs don\'t read transcripts. Run the installer again once an admin adds it.',
       fill: 'The agent pages fill after the jobs\' next run reads the transcripts.',
     },
     record: (env, grant) => record(ctx, env, grant),
     reads: azureAgentEvaluatorReads,
+    readsAll: (env) => readsAll(env, config.azure?.outputs?.identityClientId),
   };
+}
+
+/**
+ * The end-of-run asks for the transcripts on Azure: one to each chosen environment's System Administrator where the
+ * jobs' managed identity can't read every transcript. None in demo mode, or before the deployment returns its client ID.
+ * @param {Ctx} ctx
+ * @returns {import('../handoff.js').Ask[]}
+ */
+export function azureTranscriptAsks(ctx) {
+  if (!azureAgentEvaluatorOn(ctx.config) || !ctx.config.azure?.outputs?.identityClientId) return [];
+  return transcriptAsks(ctx, transcriptReader(ctx));
 }
 
 /**

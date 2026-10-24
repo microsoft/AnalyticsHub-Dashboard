@@ -25,8 +25,8 @@ Analytics Hub in your own Azure subscription, without Fabric.
    and open it. Choose **Your Azure subscription**, then the subscription, resource group, region
    and Power BI workspace. Blocked? See the other ways to start it in
    [Install](../docs/INSTALL.md). Don't work around the policy.
-3. **Check it worked.** The Done page lists anything left to do, and who does it. See
-   [Check it worked](../docs/INSTALL.md#check-it-worked).
+3. **Check it worked.** The Done page lists anything left to do, and who does it, with a request
+   to copy and send to each admin. See [Check it worked](../docs/INSTALL.md#check-it-worked).
 
 ## By hand
 

@@ -21,7 +21,7 @@ import { createClient, defaultSleep } from './http.js';
 import { commandLine } from './launch.js';
 import { ensureConsent, ensureApp, ensureKeyVault, newSecret, notebookSecretDays } from './steps/identity.js';
 import {
-  agentEvaluatorModelWanted, agentEvaluatorSummary, ensureAgentEvaluatorModel, ensureTranscriptAccess, fabricReadRoleWanted, removeFabricReadRoles,
+  agentEvaluatorModelWanted, agentEvaluatorSummary, ensureAgentEvaluatorModel, ensureTranscriptAccess, fabricReadRoleWanted, removeFabricReadRoles, transcriptAsks,
 } from './steps/agent-evaluator.js';
 import { appDeployedSince, deployApp, ensureAppName, ensureFabricApp } from './steps/app.js';
 import { COWORK_DATAFLOW_NAME, connectCowork, consumptionModelWanted, consumptionSummary, ensureAzureAiAccess, ensureConsumptionModel, ensureLandingFolders } from './steps/consumption.js';
@@ -45,14 +45,14 @@ import {
 import { ensureModelConnection, ensureSemanticModel, modelUrl, pendingReloads, refreshModel, rotateModelSecret, settleReloads, verifyModel } from './steps/model.js';
 import { confirmPlan, plan, preflight } from './steps/plan.js';
 import { checkPrereqs, preflightChecks, reportPreflight } from './prereqs.js';
-import { adminRequests } from './steps/handoff.js';
+import { adminRequests, doneRequests, isGlobalAdmin, namesWanted } from './steps/handoff.js';
 import { ensureReports, reportsOn, reportsSummary } from './steps/report.js';
 import { dataAgentSummary, dataAgentWanted, ensureDataAgent } from './steps/data-agent.js';
 import { azureUploadError, dataSourcesSummary, ensureUploads, uploadCommand } from './steps/data-sources.js';
 import { ensureFlows, FLOW_FILES, flowDefinitions, flowsSummary, flowsWanted, offerStudioRun } from './steps/flows.js';
 import { ensureAppResourceGraphAccess, resourceGraphOn } from './steps/resource-graph.js';
 import { routerWanted } from './uploads.js';
-import { checkData, chooseLoad, coworkSkipForFirstLoad, runDataCheck, runPipeline, status, TERMINAL } from './steps/run.js';
+import { checkData, chooseLoad, coworkSkipForFirstLoad, lastDataCheck, runDataCheck, runPipeline, status, TERMINAL } from './steps/run.js';
 import { loadCoworkNow, rerunFailed } from './steps/rerun.js';
 import { prepareNotebook, serialiseNotebook } from './transform/notebook.js';
 import { rlsOn, rlsSettings } from './transform/access.js';
@@ -470,6 +470,9 @@ export async function install(ctx, opts) {
   // The pipeline refreshes the models as its last step. When it can't, a model owed a reload is refreshed on its own.
   /** @type {import('./steps/model.js').LoadState} */
   let load = 'none';
+  // This run's data check, for the requests at the end.
+  /** @type {any} */
+  let dataCheck = null;
   if (ctx.runFirstLoad) {
     step('First load');
     if (!consented) {
@@ -484,7 +487,9 @@ export async function install(ctx, opts) {
       if (result.status === 'Completed') {
         // A run completes even when a load in it failed.
         if (result.counted?.length) stepsOk = false;
-        if ((await runDataCheck(ctx)) === false) stepsOk = false;
+        const check = await runDataCheck(ctx);
+        if (check === false) stepsOk = false;
+        else if (check) dataCheck = check;
         if (modelDeployed(config)) ok = (await verifyModel(ctx)).ok;
       }
       if (opts.wait && config.firstRun?.status !== 'Completed') ok = false;
@@ -507,7 +512,9 @@ export async function install(ctx, opts) {
       }
       if (result.status === 'Completed') {
         if (result.counted?.length) stepsOk = false;
-        if ((await runDataCheck(ctx)) === false) stepsOk = false;
+        const check = await runDataCheck(ctx);
+        if (check === false) stepsOk = false;
+        else if (check) dataCheck = check;
         if (modelDeployed(config)) ok = (await verifyModel(ctx)).ok;
       } else if (opts.wait) ok = false;
     }
@@ -528,7 +535,16 @@ export async function install(ctx, opts) {
   // A late app makes up for its own step, so only when nothing else failed.
   const appOk = appDeployed || !!appLate;
   ok = reloads.ok && ok && stepsOk && appOk;
-  await summary(ctx, { ok, pending: reloads.pending, appFailed: !appDeployed && !appLate, appLate });
+  await summary(ctx, {
+    ok,
+    pending: reloads.pending,
+    appFailed: !appDeployed && !appLate,
+    appLate,
+    consented,
+    dataCheck,
+    // The audit history the skipped load would have loaded, as its warning above says.
+    backfillDays: ctx.runFirstLoad ? config.history.days : ctx.reloadHistoryDays ?? config.history.days,
+  });
   return ok;
 }
 
@@ -952,9 +968,11 @@ export async function rotateSecret(ctx) {
 /**
  * Prints where everything is and what to do next.
  * @param {Ctx} ctx
- * @param {{ ok?: boolean, pending?: string[], appFailed?: boolean, appLate?: string }} [opts]  ok false when a step above failed, so the heading doesn't say it is all set up;
+ * @param {{ ok?: boolean, pending?: string[], appFailed?: boolean, appLate?: string, consented?: boolean, dataCheck?: any, backfillDays?: number }} [opts]  ok false when a step above failed, so the heading doesn't say it is all set up;
  *   pending: models still reloading after their update; appFailed: the app step failed, so a card says how to deploy it;
- *   appLate: when the app was deployed after its step failed, by deploy-app or Redeploy run meanwhile.
+ *   appLate: when the app was deployed after its step failed, by deploy-app or Redeploy run meanwhile;
+ *   consented: this run's admin consent, false when an admin still has to grant it; dataCheck: this run's data check,
+ *   when it ran; backfillDays: the audit history a load skipped for consent would have loaded.
  */
 export async function summary(ctx, opts = {}) {
   const { ui, config, api } = ctx;
@@ -975,8 +993,23 @@ export async function summary(ctx, opts = {}) {
     ui.heading('Analytics Hub is set up');
   }
   if (opts.appLate) ui.ok(`The app step above failed, but the app was deployed afterwards (${new Date(opts.appLate).toISOString().slice(0, 16).replace('T', ' ')} UTC).`);
-  const left = nextSteps(config, ctx.user, { appFailed: opts.appFailed });
+  // Concealed names are asked for unless a data check shows names: this run's, or else the last one the Lakehouse holds.
+  const check = opts.dataCheck || (await lastDataCheck(ctx));
+  const names = namesWanted(config, check);
+  // A Global Administrator shows them, so it's their own card rather than a request.
+  const globalAdmin = !!names && (await isGlobalAdmin(api));
+  const left = nextSteps(config, ctx.user, { appFailed: opts.appFailed, names: globalAdmin && names ? names : undefined });
   if (left.length) ui.nextSteps(stepsLeftTitle(left), left);
+  ui.doneRequests(
+    doneRequests(config, {
+      from: ctx.user?.upn,
+      consented: opts.consented,
+      dataCheck: check,
+      globalAdmin,
+      backfillDays: opts.backfillDays,
+      transcripts: transcriptAsks(ctx),
+    }),
+  );
   ui.info(`Workspace:  ${f.workspaceName}  ${c.dim(`https://app.fabric.microsoft.com/groups/${ws}`)}`);
   ui.info(`Lakehouse:  ${f.lakehouseName}`);
   ui.info(`Pipeline:   ${f.pipelineName ?? PIPELINE_NAME}, ${describeSchedule(config.schedule)}`);

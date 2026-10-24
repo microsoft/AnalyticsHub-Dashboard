@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { test } from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { HttpError } from '../src/http.js';
-import { ensureAzureTranscriptAccess } from '../src/steps/azure/agent-evaluator.js';
+import { azureAgentEvaluatorSummary, azureTranscriptAsks, ensureAzureTranscriptAccess } from '../src/steps/azure/agent-evaluator.js';
 import {
   agentEvaluatorParameters, azureAgentEvaluatorModelDeployed, azureAgentEvaluatorOn, azureAgentEvaluatorReads, azureAgentEvaluatorRefreshes, azurePlanReview, azurePreflight, azureRefresh, azureSemanticModels, azureStatus, azureSummary,
   azureUninstall, azureViewerModels, enabledAzureModuleIds, installAzure,
@@ -422,6 +422,85 @@ test('Azure Agent Evaluator, with one of two environments readable: the jobs rea
   assert.match(t.ui.text(), /Agents: +1 of 2 environment\(s\) readable/);
 });
 
+test('Azure Agent Evaluator at the end: each environment the jobs\' managed identity can\'t read every transcript in asks its System Administrator, and never beside a ✓', async () => {
+  const t = await aeInstall({ environments: [{ url: ENV, id: 'env-1', name: 'Example' }, { url: DEV, id: 'env-2', name: 'Dev' }], dataverse: { [DEV]: blockedEnvironment() } });
+  t.az.outputs.identityId = '/subscriptions/sub-1/resourceGroups/rg/providers/Microsoft.ManagedIdentity/userAssignedIdentities/vlens-jobs';
+  const newRole =
+    '  Security roles > + New role. Name it, for example "Analytics Hub transcript reader", keep the root business unit, turn off Include App Opener privileges for running Model-Driven apps, and Save. ' +
+    'Then set the ConversationTranscript table\'s Read to Organization, and Save.';
+  assert.deepEqual(azureTranscriptAsks(t.ctx), [
+    {
+      admin: 'power-platform',
+      who: 'A System Administrator of Dev',
+      label: 'Copilot Studio transcripts',
+      text:
+        'Add the jobs\' managed identity vlens-jobs (client ID mi-client) to Dev as an application user, with the Bot Transcript Viewer role and a role that reads every Copilot Studio conversation transcript, ' +
+        'and nothing else, so Analytics Hub can read them. In the Power Platform admin center, under Manage > Environments > Dev > Settings > Users + permissions:\n' +
+        `${newRole}\n` +
+        '  Application users > New app user > + Add an app. Search for the managed identity by its client ID, mi-client, not by its name (vlens-jobs).\n' +
+        '  Then pick the root business unit, and the Bot Transcript Viewer role and the new role, and Create.',
+      after: ['Run the installer again and choose Repair or change without --yes. When it says you can\'t add it, choose "It already has access". Then the jobs read the environment from their next run.'],
+    },
+  ], 'none for Example, which it reads in full');
+  const printed = t.ui.text();
+  assert.ok(printed.includes(newRole.trim()), 'the run printed the same steps');
+  assert.ok(printed.includes('Application users > New app user > + Add an app. Search for the managed identity by its client ID, mi-client.'));
+
+  const summary = () => {
+    t.ui.out.length = 0;
+    azureAgentEvaluatorSummary(t.ctx);
+    return t.ui.text();
+  };
+  assert.match(summary(), /✓ Example[^\n]*\n[^\n]*! Dev .*waiting for the jobs' managed identity \(client ID mi-client\) to be added/);
+
+  // Access recorded for another managed identity reads nothing for this one: a ! with the request, not a ✓.
+  Object.assign(t.config.agentEvaluator.environments[1], { access: true, readAll: true, accessAppId: 'old-client' });
+  assert.match(summary(), /! Dev .*waiting/);
+  assert.deepEqual(azureTranscriptAsks(t.ctx).map((a) => a.who), ['A System Administrator of Dev']);
+  t.config.agentEvaluator.environments[1].accessAppId = 'MI-CLIENT';
+  assert.match(summary(), /✓ Dev/);
+  assert.deepEqual(azureTranscriptAsks(t.ctx), []);
+
+  t.az.sampleData = true;
+  t.config.agentEvaluator.environments[1].accessAppId = 'old-client';
+  assert.deepEqual(azureTranscriptAsks(t.ctx), [], 'none in demo mode');
+  t.az.sampleData = false;
+  t.config.modules.agentEvaluator = false;
+  assert.deepEqual(azureTranscriptAsks(t.ctx), [], 'none with the module off');
+  t.config.modules.agentEvaluator = true;
+  delete t.az.outputs.identityClientId;
+  assert.deepEqual(azureTranscriptAsks(t.ctx), [], 'none before the deployment returns its client ID');
+});
+
+test('Azure Agent Evaluator at the end: an application user with only Bot Transcript Viewer is asked for the role that reads every transcript', async () => {
+  const viewer = fakeTranscriptEnvironment({ users: [{ systemuserid: 'user-1', applicationid: 'mi-client', _businessunitid_value: 'bu-root' }], userRoles: { 'user-1': ['role-btv'] } });
+  viewer.failures.createRole = [httpError(403, 'Forbidden')];
+  const t = await aeInstall({ dataverse: { [ENV]: viewer } });
+  const steps = [
+    '  Security roles > + New role. Name it, for example "Analytics Hub transcript reader", keep the root business unit, turn off Include App Opener privileges for running Model-Driven apps, and Save. ' +
+      'Then set the ConversationTranscript table\'s Read to Organization, and Save.',
+    '  Application users > the one with client ID mi-client > Edit security roles. Tick the new role, and Save.',
+  ];
+  const [give, ...more] = azureTranscriptAsks(t.ctx);
+  assert.deepEqual(more, []);
+  assert.equal(give.who, 'A System Administrator of Example');
+  assert.equal(
+    give.text,
+    'Give the jobs\' managed identity (client ID mi-client) a role that reads every Copilot Studio conversation transcript in Example, and nothing else. ' +
+      'It\'s an application user there with the Bot Transcript Viewer role, so it reads only the transcripts shared with it. ' +
+      `In the Power Platform admin center, under Manage > Environments > Example > Settings > Users + permissions:\n${steps.join('\n')}`,
+  );
+  const printed = t.ui.text();
+  for (const step of steps) assert.ok(printed.includes(step.trim()), 'the run printed the same steps');
+  assert.deepEqual(give.after, [
+    'Run the installer again and choose Repair or change without --yes. When it says you can\'t give it a role that reads every transcript, choose "It already reads every transcript". ' +
+      'Until then, it reads only the transcripts shared with it.',
+  ]);
+  t.ui.out.length = 0;
+  azureAgentEvaluatorSummary(t.ctx);
+  assert.match(t.ui.text(), /! Example .*waiting for the jobs' managed identity \(client ID mi-client\) to be given a role that reads every transcript/);
+});
+
 test('Azure Agent Evaluator, with every environment removed: its pages stay, and what the installer added there goes', async () => {
   const t = await aeInstall();
   const id = t.az.powerBi.agentEvaluatorDatasetId;
@@ -473,7 +552,7 @@ test('Azure Agent Evaluator, unticked or in demo mode: its model is kept but unu
     delete ae.reload;
     t.ui.out.length = 0;
     await azureStatus(t.ctx);
-    azureSummary(t.ctx);
+    await azureSummary(t.ctx);
     assert.doesNotMatch(t.ui.text(), /Evaluator:|Agents:/, label);
     t.powerBi.calls.length = 0;
     await azureRefresh(t.ctx);

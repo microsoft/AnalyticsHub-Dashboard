@@ -251,6 +251,13 @@ export function createWebUi(opts = {}) {
     adminRequests: (requests) => {
       if (requests.length) emit({ type: 'admin-requests', requests });
     },
+    /**
+     * What's left for admins at the end, for the Done page. Its own event, so preflight's requests stay in the run log.
+     * @param {import('./steps/handoff.js').AdminRequest[]} requests
+     */
+    doneRequests: (requests) => {
+      if (requests.length) emit({ type: 'done-requests', requests });
+    },
 
     /**
      * @template T

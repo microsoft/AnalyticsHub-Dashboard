@@ -511,6 +511,7 @@ a { overflow-wrap: anywhere; }
 .next-who { color: var(--muted-fg); font-size: 12px; }
 .next-card p { margin: 0; }
 .next-how { margin: 0; padding-left: 20px; list-style: lower-alpha; }
+.next-after { margin: 0; padding-left: 20px; }
 .next-message summary { cursor: pointer; color: var(--muted-fg); }
 .next-message pre { margin: 6px 0 0; padding: 8px 10px; border-radius: 4px; background: var(--muted); font-family: var(--mono); font-size: 12px; white-space: pre-wrap; }
 

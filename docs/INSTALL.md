@@ -110,8 +110,8 @@ app registration. An install from an earlier version keeps the names it already 
 
 ## Check it worked
 
-1. **Read the Done page.** It lists what's left, as cards: who does each step and a message to
-   send. See [After it finishes](#after-it-finishes).
+1. **Read the Done page.** It lists what's left: a card for each step you do, and a request for
+   each admin, with a message to copy and send. See [After it finishes](#after-it-finishes).
 2. **Check what loaded.** After the first run, each source has a card: loaded, warning, failed,
    skipped or still running. A failed card says why and what to do. On Fabric, the same is in the
    Lakehouse table `dbo.load_log`. See [Load status and reruns](../installer/README.md#load-status-and-reruns).
@@ -129,20 +129,45 @@ Something failed? Choose **Rerun failed loads** (`rerun-failed`), or see
 ### After it finishes
 
 - **What's left comes first.** The Done page (and the end of the terminal output) starts with
-  "N steps left": a card for each thing still to do, in order, with who does it, why, a link and
-  the steps. For a step another admin does, the card has a message to copy and send:
+  "N steps left": a card for each thing you still do, in order, with why, a link and the steps.
+  Where someone else can do it for you, the card has a message to copy and send:
   - **Share the app**, if you chose **Later** when asked.
   - **Sign in to the Power Automate flows**, for you or a Power Platform administrator.
   - **Sign in to the Cowork Dataflow.** Until then its refresh fails on each run. That's expected,
     so the load shows it as waiting rather than failed.
-  - **Ask a Viva Insights analyst for the Cowork credits query** (optional), when Cowork credits
+  - **Show user names in the Microsoft 365 usage reports**, if you're a Global Administrator
+    yourself. Otherwise it's a request, below.
+- **Then what's left for your admins.** Under **Still to do by your admins**: one request per
+  admin, with what it's for, the message to send (**Copy request** copies it), and what you do
+  once they've done it. It comes from what the install recorded and from this run, so it doesn't
+  ask for what the installer did itself. It can ask for:
+  - **Global Reader** for **Analytics Hub Data Collector**, or on Azure for the jobs' managed
+    identity, from a Privileged Role Administrator or Global Administrator, when agent
+    configuration comes from Azure Resource Graph and the installer couldn't give it. The message
+    has the IDs, the link to Roles & admins, and a Cloud Shell command.
+  - **Admin consent** (Fabric), when this run couldn't grant it. See below.
+  - **Show user names in the Microsoft 365 usage reports**, from a Global Administrator. On Fabric
+    it's left out when the data check shows names. On Azure the first load runs in the background,
+    with no data check, so it's always there: skip it if the reports already show names. Nothing to
+    run afterwards: the next load uses names.
+  - **Schedule the product feedback export** (Fabric), from a Microsoft 365 admin, when its flow
+    is on.
+  - **The Azure roles the load needs**, from an Azure Owner or User Access Administrator, each with
+    its command: Reader, Cost Management Reader and Monitoring Reader on credit consumption's
+    Azure AI subscription, Cost Management Reader on each pay-as-you-go subscription, and Reader on
+    the Foundry resources. Once they're given, run the installer again without `--yes` and choose
+    **Repair or change**: when it says you can't assign Azure roles there, choose the option the
+    request names.
+  - **The Cowork credits query** (Fabric, optional), from an Insights Analyst, when Cowork credits
     come from the CSV export.
-  - **Ask a Privileged Role Administrator for Global Reader** for **Analytics Hub Data
-    Collector**, when agent configuration comes from Azure Resource Graph. The message has the
-    app's IDs, the link to Roles & admins, and a Cloud Shell command.
-  - **Ask a Microsoft 365 admin to schedule the product feedback export**, when its flow is on.
-- **Admin consent.** If you couldn't grant it, send the link the installer gives you to an admin.
-  They select **Grant admin consent**. Then open the exe again and choose **Run now**.
+  - **Copilot Studio transcripts**, from a System Administrator of each Agent Evaluator
+    environment the installer can't read in full.
+  - On Azure, the install's pending admin actions too, such as the jobs' managed identity's
+    Microsoft Graph roles and the Teams app.
+- **Admin consent.** If you couldn't grant it, the request goes to a Privileged Role Administrator
+  or Global Administrator, with the link. They select **Grant admin consent**. Then load the audit
+  history, as the request says: run `run --backfill-days <n>`, or, for 30, 90 or 180 days, open the
+  exe again, set **Audit history** to reload them and choose **Run now**.
 - **Share the app and reports.** The installer creates **Analytics Hub Viewers** (or uses a group
   you name) with you as owner, and gives it **Build** on the models. Then:
   1. **Once:** share the app with the group. Straight after the app is deployed, before the first

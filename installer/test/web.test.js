@@ -813,3 +813,33 @@ test('web ui: sends the admin requests to the page as an event, and nothing when
   assert.match(app, /renderPrereqs\(p\.items\),\s*renderAdminRequests\(p\.requests\),/);
   assert.match(app, /copyButton\(r\.message, 'Copy request'\)/);
 });
+
+test('web ui: the requests at the end are their own event, for the Done page only, and the installer window lists who they go to', async () => {
+  const ui = createWebUi({ now: () => 1000 });
+  /** @type {string[]} */
+  const out = [];
+  ui.subscribe(mirror((s) => out.push(plainText(s))));
+  ui.doneRequests([]);
+  assert.equal(ui.history().length, 0, 'nothing left for admins: no event');
+  /** @type {import('../src/steps/handoff.js').AdminRequest[]} */
+  const requests = [
+    { admin: 'global-admin', who: 'A Global Administrator', rows: ['Concealed names'], asks: ['Show user names.'], message: 'Hi,\n\n- Show user names.\n\nThanks', after: ['Nothing to run.'] },
+    { admin: 'viva', who: 'An Insights Analyst', rows: ['Cowork credits query'], asks: ['Make a query.'], message: 'Hi,\n\n- Make a query.\n\nThanks', optional: true, notes: ['With it, a Dataflow reads Cowork credits.'] },
+  ];
+  ui.doneRequests(requests);
+  assert.equal(ui.history().length, 1);
+  const e = latest(ui);
+  assert.equal(e.type, 'done-requests', 'not admin-requests, which preflight sends to the run log');
+  assert.deepEqual(e.requests, requests);
+  assert.deepEqual(out.join('').split('\n').filter(Boolean), [
+    '  Still to do by your admins: copy each request from the Done page and send it.',
+    '  ! A Global Administrator  For: Concealed names',
+    '  ! An Insights Analyst (optional)  For: Cowork credits query',
+  ]);
+
+  // The page keeps them for the Done page and leaves them out of the run log.
+  const app = await readFile(new URL('web/app.js', SRC), 'utf8');
+  assert.match(app, /case 'done-requests':\s*ensureRoot\(run, e\.at\);\s*run\.doneRequests = e\.requests \?\? \[\];/);
+  assert.match(app, /case 'done-requests':\s*return null;/);
+  assert.match(app, /renderNextSteps\(run\.nextSteps, run\.todo\) : null,\s*renderDoneRequests\(run\.doneRequests\),/);
+});

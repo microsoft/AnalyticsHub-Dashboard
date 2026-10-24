@@ -20,6 +20,7 @@ import {
   planAgentEvaluator,
   readRole,
   removeFabricReadRoles,
+  transcriptAsks,
 } from '../src/steps/agent-evaluator.js';
 import { appModels, pagesChange } from '../src/steps/app.js';
 import { agentEvaluatorModelDeployed, agentEvaluatorOn, ensureNotebooks, ENVIRONMENTS_FIND, notebookSettings, pipelineSignature } from '../src/steps/fabric.js';
@@ -923,6 +924,81 @@ test('summary: readable environments, those waiting for an admin, and the model'
   assert.match(text, /contoso-test\.crm\.dynamics\.com.*waiting for ValueLens Data Collector to be given a role that reads every transcript/);
   assert.match(text, /datasets\/ae-1/);
   assert.match(text, /fill after the pipeline's first run/);
+  // The requests at the end are for the environments that aren't ✓.
+  assert.match(text, /✓ Contoso/);
+  assert.deepEqual(transcriptAsks(t.ctx).map((a) => a.who), ['A System Administrator of contoso-dev.crm4.dynamics.com', 'A System Administrator of contoso-test.crm.dynamics.com']);
+});
+
+test('end of the run: each environment the app can\'t read every transcript in asks its System Administrator, with the steps the run printed', async () => {
+  const t = setup();
+  t.config.agentEvaluator.environments = [{ url: PROD, name: 'Contoso' }, { url: DEV, name: 'Dev' }, { url: 'https://ok.crm.dynamics.com', access: true, readAll: true }];
+  t.envs[DEV] = fakeEnvironment();
+  t.envs[DEV].failures.findAppUser = [httpError(403, 'Forbidden')];
+  await ensureTranscriptAccess(t.ctx);
+  const [add, ...more] = transcriptAsks(t.ctx);
+  assert.deepEqual(more, [], 'none for the environments it reads every transcript in');
+  assert.deepEqual([add.admin, add.who, add.label], ['power-platform', 'A System Administrator of Dev', 'Copilot Studio transcripts']);
+  const steps = [
+    '  Security roles > + New role. Name it, for example "Analytics Hub transcript reader", keep the root business unit, turn off Include App Opener privileges for running Model-Driven apps, and Save. ' +
+      'Then set the ConversationTranscript table\'s Read to Organization, and Save.',
+    '  Application users > New app user. Pick ValueLens Data Collector (app-1), the root business unit, and the Bot Transcript Viewer role and the new role.',
+  ];
+  assert.equal(
+    add.text,
+    'Add ValueLens Data Collector (client ID app-1) to Dev as an application user, with the Bot Transcript Viewer role and a role that reads every Copilot Studio conversation transcript, and nothing else, ' +
+      `so Analytics Hub can read them. In the Power Platform admin center, under Manage > Environments > Dev > Settings > Users + permissions:\n${steps.join('\n')}`,
+  );
+  const printed = t.ui.text();
+  assert.match(printed, /A System Administrator of Dev can add it in the Power Platform admin center, under Manage > Environments > the environment > Settings > Users \+ permissions:\n/, 'the run prints what it did before');
+  for (const step of steps) assert.ok(printed.includes(step.trim()), 'the same steps as the run printed');
+  assert.deepEqual(add.after, ['Run the installer again and choose Repair or change without --yes. When it says you can\'t add it, choose "It already has access". The notebook picks it up on the first run after the app is added.']);
+
+  // An application user with Bot Transcript Viewer already: only the role that reads every transcript.
+  const roleOnly = setup({ answers: [false] });
+  roleOnly.config.agentEvaluator.environments = [{ url: PROD, name: 'Contoso', access: true }];
+  const env = (roleOnly.envs[PROD] = fakeEnvironment());
+  env.users.push({ systemuserid: 'u-1', applicationid: 'app-1', _businessunitid_value: 'bu-root' });
+  env.userRoles['u-1'] = ['ROLE-1'];
+  env.failures.createRole = [httpError(403, 'Forbidden')];
+  await ensureTranscriptAccess(roleOnly.ctx);
+  const [give, ...others] = transcriptAsks(roleOnly.ctx);
+  assert.deepEqual(others, []);
+  assert.equal(give.who, 'A System Administrator of Contoso');
+  assert.equal(
+    give.text,
+    'Give ValueLens Data Collector (client ID app-1) a role that reads every Copilot Studio conversation transcript in Contoso, and nothing else. ' +
+      'It\'s an application user there with the Bot Transcript Viewer role, so it reads only the transcripts shared with it. ' +
+      `In the Power Platform admin center, under Manage > Environments > Contoso > Settings > Users + permissions:\n${steps[0]}\n` +
+      '  Application users > ValueLens Data Collector (app-1) > Edit security roles. Tick the new role, and Save.',
+  );
+  assert.match(roleOnly.ui.text(), /Application users > ValueLens Data Collector \(app-1\) > Edit security roles\. Tick the new role, and Save\./);
+  assert.deepEqual(give.after, [
+    'Run the installer again and choose Repair or change without --yes. When it says you can\'t give it a role that reads every transcript, choose "It already reads every transcript". ' +
+      'Until then, it reads only the transcripts shared with it.',
+  ]);
+
+  // A disabled application user is activated; an environment without Copilot Studio asks nobody.
+  const disabled = setup();
+  disabled.config.agentEvaluator.environments = [{ url: PROD, name: 'Contoso' }, { url: DEV, name: 'Dev' }];
+  (disabled.envs[PROD] = fakeEnvironment()).users.push({ systemuserid: 'u-1', applicationid: 'app-1', isdisabled: true });
+  disabled.envs[DEV] = fakeEnvironment({ role: null });
+  await ensureTranscriptAccess(disabled.ctx);
+  assert.match(disabled.ui.text(), /application user in Contoso is disabled/);
+  assert.match(disabled.ui.text(), /Dev has no Bot Transcript Viewer role/);
+  assert.deepEqual(transcriptAsks(disabled.ctx), [
+    {
+      admin: 'power-platform',
+      who: 'A System Administrator of Contoso',
+      label: 'Copilot Studio transcripts',
+      text:
+        'Activate the application user for ValueLens Data Collector (client ID app-1) in Contoso, so Analytics Hub can read the Copilot Studio transcripts there: ' +
+        'Power Platform admin center > Manage > Environments > Contoso > Settings > Users + permissions > Application users > select it > Activate.',
+      after: ['Run the installer again and choose Repair or change: it checks the application user again, and gives it the roles it still needs, or says how an admin does.'],
+    },
+  ]);
+
+  t.config.modules.agentEvaluator = false;
+  assert.deepEqual(transcriptAsks(t.ctx), [], 'not with the module off');
 });
 
 test('install record: older records gain the Agent Evaluator defaults', () => {

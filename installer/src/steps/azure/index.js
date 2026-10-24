@@ -10,7 +10,7 @@ import { adminConsentUrl, apiPermissionsUrl, resolveAppRoles } from '../../clien
 import { apiVersionResolver, armErrors, resourceIdParts, ROLES } from '../../clients/azure.js';
 import { HttpError } from '../../http.js';
 import { commandLine } from '../../launch.js';
-import { formatDuration } from '../../ui.js';
+import { DONE_REQUESTS_TITLE, formatDuration } from '../../ui.js';
 import { rlsOn, rlsSettings } from '../../transform/access.js';
 import { buildAgentEvaluatorModel, buildConsumptionModel, buildModel, loadTemplateModel, PBISM } from '../../transform/model.js';
 import { connectionCreatedAnyway, deployModel, MODEL_UPDATE_NOTE, modelSignature, REFRESH_POLL_MS, settleReloads } from '../model.js';
@@ -36,9 +36,11 @@ import { checkDeployRights, printAdminGrants, registrationMessage, reportProvide
 import { AZURE_LARGE_TENANT_SKU, AZURE_LARGE_TENANT_SQL_VCORES, BIG_CAPACITY_SEATS, copilotSeats, LARGE_TENANT_SEATS, seatCount } from '../../seats.js';
 import {
   agentEvaluatorParameters, azureAgentEvaluatorConfirmLine, azureAgentEvaluatorModelDeployed, azureAgentEvaluatorOn, azureAgentEvaluatorRefreshes, azureAgentEvaluatorSummary,
-  azureTranscriptStatus, azureTranscriptStepWanted, ensureAzureTranscriptAccess, planAzureAgentEvaluator, removeAzureTranscriptAccess, transcriptAccessReview,
+  azureTranscriptAsks, azureTranscriptStatus, azureTranscriptStepWanted, ensureAzureTranscriptAccess, planAzureAgentEvaluator, removeAzureTranscriptAccess, transcriptAccessReview,
 } from './agent-evaluator.js';
 import { AZURE_APPS, adoptableApps, appsRecorded, GROUP_SCOPE, PEOPLE_SCOPE, SQL_READER_NAME, unfinishedApp, WEB_APP_NAME, webAppGrants, webAppScopes } from './apps.js';
+import { doneRequests, isGlobalAdmin, namesWanted } from '../handoff.js';
+import { namesStep, stepsLeftTitle } from '../next-steps.js';
 
 export { agentEvaluatorParameters, azureAgentEvaluatorModelDeployed, azureAgentEvaluatorOn, azureAgentEvaluatorReads, azureAgentEvaluatorRefreshes } from './agent-evaluator.js';
 export { appsRecorded, GROUP_SCOPE, PEOPLE_SCOPE, SQL_READER_NAME, TEAMS_CLIENTS, WEB_APP_NAME } from './apps.js';
@@ -1849,7 +1851,8 @@ export async function confirmAzurePlan(ctx) {
 }
 
 /**
- * @param {Ctx} ctx @param {{ wait: boolean }} opts
+ * @param {Ctx} ctx @param {{ wait: boolean, update?: boolean }} opts  update: an update, whose summary lists no requests
+ *   for admins.
  * @returns {Promise<boolean>} false when a step failed and setup carried on, or a model owed a reload couldn't be
  *   reloaded or (waiting) didn't finish.
  */
@@ -2039,7 +2042,7 @@ export async function installAzure(ctx, opts) {
     if (!load.started) ui.note(onceRunFinished(`run "${commandLine('run')}" to load your changes, or they load on the next scheduled run`));
   }
   const ok = reloads.ok && stepsOk;
-  await azureSummary(ctx, { ...reloads, ok });
+  await azureSummary(ctx, { ...reloads, ok, update: opts.update });
   return ok;
 }
 
@@ -2883,7 +2886,7 @@ export async function azureUpdate(ctx) {
   await azurePreflight(ctx);
   await azureAppsGate(ctx);
   if (!(await confirmAzurePlan(ctx))) return true;
-  return installAzure(ctx, { wait: true });
+  return installAzure(ctx, { wait: true, update: true });
 }
 
 /** How often, and how many times, uninstall checks the resource group has gone: 45 minutes in all. */
@@ -3260,7 +3263,10 @@ export async function azureUninstall(ctx, opts = {}) {
   return true;
 }
 
-/** @param {Ctx} ctx @param {{ ok?: boolean, pending?: string[] }} [opts]  pending: models still reloading after their update. */
+/**
+ * @param {Ctx} ctx @param {{ ok?: boolean, pending?: string[], update?: boolean }} [opts]  pending: models still reloading
+ *   after their update. update: an update, which lists no requests for admins at the end.
+ */
 export async function azureSummary(ctx, opts = {}) {
   const { ui, config } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
@@ -3278,14 +3284,34 @@ export async function azureSummary(ctx, opts = {}) {
   if (azureWorkdayOn(config)) ui.info(`Workday:    drop the export in ${azureDropLabel(az, AZURE_LANDING_DIRS.workday)}. Each run loads the newest one.`);
   if (azureAgentEvaluatorModelDeployed(config)) ui.info(`Evaluator:  model ${az.powerBi?.agentEvaluatorDatasetId}`);
   const teamsPending = az.status?.pendingAdminActions?.find((a) => a.startsWith(`${TEAMS_APP_PENDING}: `));
-  if (teamsPending) ui.info(`Teams:      Not published yet. A Teams Administrator needs to ${teamsPending.slice(TEAMS_APP_PENDING.length + 2)}`);
+  if (teamsPending && opts.update) ui.info(`Teams:      Not published yet. A Teams Administrator needs to ${teamsPending.slice(TEAMS_APP_PENDING.length + 2)}`);
+  else if (teamsPending) ui.info(`Teams:      Not published yet. Send a Teams Administrator the request for it, under "${DONE_REQUESTS_TITLE}".`);
   else if (az.teamsApp) ui.info(`Teams:      Analytics Hub ${az.teamsApp.version} in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app.`);
   else if (az.teamsPackage) ui.info(`Teams:      ${az.teamsPackage}`);
   ui.info(`Ask:        ${askLine(az)}`);
   for (const line of accessSummaryLines(config)) ui.info(line);
   azureAgentEvaluatorSummary(ctx);
   if (flowsWanted(config).length) flowsSummary(ctx);
+  if (!opts.update) await azureDoneRequests(ctx);
   ui.info('Record:     Keep valuelens-install.json. It holds no secrets.');
+}
+
+/**
+ * What's left for admins at the end of an Azure install or Repair, with concealed names as your own card if you're a
+ * Global Administrator.
+ * @param {Ctx} ctx
+ */
+async function azureDoneRequests(ctx) {
+  const { ui, config } = ctx;
+  // The first load runs in the background, so no data check tells whether the usage reports conceal names.
+  const names = namesWanted(config, null);
+  // A Global Administrator shows them, so it's their own card rather than a request.
+  const globalAdmin = !!names && (await isGlobalAdmin(ctx.api));
+  if (globalAdmin && names) {
+    const card = [namesStep(names)];
+    ui.nextSteps(stepsLeftTitle(card), card);
+  }
+  ui.doneRequests(doneRequests(config, { from: ctx.user?.upn, globalAdmin, transcripts: azureTranscriptAsks(ctx) }));
 }
 
 /** @param {Ctx} ctx @param {string} label @param {string | undefined} expires */

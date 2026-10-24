@@ -42,9 +42,12 @@ import { bindModel, deployModel, modelUrl, waitForSqlEndpoint } from './model.js
  * @property {boolean} [managed]  It's a managed identity, which admins find by its client ID rather than its name.
  * @property {string} [identity]  The managed identity's resource name.
  * @property {ReadRole} readRole  The role that lets it read every transcript.
- * @property {{ leaveOut?: string, none?: string, unread?: string, fill?: string }} [notes]  What to say instead of the Fabric texts.
+ * @property {{ leaveOut?: string, none?: string, unread?: string, fill?: string, added?: string }} [notes]  What to say instead of the Fabric texts.
+ *   added: what follows once an admin has added it and the re-run has recorded it, for the request at the end. Defaults to leaveOut's.
  * @property {(env: AgentEnvironment, grant?: Omit<TranscriptGrant, 'result'>) => void} [record]  Called once it can read an environment, or was given something there.
  * @property {(config: InstallConfig) => boolean} [reads]  Whether the transcripts are read. Defaults to Fabric's agentEvaluatorOn.
+ * @property {(env: AgentEnvironment) => boolean} [readsAll]  Whether it reads every transcript in an environment, for the summary
+ *   and the request to its System Administrator. Defaults to the environment's access and readAll.
  */
 
 /**
@@ -91,9 +94,17 @@ const ours = (role, want) => !!want.key && !!role.description?.startsWith(READ_R
  * is never mistaken for the installer's, or changed by it.
  */
 const MANUAL_ROLE_NAME = 'Analytics Hub transcript reader';
+/** What "Leave it out for now" says when the reader has no note of its own. */
+const LEAVE_OUT = 'The notebook picks it up on the first run after the app is added.';
 
 /** @param {string | undefined} a @param {string | undefined} b */
 const sameId = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+/**
+ * This run's environments where the reader's application user is disabled, or which have no Bot Transcript Viewer role
+ * because Copilot Studio isn't set up there. The record doesn't keep either, so only this run's requests tell them apart.
+ * @type {WeakMap<AgentEnvironment, 'disabled' | 'no-role'>}
+ */
+const unusable = new WeakMap();
 /** @param {string} a @param {string} b */
 const sameUrl = (a, b) => a.replace(/\/+$/, '').toLowerCase() === b.replace(/\/+$/, '').toLowerCase();
 /** @param {string} s */
@@ -443,6 +454,7 @@ export async function ensureTranscriptAccess(ctx, reader = appReader(ctx)) {
   }
   for (const env of envs) {
     const where = env.name ?? host(env.url);
+    unusable.delete(env);
     if (env.access && env.readAll) {
       ui.ok(`${App} can read every transcript in ${where}`);
       reader.record?.(env);
@@ -483,7 +495,7 @@ export async function ensureTranscriptAccess(ctx, reader = appReader(ctx)) {
                   { name: 'It already reads every transcript', value: true },
                 ]
               : [
-                  { name: 'Leave it out for now', value: false, description: reader.notes?.leaveOut ?? 'The notebook picks it up on the first run after the app is added.' },
+                  { name: 'Leave it out for now', value: false, description: reader.notes?.leaveOut ?? LEAVE_OUT },
                   { name: 'It already has access', value: true },
                 ],
             false,
@@ -503,6 +515,7 @@ export async function ensureTranscriptAccess(ctx, reader = appReader(ctx)) {
       continue;
     }
     if (grant.result === 'disabled' || grant.result === 'no-role') {
+      unusable.set(env, grant.result);
       if (reader.record) {
         reader.record(env, grant);
         ctx.save();
@@ -560,33 +573,91 @@ export async function ensureTranscriptAccess(ctx, reader = appReader(ctx)) {
 }
 
 /**
- * How a System Administrator adds the reader by hand, or gives it only the read role.
+ * How a System Administrator adds the reader by hand, or gives it only the read role: who can and where, then the
+ * steps, each indented.
+ * @param {AgentEnvironment} env
+ * @param {TranscriptReader} reader
+ * @param {{ roleOnly?: boolean }} [opts]  roleOnly: it's an application user with Bot Transcript Viewer already.
+ * @returns {string[]}
+ */
+function manualLines(env, reader, opts = {}) {
+  const lines = [
+    `A System Administrator of ${env.name ?? host(env.url)} can ${opts.roleOnly ? 'give it the role' : 'add it'} in the Power Platform admin center, ` +
+      'under Manage > Environments > the environment > Settings > Users + permissions:',
+    `  Security roles > + New role. Name it, for example "${MANUAL_ROLE_NAME}", keep the root business unit, turn off Include App Opener privileges for running Model-Driven apps, and Save. ` +
+      'Then set the ConversationTranscript table\'s Read to Organization, and Save.',
+  ];
+  if (opts.roleOnly) {
+    return [...lines, `  Application users > ${reader.managed ? `the one with client ID ${reader.appId}` : `${reader.name} (${reader.appId})`} > Edit security roles. Tick the new role, and Save.`];
+  }
+  if (reader.managed) {
+    // The admin center finds a managed identity by its application (client) ID, not its name.
+    return [
+      ...lines,
+      `  Application users > New app user > + Add an app. Search for the managed identity by its client ID, ${reader.appId}${reader.identity ? `, not by its name (${reader.identity})` : ''}.`,
+      `  Then pick the root business unit, and the ${TRANSCRIPT_ROLE} role and the new role, and Create.`,
+    ];
+  }
+  return [...lines, `  Application users > New app user. Pick ${reader.name} (${reader.appId}), the root business unit, and the ${TRANSCRIPT_ROLE} role and the new role.`];
+}
+
+/**
+ * Prints how a System Administrator adds the reader by hand, or gives it only the read role.
  * @param {Ctx} ctx
  * @param {AgentEnvironment} env
  * @param {TranscriptReader} reader
  * @param {{ roleOnly?: boolean }} [opts]  roleOnly: it's an application user with Bot Transcript Viewer already.
  */
 function manualSteps(ctx, env, reader, opts = {}) {
-  const { ui } = ctx;
-  ui.info(
-    `A System Administrator of ${env.name ?? host(env.url)} can ${opts.roleOnly ? 'give it the role' : 'add it'} in the Power Platform admin center, ` +
-      'under Manage > Environments > the environment > Settings > Users + permissions:',
-  );
-  ui.info(
-    `  Security roles > + New role. Name it, for example "${MANUAL_ROLE_NAME}", keep the root business unit, turn off Include App Opener privileges for running Model-Driven apps, and Save. ` +
-      'Then set the ConversationTranscript table\'s Read to Organization, and Save.',
-  );
-  if (opts.roleOnly) {
-    ui.info(`  Application users > ${reader.managed ? `the one with client ID ${reader.appId}` : `${reader.name} (${reader.appId})`} > Edit security roles. Tick the new role, and Save.`);
-    return;
-  }
-  if (reader.managed) {
-    // The admin center finds a managed identity by its application (client) ID, not its name.
-    ui.info(`  Application users > New app user > + Add an app. Search for the managed identity by its client ID, ${reader.appId}${reader.identity ? `, not by its name (${reader.identity})` : ''}.`);
-    ui.info(`  Then pick the root business unit, and the ${TRANSCRIPT_ROLE} role and the new role, and Create.`);
-    return;
-  }
-  ui.info(`  Application users > New app user. Pick ${reader.name} (${reader.appId}), the root business unit, and the ${TRANSCRIPT_ROLE} role and the new role.`);
+  for (const line of manualLines(env, reader, opts)) ctx.ui.info(line);
+}
+
+/**
+ * The end-of-run asks for the transcripts: one to each chosen environment's System Administrator where the reader can't
+ * read every transcript, with the manual steps the run printed, and what the re-run offers once it's done. A disabled
+ * application user is asked to be activated. An environment without Copilot Studio asks nobody.
+ * @param {Ctx} ctx
+ * @param {TranscriptReader} [reader]  Who reads them. Defaults to the app.
+ * @returns {import('./handoff.js').Ask[]}
+ */
+export function transcriptAsks(ctx, reader = appReader(ctx)) {
+  const { config } = ctx;
+  if (!config.modules.agentEvaluator || config.azure?.sampleData === true || !reader.appId) return [];
+  const readsAll = reader.readsAll ?? ((/** @type {AgentEnvironment} */ env) => !!(env.access && env.readAll));
+  const named = `${reader.name}${reader.managed && reader.identity ? ` ${reader.identity}` : ''} (client ID ${reader.appId})`;
+  const repair = 'Run the installer again and choose Repair or change';
+  return config.agentEvaluator.environments.flatMap((env) => {
+    const state = unusable.get(env);
+    if (readsAll(env) || state === 'no-role') return [];
+    const where = env.name ?? host(env.url);
+    const ask = { admin: /** @type {const} */ ('power-platform'), who: `A System Administrator of ${where}`, label: 'Copilot Studio transcripts' };
+    if (state === 'disabled') {
+      return [
+        {
+          ...ask,
+          text: `Activate the application user for ${named} in ${where}, so Analytics Hub can read the Copilot Studio transcripts there: ${appUsers(where)} > select it > Activate.`,
+          after: [`${repair}: it checks the application user again, and gives it the roles it still needs, or says how an admin does.`],
+        },
+      ];
+    }
+    const roleOnly = !!env.access;
+    const [, ...steps] = manualLines(env, reader, { roleOnly });
+    const lead = roleOnly
+      ? `Give ${named} a role that reads every Copilot Studio conversation transcript in ${where}, and nothing else. ` +
+        `It's an application user there with the ${TRANSCRIPT_ROLE} role, so it reads only the transcripts shared with it.`
+      : `Add ${named} to ${where} as an application user, with the ${TRANSCRIPT_ROLE} role and a role that reads every Copilot Studio conversation transcript, and nothing else, ` +
+        'so Analytics Hub can read them.';
+    const after = roleOnly
+      ? `${repair} without --yes. When it says you can't give it a role that reads every transcript, choose "It already reads every transcript". Until then, it reads only the transcripts shared with it.`
+      : `${repair} without --yes. When it says you can't add it, choose "It already has access". ${reader.notes?.added ?? reader.notes?.leaveOut ?? LEAVE_OUT}`;
+    return [
+      {
+        ...ask,
+        text: `${lead} In the Power Platform admin center, under Manage > Environments > ${where} > Settings > Users + permissions:\n${steps.join('\n')}`,
+        after: [after],
+      },
+    ];
+  });
 }
 
 /**
@@ -786,7 +857,8 @@ export function agentEvaluatorSummary(ctx, reader = appReader(ctx)) {
   const who = reader.managed ? `${reader.name} (client ID ${reader.appId})` : reader.name;
   for (const env of ae.environments) {
     const where = `${env.name ?? host(env.url)} ${c.dim(`(${host(env.url)})`)}`;
-    const ready = env.access && env.readAll;
+    // The request at the end uses the same test, so an environment never shows both a ✓ and a request.
+    const ready = reader.readsAll ? reader.readsAll(env) : env.access && env.readAll;
     const waiting = env.access
       ? `waiting for ${who} to be given a role that reads every transcript`
       : `waiting for ${who} to be added with ${TRANSCRIPT_ROLE} and a role that reads every transcript`;

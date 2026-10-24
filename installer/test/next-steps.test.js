@@ -7,9 +7,10 @@ import { appDeployedSince, fabricConfigFile } from '../src/steps/app.js';
 import { emptyConfig } from '../src/config.js';
 import { commandLine } from '../src/launch.js';
 import { FLOW_NAMES, flowsWanted, INVENTORY_SIGNER, OWNER_LEFT, ownerLeft, PP_API_SIGNER, PREMIUM_OWNER, whoSignsIn } from '../src/steps/flows.js';
-import { GLOBAL_READER_ROLE_ID, nextSteps, stepsLeftTitle } from '../src/steps/next-steps.js';
+import { doneRequests } from '../src/steps/handoff.js';
+import { CONCEALED_NAMES_AFTER, CONCEALED_NAMES_STEPS, M365_ADMIN_URL, namesStep, nextSteps, stepsLeftTitle } from '../src/steps/next-steps.js';
 import { planReview } from '../src/steps/plan.js';
-import { AGENT_ROLE } from '../src/steps/resource-graph.js';
+import { AGENT_ROLE, globalReaderCommand } from '../src/steps/resource-graph.js';
 import { summary } from '../src/install.js';
 import { COWORK_DATAFLOW_ACTIVITY } from '../src/transform/pipeline.js';
 import { FEEDBACK_SUBJECT } from '../src/transform/flows.js';
@@ -101,7 +102,7 @@ test('next steps: none left for an install with nothing to do', () => {
   assert.equal(stepsLeftTitle([]), '0 optional steps');
 });
 
-test('next steps: in order, share, flows, Cowork Dataflow, then hand-offs; each says who and why', () => {
+test('next steps: in order, share, flows, then the Cowork Dataflow; each says who and why. What admins do is a request each', () => {
   const t = installed();
   const config = t.config;
   config.dataSources.productFeedback = 'api';
@@ -113,73 +114,106 @@ test('next steps: in order, share, flows, Cowork Dataflow, then hand-offs; each 
   assert.ok(flowsWanted(config).includes('feedback'));
 
   const steps = nextSteps(config, USER);
-  assert.deepEqual(ids(steps), ['share-app', 'flows', 'cowork-dataflow', 'entra-role', 'm365-export']);
+  assert.deepEqual(ids(steps), ['share-app', 'flows', 'cowork-dataflow'], 'only what you do yourself');
   for (const s of steps) {
     assert.ok(s.title && s.why && s.who, `${s.id} has a title, why and who`);
     assert.doesNotMatch(JSON.stringify(s), /Rayfin/i);
   }
-  assert.equal(stepsLeftTitle(steps), '5 steps left');
+  assert.equal(stepsLeftTitle(steps), '3 steps left');
 
-  const [share, flows, cowork, role, m365] = steps;
+  const [share, flows, cowork] = steps;
   assert.equal(share.link, 'https://app.fabric.microsoft.com/groups/ws-1/appbackends/app-item?ctid=tenant-1');
   assert.equal(share.steps?.length, 3);
   assert.equal(flows.link, 'https://make.powerautomate.com/environments/env-1/flows');
   assert.match(String(flows.message), /^Hi,/);
   assert.match(String(flows.message), /Contoso \(default\)/);
   assert.equal(cowork.activity, COWORK_DATAFLOW_ACTIVITY, 'its failed refresh is expected until it is signed in');
-  assert.equal(role.who, 'A Privileged Role Administrator');
-  assert.match(String(role.message), /Application \(client\) ID: app-1/);
-  assert.match(String(role.message), /Object ID \(enterprise application\): sp-1/);
-  assert.match(String(role.message), new RegExp(`"principalId":"sp-1","roleDefinitionId":"${GLOBAL_READER_ROLE_ID}"`));
-  assert.match(String(role.message), /admin@contoso\.com$/, 'signed by the person running the installer');
+
+  // Global Reader and the product feedback export were cards. Now each is a request, with the other asks for the same admin.
+  const requests = doneRequests(config, { from: USER.upn });
+  assert.deepEqual(requests.map((r) => r.admin), ['role-admin', 'global-admin', 'm365-admin', 'azure-owner']);
+  const [role, , m365, owner] = requests;
+  assert.equal(role.who, 'A Privileged Role Administrator or Global Administrator');
+  assert.deepEqual(role.rows, [AGENT_ROLE]);
+  assert.ok(role.message.includes('Give the app "Analytics Hub Data Collector" (application ID app-1, enterprise application object ID sp-1) the Global Reader role in Microsoft Entra'));
+  assert.ok(role.message.includes(globalReaderCommand('sp-1')));
+  assert.match(role.message, /admin@contoso\.com$/, 'signed by the person running the installer');
   assert.equal(m365.who, 'A Microsoft 365 admin');
-  assert.ok(m365.message?.includes(FEEDBACK_SUBJECT));
-  assert.match(String(m365.message), /emailed to admin@contoso\.com/);
+  assert.deepEqual(m365.rows, ['Product feedback export']);
+  assert.ok(m365.message.includes(FEEDBACK_SUBJECT));
+  assert.match(m365.message, /emailed to admin@contoso\.com/);
+  assert.deepEqual(owner.rows, ['Foundry resources'], 'Resource Graph reads Foundry too, and the record has no Reader for it');
 });
 
-test('next steps: the Global Reader hand-off shows until the role is recorded as assigned', () => {
+test('done requests: Global Reader is asked for until the record says the role was given', () => {
   const t = installed();
   /** @type {any} */ (t.config.access).appShared = true;
   t.config.dataSources.resourceGraph = 'api';
-  assert.deepEqual(ids(nextSteps(t.config, USER)), ['entra-role'], 'not recorded counts as not assigned');
+  assert.deepEqual(nextSteps(t.config, USER), [], 'a request, not a card');
+  const reader = () => doneRequests(t.config, { from: USER.upn }).find((r) => r.rows.includes(AGENT_ROLE));
+  assert.ok(reader(), 'not recorded counts as not assigned');
 
   t.config.app.servicePrincipalId = undefined;
-  assert.match(String(nextSteps(t.config, USER)[0].message), /\$\(az ad sp show --id app-1 --query id -o tsv\)/);
+  assert.ok(reader()?.message.includes(globalReaderCommand(undefined, 'app-1')));
+  assert.match(String(reader()?.message), /\$\(az ad sp show --id app-1 --query id -o tsv\)/);
 
   t.config.resourceGraph = { ...t.config.resourceGraph, roleAssigned: AGENT_ROLE };
-  assert.deepEqual(nextSteps(t.config, USER), [], 'the install record keeps the role\'s name, as resource-graph.js writes it');
+  assert.equal(reader(), undefined, 'the install record keeps the role\'s name, as resource-graph.js writes it');
 
   t.config.resourceGraph = { ...t.config.resourceGraph, roleAssigned: undefined, agents: false };
-  assert.deepEqual(nextSteps(t.config, USER), [], 'not needed when agents are not read');
+  assert.equal(reader(), undefined, 'not needed when agents are not read');
 });
 
-test('next steps: the product feedback export only with its flow; the Viva query is optional', () => {
+test('done requests: the product feedback export only with its flow; the Viva query is optional', () => {
   const t = installed();
   /** @type {any} */ (t.config.access).appShared = true;
   t.config.dataSources.productFeedback = 'csv';
-  assert.ok(!ids(nextSteps(t.config, USER)).includes('m365-export'));
+  assert.ok(!doneRequests(t.config).some((r) => r.admin === 'm365-admin'));
 
   t.config.modules.consumption = true;
   t.config.dataSources.coworkCredits = 'csv';
-  const steps = nextSteps(t.config, USER);
-  assert.deepEqual(ids(steps), ['viva-query']);
-  assert.equal(steps[0].optional, true);
-  assert.equal(stepsLeftTitle(steps), '1 optional step');
-  assert.equal(stepsLeftTitle([{ id: 'a', title: 'A', why: '', who: '' }, ...steps]), '1 step left, and 1 optional');
+  assert.deepEqual(nextSteps(t.config, USER), [], 'a request, not a card');
+  const viva = doneRequests(t.config).find((r) => r.admin === 'viva');
+  assert.equal(viva?.who, 'An Insights Analyst');
+  assert.equal(viva?.optional, true);
+  assert.deepEqual(viva?.rows, ['Cowork credits query']);
+
+  const optional = { id: 'a', title: 'A', why: '', who: '', optional: true };
+  assert.equal(stepsLeftTitle([optional]), '1 optional step');
+  assert.equal(stepsLeftTitle([{ id: 'b', title: 'B', why: '', who: '' }, optional]), '1 step left, and 1 optional');
 });
 
-test('summary: what is left comes first, as cards, before the next steps', async () => {
+test('summary: your cards come first, then the requests for your admins, before the workspace and the next steps', async () => {
   const t = installed();
   t.config.dataSources.resourceGraph = 'api';
   await summary(t.ctx);
   const text = t.text();
-  const left = text.indexOf('2 steps left');
+  const left = text.indexOf('1 step left');
   assert.ok(left >= 0, text);
-  assert.ok(left < text.indexOf('Share the app with Analytics Hub Viewers'));
-  assert.ok(text.indexOf('Share the app with Analytics Hub Viewers') < text.indexOf('Ask for Global Reader'));
+  const share = text.indexOf('Share the app with Analytics Hub Viewers');
+  const requests = text.indexOf('Still to do by your admins');
+  assert.ok(left < share && share < requests, 'the cards, then the requests');
+  assert.ok(requests < text.indexOf('Workspace:'));
   const next = text.indexOf('Next steps');
-  if (next >= 0) assert.ok(left < next, 'the cards lead');
+  if (next >= 0) assert.ok(requests < next, 'the cards and requests lead');
   assert.match(text, /Copy and send:/);
+  for (const row of [AGENT_ROLE, 'Concealed names', 'Foundry resources']) assert.match(text, new RegExp(`For: ${row}`));
+  assert.equal(text.split('Still to do by your admins').length, 2, 'once');
+});
+
+test('next steps: concealed names are your own card only when you are the Global Administrator who can show them', () => {
+  const t = installed();
+  /** @type {any} */ (t.config.access).appShared = true;
+  assert.deepEqual(nextSteps(t.config, USER), [], 'otherwise it is a request to a Global Administrator');
+  const [card] = nextSteps(t.config, USER, { names: { unsure: false } });
+  assert.equal(card.id, 'concealed-names');
+  assert.equal(card.who, 'You');
+  assert.deepEqual(card.steps, CONCEALED_NAMES_STEPS);
+  assert.equal(card.link, M365_ADMIN_URL);
+  assert.ok(card.why.includes(CONCEALED_NAMES_AFTER));
+  assert.doesNotMatch(card.why, /already show names/);
+  assert.match(namesStep({ unsure: true }).why, /If the reports already show names, there's nothing to do\.$/, 'when no data check could tell');
+  assert.equal(card.message, undefined, 'nothing to send');
 });
 
 test("summary: after a failed step it says the setup is partly done, not set up", async () => {
@@ -302,7 +336,7 @@ test("install: a failed app deploy or unproven first load makes the install not 
   // Saving merges in what deploy-app saved while the first load ran, before the verdict.
   assert.match(src, /if \(appFailure\) \{\r?\n(?:\s*\/\/.*\r?\n)?\s*ctx\.save\(\);\r?\n\s*appLate = appDeployedSince\(config, appFailure\);\r?\n\s*\}/);
   // Not when another step failed too: install-verdict.test.js runs each case.
-  assert.match(src, /const appOk = appDeployed \|\| !!appLate;\r?\n\s*ok = reloads\.ok && ok && stepsOk && appOk;\r?\n\s*await summary\(ctx, \{ ok, pending: reloads\.pending, appFailed: !appDeployed && !appLate, appLate \}\)/);
+  assert.match(src, /const appOk = appDeployed \|\| !!appLate;\r?\n\s*ok = reloads\.ok && ok && stepsOk && appOk;\r?\n\s*await summary\(ctx, \{\r?\n\s*ok,\r?\n\s*pending: reloads\.pending,\r?\n\s*appFailed: !appDeployed && !appLate,\r?\n\s*appLate,\r?\n/);
   assert.match(src, /if \(opts\.wait && config\.firstRun\?\.status !== 'Completed'\) ok = false;/);
 });
 

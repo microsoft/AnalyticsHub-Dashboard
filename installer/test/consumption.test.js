@@ -11,6 +11,7 @@ import { refresh } from '../src/install.js';
 import { appModels } from '../src/steps/app.js';
 import { consumptionSummary, ensureAzureAiAccess, ensureConsumptionModel, ensureLandingFolders, planConsumption, policiesBySubscription } from '../src/steps/consumption.js';
 import { azureAiOn, consumptionModelDeployed, ensureNotebooks, notebookSettings, PAYG_FIND, pipelineSignature } from '../src/steps/fabric.js';
+import { doneRequests } from '../src/steps/handoff.js';
 import { ensureModelConnection, ensureSemanticModel } from '../src/steps/model.js';
 import { MARKER, prepareNotebook, cellText } from '../src/transform/notebook.js';
 import { addCopilotPaygSpend, PAYG_SOURCE_TABLE, PAYG_TABLE } from '../src/transform/payg.js';
@@ -401,6 +402,25 @@ test('pay-as-you-go access: Cost Management Reader on each other subscription; o
   broken.config.consumption.azureAccess = true;
   broken.arm.failures.assignRole = [httpError(500, 'Boom')];
   await assert.rejects(ensureAzureAiAccess(broken.ctx), /Boom/);
+});
+
+test('pay-as-you-go access: when the Azure AI roles are refused, its subscriptions aren\'t tried, so the end of the run asks for them too', async () => {
+  const t = setup();
+  t.config.dataSources.resourceGraph = 'skip';
+  t.config.consumption.azureSubscriptionId = SUB;
+  t.config.consumption.paygSubscriptions = [
+    { subscriptionId: PAYG, name: 'Studio billing', policies: ['Studio'] },
+    { subscriptionId: HIDDEN, policies: ['Elsewhere'] },
+  ];
+  t.arm.failures.assignRole = [httpError(403, 'AuthorizationFailed')];
+  assert.equal(await ensureAzureAiAccess(t.ctx), false);
+  assert.deepEqual(t.arm.calls, [`assignRole /subscriptions/${SUB} ${ROLES.reader} sp-1 ServicePrincipal`], 'the pay-as-you-go subscriptions weren\'t tried');
+
+  const owner = doneRequests(t.config).find((r) => r.admin === 'azure-owner');
+  assert.deepEqual(owner?.rows, ['Azure AI costs and metrics', 'Pay-as-you-go costs']);
+  for (const sub of [SUB, PAYG, HIDDEN]) assert.ok(owner?.message.includes(`--role "Cost Management Reader" --scope "/subscriptions/${sub}"`), sub);
+  assert.ok(owner?.message.includes(`Give the app "ValueLens Data Collector" (application ID app-1, enterprise application object ID sp-1) the Cost Management Reader role on the Azure subscription Studio billing (${PAYG})`));
+  assert.match(String(owner?.after), /"It already has this role" for each pay-as-you-go subscription/);
 });
 
 test('Azure AI notebook: the readable pay-as-you-go subscriptions are listed; it is pushed again when they change', async () => {
