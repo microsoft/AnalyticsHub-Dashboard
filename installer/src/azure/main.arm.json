@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.47.16.16243",
-      "templateHash": "2017136607259602521"
+      "templateHash": "10338347529525660446"
     }
   },
   "parameters": {
@@ -1730,7 +1730,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.47.16.16243",
-              "templateHash": "6761694916060589598"
+              "templateHash": "6701443169149930215"
             }
           },
           "parameters": {
@@ -1953,7 +1953,7 @@
             ],
             "jobEnv": "[concat(variables('commonEnv'), createArray(createObject('name', 'VALUELENS_AUDIT_HISTORY_DAYS', 'value', string(parameters('auditHistoryDays'))), createObject('name', 'VALUELENS_SQL_READER_NAME', 'value', parameters('sqlReaderName')), createObject('name', 'VALUELENS_SQL_READER_CLIENT_ID', 'value', parameters('sqlReaderClientId')), createObject('name', 'VALUELENS_SAMPLE_DATA', 'value', if(parameters('sampleData'), 'true', 'false')), createObject('name', 'VALUELENS_AZURE_AI_SUBSCRIPTION', 'value', parameters('azureAiSubscriptionId')), createObject('name', 'VALUELENS_PAYG_SUBSCRIPTIONS', 'value', parameters('paygSubscriptionIds')), createObject('name', 'VALUELENS_DROP_SITE_ID', 'value', parameters('dropSiteId')), createObject('name', 'VALUELENS_DROP_DRIVE_ID', 'value', parameters('dropDriveId')), createObject('name', 'VALUELENS_DROP_FOLDER', 'value', parameters('dropFolder')), createObject('name', 'VALUELENS_DATAVERSE_ENVIRONMENTS', 'value', parameters('dataverseEnvironments')), createObject('name', 'VALUELENS_ARG_MANAGEMENT_GROUP', 'value', parameters('argManagementGroup')), createObject('name', 'VALUELENS_ARG_AGENTS', 'value', if(parameters('argAgents'), 'true', 'false')), createObject('name', 'VALUELENS_ARG_FOUNDRY', 'value', if(parameters('argFoundry'), 'true', 'false')), createObject('name', 'VALUELENS_WORKDAY_OUTPUT_TABLE', 'value', parameters('workdayOutputTable')), createObject('name', 'VALUELENS_WORKDAY_ALLOW_BASE_OVERWRITE', 'value', if(parameters('workdayAllowBaseOverwrite'), 'true', 'false'))))]",
             "runJobTimeoutSec": 14400,
-            "runJobEnv": "[concat(variables('jobEnv'), createArray(createObject('name', 'VALUELENS_DUCKDB_MEMORY_LIMIT', 'value', '5GiB'), createObject('name', 'VALUELENS_JOB_TIMEOUT_SEC', 'value', string(variables('runJobTimeoutSec')))))]",
+            "runJobEnv": "[concat(variables('jobEnv'), createArray(createObject('name', 'VALUELENS_DUCKDB_MEMORY_LIMIT', 'value', '5GiB'), createObject('name', 'VALUELENS_JOB_TIMEOUT_SEC', 'value', string(variables('runJobTimeoutSec'))), createObject('name', 'VALUELENS_RUN_JOB_ID', 'value', resourceId('Microsoft.App/jobs', parameters('runJobName')))))]",
             "registries": "[if(empty(parameters('registryServer')), createArray(), createArray(createObject('server', parameters('registryServer'), 'identity', parameters('identityId'))))]",
             "identity": {
               "type": "UserAssigned",
@@ -2005,7 +2005,10 @@
               "name": "[parameters('runJobName')]",
               "location": "[parameters('location')]",
               "tags": "[parameters('tags')]",
-              "identity": "[variables('identity')]",
+              "identity": {
+                "type": "SystemAssigned,UserAssigned",
+                "userAssignedIdentities": "[variables('identity').userAssignedIdentities]"
+              },
               "properties": {
                 "environmentId": "[resourceId('Microsoft.App/managedEnvironments', parameters('environmentName'))]",
                 "workloadProfileName": "Consumption",
@@ -2148,6 +2151,10 @@
             "webFqdn": {
               "type": "string",
               "value": "[if(parameters('deployWeb'), reference(resourceId('Microsoft.App/containerApps', parameters('webName')), '2024-03-01').configuration.ingress.fqdn, '')]"
+            },
+            "runJobPrincipalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.App/jobs', parameters('runJobName')), '2024-03-01', 'full').identity.principalId]"
             }
           }
         }
@@ -2191,6 +2198,10 @@
     "runJobName": {
       "type": "string",
       "value": "[variables('names').runJob]"
+    },
+    "runJobPrincipalId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.Resources/deployments', 'vl-containerapps'), '2025-04-01').outputs.runJobPrincipalId.value]"
     },
     "migrateJobName": {
       "type": "string",

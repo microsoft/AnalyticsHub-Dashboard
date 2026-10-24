@@ -296,6 +296,9 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  *   `agentEvaluatorDatasetId` is the Agent Evaluator model, deployed with Agent Evaluator.
  * @property {AzureDrop} [drop] Private networking with credit consumption or a CSV export (Agent 365, product feedback, Workday): the SharePoint folder the Studio flow and CSV uploads land in.
  * @property {boolean} [storageRole] The installer gave the signed-in user Storage Blob Data Contributor on the landing container, for the Studio flow and CSV uploads.
+ * @property {boolean} [runJobSelfStart] The run job's own identity has Container Apps Jobs Operator on that job, so a long first
+ *   load starts its next run straight away. false: the installer couldn't give it, and a pending admin action says how.
+ *   Unset: not tried yet (before 0.6.9, or demo mode), so the scheduled runs carry the load on.
  * @property {{ assigned: string[], pending: string[] }} [graphRoles]
  * @property {string} [teamsPackage]
  * @property {{ id: string, externalId: string, version: string, sha256: string, publishedAt: string }} [teamsApp]  The Teams app the installer

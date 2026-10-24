@@ -484,6 +484,12 @@ Some denies still need a policy exemption: an internal-only Container Apps envir
 (the web app needs public ingress), a ban on creating virtual networks, and Log Analytics shared keys
 in public mode.
 
+The network security groups keep Azure's default rules, which allow outbound internet. If your
+network sends the jobs' outbound traffic through a firewall instead, allow `management.azure.com`
+along with what the jobs already reach: during a long first load, the run job starts its next run
+there. Without it, the next scheduled run carries the load on. See
+[Letting the run job start its next run](../docs/AZURE-LEAST-PRIVILEGE.md#letting-the-run-job-start-its-next-run).
+
 ## What's here
 
 | Folder | Contents |
@@ -527,6 +533,9 @@ live SQL capacity values back in, so scale changes you make survive updates.
 ARM can't do these, so the installer:
 - Grant the managed identity its Graph app roles (`AuditLogsQuery.Read.All`, `Reports.Read.All`,
   `User.Read.All` and module extras).
+- Give the run job's own identity Container Apps Jobs Operator on the run job, so a long first load
+  starts its next run straight away. Where Azure refuses, `status` shows it as a pending admin action
+  with the command. See [Letting the run job start its next run](../docs/AZURE-LEAST-PRIVILEGE.md#letting-the-run-job-start-its-next-run).
 - Run the migrate job, which creates the database users.
 - Create the web app registration with a federated credential, and the Power BI workspace, models and refresh.
 - Create or find the viewer group, give it Build on the models, and pass it to the web app as `VALUELENS_ACCESS`.

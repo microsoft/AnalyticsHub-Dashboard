@@ -15,7 +15,10 @@
  * load stops at its time budget (90 minutes, or 300 for a large tenant) and the pipeline's two retries carry on,
  * so one run fetches for up to three budgets. On Azure, a run has 4 hours and keeps at least the last hour to process
  * and publish, so it fetches for up to about 3 hours (less what the other collectors take first), then publishes what
- * it has loaded; no retry is counted on. The audit service's queue on a busy day isn't counted: it can add hours.
+ * it has loaded; no retry is counted on. When the run job can start itself, the next run starts as soon as one stops
+ * at its time limit, so the runs follow one another and each can add up to an hour to publish: the note when the load
+ * starts then also gives the time the runs take in all, at up to 4 hours a run. Until then, the next scheduled run
+ * carries on. The audit service's queue on a busy day isn't counted: it can add hours.
  */
 import { commandLine } from './launch.js';
 
@@ -130,13 +133,42 @@ export function estimateShort(days, scale, target = 'fabric', opts = {}) {
   return `Estimate${opts.band ? ` ${BAND_LABELS[est.band]}` : ''}: ${est.time}${est.runs[1] > 1 ? `, ${runsPhrase(est.runs)}` : ''}.`;
 }
 
+/** The most an Azure run takes, publishing included: the run job's time limit (runJobTimeoutSec in the template). */
+export const AZURE_RUN_HOURS = 4;
+
+/**
+ * What carries an Azure load on once a run stops at its time limit. Ends with a space.
+ * @param {boolean | undefined} selfStart  true when the run job can start its next run itself, false while that waits
+ *   for an admin, undefined when it isn't known: on an install from before 0.6.9 until an update or a repair, or in
+ *   demo mode, which gives no role.
+ * @param {[number, number]} runs  the fewest and most runs the load takes.
+ * @param {boolean} beyond  the load is for more days than the table's last row, so it can take more runs.
+ */
+function azureNextRun(selfStart, runs, beyond) {
+  const sooner = `start one sooner with "${commandLine('run')}"`;
+  if (selfStart) {
+    // The runs follow one another, so the time they take in all is each one's whole limit, not only its fetch.
+    const inAll = runs[1] > 1
+      ? `Each run can add up to an hour to publish, so the runs take up to about ${runs[1] * AZURE_RUN_HOURS} hours in all${beyond ? ', or longer for more history' : ''}. `
+      : '';
+    return 'The next run then starts by itself and carries on where it stopped, until the history is loaded. ' + inAll +
+      'If a run ends with an error or fetches nothing, the next scheduled run carries on instead. ';
+  }
+  if (selfStart === false) {
+    return `The next scheduled run carries on where it stopped, or ${sooner}. ` +
+      `An admin can let the next run start straight away: see the pending admin action in "${commandLine('status')}". `;
+  }
+  return `If the run job can start itself, the next run starts straight away and carries on where it stopped; if not, the next scheduled run does, or ${sooner}. `;
+}
+
 /**
  * What to expect when the first load, or a reload of more history, starts: the estimate, what can make it longer,
  * and what each target does when a run can't fetch it all. Ends with a space, for the note that follows.
  * @param {number} days
  * @param {string | undefined} scale
  * @param {EstimateTarget} [target]
- * @param {{ reload?: boolean }} [opts]  reload: a reload of more history, which on Fabric takes its own command to carry on.
+ * @param {{ reload?: boolean, selfStart?: boolean }} [opts]  reload: a reload of more history, which on Fabric takes its
+ *   own command to carry on. selfStart: on Azure, whether the run job can start its next run itself, as `azureNextRun`.
  */
 export function firstLoadEstimate(days, scale, target = 'fabric', opts = {}) {
   const est = estimateFor(target, days, scale);
@@ -145,7 +177,7 @@ export function firstLoadEstimate(days, scale, target = 'fabric', opts = {}) {
     'The audit service\'s queue can add hours, and a large tenant\'s history can take more than one run. ';
   if (target === 'azure') {
     return `${head}Each run fetches for up to about 3 hours, newest weeks first, then publishes what it has loaded, so the reports fill in after each run. ` +
-      `The next scheduled run carries on where it stopped, or start one sooner with "${commandLine('run')}". `;
+      azureNextRun(opts.selfStart, est.runs, days > est.days);
   }
   const again = commandLine(opts.reload ? `run --backfill-days ${days}` : 'run');
   // A large tenant's advice from the sizing: a bigger capacity helps.

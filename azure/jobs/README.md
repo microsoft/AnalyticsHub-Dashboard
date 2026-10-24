@@ -80,7 +80,7 @@ only. Before that run queries anything, it records in the audit state where the 
 later run plans from there too, reusing the windows already fetched, until every window has merged,
 and then clears the record. The run after that plans from the high-water mark again, and prunes the
 reload's windows. So a reload that stops at the run's time budget, or has a window fail, isn't
-lost: the scheduled runs finish it. Agent Evaluator remembers a reload the same way, for each
+lost: the runs that follow finish it. Agent Evaluator remembers a reload the same way, for each
 environment (see [Agent Evaluator](#agent-evaluator-module-agentevaluator)).
 
 **The run's time budget.** The run job's time limit is its replica timeout, which the template also
@@ -112,6 +112,31 @@ curate differently from one pass over the history (an agent named only in an old
 once that record is in), so once a load that took more than one run is complete, `process`
 rebuilds every month once: in the run that finishes the load if it has twice the reserve left,
 otherwise in the next.
+
+**A long load starts its next run.** From 0.6.9 a run that stopped at its time budget starts the
+next run itself, straight away, until the history is loaded (`continue_run.py`). It does so only
+when it loaded at least one window of the history (the look-back's windows, which every run fetches
+again, don't count), had no errors, so it exits 0, and collected the tenant's data, not a sample.
+At most 8 runs a day (UTC) start one: `raw/_state/chain.json` counts them, and a start that then
+fails still counts. A reload carries on the same way, as its start stays in the audit state until
+every window has merged. The run counts the start while it still holds the run lock, and starts
+the next run once it has released the lock, so the next run doesn't stop behind it. If the release
+failed, it waits 60 seconds for the lease to lapse first. It calls Jobs - Start
+(`POST https://management.azure.com{VALUELENS_RUN_JOB_ID}/start`) with no body, as a body would
+override the job's template, so the next run uses the job's own template and arguments, as a
+scheduled run does. It signs in as the run job's own system-assigned identity
+(`ManagedIdentityCredential()` with no client ID), which holds Container Apps Jobs Operator on this
+job only; every other call keeps the user-assigned identity in `AZURE_CLIENT_ID`. The installer
+assigns the role, or leaves a pending admin action when it can't (see
+[Letting the run job start its next run](../../docs/AZURE-LEAST-PRIVILEGE.md#letting-the-run-job-start-its-next-run)).
+It logs `run: started the next run`, with the new execution's name when Azure returns it. A 403,
+or any other failure, logs one warning, `run: couldn't start the next run ...`, and doesn't change
+the run's exit code: the next scheduled run carries on. Without `VALUELENS_RUN_JOB_ID`, which
+templates before 0.6.9 don't set, the run logs one line and the next scheduled run carries on. The
+next run can still stop behind another run's lock, one started by hand for example. If that run
+collects, it carries the load on and starts its own next run. If it doesn't, like the installer's
+`access,refresh`, the next scheduled run carries on. Nothing retries. With private networking and an
+egress firewall, the job must reach `management.azure.com`.
 
 **Query timings.** The run logs a line for each audit window it fetches, `audit: window <key> +N
 record(s) in P page(s); slot wait Xs, ready Ys (Z poll(s)), drain Ws`. The slot wait is the time
@@ -411,6 +436,7 @@ The job reads its settings from environment variables. Bicep sets them.
 | `VALUELENS_TRANSCRIPT_RESOLVE_UPNS` | agentEvaluator: `false` stops looking up UPNs in Graph for users whose transcripts don't carry one. The default is `true`. |
 | `VALUELENS_AUDIT_HISTORY_DAYS` / `VALUELENS_AUDIT_LOOKBACK_DAYS` | The first-run backfill (default 30) and the re-read window on later runs (default 7) |
 | `VALUELENS_JOB_TIMEOUT_SEC` | The run job's time limit in seconds, which the run counts from the job's start. The template sets it from the same value as the run job's replica timeout (14,400); the job assumes 14,400 when it's missing. See [Steps](#steps). |
+| `VALUELENS_RUN_JOB_ID` | The run job's resource ID, which a run uses to start the next run during a long load. The template sets it on the run job only. Without it, the next scheduled run carries the load on. See [Steps](#steps). |
 | `VALUELENS_AUDIT_TIME_BUDGET_MIN` | Replaces the audit fetch's time budget: the minutes, counted from the job's start, after which no audit window starts and the waiting ones pause. Capped at the run's limit. The template doesn't set it; without it, the fetch stops a reserve before the limit (see [Steps](#steps)). |
 | `VALUELENS_PROCESS_LOOKBACK_DAYS` | Days before the newest audit record whose months `process` always recomputes (default 14) |
 | `VALUELENS_PROCESS_FULL_REBUILD` | `true` makes `process` recompute every month. Set it on a single execution, not on the job. |
@@ -430,6 +456,7 @@ The job reads its settings from environment variables. Bicep sets them.
 | `raw/_audit_staging/`, `raw/_state/audit.json` | The audit pages of the windows the last run planned, gzip-compressed, and the manifest of windows: each one's status, with its query ID when it's `paused` at the time budget, and when it last merged (`merged_at`). Also the high-water mark, where a reload not yet merged starts, the last run's merge-to-publish time, and, while windows are left, the progress `status` reads (`loaded_back_to`, `windows_left`, `paused_at`). Merged isn't published: `processed` is where the load had got to when the last process step to finish started, and `published` is the same for the last publish that carried a process step's output, which `status` counts as in the reports. The next run reuses the finished windows and merges only those not merged yet. |
 | `raw/_state/refresh.json` | refresh: the full refreshes owed, per model, with the one a run left running, until a run sees one complete |
 | `raw/_state/run.lock` | The run lock: leased by the run that's going, which records its execution, when it started, its steps and its version in it. Between runs it isn't leased and names the last run. |
+| `raw/_state/chain.json` | How many runs started the next one during a long load, and the UTC day it counts for (at most 8 a day), with the last such run's execution and time. A run writes it while it holds the run lock. |
 | `raw/copilot_licensed_users/`, `raw/copilot_org_data/`, `raw/m365_activity_daily/` | Collector snapshots |
 | `curated/copilot_interactions_curated/month-YYYYMM.parquet` | The curated fact, one file per month (`month-none` for rows without a date). Each file is written atomically. |
 | `curated/_valuelens_process/` | process: the per-month source fingerprints (`state.json`) and the per-month context that incremental runs reuse |

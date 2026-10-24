@@ -168,7 +168,7 @@ def test_the_budget_pauses_the_waiting_window_and_merges_the_finished_ones(tmp_p
     # Newest first; W2's query was still running at the budget, so W1 never started.
     assert g.created == [W4, W3, W2]
     assert clock.slept == [30] * 9 and clock() == 270
-    assert out == {"rows": 2, "days": 1, "paused": True, "windows_left": 2,
+    assert out == {"rows": 2, "days": 1, "paused": True, "windows_left": 2, "windows_loaded": 2,
                    "loaded_back_to": "2026-09-10T00:00:00+00:00"}
     st = _state(store)
     w2 = st["windows"][key(W2)]
@@ -188,6 +188,16 @@ def test_the_budget_pauses_the_waiting_window_and_merges_the_finished_ones(tmp_p
     assert "History loaded back to 2026-09-10. The next run carries on (2 windows left)." in caplog.text
 
 
+def test_the_look_backs_windows_dont_count_as_loaded(tmp_path):
+    # Every run fetches the trailing look-back again, so only older windows move the load on, and a run that
+    # fetched only those doesn't start the next run (see continue_run).
+    clock, store = Clock(), LocalStore(tmp_path)
+    g = SlowGraph(RECORDS, clock, hang=lambda ws, we: (ws, we) == W2)
+    out = collector(clocked_api(g, clock), store, clock, s=settings(audit_lookback_days=1), deadline=300,
+                    hard_deadline=14_400).run()
+    assert g.created == [W4, W3, W2]
+    assert out["paused"] is True and out["windows_left"] == 2 and out["windows_loaded"] == 0
+
 def test_the_budget_counts_from_the_jobs_start(tmp_path, monkeypatch, caplog):
     caplog.set_level(logging.INFO)
     clock, seen = Clock(), []
@@ -201,7 +211,8 @@ def test_the_budget_counts_from_the_jobs_start(tmp_path, monkeypatch, caplog):
     # The other collectors took 4 of the 5 minutes, so audit had 1.
     assert seen == [{"deadline": 300.0, "hard_deadline": 14_400.0, "clock": clock}]
     assert clock.slept == [30]
-    assert out["audit"] == {"rows": 0, "days": 0, "paused": True, "windows_left": 4, "loaded_back_to": None}
+    assert out["audit"] == {"rows": 0, "days": 0, "paused": True, "windows_left": 4, "windows_loaded": 0,
+                            "loaded_back_to": None}
     assert "collect licensed: took 2.0 min" in caplog.text
     assert ("collect audit: fetching for up to 1 min, until 5 min after the job's start "
             "(VALUELENS_AUDIT_TIME_BUDGET_MIN=5); the run's limit is 240 min") in caplog.text
