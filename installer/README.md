@@ -117,7 +117,8 @@ Application Administrator, Cloud Application Administrator or Application Develo
 Privileged Role Administrator can't, though it can grant admin consent. The installer checks before
 anything is created, but it can't see custom roles, so it still offers to create the apps. Choose
 that only if a custom role lets you register apps. On Azure, if Entra then refuses, the installer
-writes the admin script and stops before it deploys anything.
+writes the admin script and stops before it deploys anything. On Fabric, it writes the admin pack
+below and stops, and the next run offers **An admin will register the app for me** as the default.
 
 **On Fabric**, choose **An admin will register the app for me** in the app registration question.
 Before anything is created, the installer writes `analytics-hub-admin-pack.md` next to the install
@@ -144,11 +145,11 @@ permissions cover won't load until they're fixed.
 sign in to, and **Analytics Hub SQL Reader**, which Power BI reads the database as. Under **App
 registrations**, choose who creates them:
 
-- **Create the two apps**, recommended if you can register apps and an admin hasn't made them. The
-  installer creates them before it deploys anything, and finishes them once the web app exists.
-  It's offered even when the installer finds no role or setting that lets you, in case a custom
-  role does. If that role doesn't make you their owner, Entra may refuse to finish them after the
-  deploy. The installer then stops, and says who adds you as an owner.
+- **Create the two apps**, recommended if you can register apps, an admin hasn't made them and no
+  admin script is waiting. The installer creates them before it deploys anything, and finishes them
+  once the web app exists. It's offered even when the installer finds no role or setting that lets
+  you, in case a custom role does. If that role doesn't make you their owner, Entra may refuse to
+  finish them after the deploy. The installer then stops, and says who adds you as an owner.
 - **Use the apps an admin created for me**, recommended when the installer finds both. The installer
   finds the apps with these names that you own and no install has finished, or you enter their
   client IDs. You need to own each app, unless you're an Application Administrator, Cloud
@@ -166,14 +167,17 @@ choose an admin for that one, the script creates only the missing app.
 
 With `--yes`, the installer uses an app an admin created when it finds exactly one with that name,
 and stops to list their client IDs when it finds more. Otherwise it creates the app if you can, or
-writes the script and stops.
+writes the script and stops. The installer can't see custom roles: if one lets you register apps,
+run the installer again without `--yes`, and choose **Create the two apps**.
 
 Approving the web app's delegated permissions needs an Application Administrator, Cloud
 Application Administrator, Privileged Role Administrator or Global Administrator. If you create the
 apps without one of those roles, the installer gives you a consent link to send after the deploy,
 and carries on: people can use the web app once it's approved. The jobs' managed identity's
-Microsoft Graph roles are separate: after the deploy, a Privileged Role Administrator or Global
-Administrator gives them, and the installer lists them.
+Microsoft Graph roles are separate, and only a Privileged Role Administrator or Global
+Administrator can give them. If you can't, the installer prints a command for one of them to paste
+into Azure Cloud Shell (Bash) after the deploy. `status` prints it again, and it's in their request
+under **Requests for your admins**.
 
 ## Azure target
 
@@ -189,8 +193,10 @@ You need:
 - Permission to register Entra apps. Or an Application Administrator or Cloud Application
   Administrator creates the two apps for you: see [If you can't register apps](#if-you-cant-register-apps).
 - A Global Administrator or Privileged Role Administrator to give the managed identity its Graph
-  app roles. Approving the web app's delegated permissions, from the consent link the installer
-  prints, can also be done by an Application Administrator or Cloud Application Administrator.
+  app roles. If you aren't one, the installer prints the command for them, `status` repeats it, and
+  it's in their request. Approving the web app's delegated permissions, from the consent link the
+  installer prints, can also be done by an Application Administrator or Cloud Application
+  Administrator.
 - Power BI Pro or PPU, and permission to create or use the chosen Power BI workspace.
 - To publish the Teams app for you: the Teams Administrator or Global Administrator role, and consent
   to `AppCatalog.ReadWrite.All` for Microsoft Graph Command Line Tools at a second sign-in. Without
@@ -997,7 +1003,7 @@ Whoever runs the load (the app registration, or on Azure the jobs' managed ident
 - **Foundry:** Azure **Reader** on the management group, or on the tenant root group. The installer
   gives it when you can assign roles there. If you can't, it prints the command for an Owner or
   User Access Administrator:
-  `az role assignment create --assignee <app or identity client ID> --role Reader --scope /providers/Microsoft.Management/managementGroups/<group or tenant ID>`.
+  `az role assignment create --assignee-object-id <the app's enterprise application object ID, or the managed identity's principal ID> --assignee-principal-type ServicePrincipal --role Reader --scope "/providers/Microsoft.Management/managementGroups/<group or tenant ID>"`.
 - **Agents:** one of the Entra roles **Global Reader**, **Power Platform Administrator** or **AI
   Administrator**. If you're a Global Administrator or Privileged Role Administrator, the
   installer gives it **Global Reader** itself, and *Ready to set up* says so. It checks first,

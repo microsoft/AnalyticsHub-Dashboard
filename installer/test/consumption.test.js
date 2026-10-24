@@ -254,8 +254,29 @@ test('Azure access: the app gets three read roles once; without rights the user 
   denied.arm.failures.assignRole = [httpError(403, 'AuthorizationFailed')];
   assert.equal(await ensureAzureAiAccess(denied.ctx), false);
   assert.equal(denied.config.consumption.azureAccess, undefined);
-  assert.match(denied.ui.text(), /Reader, Cost Management Reader, Monitoring Reader/);
-  assert.match(denied.ui.text(), /app-1/);
+  assert.match(denied.ui.text(), /give ValueLens Data Collector Reader, Cost Management Reader, Monitoring Reader on the subscription, in Azure Cloud Shell \(Bash\):\n/);
+  // A command for each role, by the app's enterprise application object ID: never its client ID.
+  const command = (/** @type {string} */ id, /** @type {string} */ role, sub = SUB) =>
+    `\n    az role assignment create --assignee-object-id ${id} --assignee-principal-type ServicePrincipal --role "${role}" --scope "/subscriptions/${sub}"\n`;
+  for (const role of ['Reader', 'Cost Management Reader', 'Monitoring Reader']) assert.ok(denied.ui.text().includes(command('sp-1', role)), role);
+  assert.doesNotMatch(denied.ui.text(), /app-1/);
+
+  // The Azure jobs' managed identity, by its principal ID.
+  const mi = setup();
+  mi.config.consumption.azureSubscriptionId = SUB;
+  mi.arm.failures.assignRole = [httpError(403, 'AuthorizationFailed')];
+  assert.equal(await ensureAzureAiAccess(mi.ctx, { id: 'mi-1', name: 'The jobs\' managed identity', appId: 'mi-client-1' }), false);
+  for (const role of ['Reader', 'Cost Management Reader', 'Monitoring Reader']) assert.ok(mi.ui.text().includes(command('mi-1', role)), role);
+  assert.doesNotMatch(mi.ui.text(), /mi-client-1/);
+
+  // Before the app's object ID is known, the command looks it up from its client ID.
+  const lookup = setup();
+  lookup.config.consumption.azureSubscriptionId = SUB;
+  delete lookup.config.app.servicePrincipalId;
+  lookup.arm.failures.assignRole = [httpError(403, 'AuthorizationFailed')];
+  assert.equal(await ensureAzureAiAccess(lookup.ctx), false);
+  assert.ok(lookup.ui.text().includes(command('$(az ad sp show --id app-1 --query id -o tsv)', 'Reader')), lookup.ui.text());
+  assert.doesNotMatch(lookup.ui.text(), /--assignee(-object-id)? app-1/);
 
   const granted = setup({ answers: [true] });
   granted.config.consumption.azureSubscriptionId = SUB;
@@ -357,6 +378,11 @@ test('pay-as-you-go access: Cost Management Reader on each other subscription; o
   assert.equal(extra[1].access, undefined);
   assert.match(t.ui.text(), /Gave ValueLens Data Collector Cost Management Reader on Studio billing/);
   assert.match(t.ui.text(), new RegExp(`can't assign Azure roles in ${HIDDEN}`));
+  assert.ok(
+    t.ui.text().includes(`\n    az role assignment create --assignee-object-id sp-1 --assignee-principal-type ServicePrincipal --role "Cost Management Reader" --scope "/subscriptions/${HIDDEN}"\n`),
+    'the command, by the app\'s object ID',
+  );
+  assert.doesNotMatch(t.ui.text(), /app-1/);
 
   t.arm.calls.length = 0;
   assert.equal(await ensureAzureAiAccess(t.ctx), true);

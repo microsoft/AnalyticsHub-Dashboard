@@ -721,17 +721,31 @@ export async function plan(ctx, pre, section) {
       ui.ok(`Using ${config.app.displayName ?? 'app'} (${config.app.appId})`);
       askSecret = !!section && !!config.app.existing && !config.keyVault.secretSetAt && !ctx.pendingSecret;
     } else {
-      const blocked = pre.canCreateApps === false || !pre.canConsent || !!config.app.adminPack;
+      // Offered whenever the installer can't confirm you can register apps, or a pack is written: if Entra refuses,
+      // ensureApp writes one and stops, so the next run offers this as the default.
+      const blocked = pre.canCreateApps !== true || !pre.canConsent || !!config.app.adminPack;
+      const def = config.app.adminPack || (pre.canCreateApps === false && !ui.yes) ? 'admin' : 'new';
+      const recommended = (/** @type {string} */ value) => (value === def ? ' (recommended)' : '');
       const mode = await ui.select(
         'The notebooks sign in to Microsoft Graph as an app.',
         [
-          { name: `Create "${APP_NAME}" (recommended)`, value: 'new' },
+          {
+            name: `Create "${APP_NAME}"${recommended('new')}`,
+            value: 'new',
+            ...(pre.canCreateApps === false
+              ? {
+                  description:
+                    'The installer found no role or setting that lets you register apps, but it can\'t see custom roles. Choose this only if a custom role lets you create it. ' +
+                    'If Entra refuses, the installer stops and writes an admin pack for you to send to an admin. When you run it again, it reuses what it has made, such as the workspace.',
+                }
+              : {}),
+          },
           { name: 'Use an app registration I already have', value: 'existing' },
           ...(blocked
             ? [{ name: 'An admin will register the app for me', value: 'admin', description: 'You get an admin pack: a Cloud Shell script and portal steps for an admin, who sends you back the client ID.' }]
             : []),
         ],
-        config.app.adminPack || (pre.canCreateApps === false && !ui.yes) ? 'admin' : 'new',
+        def,
       );
       if (mode === 'existing') {
         config.app.existing = true;

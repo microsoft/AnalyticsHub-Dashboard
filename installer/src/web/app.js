@@ -1955,7 +1955,11 @@ function itemMarkdown(it, depth) {
       return it.requests.length
         ? ['', '**Requests for your admins**', '', ...it.requests.flatMap((r, i) => [
           `${i + 1}. **${r.who}** (for: ${r.rows.join('; ')})`,
-          ...r.asks.map((a) => `   - ${a}`),
+          // An ask's later lines are a command, kept as it is in a code block.
+          ...r.asks.flatMap((a) => {
+            const [first, ...cmd] = a.split('\n');
+            return [`   - ${first}`, ...(cmd.length ? ['     ```bash', ...cmd.map((l) => `     ${l.trim()}`), '     ```'] : [])];
+          }),
         ]), '']
         : [];
     default:

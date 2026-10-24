@@ -250,7 +250,7 @@ function vivaQueryStep(config, user) {
  */
 function entraRoleStep(config, user) {
   if (config.target === 'azure' || !resourceGraphOn(config) || config.resourceGraph?.agents === false) return null;
-  if (/** @type {{ roleAssigned?: boolean } | undefined} */ (config.resourceGraph)?.roleAssigned === true) return null;
+  if (config.resourceGraph?.roleAssigned) return null;
   const app = config.app?.displayName ?? APP_NAME;
   const appId = config.app?.appId;
   const spId = config.app?.servicePrincipalId;

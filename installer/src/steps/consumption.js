@@ -4,6 +4,7 @@
  * Lakehouse folders for the Copilot Studio and Cowork exports, and the Consumption model,
  * which reads the Lakehouse through the ValueLens model's connection.
  */
+import { objectIdOrLookup, roleAssignmentCommand } from '../admin-commands.js';
 import { STUDIO_LANDING, VIVA_LANDING } from '../catalog.js';
 import { ROLES } from '../clients/azure.js';
 import { semanticModelDefinition } from '../clients/fabric.js';
@@ -465,7 +466,8 @@ export async function ensureAzureAiAccess(ctx, principal) {
   } catch (err) {
     if (!(err instanceof HttpError) || err.status !== 403) throw err;
     ui.warn(`You can't assign Azure roles in ${where}, so Azure AI is left out of the pipeline for now.`);
-    ui.info(`An Owner or User Access Administrator can give ${app} (${who.appId}) ${names} on the subscription.`);
+    ui.info(`An Owner or User Access Administrator can give ${app} ${names} on the subscription, in Azure Cloud Shell (Bash):`);
+    for (const r of AZURE_AI_ROLES) ui.info(roleAssignmentCommand(objectIdOrLookup(who.id, who.appId), r.name, `/subscriptions/${sub}`));
     if (!ui.yes) {
       const done = await ui.select('Then:', [
         { name: 'Leave Azure AI out for now', value: false, description: 'Run the installer again once the roles are there.' },
@@ -509,7 +511,8 @@ async function ensurePaygAccess(ctx, who) {
     } catch (err) {
       if (!(err instanceof HttpError) || ![403, 404].includes(err.status)) throw err;
       ui.warn(`You can't assign Azure roles in ${where}, so its Copilot pay-as-you-go is left out for now.`);
-      ui.info(`An Owner or User Access Administrator can give ${app} (${who.appId}) Cost Management Reader on it.`);
+      ui.info(`An Owner or User Access Administrator can give ${app} Cost Management Reader on it, in Azure Cloud Shell (Bash):`);
+      ui.info(roleAssignmentCommand(objectIdOrLookup(who.id, who.appId), 'Cost Management Reader', `/subscriptions/${p.subscriptionId}`));
       const done = !ui.yes && (await ui.select('Then:', [
         { name: 'Leave it out for now', value: false, description: 'Run the installer again once the role is there.' },
         { name: 'It already has this role', value: true },

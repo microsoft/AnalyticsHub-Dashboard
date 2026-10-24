@@ -10,6 +10,7 @@ import { GRAPH_APP_ID } from '../src/catalog.js';
 import { emptyConfig, loadConfig, saveConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
 import { createCtx, install } from '../src/install.js';
+import { commandLine } from '../src/launch.js';
 import { readFile } from 'node:fs/promises';
 import { canAssignDirectoryRoles, checkPrereqs, dataPolicyPrereq, preflightVerdict, reportFlowPrereqs, reportPreflight, settingsToConfirm } from '../src/prereqs.js';
 import { planAzureConsumption } from '../src/steps/azure/index.js';
@@ -203,7 +204,7 @@ test('checkPrereqs: an existing resource group is checked there, so least privil
   assert.match(rbac.detail, /^Resource group rg-x: enough to install there\. Subscription-wide, 0 of 1 subscription give you this\./);
   assert.deepEqual(rbac.rows?.map((r) => [r.name, r.status]), [['Resource group rg-x', 'met'], ['Production', 'missing']]);
   assert.equal(rbac.rows?.[0].detail, 'Can deploy and assign roles in this resource group (Contributor, Role Based Access Control Administrator)');
-  assert.match(rbac.howTo, /least privilege.*docs\/AZURE-LEAST-PRIVILEGE\.md/);
+  assert.match(rbac.howTo, /least privilege.*\(https:\/\/github\.com\/microsoft\/AnalyticsHub-Dashboard\/blob\/main\/docs\/AZURE-LEAST-PRIVILEGE\.md\)\.$/, 'a link that works outside the repo');
 
   const subs = [{ subscriptionId: 'sub-1', displayName: 'Production', state: 'Enabled' }, { subscriptionId: 'sub-2', displayName: 'Other', state: 'Enabled' }];
   const noAssign = await run({ subs, perms: { '/subscriptions/sub-1': READ, '/subscriptions/sub-2': ALL, [RG]: CONTRIBUTOR }, assigned: { [RG]: [assignment(ROLES.contributor)] } }, azureInto());
@@ -527,7 +528,7 @@ test('checkPrereqs: on Azure, registering apps is met by recorded apps, a role, 
   const cant = (await run(locked, azureConfig()))['register-apps'];
   assert.equal(cant.status, 'missing');
   assert.equal(cant.detail, 'Users in this tenant can\'t register apps, and you have no app admin role. The plan offers to have an admin create the two apps for you.');
-  assert.equal(cant.howTo, 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role. Or, in the plan, choose \'Use the apps an admin created for me\' if an admin has made them, or \'An admin will create the apps for me\': the plan writes a script for an Application Administrator or Cloud Application Administrator, and stops before anything is deployed.');
+  assert.equal(cant.howTo, 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role. Or, in the plan, choose \'Use the apps an admin created for me\' if an admin has made them, or \'An admin will create the apps for me\': the plan writes a script for an Application Administrator or Cloud Application Administrator, and stops before anything is deployed. The installer can\'t see custom roles: if one lets you register apps, choose \'Create the two apps\'.');
   assert.match(cant.neededFor, /"Analytics Hub \(Azure\)", for signing in to the web app, and "Analytics Hub SQL Reader", for Power BI/);
 });
 
@@ -579,7 +580,7 @@ test('checkPrereqs: on Azure, the audit role is the jobs\' managed identity\'s, 
   const az = (await run({ roles: [] }, azureConfig()))['audit-ingestion'];
   assert.equal(az.status, 'handoff');
   assert.equal(az.detail, 'Not granted yet, so the audit load finds 0 records until a Privileged Role Administrator or Global Administrator grants it to the jobs\' managed identity.');
-  assert.match(az.howTo, /^After the deploy, a Privileged Role Administrator or Global Administrator gives the jobs' managed identity its Microsoft Graph roles, including AuditLogsQuery\.Read\.All; the installer lists them\. A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: \S+ After install, run .*check-audit/);
+  assert.match(az.howTo, /^After the deploy, a Privileged Role Administrator or Global Administrator gives the jobs' managed identity its Microsoft Graph roles, including AuditLogsQuery\.Read\.All, with a command the installer prints\. A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: \S+ After install, run .*check-audit/);
   assert.doesNotMatch(az.howTo, /consent/, 'no consent link: the managed identity\'s roles aren\'t a consent');
   const fabric = (await run({ roles: [] }))['audit-ingestion'];
   assert.match(fabric.howTo, /^A Global Administrator or Privileged Role Administrator grants admin consent for AuditLogsQuery\.Read\.All \(the installer gives you a link\)\./);
@@ -1112,9 +1113,17 @@ test('preflight: prints only the prerequisites that need attention, then the han
   assert.ok(text.indexOf('Hand-off: someone else does this') > text.indexOf('Register apps in Entra'), 'hand-offs after what needs attention');
 });
 
-test('preflight: with --yes, no way to register the app stops it before anything is created', async () => {
+test('preflight: with --yes, no way to register the app stops it before anything is created, and says a custom role can still create it without --yes', async () => {
   const { ctx, t } = preflightCtx({ roles: [], usersCanRegister: false }, { yes: true });
-  await assert.rejects(preflight(ctx), /can't create its app registration\. Run it without --yes to choose an app registration you already have or get the admin pack/);
+  await assert.rejects(preflight(ctx), (err) => {
+    assert.equal(
+      /** @type {Error} */ (err).message,
+      'Users in this tenant can\'t register apps and you have no app admin role, so with --yes the installer can\'t create its app registration. ' +
+        'Run it without --yes to choose an app registration you already have or get the admin pack for an admin, or ask for the Application Administrator or Cloud Application Administrator role. ' +
+        `The installer can't see custom roles: if one lets you register apps, run "${commandLine('install')}" again without --yes, and choose to create it yourself.`,
+    );
+    return true;
+  });
   assert.match(t.text(), /Stopped before creating anything: Register apps in Entra\./);
 });
 

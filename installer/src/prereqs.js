@@ -12,6 +12,7 @@ import { commandLine } from './launch.js';
 import { copilotLicences } from './seats.js';
 import { AUDIT_CHECK_FAILS, AUDIT_CHECK_LABELS, AUDIT_ROLE, PURVIEW_AUDIT_URL } from './steps/audit-check.js';
 import { adoptableApps, AZURE_APPS, appsRecorded, webAppGranted } from './steps/azure/apps.js';
+import { LEAST_PRIVILEGE_URL } from './steps/azure/least-privilege.js';
 import { dataPolicyAsk, FLOW_NAMES, flowsWanted, INVENTORY_SIGNER, PP_API_SIGNER, ppApiFlows, PREMIUM_OWNER } from './steps/flows.js';
 import { canWriteSecrets } from './steps/identity.js';
 import { WORKSPACE_ROLE } from './steps/fabric.js';
@@ -319,7 +320,7 @@ export async function checkPrereqs(ctx, opts = {}) {
       neededFor: azure
         ? 'The Azure target creates its resource group, SQL database, container jobs and role assignments.'
         : 'Creating the Key Vault for the app secret, and the Azure role assignments for credit consumption.',
-      howTo: `Ask a subscription owner for Owner, or for Contributor and User Access Administrator, on the subscription you'll use.${azure ? ' Or, for least privilege, ask your Azure admin to create the resource group and give you Contributor and a condition-limited Role Based Access Control Administrator on just that group (docs/AZURE-LEAST-PRIVILEGE.md).' : ''}`,
+      howTo: `Ask a subscription owner for Owner, or for Contributor and User Access Administrator, on the subscription you'll use.${azure ? ` Or, for least privilege, ask your Azure admin to create the resource group and give you Contributor and a condition-limited Role Based Access Control Administrator on just that group (${LEAST_PRIVILEGE_URL}).` : ''}`,
       optional: !azure,
     },
     async () => {
@@ -479,7 +480,7 @@ export async function checkPrereqs(ctx, opts = {}) {
           ? `Creating the two app registrations: "${AZURE_APPS[0].name}", for signing in to the web app, and "${AZURE_APPS[1].name}", for Power BI.`
           : 'Creating the app registration that collects the data.',
         howTo: azure
-          ? 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role. Or, in the plan, choose \'Use the apps an admin created for me\' if an admin has made them, or \'An admin will create the apps for me\': the plan writes a script for an Application Administrator or Cloud Application Administrator, and stops before anything is deployed.'
+          ? 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role. Or, in the plan, choose \'Use the apps an admin created for me\' if an admin has made them, or \'An admin will create the apps for me\': the plan writes a script for an Application Administrator or Cloud Application Administrator, and stops before anything is deployed. The installer can\'t see custom roles: if one lets you register apps, choose \'Create the two apps\'.'
           : 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role, use an app registration you already have, or get the admin pack for an admin to register it.',
       },
       async () => {
@@ -519,7 +520,7 @@ export async function checkPrereqs(ctx, opts = {}) {
         label: `Audit log access for Copilot interactions (${AUDIT_ROLE})`,
         neededFor: 'Loading Copilot interactions from the audit log, which most pages are built on. Without admin consent, or with audit logging off in Purview, the audit load finds 0 records.',
         howTo: azure
-          ? `After the deploy, a Privileged Role Administrator or Global Administrator gives the jobs' managed identity its Microsoft Graph roles, including ${AUDIT_ROLE}; the installer lists them. A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: ${PURVIEW_AUDIT_URL} After install, run ${commandLine('check-audit')} to test it.`
+          ? `After the deploy, a Privileged Role Administrator or Global Administrator gives the jobs' managed identity its Microsoft Graph roles, including ${AUDIT_ROLE}, with a command the installer prints. A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: ${PURVIEW_AUDIT_URL} After install, run ${commandLine('check-audit')} to test it.`
           : `A Global Administrator or Privileged Role Administrator grants admin consent for ${AUDIT_ROLE} (the installer gives you a link). A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: ${PURVIEW_AUDIT_URL} After install, run ${commandLine('check-audit')} to test it.`,
       },
       async () => {
@@ -949,8 +950,9 @@ export function reportPreflight(ctx, items, opts = {}) {
     ui.fail(`Stopped before creating anything: ${verdict.block.map((it) => it.label).join('; ')}.`);
     throw new Error(
       verdict.block.some((it) => it.id === 'register-apps')
-        ? 'You can\'t register apps in this tenant and have no app admin role, so with --yes the installer can\'t create its app registration. ' +
-            'Run it without --yes to choose an app registration you already have or get the admin pack for an admin, or ask for the Application Administrator or Cloud Application Administrator role.'
+        ? 'Users in this tenant can\'t register apps and you have no app admin role, so with --yes the installer can\'t create its app registration. ' +
+            'Run it without --yes to choose an app registration you already have or get the admin pack for an admin, or ask for the Application Administrator or Cloud Application Administrator role. ' +
+            `The installer can't see custom roles: if one lets you register apps, run "${commandLine('install')}" again without --yes, and choose to create it yourself.`
         : verdict.block.map((it) => it.howTo).join(' '),
     );
   }
