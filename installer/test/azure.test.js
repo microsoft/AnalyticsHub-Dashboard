@@ -13,6 +13,7 @@ import { armApi, armErrors, waitForDeployment } from '../src/clients/azure.js';
 import { runCommand } from '../src/install.js';
 import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, WEB_APP_NAME, armParameterNames, askTarget, azureAgent365On, azureConsumptionOn, azureCron, azureDeployment, azureDropContents, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureProductFeedbackOn, azureRefresh, azureRotateSecret, azureSemanticModels, azureStatus, azureSummary, azureUninstall, azureUpdate, azureWorkdayOn, confirmAzurePlan, consumptionParameters, enabledAzureModuleIds, installAzure, parseDropFolder, planAzure, planAzureAgent365, planAzureDrop, planAzureProductFeedback, planAzureConsumption, planAzureWorkday, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
 import { AZURE_AI_ROLES } from '../src/steps/consumption.js';
+import { adminRequests } from '../src/steps/handoff.js';
 import { azureFlowTarget, connectionSteps, flowDefinitions, flowsWanted } from '../src/steps/flows.js';
 import { RG_DELETE_POLL_MS, RG_DELETE_POLLS } from '../src/steps/azure/index.js';
 import { CONNECTORS, connectorsUsed } from '../src/transform/flows.js';
@@ -305,7 +306,7 @@ test('Azure: unticking credit consumption keeps its model but takes it out of th
   assert.match(ui.text(), /Couldn't turn off the scheduled refresh of .+Turn it off in the model's settings in Power BI\./);
 });
 
-test('Azure install with credit consumption: a SharePoint drop folder gets a site grant for the jobs, or an admin action', async () => {
+test('Azure install with credit consumption: a SharePoint drop folder gets a site grant for the jobs, or an admin action for a SharePoint Administrator', async () => {
   const drop = parseDropFolder('https://contoso.sharepoint.com/sites/Analytics/Shared Documents/ValueLens');
   const run = async (/** @type {boolean} */ fail) => {
     const arm = fakeArm();
@@ -318,7 +319,7 @@ test('Azure install with credit consumption: a SharePoint drop folder gets a sit
     withAzureConsumption(config, { drop: { ...drop } });
     ctx.runFirstLoad = false;
     await installAzure(ctx, { wait: true });
-    return { arm, graph, env, az: /** @type {any} */ (config.azure) };
+    return { arm, graph, env, config, az: /** @type {any} */ (config.azure) };
   };
   const ok = await run(false);
   assert.ok(ok.graph.calls.some((c) => c.startsWith('grantSiteRead site:contoso.sharepoint.com:/sites/Analytics')));
@@ -326,10 +327,16 @@ test('Azure install with credit consumption: a SharePoint drop folder gets a sit
   assert.ok(ok.az.graphRoles.assigned.includes('Sites.Selected'));
   assert.ok(!ok.arm.calls.some((c) => c.includes('storageAccounts/')), 'no storage role for the user when files go to SharePoint');
   assert.match(ok.env.flows.get('flow-1').clientdata, /shared_sharepointonline/);
+  assert.ok(!adminRequests([], ok.config).some((r) => r.admin === 'sharepoint-admin'), 'nothing to ask once the grant is made');
 
   const denied = await run(true);
   assert.ok(!denied.az.drop.granted);
-  assert.ok(denied.az.status.pendingAdminActions.some((/** @type {string} */ a) => /^Grant-PnPAzureADAppSitePermission -AppId \S+ .* -Site https:\/\/contoso\.sharepoint\.com\/sites\/Analytics -Permissions Read$/.test(a)));
+  const grant = denied.az.status.pendingAdminActions.find((/** @type {string} */ a) => /^Grant-PnPAzureADAppSitePermission -AppId \S+ .* -Site https:\/\/contoso\.sharepoint\.com\/sites\/Analytics -Permissions Read$/.test(a));
+  assert.ok(grant, denied.az.status.pendingAdminActions.join('\n'));
+  // handoff.js routes the action by how it starts, so this fails if the action's wording drifts from that prefix.
+  const requests = adminRequests([], denied.config);
+  assert.deepEqual(requests.filter((r) => r.asks.includes(grant)).map((r) => r.admin), ['sharepoint-admin'], 'to a SharePoint Administrator, and no one else');
+  assert.deepEqual(requests.find((r) => r.admin === 'sharepoint-admin')?.asks, [grant], 'word for word');
 });
 
 test('Azure install with credit consumption in demo mode leaves it all out', async () => {
