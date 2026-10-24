@@ -1,12 +1,16 @@
 // @ts-check
 /**
  * ensureApp: a brought app must be registered, and sign in, in this tenant. When Entra won't let you create one, it
- * sends you back to Fabric's app question, which offers an admin whenever the installer can't confirm you can.
+ * writes the admin pack and stops, and Fabric's app question then offers the admin as its default. The question also
+ * offers an admin whenever the installer can't confirm you can register apps.
  */
 import assert from 'node:assert/strict';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { test } from 'node:test';
 import { HttpError } from '../src/http.js';
-import { APP_LOOKUP_ATTEMPTS, APP_LOOKUP_RETRY_MS, ensureApp } from '../src/steps/identity.js';
+import { ADMIN_PACK_FILE, APP_LOOKUP_ATTEMPTS, APP_LOOKUP_RETRY_MS, ensureApp, isResumeLater } from '../src/steps/identity.js';
 import { APP_NAME, plan } from '../src/steps/plan.js';
 import { fakeCtx, fakeFabric, fakeUi } from './fakes.js';
 
@@ -109,7 +113,7 @@ test('ensureApp: an app the installer made keeps the old messages, with no extra
   assert.equal(refused.calls.filter((c) => c === 'findServicePrincipal').length, 1, 'no waiting');
 });
 
-// Fabric's app question, which a refusal sends you back to
+// Fabric's app question. After a refusal, it offers the admin first.
 
 const APP_QUESTION = 'The notebooks sign in to Microsoft Graph as an app.';
 const ADMIN = 'An admin will register the app for me';
@@ -122,15 +126,16 @@ const PRE = /** @type {any} */ ({
 });
 const CUSTOM_ROLE =
   'The installer found no role or setting that lets you register apps, but it can\'t see custom roles. Choose this only if a custom role lets you create it. ' +
-  `If Entra refuses, the installer stops: run it again and choose "${ADMIN}". It reuses what it has made, such as the workspace.`;
+  'If Entra refuses, the installer stops and writes an admin pack for you to send to an admin. When you run it again, it reuses what it has made, such as the workspace.';
 
 /**
  * What Fabric's plan offers for a new app, and its default. The plan stops there.
- * @param {{ canCreateApps?: boolean, yes?: boolean, adminPack?: string }} o
+ * @param {{ canCreateApps?: boolean, yes?: boolean, adminPack?: string, config?: import('../src/config.js').InstallConfig }} o
+ *   config: the install record to plan from, such as one a stopped run saved.
  */
 async function appQuestion(o) {
   const u = fakeUi({ yes: o.yes });
-  const t = fakeCtx({ ui: u.ui, fabric: fakeFabric().api });
+  const t = fakeCtx({ ui: u.ui, fabric: fakeFabric().api, config: o.config });
   for (const key of ['appId', 'objectId', 'servicePrincipalId']) delete /** @type {any} */ (t.config.app)[key];
   if (o.adminPack) t.config.app.adminPack = o.adminPack;
   /** @type {{ names: string[], create: any, def: string } | undefined} */
@@ -174,27 +179,47 @@ test('Fabric plan: "(recommended)" is on the default only, and Create says when 
   assert.equal(yes.create.description, CUSTOM_ROLE);
 });
 
-test('ensureApp: when Entra won\'t let you create the app, it says to run the installer again and choose an admin', async () => {
+test('ensureApp: when Entra won\'t let you create the app, it writes the admin pack, names it and stops, and the next run offers the admin first', async () => {
+  const first = await appQuestion({ canCreateApps: true });
+  assert.ok(!first.names.includes(ADMIN), 'you can register apps and grant consent, so the plan offered no admin');
   for (const yes of [false, true]) {
-    const t = fakeCtx({ ui: fakeUi({ yes }).ui });
-    for (const key of ['appId', 'objectId', 'servicePrincipalId']) delete /** @type {any} */ (t.config.app)[key];
-    t.ctx.graphRoles = /** @type {any} */ ({ sp: { id: 'graph-sp' }, roles: [] });
-    t.ctx.api.graph = /** @type {any} */ ({
-      createApplication: async () => {
-        throw new HttpError('403 Forbidden\nInsufficient privileges to complete the operation.', { method: 'POST', url: 'https://graph.microsoft.com/v1.0/applications', status: 403 });
-      },
-    });
-    await assert.rejects(ensureApp(t.ctx), (err) => {
-      const msg = /** @type {Error} */ (err).message;
-      assert.match(msg, /^Entra didn't let you create the app registration \(403 Forbidden\)\. /, 'with the first line of what Entra said');
-      assert.ok(
-        msg.includes(`again${yes ? ' without --yes' : ''} and choose "${ADMIN}": you get an admin pack to send to an Application Administrator or Cloud Application Administrator. `),
-        msg,
-      );
-      assert.ok(msg.endsWith(`Or, if an admin has already made one, choose "${EXISTING}". The installer reuses what it has made, such as the workspace.`), msg);
-      assert.doesNotMatch(msg, /docs\//, 'the installer doesn\'t ship the repo\'s docs');
-      return true;
-    });
-    assert.equal(t.config.app.appId, undefined);
+    const dir = mkdtempSync(join(tmpdir(), 'ah-refused-'));
+    try {
+      const t = fakeCtx({ ui: fakeUi({ yes }).ui });
+      for (const key of ['appId', 'objectId', 'servicePrincipalId']) delete /** @type {any} */ (t.config.app)[key];
+      t.ctx.configFile = join(dir, 'valuelens-install.json');
+      /** @type {import('../src/config.js').InstallConfig[]} */
+      const saved = [];
+      t.ctx.save = () => saved.push(structuredClone(t.config));
+      t.ctx.graphRoles = /** @type {any} */ ({ sp: { id: 'graph-sp' }, roles: [] });
+      t.ctx.api.graph = /** @type {any} */ ({
+        createApplication: async () => {
+          throw new HttpError('403 Forbidden\nInsufficient privileges to complete the operation.', { method: 'POST', url: 'https://graph.microsoft.com/v1.0/applications', status: 403 });
+        },
+      });
+      const pack = join(dir, ADMIN_PACK_FILE);
+      await assert.rejects(ensureApp(t.ctx), (err) => {
+        assert.ok(isResumeLater(err), 'it stops, as the plan\'s admin option does');
+        const msg = /** @type {Error} */ (err).message;
+        assert.match(msg, /^Entra didn't let you create the app registration \(403 Forbidden\), so the installer stopped\. /, 'with the first line of what Entra said');
+        assert.ok(msg.includes(`Send ${pack} to an Application Administrator or Cloud Application Administrator: it has a Cloud Shell script and portal steps to register the app. `), msg);
+        assert.ok(msg.includes('Once they send you its client ID, run "'), msg);
+        assert.ok(msg.includes(`again${yes ? ' without --yes' : ''} and choose "${ADMIN}" to enter it. `), msg);
+        assert.ok(msg.endsWith(`Or, if an admin has already made one, choose "${EXISTING}". The installer reuses what it has made, such as the workspace.`), msg);
+        assert.doesNotMatch(msg, /docs\//, 'the installer doesn\'t ship the repo\'s docs');
+        return true;
+      });
+      assert.match(readFileSync(pack, 'utf8'), /^# Analytics Hub: register the app\n/);
+      const record = saved.at(-1);
+      assert.ok(record, 'the record is saved before it stops');
+      assert.equal(record.app.adminPack, pack);
+      assert.equal(record.app.appId, undefined);
+
+      const next = await appQuestion({ canCreateApps: true, yes, config: record });
+      assert.deepEqual(next.names, [`Create "${APP_NAME}"`, EXISTING, ADMIN], 'the next run offers the admin');
+      assert.equal(next.def, 'admin', 'as its default');
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   }
 });

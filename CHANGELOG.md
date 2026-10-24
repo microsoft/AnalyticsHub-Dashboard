@@ -456,8 +456,10 @@ sets the number. On Fabric and Azure.
   - On Fabric, only the app question's default says "(recommended)". When the installer finds no
     role or setting that lets you register apps, **Create** says it can't see custom roles, so
     choose it only if one lets you. **An admin will register the app for me** shows whenever the
-    installer can't confirm you can. If Entra refuses, the installer says to run it again and choose
-    that, instead of pointing at a page in the repo, and that it reuses what it has made.
+    installer can't confirm you can. If Entra refuses anyway, the installer writes the admin pack
+    and stops, naming the file to send, instead of pointing at a page in the repo. The next run
+    offers **An admin will register the app for me** as its default, and reuses what the installer
+    has made.
   - On Azure, when the installer finds no role or setting that lets you register apps, **Create the
     two apps** also says that if your custom role doesn't make you their owner, Entra may refuse to
     finish them after the deploy. The register-apps prerequisite and the stop with `--yes` say that
