@@ -353,10 +353,10 @@ firewall that blocks `management.azure.com`, logs one warning and doesn't fail t
 run can still stop behind another run's lock: if that run loads the data, it carries the load on,
 and otherwise the next scheduled run does. [How long it takes](docs/PREREQUISITES.md#how-long-it-takes)
 now says the runs follow one another, each adding up to an hour to publish, so a load over three
-runs takes up to about 12 hours, and the installer's estimate, when the load starts, says whether
-the next run starts by itself. The runs are the ones the schedule would make, sooner, so they cost
-the same, but on Azure SQL's free offer they use the month's allowance sooner. An install from
-before 0.6.9 gets this with `update`.
+runs takes up to about 12 hours. The installer's estimate, when the load starts, says whether the
+next run starts by itself and, if it does, how long the runs take in all. The runs are the ones the
+schedule would make, sooner, so they cost the same, but on Azure SQL's free offer they use the
+month's allowance sooner. An install from before 0.6.9 gets this with `update`.
 
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
