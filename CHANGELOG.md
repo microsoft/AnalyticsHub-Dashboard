@@ -196,7 +196,8 @@ Deployment instructions do **not** live here. They live in the READMEs:
     installer can't confirm you can. If Entra refuses anyway, the installer writes the admin pack
     and stops, naming the file to send, instead of pointing at a page in the repo. The next run
     offers **An admin will register the app for me** as its default, and reuses what the installer
-    has made.
+    has made. The stop with `--yes`, when you can't register apps, says that if a custom role lets
+    you, you can run it again without `--yes` and create the app yourself.
   - On Azure, when the installer finds no role or setting that lets you register apps, **Create the
     two apps** also says that if your custom role doesn't make you their owner, Entra may refuse to
     finish them after the deploy. The register-apps prerequisite and the stop with `--yes` say that

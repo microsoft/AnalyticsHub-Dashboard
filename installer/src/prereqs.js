@@ -950,8 +950,9 @@ export function reportPreflight(ctx, items, opts = {}) {
     ui.fail(`Stopped before creating anything: ${verdict.block.map((it) => it.label).join('; ')}.`);
     throw new Error(
       verdict.block.some((it) => it.id === 'register-apps')
-        ? 'You can\'t register apps in this tenant and have no app admin role, so with --yes the installer can\'t create its app registration. ' +
-            'Run it without --yes to choose an app registration you already have or get the admin pack for an admin, or ask for the Application Administrator or Cloud Application Administrator role.'
+        ? 'Users in this tenant can\'t register apps and you have no app admin role, so with --yes the installer can\'t create its app registration. ' +
+            'Run it without --yes to choose an app registration you already have or get the admin pack for an admin, or ask for the Application Administrator or Cloud Application Administrator role. ' +
+            `The installer can't see custom roles: if one lets you register apps, run "${commandLine('install')}" again without --yes, and choose to create it yourself.`
         : verdict.block.map((it) => it.howTo).join(' '),
     );
   }

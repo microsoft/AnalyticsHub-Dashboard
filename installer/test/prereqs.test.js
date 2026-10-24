@@ -10,6 +10,7 @@ import { GRAPH_APP_ID } from '../src/catalog.js';
 import { emptyConfig, loadConfig, saveConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
 import { createCtx, install } from '../src/install.js';
+import { commandLine } from '../src/launch.js';
 import { readFile } from 'node:fs/promises';
 import { canAssignDirectoryRoles, checkPrereqs, dataPolicyPrereq, preflightVerdict, reportFlowPrereqs, reportPreflight, settingsToConfirm } from '../src/prereqs.js';
 import { planAzureConsumption } from '../src/steps/azure/index.js';
@@ -1112,9 +1113,17 @@ test('preflight: prints only the prerequisites that need attention, then the han
   assert.ok(text.indexOf('Hand-off: someone else does this') > text.indexOf('Register apps in Entra'), 'hand-offs after what needs attention');
 });
 
-test('preflight: with --yes, no way to register the app stops it before anything is created', async () => {
+test('preflight: with --yes, no way to register the app stops it before anything is created, and says a custom role can still create it without --yes', async () => {
   const { ctx, t } = preflightCtx({ roles: [], usersCanRegister: false }, { yes: true });
-  await assert.rejects(preflight(ctx), /can't create its app registration\. Run it without --yes to choose an app registration you already have or get the admin pack/);
+  await assert.rejects(preflight(ctx), (err) => {
+    assert.equal(
+      /** @type {Error} */ (err).message,
+      'Users in this tenant can\'t register apps and you have no app admin role, so with --yes the installer can\'t create its app registration. ' +
+        'Run it without --yes to choose an app registration you already have or get the admin pack for an admin, or ask for the Application Administrator or Cloud Application Administrator role. ' +
+        `The installer can't see custom roles: if one lets you register apps, run "${commandLine('install')}" again without --yes, and choose to create it yourself.`,
+    );
+    return true;
+  });
   assert.match(t.text(), /Stopped before creating anything: Register apps in Entra\./);
 });
 
