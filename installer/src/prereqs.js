@@ -72,7 +72,7 @@ export { COPILOT_PLAN } from './seats.js';
 
 const PIM_URL = 'https://entra.microsoft.com/#view/Microsoft_Azure_PIMCommon/ActivationMenuBlade/~/aadmigratedroles';
 const ADMIN_CONSENT_URL = 'https://learn.microsoft.com/entra/identity/enterprise-apps/grant-admin-consent';
-const TENANT_SETTINGS_URL = 'https://learn.microsoft.com/fabric/admin/tenant-settings-index';
+export const TENANT_SETTINGS_URL = 'https://learn.microsoft.com/fabric/admin/tenant-settings-index';
 const FABRIC_TRIAL_URL = 'https://learn.microsoft.com/fabric/fundamentals/fabric-trial';
 const VIVA_ROLES_URL = 'https://learn.microsoft.com/viva/insights/advanced/setup-maint/assign-user-roles';
 /** Teams admin center > Teams apps > Manage apps, as in steps/azure/teams-catalog.js. */
@@ -1003,12 +1003,13 @@ const ARG_PROBES = {
  */
 function resourceGraphPrereq(api, config, guard) {
   const rg = config.resourceGraph;
+  const azure = config.target === 'azure';
   return guard(
     {
       id: 'resource-graph',
       label: 'Azure Resource Graph: agents and Foundry',
-      neededFor: 'Agent configuration and Foundry resources. This checks what you can see; whoever runs the load needs the same.',
-      howTo: 'For agents: Global Reader, Power Platform Administrator or AI Administrator in Entra. For Foundry: Reader on the management group, or the tenant root group.',
+      neededFor: `Agent configuration and Foundry resources. The load reads them as ${azure ? 'the jobs\' managed identity' : 'the app'}, so this check of what you can see is only a guide.`,
+      howTo: `${azure ? 'The jobs\' managed identity' : 'The app'} needs Global Reader in Entra for agents (it's read-only), and Reader on the management group, or the tenant root group, for Foundry. The installer gives them if you can; if not, it shows the steps for an admin.`,
       optional: true,
     },
     async () => {

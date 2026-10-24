@@ -6,12 +6,15 @@
  */
 import { apiPermissionsUrl } from '../clients/graph.js';
 import { secretMode } from '../config.js';
-import { ppApiWanted, preflightVerdict, settingsToConfirm } from '../prereqs.js';
+import { ppApiWanted, preflightVerdict, settingsToConfirm, TENANT_SETTINGS_URL } from '../prereqs.js';
 import { AUDIT_ROLE, PURVIEW_AUDIT_URL } from './audit-check.js';
 import { AZURE_APPS } from './azure/apps.js';
+import { LEAST_PRIVILEGE_URL } from './azure/least-privilege.js';
 import { MANAGE_APPS_URL, TEAMS_APP_PENDING } from './azure/teams-catalog.js';
 import { flowsWanted, ppApiSigner } from './flows.js';
 import { letter } from './next-steps.js';
+import { APP_NAME } from './plan.js';
+import { AGENT_ROLE, resourceGraphScope, scopeName } from './resource-graph.js';
 
 /** @typedef {import('../prereqs.js').Prereq} Prereq */
 /** @typedef {import('../prereqs.js').PrereqStatus} PrereqStatus */
@@ -65,7 +68,6 @@ const PENDING_LABEL = 'Pending admin action';
 /** How the Azure install's pending admin actions start: the web app's consent, and making you an owner of its apps. */
 const CONSENT_PENDING = 'Grant delegated consent on ';
 const OWNER_PENDING = 'An Application Administrator or Cloud Application Administrator adds ';
-const TENANT_SETTINGS_URL = 'https://learn.microsoft.com/fabric/admin/tenant-settings-index';
 /** In the tenant settings row when only a Fabric administrator could read them. */
 const SETTINGS_UNREAD = ' to confirm these are on for you';
 const XMLA_UNREAD = 'XMLA endpoint must also be Read Write';
@@ -108,6 +110,31 @@ const graphRolesText = (config, roles) => {
   const id = config.azure?.outputs?.identityPrincipalId;
   return `Give the Analytics Hub jobs' managed identity${id ? ` (object ID ${id})` : ''} these Microsoft Graph application permissions: ${roles.join(', ')}.`;
 };
+
+/**
+ * An ask for whoever the Resource Graph load runs as: the app on Fabric, the jobs' managed identity on Azure,
+ * named by its IDs once it exists. Until then, it's for once it does, with its IDs to follow.
+ * @param {AskContext} c
+ * @param {string} what  The role and why, after "give it".
+ */
+function forLoad(c, what) {
+  const { config } = c;
+  const later = (/** @type {string} */ once) => `Once ${once}, give it ${what} I'll send you its IDs.`;
+  if (config.target === 'azure') {
+    const id = config.azure?.outputs?.identityPrincipalId;
+    const mi = 'the Analytics Hub jobs\' managed identity';
+    return id ? `Give ${mi} (object ID ${id}) ${what}` : later(`the installer has created ${mi}`);
+  }
+  const app = config.app?.displayName ?? APP_NAME;
+  const ids = [
+    ...(config.app?.appId ? [`application ID ${config.app.appId}`] : []),
+    ...(config.app?.servicePrincipalId ? [`enterprise application object ID ${config.app.servicePrincipalId}`] : []),
+  ];
+  if (ids.length) return `Give the app "${app}" (${ids.join(', ')}) ${what}`;
+  // When you can't register apps, an admin registers it from the admin pack.
+  const registers = ['missing', 'handoff'].includes(c.status('register-apps') ?? '');
+  return later(registers ? `Analytics Hub's app "${app}" is registered` : `the installer has created Analytics Hub's app "${app}"`);
+}
 
 /**
  * Admin consent for the Fabric app registration's Microsoft Graph permissions, with the page that grants it once
@@ -218,18 +245,26 @@ export const ROW_ASKS = {
   'copilot-licences': null,
   'power-automate-premium': () => [{ admin: 'licence', text: 'Assign me Power Automate Premium: I\'ll own the Analytics Hub flows, which use premium connectors.' }],
   'data-policy': (it) => [{ admin: 'power-platform', text: capitalise(it.howTo.replace(/^Ask an? Power Platform administrator to /, '')) }],
-  'fabric-capacity': () => [
-    { admin: 'capacity-admin', text: 'Make me a contributor on a Fabric capacity (F2 or larger) for Analytics Hub\'s workspace, or an Admin or Member of a workspace that\'s already on one.' },
-  ],
+  'fabric-capacity': (it, c) => {
+    const { scale } = c.config;
+    const size =
+      scale === 'large'
+        ? 'With more than 10,000 people in the tenant, F64 or larger is best; F2 is the minimum.'
+        : scale === 'standard'
+          ? 'The capacity needs to be F2 or larger.'
+          : 'The capacity needs to be F2 or larger; F64 or larger is best for more than 10,000 people.';
+    return [{ admin: 'capacity-admin', text: `Make me a contributor on a Fabric capacity for Analytics Hub's workspace, or an Admin or Member of a workspace that's already on one. ${size}` }];
+  },
   'azure-rbac': (it, c) => {
     const { config } = c;
     const azure = config.target === 'azure';
     const subId = config.azure?.subscriptionId ?? config.keyVault?.subscriptionId;
     const sub = subId ? `the subscription ${subId}` : 'a subscription I can use';
+    const steps = `The steps and the condition are in ${LEAST_PRIVILEGE_URL}`;
     if (azure && config.azure?.resourceGroupMode === 'existing' && config.azure.resourceGroup) {
-      return [{ admin: 'azure-owner', text: `Give me Contributor and a condition-limited Role Based Access Control Administrator (or Owner) on the resource group "${config.azure.resourceGroup}" in ${sub}.` }];
+      return [{ admin: 'azure-owner', text: `Give me Contributor and a condition-limited Role Based Access Control Administrator (or Owner) on the resource group "${config.azure.resourceGroup}" in ${sub}. ${steps}` }];
     }
-    const least = azure ? ' Or, for least privilege, create the resource group and give me Contributor and a condition-limited Role Based Access Control Administrator on just that group (docs/AZURE-LEAST-PRIVILEGE.md).' : '';
+    const least = azure ? ` Or, for least privilege, create the resource group and give me Contributor and a condition-limited Role Based Access Control Administrator on just that group. ${steps}` : '';
     return [{ admin: 'azure-owner', text: `Give me Owner, or Contributor and User Access Administrator, on ${sub}.${least}` }];
   },
   'key-vault': (it, c) => {
@@ -237,7 +272,7 @@ export const ROW_ASKS = {
     // No Key Vault is the default on Fabric until one is chosen, and a vault admin who adds the secret has their own steps.
     if (secretMode(c.config) !== 'keyvault' || !(kv.id || kv.name || kv.uri || kv.subscriptionId)) return [];
     if (kv.id) return [{ admin: 'azure-owner', text: `Give me Key Vault Secrets Officer on the Key Vault "${kv.name ?? kv.id.split('/').pop()}", which Analytics Hub uses.` }];
-    return [{ admin: 'azure-owner', text: 'Give me Contributor on an Azure subscription, so I can create a Key Vault for Analytics Hub, or Key Vault Secrets User on an existing vault.' }];
+    return [{ admin: 'azure-owner', text: 'Give me Contributor on an Azure subscription, so I can create a Key Vault for Analytics Hub, or Key Vault Secrets Officer on an existing vault.' }];
   },
   'viva-analyst': () => [
     {
@@ -259,14 +294,25 @@ export const ROW_ASKS = {
         : []),
     ];
   },
-  'resource-graph': (it) => {
-    const missing = it.rows?.length ? it.rows.filter((r) => r.status === 'missing').map((r) => r.name) : [RG_AGENTS, RG_FOUNDRY];
+  'resource-graph': (it, c) => {
+    const { config } = c;
+    const rg = config.resourceGraph;
+    const azure = config.target === 'azure';
+    const kinds = it.rows?.length
+      ? it.rows.filter((r) => r.status === 'missing').map((r) => r.name)
+      : [...(rg?.agents !== false ? [RG_AGENTS] : []), ...(rg?.foundry !== false ? [RG_FOUNDRY] : [])];
+    // The record names the Entra role it was given. On Fabric, a Global Administrator or Privileged Role
+    // Administrator running the installer gives the app Global Reader themselves.
+    const hasRole = azure ? !!rg?.azureRoleAssigned : (!!rg?.roleAssigned || settled(c.status('consent-role')));
+    const agents = kinds.includes(RG_AGENTS) && !hasRole;
+    const foundry = kinds.includes(RG_FOUNDRY) && !(azure ? rg?.azureAccess : rg?.access);
+    const scopeId = rg?.managementGroup || config.tenantId ? ` (${resourceGraphScope(config, config.tenantId ?? '')})` : '';
     return [
-      ...(missing.includes(RG_AGENTS)
-        ? [/** @type {Ask} */ ({ admin: 'role-admin', text: 'Give me Global Reader, Power Platform Administrator or AI Administrator in Entra, so I can see Copilot Studio agents in Azure Resource Graph.' })]
+      ...(agents
+        ? [/** @type {Ask} */ ({ admin: 'role-admin', text: forLoad(c, `the ${AGENT_ROLE} role in Microsoft Entra, so Analytics Hub can read Copilot Studio agents from Azure Resource Graph. ${AGENT_ROLE} is read-only.`) })]
         : []),
-      ...(missing.includes(RG_FOUNDRY)
-        ? [/** @type {Ask} */ ({ admin: 'azure-owner', text: 'Give me Reader on the management group, or the tenant root group, so I can see Foundry resources in Azure Resource Graph.' })]
+      ...(foundry
+        ? [/** @type {Ask} */ ({ admin: 'azure-owner', text: forLoad(c, `the Reader role in Azure on ${scopeName(config)}${scopeId}, so Analytics Hub can read Foundry resources from Azure Resource Graph.`) })]
         : []),
     ];
   },

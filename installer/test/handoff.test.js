@@ -1,11 +1,12 @@
 // @ts-check
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import { apiPermissionsUrl } from '../src/clients/graph.js';
 import { emptyConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
 import { checkPrereqs, dataPolicyPrereq, reportFlowPrereqs, reportPreflight, settingsToConfirm } from '../src/prereqs.js';
+import { LEAST_PRIVILEGE_URL } from '../src/steps/azure/least-privilege.js';
 import { MANAGE_APPS_URL, TEAMS_APP_PENDING } from '../src/steps/azure/teams-catalog.js';
 import { flowsWanted } from '../src/steps/flows.js';
 import { ADMINS, adminRequests, ROW_ASKS } from '../src/steps/handoff.js';
@@ -18,7 +19,9 @@ const UPN = USER.upn;
 
 const PRO = 'Assign me a Power BI Pro licence (Premium Per User works too), to publish the Analytics Hub reports.';
 const PREMIUM = 'Assign me Power Automate Premium: I\'ll own the Analytics Hub flows, which use premium connectors.';
-const CAPACITY = 'Make me a contributor on a Fabric capacity (F2 or larger) for Analytics Hub\'s workspace, or an Admin or Member of a workspace that\'s already on one.';
+const CAPACITY =
+  'Make me a contributor on a Fabric capacity for Analytics Hub\'s workspace, or an Admin or Member of a workspace that\'s already on one. ' +
+  'The capacity needs to be F2 or larger; F64 or larger is best for more than 10,000 people.';
 const PURVIEW = 'Check that audit logging is on in Microsoft Purview > Audit, and turn it on if it isn\'t: https://purview.microsoft.com/audit/auditsearch';
 const ENV_SALES = 'Give me the System Administrator security role in Sales, for Analytics Hub\'s Power Automate flows.';
 const CONNECTION =
@@ -35,6 +38,10 @@ const OWNER_ACTION =
   'An Application Administrator or Cloud Application Administrator adds analyst@contoso.com as an owner of "Analytics Hub (Azure)" (client ID web-1): ' +
   'Microsoft Entra admin center > Entra ID > App registrations > All applications > "Analytics Hub (Azure)" > Owners > Add owners';
 const TEAMS_UPLOAD = `${TEAMS_APP_PENDING}: upload C:\\Users\\someone\\analytics-hub\\teams\\analytics-hub.zip in Teams admin center > Teams apps > Manage apps (${MANAGE_APPS_URL}).`;
+const LEAST_PRIVILEGE = 'https://github.com/microsoft/AnalyticsHub-Dashboard/blob/main/docs/AZURE-LEAST-PRIVILEGE.md';
+/** What Resource Graph asks for, after "give it". */
+const RG_AGENTS = 'the Global Reader role in Microsoft Entra, so Analytics Hub can read Copilot Studio agents from Azure Resource Graph. Global Reader is read-only.';
+const RG_FOUNDRY = 'the Reader role in Azure on the tenant root management group, so Analytics Hub can read Foundry resources from Azure Resource Graph.';
 
 /** @param {Partial<import('../src/prereqs.js').Prereq> & { id: string }} p @returns {import('../src/prereqs.js').Prereq} */
 const row = (p) => ({ label: p.id, detail: '', neededFor: 'x', howTo: `how to fix ${p.id}`, status: 'missing', ...p });
@@ -417,16 +424,20 @@ test('adminRequests: tenant settings only you couldn\'t read go to a Fabric admi
   assert.doesNotMatch(settings('unknown', unread)[0].asks[0], /Create workspaces/);
 });
 
-test('adminRequests: Azure access, the Key Vault and Resource Graph ask for the least that works', () => {
+test('adminRequests: Azure access and the Key Vault ask for the least that works, with the least-privilege steps', () => {
+  assert.equal(LEAST_PRIVILEGE_URL, LEAST_PRIVILEGE);
+  assert.ok(existsSync(new URL('../../docs/AZURE-LEAST-PRIVILEGE.md', import.meta.url)), 'the link is to a page in this repo');
+  const steps = `The steps and the condition are in ${LEAST_PRIVILEGE}`;
   const rbac = row({ id: 'azure-rbac', optional: true });
   assert.deepEqual(asks(adminRequests([rbac], azureConfig({ resourceGroup: 'rg-ah', resourceGroupMode: 'existing' }))), [
-    ['azure-owner', ['Give me Contributor and a condition-limited Role Based Access Control Administrator (or Owner) on the resource group "rg-ah" in the subscription sub-1.']],
+    ['azure-owner', [`Give me Contributor and a condition-limited Role Based Access Control Administrator (or Owner) on the resource group "rg-ah" in the subscription sub-1. ${steps}`]],
   ]);
   assert.deepEqual(asks(adminRequests([rbac], azureConfig())), [
     [
       'azure-owner',
       [
-        'Give me Owner, or Contributor and User Access Administrator, on the subscription sub-1. Or, for least privilege, create the resource group and give me Contributor and a condition-limited Role Based Access Control Administrator on just that group (docs/AZURE-LEAST-PRIVILEGE.md).',
+        'Give me Owner, or Contributor and User Access Administrator, on the subscription sub-1. Or, for least privilege, create the resource group and give me Contributor and a ' +
+          `condition-limited Role Based Access Control Administrator on just that group. ${steps}`,
       ],
     ],
   ]);
@@ -451,15 +462,99 @@ test('adminRequests: Azure access, the Key Vault and Resource Graph ask for the 
     ['azure-owner', ['Give me Key Vault Secrets Officer on the Key Vault "kv-named", which Analytics Hub uses.']],
   ]);
   assert.deepEqual(kv({ subscriptionId: 'sub-2' }), [
-    ['azure-owner', ['Give me Contributor on an Azure subscription, so I can create a Key Vault for Analytics Hub, or Key Vault Secrets User on an existing vault.']],
+    ['azure-owner', ['Give me Contributor on an Azure subscription, so I can create a Key Vault for Analytics Hub, or Key Vault Secrets Officer on an existing vault.']],
   ]);
+});
 
-  const agents = 'Give me Global Reader, Power Platform Administrator or AI Administrator in Entra, so I can see Copilot Studio agents in Azure Resource Graph.';
-  const foundry = 'Give me Reader on the management group, or the tenant root group, so I can see Foundry resources in Azure Resource Graph.';
-  const graph = (/** @type {any} */ rows) => asks(adminRequests([row({ id: 'resource-graph', rows })], plainConfig()));
-  assert.deepEqual(graph([{ name: 'Copilot Studio agents', status: 'missing' }, { name: 'Foundry resources', status: 'met' }]), [['role-admin', [agents]]]);
-  assert.deepEqual(graph([{ name: 'Copilot Studio agents', status: 'met' }, { name: 'Foundry resources', status: 'missing' }]), [['azure-owner', [foundry]]]);
-  assert.deepEqual(graph(undefined), [['role-admin', [agents]], ['azure-owner', [foundry]]]);
+test('adminRequests: the capacity ask says F2 is the minimum, and steers a large tenant to F64', () => {
+  const capacity = (/** @type {import('../src/transform/pipeline.js').TenantScale | undefined} */ scale) => {
+    const config = plainConfig();
+    if (scale) config.scale = scale;
+    return asks(adminRequests([row({ id: 'fabric-capacity' })], config));
+  };
+  const ask = 'Make me a contributor on a Fabric capacity for Analytics Hub\'s workspace, or an Admin or Member of a workspace that\'s already on one.';
+  assert.deepEqual(capacity(undefined), [['capacity-admin', [CAPACITY]]], 'the size isn\'t known yet, so both');
+  assert.ok(CAPACITY.startsWith(ask));
+  assert.deepEqual(capacity('standard'), [['capacity-admin', [`${ask} The capacity needs to be F2 or larger.`]]]);
+  assert.deepEqual(capacity('large'), [['capacity-admin', [`${ask} With more than 10,000 people in the tenant, F64 or larger is best; F2 is the minimum.`]]]);
+});
+
+test('adminRequests: on Fabric, Resource Graph asks for roles for the app the load runs as, not for you', () => {
+  const later = (/** @type {string} */ what) => `Once the installer has created Analytics Hub's app "Analytics Hub Data Collector", give it ${what} I'll send you its IDs.`;
+  const graph = (/** @type {any} */ rows, config = plainConfig()) => asks(adminRequests([row({ id: 'resource-graph', rows })], config));
+  // Only for what your own check was refused.
+  assert.deepEqual(graph([{ name: 'Copilot Studio agents', status: 'missing' }, { name: 'Foundry resources', status: 'met' }]), [['role-admin', [later(RG_AGENTS)]]]);
+  assert.deepEqual(graph([{ name: 'Copilot Studio agents', status: 'unknown' }, { name: 'Foundry resources', status: 'missing' }]), [['azure-owner', [later(RG_FOUNDRY)]]]);
+  assert.deepEqual(graph(undefined), [['role-admin', [later(RG_AGENTS)]], ['azure-owner', [later(RG_FOUNDRY)]]]);
+  const off = plainConfig();
+  off.resourceGraph.foundry = false;
+  assert.deepEqual(graph(undefined, off), [['role-admin', [later(RG_AGENTS)]]], 'only what the load reads');
+
+  // Once the app exists, by its name and whichever IDs are known.
+  const config = plainConfig();
+  Object.assign(config.app, { displayName: 'AH Collector', appId: 'app-1', servicePrincipalId: 'sp-1' });
+  const app = 'Give the app "AH Collector" (application ID app-1, enterprise application object ID sp-1)';
+  assert.deepEqual(graph(undefined, config), [['role-admin', [`${app} ${RG_AGENTS}`]], ['azure-owner', [`${app} ${RG_FOUNDRY}`]]]);
+  delete config.app.displayName;
+  delete config.app.servicePrincipalId;
+  assert.deepEqual(graph(undefined, config)[0], ['role-admin', [`Give the app "Analytics Hub Data Collector" (application ID app-1) ${RG_AGENTS}`]]);
+  delete config.app.appId;
+  config.app.servicePrincipalId = 'sp-1';
+  assert.deepEqual(graph(undefined, config)[0], ['role-admin', [`Give the app "Analytics Hub Data Collector" (enterprise application object ID sp-1) ${RG_AGENTS}`]]);
+
+  // Reader goes on the management group the load reads, or the tenant root group, with its ID when that's known.
+  const scoped = plainConfig();
+  scoped.tenantId = 't-1';
+  const reader = (/** @type {string} */ where) => later(`the Reader role in Azure on ${where}, so Analytics Hub can read Foundry resources from Azure Resource Graph.`);
+  assert.deepEqual(graph(undefined, scoped)[1], ['azure-owner', [reader('the tenant root management group (/providers/Microsoft.Management/managementGroups/t-1)')]]);
+  scoped.resourceGraph.managementGroup = 'mg-ah';
+  assert.deepEqual(graph(undefined, scoped)[1], ['azure-owner', [reader('management group mg-ah (/providers/Microsoft.Management/managementGroups/mg-ah)')]]);
+
+  // When you can't register apps, an admin registers it from the admin pack.
+  const rg = row({ id: 'resource-graph' });
+  const unregistered = adminRequests([rg], plainConfig(), { all: [rg, row({ id: 'register-apps' })] });
+  assert.deepEqual(unregistered[0].asks, [`Once Analytics Hub's app "Analytics Hub Data Collector" is registered, give it ${RG_AGENTS} I'll send you its IDs.`]);
+});
+
+test('adminRequests: Resource Graph asks for nothing the install record says the app has, or that you can give it', () => {
+  const rg = row({ id: 'resource-graph' });
+  const admins = (/** @type {any} */ record, /** @type {import('../src/prereqs.js').Prereq[]} */ others = []) => {
+    const config = plainConfig();
+    Object.assign(config.resourceGraph, record);
+    return adminRequests([rg], config, { all: [rg, ...others] }).map((r) => r.admin);
+  };
+  assert.deepEqual(admins({}), ['role-admin', 'azure-owner']);
+  // The record names the role the installer found or gave.
+  assert.deepEqual(admins({ roleAssigned: 'Global Reader' }), ['azure-owner']);
+  assert.deepEqual(admins({ roleAssigned: 'AI Administrator' }), ['azure-owner']);
+  assert.deepEqual(admins({ access: true }), ['role-admin'], 'it has Reader');
+  assert.deepEqual(admins({ roleAssigned: 'Global Reader', access: true }), []);
+  assert.deepEqual(admins({ azureRoleAssigned: 'Global Reader', azureAccess: true }), ['role-admin', 'azure-owner'], 'the managed identity\'s roles aren\'t the app\'s');
+  // A Global Administrator or Privileged Role Administrator, even one who has to activate the role, gives the app Global Reader.
+  assert.deepEqual(admins({}, [row({ id: 'consent-role', status: 'met' })]), ['azure-owner']);
+  assert.deepEqual(admins({}, [row({ id: 'consent-role', status: 'eligible' })]), ['azure-owner']);
+  assert.deepEqual(admins({}, [row({ id: 'consent-role' })]), ['role-admin', 'azure-owner']);
+});
+
+test('adminRequests: on Azure, Resource Graph asks for roles for the jobs\' managed identity, by its object ID once it\'s deployed', () => {
+  const rg = row({ id: 'resource-graph' });
+  const graph = (/** @type {any} */ azure, /** @type {any} */ record = {}, /** @type {import('../src/prereqs.js').Prereq[]} */ others = []) => {
+    const config = azureConfig(azure);
+    Object.assign(config.resourceGraph, record);
+    return asks(adminRequests([rg], config, { all: [rg, ...others] }));
+  };
+  const later = (/** @type {string} */ what) => `Once the installer has created the Analytics Hub jobs' managed identity, give it ${what} I'll send you its IDs.`;
+  assert.deepEqual(graph({}), [['role-admin', [later(RG_AGENTS)]], ['azure-owner', [later(RG_FOUNDRY)]]]);
+  const deployed = { outputs: { identityPrincipalId: 'mi-1' } };
+  const mi = 'Give the Analytics Hub jobs\' managed identity (object ID mi-1)';
+  assert.deepEqual(graph(deployed), [['role-admin', [`${mi} ${RG_AGENTS}`]], ['azure-owner', [`${mi} ${RG_FOUNDRY}`]]]);
+  const admins = (/** @type {any} */ record, /** @type {import('../src/prereqs.js').Prereq[]} */ others = []) => graph(deployed, record, others).map(([admin]) => admin);
+  assert.deepEqual(admins({ azureRoleAssigned: 'Global Reader' }), ['azure-owner']);
+  assert.deepEqual(admins({ azureAccess: true }), ['role-admin']);
+  assert.deepEqual(admins({ azureRoleAssigned: 'Global Reader', azureAccess: true }), []);
+  assert.deepEqual(admins({ roleAssigned: 'Global Reader', access: true }), ['role-admin', 'azure-owner'], 'the app\'s roles aren\'t the managed identity\'s');
+  // On Azure an Application Administrator meets the consent row too, and can't give Entra roles.
+  assert.deepEqual(admins({}, [row({ id: 'consent-role', status: 'met' })]), ['role-admin', 'azure-owner']);
 });
 
 test('adminRequests: rows nobody else needs to do ask for nothing', () => {
