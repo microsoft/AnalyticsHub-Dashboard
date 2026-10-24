@@ -77,8 +77,19 @@ test('firstLoadEstimate: the estimate, the queue, and what each target does with
   assert.match(azure, /Each run fetches for up to about 3 hours, newest weeks first, then publishes what it has loaded, so the reports fill in after each run\./);
   assert.doesNotMatch(azure, /publishes nothing|4 hours/, 'a run out of time publishes what it has loaded');
   assert.match(firstLoadEstimate(180, 'large', 'azure'), /^Estimate for 180 days of history, for more than 10,000 people: about 8 hours, over three runs\./);
-  assert.match(azure, /The next scheduled run carries on where it stopped, or start one sooner with "valuelens-install run"/);
+  // Before the deploy, or on an install from before 0.6.9, it isn't known whether the run job can start itself.
+  assert.match(azure, /If the run job can start itself, the next run starts straight away and carries on where it stopped; if not, the next scheduled run does, or start one sooner with "valuelens-install run"\. $/);
+  const chained = firstLoadEstimate(180, 'large', 'azure', { selfStart: true });
+  assert.match(chained, /so the reports fill in after each run\. The next run then starts by itself and carries on where it stopped, until the history is loaded\. /);
+  assert.match(chained, /If a run ends with an error or fetches nothing, the next scheduled run carries on instead\. $/);
+  assert.doesNotMatch(chained, /start one sooner|admin/, 'nothing to do');
+  // While an admin hasn't given the role: one run at each scheduled run, as before.
+  const pending = firstLoadEstimate(180, 'large', 'azure', { selfStart: false });
+  assert.match(pending, /The next scheduled run carries on where it stopped, or start one sooner with "valuelens-install run"\. /);
+  assert.match(pending, /An admin can let the next run start straight away: see the pending admin action in "valuelens-install status"\. $/);
+  assert.doesNotMatch(pending, /starts by itself/);
+  assert.match(firstLoadEstimate(90, 'standard', 'azure', { reload: true, selfStart: true }), /The next run then starts by itself/, 'a reload carries itself on too');
   assert.doesNotMatch(azure, /time budget|retries|capacity/, 'Azure has no pipeline retries to count on, and no Fabric capacity');
-  assert.doesNotMatch(`${fabric}${azure}`, /daily|usually takes under an hour/);
+  assert.doesNotMatch(`${fabric}${azure}${chained}${pending}`, /daily|usually takes under an hour/);
   assert.equal(firstLoadEstimate(0, 'standard'), '');
 });

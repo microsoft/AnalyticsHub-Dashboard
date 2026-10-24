@@ -25,6 +25,9 @@ import { loadConfig, saveConfig, emptyConfig } from '../src/config.js';
 import { createWebUi } from '../src/web-ui.js';
 import { createSession } from '../src/web-session.js';
 
+/** The run job's own identity gets Container Apps Jobs Operator on that job, after the final deploy. */
+const SELF_START_ROLE = `assignRole /subscriptions/sub-1/resourceGroups/rg/providers/Microsoft.App/jobs/vlens-run ${ROLES.containerAppsJobsOperator} run-sp ServicePrincipal`;
+
 test('Azure target gates modules and mirrors Graph roles', () => {
   const choices = azureModuleChoices({ orgData: true, m365Activity: true, agent365: true, productFeedback: true, consumption: true, agentEvaluator: true });
   assert.equal(choices.find((c) => c.value === 'core')?.disabled, 'Always collected');
@@ -565,7 +568,7 @@ test('Azure install with Agent 365: write on the landing container for you, and 
 
   await installAzure(ctx, { wait: true });
   const role = `assignRole /subscriptions/sub-1/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/vlensstabc ${ROLES.storageBlobDataContributor} user-1 User`;
-  assert.deepEqual(arm.calls.filter((c) => c.startsWith('assignRole')), [role], 'no Azure roles for the jobs');
+  assert.deepEqual(arm.calls.filter((c) => c.startsWith('assignRole')), [role, SELF_START_ROLE], "none for the jobs' shared identity");
   const az = /** @type {any} */ (config.azure);
   assert.equal(az.storageRole, true);
   assert.ok(!graph.calls.some((c) => c.startsWith('grantSiteRead')));
@@ -796,7 +799,7 @@ test('Azure install with product feedback: write on the landing container for yo
 
   await installAzure(ctx, { wait: true });
   const role = `assignRole /subscriptions/sub-1/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/vlensstabc ${ROLES.storageBlobDataContributor} user-1 User`;
-  assert.deepEqual(arm.calls.filter((c) => c.startsWith('assignRole')), [role], 'one role for both exports, and none for the jobs');
+  assert.deepEqual(arm.calls.filter((c) => c.startsWith('assignRole')), [role, SELF_START_ROLE], "one role for both exports, and none for the jobs' shared identity");
   const az = /** @type {any} */ (config.azure);
   assert.equal(az.storageRole, true);
   assert.ok(!graph.calls.some((c) => c.startsWith('grantSiteRead')));
@@ -1004,7 +1007,7 @@ test('Azure install with Workday org data: write on the landing container for yo
   const s = workdayInstall();
   await installAzure(s.ctx, { wait: true });
   const role = `assignRole /subscriptions/sub-1/resourceGroups/rg/providers/Microsoft.Storage/storageAccounts/vlensstabc ${ROLES.storageBlobDataContributor} user-1 User`;
-  assert.deepEqual(s.arm.calls.filter((c) => c.startsWith('assignRole')), [role]);
+  assert.deepEqual(s.arm.calls.filter((c) => c.startsWith('assignRole')), [role, SELF_START_ROLE]);
   const az = /** @type {any} */ (s.config.azure);
   assert.equal(az.storageRole, true);
   assert.ok(!s.graph.calls.some((c) => c.startsWith('grantSiteRead')));
@@ -1393,15 +1396,16 @@ test("Azure: a history reload that doesn't start leaves setup not finished, and 
   assert.equal(started.config.history.pending, undefined);
   assert.doesNotMatch(started.ui.text(), /not finished|steps? left/);
   assert.ok(started.ui.text().includes('Setup is finished. The reload carries on in Azure, so you can close this window. See how far it has got with "valuelens-install status".'));
-  // A run fetches for about 3 hours and publishes what it has loaded, and the scheduled runs after it carry the reload on: Fabric's time budget and retries don't fit.
+  // A run fetches for about 3 hours and publishes what it has loaded, and the runs after it carry the reload on: Fabric's time budget and retries don't fit.
   assert.match(started.ui.text(), /Estimate for 90 days of history, for up to 10,000 people: about 3 hours, in one or two runs\. The audit service's queue can add hours/);
-  assert.match(started.ui.text(), /Each run fetches for up to about 3 hours, newest weeks first, then publishes what it has loaded, so the reports fill in after each run\. .*Job images older than this installer ignore VALUELENS_AUDIT_BACKFILL_DAYS/);
+  assert.match(started.ui.text(), /Each run fetches for up to about 3 hours, newest weeks first, then publishes what it has loaded, so the reports fill in after each run\. The next run then starts by itself .*Job images older than this installer ignore VALUELENS_AUDIT_BACKFILL_DAYS/);
   assert.doesNotMatch(started.ui.text(), /many hours on a large tenant|time budget|pipeline's retries/);
   const detail = (/** @type {number} */ days) => {
     started.ctx.reloadHistoryDays = days;
     return azurePlanReview(started.ctx).runsOn.find((r) => r.what === 'History reload')?.detail;
   };
-  const carryOn = 'A run fetches for about 3 hours and publishes what it has loaded, and the scheduled runs after it carry on with the reload until it has all loaded.';
+  // The plan comes before the deploy that settles whether the run job can start itself, so it says both.
+  const carryOn = 'A run fetches for about 3 hours and publishes what it has loaded, and the runs after it carry on with the reload until it has all loaded: straight away if the run job can start itself, or else at each scheduled run.';
   assert.equal(detail(90), `The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=90. Estimate: about 3 hours, in one or two runs. ${carryOn}`);
   assert.equal(detail(30), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=30. Estimate: about an hour.');
   started.config.scale = 'large';

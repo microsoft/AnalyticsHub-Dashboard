@@ -62,9 +62,15 @@ it again when the load starts.
 
 The audit service's queue can add hours on a busy day, and a large tenant's history can take more
 than one run. On Azure each run fetches for up to about 3 hours, newest weeks first, then publishes
-what it has loaded, so the reports fill in after each run. The run job runs once a day, so a load
-over two runs finishes the next day, and one over three the day after, unless you start a run
-sooner. What each target does then is under
+what it has loaded, so the reports fill in after each run. The run job then starts its next run
+straight away, until the history is loaded. Each run can add up to an hour to publish, so a load
+over three runs takes up to about 12 hours in all. For that, the run job needs one role on itself,
+which the installer gives. If it can't, it leaves the command for an admin: see
+[Letting the run job start its next run](AZURE-LEAST-PRIVILEGE.md#letting-the-run-job-start-its-next-run).
+Until then the run job runs once a day, so a load over two runs finishes the next day, and one over
+three the day after, unless you start a run sooner. Runs that follow one another are the same runs,
+sooner, so they cost the same; on Azure SQL's free offer, they use the month's allowance sooner.
+What each target does then is under
 [How long the first load takes](../installer/README.md#how-long-the-first-load-takes).
 
 ## Permissions
@@ -133,6 +139,7 @@ app for you. A delegated permission: it acts as you.
 | Subscription or resource group | **Owner**, or **Contributor** and **User Access Administrator**, for you | Deploying the resources and giving the managed identities their roles. Azure only |
 | Resource group your Azure admin creates | **Contributor**, and **Role Based Access Control Administrator** limited to the roles the installer gives, for you | The [least-privilege](AZURE-LEAST-PRIVILEGE.md) alternative to the row above. Your Azure admin creates the group, registers the resource providers and gives you these. Azure only |
 | Storage account | **Storage Blob Data Contributor**, for you | *(Optional.)* Saving files to the landing container. Turned on by **Copilot Studio credits** or **Copilot Cowork credits**, the agent inventory flow (without a SharePoint folder), or org-scoped access. Azure only; the installer gives it |
+| The run job | **Container Apps Jobs Operator**, for the run job's own identity | Starting its next run straight away while a long first load carries on. Azure only; the installer gives it after the first deploy. The least-privilege roles can't give it, so there your Azure admin does: see [Letting the run job start its next run](AZURE-LEAST-PRIVILEGE.md#letting-the-run-job-start-its-next-run) |
 | Azure AI subscription | **Reader**, **Cost Management Reader** and **Monitoring Reader**, for the app or managed identity | *(Optional.)* Reading Azure AI costs and usage. Turned on by the **Azure AI costs** card |
 | Each pay-as-you-go subscription | **Cost Management Reader**, for the app or managed identity | *(Optional.)* Reading Copilot pay-as-you-go costs. Turned on by the **Azure AI costs** card, when billing policies charge there |
 | Management group, or the tenant root group | **Reader**, for the app or managed identity | *(Optional.)* Reading Foundry accounts and projects. Turned on by **Agent configuration and Foundry** |

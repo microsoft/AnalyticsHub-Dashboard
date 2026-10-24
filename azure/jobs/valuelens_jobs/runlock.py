@@ -1,10 +1,10 @@
 """The run lock: one run of the run job at a time.
 
 The daily schedule can start a run while another is still going, for example beside a long first load. So can a
-run started by hand, or by the installer when it couldn't check. Two runs at once share the audit staging area and
-the tenant's audit queries, and both read, change and write the state in raw/_state, so one can undo the other's
-progress. So a run that opens the store leases raw/_state/run.lock for the whole run, and a run that finds it leased
-stops before any step.
+run started by hand, by the installer when it couldn't check, or by a run that starts the next one (see
+continue_run). Two runs at once share the audit staging area and the tenant's audit queries, and both read, change
+and write the state in raw/_state, so one can undo the other's progress. So a run that opens the store leases
+raw/_state/run.lock for the whole run, and a run that finds it leased stops before any step.
 
 The lease lasts LEASE_SEC and a thread renews it every RENEW_EVERY_SEC, so the lock of a run that was stopped (at
 its replica timeout, or out of memory) lapses by itself within LEASE_SEC. Its ID comes from the job execution's
@@ -109,9 +109,9 @@ class RunLock:
         log.info("run: leased the run lock again after a renewal failed (%s)", _brief(failed))
         return None
 
-    def release(self):
+    def release(self) -> bool:
         """Stops renewing and releases the lock, so the next run can take it straight away. If the release fails,
-        the lock lapses by itself within LEASE_SEC."""
+        the lock lapses by itself within LEASE_SEC. True when it was released."""
         self._stop.set()
         self._thread.join(LEASE_SEC)
         try:
@@ -119,8 +119,9 @@ class RunLock:
         except Exception as exc:
             log.warning("run: couldn't release the run lock (%s); it lapses by itself within %s s", _brief(exc),
                         LEASE_SEC)
-        else:
-            log.info("run: released the run lock")
+            return False
+        log.info("run: released the run lock")
+        return True
 
 
 def stopped(held: LeaseHeld, steps, settings) -> int:

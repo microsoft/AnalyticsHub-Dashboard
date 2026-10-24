@@ -275,6 +275,16 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
 | Load time, in UTC (03:00 by default) | `put runSchedule '0 6 * * *'` |
 | Azure SQL's free offer, before step 1 | `put sqlUseFreeLimit true` |
 
+**A long first load** *(optional)*. A load that takes more than one run, such as more history in a
+large tenant, can start its next run straight away instead of waiting for the next scheduled run.
+After step 1, give the run job's own identity
+[Container Apps Jobs Operator](AZURE-LEAST-PRIVILEGE.md#letting-the-run-job-start-its-next-run)
+on the run job. It needs Owner or User Access Administrator on the resource group.
+
+```bash
+az role assignment create --assignee-object-id $(out runJobPrincipalId) --assignee-principal-type ServicePrincipal --role b9a307c4-5aa3-4b52-ba60-2b17c136cd7b --scope $(az containerapp job show -g $RG -n job-vlens-run --query id -o tsv) -o none
+```
+
 **Credit consumption** *(optional)*. After step 7, for the
 [Consumption Central pages](../azure/README.md#credit-consumption), from exports you upload:
 

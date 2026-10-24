@@ -10,7 +10,10 @@ instead, and give you two roles on just that group:
   the four roles the installer gives.
 
 Registering resource providers is subscription-wide, so the admin does that once too. A few roles
-sit outside the resource group: the installer prints them, as commands, for the admin.
+sit outside the resource group: the installer prints them, as commands, for the admin. One role in
+the group, which lets a long first load carry on straight away, is outside the condition, so the
+admin gives that one too, after the first deploy: see
+[Letting the run job start its next run](#letting-the-run-job-start-its-next-run).
 
 The Entra, Power BI, Teams and Power Platform rights in [Prerequisites](PREREQUISITES.md) don't
 change. Publishing the Teams app to your org's catalog stays optional: a Teams admin can
@@ -20,7 +23,7 @@ change. Publishing the Teams app to your org's catalog stays optional: a Teams a
 
 | Who | Does | Needs |
 |---|---|---|
-| Your Azure admin | Creates the resource group, registers the resource providers and gives you the two roles. After the first deploy, gives the managed identity any roles outside the group that the installer printed | **Owner**, or **Contributor** and **User Access Administrator**, on the subscription, and on wherever the roles outside the group go |
+| Your Azure admin | Creates the resource group, registers the resource providers and gives you the two roles. After the first deploy, gives the managed identity any roles outside the group that the installer printed, and lets the run job start its next run | **Owner**, or **Contributor** and **User Access Administrator**, on the subscription, and on wherever the roles outside the group go |
 | You | Run the installer and, at **Resource group**, pick the admin's group from the list | The two roles, on just that group |
 
 ## For your Azure admin
@@ -126,6 +129,44 @@ A few options need rights in another resource group too:
 - **A private container registry** (`azure.images.registryResourceId`) in another resource group
   needs you to be able to deploy and give AcrPull there. Or keep the registry in the install's group.
 
+## Letting the run job start its next run
+
+On a large tenant the first load takes more than one run. Each run fetches for about 3 hours,
+publishes what it has loaded and stops. It then starts the next run straight away, until the history
+is loaded. To start it, the run job uses an identity of its own, with one role on that job:
+
+| Role | ID | Given to | On | For |
+|---|---|---|---|---|
+| Container Apps Jobs Operator | `b9a307c4-5aa3-4b52-ba60-2b17c136cd7b` | The run job's own system-assigned identity | The run job only | Starting its next run |
+
+The role lets its holder start, stop and inspect the run job, which runs as the install's managed
+identity. It also covers the job's other actions: suspending and resuming it, listing its secrets
+(it has none), and opening a console or log stream on it. Only the run job's own identity holds the
+role, and only on that job. The web app and the migrate job don't have that identity.
+
+The condition stays at the four roles above, so you can't give this one. After the deploy that
+creates the run job, the installer tries. When Azure refuses, it warns, carries on, and leaves the
+command for your admin, with the IDs filled in. `status` shows it until it's done:
+
+```text
+Pending admin action: Let the run job start its next run: az role assignment create --assignee-object-id <the run job's identity> --assignee-principal-type ServicePrincipal --role b9a307c4-5aa3-4b52-ba60-2b17c136cd7b --scope <the run job>
+```
+
+Your admin runs that, or this, which finds the run job and its identity in the resource group:
+
+```bash
+JOB_ID=$(az resource list --subscription "$SUB" -g "$RG" --resource-type Microsoft.App/jobs --query "[?ends_with(name, '-run')].id" -o tsv)
+PRINCIPAL_ID=$(az resource show --ids "$JOB_ID" --query identity.principalId -o tsv)
+az role assignment create --assignee-object-id "$PRINCIPAL_ID" --assignee-principal-type ServicePrincipal \
+  --role b9a307c4-5aa3-4b52-ba60-2b17c136cd7b --scope "$JOB_ID"
+```
+
+Until then, a long first load carries on at each scheduled run instead, which by default is one a
+day. Once the role applies, the next run that stops at its time limit starts the one after.
+The next **Update**, or **Repair or change**, finds the role and clears the pending action. If the
+run job is ever created again, it has a new identity, and the installer asks again. With **Owner**
+or **User Access Administrator** on the group, the installer gives the role itself.
+
 ## What the installer checks
 
 - **Prerequisites.** Once you've picked an existing resource group, the Azure roles check looks at
@@ -143,6 +184,7 @@ On a new resource group, the subscription is checked instead, as before.
 ## Uninstalling
 
 Uninstall deletes the resources the installer tagged, and leaves the admin's resource group and
-anything else in it. Your admin deletes the group when it's no longer needed, and removes the roles
-they gave outside it. See [Uninstall](UPDATE.md#uninstall) and
+anything else in it. The run job's own identity goes with the run job, so the role it held there no
+longer gives anyone anything. Your admin deletes the group when it's no longer needed, and removes
+the roles they gave outside it. See [Uninstall](UPDATE.md#uninstall) and
 [What's left behind](UPDATE.md#whats-left-behind).
