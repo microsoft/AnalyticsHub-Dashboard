@@ -40,7 +40,7 @@ const MAKER = 'https://make.powerautomate.com/';
  * @param {string[]} body
  * @param {string | undefined} from
  */
-const letter = (body, from) => ['Hi,', '', ...body, '', 'Thanks', ...(from ? [from] : [])].join('\n');
+export const letter = (body, from) => ['Hi,', '', ...body, '', 'Thanks', ...(from ? [from] : [])].join('\n');
 
 /** @param {string[]} steps */
 const numbered = (steps) => steps.map((s, i) => `${i + 1}. ${s}`);

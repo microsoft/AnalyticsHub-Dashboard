@@ -161,6 +161,14 @@ Deployment instructions do **not** live here. They live in the READMEs:
   - PREREQUISITES, PERMISSIONS, TROUBLESHOOTING (new rows for a data policy that turns a flow down,
     and for flows turned off after their owner left), the installer and Azure READMEs, ARCHITECTURE
     and `--help` say the same.
+- **Copy a request for your admin** on each missing prerequisite, grouped by admin, in the browser
+  and the terminal. The Prerequisites panel and the run log end with **Requests for your admins**:
+  one message per admin, asking for everything that admin does, with a **Copy request** button.
+  `prereqs`, install and update print the same messages in the terminal, after the list. They cover
+  the missing prerequisites and hand-offs, the tenant settings only a Fabric administrator can read,
+  the data policy, the sign-in to the flows' Power Platform API connection, the Azure apps' admin
+  script and *Create workspaces*, and, on Azure, the install's pending admin actions, where a Graph
+  role that's pending twice is asked for once. They never include a secret.
 
 ## 2026-10-26 — Analytics Hub installer 0.6.8
 

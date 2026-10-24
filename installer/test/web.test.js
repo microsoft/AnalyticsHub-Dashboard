@@ -784,3 +784,32 @@ test('prereqsSnapshot: says whether the signer can assign directory roles, from 
   assert.equal(prereqsSnapshot('admin@contoso.com', [{ ...row('met'), assignsDirectoryRoles: false }]).canAssignDirectoryRoles, false);
   assert.equal(prereqsSnapshot('admin@contoso.com', [{ ...row('met'), assignsDirectoryRoles: true }]).canAssignDirectoryRoles, true);
 });
+
+test('prereqsSnapshot: keeps one request per admin for the rows someone else does, signed by whoever checked; none without the install\'s config', () => {
+  /** @type {import('../src/prereqs.js').Prereq} */
+  const pro = { id: 'power-bi-pro', label: 'Power BI Pro licence', status: 'missing', detail: 'None assigned to you.', neededFor: 'Publishing the reports.', howTo: 'Ask your licence admin.' };
+  const snap = prereqsSnapshot('analyst@contoso.com', [pro], emptyConfig());
+  assert.deepEqual(snap.requests.map((r) => [r.who, r.rows]), [['Your licence admin', ['Power BI Pro licence']]]);
+  assert.match(snap.requests[0].message, /^Hi,\n\n.*- Assign me a Power BI Pro licence.*\n\nThanks\nanalyst@contoso\.com$/s);
+  assert.deepEqual(prereqsSnapshot('analyst@contoso.com', [pro]).requests, []);
+  assert.deepEqual(prereqsSnapshot('analyst@contoso.com', [{ ...pro, status: 'met' }], emptyConfig()).requests, []);
+});
+
+test('web ui: sends the admin requests to the page as an event, and nothing when there are none', async () => {
+  const ui = createWebUi({ now: () => 1000 });
+  ui.adminRequests([]);
+  assert.equal(ui.history().length, 0);
+  const request = { admin: /** @type {const} */ ('licence'), who: 'Your licence admin', rows: ['Power BI Pro licence'], asks: ['Assign me a Power BI Pro licence.'], message: 'Hi,\n\n- Assign me a Power BI Pro licence.\n\nThanks' };
+  ui.adminRequests([request]);
+  assert.equal(ui.history().length, 1);
+  const e = latest(ui);
+  assert.equal(e.type, 'admin-requests');
+  assert.deepEqual(e.requests, [request]);
+
+  // The page shows them in the run log and under the prerequisites, each with its own Copy request button.
+  const app = await readFile(new URL('web/app.js', SRC), 'utf8');
+  assert.match(app, /case 'admin-requests':\s*ensureRoot\(run, e\.at\);\s*add\(run, \{ t: 'admin-requests', requests: e\.requests \?\? \[\] \}\);/);
+  assert.match(app, /case 'admin-requests':\s*return renderAdminRequests\(it\.requests\);/);
+  assert.match(app, /renderPrereqs\(p\.items\),\s*renderAdminRequests\(p\.requests\),/);
+  assert.match(app, /copyButton\(r\.message, 'Copy request'\)/);
+});

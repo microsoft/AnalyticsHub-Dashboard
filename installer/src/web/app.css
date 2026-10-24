@@ -313,6 +313,9 @@ a { overflow-wrap: anywhere; }
 .prereq.handoff .gl, .prereq-rows .handoff .gl { color: var(--accent-fg); }
 .prereq-rows { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 2px; }
 .prereq-rows li { display: flex; gap: 6px; align-items: flex-start; }
+.admin-requests { display: flex; flex-direction: column; gap: 8px; max-width: calc(76ch + 20px); }
+.admin-requests h3 { font-size: 14px; line-height: 20px; font-weight: 600; }
+.admin-requests .hint { margin: 0; }
 .history-pick { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; max-width: 46ch; }
 .kv-row { display: grid; grid-template-columns: minmax(120px, 180px) 1fr; gap: 16px; max-width: 76ch; overflow-wrap: anywhere; }
 .kv-row .k { color: var(--muted-fg); }
