@@ -10,8 +10,10 @@
 
 All reports and guides can be found on the [Analytics Hub site](https://microsoft.github.io/Analytics-Hub/).
 
-**Also see [AI-in-One Dashboard](https://github.com/microsoft/AI-in-One-Dashboard):** one dashboard
-for all Microsoft Copilot and agent adoption signals.
+**Want a more targeted report?** [ValueLens](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot)
+covers the adoption and value parts of Analytics Hub, and
+[Consumption Central](https://github.com/microsoft/ConsumptionCentral-for-Microsoft-Copilot) covers
+credit consumption and cost.
 
 <br>
 
