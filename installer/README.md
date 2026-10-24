@@ -51,7 +51,9 @@ same checks first and list only what's missing for what you chose. For what some
 do, the panel and the run log end with **Requests for your admins**: one message per admin, asking
 for everything that admin does, with a **Copy request** button. The terminal prints the same
 messages after the list, each with who it's for, "For:" and the rows it covers, and the message
-under "Copy and send:". They never include a secret.
+under "Copy and send:". At the end of an install or Repair, the Done page and the terminal list
+what's still left for admins the same way, under **Still to do by your admins**, each with what you
+do once the admin has done it. They never include a secret.
 
 ### Where the secret goes
 
@@ -177,7 +179,8 @@ and carries on: people can use the web app once it's approved. The jobs' managed
 Microsoft Graph roles are separate, and only a Privileged Role Administrator or Global
 Administrator can give them. If you can't, the installer prints a command for one of them to paste
 into Azure Cloud Shell (Bash) after the deploy. `status` prints it again, and it's in their request
-under **Requests for your admins**.
+under **Requests for your admins**, and at the end of the install under **Still to do by your
+admins**.
 
 ## Azure target
 
@@ -888,8 +891,10 @@ On by default. It fills the app's **Work patterns** page.
 
 **Turn off concealed names**, or the organisation filters won't work on that page. A Global
 Administrator, in the Microsoft 365 admin center, goes to **Settings** > **Org settings** >
-**Services** > **Reports** and unticks **Conceal user, group, and site names in all reports**. Then
-choose **Run now**.
+**Services** > **Reports** and unticks **Conceal user, group, and site names in all reports**.
+Unless the data check shows names already, the end of the install has a request for it, for a
+Global Administrator. There's nothing to run afterwards: the next load, scheduled or **Run now**,
+uses names, and each load reloads the last 28 days of activity that Microsoft keeps.
 
 The `M365 Activity` table refreshes incrementally, like the audit table. The model keeps 12 months
 of it, and each refresh reloads only the last 35 days. That covers every day the notebook can

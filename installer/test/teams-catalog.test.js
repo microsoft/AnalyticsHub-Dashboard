@@ -544,7 +544,11 @@ test('the summary says where to find the Teams app, or what an admin still has t
   const manual = setup({ catalog: false });
   await publishTeamsApp(manual.ctx, pkg('0.6.7'));
   await azureSummary(manual.ctx);
-  assert.match(manual.ui.text(), /Teams: +Not published yet\. A Teams Administrator needs to upload \/installs\/AnalyticsHub-Teams\.zip in Teams admin center > Teams apps > Manage apps \(https:\/\/admin\.teams\.microsoft\.com\/policies\/manage-apps\)\./);
+  assert.match(manual.ui.text(), /Teams: +Not published yet\. Send a Teams Administrator the request for it, under "Still to do by your admins"\./);
+  const [, end] = manual.ui.text().split('Still to do by your admins: copy each request and send it.');
+  assert.match(end, /\d\. A Teams Administrator\n +For: Teams app\n/, 'the request at the end');
+  assert.match(end, /Upload the Analytics Hub Teams package I'll send you \(AnalyticsHub-Teams\.zip\) in Teams admin center > Teams apps > Manage apps \(https:\/\/admin\.teams\.microsoft\.com\/policies\/manage-apps\)\./);
+  assert.doesNotMatch(end, /\/installs\//, 'the package by its name, not its path');
 
   const packageOnly = setup();
   await azureSummary(packageOnly.ctx);

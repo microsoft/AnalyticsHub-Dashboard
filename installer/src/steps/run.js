@@ -433,6 +433,22 @@ export async function runDataCheck(ctx) {
 }
 
 /**
+ * The last data check's summary the Lakehouse holds, as status reads it, without running it. Null when there's none,
+ * or it can't be read.
+ * @param {Ctx} ctx
+ * @returns {Promise<any>}
+ */
+export async function lastDataCheck(ctx) {
+  const f = ctx.config.fabric;
+  if (!f?.workspaceId || !f.lakehouseId) return null;
+  try {
+    return (await ctx.api.oneLake.readJson(f.workspaceId, f.lakehouseId, DATA_CHECK_FILE)) ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The `check` command: runs the data check on its own, without the pipeline.
  * @param {Ctx} ctx
  */

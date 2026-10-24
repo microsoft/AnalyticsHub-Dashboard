@@ -23,8 +23,8 @@ Analytics Hub on your Fabric capacity. The recommended path.
    Or [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
    and open it. Choose **Microsoft Fabric**. Blocked? See the other ways to start it in
    [Install](../docs/INSTALL.md). Don't work around the policy.
-3. **Check it worked.** The Done page lists anything left to do, and who does it. See
-   [Check it worked](../docs/INSTALL.md#check-it-worked).
+3. **Check it worked.** The Done page lists anything left to do, and who does it, with a request
+   to copy and send to each admin. See [Check it worked](../docs/INSTALL.md#check-it-worked).
 
 ## Manual
 

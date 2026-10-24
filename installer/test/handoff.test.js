@@ -237,7 +237,9 @@ test('adminRequests: no request has a secret, a key, a token, a password, a sign
       dataPolicyPrereq(config),
     ];
     const requests = adminRequests(rows, config, { from: UPN });
-    assert.deepEqual(requests.map((r) => r.admin), Object.keys(ADMINS).filter((k) => k !== 'other' && (config.target === 'azure' || k !== 'sharepoint-admin')), config.target);
+    // Preflight asks a Global Administrator and a Microsoft 365 admin for nothing: their requests come at the end.
+    const endOnly = ['other', 'global-admin', 'm365-admin'];
+    assert.deepEqual(requests.map((r) => r.admin), Object.keys(ADMINS).filter((k) => !endOnly.includes(k) && (config.target === 'azure' || k !== 'sharepoint-admin')), config.target);
     const text = JSON.stringify(requests);
     assert.match(text, /az role assignment create --assignee-object-id (\w[\w-]*|\$\(az ad sp show --id \S+ --query id -o tsv\)) --assignee-principal-type ServicePrincipal --role \\"Reader\\"/, 'with the commands');
     if (config.target === 'azure') assert.match(text, /servicePrincipals\/\$MI\/appRoleAssignments/);

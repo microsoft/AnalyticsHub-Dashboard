@@ -647,6 +647,12 @@ function apply(e) {
       ensureRoot(run, e.at);
       add(run, { t: 'admin-requests', requests: e.requests ?? [] });
       return;
+    case 'done-requests':
+      ensureRoot(run, e.at);
+      run.doneRequests = e.requests ?? [];
+      // Shown in the outcome at the end; kept as an item for the saved record.
+      add(run, { t: 'done-requests', requests: run.doneRequests });
+      return;
     case 'auto':
       ensureRoot(run, e.at);
       add(run, { t: 'qa', message: e.message, display: e.display, auto: true });
@@ -959,6 +965,8 @@ function renderItem(it) {
       return renderPrereqs(it.items);
     case 'admin-requests':
       return renderAdminRequests(it.requests);
+    case 'done-requests':
+      return null;
     default:
       return null;
   }
@@ -1030,6 +1038,27 @@ function renderAdminRequests(requests) {
         h('span', { class: 'next-name' }, r.who),
         h('span', { class: 'next-who' }, `For: ${r.rows.join('; ')}`)),
       h('details', { class: 'next-message' }, h('summary', null, 'The request to send'), h('pre', null, r.message)),
+      h('div', { class: 'actions' }, copyButton(r.message, 'Copy request'))))));
+}
+
+/**
+ * What's left for admins at the end of an install or Repair (doneRequests in steps/handoff.js), one request per admin:
+ * what it's for, notes for you, the message to copy, and what you do once the admin has done it.
+ */
+function renderDoneRequests(requests) {
+  if (!(requests ?? []).length) return null;
+  return h('section', { class: 'admin-requests', 'aria-labelledby': 'done-requests-title' },
+    h('h3', { id: 'done-requests-title' }, 'Still to do by your admins'),
+    h('p', { class: 'hint' }, 'One request per admin. Copy each one and send it. Under each is what you do once the admin has done it.'),
+    h('ol', { class: 'next-list' }, requests.map((r) => h('li', { class: `next-card${r.optional ? ' optional' : ''}` },
+      h('div', { class: 'next-head' },
+        h('span', { class: 'next-name' }, r.who),
+        h('span', { class: 'next-who' }, `For: ${r.rows.join('; ')}`, r.optional ? ', optional' : '')),
+      (r.notes ?? []).map((n) => h('p', null, linkify(n))),
+      h('details', { class: 'next-message' }, h('summary', null, 'The request to send'), h('pre', null, r.message)),
+      (r.after ?? []).length
+        ? [h('p', null, h('strong', null, 'Once it\'s done')), h('ul', { class: 'next-after' }, r.after.map((a) => h('li', null, linkify(a))))]
+        : null,
       h('div', { class: 'actions' }, copyButton(r.message, 'Copy request'))))));
 }
 
@@ -1419,6 +1448,7 @@ function renderOutcome(run) {
   return h('section', { class: `outcome ${copy[0]}`.trim(), 'aria-labelledby': 'outcome-title' },
     h('h2', { id: 'outcome-title' }, copy[1]),
     run.nextSteps?.steps.length ? renderNextSteps(run.nextSteps, run.todo) : null,
+    renderDoneRequests(run.doneRequests),
     copy[2].filter(Boolean).map((p) => h('p', null, p)),
     r === 'failed' && run.error ? h('details', { class: 'settings-changes' }, h('summary', null, 'Technical details'), h('pre', null, run.error)) : null,
     run.todo && !todoInSteps ? renderTodo(run.todo) : null,
@@ -1960,6 +1990,16 @@ function itemMarkdown(it, depth) {
             const [first, ...cmd] = a.split('\n');
             return [`   - ${first}`, ...(cmd.length ? ['     ```bash', ...cmd.map((l) => `     ${l.trim()}`), '     ```'] : [])];
           }),
+        ]), '']
+        : [];
+    case 'done-requests':
+      return it.requests.length
+        ? ['', '**Still to do by your admins**', '', ...it.requests.flatMap((r, i) => [
+          `${i + 1}. **${r.who}**${r.optional ? ' (optional)' : ''} (for: ${r.rows.join('; ')})`,
+          ...(r.notes ?? []).map((n) => `   - ${n}`),
+          // The message as it's sent, in a code block so its lines and commands stay as they are.
+          '', '   ```text', ...r.message.split('\n').map((l) => (l ? `   ${l}` : '')), '   ```', '',
+          ...((r.after ?? []).length ? ['   Once it\'s done:', '', ...r.after.map((a) => `   - ${a}`), ''] : []),
         ]), '']
         : [];
     default:

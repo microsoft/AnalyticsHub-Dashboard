@@ -1,19 +1,15 @@
 // @ts-check
 /**
- * What's left once the installer finishes, as cards for the Done page and the terminal summary:
- * the steps the user does, then hand-offs, each with a message to copy and send to the admin who does it.
- * One list, in the order it should be done, so new steps only need adding here.
+ * What's left for you once the installer finishes, as cards for the Done page and the terminal summary: the steps you
+ * do yourself, in the order to do them, so new steps only need adding here. What's left for other admins is a request
+ * each, built by doneRequests (handoff.js) and shown after the cards.
  */
-import { FEEDBACK_SUBJECT } from '../transform/flows.js';
-import { isVivaId } from '../transform/dataflow.js';
 import { COWORK_DATAFLOW_ACTIVITY } from '../transform/pipeline.js';
 import { commandLine } from '../launch.js';
 import { appItemUrl, shareAppPending, shareAppSteps, VIEWER_GROUP_NAME, myGroupsUrl } from './access.js';
-import { COWORK_DATAFLOW_NAME, coworkSignInSteps, DATAFLOW_GUIDE } from './consumption.js';
+import { COWORK_DATAFLOW_NAME, coworkSignInSteps } from './consumption.js';
 import { coworkDataflowOn, modelDeployed } from './fabric.js';
 import { connectionSteps, FLOW_NAMES, flowsWanted, ownerLeft, ppApiFlows, ppApiSigner, whoSignsIn } from './flows.js';
-import { APP_NAME } from './plan.js';
-import { AGENT_DIRECTORY_ROLES, resourceGraphOn } from './resource-graph.js';
 
 /**
  * @typedef {object} NextStep
@@ -29,9 +25,6 @@ import { AGENT_DIRECTORY_ROLES, resourceGraphOn } from './resource-graph.js';
  * @property {boolean} [optional]
  */
 
-/** The Entra role template ID of Global Reader, the same in every tenant. */
-export const GLOBAL_READER_ROLE_ID = 'f2ef992c-3afb-46b9-b7cf-a126ee74c451';
-export const ENTRA_ROLES_URL = 'https://entra.microsoft.com/#view/Microsoft_AAD_IAM/RolesManagementMenuBlade/~/AllRoles';
 export const M365_ADMIN_URL = 'https://admin.microsoft.com/';
 const MAKER = 'https://make.powerautomate.com/';
 
@@ -46,11 +39,13 @@ export const letter = (body, from) => ['Hi,', '', ...body, '', 'Thanks', ...(fro
 const numbered = (steps) => steps.map((s, i) => `${i + 1}. ${s}`);
 
 /**
- * The cards, in the order to do them: deploy the app if it isn't, share it, sign in to the flows and the
- * Cowork Dataflow, then hand-offs to other admins. Empty when nothing is left.
+ * Your cards, in the order to do them: deploy the app if it isn't, share it, sign in to the flows and the Cowork
+ * Dataflow, then show names in the usage reports when you're the Global Administrator who can. Empty when none of
+ * them is left, though requests for other admins may be: doneRequests (handoff.js) builds those.
  * @param {import('../config.js').InstallConfig} config
  * @param {{ tenantId?: string, upn?: string }} [user]
- * @param {{ appFailed?: boolean }} [opts]  appFailed: this run's app step failed.
+ * @param {{ appFailed?: boolean, names?: { unsure?: boolean } }} [opts]  appFailed: this run's app step failed. names: you're a
+ *   Global Administrator and the reports may conceal names, so the card is yours rather than a request; unsure: no data check could tell.
  * @returns {NextStep[]}
  */
 export function nextSteps(config, user = {}, opts = {}) {
@@ -59,9 +54,7 @@ export function nextSteps(config, user = {}, opts = {}) {
     shareStep(config, user),
     flowsStep(config, user),
     coworkStep(config),
-    vivaQueryStep(config, user),
-    entraRoleStep(config, user),
-    m365ExportStep(config, user),
+    ...(opts.names ? [namesStep(opts.names)] : []),
   ].filter(/** @returns {s is NextStep} */ (s) => !!s);
 }
 
@@ -202,122 +195,38 @@ function coworkStep(config) {
   };
 }
 
-/**
- * A Viva Insights query for Cowork credits, so a Dataflow reads them on every run rather than
- * someone uploading the export. Optional: the CSV export works too.
- * @param {import('../config.js').InstallConfig} config
- * @param {{ upn?: string }} user
- * @returns {NextStep | null}
- */
-function vivaQueryStep(config, user) {
-  const cc = config.consumption;
-  if (!config.modules.consumption || config.dataSources?.coworkCredits !== 'csv') return null;
-  if (isVivaId(cc?.vivaPartition) && isVivaId(cc?.vivaQuery)) return null;
-  const steps = [
-    'In Viva Insights > Create analysis > Create custom query, choose Consumption query and keep the preselected credit metrics.',
-    'Turn on Auto-refresh, and run it.',
-    'In Analysis results, choose the link icon next to it and copy the partition ID and the query ID.',
-  ];
-  return {
-    id: 'viva-query',
-    title: 'Ask a Viva Insights analyst for the Cowork credits query',
-    why: 'Optional. With it, a Dataflow reads Cowork credits on every run, rather than someone uploading the Consumption Dashboard export. Then run the installer again and choose Connected (Dataflow) for Cowork credits.',
-    who: 'A Viva Insights analyst',
-    link: DATAFLOW_GUIDE,
-    linkText: 'The guide',
-    steps,
-    optional: true,
-    message: letter(
-      [
-        'Could you set up a Viva Insights query for Analytics Hub? It reads Copilot Cowork credits from it every day.',
-        '',
-        ...numbered(steps),
-        '',
-        'Then send me the partition ID and the query ID. They look like 00000000-0000-0000-0000-000000000000.',
-        `Guide: ${DATAFLOW_GUIDE}`,
-      ],
-      user.upn,
-    ),
-  };
-}
+/** How a Global Administrator shows user names in the Microsoft 365 usage reports, which conceal them by default. */
+export const CONCEALED_NAMES_STEPS = [
+  'In the Microsoft 365 admin center, open Settings > Org Settings, the Services tab, then Reports.',
+  'Untick "Conceal user, group, and site names in all reports".',
+  'Save.',
+];
+
+/** Why the reports must show names, and what the setting does, from Microsoft Learn's usage reports overview. */
+export const CONCEALED_NAMES_WHY =
+  'Analytics Hub matches licences to Copilot activity by user principal name, and Work patterns and the organisation filters need names. ' +
+  'By default, all Microsoft 365 reports hide user information such as usernames, display names, groups and sites, to help companies support local privacy laws. ' +
+  "A Global Administrator can show it if your organisation's privacy practices allow it. The setting is org-wide: it also applies to the Microsoft 365 usage " +
+  'reports in Microsoft Graph and Power BI, and to the usage reports in the Teams admin center. Showing identifiable user information is a logged event in ' +
+  'the Microsoft Purview audit log, and the change takes a few minutes.';
+
+/** What happens once names show: nothing to run. */
+export const CONCEALED_NAMES_AFTER =
+  'Nothing to run: the next load, scheduled or Run now, uses names. Each load reloads the last 28 days of Microsoft 365 activity, so the days loaded without names in that window get them.';
 
 /**
- * The Entra role the data collector app needs to see Copilot Studio agents in Resource Graph. Only a
- * Privileged Role Administrator can assign it. Shown until the install record says it's assigned.
- * @param {import('../config.js').InstallConfig} config
- * @param {{ upn?: string }} user
- * @returns {NextStep | null}
+ * Show user names in the usage reports, as your own card: you're a Global Administrator, so it isn't a request.
+ * @param {{ unsure?: boolean }} [opts]  unsure: no data check could tell whether the reports conceal names.
+ * @returns {NextStep}
  */
-function entraRoleStep(config, user) {
-  if (config.target === 'azure' || !resourceGraphOn(config) || config.resourceGraph?.agents === false) return null;
-  if (config.resourceGraph?.roleAssigned) return null;
-  const app = config.app?.displayName ?? APP_NAME;
-  const appId = config.app?.appId;
-  const spId = config.app?.servicePrincipalId;
-  const principal = spId ?? (appId ? `$(az ad sp show --id ${appId} --query id -o tsv)` : undefined);
-  const roles = AGENT_DIRECTORY_ROLES.join(', ').replace(/, ([^,]*)$/, ' or $1');
-  const steps = [
-    'In the Microsoft Entra admin center, open Roles & admins and choose Global Reader.',
-    `Choose Add assignments, search for "${app}" and select it.`,
-    'Choose Add. With Privileged Identity Management, make it an active, permanent assignment.',
-  ];
-  const command = principal
-    ? `az rest --method POST --url https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments --body '{"principalId":"${principal}","roleDefinitionId":"${GLOBAL_READER_ROLE_ID}","directoryScopeId":"/"}'`
-    : undefined;
+export function namesStep(opts = {}) {
   return {
-    id: 'entra-role',
-    title: `Ask for Global Reader for "${app}"`,
-    why: `Without one of ${roles}, Azure Resource Graph returns no Copilot Studio agents to the data collector, and the load says so. Global Reader is read-only. The installer can't assign Entra roles.`,
-    who: 'A Privileged Role Administrator',
-    link: ENTRA_ROLES_URL,
-    linkText: 'Roles & admins in Entra',
-    steps,
-    message: letter(
-      [
-        `Could you give the app "${app}" the Global Reader role in Microsoft Entra? Analytics Hub uses it to read Copilot Studio agents from Azure Resource Graph, which returns none until the app has one of ${roles}. Global Reader is read-only.`,
-        '',
-        `App: ${app}`,
-        ...(appId ? [`Application (client) ID: ${appId}`] : []),
-        ...(spId ? [`Object ID (enterprise application): ${spId}`] : []),
-        '',
-        ...numbered(steps),
-        `Roles & admins: ${ENTRA_ROLES_URL}`,
-        ...(command ? ['', 'Or in Azure Cloud Shell (Bash):', command] : []),
-      ],
-      user.upn,
-    ),
-  };
-}
-
-/**
- * The emailed product feedback export the feedback flow saves. Only a Microsoft 365 admin can schedule it.
- * @param {import('../config.js').InstallConfig} config
- * @param {{ upn?: string }} user
- * @returns {NextStep | null}
- */
-function m365ExportStep(config, user) {
-  if (!flowsWanted(config).includes('feedback')) return null;
-  const mailbox = user.upn ?? 'the mailbox the flow reads';
-  const steps = [
-    'In the Microsoft 365 admin center, open Health > Product feedback.',
-    `Choose Export and schedule it to be emailed to ${mailbox}, with the subject "${FEEDBACK_SUBJECT}".`,
-  ];
-  return {
-    id: 'm365-export',
-    title: 'Ask for the product feedback export',
-    why: `The ${FLOW_NAMES.feedback} flow saves the export when it arrives by email. Without it, product feedback has no data. If the flow's Outlook connection signs in as another mailbox, use that one.`,
-    who: 'A Microsoft 365 admin',
+    id: 'concealed-names',
+    title: 'Show user names in the Microsoft 365 usage reports',
+    why: `${CONCEALED_NAMES_WHY} ${CONCEALED_NAMES_AFTER}${opts.unsure ? " If the reports already show names, there's nothing to do." : ''}`,
+    who: 'You',
     link: M365_ADMIN_URL,
     linkText: 'Microsoft 365 admin center',
-    steps,
-    message: letter(
-      [
-        'Could you schedule the Microsoft 365 product feedback export for Analytics Hub? A flow saves it when it arrives by email.',
-        '',
-        ...numbered(steps),
-        `The subject must be exactly "${FEEDBACK_SUBJECT}", so the flow picks it up.`,
-      ],
-      user.upn,
-    ),
+    steps: CONCEALED_NAMES_STEPS,
   };
 }

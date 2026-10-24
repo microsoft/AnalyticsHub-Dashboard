@@ -89,7 +89,8 @@ flowchart LR
 3. Choose **Microsoft Fabric** or **Your Azure subscription**.
 4. Answer the questions (about 5 minutes).
 5. Check the plan and choose **Go ahead**. Keep the PC awake.
-6. Do what the Done page lists, then [check it worked](docs/INSTALL.md#check-it-worked).
+6. Do what the Done page lists. It has a request to copy and send to each admin. Then
+   [check it worked](docs/INSTALL.md#check-it-worked).
 
 Blocked by IT policy? Don't work around it. See [other ways to run it](docs/INSTALL.md).
 

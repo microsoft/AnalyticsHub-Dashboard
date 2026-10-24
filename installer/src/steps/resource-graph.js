@@ -76,15 +76,26 @@ export const readerCommand = (objectId, scope) => roleAssignmentCommand(objectId
  * @returns {string[]}
  */
 export function directoryRoleHandoff(who) {
-  const body = JSON.stringify({ principalId: who.id, roleDefinitionId: GLOBAL_READER_ROLE, directoryScopeId: '/' });
   return [
     `Role:    ${AGENT_ROLE} (Entra)`,
     `App:     ${who.name}${who.appId ? `, application ID ${who.appId}` : ''}, object ID ${who.id}`,
     `Where:   ${ENTRA_ROLES_URL}`,
     `         Open ${AGENT_ROLE} > Add assignments, then select ${who.name}.`,
     'Or in Azure Cloud Shell (Bash):',
-    `  az rest --method post --url https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments --body '${body}'`,
+    `  ${globalReaderCommand(who.id)}`,
   ];
+}
+
+/**
+ * The Bash command that gives a service principal Global Reader, by its object ID, or else looked up from its
+ * application (client) ID. One line, with nothing secret in it.
+ * @param {string | undefined} objectId
+ * @param {string} [appId]
+ */
+export function globalReaderCommand(objectId, appId) {
+  const url = 'https://graph.microsoft.com/v1.0/roleManagement/directory/roleAssignments';
+  if (objectId) return `az rest --method post --url ${url} --body '${JSON.stringify({ principalId: objectId, roleDefinitionId: GLOBAL_READER_ROLE, directoryScopeId: '/' })}'`;
+  return `SP=$(az ad sp show --id ${appId} --query id -o tsv); az rest --method post --url ${url} --body "{\\"principalId\\":\\"$SP\\",\\"roleDefinitionId\\":\\"${GLOBAL_READER_ROLE}\\",\\"directoryScopeId\\":\\"/\\"}"`;
 }
 
 /**

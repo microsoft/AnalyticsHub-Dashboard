@@ -4,18 +4,22 @@
  * one per admin, asking for everything that admin does. It builds text only: it writes no files, and puts no
  * client secrets, keys, tokens, passwords or sign-in codes in a request.
  */
-import { graphRolesCommand, objectIdOrLookup, pendingGraphRoles } from '../admin-commands.js';
-import { apiPermissionsUrl } from '../clients/graph.js';
+import { graphRolesCommand, objectIdOrLookup, pendingGraphRoles, roleAssignmentCommand } from '../admin-commands.js';
+import { apiPermissionsUrl, GLOBAL_ADMIN_ROLE } from '../clients/graph.js';
 import { secretMode } from '../config.js';
+import { commandLine } from '../launch.js';
 import { ppApiWanted, preflightVerdict, settingsToConfirm, TENANT_SETTINGS_URL } from '../prereqs.js';
+import { isVivaId } from '../transform/dataflow.js';
+import { FEEDBACK_SUBJECT } from '../transform/flows.js';
 import { AUDIT_ROLE, PURVIEW_AUDIT_URL } from './audit-check.js';
 import { AZURE_APPS } from './azure/apps.js';
 import { LEAST_PRIVILEGE_URL } from './azure/least-privilege.js';
 import { MANAGE_APPS_URL, TEAMS_APP_PENDING } from './azure/teams-catalog.js';
-import { flowsWanted, ppApiSigner } from './flows.js';
-import { letter } from './next-steps.js';
+import { AZURE_AI_ROLES, DATAFLOW_GUIDE } from './consumption.js';
+import { FEEDBACK_EXPORT_URL, FLOW_NAMES, flowsWanted, ppApiSigner } from './flows.js';
+import { CONCEALED_NAMES_AFTER, CONCEALED_NAMES_STEPS, CONCEALED_NAMES_WHY, letter, M365_ADMIN_URL } from './next-steps.js';
 import { APP_NAME } from './plan.js';
-import { AGENT_ROLE, readerCommand, resourceGraphScope, scopeName } from './resource-graph.js';
+import { AGENT_ROLE, ENTRA_ROLES_URL, globalReaderCommand, readerCommand, resourceGraphOn, resourceGraphScope, scopeName } from './resource-graph.js';
 
 /** @typedef {import('../prereqs.js').Prereq} Prereq */
 /** @typedef {import('../prereqs.js').PrereqStatus} PrereqStatus */
@@ -25,9 +29,11 @@ import { AGENT_ROLE, readerCommand, resourceGraphScope, scopeName } from './reso
 export const ADMINS = {
   'app-admin': 'An Application Administrator or Cloud Application Administrator',
   'role-admin': 'A Privileged Role Administrator or Global Administrator',
+  'global-admin': 'A Global Administrator',
   'fabric-admin': 'A Fabric administrator',
   'capacity-admin': 'A Fabric capacity admin',
   compliance: 'A Compliance Administrator',
+  'm365-admin': 'A Microsoft 365 admin',
   'power-platform': 'A Power Platform administrator',
   teams: 'A Teams Administrator',
   'sharepoint-admin': 'A SharePoint Administrator',
@@ -47,6 +53,9 @@ export const ADMINS = {
  * @property {string[]} rows
  * @property {string[]} asks
  * @property {string} message
+ * @property {boolean} [optional]  Everything it asks for is optional.
+ * @property {string[]} [notes]  For you, before you send it.
+ * @property {string[]} [after]  For you, once the admin has done it.
  */
 /**
  * @typedef {object} Ask
@@ -55,6 +64,11 @@ export const ADMINS = {
  * @property {string} [label]  The prerequisite it's for. The row's own label when absent.
  * @property {boolean} [consent]  Approves the Azure web app's delegated permissions, which an admin can do with another ask.
  * @property {boolean} [coversConsent]  Approves those permissions too, so no separate ask is needed.
+ * @property {string} [who]  Who it goes to, when it isn't ADMINS' name for its admin, such as one environment's System Administrator.
+ * @property {boolean} [optional]
+ * @property {string} [note]  For you, before you send it.
+ * @property {string[]} [after]  For you, once it's done.
+ * @property {string} [kind]  Which pending admin action it's for: graph, consent, teams, owner, drop-site or other.
  */
 /**
  * @typedef {object} AskContext
@@ -109,7 +123,7 @@ const graphRolesText = (config, roles) => {
 };
 
 /**
- * The object ID of whoever the Resource Graph load runs as, for a command, or a lookup of it from the app's client
+ * The object ID of whoever the loads run as, for a command, or a lookup of it from the app's client
  * ID. Undefined until it exists, as in forLoad.
  * @param {InstallConfig} config
  */
@@ -159,6 +173,26 @@ const fabricConsentAsk = (config) => {
       : `Once Analytics Hub's app registration exists, grant admin consent for its Microsoft Graph application permissions, including ${AUDIT_ROLE}. I'll send you the link.`,
   };
 };
+
+/** The Global Reader ask, after "give it". */
+const globalReaderWhat = () =>
+  `the ${AGENT_ROLE} role in Microsoft Entra, so Analytics Hub can read Copilot Studio agents from Azure Resource Graph. ${AGENT_ROLE} is read-only.`;
+
+/**
+ * Reader in Azure on the scope Resource Graph reads, for Foundry resources, with the command that gives it once
+ * the scope and whoever the load runs as are known.
+ * @param {AskContext} c
+ */
+function foundryText(c) {
+  const { config } = c;
+  const scope = config.resourceGraph?.managementGroup || config.tenantId ? resourceGraphScope(config, config.tenantId ?? '') : '';
+  const scopeId = scope ? ` (${scope})` : '';
+  const reader = scope && loadObjectId(config);
+  return (
+    forLoad(c, `the Reader role in Azure on ${scopeName(config)}${scopeId}, so Analytics Hub can read Foundry resources from Azure Resource Graph.`) +
+    (reader ? `${CLOUD_SHELL}${readerCommand(reader, scope)}` : '')
+  );
+}
 
 /**
  * The System Administrator role in the environment the flows or Agent Evaluator use.
@@ -314,23 +348,9 @@ export const ROW_ASKS = {
     const hasRole = azure ? !!rg?.azureRoleAssigned : (!!rg?.roleAssigned || settled(c.status('consent-role')));
     const agents = kinds.includes(RG_AGENTS) && !hasRole;
     const foundry = kinds.includes(RG_FOUNDRY) && !(azure ? rg?.azureAccess : rg?.access);
-    const scope = rg?.managementGroup || config.tenantId ? resourceGraphScope(config, config.tenantId ?? '') : '';
-    const scopeId = scope ? ` (${scope})` : '';
-    const reader = scope && loadObjectId(config);
     return [
-      ...(agents
-        ? [/** @type {Ask} */ ({ admin: 'role-admin', text: forLoad(c, `the ${AGENT_ROLE} role in Microsoft Entra, so Analytics Hub can read Copilot Studio agents from Azure Resource Graph. ${AGENT_ROLE} is read-only.`) })]
-        : []),
-      ...(foundry
-        ? [
-          /** @type {Ask} */ ({
-            admin: 'azure-owner',
-            text:
-              forLoad(c, `the Reader role in Azure on ${scopeName(config)}${scopeId}, so Analytics Hub can read Foundry resources from Azure Resource Graph.`) +
-              (reader ? `${CLOUD_SHELL}${readerCommand(reader, scope)}` : ''),
-          }),
-        ]
-        : []),
+      ...(agents ? [/** @type {Ask} */ ({ admin: 'role-admin', text: forLoad(c, globalReaderWhat()) })] : []),
+      ...(foundry ? [/** @type {Ask} */ ({ admin: 'azure-owner', text: foundryText(c) })] : []),
     ];
   },
 };
@@ -385,23 +405,23 @@ function pendingAsks(actions, roles, rows, c) {
   // The audit row asks for the same roles while it's a hand-off; otherwise they're only pending.
   const audit = rows.find((r) => r.id === 'audit-ingestion' && r.status === 'handoff');
   /** @type {Ask[]} */
-  const graph = roles.length ? [{ admin: 'role-admin', label: audit?.label ?? PENDING_LABEL, text: graphRolesText(c.config, roles) }] : [];
+  const graph = roles.length ? [{ admin: 'role-admin', kind: 'graph', label: audit?.label ?? PENDING_LABEL, text: graphRolesText(c.config, roles) }] : [];
   return [
     ...graph,
     ...actions.flatMap((action) => {
       if (action.startsWith(CONSENT_PENDING)) {
         if (settled(c.status('consent-role'))) return [];
-        return [{ admin: /** @type {AdminKey} */ ('app-admin'), consent: true, label: labelFor('consent-role'), text: `Approve ${WEB_CONSENT}: open ${action.slice(CONSENT_PENDING.length).trim()} and select "Grant admin consent".` }];
+        return [{ admin: /** @type {AdminKey} */ ('app-admin'), kind: 'consent', consent: true, label: labelFor('consent-role'), text: `Approve ${WEB_CONSENT}: open ${action.slice(CONSENT_PENDING.length).trim()} and select "Grant admin consent".` }];
       }
       if (action.startsWith(`${TEAMS_APP_PENDING}: `)) {
         if (settled(c.status('teams-admin'))) return [];
-        return [{ admin: /** @type {AdminKey} */ ('teams'), label: labelFor('teams-admin'), text: teamsAsk(action) }];
+        return [{ admin: /** @type {AdminKey} */ ('teams'), kind: 'teams', label: labelFor('teams-admin'), text: teamsAsk(action) }];
       }
       if (action.includes(' as an owner of "')) {
-        return [{ admin: /** @type {AdminKey} */ ('app-admin'), label: PENDING_LABEL, text: stop(action.startsWith(OWNER_PENDING) ? `Add ${action.slice(OWNER_PENDING.length)}` : action) }];
+        return [{ admin: /** @type {AdminKey} */ ('app-admin'), kind: 'owner', label: PENDING_LABEL, text: stop(action.startsWith(OWNER_PENDING) ? `Add ${action.slice(OWNER_PENDING.length)}` : action) }];
       }
-      if (action.startsWith(DROP_SITE_PENDING)) return [{ admin: /** @type {AdminKey} */ ('sharepoint-admin'), label: PENDING_LABEL, text: action }];
-      return [{ admin: /** @type {AdminKey} */ ('other'), label: PENDING_LABEL, text: action }];
+      if (action.startsWith(DROP_SITE_PENDING)) return [{ admin: /** @type {AdminKey} */ ('sharepoint-admin'), kind: 'drop-site', label: PENDING_LABEL, text: action }];
+      return [{ admin: /** @type {AdminKey} */ ('other'), kind: 'other', label: PENDING_LABEL, text: action }];
     }),
   ];
 }
@@ -463,5 +483,366 @@ export function adminRequests(rows, config, opts = {}) {
         message: letter([intro, '', ...texts.map((t) => `- ${t}`)], opts.from),
       },
     ];
+  });
+}
+
+/** The re-run that picks up what an admin did. */
+const REPAIR = 'Run the installer again and choose Repair or change';
+/** The re-run that asks whether an admin gave a role it couldn't. With --yes it can't ask. */
+const REPAIR_ASKS = 'Run the installer again without --yes and choose Repair or change. When it says you can\'t assign Azure roles there, choose';
+/** Numbered steps under an ask, one per line. @param {string[]} steps */
+const numberedLines = (steps) => steps.map((s, i) => `\n  ${i + 1}. ${s}`).join('');
+/** "A, B and C". @param {string[]} items */
+const andList = (items) => (items.length < 2 ? items.join('') : `${items.slice(0, -1).join(', ')} and ${items[items.length - 1]}`);
+/** Run now's Audit history choices on the Done page's installer, in days. */
+const RUN_NOW_DAYS = [30, 90, 180];
+
+/**
+ * What a re-run does with each kind of pending admin action, from the Azure install's code, and the label it's
+ * listed under. A re-run tries the Graph roles and the drop site's grant again, and lists them again if it still
+ * can't make them, whoever has done them since.
+ * @type {Record<string, { label: string, after: string }>}
+ */
+const PENDING_DONE = {
+  graph: { label: 'Microsoft Graph roles', after: `${REPAIR}: it tries each of these roles again.` },
+  consent: { label: 'Web app consent', after: `${REPAIR}: it checks the consent, and stops listing it once it's granted.` },
+  teams: {
+    label: 'Teams app',
+    after:
+      `${REPAIR}: with the Teams Administrator or Global Administrator role, it finds Analytics Hub in your org's app catalog and stops listing this. ` +
+      "Without one of them it can't read the catalog, so it lists it again.",
+  },
+  owner: { label: 'App ownership', after: `${REPAIR}: it finishes setting up the app and stops listing this.` },
+  'drop-site': { label: 'Drop site access', after: `${REPAIR}: it tries this grant again, and lists it again if it can't make it itself, even once the admin has.` },
+  other: { label: PENDING_LABEL, after: `Once it's done, ${REPAIR.charAt(0).toLowerCase()}${REPAIR.slice(1)}.` },
+};
+
+/**
+ * Whether a data check's identity match shows user names, as printIdentityMatch (run.js) reads it: hidden when at
+ * least half the licensed users' names are masked, and unknown with no licensed users or no audit activity to tell by.
+ * @param {{ licensed?: number, audit?: number, masked?: number } | null | undefined} identity
+ * @returns {'shown' | 'hidden' | 'unknown'}
+ */
+export function namesState(identity) {
+  const licensed = Number(identity?.licensed ?? 0);
+  const audit = Number(identity?.audit ?? 0);
+  const masked = Number(identity?.masked ?? 0);
+  if (!(licensed > 0 && audit > 0)) return 'unknown';
+  return masked * 2 < licensed ? 'shown' : 'hidden';
+}
+
+/**
+ * Whether to ask for user names in the Microsoft 365 usage reports, and whether it's unsure they're concealed. On
+ * Fabric it's asked unless the data check shows names: with no check, or one that can't tell, it's asked, since
+ * concealing them is Microsoft's default. Azure's first load runs in the background, so there's no check to tell by:
+ * it's always asked, except for sample data.
+ * @param {InstallConfig} config
+ * @param {{ identity?: { licensed?: number, audit?: number, masked?: number } } | null | undefined} dataCheck  This run's data
+ *   check, or else the last one the Lakehouse holds.
+ * @returns {false | { unsure: boolean }}
+ */
+export function namesWanted(config, dataCheck) {
+  if (config.target === 'azure') return config.azure?.sampleData === true ? false : { unsure: true };
+  const state = namesState(dataCheck?.identity);
+  return state === 'shown' ? false : { unsure: state === 'unknown' };
+}
+
+/**
+ * Whether you're a Global Administrator, from your active directory roles. Not when they can't be read.
+ * @param {any} api
+ * @returns {Promise<boolean>}
+ */
+export async function isGlobalAdmin(api) {
+  try {
+    const roles = await api?.graph?.myDirectoryRoles?.();
+    return Array.isArray(roles) && roles.some((r) => r?.roleTemplateId === GLOBAL_ADMIN_ROLE);
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @typedef {object} DoneOptions
+ * @property {string} [from]  Your sign-in: it signs each message, and it's the mailbox the product feedback export goes to.
+ * @property {boolean} [consented]  This run's admin consent (Fabric). False when it's still needed.
+ * @property {{ identity?: { licensed?: number, audit?: number, masked?: number } } | null} [dataCheck]  This run's data check,
+ *   or else the last one the Lakehouse holds.
+ * @property {boolean} [globalAdmin]  You're a Global Administrator, so concealed names are your own card rather than a request.
+ * @property {number} [backfillDays]  The audit history the skipped load would have loaded.
+ * @property {Ask[]} [transcripts]  The Agent Evaluator's asks, one per environment, from its module.
+ */
+
+/**
+ * Global Reader for whoever the load runs as, so Resource Graph returns Copilot Studio agents, until the record says
+ * it has a role that covers them.
+ * @param {AskContext} c
+ * @returns {Ask[]}
+ */
+function globalReaderDone(c) {
+  const { config } = c;
+  const rg = config.resourceGraph;
+  const azure = config.target === 'azure';
+  if (!resourceGraphOn(config) || rg?.agents === false) return [];
+  if (azure ? config.azure?.sampleData === true || rg?.azureRoleAssigned : rg?.roleAssigned) return [];
+  const out = config.azure?.outputs;
+  const mi = out?.identityId ? String(out.identityId).split('/').pop() : '';
+  const select = !azure
+    ? `Choose Add assignments, search for "${config.app?.displayName ?? APP_NAME}" and select it.`
+    : mi
+      ? `Choose Add assignments, search for "${mi}", the Analytics Hub jobs' managed identity, and select it.`
+      : "Choose Add assignments and select the Analytics Hub jobs' managed identity.";
+  const steps = [
+    `In the Microsoft Entra admin center, open Roles & admins and choose ${AGENT_ROLE}: ${ENTRA_ROLES_URL}`,
+    select,
+    'Choose Add. With Privileged Identity Management, make it an active, permanent assignment.',
+  ];
+  const { servicePrincipalId, appId } = config.app ?? {};
+  const command = azure
+    ? out?.identityPrincipalId && globalReaderCommand(out.identityPrincipalId)
+    : (servicePrincipalId || appId) && globalReaderCommand(servicePrincipalId, appId);
+  return [
+    {
+      admin: 'role-admin',
+      label: AGENT_ROLE,
+      text: `${forLoad(c, globalReaderWhat())}${numberedLines(steps)}${command ? `\n  Or in Azure Cloud Shell (Bash):\n  ${command}` : ''}`,
+      after: [
+        'Once the role applies, the next load collects Copilot Studio agents. Until then, it reports them as "Not collected: permission missing".',
+        `${REPAIR}: it finds the role and stops asking.`,
+      ],
+    },
+  ];
+}
+
+/**
+ * Admin consent for the Fabric app's Microsoft Graph permissions, when this run couldn't grant it. The audit
+ * history loads once it's granted.
+ * @param {InstallConfig} config
+ * @param {DoneOptions} opts
+ * @returns {Ask[]}
+ */
+function consentDone(config, opts) {
+  if (config.target === 'azure' || opts.consented !== false) return [];
+  const days = opts.backfillDays ?? config.history?.days ?? 30;
+  const runNow = RUN_NOW_DAYS.includes(days) ? `, or open the installer again, set Audit history to "Reload the last ${days} days of audit history" and choose Run now` : '';
+  return [{ ...fabricConsentAsk(config), label: 'Admin consent', after: [`Then load the audit history: run "${commandLine(`run --backfill-days ${days}`)}"${runNow}.`] }];
+}
+
+/**
+ * The Azure AI roles are given on Fabric whenever the consumption module has a subscription to read, and on Azure when
+ * it reads Azure AI through the API too. Pay-as-you-go subscriptions are only tried once Azure AI has access.
+ * @param {InstallConfig} config
+ */
+const azureAiOn = (config) =>
+  !!config.modules?.consumption &&
+  !!config.consumption?.azureSubscriptionId &&
+  (config.target !== 'azure' || (config.azure?.sampleData !== true && config.dataSources?.azureAi === 'api'));
+
+/**
+ * The roles that let the load read Azure AI costs and metrics, until the record says it has them.
+ * @param {AskContext} c
+ * @returns {Ask[]}
+ */
+function azureAiDone(c) {
+  const { config } = c;
+  const cc = config.consumption;
+  if (!azureAiOn(config) || cc?.azureAccess) return [];
+  const sub = /** @type {string} */ (cc.azureSubscriptionId);
+  const names = AZURE_AI_ROLES.map((r) => r.name);
+  const principal = loadObjectId(config);
+  const where = cc.azureSubscriptionName ? `${cc.azureSubscriptionName} (${sub})` : sub;
+  return [
+    {
+      admin: 'azure-owner',
+      label: 'Azure AI costs and metrics',
+      text:
+        forLoad(c, `the ${andList(names)} roles on the Azure subscription ${where}, so Analytics Hub can read Azure AI costs and metrics.`) +
+        (principal ? `${CLOUD_SHELL}${names.map((n) => roleAssignmentCommand(principal, n, `/subscriptions/${sub}`)).join('\n  ')}` : ''),
+      after: [`${REPAIR_ASKS} "It already has these roles". Until then, Azure AI is left out of the pipeline.`],
+    },
+  ];
+}
+
+/**
+ * Cost Management Reader on each pay-as-you-go subscription the record doesn't have access to. They're tried only after
+ * Azure AI has access, so after a refusal there, none of them was.
+ * @param {AskContext} c
+ * @returns {Ask[]}
+ */
+function paygDone(c) {
+  const { config } = c;
+  if (!azureAiOn(config)) return [];
+  const principal = loadObjectId(config);
+  return (config.consumption?.paygSubscriptions ?? [])
+    .filter((p) => !p.access)
+    .map((p) => {
+      const scope = `/subscriptions/${p.subscriptionId}`;
+      const where = p.name ? `${p.name} (${p.subscriptionId})` : p.subscriptionId;
+      return /** @type {Ask} */ ({
+        admin: 'azure-owner',
+        label: 'Pay-as-you-go costs',
+        text:
+          forLoad(c, `the Cost Management Reader role on the Azure subscription ${where}, so Analytics Hub can read its Copilot pay-as-you-go costs.`) +
+          (principal ? `${CLOUD_SHELL}${roleAssignmentCommand(principal, 'Cost Management Reader', scope)}` : ''),
+        after: [
+          `${REPAIR_ASKS} "It already has this role" for each pay-as-you-go subscription. Until then, the subscription's Copilot pay-as-you-go costs are left out.`,
+        ],
+      });
+    });
+}
+
+/**
+ * Reader for Foundry on the scope Resource Graph reads, until the record says the load has it.
+ * @param {AskContext} c
+ * @returns {Ask[]}
+ */
+function foundryDone(c) {
+  const { config } = c;
+  const rg = config.resourceGraph;
+  const azure = config.target === 'azure';
+  if (!resourceGraphOn(config) || (azure && config.azure?.sampleData === true) || rg?.foundry === false) return [];
+  if (azure ? rg?.azureAccess : rg?.access) return [];
+  return [
+    {
+      admin: 'azure-owner',
+      label: RG_FOUNDRY,
+      text: foundryText(c),
+      after: [`${REPAIR_ASKS} "It already has access". Until then, the load reports Foundry as not readable.`],
+    },
+  ];
+}
+
+/**
+ * User names in the Microsoft 365 usage reports, for a Global Administrator, unless you're one: then it's your card.
+ * @param {InstallConfig} config
+ * @param {DoneOptions} opts
+ * @returns {Ask[]}
+ */
+function namesDone(config, opts) {
+  const names = namesWanted(config, opts.dataCheck);
+  if (!names || opts.globalAdmin) return [];
+  return [
+    {
+      admin: 'global-admin',
+      label: 'Concealed names',
+      text:
+        `Show user names in the Microsoft 365 usage reports. ${CONCEALED_NAMES_WHY}${names.unsure ? " If the reports already show names, there's nothing to do." : ''}` +
+        `${numberedLines(CONCEALED_NAMES_STEPS)}\n  Microsoft 365 admin center: ${M365_ADMIN_URL}`,
+      after: [CONCEALED_NAMES_AFTER],
+    },
+  ];
+}
+
+/**
+ * The emailed product feedback export the Fabric feedback flow saves, for a Microsoft 365 admin.
+ * @param {InstallConfig} config
+ * @param {DoneOptions} opts
+ * @returns {Ask[]}
+ */
+function feedbackDone(config, opts) {
+  if (config.target === 'azure' || !flowsWanted(config).includes('feedback')) return [];
+  const flow = FLOW_NAMES.feedback;
+  const steps = [
+    `In the Microsoft 365 admin center, open Health > Product feedback: ${FEEDBACK_EXPORT_URL}`,
+    `Choose Export and schedule it to be emailed to ${opts.from ?? 'the mailbox the flow reads'}, with the subject "${FEEDBACK_SUBJECT}".`,
+  ];
+  return [
+    {
+      admin: 'm365-admin',
+      label: 'Product feedback export',
+      text:
+        'Schedule the Microsoft 365 product feedback export for Analytics Hub. A flow saves it when it arrives by email.' +
+        `${numberedLines(steps)}\n  The subject must be exactly "${FEEDBACK_SUBJECT}", so the flow picks it up.`,
+      note: `If the ${flow} flow's Outlook connection signs in as another mailbox, change the address to that one before you send it.`,
+      after: [`Once the ${flow} flow is signed in and on, it saves the CSV files attached to each export email, and the next load reads them.`],
+    },
+  ];
+}
+
+/**
+ * The Viva Insights query a Dataflow reads Cowork credits from, rather than an uploaded export. Optional, and Fabric
+ * only: Azure reads Cowork credits from the export.
+ * @param {InstallConfig} config
+ * @returns {Ask[]}
+ */
+function vivaDone(config) {
+  const cc = config.consumption;
+  if (config.target === 'azure' || !config.modules?.consumption || config.dataSources?.coworkCredits !== 'csv') return [];
+  if (isVivaId(cc?.vivaPartition) && isVivaId(cc?.vivaQuery)) return [];
+  const steps = [
+    'In Viva Insights > Create analysis > Create custom query, choose Consumption query and keep the preselected credit metrics.',
+    'Turn on Auto-refresh, and run it.',
+    'In Analysis results, choose the link icon next to it and copy the partition ID and the query ID.',
+  ];
+  return [
+    {
+      admin: 'viva',
+      optional: true,
+      label: 'Cowork credits query',
+      text:
+        'Set up a Viva Insights query for Analytics Hub, which reads Copilot Cowork credits from it every day.' +
+        `${numberedLines(steps)}\n  Then send me the partition ID and the query ID. They look like 00000000-0000-0000-0000-000000000000.\n  Guide: ${DATAFLOW_GUIDE}`,
+      note: 'With it, a Dataflow reads Cowork credits on every run, rather than someone uploading the Consumption Dashboard export.',
+      after: ['Run the installer again and choose Connected (Dataflow) for Cowork credits, with the two IDs.'],
+    },
+  ];
+}
+
+/**
+ * What's left for admins at the end of an install or Repair: one request per admin, in the order of ADMINS, from the
+ * install record and this run rather than your roles. Each asks for everything that admin does, once, as a message
+ * signed by `from`, with notes for you before you send it and what you do once it's done. Preflight's rows aren't
+ * asked for again: by the end they were met or let through. A request per `who` when asks name one, such as each
+ * environment's System Administrator.
+ * @param {InstallConfig} config
+ * @param {DoneOptions} [opts]
+ * @returns {AdminRequest[]}
+ */
+export function doneRequests(config, opts = {}) {
+  const azure = config.target === 'azure';
+  const actions = azure ? config.azure?.status?.pendingAdminActions ?? [] : [];
+  const roles = azure ? pendingGraphRoles(config.azure?.graphRoles) : [];
+  /** @type {AskContext} */
+  const c = {
+    config,
+    status: () => undefined,
+    ppApi: false,
+    pendingConsent: actions.some((a) => a.startsWith(CONSENT_PENDING)),
+    pendingTeams: actions.some((a) => a.startsWith(`${TEAMS_APP_PENDING}: `)),
+  };
+  const pending = pendingAsks(actions, roles, [], c).map((a) => {
+    const done = PENDING_DONE[a.kind ?? 'other'] ?? PENDING_DONE.other;
+    return { ...a, label: done.label, after: [done.after] };
+  });
+  const asks = placeConsent([
+    ...globalReaderDone(c),
+    ...consentDone(config, opts),
+    ...pending,
+    ...azureAiDone(c),
+    ...paygDone(c),
+    ...foundryDone(c),
+    ...namesDone(config, opts),
+    ...feedbackDone(config, opts),
+    ...vivaDone(config),
+    ...(opts.transcripts ?? []),
+  ]);
+  return /** @type {AdminKey[]} */ (Object.keys(ADMINS)).flatMap((admin) => {
+    const mine = asks.filter((a) => a.admin === admin);
+    return [...new Set(mine.map((a) => a.who ?? ADMINS[admin]))].map((who) => {
+      const these = mine.filter((a) => (a.who ?? ADMINS[admin]) === who);
+      const texts = [...new Set(these.map((a) => a.text))];
+      const notes = [...new Set(these.flatMap((a) => (a.note ? [a.note] : [])))];
+      const after = [...new Set(these.flatMap((a) => a.after ?? []))];
+      const intro = `I've installed Analytics Hub, and I need your help with ${texts.length === 1 ? 'this' : 'these'}:`;
+      return /** @type {AdminRequest} */ ({
+        admin,
+        who,
+        rows: [...new Set(these.map((a) => a.label ?? PENDING_LABEL))],
+        asks: texts,
+        message: letter([intro, '', ...texts.map((t) => `- ${t}`)], opts.from),
+        ...(these.every((a) => a.optional) ? { optional: true } : {}),
+        ...(notes.length ? { notes } : {}),
+        ...(after.length ? { after } : {}),
+      });
+    });
   });
 }
