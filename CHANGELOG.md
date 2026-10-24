@@ -431,7 +431,9 @@ sets the number. On Fabric and Azure.
   the missing prerequisites and hand-offs, the tenant settings only a Fabric administrator can read,
   the data policy, the sign-in to the flows' Power Platform API connection, the Azure apps' admin
   script and *Create workspaces*, and, on Azure, the install's pending admin actions, where a Graph
-  role that's pending twice is asked for once. They never include a secret.
+  role that's pending twice is asked for once. They never include a secret. Resource Graph's
+  request, and its prerequisite row, ask for Global Reader and Reader for the app, or on Azure the
+  jobs' managed identity, since the load reads as it, not as you.
 
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
