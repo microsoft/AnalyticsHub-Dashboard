@@ -117,7 +117,8 @@ Application Administrator, Cloud Application Administrator or Application Develo
 Privileged Role Administrator can't, though it can grant admin consent. The installer checks before
 anything is created, but it can't see custom roles, so it still offers to create the apps. Choose
 that only if a custom role lets you register apps. On Azure, if Entra then refuses, the installer
-writes the admin script and stops before it deploys anything.
+writes the admin script and stops before it deploys anything. On Fabric, it writes the admin pack
+below and stops, and the next run offers **An admin will register the app for me** as the default.
 
 **On Fabric**, choose **An admin will register the app for me** in the app registration question.
 Before anything is created, the installer writes `analytics-hub-admin-pack.md` next to the install

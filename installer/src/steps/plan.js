@@ -721,7 +721,8 @@ export async function plan(ctx, pre, section) {
       ui.ok(`Using ${config.app.displayName ?? 'app'} (${config.app.appId})`);
       askSecret = !!section && !!config.app.existing && !config.keyVault.secretSetAt && !ctx.pendingSecret;
     } else {
-      // Offered whenever the installer can't confirm you can register apps: if Entra refuses, ensureApp sends you here.
+      // Offered whenever the installer can't confirm you can register apps, or a pack is written: if Entra refuses,
+      // ensureApp writes one and stops, so the next run offers this as the default.
       const blocked = pre.canCreateApps !== true || !pre.canConsent || !!config.app.adminPack;
       const def = config.app.adminPack || (pre.canCreateApps === false && !ui.yes) ? 'admin' : 'new';
       const recommended = (/** @type {string} */ value) => (value === def ? ' (recommended)' : '');
@@ -735,7 +736,7 @@ export async function plan(ctx, pre, section) {
               ? {
                   description:
                     'The installer found no role or setting that lets you register apps, but it can\'t see custom roles. Choose this only if a custom role lets you create it. ' +
-                    'If Entra refuses, the installer stops: run it again and choose "An admin will register the app for me". It reuses what it has made, such as the workspace.',
+                    'If Entra refuses, the installer stops and writes an admin pack for you to send to an admin. When you run it again, it reuses what it has made, such as the workspace.',
                 }
               : {}),
           },

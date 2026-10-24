@@ -474,10 +474,15 @@ export async function ensureApp(ctx) {
       application = await api.graph.createApplication(APP_NAME, roles);
     } catch (err) {
       if (!isStatus(err, 403)) throw err;
-      // The plan offers the admin option whenever it can't confirm you can register apps (plan.js, "App registration").
-      throw new Error(
-        `Entra didn't let you create the app registration (${/** @type {Error} */ (err).message.split('\n')[0]}). ` +
-          `Run "${commandLine('install')}" again${ui.yes ? ' without --yes' : ''} and choose "An admin will register the app for me": you get an admin pack to send to an Application Administrator or Cloud Application Administrator. ` +
+      // As if the plan's admin option had been chosen, so the next run offers it as the default, even where the plan
+      // didn't offer it this time (plan.js, "App registration").
+      app.adminPack = writeAdminPack(ctx);
+      app.existing = true;
+      ctx.save();
+      throw new ResumeLater(
+        `Entra didn't let you create the app registration (${/** @type {Error} */ (err).message.split('\n')[0]}), so the installer stopped. ` +
+          `Send ${app.adminPack} to an Application Administrator or Cloud Application Administrator: it has a Cloud Shell script and portal steps to register the app. ` +
+          `Once they send you its client ID, run "${commandLine('install')}" again${ui.yes ? ' without --yes' : ''} and choose "An admin will register the app for me" to enter it. ` +
           'Or, if an admin has already made one, choose "Use an app registration I already have". The installer reuses what it has made, such as the workspace.',
       );
     }
