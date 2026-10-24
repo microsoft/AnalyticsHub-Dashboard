@@ -11,6 +11,7 @@ import { commandLine } from '../launch.js';
 import { ppApiWanted, preflightVerdict, settingsToConfirm, TENANT_SETTINGS_URL } from '../prereqs.js';
 import { isVivaId } from '../transform/dataflow.js';
 import { FEEDBACK_SUBJECT } from '../transform/flows.js';
+import { adminFileName } from './admin-pack.js';
 import { AUDIT_ROLE, PURVIEW_AUDIT_URL } from './audit-check.js';
 import { AZURE_APPS } from './azure/apps.js';
 import { LEAST_PRIVILEGE_URL } from './azure/least-privilege.js';
@@ -56,6 +57,7 @@ export const ADMINS = {
  * @property {boolean} [optional]  Everything it asks for is optional.
  * @property {string[]} [notes]  For you, before you send it.
  * @property {string[]} [after]  For you, once the admin has done it.
+ * @property {string[]} [back]  What the admin sends you back, one item each.
  */
 /**
  * @typedef {object} Ask
@@ -68,6 +70,7 @@ export const ADMINS = {
  * @property {boolean} [optional]
  * @property {string} [note]  For you, before you send it.
  * @property {string[]} [after]  For you, once it's done.
+ * @property {string} [back]  What the admin sends you back.
  * @property {string} [kind]  Which pending admin action it's for: graph, consent, teams, owner, drop-site or other.
  */
 /**
@@ -94,6 +97,7 @@ const XMLA_UNREAD = 'XMLA endpoint must also be Read Write';
 const WEB_CONSENT = 'the Analytics Hub web app\'s delegated permissions (Power BI and Microsoft Graph)';
 const RG_AGENTS = 'Copilot Studio agents';
 const RG_FOUNDRY = 'Foundry resources';
+const VIVA_BACK = 'The Cowork credits query\'s partition ID and query ID.';
 
 /** @param {string} p */
 const fileName = (p) => p.split(/[\\/]/).pop() || p;
@@ -247,16 +251,20 @@ export const ROW_ASKS = {
   'register-apps': (it, c) => {
     const { config } = c;
     if (config.target !== 'azure') {
-      const pack = config.app?.adminPack ? ` (${fileName(config.app.adminPack)})` : '';
-      return [{ admin: 'app-admin', text: `Register the app Analytics Hub uses to collect data, in Microsoft Entra. I'll send you the installer's admin pack${pack}, which says how, and what to send back.` }];
+      // Once you've chosen to have an admin register it, their own file in the admin pack has the script and steps.
+      const steps =
+        config.app?.adminPack && !config.app.appId
+          ? `The installer's Cloud Shell script and portal steps for it are in ${adminFileName('app-admin')}, from its admin pack, with what to send back.`
+          : 'I\'ll send you the installer\'s Cloud Shell script and portal steps for it, which say what to send back.';
+      return [{ admin: 'app-admin', text: `Register the app Analytics Hub uses to collect data, in Microsoft Entra. ${steps}` }];
     }
-    const script = config.azure?.adminScript;
-    if (script) {
+    if (config.azure?.adminScript) {
+      // The app admin's own file in the admin pack has the script, as the file it records does.
       return [
         {
           admin: 'app-admin',
           coversConsent: true,
-          text: `Run the script in ${fileName(script)}, which I'll send you, in Azure Cloud Shell (Bash). It creates Analytics Hub's app registrations and approves ${WEB_CONSENT}. It makes no secrets.`,
+          text: `Run the script in ${adminFileName('app-admin')}, from the installer's admin pack, in Azure Cloud Shell (Bash). It creates Analytics Hub's app registrations and approves ${WEB_CONSENT}. It makes no secrets.`,
         },
       ];
     }
@@ -320,6 +328,7 @@ export const ROW_ASKS = {
     {
       admin: 'viva',
       text: 'Create the Copilot Cowork credits query in Viva Insights (Consumption query, the preselected credit metrics, Auto-refresh on), and send me its partition ID and query ID.',
+      back: VIVA_BACK,
     },
   ],
   'defender-licence': null,
@@ -473,6 +482,7 @@ export function adminRequests(rows, config, opts = {}) {
     const mine = asks.filter((a) => a.admin === admin);
     if (!mine.length) return [];
     const texts = [...new Set(mine.map((a) => a.text))];
+    const back = [...new Set(mine.flatMap((a) => (a.back ? [a.back] : [])))];
     const intro = `I'm installing Analytics Hub, and I need your help with ${texts.length === 1 ? 'this' : 'these'}:`;
     return [
       {
@@ -481,6 +491,7 @@ export function adminRequests(rows, config, opts = {}) {
         rows: [...new Set(mine.map((a) => a.label ?? PENDING_LABEL))],
         asks: texts,
         message: letter([intro, '', ...texts.map((t) => `- ${t}`)], opts.from),
+        ...(back.length ? { back } : {}),
       },
     ];
   });
@@ -783,6 +794,7 @@ function vivaDone(config) {
         `${numberedLines(steps)}\n  Then send me the partition ID and the query ID. They look like 00000000-0000-0000-0000-000000000000.\n  Guide: ${DATAFLOW_GUIDE}`,
       note: 'With it, a Dataflow reads Cowork credits on every run, rather than someone uploading the Consumption Dashboard export.',
       after: ['Run the installer again and choose Connected (Dataflow) for Cowork credits, with the two IDs.'],
+      back: VIVA_BACK,
     },
   ];
 }
@@ -832,6 +844,7 @@ export function doneRequests(config, opts = {}) {
       const texts = [...new Set(these.map((a) => a.text))];
       const notes = [...new Set(these.flatMap((a) => (a.note ? [a.note] : [])))];
       const after = [...new Set(these.flatMap((a) => a.after ?? []))];
+      const back = [...new Set(these.flatMap((a) => (a.back ? [a.back] : [])))];
       const intro = `I've installed Analytics Hub, and I need your help with ${texts.length === 1 ? 'this' : 'these'}:`;
       return /** @type {AdminRequest} */ ({
         admin,
@@ -842,6 +855,7 @@ export function doneRequests(config, opts = {}) {
         ...(these.every((a) => a.optional) ? { optional: true } : {}),
         ...(notes.length ? { notes } : {}),
         ...(after.length ? { after } : {}),
+        ...(back.length ? { back } : {}),
       });
     });
   });

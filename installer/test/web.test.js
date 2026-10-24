@@ -843,3 +843,31 @@ test('web ui: the requests at the end are their own event, for the Done page onl
   assert.match(app, /case 'done-requests':\s*return null;/);
   assert.match(app, /renderNextSteps\(run\.nextSteps, run\.todo\) : null,\s*renderDoneRequests\(run\.doneRequests\),/);
 });
+
+test('web ui: says where the admin pack is, as its own event that the end marks done; the page shows it with the requests, and the check keeps it', async () => {
+  const ui = createWebUi({ now: () => 1000 });
+  const index = '/records/analytics-hub-admin-pack.md';
+  const files = [{ who: 'Your licence admin', path: '/records/analytics-hub-admin-pack/licence.md' }];
+  const event = () => {
+    const { seq, at, ...e } = /** @type {any} */ (latest(ui));
+    assert.equal(at, 1000);
+    return e;
+  };
+  ui.adminPack({ index, files });
+  assert.deepEqual(event(), { type: 'admin-pack', index, files });
+  ui.adminPack({ index, files: [], done: true });
+  assert.deepEqual(event(), { type: 'admin-pack', index, files: [], done: true });
+
+  // The run log shows each write's paths, except the end's, which is on the Done page after what's left for admins.
+  // The Prerequisites panel shows the check's under its requests.
+  const app = await readFile(new URL('web/app.js', SRC), 'utf8');
+  assert.match(app, /case 'admin-pack':\s*ensureRoot\(run, e\.at\);\s*run\.adminPack = \{ index: e\.index, files: e\.files \?\? \[\], done: !!e\.done \};/);
+  assert.match(app, /case 'admin-pack':\s*return it\.done \? null : renderAdminPack\(it\);/);
+  assert.match(app, /renderDoneRequests\(run\.doneRequests\),\s*run\.adminPack\?\.done \? renderAdminPack\(run\.adminPack\) : null,/);
+  assert.match(app, /renderAdminRequests\(p\.requests\),\s*renderAdminPack\(p\.adminPack\),/);
+  assert.match(app, /'Permission to register apps in Entra, or an app registration you already have\. If you have neither, an admin can register it for you: the check writes a file for each admin you need, to send as it is\.'/, 'what you need, on the welcome page');
+  assert.match(app, /'Sign in to check which of these you have\. The check only reads your tenant; it changes nothing there\.'/, 'it writes the pack on your machine, so not "changes nothing"');
+
+  assert.equal(prereqsSnapshot('analyst@contoso.com', []).adminPack, null, 'no pack: no install record yet, or nothing to ask');
+  assert.deepEqual(prereqsSnapshot('analyst@contoso.com', [], emptyConfig(), { index, files }).adminPack, { index, files });
+});

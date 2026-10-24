@@ -126,7 +126,7 @@ const PRE = /** @type {any} */ ({
 });
 const CUSTOM_ROLE =
   'The installer found no role or setting that lets you register apps, but it can\'t see custom roles. Choose this only if a custom role lets you create it. ' +
-  'If Entra refuses, the installer stops and writes an admin pack for you to send to an admin. When you run it again, it reuses what it has made, such as the workspace.';
+  'If Entra refuses, the installer stops and writes the admin pack, with a file for an admin who can register it. When you run it again, it reuses what it has made, such as the workspace.';
 
 /**
  * What Fabric's plan offers for a new app, and its default. The plan stops there.
@@ -198,18 +198,25 @@ test('ensureApp: when Entra won\'t let you create the app, it writes the admin p
         },
       });
       const pack = join(dir, ADMIN_PACK_FILE);
+      const appFile = join(dir, 'analytics-hub-admin-pack', 'app-admin.md');
       await assert.rejects(ensureApp(t.ctx), (err) => {
         assert.ok(isResumeLater(err), 'it stops, as the plan\'s admin option does');
         const msg = /** @type {Error} */ (err).message;
         assert.match(msg, /^Entra didn't let you create the app registration \(403 Forbidden\), so the installer stopped\. /, 'with the first line of what Entra said');
-        assert.ok(msg.includes(`Send ${pack} to an Application Administrator or Cloud Application Administrator: it has a Cloud Shell script and portal steps to register the app. `), msg);
+        assert.ok(msg.includes(`Send ${appFile} to an Application Administrator or Cloud Application Administrator: it has a Cloud Shell script and portal steps to register the app. `), msg);
+        assert.ok(msg.includes(`${pack} lists it, with any other admin's file. `), msg);
         assert.ok(msg.includes('Once they send you its client ID, run "'), msg);
         assert.ok(msg.includes(`again${yes ? ' without --yes' : ''} and choose "${ADMIN}" to enter it. `), msg);
         assert.ok(msg.endsWith(`Or, if an admin has already made one, choose "${EXISTING}". The installer reuses what it has made, such as the workspace.`), msg);
         assert.doesNotMatch(msg, /docs\//, 'the installer doesn\'t ship the repo\'s docs');
         return true;
       });
-      assert.match(readFileSync(pack, 'utf8'), /^# Analytics Hub: register the app\n/);
+      const index = readFileSync(pack, 'utf8');
+      assert.match(index, /^# Analytics Hub: your admin pack\n/);
+      assert.match(index, /Microsoft Entra refused to let you create Analytics Hub's app registration/, 'it says what happened');
+      assert.doesNotMatch(index, /can't register apps|can't grant admin consent/, 'and no more: your role or the tenant setting may have looked as if it allowed you');
+      assert.match(index, /analytics-hub-admin-pack\/app-admin\.md/);
+      assert.match(readFileSync(appFile, 'utf8'), /az ad app create --display-name "Analytics Hub Data Collector"/, 'the app admin\'s file has the script');
       const record = saved.at(-1);
       assert.ok(record, 'the record is saved before it stops');
       assert.equal(record.app.adminPack, pack);

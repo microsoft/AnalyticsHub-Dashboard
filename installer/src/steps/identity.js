@@ -3,8 +3,8 @@
  * Key Vault, the app registration and its secret, and admin consent.
  * Each step checks what is already there, so a re-run only does what is missing.
  */
-import { writeFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { basename, dirname, join } from 'node:path';
 import { GRAPH_APP_ID, permissionsFor } from '../catalog.js';
 import { allowsAction, isPrivateVault, networkBlocked, ROLES } from '../clients/azure.js';
 import { adminConsentUrl, apiPermissionsUrl, applicationBody, azureWebApplicationBody, resolveAppRoles } from '../clients/graph.js';
@@ -12,11 +12,19 @@ import { secretMode } from '../config.js';
 import { HttpError } from '../http.js';
 import { commandLine } from '../launch.js';
 import { c } from '../ui.js';
+import { ADMIN_PACK_DIR, ADMIN_PACK_FILE, adminFileName, renderAdminPack, writeAdminPackFiles } from './admin-pack.js';
+import { ADMINS, adminRequests } from './handoff.js';
 import { APP_NAME } from './plan.js';
 import { addTrackedSecret, adoptAttempts, promoteSecret, settleFailedSecret } from './secrets.js';
-import { SQL_READER_NAME, WEB_APP_NAME, webAppGrants } from './azure/apps.js';
+import { appsRecorded, SQL_READER_NAME, WEB_APP_NAME, webAppGrants } from './azure/apps.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
+/** @typedef {import('../config.js').InstallConfig} InstallConfig */
+/** @typedef {import('../prereqs.js').Prereq} Prereq */
+/** @typedef {import('./handoff.js').AdminRequest} AdminRequest */
+/** @typedef {import('./admin-pack.js').AdminExtra} AdminExtra */
+/** @typedef {import('./admin-pack.js').PackPaths} PackPaths */
+/** @typedef {import('./admin-pack.js').PackWriter} PackWriter */
 
 export const SECRET_LIFETIME_MONTHS = 12;
 
@@ -475,13 +483,19 @@ export async function ensureApp(ctx) {
     } catch (err) {
       if (!isStatus(err, 403)) throw err;
       // As if the plan's admin option had been chosen, so the next run offers it as the default, even where the plan
-      // didn't offer it this time (plan.js, "App registration").
-      app.adminPack = writeAdminPack(ctx);
+      // didn't offer it this time (plan.js, "App registration"). Entra refused, whatever your role or the tenant's
+      // setting seemed to allow, so the pack says that and no more.
+      app.adminPack = writeAdminPack(
+        ctx,
+        'Microsoft Entra refused to let you create Analytics Hub\'s app registration, so the installer stopped. ' +
+          'An Application Administrator or Cloud Application Administrator can register it for you, with the script and portal steps in their file.',
+      );
       app.existing = true;
       ctx.save();
       throw new ResumeLater(
         `Entra didn't let you create the app registration (${/** @type {Error} */ (err).message.split('\n')[0]}), so the installer stopped. ` +
-          `Send ${app.adminPack} to an Application Administrator or Cloud Application Administrator: it has a Cloud Shell script and portal steps to register the app. ` +
+          `Send ${appAdminFile(app.adminPack)} to an Application Administrator or Cloud Application Administrator: it has a Cloud Shell script and portal steps to register the app. ` +
+          `${app.adminPack} lists it, with any other admin's file. ` +
           `Once they send you its client ID, run "${commandLine('install')}" again${ui.yes ? ' without --yes' : ''} and choose "An admin will register the app for me" to enter it. ` +
           'Or, if an admin has already made one, choose "Use an app registration I already have". The installer reuses what it has made, such as the workspace.',
       );
@@ -875,13 +889,13 @@ export function reportAppCheck(ctx, check, who = {}) {
   return false;
 }
 
-export const ADMIN_PACK_FILE = 'analytics-hub-admin-pack.md';
+export { ADMIN_PACK_FILE };
 
 /**
  * The steps an admin runs to register the app for someone who can't: an Azure Cloud Shell
  * script and the same steps in the portal. The client secret goes where the install keeps it,
  * so in the vault admin mode it never leaves Azure.
- * @param {Ctx} ctx
+ * @param {Pick<Ctx, 'config'>} ctx
  * @returns {{ script: string[], checklist: string[] }}
  */
 export function adminPack(ctx) {
@@ -938,36 +952,272 @@ export function adminPack(ctx) {
   return { script, checklist };
 }
 
+/** Who can register the app and grant its admin consent, as the app admin's file says. */
+const WHO_REGISTERS = [
+  'Registering the app needs an Application Administrator or Cloud Application Administrator, or anyone who can register apps:',
+  'a Privileged Role Administrator alone can\'t. Granting admin consent for its Microsoft Graph permissions needs a',
+  'Privileged Role Administrator or Global Administrator. A Global Administrator can do both.',
+];
+
 /**
- * Writes the admin pack next to the install record and returns its path.
- * @param {Ctx} ctx
+ * What a run has asked admins for so far, kept on ctx so that each write of the hand-off pack merges with the one
+ * before it, until the end of an install puts what it left in their place.
+ * @typedef {object} HandoffPack
+ * @property {PackWriter} by
+ * @property {string[]} why  What happened, a sentence or two each, as the index says it.
+ * @property {Map<string, Prereq>} asked  The rows shown as needing someone else, by ID.
+ * @property {Map<string, Prereq>} all  Every row checked, by ID.
+ * @property {AdminRequest[]} [done]  What the install left, once it's finished, in place of the rows' requests.
+ * @property {'fabric' | 'azure'} [handoff]  This run handed the app's registration to an admin.
+ * @property {{ path: string, text: string }} [azureScript]  The Azure admin script this run wrote, and its text.
+ * @property {string} [key]  The pack as last rendered, without its time.
+ * @property {Date} [at]  When it last changed.
+ * @property {PackPaths} [paths]  Where it was last written.
+ * @property {boolean} [shown]  The run has shown where the pack is.
+ * @property {boolean} [warned]  A write failed, and the run said so.
+ *
+ * What writing the pack needs from ctx.
+ * @typedef {object} PackCtx
+ * @property {import('../ui.js').Ui} ui
+ * @property {InstallConfig} config
+ * @property {{ upn?: string }} [user]
+ * @property {string} [configFile]  The install record: the pack goes next to it.
+ * @property {string} [file]
+ * @property {() => Date} [now]
+ * @property {HandoffPack} [handoffPack]
  */
-export function writeAdminPack(ctx) {
+
+/**
+ * Starts a run's hand-off pack, for a check of the prerequisites, an install, a Repair or an update. Its first write
+ * replaces what an earlier run wrote.
+ * @param {{ handoffPack?: HandoffPack }} ctx
+ * @param {PackWriter} by
+ * @returns {HandoffPack}
+ */
+export function startHandoffPack(ctx, by) {
+  ctx.handoffPack = { by, why: [], asked: new Map(), all: new Map() };
+  return ctx.handoffPack;
+}
+
+/**
+ * A copy of the run's hand-off pack, to put back when the plan goes back a step.
+ * @param {HandoffPack} pack
+ * @returns {HandoffPack}
+ */
+export const copyHandoffPack = (pack) => ({ ...pack, why: [...pack.why], asked: new Map(pack.asked), all: new Map(pack.all) });
+
+/**
+ * The app admin's file in the pack whose index is `index`, or beside any other file in the same folder, such as the
+ * Azure admin script.
+ * @param {string} index
+ */
+export const appAdminFile = (index) => join(dirname(index), ADMIN_PACK_DIR, adminFileName('app-admin'));
+
+/**
+ * What the app admin's file has on Fabric while the pack waits for them: who can do it, the Cloud Shell script and
+ * the portal steps, as the pack had before it was split by admin.
+ * @param {Pick<Ctx, 'config'>} ctx
+ * @param {string | undefined} from
+ * @returns {AdminExtra}
+ */
+function fabricAppExtra(ctx, from) {
   const { script, checklist } = adminPack(ctx);
-  const file = join(ctx.configFile ? dirname(ctx.configFile) : process.cwd(), ADMIN_PACK_FILE);
-  const body = [
-    '# Analytics Hub: register the app',
-    '',
-    'The person setting up Analytics Hub can\'t register apps or grant admin consent in this tenant.',
-    'Run the script, or follow the portal steps, then send them the client ID.',
-    '',
-    'Registering the app needs an Application Administrator or Cloud Application Administrator, or anyone who can register apps:',
-    'a Privileged Role Administrator alone can\'t. Granting admin consent for its Microsoft Graph permissions needs a',
-    'Privileged Role Administrator or Global Administrator. A Global Administrator can do both.',
-    '',
-    '## Azure Cloud Shell (Bash)',
-    '',
-    '```bash',
-    ...script,
-    '```',
-    '',
-    '## Or in the portal',
-    '',
-    ...checklist.map((s, i) => `${i + 1}. ${s}`),
-    '',
-  ].join('\n');
-  writeFileSync(file, body, 'utf8');
-  return file;
+  const kv = ctx.config.keyVault;
+  const vault = secretMode(ctx.config) === 'keyvault-admin' && !!kv.name;
+  return {
+    sections: [
+      '## Who can do it',
+      '',
+      ...WHO_REGISTERS,
+      '',
+      '## Azure Cloud Shell (Bash)',
+      '',
+      '```bash',
+      ...script,
+      '```',
+      '',
+      '## Or in the portal',
+      '',
+      ...checklist.map((s, i) => `${i + 1}. ${s}`),
+    ],
+    sendBack: vault
+      ? ['The app\'s Application (client) ID. The script puts the client secret straight into the vault, so there\'s no secret to send.']
+      : ['The app\'s Application (client) ID.', 'The client secret\'s value, through a secure channel: never by plain email or chat.'],
+    next: [`Once ${from ?? 'the person who sent you this'} has the client ID, they run the installer again and enter it, and the install carries on.`],
+  };
+}
+
+/**
+ * The Azure admin script's own sections, from "Who runs it" on, for the app admin's file, with its "What happens
+ * next" in place of the usual one. The script itself is the same, so the two can't drift.
+ * @param {string} text  The script file's text.
+ * @returns {AdminExtra}
+ */
+export function azureScriptExtra(text) {
+  const lines = text.split('\n');
+  const first = lines.indexOf('## Who runs it');
+  const next = lines.indexOf('## What happens next');
+  const trim = (/** @type {string[]} */ a) => {
+    let i = 0;
+    let j = a.length;
+    while (i < j && !a[i].trim()) i++;
+    while (j > i && !a[j - 1].trim()) j--;
+    return a.slice(i, j);
+  };
+  const start = first >= 0 ? first : Math.max(0, lines.findIndex((l) => l.startsWith('## ')));
+  return {
+    sections: trim(lines.slice(start, next > start ? next : undefined)),
+    ...(next > start ? { next: trim(lines.slice(next + 1)) } : {}),
+  };
+}
+
+/** @param {string} path */
+function readText(path) {
+  try {
+    return existsSync(path) ? readFileSync(path, 'utf8') : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Writes the hand-off pack from every request the run has made so far: the index next to the install record, and a
+ * file for each admin in ADMIN_PACK_DIR beside it. Each write merges with the one before, until the end of an install
+ * puts what it left in their place. The terminal and the browser show the paths when a file changes.
+ *
+ * Where the pack is the only way on, `strict` writes it even without an install record, and a failure throws, as it
+ * always has. Elsewhere a failure warns once and the run carries on, and without an install record there's nowhere
+ * to write it.
+ * @param {PackCtx} ctx
+ * @param {object} [opts]
+ * @param {Prereq[]} [opts.asked]  Rows shown as needing someone else.
+ * @param {Prereq[]} [opts.all]  Every row the check looked at.
+ * @param {string[]} [opts.replace]  The IDs of the rows this check owns, dropped before `asked` goes in.
+ * @param {string} [opts.why]  What happened, for the index.
+ * @param {AdminRequest[]} [opts.done]  What a finished install left, in place of the requests so far.
+ * @param {'fabric' | 'azure'} [opts.appHandoff]  The app's registration is handed to an admin.
+ * @param {{ path: string, text: string }} [opts.azureScript]  The Azure admin script just written, and its text.
+ * @param {boolean} [opts.strict]
+ * @returns {PackPaths | undefined}  Where it is, once it's been written.
+ */
+export function writeHandoffPack(ctx, opts = {}) {
+  const { config } = ctx;
+  const state = ctx.handoffPack ?? startHandoffPack(ctx, 'install');
+  for (const id of opts.replace ?? []) state.asked.delete(id);
+  for (const it of opts.all ?? []) state.all.set(it.id, it);
+  for (const it of opts.asked ?? []) state.asked.set(it.id, it);
+  if (opts.why && !state.why.includes(opts.why)) state.why.push(opts.why);
+  if (opts.appHandoff) state.handoff = opts.appHandoff;
+  if (opts.azureScript) state.azureScript = opts.azureScript;
+  if (opts.done) state.done = opts.done;
+  const record = ctx.configFile ?? (opts.strict ? ctx.file : undefined);
+  if (!record && !opts.strict) return undefined;
+  const dir = record ? dirname(record) : process.cwd();
+  const index = join(dir, ADMIN_PACK_FILE);
+  const azure = config.target === 'azure';
+  const from = ctx.user?.upn;
+  const appFile = `${ADMIN_PACK_DIR}/${adminFileName('app-admin')}`;
+
+  // While the pack or the script waits, an admin registers the app. The check says so (prereqs.js); a run that has
+  // just handed it over says so here, whatever the check found before.
+  const registered = azure ? appsRecorded(config.azure) : !!config.app?.appId;
+  const fabricPack = !azure && !registered && (state.handoff === 'fabric' || !!config.app?.adminPack);
+  const scriptPath = azure && !registered ? state.azureScript?.path ?? config.azure?.adminScript : undefined;
+  const rows = new Map(state.asked);
+  const all = new Map(state.all);
+  if (registered) rows.delete('register-apps');
+  else if (state.handoff === (azure ? 'azure' : 'fabric') && rows.get('register-apps')?.status !== 'handoff') {
+    const base = rows.get('register-apps') ?? all.get('register-apps');
+    /** @type {Prereq} */
+    const row = {
+      id: 'register-apps',
+      label: base?.label ?? 'Register apps in Entra',
+      neededFor: base?.neededFor ?? (azure ? 'Creating the app registrations.' : 'Creating the app registration that collects the data.'),
+      status: 'handoff',
+      detail: azure
+        ? 'An admin creates the app registrations for you, with the installer\'s script.'
+        : 'An admin registers the app for you, with the script and portal steps in the installer\'s admin pack.',
+      howTo: `An Application Administrator or Cloud Application Administrator, from ${adminFileName('app-admin')} in the admin pack.`,
+    };
+    rows.set(row.id, row);
+    all.set(row.id, row);
+  }
+  /** @type {InstallConfig} */
+  let cfg = config;
+  if (fabricPack && !config.app.adminPack) cfg = { ...config, app: { ...config.app, adminPack: index } };
+  if (scriptPath && !config.azure?.adminScript) cfg = /** @type {InstallConfig} */ ({ ...config, azure: { ...config.azure, adminScript: scriptPath } });
+  let requests = state.done ?? adminRequests([...rows.values()], cfg, { from, all: [...all.values()] });
+
+  /** @type {Record<string, AdminExtra>} */
+  const extras = {};
+  /** @type {string[]} */
+  const notes = [];
+  /** @type {string[]} */
+  const after = [];
+  const reg = rows.get('register-apps');
+  const appReq = state.done || !reg ? undefined : requests.find((r) => r.admin === 'app-admin' && r.who === ADMINS['app-admin'] && r.rows.includes(reg.label));
+  if (appReq && !azure) {
+    if (fabricPack) {
+      extras['app-admin'] = fabricAppExtra(ctx, from);
+      after.push('Run the installer again, choose "An admin will register the app for me", and enter the client ID they send you.');
+    } else {
+      notes.push(
+        'To have an admin register the app for you, choose "An admin will register the app for me" when the installer asks about the app. ' +
+          `It adds the Cloud Shell script and portal steps to ${appFile}.`,
+      );
+    }
+  } else if (appReq) {
+    const text = scriptPath && (state.azureScript?.path === scriptPath ? state.azureScript.text : readText(scriptPath));
+    if (scriptPath && text) {
+      extras['app-admin'] = azureScriptExtra(text);
+      const beside = dirname(scriptPath) === dir;
+      notes.push(`${beside ? basename(scriptPath) : scriptPath}${beside ? ', beside this file,' : ''} has the same script as ${appFile}: send the app admin either one.`);
+      after.push('Run the installer again: it finds the apps itself.');
+    } else {
+      notes.push(
+        'To have an admin create the app registrations for you, choose "An admin will create the apps for me" when the installer asks about them. ' +
+          `It writes their script into ${appFile}, and into ${AZURE_ADMIN_SCRIPT_FILE} beside this file.`,
+      );
+    }
+  }
+  if (appReq && after.length) requests = requests.map((r) => (r === appReq ? { ...r, after: [...(r.after ?? []), ...after] } : r));
+
+  const end = state.by === 'repair' ? 'The Repair' : 'The install';
+  const why = state.done ? [requests.length ? `${end} finished. This is what it left for an admin.` : `${end} finished.`] : state.why;
+  const resume = state.done ? undefined : commandLine(state.by === 'update' ? 'update' : 'install');
+  /** @type {Omit<import('./admin-pack.js').PackInput, 'at'>} */
+  const input = { admins: ADMINS, requests, by: state.by, why, from, resume, notes, extras, done: !!state.done };
+  // The time changes only with what the pack says.
+  const key = JSON.stringify(renderAdminPack({ ...input, at: new Date(0) }));
+  if (key !== state.key || !state.at) {
+    state.key = key;
+    state.at = ctx.now?.() ?? new Date();
+  }
+  try {
+    const written = writeAdminPackFiles(dir, renderAdminPack({ ...input, at: state.at }), Object.keys(ADMINS));
+    if (!written.written) return undefined;
+    const paths = { index: written.index, files: written.files, ...(state.done ? { done: true } : {}) };
+    if (written.changed || !state.shown) ctx.ui.adminPack?.(paths);
+    state.shown = true;
+    state.paths = paths;
+    return paths;
+  } catch (err) {
+    if (opts.strict) throw err;
+    if (!state.warned) ctx.ui.warn(`Couldn't write the admin pack in ${dir}: ${/** @type {Error} */ (err).message}. The requests above are still yours to send.`);
+    state.warned = true;
+    return undefined;
+  }
+}
+
+/**
+ * Writes the admin pack with the app admin's script and portal steps in their file, and returns the index's path:
+ * what config.app.adminPack keeps.
+ * @param {Ctx} ctx
+ * @param {string} [why]  What happened, for the index.
+ */
+export function writeAdminPack(ctx, why) {
+  const paths = writeHandoffPack(ctx, { strict: true, appHandoff: 'fabric', why });
+  return paths?.index ?? join(ctx.configFile ? dirname(ctx.configFile) : ctx.file ? dirname(ctx.file) : process.cwd(), ADMIN_PACK_FILE);
 }
 
 export const AZURE_ADMIN_SCRIPT_FILE = 'analytics-hub-azure-admin-script.md';
@@ -1105,11 +1355,12 @@ export function azureAdminScript(ctx, scopes) {
 
 /**
  * Writes the Azure admin script next to the install record, with who runs it and what it changes, and returns
- * its path.
+ * its path. The admin pack is written with it: the app admin's file there has the same script.
  * @param {Ctx} ctx
  * @param {import('./azure/apps.js').WebAppScopes} scopes
+ * @param {string} [why]  What happened, for the admin pack's index.
  */
-export function writeAzureAdminScript(ctx, scopes) {
+export function writeAzureAdminScript(ctx, scopes, why) {
   const upn = runnerName(ctx);
   const record = ctx.configFile ?? ctx.file;
   const file = join(record ? dirname(record) : process.cwd(), AZURE_ADMIN_SCRIPT_FILE);
@@ -1160,5 +1411,6 @@ export function writeAzureAdminScript(ctx, scopes) {
     '',
   ].join('\n');
   writeFileSync(file, body, 'utf8');
+  writeHandoffPack(ctx, { strict: true, appHandoff: 'azure', azureScript: { path: file, text: body }, why });
   return file;
 }

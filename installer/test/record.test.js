@@ -470,6 +470,26 @@ test('Cloud Shell: without a storage account, the end of a run says how to downl
   }
 });
 
+test('Cloud Shell: without a storage account, the end of a run names the admin pack too, or the pack alone after a check', () => {
+  const home = join(tmpdir(), 'ah-cs-home');
+  const record = join(home, 'analytics-hub', 'valuelens-install.json');
+  const pack = join(home, 'analytics-hub', 'analytics-hub-admin-pack.md');
+  const both = cloudShellRecordMessage(record, home, { pack });
+  assert.match(both, /^This Cloud Shell has no storage account, so valuelens-install\.json and the admin pack go when the session ends or times out\. /);
+  assert.match(both, /Download them now: in Cloud Shell's toolbar choose Manage files > Download and enter analytics-hub[\\/]valuelens-install\.json, then analytics-hub[\\/]analytics-hub-admin-pack\.md and each file in analytics-hub[\\/]analytics-hub-admin-pack\./);
+  assert.match(both, /To carry on in a new session, upload valuelens-install\.json with Manage files > Upload, then run the installer again\.$/);
+
+  // A check of the prerequisites writes no record: the pack is what to keep.
+  const alone = cloudShellRecordMessage(record, home, { record: false, pack });
+  assert.equal(alone, 'This Cloud Shell has no storage account, so the admin pack goes when the session ends or times out. Download it now: in Cloud Shell\'s toolbar choose Manage files > Download and enter '
+    + `${join('analytics-hub', 'analytics-hub-admin-pack.md')} and each file in ${join('analytics-hub', 'analytics-hub-admin-pack')}.`);
+  assert.doesNotMatch(alone, /valuelens-install|Upload/);
+
+  // Without a pack, as before.
+  assert.equal(cloudShellRecordMessage(record, home, { record: true }), cloudShellRecordMessage(record, home));
+  assert.doesNotMatch(cloudShellRecordMessage(record, home), /admin pack/);
+});
+
 test('Cloud Shell: an uploaded install record is moved to where the installer looks', () => {
   const home = mkdtempSync(join(tmpdir(), 'ah-cs-'));
   try {

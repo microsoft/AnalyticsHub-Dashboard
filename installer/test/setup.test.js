@@ -653,6 +653,7 @@ test('setup on Azure: someone who can\'t create apps chooses "An admin will crea
   f.ctx.save();
   f.ctx.api.graph.usersCanRegisterApps = async () => false;
   const file = join(dirname(f.ctx.file), AZURE_ADMIN_SCRIPT_FILE);
+  const appFile = join(dirname(f.ctx.file), 'analytics-hub-admin-pack', 'app-admin.md');
   /** @type {any[]} */
   const settings = [];
   /** @type {any[]} */
@@ -667,7 +668,8 @@ test('setup on Azure: someone who can\'t create apps chooses "An admin will crea
     throw new Error(`Unexpected question: ${e.message}`);
   });
   await assert.rejects(reviewSetup(f.ctx), (/** @type {any} */ err) =>
-    isResumeLater(err) && err.message.includes(`An admin needs to create the app registrations, so the installer stopped before deploying anything. Send ${file} to an Application Administrator`));
+    isResumeLater(err) &&
+    err.message.includes(`An admin needs to create the app registrations, so the installer stopped before deploying anything. Send ${appFile}, or ${file} (the same script on its own), to an Application Administrator`));
   assert.deepEqual(offered, ['Create the two apps', 'Use the apps an admin created for me', 'An admin will create the apps for me'], 'creating them is still offered, for a custom role, but not recommended');
   const category = settings[1].categories.find((/** @type {any} */ cat) => cat.id === 'identity');
   assert.deepEqual([category.title, category.summary, category.complete], ['App registrations', `Waiting for an admin's script: ${file}`, true]);
@@ -687,6 +689,7 @@ test('setup on Azure: when an admin made only the web app, it is used, the quest
   f.graph.applications.push({ id: 'web-obj', appId: 'web-1', displayName: 'Analytics Hub (Azure)', owners: ['user-1'] });
   f.graph.servicePrincipals.push({ id: 'sp-web', appId: 'web-1' });
   const file = join(dirname(f.ctx.file), AZURE_ADMIN_SCRIPT_FILE);
+  const appFile = join(dirname(f.ctx.file), 'analytics-hub-admin-pack', 'app-admin.md');
   let settings = 0;
   /** @type {any[]} */
   const offered = [];
@@ -700,7 +703,8 @@ test('setup on Azure: when an admin made only the web app, it is used, the quest
     throw new Error(`Unexpected question: ${e.message}`);
   });
   await assert.rejects(reviewSetup(f.ctx), (/** @type {any} */ err) =>
-    isResumeLater(err) && err.message.includes(`An admin needs to create "Analytics Hub SQL Reader", so the installer stopped before deploying anything. Send ${file} to an Application Administrator`));
+    isResumeLater(err) &&
+    err.message.includes(`An admin needs to create "Analytics Hub SQL Reader", so the installer stopped before deploying anything. Send ${appFile}, or ${file} (the same script on its own), to an Application Administrator`));
   assert.deepEqual(offered, ['Create "Analytics Hub SQL Reader"', 'Use the one an admin created for me', 'An admin will create it for me']);
   assert.ok(!asked.includes('Who creates the two Entra app registrations?'));
   assert.ok(!asked.some((m) => m.startsWith('Client ID of')), 'no client ID asked for an app nobody made');

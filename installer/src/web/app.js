@@ -154,7 +154,7 @@ const WAITING = {
 const NEEDS = [
   'An active Fabric capacity (F2 or larger, or a trial) you can assign workspaces to, or a workspace where you\'re an Admin or Member.',
   'Optional: an Azure subscription where you can create a Key Vault, or a vault you can read secrets from. By default on Fabric, the app\'s client secret goes in the notebooks instead, where anyone with a role in the workspace can read it.',
-  'Permission to register apps in Entra, or an app registration you already have. If you have neither, you get an admin pack to send an admin.',
+  'Permission to register apps in Entra, or an app registration you already have. If you have neither, an admin can register it for you: the check writes a file for each admin you need, to send as it is.',
   'A Global Administrator or Privileged Role Administrator to grant admin consent. If that isn\'t you, you get a link to send them.',
 ];
 // The exe and the PowerShell launcher carry their own Node.js and a ready-built app.
@@ -653,6 +653,12 @@ function apply(e) {
       // Shown in the outcome at the end; kept as an item for the saved record.
       add(run, { t: 'done-requests', requests: run.doneRequests });
       return;
+    case 'admin-pack':
+      ensureRoot(run, e.at);
+      run.adminPack = { index: e.index, files: e.files ?? [], done: !!e.done };
+      // The end's is shown in the outcome, with what's left for admins. Each is kept as an item for the saved record.
+      add(run, { t: 'admin-pack', ...run.adminPack });
+      return;
     case 'auto':
       ensureRoot(run, e.at);
       add(run, { t: 'qa', message: e.message, display: e.display, auto: true });
@@ -967,6 +973,8 @@ function renderItem(it) {
       return renderAdminRequests(it.requests);
     case 'done-requests':
       return null;
+    case 'admin-pack':
+      return it.done ? null : renderAdminPack(it);
     default:
       return null;
   }
@@ -1039,6 +1047,24 @@ function renderAdminRequests(requests) {
         h('span', { class: 'next-who' }, `For: ${r.rows.join('; ')}`)),
       h('details', { class: 'next-message' }, h('summary', null, 'The request to send'), h('pre', null, r.message)),
       h('div', { class: 'actions' }, copyButton(r.message, 'Copy request'))))));
+}
+
+/**
+ * Where the admin pack is (steps/admin-pack.js): the index, for you, and a file for each admin to send as it is.
+ * @param {{ index?: string, files?: { who: string, path: string }[] } | null | undefined} pack
+ */
+function renderAdminPack(pack) {
+  if (!pack?.index) return null;
+  const files = pack.files ?? [];
+  return h('section', { class: 'admin-requests admin-pack', 'aria-label': 'Admin pack' },
+    h('h3', null, 'Admin pack'),
+    h('p', { class: 'hint' }, files.length
+      ? 'The same requests as files: one for each admin, to send as it is, and an index for you that says who gets which.'
+      : 'Nothing is waiting on an admin.'),
+    h('ul', { class: 'admin-pack-files' },
+      h('li', null, h('strong', null, 'Start here: '), h('code', null, pack.index)),
+      files.map((f) => h('li', null, h('strong', null, `${f.who}: `), h('code', null, f.path)))),
+    h('div', { class: 'actions' }, copyButton(pack.index, 'Copy path')));
 }
 
 /**
@@ -1449,6 +1475,7 @@ function renderOutcome(run) {
     h('h2', { id: 'outcome-title' }, copy[1]),
     run.nextSteps?.steps.length ? renderNextSteps(run.nextSteps, run.todo) : null,
     renderDoneRequests(run.doneRequests),
+    run.adminPack?.done ? renderAdminPack(run.adminPack) : null,
     copy[2].filter(Boolean).map((p) => h('p', null, p)),
     r === 'failed' && run.error ? h('details', { class: 'settings-changes' }, h('summary', null, 'Technical details'), h('pre', null, run.error)) : null,
     run.todo && !todoInSteps ? renderTodo(run.todo) : null,
@@ -1708,12 +1735,13 @@ function prereqsPanel(busy) {
       h('p', { class: 'hint' }, `Checked as ${p.upn} at ${when}. ${counts.map(([s, n]) => `${n} ${s === 'handoff' ? 'to hand off' : PREREQ_STATE[s].toLowerCase()}`).join(', ')}. Only active roles count. A role you can activate yourself in Entra (Privileged Identity Management) needs activating first.`),
       renderPrereqs(p.items),
       renderAdminRequests(p.requests),
+      renderAdminPack(p.adminPack),
     ];
   } else if (st.user) {
     body = [h('p', { class: 'hint' }, 'Checking your roles, licences and access in the background. This takes a few seconds.')];
   } else {
     body = [
-      h('p', { class: 'hint' }, 'Sign in to check which of these you have. The check only reads; it changes nothing.'),
+      h('p', { class: 'hint' }, 'Sign in to check which of these you have. The check only reads your tenant; it changes nothing there.'),
       h('ul', { class: 'needs' }, needs().map((n) => h('li', null, n))),
     ];
   }
@@ -2002,6 +2030,9 @@ function itemMarkdown(it, depth) {
           ...((r.after ?? []).length ? ['   Once it\'s done:', '', ...r.after.map((a) => `   - ${a}`), ''] : []),
         ]), '']
         : [];
+    case 'admin-pack':
+      return ['', '**Admin pack**', '', ...(it.files.length ? [] : ['Nothing is waiting on an admin.', '']),
+        `- Start here: \`${it.index}\``, ...it.files.map((f) => `- ${f.who}: \`${f.path}\``), ''];
     default:
       return [];
   }

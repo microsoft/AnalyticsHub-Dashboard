@@ -217,6 +217,18 @@ export function createUi(opts = {}) {
         for (const a of r.after) line(`       ${a}`);
       });
     },
+    /**
+     * Where the admin pack is: the index for you, then a file for each admin, to send as it is.
+     * @param {import('./steps/admin-pack.js').PackPaths} pack
+     */
+    adminPack: (pack) => {
+      if (!pack.files.length) {
+        line(`\n  ${c.bold('Admin pack:')} nothing is waiting on an admin. ${c.dim(pack.index)}`);
+        return;
+      }
+      line(`\n  ${c.bold('Admin pack, a file for each admin to send as it is. Start here:')} ${pack.index}`);
+      for (const f of pack.files) line(`     ${f.who}: ${c.dim(f.path)}`);
+    },
 
     /**
      * @template T

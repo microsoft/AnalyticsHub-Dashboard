@@ -14,7 +14,7 @@ import { DONE_REQUESTS_TITLE, formatDuration } from '../../ui.js';
 import { rlsOn, rlsSettings } from '../../transform/access.js';
 import { buildAgentEvaluatorModel, buildConsumptionModel, buildModel, loadTemplateModel, PBISM } from '../../transform/model.js';
 import { connectionCreatedAnyway, deployModel, MODEL_UPDATE_NOTE, modelSignature, REFRESH_POLL_MS, settleReloads } from '../model.js';
-import { addMonths, OPTIONAL_PERMISSION_EFFECTS, OPTIONAL_PERMISSIONS, ResumeLater, SECRET_LIFETIME_MONTHS, writeAzureAdminScript } from '../identity.js';
+import { addMonths, appAdminFile, OPTIONAL_PERMISSION_EFFECTS, OPTIONAL_PERMISSIONS, ResumeLater, SECRET_LIFETIME_MONTHS, writeAzureAdminScript, writeHandoffPack } from '../identity.js';
 import { addTrackedSecret, promoteSecret, removeRetired } from '../secrets.js';
 import { manifestVersion, writeTeamsPackage } from '../../azure/teams.js';
 import { askToPublishTeamsApp, checkCatalogAccess, publishTeamsApp, removeTeamsApp, signInForTeamsApp, TEAMS_APP_PENDING, teamsAppPlanRow } from './teams-catalog.js';
@@ -723,11 +723,15 @@ export async function planAzureApps(ctx, pre, section) {
   } else if (choice === 'admin') {
     // The script makes only the apps not recorded: it reuses one this plan has just taken from an admin.
     scriptChosen.set(ctx, !!az.adminScript);
-    az.adminScript = writeAzureAdminScript(ctx, await webAppScopes(api, config));
     const { what, them } = stillNeeded(az);
+    az.adminScript = writeAzureAdminScript(
+      ctx,
+      await webAppScopes(api, config),
+      `You chose "${one ? 'An admin will create it for me' : 'An admin will create the apps for me'}", so an Application Administrator or Cloud Application Administrator creates ${what} for you, with the script in their file.`,
+    );
     ui.warn(`An admin needs to create ${what}. Send this file to an Application Administrator or Cloud Application Administrator:`);
-    ui.info(az.adminScript);
-    ui.info(`The installer stops before it deploys anything. Once they've run it, run the installer again: it finds ${them} itself.`);
+    ui.info(appAdminFile(az.adminScript));
+    ui.info(`It has the same script as ${az.adminScript}. The installer stops before it deploys anything. Once they've run it, run the installer again: it finds ${them} itself.`);
     ctx.save();
   } else {
     scriptChosen.delete(ctx);
@@ -854,9 +858,16 @@ export async function azureAppsGate(ctx, pre) {
   }
   // Install step 2 creates the apps.
   if (!az.adminScript && (!ui.yes || pre?.canCreateApps !== false)) return;
-  az.adminScript = writeAzureAdminScript(ctx, await webAppScopes(api, config));
-  ctx.save();
   const { what, them } = stillNeeded(az);
+  az.adminScript = writeAzureAdminScript(
+    ctx,
+    await webAppScopes(api, config),
+    waiting
+      ? `It's still waiting for an admin to create ${what} with the script in their file, so it stopped again before deploying anything.`
+      : `It found no role or setting that lets you create ${what}, so with --yes it stopped before deploying anything. ` +
+          `An Application Administrator or Cloud Application Administrator can create ${them} for you, with the script in their file.`,
+  );
+  ctx.save();
   const customRole =
     ui.yes && pre?.canCreateApps === false
       ? ` The installer can't see custom roles: if one lets you register apps, run "${commandLine('install')}" again without --yes, and choose to create ${them} yourself.`
@@ -865,8 +876,8 @@ export async function azureAppsGate(ctx, pre) {
     (waiting
       ? `Still waiting for an admin to create ${what} with the script in ${az.adminScript}, so the installer stopped again before deploying anything. ` +
           `Once an Application Administrator or Cloud Application Administrator has run it, run "${commandLine('install')}" again: the installer finds ${them} itself.`
-      : `An admin needs to create ${what}, so the installer stopped before deploying anything. Send ${az.adminScript} to an Application Administrator ` +
-          `or Cloud Application Administrator. Once they've run it, run "${commandLine('install')}" again: the installer finds ${them} itself.`) + customRole,
+      : `An admin needs to create ${what}, so the installer stopped before deploying anything. Send ${appAdminFile(az.adminScript)}, or ${az.adminScript} (the same script on its own), ` +
+          `to an Application Administrator or Cloud Application Administrator. Once they've run it, run "${commandLine('install')}" again: the installer finds ${them} itself.`) + customRole,
   );
 }
 
@@ -2133,11 +2144,17 @@ async function createAzureApps(ctx) {
     return { scopes, webApp };
   } catch (err) {
     if (!refused(err)) throw err;
-    az.adminScript = writeAzureAdminScript(ctx, scopes);
+    az.adminScript = writeAzureAdminScript(
+      ctx,
+      scopes,
+      'Microsoft Entra refused to let you create the app registrations, so the installer stopped before deploying anything. ' +
+        'An Application Administrator or Cloud Application Administrator can create them for you, with the script in their file.',
+    );
     ctx.save();
     throw new ResumeLater(
       `Entra didn't let you create the app registrations (${/** @type {Error} */ (err).message.split('\n')[0]}), so the installer stopped before deploying anything. ` +
-        `Send ${az.adminScript} to an Application Administrator or Cloud Application Administrator. Once they've run it, run "${commandLine('install')}" again: the installer finds the apps itself.`,
+        `Send ${appAdminFile(az.adminScript)}, or ${az.adminScript} (the same script on its own), to an Application Administrator or Cloud Application Administrator. ` +
+        `Once they've run it, run "${commandLine('install')}" again: the installer finds the apps itself.`,
     );
   }
 }
@@ -3311,7 +3328,9 @@ async function azureDoneRequests(ctx) {
     const card = [namesStep(names)];
     ui.nextSteps(stepsLeftTitle(card), card);
   }
-  ui.doneRequests(doneRequests(config, { from: ctx.user?.upn, globalAdmin, transcripts: azureTranscriptAsks(ctx) }));
+  const requests = doneRequests(config, { from: ctx.user?.upn, globalAdmin, transcripts: azureTranscriptAsks(ctx) });
+  ui.doneRequests(requests);
+  writeHandoffPack(ctx, { done: requests });
 }
 
 /** @param {Ctx} ctx @param {string} label @param {string | undefined} expires */

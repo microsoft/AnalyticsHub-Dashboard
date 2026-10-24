@@ -250,6 +250,44 @@ Deployment instructions do **not** live here. They live in the READMEs:
   - In the browser, the installer's own window lists who each request goes to, and points to the
     Done page. The run log the browser saves has each request once. INSTALL, PREREQUISITES,
     PERMISSIONS, MANUAL-INSTALL and the READMEs say the same.
+- **One hand-off pack, with a file per admin.** The requests for your admins are now also files
+  you can send as they are, next to the install record. `analytics-hub-admin-pack.md` is for you:
+  what happened, when it was written and by what, which file goes to which admin and the
+  prerequisites it's for, what to check before you send it and what to do once it's done, and the
+  command to carry on. The `analytics-hub-admin-pack` folder beside it has a file for each admin,
+  such as `app-admin.md` or `fabric-admin.md`, and one for the System Administrator of each Agent
+  Evaluator environment: the request, with the exact setting and role names and the links, each
+  command in a bash code block, what to send back and what happens next. No file includes a secret.
+  - **When it's written.** It's written when you check the prerequisites (`prereqs`, or **Check
+    prerequisites** in the browser), and when install and update check them, before a run with
+    `--yes` stops there, so a stopped run leaves the files. An install adds what it hands to an
+    admin on the way: the flows' rows, the app when you choose **An admin will register the app for
+    me** or Entra refuses to register it, and the Azure admin script. The end of an install or
+    Repair rewrites it with what's still left; an update doesn't. `check`, `status`, `uninstall` and
+    the check the browser runs when you sign in write nothing, and nothing is written until there's
+    something to ask. Where a write is new, one that fails warns once and the run carries on.
+  - **Old files.** Each write removes the file of an admin with nothing left to do, and leaves any
+    other file in the folder. Once nothing is left, the index says nothing is waiting on an admin.
+  - **The app admin.** On Fabric, the Cloud Shell script and portal steps that were the whole admin
+    pack are now in the app admin's file, with who can do what. `analytics-hub-admin-pack.md` keeps
+    its name and place, as the index: an install record from an earlier version that names it still
+    counts as a pack waiting for an admin, and the next write turns it into the index. After Entra
+    refuses to register the app, the index says so, rather than that you can't register apps. On
+    Azure, `analytics-hub-azure-admin-script.md` doesn't change, and the app admin's file has the
+    same script. While a pack or script waits for an admin, the register-apps prerequisite is a
+    hand-off to an Application Administrator or Cloud Application Administrator, even when your role
+    or the tenant setting looks as if it lets you register apps, so they get a request and their
+    file. Before, the row stayed met, and no request asked them to use the pack.
+  - **Where it shows.** The terminal prints the index's path ("Start here:") and a line for each
+    admin's file after the requests, and nothing more when a later write changes no file. In the
+    browser, the Prerequisites panel, the Done page and the saved run log show the paths, with
+    **Copy path** for the index. The messages that named the pack, such as **Stop and resume
+    later** while you wait for an admin to register the app, name the admin's own file. In Cloud
+    Shell without a storage account, the reminder at the end names the pack as well as the install
+    record.
+  - The Prerequisites check now says it "changes nothing in your tenant": it writes the pack next to
+    the install record, and nothing in the tenant. PREREQUISITES, INSTALL, PERMISSIONS,
+    TROUBLESHOOTING, AZURE-LEAST-PRIVILEGE and the installer README say the same.
 
 ## 2026-10-26 — Analytics Hub installer 0.6.8
 

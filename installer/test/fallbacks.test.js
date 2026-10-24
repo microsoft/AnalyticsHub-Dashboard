@@ -1314,10 +1314,14 @@ test('admin pack: a script and portal steps for every permission, with the secre
   const dir = mkdtempSync(join(tmpdir(), 'vl-pack-'));
   try {
     const t = fakeCtx();
+    // Both writers run before the app is registered: the refusal, and the plan's admin option.
+    delete t.config.app.appId;
     t.ctx.configFile = join(dir, 'valuelens-install.json');
     const file = writeAdminPack(t.ctx);
-    assert.equal(file, join(dir, ADMIN_PACK_FILE));
-    const body = readFileSync(file, 'utf8');
+    assert.equal(file, join(dir, ADMIN_PACK_FILE), 'it returns the index, as the record keeps it');
+    assert.match(readFileSync(file, 'utf8'), /analytics-hub-admin-pack\/app-admin\.md/);
+    const appFile = join(dir, 'analytics-hub-admin-pack', 'app-admin.md');
+    const body = readFileSync(appFile, 'utf8');
     assert.match(body, /az ad app create --display-name "Analytics Hub Data Collector"/);
     assert.match(body, /for P in AuditLogsQuery\.Read\.All Reports\.Read\.All User\.Read\.All; do/);
     assert.match(body, /az ad app permission admin-consent --id "\$APP_ID"/);
@@ -1327,7 +1331,8 @@ test('admin pack: a script and portal steps for every permission, with the secre
     assert.doesNotMatch(body, /az keyvault/);
 
     Object.assign(t.config.keyVault, { mode: 'keyvault-admin', name: 'kv-test' });
-    const vaulted = readFileSync(writeAdminPack(t.ctx), 'utf8');
+    writeAdminPack(t.ctx);
+    const vaulted = readFileSync(appFile, 'utf8');
     assert.match(vaulted, /az keyvault secret set --vault-name kv-test --name valuelens-client-secret/);
     assert.match(vaulted, /if \[ -n "\$CT" \] && \[ "\$CT" != "Client secret for \$APP_ID" \]; then/, 'another app\'s secret with that name is left alone');
     assert.match(vaulted, /They don't need the secret/);

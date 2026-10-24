@@ -136,7 +136,9 @@ Something failed? Choose **Rerun failed loads** (`rerun-failed`), or see
 - **Then what's left for your admins.** Under **Still to do by your admins**: one request per
   admin, with what it's for, the message to send (**Copy request** copies it), and what you do
   once they've done it. It comes from what the install recorded and from this run, so it doesn't
-  ask for what the installer did itself. It can ask for:
+  ask for what the installer did itself. The admin pack next to the install record is rewritten
+  with the same requests, a file for each admin: see **The admin pack** in
+  [Prerequisites](PREREQUISITES.md). It can ask for:
   - **Global Reader** for **Analytics Hub Data Collector**, or on Azure for the jobs' managed
     identity, from a Privileged Role Administrator or Global Administrator, when agent
     configuration comes from Azure Resource Graph and the installer couldn't give it. The message

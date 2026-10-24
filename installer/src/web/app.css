@@ -316,6 +316,8 @@ a { overflow-wrap: anywhere; }
 .admin-requests { display: flex; flex-direction: column; gap: 8px; max-width: calc(76ch + 20px); }
 .admin-requests h3 { font-size: 14px; line-height: 20px; font-weight: 600; }
 .admin-requests .hint { margin: 0; }
+.admin-pack-files { margin: 0; padding-left: 20px; overflow-wrap: anywhere; }
+.admin-pack-files code { font-family: var(--mono); font-size: 12px; }
 .history-pick { display: flex; flex-direction: column; gap: 4px; margin-top: 8px; max-width: 46ch; }
 .kv-row { display: grid; grid-template-columns: minmax(120px, 180px) 1fr; gap: 16px; max-width: 76ch; overflow-wrap: anywhere; }
 .kv-row .k { color: var(--muted-fg); }

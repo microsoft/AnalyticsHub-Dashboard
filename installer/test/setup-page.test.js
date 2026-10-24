@@ -361,6 +361,89 @@ test('prerequisites: the run log shows the requests after the rows, and the Mark
   assert.equal(runInContext(`itemMarkdown({ t: 'admin-requests', requests: [] }, 2).length`, context), 0);
 });
 
+const PACK = {
+  index: '/records/analytics-hub-admin-pack.md',
+  files: [
+    { who: 'A Power Platform administrator', path: '/records/analytics-hub-admin-pack/power-platform.md' },
+    { who: 'Your licence admin', path: '/records/analytics-hub-admin-pack/licence.md' },
+  ],
+};
+
+/** @param {Element} section */
+const packLines = (section) => (all(section).find((el) => cls(el) === 'admin-pack-files')?.children ?? []).map((li) => li.text);
+
+test('prerequisites: under the requests, where the admin pack is: the index to start from, a file per admin, and Copy path', async () => {
+  const { items, requests } = requestsFixture();
+  const context = page();
+  /** @type {string[]} */
+  const copied = [];
+  context.navigator = { clipboard: { writeText: async (/** @type {string} */ text) => { copied.push(text); } } };
+  const panel = runInContext(`
+    app.state = ${JSON.stringify({ user: { upn: 'someone@example.com' }, prereqs: { at: 0, upn: 'someone@example.com', items, requests, adminPack: PACK } })};
+    prereqsPanel(false);
+  `, context);
+  const body = all(panel).find((el) => cls(el) === 'panel-body');
+  assert.ok(body);
+  assert.deepEqual(body.children.map(cls), ['hint', 'prereqs', 'admin-requests', 'admin-requests admin-pack'], 'after the requests it holds');
+  const section = body.children[3];
+  assert.equal(section.attributes['aria-label'], 'Admin pack');
+  assert.equal(section.children[0].text, 'Admin pack');
+  assert.equal(section.children[1].text, 'The same requests as files: one for each admin, to send as it is, and an index for you that says who gets which.');
+  assert.deepEqual(packLines(section), [
+    'Start here: /records/analytics-hub-admin-pack.md',
+    'A Power Platform administrator: /records/analytics-hub-admin-pack/power-platform.md',
+    'Your licence admin: /records/analytics-hub-admin-pack/licence.md',
+  ]);
+  const button = all(section).find((el) => el.tag === 'button');
+  assert.ok(button);
+  assert.equal(button.text, 'Copy path');
+  await button.events.click();
+  assert.deepEqual(copied, [PACK.index]);
+
+  // An index with nothing left in it says so. No pack (no install record to put it next to, or a check saved before
+  // there was one): no section.
+  const empty = runInContext(`app.state.prereqs.adminPack = { index: ${JSON.stringify(PACK.index)}, files: [] }; prereqsPanel(false);`, context);
+  const none = all(empty).find((el) => cls(el) === 'admin-requests admin-pack');
+  assert.ok(none);
+  assert.equal(none.children[1].text, 'Nothing is waiting on an admin.');
+  assert.deepEqual(packLines(none), [`Start here: ${PACK.index}`]);
+  for (const adminPack of ['null', 'undefined']) {
+    const missing = runInContext(`app.state.prereqs.adminPack = ${adminPack}; prereqsPanel(false);`, context);
+    assert.equal(all(missing).some((el) => cls(el) === 'admin-requests admin-pack'), false, adminPack);
+  }
+});
+
+test('prerequisites: the run log shows where the admin pack is after the requests, and the Markdown export lists its files', () => {
+  const { items, requests } = requestsFixture();
+  const context = page();
+  const logged = runInContext(`
+    app.replay = true;
+    app.run = createRun({ type: 'command', command: 'prereqs', state: 'running', at: 0, seq: 1 });
+    [
+      { type: 'prereqs', items: ${JSON.stringify(items)}, at: 1 },
+      { type: 'admin-requests', requests: ${JSON.stringify(requests)}, at: 2 },
+      { type: 'admin-pack', ...${JSON.stringify(PACK)}, at: 3 },
+    ].forEach(apply);
+    [...runItems(app.run.stages)].filter((it) => ['prereqs', 'admin-requests', 'admin-pack'].includes(it.t)).map((it) => [it.t, it.el]);
+  `, context);
+  assert.deepEqual([...logged].map(([t]) => t), ['prereqs', 'admin-requests', 'admin-pack']);
+  const section = logged[2][1];
+  assert.equal(cls(section), 'admin-requests admin-pack');
+  assert.equal(packLines(section).length, 3);
+
+  const md = runInContext(`itemMarkdown(${JSON.stringify({ t: 'admin-pack', ...PACK })}, 2).join('\\n')`, context);
+  assert.equal(md, [
+    '', '**Admin pack**', '',
+    '- Start here: `/records/analytics-hub-admin-pack.md`',
+    '- A Power Platform administrator: `/records/analytics-hub-admin-pack/power-platform.md`',
+    '- Your licence admin: `/records/analytics-hub-admin-pack/licence.md`',
+    '',
+  ].join('\n'));
+  const empty = runInContext(`itemMarkdown(${JSON.stringify({ t: 'admin-pack', index: PACK.index, files: [] })}, 2).join('\\n')`, context);
+  assert.match(empty, /^Nothing is waiting on an admin\.$/m);
+  assert.match(empty, /^- Start here: `\/records\/analytics-hub-admin-pack\.md`$/m);
+});
+
 /** What's left for admins at the end of a Fabric install that left Global Reader, consent, names, the export, Foundry and the Viva query. */
 function doneFixture() {
   const config = emptyConfig();
@@ -376,19 +459,25 @@ function doneFixture() {
 /**
  * An install that showed preflight's requests, ended with a card and the requests at the end, and finished.
  * @param {import('node:vm').Context} context @param {unknown[]} done
+ * @param {{ index: string, files: { who: string, path: string }[], done?: boolean }[]} [packs]  Where the admin pack
+ *   is: preflight's after its requests, and the end's after what's left.
  */
-function finishedInstall(context, done) {
+function finishedInstall(context, done, packs = []) {
   const { requests } = requestsFixture();
+  const pack = (/** @type {boolean} */ end, /** @type {number} */ at) =>
+    JSON.stringify(packs.filter((p) => !!p.done === end).map((p) => ({ type: 'admin-pack', ...p, at })));
   return runInContext(`
     app.replay = true;
     app.run = createRun({ type: 'command', command: 'install', state: 'running', at: 0, seq: 1 });
     [
       { type: 'admin-requests', requests: ${JSON.stringify(requests)}, at: 1 },
+      ...${pack(false, 1)},
       { type: 'step', n: 1, total: 1, title: 'Share the app', at: 2 },
       { type: 'line', kind: 'ok', text: 'Shared it', at: 3 },
       { type: 'next-steps', title: '1 step left', at: 4, steps: [{ id: 'share-app', title: 'Share the app with your users',
         why: 'Only you can open it until it\\'s shared.', who: 'You' }] },
       ...${JSON.stringify(done.length ? [{ type: 'done-requests', requests: done, at: 5 }] : [])},
+      ...${pack(true, 5)},
     ].forEach(apply);
     onCommand({ type: 'command', command: 'install', state: 'done', at: 6, seq: 2 });
     app.run;
@@ -470,4 +559,38 @@ test('Done page: the saved record lists the requests at the end once, with each 
   });
   assert.match(md, /^ {3}Once it's done:$/m);
   assert.ok(md.indexOf('**Requests for your admins**') < md.indexOf('**Still to do by your admins**'), 'in the order they came');
+});
+
+test('Done page: where the admin pack is, after what\'s left for admins; preflight\'s stays in the run log, and the saved record has both', () => {
+  const done = doneFixture();
+  const context = page();
+  const end = { index: PACK.index, files: done.map((r) => ({ who: r.who, path: `/records/analytics-hub-admin-pack/${r.admin}.md` })), done: true };
+  const run = finishedInstall(context, done, [PACK, end]);
+  const sections = run.outcomeEl.children.filter((/** @type {Element} */ el) => el.tag === 'section');
+  assert.deepEqual(sections.map(cls), ['next', 'admin-requests', 'admin-requests admin-pack']);
+  assert.deepEqual(packLines(sections[2]), [`Start here: ${PACK.index}`, ...end.files.map((f) => `${f.who}: ${f.path}`)]);
+
+  // The run log shows preflight's where it was written; the end's is on the Done page only.
+  const items = [...runInContext('[...runItems(app.run.stages)]', context)].filter((it) => it.t === 'admin-pack');
+  assert.equal(items.length, 2);
+  assert.equal(cls(items[0].el), 'admin-requests admin-pack');
+  assert.deepEqual(packLines(items[0].el), [`Start here: ${PACK.index}`, ...PACK.files.map((f) => `${f.who}: ${f.path}`)]);
+  assert.equal(items[1].el, null);
+
+  // The saved record: both, in the order they came.
+  runInContext('saved = []; download = (name, lines) => saved.push(lines.join("\\n"));', context);
+  runInContext('saveRecord(app.run)', context);
+  const [md] = runInContext('saved', context);
+  assert.equal(md.split('**Admin pack**').length, 3);
+  assert.ok(md.indexOf('**Requests for your admins**') < md.indexOf('**Admin pack**'));
+  assert.ok(md.indexOf('**Still to do by your admins**') < md.lastIndexOf('**Admin pack**'));
+  for (const f of end.files) assert.ok(md.includes(`- ${f.who}: \`${f.path}\``), f.who);
+
+  // Nothing left at the end of an install that wrote a pack before: the index says so, and so does the Done page.
+  const none = finishedInstall(page(), [], [PACK, { index: PACK.index, files: [], done: true }]);
+  const last = none.outcomeEl.children.filter((/** @type {Element} */ el) => el.tag === 'section');
+  assert.deepEqual(last.map(cls), ['next', 'admin-requests admin-pack']);
+  assert.equal(last[1].children[1].text, 'Nothing is waiting on an admin.');
+  // Preflight's alone isn't on the Done page: it stays in the run log.
+  assert.equal(finishedInstall(page(), [], [PACK]).outcomeEl.children.filter((/** @type {Element} */ el) => el.tag === 'section').map(cls).join(), 'next');
 });

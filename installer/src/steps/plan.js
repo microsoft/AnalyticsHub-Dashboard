@@ -19,7 +19,8 @@ import { MIN_NODE, nodeVersionOk } from './app.js';
 import { agentEvaluatorModelWanted, fabricReadRoleReview, planAgentEvaluator } from './agent-evaluator.js';
 import { AZURE_AI_ROLES, consumptionModelWanted, COWORK_DATAFLOW_NAME, planConsumption, planCowork } from './consumption.js';
 import { FLOW_NAMES, flowsSkipped, flowsWanted, planFlows, whoSignsIn } from './flows.js';
-import { adminPack, canWriteSecrets, checkExistingApp, MAX_SECRET_DAYS, NOTEBOOK_SECRET_DAYS, notebookSecretDays, reportAppCheck, ResumeLater, writeAdminPack } from './identity.js';
+import { adminFileName } from './admin-pack.js';
+import { adminPack, appAdminFile, canWriteSecrets, checkExistingApp, MAX_SECRET_DAYS, NOTEBOOK_SECRET_DAYS, notebookSecretDays, reportAppCheck, ResumeLater, writeAdminPack } from './identity.js';
 import { planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from './resource-graph.js';
 import { askAdvanced, asksAdvanced } from './advanced.js';
 import { describeSchedule, displayNames, freeName, modelKey, PIPELINE_NAME, stoppedRunItem, WORKSPACE_ROLE } from './fabric.js';
@@ -736,13 +737,13 @@ export async function plan(ctx, pre, section) {
               ? {
                   description:
                     'The installer found no role or setting that lets you register apps, but it can\'t see custom roles. Choose this only if a custom role lets you create it. ' +
-                    'If Entra refuses, the installer stops and writes an admin pack for you to send to an admin. When you run it again, it reuses what it has made, such as the workspace.',
+                    'If Entra refuses, the installer stops and writes the admin pack, with a file for an admin who can register it. When you run it again, it reuses what it has made, such as the workspace.',
                 }
               : {}),
           },
           { name: 'Use an app registration I already have', value: 'existing' },
           ...(blocked
-            ? [{ name: 'An admin will register the app for me', value: 'admin', description: 'You get an admin pack: a Cloud Shell script and portal steps for an admin, who sends you back the client ID.' }]
+            ? [{ name: 'An admin will register the app for me', value: 'admin', description: 'The admin pack gets a file for an app admin, with a Cloud Shell script and portal steps. They send you back the client ID.' }]
             : []),
         ],
         def,
@@ -1098,19 +1099,23 @@ export async function askAppId(ctx, pre) {
 }
 
 /**
- * Writes the admin pack for someone who can't register apps or grant consent, then waits for
- * the client ID. Returns true when the user still needs to paste the secret.
+ * Writes the admin pack, with a file for the app admin who registers the app, then waits for the client ID.
+ * Returns true when the user still needs to paste the secret.
  * @param {Ctx} ctx
  * @param {Pick<Preflight, 'canConsent'>} pre
  */
 export async function planAdminPack(ctx, pre) {
   const { ui, config } = ctx;
   const kv = config.keyVault;
-  const file = writeAdminPack(ctx);
-  config.app.adminPack = file;
   ui.heading('Admin pack');
+  const file = writeAdminPack(
+    ctx,
+    'You chose "An admin will register the app for me", so an Application Administrator or Cloud Application Administrator ' +
+      'registers it for you, with the script and portal steps in their file.',
+  );
+  config.app.adminPack = file;
   ui.warn('An admin needs to register the app. Send them this file:');
-  ui.info(file);
+  ui.info(appAdminFile(file));
   ui.info('Or they can run this in Azure Cloud Shell (Bash):');
   for (const line of adminPack(ctx).script) ui.info(`  ${line}`);
   ctx.save();
@@ -1123,7 +1128,7 @@ export async function planAdminPack(ctx, pre) {
     ],
     'go',
   );
-  if (next === 'stop') throw new ResumeLater(`Stopped until an admin has registered the app. Send them ${file}, then run the installer again.`);
+  if (next === 'stop') throw new ResumeLater(`Stopped until an admin has registered the app. Send them ${appAdminFile(file)}, then run the installer again.`);
   await askAppId(ctx, pre);
   if (secretMode(config) === 'keyvault-admin' && kv.name) {
     if (await ui.confirm(`Did the admin's script also put the client secret in ${kv.name}?`, true)) {
@@ -1295,7 +1300,7 @@ export function planReview(ctx, pre) {
       isNew: !config.app.appId,
       detail:
         config.app.adminPack && !config.app.appId
-          ? 'An admin registers it from the admin pack and sends you its client ID.'
+          ? `An admin registers it from ${adminFileName('app-admin')}, their file in the admin pack, and sends you its client ID.`
           : mode === 'notebook'
             ? config.app.existing
               ? 'Yours. A client secret you paste is written into the notebooks; no Key Vault.'

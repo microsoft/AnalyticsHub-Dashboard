@@ -14,10 +14,11 @@ import { AUDIT_CHECK_FAILS, AUDIT_CHECK_LABELS, AUDIT_ROLE, PURVIEW_AUDIT_URL } 
 import { adoptableApps, AZURE_APPS, appsRecorded, webAppGranted } from './steps/azure/apps.js';
 import { LEAST_PRIVILEGE_URL } from './steps/azure/least-privilege.js';
 import { dataPolicyAsk, FLOW_NAMES, flowsWanted, INVENTORY_SIGNER, PP_API_SIGNER, ppApiFlows, PREMIUM_OWNER } from './steps/flows.js';
-import { canWriteSecrets } from './steps/identity.js';
+import { canWriteSecrets, writeHandoffPack } from './steps/identity.js';
 import { WORKSPACE_ROLE } from './steps/fabric.js';
 import { blockedSettings, CREATE_WORKSPACES_FIX, createWorkspacesAccess, myGroups, POWER_BI_SETTINGS, settingLabel, usableCapacity, workspacesOnCapacity } from './steps/plan.js';
 import { rlsOn } from './transform/access.js';
+import { adminFileName } from './steps/admin-pack.js';
 import { adminRequests } from './steps/handoff.js';
 
 /**
@@ -481,13 +482,43 @@ export async function checkPrereqs(ctx, opts = {}) {
           : 'Creating the app registration that collects the data.',
         howTo: azure
           ? 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role. Or, in the plan, choose \'Use the apps an admin created for me\' if an admin has made them, or \'An admin will create the apps for me\': the plan writes a script for an Application Administrator or Cloud Application Administrator, and stops before anything is deployed. The installer can\'t see custom roles: if one lets you register apps, choose \'Create the two apps\'.'
-          : 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role, use an app registration you already have, or get the admin pack for an admin to register it.',
+          : 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role, use an app registration you already have, or choose "An admin will register the app for me" in the plan: it puts the Cloud Shell script and portal steps in the app admin\'s file in the admin pack.',
       },
       async () => {
         if (azure && appsRecorded(config.azure)) {
           return { status: 'met', detail: `Uses the app registrations ${AZURE_APPS.map((a) => config.azure?.[a.key]?.clientId).join(' and ')}.` };
         }
         if (!azure && config.app.appId) return { status: 'met', detail: `Uses the app registration ${config.app.appId}.` };
+        // Apps an admin created for you, which the plan adopts: one of each name that no install has finished.
+        const left = AZURE_APPS.filter((a) => !config.azure?.[a.key]?.clientId);
+        const adoptable = async () => {
+          const found = await Promise.all(left.map((a) => adoptableApps(api, a.name).catch(() => [])));
+          const met = found.every((f) => f.length === 1)
+            ? {
+                status: /** @type {PrereqStatus} */ ('met'),
+                detail: `An admin created ${left.length === 1 ? 'the app' : 'the apps'} for you: ${found.map((f) => `"${f[0].displayName}" (${f[0].appId})`).join(' and ')}. The plan uses ${left.length === 1 ? 'it' : 'them'}.`,
+              }
+            : null;
+          return { found, met };
+        };
+        // While the admin pack or the admin script waits, an admin registers the app, whatever your role or the
+        // tenant's setting seems to allow: you chose that, or Microsoft Entra refused you.
+        if (!azure && config.app.adminPack) {
+          return {
+            status: 'handoff',
+            detail: 'An admin registers the app for you, with the script and portal steps in the installer\'s admin pack. Once they send you its client ID, the plan asks for it.',
+            howTo: `An Application Administrator or Cloud Application Administrator, from ${adminFileName('app-admin')} in the admin pack.`,
+          };
+        }
+        if (azure && config.azure?.adminScript) {
+          return (
+            (await adoptable()).met ?? {
+              status: 'handoff',
+              detail: 'An admin creates the app registrations for you, with the installer\'s script. Once they\'ve run it, the plan finds them itself.',
+              howTo: `An Application Administrator or Cloud Application Administrator, from ${adminFileName('app-admin')} in the admin pack.`,
+            }
+          );
+        }
         const admin = (await roles).find((x) => Object.hasOwn(CREATE_APPS_ROLES, x.roleTemplateId));
         if (admin) return { status: 'met', detail: `Your ${admin.displayName} role allows it.` };
         if (!azure) {
@@ -498,12 +529,8 @@ export async function checkPrereqs(ctx, opts = {}) {
         /** @type {boolean | Error} */
         const users = await api.graph.usersCanRegisterApps().catch((/** @type {Error} */ err) => err);
         if (users === true) return { status: 'met', detail: 'Users in this tenant can register apps.' };
-        // Apps an admin created for you, which the plan adopts: one of each name that no install has finished.
-        const left = AZURE_APPS.filter((a) => !config.azure?.[a.key]?.clientId);
-        const found = await Promise.all(left.map((a) => adoptableApps(api, a.name).catch(() => [])));
-        if (found.every((f) => f.length === 1)) {
-          return { status: 'met', detail: `An admin created ${left.length === 1 ? 'the app' : 'the apps'} for you: ${found.map((f) => `"${f[0].displayName}" (${f[0].appId})`).join(' and ')}. The plan uses ${left.length === 1 ? 'it' : 'them'}.` };
-        }
+        const { found, met } = await adoptable();
+        if (met) return met;
         if (users instanceof Error) throw users;
         // An admin made only one of the two: the plan uses it, and asks only about the other.
         const used = found.flatMap((f) => (f.length === 1 ? [`"${f[0].displayName}" (${f[0].appId})`] : []));
@@ -919,8 +946,9 @@ function printPrereqGroups(ui, { shown, handoff, confirm }, carry) {
 /**
  * Prints only what needs attention, then what to hand off to someone else, then what to confirm with
  * someone, before anything is created, and points to the full list, then the requests to send, one per admin. On
- * install, stops when one is a true blocker. Keeps what it checked and showed on `ctx`, for reportFlowPrereqs.
- * @param {{ ui: import('./ui.js').Ui, config: import('./config.js').InstallConfig, user?: { upn?: string }, preflightSeen?: PreflightSeen }} ctx
+ * install, stops when one is a true blocker. Keeps what it checked and showed on `ctx`, for reportFlowPrereqs. Writes
+ * the admin pack from those requests first, so a stopped run leaves it too.
+ * @param {import('./steps/identity.js').PackCtx & { preflightSeen?: PreflightSeen }} ctx
  * @param {Prereq[] | null} items  From preflightChecks.
  * @param {{ update?: boolean }} [opts]
  * @returns {{ block: Prereq[], warn: Prereq[], handoff: Prereq[], confirm: Prereq[] }}
@@ -938,20 +966,23 @@ export function reportPreflight(ctx, items, opts = {}) {
   const { confirm } = verdict;
   const shown = [...verdict.block, ...verdict.warn];
   ctx.preflightSeen = { items, shown: new Map([...shown, ...handoff, ...confirm].map((it) => [it.id, asShown(it, config)])) };
+  const why = 'The installer checked the prerequisites before it changed anything.';
   if (!shown.length && !handoff.length && !confirm.length) {
     ui.ok('Prerequisites: nothing missing for what you chose');
+    writeHandoffPack(ctx, { asked: [], all: items, why });
     return { ...verdict, handoff };
   }
   if (!shown.length) ui.ok(handoff.length ? 'Prerequisites: you have what you need yourself' : 'Prerequisites: nothing missing for what you chose');
   printPrereqGroups(ui, { shown, handoff, confirm }, verdict.block.length ? '' : ` The ${opts.update ? 'update' : 'install'} carries on.`);
   ui.note(full);
   ui.adminRequests(adminRequests([...shown, ...handoff, ...confirm], config, { from: ctx.user?.upn, all: items }));
+  writeHandoffPack(ctx, { asked: [...shown, ...handoff, ...confirm], all: items, why });
   if (verdict.block.length) {
     ui.fail(`Stopped before creating anything: ${verdict.block.map((it) => it.label).join('; ')}.`);
     throw new Error(
       verdict.block.some((it) => it.id === 'register-apps')
         ? 'Users in this tenant can\'t register apps and you have no app admin role, so with --yes the installer can\'t create its app registration. ' +
-            'Run it without --yes to choose an app registration you already have or get the admin pack for an admin, or ask for the Application Administrator or Cloud Application Administrator role. ' +
+            'Run it without --yes to use an app registration you already have, or to choose "An admin will register the app for me", which puts the script for an admin in the admin pack. Or ask for the Application Administrator or Cloud Application Administrator role. ' +
             `The installer can't see custom roles: if one lets you register apps, run "${commandLine('install')}" again without --yes, and choose to create it yourself.`
         : verdict.block.map((it) => it.howTo).join(' '),
     );
@@ -968,8 +999,9 @@ const FLOW_ROWS = ['power-platform-admin', 'power-automate-premium', 'environmen
  * role (with its PIM warning, or as a hand-off), the environments, and the data policy. In the terminal, a new
  * install checks the prerequisites before its plan asks about the flows. The data policy ask shows again only for
  * another environment than the one it named. Then the requests to send for them, one per admin. Reads nothing from
- * the tenant, and never stops the install. Without a preflight, does nothing.
- * @param {{ ui: import('./ui.js').Ui, config: import('./config.js').InstallConfig, user?: { upn?: string }, preflightSeen?: PreflightSeen }} ctx
+ * the tenant, and never stops the install. Without a preflight, does nothing. The admin pack keeps every flow row
+ * that needs someone else, with preflight's, not just the ones shown here for the first time.
+ * @param {import('./steps/identity.js').PackCtx & { preflightSeen?: PreflightSeen }} ctx
  */
 export function reportFlowPrereqs(ctx) {
   const { ui, config } = ctx;
@@ -982,13 +1014,17 @@ export function reportFlowPrereqs(ctx) {
     dataPolicyPrereq(config),
   ];
   const verdict = preflightVerdict(rows, { config, yes: ui.yes });
+  const handoff = handoffsToShow(verdict.handoff, config);
   const fresh = (/** @type {Prereq[]} */ list) => list.filter((it) => !asWhenShown(it, seen.shown.get(it.id), asShown(it, config)));
-  const groups = { shown: fresh([...verdict.block, ...verdict.warn]), handoff: fresh(handoffsToShow(verdict.handoff, config)), confirm: fresh(verdict.confirm) };
+  const groups = { shown: fresh([...verdict.block, ...verdict.warn]), handoff: fresh(handoff), confirm: fresh(verdict.confirm) };
   const printed = [...groups.shown, ...groups.handoff, ...groups.confirm];
-  if (!printed.length) return;
-  printPrereqGroups(ui, groups, ' The install carries on.');
-  ui.adminRequests(adminRequests(printed, config, { from: ctx.user?.upn, pending: false, all: rows }));
-  for (const it of printed) seen.shown.set(it.id, asShown(it, config));
+  if (printed.length) {
+    printPrereqGroups(ui, groups, ' The install carries on.');
+    ui.adminRequests(adminRequests(printed, config, { from: ctx.user?.upn, pending: false, all: rows }));
+    for (const it of printed) seen.shown.set(it.id, asShown(it, config));
+  }
+  const asked = [...verdict.block, ...verdict.warn, ...handoff, ...verdict.confirm];
+  writeHandoffPack(ctx, { asked, all: rows, replace: FLOW_ROWS, ...(printed.length ? { why: 'Once you chose the flows, it checked what they need too.' } : {}) });
 }
 
 const ARG_PROBES = {
