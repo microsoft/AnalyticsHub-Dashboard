@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
+import { graphRolesCommand } from '../src/admin-commands.js';
 import { apiPermissionsUrl } from '../src/clients/graph.js';
 import { emptyConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
@@ -207,6 +208,8 @@ test('adminRequests: no request has a secret, a key, a token, a password, a sign
     c.semanticModel.secretKeyId = 'PLANTED-model-key';
     c.setup = { completed: [], uploads: [{ name: 'x', token: 'PLANTED-upload-token' }] };
     c.auditCheck = { at: '2026-01-01T00:00:00Z', result: 'no-role' };
+    // So the Foundry ask has its Reader command.
+    c.tenantId = 't-1';
     return config;
   };
   const fabric = planted(studioConfig());
@@ -234,8 +237,10 @@ test('adminRequests: no request has a secret, a key, a token, a password, a sign
       dataPolicyPrereq(config),
     ];
     const requests = adminRequests(rows, config, { from: UPN });
-    assert.deepEqual(requests.map((r) => r.admin), Object.keys(ADMINS).filter((k) => config.target === 'azure' || k !== 'other'), config.target);
+    assert.deepEqual(requests.map((r) => r.admin), Object.keys(ADMINS).filter((k) => k !== 'other' && (config.target === 'azure' || k !== 'sharepoint-admin')), config.target);
     const text = JSON.stringify(requests);
+    assert.match(text, /az role assignment create --assignee-object-id (\w[\w-]*|\$\(az ad sp show --id \S+ --query id -o tsv\)) --assignee-principal-type ServicePrincipal --role \\"Reader\\"/, 'with the commands');
+    if (config.target === 'azure') assert.match(text, /servicePrincipals\/\$MI\/appRoleAssignments/);
     assert.doesNotMatch(text, /PLANTED/);
     assert.doesNotMatch(text, /\b(client secrets?|password|passcode|sign-in code|device code|bearer|access token|refresh token)\b/i);
     assert.doesNotMatch(text, /someone|C:\\\\/, 'files go by their names, not their paths');
@@ -244,10 +249,12 @@ test('adminRequests: no request has a secret, a key, a token, a password, a sign
 
 test('adminRequests: a Graph role the Azure install lists twice as pending is asked for once, and one it has since assigned not at all', () => {
   const config = azureConfig({
-    outputs: { identityPrincipalId: 'mi-1' },
+    outputs: { identityPrincipalId: 'mi-1', identityClientId: 'mi-client-1' },
     graphRoles: { pending: ['AuditLog.Read.All', 'Reports.Read.All', 'AuditLog.Read.All', 'User.Read.All'], assigned: ['User.Read.All'] },
   });
-  const roles = 'Give the Analytics Hub jobs\' managed identity (object ID mi-1) these Microsoft Graph application permissions: AuditLog.Read.All, Reports.Read.All.';
+  const roles =
+    'Give the Analytics Hub jobs\' managed identity (object ID mi-1) these Microsoft Graph application permissions: AuditLog.Read.All, Reports.Read.All. In Azure Cloud Shell (Bash):\n' +
+    `  ${graphRolesCommand('mi-1', ['AuditLog.Read.All', 'Reports.Read.All'])}`;
   const met = adminRequests([row({ id: 'audit-ingestion', status: 'met' })], config, { from: UPN });
   assert.deepEqual(
     met.map((r) => [r.admin, r.rows, r.asks]),
@@ -262,11 +269,16 @@ test('adminRequests: a Graph role the Azure install lists twice as pending is as
       ['compliance', ['Audit logging in Microsoft Purview'], [PURVIEW]],
     ],
   );
-  assert.equal(handoff[0].message.split('AuditLog.Read.All').length - 1, 1);
+  // Once in the list and once in the command, which gives the identity, by its object ID, each role once.
+  const [list, command] = handoff[0].asks[0].split('\n');
+  assert.equal(list.split('AuditLog.Read.All').length - 1, 1);
+  assert.match(command, /^ {2}MI=mi-1; GRAPH=\$\(az ad sp show --id 00000003-0000-0000-c000-000000000000 --query id -o tsv\); for P in AuditLog\.Read\.All Reports\.Read\.All; do /);
+  assert.equal(handoff[0].message.split('AuditLog.Read.All').length - 1, 2);
+  assert.doesNotMatch(handoff[0].message, /mi-client-1/, 'not the client ID');
   assert.deepEqual(asks(adminRequests([row({ id: 'audit-ingestion', status: 'met' })], azureConfig({ graphRoles: { pending: ['X'], assigned: ['X'] } }))), []);
 });
 
-test('adminRequests: the Azure install\'s pending admin actions go to the admin who does each; one it doesn\'t know goes to "An admin" as it is', () => {
+test('adminRequests: the Azure install\'s pending admin actions go to the admin who does each, the drop site\'s grant word for word; one it doesn\'t know goes to "An admin" as it is', () => {
   const actions = [`Grant delegated consent on ${apiPermissionsUrl('web-1')}`, TEAMS_UPLOAD, OWNER_ACTION, DROP_SITE, 'Something new: do it.'];
   const config = azureConfig({ webApp: { clientId: 'web-1' }, status: { pendingAdminActions: actions } });
   const rows = [row({ id: 'consent-role', status: 'handoff', label: 'Consent', optional: true }), row({ id: 'teams-admin', status: 'handoff', label: 'Teams', optional: true })];
@@ -284,7 +296,8 @@ test('adminRequests: the Azure install\'s pending admin actions go to the admin 
         ],
       ],
       ['teams', 'A Teams Administrator', ['Teams'], [`Upload the Analytics Hub Teams package I'll send you (analytics-hub.zip) in Teams admin center > Teams apps > Manage apps (${MANAGE_APPS_URL}).`]],
-      ['other', 'An admin', ['Pending admin action'], [DROP_SITE, 'Something new: do it.']],
+      ['sharepoint-admin', 'A SharePoint Administrator', ['Pending admin action'], [DROP_SITE]],
+      ['other', 'An admin', ['Pending admin action'], ['Something new: do it.']],
     ],
   );
   assert.doesNotMatch(JSON.stringify(requests), /recorded/i, 'the consent link is asked for, not said to be done');
@@ -294,7 +307,7 @@ test('adminRequests: the Azure install\'s pending admin actions go to the admin 
 
   // Once the consent and the Teams app are done, their actions ask for nothing.
   const done = [row({ id: 'consent-role', status: 'met' }), row({ id: 'teams-admin', status: 'met' })];
-  assert.deepEqual(adminRequests(done, config).map((r) => r.admin), ['app-admin', 'other']);
+  assert.deepEqual(adminRequests(done, config).map((r) => r.admin), ['app-admin', 'sharepoint-admin', 'other']);
   assert.deepEqual(adminRequests(done, config, { pending: false }), []);
   // A Fabric install ignores what an Azure one left.
   const fabric = plainConfig();
@@ -555,6 +568,49 @@ test('adminRequests: on Azure, Resource Graph asks for roles for the jobs\' mana
   assert.deepEqual(admins({ roleAssigned: 'Global Reader', access: true }), ['role-admin', 'azure-owner'], 'the app\'s roles aren\'t the managed identity\'s');
   // On Azure an Application Administrator meets the consent row too, and can't give Entra roles.
   assert.deepEqual(admins({}, [row({ id: 'consent-role', status: 'met' })]), ['role-admin', 'azure-owner']);
+});
+
+test('adminRequests: the Foundry ask has the Reader command, by the object ID of whoever the load runs as, never its client ID', () => {
+  const rg = row({ id: 'resource-graph', rows: [{ name: 'Copilot Studio agents', status: 'met' }, { name: 'Foundry resources', status: 'missing' }] });
+  const foundry = (/** @type {import('../src/config.js').InstallConfig} */ config, tenantId = 't-1') => {
+    if (tenantId) config.tenantId = tenantId;
+    const requests = adminRequests([rg], config);
+    assert.deepEqual(requests.map((r) => r.admin), ['azure-owner']);
+    assert.equal(requests[0].asks.length, 1);
+    return requests[0].asks[0];
+  };
+  const root = '/providers/Microsoft.Management/managementGroups/t-1';
+  const command = (/** @type {string} */ id, scope = root) =>
+    ` In Azure Cloud Shell (Bash):\n  az role assignment create --assignee-object-id ${id} --assignee-principal-type ServicePrincipal --role "Reader" --scope ${scope}`;
+  const reader = (/** @type {string} */ where) => `the Reader role in Azure on ${where}, so Analytics Hub can read Foundry resources from Azure Resource Graph.`;
+
+  // On Fabric, the app's enterprise application object ID.
+  const fabric = plainConfig();
+  Object.assign(fabric.app, { appId: 'app-1', servicePrincipalId: 'sp-1' });
+  const app = 'Give the app "Analytics Hub Data Collector" (application ID app-1, enterprise application object ID sp-1)';
+  assert.equal(foundry(fabric), `${app} ${reader(`the tenant root management group (${root})`)}${command('sp-1')}`);
+  fabric.resourceGraph.managementGroup = 'mg-ah';
+  const mg = '/providers/Microsoft.Management/managementGroups/mg-ah';
+  assert.equal(foundry(fabric), `${app} ${reader(`management group mg-ah (${mg})`)}${command('sp-1', mg)}`);
+  // With only its client ID, the command looks the object ID up.
+  const lookup = plainConfig();
+  lookup.app.appId = 'app-1';
+  assert.ok(foundry(lookup).endsWith(command('$(az ad sp show --id app-1 --query id -o tsv)')));
+  assert.doesNotMatch(foundry(lookup), /--assignee(-object-id)? app-1/);
+
+  // On Azure, the managed identity's principal ID, not its client ID.
+  const azure = azureConfig({ outputs: { identityPrincipalId: 'mi-1', identityClientId: 'mi-client-1' } });
+  const ask = foundry(azure);
+  assert.ok(ask.startsWith('Give the Analytics Hub jobs\' managed identity (object ID mi-1) '), ask);
+  assert.ok(ask.endsWith(command('mi-1')), ask);
+  assert.doesNotMatch(ask, /mi-client-1/);
+
+  // No command until there's someone to give it to, or a scope to give it on.
+  assert.doesNotMatch(foundry(plainConfig()), /az role assignment/);
+  assert.doesNotMatch(foundry(azureConfig({})), /az role assignment/);
+  const noTenant = plainConfig();
+  Object.assign(noTenant.app, { appId: 'app-1', servicePrincipalId: 'sp-1' });
+  assert.doesNotMatch(foundry(noTenant, ''), /az role assignment/);
 });
 
 test('adminRequests: rows nobody else needs to do ask for nothing', () => {

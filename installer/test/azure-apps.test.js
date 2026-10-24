@@ -198,7 +198,8 @@ test("Azure apps plan: with no role or setting to create apps, an admin is the d
   assert.deepEqual(t.selects[WHO].choices.map((c) => c.name), ['Create the two apps', 'Use the apps an admin created for me', 'An admin will create the apps for me'], 'only the default could be recommended, and the admin option never is');
   assert.equal(
     t.selects[WHO].choices[0].description,
-    "The installer found no role or setting that lets you register apps, but it can't see custom roles. Choose this only if a custom role lets you create them: if Entra refuses, the installer writes the admin script and stops before it deploys anything.",
+    "The installer found no role or setting that lets you register apps, but it can't see custom roles. Choose this only if a custom role lets you create them: if Entra refuses, the installer writes the admin script and stops before it deploys anything. " +
+      "If that role doesn't make you their owner, Entra may refuse to finish them after the deploy. The installer then stops, and says who adds you as an owner.",
   );
   assert.ok(t.u.text().includes("Users in this tenant can't register apps, and you have no app admin role. An Application Administrator or Cloud Application Administrator can create them for you."), t.u.text());
   assert.doesNotMatch(t.u.text(), /You can't/);
@@ -211,7 +212,7 @@ test("Azure apps plan: with no role or setting to create apps, an admin is the d
     assert.ok(isResumeLater(err));
     assert.match(err.message, new RegExp(`An admin needs to create the app registrations, so the installer stopped before deploying anything\\. Send ${re(t.script())} to an Application Administrator or Cloud Application Administrator\\.`));
     assert.match(err.message, RUN_AGAIN);
-    assert.match(err.message, /the installer finds the apps itself/);
+    assert.match(err.message, /the installer finds the apps itself\.$/, 'no --yes, so nothing about running without it');
     return true;
   });
 });
@@ -377,6 +378,7 @@ test('Azure apps --yes: with no way to create apps, the plan writes the admin fi
     assert.match(err.message, /so the installer stopped before deploying anything/);
     assert.ok(err.message.includes(t.script()), 'names the file');
     assert.match(err.message, RUN_AGAIN);
+    assert.match(err.message, /The installer can't see custom roles: if one lets you register apps, run ".*" again without --yes, and choose to create the apps yourself\.$/);
     return true;
   });
   assert.match(t.u.text(), /Checking Azure/, 'the preflight ran first, so one run lists everything');

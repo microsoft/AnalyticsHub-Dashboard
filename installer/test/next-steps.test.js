@@ -9,6 +9,7 @@ import { commandLine } from '../src/launch.js';
 import { FLOW_NAMES, flowsWanted, INVENTORY_SIGNER, OWNER_LEFT, ownerLeft, PP_API_SIGNER, PREMIUM_OWNER, whoSignsIn } from '../src/steps/flows.js';
 import { GLOBAL_READER_ROLE_ID, nextSteps, stepsLeftTitle } from '../src/steps/next-steps.js';
 import { planReview } from '../src/steps/plan.js';
+import { AGENT_ROLE } from '../src/steps/resource-graph.js';
 import { summary } from '../src/install.js';
 import { COWORK_DATAFLOW_ACTIVITY } from '../src/transform/pipeline.js';
 import { FEEDBACK_SUBJECT } from '../src/transform/flows.js';
@@ -145,10 +146,10 @@ test('next steps: the Global Reader hand-off shows until the role is recorded as
   t.config.app.servicePrincipalId = undefined;
   assert.match(String(nextSteps(t.config, USER)[0].message), /\$\(az ad sp show --id app-1 --query id -o tsv\)/);
 
-  /** @type {any} */ (t.config.resourceGraph) = { ...t.config.resourceGraph, roleAssigned: true };
-  assert.deepEqual(nextSteps(t.config, USER), []);
+  t.config.resourceGraph = { ...t.config.resourceGraph, roleAssigned: AGENT_ROLE };
+  assert.deepEqual(nextSteps(t.config, USER), [], 'the install record keeps the role\'s name, as resource-graph.js writes it');
 
-  /** @type {any} */ (t.config.resourceGraph) = { ...t.config.resourceGraph, roleAssigned: undefined, agents: false };
+  t.config.resourceGraph = { ...t.config.resourceGraph, roleAssigned: undefined, agents: false };
   assert.deepEqual(nextSteps(t.config, USER), [], 'not needed when agents are not read');
 });
 

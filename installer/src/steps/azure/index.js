@@ -3,6 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
+import { graphRolesCommand, pendingGraphRoles } from '../../admin-commands.js';
 import { azureGraphRolesFor, collectedLabels, ESSENTIAL_MODULES, MODULES, OPTIONAL_MODULES } from '../../catalog.js';
 import { semanticModelDefinition } from '../../clients/fabric.js';
 import { adminConsentUrl, apiPermissionsUrl, resolveAppRoles } from '../../clients/graph.js';
@@ -694,7 +695,8 @@ export async function planAzureApps(ctx, pre, section) {
               ? ''
               : ' Approving the web app\'s delegated permissions needs an admin: after the deploy, the installer gives you a consent link to send, and carries on.')
           : 'The installer found no role or setting that lets you register apps, but it can\'t see custom roles. ' +
-            `Choose this only if a custom role lets you create ${one ? 'it' : 'them'}: if Entra refuses, the installer writes the admin script and stops before it deploys anything.`,
+            `Choose this only if a custom role lets you create ${one ? 'it' : 'them'}: if Entra refuses, the installer writes the admin script and stops before it deploys anything. ` +
+            `If that role doesn't make you ${one ? 'its' : 'their'} owner, Entra may refuse to finish ${one ? 'it' : 'them'} after the deploy. The installer then stops, and says who adds you as an owner.`,
       },
       {
         name: (one ? 'Use the one an admin created for me' : 'Use the apps an admin created for me') + recommended('adopt'),
@@ -853,12 +855,16 @@ export async function azureAppsGate(ctx, pre) {
   az.adminScript = writeAzureAdminScript(ctx, await webAppScopes(api, config));
   ctx.save();
   const { what, them } = stillNeeded(az);
+  const customRole =
+    ui.yes && pre?.canCreateApps === false
+      ? ` The installer can't see custom roles: if one lets you register apps, run "${commandLine('install')}" again without --yes, and choose to create ${them} yourself.`
+      : '';
   throw new ResumeLater(
-    waiting
+    (waiting
       ? `Still waiting for an admin to create ${what} with the script in ${az.adminScript}, so the installer stopped again before deploying anything. ` +
           `Once an Application Administrator or Cloud Application Administrator has run it, run "${commandLine('install')}" again: the installer finds ${them} itself.`
       : `An admin needs to create ${what}, so the installer stopped before deploying anything. Send ${az.adminScript} to an Application Administrator ` +
-          `or Cloud Application Administrator. Once they've run it, run "${commandLine('install')}" again: the installer finds ${them} itself.`,
+          `or Cloud Application Administrator. Once they've run it, run "${commandLine('install')}" again: the installer finds ${them} itself.`) + customRole,
   );
 }
 
@@ -2327,6 +2333,7 @@ async function assignManagedIdentityGraphRoles(ctx) {
     ui.warn(`Microsoft Graph in this tenant has no ${m} permission yet. ${OPTIONAL_PERMISSION_EFFECTS[/** @type {keyof typeof OPTIONAL_PERMISSION_EFFECTS} */ (m)] ?? ''}`.trim());
   }
   az.graphRoles ??= { assigned: [], pending: [] };
+  let refused = false;
   for (const role of roles) {
     if (az.graphRoles.assigned.includes(role.value)) continue;
     try {
@@ -2336,10 +2343,17 @@ async function assignManagedIdentityGraphRoles(ctx) {
     } catch (err) {
       if (err instanceof HttpError && err.status === 403) {
         az.graphRoles.pending.push(role.value);
-        ui.warn(`An admin must grant ${role.value} to the managed identity.`);
+        refused = true;
       } else throw err;
     }
   }
+  if (!refused) return;
+  const pending = pendingGraphRoles(az.graphRoles);
+  ui.warn(
+    `Only a Privileged Role Administrator or Global Administrator can give the managed identity ${pending.length === 1 ? 'this Microsoft Graph application permission' : 'these Microsoft Graph application permissions'}: ` +
+      `${pending.join(', ')}. They can run this in Azure Cloud Shell (Bash):`,
+  );
+  ui.info(graphRolesCommand(principalId, pending));
 }
 
 /**
@@ -2837,7 +2851,12 @@ export async function azureStatus(ctx) {
   if (azureWorkdayOn(config)) ui.info(`Workday CSV:    ${azureDropLabel(az, AZURE_LANDING_DIRS.workday)}`);
   if (az.teamsApp) ui.info(`Teams app:      Analytics Hub ${az.teamsApp.version} in your org's app catalog`);
   expiry(ctx, 'SQL reader secret', az.sqlReader?.secretExpiry);
-  for (const p of az.graphRoles?.pending ?? []) ui.warn(`Pending admin action: grant ${p} to the managed identity.`);
+  const graphPending = pendingGraphRoles(az.graphRoles);
+  for (const p of graphPending) ui.warn(`Pending admin action: grant ${p} to the managed identity.`);
+  if (graphPending.length && az.outputs?.identityPrincipalId) {
+    ui.info('A Privileged Role Administrator or Global Administrator can give them in Azure Cloud Shell (Bash):');
+    ui.info(graphRolesCommand(az.outputs.identityPrincipalId, graphPending));
+  }
   for (const action of az.status?.pendingAdminActions ?? []) ui.warn(`Pending admin action: ${action}`);
   await azureTranscriptStatus(ctx);
   for (const [label, name] of [['Run job', az.outputs?.runJobName], ['Migrate job', az.outputs?.migrateJobName]]) {

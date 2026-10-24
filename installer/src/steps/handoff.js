@@ -4,6 +4,7 @@
  * one per admin, asking for everything that admin does. It builds text only: it writes no files, and puts no
  * client secrets, keys, tokens, passwords or sign-in codes in a request.
  */
+import { graphRolesCommand, objectIdOrLookup, pendingGraphRoles } from '../admin-commands.js';
 import { apiPermissionsUrl } from '../clients/graph.js';
 import { secretMode } from '../config.js';
 import { ppApiWanted, preflightVerdict, settingsToConfirm, TENANT_SETTINGS_URL } from '../prereqs.js';
@@ -14,7 +15,7 @@ import { MANAGE_APPS_URL, TEAMS_APP_PENDING } from './azure/teams-catalog.js';
 import { flowsWanted, ppApiSigner } from './flows.js';
 import { letter } from './next-steps.js';
 import { APP_NAME } from './plan.js';
-import { AGENT_ROLE, resourceGraphScope, scopeName } from './resource-graph.js';
+import { AGENT_ROLE, readerCommand, resourceGraphScope, scopeName } from './resource-graph.js';
 
 /** @typedef {import('../prereqs.js').Prereq} Prereq */
 /** @typedef {import('../prereqs.js').PrereqStatus} PrereqStatus */
@@ -29,6 +30,7 @@ export const ADMINS = {
   compliance: 'A Compliance Administrator',
   'power-platform': 'A Power Platform administrator',
   teams: 'A Teams Administrator',
+  'sharepoint-admin': 'A SharePoint Administrator',
   'azure-owner': 'An Azure Owner or User Access Administrator',
   viva: 'An Insights Analyst',
   licence: 'Your licence admin',
@@ -68,6 +70,10 @@ const PENDING_LABEL = 'Pending admin action';
 /** How the Azure install's pending admin actions start: the web app's consent, and making you an owner of its apps. */
 const CONSENT_PENDING = 'Grant delegated consent on ';
 const OWNER_PENDING = 'An Application Administrator or Cloud Application Administrator adds ';
+/** The SharePoint drop site's read grant, which a SharePoint Administrator runs as it is. */
+const DROP_SITE_PENDING = 'Grant-PnPAzureADAppSitePermission ';
+/** Before a command in an ask, which goes on the next line, indented. */
+const CLOUD_SHELL = ' In Azure Cloud Shell (Bash):\n  ';
 /** In the tenant settings row when only a Fabric administrator could read them. */
 const SETTINGS_UNREAD = ' to confirm these are on for you';
 const XMLA_UNREAD = 'XMLA endpoint must also be Read Write';
@@ -92,23 +98,25 @@ const purviewAsk = () => ({
 });
 
 /**
- * The Microsoft Graph roles an Azure install couldn't give the jobs' managed identity, each once: a role can be
- * listed more than once.
- * @param {InstallConfig} config
- */
-const pendingGraphRoles = (config) => {
-  const g = config.azure?.graphRoles;
-  const assigned = new Set(g?.assigned ?? []);
-  return [...new Set(g?.pending ?? [])].filter((r) => !assigned.has(r));
-};
-
-/**
+ * The Microsoft Graph roles for the jobs' managed identity and, once it's deployed, the command that gives them.
  * @param {InstallConfig} config
  * @param {string[]} roles
  */
 const graphRolesText = (config, roles) => {
   const id = config.azure?.outputs?.identityPrincipalId;
-  return `Give the Analytics Hub jobs' managed identity${id ? ` (object ID ${id})` : ''} these Microsoft Graph application permissions: ${roles.join(', ')}.`;
+  const ask = `Give the Analytics Hub jobs' managed identity${id ? ` (object ID ${id})` : ''} these Microsoft Graph application permissions: ${roles.join(', ')}.`;
+  return id ? `${ask}${CLOUD_SHELL}${graphRolesCommand(id, roles)}` : ask;
+};
+
+/**
+ * The object ID of whoever the Resource Graph load runs as, for a command, or a lookup of it from the app's client
+ * ID. Undefined until it exists, as in forLoad.
+ * @param {InstallConfig} config
+ */
+const loadObjectId = (config) => {
+  if (config.target === 'azure') return config.azure?.outputs?.identityPrincipalId;
+  const { servicePrincipalId, appId } = config.app ?? {};
+  return servicePrincipalId || appId ? objectIdOrLookup(servicePrincipalId, appId) : undefined;
 };
 
 /**
@@ -228,7 +236,7 @@ export const ROW_ASKS = {
   'audit-ingestion': (it, c) => {
     const { config } = c;
     if (config.target === 'azure') {
-      const pending = pendingGraphRoles(config);
+      const pending = pendingGraphRoles(config.azure?.graphRoles);
       const roles = pending.length
         ? graphRolesText(config, pending)
         : `After the deploy, give the Analytics Hub jobs' managed identity its Microsoft Graph application permissions, including ${AUDIT_ROLE}. I'll send you the list.`;
@@ -306,13 +314,22 @@ export const ROW_ASKS = {
     const hasRole = azure ? !!rg?.azureRoleAssigned : (!!rg?.roleAssigned || settled(c.status('consent-role')));
     const agents = kinds.includes(RG_AGENTS) && !hasRole;
     const foundry = kinds.includes(RG_FOUNDRY) && !(azure ? rg?.azureAccess : rg?.access);
-    const scopeId = rg?.managementGroup || config.tenantId ? ` (${resourceGraphScope(config, config.tenantId ?? '')})` : '';
+    const scope = rg?.managementGroup || config.tenantId ? resourceGraphScope(config, config.tenantId ?? '') : '';
+    const scopeId = scope ? ` (${scope})` : '';
+    const reader = scope && loadObjectId(config);
     return [
       ...(agents
         ? [/** @type {Ask} */ ({ admin: 'role-admin', text: forLoad(c, `the ${AGENT_ROLE} role in Microsoft Entra, so Analytics Hub can read Copilot Studio agents from Azure Resource Graph. ${AGENT_ROLE} is read-only.`) })]
         : []),
       ...(foundry
-        ? [/** @type {Ask} */ ({ admin: 'azure-owner', text: forLoad(c, `the Reader role in Azure on ${scopeName(config)}${scopeId}, so Analytics Hub can read Foundry resources from Azure Resource Graph.`) })]
+        ? [
+          /** @type {Ask} */ ({
+            admin: 'azure-owner',
+            text:
+              forLoad(c, `the Reader role in Azure on ${scopeName(config)}${scopeId}, so Analytics Hub can read Foundry resources from Azure Resource Graph.`) +
+              (reader ? `${CLOUD_SHELL}${readerCommand(reader, scope)}` : ''),
+          }),
+        ]
         : []),
     ];
   },
@@ -383,6 +400,7 @@ function pendingAsks(actions, roles, rows, c) {
       if (action.includes(' as an owner of "')) {
         return [{ admin: /** @type {AdminKey} */ ('app-admin'), label: PENDING_LABEL, text: stop(action.startsWith(OWNER_PENDING) ? `Add ${action.slice(OWNER_PENDING.length)}` : action) }];
       }
+      if (action.startsWith(DROP_SITE_PENDING)) return [{ admin: /** @type {AdminKey} */ ('sharepoint-admin'), label: PENDING_LABEL, text: action }];
       return [{ admin: /** @type {AdminKey} */ ('other'), label: PENDING_LABEL, text: action }];
     }),
   ];
@@ -422,7 +440,7 @@ export function adminRequests(rows, config, opts = {}) {
   const counted = new Set([...verdict.block, ...verdict.warn, ...verdict.handoff, ...verdict.confirm].map((it) => it.id));
   const pendingOn = opts.pending !== false && config.target === 'azure';
   const actions = pendingOn ? config.azure?.status?.pendingAdminActions ?? [] : [];
-  const roles = pendingOn ? pendingGraphRoles(config) : [];
+  const roles = pendingOn ? pendingGraphRoles(config.azure?.graphRoles) : [];
   const pendingConsent = actions.some((a) => a.startsWith(CONSENT_PENDING)) && !settled(status('consent-role'));
   const pendingTeams = actions.some((a) => a.startsWith(`${TEAMS_APP_PENDING}: `)) && !settled(status('teams-admin'));
   /** @type {AskContext} */

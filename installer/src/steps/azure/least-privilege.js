@@ -89,10 +89,10 @@ export function reportProviders(ctx, found) {
     ui.warn(`You can't register resource providers in this subscription, and ${inWords(found.unregistered, 'and')} ${found.unregistered.length === 1 ? 'isn\'t' : 'aren\'t'} registered yet. Registering needs Contributor or Owner on the subscription, so ask your Azure admin to run this once:`);
     for (const line of providerCommands(sub, found.unregistered)) ui.info(line);
     if (found.unregistered.some((i) => i.includes('/'))) ui.note('Run the az feature show line until it says Registered before the az provider register lines.');
-    ui.note(`Until then, Azure can't create the resources that need ${found.unregistered.length === 1 ? 'it' : 'them'}. See ${LEAST_PRIVILEGE_DOC}.`);
+    ui.note(`Until then, Azure can't create the resources that need ${found.unregistered.length === 1 ? 'it' : 'them'}. See ${LEAST_PRIVILEGE_URL}`);
   }
   if (found.unread.length) {
-    ui.note(`Couldn't check whether ${inWords(found.unread, 'and')} ${found.unread.length === 1 ? 'is' : 'are'} registered in this subscription. If Azure says one isn't, your Azure admin registers it once: see ${LEAST_PRIVILEGE_DOC}.`);
+    ui.note(`Couldn't check whether ${inWords(found.unread, 'and')} ${found.unread.length === 1 ? 'is' : 'are'} registered in this subscription. If Azure says one isn't, your Azure admin registers it once: see ${LEAST_PRIVILEGE_URL}`);
   }
 }
 
@@ -113,7 +113,7 @@ export function registrationMessage(err, subscriptionId, items) {
   return [
     `Azure says ${what} registered in this subscription. Someone with Contributor or Owner on the subscription registers ${named.length === 1 ? 'it' : 'them'} once:`,
     ...providerCommands(subscriptionId ?? '<subscription ID>', named.length ? named : items),
-    `Then run the installer again. See ${LEAST_PRIVILEGE_DOC}.`,
+    `Then run the installer again. See ${LEAST_PRIVILEGE_URL}`,
   ].join('\n');
 }
 
@@ -129,7 +129,7 @@ export function roleAssignMessage(err) {
   return [
     `Azure wouldn't let you assign a role${scope ? ` on ${scope}` : ''}.`,
     'The deployment gives its managed identity Storage Blob Data Contributor and Storage Table Data Contributor on its storage account, Cognitive Services OpenAI User on an Ask model it creates, and AcrPull on a private registry.',
-    `Assigning them needs Owner, User Access Administrator, or Role Based Access Control Administrator with a condition that allows these roles, on the resource group (${LEAST_PRIVILEGE_DOC}). A private registry in another resource group needs it there too.`,
+    `Assigning them needs Owner, User Access Administrator, or Role Based Access Control Administrator with a condition that allows these roles, on the resource group (${LEAST_PRIVILEGE_URL}). A private registry in another resource group needs it there too.`,
     'If you\'ve just been given or activated a role, wait a few minutes and run the installer again.',
   ].join('\n');
 }
@@ -164,14 +164,14 @@ export async function checkDeployRights(ctx, rgExists) {
       'Any one of these is enough, on the resource group or its subscription:',
       '  - Owner',
       '  - Contributor and User Access Administrator',
-      `  - Least privilege, on just this resource group: Contributor, and Role Based Access Control Administrator limited to the roles the installer assigns. Your Azure admin can set it up with ${LEAST_PRIVILEGE_DOC}.`,
+      `  - Least privilege, on just this resource group: Contributor, and Role Based Access Control Administrator limited to the roles the installer assigns. Your Azure admin can set it up with ${LEAST_PRIVILEGE_URL}`,
       pim,
     ].join('\n'));
   }
   throw new Error([
     `You can't create resource group ${az.resourceGroup} and install into it: you can't ${inWords(lacks)} in subscription ${az.subscriptionName ?? az.subscriptionId}.`,
     'Ask for Owner, or Contributor and User Access Administrator, on the subscription.',
-    `Or, for least privilege, ask your Azure admin to create the resource group and give you access to just that group (${LEAST_PRIVILEGE_DOC}). Then run the installer again and pick it as an existing resource group.`,
+    `Or, for least privilege, ask your Azure admin to create the resource group and give you access to just that group (${LEAST_PRIVILEGE_URL}). Then run the installer again and pick it as an existing resource group.`,
     pim,
   ].join('\n'));
 }
@@ -241,5 +241,5 @@ export async function printAdminGrants(ctx) {
     ui.info(`az identity list --subscription ${az.subscriptionId} --resource-group ${az.resourceGroup} --query "[?starts_with(name, 'id-${az.namePrefix ?? 'vlens'}-collector-')].principalId" -o tsv`);
   }
   for (const g of needed) ui.info(`az role assignment create --assignee-object-id ${principal ?? '<managed identity principal ID>'} --assignee-principal-type ServicePrincipal --role "${g.role}" --scope ${g.scope}`);
-  ui.note(`The install finishes without them and leaves those sources out until they're there. When the installer asks, leave them out for now; once they're there, run it again and say they are. See ${LEAST_PRIVILEGE_DOC}.`);
+  ui.note(`The install finishes without them and leaves those sources out until they're there. When the installer asks, leave them out for now; once they're there, run it again and say they are. See ${LEAST_PRIVILEGE_URL}`);
 }
