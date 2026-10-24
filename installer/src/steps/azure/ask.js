@@ -159,7 +159,7 @@ export function askParameters(config) {
 
 /** The role assignment that lets the web app call an existing deployment, as a command. @param {string} principalId @param {string} scope */
 export const askRoleCommand = (principalId, scope) =>
-  `az role assignment create --role "Cognitive Services OpenAI User" --assignee-object-id ${principalId} --assignee-principal-type ServicePrincipal --scope ${scope}`;
+  `az role assignment create --role "Cognitive Services OpenAI User" --assignee-object-id ${principalId} --assignee-principal-type ServicePrincipal --scope "${scope}"`;
 
 /**
  * An existing deployment: gives the web app's managed identity Cognitive Services OpenAI User on its

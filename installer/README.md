@@ -1002,7 +1002,7 @@ Whoever runs the load (the app registration, or on Azure the jobs' managed ident
 - **Foundry:** Azure **Reader** on the management group, or on the tenant root group. The installer
   gives it when you can assign roles there. If you can't, it prints the command for an Owner or
   User Access Administrator:
-  `az role assignment create --assignee-object-id <the app's enterprise application object ID, or the managed identity's principal ID> --assignee-principal-type ServicePrincipal --role Reader --scope /providers/Microsoft.Management/managementGroups/<group or tenant ID>`.
+  `az role assignment create --assignee-object-id <the app's enterprise application object ID, or the managed identity's principal ID> --assignee-principal-type ServicePrincipal --role Reader --scope "/providers/Microsoft.Management/managementGroups/<group or tenant ID>"`.
 - **Agents:** one of the Entra roles **Global Reader**, **Power Platform Administrator** or **AI
   Administrator**. If you're a Global Administrator or Privileged Role Administrator, the
   installer gives it **Global Reader** itself, and *Ready to set up* says so. It checks first,

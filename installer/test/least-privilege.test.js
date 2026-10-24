@@ -220,9 +220,9 @@ test('least privilege: roles outside the resource group you can\'t give are prin
   assert.match(text, /\n +Cost Management Reader on subscription payg-2: Copilot pay-as-you-go costs\n/);
   assert.doesNotMatch(text, /payg-1/, 'one it already has is left out');
   assert.match(text, /\n +Reader on the tenant root management group: Foundry, from Resource Graph\n/);
-  assert.match(text, /\n +az identity list --subscription sub-1 --resource-group rg --query "\[\?starts_with\(name, 'id-vlens-collector-'\)\]\.principalId" -o tsv\n/);
-  for (const r of AZURE_AI_ROLES) assert.ok(text.includes(`az role assignment create --assignee-object-id <managed identity principal ID> --assignee-principal-type ServicePrincipal --role "${r.name}" --scope /subscriptions/ai-sub\n`), r.name);
-  assert.ok(text.includes('--role "Reader" --scope /providers/Microsoft.Management/managementGroups/tenant-1\n'));
+  assert.match(text, /\n +az identity list --subscription sub-1 --resource-group "rg" --query "\[\?starts_with\(name, 'id-vlens-collector-'\)\]\.principalId" -o tsv\n/);
+  for (const r of AZURE_AI_ROLES) assert.ok(text.includes(`az role assignment create --assignee-object-id <managed identity principal ID> --assignee-principal-type ServicePrincipal --role "${r.name}" --scope "/subscriptions/ai-sub"\n`), r.name);
+  assert.ok(text.includes('--role "Reader" --scope "/providers/Microsoft.Management/managementGroups/tenant-1"\n'));
   assert.match(text, /The install finishes without them and leaves those sources out until they're there\./);
 
   const known = await setup();
@@ -232,7 +232,7 @@ test('least privilege: roles outside the resource group you can\'t give are prin
   known.arm.perms['/subscriptions/ai-sub'] = READ;
   known.arm.perms['/providers/Microsoft.Management/managementGroups/mg-1'] = READ;
   await azurePreflight(known.ctx);
-  assert.ok(known.text().includes('az role assignment create --assignee-object-id mi-1 --assignee-principal-type ServicePrincipal --role "Reader" --scope /providers/Microsoft.Management/managementGroups/mg-1\n'));
+  assert.ok(known.text().includes('az role assignment create --assignee-object-id mi-1 --assignee-principal-type ServicePrincipal --role "Reader" --scope "/providers/Microsoft.Management/managementGroups/mg-1"\n'));
   assert.match(known.text(), /Reader on management group mg-1: Foundry, from Resource Graph/);
   assert.doesNotMatch(known.text(), /az identity list/, 'its principal ID is known after the first deploy');
   assert.doesNotMatch(known.text(), /payg-2/, 'you can give that one yourself');
@@ -264,6 +264,6 @@ test('least privilege: nothing to print when you can give the roles, they\'re th
   fresh.arm.failures.permissions = [undefined, forbidden('GET', '/subscriptions/ai-sub/providers/Microsoft.Authorization/permissions')].map((e) => /** @type {Error} */ (e));
   await azurePreflight(fresh.ctx);
   assert.match(fresh.text(), /outside resource group rg-new, and you can't give them \(or the installer couldn't check\):/, 'a new resource group gets them too');
-  assert.match(fresh.text(), /--scope \/subscriptions\/ai-sub\n/);
+  assert.match(fresh.text(), /--scope "\/subscriptions\/ai-sub"\n/);
   assert.doesNotMatch(fresh.text(), /Resource Graph/);
 });

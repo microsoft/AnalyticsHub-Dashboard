@@ -1426,7 +1426,7 @@ function dnsZoneCollision(az, declared, resources) {
       + 'Analytics Hub will not modify resources it did not create. To go on, either:',
     '  - Use the zones in this resource group: run the installer again, choose advanced options and Private networking, then "Use existing zones in another resource group", '
       + `and give /subscriptions/${az.subscriptionId}/resourceGroups/${rg} as the resource group that holds them. On the setup page, that's Networking, then "Use existing zones" with the same resource group ID.`
-      + (missing.length ? ` Every zone the install uses must then be in it, so first create ${joinList(missing)} there, for example with az network private-dns zone create -g ${rg} -n <zone name>.` : ''),
+      + (missing.length ? ` Every zone the install uses must then be in it, so first create ${joinList(missing)} there, for example with az network private-dns zone create -g "${rg}" -n <zone name>.` : ''),
     '  - Or install into another resource group.',
   ].join('\n');
 }
@@ -1983,7 +1983,7 @@ export async function installAzure(ctx, opts) {
   const migration = await startAndWaitJob(ctx, 'migrate', { wait: true, timeoutMs: 15 * 60_000 });
   if (!migration.ok) {
     throw new Error(`The database migration job did not succeed (${migration.status}), so setup stopped before the first load. ` +
-      `See its logs with: az containerapp job logs show -g ${az.resourceGroup} -n ${az.outputs?.migrateJobName} --execution ${az.status?.lastMigrate?.name} --container migrate. ` +
+      `See its logs with: az containerapp job logs show -g "${az.resourceGroup}" -n ${az.outputs?.migrateJobName} --execution ${az.status?.lastMigrate?.name} --container migrate. ` +
       'Re-run install once it is fixed; finished steps are skipped.');
   }
 
@@ -2072,7 +2072,7 @@ async function deployOrExplain(ctx, o) {
   } catch (err) {
     const msg = explain(err, az);
     // A deployment that ran and failed (waitForDeployment) stays in the resource group with its full error.
-    const more = !(err instanceof HttpError) && /** @type {any} */ (err)?.body?.error ? `\nFull error: az deployment group show -g ${az.resourceGroup} -n valuelens --query properties.error` : '';
+    const more = !(err instanceof HttpError) && /** @type {any} */ (err)?.body?.error ? `\nFull error: az deployment group show -g "${az.resourceGroup}" -n valuelens --query properties.error` : '';
     if (msg) throw new Error(`${msg}\n${/** @type {Error} */ (err).message}${more}`, { cause: err });
     if (more && err instanceof Error) err.message += more;
     throw err;

@@ -12,7 +12,7 @@ const LOOKUP = '$(az ad sp show --id app-client --query id -o tsv)';
 test('roleAssignmentCommand: names the principal by its object ID, as a service principal', () => {
   assert.equal(
     roleAssignmentCommand('sp-obj', 'Cost Management Reader', '/subscriptions/sub-1'),
-    'az role assignment create --assignee-object-id sp-obj --assignee-principal-type ServicePrincipal --role "Cost Management Reader" --scope /subscriptions/sub-1',
+    'az role assignment create --assignee-object-id sp-obj --assignee-principal-type ServicePrincipal --role "Cost Management Reader" --scope "/subscriptions/sub-1"',
   );
 });
 
@@ -54,11 +54,12 @@ function bash(script) {
 }
 
 // A stand-in for az. Microsoft Graph's service principal is graph-sp-obj, the app's is sp-obj, and every role has an
-// ID except Missing.Read.All, as in a tenant without it. It prints the calls that make a change.
+// ID except Missing.Read.All, as in a tenant without it. It prints the calls that make a change: a role assignment's
+// arguments each in brackets, so a test can see where Bash split them.
 const AZ = `az() {
   case "$1" in
     rest) printf 'POST %s %s\\n' "$5" "$7"; return;;
-    role) printf 'ROLE %s\\n' "$*"; return;;
+    role) printf 'ROLE'; printf ' [%s]' "$@"; printf '\\n'; return;;
   esac
   if [ "$7" = id ]; then if [ "$5" = app-client ]; then echo sp-obj; else echo graph-sp-obj; fi; return; fi
   local q="'"
@@ -97,9 +98,25 @@ test("graphRolesCommand, run: posts each role Microsoft Graph has, as JSON, and 
   assert.deepEqual(lines.filter((l) => !l.startsWith('POST ')), ['Skipped Missing.Read.All: not in this tenant yet']);
 });
 
+/** What the stand-in prints for a role assignment. @param {string[]} args */
+const roleCall = (args) => `ROLE ${args.map((a) => `[${a}]`).join(' ')}\n`;
+
 test('roleAssignmentCommand with a lookup, run: the assignee is the object ID the lookup finds', (t) => {
   const r = bash(`${AZ}\n${roleAssignmentCommand(objectIdOrLookup(undefined, 'app-client'), 'Reader', '/subscriptions/sub-1')}`);
   if (!r) return t.skip('bash is not on the PATH');
   assert.equal(r.status, 0, r.stderr);
-  assert.equal(r.stdout, 'ROLE role assignment create --assignee-object-id sp-obj --assignee-principal-type ServicePrincipal --role Reader --scope /subscriptions/sub-1\n');
+  assert.equal(r.stdout, roleCall(['role', 'assignment', 'create', '--assignee-object-id', 'sp-obj', '--assignee-principal-type', 'ServicePrincipal', '--role', 'Reader', '--scope', '/subscriptions/sub-1']));
+});
+
+test('roleAssignmentCommand, run: a scope with parentheses, which management group and resource group names allow, arrives as one argument', (t) => {
+  for (const scope of ['/providers/Microsoft.Management/managementGroups/mg(prod)', '/subscriptions/sub-1/resourceGroups/rg(prod)']) {
+    const r = bash(`${AZ}\n${roleAssignmentCommand('sp-obj', 'Cost Management Reader', scope)}`);
+    if (!r) return t.skip('bash is not on the PATH');
+    assert.equal(r.status, 0, r.stderr);
+    assert.equal(r.stdout, roleCall(['role', 'assignment', 'create', '--assignee-object-id', 'sp-obj', '--assignee-principal-type', 'ServicePrincipal', '--role', 'Cost Management Reader', '--scope', scope]));
+    // Unquoted, Bash stops at the parenthesis, and the command can't be pasted.
+    const unquoted = bash(`set -n\naz role assignment create --assignee-object-id sp-obj --role Reader --scope ${scope}`);
+    assert.notEqual(unquoted?.status, 0, scope);
+    assert.match(unquoted?.stderr ?? '', /syntax error near unexpected token `\('/, scope);
+  }
 });

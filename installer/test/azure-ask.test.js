@@ -112,7 +112,7 @@ test('Ask with an existing deployment: an endpoint by hand, or no rights to assi
   denied.arm.failures.assignRole = [new HttpError('Forbidden', { status: 403, method: 'PUT', url: 'https://x' })];
   await ensureAzureAskAccess(denied.ctx);
   assert.equal(denied.az.ask?.granted, undefined);
-  assert.match(denied.ui.text(), new RegExp(`Ask an owner to run: az role assignment create .*--scope ${accountId}`));
+  assert.match(denied.ui.text(), new RegExp(`Ask an owner to run: az role assignment create .*--scope "${accountId}"`));
 });
 
 test('Ask off, and installs from before Ask, deploy nothing for it', async () => {

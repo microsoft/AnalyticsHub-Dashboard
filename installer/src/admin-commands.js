@@ -9,12 +9,13 @@ import { GRAPH_APP_ID } from './catalog.js';
 /**
  * An Azure role for a service principal or managed identity. --assignee-object-id skips the Microsoft Graph lookup,
  * which an admin may not be allowed to make, and the principal type avoids errors while a new one propagates.
+ * The scope is quoted: management group and resource group names can contain parentheses.
  * @param {string} objectId  The enterprise application's object ID, or the managed identity's principal ID.
  * @param {string} role
  * @param {string} scope
  */
 export const roleAssignmentCommand = (objectId, role, scope) =>
-  `az role assignment create --assignee-object-id ${objectId} --assignee-principal-type ServicePrincipal --role "${role}" --scope ${scope}`;
+  `az role assignment create --assignee-object-id ${objectId} --assignee-principal-type ServicePrincipal --role "${role}" --scope "${scope}"`;
 
 /**
  * A service principal's object ID for a command or, when only its application (client) ID is known, a lookup of it

@@ -436,7 +436,9 @@ sets the number. On Fabric and Azure.
   jobs' managed identity, because the load runs as that identity, not as you.
 - **Admin commands you can paste.** Where the installer can't give a role itself, it prints a
   command for the admin who can, to paste into Azure Cloud Shell (Bash), and their request under
-  **Requests for your admins** includes it. No command includes a secret.
+  **Requests for your admins** includes it. No command includes a secret. Every command the
+  installer prints quotes the scope or resource group it names: Azure allows parentheses in
+  management group and resource group names, and Bash stops at an unquoted one.
   - The commands for credit consumption's Azure AI roles (Reader, Cost Management Reader and
     Monitoring Reader), for its pay-as-you-go Cost Management Reader and for Resource Graph's Reader
     name the app, or on Azure the jobs' managed identity, by its object ID, with
