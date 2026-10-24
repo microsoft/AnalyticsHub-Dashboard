@@ -1,7 +1,44 @@
-# Analytics Hub for Microsoft Copilot
+<div align="center">
 
-See how your organisation uses Microsoft 365 Copilot and agents, and the hours and value they
-deliver.
+<br>
+
+# 📊 Analytics Hub for Microsoft Copilot
+
+**See how your organisation uses Microsoft 365 Copilot and agents, and the hours and value they deliver.**
+
+<br>
+
+All reports and guides can be found on the [Analytics Hub site](https://microsoft.github.io/Analytics-Hub/).
+
+**Also see [AI-in-One Dashboard](https://github.com/microsoft/AI-in-One-Dashboard):** one dashboard
+for all Microsoft Copilot and agent adoption signals.
+
+<br>
+
+**Found this useful? ⭐ Star this repo to help others discover it!**
+
+<br>
+
+**[Start here ↓](#getting-started)** &nbsp;·&nbsp; **[Run the installer ↓](#run-the-installer)** &nbsp;·&nbsp; **[After setup ↓](#after-setup)** &nbsp;·&nbsp; **[Disclaimer ↓](#disclaimer)** &nbsp;·&nbsp; **[Reference ↓](#reference)** &nbsp;·&nbsp; **[Help ↓](#help)**
+
+<br>
+
+</div>
+
+<details>
+<summary>⚠️ <strong>Usage and compliance disclaimer</strong></summary>
+
+While this tool helps customers understand the business value of their AI usage data, Microsoft has
+**no visibility** into the data customers input, nor control over how the tool is used. Customers
+are solely responsible for ensuring their use complies with all applicable laws and regulations
+(including data privacy and security). **Microsoft disclaims all liability** arising from use of this
+tool.
+
+This is an **experimental** tool with Purview audit logs as the primary source. Audit logs
+provide visibility into Copilot/agent interactions but are not intended as the sole source of truth
+for licensing or full‑fidelity reporting. Not supported through Microsoft support channels — please
+open an issue in this repo.
+</details>
 
 [![Analytics Hub preview](media/AnalyticsHub-Preview.gif)](docs/APP-GUIDE.md)
 
@@ -104,18 +141,3 @@ Created by [Keith McGrane](https://github.com/Keithland89).
 
 To contribute, open a pull request against `main`. Keith reviews and approves every change, and
 only Keith creates release tags. See [Contributing](CONTRIBUTING.md#reviews-and-releases).
-
-<details>
-<summary>Usage and compliance disclaimer</summary>
-
-While this tool helps customers understand the business value of their AI usage data, Microsoft has
-**no visibility** into the data customers input, nor control over how the tool is used. Customers
-are solely responsible for ensuring their use complies with all applicable laws and regulations
-(including data privacy and security). **Microsoft disclaims all liability** arising from use of this
-tool.
-
-This is an **experimental** tool with Purview audit logs as the primary source. Audit logs
-provide visibility into Copilot/agent interactions but are not intended as the sole source of truth
-for licensing or full‑fidelity reporting. Not supported through Microsoft support channels — please
-open an issue in this repo.
-</details>
