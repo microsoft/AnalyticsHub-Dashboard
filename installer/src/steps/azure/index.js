@@ -14,7 +14,7 @@ import { DONE_REQUESTS_TITLE, formatDuration } from '../../ui.js';
 import { rlsOn, rlsSettings } from '../../transform/access.js';
 import { buildAgentEvaluatorModel, buildConsumptionModel, buildModel, loadTemplateModel, PBISM } from '../../transform/model.js';
 import { connectionCreatedAnyway, deployModel, MODEL_UPDATE_NOTE, modelSignature, REFRESH_POLL_MS, settleReloads } from '../model.js';
-import { addMonths, appAdminFile, OPTIONAL_PERMISSION_EFFECTS, OPTIONAL_PERMISSIONS, ResumeLater, SECRET_LIFETIME_MONTHS, writeAzureAdminScript, writeHandoffPack } from '../identity.js';
+import { addMonths, appAdminFile, askedRows, OPTIONAL_PERMISSION_EFFECTS, OPTIONAL_PERMISSIONS, ResumeLater, SECRET_LIFETIME_MONTHS, writeAzureAdminScript, writeHandoffPack } from '../identity.js';
 import { addTrackedSecret, promoteSecret, removeRetired } from '../secrets.js';
 import { manifestVersion, writeTeamsPackage } from '../../azure/teams.js';
 import { askToPublishTeamsApp, checkCatalogAccess, publishTeamsApp, removeTeamsApp, signInForTeamsApp, TEAMS_APP_PENDING, teamsAppPlanRow } from './teams-catalog.js';
@@ -3328,7 +3328,7 @@ async function azureDoneRequests(ctx) {
     const card = [namesStep(names)];
     ui.nextSteps(stepsLeftTitle(card), card);
   }
-  const requests = doneRequests(config, { from: ctx.user?.upn, globalAdmin, transcripts: azureTranscriptAsks(ctx) });
+  const requests = doneRequests(config, { from: ctx.user?.upn, globalAdmin, transcripts: azureTranscriptAsks(ctx), carried: askedRows(ctx) });
   ui.doneRequests(requests);
   writeHandoffPack(ctx, { done: requests });
 }

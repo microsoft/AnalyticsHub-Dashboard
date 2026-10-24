@@ -1007,6 +1007,14 @@ export function startHandoffPack(ctx, by) {
 export const copyHandoffPack = (pack) => ({ ...pack, why: [...pack.why], asked: new Map(pack.asked), all: new Map(pack.all) });
 
 /**
+ * The rows this run's checks showed as needing someone else, so the end's requests carry what a finished install
+ * doesn't settle (doneRequests' `carried`, steps/handoff.js).
+ * @param {{ handoffPack?: HandoffPack }} ctx
+ * @returns {Prereq[]}
+ */
+export const askedRows = (ctx) => [...(ctx.handoffPack?.asked.values() ?? [])];
+
+/**
  * The app admin's file in the pack whose index is `index`, or beside any other file in the same folder, such as the
  * Azure admin script.
  * @param {string} index

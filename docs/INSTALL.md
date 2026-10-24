@@ -162,6 +162,11 @@ Something failed? Choose **Rerun failed loads** (`rerun-failed`), or see
     environment the installer can't read in full.
   - On Azure, the install's pending admin actions too, such as the jobs' managed identity's
     Microsoft Graph roles and the Teams app.
+  - What the prerequisites check asked for that a finished install doesn't settle: audit logging
+    in Microsoft Purview, until, on Fabric, a data check or the audit check finds audit records; the
+    Power Automate Premium licence, when you have flows; the data policy, until every flow is on;
+    and the tenant settings the installer couldn't read and the install doesn't prove are on. Where
+    there's something to run once it's done, such as `check-audit` or `update`, the request says so.
 - **Admin consent.** If you couldn't grant it, the request goes to a Privileged Role Administrator
   or Global Administrator, with the link. They select **Grant admin consent**. Then load the audit
   history, as the request says: run `run --backfill-days <n>`, or, for 30, 90 or 180 days, open the

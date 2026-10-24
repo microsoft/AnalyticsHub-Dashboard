@@ -80,6 +80,8 @@ const VIVA_ROLES_URL = 'https://learn.microsoft.com/viva/insights/advanced/setup
 /** Teams admin center > Teams apps > Manage apps, as in steps/azure/teams-catalog.js. */
 const TEAMS_MANAGE_APPS_URL = 'https://admin.teams.microsoft.com/policies/manage-apps';
 const XMLA_SETTING = 'Allow XMLA endpoints and Analyze in Excel with on-premises semantic models';
+/** Fabric only: the Lakehouse, the notebooks and the pipeline are Fabric items. */
+const FABRIC_ITEMS_SETTING = '"Users can create Fabric items"';
 /** Ends an Entra role row's detail when the roles you could activate through PIM can't be read. */
 const PIM_UNREAD = ' Couldn\'t check for roles you could activate yourself.';
 /**
@@ -144,11 +146,45 @@ export function settingsToConfirm(config) {
   const workspace = azure ? config.azure?.powerBi?.workspaceId : config.fabric?.workspaceId;
   return [
     ...(workspace ? [] : [`"Create workspaces" (only to create a new workspace, not to use an existing one you're an ${WORKSPACE_ROLE} of)`]),
-    ...(azure ? [] : ['"Users can create Fabric items"']),
+    ...(azure ? [] : [FABRIC_ITEMS_SETTING]),
     // As blockedSettings is asked below: the app's settings on Fabric, and on Azure the one its web app needs; the reports' always.
     ...POWER_BI_SETTINGS.filter((s) => !azure || !s.app || s.web).map((s) => settingLabel(s)),
     ...(rlsOn(config) ? [`"${XMLA_SETTING}"`] : []),
   ];
+}
+
+/**
+ * The tenant settings still to confirm once an install has finished, for the request its end carries from preflight:
+ * settingsToConfirm's, less those the install record proves are on and, on Fabric, those for parts you didn't choose,
+ * as the plan warns only about those (steps/plan.js). The Lakehouse and the pipeline prove "Users can create Fabric
+ * items", the app's item proves the Fabric apps setting, and org-scoped access, which the Access Scope notebook applies
+ * through the XMLA endpoint, proves the XMLA setting and the capacity's Read Write.
+ * @param {import('./config.js').InstallConfig} config
+ * @returns {{ settings: string[], xmla: boolean, app: boolean, create: boolean }}  xmla: the capacity's XMLA endpoint is
+ *   still to confirm too. app: the Fabric apps setting is left, so the app isn't deployed. create: a setting that creates
+ *   the workspace or its items is left, so they weren't all created.
+ */
+export function settingsLeft(config) {
+  const azure = config.target === 'azure';
+  const sm = config.semanticModel;
+  const fa = config.fabricApp;
+  const xmla = rlsOn(config) && (azure || !!sm?.enabled) && !config.access?.rls?.applied?.length;
+  const items = azure || !!(config.fabric?.lakehouseId && config.fabric.pipelineId);
+  const drop = new Set([
+    ...(items && !azure ? [FABRIC_ITEMS_SETTING] : []),
+    ...POWER_BI_SETTINGS.filter(
+      (s) => (s.name === 'AppBackendTenant' && !!fa?.itemId) || (!azure && !(sm?.enabled && (!s.app || fa?.enabled) && (!s.reports || sm.reports))),
+    ).map((s) => settingLabel(s)),
+    ...(xmla ? [] : [`"${XMLA_SETTING}"`]),
+  ]);
+  const workspace = azure ? config.azure?.powerBi?.workspaceId : config.fabric?.workspaceId;
+  return {
+    settings: settingsToConfirm(config).filter((s) => !drop.has(s)),
+    xmla,
+    // As the drop set: the Fabric apps setting is Fabric's only, and kept only for an app you chose that isn't deployed.
+    app: !azure && !!sm?.enabled && !!fa?.enabled && !fa.itemId,
+    create: !workspace || !items,
+  };
 }
 
 /**

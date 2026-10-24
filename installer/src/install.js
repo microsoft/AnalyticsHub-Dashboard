@@ -19,7 +19,7 @@ import { POWER_PLATFORM_URL, powerPlatformApi } from './clients/powerplatform.js
 import { saveConfig, secretMode } from './config.js';
 import { createClient, defaultSleep } from './http.js';
 import { commandLine } from './launch.js';
-import { copyHandoffPack, ensureConsent, ensureApp, ensureKeyVault, newSecret, notebookSecretDays, startHandoffPack, writeHandoffPack } from './steps/identity.js';
+import { askedRows, copyHandoffPack, ensureConsent, ensureApp, ensureKeyVault, newSecret, notebookSecretDays, startHandoffPack, writeHandoffPack } from './steps/identity.js';
 import {
   agentEvaluatorModelWanted, agentEvaluatorSummary, ensureAgentEvaluatorModel, ensureTranscriptAccess, fabricReadRoleWanted, removeFabricReadRoles, transcriptAsks,
 } from './steps/agent-evaluator.js';
@@ -1020,6 +1020,7 @@ export async function summary(ctx, opts = {}) {
     globalAdmin,
     backfillDays: opts.backfillDays,
     transcripts: transcriptAsks(ctx),
+    carried: askedRows(ctx),
   });
   ui.doneRequests(requests);
   writeHandoffPack(ctx, { done: requests });

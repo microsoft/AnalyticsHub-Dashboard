@@ -936,7 +936,7 @@ const feedbackExportPointer = `The product feedback export: send a Microsoft 365
  * @param {import('../config.js').InstallConfig} config
  * @param {FlowKind} kind
  */
-const flowConnected = (config, kind) => !!config.uploads.flowIds?.[kind] && config.uploads.flowsConnected?.[kind] === config.uploads.flowIds[kind];
+export const flowConnected = (config, kind) => !!config.uploads?.flowIds?.[kind] && config.uploads.flowsConnected?.[kind] === config.uploads.flowIds[kind];
 
 /**
  * The numbered steps to sign a flow in and turn it on by hand.

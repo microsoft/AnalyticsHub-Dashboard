@@ -8,9 +8,12 @@ import { apiPermissionsUrl, GLOBAL_ADMIN_ROLE } from '../src/clients/graph.js';
 import { emptyConfig } from '../src/config.js';
 import { summary } from '../src/install.js';
 import { commandLine } from '../src/launch.js';
+import { dataPolicyPrereq, settingsLeft, settingsToConfirm, TENANT_SETTINGS_URL } from '../src/prereqs.js';
+import { PURVIEW_AUDIT_URL } from '../src/steps/audit-check.js';
 import { azureSummary } from '../src/steps/azure/index.js';
 import { MANAGE_APPS_URL, TEAMS_APP_PENDING } from '../src/steps/azure/teams-catalog.js';
-import { ADMINS, doneRequests, isGlobalAdmin, namesState, namesWanted } from '../src/steps/handoff.js';
+import { flowsWanted } from '../src/steps/flows.js';
+import { ADMINS, adminRequests, doneRequests, isGlobalAdmin, namesState, namesWanted, ROW_ASKS } from '../src/steps/handoff.js';
 import { CONCEALED_NAMES_AFTER, CONCEALED_NAMES_STEPS } from '../src/steps/next-steps.js';
 import { AGENT_ROLE, globalReaderCommand, readerCommand, resourceGraphScope } from '../src/steps/resource-graph.js';
 import { lastDataCheck } from '../src/steps/run.js';
@@ -19,6 +22,7 @@ import { fakeCtx, fakeFabric, fakeUi } from './fakes.js';
 
 /** @typedef {import('../src/config.js').InstallConfig} InstallConfig */
 /** @typedef {import('../src/steps/handoff.js').AdminRequest} AdminRequest */
+/** @typedef {import('../src/prereqs.js').Prereq} Prereq */
 
 const UPN = 'admin@contoso.com';
 const APP = 'Give the app "Analytics Hub Data Collector" (application ID app-1, enterprise application object ID sp-1)';
@@ -61,6 +65,49 @@ const azureConfig = (azure = {}) => {
 
 /** The request to one admin. @param {AdminRequest[]} requests @param {string} admin */
 const to = (requests, admin) => requests.find((r) => r.admin === admin);
+
+/** A row preflight or the flows' check showed, missing unless it says otherwise. @param {Partial<Prereq> & { id: string }} p @returns {Prereq} */
+const row = (p) => ({ label: p.id, detail: '', neededFor: 'x', howTo: `How to fix ${p.id}.`, status: 'missing', ...p });
+
+/** The tenant settings row as preflight shows it when only a Fabric administrator can read them. @param {InstallConfig} config */
+const unreadSettings = (config) =>
+  row({
+    id: 'tenant-settings',
+    label: 'Fabric tenant settings',
+    status: 'unknown',
+    detail:
+      `Couldn't check: only a Fabric administrator can read tenant settings. Ask one to confirm these are on for you, or for a group you're in: ${settingsToConfirm(config).join('; ')}.` +
+      (config.access?.rls?.enabled ? ' The capacity\'s XMLA endpoint must also be Read Write, which a capacity admin sets.' : ''),
+  });
+
+/** A Fabric install's record with Copilot Studio credits from the API, which needs a flow, in the Sales environment. */
+const flowsConfig = () => {
+  const config = fabricConfig();
+  config.dataSources.studioCredits = 'api';
+  config.uploads = { flowEnvironment: { url: 'https://org1.crm.dynamics.com', id: 'env-1', name: 'Sales' } };
+  return config;
+};
+
+const PURVIEW = `Check that audit logging is on in Microsoft Purview > Audit, and turn it on if it isn't: ${PURVIEW_AUDIT_URL}`;
+const CHECK_AUDIT = `If they turned it on, new records take from 60 minutes to 24 hours to appear. Then run "${commandLine('check-audit')}" to test it.`;
+const PREMIUM = 'Assign me Power Automate Premium: I\'ll own the Analytics Hub flows, which use premium connectors.';
+const TURN_ON = `Run "${commandLine('update')}": it turns on each flow that's off, once its connections are signed in.`;
+const SAVE_FLOWS = `Run "${commandLine('update')}": it saves any flow the policy turned down, and turns on each flow that's off once its connections are signed in.`;
+const CREATE_AFTER = `${REPAIR}: it creates what the install couldn't.`;
+const DEPLOY_APP_AFTER = `Run "${commandLine('deploy-app')}" to deploy the Analytics Hub app.`;
+const ACCESS_AFTER = `Apply org-scoped access: run "${commandLine('access')}", choose "Org-scoped access: who sees which orgs", then "Apply now". Until then, people outside the workspace see nothing.`;
+const XMLA = 'Set the XMLA endpoint to Read Write on the Fabric capacity Analytics Hub\'s workspace uses.';
+/** The tenant settings, by their names in the admin portal. */
+const CREATE_WS = '"Create workspaces" (only to create a new workspace, not to use an existing one you\'re an Admin or Member of)';
+const ITEMS = '"Users can create Fabric items"';
+const SP = '"Service principals can call Fabric public APIs"';
+const EXEC = '"Semantic Model Execute Queries REST API"';
+const FABRIC_APPS = 'the Fabric apps setting, under "Fabric apps (preview)"';
+const VISUALS = '"Allow visuals created using the Power BI SDK"';
+const XMLA_SETTING = '"Allow XMLA endpoints and Analyze in Excel with on-premises semantic models"';
+/** The ask for some tenant settings. @param {string[]} settings */
+const settingsText = (settings) =>
+  `Confirm these Fabric tenant settings are on for me, or for a group I'm in, and turn on any that are off: ${settings.join('; ')}. They're in Fabric under Admin portal > Tenant settings: ${TENANT_SETTINGS_URL}`;
 
 test('done requests: nothing for an install with nothing left; otherwise one request per admin, signed, in the order of ADMINS', () => {
   const config = fabricConfig();
@@ -418,13 +465,236 @@ test('done requests: no request has a secret, a key, a token, a password, a sign
     }),
   );
   for (const config of [fabric, azure]) {
-    const requests = doneRequests(config, { from: UPN, consented: false });
+    // With the asks the end carries from preflight and the flows' check.
+    const carried = [
+      row({ id: 'consent-role', howTo: `Ask a Global Administrator to grant admin consent, and to check audit logging is on: ${PURVIEW_AUDIT_URL}` }),
+      row({ id: 'audit-ingestion', status: 'handoff' }),
+      row({ id: 'power-automate-premium' }),
+      dataPolicyPrereq(config),
+      unreadSettings(config),
+    ];
+    const requests = doneRequests(config, { from: UPN, consented: false, carried });
     assert.ok(requests.length >= 4, config.target);
+    for (const admin of ['compliance', 'licence', 'power-platform', 'fabric-admin']) assert.ok(to(requests, admin), `${config.target}: ${admin}`);
     const text = JSON.stringify(requests);
     assert.doesNotMatch(text, /PLANTED/);
     assert.doesNotMatch(text, /\b(client secrets?|password|passcode|sign-in code|device code|bearer|access token|refresh token)\b/i);
     assert.doesNotMatch(text, /Users\\\\someone|C:\\\\/, 'files go by their names, not their paths');
   }
+});
+
+/**
+ * Whether the end asks again for each row's ask from preflight or the flows' check: a finished install settles it, the
+ * end asks for it from the install record anyway, it's carried while the record doesn't settle it, or the row never
+ * asks. The Power Platform Administrator's environment ask is settled, and its connection ask is the record's.
+ * @type {Record<string, 'settled' | 'record' | 'settled, record' | 'carried' | 'none'>}
+ */
+const CARRY = {
+  'register-apps': 'settled',
+  'fabric-capacity': 'settled',
+  'azure-rbac': 'settled',
+  environments: 'settled',
+  'key-vault': 'settled',
+  'power-bi-pro': 'settled',
+  'power-platform-admin': 'settled, record',
+  'teams-admin': 'record',
+  'viva-analyst': 'record',
+  'resource-graph': 'record',
+  'consent-role': 'carried',
+  'audit-ingestion': 'carried',
+  'power-automate-premium': 'carried',
+  'data-policy': 'carried',
+  'tenant-settings': 'carried',
+  'fabric-admin': 'none',
+  'copilot-licences': 'none',
+  'defender-licence': 'none',
+};
+
+test('done requests: of the rows preflight and the flows\' check asked for, the end asks again for none that a finished install settles, or that the record asks for itself', () => {
+  assert.deepEqual(Object.keys(CARRY).sort(), Object.keys(ROW_ASKS).sort(), 'every row that can ask is classified');
+  for (const [id, why] of Object.entries(CARRY)) assert.equal(ROW_ASKS[id] === null, why === 'none', id);
+  for (const config of [fabricConfig(), azureConfig()]) {
+    Object.assign(config.keyVault, { id: '/subscriptions/sub-1/resourceGroups/rg/providers/Microsoft.KeyVault/vaults/kv-ah', name: 'kv-ah' });
+    const base = doneRequests(config, { from: UPN });
+    /** What each row asked for before the install. @type {import('../src/steps/handoff.js').AskContext} */
+    const before = { config, status: () => undefined, ppApi: true, pendingConsent: false, pendingTeams: false };
+    for (const [id, why] of Object.entries(CARRY)) {
+      if (why === 'carried' || why === 'none') continue;
+      for (const status of /** @type {const} */ (['missing', 'handoff'])) {
+        const it = row({ id, status });
+        assert.ok(ROW_ASKS[id]?.(it, before).length, `${config.target}: ${id} asked for something`);
+        assert.deepEqual(doneRequests(config, { from: UPN, carried: [it] }), base, `${config.target}: ${id}, ${status}`);
+      }
+    }
+  }
+});
+
+test('done requests: the end asks again for audit logging in Microsoft Purview, once, until something finds audit records', () => {
+  const consent = row({ id: 'consent-role', label: 'Admin consent', howTo: `Ask a Global Administrator to grant admin consent, and to check audit logging is on: ${PURVIEW_AUDIT_URL}` });
+  const ingestion = row({ id: 'audit-ingestion', label: 'Audit log ingestion', status: 'handoff' });
+  const carried = [consent, ingestion];
+  const config = fabricConfig();
+  assert.deepEqual(doneRequests(config, { from: UPN, dataCheck: SHOWN }), []);
+  const requests = doneRequests(config, { from: UPN, dataCheck: SHOWN, carried });
+  assert.deepEqual(
+    requests.map(({ message, ...r }) => r),
+    [{ admin: 'compliance', who: ADMINS.compliance, rows: ['Audit logging in Microsoft Purview'], asks: [PURVIEW], after: [CHECK_AUDIT] }],
+    'once from both rows, and not their consent asks: the record asks for consent',
+  );
+  assert.match(requests[0].message, /^Hi,\n\nI've installed Analytics Hub, and I need your help with this:\n\n- Check that audit logging is on in Microsoft Purview > Audit/);
+  assert.deepEqual(doneRequests(config, { from: UPN, dataCheck: SHOWN, carried: [...carried, ...carried] }), requests, 'the same rows twice ask once');
+  assert.deepEqual(doneRequests(config, { from: UPN, dataCheck: SHOWN, carried: [row({ id: 'consent-role' })] }), [], 'preflight didn\'t ask about audit logging');
+
+  // This run's data check, or else the Lakehouse's last one, loaded or left out audit records.
+  assert.deepEqual(doneRequests(config, { from: UPN, dataCheck: { ...SHOWN, tables: { audit: { rows: 12 } } }, carried }), []);
+  assert.deepEqual(doneRequests(config, { from: UPN, dataCheck: { ...SHOWN, auditExcluded: { parsed: 3 } }, carried }), []);
+  // The last audit check found records. "ok" says only that the app can search the audit log.
+  for (const result of /** @type {const} */ (['records', 'no-copilot', 'ok', 'empty-log', 'timeout'])) {
+    config.auditCheck = { at: '2026-06-01T00:00:00Z', result };
+    const found = result === 'records' || result === 'no-copilot';
+    assert.deepEqual(doneRequests(config, { from: UPN, dataCheck: SHOWN, carried }).map((r) => r.admin), found ? [] : ['compliance'], result);
+  }
+
+  // Azure runs no live audit search to test it with, and the record asks for the jobs' Graph roles.
+  const azure = azureConfig();
+  const onAzure = doneRequests(azure, { from: UPN, carried: [row({ id: 'audit-ingestion', label: 'Audit log ingestion' })] });
+  assert.deepEqual(onAzure.filter((r) => r.admin !== 'compliance'), doneRequests(azure, { from: UPN }));
+  assert.deepEqual(to(onAzure, 'compliance')?.asks, [PURVIEW]);
+  assert.equal(to(onAzure, 'compliance')?.after, undefined);
+});
+
+test('done requests: the end asks again for Power Automate Premium while there are flows, and for the data policy until every flow is on', () => {
+  const premium = row({ id: 'power-automate-premium', label: 'Power Automate Premium' });
+  const none = fabricConfig();
+  assert.deepEqual(flowsWanted(none), []);
+  assert.deepEqual(doneRequests(none, { from: UPN, carried: [premium, dataPolicyPrereq(none)] }), doneRequests(none, { from: UPN }), 'no flows, so neither');
+
+  const on = flowsConfig();
+  assert.deepEqual(flowsWanted(on), ['studio']);
+  Object.assign(on.uploads, { flowIds: { studio: 'flow-1' }, flowsConnected: { studio: 'flow-1' } });
+  const requests = doneRequests(on, { from: UPN, carried: [premium, dataPolicyPrereq(on)] });
+  assert.deepEqual(requests.filter((r) => r.admin !== 'licence'), doneRequests(on, { from: UPN }), 'every flow is on, so not the data policy');
+  assert.deepEqual(to(requests, 'licence')?.asks, [PREMIUM]);
+  assert.deepEqual(to(requests, 'licence')?.rows, ['Power Automate Premium']);
+  assert.equal(to(requests, 'licence')?.after, undefined, 'nothing for you to do once it\'s assigned');
+
+  /** @type {any[]} */
+  const offs = [
+    {},
+    { flowIds: { studio: 'flow-1' } },
+    { flowIds: { studio: 'flow-1' }, flowsConnected: { studio: 'flow-0' } },
+    { flowIds: { studio: 'flow-1' }, flowsConnected: { studio: 'flow-1' }, flowFiles: { studio: 'flow.zip' } },
+  ];
+  for (const off of offs) {
+    const config = flowsConfig();
+    Object.assign(config.uploads, off);
+    const policy = dataPolicyPrereq(config);
+    const these = doneRequests(config, { from: UPN, carried: [premium, policy, premium, policy] });
+    const why = JSON.stringify(off);
+    assert.deepEqual(these.filter((r) => r.admin !== 'licence' && r.admin !== 'power-platform'), doneRequests(config, { from: UPN }), why);
+    assert.deepEqual(to(these, 'licence')?.asks, [PREMIUM], why);
+    assert.deepEqual(to(these, 'licence')?.after, [TURN_ON], why);
+    const pp = to(these, 'power-platform');
+    assert.deepEqual(pp?.asks, adminRequests([policy], config)[0].asks, why);
+    assert.match(pp?.asks[0] ?? '', /^Confirm that .* in Sales\./, why);
+    assert.deepEqual(pp?.rows, ['Data policy'], why);
+    assert.deepEqual(pp?.after, [SAVE_FLOWS], why);
+  }
+});
+
+test('done requests: the end asks again for the Fabric tenant settings preflight couldn\'t read, less those the install record proves are on', () => {
+  const config = fabricConfig();
+  config.semanticModel.enabled = true;
+  // As preflight showed it before the install made anything.
+  const unread = unreadSettings(config);
+  const base = doneRequests(config, { from: UPN, dataCheck: SHOWN });
+  /** @param {Prereq} [it] */
+  const at = (it = unread) => {
+    const requests = doneRequests(config, { from: UPN, dataCheck: SHOWN, carried: [it] });
+    assert.deepEqual(requests.filter((r) => r.admin !== 'fabric-admin' && r.admin !== 'capacity-admin'), base);
+    return { fabric: to(requests, 'fabric-admin'), capacity: to(requests, 'capacity-admin') };
+  };
+
+  // No workspace: creating it and its items, and the model's connection. The app and the reports weren't chosen.
+  assert.deepEqual(settingsLeft(config), { settings: [CREATE_WS, ITEMS, SP], xmla: false, app: false, create: true });
+  let left = at();
+  assert.deepEqual(left.fabric?.asks, [settingsText([CREATE_WS, ITEMS, SP])]);
+  assert.deepEqual(left.fabric?.rows, ['Fabric tenant settings']);
+  assert.deepEqual(left.fabric?.after, [CREATE_AFTER]);
+  assert.equal(left.capacity, undefined);
+
+  // The workspace proves "Create workspaces"; without its pipeline, the items may not all be made.
+  Object.assign(config.fabric, { workspaceId: 'ws-1', lakehouseId: 'lh-1' });
+  assert.deepEqual(settingsLeft(config), { settings: [ITEMS, SP], xmla: false, app: false, create: true });
+  assert.deepEqual(at().fabric?.after, [CREATE_AFTER]);
+  // The Lakehouse and the pipeline prove "Users can create Fabric items". Nothing in the record proves the model's.
+  config.fabric.pipelineId = 'pl-1';
+  assert.deepEqual(settingsLeft(config), { settings: [SP], xmla: false, app: false, create: false });
+  left = at();
+  assert.deepEqual(left.fabric?.asks, [settingsText([SP])]);
+  assert.equal(left.fabric?.after, undefined);
+
+  // The app and the reports, chosen: the app's item proves the Fabric apps setting.
+  config.semanticModel.reports = true;
+  config.fabricApp.enabled = true;
+  assert.deepEqual(settingsLeft(config), { settings: [SP, EXEC, FABRIC_APPS, VISUALS], xmla: false, app: true, create: false });
+  left = at();
+  assert.deepEqual(left.fabric?.asks, [settingsText([SP, EXEC, FABRIC_APPS, VISUALS])]);
+  assert.deepEqual(left.fabric?.after, [DEPLOY_APP_AFTER]);
+  config.fabricApp.itemId = 'app-item-1';
+  assert.deepEqual(settingsLeft(config), { settings: [SP, EXEC, VISUALS], xmla: false, app: false, create: false });
+  assert.equal(at().fabric?.after, undefined);
+
+  // Org-scoped access, until it's applied through the XMLA endpoint, which proves the setting and the capacity's Read Write.
+  Object.assign(config.semanticModel, { reports: false });
+  Object.assign(config.fabricApp, { enabled: false, itemId: undefined });
+  config.access = { rls: { enabled: true } };
+  assert.deepEqual(settingsLeft(config), { settings: [SP, XMLA_SETTING], xmla: true, app: false, create: false });
+  left = at();
+  assert.deepEqual(left.fabric?.asks, [settingsText([SP, XMLA_SETTING])]);
+  assert.deepEqual(left.fabric?.after, [ACCESS_AFTER]);
+  assert.deepEqual(left.capacity?.asks, [XMLA]);
+  assert.deepEqual(left.capacity?.rows, ['Fabric tenant settings']);
+  assert.deepEqual(left.capacity?.after, [ACCESS_AFTER]);
+  config.access.rls = { enabled: true, applied: ['model-1'] };
+  left = at();
+  assert.deepEqual(left.fabric?.asks, [settingsText([SP])]);
+  assert.equal(left.capacity, undefined);
+
+  // Settings you could read, you turn on yourself; and none are left with the model off.
+  assert.equal(at(row({ id: 'tenant-settings', label: 'Fabric tenant settings', detail: `Off: ${SP}.` })).fabric, undefined);
+  assert.equal(at({ ...unread, status: 'met' }).fabric, undefined);
+  config.semanticModel.enabled = false;
+  assert.deepEqual(settingsLeft(config), { settings: [], xmla: false, app: false, create: false });
+  assert.equal(at().fabric, undefined);
+});
+
+test('done requests: on Azure, the end asks again for the web app\'s and the reports\' tenant settings preflight couldn\'t read', () => {
+  const config = azureConfig();
+  const unread = unreadSettings(config);
+  const base = doneRequests(config, { from: UPN });
+  /** @param {InstallConfig} c */
+  const at = (c) => {
+    const requests = doneRequests(c, { from: UPN, carried: [unread] });
+    assert.deepEqual(requests.filter((r) => r.admin !== 'fabric-admin' && r.admin !== 'capacity-admin'), doneRequests(c, { from: UPN }));
+    return { fabric: to(requests, 'fabric-admin'), capacity: to(requests, 'capacity-admin') };
+  };
+  assert.equal(to(base, 'fabric-admin'), undefined);
+  assert.deepEqual(settingsLeft(config), { settings: [CREATE_WS, SP, EXEC, VISUALS], xmla: false, app: false, create: true });
+  let left = at(config);
+  assert.deepEqual(left.fabric?.asks, [settingsText([CREATE_WS, SP, EXEC, VISUALS])]);
+  assert.deepEqual(left.fabric?.after, [CREATE_AFTER]);
+
+  const built = azureConfig({ powerBi: { workspaceId: 'pbi-ws-1' } });
+  left = at(built);
+  assert.deepEqual(left.fabric?.asks, [settingsText([SP, EXEC, VISUALS])]);
+  assert.equal(left.fabric?.after, undefined);
+  built.access = { rls: { enabled: true } };
+  left = at(built);
+  assert.deepEqual(left.fabric?.asks, [settingsText([SP, EXEC, VISUALS, XMLA_SETTING])]);
+  assert.deepEqual(left.fabric?.after, [ACCESS_AFTER]);
+  assert.deepEqual(left.capacity?.asks, [XMLA]);
+  assert.deepEqual(left.capacity?.after, [ACCESS_AFTER]);
 });
 
 /**

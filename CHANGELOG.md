@@ -212,9 +212,11 @@ Deployment instructions do **not** live here. They live in the READMEs:
   output: one request per admin, with what it's for, the message to copy and send (**Copy
   request** in the browser), and what you do once the admin has done it. The requests come from the
   install record and that run, not from your roles, so they don't ask for what the installer did
-  itself. Preflight's requests don't change, and stay in the run log. An update doesn't list them.
-  No request includes a secret. The Done page's cards are now only what you do: deploy and share
-  the app, and sign in to the flows and the Cowork Dataflow.
+  itself. Preflight's requests don't change, and stay in the run log, and the end lists again the
+  ones a finished install doesn't settle, such as audit logging in Microsoft Purview (see the
+  hand-off pack, below). An update doesn't list what's left. No request includes a secret. The Done
+  page's cards are now only what you do: deploy and share the app, and sign in to the flows and the
+  Cowork Dataflow.
   - **Global Reader.** Fabric's Done card that asked for it is now a request to a Privileged Role
     Administrator or Global Administrator, with the same steps and command. On Azure, the jobs'
     managed identity's Global Reader, which the installer only printed, is a request too.
@@ -266,6 +268,27 @@ Deployment instructions do **not** live here. They live in the READMEs:
     Repair rewrites it with what's still left; an update doesn't. `check`, `status`, `uninstall` and
     the check the browser runs when you sign in write nothing, and nothing is written until there's
     something to ask. Where a write is new, one that fails warns once and the run carries on.
+  - **What the end keeps.** The end of an install or Repair, on the Done page, in the terminal and in
+    the pack, also lists what preflight and the flows' check asked for that a finished install
+    doesn't settle, so rewriting the pack doesn't lose it, with what you do once it's done where
+    there's something to do:
+    - audit logging in Microsoft Purview, from a Compliance Administrator. On Fabric it's left out
+      when the run's data check, or else the last one the Lakehouse holds, or the last audit check
+      found audit records, and it says to run `check-audit` once it's on. On Azure, with no data
+      check at the end, it stays;
+    - the Power Automate Premium licence, from your licence admin, when the install has flows. While
+      a flow is off, it says to run `update`, which turns on each flow that's off once its
+      connections are signed in;
+    - the data policy, from a Power Platform administrator, until every flow is on. It says to run
+      `update`, which also saves any flow the policy turned down;
+    - the tenant settings, from a Fabric administrator, and the capacity's XMLA endpoint, from a
+      Fabric capacity admin, when preflight couldn't read them: only those the install record
+      doesn't prove are on, and on Fabric only those for what you chose. A workspace proves "Create
+      workspaces", its Lakehouse and pipeline prove "Users can create Fabric items", the deployed app
+      proves its setting, and org-scoped access, once applied, proves the XMLA endpoint.
+
+    A finished install settles the rest of preflight's asks, or the end asks for them from the
+    install record, so no ask shows twice.
   - **Old files.** Each write removes the file of an admin with nothing left to do, and leaves any
     other file in the folder. Once nothing is left, the index says nothing is waiting on an admin.
   - **The app admin.** On Fabric, the Cloud Shell script and portal steps that were the whole admin

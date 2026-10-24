@@ -596,7 +596,63 @@ test('pack, the end of a Repair: what it left replaces preflight\'s files, with 
   assert.match(fake.text(), /\n {2}Admin pack: nothing is waiting on an admin\. .*analytics-hub-admin-pack\.md\n/);
 });
 
-test('pack, the end of an Azure install: a Graph role repeated in graphRoles.pending shows once, and an update writes nothing', async () => {
+test('pack, the end of an install: it keeps preflight\'s and the flows\' asks that a finished install doesn\'t settle, and drops the rest', async () => {
+  const dir = tmp();
+  const fake = fakeUi();
+  const config = plant(plainConfig());
+  config.semanticModel.enabled = true;
+  // Preflight runs before the install registers the app, or makes the workspace and its items.
+  const items = await check(config);
+  const t = fakeCtx({ ui: fake.ui, fabric: fakeFabric().api, oneLake: { readJson: async () => null }, graph: { myDirectoryRoles: async () => [] }, config });
+  const { appId } = t.config.app;
+  const { workspaceId, lakehouseId } = t.config.fabric;
+  t.config.app.appId = undefined;
+  Object.assign(t.config.fabric, { workspaceId: undefined, lakehouseId: undefined, workspaceName: 'Analytics Hub' });
+  t.ctx.configFile = join(dir, 'valuelens-install.json');
+  startHandoffPack(t.ctx, 'install');
+  reportPreflight(t.ctx, items);
+  chooseFlows(t.config);
+  reportFlowPrereqs(t.ctx);
+  let pack = readPack(dir);
+  assert.deepEqual(pack.names, ['app-admin.md', 'azure-owner.md', 'compliance.md', 'fabric-admin.md', 'licence.md', 'power-platform.md', 'role-admin.md']);
+  assert.match(
+    pack.files['fabric-admin.md'],
+    /: "Create workspaces" .*; "Users can create Fabric items"; "Service principals can call Fabric public APIs"; "Semantic Model Execute Queries REST API"; the Fabric apps setting, under "Fabric apps \(preview\)"; "Allow visuals created using the Power BI SDK"\. They're in Fabric/,
+    'before the plan, every setting it might need',
+  );
+  assert.match(pack.files['licence.md'], /\n- \*\*For:\*\* Power BI Pro or Premium Per User licence; Power Automate Premium licence\n/);
+  assert.match(pack.files['power-platform.md'], /\n- \*\*For:\*\* Power Platform Administrator; Power Platform environments, System Administrator in each; Data policy\n/);
+  noSecrets(dir);
+
+  t.config.app.appId = appId;
+  Object.assign(t.config.fabric, { workspaceId, lakehouseId, pipelineId: 'pl-1' });
+  await summary(t.ctx, { dataCheck: SHOWN });
+  pack = readPack(dir);
+  assert.deepEqual(pack.names, ['compliance.md', 'fabric-admin.md', 'licence.md', 'power-platform.md'], 'the app, the vault\'s access and consent are settled, or asked for from the record');
+  assert.ok(pack.index.startsWith('# Analytics Hub: your admin pack\n\nWritten by an install on 2026-06-01 at 12:00 UTC.\n\nThe install finished. This is what it left for an admin.\n\n'));
+  const whos = ['fabric-admin', 'compliance', 'power-platform', 'licence'].map((k) => ADMINS[/** @type {AdminKey} */ (k)]);
+  assert.deepEqual(entries(pack.index).map((e) => e.replace(/^\d+\. (.*): \[.*$/, '$1')), whos);
+  const out = fake.text();
+  const done = out.slice(out.lastIndexOf('Still to do by your admins'), out.lastIndexOf('Admin pack, a file for each admin'));
+  assert.deepEqual(done.match(/^ {2}\d+\. .*$/gm)?.map((l) => l.replace(/^ {2}\d+\. /, '')), whos, 'the terminal lists the same requests');
+
+  assert.ok(pack.index.includes(`\n   - Once it's done: If they turned it on, new records take from 60 minutes to 24 hours to appear. Then run "${commandLine('check-audit')}" to test it.\n`));
+  assert.ok(pack.index.includes(`\n   - Once it's done: Run "${commandLine('update')}": it saves any flow the policy turned down, and turns on each flow that's off once its connections are signed in.\n`));
+  assert.ok(pack.index.includes(`\n   - Once it's done: Run "${commandLine('update')}": it turns on each flow that's off, once its connections are signed in.\n`));
+  const { files } = pack;
+  assert.ok(files['compliance.md'].includes('\n- **For:** Audit logging in Microsoft Purview\n'));
+  assert.ok(files['compliance.md'].includes('- Check that audit logging is on in Microsoft Purview > Audit, and turn it on if it isn\'t: '));
+  assert.ok(
+    files['fabric-admin.md'].includes(': "Service principals can call Fabric public APIs". They\'re in Fabric under Admin portal > Tenant settings'),
+    'the workspace and its items prove two, and the plan chose neither the app nor the reports',
+  );
+  assert.ok(files['licence.md'].includes('\n- **For:** Power Automate Premium licence\n'), 'the Power BI licence is settled');
+  assert.ok(files['power-platform.md'].includes('\n- **For:** Data policy\n'), 'the environment is settled, and its connections are yours to sign in');
+  for (const [name, text] of Object.entries(files)) assert.ok(text.includes('\nI\'ve installed Analytics Hub, and I need your help with this:\n'), name);
+  noSecrets(dir);
+});
+
+test('pack, the end of an Azure install: a Graph role repeated in graphRoles.pending shows once, preflight\'s Purview ask is kept, and an update writes nothing', async () => {
   const dir = tmp();
   const fake = fakeUi();
   const config = emptyConfig();
@@ -620,8 +676,12 @@ test('pack, the end of an Azure install: a Graph role repeated in graphRoles.pen
   assert.deepEqual(readdirSync(dir), [], 'an update has no end refresh');
 
   startHandoffPack(t.ctx, 'install');
+  // Preflight asked for audit logging in Microsoft Purview, which nothing at the end proves is on.
+  writeHandoffPack(t.ctx, { asked: [{ id: 'audit-ingestion', label: 'Audit log access', neededFor: 'x', howTo: 'x', detail: '', status: 'handoff' }], why: PREFLIGHT });
   await azureSummary(t.ctx);
-  const { files } = readPack(dir);
+  const { index, files } = readPack(dir);
+  assert.ok(files['compliance.md'].includes('\n- Check that audit logging is on in Microsoft Purview > Audit, and turn it on if it isn\'t: '));
+  assert.match(index, /\n\d+\. A Compliance Administrator: \[[^\n]*\n {3}- For: Audit logging in Microsoft Purview\n(?! {3}- Once)/, 'Azure has no audit check to run afterwards');
   const roles = files['role-admin.md'];
   const command = graphRolesCommand('mi-1', ['AuditLogsQuery.Read.All', 'Reports.Read.All']);
   assert.ok(
