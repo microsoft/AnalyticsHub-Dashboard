@@ -1626,7 +1626,7 @@ function historyPicker(busy) {
     const n = Number(app.backfill || 0);
     hint.textContent = n >= 90
       ? `In a large tenant, ${n} days can take several hours to load. The usual schedule carries on afterwards.`
-      : n ? 'Reloads these days and rebuilds the curated table, then runs the data check.' : '';
+      : n ? 'Reloads these days (older days are kept) and rebuilds the curated table, then runs the data check.' : '';
     hint.hidden = !n;
   };
   const sel = h('select', { id: 'backfill', class: 'field', disabled: busy, 'aria-describedby': 'backfill-hint' },
