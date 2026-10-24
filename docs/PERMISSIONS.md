@@ -28,6 +28,12 @@ One app registration covers all three on Fabric; on Azure, the jobs' managed ide
 app roles. On Fabric the app's secret goes in the notebooks by default, or in a Key Vault if you
 choose: see [Where the secret goes](../installer/README.md#where-the-secret-goes).
 
+On Azure the run job also has an identity of its own, with one role: **Container Apps Jobs
+Operator** on the run job only, so a long first load starts its next run straight away. It has no
+Graph permission and reads no data. The installer gives the role after the first deploy. Where it
+can't, an Owner or User Access Administrator runs the command it leaves: see
+[Letting the run job start its next run](AZURE-LEAST-PRIVILEGE.md#letting-the-run-job-start-its-next-run).
+
 The optional **Microsoft 365 activity** notebook (Fabric path, `m365_activity_daily`) reads the
 Microsoft 365 usage reports with the same `Reports.Read.All`, so it needs no extra permission.
 Its activity only matches people if **Display concealed user, group, and site names in all

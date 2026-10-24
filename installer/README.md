@@ -229,9 +229,10 @@ On a large tenant the first load may not fit in one run. The audit collector run
 sources, fetches the newest weeks first, and stops fetching at least an hour before the limit, to
 leave time to publish. The run then publishes what it has loaded, so the dashboard fills in after
 each run, newest weeks first. The audit collector records each time window as it finishes, so the
-next run (the next scheduled one, or **Run** on the home page) carries on with only the windows
-still to do. A reload of more history carries over the same way. On a large tenant, start with 30
-days of history and
+next run carries on with only the windows still to do. A run that stopped at its time limit starts
+that next run itself, straight away. After a stop at the search limit, or where it can't start one,
+the next scheduled run, or **Run now** on the home page, carries on. A reload of more history
+carries over the same way. On a large tenant, start with 30 days of history and
 [load more](#load-more-audit-history) once the first load has finished. In an offline test at
 20,000 seats, with the audit service simulated, the run stayed within the job's memory and disk,
 and processing a nightly run took about 5 minutes. For how long the first load takes, see
@@ -619,9 +620,23 @@ A load can take more than one run:
   the search limit, the time a run can search again.
 - **Azure.** Each run of the run job gets up to 4 hours, and fetches for up to about 3 of them,
   newest weeks first, keeping at least the last hour to publish. It then publishes what it has
-  loaded, also when it stops at the search limit, so the reports fill in after each run. The next
-  scheduled run, the next day, carries on where it stopped, or start one sooner with `run`. The
-  estimates count one run a day: on a weekly schedule, start the runs in between with `run`.
+  loaded, also when it stops at the search limit, so the reports fill in after each run. A run that
+  stopped at its time limit, loaded more of the history and had no errors then starts the next run,
+  which carries on where it stopped. No more than 8 runs a day (UTC) start one. Otherwise, and after
+  a stop at the search limit, the next scheduled run, the next day, carries on where it stopped, or
+  start one sooner with `run`. The estimates count one run a day: on a weekly schedule, start the
+  runs in between with `run`. Runs started this way cost what the scheduled runs would, only sooner;
+  on Azure SQL's free offer, they use the month's allowance sooner.
+
+  To start the next run, the run job's own identity needs **Container Apps Jobs Operator** on that
+  job. The installer gives it after the deploy. If it can't, as with the
+  [least-privilege roles](../docs/AZURE-LEAST-PRIVILEGE.md#letting-the-run-job-start-its-next-run),
+  it warns and carries on, and `status` shows the command for an admin as a pending admin action.
+  Until an admin runs it, the next scheduled run carries the load on, one a day by default. Like any
+  run, the next run stops straight away if another run is going. If that other run loads the data,
+  it carries the load on and starts the next run itself. If it doesn't, such as the run `access`
+  starts, the next scheduled run carries the load on. With private networking and an egress
+  firewall, the run job must reach `management.azure.com` to start the next run.
 
 Keep the PC awake until the installer says setup is finished. After that you can close the window,
 and the load carries on. `status` shows how far it has got: the days asked for, how much has been

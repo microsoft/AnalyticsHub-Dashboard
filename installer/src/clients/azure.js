@@ -26,6 +26,7 @@ export const ROLES = {
   storageTableDataContributor: '0a9a7e1f-b9d0-4cc4-a60d-0319b160aaa3',
   acrPull: '7f951dda-4ed3-4680-a7ca-43fe172d538d',
   rbacAdministrator: 'f58310d9-a9f6-439a-9e8d-f62e7b41a168',
+  containerAppsJobsOperator: 'b9a307c4-5aa3-4b52-ba60-2b17c136cd7b',
 };
 
 /**
