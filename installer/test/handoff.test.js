@@ -581,7 +581,7 @@ test('adminRequests: the Foundry ask has the Reader command, by the object ID of
   };
   const root = '/providers/Microsoft.Management/managementGroups/t-1';
   const command = (/** @type {string} */ id, scope = root) =>
-    ` In Azure Cloud Shell (Bash):\n  az role assignment create --assignee-object-id ${id} --assignee-principal-type ServicePrincipal --role "Reader" --scope ${scope}`;
+    ` In Azure Cloud Shell (Bash):\n  az role assignment create --assignee-object-id ${id} --assignee-principal-type ServicePrincipal --role "Reader" --scope "${scope}"`;
   const reader = (/** @type {string} */ where) => `the Reader role in Azure on ${where}, so Analytics Hub can read Foundry resources from Azure Resource Graph.`;
 
   // On Fabric, the app's enterprise application object ID.

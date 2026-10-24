@@ -310,7 +310,7 @@ export function handoffCommands(config, o = {}) {
   if (o.userId && kv.handoff?.grantRead) {
     lines.push(
       kv.rbac
-        ? `az role assignment create --role "Key Vault Secrets User" --assignee-object-id ${o.userId} --assignee-principal-type User --scope ${kv.id}`
+        ? `az role assignment create --role "Key Vault Secrets User" --assignee-object-id ${o.userId} --assignee-principal-type User --scope "${kv.id}"`
         : `az keyvault set-policy --name ${kv.name} --object-id ${o.userId} --secret-permissions get list`,
     );
   }

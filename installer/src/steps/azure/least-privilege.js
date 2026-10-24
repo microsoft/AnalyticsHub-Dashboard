@@ -238,8 +238,8 @@ export async function printAdminGrants(ctx) {
   ui.info('An Owner or User Access Administrator on each can run:');
   if (!principal) {
     ui.info('# The managed identity exists once the install has deployed. Its principal ID:');
-    ui.info(`az identity list --subscription ${az.subscriptionId} --resource-group ${az.resourceGroup} --query "[?starts_with(name, 'id-${az.namePrefix ?? 'vlens'}-collector-')].principalId" -o tsv`);
+    ui.info(`az identity list --subscription ${az.subscriptionId} --resource-group "${az.resourceGroup}" --query "[?starts_with(name, 'id-${az.namePrefix ?? 'vlens'}-collector-')].principalId" -o tsv`);
   }
-  for (const g of needed) ui.info(`az role assignment create --assignee-object-id ${principal ?? '<managed identity principal ID>'} --assignee-principal-type ServicePrincipal --role "${g.role}" --scope ${g.scope}`);
+  for (const g of needed) ui.info(`az role assignment create --assignee-object-id ${principal ?? '<managed identity principal ID>'} --assignee-principal-type ServicePrincipal --role "${g.role}" --scope "${g.scope}"`);
   ui.note(`The install finishes without them and leaves those sources out until they're there. When the installer asks, leave them out for now; once they're there, run it again and say they are. See ${LEAST_PRIVILEGE_URL}`);
 }

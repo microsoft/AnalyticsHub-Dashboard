@@ -257,7 +257,7 @@ test('Azure access: the app gets three read roles once; without rights the user 
   assert.match(denied.ui.text(), /give ValueLens Data Collector Reader, Cost Management Reader, Monitoring Reader on the subscription, in Azure Cloud Shell \(Bash\):\n/);
   // A command for each role, by the app's enterprise application object ID: never its client ID.
   const command = (/** @type {string} */ id, /** @type {string} */ role, sub = SUB) =>
-    `\n    az role assignment create --assignee-object-id ${id} --assignee-principal-type ServicePrincipal --role "${role}" --scope /subscriptions/${sub}\n`;
+    `\n    az role assignment create --assignee-object-id ${id} --assignee-principal-type ServicePrincipal --role "${role}" --scope "/subscriptions/${sub}"\n`;
   for (const role of ['Reader', 'Cost Management Reader', 'Monitoring Reader']) assert.ok(denied.ui.text().includes(command('sp-1', role)), role);
   assert.doesNotMatch(denied.ui.text(), /app-1/);
 
@@ -379,7 +379,7 @@ test('pay-as-you-go access: Cost Management Reader on each other subscription; o
   assert.match(t.ui.text(), /Gave ValueLens Data Collector Cost Management Reader on Studio billing/);
   assert.match(t.ui.text(), new RegExp(`can't assign Azure roles in ${HIDDEN}`));
   assert.ok(
-    t.ui.text().includes(`\n    az role assignment create --assignee-object-id sp-1 --assignee-principal-type ServicePrincipal --role "Cost Management Reader" --scope /subscriptions/${HIDDEN}\n`),
+    t.ui.text().includes(`\n    az role assignment create --assignee-object-id sp-1 --assignee-principal-type ServicePrincipal --role "Cost Management Reader" --scope "/subscriptions/${HIDDEN}"\n`),
     'the command, by the app\'s object ID',
   );
   assert.doesNotMatch(t.ui.text(), /app-1/);
