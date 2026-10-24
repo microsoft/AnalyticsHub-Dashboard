@@ -46,6 +46,11 @@ Deployment instructions do **not** live here. They live in the READMEs:
   with only the last 90 days. Now it replaces those days and keeps older ones, in storage and in the
   SQL tables the reports read. The monthly tables replace whole months. Totals over all available
   days grow, as on Fabric. Days already dropped aren't brought back. 0.6.8 has this problem too.
+- **Fabric: Azure AI costs keep older days.** `Ingest_Azure_AI` kept only the last `DAYS` days in
+  its six tables. Now it replaces those days and keeps the rest. The monthly tables replace whole
+  months. The Foundry and pay-as-you-go pages' default, "All available days", and the solution
+  spend totals now include the older days. Days already dropped aren't brought back. 0.6.8 has
+  this problem too.
 
 ## 2026-10-26 — Analytics Hub installer 0.6.8
 
