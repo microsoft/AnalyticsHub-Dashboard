@@ -13,7 +13,7 @@ import { HttpError } from '../http.js';
 import { commandLine } from '../launch.js';
 import { c } from '../ui.js';
 import { ADMIN_PACK_DIR, ADMIN_PACK_FILE, adminFileName, renderAdminPack, writeAdminPackFiles } from './admin-pack.js';
-import { ADMINS, adminRequests } from './handoff.js';
+import { ADMINS, adminRequests, requestsFor } from './handoff.js';
 import { APP_NAME } from './plan.js';
 import { addTrackedSecret, adoptAttempts, promoteSecret, settleFailedSecret } from './secrets.js';
 import { appsRecorded, SQL_READER_NAME, WEB_APP_NAME, webAppGrants } from './azure/apps.js';
@@ -22,6 +22,7 @@ import { appsRecorded, SQL_READER_NAME, WEB_APP_NAME, webAppGrants } from './azu
 /** @typedef {import('../config.js').InstallConfig} InstallConfig */
 /** @typedef {import('../prereqs.js').Prereq} Prereq */
 /** @typedef {import('./handoff.js').AdminRequest} AdminRequest */
+/** @typedef {import('./handoff.js').Ask} Ask */
 /** @typedef {import('./admin-pack.js').AdminExtra} AdminExtra */
 /** @typedef {import('./admin-pack.js').PackPaths} PackPaths */
 /** @typedef {import('./admin-pack.js').PackWriter} PackWriter */
@@ -329,6 +330,81 @@ export function handoffCommands(config, o = {}) {
   return lines;
 }
 
+const VAULT_LABEL = 'Client secret in Key Vault';
+
+/**
+ * The vault admin's ask while the app's client secret waits for them: create it and put it in the vault, with who can,
+ * the portal steps, and last the Cloud Shell commands secretHandoff shows. Never the secret itself.
+ * @param {{ config: InstallConfig, user?: { upn?: string, id?: string, tenantId?: string } }} ctx
+ * @param {{ rotate?: boolean, waiting?: boolean }} [o]  rotate: a new secret in place of the old one; waiting: the
+ *   installer is asking whether they've done it, else the next run asks.
+ * @returns {Ask}
+ */
+export function vaultAsk(ctx, o = {}) {
+  const { config, user } = ctx;
+  const { app, keyVault: kv } = config;
+  const h = kv.handoff ?? {};
+  const name = app.displayName ?? APP_NAME;
+  const ids = app.appId ? ` (application ID ${app.appId})` : '';
+  const me = user?.upn ? `me (${user.upn})` : 'me';
+  const lines = [
+    o.rotate
+      ? `Replace the client secret of the app "${name}"${ids} in the Key Vault ${kv.name}: create a new one, and add it as a new version of the secret ${kv.secretName}. ` +
+        'Keep the old one on the app until a run has succeeded with the new one.'
+      : `Create a client secret for the app "${name}"${ids}, and add it to the Key Vault ${kv.name} as a secret named ${kv.secretName}.`,
+    ...(kv.id ? [`The vault in the Azure portal: https://portal.azure.com/#${user?.tenantId ? `@${user.tenantId}` : ''}/resource${kv.id}/secrets`] : []),
+    ...(h.grantRead ? [`Also give ${me} ${kv.rbac ? 'Key Vault Secrets User' : 'an access policy with secret get and list'} on ${kv.name}, so scheduled runs can read it.`] : []),
+    `Creating the secret needs an owner of the app${h.adminEmail ? ` (such as ${h.adminEmail})` : ''}, or an Application Administrator or Cloud Application Administrator. ` +
+      `Adding it to ${kv.name} needs ${kv.rbac ? 'Key Vault Secrets Officer' : 'an access policy with secret set'}.`,
+    ...(kv.private ? [`${kv.name} blocks public network access, so do this from a network that can reach the vault.`] : []),
+    'The commands at the end do it all in one go, so no one sees the secret\'s value. Or in the Azure portal:',
+    `1. App registrations > ${name} > Certificates & secrets > New client secret.`,
+    o.rotate
+      ? `2. Copy its Value into ${kv.name} > Secrets > ${kv.secretName} > New Version.`
+      : `2. Copy its Value into ${kv.name} > Secrets > Generate/Import, with the name ${kv.secretName}.`,
+    ...(h.grantRead
+      ? [kv.rbac ? `3. In ${kv.name} > Access control (IAM) > Add role assignment, give ${me} Key Vault Secrets User.` : `3. In ${kv.name} > Access policies > Create, give ${me} secret Get and List.`]
+      : []),
+    'In Azure Cloud Shell (Bash):',
+    ...handoffCommands(config, { userId: user?.id }),
+  ];
+  const question = `"Has the admin ${o.rotate ? 'replaced' : 'added'} the secret?"`;
+  // The workspace and Lakehouse come before the app, so once both exist the next run is a Repair.
+  const again = o.rotate
+    ? `Run "${commandLine('rotate-secret')}" again without --yes.`
+    : `Run the installer again without --yes${config.fabric?.workspaceId && config.fabric.lakehouseId ? ' and choose Repair or change' : ''}.`;
+  const after = [o.waiting ? `When the installer asks ${question}, choose "Yes, carry on".` : `${again} When it asks ${question}, choose "Yes, carry on".`];
+  if (o.rotate) after.push('Once a run has succeeded with the new secret, delete the old one from the app\'s Certificates & secrets page, or ask the vault admin to.');
+  return { admin: 'vault-admin', label: VAULT_LABEL, text: lines.join('\n  '), after };
+}
+
+/**
+ * The record says a vault admin was shown the steps to add the app's client secret, and no one has said it's there yet.
+ * @param {InstallConfig} config
+ */
+const vaultWaits = (config) =>
+  config.target !== 'azure' && secretMode(config) === 'keyvault-admin' && !config.keyVault.secretSetAt && !!config.keyVault.handoff?.shownAt;
+
+/**
+ * What happens next, in the vault admin's file.
+ * @param {{ rotate?: boolean, waiting?: boolean }} o  waiting: the installer is asking whether they've done it.
+ * @param {string | undefined} from
+ * @returns {AdminExtra}
+ */
+const vaultExtra = (o, from) => {
+  const name = from ?? 'the person who sent you this';
+  return {
+    next: [
+      o.waiting
+        ? `Once it's done, tell ${name}, and the installer carries on.`
+        : o.rotate
+          ? `Once it's done, tell ${name}.`
+          : `Once it's done, tell ${name}. Analytics Hub can't load its data until the secret is there.`,
+      'The installer never sees the secret\'s value.',
+    ],
+  };
+};
+
 /**
  * Hands the secret over to a vault admin: shows what to run, optionally makes them an owner of
  * the app so they can create its secret, then waits for the user to say it's done. The value
@@ -374,6 +450,8 @@ export async function secretHandoff(ctx, o = {}) {
   if (!h.adminEmail) ui.note('Creating the secret needs an owner of the app, or an Application Administrator or Cloud Application Administrator.');
   h.shownAt = ctx.now().toISOString();
   ctx.save();
+  // The vault admin's file has the same steps, to send as it is.
+  writeHandoffPack(ctx, { vault: { rotate: !!o.rotate, waiting: !ui.yes } });
 
   if (ui.yes) {
     ui.warn(`Carrying on. Data loads fail until the secret is in ${kv.name}. Run "${commandLine('rotate-secret')}" to see these steps again.`);
@@ -393,6 +471,7 @@ export async function secretHandoff(ctx, o = {}) {
   if (o.rotate) delete app.secretExpires;
   ctx.save();
   ui.ok(`The vault admin has ${o.rotate ? 'replaced' : 'added'} the secret ${kv.secretName}`);
+  if (ctx.handoffPack?.vault) writeHandoffPack(ctx, { vault: null, why: `The vault admin has ${o.rotate ? 'replaced' : 'added'} the client secret in ${kv.name}.` });
   return true;
 }
 
@@ -970,6 +1049,9 @@ const WHO_REGISTERS = [
  * @property {AdminRequest[]} [done]  What the install left, once it's finished, in place of the rows' requests.
  * @property {'fabric' | 'azure'} [handoff]  This run handed the app's registration to an admin.
  * @property {{ path: string, text: string }} [azureScript]  The Azure admin script this run wrote, and its text.
+ * @property {{ rotate: boolean, waiting: boolean }} [vault]  This run showed a vault admin's steps for the app's client
+ *   secret (Fabric): rotate, to replace it; waiting, while the installer asks whether they've done it, else it carries
+ *   on without it (--yes).
  * @property {string} [key]  The pack as last rendered, without its time.
  * @property {Date} [at]  When it last changed.
  * @property {PackPaths} [paths]  Where it was last written.
@@ -980,7 +1062,7 @@ const WHO_REGISTERS = [
  * @typedef {object} PackCtx
  * @property {import('../ui.js').Ui} ui
  * @property {InstallConfig} config
- * @property {{ upn?: string }} [user]
+ * @property {{ upn?: string, id?: string, tenantId?: string }} [user]
  * @property {string} [configFile]  The install record: the pack goes next to it.
  * @property {string} [file]
  * @property {() => Date} [now]
@@ -1105,6 +1187,8 @@ function readText(path) {
  * @param {AdminRequest[]} [opts.done]  What a finished install left, in place of the requests so far.
  * @param {'fabric' | 'azure'} [opts.appHandoff]  The app's registration is handed to an admin.
  * @param {{ path: string, text: string }} [opts.azureScript]  The Azure admin script just written, and its text.
+ * @param {{ rotate: boolean, waiting: boolean } | null} [opts.vault]  A vault admin's steps were shown; null once
+ *   they've done it.
  * @param {boolean} [opts.strict]
  * @returns {PackPaths | undefined}  Where it is, once it's been written.
  */
@@ -1117,6 +1201,8 @@ export function writeHandoffPack(ctx, opts = {}) {
   if (opts.why && !state.why.includes(opts.why)) state.why.push(opts.why);
   if (opts.appHandoff) state.handoff = opts.appHandoff;
   if (opts.azureScript) state.azureScript = opts.azureScript;
+  if (opts.vault) state.vault = opts.vault;
+  else if (opts.vault === null) delete state.vault;
   if (opts.done) state.done = opts.done;
   const record = ctx.configFile ?? (opts.strict ? ctx.file : undefined);
   if (!record && !opts.strict) return undefined;
@@ -1155,6 +1241,10 @@ export function writeHandoffPack(ctx, opts = {}) {
   if (fabricPack && !config.app.adminPack) cfg = { ...config, app: { ...config.app, adminPack: index } };
   if (scriptPath && !config.azure?.adminScript) cfg = /** @type {InstallConfig} */ ({ ...config, azure: { ...config.azure, adminScript: scriptPath } });
   let requests = state.done ?? adminRequests([...rows.values()], cfg, { from, all: [...all.values()] });
+  // The vault admin's request: this run's, while it waits for them or carries on without the secret, else one an earlier
+  // run made that the record says is still waiting. At the end it's one of what the install left.
+  const vault = state.done ? undefined : state.vault ?? (vaultWaits(config) ? { rotate: false, waiting: false } : undefined);
+  if (vault) requests = [...requests, ...requestsFor([vaultAsk(ctx, vault)], from, false)];
 
   /** @type {Record<string, AdminExtra>} */
   const extras = {};
@@ -1189,10 +1279,27 @@ export function writeHandoffPack(ctx, opts = {}) {
     }
   }
   if (appReq && after.length) requests = requests.map((r) => (r === appReq ? { ...r, after: [...(r.after ?? []), ...after] } : r));
+  if (requests.some((r) => r.admin === 'vault-admin' && r.who === ADMINS['vault-admin'])) extras['vault-admin'] = vaultExtra({ rotate: vault?.rotate, waiting: vault?.waiting }, from);
 
   const end = state.by === 'repair' ? 'The Repair' : 'The install';
-  const why = state.done ? [requests.length ? `${end} finished. This is what it left for an admin.` : `${end} finished.`] : state.why;
-  const resume = state.done ? undefined : commandLine(state.by === 'update' ? 'update' : 'install');
+  const why = state.done
+    ? [requests.length ? `${end} finished. This is what it left for an admin.` : `${end} finished.`]
+    : [
+        ...state.why,
+        ...(vault
+          ? [`A vault admin needs to ${vault.rotate ? 'replace' : 'add'} the app's client secret in ${config.keyVault.name}, with the steps in their file. The installer never sees its value.`]
+          : []),
+        ...(state.by === 'rotate-secret'
+          ? ['Create new secrets only writes the request for the new client secret. To see anything else still waiting on an admin, run the installer again and choose Repair or change.']
+          : []),
+      ];
+  const resume = state.done
+    ? undefined
+    : state.by === 'rotate-secret'
+      ? vault?.waiting
+        ? commandLine('rotate-secret')
+        : undefined
+      : commandLine(state.by === 'update' ? 'update' : 'install');
   /** @type {Omit<import('./admin-pack.js').PackInput, 'at'>} */
   const input = { admins: ADMINS, requests, by: state.by, why, from, resume, notes, extras, done: !!state.done };
   // The time changes only with what the pack says.
@@ -1205,7 +1312,8 @@ export function writeHandoffPack(ctx, opts = {}) {
     const written = writeAdminPackFiles(dir, renderAdminPack({ ...input, at: state.at }), Object.keys(ADMINS));
     if (!written.written) return undefined;
     const paths = { index: written.index, files: written.files, ...(state.done ? { done: true } : {}) };
-    if (written.changed || !state.shown) ctx.ui.adminPack?.(paths);
+    // With no files the terminal and the browser say nothing is waiting on an admin, which Create new secrets can't know.
+    if ((written.changed || !state.shown) && (paths.files.length || state.by !== 'rotate-secret')) ctx.ui.adminPack?.(paths);
     state.shown = true;
     state.paths = paths;
     return paths;

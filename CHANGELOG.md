@@ -264,8 +264,8 @@ Deployment instructions do **not** live here. They live in the READMEs:
     prerequisites** in the browser), and when install and update check them, before a run with
     `--yes` stops there, so a stopped run leaves the files. An install adds what it hands to an
     admin on the way: the flows' rows, the app when you choose **An admin will register the app for
-    me** or Entra refuses to register it, and the Azure admin script. The end of an install or
-    Repair rewrites it with what's still left; an update doesn't. `check`, `status`, `uninstall` and
+    me** or Entra refuses to register it, the Azure admin script, and the steps for a vault admin to
+    add the client secret. The end of an install or Repair rewrites it with what's still left; an update doesn't. `check`, `status`, `uninstall` and
     the check the browser runs when you sign in write nothing, and nothing is written until there's
     something to ask. Where a write is new, one that fails warns once and the run carries on.
   - **What the end keeps.** The end of an install or Repair, on the Done page, in the terminal and in
@@ -301,6 +301,20 @@ Deployment instructions do **not** live here. They live in the READMEs:
     hand-off to an Application Administrator or Cloud Application Administrator, even when your role
     or the tenant setting looks as if it lets you register apps, so they get a request and their
     file. Before, the row stayed met, and no request asked them to use the pack.
+  - **The vault admin** (Fabric). When you choose **A vault admin will add the secret for me**, the
+    steps the installer shows are also a request to a Key Vault admin, in their own file,
+    `vault-admin.md`: the vault, the secret's name and the app, the vault's link in the Azure
+    portal, read access for you when you need it, who can create the secret and who can add it to
+    the vault, the portal steps, and the Azure Cloud Shell commands that create the secret and store
+    it in one go, so no one sees its value. It's written before the installer asks **Has the admin added the secret?**,
+    and with `--yes`, which carries on without the secret. Until you tell the installer it's there,
+    each write keeps the request, and the end of an install or Repair lists it under **Still to do
+    by your admins**: once it's done, run the installer again without `--yes`, choose **Repair or
+    change**, and answer **Yes, carry on**. Until then, the summary's Secret line says the secret is
+    waiting for a vault admin and that data loads fail until it's there, where it said a vault admin
+    had added it. **Create new secrets** (`rotate-secret`) writes the pack with the vault admin's
+    request to replace the secret, and only that: its index says so, and that a Repair shows
+    anything else still waiting.
   - **Where it shows.** The terminal prints the index's path ("Start here:") and a line for each
     admin's file after the requests, and nothing more when a later write changes no file. In the
     browser, the Prerequisites panel, the Done page and the saved run log show the paths, with

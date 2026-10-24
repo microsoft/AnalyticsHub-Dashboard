@@ -24,7 +24,7 @@ export const adminFileName = (key) => `${key}.md`;
 /**
  * @typedef {import('./handoff.js').AdminRequest} AdminRequest
  *
- * @typedef {'prereqs' | 'install' | 'repair' | 'update'} PackWriter  What wrote the pack.
+ * @typedef {'prereqs' | 'install' | 'repair' | 'update' | 'rotate-secret'} PackWriter  What wrote the pack.
  *
  * What an admin's file has beyond their request.
  * @typedef {object} AdminExtra
@@ -51,7 +51,13 @@ export const adminFileName = (key) => `${key}.md`;
  */
 
 /** @type {Record<PackWriter, string>} */
-const WRITERS = { prereqs: 'the prerequisites check', install: 'an install', repair: 'a Repair', update: 'an update' };
+const WRITERS = {
+  prereqs: 'the prerequisites check',
+  install: 'an install',
+  repair: 'a Repair',
+  update: 'an update',
+  'rotate-secret': 'Create new secrets (rotate-secret)',
+};
 
 /**
  * A request's message as Markdown, to send as it is. A line that starts "- " starts an ask. In an ask, the lines after
@@ -150,7 +156,8 @@ function indexText(input, files) {
   const lines = ['# Analytics Hub: your admin pack', '', `Written by ${WRITERS[input.by]} on ${at.slice(0, 10)} at ${at.slice(11, 16)} UTC.`];
   if (input.why.length) lines.push('', ...input.why);
   if (!files.length) {
-    lines.push('', 'Nothing is waiting on an admin.', '');
+    // Create new secrets writes only its own request, so it can't say what else is waiting.
+    lines.push('', ...(input.by === 'rotate-secret' ? [] : ['Nothing is waiting on an admin.', '']));
     return lines.join('\n');
   }
   lines.push(
@@ -175,7 +182,9 @@ function indexText(input, files) {
     const run =
       input.by === 'prereqs'
         ? 'Once your admins have done their part, run the installer:'
-        : 'Once your admins have done their part, run the installer again. It picks up where it stopped:';
+        : input.by === 'rotate-secret'
+          ? 'If you stopped it, run this once the vault admin has replaced the secret. It shows their steps again, then asks whether they have:'
+          : 'Once your admins have done their part, run the installer again. It picks up where it stopped:';
     lines.push(run, '', '```', input.resume, '```');
   } else lines.push('Once an admin has done their part, do what its "Once it\'s done" line says, if it has one.');
   lines.push('');

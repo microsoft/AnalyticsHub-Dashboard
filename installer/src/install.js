@@ -19,7 +19,7 @@ import { POWER_PLATFORM_URL, powerPlatformApi } from './clients/powerplatform.js
 import { saveConfig, secretMode } from './config.js';
 import { createClient, defaultSleep } from './http.js';
 import { commandLine } from './launch.js';
-import { askedRows, copyHandoffPack, ensureConsent, ensureApp, ensureKeyVault, newSecret, notebookSecretDays, startHandoffPack, writeHandoffPack } from './steps/identity.js';
+import { askedRows, copyHandoffPack, ensureConsent, ensureApp, ensureKeyVault, newSecret, notebookSecretDays, startHandoffPack, vaultAsk, writeHandoffPack } from './steps/identity.js';
 import {
   agentEvaluatorModelWanted, agentEvaluatorSummary, ensureAgentEvaluatorModel, ensureTranscriptAccess, fabricReadRoleWanted, removeFabricReadRoles, transcriptAsks,
 } from './steps/agent-evaluator.js';
@@ -970,6 +970,8 @@ export async function rotateSecret(ctx) {
   }
   if (mode === 'keyvault-admin') {
     if (!(await ui.confirm(`Show the steps for a vault admin to replace the secret in ${config.keyVault.name}${sm.connectionId ? ', and replace the connection\'s' : ''}?`, true))) return;
+    // Their steps go in the admin pack, in place of what an earlier run left there.
+    startHandoffPack(ctx, 'rotate-secret');
   } else {
     ui.note('The notebooks\' old secret keeps working until it expires. Delete it from the app\'s Certificates & secrets page once a run has succeeded.');
     if (!(await ui.confirm(`Create new secrets and replace the one in Key Vault${sm.connectionId ? ' and the connection\'s' : ''}?`, true))) return;
@@ -1021,6 +1023,7 @@ export async function summary(ctx, opts = {}) {
     backfillDays: opts.backfillDays,
     transcripts: transcriptAsks(ctx),
     carried: askedRows(ctx),
+    vault: secretMode(config) === 'keyvault-admin' && !config.keyVault.secretSetAt ? [vaultAsk(ctx)] : [],
   });
   ui.doneRequests(requests);
   writeHandoffPack(ctx, { done: requests });
@@ -1031,7 +1034,10 @@ export async function summary(ctx, opts = {}) {
   const expires = config.app.secretExpires ? `, expires ${config.app.secretExpires.slice(0, 10)}` : '';
   const expiresOn = config.app.secretExpires ? ` on ${config.app.secretExpires.slice(0, 10)}` : '';
   if (mode === 'notebook') ui.info(`Secret:     in the notebooks${expires}  ${c.dim('No Key Vault: anyone with a role in the workspace can read it. Each install, repair or update replaces it.')}`);
-  else ui.info(`Secret:     ${config.keyVault.name} / ${config.keyVault.secretName}${expires}${mode === 'keyvault-admin' ? c.dim('  Added by a vault admin.') : ''}`);
+  else {
+    const admin = config.keyVault.secretSetAt ? '  Added by a vault admin.' : '  Waiting for a vault admin to add it. Data loads fail until it\'s there.';
+    ui.info(`Secret:     ${config.keyVault.name} / ${config.keyVault.secretName}${expires}${mode === 'keyvault-admin' ? c.dim(admin) : ''}`);
+  }
   if (config.keyVault.private) ui.info(`            ${c.dim('Private vault, reached through a managed private endpoint. Spark sessions take a few minutes longer to start.')}`);
 
   const sm = config.semanticModel;

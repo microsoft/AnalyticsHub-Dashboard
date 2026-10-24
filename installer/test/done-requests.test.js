@@ -13,7 +13,8 @@ import { PURVIEW_AUDIT_URL } from '../src/steps/audit-check.js';
 import { azureSummary } from '../src/steps/azure/index.js';
 import { MANAGE_APPS_URL, TEAMS_APP_PENDING } from '../src/steps/azure/teams-catalog.js';
 import { flowsWanted } from '../src/steps/flows.js';
-import { ADMINS, adminRequests, doneRequests, isGlobalAdmin, namesState, namesWanted, ROW_ASKS } from '../src/steps/handoff.js';
+import { ADMINS, adminRequests, doneRequests, isGlobalAdmin, namesState, namesWanted, requestsFor, ROW_ASKS } from '../src/steps/handoff.js';
+import { vaultAsk } from '../src/steps/identity.js';
 import { CONCEALED_NAMES_AFTER, CONCEALED_NAMES_STEPS } from '../src/steps/next-steps.js';
 import { AGENT_ROLE, globalReaderCommand, readerCommand, resourceGraphScope } from '../src/steps/resource-graph.js';
 import { lastDataCheck } from '../src/steps/run.js';
@@ -407,6 +408,44 @@ test('done requests: the product feedback export goes to your mailbox, with a no
   assert.match(String(r.after), /saves the CSV files attached to each export email, and the next load reads them\.$/);
   assert.match(String(feedback(undefined)?.message), /emailed to the mailbox the flow reads,/);
   assert.equal(to(doneRequests(azureConfig({}), { dataCheck: SHOWN }), 'm365-admin'), undefined, 'Fabric only');
+});
+
+test('done requests: the client secret a vault admin hasn\'t added yet is a request of its own, after the Azure owner\'s, once', () => {
+  const config = fabricConfig();
+  config.dataSources.resourceGraph = 'api';
+  Object.assign(config.fabric, { workspaceId: 'ws-1', lakehouseId: 'lh-1' });
+  Object.assign(config.keyVault, { name: 'kv-ah', secretName: 'ah-client-secret', mode: 'keyvault-admin', rbac: true });
+  const vault = vaultAsk({ config, user: { upn: UPN, id: 'user-1', tenantId: 't-1' } });
+  const requests = doneRequests(config, { from: UPN, dataCheck: SHOWN, vault: [vault, vault] });
+  assert.deepEqual(requests.map((r) => r.admin), ['role-admin', 'azure-owner', 'vault-admin']);
+  const r = to(requests, 'vault-admin');
+  assert.equal(r?.who, 'A Key Vault admin');
+  assert.deepEqual(r?.rows, ['Client secret in Key Vault']);
+  assert.equal(r?.asks.length, 1);
+  assert.ok(
+    r?.message.startsWith(
+      'Hi,\n\nI\'ve installed Analytics Hub, and I need your help with this:\n\n- Create a client secret for the app "Analytics Hub Data Collector" (application ID app-1), ' +
+        'and add it to the Key Vault kv-ah as a secret named ah-client-secret.\n',
+    ),
+    r?.message,
+  );
+  assert.deepEqual(r?.after, ['Run the installer again without --yes and choose Repair or change. When it asks "Has the admin added the secret?", choose "Yes, carry on".']);
+  assert.equal(to(doneRequests(config, { from: UPN, dataCheck: SHOWN }), 'vault-admin'), undefined, 'only when the summary passes it');
+});
+
+test('requestsFor: one request per admin and addressee, in the order of ADMINS, saying whether the install is under way or finished', () => {
+  /** @type {import('../src/steps/handoff.js').Ask[]} */
+  const asks = [
+    { admin: 'licence', text: 'Assign me a licence.' },
+    { admin: 'vault-admin', text: 'Add the secret.', label: 'Client secret in Key Vault', after: ['Carry on.'] },
+    { admin: 'licence', text: 'Assign me a licence.' },
+  ];
+  const during = requestsFor(asks, UPN, false);
+  assert.deepEqual(during.map((r) => [r.admin, r.who, r.asks]), [['vault-admin', 'A Key Vault admin', ['Add the secret.']], ['licence', ADMINS.licence, ['Assign me a licence.']]]);
+  assert.equal(during[0].message, 'Hi,\n\nI\'m installing Analytics Hub, and I need your help with this:\n\n- Add the secret.\n\nThanks\nadmin@contoso.com');
+  assert.deepEqual(during[0].after, ['Carry on.']);
+  assert.deepEqual(during[1].rows, ['Pending admin action'], 'an ask without a label');
+  assert.match(requestsFor(asks, UPN, true)[0].message, /^Hi,\n\nI've installed Analytics Hub, and I need your help with this:\n/);
 });
 
 test('done requests: the terminal lists each request with who, what for, the message, your notes and what you do afterwards', () => {

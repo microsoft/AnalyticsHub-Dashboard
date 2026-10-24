@@ -73,13 +73,18 @@ three places for it. For a new Fabric install, the default is no Key Vault:
 Installs that already keep the secret in Key Vault carry on using it. `--flow-identity app` reads
 the secret from Key Vault, so it goes to the Key Vault questions.
 
-**A vault admin adds the secret.** The installer shows the vault, the secret name and one
-Azure Cloud Shell command for the admin. The command creates a new client secret on the app and
-stores it in the vault in one step, so nobody, including the installer, sees its value. If you
-don't have read access yet and can't give it to yourself, the command gives it to you as well.
-The installer can make the admin an owner of the app, so they can create its secret: enter their
-email when asked. Then answer **Has the admin added it?** with **Yes, carry on**, or choose
-**Stop and resume later** and run the installer again once it's there. Your answers are kept.
+**A vault admin adds the secret.** The installer shows the vault, the secret name and the Azure
+Cloud Shell commands for the admin. They create a new client secret on the app and store it in the
+vault in one step, so nobody, including the installer, sees its value. If you don't have read
+access yet and can't give it to yourself, they give it to you as well. The installer can make the
+admin an owner of the app, so they can create its secret: enter their email when asked. The same
+steps, with the portal steps and who can do what, then go in the vault admin's file in the admin
+pack, `analytics-hub-admin-pack/vault-admin.md`, to send as it is (see **The admin pack** in
+[Prerequisites](../docs/PREREQUISITES.md)). Then answer **Has the admin added the secret?** with
+**Yes, carry on**, or choose **Stop and resume later** and run the installer again once it's there.
+Your answers are kept. With `--yes`, the install carries on without the secret, and data loads fail
+until it's there. Until you answer **Yes, carry on**, the end of an install or Repair lists it under
+**Still to do by your admins**, and the summary says the secret is waiting for a vault admin.
 Read access is all the notebooks need: they read the secret with `notebookutils` as the person
 the run uses. The choice is recorded in the install record as `keyVault.mode: "keyvault-admin"`.
 

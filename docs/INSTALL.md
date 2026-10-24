@@ -156,6 +156,11 @@ Something failed? Choose **Rerun failed loads** (`rerun-failed`), or see
     the Foundry resources. Once they're given, run the installer again without `--yes` and choose
     **Repair or change**: when it says you can't assign Azure roles there, choose the option the
     request names.
+  - **The client secret** (Fabric), from a Key Vault admin, when you chose **A vault admin will
+    add the secret for me** and haven't told the installer it's there. The message has the vault,
+    the secret's name, the portal steps and the Cloud Shell commands. Once it's in the vault, run
+    the installer again without `--yes`, choose **Repair or change**, and answer **Has the admin
+    added the secret?** with **Yes, carry on**.
   - **The Cowork credits query** (Fabric, optional), from an Insights Analyst, when Cowork credits
     come from the CSV export.
   - **Copilot Studio transcripts**, from a System Administrator of each Agent Evaluator

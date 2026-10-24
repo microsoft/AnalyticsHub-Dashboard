@@ -31,7 +31,9 @@ as `app-admin.md` or `fabric-admin.md`: their request, with the exact setting an
 links, every command they run in a code block, what to send back, if anything, and what happens
 next. It's written when you check the prerequisites (`prereqs`, or **Check prerequisites** in the
 browser) and when install and update check them. An install adds what it hands to an admin on the
-way, and the end of an install or Repair rewrites it with what's left. A file for an admin with
+way, and the end of an install or Repair rewrites it with what's left. When a vault admin adds
+the client secret, **Create new secrets** (`rotate-secret`) rewrites it with only their request
+to replace it. A file for an admin with
 nothing left to do is removed, and once nothing is left, the index says so. Nothing is written
 until there's something to ask. The terminal prints where the files are ("Admin pack, a file for
 each admin to send as it is. Start here:"), and the browser shows the paths under the requests.

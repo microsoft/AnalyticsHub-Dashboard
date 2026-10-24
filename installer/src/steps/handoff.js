@@ -39,6 +39,7 @@ export const ADMINS = {
   teams: 'A Teams Administrator',
   'sharepoint-admin': 'A SharePoint Administrator',
   'azure-owner': 'An Azure Owner or User Access Administrator',
+  'vault-admin': 'A Key Vault admin',
   viva: 'An Insights Analyst',
   licence: 'Your licence admin',
   other: 'An admin',
@@ -588,6 +589,7 @@ export async function isGlobalAdmin(api) {
  * @property {Ask[]} [transcripts]  The Agent Evaluator's asks, one per environment, from its module.
  * @property {Prereq[]} [carried]  The rows preflight and the flows' check showed as needing someone else in this run, which
  *   the admin pack keeps. Their asks that a finished install doesn't settle are asked for again (carriedDone).
+ * @property {Ask[]} [vault]  The vault admin's ask while the app's client secret waits for them (Fabric), from identity.js's vaultAsk.
  */
 
 /**
@@ -912,7 +914,21 @@ export function doneRequests(config, opts = {}) {
     ...vivaDone(config),
     ...carriedDone(c, opts),
     ...(opts.transcripts ?? []),
+    ...(opts.vault ?? []),
   ]);
+  return requestsFor(asks, opts.from, true);
+}
+
+/**
+ * One request per admin from their asks, in the order of ADMINS, and one per `who` when asks name one. Each asks for
+ * everything that admin does, once, as a message signed by `from`, with notes for you before you send it, what you do
+ * once it's done, and what the admin sends back.
+ * @param {Ask[]} asks
+ * @param {string | undefined} from
+ * @param {boolean} installed  The install has finished, as at its end; else it's under way.
+ * @returns {AdminRequest[]}
+ */
+export function requestsFor(asks, from, installed) {
   return /** @type {AdminKey[]} */ (Object.keys(ADMINS)).flatMap((admin) => {
     const mine = asks.filter((a) => a.admin === admin);
     return [...new Set(mine.map((a) => a.who ?? ADMINS[admin]))].map((who) => {
@@ -921,13 +937,13 @@ export function doneRequests(config, opts = {}) {
       const notes = [...new Set(these.flatMap((a) => (a.note ? [a.note] : [])))];
       const after = [...new Set(these.flatMap((a) => a.after ?? []))];
       const back = [...new Set(these.flatMap((a) => (a.back ? [a.back] : [])))];
-      const intro = `I've installed Analytics Hub, and I need your help with ${texts.length === 1 ? 'this' : 'these'}:`;
+      const intro = `${installed ? 'I\'ve installed' : 'I\'m installing'} Analytics Hub, and I need your help with ${texts.length === 1 ? 'this' : 'these'}:`;
       return /** @type {AdminRequest} */ ({
         admin,
         who,
         rows: [...new Set(these.map((a) => a.label ?? PENDING_LABEL))],
         asks: texts,
-        message: letter([intro, '', ...texts.map((t) => `- ${t}`)], opts.from),
+        message: letter([intro, '', ...texts.map((t) => `- ${t}`)], from),
         ...(these.every((a) => a.optional) ? { optional: true } : {}),
         ...(notes.length ? { notes } : {}),
         ...(after.length ? { after } : {}),

@@ -10,13 +10,13 @@ import { after, test } from 'node:test';
 import { graphRolesCommand } from '../src/admin-commands.js';
 import { emptyConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
-import { showPrereqs, summary } from '../src/install.js';
+import { rotateSecret, showPrereqs, summary } from '../src/install.js';
 import { commandLine } from '../src/launch.js';
 import { checkPrereqs, reportFlowPrereqs, reportPreflight, settingsToConfirm } from '../src/prereqs.js';
 import { ADMIN_PACK_DIR, ADMIN_PACK_FILE, messageMarkdown, packFileName, renderAdminPack, writeAdminPackFiles } from '../src/steps/admin-pack.js';
 import { azureSummary } from '../src/steps/azure/index.js';
 import { ADMINS } from '../src/steps/handoff.js';
-import { adminPack, isResumeLater, startHandoffPack, writeAdminPack, writeHandoffPack } from '../src/steps/identity.js';
+import { adminPack, handoffCommands, isResumeLater, secretHandoff, startHandoffPack, writeAdminPack, writeHandoffPack } from '../src/steps/identity.js';
 import { letter } from '../src/steps/next-steps.js';
 import { planAdminPack } from '../src/steps/plan.js';
 import { fakeCtx, fakeFabric, fakeUi } from './fakes.js';
@@ -724,4 +724,226 @@ test('pack, no install record: a write keeps the requests for later and writes n
   assert.ok(!existsSync(join(process.cwd(), ADMIN_PACK_FILE)));
   assert.ok(ctx.handoffPack.asked.has('register-apps') && ctx.handoffPack.asked.has('power-bi-pro'), 'kept for a later write');
   assert.doesNotMatch(t.text(), /Admin pack/);
+});
+
+/** A Fabric install whose client secret a vault admin adds, to a private vault with Azure RBAC that you can't read. */
+const vaultConfig = () => {
+  const config = plant(plainConfig());
+  Object.assign(config.app, { appId: 'app-1', objectId: 'obj-1', servicePrincipalId: 'sp-1', existing: false });
+  Object.assign(config.keyVault, {
+    existing: false,
+    name: 'kv-ah',
+    id: '/subscriptions/sub-1/resourceGroups/rg-ah/providers/Microsoft.KeyVault/vaults/kv-ah',
+    uri: 'https://kv-ah.vault.azure.net/',
+    secretName: 'ah-client-secret',
+    mode: 'keyvault-admin',
+    rbac: true,
+    private: true,
+    handoff: { grantRead: true },
+  });
+  return config;
+};
+const VAULT_ENTRY = '1. A Key Vault admin: [analytics-hub-admin-pack/vault-admin.md](analytics-hub-admin-pack/vault-admin.md)';
+const ADDED = 'When it asks "Has the admin added the secret?", choose "Yes, carry on".';
+/** What happens next in the vault admin's file, when the installer isn't waiting for them. @param {string} from */
+const VAULT_NEXT = (from) =>
+  `\n## What happens next\n\nOnce it's done, tell ${from}. Analytics Hub can't load its data until the secret is there.\nThe installer never sees the secret's value.\n`;
+
+test('pack, a vault admin: the steps for the client secret are their own file, written before the installer asks whether they\'ve done it', async () => {
+  const dir = tmp();
+  const t = fakeUi({ answers: [''] });
+  /** @type {string[]} */
+  let before = [];
+  /** @type {any} */ (t.ui).select = async (/** @type {string} */ message) => {
+    t.asked.push(message);
+    before = readPack(dir).names;
+    return 'stop';
+  };
+  const config = vaultConfig();
+  const ctx = packCtx(t.ui, config, dir);
+  startHandoffPack(ctx, 'install');
+  await assert.rejects(secretHandoff(ctx), (err) => isResumeLater(err));
+  assert.equal(t.asked.at(-1), 'Has the admin added the secret?');
+  assert.deepEqual(before, ['vault-admin.md']);
+  const { index, names, files } = readPack(dir);
+  assert.deepEqual(names, ['vault-admin.md']);
+  const file = files['vault-admin.md'];
+  assert.ok(
+    file.startsWith(
+      '# Analytics Hub: a request for your help\n\n- **To:** A Key Vault admin\n- **For:** Client secret in Key Vault\n\n' +
+        'Hi,\n\nI\'m installing Analytics Hub, and I need your help with this:\n\n' +
+        '- Create a client secret for the app "Analytics Hub Data Collector" (application ID app-1), and add it to the Key Vault kv-ah as a secret named ah-client-secret.\n',
+    ),
+    file,
+  );
+  for (const line of [
+    `The vault in the Azure portal: https://portal.azure.com/#@t-1/resource${config.keyVault.id}/secrets`,
+    'Also give me (analyst@contoso.com) Key Vault Secrets User on kv-ah, so scheduled runs can read it.',
+    'Creating the secret needs an owner of the app, or an Application Administrator or Cloud Application Administrator. Adding it to kv-ah needs Key Vault Secrets Officer.',
+    'kv-ah blocks public network access, so do this from a network that can reach the vault.',
+    '1. App registrations > Analytics Hub Data Collector > Certificates & secrets > New client secret.',
+    '2. Copy its Value into kv-ah > Secrets > Generate/Import, with the name ah-client-secret.',
+    '3. In kv-ah > Access control (IAM) > Add role assignment, give me (analyst@contoso.com) Key Vault Secrets User.',
+  ])
+    assert.ok(file.includes(`\n  ${line}\n`), line);
+  const commands = handoffCommands(config, { userId: USER.id });
+  assert.equal(commands.length, 2, 'your read access, then the secret');
+  assert.ok(file.includes(`\n  In Azure Cloud Shell (Bash):\n  \`\`\`bash\n${commands.map((l) => `  ${l}\n`).join('')}  \`\`\`\n`), 'the commands the console shows, to paste');
+  assert.ok(file.endsWith('\n## What happens next\n\nOnce it\'s done, tell analyst@contoso.com, and the installer carries on.\nThe installer never sees the secret\'s value.\n'), file);
+  assert.ok(!file.includes(commandLine('install')), 'the command to carry on is yours');
+  assert.ok(index.includes('\n\nA vault admin needs to add the app\'s client secret in kv-ah, with the steps in their file. The installer never sees its value.\n\n'), index);
+  assert.deepEqual(entries(index), [VAULT_ENTRY]);
+  assert.ok(index.includes('\n   - For: Client secret in Key Vault\n   - Once it\'s done: When the installer asks "Has the admin added the secret?", choose "Yes, carry on".\n'), index);
+  assert.ok(index.endsWith(`It picks up where it stopped:\n\n\`\`\`\n${commandLine('install')}\n\`\`\`\n`), index);
+  const out = t.text();
+  assert.ok(out.indexOf('Admin pack, a file for each admin') > out.indexOf('az keyvault secret set'), 'after the steps it goes with');
+  noSecrets(dir);
+});
+
+test('pack, a vault admin with --yes: the install carries on, and their file says Analytics Hub can\'t load its data until the secret is there', async () => {
+  const dir = tmp();
+  const t = fakeUi({ yes: true });
+  const ctx = packCtx(t.ui, vaultConfig(), dir);
+  startHandoffPack(ctx, 'install');
+  assert.equal(await secretHandoff(ctx), false);
+  assert.deepEqual(t.asked, []);
+  const { index, names, files } = readPack(dir);
+  assert.deepEqual(names, ['vault-admin.md']);
+  assert.ok(files['vault-admin.md'].endsWith(VAULT_NEXT('analyst@contoso.com')), files['vault-admin.md']);
+  assert.ok(index.includes(`\n   - Once it's done: Run the installer again without --yes. ${ADDED}\n`), 'nothing installed yet to repair');
+  assert.ok(t.text().indexOf('Carrying on. Data loads fail until the secret is in kv-ah.') > t.text().indexOf('Admin pack, a file for each admin'));
+  noSecrets(dir);
+});
+
+test('pack, a vault admin who has added the secret: their file goes, and the index says so', async () => {
+  const dir = tmp();
+  const t = fakeUi({ answers: ['', 'go'] });
+  const config = vaultConfig();
+  const ctx = packCtx(t.ui, config, dir);
+  startHandoffPack(ctx, 'install');
+  assert.equal(await secretHandoff(ctx), true);
+  assert.ok(config.keyVault.secretSetAt);
+  const { index, names } = readPack(dir);
+  assert.deepEqual(names, []);
+  assert.ok(index.endsWith('UTC.\n\nThe vault admin has added the client secret in kv-ah.\n\nNothing is waiting on an admin.\n'), index);
+  assert.match(t.text(), /\n {2}Admin pack: nothing is waiting on an admin\. /);
+  noSecrets(dir);
+});
+
+test('pack, a vault admin an earlier run asked: their request stays, from the install record, until you say the secret is there', async () => {
+  const rows = await check(plainConfig());
+  const licence = rows.filter((it) => it.id === 'power-bi-pro');
+  /** @param {(config: InstallConfig) => void} [change] */
+  const write = (change) => {
+    const dir = tmp();
+    const config = vaultConfig();
+    config.keyVault.handoff = { grantRead: true, shownAt: '2026-05-31T09:00:00Z' };
+    change?.(config);
+    const ctx = packCtx(fakeUi().ui, config, dir);
+    startHandoffPack(ctx, 'prereqs');
+    writeHandoffPack(ctx, { asked: licence, all: rows, why: PREFLIGHT });
+    noSecrets(dir);
+    return readPack(dir);
+  };
+  let pack = write();
+  assert.deepEqual(pack.names, ['licence.md', 'vault-admin.md']);
+  assert.deepEqual(entries(pack.index).map((e) => e.replace(/: \[.*$/, '')), ['1. A Key Vault admin', `2. ${ADMINS.licence}`], 'in the order of ADMINS');
+  assert.ok(pack.index.includes(`\n   - Once it's done: Run the installer again without --yes. ${ADDED}\n`), pack.index);
+  assert.ok(pack.files['vault-admin.md'].endsWith(VAULT_NEXT('analyst@contoso.com')));
+  assert.ok(pack.files['vault-admin.md'].includes('\nI\'m installing Analytics Hub, and I need your help with this:\n'));
+
+  pack = write((config) => Object.assign(config.fabric, { workspaceId: 'ws-1', lakehouseId: 'lh-1' }));
+  assert.ok(pack.index.includes(`\n   - Once it's done: Run the installer again without --yes and choose Repair or change. ${ADDED}\n`), pack.index);
+
+  /** @type {[string, (config: InstallConfig) => void][]} */
+  const none = [
+    ['never shown', (config) => delete config.keyVault.handoff?.shownAt],
+    ['added', (config) => (config.keyVault.secretSetAt = '2026-05-31T10:00:00Z')],
+    ['Azure', (config) => (config.target = 'azure')],
+  ];
+  for (const [why, change] of none) assert.deepEqual(write(change).names, ['licence.md'], why);
+});
+
+test('pack, rotate-secret with a vault admin: its pack is the new secret\'s request alone, and says so', async () => {
+  const dir = tmp();
+  const config = vaultConfig();
+  config.keyVault.secretSetAt = '2026-05-01T00:00:00Z';
+  const rows = await check(plainConfig());
+  const first = packCtx(fakeUi().ui, config, dir);
+  startHandoffPack(first, 'install');
+  writeHandoffPack(first, { asked: rows.filter((it) => it.id === 'power-bi-pro'), all: rows, why: PREFLIGHT });
+  assert.deepEqual(readPack(dir).names, ['licence.md']);
+
+  const stop = fakeUi({ answers: [true, '', 'stop'] });
+  await assert.rejects(rotateSecret(packCtx(stop.ui, config, dir)), (err) => isResumeLater(err));
+  let { index, names, files } = readPack(dir);
+  assert.deepEqual(names, ['vault-admin.md'], 'in place of what the install left');
+  assert.ok(
+    index.startsWith(
+      '# Analytics Hub: your admin pack\n\nWritten by Create new secrets (rotate-secret) on 2026-06-01 at 12:34 UTC.\n\n' +
+        'A vault admin needs to replace the app\'s client secret in kv-ah, with the steps in their file. The installer never sees its value.\n' +
+        'Create new secrets only writes the request for the new client secret. To see anything else still waiting on an admin, run the installer again and choose Repair or change.\n\n',
+    ),
+    index,
+  );
+  assert.ok(
+    index.includes(
+      '\n   - Once it\'s done: When the installer asks "Has the admin replaced the secret?", choose "Yes, carry on".\n' +
+        '   - Once it\'s done: Once a run has succeeded with the new secret, delete the old one from the app\'s Certificates & secrets page, or ask the vault admin to.\n',
+    ),
+    index,
+  );
+  assert.ok(
+    index.endsWith(
+      '## Carry on\n\nIf you stopped it, run this once the vault admin has replaced the secret. It shows their steps again, then asks whether they have:\n\n' +
+        `\`\`\`\n${commandLine('rotate-secret')}\n\`\`\`\n`,
+    ),
+    index,
+  );
+  const file = files['vault-admin.md'];
+  assert.ok(
+    file.includes(
+      '\n- Replace the client secret of the app "Analytics Hub Data Collector" (application ID app-1) in the Key Vault kv-ah: create a new one, and add it as a new ' +
+        'version of the secret ah-client-secret. Keep the old one on the app until a run has succeeded with the new one.\n',
+    ),
+    file,
+  );
+  assert.ok(file.includes('\n  2. Copy its Value into kv-ah > Secrets > ah-client-secret > New Version.\n'));
+  noSecrets(dir);
+
+  const go = fakeUi({ answers: [true, '', 'go'] });
+  await rotateSecret(packCtx(go.ui, config, dir));
+  ({ index, names } = readPack(dir));
+  assert.deepEqual(names, []);
+  assert.ok(index.endsWith('UTC.\n\nThe vault admin has replaced the client secret in kv-ah.\nCreate new secrets only writes the request for the new client secret. To see anything else still waiting on an admin, run the installer again and choose Repair or change.\n'), index);
+  assert.doesNotMatch(index + go.text(), /[Nn]othing is waiting on an admin/, 'it only knows about the secret');
+});
+
+test('pack, the end of an install that carried on without the secret: the vault admin\'s request is one of what it left, and the summary says it\'s waiting', async () => {
+  const dir = tmp();
+  const fake = fakeUi();
+  const t = fakeCtx({ ui: fake.ui, fabric: fakeFabric().api, oneLake: { readJson: async () => null }, graph: { myDirectoryRoles: async () => [] }, config: vaultConfig() });
+  t.ctx.configFile = join(dir, 'valuelens-install.json');
+  startHandoffPack(t.ctx, 'install');
+  await summary(t.ctx, { dataCheck: SHOWN });
+  let pack = readPack(dir);
+  assert.deepEqual(pack.names, ['vault-admin.md']);
+  assert.deepEqual(entries(pack.index), [VAULT_ENTRY]);
+  assert.ok(pack.index.includes(`\n   - Once it's done: Run the installer again without --yes and choose Repair or change. ${ADDED}\n`), pack.index);
+  const file = pack.files['vault-admin.md'];
+  assert.ok(file.includes('\nI\'ve installed Analytics Hub, and I need your help with this:\n'));
+  assert.ok(file.endsWith(VAULT_NEXT('admin@contoso.com')), file);
+  let out = fake.text();
+  assert.match(out, /\n {4}Secret: +kv-ah \/ ah-client-secret +Waiting for a vault admin to add it\. Data loads fail until it's there\.\n/);
+  const done = out.slice(out.lastIndexOf('Still to do by your admins'), out.lastIndexOf('Admin pack, a file for each admin'));
+  assert.deepEqual(done.match(/^ {2}\d+\. .*$/gm), ['  1. A Key Vault admin'], 'the terminal lists the same request');
+  noSecrets(dir);
+
+  t.config.keyVault.secretSetAt = '2026-06-01T11:00:00Z';
+  await summary(t.ctx, { dataCheck: SHOWN });
+  pack = readPack(dir);
+  assert.deepEqual(pack.names, []);
+  assert.ok(pack.index.endsWith('UTC.\n\nThe install finished.\n\nNothing is waiting on an admin.\n'), pack.index);
+  out = fake.text();
+  assert.match(out.slice(out.lastIndexOf('Secret:')), /^Secret: +kv-ah \/ ah-client-secret +Added by a vault admin\.\n/);
 });
