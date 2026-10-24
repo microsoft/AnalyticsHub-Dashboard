@@ -405,7 +405,7 @@ test('Azure credit consumption keeps the sources picked before, and Cowork by th
   assert.deepEqual(viva.modes, ['api', 'csv', 'api']);
   assert.match(viva.text, dataflow);
 
-  const appIdentity = /--flow-identity app is Fabric only for now, so it's ignored: on Azure the Studio flow signs in as you/;
+  const appIdentity = /--flow-identity app is Fabric only for now, so it's ignored: on Azure a person signs in to the connection the Studio flow saves through/;
   assert.doesNotMatch(viva.text, appIdentity);
   assert.match((await run({}, 'ai-sub', { flowIdentity: 'app' })).text, appIdentity);
 });

@@ -116,6 +116,7 @@ import { reviewSetup } from './setup.js';
  * @property {(resource: import('./auth.js').Resource) => Promise<string>} [getToken]  The signed-in user's tokens, for tools the installer runs.
  * @property {string} [setupSection] Open this settings category directly after a failure.
  * @property {boolean} [setupRetry] Revalidate saved choices without reopening every question.
+ * @property {import('./prereqs.js').PreflightSeen} [preflightSeen]  What install preflight checked and showed, so the flows' rows show once they're chosen.
  */
 
 /**
@@ -271,6 +272,8 @@ export async function rewindable(ctx, fn) {
   const config = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (ctx.config));
   const snapshot = structuredClone(config);
   const { pendingSecret, runFirstLoad, reloadHistoryDays, pendingUploads } = ctx;
+  // Going back drops what was shown since, so the flows' prerequisites show again.
+  const shown = ctx.preflightSeen && new Map(ctx.preflightSeen.shown);
   const real = ctx.api;
   ctx.api = memoApi(real);
   ctx.liveApi = real;
@@ -287,6 +290,7 @@ export async function rewindable(ctx, fn) {
         ctx.runFirstLoad = runFirstLoad;
         ctx.reloadHistoryDays = reloadHistoryDays;
         ctx.pendingUploads = pendingUploads;
+        if (ctx.preflightSeen && shown) ctx.preflightSeen.shown = new Map(shown);
       }
     }
   } finally {

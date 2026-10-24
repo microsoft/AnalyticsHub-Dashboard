@@ -146,12 +146,184 @@ function validateUrl(v) {
  * @param {Ctx} ctx
  */
 export async function planFlows(ctx) {
-  if (flowsWanted(ctx.config).length) await pickFlowEnvironment(ctx);
+  if (!flowsWanted(ctx.config).length) return;
+  await pickFlowEnvironment(ctx);
+  // After install preflight: the flows' rows it would have shown had they been chosen, each once. Imported here,
+  // since prereqs.js imports this module.
+  if (ctx.preflightSeen) {
+    const { reportFlowPrereqs } = await import('../prereqs.js');
+    reportFlowPrereqs(ctx);
+    return;
+  }
+  const ask = dataPolicyAsk(ctx.config);
+  if (ask) ctx.ui.note(ask);
 }
 
+/** Who signs in to the flows' Power Platform API connection when the Studio credits flow uses it: the roles its licensing routes accept. */
+export const PP_API_SIGNER = 'a Power Platform or Global administrator';
+/**
+ * Who can sign in to it for the agent inventory flow on its own: the roles the inventory shows every agent,
+ * environment and agent flow to. The AI roles see agents only.
+ */
+export const INVENTORY_SIGNER = 'a Power Platform, Dynamics 365 or Global administrator, or someone with Global Reader';
+/** Scheduled and automated flows run as their owner, and only the owner needs Premium. The installer makes whoever runs it the owner. */
+export const PREMIUM_OWNER = "The flows run on your Power Automate Premium licence, because you'll own them. Whoever signs in to their connections doesn't need Premium.";
+/**
+ * What Power Automate does when a flow's owner leaves, or loses their licence.
+ * @param {boolean} [one]  Said of one flow.
+ */
+export const ownerLeft = (one = false) => {
+  const [flows, them] = one ? ['the flow', 'it'] : ['the flows', 'them'];
+  return `If your account or licence is removed, Power Automate slows ${flows} down, and turns ${them} off after 14 days unless someone takes ${them} over. In a large organisation, install as an account that will stay.`;
+};
+export const OWNER_LEFT = ownerLeft();
+
 /** What the user should know before picking the flows' environment. */
-export const FLOW_ENVIRONMENT_HINT =
-  'The flows run in this environment, and people with access to it can see them. Its data policy (DLP) must allow the "HTTP with Microsoft Entra ID (preauthorized)" connector, and whoever signs in to the flows needs a Power Automate Premium licence.';
+export const FLOW_ENVIRONMENT_HINT = `The flows run in this environment, and people with access to it can see them. Its data policy (DLP) must allow the connectors they use, such as "HTTP with Microsoft Entra ID (preauthorized)", in the same data group (Business or Non-business). The installer can't read data policies, so it says what to confirm with a Power Platform administrator. ${PREMIUM_OWNER}`;
+
+/** @param {string[]} names @param {string} [and] */
+const joinList = (names, and = 'and') => (names.length < 3 ? names.join(` ${and} `) : `${names.slice(0, -1).join(', ')} ${and} ${names[names.length - 1]}`);
+
+/**
+ * Who signs in to the flows' Power Platform API connection. The flows share it, so with the Studio
+ * credits flow it's whoever the licensing routes accept.
+ * @param {import('../config.js').InstallConfig} config
+ */
+export const ppApiSigner = (config) => (flowsWanted(config).includes('studio') ? PP_API_SIGNER : INVENTORY_SIGNER);
+
+/**
+ * Who signs in to a connection the flows use. The plan, the sign-in links, the steps and the Done card
+ * all say it this way.
+ * @param {import('../config.js').InstallConfig} config
+ * @param {string} ref  A connection reference key.
+ */
+export function signerOf(config, ref) {
+  if (ref === CONNECTORS.entra.name) return ppApiSigner(config);
+  if (ref === CONNECTORS.outlook.name) return 'the mailbox the export is emailed to';
+  if (ref === CONNECTORS.keyVault.name) return `someone who can read secrets in ${config.keyVault.name ?? 'the Key Vault'}`;
+  if (ref === CONNECTORS.sharePoint.name) return `someone who can add files to ${config.azure?.drop?.folderUrl ?? 'the drop folder'}`;
+  if (ref !== CONNECTORS.storage.name) return 'whoever the connection is for';
+  return config.target === 'azure'
+    ? `someone with Storage Blob Data Contributor on ${config.azure?.outputs?.storageAccountName ?? 'the new storage account'}`
+    : `someone with Contributor or higher on ${config.fabric.workspaceName ?? 'the workspace'}`;
+}
+
+/** The order sign-ins are listed in: the admin's first. */
+const SIGN_IN_ORDER = [CONNECTORS.entra, CONNECTORS.outlook, CONNECTORS.storage, CONNECTORS.sharePoint, CONNECTORS.keyVault].map((k) => k.name);
+
+/** A connection's short name. @param {import('../config.js').InstallConfig} config @param {string} ref */
+function shortConnectionName(config, ref) {
+  if (ref === CONNECTORS.entra.name) return 'Power Platform API';
+  if (ref === CONNECTORS.storage.name) return config.target === 'azure' ? 'Azure Storage' : 'OneLake';
+  return connectorByName(ref)?.label ?? ref;
+}
+
+/**
+ * Who signs in to each of a flow's connections, in one sentence for the plan and the Done card.
+ * @param {import('../config.js').InstallConfig} config
+ * @param {FlowKind} kind
+ */
+export function whoSignsIn(config, kind) {
+  const refs = connectorsUsed(flowDefinitions(config, '')[kind].definition).sort((a, b) => SIGN_IN_ORDER.indexOf(a) - SIGN_IN_ORDER.indexOf(b));
+  return `Who signs in: ${refs.map((ref) => `${shortConnectionName(config, ref)} (${signerOf(config, ref)})`).join('; ')}.`;
+}
+
+const HTTP_ENTRA = 'HTTP with Microsoft Entra ID (preauthorized)';
+
+/** Whether a definition uses the built-in HTTP action, which a data policy treats as the HTTP connector. @param {any} definition */
+function usesHttpAction(definition) {
+  let found = false;
+  JSON.stringify(definition, (key, value) => {
+    if (key === 'type' && value === 'Http') found = true;
+    return value;
+  });
+  return found;
+}
+
+/**
+ * The connectors the chosen flows use, by the names a data policy (DLP) gives them. Both HTTP with
+ * Microsoft Entra ID connections are one connector. In app mode the flows write to OneLake with the
+ * built-in HTTP action.
+ * @param {import('../config.js').InstallConfig} config
+ */
+export function dataPolicyConnectors(config) {
+  const kinds = flowsWanted(config);
+  const defs = flowDefinitions(config, '');
+  const apis = new Set(kinds.flatMap((k) => connectorsUsed(defs[k].definition).map((n) => connectorByName(n)?.api ?? n)));
+  return [
+    ...(apis.has(CONNECTORS.entra.api) ? [HTTP_ENTRA] : []),
+    ...(kinds.some((k) => usesHttpAction(defs[k].definition)) ? ['HTTP'] : []),
+    ...[CONNECTORS.outlook, CONNECTORS.keyVault, CONNECTORS.sharePoint].filter((k) => apis.has(k.api)).map((k) => k.label),
+  ];
+}
+
+/**
+ * Before an Azure install deploys, its storage account has no name yet.
+ * @param {import('../config.js').InstallConfig} config
+ */
+const azureDfsHost = (config) => {
+  const account = config.azure?.outputs?.storageAccountName;
+  return account ? `https://${account}.dfs.core.windows.net` : 'the new storage account\'s address (https://<name>.dfs.core.windows.net), which the installer shows once it\'s made';
+};
+
+/**
+ * The addresses the chosen flows call, which a data policy that filters endpoints for the HTTP
+ * connectors must allow: the Power Platform API, and the storage the flows write to. A SharePoint drop
+ * adds none.
+ * @param {import('../config.js').InstallConfig} config
+ */
+export function dataPolicyHosts(config) {
+  if (!flowsWanted(config).length) return [];
+  const pp = ppApiFlows(config).length ? [PPAPI] : [];
+  if (config.target === 'azure') {
+    return azureDropsToSharePoint(config.azure) ? pp : [...pp, azureDfsHost(config)];
+  }
+  return [...pp, flowIdentity(config) === 'app' ? ONELAKE_DFS.replace('.dfs.', '.blob.') : ONELAKE_DFS];
+}
+
+/**
+ * What to ask a Power Platform administrator, since the installer can't read data policies (DLP): that
+ * the flows' connectors are allowed together in their environment and, for a policy that filters
+ * endpoints, the addresses the flows call.
+ * @param {import('../config.js').InstallConfig} config
+ */
+export function dataPolicyAsk(config) {
+  const connectors = dataPolicyConnectors(config);
+  if (!connectors.length) return '';
+  const env = config.uploads.flowEnvironment;
+  const where = env?.name ?? env?.url ?? 'the Power Platform environment the flows go in';
+  const allowed = connectors.length === 1 ? `${connectors[0]} is allowed` : `${joinList(connectors)} are allowed and in the same data group (Business or Non-business)`;
+  const filtered = ['HTTP', HTTP_ENTRA].filter((n) => connectors.includes(n));
+  const hosts = dataPolicyHosts(config);
+  const endpoints = filtered.length && hosts.length ? ` If the policy filters endpoints for ${joinList(filtered, 'or')}, it must allow ${joinList(hosts)}.` : '';
+  return `Ask a Power Platform administrator to confirm that ${allowed} in ${where}.${endpoints}`;
+}
+
+/**
+ * Whether Power Automate turned a flow down because of a data policy (DLP). Learn documents no error
+ * code for saving or turning on a flow that breaks one, so this matches the message. Learn says the
+ * maker is told "the connector is blocked by policy"; a bare "blocked by policy", with no connector,
+ * isn't enough: Conditional Access says that too.
+ * @param {unknown} err
+ */
+export function isDataPolicyError(err) {
+  const e = /** @type {any} */ (err);
+  const text = `${e?.code ?? ''} ${e?.message ?? ''}`;
+  return (
+    /DlpViolation|\bDLP\b|data loss prevention|data polic(?:y|ies)/i.test(text) ||
+    /\bconnectors?\b.{0,200}?\bblocked by polic(?:y|ies)\b|\bblocked by polic(?:y|ies)\b.{0,200}?\bconnectors?\b/is.test(text)
+  );
+}
+
+/**
+ * The warning for a flow a data policy turned down, with what to ask for.
+ * @param {import('../config.js').InstallConfig} config
+ * @param {string} what  What couldn't be done, e.g. "turn on <flow>".
+ * @param {unknown} err
+ * @param {string} then  What to do once the policy allows the connectors.
+ */
+const dataPolicyWarning = (config, what, err, then) =>
+  `Couldn't ${what}: a data policy (DLP) turned it down (${/** @type {Error} */ (err).message}). ${dataPolicyAsk(config)} ${then}`;
 
 /**
  * The tenant's default Power Platform environment ID, from Power Automate. If that can't be read,
@@ -240,7 +412,7 @@ export function flowDefinitions(config, tenantId) {
     },
     agents: {
       name: AGENT_INVENTORY_FLOW_NAME,
-      description: `Saves the Power Platform inventory of Copilot Studio agents, environments and agent flows to ${inventoryWhere} each day, for when Azure Resource Graph won't return agents. The inventory API takes delegated sign-ins only, so its connection signs in as a Power Platform or Global Reader-type administrator. Created by the Analytics Hub installer.`,
+      description: `Saves the Power Platform inventory of Copilot Studio agents, environments and agent flows to ${inventoryWhere} each day, for when Azure Resource Graph won't return agents. The inventory API takes delegated sign-ins only, so its connection signs in as ${INVENTORY_SIGNER}. Created by the Analytics Hub installer.`,
       definition: nameByConnection(agentInventoryFlowDefinition(t, schedule, inventoryDir), t),
     },
   };
@@ -284,6 +456,7 @@ export async function ensureFlows(ctx) {
   for (const kind of kinds) {
     const { name, description, definition } = defs[kind];
     const signature = signatureOf(definition);
+    let why = '';
     if (dv) {
       try {
         const id = up.flowIds[kind];
@@ -302,10 +475,14 @@ export async function ensureFlows(ctx) {
         ctx.save();
         continue;
       } catch (err) {
-        ui.warn(`Couldn't create the flow ${name} in ${up.flowEnvironment?.name ?? up.flowEnvironment?.url} (${/** @type {Error} */ (err).message}).`);
+        const where = up.flowEnvironment?.name ?? up.flowEnvironment?.url;
+        if (isDataPolicyError(err)) {
+          ui.warn(dataPolicyWarning(config, `save the flow ${name} in ${where}`, err, `Once the policy allows them, run "${commandLine('update')}".`));
+          why = `A data policy (DLP) turned it down. ${dataPolicyAsk(config)}`;
+        } else ui.warn(`Couldn't create the flow ${name} in ${where} (${/** @type {Error} */ (err).message}).`);
       }
     }
-    writeFlowFile(ctx, kind, name, definition);
+    writeFlowFile(ctx, kind, name, definition, why);
   }
   const on = await connectFlows(ctx);
   // The steps for whatever is still off, here rather than only on the Done page.
@@ -373,11 +550,12 @@ function missingConnection(err) {
  * @param {FlowKind} kind
  * @param {string} name
  * @param {any} definition
+ * @param {string} [why]  Why it couldn't be created, when that changes what to do.
  */
-function writeFlowFile(ctx, kind, name, definition) {
+function writeFlowFile(ctx, kind, name, definition, why = '') {
   const { ui, config } = ctx;
   const file = join(ctx.configFile ? dirname(ctx.configFile) : process.cwd(), FLOW_FILES[kind]);
-  const note = `Written by the Analytics Hub installer because the flow couldn't be created. In Power Automate, create an automated or scheduled cloud flow, open it in the code view (or use the Power Automate Management connector) and paste "definition". Then sign in to its connections: ${labels(connectorsUsed(definition), config)}.`;
+  const note = `Written by the Analytics Hub installer because the flow couldn't be created. In Power Automate, create an automated or scheduled cloud flow, open it in the code view (or use the Power Automate Management connector) and paste "definition". Then sign in to its connections: ${labels(connectorsUsed(definition), config)}.${why ? ` ${why}` : ''}`;
   try {
     writeFileSync(file, `${JSON.stringify(flowFile(name, definition, note), null, 2)}\n`);
     config.uploads.flowFiles = { ...config.uploads.flowFiles, [kind]: file };
@@ -445,7 +623,7 @@ export function ownedConnections(ctx, kinds) {
       ref: CONNECTORS.entra.name,
       displayName: CONNECTION_NAMES.ppApi,
       parameters: { baseResourceUrl: PPAPI, 'token:ResourceUri': PPAPI },
-      who: kinds.includes('agents') ? 'a Power Platform administrator' : 'a Power Platform, Billing or Global administrator',
+      who: signerOf(config, CONNECTORS.entra.name),
     });
   }
   const storageName = ownedConnectionName(config, CONNECTORS.storage.name);
@@ -457,13 +635,13 @@ export function ownedConnections(ctx, kinds) {
             ref: CONNECTORS.storage.name,
             displayName: storageName,
             parameters: { baseResourceUrl: `https://${account}.dfs.core.windows.net`, 'token:ResourceUri': STORAGE_RESOURCE },
-            who: `someone with Storage Blob Data Contributor on ${account}`,
+            who: signerOf(config, CONNECTORS.storage.name),
           }
         : {
             ref: CONNECTORS.storage.name,
             displayName: storageName,
             parameters: { baseResourceUrl: ONELAKE_DFS, 'token:ResourceUri': STORAGE_RESOURCE },
-            who: `someone with Contributor or higher on ${config.fabric.workspaceName ?? 'the workspace'}`,
+            who: signerOf(config, CONNECTORS.storage.name),
           },
     );
   }
@@ -584,7 +762,11 @@ export async function connectFlows(ctx) {
         on.add(kind);
         ui.ok(`Pointed ${FLOW_NAMES[kind]} at its connections and turned it on`);
       } catch (err) {
-        ui.warn(`Couldn't turn on ${FLOW_NAMES[kind]} (${/** @type {Error} */ (err).message}). Its steps below say how to do it in Power Automate.`);
+        ui.warn(
+          isDataPolicyError(err)
+            ? dataPolicyWarning(config, `turn on ${FLOW_NAMES[kind]}`, err, 'Once the policy allows them, its steps below say how to turn it on.')
+            : `Couldn't turn on ${FLOW_NAMES[kind]} (${/** @type {Error} */ (err).message}). Its steps below say how to do it in Power Automate.`,
+        );
       }
     }
     if (waiting) ui.note(`When the connections are signed in to, run "${commandLine('update')}" to point the flows at them and turn them on. Or follow the steps below.`);
@@ -627,7 +809,7 @@ async function showSignIns(ctx, env, wanted, chosen, page) {
   }
   ui.note('  If a link opens nothing, your browser blocked the pop-up: allow pop-ups for make.powerautomate.com and login.microsoftonline.com, then open it again.');
   ui.note(`  If a link has expired, open ${page}, find the connection by its name and click Fix connection.`);
-  ui.note('  HTTP with Microsoft Entra ID (preauthorized) is a Premium connector: whoever signs in, and you as the flows\' owner, need a Power Automate Premium licence.');
+  ui.note(`  HTTP with Microsoft Entra ID (preauthorized) is a Premium connector. ${PREMIUM_OWNER}`);
 }
 
 /**
@@ -709,7 +891,6 @@ async function tidyConnections(ctx, env, keep, page) {
  * @param {FlowKind} kind
  */
 export function connectionSteps(config, kind) {
-  const workspace = config.fabric.workspaceName ?? 'the workspace';
   const made = config.uploads.flowConnections ?? {};
   const orPick = (/** @type {string} */ ref) => {
     const name = ownedConnectionName(config, ref);
@@ -717,30 +898,31 @@ export function connectionSteps(config, kind) {
   };
   const storage =
     (config.target === 'azure'
-      ? azureStorageStep(config.azure)
+      ? azureStorageStep(config)
       : flowIdentity(config) === 'app'
-        ? `${CONNECTORS.keyVault.label}: vault ${config.keyVault.name ?? 'your Key Vault'}.`
-        : `${CONNECTORS.storage.label}: Base Resource URL ${ONELAKE_DFS}, Resource URI ${STORAGE_RESOURCE}. Sign in as someone with Contributor or higher on ${workspace}. Its actions end in "via OneLake".`) +
+        ? `${CONNECTORS.keyVault.label}: vault ${config.keyVault.name ?? 'your Key Vault'}. Sign in as ${signerOf(config, CONNECTORS.keyVault.name)}.`
+        : `${CONNECTORS.storage.label}: Base Resource URL ${ONELAKE_DFS}, Resource URI ${STORAGE_RESOURCE}. Sign in as ${signerOf(config, CONNECTORS.storage.name)}. Its actions end in "via OneLake".`) +
     (flowIdentity(config) === 'app' || azureDropsToSharePoint(config.azure) ? '' : orPick(CONNECTORS.storage.name));
-  if (kind === 'feedback') return [`${CONNECTORS.outlook.label}: sign in as the mailbox the export is emailed to.`, storage];
+  if (kind === 'feedback') return [`${CONNECTORS.outlook.label}: sign in as ${signerOf(config, CONNECTORS.outlook.name)}.`, storage];
   const ppApi = `${CONNECTORS.entra.label}: Base Resource URL and Resource URI ${PPAPI}.`;
   const ppActions = `Its actions end in "via Power Platform API".${orPick(CONNECTORS.entra.name)}`;
   if (kind === 'agents') {
-    return [`${ppApi} Sign in as a Power Platform administrator, or an admin with Global Reader: the inventory API takes delegated sign-ins only. ${ppActions}`, storage];
+    return [`${ppApi} Sign in as ${signerOf(config, CONNECTORS.entra.name)}: the inventory API takes delegated sign-ins only. ${ppActions}`, storage];
   }
-  return [`${ppApi} Sign in as a Power Platform, Billing or Global administrator. ${ppActions}`, storage];
+  return [`${ppApi} Sign in as ${signerOf(config, CONNECTORS.entra.name)}. ${ppActions}`, storage];
 }
 
 /**
  * The storage sign-in for an Azure install's flow.
- * @param {import('../config.js').AzureConfig | undefined} az
+ * @param {import('../config.js').InstallConfig} config
  */
-function azureStorageStep(az) {
+function azureStorageStep(config) {
+  const az = config.azure;
   if (azureDropsToSharePoint(az)) {
-    return `${CONNECTORS.sharePoint.label}: sign in as someone who can add files to ${az?.drop?.folderUrl ?? 'the drop folder'}.`;
+    return `${CONNECTORS.sharePoint.label}: sign in as ${signerOf(config, CONNECTORS.sharePoint.name)}.`;
   }
   const account = az?.outputs?.storageAccountName ?? '<storage account>';
-  return `${connectorLabel(CONNECTORS.storage.name, /** @type {any} */ ({ target: 'azure' }))}: Base Resource URL https://${account}.dfs.core.windows.net, Resource URI ${STORAGE_RESOURCE}. Sign in as someone with Storage Blob Data Contributor on ${account} (the installer gave it to you). Its actions end in "via Azure Storage".`;
+  return `${connectorLabel(CONNECTORS.storage.name, config)}: Base Resource URL https://${account}.dfs.core.windows.net, Resource URI ${STORAGE_RESOURCE}. Sign in as ${signerOf(config, CONNECTORS.storage.name)} (the installer gives you that role, but it doesn't have to be you). Its actions end in "via Azure Storage".`;
 }
 
 /** The Microsoft 365 admin center page for product feedback (Health > Product feedback), where the export is scheduled. */
@@ -800,7 +982,7 @@ export function flowsSummary(ctx) {
     else continue;
     flowSteps(ctx, kind, link);
   }
-  ui.note('  Tip: sign in with a dedicated admin account and add a co-owner, so the flows outlive any one person.');
+  ui.note(`  ${ownerLeft(kinds.length === 1)}`);
   if (flowIdentity(config) === 'app' && config.keyVault.private) {
     ui.warn(`${config.keyVault.name ?? 'The Key Vault'} blocks public network access, which the Key Vault connector needs. Run install --flow-identity user so the flows sign in to OneLake instead.`);
   }

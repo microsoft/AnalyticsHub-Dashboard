@@ -6,8 +6,9 @@ import { appItemUrl, publicAccess, shareApp, shareAppPending, VIEWER_GROUP_NAME 
 import { appDeployedSince, fabricConfigFile } from '../src/steps/app.js';
 import { emptyConfig } from '../src/config.js';
 import { commandLine } from '../src/launch.js';
-import { flowsWanted } from '../src/steps/flows.js';
+import { FLOW_NAMES, flowsWanted, INVENTORY_SIGNER, OWNER_LEFT, ownerLeft, PP_API_SIGNER, PREMIUM_OWNER, whoSignsIn } from '../src/steps/flows.js';
 import { GLOBAL_READER_ROLE_ID, nextSteps, stepsLeftTitle } from '../src/steps/next-steps.js';
+import { planReview } from '../src/steps/plan.js';
 import { summary } from '../src/install.js';
 import { COWORK_DATAFLOW_ACTIVITY } from '../src/transform/pipeline.js';
 import { FEEDBACK_SUBJECT } from '../src/transform/flows.js';
@@ -309,4 +310,120 @@ test('install and update: the audit check right after consent is provisional; th
   const calls = [...src.matchAll(/checkAuditAccess\(ctx, \{ consented(, provisional: true)? \}\)/g)].map((m) => !!m[1]);
   // install, then update: each an early provisional check and a later final one.
   assert.deepEqual(calls, [true, false, true, false]);
+});
+
+/** An installed Fabric setup whose app is shared, with flows in the Sales environment. */
+function withFlows(/** @type {Partial<import('../src/config.js').InstallConfig['uploads']>} */ uploads) {
+  const t = installed();
+  /** @type {any} */ (t.config.access).appShared = true;
+  t.config.uploads = { ...t.config.uploads, flowEnvironment: { id: 'env-1', name: 'Sales', url: 'https://org.crm.dynamics.com' }, ...uploads };
+  return t;
+}
+
+const flowsCard = (/** @type {import('../src/config.js').InstallConfig} */ config) => {
+  const card = nextSteps(config, USER).find((s) => s.id === 'flows');
+  assert.ok(card, 'there is a flows card');
+  return card;
+};
+
+test('next steps: the flows card says who signs in to each connection, as the plan does, and what happens if the owner goes', () => {
+  const t = withFlows({ flowIds: { feedback: 'flow-1' } });
+  const config = t.config;
+  config.dataSources.productFeedback = 'api';
+
+  const flows = flowsCard(config);
+  const who = whoSignsIn(config, 'feedback');
+  assert.equal(who, 'Who signs in: Office 365 Outlook (the mailbox the export is emailed to); OneLake (someone with Contributor or higher on Analytics Hub).');
+  assert.equal(flows.who, 'You', 'the feedback flow has no admin connection');
+  assert.deepEqual(flows.steps, [`Open ${FLOW_NAMES.feedback} in Sales, sign in to its connections, save it and turn it on. ${who}`]);
+  assert.ok(flows.why.endsWith(` ${ownerLeft(true)}`), 'what happens if the owner goes, said of the one flow');
+  const message = String(flows.message);
+  assert.ok(message.includes("The flow runs on my Power Automate Premium licence, because I own it, so you don't need Premium to sign in to its connections."));
+  assert.ok(message.includes('If my account or licence is removed, Power Automate slows it down, and turns it off after 14 days unless someone takes it over.'));
+  assert.doesNotMatch(JSON.stringify(flows), /co-owner|dedicated admin account|Someone else|always signs in|signs in as you|keeps the flows running/i);
+
+  // The plan says the same before anything is made.
+  const rows = planReview(t.ctx).creates.filter((c) => c.kind === 'Power Automate flow');
+  assert.deepEqual(rows.map((r) => r.name), [FLOW_NAMES.feedback]);
+  assert.equal(rows[0].detail, `In Sales, turned off. The installer helps you sign in to its connections, then turns it on. ${who}`);
+});
+
+test('next steps: with a flow on the Power Platform API, an admin can sign in instead of you, and the plan names the same admin', () => {
+  const t = withFlows({ flowIds: { studio: 'flow-2', agents: 'flow-3' } });
+  const config = t.config;
+  config.dataSources.studioCredits = 'api';
+  config.dataSources.resourceGraph = 'api';
+
+  const flows = flowsCard(config);
+  assert.equal(PP_API_SIGNER, 'a Power Platform or Global administrator');
+  assert.equal(flows.who, `You, or ${PP_API_SIGNER}`);
+  assert.equal(whoSignsIn(config, 'studio'), `Who signs in: Power Platform API (${PP_API_SIGNER}); OneLake (someone with Contributor or higher on Analytics Hub).`);
+  assert.ok(flows.why.endsWith(` ${OWNER_LEFT}`));
+  assert.ok(String(flows.message).includes("The flows run on my Power Automate Premium licence, because I own them, so you don't need Premium to sign in to their connections. If my account or licence is removed, Power Automate slows them down, and turns them off after 14 days unless someone takes them over."));
+  const rows = planReview(t.ctx).creates.filter((c) => c.kind === 'Power Automate flow');
+  assert.deepEqual(rows.map((r) => r.name), [FLOW_NAMES.studio, FLOW_NAMES.agents]);
+  for (const [i, kind] of /** @type {const} */ (['studio', 'agents']).entries()) {
+    assert.ok(String(rows[i].detail).endsWith(` ${whoSignsIn(config, kind)}`), `the plan's ${kind} row`);
+    assert.ok(String(flows.steps?.[i]).endsWith(` ${whoSignsIn(config, kind)}`), `the card's ${kind} step`);
+  }
+
+  // The agent inventory on its own: the roles that see every agent will do.
+  config.dataSources.studioCredits = 'skip';
+  config.uploads.flowIds = { agents: 'flow-3' };
+  assert.equal(flowsCard(config).who, `You, or ${INVENTORY_SIGNER}`);
+  assert.equal(whoSignsIn(config, 'agents'), `Who signs in: Power Platform API (${INVENTORY_SIGNER}); OneLake (someone with Contributor or higher on Analytics Hub).`);
+});
+
+test('next steps: a flow written to a file says whoever imports it owns it and needs Premium', () => {
+  const t = withFlows({ flowFiles: { feedback: 'feedback-flow.zip' } });
+  t.config.uploads.flowEnvironment = undefined;
+  t.config.dataSources.productFeedback = 'api';
+  const flows = flowsCard(t.config);
+  const who = whoSignsIn(t.config, 'feedback');
+  assert.deepEqual(flows.steps, [`Import ${FLOW_NAMES.feedback} from feedback-flow.zip into the Power Automate environment, sign in to its connections, save it and turn it on. ${who}`]);
+  const message = String(flows.message);
+  assert.ok(message.includes("A flow runs on its owner's Power Automate Premium licence, and whoever imports one owns it. Whoever signs in to its connections doesn't need Premium."));
+  assert.ok(message.includes('turns it off after 14 days unless someone takes it over'));
+  assert.doesNotMatch(message, /my Power Automate Premium licence/);
+  const [row] = planReview(t.ctx).creates.filter((c) => c.kind === 'Power Automate flow');
+  assert.equal(row.detail, `Written to a file to import. ${who}`);
+});
+
+/** A file from the repo root, with its line breaks and indents collapsed. @param {string} path */
+const collapsed = async (path) => (await readFile(new URL(`../../${path}`, import.meta.url), 'utf8')).replace(/\s+/g, ' ');
+
+/** What the installer used to say: that the flows sign in as you, that a signer needs Premium, or that another signer keeps them running. */
+const OLD_FLOW_WORDING = /always signs in as|signs in as you|signed in as you|Billing Administrator|Billing or Global|Platform, Billing|Someone else who has one|dedicated admin account|add a co-owner/i;
+
+test('docs: who signs in to the flows, who needs Premium and what happens if the owner goes, in the installer\'s words', async () => {
+  const paths = ['docs/PREREQUISITES.md', 'docs/PERMISSIONS.md', 'installer/README.md', 'docs/TROUBLESHOOTING.md', 'docs/ARCHITECTURE.md', 'azure/README.md'];
+  const docs = Object.fromEntries(await Promise.all(paths.map(async (p) => [p, await collapsed(p)])));
+  const has = (/** @type {string} */ path, /** @type {string} */ text) => assert.ok(docs[path].toLowerCase().includes(text.toLowerCase()), `${path} says "${text}"`);
+  const [premiumYou, premiumSigners] = PREMIUM_OWNER.split(/(?<=\.) /);
+  const [ownerGone] = OWNER_LEFT.split(/(?<=\.) /);
+
+  for (const path of ['docs/PREREQUISITES.md', 'docs/PERMISSIONS.md', 'installer/README.md', 'docs/TROUBLESHOOTING.md', 'azure/README.md']) has(path, PP_API_SIGNER);
+  for (const path of ['docs/PREREQUISITES.md', 'docs/PERMISSIONS.md', 'installer/README.md', 'docs/TROUBLESHOOTING.md']) has(path, INVENTORY_SIGNER);
+  for (const path of ['docs/PREREQUISITES.md', 'installer/README.md']) {
+    has(path, premiumYou);
+    has(path, ownerGone);
+    has(path, 'the connection needs it active whenever the flows run, and an activation lasts at most 24 hours, as your organisation sets it');
+    has(path, 'in the same data group (Business or Non-business)');
+  }
+  for (const path of ['docs/PREREQUISITES.md', 'docs/PERMISSIONS.md', 'installer/README.md', 'docs/ARCHITECTURE.md']) has(path, premiumSigners.replace(/\.$/, ''));
+  for (const path of ['docs/PREREQUISITES.md', 'docs/PERMISSIONS.md', 'installer/README.md', 'docs/TROUBLESHOOTING.md']) has(path, 'turns them off after 14 days unless someone takes them over');
+  has('installer/README.md', OWNER_LEFT);
+  has('docs/TROUBLESHOOTING.md', 'a data policy (DLP) turned it down');
+  for (const host of ['https://api.powerplatform.com', 'https://onelake.dfs.fabric.microsoft.com', 'https://onelake.blob.fabric.microsoft.com', '.dfs.core.windows.net']) has('docs/PREREQUISITES.md', host);
+
+  for (const [path, text] of Object.entries(docs)) {
+    const prose = text.replace(/\]\([^)]*\)/g, ']');
+    assert.doesNotMatch(prose, OLD_FLOW_WORDING, path);
+    // PIM: no activation length is claimed as a default.
+    for (const sentence of prose.split(/(?<=\.) /).filter((s) => /\bactivation\b/i.test(s))) assert.doesNotMatch(sentence, /\bdefault\b/i, path);
+  }
+  for (const path of ['installer/src/cli.js', 'installer/src/steps/azure/index.js', 'installer/src/steps/flows.js', 'installer/src/steps/next-steps.js', 'installer/src/steps/plan.js', 'installer/src/prereqs.js']) {
+    assert.doesNotMatch(await collapsed(path), OLD_FLOW_WORDING, path);
+  }
+  assert.ok((await collapsed('installer/src/cli.js')).includes('Fabric only: on Azure a person signs in to the Studio flow\'s storage connection.'));
 });
