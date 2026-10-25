@@ -4,7 +4,7 @@
  * one per admin, asking for everything that admin does. It builds text only: it writes no files, and puts no
  * client secrets, keys, tokens, passwords or sign-in codes in a request.
  */
-import { graphRolesCommand, objectIdOrLookup, pendingGraphRoles, roleAssignmentCommand } from '../admin-commands.js';
+import { graphRolesCommand, graphRolesRevokeCommand, objectIdOrLookup, pendingGraphRoles, roleAssignmentCommand } from '../admin-commands.js';
 import { apiPermissionsUrl, GLOBAL_ADMIN_ROLE } from '../clients/graph.js';
 import { secretMode } from '../config.js';
 import { commandLine } from '../launch.js';
@@ -45,6 +45,9 @@ export const ADMINS = {
   other: 'An admin',
 };
 
+/** Who takes a permission off an app registration's API permissions: the app admins, or one of the app's owners. */
+export const APP_OWNER_ADMIN = "An Application Administrator, a Cloud Application Administrator or one of the app's owners";
+
 /** @typedef {keyof typeof ADMINS} AdminKey */
 /**
  * One admin's request: who it goes to, the prerequisites it's for (by their labels in the list), what it asks
@@ -72,7 +75,8 @@ export const ADMINS = {
  * @property {string} [note]  For you, before you send it.
  * @property {string[]} [after]  For you, once it's done.
  * @property {string} [back]  What the admin sends you back.
- * @property {string} [kind]  Which pending admin action it's for: graph, consent, teams, owner, drop-site or other.
+ * @property {string} [kind]  Which pending admin action it's for: graph, graph-revoke (Microsoft Graph roles to take back
+ *   from the jobs' managed identity), consent, teams, owner, drop-site or other.
  */
 /**
  * @typedef {object} AskContext
@@ -125,6 +129,19 @@ const graphRolesText = (config, roles) => {
   const id = config.azure?.outputs?.identityPrincipalId;
   const ask = `Give the Analytics Hub jobs' managed identity${id ? ` (object ID ${id})` : ''} these Microsoft Graph application permissions: ${roles.join(', ')}.`;
   return id ? `${ask}${CLOUD_SHELL}${graphRolesCommand(id, roles)}` : ask;
+};
+
+/**
+ * The Microsoft Graph roles the jobs' managed identity no longer uses and still has, and the command that takes them back.
+ * @param {InstallConfig} config
+ * @param {string[]} roles
+ */
+const graphRevokeText = (config, roles) => {
+  const id = config.azure?.outputs?.identityPrincipalId;
+  const ask =
+    `Take these Microsoft Graph application permissions back from the Analytics Hub jobs' managed identity${id ? ` (object ID ${id})` : ''}, ` +
+    `as Analytics Hub no longer uses them: ${roles.join(', ')}.`;
+  return id ? `${ask}${CLOUD_SHELL}${graphRolesRevokeCommand(id, roles)}` : ask;
 };
 
 /**
@@ -407,22 +424,26 @@ function teamsAsk(action) {
 
 /**
  * The admin actions an Azure install left for someone else, as asks: the Microsoft Graph roles its jobs' managed
- * identity is still waiting for, and the actions it lists. Known actions are matched by how they start; any other
- * goes to "An admin" as it is.
+ * identity is still waiting for, those it no longer uses and still has, and the actions it lists. Known actions are
+ * matched by how they start; any other goes to "An admin" as it is.
  * @param {string[]} actions
  * @param {string[]} roles  Graph roles, from pendingGraphRoles.
+ * @param {string[]} retired  Graph roles to take back, from the record's graphRoles.retired.
  * @param {Prereq[]} rows
  * @param {AskContext} c
  * @returns {Ask[]}
  */
-function pendingAsks(actions, roles, rows, c) {
+function pendingAsks(actions, roles, retired, rows, c) {
   const labelFor = (/** @type {string} */ id) => rows.find((r) => r.id === id)?.label ?? PENDING_LABEL;
   // The audit row asks for the same roles while it's a hand-off; otherwise they're only pending.
   const audit = rows.find((r) => r.id === 'audit-ingestion' && r.status === 'handoff');
   /** @type {Ask[]} */
   const graph = roles.length ? [{ admin: 'role-admin', kind: 'graph', label: audit?.label ?? PENDING_LABEL, text: graphRolesText(c.config, roles) }] : [];
+  /** @type {Ask[]} */
+  const revoke = retired.length ? [{ admin: 'role-admin', kind: 'graph-revoke', label: PENDING_LABEL, text: graphRevokeText(c.config, retired) }] : [];
   return [
     ...graph,
+    ...revoke,
     ...actions.flatMap((action) => {
       if (action.startsWith(CONSENT_PENDING)) {
         if (settled(c.status('consent-role'))) return [];
@@ -476,6 +497,7 @@ export function adminRequests(rows, config, opts = {}) {
   const pendingOn = opts.pending !== false && config.target === 'azure';
   const actions = pendingOn ? config.azure?.status?.pendingAdminActions ?? [] : [];
   const roles = pendingOn ? pendingGraphRoles(config.azure?.graphRoles) : [];
+  const retired = pendingOn ? config.azure?.graphRoles?.retired ?? [] : [];
   const pendingConsent = actions.some((a) => a.startsWith(CONSENT_PENDING)) && !settled(status('consent-role'));
   const pendingTeams = actions.some((a) => a.startsWith(`${TEAMS_APP_PENDING}: `)) && !settled(status('teams-admin'));
   /** @type {AskContext} */
@@ -483,7 +505,7 @@ export function adminRequests(rows, config, opts = {}) {
   const fromRows = rows
     .filter((it) => (!it.optional || counted.has(it.id)) && needsSomeoneElse(it, c))
     .flatMap((it) => (ROW_ASKS[it.id]?.(it, c) ?? []).map((a) => ({ label: it.label, ...a })));
-  const asks = placeConsent([...fromRows, ...pendingAsks(actions, roles, rows, c)]);
+  const asks = placeConsent([...fromRows, ...pendingAsks(actions, roles, retired, rows, c)]);
   return /** @type {AdminKey[]} */ (Object.keys(ADMINS)).flatMap((admin) => {
     const mine = asks.filter((a) => a.admin === admin);
     if (!mine.length) return [];
@@ -522,6 +544,10 @@ const RUN_NOW_DAYS = [30, 90, 180];
  */
 const PENDING_DONE = {
   graph: { label: 'Microsoft Graph roles', after: `${REPAIR}: it tries each of these roles again.` },
+  'graph-revoke': {
+    label: 'Microsoft Graph roles to take back',
+    after: `${REPAIR}: it checks the managed identity's roles again, and stops listing these once they're gone.`,
+  },
   consent: { label: 'Web app consent', after: `${REPAIR}: it checks the consent, and stops listing it once it's granted.` },
   teams: {
     label: 'Teams app',
@@ -590,6 +616,8 @@ export async function isGlobalAdmin(api) {
  * @property {Prereq[]} [carried]  The rows preflight and the flows' check showed as needing someone else in this run, which
  *   the admin pack keeps. Their asks that a finished install doesn't settle are asked for again (carriedDone).
  * @property {Ask[]} [vault]  The vault admin's ask while the app's client secret waits for them (Fabric), from identity.js's vaultAsk.
+ * @property {string[]} [broughtRetired]  Fabric: the Graph application permissions Analytics Hub no longer uses that this run
+ *   read as consented on the app you brought, which the installer leaves alone.
  */
 
 /**
@@ -645,6 +673,76 @@ function consentDone(config, opts) {
   const days = opts.backfillDays ?? config.history?.days ?? 30;
   const runNow = RUN_NOW_DAYS.includes(days) ? `, or open the installer again, set Audit history to "Reload the last ${days} days of audit history" and choose Run now` : '';
   return [{ ...fabricConsentAsk(config), label: 'Admin consent', after: [`Then load the audit history: run "${commandLine(`run --backfill-days ${days}`)}"${runNow}.`] }];
+}
+
+/**
+ * The Entra admin center's steps that revoke some of an app's admin consent.
+ * @param {string} name
+ * @param {string} appId
+ */
+const revokeConsentSteps = (name, appId) => [
+  `In the Microsoft Entra admin center, go to Entra ID > Enterprise apps > All applications, search for ${appId} and open "${name}".`,
+  'Choose Permissions, then the Admin consent tab.',
+  'For each of these permissions, choose … (More options) next to it, then Revoke permission, and confirm.',
+];
+
+/**
+ * The Graph application permissions Analytics Hub no longer uses that the Fabric app still has. For an app the
+ * installer made, those the run couldn't take off its API permissions, for an app admin or one of its owners, and
+ * those whose admin consent it couldn't take back, for a role admin: the record keeps them until a run finds them
+ * gone. For an app you brought, which the installer leaves alone, an optional ask to take back the consent this run
+ * read, noting that its owner or an app admin takes them off its API permissions.
+ * @param {InstallConfig} config
+ * @param {DoneOptions} opts
+ * @returns {Ask[]}
+ */
+function retiredAppDone(config, opts) {
+  const app = config.app;
+  if (config.target === 'azure' || !app?.appId) return [];
+  const name = app.displayName ?? APP_NAME;
+  const which = `the app registration "${name}" (client ID ${app.appId})`;
+  const page = apiPermissionsUrl(app.appId);
+  const consentAfter = `${REPAIR}: it checks the app's admin consent again, and stops listing these once they're gone.`;
+  /** @param {string[]} names */
+  const takeBack = (names) => `take back admin consent for these Microsoft Graph application permissions of ${which}, as Analytics Hub no longer uses them: ${names.join(', ')}.`;
+  if (app.existing !== false) {
+    const brought = opts.broughtRetired ?? [];
+    if (!brought.length) return [];
+    return [
+      {
+        admin: 'role-admin',
+        optional: true,
+        label: 'Admin consent to take back',
+        text: `Optional: ${takeBack(brought)}${numberedLines(revokeConsentSteps(name, app.appId))}`,
+        note:
+          'The installer leaves an app you brought as it is, in case something else uses these permissions: send this only if nothing does. ' +
+          `Taking them off the app's API permissions too needs one of its owners, an Application Administrator or a Cloud Application Administrator: ${page}`,
+        after: [consentAfter],
+      },
+    ];
+  }
+  /** @type {Ask[]} */
+  const asks = [];
+  if (app.retiredPermissions?.length) {
+    asks.push({
+      admin: 'app-admin',
+      who: APP_OWNER_ADMIN,
+      label: 'API permissions to remove',
+      text:
+        `Remove these Microsoft Graph application permissions from ${which}, as Analytics Hub no longer uses them: ${app.retiredPermissions.join(', ')}.` +
+        numberedLines([`Open its API permissions page: ${page}`, 'For each of them, choose … (More options) next to it, then Remove permission, and confirm.']),
+      after: [`${REPAIR}: it checks the app's API permissions again, and stops listing these once they're gone.`],
+    });
+  }
+  if (app.retiredConsent?.length) {
+    asks.push({
+      admin: 'role-admin',
+      label: 'Admin consent to take back',
+      text: `${capitalise(takeBack(app.retiredConsent))}${numberedLines(revokeConsentSteps(name, app.appId))}`,
+      after: [consentAfter],
+    });
+  }
+  return asks;
 }
 
 /**
@@ -890,6 +988,7 @@ export function doneRequests(config, opts = {}) {
   const azure = config.target === 'azure';
   const actions = azure ? config.azure?.status?.pendingAdminActions ?? [] : [];
   const roles = azure ? pendingGraphRoles(config.azure?.graphRoles) : [];
+  const retired = azure ? config.azure?.graphRoles?.retired ?? [] : [];
   /** @type {AskContext} */
   const c = {
     config,
@@ -898,13 +997,14 @@ export function doneRequests(config, opts = {}) {
     pendingConsent: actions.some((a) => a.startsWith(CONSENT_PENDING)),
     pendingTeams: actions.some((a) => a.startsWith(`${TEAMS_APP_PENDING}: `)),
   };
-  const pending = pendingAsks(actions, roles, [], c).map((a) => {
+  const pending = pendingAsks(actions, roles, retired, [], c).map((a) => {
     const done = PENDING_DONE[a.kind ?? 'other'] ?? PENDING_DONE.other;
     return { ...a, label: done.label, after: [done.after] };
   });
   const asks = placeConsent([
     ...globalReaderDone(c),
     ...consentDone(config, opts),
+    ...retiredAppDone(config, opts),
     ...pending,
     ...azureAiDone(c),
     ...paygDone(c),

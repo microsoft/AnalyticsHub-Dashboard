@@ -25,7 +25,11 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {import('./transform/pipeline.js').TenantScale} [scale]  How the loads are sized. Standard when absent.
  * @property {import('./currency.js').ReportingConfig} [reporting]  The currency the Value page reports in until one is saved in the app. Asked for when absent.
  * @property {{ frequency: 'daily' | 'weekly', time: string, weekday: string, timeZone: string }} schedule
- * @property {{ appId?: string, objectId?: string, servicePrincipalId?: string, displayName?: string, secretExpires?: string, secretKeyId?: string, retiredSecretKeyIds?: string[], pendingSecretKeyIds?: string[], secretAttempts?: { ref: string, at: string }[], existing?: boolean, adminPack?: string, secretDays?: number }} app  pendingSecretKeyIds: notebook secrets created by a run that hadn't finished writing them. secretAttempts: notebook secrets asked of Entra whose key ID isn't saved yet; the ref is in the secret's name. secretDays: how long a secret kept in the notebooks lasts (--secret-days). 90 when absent.
+ * @property {{ appId?: string, objectId?: string, servicePrincipalId?: string, displayName?: string, secretExpires?: string, secretKeyId?: string, retiredSecretKeyIds?: string[], pendingSecretKeyIds?: string[], secretAttempts?: { ref: string, at: string }[], existing?: boolean, adminPack?: string, secretDays?: number, retiredPermissions?: string[], retiredConsent?: string[] }} app  pendingSecretKeyIds: notebook secrets created by a run that hadn't finished writing them. secretAttempts: notebook secrets asked of Entra whose key ID isn't saved yet; the ref is in the secret's name. secretDays: how long a secret kept in the notebooks lasts (--secret-days). 90 when absent.
+ *   existing: false when the installer made the app. Otherwise, absent included, it's treated as an app you brought, and nothing is taken off it.
+ *   retiredPermissions and retiredConsent: Graph application permissions Analytics Hub no longer uses that you couldn't take off the
+ *   app the installer made: off its API permissions, which an app admin or its owner does, and their admin consent, which a
+ *   Privileged Role Administrator or Global Administrator revokes. Each run tries again and clears them once they're gone.
  * @property {{ subscriptionId?: string, resourceGroup?: string, name?: string, id?: string, uri?: string, location?: string, secretName: string, existing?: boolean, rbac?: boolean, private?: boolean, secretSetAt?: string, mode?: SecretMode, handoff?: SecretHandoff } & import('./steps/secrets.js').SecretSlot} keyVault  The secret* fields track the app secrets made for the vault (see steps/secrets.js); previousSecretKeyIds are replaced ones left on the app until they expire.
  * @property {{ capacityId?: string, workspaceId?: string, workspaceName?: string, lakehouseId?: string, lakehouseName?: string, notebooks: Partial<Record<import('./catalog.js').NotebookKey, string>>, notebookNames?: Partial<Record<import('./catalog.js').NotebookKey, string>>, notebookHashes?: Partial<Record<import('./catalog.js').NotebookKey, string>>, pipelineId?: string, pipelineName?: string, pipelineModules?: string, pipelineVersion?: number, scheduleId?: string, vaultEndpointId?: string, deployedRouter?: string, secretInNotebooks?: boolean, createdWorkspace?: boolean, pendingItems?: Record<string, { name: string, ref: string, at?: string, operation?: string }>, transcriptAccess?: FabricTranscriptAccess[] }} fabric  pendingItems: the name and description ref of each item being created, and when, so a run stopped mid-create finds that item again and nothing else. operation: Fabric's URL for the create once it accepted it, to ask how it went. transcriptAccess: each Dataverse environment where the installer gave the app the role that reads every transcript.
  * @property {{ jobId?: string, status?: string, startedAt?: string, finishedAt?: string, coworkSkipped?: boolean }} [firstRun]  coworkSkipped: the first load left out the Cowork Dataflow, which wasn't signed in yet.
@@ -313,7 +317,9 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  *   `agentEvaluatorDatasetId` is the Agent Evaluator model, deployed with Agent Evaluator.
  * @property {AzureDrop} [drop] Private networking with credit consumption or a CSV export (Agent 365, product feedback, Workday): the SharePoint folder the Studio flow and CSV uploads land in.
  * @property {boolean} [storageRole] The installer gave the signed-in user Storage Blob Data Contributor on the landing container, for the Studio flow and CSV uploads.
- * @property {{ assigned: string[], pending: string[] }} [graphRoles]
+ * @property {{ assigned: string[], pending: string[], retired?: string[] }} [graphRoles]  The jobs' managed identity's Microsoft Graph roles:
+ *   those the installer gave it, those it couldn't, and `retired`: roles it no longer uses that it couldn't take back, for a Privileged
+ *   Role Administrator or Global Administrator to remove. Each run tries again and clears them once they're gone.
  * @property {string} [teamsPackage]
  * @property {{ id: string, externalId: string, version: string, sha256: string, publishedAt: string }} [teamsApp]  The Teams app the installer
  *   published to the org's app catalog: its catalog ID, the manifest's ID (the web app's client ID), and the package's version and hash.
@@ -481,7 +487,11 @@ function normaliseConfig(raw, file) {
       ...(raw.azure?.sqlReader ? { sqlReader: { ...raw.azure.sqlReader } } : {}),
       ...(raw.azure?.powerBi ? { powerBi: { ...raw.azure.powerBi } } : {}),
       ...(raw.azure?.drop ? { drop: { ...raw.azure.drop } } : {}),
-      graphRoles: { assigned: [...(raw.azure?.graphRoles?.assigned ?? [])], pending: [...(raw.azure?.graphRoles?.pending ?? [])] },
+      graphRoles: {
+        assigned: [...(raw.azure?.graphRoles?.assigned ?? [])],
+        pending: [...(raw.azure?.graphRoles?.pending ?? [])],
+        ...(raw.azure?.graphRoles?.retired?.length ? { retired: [...raw.azure.graphRoles.retired] } : {}),
+      },
       ...(raw.azure?.status ? { status: { ...raw.azure.status } } : {}),
     },
     consumption: { ...(raw.consumption ?? {}), model: { ...base.consumption.model, ...(raw.consumption?.model ?? {}) } },

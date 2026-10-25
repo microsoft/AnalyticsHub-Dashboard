@@ -10,6 +10,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { HttpError } from '../src/http.js';
+import { GRAPH_APP_ID } from '../src/catalog.js';
+import { graphApi } from '../src/clients/graph.js';
 import { ADMIN_PACK_FILE, APP_LOOKUP_ATTEMPTS, APP_LOOKUP_RETRY_MS, ensureApp, isResumeLater } from '../src/steps/identity.js';
 import { APP_NAME, plan } from '../src/steps/plan.js';
 import { fakeCtx, fakeFabric, fakeUi } from './fakes.js';
@@ -35,7 +37,7 @@ function setup(o) {
   const calls = [];
   let finds = 0;
   const sps = [...(o.sp ?? [null])];
-  made.ctx.graphRoles = /** @type {any} */ ({ sp: { id: 'graph-sp' }, roles: [] });
+  made.ctx.graphRoles = /** @type {any} */ ({ sp: { id: 'graph-sp', appRoles: [] }, roles: [] });
   made.ctx.api.graph = /** @type {any} */ ({
     findApplication: async () => {
       calls.push('findApplication');
@@ -111,6 +113,131 @@ test('ensureApp: an app the installer made keeps the old messages, with no extra
   const refused = setup({ existing: false, createSp: 'forbidden' });
   await assert.rejects(ensureApp(refused.ctx), /403 Forbidden/);
   assert.equal(refused.calls.filter((c) => c === 'findServicePrincipal').length, 1, 'no waiting');
+});
+
+// Taking back what Analytics Hub no longer uses. The default modules use neither Agent 365's API nor Defender.
+
+/** Graph's app roles in a tenant, including one Analytics Hub never asks for. */
+const GRAPH_SP = {
+  id: 'graph-sp',
+  appRoles: [
+    { id: 'r-audit', value: 'AuditLogsQuery.Read.All' },
+    { id: 'r-reports', value: 'Reports.Read.All' },
+    { id: 'r-users', value: 'User.Read.All' },
+    { id: 'r-packages', value: 'CopilotPackages.Read.All' },
+    { id: 'r-hunting', value: 'ThreatHunting.Read.All' },
+    { id: 'r-mail', value: 'Mail.Read' },
+  ],
+};
+const NEEDED = GRAPH_SP.appRoles.slice(0, 3);
+
+/** An app registration listing these Graph roles, and a delegated scope. @param {string[]} roles */
+const listing = (roles) => ({
+  id: 'obj-9',
+  appId: APP,
+  displayName: 'Analytics Hub Data Collector',
+  requiredResourceAccess: [
+    { resourceAppId: GRAPH_APP_ID, resourceAccess: [...roles.map((id) => ({ id, type: 'Role' })), { id: 's-hunting', type: 'Scope' }] },
+    { resourceAppId: 'other-api', resourceAccess: [{ id: 'x', type: 'Role' }] },
+  ],
+});
+
+/**
+ * ensureApp for a recorded app that lists `roles`, with removeRequiredAccess failing with `refusal` if given.
+ * @param {{ existing?: boolean, roles: string[], refusal?: Error }} o
+ */
+function takeBack(o) {
+  const t = setup({ existing: o.existing, application: listing(o.roles), sp: [{ id: 'sp-x', appId: APP }] });
+  t.ctx.graphRoles = /** @type {any} */ ({ sp: GRAPH_SP, roles: NEEDED });
+  /** @type {string[]} */
+  const removed = [];
+  const graph = /** @type {any} */ (t.ctx.api.graph);
+  graph.removeRequiredAccess = async (/** @type {any} */ _application, /** @type {{ value: string }[]} */ roles) => {
+    removed.push(...roles.map((r) => r.value));
+    if (o.refusal) throw o.refusal;
+    return true;
+  };
+  return { ...t, removed };
+}
+
+test('ensureApp: an app the installer made loses the API permissions Analytics Hub no longer uses, and nothing else', async () => {
+  const t = takeBack({ existing: false, roles: ['r-audit', 'r-reports', 'r-users', 'r-hunting', 'r-mail'] });
+  t.config.app.retiredPermissions = ['ThreatHunting.Read.All'];
+  await ensureApp(t.ctx);
+  assert.deepEqual(t.removed, ['ThreatHunting.Read.All'], 'not the roles it still needs, nor Mail.Read, which it never asks for');
+  assert.match(t.ui.text(), /Took ThreatHunting\.Read\.All off its API permissions, as Analytics Hub no longer uses it/);
+  assert.equal(t.config.app.retiredPermissions, undefined, 'nothing left for an admin');
+
+  const none = takeBack({ existing: false, roles: ['r-audit', 'r-reports', 'r-users', 'r-mail'] });
+  await ensureApp(none.ctx);
+  assert.deepEqual(none.removed, [], 'nothing it no longer uses is listed');
+  assert.doesNotMatch(none.ui.text(), /off its API permissions/);
+});
+
+test('ensureApp: when Entra won\'t let you edit the app it made, the record keeps what to remove and an app admin or owner is asked', async () => {
+  const t = takeBack({ existing: false, roles: ['r-packages', 'r-hunting'], refusal: forbidden() });
+  await ensureApp(t.ctx);
+  assert.deepEqual(t.config.app.retiredPermissions, ['CopilotPackages.Read.All', 'ThreatHunting.Read.All']);
+  const text = t.ui.text();
+  assert.ok(
+    text.includes(
+      'You can\'t edit its API permissions, so Analytics Hub Data Collector still lists CopilotPackages.Read.All, ThreatHunting.Read.All, which Analytics Hub no longer uses. ' +
+        'An Application Administrator, a Cloud Application Administrator or one of the app\'s owners can remove them on its API permissions page:',
+    ),
+    text,
+  );
+  assert.ok(text.includes(`CallAnAPI/appId/${APP}`), 'with the link');
+  assert.match(text, /Using app registration "Analytics Hub Data Collector"/, 'and the install carries on');
+
+  const other = takeBack({ existing: false, roles: ['r-hunting'], refusal: new HttpError('400 Bad Request\nmore', { method: 'PATCH', url: 'https://x', status: 400 }) });
+  await ensureApp(other.ctx);
+  assert.deepEqual(other.config.app.retiredPermissions, ['ThreatHunting.Read.All']);
+  assert.match(other.ui.text(), /Entra didn't change its API permissions \(400 Bad Request\), so Analytics Hub Data Collector still lists ThreatHunting\.Read\.All/);
+
+  const boom = takeBack({ existing: false, roles: ['r-hunting'], refusal: new Error('network down') });
+  await assert.rejects(ensureApp(boom.ctx), /network down/, 'anything but Entra\'s answer is passed on');
+});
+
+test('ensureApp: an app you brought, or a record that doesn\'t say who made the app, keeps its API permissions', async () => {
+  for (const existing of [true, undefined]) {
+    const t = takeBack({ existing: true, roles: ['r-audit', 'r-reports', 'r-users', 'r-packages', 'r-hunting'] });
+    if (existing === undefined) delete t.config.app.existing;
+    t.config.app.retiredPermissions = ['ThreatHunting.Read.All'];
+    await ensureApp(t.ctx);
+    assert.deepEqual(t.removed, [], `existing: ${existing}`);
+    assert.equal(t.config.app.retiredPermissions, undefined, 'and asks no one to remove them');
+  }
+});
+
+test('the Graph client takes app roles off an app registration, keeping the rest, and revokes one\'s consent', async () => {
+  /** @type {[string, any][]} */
+  const patches = [];
+  /** @type {string[]} */
+  const deletes = [];
+  const g = graphApi(
+    /** @type {any} */ ({
+      patch: async (/** @type {string} */ p, /** @type {any} */ body) => (patches.push([p, body]), {}),
+      del: async (/** @type {string} */ p) => (deletes.push(p), undefined),
+    }),
+  );
+  const application = listing(['r-audit', 'r-hunting']);
+  assert.equal(await g.removeRequiredAccess(application, [{ id: 'r-mail' }, { id: 's-hunting' }]), false, 'none of them is listed as a role');
+  assert.deepEqual(patches, []);
+
+  assert.equal(await g.removeRequiredAccess(application, [{ id: 'r-hunting' }, { id: 'r-mail' }]), true);
+  const kept = [
+    { resourceAppId: GRAPH_APP_ID, resourceAccess: [{ id: 'r-audit', type: 'Role' }, { id: 's-hunting', type: 'Scope' }] },
+    { resourceAppId: 'other-api', resourceAccess: [{ id: 'x', type: 'Role' }] },
+  ];
+  assert.deepEqual(patches, [['/applications/obj-9', { requiredResourceAccess: kept }]]);
+  assert.deepEqual(application.requiredResourceAccess, kept, 'the application matches what was saved');
+
+  const only = { id: 'obj-8', requiredResourceAccess: [{ resourceAppId: GRAPH_APP_ID, resourceAccess: [{ id: 'r-hunting', type: 'Role' }] }] };
+  await g.removeRequiredAccess(only, [{ id: 'r-hunting' }]);
+  assert.deepEqual(patches[1], ['/applications/obj-8', { requiredResourceAccess: [] }], 'no empty Graph entry is left');
+
+  await g.revokeAppRole('graph-sp', 'assignment-1');
+  assert.deepEqual(deletes, ['/servicePrincipals/graph-sp/appRoleAssignedTo/assignment-1']);
 });
 
 // Fabric's app question. After a refusal, it offers the admin first.

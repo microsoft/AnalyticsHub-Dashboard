@@ -5,15 +5,15 @@
  */
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { GRAPH_APP_ID, permissionsFor } from '../catalog.js';
+import { GRAPH_APP_ID, permissionsFor, retiredPermissions } from '../catalog.js';
 import { allowsAction, isPrivateVault, networkBlocked, ROLES } from '../clients/azure.js';
-import { adminConsentUrl, apiPermissionsUrl, applicationBody, azureWebApplicationBody, resolveAppRoles } from '../clients/graph.js';
+import { adminConsentUrl, apiPermissionsUrl, applicationBody, azureWebApplicationBody, declaredGraphRoles, resolveAppRoles } from '../clients/graph.js';
 import { secretMode } from '../config.js';
 import { HttpError } from '../http.js';
 import { commandLine } from '../launch.js';
 import { c } from '../ui.js';
 import { ADMIN_PACK_DIR, ADMIN_PACK_FILE, adminFileName, renderAdminPack, writeAdminPackFiles } from './admin-pack.js';
-import { ADMINS, adminRequests, requestsFor } from './handoff.js';
+import { ADMINS, adminRequests, APP_OWNER_ADMIN, requestsFor } from './handoff.js';
 import { APP_NAME } from './plan.js';
 import { addTrackedSecret, adoptAttempts, promoteSecret, settleFailedSecret } from './secrets.js';
 import { appsRecorded, SQL_READER_NAME, WEB_APP_NAME, webAppGrants } from './azure/apps.js';
@@ -106,6 +106,33 @@ export async function graphRoles(ctx) {
   }
   return ctx.graphRoles;
 }
+
+/** @param {InstallConfig} config  Whether the installer made the app. A record without `existing` counts as an app you brought. */
+const madeApp = (config) => config.app.existing === false;
+
+/**
+ * Graph's app roles for the permissions Analytics Hub no longer uses (retiredPermissions), as the tenant has them.
+ * @param {InstallConfig} config
+ * @param {{ appRoles: { id: string, value: string }[] }} graphSp
+ */
+function unusedRoles(config, graphSp) {
+  const names = retiredPermissions(config.modules, config.dataSources);
+  return resolveAppRoles(graphSp, names, names).roles;
+}
+
+/**
+ * The Graph app roles an app the installer made may have for a choice since switched off, such as a module or the
+ * Agent 365 API. None for an app you brought, which keeps what it has.
+ * @param {InstallConfig} config
+ * @param {{ appRoles: { id: string, value: string }[] }} graphSp
+ */
+const retiredRoles = (config, graphSp) => (madeApp(config) ? unusedRoles(config, graphSp) : []);
+
+/** @param {{ value: string }[]} roles */
+const roleNames = (roles) => roles.map((r) => r.value).join(', ');
+
+/** @param {unknown[]} list */
+const themOrIt = (list) => (list.length > 1 ? 'them' : 'it');
 
 /**
  * Creates or adopts the vault and makes sure the signed-in user can write secrets to it.
@@ -522,14 +549,45 @@ async function lookUp(ctx, find) {
 }
 
 /**
+ * Takes the Graph app roles in `retired` off the app's API permissions, where they're listed. When Entra refuses, it
+ * records them on the app, so the Done page and the admin pack ask an app admin or one of its owners, and the next
+ * run tries again. Their admin consent is ensureConsent's to take back.
+ * @param {Ctx} ctx
+ * @param {any} application
+ * @param {{ id: string, value: string }[]} retired  None for an app you brought.
+ */
+async function removeRetiredPermissions(ctx, application, retired) {
+  const { ui, config, api } = ctx;
+  const app = config.app;
+  const declared = declaredGraphRoles(application);
+  const unused = retired.filter((r) => declared.has(r.id));
+  try {
+    if (unused.length && (await api.graph.removeRequiredAccess(application, unused))) {
+      ui.ok(`Took ${roleNames(unused)} off its API permissions, as Analytics Hub no longer uses ${themOrIt(unused)}`);
+    }
+    delete app.retiredPermissions;
+  } catch (err) {
+    if (!(err instanceof HttpError)) throw err;
+    app.retiredPermissions = unused.map((r) => r.value);
+    const why = err.status === 403 ? "You can't edit its API permissions" : `Entra didn't change its API permissions (${err.message.split('\n')[0]})`;
+    ui.warn(
+      `${why}, so ${application.displayName} still lists ${roleNames(unused)}, which Analytics Hub no longer uses. ` +
+        `${APP_OWNER_ADMIN} can remove ${themOrIt(unused)} on its API permissions page:`,
+    );
+    ui.info(apiPermissionsUrl(/** @type {string} */ (app.appId)));
+  }
+}
+
+/**
  * Creates or adopts the app registration and its service principal, and puts a client secret in Key Vault.
  * An app the user brought must be registered in this tenant, as the loads sign in to it here.
+ * An app the installer made loses the API permissions Analytics Hub no longer uses.
  * @param {Ctx} ctx
  */
 export async function ensureApp(ctx) {
   const { ui, config, api, user } = ctx;
   const app = config.app;
-  const { roles } = await graphRoles(ctx);
+  const { sp: graphSp, roles } = await graphRoles(ctx);
 
   if (app.appId) {
     const appId = app.appId;
@@ -547,6 +605,8 @@ export async function ensureApp(ctx) {
     }
     app.objectId = application.id;
     app.displayName = application.displayName;
+    // Before the additions, which then see what's left.
+    await removeRetiredPermissions(ctx, application, retiredRoles(config, graphSp));
     try {
       if (await api.graph.ensureRequiredAccess(application, roles)) ui.ok('Added the Analytics Hub permissions to its API permissions');
     } catch (err) {
@@ -835,7 +895,58 @@ export async function newSecret(ctx) {
 }
 
 /**
+ * Takes back admin consent for the Graph permissions in `retired` that the app the installer made still has. Without
+ * the rights to, or when Graph refuses, it records them on the app, so the Done page and the admin pack ask a
+ * Privileged Role Administrator or Global Administrator, and the next run checks again.
+ * @param {Ctx} ctx
+ * @param {{ canConsent: boolean }} who
+ * @param {string} graphSpId
+ * @param {{ id: string, value: string }[]} retired
+ * @param {{ id: string, appRoleId: string }[]} assigned  The app's Graph app role assignments.
+ */
+async function revokeRetiredConsent(ctx, who, graphSpId, retired, assigned) {
+  const { ui, config, api } = ctx;
+  const app = config.app;
+  const byId = new Map(retired.map((r) => [r.id, r]));
+  /** @type {{ id: string, value: string }[]} */
+  const done = [];
+  /** @type {{ id: string, value: string }[]} */
+  const left = [];
+  let refusal = '';
+  for (const a of assigned.filter((x) => byId.has(x.appRoleId))) {
+    const role = /** @type {{ id: string, value: string }} */ (byId.get(a.appRoleId));
+    if (!who.canConsent) {
+      left.push(role);
+      continue;
+    }
+    try {
+      await api.graph.revokeAppRole(graphSpId, a.id);
+      done.push(role);
+    } catch (err) {
+      if (!(err instanceof HttpError)) throw err;
+      if (err.status === 404) done.push(role);
+      else {
+        left.push(role);
+        refusal ||= err.message.split('\n')[0];
+      }
+    }
+  }
+  if (left.length) app.retiredConsent = left.map((r) => r.value).sort();
+  else delete app.retiredConsent;
+  if (done.length) ui.ok(`Took back admin consent for ${roleNames(done)}, as Analytics Hub no longer uses ${themOrIt(done)}`);
+  if (!left.length) return;
+  ui.warn(
+    `${app.displayName ?? 'The app'} still has admin consent for ${roleNames(left)}, which Analytics Hub no longer uses.` +
+      `${refusal ? ` Graph didn't let you take ${themOrIt(left)} back (${refusal}).` : ''} ` +
+      `A Global Administrator or Privileged Role Administrator can revoke ${themOrIt(left)} on its API permissions page:`,
+  );
+  ui.info(apiPermissionsUrl(/** @type {string} */ (app.appId)));
+}
+
+/**
  * Grants the Graph application permissions, or hands the user a link for an admin.
+ * For an app the installer made, it also takes back the consent for permissions Analytics Hub no longer uses. An app
+ * you brought keeps them: this run's read of its consent goes to an optional request to an admin instead.
  * Returns true when every permission is consented.
  * @param {Ctx} ctx
  * @param {{ canConsent: boolean }} who
@@ -847,13 +958,23 @@ export async function ensureConsent(ctx, who) {
   const appId = /** @type {string} */ (app.appId);
   const { sp: graphSp, roles } = await graphRoles(ctx);
 
+  /** @type {{ id: string, appRoleId: string }[]} */
+  let assigned = [];
   const missing = async () => {
-    const assigned = await api.graph.appRoleAssignments(spId);
-    const have = new Set(assigned.filter((a) => a.resourceId === graphSp.id).map((a) => a.appRoleId));
+    assigned = (await api.graph.appRoleAssignments(spId)).filter((a) => a.resourceId === graphSp.id);
+    const have = new Set(assigned.map((a) => a.appRoleId));
     return roles.filter((r) => !have.has(r.id));
   };
 
   let todo = await missing();
+  if (madeApp(config)) await revokeRetiredConsent(ctx, who, graphSp.id, retiredRoles(config, graphSp), assigned);
+  else {
+    delete app.retiredConsent;
+    const consented = new Set(assigned.map((a) => a.appRoleId));
+    ctx.broughtRetired = unusedRoles(config, graphSp)
+      .filter((r) => consented.has(r.id))
+      .map((r) => r.value);
+  }
   if (!todo.length) {
     ui.ok(`Admin consent is in place (${roles.map((r) => r.value).join(', ')})`);
     return true;

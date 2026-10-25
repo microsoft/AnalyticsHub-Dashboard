@@ -119,6 +119,8 @@ import { reviewSetup } from './setup.js';
  * @property {boolean} [setupRetry] Revalidate saved choices without reopening every question.
  * @property {import('./prereqs.js').PreflightSeen} [preflightSeen]  What install preflight checked and showed, so the flows' rows show once they're chosen.
  * @property {import('./steps/identity.js').HandoffPack} [handoffPack]  What this run has asked admins for so far, for the admin pack.
+ * @property {string[]} [broughtRetired]  Fabric: the Graph application permissions Analytics Hub no longer uses that this run read as
+ *   consented on the app you brought, for an optional request at the end. The installer leaves that app alone.
  */
 
 /**
@@ -1024,6 +1026,7 @@ export async function summary(ctx, opts = {}) {
     transcripts: transcriptAsks(ctx),
     carried: askedRows(ctx),
     vault: secretMode(config) === 'keyvault-admin' && !config.keyVault.secretSetAt ? [vaultAsk(ctx)] : [],
+    broughtRetired: ctx.broughtRetired,
   });
   ui.doneRequests(requests);
   writeHandoffPack(ctx, { done: requests });

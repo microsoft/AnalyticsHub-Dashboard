@@ -325,6 +325,34 @@ Deployment instructions do **not** live here. They live in the READMEs:
   - The Prerequisites check now says it "changes nothing in your tenant": it writes the pack next to
     the install record, and nothing in the tenant. PREREQUISITES, INSTALL, PERMISSIONS,
     TROUBLESHOOTING, AZURE-LEAST-PRIVILEGE and the installer README say the same.
+- **Permissions you no longer need are taken back.** Until now the installer only added: turning a
+  module or data source off left what it gave for it. Now the next install, Repair or change or
+  `update` takes back what it gave that nothing you still use needs, and only what a check shows is
+  still there. Where your role lets you, the run does it. Otherwise it warns, and the end of an
+  install or Repair asks whoever can, under **Still to do by your admins** and in their file in the
+  admin pack. Each run checks again. A take-back that can't be done never stops the install.
+  - **The Fabric app's Graph permissions**, if the installer created the app: at most
+    `CopilotPackages.Read.All`, `Application.Read.All`, `ThreatHunting.Read.All` and
+    `CloudApp-Discovery.Read.All`, never `User.Read.All`. They come off its API permissions. When
+    Entra refuses, the request goes to one of the app's owners, an Application Administrator or a
+    Cloud Application Administrator, with the API permissions link, and the install record keeps
+    them until a run finds them gone.
+  - **Their admin consent.** If you're a Global Administrator or Privileged Role Administrator, the
+    run revokes it. Otherwise the request goes to one of them, with the steps in the Microsoft
+    Entra admin center, and the install record keeps the permissions until a run finds them gone.
+  - **An app you brought** is never changed, nor is one the install record doesn't say the
+    installer created. When it still has consent for permissions Analytics Hub no longer uses, an
+    optional request to a Global Administrator or Privileged Role Administrator lists them, and
+    notes that taking them off the app needs one of its owners or an app admin.
+  - **The jobs' managed identity's Graph roles** (Azure): at most `ReportSettings.Read.All`,
+    `ThreatHunting.Read.All`, `CloudApp-Discovery.Read.All` and `Sites.Selected`. The run reads its
+    roles and revokes those it no longer needs. When Graph refuses, a Privileged Role Administrator
+    or Global Administrator gets a command for Azure Cloud Shell (Bash) that finds each one and
+    deletes it, or says there's nothing to remove. When the read fails, the request lists what the
+    install record says it was given. A role still waiting for an admin to give it is dropped from
+    that request.
+  - PERMISSIONS has a new section, Taking access back. The installer README and TROUBLESHOOTING
+    point to it.
 
 ## 2026-10-26 — Analytics Hub installer 0.6.8
 

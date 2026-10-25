@@ -298,6 +298,43 @@ Caveats:
 
 ---
 
+## Taking access back
+
+When you turn a module or data source off, the next install, **Repair or change** or `update`
+takes back the Microsoft Graph permissions the installer gave for it that nothing you still use
+needs. It takes back only what the installer gave, and only what a check shows is still there.
+Where your role lets you, the run does it. Otherwise it says who can, and the end of an install or
+Repair asks them, under **Still to do by your admins** and in their file in the admin pack. Each
+run checks again, and stops asking once it's gone. When something can't be taken back, the
+install carries on.
+
+- **The Fabric app's Graph permissions**, such as `ThreatHunting.Read.All` and
+  `CloudApp-Discovery.Read.All` when you turn Defender off, or `CopilotPackages.Read.All` and
+  `Application.Read.All` when the **Agent 365 registry** card is no longer set to **Connected**.
+  If the installer created the app, it takes them off the app's API permissions. If Entra doesn't
+  let you change the app, the request goes to one of the app's owners, an **Application
+  Administrator** or a **Cloud Application Administrator**, with the link to its API permissions
+  page. `User.Read.All` always stays: the org data needs it.
+- **Their admin consent.** If you're a **Global Administrator** or **Privileged Role
+  Administrator**, the installer revokes it. Otherwise the request goes to one of them, with the
+  steps in the Microsoft Entra admin center: **Enterprise apps**, the app, **Permissions**, the
+  **Admin consent** tab, then **Revoke permission** for each.
+- **An app registration you brought** keeps what it has, in case something else uses it. If it
+  still has admin consent for permissions Analytics Hub no longer uses, the end of an install or
+  Repair has an optional request to a Global Administrator or Privileged Role Administrator to
+  take it back. Taking the permissions off the app itself needs one of its owners or an app admin.
+- **The jobs' managed identity's Graph roles** (Azure), such as `ReportSettings.Read.All` when
+  you turn Microsoft 365 activity off, or `Sites.Selected` when the jobs no longer read a
+  SharePoint drop folder. If you're a Global Administrator or Privileged Role Administrator, the
+  installer revokes them. Otherwise the request goes to one of them, with a command for Azure
+  Cloud Shell (Bash). A role still waiting for an admin to give it is dropped from that request.
+
+It leaves the **Global Reader** role it gave for the agents (see
+[Azure Resource Graph](#azure-resource-graph)), the Azure roles, and the Azure web app's delegated
+permissions.
+
+---
+
 ## Quick "who do I ask?" summary
 
 - **Just the core dashboard:** one Entra app reg (3 Graph perms, admin-consented) + Contributor on the workspace.

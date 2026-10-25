@@ -3,8 +3,8 @@
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { graphRolesCommand, pendingGraphRoles } from '../../admin-commands.js';
-import { azureGraphRolesFor, collectedLabels, ESSENTIAL_MODULES, MODULES, OPTIONAL_MODULES } from '../../catalog.js';
+import { graphRolesCommand, graphRolesRevokeCommand, pendingGraphRoles } from '../../admin-commands.js';
+import { azureGraphRolesFor, collectedLabels, ESSENTIAL_MODULES, everyAzureGraphRole, MODULES, OPTIONAL_MODULES } from '../../catalog.js';
 import { semanticModelDefinition } from '../../clients/fabric.js';
 import { adminConsentUrl, apiPermissionsUrl, resolveAppRoles } from '../../clients/graph.js';
 import { apiVersionResolver, armErrors, resourceIdParts, ROLES } from '../../clients/azure.js';
@@ -972,6 +972,16 @@ const withThe = (/** @type {string} */ name) => (name.startsWith('the ') ? name 
 
 /** Microsoft Graph application permissions the jobs' managed identity needs. @param {import('../../config.js').InstallConfig} config */
 export const azureGraphRoles = (config) => [...azureGraphRolesFor(config.modules), ...(azureReadsDrop(config) && azureDropsToSharePoint(config.azure) ? ['Sites.Selected'] : [])];
+
+/**
+ * The Microsoft Graph application permissions the installer may have given the jobs' managed identity for a choice
+ * since switched off, such as a module or the SharePoint drop folder, sorted. Only these are ever taken back.
+ * @param {import('../../config.js').InstallConfig} config
+ */
+export function azureRetiredGraphRoles(config) {
+  const needed = new Set(azureGraphRoles(config));
+  return [...new Set([...everyAzureGraphRole(), 'Sites.Selected'])].filter((r) => !needed.has(r)).sort();
+}
 
 /**
  * The Agent 365 registry on Azure: its CSV export, which you drop where the jobs read it. Asks nothing;
@@ -2340,13 +2350,77 @@ async function useSqlSecret(ctx, secret) {
   await promoteSecret(ctx, r, r.objectId, secret.keyId);
 }
 
-/** @param {Ctx} ctx */
+/**
+ * Takes back the Microsoft Graph application permissions the installer gave the jobs' managed identity for a choice
+ * since switched off: only azureRetiredGraphRoles', and only those a live read of its roles shows. When that read
+ * fails, the install record's say which it may still have. Whatever it can't take back, it records and hands a
+ * Privileged Role Administrator or Global Administrator the command that does. It never stops the install, and the
+ * next run checks again.
+ * @param {Ctx} ctx
+ * @param {string} principalId  The managed identity's principal (object) ID.
+ * @param {{ id: string, appRoles: { id: string, value: string }[] }} graphSp
+ */
+async function takeBackManagedIdentityGraphRoles(ctx, principalId, graphSp) {
+  const { config, api, ui } = ctx;
+  const graphRoles = (/** @type {import('../../config.js').AzureConfig} */ (config.azure).graphRoles ??= { assigned: [], pending: [] });
+  const retiredNames = azureRetiredGraphRoles(config);
+  const isRetired = (/** @type {string} */ r) => retiredNames.includes(r);
+  // What the record says it may still have, from this run's record or an earlier run's take-back.
+  const recorded = [...graphRoles.assigned, ...(graphRoles.retired ?? [])].filter(isRetired);
+  graphRoles.assigned = graphRoles.assigned.filter((r) => !isRetired(r));
+  graphRoles.pending = graphRoles.pending.filter((r) => !isRetired(r));
+  /** @type {string[]} */
+  const done = [];
+  /** @type {string[]} */
+  const left = [];
+  const byId = new Map(resolveAppRoles(graphSp, retiredNames, retiredNames).roles.map((r) => [r.id, r.value]));
+  /** @type {{ id: string, appRoleId: string }[]} */
+  let stale = [];
+  if (byId.size) {
+    try {
+      stale = (await api.graph.appRoleAssignments(principalId)).filter((a) => a.resourceId === graphSp.id && byId.has(a.appRoleId));
+    } catch (err) {
+      if (!(err instanceof HttpError)) throw err;
+      // Without the read there are no assignment IDs to delete, so an admin takes back what the record lists.
+      left.push(...recorded);
+    }
+  }
+  for (const a of stale) {
+    const role = /** @type {string} */ (byId.get(a.appRoleId));
+    try {
+      await api.graph.revokeAppRole(graphSp.id, a.id);
+      done.push(role);
+    } catch (err) {
+      if (!(err instanceof HttpError)) throw err;
+      if (err.status === 404) done.push(role);
+      else left.push(role);
+    }
+  }
+  const remaining = [...new Set(left)].sort();
+  if (remaining.length) graphRoles.retired = remaining;
+  else delete graphRoles.retired;
+  const taken = [...new Set(done)].sort();
+  if (taken.length) ui.ok(`Took ${taken.join(', ')} back from the managed identity, as Analytics Hub no longer uses ${taken.length > 1 ? 'them' : 'it'}`);
+  if (!remaining.length) return;
+  ui.warn(
+    `The managed identity still has ${remaining.length === 1 ? 'this Microsoft Graph application permission' : 'these Microsoft Graph application permissions'}, which Analytics Hub no longer uses: ` +
+      `${remaining.join(', ')}. Only a Privileged Role Administrator or Global Administrator can take ${remaining.length === 1 ? 'it' : 'them'} back. They can run this in Azure Cloud Shell (Bash):`,
+  );
+  ui.info(graphRolesRevokeCommand(principalId, remaining));
+}
+
+/**
+ * Gives the jobs' managed identity the Microsoft Graph application permissions the install needs, after taking back
+ * those it no longer does.
+ * @param {Ctx} ctx
+ */
 async function assignManagedIdentityGraphRoles(ctx) {
   const { config, api, ui } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
   const principalId = az.outputs?.identityPrincipalId;
   if (!principalId) throw new Error('The ARM deployment did not return identityPrincipalId.');
   const graphSp = await api.graph.graphServicePrincipal();
+  await takeBackManagedIdentityGraphRoles(ctx, principalId, graphSp);
   const wanted = azureGraphRoles(config);
   const { roles, missing } = resolveAppRoles(graphSp, wanted, OPTIONAL_PERMISSIONS);
   for (const m of missing) {

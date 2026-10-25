@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { graphRolesCommand } from '../src/admin-commands.js';
+import { graphRolesCommand, graphRolesRevokeCommand } from '../src/admin-commands.js';
 import { apiPermissionsUrl } from '../src/clients/graph.js';
 import { emptyConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
@@ -223,7 +223,7 @@ test('adminRequests: no request has a secret, a key, a token, a password, a sign
       webApp: { clientId: 'web-1', clientSecret: 'PLANTED-web-secret', secretKeyId: 'PLANTED-web-key' },
       sqlReader: { clientId: 'sql-1', secretKeyId: 'PLANTED-sql-key' },
       jobsApp: { clientId: 'jobs-1' },
-      graphRoles: { assigned: [], pending: ['AuditLog.Read.All', 'AuditLogsQuery.Read.All'] },
+      graphRoles: { assigned: [], pending: ['AuditLog.Read.All', 'AuditLogsQuery.Read.All'], retired: ['ThreatHunting.Read.All'] },
       adminScript: `C:\\Users\\someone\\analytics-hub\\${AZURE_ADMIN_SCRIPT_FILE}`,
       status: { pendingAdminActions: [`Grant delegated consent on ${apiPermissionsUrl('web-1')}`, TEAMS_UPLOAD, OWNER_ACTION, DROP_SITE] },
     }),
@@ -243,7 +243,10 @@ test('adminRequests: no request has a secret, a key, a token, a password, a sign
     assert.deepEqual(requests.map((r) => r.admin), Object.keys(ADMINS).filter((k) => !endOnly.includes(k) && (config.target === 'azure' || k !== 'sharepoint-admin')), config.target);
     const text = JSON.stringify(requests);
     assert.match(text, /az role assignment create --assignee-object-id (\w[\w-]*|\$\(az ad sp show --id \S+ --query id -o tsv\)) --assignee-principal-type ServicePrincipal --role \\"Reader\\"/, 'with the commands');
-    if (config.target === 'azure') assert.match(text, /servicePrincipals\/\$MI\/appRoleAssignments/);
+    if (config.target === 'azure') {
+      assert.match(text, /servicePrincipals\/\$MI\/appRoleAssignments/);
+      assert.match(text, /-m DELETE -u https:\/\/graph\.microsoft\.com\/v1\.0\/servicePrincipals\/\$MI\/appRoleAssignments\/\$ID/, 'with the take-back');
+    }
     assert.doesNotMatch(text, /PLANTED/);
     assert.doesNotMatch(text, /\b(client secrets?|password|passcode|sign-in code|device code|bearer|access token|refresh token)\b/i);
     assert.doesNotMatch(text, /someone|C:\\\\/, 'files go by their names, not their paths');
@@ -279,6 +282,31 @@ test('adminRequests: a Graph role the Azure install lists twice as pending is as
   assert.equal(handoff[0].message.split('AuditLog.Read.All').length - 1, 2);
   assert.doesNotMatch(handoff[0].message, /mi-client-1/, 'not the client ID');
   assert.deepEqual(asks(adminRequests([row({ id: 'audit-ingestion', status: 'met' })], azureConfig({ graphRoles: { pending: ['X'], assigned: ['X'] } }))), []);
+});
+
+test('adminRequests: the Graph roles the Azure install no longer uses and couldn\'t take back go to a role admin, with the command that does', () => {
+  const config = azureConfig({ outputs: { identityPrincipalId: 'mi-1' }, graphRoles: { assigned: [], pending: ['Reports.Read.All'], retired: ['ThreatHunting.Read.All', 'Sites.Selected'] } });
+  const revoke =
+    'Take these Microsoft Graph application permissions back from the Analytics Hub jobs\' managed identity (object ID mi-1), as Analytics Hub no longer uses them: ' +
+    `ThreatHunting.Read.All, Sites.Selected. In Azure Cloud Shell (Bash):\n  ${graphRolesRevokeCommand('mi-1', ['ThreatHunting.Read.All', 'Sites.Selected'])}`;
+  const requests = adminRequests([], config, { from: UPN });
+  assert.deepEqual(
+    requests.map((r) => [r.admin, r.who, r.rows]),
+    [['role-admin', 'A Privileged Role Administrator or Global Administrator', ['Pending admin action']]],
+  );
+  assert.deepEqual(requests[0].asks, [
+    `Give the Analytics Hub jobs' managed identity (object ID mi-1) these Microsoft Graph application permissions: Reports.Read.All. In Azure Cloud Shell (Bash):\n  ${graphRolesCommand('mi-1', ['Reports.Read.All'])}`,
+    revoke,
+  ]);
+  // Before the deploy returns the managed identity, the ask has no command.
+  assert.deepEqual(asks(adminRequests([], azureConfig({ graphRoles: { assigned: [], pending: [], retired: ['ThreatHunting.Read.All'] } }))), [
+    ['role-admin', ['Take these Microsoft Graph application permissions back from the Analytics Hub jobs\' managed identity, as Analytics Hub no longer uses them: ThreatHunting.Read.All.']],
+  ]);
+  assert.deepEqual(adminRequests([], config, { pending: false }), [], 'only with the pending actions');
+  // A Fabric install ignores what an Azure one left.
+  const fabric = plainConfig();
+  fabric.azure = /** @type {any} */ ({ graphRoles: { assigned: [], pending: [], retired: ['ThreatHunting.Read.All'] } });
+  assert.deepEqual(adminRequests([], fabric), []);
 });
 
 test('adminRequests: the Azure install\'s pending admin actions go to the admin who does each, the drop site\'s grant word for word; one it doesn\'t know goes to "An admin" as it is', () => {

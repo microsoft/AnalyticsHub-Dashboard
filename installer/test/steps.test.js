@@ -1,7 +1,7 @@
 // @ts-check
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { notebooksFor } from '../src/catalog.js';
+import { notebooksFor, retiredPermissions } from '../src/catalog.js';
 import { emptyConfig } from '../src/config.js';
 import { runCommand } from '../src/install.js';
 import { ensureLakehouse, ensureNotebooks, ensurePipeline, ensureSchedule, freeName, pipelineSignature, usesSecret } from '../src/steps/fabric.js';
@@ -11,7 +11,7 @@ import { APP_NAME, lakehouseNameFrom, largeCapacity, planCosts, planReview, rese
 import { BUSY_RETRIES, BUSY_WAIT_MS, capacityBusy, chooseLoad, firstLoadEstimate, firstRunStatus, historyLoaded, NETWORK_LOSSES, printDataCheck, ranSince, runDataCheck, runPipeline, status, waitForJob } from '../src/steps/run.js';
 import { DATA_CHECK_FILE } from '../src/transform/notebook.js';
 import { PIPELINE_CHANGE, PIPELINE_VERSION, REFRESH_ACTIVITY } from '../src/transform/pipeline.js';
-import { fakeCtx, fakeFabric, fakeGraph as fakeGraphApi, fakePowerBi, fakeUi } from './fakes.js';
+import { fakeCtx, fakeFabric, fakeGraph as fakeGraphApi, fakePowerBi, fakeUi, httpError } from './fakes.js';
 
 const defaultNotebooks = notebooksFor(emptyConfig().modules);
 
@@ -411,6 +411,155 @@ test('consent: without admin rights the user gets a link, and can check again', 
 
   const skip = fakeCtx({ graph: fakeGraph([]).api, ui: fakeUi({ answers: ['skip'] }).ui });
   assert.equal(await ensureConsent(skip.ctx, { canConsent: false }), false);
+});
+
+test('the Fabric app\'s Graph permissions Analytics Hub no longer uses: every module\'s, less what the choices need', () => {
+  const modules = emptyConfig().modules;
+  assert.deepEqual(retiredPermissions(modules), ['Application.Read.All', 'CloudApp-Discovery.Read.All', 'CopilotPackages.Read.All', 'ThreatHunting.Read.All']);
+  const every = { ...modules, agent365: true, productFeedback: true, consumption: true, agentEvaluator: true, defender: true };
+  assert.deepEqual(retiredPermissions(every), []);
+  const csv = { ...emptyConfig().dataSources, agent365: /** @type {const} */ ('csv') };
+  assert.deepEqual(retiredPermissions(every, csv), ['Application.Read.All', 'CopilotPackages.Read.All'], 'Agent 365 by CSV reads no API');
+  assert.deepEqual(retiredPermissions({ ...every, defender: false }), ['CloudApp-Discovery.Read.All', 'ThreatHunting.Read.All']);
+  assert.deepEqual(retiredPermissions({ ...every, orgData: false, m365Activity: false }), [], 'core\'s and org data\'s, User.Read.All included, are always needed');
+});
+
+/**
+ * Graph for taking consent back: its app roles in a tenant, including Agent 365's, Defender's and one Analytics Hub
+ * never asks for, and the app's assignments of them, each with its own ID.
+ * @param {string[]} have  App role IDs assigned.
+ * @param {Record<string, Error>} [refuse]  The error revoking a role's assignment gives, by role ID.
+ */
+function retiringGraph(have, refuse = {}) {
+  /** @type {string[]} */
+  const calls = [];
+  const assigned = new Set(have);
+  const graphSp = {
+    id: 'graph-sp',
+    appRoles: [
+      { id: 'r-audit', value: 'AuditLogsQuery.Read.All' },
+      { id: 'r-reports', value: 'Reports.Read.All' },
+      { id: 'r-users', value: 'User.Read.All' },
+      { id: 'r-apps', value: 'Application.Read.All' },
+      { id: 'r-packages', value: 'CopilotPackages.Read.All' },
+      { id: 'r-hunting', value: 'ThreatHunting.Read.All' },
+      { id: 'r-mail', value: 'Mail.Read' },
+    ],
+  };
+  const api = {
+    graphServicePrincipal: async () => graphSp,
+    appRoleAssignments: async () => [
+      ...[...assigned].map((appRoleId) => ({ id: `ra-${appRoleId}`, resourceId: 'graph-sp', appRoleId })),
+      // Another API's role, whatever its ID, isn't Graph's.
+      { id: 'ra-other', resourceId: 'other-sp', appRoleId: 'r-packages' },
+    ],
+    /** @param {string} _r @param {string} _p @param {string} role */
+    grantAppRole: async (_r, _p, role) => {
+      calls.push(`grant ${role}`);
+      assigned.add(role);
+    },
+    /** @param {string} resource @param {string} id */
+    revokeAppRole: async (resource, id) => {
+      calls.push(`revoke ${resource} ${id}`);
+      const role = id.replace(/^ra-/, '');
+      const err = refuse[role];
+      // A 404: someone took it back since the read.
+      if (!err || /** @type {any} */ (err).status === 404) assigned.delete(role);
+      if (err) throw err;
+    },
+  };
+  return { api, calls, assigned };
+}
+
+const NEEDED_ROLES = ['r-audit', 'r-reports', 'r-users'];
+
+test('consent: an app the installer made loses admin consent for what Analytics Hub no longer uses, and nothing else', async () => {
+  const graph = retiringGraph([...NEEDED_ROLES, 'r-packages', 'r-hunting', 'r-mail']);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ graph: graph.api, ui: ui.ui });
+  config.app.existing = false;
+  config.app.retiredConsent = ['ThreatHunting.Read.All'];
+  assert.equal(await ensureConsent(ctx, { canConsent: true }), true);
+  assert.deepEqual(graph.calls, ['revoke graph-sp ra-r-packages', 'revoke graph-sp ra-r-hunting'], 'not what it still needs, nor Mail.Read, which it never asks for');
+  assert.match(ui.text(), /Took back admin consent for CopilotPackages\.Read\.All, ThreatHunting\.Read\.All, as Analytics Hub no longer uses them/);
+  assert.match(ui.text(), /Admin consent is in place/);
+  assert.equal(config.app.retiredConsent, undefined, 'nothing left for an admin');
+  assert.equal(ctx.broughtRetired, undefined);
+
+  // Consent someone else took back first counts as done.
+  const gone = retiringGraph([...NEEDED_ROLES, 'r-hunting'], { 'r-hunting': httpError(404) });
+  const quiet = fakeUi();
+  const again = fakeCtx({ graph: gone.api, ui: quiet.ui });
+  again.config.app.existing = false;
+  await ensureConsent(again.ctx, { canConsent: true });
+  assert.equal(again.config.app.retiredConsent, undefined);
+  assert.match(quiet.text(), /Took back admin consent for ThreatHunting\.Read\.All, as Analytics Hub no longer uses it/);
+
+  const down = retiringGraph([...NEEDED_ROLES, 'r-hunting'], { 'r-hunting': new Error('network down') });
+  const third = fakeCtx({ graph: down.api });
+  third.config.app.existing = false;
+  await assert.rejects(ensureConsent(third.ctx, { canConsent: true }), /network down/, 'anything but Graph\'s answer is passed on');
+});
+
+test('consent: consent you can\'t take back stays on the record, for a Global Administrator or Privileged Role Administrator', async () => {
+  const graph = retiringGraph([...NEEDED_ROLES, 'r-packages', 'r-hunting']);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ graph: graph.api, ui: ui.ui });
+  config.app.existing = false;
+  config.app.displayName = 'Analytics Hub Data Collector';
+  assert.equal(await ensureConsent(ctx, { canConsent: false }), true, 'what it needs is consented');
+  assert.deepEqual(graph.calls, [], 'without the role, it doesn\'t try');
+  assert.deepEqual(config.app.retiredConsent, ['CopilotPackages.Read.All', 'ThreatHunting.Read.All']);
+  assert.ok(
+    ui.text().includes(
+      'Analytics Hub Data Collector still has admin consent for CopilotPackages.Read.All, ThreatHunting.Read.All, which Analytics Hub no longer uses. ' +
+        'A Global Administrator or Privileged Role Administrator can revoke them on its API permissions page:',
+    ),
+    ui.text(),
+  );
+  assert.match(ui.text(), /CallAnAPI\/appId\/app-1/);
+
+  // With the role, Graph refuses one, and someone has already taken the other back.
+  const refused = retiringGraph([...NEEDED_ROLES, 'r-packages', 'r-hunting'], { 'r-packages': httpError(404), 'r-hunting': httpError(403, '403 Forbidden') });
+  const told = fakeUi();
+  const second = fakeCtx({ graph: refused.api, ui: told.ui });
+  second.config.app.existing = false;
+  assert.equal(await ensureConsent(second.ctx, { canConsent: true }), true);
+  assert.deepEqual(second.config.app.retiredConsent, ['ThreatHunting.Read.All']);
+  assert.match(told.text(), /Took back admin consent for CopilotPackages\.Read\.All, as Analytics Hub no longer uses it/);
+  assert.match(told.text(), /The app still has admin consent for ThreatHunting\.Read\.All, which Analytics Hub no longer uses\. Graph didn't let you take it back \(403 Forbidden\)\. A Global Administrator or Privileged Role Administrator can revoke it/);
+
+  // The next run finds it gone, and clears the record.
+  refused.assigned.delete('r-hunting');
+  const third = fakeCtx({ graph: refused.api });
+  third.config.app.existing = false;
+  third.config.app.retiredConsent = ['ThreatHunting.Read.All'];
+  await ensureConsent(third.ctx, { canConsent: false });
+  assert.equal(third.config.app.retiredConsent, undefined);
+
+  // Or finds it needed again, with Defender back on.
+  const back = retiringGraph([...NEEDED_ROLES, 'r-hunting']);
+  const fourth = fakeCtx({ graph: back.api });
+  fourth.config.app.existing = false;
+  fourth.config.modules.defender = true;
+  fourth.config.app.retiredConsent = ['ThreatHunting.Read.All'];
+  await ensureConsent(fourth.ctx, { canConsent: true });
+  assert.equal(fourth.config.app.retiredConsent, undefined);
+  assert.ok(!back.calls.some((c) => c.startsWith('revoke')), back.calls.join(', '));
+});
+
+test('consent: an app you brought, or a record that doesn\'t say who made the app, keeps its consent', async () => {
+  for (const existing of [true, undefined]) {
+    const graph = retiringGraph([...NEEDED_ROLES, 'r-packages', 'r-mail']);
+    const { ctx, config } = fakeCtx({ graph: graph.api });
+    if (existing) config.app.existing = existing;
+    config.app.retiredConsent = ['CopilotPackages.Read.All'];
+    assert.equal(await ensureConsent(ctx, { canConsent: true }), true);
+    assert.deepEqual(graph.calls, [], `existing: ${existing}`);
+    // For an optional request: only what it has consent for, and never Mail.Read or another API's role.
+    assert.deepEqual(ctx.broughtRetired, ['CopilotPackages.Read.All']);
+    assert.equal(config.app.retiredConsent, undefined);
+  }
 });
 
 test('waitForJob polls until the job ends', async () => {

@@ -7,11 +7,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
 import { GRAPH_APP_ID, MODULES, azureGraphRolesFor } from '../src/catalog.js';
-import { graphRolesCommand, pendingGraphRoles } from '../src/admin-commands.js';
+import { graphRolesCommand, graphRolesRevokeCommand, pendingGraphRoles } from '../src/admin-commands.js';
 import { HttpError } from '../src/http.js';
 import { armApi, armErrors, waitForDeployment } from '../src/clients/azure.js';
 import { runCommand } from '../src/install.js';
-import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, WEB_APP_NAME, armParameterNames, askTarget, azureAgent365On, azureConsumptionOn, azureCron, azureDeployment, azureDropContents, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureProductFeedbackOn, azureRefresh, azureRotateSecret, azureSemanticModels, azureStatus, azureSummary, azureUninstall, azureUpdate, azureWorkdayOn, confirmAzurePlan, consumptionParameters, enabledAzureModuleIds, installAzure, parseDropFolder, planAzure, planAzureAgent365, planAzureDrop, planAzureProductFeedback, planAzureConsumption, planAzureWorkday, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
+import { AZURE_TARGET_DESCRIPTION, REQUIRED_ARM_PARAMETERS, TEAMS_CLIENTS, WEB_APP_NAME, armParameterNames, askTarget, azureAgent365On, azureConsumptionOn, azureCron, azureDeployment, azureDropContents, azureGraphRoles, azureModuleChoices, azurePlanReview, azurePreflight, azureProductFeedbackOn, azureRefresh, azureRetiredGraphRoles, azureRotateSecret, azureSemanticModels, azureStatus, azureSummary, azureUninstall, azureUpdate, azureWorkdayOn, confirmAzurePlan, consumptionParameters, enabledAzureModuleIds, installAzure, parseDropFolder, planAzure, planAzureAgent365, planAzureDrop, planAzureProductFeedback, planAzureConsumption, planAzureWorkday, policyMessage, publicAccessMessage, regionCapacityMessage, sqlFreeOfferTurnedDown, supportsVnetGateway, whileSqlResumes, isSqlResuming, whatIfSummary } from '../src/steps/azure/index.js';
 import { AZURE_AI_ROLES } from '../src/steps/consumption.js';
 import { adminRequests } from '../src/steps/handoff.js';
 import { azureFlowTarget, connectionSteps, flowDefinitions, flowsWanted } from '../src/steps/flows.js';
@@ -707,6 +707,121 @@ test("Azure install: the managed identity's Microsoft Graph role command leaves 
     assert.ok(azureGraphRoles(config).includes(r), `the install wants ${r}`);
     assert.ok(!given.includes(r), `but the tenant has no ${r}`);
   }
+});
+
+test("azureRetiredGraphRoles: the Microsoft Graph roles the managed identity may still have for a choice since switched off", () => {
+  const { config } = fakeCtx();
+  withAzureAgent365(config);
+  const az = /** @type {import('../src/config.js').AzureConfig} */ (config.azure);
+  // On Azure the Agent 365 registry is always its CSV export, which needs no Microsoft Graph role.
+  assert.deepEqual(azureRetiredGraphRoles(config), ['CloudApp-Discovery.Read.All', 'Sites.Selected', 'ThreatHunting.Read.All']);
+  az.drop = parseDropFolder(DROP_FOLDER);
+  assert.deepEqual(azureRetiredGraphRoles(config), ['CloudApp-Discovery.Read.All', 'ThreatHunting.Read.All'], 'the jobs read the SharePoint drop folder');
+  const modules = config.modules;
+  config.modules = { orgData: true, m365Activity: true, agent365: true, productFeedback: true, consumption: true, agentEvaluator: true, defender: true };
+  assert.deepEqual(azureRetiredGraphRoles(config), [], 'every module');
+  az.sampleData = true;
+  assert.deepEqual(azureRetiredGraphRoles(config), ['Sites.Selected'], "demo mode doesn't read the drop folder");
+  delete az.sampleData;
+  config.modules = { ...modules, orgData: false, m365Activity: false, agent365: false };
+  const coreAlone = azureRetiredGraphRoles(config);
+  assert.deepEqual(coreAlone, ['CloudApp-Discovery.Read.All', 'ReportSettings.Read.All', 'Sites.Selected', 'ThreatHunting.Read.All'], 'core alone');
+  for (const r of azureGraphRoles(config)) assert.ok(!coreAlone.includes(r), `${r} is still needed`);
+});
+
+/**
+ * An Azure install whose jobs' managed identity an earlier run gave ReportSettings.Read.All and ThreatHunting.Read.All
+ * for Microsoft 365 activity and Defender, both since switched off. It also has AuditLogsQuery.Read.All, which it still
+ * needs, and Mail.Read, which the installer never gives; and another principal has ReportSettings.Read.All.
+ * @param {{ graph?: ReturnType<typeof fakeAzureGraph>, graphRoles?: { assigned: string[], pending: string[], retired?: string[] } }} [o]
+ */
+async function retiredManagedIdentityRoles(o = {}) {
+  const graph = o.graph ?? fakeAzureGraph();
+  graph.graphSp.appRoles.push({ id: 'r-hunting', value: 'ThreatHunting.Read.All' }, { id: 'r-discovery', value: 'CloudApp-Discovery.Read.All' }, { id: 'r-mail', value: 'Mail.Read' });
+  for (const role of ['r-settings', 'r-hunting', 'r-audit', 'r-mail']) await graph.api.assignPrincipalToAppRole('mi-sp', graph.graphSp.id, role);
+  await graph.api.assignPrincipalToAppRole('other-sp', graph.graphSp.id, 'r-settings');
+  graph.calls.length = 0;
+  const powerBi = fakePowerBi();
+  powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds' }]);
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ arm: fakeArm().api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui });
+  const graphRoles = o.graphRoles ?? { assigned: ['AuditLogsQuery.Read.All', 'ReportSettings.Read.All', 'ThreatHunting.Read.All'], pending: ['CloudApp-Discovery.Read.All'] };
+  withAzureAgent365(config, { createdResourceGroup: true, graphRoles });
+  config.modules.m365Activity = false;
+  config.modules.defender = false;
+  ctx.runFirstLoad = false;
+  return { graph, ctx, config, ui, az: /** @type {import('../src/config.js').AzureConfig} */ (config.azure) };
+}
+
+/** The managed identity's Microsoft Graph roles, by ID. @param {ReturnType<typeof fakeAzureGraph>} graph */
+const managedIdentityRoles = (graph) => graph.roleAssignments.filter((a) => a.principalId === 'mi-sp').map((a) => a.appRoleId).sort();
+const TAKE_BACK_REQUEST = /Take these Microsoft Graph application permissions back from the Analytics Hub jobs' managed identity \(object ID mi-sp\), as Analytics Hub no longer uses them: /;
+
+test('Azure install: the managed identity loses the Microsoft Graph roles of the modules switched off, and only those', async () => {
+  const { graph, ctx, ui, az } = await retiredManagedIdentityRoles();
+  await installAzure(ctx, { wait: true });
+  assert.deepEqual(graph.calls.filter((c) => c.startsWith('revoke ')), ['revoke ra-mi-sp-r-settings', 'revoke ra-mi-sp-r-hunting']);
+  assert.deepEqual(managedIdentityRoles(graph), ['r-audit', 'r-mail', 'r-reports', 'r-users'], 'a role it still needs, and one the installer never gives, stay');
+  assert.ok(graph.roleAssignments.some((a) => a.principalId === 'other-sp' && a.appRoleId === 'r-settings'), "another principal's role stays");
+  assert.deepEqual([...(az.graphRoles?.assigned ?? [])].sort(), ['AuditLogsQuery.Read.All', 'Reports.Read.All', 'User.Read.All']);
+  assert.deepEqual(az.graphRoles?.pending, [], 'a retired role is no longer pending');
+  assert.equal(az.graphRoles?.retired, undefined);
+  assert.match(ui.text(), /Took ReportSettings\.Read\.All, ThreatHunting\.Read\.All back from the managed identity, as Analytics Hub no longer uses them/);
+  assert.ok(!ui.text().includes('-m DELETE'), 'nothing for an admin');
+  assert.doesNotMatch(ui.text(), TAKE_BACK_REQUEST);
+});
+
+test('Azure install: a take-back Entra refuses goes to a Privileged Role Administrator, with a command, until a run finds it gone', async () => {
+  const graph = fakeAzureGraph();
+  // Someone took the first back since the read, which counts as done. Entra refuses the second.
+  graph.failures.revokeAppRole = [httpError(404), httpError(403, 'Authorization_RequestDenied')];
+  const { ctx, ui, az } = await retiredManagedIdentityRoles({ graph });
+  await installAzure(ctx, { wait: true });
+  assert.deepEqual(az.graphRoles?.retired, ['ThreatHunting.Read.All']);
+  assert.ok(!az.graphRoles?.assigned.includes('ThreatHunting.Read.All'), 'the record keeps it as retired instead');
+  assert.match(ui.text(), /Took ReportSettings\.Read\.All back from the managed identity, as Analytics Hub no longer uses it\n/);
+  assert.match(
+    ui.text(),
+    /The managed identity still has this Microsoft Graph application permission, which Analytics Hub no longer uses: ThreatHunting\.Read\.All\. Only a Privileged Role Administrator or Global Administrator can take it back\. They can run this in Azure Cloud Shell \(Bash\):/,
+  );
+  const command = graphRolesRevokeCommand('mi-sp', ['ThreatHunting.Read.All']);
+  const [during, end = ''] = ui.text().split('Still to do by your admins: copy each request and send it.');
+  assert.deepEqual(graphCommandLines(during), [command], 'printed once, as the step runs');
+  assert.deepEqual(graphCommandLines(end), [command], 'and in the request at the end');
+  assert.match(end, TAKE_BACK_REQUEST);
+  assert.match(end, /For: Microsoft Graph roles to take back/);
+  assert.match(end, /it checks the managed identity's roles again, and stops listing these once they're gone\./);
+
+  // The next run finds it there still, and takes it back.
+  const again = fakeUi();
+  ctx.ui = again.ui;
+  await installAzure(ctx, { wait: true });
+  assert.equal(az.graphRoles?.retired, undefined);
+  assert.match(again.text(), /Took ThreatHunting\.Read\.All back from the managed identity, as Analytics Hub no longer uses it/);
+  assert.deepEqual(graphCommandLines(again.text()), []);
+  assert.deepEqual(managedIdentityRoles(graph), ['r-audit', 'r-mail', 'r-reports', 'r-users']);
+});
+
+test("Azure install: when the managed identity's roles can't be read, a role admin takes back those the record gave it", async () => {
+  const graph = fakeAzureGraph();
+  graph.failures.appRoleAssignments = [httpError(403, 'Authorization_RequestDenied')];
+  // ThreatHunting.Read.All was still waiting for an admin, as far as the record knows.
+  const { ctx, ui, az } = await retiredManagedIdentityRoles({ graph, graphRoles: { assigned: ['AuditLogsQuery.Read.All', 'ReportSettings.Read.All'], pending: ['ThreatHunting.Read.All'] } });
+  await installAzure(ctx, { wait: true });
+  assert.ok(!graph.calls.some((c) => c.startsWith('revoke ')), 'no assignment IDs to delete');
+  assert.deepEqual(az.graphRoles?.retired, ['ReportSettings.Read.All']);
+  assert.deepEqual([...(az.graphRoles?.assigned ?? [])].sort(), ['AuditLogsQuery.Read.All', 'Reports.Read.All', 'User.Read.All']);
+  assert.deepEqual(az.graphRoles?.pending, []);
+  const [during, end = ''] = ui.text().split('Still to do by your admins: copy each request and send it.');
+  const command = graphRolesRevokeCommand('mi-sp', ['ReportSettings.Read.All']);
+  assert.deepEqual(graphCommandLines(during), [command]);
+  assert.deepEqual(graphCommandLines(end), [command]);
+
+  // The next run reads them, finds both, and takes both back.
+  ctx.ui = fakeUi().ui;
+  await installAzure(ctx, { wait: true });
+  assert.deepEqual(graph.calls.filter((c) => c.startsWith('revoke ')), ['revoke ra-mi-sp-r-settings', 'revoke ra-mi-sp-r-hunting']);
+  assert.equal(az.graphRoles?.retired, undefined);
 });
 
 test('Azure install with Agent 365 in demo mode grants nothing for it', async () => {

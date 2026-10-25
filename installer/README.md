@@ -194,6 +194,15 @@ into Azure Cloud Shell (Bash) after the deploy. `status` prints it again, and it
 under **Requests for your admins**, and at the end of the install under **Still to do by your
 admins**.
 
+**Turning something off.** If you turn off a module or data source that needed a Microsoft Graph
+permission, such as Defender, the next install, **Repair or change** or `update` takes the
+permission back. On Fabric it takes it off the app registration, if the installer created it, and
+takes back its admin consent if you're a Global Administrator or Privileged Role Administrator. On
+Azure it takes the role back from the jobs' managed identity, if you're one of those. Whatever it
+can't take back, the end of an install or Repair asks whoever can, under **Still to do by your
+admins** and in the admin pack. An app registration you brought keeps what it has. See
+[Taking access back](../docs/PERMISSIONS.md#taking-access-back).
+
 ## Azure target
 
 The installer can also set up Analytics Hub in **your Azure subscription**. Start it with

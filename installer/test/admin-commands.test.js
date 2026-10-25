@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { test } from 'node:test';
-import { graphRolesCommand, objectIdOrLookup, pendingGraphRoles, roleAssignmentCommand } from '../src/admin-commands.js';
+import { graphRolesCommand, graphRolesRevokeCommand, objectIdOrLookup, pendingGraphRoles, roleAssignmentCommand } from '../src/admin-commands.js';
 import { GRAPH_APP_ID } from '../src/catalog.js';
 
 const LOOKUP = '$(az ad sp show --id app-client --query id -o tsv)';
@@ -46,6 +46,23 @@ test("graphRolesCommand: one line that gives each role once to the managed ident
   assert.doesNotMatch(cmd, /secret|password|token|key/i);
 });
 
+test("graphRolesRevokeCommand: one line that finds the managed identity's assignment of each role, once, and deletes it", () => {
+  const cmd = graphRolesRevokeCommand('mi-principal', ['ThreatHunting.Read.All', 'Sites.Selected', 'ThreatHunting.Read.All']);
+  assert.ok(!cmd.includes('\n'), 'one line, so a terminal line copies cleanly');
+  assert.ok(cmd.startsWith('MI=mi-principal; '));
+  assert.ok(cmd.includes(`GRAPH=$(az ad sp show --id ${GRAPH_APP_ID} --query id -o tsv)`));
+  assert.ok(cmd.includes('for P in ThreatHunting.Read.All Sites.Selected; do '), 'each role once');
+  assert.ok(cmd.includes(`--query "appRoles[?value=='$P'].id | [0]" -o tsv`), 'looks the role up as the grant does');
+  assert.ok(
+    cmd.includes(`az rest -m GET -u https://graph.microsoft.com/v1.0/servicePrincipals/$MI/appRoleAssignments --query "value[?appRoleId=='$ROLE' && resourceId=='$GRAPH'].id | [0]" -o tsv`),
+    "the managed identity's assignment of it",
+  );
+  assert.ok(cmd.includes('az rest -m DELETE -u https://graph.microsoft.com/v1.0/servicePrincipals/$MI/appRoleAssignments/$ID -o none'));
+  assert.ok(cmd.endsWith('else echo "Skipped $P: nothing to remove"; fi; done'), "where there's none, it says so");
+  assert.ok(!cmd.includes('POST'), 'it never gives one');
+  assert.doesNotMatch(cmd, /secret|password|token|key/i);
+});
+
 /** Runs a script in Bash, or returns undefined when there's no Bash. @param {string} script */
 function bash(script) {
   const probe = spawnSync('bash', ['-c', 'echo ok'], { encoding: 'utf8' });
@@ -54,16 +71,29 @@ function bash(script) {
 }
 
 // A stand-in for az. Microsoft Graph's service principal is graph-sp-obj, the app's is sp-obj, and every role has an
-// ID except Missing.Read.All, as in a tenant without it. It prints the calls that make a change: a role assignment's
-// arguments each in brackets, so a test can see where Bash split them.
+// ID except Missing.Read.All, as in a tenant without it. The managed identity has every role but User.Read.All, each
+// as assignment ra-<role ID>. It prints the calls that make a change: a role assignment's arguments each in brackets,
+// so a test can see where Bash split them.
 const AZ = `az() {
+  local q="'"
+  local v
   case "$1" in
-    rest) printf 'POST %s %s\\n' "$5" "$7"; return;;
+    rest)
+      case "$3" in
+        POST) printf 'POST %s %s\\n' "$5" "$7";;
+        DELETE) printf 'DELETE %s\\n' "$5";;
+        GET)
+          v="\${7#*$q}"
+          local role="\${v%%$q*}"
+          v="\${v#*$q}"
+          v="\${v#*$q}"
+          if [ "\${v%%$q*}" = graph-sp-obj ] && [ "$role" != role-User.Read.All ]; then echo "ra-$role"; fi;;
+      esac
+      return 0;;
     role) printf 'ROLE'; printf ' [%s]' "$@"; printf '\\n'; return;;
   esac
   if [ "$7" = id ]; then if [ "$5" = app-client ]; then echo sp-obj; else echo graph-sp-obj; fi; return; fi
-  local q="'"
-  local v="\${7#*$q}"
+  v="\${7#*$q}"
   v="\${v%%$q*}"
   [ "$v" = Missing.Read.All ] && return
   echo "role-$v"
@@ -72,6 +102,7 @@ const AZ = `az() {
 test('the commands: Bash accepts them', (t) => {
   const cmds = [
     graphRolesCommand('mi-principal', ['Reports.Read.All', 'Missing.Read.All']),
+    graphRolesRevokeCommand('mi-principal', ['ThreatHunting.Read.All', 'Missing.Read.All']),
     roleAssignmentCommand(objectIdOrLookup(undefined, 'app-client'), 'Reader', '/subscriptions/sub-1'),
   ];
   for (const cmd of cmds) {
@@ -96,6 +127,19 @@ test("graphRolesCommand, run: posts each role Microsoft Graph has, as JSON, and 
     { to: url, body: { principalId: 'mi-principal', resourceId: 'graph-sp-obj', appRoleId: 'role-User.Read.All' } },
   ]);
   assert.deepEqual(lines.filter((l) => !l.startsWith('POST ')), ['Skipped Missing.Read.All: not in this tenant yet']);
+});
+
+test("graphRolesRevokeCommand, run: deletes the managed identity's assignment of each role, once, and says when there's nothing to remove", (t) => {
+  const r = bash(`${AZ}\n${graphRolesRevokeCommand('mi-principal', ['Reports.Read.All', 'Missing.Read.All', 'User.Read.All', 'Reports.Read.All', 'ThreatHunting.Read.All'])}`);
+  if (!r) return t.skip('bash is not on the PATH');
+  assert.equal(r.status, 0, r.stderr);
+  const url = 'https://graph.microsoft.com/v1.0/servicePrincipals/mi-principal/appRoleAssignments';
+  assert.deepEqual(r.stdout.trimEnd().split('\n'), [
+    `DELETE ${url}/ra-role-Reports.Read.All`,
+    'Skipped Missing.Read.All: nothing to remove',
+    'Skipped User.Read.All: nothing to remove',
+    `DELETE ${url}/ra-role-ThreatHunting.Read.All`,
+  ]);
 });
 
 /** What the stand-in prints for a role assignment. @param {string[]} args */

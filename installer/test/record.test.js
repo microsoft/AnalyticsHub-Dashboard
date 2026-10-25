@@ -205,6 +205,35 @@ test('record: when two commands change the same field the later save wins; a fie
     }
   }));
 
+test("record: what's left to take back is kept; once it's taken back, another command's save doesn't bring it back", () =>
+  inDir((dir) => {
+    const file = join(dir, 'valuelens-install.json');
+    const first = record();
+    Object.assign(first.app, { appId: 'app-1', existing: false, retiredPermissions: ['ThreatHunting.Read.All'], retiredConsent: ['ThreatHunting.Read.All'] });
+    const firstAzure = /** @type {any} */ (first.azure ??= /** @type {any} */ ({}));
+    firstAzure.graphRoles = { assigned: ['User.Read.All'], pending: [], retired: ['Sites.Selected'] };
+    saveConfig(file, first);
+    const install = loadConfig(file).config;
+    assert.deepEqual(install.app, first.app);
+    assert.deepEqual(install.azure?.graphRoles, firstAzure.graphRoles);
+
+    const other = loadConfig(file).config;
+    other.schedule.time = '04:00';
+    saveConfig(file, other);
+    delete install.app.retiredConsent;
+    delete (/** @type {any} */ (install.azure)).graphRoles.retired;
+    saveConfig(file, install);
+    const saved = loadConfig(file).config;
+    assert.equal(saved.app.retiredConsent, undefined);
+    assert.deepEqual(saved.app.retiredPermissions, ['ThreatHunting.Read.All']);
+    assert.equal(saved.app.existing, false);
+    assert.deepEqual(saved.azure?.graphRoles, { assigned: ['User.Read.All'], pending: [] });
+    assert.equal(saved.schedule.time, '04:00');
+
+    writeFileSync(file, JSON.stringify({ version: 1, azure: { graphRoles: { assigned: [], pending: [], retired: [] } } }));
+    assert.equal('retired' in (/** @type {any} */ (loadConfig(file).config.azure)).graphRoles, false, 'an empty list is dropped');
+  }));
+
 test('record: a record saved to another file, such as the setup draft, is written as it is', () =>
   inDir((dir) => {
     const file = join(dir, 'valuelens-install.json');
