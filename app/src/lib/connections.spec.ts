@@ -41,7 +41,7 @@ describe("availableDestinations", () => {
 
     it("leaves out the pages whose model isn't set up", () => {
         expect(ids(valuelensOnly)).not.toContain("consumption");
-        expect(ids(valuelensOnly)).not.toContain("agent-evaluation");
+        expect(ids(valuelensOnly)).toContain("agents");
         expect(ids(valuelensOnly)).toContain("adoption");
         expect(ids(valuelensOnly)).toContain("appendix");
     });
@@ -51,9 +51,10 @@ describe("availableDestinations", () => {
     });
 
     it("shows each optional page once its model is set up", () => {
+        const withConsumption = { ...valuelensOnly, cc: { workspaceId: WORKSPACE, itemId: ITEM } };
+        expect(ids(withConsumption)).toContain("consumption");
         const withEvaluator = { ...valuelensOnly, ae: { workspaceId: WORKSPACE, itemId: ITEM } };
-        expect(ids(withEvaluator)).toContain("agent-evaluation");
-        expect(ids(withEvaluator)).not.toContain("consumption");
+        expect(ids(withEvaluator)).toEqual(ids(valuelensOnly));
     });
 
     it("leaves out a page only once its source is confirmed empty", () => {
@@ -69,7 +70,7 @@ describe("availableDestinations", () => {
 
         expect(withSources(empty)).not.toContain("feedback");
         expect(withSources(empty)).not.toContain("work-patterns");
-        expect(withSources(empty)).toContain("leaderboards");
+        expect(withSources(empty)).toContain("agents");
         expect(withSources({ ...empty, productFeedback: "present" })).toContain("feedback");
         expect(withSources({ ...empty, productFeedback: "checking" })).toContain("feedback");
         expect(withSources({ ...empty, productFeedback: "unknown" })).toContain("feedback");

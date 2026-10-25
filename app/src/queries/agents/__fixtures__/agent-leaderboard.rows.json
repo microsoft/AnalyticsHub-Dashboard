@@ -2,6 +2,7 @@
   {
     "[Agent]": "Finance Analyst Bot",
     "[Registry Id]": null,
+    "[Agent Key]": "audit:text:Finance Analyst Bot",
     "[In Registry]": false,
     "[Type]": "Not in registry",
     "[Creator]": null,
@@ -22,6 +23,7 @@
   {
     "[Agent]": "Copilot for Excel",
     "[Registry Id]": null,
+    "[Agent Key]": "audit:text:Copilot for Excel",
     "[In Registry]": false,
     "[Type]": "Not in registry",
     "[Creator]": null,
@@ -42,6 +44,7 @@
   {
     "[Agent]": "Copilot for Teams",
     "[Registry Id]": null,
+    "[Agent Key]": "audit:text:Copilot for Teams",
     "[In Registry]": false,
     "[Type]": "Not in registry",
     "[Creator]": null,
@@ -62,6 +65,7 @@
   {
     "[Agent]": "Legal Document Agent",
     "[Registry Id]": null,
+    "[Agent Key]": "audit:text:Legal Document Agent",
     "[In Registry]": false,
     "[Type]": "Not in registry",
     "[Creator]": null,
@@ -82,6 +86,7 @@
   {
     "[Agent]": "HR Copilot Studio",
     "[Registry Id]": null,
+    "[Agent Key]": "audit:text:HR Copilot Studio",
     "[In Registry]": false,
     "[Type]": "Not in registry",
     "[Creator]": null,
@@ -102,6 +107,7 @@
   {
     "[Agent]": "IT Helpdesk Agent",
     "[Registry Id]": null,
+    "[Agent Key]": "audit:text:IT Helpdesk Agent",
     "[In Registry]": false,
     "[Type]": "Not in registry",
     "[Creator]": null,
@@ -122,6 +128,7 @@
   {
     "[Agent]": "Copilot for Outlook",
     "[Registry Id]": null,
+    "[Agent Key]": "audit:text:Copilot for Outlook",
     "[In Registry]": false,
     "[Type]": "Not in registry",
     "[Creator]": null,
@@ -142,6 +149,7 @@
   {
     "[Agent]": "Sales Agent 365",
     "[Registry Id]": null,
+    "[Agent Key]": "audit:text:Sales Agent 365",
     "[In Registry]": false,
     "[Type]": "Not in registry",
     "[Creator]": null,
@@ -162,6 +170,7 @@
   {
     "[Agent]": "Copilot for Word",
     "[Registry Id]": null,
+    "[Agent Key]": "audit:text:Copilot for Word",
     "[In Registry]": false,
     "[Type]": "Not in registry",
     "[Creator]": null,
@@ -182,6 +191,7 @@
   {
     "[Agent]": "1Task",
     "[Registry Id]": "P_00000000-0000-4000-8000-000000000001",
+    "[Agent Key]": "registry:P_00000000-0000-4000-8000-000000000001",
     "[In Registry]": true,
     "[Type]": "Marketplace",
     "[Creator]": "Idea3 llc",
@@ -202,6 +212,7 @@
   {
     "[Agent]": "2do Uniconta AI Agent",
     "[Registry Id]": "P_00000000-0000-4000-8000-000000000002",
+    "[Agent Key]": "registry:P_00000000-0000-4000-8000-000000000002",
     "[In Registry]": true,
     "[Type]": "Marketplace",
     "[Creator]": "2do IT",
@@ -222,6 +233,7 @@
   {
     "[Agent]": "Abe",
     "[Registry Id]": "P_00000000-0000-4000-8000-000000000003",
+    "[Agent Key]": "registry:P_00000000-0000-4000-8000-000000000003",
     "[In Registry]": true,
     "[Type]": "Marketplace",
     "[Creator]": "Dalikoo",
@@ -242,6 +254,7 @@
   {
     "[Agent]": "Agent",
     "[Registry Id]": "T_00000000-0000-4000-8000-000000000004",
+    "[Agent Key]": "registry:T_00000000-0000-4000-8000-000000000004",
     "[In Registry]": true,
     "[Type]": "Maker: Copilot Studio",
     "[Creator]": null,
@@ -262,6 +275,7 @@
   {
     "[Agent]": "Agent",
     "[Registry Id]": "T_00000000-0000-4000-8000-000000000005",
+    "[Agent Key]": "registry:T_00000000-0000-4000-8000-000000000005",
     "[In Registry]": true,
     "[Type]": "Maker: Copilot Studio",
     "[Creator]": null,
@@ -282,6 +296,7 @@
   {
     "[Agent]": "Agent",
     "[Registry Id]": "T_00000000-0000-4000-8000-000000000006",
+    "[Agent Key]": "registry:T_00000000-0000-4000-8000-000000000006",
     "[In Registry]": true,
     "[Type]": "Maker: Copilot Studio",
     "[Creator]": null,
@@ -302,6 +317,7 @@
   {
     "[Agent]": "Agent",
     "[Registry Id]": "T_00000000-0000-4000-8000-000000000007",
+    "[Agent Key]": "registry:T_00000000-0000-4000-8000-000000000007",
     "[In Registry]": true,
     "[Type]": "Maker: Copilot Studio",
     "[Creator]": null,
@@ -322,6 +338,7 @@
   {
     "[Agent]": "Agent",
     "[Registry Id]": "T_00000000-0000-4000-8000-000000000008",
+    "[Agent Key]": "registry:T_00000000-0000-4000-8000-000000000008",
     "[In Registry]": true,
     "[Type]": "Maker: Copilot Studio",
     "[Creator]": null,
@@ -342,6 +359,7 @@
   {
     "[Agent]": "Employee Self-Service (P)",
     "[Registry Id]": "T_00000000-0000-4000-8000-000000000009",
+    "[Agent Key]": "registry:T_00000000-0000-4000-8000-000000000009",
     "[In Registry]": true,
     "[Type]": "Maker: Copilot Studio",
     "[Creator]": "GYN",
@@ -362,6 +380,7 @@
   {
     "[Agent]": "Hardware Advisor",
     "[Registry Id]": "T_00000000-0000-4000-8000-000000000010",
+    "[Agent Key]": "registry:T_00000000-0000-4000-8000-000000000010",
     "[In Registry]": true,
     "[Type]": "Maker: Copilot Studio",
     "[Creator]": "Your developer name",
@@ -382,6 +401,7 @@
   {
     "[Agent]": "Hardware Advisor",
     "[Registry Id]": "T_00000000-0000-4000-8000-000000000011",
+    "[Agent Key]": "registry:T_00000000-0000-4000-8000-000000000011",
     "[In Registry]": true,
     "[Type]": "Maker: Copilot Studio",
     "[Creator]": null,

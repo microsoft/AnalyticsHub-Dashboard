@@ -49,7 +49,7 @@ export const BUILT_IN_PACKS: readonly ReportPack[] = [
         id: "builtin-adoption-review",
         name: "Adoption review",
         description: "Who started, who stayed, and who to license next",
-        stages: ["activation", "adoption", "habit-formation", "trend-heatmap", "leaderboard", "habit-licence"],
+        stages: ["activation", "adoption", "habit-formation", "trend-heatmap", "habit-licence"],
         builtIn: true,
     },
 ];

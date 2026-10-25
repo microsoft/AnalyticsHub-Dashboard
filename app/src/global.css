@@ -248,7 +248,7 @@
     /* Green comes from Consumption Central's theme rather than the ValueLens
        one, so the page built on that report still looks like it. */
     --vl-green: #3d8b4f;       --vl-green-text: #2e6b3c;     --vl-green-tint: #e8f3ea;
-    /* Cyan belongs to Agent Evaluation alone, so a page about agents reads apart
+    /* Cyan belongs to Agents alone, so the page about agents reads apart
        from the pages about people. */
     --vl-cyan: #1b8fb5;        --vl-cyan-text: #0e6a88;      --vl-cyan-tint: #e3f3f8;
     /* Indigo belongs to Work patterns, the page about Microsoft 365 rather than
@@ -308,25 +308,6 @@
     --color-data-1: var(--vl-blue);
     --color-data-2: var(--vl-teal);
     --color-data-3: var(--vl-amber);
-    --color-data-4: var(--vl-plum);
-    --color-data-5: var(--vl-lavender);
-    --color-data-6: var(--vl-coral);
-    --color-data-7: var(--vl-navy);
-    --color-data-8: var(--vl-periwinkle);
-    --color-data-9: var(--vl-slate);
-    --color-data-10: var(--vl-ink);
-  }
-
-  .palette-leaderboards {
-    --color-brand: var(--vl-amber-strong);
-    --color-brand-foreground: var(--vl-amber-text);
-    --color-primary: var(--vl-amber-text);
-    --color-ring: var(--vl-amber-text);
-    --color-accent: var(--vl-amber-tint);
-    --color-accent-foreground: var(--vl-amber-text);
-    --color-data-1: var(--vl-amber-strong);
-    --color-data-2: var(--vl-blue);
-    --color-data-3: var(--vl-teal);
     --color-data-4: var(--vl-plum);
     --color-data-5: var(--vl-lavender);
     --color-data-6: var(--vl-coral);
@@ -433,9 +414,9 @@
     --color-data-10: var(--vl-ink);
   }
 
-  /* Agent Evaluation leads with cyan and keeps teal, amber and coral clear of
-     its first series, since its charts use them for how conversations end. */
-  .palette-agent-evaluation {
+  /* Agents leads with cyan and keeps teal, amber and coral clear of its first
+     series, since its status chips use them for an agent's lifecycle. */
+  .palette-agents {
     --color-brand: var(--vl-cyan);
     --color-brand-foreground: var(--vl-cyan-text);
     --color-primary: var(--vl-cyan-text);

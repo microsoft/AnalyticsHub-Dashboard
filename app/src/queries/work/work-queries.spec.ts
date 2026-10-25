@@ -12,10 +12,6 @@ import {
     leaderboardCohorts,
     leaderboardConcentration,
     leaderboardMeasures,
-    leaderboardPeople,
-    leaderboardSummary,
-    leaderboardSummaryColumns,
-    leaderboardTasks,
     surfaceUsage,
     taskBreakdown,
     taskDimensions,
@@ -36,24 +32,9 @@ const modules = [
         columns: liveColumns.surfaceUsage,
     },
     ...leaderboardCohorts.map(({ id }) => ({
-        name: `leaderboardSummary (${id})`,
-        factory: () => leaderboardSummary(id),
-        columns: liveColumns.leaderboardSummary[id],
-    })),
-    ...leaderboardCohorts.map(({ id }) => ({
-        name: `leaderboardPeople (${id})`,
-        factory: () => leaderboardPeople(id),
-        columns: liveColumns.leaderboardPeople,
-    })),
-    ...leaderboardCohorts.map(({ id }) => ({
         name: `leaderboardConcentration (${id})`,
         factory: () => leaderboardConcentration(id),
         columns: liveColumns.leaderboardConcentration,
-    })),
-    ...leaderboardCohorts.map(({ id }) => ({
-        name: `leaderboardTasks (${id})`,
-        factory: () => leaderboardTasks(id),
-        columns: id === "cowork" ? liveColumns.leaderboardCoworkTasks : liveColumns.leaderboardTasks,
     })),
 ];
 
@@ -214,24 +195,18 @@ describe("work spec field references", () => {
     });
 });
 
-describe("leaderboard queries", () => {
-    const cohortQueries = leaderboardCohorts.flatMap(({ id }) => [
-        { name: `people (${id})`, cohort: id, query: leaderboardPeople(id).query },
-        { name: `tasks (${id})`, cohort: id, query: leaderboardTasks(id).query },
-        { name: `summary (${id})`, cohort: id, query: leaderboardSummary(id).query },
-    ]);
+describe("session concentration queries", () => {
     const concentrationQueries = leaderboardCohorts.map(({ id }) => ({
         name: `concentration (${id})`,
         cohort: id,
         query: leaderboardConcentration(id).query,
     }));
-    const everyQuery = [...cohortQueries, ...concentrationQueries];
 
-    it.each([...cohortQueries, ...concentrationQueries])("$name leaves no unsubstituted placeholders", ({ query }) => {
+    it.each(concentrationQueries)("$name leaves no unsubstituted placeholders", ({ query }) => {
         expect(query).not.toMatch(/__[A-Z_]+__/);
     });
 
-    // The top slices sum the sessions the people list sorts by, for the same people.
+    // The top slices sum the cohort's own sessions per person.
     it.each(concentrationQueries)("$name sums its own cohort's sessions per person", ({ cohort, query }) => {
         expect(query).toContain(`"@Sessions", [${leaderboardMeasures(cohort).sessions}]`);
         expect(query).toContain(`'Chat + Agent Interactions (Audit Logs)'[Audit_UserId]`);
@@ -240,7 +215,7 @@ describe("leaderboard queries", () => {
         );
     });
 
-    // Leaderboards shows the top 1%, 5% and 25% without a curve, so its query
+    // Adoption shows the top 1%, 5% and 25% without a curve, so its query
     // asks for those three cuts alone, still over the org-and-person rows.
     it.each(concentrationQueries)("$name works out only the top slices", ({ query }) => {
         expect(query).toContain(`SELECTCOLUMNS({ 1, 5, 25 }, "@Count", QUOTIENT(__Count * [Value] + 99, 100))`);
@@ -248,67 +223,9 @@ describe("leaderboard queries", () => {
         expect(query).not.toMatch(/GENERATESERIES|UNION|__Steps/);
     });
 
-    // The report's bookmarks each bind their own cohort's measures, so a
-    // template filled with the wrong ones would rank the wrong sessions.
-    it.each(cohortQueries)("$name binds its own cohort's measures", ({ cohort, query }) => {
-        const measures = leaderboardMeasures(cohort);
-        expect(query).toContain(`[${measures.users}]`);
-        expect(query).toContain(`[${measures.sessions}]`);
-        expect(query).toContain(`[${measures.perWeek}]`);
-    });
-
-    it.each(everyQuery)("$name leaves Security Copilot out, as the report's page filter does", ({ query }) => {
+    it.each(concentrationQueries)("$name leaves Security Copilot out, as the report's page filter does", ({ query }) => {
         expect(query).toContain(
             `NOT CONTAINSSTRING('Chat + Agent Interactions (Audit Logs)'[AppHost], "SecurityCopilot")`,
         );
-    });
-
-    it("breaks Cowork down by what the work was, and every other cohort by app and Task Breakdown", () => {
-        for (const { id } of leaderboardCohorts) {
-            const levels =
-                id === "cowork" ? ["Task Breakdown Group", "Task Breakdown Category"] : ["AppHost", "Behavior_Enriched_Full"];
-            const rollup = new RegExp(
-                `ROLLUPADDISSUBTOTAL\\(\\s*'Chat \\+ Agent Interactions \\(Audit Logs\\)'\\[${levels[0]}\\], "Is Grand Total",\\s*` +
-                    `'Chat \\+ Agent Interactions \\(Audit Logs\\)'\\[${levels[1]}\\], "Is Group Total"`,
-            );
-            expect(leaderboardTasks(id).query, `cohort "${id}"`).toMatch(rollup);
-        }
-    });
-
-    it("names Cowork's levels Task Category then Task Breakdown, and every cohort's leaves Task Breakdown", () => {
-        for (const { id } of leaderboardCohorts) {
-            expect(leaderboardTasks(id).levels.leafNoun, `cohort "${id}"`).toBe("Task Breakdown");
-        }
-        expect(leaderboardTasks("cowork").levels.groupNoun).toBe("Task Category");
-    });
-
-    it("names every cohort's cards in its summary", () => {
-        for (const { id } of leaderboardCohorts) {
-            const available = new Set<string>(liveColumns.leaderboardSummary[id]);
-            for (const column of Object.values(leaderboardSummaryColumns(id))) {
-                expect(available, `cohort "${id}"`).toContain(column);
-            }
-        }
-    });
-
-    // All five cohorts' cards in one row took about twice as long as one at 20,000 people.
-    it("asks the summary for the chosen cohort's cards only", () => {
-        for (const { id } of leaderboardCohorts) {
-            const query = leaderboardSummary(id).query;
-            for (const { id: other } of leaderboardCohorts) {
-                if (other === id) continue;
-                expect(query, `cohort "${id}" asks for "${other}"`).not.toContain(`[${leaderboardMeasures(other).sessions}]`);
-            }
-        }
-    });
-
-    it("groups people by whichever org column is chosen", () => {
-        const { query, columnMetadata } = leaderboardPeople("licensed", describeOrgAttribute("Department"));
-        expect(query).toContain("'Chat + Agent Org Data'[Department]");
-        expect(query).not.toContain("[Organization]");
-        expect(columnMetadata["Chat + Agent Org Data[Department]"]).toMatchObject({
-            name: "Chat + Agent Org DataOrganization",
-            displayName: "Department",
-        });
     });
 });

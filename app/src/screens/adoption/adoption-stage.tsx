@@ -21,6 +21,8 @@ import { selectedCohort, unshownActivity, type FilterKey } from "@/lib/filters";
 import { readNumber, readText } from "@/lib/summary-row";
 import { toDataTable } from "@/lib/to-data-table";
 import { adoptionTrend, type AdoptionTrendMeasure } from "@/queries/adoption";
+import type { LeaderboardCohort } from "@/queries/work";
+import { AdoptionConcentration } from "./adoption-concentration";
 import { adoptionTrendHeadline } from "./headlines";
 import { useAdoptionSummary } from "./use-adoption-summary";
 
@@ -35,6 +37,17 @@ const surfaces = [
 /** Every card and trend line here is already one surface, so these filters pick the card to highlight instead. */
 const SURFACE_FILTERS: FilterKey[] = ["licence", "audience"];
 const PICKABLE = ["licensed", "unlicensed", "agents"] as const;
+/** The groups the License and Activity filters narrow the top 1/5/25% to. */
+const RANKED = ["licensed", "unlicensed", "agents", "cowork"] as const;
+
+/** What a cohort's sessions are called. */
+const SESSIONS_NOUN: Record<LeaderboardCohort, string> = {
+    all: "sessions",
+    licensed: "licensed sessions",
+    unlicensed: "unlicensed sessions",
+    agents: "agent sessions",
+    cowork: "Cowork sessions",
+};
 
 const trendMeasures: { id: AdoptionTrendMeasure; label: string }[] = [
     { id: "sessionsPerUser", label: "Per user" },
@@ -55,6 +68,7 @@ export function AdoptionStage() {
     const cohort = selectedCohort(filters, applicable, PICKABLE);
     const highlighted = surfaces.find((surface) => surface.id === cohort) ?? surfaces[0];
     const unshown = unshownActivity(filters, applicable, PICKABLE);
+    const ranked: LeaderboardCohort = selectedCohort(filters, applicable, RANKED);
     const surfaceReason = unshown
         ? `${unshown} has no card of its own, so ${highlighted.label} is highlighted.`
         : `licensed chat, unlicensed chat and agents are each shown in their own card and line, so ${highlighted.label} is highlighted.`;
@@ -200,6 +214,8 @@ export function AdoptionStage() {
                     </Headlined>
                 )}
             </div>
+
+            <AdoptionConcentration cohort={ranked} noun={SESSIONS_NOUN[ranked]} />
         </Section>
     );
 }

@@ -933,7 +933,8 @@ and what to read (`argManagementGroup`, `argAgents`, `argFoundry`). Demo mode le
 
 ## Agent Evaluator
 
-Optional. It fills the app's Agent Evaluation pages from your Copilot Studio conversations. See
+Optional. It builds the Agent Evaluator model from your Copilot Studio conversations, with its
+Power BI report on Fabric. The app's **Agents** page links to it. See
 [Agent Evaluator](../fabric/Add%20Agent%20Evaluator/).
 
 **Which environments.** When you have more than one, the installer always asks which to read.
@@ -948,7 +949,7 @@ transcripts for 30 days by default, so a first run usually finds about a month's
 
 **When it finds none.** The parser records what it read in each environment in
 `evaluator_status`: how many transcripts, over how many days, and why any are missing. When there
-are none, the Agent Evaluation page says where it looked and how far back. To add environments,
+are none, that table says where it looked and how far back. To add environments,
 choose **Repair or change**, then **Agent Evaluator**. If an environment has transcripts but none
 are found, the reader likely has only Bot Transcript Viewer there, as on installs from before 0.6.8:
 choose **Update**, or **Repair or change**, as a System Administrator of the environment, so the

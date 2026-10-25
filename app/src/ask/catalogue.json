@@ -18,7 +18,7 @@
             ]
         },
         {
-            "destination": "leaderboards",
+            "destination": "agents",
             "questions": [
                 "Which agents have the most users?",
                 "How many registered agents are actually in use?"
@@ -29,13 +29,6 @@
             "questions": [
                 "How many Microsoft 365 users also use Copilot?",
                 "Which orgs use Copilot least in the flow of work?"
-            ]
-        },
-        {
-            "destination": "agent-evaluation",
-            "questions": [
-                "Which agent topics answer worst?",
-                "What share of agent conversations are resolved?"
             ]
         },
         {
@@ -189,7 +182,7 @@
         },
         {
             "name": "agent_usage",
-            "page": "leaderboards",
+            "page": "agents",
             "model": "vl",
             "query": "agents/agent-usage.dax",
             "filters": ["dateRange", "organizations"],
@@ -198,7 +191,7 @@
         },
         {
             "name": "agent_estate",
-            "page": "leaderboards",
+            "page": "agents",
             "model": "vl",
             "query": "agents/agent-estate-summary.dax",
             "filters": ["dateRange"],
@@ -219,22 +212,6 @@
             "query": "work-patterns/m365-by-org.dax",
             "filters": ["dateRange", "organizations"],
             "description": "Per organization: Microsoft 365 activity and the share using Copilot. Organizations under the minimum number of people are already left out."
-        },
-        {
-            "name": "agent_performance",
-            "page": "agent-evaluation",
-            "model": "ae",
-            "query": "agent-evaluation/performance-summary.dax",
-            "filters": [],
-            "description": "Agent Evaluator headline: conversations, people, resolution rate, implied success, true failure rate, failing conversations, hours lost, escalation and abandonment rates."
-        },
-        {
-            "name": "topic_health",
-            "page": "agent-evaluation",
-            "model": "ae",
-            "query": "agent-evaluation/topic-health.dax",
-            "filters": [],
-            "description": "Each topic theme and topic with conversations, resolved share, failing conversations, friction, knowledge gaps, turns to resolve and CSAT; the most failing first."
         },
         {
             "name": "governance_summary",

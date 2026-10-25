@@ -22,6 +22,11 @@ const columnMetadata: ColumnMetadataMap = {
         displayName: "Sessions per agent user",
         format: FORMAT_RATE,
     },
+    "[Sessions Per User Per Week]": {
+        name: "Sessions Per User Per Week",
+        displayName: "Sessions per agent user per week",
+        format: FORMAT_RATE,
+    },
 };
 
 /**

@@ -1,0 +1,27 @@
+[
+  {
+    "Chat + Agent Org Data[Organization]": "Finance",
+    "[Users]": 18,
+    "[Sessions]": 160
+  },
+  {
+    "Chat + Agent Org Data[Organization]": "Sales",
+    "[Users]": 14,
+    "[Sessions]": 121
+  },
+  {
+    "Chat + Agent Org Data[Organization]": "Operations",
+    "[Users]": 11,
+    "[Sessions]": 96
+  },
+  {
+    "Chat + Agent Org Data[Organization]": "HR",
+    "[Users]": 9,
+    "[Sessions]": 70
+  },
+  {
+    "Chat + Agent Org Data[Organization]": null,
+    "[Users]": 6,
+    "[Sessions]": 44
+  }
+]

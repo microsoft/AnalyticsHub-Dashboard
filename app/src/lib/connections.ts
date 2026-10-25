@@ -9,6 +9,8 @@
 export interface ModelReference {
     workspaceId?: string;
     itemId?: string;
+    /** A Power BI report on this model, in the same workspace, that the app links to instead of the model. */
+    reportId?: string;
 }
 
 export type ModelReferences = Readonly<Record<string, ModelReference | undefined>>;

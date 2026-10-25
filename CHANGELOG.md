@@ -20,6 +20,20 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**Changed:**
+
+- **App: one Agents page replaces Leaderboards and Agent Evaluation.** It shows the agents in use
+  (and registered, with the Agent 365 registry), the people using agents and their sessions, people
+  using agents each week, and people by agent type. Its table lists the 200 most-used agents, by
+  people then sessions, with search and an export of every match (up to 1,000). A row opens that
+  agent's weekly use, top organisations and details, with a link to Agent Evaluator when that add-on
+  is installed: to its report when the install names one (`reportId` on `ae`), otherwise its model. The people ranking stays in the Power BI report's Leaderboard page, and
+  the top 1%, 5% and 25% share of sessions moves to Adoption. The app no longer queries the Agent
+  Evaluator model: the installer still sets it up when you choose it, and on Fabric publishes its
+  report, which keeps the measures the Agent Evaluation page showed. On Azure the link opens the
+  model in Power BI until the installer publishes the report there too. Existing installs get the new page
+  with **Update**, or **Repair or change**.
+
 **Fixed:**
 
 - **Azure uninstall from a resource group you already had.** It asked Azure to delete each resource

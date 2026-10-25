@@ -29,8 +29,8 @@ const MODEL_TIMEOUT_MS = 90 * 1000;
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 const PAGE_LABELS = {
-  executive: 'Executive summary', adoption: 'Adoption', leaderboards: 'Leaderboards', 'work-patterns': 'Work patterns',
-  'agent-evaluation': 'Agent evaluation', governance: 'Governance', readiness: 'Readiness', consumption: 'Consumption',
+  executive: 'Executive summary', adoption: 'Adoption', agents: 'Agents', 'work-patterns': 'Work patterns',
+  governance: 'Governance', readiness: 'Readiness', consumption: 'Consumption',
   value: 'Value', efficiency: 'Efficiency', feedback: 'Feedback', appendix: 'Appendix'
 };
 

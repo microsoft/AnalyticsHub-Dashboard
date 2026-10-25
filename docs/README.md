@@ -8,8 +8,8 @@ Everything that isn't a setup step. To set Analytics Hub up, start at the
 History, your organisation, agents, value and cost, on top of the official Copilot reports. See
 [What it adds](FAQ.md#what-does-it-add-to-the-official-reports).
 
-**Pages:** Executive summary · Adoption · Value · Consumption · Efficiency · Leaderboards · Work
-patterns · Readiness · Agent Evaluation · Governance · Feedback · Ask · Assumptions · Appendix.
+**Pages:** Executive summary · Adoption · Value · Consumption · Efficiency · Agents · Work
+patterns · Readiness · Governance · Feedback · Ask · Assumptions · Appendix.
 Screenshots and every section: **[App guide](APP-GUIDE.md)**.
 
 **Demo video:** the app, page by page.

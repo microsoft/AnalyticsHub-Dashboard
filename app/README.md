@@ -17,9 +17,9 @@ unavailable full counts rather than substituting the displayed row count.
 
 Group and grand totals still cover the full filtered population, including
 groups whose people are outside the cap. Person-row counts can include the
-same person under multiple groups. Leaderboard and Studio concentration are
+same person under multiple groups. Adoption's and Studio's concentration are
 computed separately across all person rows, combining repeat person keys
-before selecting positive values; Leaderboard returns only the top 1%, 5%
+before selecting positive values; Adoption's returns only the top 1%, 5%
 and 25% cuts, without a curve. Value by habit returns whole-population
 habit totals and concentration cuts, not a truncated person list. Agent
 spotlights return full-population maxima and tie counts with two named
@@ -46,6 +46,8 @@ From this folder (`app`):
    ValueLens model's IDs. They're in the model's URL:
    `app.powerbi.com/groups/<workspaceId>/datasets/<itemId>`. Do the same under `cc` for
    Consumption Central and `ae` for Agent Evaluator, or delete those blocks to hide their pages.
+   The app runs no queries on Agent Evaluator: the **Agents** page links to its model, or to
+   its report when the runtime config gives a `reportId` for `ae`.
 3. Deploy, and sign in when asked:
    ```powershell
    npx rayfin up --workspace-uri "https://app.fabric.microsoft.com/groups/<workspace-id>"
@@ -71,8 +73,8 @@ To update it, run `npx rayfin up` again.
 The app also leaves out pages and sections whose optional data hasn't arrived. When it opens, it
 counts the rows in the ValueLens model's optional sources (unfiltered), in one query. **Feedback**
 needs `ProductFeedback` and **Work patterns** needs `M365 Activity`. Without registry data, **Governance**
-shows how to connect the Agent 365 registry instead of empty sections, and the **Agents** leaderboard
-drops its registry columns. Governance's **Shadow AI** section needs `Defender Status`, and says how to
+shows how to connect the Agent 365 registry instead of empty sections, and the **Agents** page
+drops its registered count, its agent types chart and its registry columns. Governance's **Shadow AI** section needs `Defender Status`, and says how to
 turn Defender on without it; it doesn't depend on the registry. Newer installer builds also write which optional modules were switched
 off into `fabric.config.json` (on Azure, the web app serves them in `/app.config.json`); those
 pages stay hidden without probing until the admin turns the module on. Everything shows while the
@@ -87,8 +89,8 @@ The app is built to stay quick for a large tenant (about 20,000 people):
   The filter bar shows the dates and says it's the default for large organizations; **Show all
   dates** widens it in one click. Each query works out the tenant's size and the 12 weeks itself,
   so the first page doesn't wait for the filter options. A smaller tenant starts on **All dates**.
-  **Reset filters** goes back to the tenant's default. Consumption Central and the Agent Evaluator
-  keep every date until you choose a range, and say so on a large tenant. `LARGE_TENANT_PEOPLE` in
+  **Reset filters** goes back to the tenant's default. Consumption Central keeps every date until
+  you choose a range, and says so on a large tenant. `LARGE_TENANT_PEOPLE` in
   `src/lib/filters.ts` sets the threshold.
 - **One tab at a time.** Each page shows one section at a time, as tabs, and opening a tab runs
   only that tab's queries. Downloads and report packs still include every section.
@@ -97,8 +99,8 @@ The app is built to stay quick for a large tenant (about 20,000 people):
   filter menu other than the dates first opens, the menus' choices load, so that first open can
   take about a second, or a few if the org columns haven't loaded yet. The org columns then move on
   screen, as they do when a breakdown by org shows. See [How the app opens](../docs/ARCHITECTURE.md#how-the-app-opens).
-- **Long lists wait for a click.** The leaderboard ranking and the by-organization and by-person
-  lists load when you choose **Show …**. The cards above them still count everyone, and downloads
+- **Long lists wait for a click.** The by-organization and by-person lists load when you choose
+  **Show …**. The cards above them still count everyone, and downloads
   and report packs still print the lists in full.
 - **The next pages load in the background.** Once the page on screen has loaded, the app fetches
   the first tab of the next two pages in the menu, one query at a time, and waits whenever the page

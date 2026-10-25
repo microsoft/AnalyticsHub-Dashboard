@@ -15,8 +15,7 @@ export type FreshnessSource =
     | "agentRegistry"
     | "cowork"
     | "copilotStudio"
-    | "azure"
-    | "agentEvaluation";
+    | "azure";
 
 export const FRESHNESS_LABELS: Readonly<Record<FreshnessSource, string>> = {
     auditLog: "Audit log",
@@ -26,7 +25,6 @@ export const FRESHNESS_LABELS: Readonly<Record<FreshnessSource, string>> = {
     cowork: "Cowork",
     copilotStudio: "Copilot Studio",
     azure: "Azure",
-    agentEvaluation: "Agent evaluation",
 };
 
 /**
@@ -41,13 +39,12 @@ export const SOURCE_LOADS: Readonly<Record<FreshnessSource, readonly string[]>> 
     cowork: ["Refresh_Cowork_Credits", "Run_Consumption_Viva"],
     copilotStudio: ["Run_Consumption_Studio"],
     azure: ["Run_Consumption_Azure_AI"],
-    agentEvaluation: ["Run_Agent_Evaluator_Transcripts"],
 };
 
 /** One load's outcome on the latest pipeline run, from the `Load Log` table. */
 export interface LoadStatus {
     activity: string;
-    /** The load's plain name, such as "Agent transcripts". */
+    /** The load's plain name, such as "Product feedback". */
     source: string;
     /** Succeeded, Warning, Failed, Skipped, Cancelled or TimedOut. */
     status: string;
@@ -57,7 +54,7 @@ export interface LoadStatus {
 const FAILED_STATUSES: ReadonlySet<string> = new Set(["failed", "cancelled", "timedout"]);
 
 /**
- * "Agent transcripts loaded with a warning: It ran, but found nothing to load
+ * "Product feedback loaded with a warning: It ran, but found nothing to load
  * in Sales." for each load behind `sources` that failed or loaded with a
  * warning on the latest run, in the order given. Loads that succeeded or were
  * skipped are left out.
@@ -85,9 +82,8 @@ const WEEKLY: ReadonlySet<FreshnessSource> = new Set(["cowork"]);
 export const PAGE_SOURCES: Readonly<Record<DestinationId, readonly FreshnessSource[]>> = {
     executive: ["auditLog"],
     adoption: ["auditLog"],
-    leaderboards: ["auditLog"],
+    agents: ["auditLog"],
     "work-patterns": ["m365Activity"],
-    "agent-evaluation": ["agentEvaluation"],
     governance: ["agentRegistry"],
     readiness: ["auditLog"],
     consumption: ["cowork", "copilotStudio", "azure"],

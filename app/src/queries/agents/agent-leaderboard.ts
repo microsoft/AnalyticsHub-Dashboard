@@ -56,6 +56,8 @@ export function agentLeaderboard() {
 export interface AgentEntry {
     /** Unique per row: the registry id, or the audit log's name for an agent the registry lacks. */
     key: string;
+    /** The query's own key, as `agentFilter` reads it: `registry:<id>`, `audit:text:<name>` or `audit:blank`. */
+    agentKey: string;
     name: string;
     registryId?: string;
     inRegistry: boolean;
@@ -129,6 +131,7 @@ export function toAgentEntries(table: DataTable): AgentEntry[] {
 
         return {
             key: repeat === 0 ? base : `${base}#${repeat + 1}`,
+            agentKey: base,
             name,
             registryId,
             inRegistry: cell("In Registry") === true,

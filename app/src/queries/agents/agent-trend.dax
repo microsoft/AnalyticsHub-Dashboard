@@ -1,0 +1,11 @@
+EVALUATE
+// One agent's weekly use. The app swaps the placeholder below for the filter
+// that picks the agent out, as the agents table names it: its registry entry,
+// or its audit-log name with no registry entry.
+SUMMARIZECOLUMNS(
+    'Chat + Agent Interactions (Audit Logs)'[WeekStart],
+    __AGENT__,
+    "Users", [Active Agent Users],
+    "Sessions", [Observed Agent Sessions]
+)
+ORDER BY 'Chat + Agent Interactions (Audit Logs)'[WeekStart]

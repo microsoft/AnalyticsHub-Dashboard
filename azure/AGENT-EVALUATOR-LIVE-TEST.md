@@ -13,7 +13,7 @@ transcripts:
 - the jobs reading and parsing the transcripts;
 - the Azure SQL tables;
 - the Agent Evaluator model;
-- the app's pages.
+- the app's link to it.
 
 It also times the run, and checks that Repair or change, `status` and `uninstall` add and remove
 what they should. `tests/test_azure_agent_evaluator.py` covers the collector against a fake
@@ -32,7 +32,7 @@ are in `ContainerAppConsoleLogs` (columns `ContainerGroupName` and `Log`), not
 | **Data read** | Up to 180 days of Copilot Studio transcripts from those environments. The jobs keep only parsed rows: prompts, replies and error messages as 500-character previews; feedback comments as written, up to 4,000 characters; and each person's Entra object ID and UPN. They're kept in the test install's storage account and Azure SQL database, and are deleted with its resource group. |
 | **Spend** | One Azure install in a new resource group that holds nothing else. If you build the images (step 0), also an Azure Container Registry in its own resource group. Both are deleted the same day. See [What it costs](../docs/PREREQUISITES.md#what-it-costs). |
 | **Power BI** | A new workspace with the install's models. Uninstall asks whether to delete it, and you say yes (step 13). |
-| **Teams** (optional) | Publishing the Teams app to the org catalog, to check the pages in Teams, Outlook and the Microsoft 365 app. It's a Teams change, so it needs separate approval. |
+| **Teams** (optional) | Publishing the Teams app to the org catalog, to check the link in Teams, Outlook and the Microsoft 365 app. It's a Teams change, so it needs separate approval. |
 | **Graph** | No new permission. The UPN lookup uses `User.Read.All`, which the identity already has for the core data. |
 
 ## What you need
@@ -263,7 +263,7 @@ Check:
 - **Bot lookup.** Note whether `no bot lookup on conversationtranscripts` appears. If it does,
   check that the app still names each agent.
 
-## 4. The model, the pages and `status`
+## 4. The model, the link and `status`
 
 ```powershell
 npx valuelens-install status --config $rec
@@ -299,28 +299,14 @@ Get-Schedule
   - Sessions, Turns, Errors and Performance equal R on the `publish` lines for `agent_sessions`,
     `agent_turns`, `agent_errors` and `agent_performance`.
   - The longest preview is 500 characters or fewer, and the longest feedback 4,000 or fewer.
-- **The app's queries.** Run every query on the Agent Evaluation pages against the model, from
-  the clone's root. Comparing the model with itself shows which queries fail.
-
-  ```powershell
-  node azure/tools/parity.mjs --a "$ws/$ds" --b "$ws/$ds" --only agent-evaluation/ --out parity-ae.json
-  node azure/tools/parity.mjs --a "$ws/$ds" --b "$ws/$ds" --only freshness/evaluator --out parity-ae-freshness.json
-  ```
-
-  - Every query should be `match`, or `both-empty` where there's no data for it. None should be
-    `both-error`.
-  - The script exits 0 whatever it finds, so read the summary.
-  - It signs in with `az login`, or uses `POWERBI_TOKEN` if that's set.
-- **Pages.** Open the web app as a viewer, and go to **Agent Evaluation**. Check:
-  - **Performance** and **Conversations & topics** load, with no error on any visual.
-  - The **Date** presets, the **Department** and **Agent** slicers, and **Group by** on Performance
-    each change the visuals without an error.
-  - Wherever a page shows a total, it matches the DAX counts for the same dates.
-  - The freshness line says **Agent evaluation to** the date of the latest transcript.
-  - If the Teams app was published, all of the above in Teams, Outlook and the Microsoft 365 app
-    too.
+- **The app's link.** The app runs no queries on Agent Evaluator, so the DAX counts above are the
+  model check. Open the web app as a viewer, go to **Agents**, and open an agent. Check:
+  - Its details end with **Open in Agent Evaluator**, which opens the Agent Evaluator report in
+    Power BI when the install published one, or else the model.
+  - The app has no **Agent Evaluation** page.
+  - If the Teams app was published, the same in Teams, Outlook and the Microsoft 365 app too.
 - **Org-scoped access** (optional). Turn it on with `access`. A viewer who's given one org should
-  see only that org's sessions on these pages.
+  see only that org's sessions in the model, from the link.
 
 ## 5. The next run
 
@@ -511,7 +497,7 @@ Run `update`, choose **Repair or change**, open **Module connections**, and unti
   still finds the user, with Bot Transcript Viewer and the role you made in step 7.
 - The record has no `transcriptAccess` entries.
 - `status` still shows `Evaluator:      <model ID>`, then `Agents:         no environments chosen`.
-- The Agent Evaluation pages still show the sessions already read.
+- The model still holds the sessions already read.
 - `Get-Schedule` says `false`: nothing new can load, so the model's scheduled refresh is off.
 - The next run has no `Agent Evaluator:` line. It says
   `collect agent_evaluator: VALUELENS_DATAVERSE_ENVIRONMENTS lists no environment yet; skipped` and
@@ -528,7 +514,7 @@ Run `update`, choose **Repair or change**, open **Data collection**, and untick
 **Agent Evaluator**. Expect:
 - A's role deleted and its user removed as in step 9, and B's role deleted and its user left as in
   step 10.
-- The Agent Evaluation pages are gone from the web app, once its new revision is running.
+- The Agents page's **Open in Agent Evaluator** link is gone, once the web app's new revision is running.
 - `status` has no `Evaluator:` or `Agents:` lines.
 - The model is still in the workspace, and the record keeps its ID:
   `(Get-Content $rec -Raw | ConvertFrom-Json).azure.powerBi.agentEvaluatorDatasetId` is `$ds`.
@@ -539,7 +525,7 @@ Then tick **Agent Evaluator** again. **Module connections** still has A and B ti
 - `status` shows the same `Evaluator:` ID, and the workspace still has one Agent Evaluator model.
 - A's roles as in step 9. In B, the installer creates its role again and gives it, as in step 7:
   unticking the module deleted it, and kept B's user with its other roles.
-- The pages are back, `Get-Schedule` says `true`, and the next run reads both and ends with
+- The link is back, `Get-Schedule` says `true`, and the next run reads both and ends with
   `refresh: ae`.
 
 ## 12. Demo mode (optional)
@@ -551,12 +537,12 @@ Demo mode changes the whole install, not only Agent Evaluator, so this step is o
   identity … keeps its access in 2 environments for when you switch to your tenant's data.`
 - `Get-Dv $A` and `Get-Dv $B` find both users as they were, each with its roles, and the
   installer's role is still in both environments.
-- The Agent Evaluation pages are gone, `status` has no `Evaluator:` or `Agents:` lines, and
+- The **Open in Agent Evaluator** link is gone, `status` has no `Evaluator:` or `Agents:` lines, and
   `Get-Schedule` says `false`.
 
 Then switch back to **Your tenant's data**. Expect
 `The jobs' managed identity can read every transcript in A`, the same for B, no change in
-Dataverse, and the pages, the `status` lines and the schedule back, with the same model ID.
+Dataverse, and the link, the `status` lines and the schedule back, with the same model ID.
 
 ## 13. Uninstall
 
@@ -600,25 +586,24 @@ Check A and B with `Get-Dv` and in the admin center. Neither has an
 | 3 | A's status `ok`, not `empty`; the `+N` total = the status count = the Dataverse count | |
 | 3 | V − C − F = `agent_sessions` rows; parse failures; 429 lines; bot lookup | |
 | 4 | The `status` lines; schedule on; refresh Completed; DAX counts = published rows; preview ≤ 500 and feedback ≤ 4,000 characters | |
-| 4 | `parity.mjs`: every query `match` or `both-empty` | |
-| 4 | Pages, slicers and the freshness line, in a browser (and in Teams, Outlook and Microsoft 365) | |
+| 4 | The Agents page's link to the model, and no Agent Evaluation page, in a browser (and in Teams, Outlook and Microsoft 365) | |
 | 5 | 14-day windows; most days unchanged | |
 | 6 | Paging: the same counts at 5 a page | |
 | 7 | The role made by hand, and what the admin center put in it; the admin center found the identity by client ID; `ReadAccess` on a transcript; no second user; the installer's role created and given in B, and B's user recorded as not created by the installer; B's first read | |
 | 7 | Optional: B `empty` with only Bot Transcript Viewer, `forbidden` with no role; C left out, `forbidden`, schedule still on | |
 | 8 | Read, parse tail, merge, publish, refresh and whole-run times; 429s; no OOMKilled | |
 | 9 | A's role deleted; whether the Web API deleted A's user, only soft-deleted it, or wouldn't delete it and the installer turned it back on without its roles; A's rows kept; A added again, with the role created again | |
-| 10 | No environment: pages kept; schedule off; `refresh: ae skipped`; the installer's role deleted in B and B's user left; both back | |
-| 11 | Module off: pages gone, schedule off, model and ID kept, the installer's roles deleted; back on: the same ID, the roles created again, schedule on | |
-| 12 | Optional demo mode: no Dataverse change; pages and schedule off, then back | |
+| 10 | No environment: rows kept; schedule off; `refresh: ae skipped`; the installer's role deleted in B and B's user left; both back | |
+| 11 | Module off: link gone, schedule off, model and ID kept, the installer's roles deleted; back on: the same ID, the roles created again, schedule on | |
+| 12 | Optional demo mode: no Dataverse change; link and schedule off, then back | |
 | 13 | Both installer roles deleted; A's user removed, or the steps printed; B's user left; the workspace and the resource group gone | |
 | 14 | Clean-up done | |
 
 ## Optional: compare with Fabric
 
 This needs a Fabric install whose Agent Evaluator reads the same environment at about the same
-time. Compare its model with the Azure one:
-`node azure/tools/parity.mjs --a <Fabric workspace ID>/<model ID> --b "$ws/$ds" --only agent-evaluation/ --out parity-ae-fabric.json`.
+time. Compare its model with the Azure one: run the row counts from step 4 against both, and
+compare them.
 
 It needs a Fabric capacity, so it costs more and needs separate approval. Row counts can differ by
 the transcripts that arrive between the two reads.

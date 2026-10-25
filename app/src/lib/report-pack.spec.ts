@@ -63,10 +63,10 @@ describe("parsePack", () => {
 
 describe("packRuns", () => {
     it("groups consecutive stages by destination, keeping pack order", () => {
-        const { runs, missing } = packRuns(["adoption", "activation", "leaderboard", "habit-formation"], all);
+        const { runs, missing } = packRuns(["adoption", "activation", "agents", "habit-formation"], all);
         expect(runs.map((run) => [run.destination.id, run.stages])).toEqual([
             ["adoption", ["adoption", "activation"]],
-            ["leaderboards", ["leaderboard"]],
+            ["agents", ["agents"]],
             ["adoption", ["habit-formation"]],
         ]);
         expect(missing).toEqual([]);
