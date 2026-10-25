@@ -89,12 +89,14 @@ Studio table with a real date**, and so the only one Consumption Central plots o
 Rows from the licensing API flow have `source_file = 'ppac-api'` and the all-zero
 `billing_plan_id`. They fill only the days and environments no export covers. They split each
 day's credits by the tenant-wide prepaid share from the latest entitlement snapshot (all prepaid
-without one), and `entitled_quantity` is the environment's allocation.
+without one), and `entitled_quantity` is the environment's allocation. Each run replaces them for
+the days its files cover, in one Delta commit, so a failed write leaves the table as it was.
 
 When the flow lands only the per-user file, rows with `source_file = 'ppac-api-users'` are summed from
 `studio_user_daily` for the days and environments that neither an export nor the per-agent file
 covers. Billed credits split by the same prepaid share, and non-billed credits count as prepaid.
-They're rebuilt on every run, so a later export or per-agent file replaces them. They are a floor:
+They're rebuilt on every run, in one Delta commit, so a failed write keeps the last run's rows,
+and a later export or per-agent file replaces them. They are a floor:
 the per-user route leaves out credits not tied to a user. No feature or model breakdown comes with
 them; that needs a Power Platform admin center export.
 
@@ -122,7 +124,8 @@ credits allocated appear. Per-user figures are in `studio_user_daily`.
 | `source_file` | string | Always `ppac-api` |
 
 **Merge key:** `usage_date`, `agent_id`, `billable_feature`, `channel`, `environment_id`. Each
-file restates the last ten days, so those days are replaced.
+file restates the last ten days, so those days are replaced, in one Delta commit: a failed write
+leaves the table as it was.
 
 For months no export covers, `studio_agent` also gets a `ppac-api` row per agent, summed from
 this table. An export for the month replaces them.
@@ -146,8 +149,9 @@ an undocumented licensing API route, so this is best effort: empty if the route 
 | `source_file` | string | Always `ppac-api` |
 | `_loaded_at` | timestamp | |
 
-**Merge key:** `usage_date`, `user_id`, `environment_id`, `agent_id`. Each file restates the last
-ten days, so those days are replaced.
+**Merge key:** `usage_date`, `user_id`, `environment_id`, `agent_id`. Each file restates
+the last ten days, so those days are replaced, in one Delta commit: a failed write leaves the
+table as it was.
 
 For months no export covers, `studio_user` also gets a `ppac-api` row per user and agent, summed
 from this table, with `user_email` set to `user_upn`. An export for the month replaces them.
