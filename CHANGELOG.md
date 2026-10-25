@@ -264,6 +264,20 @@ sets the number. On Fabric and Azure.
   been in the web app since 0.6.0, but the Share panel offers scoped delegation on Azure only since
   0.6.8-rc.2, so released versions, 0.6.7 included, couldn't reach it from the app.
 
+**Fixed:**
+
+- **Fabric: a failed Copilot Studio load no longer loses days of Studio credits.** For the
+  Copilot Studio credits flow's files, `Consumption_Ingest_Studio` deleted the rows for the days
+  and months the files cover, then wrote the new rows in a second Delta commit. When a run stopped
+  between the two, for example on an error or a timeout, those days stayed deleted. Consumption
+  Central showed fewer Studio credits for them until a later run's files covered them again, and
+  since each file restates only the last ten days, the oldest of them could stay short for good.
+  Now each of those writes replaces the rows in one Delta commit, so a write that fails leaves its
+  table as it was, and the next run fills it in. That includes the `ppac-api-users` totals summed
+  from the per-user file: a failed write keeps the last run's. The exports load as before. 0.6.7
+  has this problem too; **Update** deploys the fixed notebook. Azure isn't affected: there, the run
+  job changes a copy of each table and saves it whole at the end.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its
