@@ -272,7 +272,7 @@ test('reportAudit: once a load has run, a problem says how to reload the windows
   loaded.config.firstRun = { jobId: 'job-1' };
   assert.equal(await checkAuditCommand(loaded.ctx), 'empty-log');
   const text = loaded.ui.text();
-  assert.match(text, new RegExp(`rename ${AUDIT_MANIFEST.replace(/[./]/g, '\\$&')} \\(for example to _manifest\\.old\\.json\\)`));
+  assert.ok(text.includes(`rename ${AUDIT_MANIFEST} (for example to _manifest.old.json)`), text);
   assert.match(text, /run --backfill-days <n>/);
   assert.match(text, new RegExp(`reused: recent ones for ${AUDIT_REUSE_HOURS} hours, and ones older than ${AUDIT_LOOKBACK_DAYS} days are never read again`));
 
