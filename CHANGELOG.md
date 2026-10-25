@@ -264,7 +264,7 @@ sets the number. On Fabric and Azure.
   been in the web app since 0.6.0, but the Share panel offers scoped delegation on Azure only since
   0.6.8-rc.2, so released versions, 0.6.7 included, couldn't reach it from the app.
 
-### Installer: audit-ingestion checks, and the Viva Insights sign-in first (0.6.9 candidate)
+**Installer: audit-ingestion checks, and the Viva Insights sign-in first.**
 
 - **The installer checks the app can read the audit log.** After admin consent, it gets the app's
   own token and checks it's for this tenant and has `AuditLogsQuery.Read.All`. Straight after
