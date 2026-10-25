@@ -1242,9 +1242,9 @@ export function writeHandoffPack(ctx, opts = {}) {
   if (scriptPath && !config.azure?.adminScript) cfg = /** @type {InstallConfig} */ ({ ...config, azure: { ...config.azure, adminScript: scriptPath } });
   let requests = state.done ?? adminRequests([...rows.values()], cfg, { from, all: [...all.values()] });
   // The vault admin's request: this run's, while it waits for them or carries on without the secret, else one an earlier
-  // run made that the record says is still waiting. At the end it's one of what the install left.
+  // run made that the record says still waits. At the end it's one the install left. A rotation comes after the install.
   const vault = state.done ? undefined : state.vault ?? (vaultWaits(config) ? { rotate: false, waiting: false } : undefined);
-  if (vault) requests = [...requests, ...requestsFor([vaultAsk(ctx, vault)], from, false)];
+  if (vault) requests = [...requests, ...requestsFor([vaultAsk(ctx, vault)], from, vault.rotate)];
 
   /** @type {Record<string, AdminExtra>} */
   const extras = {};

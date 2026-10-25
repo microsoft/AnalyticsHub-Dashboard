@@ -809,6 +809,7 @@ test('pack, a vault admin with --yes: the install carries on, and their file say
   assert.deepEqual(t.asked, []);
   const { index, names, files } = readPack(dir);
   assert.deepEqual(names, ['vault-admin.md']);
+  assert.ok(files['vault-admin.md'].includes('\nI\'m installing Analytics Hub, and I need your help with this:\n'), 'an install under way');
   assert.ok(files['vault-admin.md'].endsWith(VAULT_NEXT('analyst@contoso.com')), files['vault-admin.md']);
   assert.ok(index.includes(`\n   - Once it's done: Run the installer again without --yes. ${ADDED}\n`), 'nothing installed yet to repair');
   assert.ok(t.text().indexOf('Carrying on. Data loads fail until the secret is in kv-ah.') > t.text().indexOf('Admin pack, a file for each admin'));
@@ -901,6 +902,8 @@ test('pack, rotate-secret with a vault admin: its pack is the new secret\'s requ
     index,
   );
   const file = files['vault-admin.md'];
+  assert.ok(file.includes('\nHi,\n\nI\'ve installed Analytics Hub, and I need your help with this:\n'), 'a rotation comes after the install');
+  assert.doesNotMatch(file, /I'm installing/);
   assert.ok(
     file.includes(
       '\n- Replace the client secret of the app "Analytics Hub Data Collector" (application ID app-1) in the Key Vault kv-ah: create a new one, and add it as a new ' +
