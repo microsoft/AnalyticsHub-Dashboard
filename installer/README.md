@@ -167,8 +167,8 @@ gives the jobs' managed identity Cost Management and Azure AI roles, and creates
 signed in as you (`--flow-identity app` is Fabric only). With public endpoints the flow writes to the
 storage account's `landing` container and you get **Storage Blob Data Contributor** on it. With private
 networking it writes to a SharePoint folder you name, and the managed identity gets **Sites.Selected** read
-on that site (a SharePoint or Global administrator grants it). See
-[Azure](../azure/README.md#credit-consumption).
+on that site (a SharePoint or Global administrator grants it by hand, with the command the installer
+prints). See [Azure](../azure/README.md#credit-consumption).
 The Agent 365 registry comes from its CSV export, which you drop in the same place, under
 `agent365`; the Agent 365 API is Fabric only for now. See
 [Agent 365 registry](../azure/README.md#agent-365-registry).
@@ -937,10 +937,11 @@ Optional. It fills the app's Agent Evaluation pages from your Copilot Studio con
 [Agent Evaluator](../fabric/Add%20Agent%20Evaluator/).
 
 **Which environments.** When you have more than one, the installer always asks which to read.
-Read the environments that hold your Copilot Studio agents. It checks each environment for agents,
-four at a time, and ticks the ones that have some. If it can't tell, it ticks the default
-environment and says so. It lists only environments you're a member of, so ask for access to any
-that are missing.
+Read the environments that hold your Copilot Studio agents. Copilot Studio doesn't save transcripts
+in developer or Dataverse for Teams environments, so there's nothing to read in those. It checks
+each environment for agents, four at a time, and ticks the ones that have some. If it can't tell, it
+ticks the default environment and says so. It lists only environments you're a member of, so ask for
+access to any that are missing.
 
 **How far back.** An environment's first run reads up to 180 days of transcripts, including an
 environment you add later. After that, each run reads the last 14 days. Copilot Studio keeps

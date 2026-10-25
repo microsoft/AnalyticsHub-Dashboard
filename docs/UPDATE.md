@@ -28,7 +28,7 @@ Both keep your install record and skip what's already done.
 | Choose | What it does |
 |---|---|
 | **Repair or change** | Asks the questions again, starting from your saved answers. Use it to add or drop a data source, change an advanced setting, or fix a broken step. Nothing changes until you approve the plan. |
-| **Update** (`update`) | No questions. Fabric: pushes the notebooks, pipeline and semantic model from this version. Azure: runs the preflight again and redeploys with this version's images. |
+| **Update** (`update`) | Skips the setup questions and keeps your saved answers. Fabric: pushes the notebooks, pipeline and semantic model from this version, and asks whether to redeploy the app too (yes by default). If Fabric can't update a model and keep its data, it asks before clearing and reloading it. Azure: runs the preflight again, shows the plan and, once you approve it, redeploys with this version's images. |
 
 On Azure, both also update the Teams app in your org's app catalog when its package has changed,
 rather than add another. See [Give it to everyone](../azure/teams/README.md#give-it-to-everyone).
@@ -88,6 +88,12 @@ Uninstall leaves these alone. Remove them yourself if you no longer need them:
   [Entra ID](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade).
 - On Azure, a Power BI workspace you picked rather than had the installer create, renamed, or
   chose to keep, and the models in it.
+- On Azure, a personal cloud connection to the install's Azure SQL database, which Power BI made for
+  whoever installed. With public endpoints it holds the SQL reader's credentials, which stop working
+  once Uninstall deletes that app; with private networking it holds none. It does no harm. To delete
+  it, find its ID with the Fabric REST API's
+  [List Connections](https://learn.microsoft.com/rest/api/fabric/core/connections/list-connections),
+  then use [Delete Connection](https://learn.microsoft.com/rest/api/fabric/core/connections/delete-connection).
 - On Azure, a Teams app in your org's app catalog that the installer never looked after, or one it
   couldn't delete. A Teams admin deletes it in the
   [Teams admin center](https://admin.teams.microsoft.com/policies/manage-apps) under **Teams apps** >
@@ -102,10 +108,50 @@ Uninstall leaves these alone. Remove them yourself if you no longer need them:
 - A transcript reader role an admin made, or one the installer couldn't take away or delete. The
   installer prints how a System Administrator does it.
 - The Azure and Entra roles the installer gave.
+  See [Remove the roles the installer gave](#remove-the-roles-the-installer-gave).
 - On Azure, an Agent Evaluator application user an admin added for the jobs' managed identity, or
-  one Dataverse wouldn't let the installer delete. The installer says which; a System Administrator
-  removes it. See [Agent Evaluator](../azure/README.md#agent-evaluator).
+  one Dataverse wouldn't let the installer delete for good. The installer says which; a System
+  Administrator removes it. See [Agent Evaluator](../azure/README.md#agent-evaluator).
 - Your install record in `Documents\Analytics Hub` (`~/analytics-hub` in Cloud Shell).
+
+### Remove the roles the installer gave
+
+Some data sources need roles outside the install's resource group or workspace. The installer gave
+them, or your admin did, with the commands it printed. Uninstall leaves them, so remove them
+yourself if nothing else needs them:
+
+- **On Azure,** they belong to the install's managed identity. Uninstall deletes it, and the Azure
+  portal then shows the roles as **Identity not found**. Its ID is
+  `azure.outputs.identityPrincipalId` in your install record.
+- **On Fabric,** they belong to the **Analytics Hub Data Collector** app. Remove them before you
+  delete the app. Its ID is `app.servicePrincipalId` in your install record.
+
+| Role | On | For |
+|---|---|---|
+| **Reader** | The management group you picked, or the tenant root group | Foundry, from Resource Graph |
+| **Global Reader**, an Entra role | Your directory | Agents, from Resource Graph |
+| **Reader**, **Cost Management Reader** and **Monitoring Reader** | The Azure AI subscription | Azure AI costs and metrics |
+| **Cost Management Reader** | Each pay-as-you-go subscription | Copilot pay-as-you-go costs |
+| **Cognitive Services OpenAI User** | The Azure OpenAI account | On Azure, Ask with a deployment you already had |
+| **AcrPull** | Your private container registry | On Azure, images from your own registry (`azure.images.registryResourceId`) |
+
+- **Global Reader:** remove it before you uninstall, while the identity still shows by name. In the
+  [Entra admin center](https://entra.microsoft.com), open **Roles & admins** > **Global Reader**,
+  select the identity, and choose **Remove assignments**. It takes a Privileged Role Administrator
+  or a Global Administrator.
+- **The other roles,** before or after you uninstall: an Owner or User Access Administrator on each
+  scope removes them. In the [Azure portal](https://portal.azure.com), open the scope's **Access
+  control (IAM)** > **Role assignments**, select the identity's rows, and choose **Delete**. Or run,
+  for each scope:
+
+  ```
+  az role assignment list --scope <scope> --query "[?principalId=='<its ID>'].id" -o tsv
+  az role assignment delete --ids <the IDs it printed>
+  ```
+
+  A subscription's scope is `/subscriptions/<subscription ID>`. A management group's is
+  `/providers/Microsoft.Management/managementGroups/<its ID>`, and the tenant root group's ID is
+  your tenant ID. For the Azure OpenAI account or the registry, use its resource ID.
 
 ### Remove the installer
 

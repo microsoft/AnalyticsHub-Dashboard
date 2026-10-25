@@ -291,6 +291,64 @@ sets the number. On Fabric and Azure.
   before it deploys the notebooks and pipeline and runs the first load. No more coming back to the
   installer after configuring the connection in Fabric. You can still skip it and finish later.
 
+**Known issue:** on Azure, **Uninstall** deletes the install's managed identity but leaves the roles
+it was given outside the resource group, such as Reader on the management group and Cost Management
+Reader on subscriptions. In the Azure portal, they then show as **Identity not found**. To remove
+them, see [Remove the roles the installer gave](docs/UPDATE.md#remove-the-roles-the-installer-gave),
+which lists them all. 0.6.7 has this too.
+
+**Known issue:** on Azure, if you ran the installer again after the first install, **Uninstall**
+deletes the install's resources one by one and leaves the resource group. Delete the group in the
+Azure portal afterwards.
+
+**Known issue:** on Azure, Dataverse doesn't let the installer delete Agent Evaluator's application
+user for good, because the user owns its own user settings record. **Uninstall**, or unticking an
+environment, leaves it deactivated with no role, so it can't sign in or read transcripts. The
+installer says so, but the steps it prints name a filter that the Power Platform admin center's
+**Users** page no longer has. The user is listed as Inactive under the environment's **Settings** >
+**Users + permissions** > **Application users**; deleting it there hasn't been tested. Until it's
+gone, ticking that environment again finds the user disabled, skips the environment's transcripts,
+and says to enable it, which a soft-deleted user can't be.
+
+**Known issue:** on Azure with private networking, **Uninstall** can fail to delete the resource
+group, and the installer says `it's Succeeded`. Power BI can keep the gateway's subnet for up to
+72 hours after the gateway has gone. Only the virtual network and network security group are left,
+and they cost nothing. Run **Uninstall** again later. See
+[Troubleshooting](docs/TROUBLESHOOTING.md#uninstall).
+
+**Known issue:** on Azure with private networking, the installer can't give the jobs read on the
+SharePoint drop folder's site, even for a Global administrator. The jobs can't read the files there
+until a SharePoint or Global administrator makes that grant by hand, as described in
+[Troubleshooting > Known issues > Azure](docs/TROUBLESHOOTING.md#azure).
+
+**Known issue:** on Azure, in a browser, the app can show **Something went wrong** with `timed_out`
+a day after you signed in. Clear the site's data for the app's address (or use an InPrivate window)
+and sign in again. That workaround hasn't been tested yet.
+
+**Known issue:** on Azure, the browser setup doesn't offer **Public endpoints** when an Azure Policy
+keeps Azure SQL's public access off, even in a resource group that's exempt from it. To use Public
+endpoints there, set up from a terminal: run `AnalyticsHubInstaller.exe install --target azure`,
+answer yes to **Change the advanced settings?**, choose the exempt resource group, and under
+**Networking** choose **Public endpoints**. Setup warns that the policy keeps public access off
+and that the deployment would fail; with the exemption, it doesn't. A fix is planned.
+
+**Known issue:** on Fabric, the tenant credits export (tenant by day) from the Power Platform admin
+center loads with blank dates when its Usage Date has seconds and AM/PM (for example
+`5/3/2026 12:00:00 AM`), so Credit consumption shows no tenant rows, and the load still reports
+success. The agent and user exports aren't affected, and neither are credits loaded by the
+**Analytics Hub - Copilot Studio credits** flow. Until it's fixed, use the flow, or, before you drop
+the file in or upload it with the installer, re-save its Usage Date in the form `5/3/2026 0:00`
+(month/day/year, 24-hour time). Re-saving it as `yyyy-MM-dd` doesn't help: that loads blank too. If
+a file has already loaded with blank dates, remove it from the landing folder and delete those rows
+before you load the corrected file. See [Troubleshooting](docs/TROUBLESHOOTING.md#runs-and-loads).
+
+**Docs:**
+
+- **Agent Evaluator: pick environments that save transcripts.** Copilot Studio doesn't save
+  conversation transcripts in developer or Dataverse for Teams environments, so Agent Evaluator
+  finds none there. The installer's [Agent Evaluator](installer/README.md#agent-evaluator) section,
+  Prerequisites and Troubleshooting now say so.
+
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
 **Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its
@@ -467,8 +525,8 @@ Measured the same way as the model changes above, the two queries took 2.77 s to
 Optimistic range under the bottom line's hours is now its own query, asked at the same time as
 the summary and under the same filters, on Fabric and Azure. Measured on 0.6.8-rc.1 on an F64
 trial with 20,000 people, the summary took 2.80 s, and 2.03 s without the range. Asked as a pair,
-the two took 2.02 s and 1.68 s, or 1.65 s and 1.64 s against 2.44 s with the model changes due
-from ValueLens, and gave the same results as the single query. The bottom line shows the same
+the two took 2.02 s and 1.68 s, or 1.65 s and 1.64 s against 2.44 s with the ValueLens model changes
+above, and gave the same results as the single query. The bottom line shows the same
 figures. The range shows a placeholder until it lands, appears only once it and the hours answer
 for the same filters, and says so, with **Try again**, if it doesn't load. Downloads and report
 packs wait for it, as they wait for any card still loading. Estimated: the first figures land

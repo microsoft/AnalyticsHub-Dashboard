@@ -83,7 +83,7 @@ Where the files land depends on networking:
 | Networking | Credit files go to | Who needs what |
 |---|---|---|
 | Public endpoints | The storage account's `landing` container: `studio/`, `viva/` (the flow keeps its own state in `flows/`) | Whoever signs the flow's storage connection in needs **Storage Blob Data Contributor** on the account. The installer gives it to you |
-| Private networking | A SharePoint folder you choose, with `studio/` and `viva/` under it. Power Automate can't reach private storage | The jobs' managed identity needs **Sites.Selected** with read on that site. The installer grants it if you're a SharePoint or Global administrator; otherwise it prints the `Grant-PnPAzureADAppSitePermission` command for one |
+| Private networking | A SharePoint folder you choose, with `studio/` and `viva/` under it. Power Automate can't reach private storage | The jobs' managed identity needs **Sites.Selected** with read on that site. The installer prints the `Grant-PnPAzureADAppSitePermission` command for a SharePoint or Global administrator to run: it can't make the grant itself (see [Known issues](../docs/TROUBLESHOOTING.md#azure)) |
 
 The jobs read the files where they land and don't move them, the same as the Fabric notebooks. Put
 exports there yourself, in the Azure portal, Azure Storage Explorer or SharePoint, or with
@@ -170,9 +170,9 @@ export. The Agent 365 API is Fabric only for now: `--data agent365=api` warns an
    - **Public endpoints:** `agent365/` in the storage account's `landing` container. The installer
      gives you **Storage Blob Data Contributor** on the account, so you can upload it.
    - **Private networking:** an `agent365` folder in the SharePoint folder you give the installer,
-     which the credit files use too. The jobs' managed identity needs **Sites.Selected** with read on
-     that site. The installer grants it if you're a SharePoint or Global administrator; otherwise it
-     prints the command for one.
+     which the credit files use too. The jobs' managed identity needs **Sites.Selected** with read
+     on that site. The installer prints the command for a SharePoint or Global administrator to run:
+     it can't make the grant itself (see [Known issues](../docs/TROUBLESHOOTING.md#azure)).
 3. Each run loads the newest CSV in that folder into `dbo.agents_365`, replacing the last export. The
    jobs don't move or delete the files, and with no CSV the table stays as it is.
 
@@ -199,8 +199,8 @@ saves the emailed export is Fabric only for now: `--data productFeedback=flow` (
      installer gives you **Storage Blob Data Contributor** on the account, so you can upload it.
    - **Private networking:** a `product_feedback` folder in the SharePoint folder you give the
      installer. The jobs' managed identity needs **Sites.Selected** with read on that site. The
-     installer grants it if you're a SharePoint or Global administrator; otherwise it prints the
-     command for one.
+     installer prints the command for a SharePoint or Global administrator to run: it can't make the
+     grant itself (see [Known issues](../docs/TROUBLESHOOTING.md#azure)).
 3. Each run reads every CSV in that folder into `dbo.user_feedback`, keeping each `Feedback Id` once
    (its latest submission), so add new exports next to the old ones. The jobs don't move or delete
    the files, and with no CSV the table stays as it is.
@@ -227,8 +227,9 @@ advanced settings, answer **Upload a CSV export** to **Workday org data?**, or u
    - **Public endpoints:** `workday/` in the storage account's `landing` container. The installer
      gives you **Storage Blob Data Contributor** on the account, so you can upload it.
    - **Private networking:** a `workday` folder in the SharePoint folder you give the installer. The
-     jobs' managed identity needs **Sites.Selected** with read on that site. The installer grants it
-     if you're a SharePoint or Global administrator; otherwise it prints the command for one.
+     jobs' managed identity needs **Sites.Selected** with read on that site. The installer prints
+     the command for a SharePoint or Global administrator to run: it can't make the grant itself
+     (see [Known issues](../docs/TROUBLESHOOTING.md#azure)).
 3. Each run loads the Entra ID org data, then adds the newest CSV in that folder to it in
    `dbo.copilot_org_data`. The jobs don't move or delete the files, and with no CSV the org data is
    what Entra ID gave.
