@@ -263,6 +263,31 @@ test('record: an old viewer group is kept until its access is taken back, and so
     assert.deepEqual(loadConfig(file).config.access?.retiredGroups, [{ groupId: 'g-1', datasets: [] }], 'a group without its models has none');
   }));
 
+test('record: a SharePoint site the drop folder left is kept until you say its read is taken back, and another command\'s save doesn\'t bring it back', () =>
+  inDir((dir) => {
+    const file = join(dir, 'valuelens-install.json');
+    const first = record();
+    const old = { siteUrl: 'https://contoso.sharepoint.com/sites/old', siteId: 'contoso.sharepoint.com:/sites/old', folderUrl: 'https://contoso.sharepoint.com/sites/old/Shared Documents/AH', granted: true, appId: 'mi-client', shownAt: '2026-06-01T12:00:00.000Z' };
+    first.target = 'azure';
+    first.azure = /** @type {any} */ ({ ...first.azure, drop: { siteUrl: 'https://contoso.sharepoint.com/sites/new', siteId: 'contoso.sharepoint.com:/sites/new', granted: false }, retiredDrops: [old] });
+    saveConfig(file, first);
+    const install = loadConfig(file).config;
+    assert.deepEqual(install.azure?.retiredDrops, [old]);
+
+    const other = loadConfig(file).config;
+    other.schedule.time = '04:00';
+    saveConfig(file, other);
+    delete (/** @type {import('../src/config.js').AzureConfig} */ (install.azure)).retiredDrops;
+    saveConfig(file, install);
+    const saved = loadConfig(file).config;
+    assert.equal(saved.azure?.retiredDrops, undefined);
+    assert.equal(saved.azure?.drop?.siteUrl, 'https://contoso.sharepoint.com/sites/new');
+    assert.equal(saved.schedule.time, '04:00');
+
+    writeFileSync(file, JSON.stringify({ version: 1, target: 'azure', azure: { retiredDrops: [] } }));
+    assert.equal('retiredDrops' in (/** @type {any} */ (loadConfig(file).config.azure)), false, 'an empty list is dropped');
+  }));
+
 test('record: a record saved to another file, such as the setup draft, is written as it is', () =>
   inDir((dir) => {
     const file = join(dir, 'valuelens-install.json');

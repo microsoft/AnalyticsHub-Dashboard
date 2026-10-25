@@ -326,12 +326,12 @@ Deployment instructions do **not** live here. They live in the READMEs:
     the install record, and nothing in the tenant. PREREQUISITES, INSTALL, PERMISSIONS,
     TROUBLESHOOTING, AZURE-LEAST-PRIVILEGE and the installer README say the same.
 - **Permissions you no longer need are taken back.** Until now the installer only added: turning a
-  module or data source off, or choosing another viewer group, left what it gave for them. Now the
-  next install, Repair or change or `update` takes back what it gave that nothing you still use
-  needs, and only what a check shows is still there. Where your role lets you, the run does it.
-  Otherwise it warns, and the end of an install or Repair asks whoever can, under **Still to do by
-  your admins** and in their file in the admin pack. Each run checks again. A take-back that can't
-  be done never stops the install.
+  module or data source off, choosing another viewer group or moving Azure's drop folder left what
+  it gave for them. Now the next install, Repair or change or `update` takes back what it gave that
+  nothing you still use needs, and only what a check shows is still there. Where your role lets
+  you, the run does it. Otherwise it warns, and the end of an install or Repair asks whoever can,
+  under **Still to do by your admins** and in their file in the admin pack. Each run checks again.
+  A take-back that can't be done never stops the install.
   - **The Fabric app's Graph permissions**, if the installer created the app: at most
     `CopilotPackages.Read.All`, `Application.Read.All`, `ThreatHunting.Read.All` and
     `CloudApp-Discovery.Read.All`, never `User.Read.All`. They come off its API permissions. When
@@ -366,9 +366,20 @@ Deployment instructions do **not** live here. They live in the READMEs:
     the new group's members saw no data. On Fabric the install applies org-scoped access after the
     viewer step now, so a group made again gets the roles in the same run, still before the first
     load. A record from before doesn't apply them again.
+  - **The jobs' read on an old SharePoint drop site** (Azure, with private networking). When the
+    drop folder moves to another site, private networking is turned off, or the folder is left
+    nothing to hold, the install record keeps the old site if the jobs had read on it or its grant
+    was waiting for an admin, and stops asking for that grant. Removing a site permission isn't
+    supported with a signed-in user's permissions, so an optional request to a SharePoint
+    Administrator has two PnP PowerShell commands to run connected app-only: one shows the jobs'
+    permission on the site, the other revokes it. The admin pack puts them in a `powershell`
+    block, and `status` lists the request. A later install or Repair asks whether it's done, and
+    `--yes` answers "Not yet". Moving the folder back to that site keeps its read. When the jobs
+    stop reading the drop folder at all, nothing's asked: taking `Sites.Selected` back leaves the
+    read unused.
   - PERMISSIONS has a new section, Taking access back, and its org-scoped access table a row for
     another viewer group. The installer README and TROUBLESHOOTING point to it, and the installer
-    README has Changing the group.
+    README has Changing the group and Moving the drop folder.
 
 ## 2026-10-26 — Analytics Hub installer 0.6.8
 

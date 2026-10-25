@@ -10,7 +10,7 @@ import { checkPrereqs, dataPolicyPrereq, reportFlowPrereqs, reportPreflight, set
 import { LEAST_PRIVILEGE_URL } from '../src/steps/azure/least-privilege.js';
 import { MANAGE_APPS_URL, TEAMS_APP_PENDING } from '../src/steps/azure/teams-catalog.js';
 import { flowsWanted } from '../src/steps/flows.js';
-import { ADMINS, adminRequests, ROW_ASKS } from '../src/steps/handoff.js';
+import { ADMINS, adminRequests, doneRequests, ROW_ASKS } from '../src/steps/handoff.js';
 import { AZURE_ADMIN_SCRIPT_FILE } from '../src/steps/identity.js';
 import { letter } from '../src/steps/next-steps.js';
 import { fakeUi } from './fakes.js';
@@ -344,6 +344,29 @@ test('adminRequests: the Azure install\'s pending admin actions go to the admin 
   const fabric = plainConfig();
   fabric.azure = /** @type {any} */ ({ status: { pendingAdminActions: actions }, graphRoles: { pending: ['AuditLog.Read.All'] } });
   assert.deepEqual(adminRequests([], fabric), []);
+});
+
+test('the drop site\'s take-back comes from the install record, not a pending action, so it never routes as the new site\'s grant, and preflight doesn\'t list it', () => {
+  const OLD = 'https://contoso.sharepoint.com/sites/old';
+  const config = azureConfig({
+    outputs: { identityClientId: 'jobs-1' },
+    status: { pendingAdminActions: [DROP_SITE] },
+    retiredDrops: [{ siteUrl: OLD, siteId: 'contoso.sharepoint.com:/sites/old', granted: true }],
+  });
+  const sharepoint = doneRequests(config, { from: UPN }).filter((r) => r.admin === 'sharepoint-admin');
+  assert.equal(sharepoint.length, 1, 'one request for both');
+  assert.deepEqual(sharepoint[0].rows, ['Drop site access', 'Drop site access to take back']);
+  const [grant, takeBack] = sharepoint[0].asks;
+  assert.equal(grant, DROP_SITE, 'the grant word for word');
+  assert.ok(!takeBack.startsWith('Grant-PnPAzureADAppSitePermission '), 'it doesn\'t start as the grant does');
+  assert.ok(takeBack.includes(`\n  Revoke-PnPAzureADAppSitePermission -Site ${OLD} -PermissionId <the Id it shows>`));
+  assert.equal(sharepoint[0].after?.length, 2);
+  assert.match(String(sharepoint[0].after?.[0]), /: it tries this grant again,/, 'the grant\'s, as a pending action');
+  assert.match(String(sharepoint[0].after?.[1]), /choose "Yes, it's done"\.$/, 'the take-back\'s own');
+
+  assert.deepEqual(asks(adminRequests([], config)), [['sharepoint-admin', [DROP_SITE]]], 'preflight: only the pending actions');
+  /** @type {any} */ (config.azure).status.pendingAdminActions = [];
+  assert.deepEqual(adminRequests([], config), []);
 });
 
 test('adminRequests: the Azure web app\'s consent goes with whichever request already approves it, or else to an admin who can', () => {

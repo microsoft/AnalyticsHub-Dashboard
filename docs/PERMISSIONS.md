@@ -303,7 +303,8 @@ Caveats:
 
 When you turn a module or data source off, the next install, **Repair or change** or `update`
 takes back the Microsoft Graph permissions the installer gave for it that nothing you still use
-needs. When you choose another viewer group, it takes back what it gave the old group. It takes
+needs. When you choose another viewer group, it takes back what it gave the old group. When you
+move Azure's SharePoint drop folder, it asks for the jobs' read on the old site back. It takes
 back only what the installer gave, and only what a check shows is still there.
 Where your role lets you, the run does it. Otherwise it says who can, and the end of an install or
 Repair asks them, under **Still to do by your admins** and in their file in the admin pack. Each
@@ -341,6 +342,17 @@ install carries on.
   page. With [org-scoped access](#org-scoped-access-row-level-security) on, the members are
   applied again with the new group, which takes the old one out of the roles. Choosing the old
   group again keeps its Build and its share.
+- **The jobs' read on an old SharePoint drop site** (Azure, with private networking), when you
+  move the drop folder to another site, turn private networking off, or leave the folder nothing
+  to hold, such as when credit consumption reads only Azure AI. Removing a site permission isn't
+  supported with a signed-in user's permissions, so the installer can't do it, and doesn't check
+  whether it's done. The end of an install or Repair has an optional request to a **SharePoint
+  Administrator**, with two PnP PowerShell commands to run connected app-only, as an app with the
+  `Sites.FullControl.All` application permission. The request stays until a later install or
+  Repair asks whether it's done and you choose **Yes, it's done**, or until you move the folder
+  back to that site, which keeps the read. When you turn off credit consumption, Agent 365,
+  product feedback and the Workday file, the installer keeps the folder for when you turn one
+  back on, and nobody's asked: taking `Sites.Selected` back leaves the read unused.
 
 It leaves the **Global Reader** role it gave for the agents (see
 [Azure Resource Graph](#azure-resource-graph)), the Azure roles, and the Azure web app's delegated

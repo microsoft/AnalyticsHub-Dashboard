@@ -554,6 +554,76 @@ test('Agent 365 on Azure with private networking: one SharePoint folder for the 
   }
 });
 
+test('the drop folder leaving a site the jobs had read on keeps it for a SharePoint Administrator to take back, until the folder comes back', async () => {
+  const SITE = 'https://contoso.sharepoint.com/sites/Analytics';
+  const FINANCE = 'https://contoso.sharepoint.com/sites/Finance/Shared Documents/ValueLens';
+  const grant = (/** @type {string} */ site) => `Grant-PnPAzureADAppSitePermission -AppId mi-client -DisplayName "vlens jobs" -Site ${site} -Permissions Read`;
+  const plan = async (/** @type {(config: import('../src/config.js').InstallConfig, az: any) => void} */ setUp, /** @type {any[]} */ answers = []) => {
+    const u = fakeUi({ answers });
+    const { ctx, config } = fakeCtx({ ui: u.ui });
+    withAzureAgent365(config, { publicNetworkAccess: false, outputs: { identityClientId: 'mi-client' } });
+    setUp(config, config.azure);
+    await planAzureDrop(ctx);
+    return { u, ctx, config, az: /** @type {any} */ (config.azure) };
+  };
+  const granted = (/** @type {any} */ _c, /** @type {any} */ az) => { az.drop = { ...parseDropFolder(DROP_FOLDER), granted: true }; };
+  const kept = { siteUrl: SITE, siteId: 'contoso.sharepoint.com:/sites/Analytics', folderUrl: DROP_FOLDER, granted: true, appId: 'mi-client' };
+
+  const moved = await plan(granted, [FINANCE]);
+  assert.equal(moved.az.drop.siteId, 'contoso.sharepoint.com:/sites/Finance');
+  assert.equal(moved.az.drop.granted, false, 'the new site needs its own grant');
+  assert.deepEqual(moved.az.retiredDrops, [kept], 'a move to another site');
+
+  const pub = await plan((c, az) => { granted(c, az); az.publicNetworkAccess = true; });
+  assert.equal(pub.az.drop, undefined);
+  assert.deepEqual(pub.az.retiredDrops, [kept], 'private networking turned off');
+  const empty = await plan((c, az) => {
+    granted(c, az);
+    withAzureConsumption(c, { ...az });
+    Object.assign(c.modules, { agent365: false, productFeedback: false });
+    Object.assign(c.dataSources, { studioCredits: 'skip', coworkCredits: 'skip', workday: 'skip' });
+  });
+  assert.deepEqual(empty.u.asked, [], 'nothing left to drop');
+  assert.equal(empty.az.drop, undefined);
+  assert.deepEqual(empty.az.retiredDrops, [kept]);
+
+  // A grant still waiting for an admin isn't asked for any more, and the site is kept in case they ran it.
+  const other = grant('https://contoso.sharepoint.com/sites/AnalyticsTeam');
+  const waiting = await plan((_c, az) => {
+    az.drop = parseDropFolder(DROP_FOLDER);
+    az.status = { pendingAdminActions: [grant(SITE), 'Something else.', other] };
+  }, [FINANCE]);
+  assert.deepEqual(waiting.az.retiredDrops, [{ ...kept, granted: false }]);
+  assert.deepEqual(waiting.az.status.pendingAdminActions, ['Something else.', other], 'only that site\'s grant goes');
+
+  const never = await plan((_c, az) => { az.drop = parseDropFolder(DROP_FOLDER); }, [FINANCE]);
+  assert.equal(never.az.retiredDrops, undefined, 'no read and no grant waiting: nothing to take back');
+  const cased = await plan(granted, ['https://contoso.sharepoint.com/sites/analytics/Shared Documents/Other']);
+  assert.equal(cased.az.drop.granted, true, 'the same site, whatever its case, keeps its grant');
+  assert.equal(cased.az.retiredDrops, undefined);
+
+  // When the jobs stop reading the drop, it stays as it is: taking Sites.Selected back leaves its grant unusable.
+  const off = await plan((c, az) => { granted(c, az); c.modules.agent365 = false; });
+  assert.equal(off.az.drop.granted, true);
+  assert.equal(off.az.retiredDrops, undefined);
+  assert.ok(azureRetiredGraphRoles(off.config).includes('Sites.Selected'));
+
+  // The folder moving back to a kept site brings back its read, or its grant to make, and keeps the site it left.
+  const back = await plan((_c, az) => {
+    az.drop = { ...parseDropFolder(FINANCE), granted: true };
+    az.retiredDrops = [{ ...kept }];
+  }, [DROP_FOLDER]);
+  assert.equal(back.az.drop.granted, true);
+  assert.deepEqual(back.az.retiredDrops, [{ siteUrl: 'https://contoso.sharepoint.com/sites/Finance', siteId: 'contoso.sharepoint.com:/sites/Finance', folderUrl: FINANCE, granted: true, appId: 'mi-client' }]);
+  const on = await plan((_c, az) => { az.retiredDrops = [{ ...kept, granted: false }]; }, [DROP_FOLDER]);
+  assert.equal(on.az.drop.granted, false, 'private networking back on: the deploy makes the grant again');
+  assert.equal(on.az.retiredDrops, undefined);
+
+  // Status lists what's kept, as optional.
+  await azureStatus(moved.ctx);
+  assert.match(moved.u.text(), /Optional admin action: take the jobs' read off https:\/\/contoso\.sharepoint\.com\/sites\/Analytics, where the drop folder was\./);
+});
+
 test('Azure install with Agent 365: write on the landing container for you, and where to drop the export', async () => {
   const arm = fakeArm();
   /** @type {any[]} */

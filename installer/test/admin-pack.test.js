@@ -321,7 +321,7 @@ test('packFileName: the admin\'s key, with a short slug of who it goes to when t
   assert.equal(name('other', 'Ünïcode'), 'other-n-code.md');
 });
 
-test('messageMarkdown: the commands after an ask\'s "(Bash):" go in a bash code block; the rest stays as it is', () => {
+test('messageMarkdown: the commands after an ask\'s "(Bash):" go in a bash code block, and after "(PnP):" in a powershell one; the rest stays as it is', () => {
   const message = [
     'Hi,',
     '',
@@ -361,6 +361,11 @@ test('messageMarkdown: the commands after an ask\'s "(Bash):" go in a bash code 
     'Thanks',
   ]);
   assert.deepEqual(messageMarkdown('- One (Bash):\n  az one'), ['- One (Bash):', '  ```bash', '  az one', '  ```'], 'closed at the end');
+  assert.deepEqual(
+    messageMarkdown('- Take it back. In PowerShell (PnP):\n  Get-One -Site x\n  Revoke-One -Site x\n- Then (Bash):\n  az two\n\nRun this (PnP):\n  Not-Code'),
+    ['- Take it back. In PowerShell (PnP):', '  ```powershell', '  Get-One -Site x', '  Revoke-One -Site x', '  ```', '- Then (Bash):', '  ```bash', '  az two', '  ```', '', 'Run this (PnP):', '  Not-Code'],
+    'PnP commands in a powershell block, the next ask\'s in a bash one, and only in an ask',
+  );
 });
 
 test('writeAdminPackFiles: writes the index and a file per admin, rewrites only what changed, and removes only the admins\' files no longer needed', () => {
@@ -694,7 +699,7 @@ test('pack, the end of an Azure install: a Graph role repeated in graphRoles.pen
   noSecrets(dir);
 });
 
-test('pack, the end of an install: what it couldn\'t take back goes in the file of whoever can, the managed identity\'s command fenced', async () => {
+test('pack, the end of an install: what it couldn\'t take back goes in the file of whoever can, the managed identity\'s command and the drop site\'s fenced', async () => {
   // Azure: the Graph roles the jobs no longer use.
   const dir = tmp();
   const config = emptyConfig();
@@ -709,6 +714,7 @@ test('pack, the end of an install: what it couldn\'t take back goes in the file 
     location: 'uksouth',
     outputs: { identityPrincipalId: 'mi-1', identityClientId: 'mi-client-1', identityId: 'id-1' },
     graphRoles: { assigned: ['User.Read.All'], pending: [], retired: ['ThreatHunting.Read.All', 'Sites.Selected'] },
+    retiredDrops: [{ siteUrl: 'https://contoso.sharepoint.com/sites/old', siteId: 'contoso.sharepoint.com:/sites/old', granted: true }],
   });
   const t = fakeCtx({ ui: fakeUi().ui, graph: { myDirectoryRoles: async () => [] }, config: plant(config) });
   t.ctx.configFile = join(dir, 'valuelens-install.json');
@@ -723,6 +729,16 @@ test('pack, the end of an install: what it couldn\'t take back goes in the file 
     roles,
   );
   assert.ok(pack.index.includes('\n   - Once it\'s done: Run the installer again and choose Repair or change: it checks the managed identity\'s roles again, and stops listing these once they\'re gone.\n'));
+  // The old drop site's, an optional request of its own, with its PnP commands in a powershell block.
+  const OLD = 'https://contoso.sharepoint.com/sites/old';
+  assert.match(pack.index, /\n\d+\. A SharePoint Administrator \(optional\): \[analytics-hub-admin-pack\/sharepoint-admin\.md\]/);
+  assert.ok(
+    pack.files['sharepoint-admin.md'].includes(
+      `If the first shows nothing, there's nothing to remove. In PowerShell (PnP):\n  \`\`\`powershell\n  Get-PnPAzureADAppSitePermission -Site ${OLD} -AppIdentity mi-client-1\n` +
+        `  Revoke-PnPAzureADAppSitePermission -Site ${OLD} -PermissionId <the Id it shows>\n  \`\`\`\n`,
+    ),
+    pack.files['sharepoint-admin.md'],
+  );
   noSecrets(dir);
 
   // Fabric, an app the installer made: its API permissions in a file for its owners or an app admin, and its consent

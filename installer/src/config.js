@@ -329,6 +329,8 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  *   `consumptionDatasetId` is the Consumption model, deployed with credit consumption.
  *   `agentEvaluatorDatasetId` is the Agent Evaluator model, deployed with Agent Evaluator.
  * @property {AzureDrop} [drop] Private networking with credit consumption or a CSV export (Agent 365, product feedback, Workday): the SharePoint folder the Studio flow and CSV uploads land in.
+ * @property {RetiredDrop[]} [retiredDrops] SharePoint sites the drop folder was on, whose read the jobs may still have, for a
+ *   SharePoint Administrator to take back. Each stays until you say it's done or the drop folder moves back to it.
  * @property {boolean} [storageRole] The installer gave the signed-in user Storage Blob Data Contributor on the landing container, for the Studio flow and CSV uploads.
  * @property {{ assigned: string[], pending: string[], retired?: string[] }} [graphRoles]  The jobs' managed identity's Microsoft Graph roles:
  *   those the installer gave it, those it couldn't, and `retired`: roles it no longer uses that it couldn't take back, for a Privileged
@@ -396,6 +398,18 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {string} [driveId]  Graph drive ID. Empty when drivePath starts with the library's name.
  * @property {string} [drivePath]  The folder for the jobs: under the drive's root, or library/folder when driveId is empty.
  * @property {boolean} [granted]  The managed identity has read on the site (Sites.Selected).
+ */
+
+/**
+ * A SharePoint site the Azure drop folder moved off, or that private networking stopped using, while the jobs had read
+ * on it or a grant of it was waiting for an admin. The installer can't take a site permission back with your sign-in.
+ * @typedef {object} RetiredDrop
+ * @property {string} siteUrl
+ * @property {string} siteId  As AzureDrop's.
+ * @property {string} [folderUrl]  The drop folder that was on it.
+ * @property {boolean} [granted]  The jobs had read on it. Else its grant was still waiting for an admin.
+ * @property {string} [appId]  The jobs' managed identity's client ID, which the permission is for.
+ * @property {string} [shownAt]  When a run's requests for admins first listed it, so later runs ask whether it's done.
  */
 
 // Names for items a new install creates. An existing install keeps the names saved in its record.
@@ -501,6 +515,7 @@ function normaliseConfig(raw, file) {
       ...(raw.azure?.sqlReader ? { sqlReader: { ...raw.azure.sqlReader } } : {}),
       ...(raw.azure?.powerBi ? { powerBi: { ...raw.azure.powerBi } } : {}),
       ...(raw.azure?.drop ? { drop: { ...raw.azure.drop } } : {}),
+      ...(raw.azure?.retiredDrops?.length ? { retiredDrops: raw.azure.retiredDrops.map((d) => ({ ...d })) } : {}),
       graphRoles: {
         assigned: [...(raw.azure?.graphRoles?.assigned ?? [])],
         pending: [...(raw.azure?.graphRoles?.pending ?? [])],
@@ -518,6 +533,7 @@ function normaliseConfig(raw, file) {
     dataAgent: { ...base.dataAgent, ...(raw.dataAgent ?? {}) },
   };
   if (!config.reporting) delete config.reporting;
+  if (config.azure && !config.azure.retiredDrops?.length) delete config.azure.retiredDrops;
   assertNoSecrets(config);
   return config;
 }

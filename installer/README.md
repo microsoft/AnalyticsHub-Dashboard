@@ -272,6 +272,14 @@ Re-runs are incremental and use the same
 resource with `valuelens-install-id` and stops rather than modifying untagged resources with colliding
 names.
 
+**Moving the drop folder.** With private networking, if you move the SharePoint folder to another
+site, turn private networking off, or leave the folder nothing to hold, the jobs keep their read on
+the old site: removing a site permission isn't supported with a signed-in user's permissions. The
+end of each install or Repair has an optional request for a SharePoint Administrator, with the PnP
+PowerShell commands to take it back. Once they have, choose **Yes, it's done** when a later install
+or Repair asks. Move the folder back to that site and it keeps the read. See
+[Taking access back](../docs/PERMISSIONS.md#taking-access-back).
+
 ### A large tenant on Azure
 
 On a tenant with more than 10,000 Copilot seats, setup sizes Azure for the tenant and asks before

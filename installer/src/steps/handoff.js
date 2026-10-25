@@ -76,7 +76,8 @@ export const APP_OWNER_ADMIN = "An Application Administrator, a Cloud Applicatio
  * @property {string[]} [after]  For you, once it's done.
  * @property {string} [back]  What the admin sends you back.
  * @property {string} [kind]  Which pending admin action it's for: graph, graph-revoke (Microsoft Graph roles to take back
- *   from the jobs' managed identity), consent, teams, owner, drop-site or other.
+ *   from the jobs' managed identity), consent, teams, owner, drop-site, drop-site-revoke (the jobs' read on a SharePoint
+ *   site their drop folder left, to take back) or other.
  */
 /**
  * @typedef {object} AskContext
@@ -96,6 +97,8 @@ const OWNER_PENDING = 'An Application Administrator or Cloud Application Adminis
 const DROP_SITE_PENDING = 'Grant-PnPAzureADAppSitePermission ';
 /** Before a command in an ask, which goes on the next line, indented. */
 const CLOUD_SHELL = ' In Azure Cloud Shell (Bash):\n  ';
+/** Before PnP PowerShell commands in an ask, as CLOUD_SHELL: for SharePoint, which has no Bash command for them. */
+const PNP_SHELL = ' In PowerShell (PnP):\n  ';
 /** In the tenant settings row when only a Fabric administrator could read them. */
 const SETTINGS_UNREAD = ' to confirm these are on for you';
 const XMLA_UNREAD = 'XMLA endpoint must also be Read Write';
@@ -746,6 +749,41 @@ function retiredAppDone(config, opts) {
 }
 
 /**
+ * The SharePoint sites the Azure drop folder left while the jobs had read on them, or a grant of it was waiting for an
+ * admin: an optional ask each, for a SharePoint Administrator to take that read back. Removing a site permission isn't
+ * supported with delegated permissions, so the installer can't, and the commands run from an app-only PnP connection.
+ * Each stays until you say it's done, or the drop folder moves back to its site.
+ * @param {InstallConfig} config
+ * @returns {Ask[]}
+ */
+function retiredDropsDone(config) {
+  const az = config.target === 'azure' ? config.azure : undefined;
+  return (az?.retiredDrops ?? []).map((d) => {
+    const appId = d.appId ?? az?.outputs?.identityClientId;
+    const identity = appId ? String(appId) : `"${az?.namePrefix ?? 'vlens'} jobs"`;
+    const commands = [
+      `Get-PnPAzureADAppSitePermission -Site ${d.siteUrl} -AppIdentity ${identity}`,
+      `Revoke-PnPAzureADAppSitePermission -Site ${d.siteUrl} -PermissionId <the Id it shows>`,
+    ];
+    return /** @type {Ask} */ ({
+      admin: 'sharepoint-admin',
+      kind: 'drop-site-revoke',
+      optional: true,
+      label: 'Drop site access to take back',
+      text:
+        `Optional: take the Analytics Hub jobs' read off ${d.siteUrl}, the SharePoint site their drop folder was on, as they no longer read it. ` +
+        "Removing a site permission isn't supported with delegated permissions, so run these in PnP PowerShell connected app-only, as an app with the " +
+        "Sites.FullControl.All application permission. The first shows the permission's Id: put it in the second. If the first shows nothing, there's nothing to remove." +
+        `${PNP_SHELL}${commands.join('\n  ')}`,
+      after: [
+        "Run the installer again without --yes and choose Repair or change. At the end, when it asks whether a SharePoint Administrator has taken the jobs' read " +
+          'off the old drop site, choose "Yes, it\'s done".',
+      ],
+    });
+  });
+}
+
+/**
  * The Azure AI roles are given on Fabric whenever the consumption module has a subscription to read, and on Azure when
  * it reads Azure AI through the API too. Pay-as-you-go subscriptions are only tried once Azure AI has access.
  * @param {InstallConfig} config
@@ -1006,6 +1044,7 @@ export function doneRequests(config, opts = {}) {
     ...consentDone(config, opts),
     ...retiredAppDone(config, opts),
     ...pending,
+    ...retiredDropsDone(config),
     ...azureAiDone(c),
     ...paygDone(c),
     ...foundryDone(c),
