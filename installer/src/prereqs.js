@@ -7,7 +7,9 @@
 import { allowsAction, ROLES } from './clients/azure.js';
 import { APP_ROLES, CONSENT_ROLES, FABRIC_ADMIN_ROLE, POWER_PLATFORM_ADMIN_ROLE, TEAMS_PUBLISH_ROLES } from './clients/graph.js';
 import { secretMode } from './config.js';
+import { commandLine } from './launch.js';
 import { copilotLicences } from './seats.js';
+import { AUDIT_CHECK_FAILS, AUDIT_CHECK_LABELS, AUDIT_ROLE, PURVIEW_AUDIT_URL } from './steps/audit-check.js';
 import { canWriteSecrets } from './steps/identity.js';
 import { blockedSettings, runsFabric } from './steps/plan.js';
 
@@ -299,6 +301,32 @@ export async function checkPrereqs(ctx) {
         return (await api.graph.usersCanRegisterApps())
           ? { status: 'met', detail: 'Users in this tenant can register apps.' }
           : { status: 'missing', detail: 'Users in this tenant can\'t register apps, and you have no app admin role.' };
+      },
+    ),
+    guard(
+      {
+        id: 'audit-ingestion',
+        label: `Audit log access for Copilot interactions (${AUDIT_ROLE})`,
+        neededFor: 'Loading Copilot interactions from the audit log, which most pages are built on. Without admin consent, or with audit logging off in Purview, the audit load finds 0 records.',
+        howTo: `A Global Administrator or Privileged Role Administrator grants admin consent for ${AUDIT_ROLE} (the installer gives you a link). A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: ${PURVIEW_AUDIT_URL} After install, run ${commandLine('check-audit')} to test it.`,
+      },
+      async () => {
+        const last = config.auditCheck ? ` Last audit check (${config.auditCheck.at.slice(0, 10)}): ${AUDIT_CHECK_LABELS[config.auditCheck.result] ?? config.auditCheck.result}.` : '';
+        if (azure) {
+          const g = config.azure?.graphRoles;
+          if (g?.assigned?.includes(AUDIT_ROLE)) return { status: 'met', detail: `The jobs' managed identity has it.${last}` };
+          if (g?.pending?.includes(AUDIT_ROLE)) return { status: 'missing', detail: `The jobs' managed identity doesn't have it yet.${last}` };
+        } else if (config.app.servicePrincipalId) {
+          const graphSp = await api.graph.graphServicePrincipal();
+          const role = graphSp.appRoles?.find((/** @type {{ value: string }} */ r) => r.value === AUDIT_ROLE);
+          const assigned = await api.graph.appRoleAssignments(config.app.servicePrincipalId);
+          if (role && assigned.some((/** @type {{ resourceId: string, appRoleId: string }} */ a) => a.resourceId === graphSp.id && a.appRoleId === role.id)) {
+            return { status: AUDIT_CHECK_FAILS.includes(/** @type {any} */ (config.auditCheck?.result)) ? 'missing' : 'met', detail: `Admin consent is in place for the app ${config.app.appId}.${last}` };
+          }
+        }
+        const admin = (await roles).find((x) => CONSENT_ROLES[/** @type {keyof typeof CONSENT_ROLES} */ (x.roleTemplateId)]);
+        if (admin) return { status: 'met', detail: `Not granted yet, but your ${admin.displayName} role lets the installer grant it.${last}` };
+        return { status: 'missing', detail: `Not granted yet. A Global Administrator or Privileged Role Administrator needs to approve it.${last}` };
       },
     ),
     guard(

@@ -414,22 +414,47 @@ async function addAdminOwner(ctx, email) {
   }
 }
 
+/** Entra can take a little while to show an app or service principal someone has just made. */
+export const APP_LOOKUP_ATTEMPTS = 3;
+export const APP_LOOKUP_RETRY_MS = 20_000;
+
+/**
+ * Looks something up, trying again a couple of times while Entra catches up.
+ * @template T
+ * @param {Ctx} ctx
+ * @param {() => Promise<T>} find
+ * @returns {Promise<T>}
+ */
+async function lookUp(ctx, find) {
+  for (let attempt = 1; ; attempt++) {
+    const found = await find();
+    if (found || attempt >= APP_LOOKUP_ATTEMPTS) return found;
+    await ctx.sleep(APP_LOOKUP_RETRY_MS);
+  }
+}
+
 /**
  * Creates or adopts the app registration and its service principal, and puts a client secret in Key Vault.
+ * An app the user brought must be registered in this tenant, as the loads sign in to it here.
  * @param {Ctx} ctx
  */
 export async function ensureApp(ctx) {
-  const { ui, config, api } = ctx;
+  const { ui, config, api, user } = ctx;
   const app = config.app;
   const { roles } = await graphRoles(ctx);
 
   if (app.appId) {
-    const application = await api.graph.findApplication(app.appId);
+    const appId = app.appId;
+    const application = await lookUp(ctx, () => api.graph.findApplication(appId));
     if (!application) {
+      if (!app.existing) {
+        throw new Error(`The app registration ${appId} in the install record no longer exists. Delete the "app" section of the install record to create a new one.`);
+      }
+      const sp = await api.graph.findServicePrincipal(appId).catch(() => null);
       throw new Error(
-        app.existing
-          ? `No app registration with ID ${app.appId} in this tenant.`
-          : `The app registration ${app.appId} in the install record no longer exists. Delete the "app" section of the install record to create a new one.`,
+        sp
+          ? `No app registration with ID ${appId} in this tenant (${user.tenantId}): only its enterprise application is here, so it was registered in another tenant. The loads read this tenant's audit log, so use an app registration created in this tenant.`
+          : `No app registration with ID ${appId} in this tenant (${user.tenantId}), and no service principal for it. It was registered in another tenant, or the ID is wrong. Use an app registration created in this tenant.`,
       );
     }
     app.objectId = application.id;
@@ -465,8 +490,21 @@ export async function ensureApp(ctx) {
     const appId = /** @type {string} */ (app.appId);
     let sp = await api.graph.findServicePrincipal(appId);
     if (!sp) {
-      sp = await api.graph.createServicePrincipal(appId);
-      ui.ok('Created its service principal');
+      try {
+        sp = await api.graph.createServicePrincipal(appId);
+        ui.ok('Created its service principal');
+      } catch (err) {
+        if (!app.existing) throw err;
+        // Someone may have just made it, and Entra doesn't show it yet.
+        sp = await lookUp(ctx, () => api.graph.findServicePrincipal(appId));
+        if (!sp && isStatus(err, 403)) {
+          throw new Error(
+            `${app.displayName ?? appId} has no service principal (enterprise application) in this tenant, and you can't create one, so it can't sign in here. ` +
+              `Its owner or an Application Administrator creates it (az ad sp create --id ${appId}), or a Global Administrator opens the admin consent link, which creates it: ${adminConsentUrl(user.tenantId, appId)}. Then run the installer again.`,
+          );
+        }
+        if (!sp) throw err;
+      }
     }
     app.servicePrincipalId = sp.id;
   }
@@ -527,6 +565,7 @@ export async function ensureSecret(ctx) {
       await claimSecretName(ctx);
     }
     await writeSecret(ctx, ctx.pendingSecret, { contentType: `Client secret for ${app.appId}` });
+    ctx.appSecret = ctx.pendingSecret;
     delete ctx.pendingSecret;
     kv.secretSetAt = ctx.now().toISOString();
     ctx.save();
@@ -680,6 +719,7 @@ export async function newSecret(ctx) {
     );
   }
   app.secretExpires = credential.endDateTime;
+  ctx.appSecret = credential.secretText;
   kv.secretSetAt = ctx.now().toISOString();
   const unsure = (kv.pendingSecretKeyIds ?? []).filter((k) => k !== credential.keyId);
   // Earlier secrets stay on the app until they expire, as a run already going may still use one.
@@ -725,6 +765,9 @@ export async function ensureConsent(ctx, who) {
   }
 
   ui.warn(`A Global Administrator or Privileged Role Administrator needs to approve: ${todo.map((r) => r.value).join(', ')}`);
+  if (todo.some((r) => r.value === 'AuditLogsQuery.Read.All')) {
+    ui.info('Until they do, the audit load can\'t read Copilot interactions (AuditLogsQuery.Read.All), so most pages stay empty.');
+  }
   ui.info(`Send them this page and ask them to select "Grant admin consent":`);
   ui.info(apiPermissionsUrl(appId));
   ui.note(`Or the direct consent link: ${adminConsentUrl(ctx.user.tenantId, appId)}`);

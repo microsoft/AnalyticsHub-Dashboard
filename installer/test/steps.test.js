@@ -935,8 +935,21 @@ test('printDataCheck says when the audit log had no Copilot activity at all', ()
   const ui = fakeUi();
   const { ctx } = fakeCtx({ ui: ui.ui });
   printDataCheck(ctx, { tables: { audit: { rows: 0 } }, auditExcluded: null });
-  assert.match(ui.text(), /No Copilot activity was found in the audit log yet/);
+  assert.match(ui.text(), /The audit load found no Copilot interactions/);
+  assert.match(ui.text(), /1\. Admin consent for AuditLogsQuery\.Read\.All/);
+  assert.match(ui.text(), /check-audit/);
+  assert.match(ui.text(), /rename Files\/_audit_staging\/_manifest\.json[^\n]*run --backfill-days <n>/);
   assert.doesNotMatch(ui.text(), /test or admin activity/);
+});
+
+test('printDataCheck points an empty audit table at the last audit check', () => {
+  const ui = fakeUi();
+  const { ctx } = fakeCtx({ ui: ui.ui });
+  ctx.config.auditCheck = { at: '2026-06-01T12:00:00Z', result: 'empty-log' };
+  printDataCheck(ctx, { tables: { audit: { rows: 0 } }, auditExcluded: null });
+  assert.match(ui.text(), /The last audit check found the audit log empty/);
+  assert.match(ui.text(), /Compliance Administrator turns it on in Purview > Audit/);
+  assert.doesNotMatch(ui.text(), /Admin consent for/);
 });
 
 test('printDataCheck reports how many people in the org data have a department', () => {

@@ -74,6 +74,12 @@ const COMMANDS = {
     desc: 'Read the Lakehouse tables again for row counts, date ranges and licence matches, without running the pipeline. Takes a few minutes.',
     off: 'The data check notebook isn\'t deployed.',
   },
+  'check-audit': {
+    title: 'Check audit ingestion', short: 'Check audit', icon: 'shield', section: 'Audit check',
+    row: 'Check audit ingestion', button: 'Check audit',
+    desc: 'Check the app registration can read Copilot interactions in the audit log, with a small live audit search, and say who fixes what it finds. Takes a few minutes. Changes nothing.',
+    off: 'There is no app registration yet.',
+  },
   update: {
     title: 'Update Analytics Hub', short: 'Update', icon: 'upload', section: 'Update', adopt: true,
     row: 'Update', button: 'Update',
@@ -116,7 +122,7 @@ const COMMANDS = {
     desc: 'See which roles, licences, capacities and Azure access you have and which are missing. Changes nothing.',
   },
 };
-const ROW_ORDER = ['run', 'rerun-failed', 'load-cowork', 'refresh', 'status', 'upload', 'check', 'update', 'deploy-app', 'access', 'rotate-secret', 'uninstall', 'install'];
+const ROW_ORDER = ['run', 'rerun-failed', 'load-cowork', 'refresh', 'status', 'upload', 'check', 'check-audit', 'update', 'deploy-app', 'access', 'rotate-secret', 'uninstall', 'install'];
 /** The id of the Cowork Dataflow card in steps/next-steps.js. */
 const COWORK_STEP_ID = 'cowork-dataflow';
 
