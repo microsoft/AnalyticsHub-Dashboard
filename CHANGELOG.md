@@ -326,11 +326,12 @@ Deployment instructions do **not** live here. They live in the READMEs:
     the install record, and nothing in the tenant. PREREQUISITES, INSTALL, PERMISSIONS,
     TROUBLESHOOTING, AZURE-LEAST-PRIVILEGE and the installer README say the same.
 - **Permissions you no longer need are taken back.** Until now the installer only added: turning a
-  module or data source off left what it gave for it. Now the next install, Repair or change or
-  `update` takes back what it gave that nothing you still use needs, and only what a check shows is
-  still there. Where your role lets you, the run does it. Otherwise it warns, and the end of an
-  install or Repair asks whoever can, under **Still to do by your admins** and in their file in the
-  admin pack. Each run checks again. A take-back that can't be done never stops the install.
+  module or data source off, or choosing another viewer group, left what it gave for them. Now the
+  next install, Repair or change or `update` takes back what it gave that nothing you still use
+  needs, and only what a check shows is still there. Where your role lets you, the run does it.
+  Otherwise it warns, and the end of an install or Repair asks whoever can, under **Still to do by
+  your admins** and in their file in the admin pack. Each run checks again. A take-back that can't
+  be done never stops the install.
   - **The Fabric app's Graph permissions**, if the installer created the app: at most
     `CopilotPackages.Read.All`, `Application.Read.All`, `ThreatHunting.Read.All` and
     `CloudApp-Discovery.Read.All`, never `User.Read.All`. They come off its API permissions. When
@@ -351,8 +352,23 @@ Deployment instructions do **not** live here. They live in the READMEs:
     deletes it, or says there's nothing to remove. When the read fails, the request lists what the
     install record says it was given. A role still waiting for an admin to give it is dropped from
     that request.
-  - PERMISSIONS has a new section, Taking access back. The installer README and TROUBLESHOOTING
-    point to it.
+  - **The old viewer group's Build.** Each time the installer gives the viewer group Build, in an
+    install, Repair or `access`, it now takes the Build it gave the old group off each model,
+    including the model of a module you've turned off. That needs Admin or Member of the
+    workspace, as giving Build does. A group already off a model, or deleted, counts as done;
+    anything else warns, and the next grant tries again. The plan review lists it as **Build
+    removed**. Choosing the old group again keeps its Build.
+  - **The app's share with the old group** (Fabric). There's no API to take a group off the app,
+    so the **Share the app** step and its card ask you to, on the app's **Manage permissions**
+    page. When the app still needs sharing with the new group, one answer covers both.
+  - **Org-scoped access** is applied again when the viewer group changes, which takes the old
+    group out of the roles. Until now that waited for a model to be deployed again, so until then
+    the new group's members saw no data. On Fabric the install applies org-scoped access after the
+    viewer step now, so a group made again gets the roles in the same run, still before the first
+    load. A record from before doesn't apply them again.
+  - PERMISSIONS has a new section, Taking access back, and its org-scoped access table a row for
+    another viewer group. The installer README and TROUBLESHOOTING point to it, and the installer
+    README has Changing the group.
 
 ## 2026-10-26 — Analytics Hub installer 0.6.8
 

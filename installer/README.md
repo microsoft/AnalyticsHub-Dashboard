@@ -454,6 +454,17 @@ The [Azure target](#azure-target) asks the same question. Its advanced settings 
 [Workday org data](../azure/README.md#workday-org-data), agent configuration and Foundry, and
 [which model Ask uses](#ask).
 
+**Changing the group.** If you choose another group under **Who can view** (**Repair or change**,
+then **Yes**), the installer takes away the Build it gave the old group on each model, including
+the model of a module you've since turned off. Like giving Build, that needs Admin or Member of
+the workspace. If Power BI refuses, the installer says so, and tries again the next time it gives
+the group Build. It doesn't change workspace roles. On Fabric there's no API to take a group off
+the app, so if the app was shared with the old group, **Share the app** asks you to remove it on
+the app's **Manage permissions** page. If the app still needs sharing with the new group, one
+answer covers both. With org-scoped access on, the installer applies the roles again with the new
+group, which takes the old one out of them. Choose the old group again and it keeps its Build and
+its share. See [Taking access back](../docs/PERMISSIONS.md#taking-access-back).
+
 ## After it finishes
 
 Moved to [After it finishes](../docs/INSTALL.md#after-it-finishes).

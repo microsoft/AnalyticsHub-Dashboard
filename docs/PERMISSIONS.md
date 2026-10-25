@@ -273,6 +273,7 @@ A model definition deploy drops role members, so after every deploy the installe
 | You turn it on | Everyone in the viewer group now, and you, get an `all` scope, so nobody loses anything. The models are redeployed with the roles, the members are applied, the models refresh and the installer checks a seeded person sees everyone |
 | Upgrade or Repair with it on | Any model redeploy is followed by applying the members again and checking. The scopes are untouched |
 | Someone joins the viewer group later | They see nothing until you give them a scope (or you add a default `*` scope) |
+| You choose another viewer group | The install or Repair that changes it applies the members again with the new group, which takes the old one out of the **Scoped viewers** role. The scopes are untouched |
 | You turn it off | The models are redeployed without the roles or access tables. The scopes are kept for if you turn it on again |
 
 **Giving scopes from the Share panel (Azure).** With org-scoped access on, **Share** in the Azure app has a **What people see** section:
@@ -302,7 +303,8 @@ Caveats:
 
 When you turn a module or data source off, the next install, **Repair or change** or `update`
 takes back the Microsoft Graph permissions the installer gave for it that nothing you still use
-needs. It takes back only what the installer gave, and only what a check shows is still there.
+needs. When you choose another viewer group, it takes back what it gave the old group. It takes
+back only what the installer gave, and only what a check shows is still there.
 Where your role lets you, the run does it. Otherwise it says who can, and the end of an install or
 Repair asks them, under **Still to do by your admins** and in their file in the admin pack. Each
 run checks again, and stops asking once it's gone. When something can't be taken back, the
@@ -328,6 +330,17 @@ install carries on.
   SharePoint drop folder. If you're a Global Administrator or Privileged Role Administrator, the
   installer revokes them. Otherwise the request goes to one of them, with a command for Azure
   Cloud Shell (Bash). A role still waiting for an admin to give it is dropped from that request.
+- **The old viewer group**, when you choose another one under **Who can view**. Each time the
+  installer gives the viewer group Build (an install, a Repair, or `access`), it takes the Build
+  it gave the old group off each model through the Power BI API, including the model of a module
+  you've since turned off. Like giving Build, that needs Admin or Member of the workspace, so
+  nobody else is asked: if Power BI refuses, the run says so, and the next one to give Build tries
+  again. It doesn't change workspace roles, so it can't take away access a workspace role gives.
+  On Fabric there's no API to take a group off the app, so if the app was shared with the old
+  group, the **Share the app** step asks you to remove it on the app's **Manage permissions**
+  page. With [org-scoped access](#org-scoped-access-row-level-security) on, the members are
+  applied again with the new group, which takes the old one out of the roles. Choosing the old
+  group again keeps its Build and its share.
 
 It leaves the **Global Reader** role it gave for the agents (see
 [Azure Resource Graph](#azure-resource-graph)), the Azure roles, and the Azure web app's delegated

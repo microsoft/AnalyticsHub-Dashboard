@@ -71,6 +71,69 @@ test('share: nothing to share without a viewer group or an app, and never on Azu
   assert.equal(shareAppPending(u.config), false);
 });
 
+const REMOVE_STEPS = [
+  'In Analytics Hub, choose … (More options) next to Analytics Hub, then Manage permissions.',
+  'On Direct access, choose … next to "Copilot Leads" and remove its permissions. It can take up to two hours to take effect.',
+];
+
+test('share: a group that was the viewer group is taken off the app in the same step, and one answer covers both', async () => {
+  const t = installed([true]);
+  const a = /** @type {import('../src/config.js').AccessConfig} */ (t.config.access);
+  a.retiredGroups = [{ groupId: 'g-9', groupName: 'Copilot Leads', datasets: ['ds-vl'], appShared: true }, { groupId: 'g-8', groupName: 'Copilot Pilots', datasets: ['ds-cc'] }];
+  assert.equal(shareAppPending(t.config), true);
+  const [card] = nextSteps(t.config, USER);
+  assert.equal(card.id, 'share-app');
+  assert.equal(card.title, `Share the app with ${VIEWER_GROUP_NAME}`);
+  assert.match(card.why, /\. Copilot Leads isn't the viewer group any more, but its members can still open the app\. Take it off the app too\.$/);
+  assert.deepEqual(card.steps?.slice(3), REMOVE_STEPS);
+  assert.doesNotMatch(JSON.stringify(card), /Copilot Pilots/, 'the app was never shared with it');
+
+  await shareApp(t.ctx);
+  assert.deepEqual(t.asked, ['Have you shared the app?']);
+  assert.match(t.text(), /"Copilot Leads" isn't the viewer group any more, so take it off the app too\./);
+  assert.match(t.text(), /✓ The app is shared with "Analytics Hub Viewers"\n/);
+  assert.match(t.text(), /✓ "Copilot Leads" is off the app\n/);
+  assert.equal(a.appShared, true);
+  assert.deepEqual(a.retiredGroups, [{ groupId: 'g-9', groupName: 'Copilot Leads', datasets: ['ds-vl'] }, { groupId: 'g-8', groupName: 'Copilot Pilots', datasets: ['ds-cc'] }], 'its Build is the grant step\'s to take');
+  assert.equal(t.saves(), 1);
+  assert.equal(shareAppPending(t.config), false);
+});
+
+test('share: once it is shared, a group that was the viewer group is still taken off, with its own question', async () => {
+  const t = installed([true]);
+  const a = /** @type {import('../src/config.js').AccessConfig} */ (t.config.access);
+  a.appShared = true;
+  a.retiredGroups = [{ groupId: 'g-9', groupName: 'Copilot Leads', datasets: [], appShared: true }];
+  const [card] = nextSteps(t.config, USER);
+  assert.equal(card.title, 'Take Copilot Leads off the app');
+  assert.equal(card.why, "Copilot Leads isn't the viewer group any more, but its members can still open the app. Fabric has no API to take it off.");
+  assert.deepEqual(card.steps, REMOVE_STEPS);
+
+  await shareApp(t.ctx);
+  assert.deepEqual(t.asked, ['Have you taken "Copilot Leads" off the app?']);
+  assert.match(t.text(), /"Copilot Leads" isn't the viewer group any more, but its members can still open the app\. Fabric has no API to take it off, so do it now:/);
+  assert.doesNotMatch(t.text(), /Choose Share\.|The app is shared with/);
+  assert.match(t.text(), /✓ "Copilot Leads" is off the app\n/);
+  assert.equal(a.retiredGroups, undefined);
+  assert.deepEqual(nextSteps(t.config, USER), []);
+
+  const later = installed([false]);
+  const b = /** @type {import('../src/config.js').AccessConfig} */ (later.config.access);
+  b.appShared = true;
+  b.retiredGroups = [
+    { groupId: 'g-9', groupName: 'Copilot Leads', datasets: [], appShared: true },
+    { groupId: 'g-8', groupName: 'Copilot Pilots', datasets: [], appShared: true },
+  ];
+  assert.equal(nextSteps(later.config, USER)[0].title, 'Take Copilot Leads and Copilot Pilots off the app');
+  await shareApp(later.ctx);
+  assert.deepEqual(later.asked, ['Have you taken "Copilot Leads" and "Copilot Pilots" off the app?']);
+  assert.match(later.text(), /On Direct access, choose … next to "Copilot Leads" and "Copilot Pilots" and remove their permissions\./);
+  assert.match(later.text(), /Until then, members of "Copilot Leads" and "Copilot Pilots" can still open the app\./);
+  assert.doesNotMatch(later.text(), /no access/);
+  assert.equal(later.saves(), 0);
+  assert.deepEqual(ids(nextSteps(later.config, USER)), ['share-app']);
+});
+
 test('share: the app is told it is shared only once it is', () => {
   const t = installed();
   assert.equal(publicAccess(t.config)?.appShared, undefined);

@@ -234,6 +234,35 @@ test("record: what's left to take back is kept; once it's taken back, another co
     assert.equal('retired' in (/** @type {any} */ (loadConfig(file).config.azure)).graphRoles, false, 'an empty list is dropped');
   }));
 
+test('record: an old viewer group is kept until its access is taken back, and so is the group the roles were applied with', () =>
+  inDir((dir) => {
+    const file = join(dir, 'valuelens-install.json');
+    const first = record();
+    first.access = {
+      groupId: 'g-2',
+      groupName: 'Analytics Hub Viewers',
+      grantedModels: ['ds-vl'],
+      retiredGroups: [{ groupId: 'g-1', groupName: 'Copilot Leads', datasets: ['ds-vl', 'ds-cc'], appShared: true }],
+      rls: { enabled: true, orgAttribute: 'department', applied: ['ds-vl'], appliedGroupId: 'g-2' },
+    };
+    saveConfig(file, first);
+    const install = loadConfig(file).config;
+    assert.deepEqual(install.access, first.access);
+
+    const other = loadConfig(file).config;
+    other.schedule.time = '04:00';
+    saveConfig(file, other);
+    delete (/** @type {import('../src/config.js').AccessConfig} */ (install.access)).retiredGroups;
+    saveConfig(file, install);
+    const saved = loadConfig(file).config;
+    assert.equal(saved.access?.retiredGroups, undefined);
+    assert.equal(saved.access?.rls?.appliedGroupId, 'g-2');
+    assert.equal(saved.schedule.time, '04:00');
+
+    writeFileSync(file, JSON.stringify({ version: 1, access: { groupId: 'g-2', retiredGroups: [{ groupId: 'g-1' }] } }));
+    assert.deepEqual(loadConfig(file).config.access?.retiredGroups, [{ groupId: 'g-1', datasets: [] }], 'a group without its models has none');
+  }));
+
 test('record: a record saved to another file, such as the setup draft, is written as it is', () =>
   inDir((dir) => {
     const file = join(dir, 'valuelens-install.json');

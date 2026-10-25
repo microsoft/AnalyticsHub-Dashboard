@@ -81,8 +81,19 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {string} [contact]  Who people ask for access. Defaults to the installer.
  * @property {string} [requestUrl]  Optional link for access requests, e.g. a My Access package or a form.
  * @property {string[]} [grantedModels]  Semantic model IDs the group has Build (ReadExplore) on.
+ * @property {RetiredGroup[]} [retiredGroups]  Groups that were the viewer group, until the installer has taken away the
+ *   Build it gave them and you've taken them off the app.
  * @property {boolean} [appShared]  The user said the Fabric app item is shared with the group. Fabric has no API to check.
  * @property {RlsConfig} [rls]  Org-scoped access (row-level security). Off when absent.
+ */
+
+/**
+ * A group that was the viewer group, and what it still has from the installer.
+ * @typedef {object} RetiredGroup
+ * @property {string} groupId
+ * @property {string} [groupName]
+ * @property {string[]} datasets  Semantic model IDs it still has the installer's Build on.
+ * @property {boolean} [appShared]  The Fabric app item was shared with it, and nobody has said it's been taken off.
  */
 
 /**
@@ -91,6 +102,8 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {boolean} enabled
  * @property {'department' | 'country'} [orgAttribute]  What an org scope matches. Defaults to department.
  * @property {string[]} [applied]  Models whose role members were applied since they were last deployed. A deploy drops members.
+ * @property {string} [appliedGroupId]  The viewer group the roles were last applied with. Their members are the group, so
+ *   another group applies them again. Absent on a record from before 0.6.9, which counts as the current group.
  */
 
 /**
@@ -473,6 +486,7 @@ function normaliseConfig(raw, file) {
           access: {
             ...raw.access,
             grantedModels: [...(raw.access.grantedModels ?? [])],
+            ...(raw.access.retiredGroups ? { retiredGroups: raw.access.retiredGroups.map((g) => ({ ...g, datasets: [...(g.datasets ?? [])] })) } : {}),
             ...(raw.access.rls ? { rls: { ...raw.access.rls, applied: Array.isArray(raw.access.rls.applied) ? [...raw.access.rls.applied] : [] } } : {}),
           },
         }

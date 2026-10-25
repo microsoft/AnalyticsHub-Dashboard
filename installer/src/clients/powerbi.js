@@ -22,6 +22,12 @@ export function powerBiApi(http) {
      * @param {{ identifier: string, principalType: 'User' | 'Group' | 'App', datasetUserAccessRight: 'Read' | 'ReadExplore' | 'ReadReshare' | 'ReadReshareExplore' }} body
      */
     addDatasetUser: (workspaceId, datasetId, body) => http.post(`/groups/${workspaceId}/datasets/${datasetId}/users`, body),
+    /**
+     * Changes a principal's direct access to a semantic model. None takes it all away, but not what a workspace role gives.
+     * @param {string} workspaceId @param {string} datasetId
+     * @param {{ identifier: string, principalType: 'User' | 'Group', datasetUserAccessRight: 'None' | 'Read' | 'ReadExplore' | 'ReadReshare' | 'ReadReshareExplore' }} body
+     */
+    updateDatasetUser: (workspaceId, datasetId, body) => http.put(`/groups/${workspaceId}/datasets/${datasetId}/users`, body),
     /** @param {string} workspaceId @param {string} datasetId @param {any} body */
     setRefreshSchedule: (workspaceId, datasetId, body) => http.patch(`/groups/${workspaceId}/datasets/${datasetId}/refreshSchedule`, body),
     /** @param {string} gatewayId @param {string} datasourceId @param {any} body */

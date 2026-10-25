@@ -1,9 +1,11 @@
 // @ts-check
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { test } from 'node:test';
 import { EVERYONE_ROLE, SCOPED_ROLE } from '../src/transform/access.js';
 import { buildAgentEvaluatorModel, buildModel, loadTemplateModel } from '../src/transform/model.js';
 import { deployedRoles, deployModel, definitionRoles } from '../src/steps/model.js';
+import { ensureViewerGroup } from '../src/steps/access.js';
 import { armApi, ROLES } from '../src/clients/azure.js';
 import { HttpError } from '../src/http.js';
 import {
@@ -19,6 +21,7 @@ import {
   FABRIC_SCOPE_FILE,
   newRow,
   orgAccessCommand,
+  orgAccessPending,
   parseScopeCsv,
   readScopes,
   removeScope,
@@ -257,6 +260,74 @@ test('ensureOrgAccess: nothing to do when off, or when every model has its membe
   assert.equal(await ensureOrgAccess(on.ctx), true);
   assert.deepEqual(notebookRuns(on.fabric.calls), []);
   assert.match(on.ui.text(), /Org-scoped access is in place/);
+});
+
+/** The roles as the last apply left them, with the group it applied them with. @param {string} groupId */
+const appliedRoles = (groupId) =>
+  JSON.stringify(builtRoles().map((role) => ({ dataset: 'ValueLens', datasetId: 'ds-vl', role: { ...role, members: [{ memberName: `obj:${groupId}@tenant-1`, identityProvider: 'AzureAD', memberType: 'group' }] } })));
+
+test('ensureOrgAccess: another viewer group gets the roles applied again, which takes the old one out; a record from before does not', async () => {
+  const { ctx, config, fabric, lakeFiles } = fabricInstall();
+  const rls = /** @type {import('../src/config.js').RlsConfig} */ (config.access?.rls);
+  rls.applied = ['ds-vl'];
+  assert.equal(orgAccessPending(config), false, 'a record from before 0.6.9 counts as the current group');
+  assert.equal(await ensureOrgAccess(ctx, { refresh: false }), true);
+  assert.deepEqual(notebookRuns(fabric.calls), [], 'so an upgrade does not apply them again');
+  rls.appliedGroupId = 'G-1';
+  assert.equal(orgAccessPending(config), false, 'the same group');
+
+  rls.appliedGroupId = 'g-9';
+  assert.equal(orgAccessPending(config), true, 'another group');
+  lakeFiles.map.set(FABRIC_SCOPE_FILE, scopeCsv(seedRows(['ana@contoso.com'], by)));
+  lakeFiles.map.set(FABRIC_ROLES_FILE, appliedRoles('g-9'));
+  fabric.jobs.push({ status: 'Completed' });
+  assert.equal(await ensureOrgAccess(ctx, { refresh: false }), true);
+  assert.equal(notebookRuns(fabric.calls).length, 1);
+  const roles = /** @type {string} */ (lakeFiles.map.get(FABRIC_ROLES_FILE));
+  assert.deepEqual(JSON.parse(roles)[1].role.members, [{ memberName: 'obj:g-1@tenant-1', identityProvider: 'AzureAD', memberType: 'group' }]);
+  assert.doesNotMatch(roles, /g-9/, 'the notebook replaces each role, so the old group is out of it');
+  assert.equal(rls.appliedGroupId, 'g-1');
+  assert.equal(orgAccessPending(config), false);
+});
+
+test('install on Fabric: a viewer group made again gets the roles in the same run, before the first load', async () => {
+  const src = await readFile(new URL('../src/install.js', import.meta.url), 'utf8');
+  const at = (/** @type {string} */ s) => {
+    const i = src.indexOf(s);
+    assert.ok(i >= 0, `${s} is in install.js`);
+    return i;
+  };
+  assert.ok(at("step('Viewer access')") < at('ensureOrgAccess(ctx, { refresh: false })'), 'the roles follow the viewer step');
+  assert.ok(at('ensureOrgAccess(ctx, { refresh: false })') < at("step('First load')"));
+
+  // The group the roles were applied with was deleted, so the viewer step makes it again.
+  /** @type {Map<string, { id: string, displayName: string }>} */
+  const groups = new Map();
+  const graph = {
+    ...viewerGraph().graph,
+    getGroup: async (/** @type {string} */ id) => groups.get(id) ?? null,
+    findGroupByName: async () => null,
+    createSecurityGroup: async (/** @type {{ displayName: string }} */ o) => {
+      const g = { id: 'g-2', displayName: o.displayName };
+      groups.set(g.id, g);
+      return g;
+    },
+  };
+  const { ctx, config, fabric, lakeFiles } = fabricInstall({ graph });
+  const access = /** @type {import('../src/config.js').AccessConfig} */ (config.access);
+  access.createdGroup = true;
+  const rls = /** @type {import('../src/config.js').RlsConfig} */ (access.rls);
+  rls.applied = ['ds-vl'];
+  rls.appliedGroupId = 'g-1';
+  lakeFiles.map.set(FABRIC_SCOPE_FILE, scopeCsv(seedRows(['ana@contoso.com'], by)));
+  lakeFiles.map.set(FABRIC_ROLES_FILE, appliedRoles('g-1'));
+  fabric.jobs.push({ status: 'Completed' });
+
+  assert.equal((await ensureViewerGroup(ctx))?.id, 'g-2');
+  assert.equal(await ensureOrgAccess(ctx, { refresh: false }), true);
+  const roles = JSON.parse(/** @type {string} */ (lakeFiles.map.get(FABRIC_ROLES_FILE)));
+  assert.deepEqual(roles[1].role.members, [{ memberName: 'obj:g-2@tenant-1', identityProvider: 'AzureAD', memberType: 'group' }]);
+  assert.equal(rls.appliedGroupId, 'g-2');
 });
 
 test('deployModel: a redeploy drops the model from applied, and records its roles for this run', async () => {
