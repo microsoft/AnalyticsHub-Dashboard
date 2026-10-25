@@ -2,6 +2,8 @@
 
 Analytics Hub on your Fabric capacity. The recommended path.
 
+## Before you start
+
 - **You need:** a Fabric capacity, F2 or larger, or a
   [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager).
 - **Takes:** about 20 minutes. The first data arrives about 25 minutes after **Go ahead**.
@@ -24,7 +26,7 @@ Analytics Hub on your Fabric capacity. The recommended path.
 3. **Check it worked.** The Done page lists anything left to do, and who does it. See
    [Check it worked](../docs/INSTALL.md#check-it-worked).
 
-## By hand
+## Manual
 
 No installer. [🎥 Watch the manual setup](../fabric/README.md#set-it-up-by-hand) first.
 
@@ -35,7 +37,7 @@ No installer. [🎥 Watch the manual setup](../fabric/README.md#set-it-up-by-han
 3. [Check it worked](../docs/MANUAL-INSTALL.md#3-verify): the pipeline run, the data and the
    report.
 
-## Then
+## After setup
 
 [Update or remove](../docs/UPDATE.md) · [Troubleshooting](../docs/TROUBLESHOOTING.md) ·
 [FAQ](../docs/FAQ.md)

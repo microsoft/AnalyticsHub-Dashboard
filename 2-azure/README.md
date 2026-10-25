@@ -2,6 +2,8 @@
 
 Analytics Hub in your own Azure subscription, without Fabric.
 
+## Before you start
+
 - **You need:** an Azure subscription or resource group, and a Power BI workspace.
 - **Takes:** about 20 minutes. The first data arrives about 25 minutes after **Go ahead**.
 - **Costs:** about $5–40 a month for a small tenant. Analytics Hub itself is free. See
@@ -28,14 +30,14 @@ Analytics Hub in your own Azure subscription, without Fabric.
 3. **Check it worked.** The Done page lists anything left to do, and who does it. See
    [Check it worked](../docs/INSTALL.md#check-it-worked).
 
-## By hand
+## Manual
 
 No installer: [seven steps in Azure Cloud Shell](../docs/MANUAL-INSTALL.md#azure), from the
 installer's own template and report. They need a release that includes them: **Get the files**
 checks for one. Or run the installer itself in
 [Azure Cloud Shell](../docs/INSTALL.md#locked-down-tenant--azure-cloud-shell).
 
-## Then
+## After setup
 
 [Update or remove](../docs/UPDATE.md) · [Troubleshooting](../docs/TROUBLESHOOTING.md) ·
 [FAQ](../docs/FAQ.md)
