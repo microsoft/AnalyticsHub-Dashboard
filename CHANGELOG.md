@@ -300,11 +300,14 @@ sets the number. On Fabric and Azure.
   rows, the pipeline run fails and the consumption model isn't refreshed: move or remove what the
   message lists, or remove `SNAPSHOT_MONTH`, then run the pipeline again. With no tenant export, the
   per-agent and per-user exports now load: the run used to read them as the tenant export, and fail.
-  And each export is now written in one Delta commit per table, as the flow's files are. If an
-  earlier version has already run this month with an export left in the folder, that export stays as
-  this month's; with the flow, the flow's figures take over next month. **Update** deploys the new
-  notebook. **Repair or change** keeps the old one when you brought your own app and its secret is
-  in the notebooks. Azure isn't changed.
+  And each export is now written in one Delta commit per table, as the flow's files are. Updating
+  leaves the copies that earlier versions stored, so each month that holds one stays covered by an
+  export: with the flow, the flow's figures aren't used for it. That includes this month, if an
+  earlier version has already run this month with an export left in the folder; the flow's figures
+  take over next month. That month's own export, uploaded as usual or put in its backfill folder,
+  replaces the copied rows it matches on the table's key, but a copied agent or user it doesn't list
+  stays. **Update** deploys the new notebook. **Repair or change** can keep the old one when you
+  brought your own app and its secret is in the notebooks. Azure isn't changed.
 
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 

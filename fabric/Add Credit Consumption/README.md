@@ -163,10 +163,23 @@ its own dates wherever it sits.
 file outside a month folder, a folder whose name isn't `YYYY-MM`, or a month later than the current
 one. A folder inside a month folder isn't read, and the run says so. The notebook's old
 `SNAPSHOT_MONTH` setting is retired: a run with it still set stops, and points to the backfill
-folder. Either way, the Studio tables keep their rows. In the installer's pipeline, the load fails
-after its retries and the other loads still run, but the pipeline run fails, and the consumption
-model isn't refreshed until a run succeeds. Move or remove what the message lists, or remove
-`SNAPSHOT_MONTH`, then run the pipeline again or wait for the next run.
+folder, whether it's set in the settings cell or passed to the notebook as a parameter (a pipeline
+Notebook activity's base parameters, or the arguments of `notebookutils.notebook.run`). Either way,
+the Studio tables keep their rows. In the installer's pipeline, the load fails after its retries
+and the other loads still run, but the pipeline run fails, and the consumption model isn't
+refreshed until a run succeeds. Move or remove what the message lists, or remove `SNAPSHOT_MONTH`,
+then run the pipeline again or wait for the next run.
+
+**Updating from an earlier version.** Earlier versions gave a per-agent or per-user export the month
+of each run that read it, so an export left in `Files/landing/studio/` was stored again as each
+later month's snapshot in `studio_agent` and `studio_user`. Updating leaves those copies in place,
+and each month that holds one stays covered by an export: the current month too, if an earlier
+version has already run this month with an older export in the folder. With the flow, the run prints
+"an export covers this month, so the API figures aren't used" for such a month (in `studio_user`,
+"…so the API user figures aren't used") and keeps the flow's figures out of it. That month's own
+export replaces the copied rows it matches on the table's key: upload it as usual for the current
+month, or for an earlier one, create its `backfill/<YYYY-MM>/` folder in the Lakehouse and upload it
+there, as above. A copied row it has no match for, such as an agent it doesn't list, stays.
 
 Copied from [microsoft/ConsumptionCentral-for-Microsoft-Copilot ↗](https://github.com/microsoft/ConsumptionCentral-for-Microsoft-Copilot)
 (MIT) at commit `24b0ca8`. Full documentation and issues live there.
