@@ -108,12 +108,21 @@ notebooks to read the secret from the vault and removes the secret they held fro
 
 ### If you can't register apps
 
-Choose **An admin will register the app for me** in the app registration question. Before
-anything is created, the installer writes `analytics-hub-admin-pack.md` next to the install record.
-It holds an Azure Cloud Shell script and the same steps for the portal. An admin uses it to:
+Everyone can register apps by default, unless *Users can register applications* is off. An
+Application Administrator, Cloud Application Administrator or Application Developer always can. A
+Privileged Role Administrator can't, though it can grant admin consent. The installer checks before
+anything is created, but it can't see custom roles, so it still offers to create the apps. Choose
+that only if a custom role lets you register apps. On Azure, if Entra then refuses, the installer
+writes the admin script and stops before it deploys anything.
+
+**On Fabric**, choose **An admin will register the app for me** in the app registration question.
+Before anything is created, the installer writes `analytics-hub-admin-pack.md` next to the install
+record. It holds an Azure Cloud Shell script and the same steps for the portal. An Application
+Administrator or Cloud Application Administrator uses it to:
 
 1. Register the app, with every Graph application permission the modules you picked need.
-2. Grant admin consent.
+2. Grant admin consent. They're Microsoft Graph application permissions, so this step needs a
+   Privileged Role Administrator or Global Administrator. A Global Administrator can do it all.
 3. Create a client secret. If you chose **A vault admin will add the secret for me**, the
    secret goes straight into the vault. Otherwise the admin sends it to you through a secure
    channel.
@@ -127,6 +136,41 @@ it with admin consent. It lists anything missing with the link to the app's API 
 Once an admin has fixed it, choose **Check again**. Or choose **Carry on anyway**: data the missing
 permissions cover won't load until they're fixed.
 
+**On Azure**, the install has two app registrations: **Analytics Hub (Azure)**, the web app people
+sign in to, and **Analytics Hub SQL Reader**, which Power BI reads the database as. Under **App
+registrations**, choose who creates them:
+
+- **Create the two apps**, recommended if you can register apps and an admin hasn't made them. The
+  installer creates them before it deploys anything, and finishes them once the web app exists.
+  It's offered even when the installer finds no role or setting that lets you, in case a custom
+  role does. If that role doesn't make you their owner, Entra may refuse to finish them after the
+  deploy. The installer then stops, and says who adds you as an owner.
+- **Use the apps an admin created for me**, recommended when the installer finds both. The installer
+  finds the apps with these names that you own and no install has finished, or you enter their
+  client IDs. You need to own each app, unless you're an Application Administrator, Cloud
+  Application Administrator or Global Administrator. Uninstall leaves these apps, and names them for
+  an admin to delete.
+- **An admin will create the apps for me.** The installer writes `analytics-hub-azure-admin-script.md`
+  next to the install record, and stops before it deploys anything. An Application Administrator
+  or Cloud Application Administrator pastes its script into Azure Cloud Shell. It creates both apps
+  and their service principals, makes you an owner of them, and approves the web app's delegated
+  permissions (Power BI and Microsoft Graph). It makes no secrets, and it's safe to run again. Then
+  run the installer again: it finds the apps itself, so there's nothing to send back.
+
+If an admin created only one of the two, the installer uses it and asks only about the other. If you
+choose an admin for that one, the script creates only the missing app.
+
+With `--yes`, the installer uses an app an admin created when it finds exactly one with that name,
+and stops to list their client IDs when it finds more. Otherwise it creates the app if you can, or
+writes the script and stops.
+
+Approving the web app's delegated permissions needs an Application Administrator, Cloud
+Application Administrator, Privileged Role Administrator or Global Administrator. If you create the
+apps without one of those roles, the installer gives you a consent link to send after the deploy,
+and carries on: people can use the web app once it's approved. The jobs' managed identity's
+Microsoft Graph roles are separate: after the deploy, a Privileged Role Administrator or Global
+Administrator gives them, and the installer lists them.
+
 ## Azure target
 
 The installer can also set up Analytics Hub in **your Azure subscription**. Start it with
@@ -138,9 +182,11 @@ You need:
   for least privilege, Contributor and a limited Role Based Access Control Administrator on just a
   resource group your Azure admin creates: see
   [Least-privilege Azure install](../docs/AZURE-LEAST-PRIVILEGE.md).
-- Permission to register Entra apps, or an Application Administrator.
-- A Global Administrator or Privileged Role Administrator to grant the managed identity's Graph app
-  roles, or to use the admin links the installer prints.
+- Permission to register Entra apps. Or an Application Administrator or Cloud Application
+  Administrator creates the two apps for you: see [If you can't register apps](#if-you-cant-register-apps).
+- A Global Administrator or Privileged Role Administrator to give the managed identity its Graph
+  app roles. Approving the web app's delegated permissions, from the consent link the installer
+  prints, can also be done by an Application Administrator or Cloud Application Administrator.
 - Power BI Pro or PPU, and permission to create or use the chosen Power BI workspace.
 - To publish the Teams app for you: the Teams Administrator or Global Administrator role, and consent
   to `AppCatalog.ReadWrite.All` for Microsoft Graph Command Line Tools at a second sign-in. Without
@@ -155,8 +201,9 @@ You need:
 
 It creates or reuses a resource group and deploys a managed identity, Storage, Log Analytics,
 Azure SQL Database serverless, Container Apps jobs, and the web app from the ARM template in
-`src/azure/main.arm.json`. It also creates the Azure web app registration, an SQL reader app
-registration, a Power BI workspace and model, and an `AnalyticsHub-Teams.zip` package (the app as a
+`src/azure/main.arm.json`. Before that, it creates the Azure web app registration and an SQL reader
+app registration, or uses the ones an admin created, and finishes them once the web app exists. It
+also creates a Power BI workspace and model, and an `AnalyticsHub-Teams.zip` package (the app as a
 Teams tab, built by `src/azure/teams/build-package.mjs`) next to the install record. It publishes the
 package to your org's Teams app catalog, and later runs update that app rather than add another. If
 it can't, if you say no when the plan asks, or if the sign-in isn't finished within 5 minutes, it

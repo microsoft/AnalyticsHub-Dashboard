@@ -5,11 +5,12 @@
  * reports "unknown" rather than failing when it can't be read.
  */
 import { allowsAction, ROLES } from './clients/azure.js';
-import { APP_ROLES, CONSENT_ROLES, FABRIC_ADMIN_ROLE, INSIGHTS_ANALYST_ROLE, POWER_PLATFORM_ADMIN_ROLE, TEAMS_PUBLISH_ROLES } from './clients/graph.js';
+import { CONSENT_ROLES, CREATE_APPS_ROLES, DELEGATED_CONSENT_ROLES, FABRIC_ADMIN_ROLE, INSIGHTS_ANALYST_ROLE, POWER_PLATFORM_ADMIN_ROLE, TEAMS_PUBLISH_ROLES } from './clients/graph.js';
 import { secretMode } from './config.js';
 import { commandLine } from './launch.js';
 import { copilotLicences } from './seats.js';
 import { AUDIT_CHECK_FAILS, AUDIT_CHECK_LABELS, AUDIT_ROLE, PURVIEW_AUDIT_URL } from './steps/audit-check.js';
+import { adoptableApps, AZURE_APPS, appsRecorded, webAppGranted } from './steps/azure/apps.js';
 import { flowsWanted, ppApiFlows } from './steps/flows.js';
 import { canWriteSecrets } from './steps/identity.js';
 import { blockedSettings, POWER_BI_SETTINGS, settingLabel, usableCapacity, workspacesOnCapacity } from './steps/plan.js';
@@ -30,6 +31,8 @@ import { rlsOn } from './transform/access.js';
  * @property {string} howTo  How to get it when it's missing; for a hand-off, who does it.
  * @property {boolean} [optional]  Only some features need it.
  * @property {{ name: string, status: PrereqStatus, detail?: string }[]} [rows]  Per subscription or environment.
+ * @property {boolean} [assignsDirectoryRoles]  On the consent-role row: false when it's met without a Global
+ *   Administrator or Privileged Role Administrator, which on Azure an Application Administrator can do.
  */
 
 /** Subscriptions and environments checked one by one; more than this would slow the home screen down. */
@@ -217,30 +220,37 @@ export async function checkPrereqs(ctx, opts = {}) {
   };
 
   /**
-   * An Entra role: active, one the user can activate through PIM, or missing. With `handoff`, a role
-   * the user lacks is a hand-off instead: someone else does that work while the install carries on.
-   * @param {Omit<Prereq, 'status' | 'detail'>} base
+   * Whether the user holds an Entra role: active, one they can activate through PIM, or missing. With `handoff`, a
+   * role the user lacks is a hand-off instead: someone else does that work while the install carries on.
    * @param {Record<string, string>} wanted  Template ID to name.
    * @param {{ detail: string, howTo?: string }} [handoff]  What to say instead of "missing", and who does it.
+   * @returns {Promise<Pick<Prereq, 'status' | 'detail'> & Partial<Prereq>>}
    */
-  const entraRole = (base, wanted, handoff) =>
-    guard(base, async () => {
-      const active = (await roles).filter((r) => wanted[r.roleTemplateId]);
-      if (active.length) return { status: 'met', detail: `Active: ${[...new Set(active.map((r) => wanted[r.roleTemplateId]))].join(', ')}` };
-      /** @type {{ roleDefinitionId: string }[] | null} */
-      let elig = null;
-      try {
-        elig = (await eligible).filter((r) => wanted[r.roleDefinitionId]);
-      } catch {
-        // Reading PIM eligibility needs its own permission; without it, only active roles are known.
-      }
-      if (elig?.length) {
-        return { status: 'eligible', detail: `Not active yet: ${[...new Set(elig.map((r) => wanted[r.roleDefinitionId]))].join(', ')}. You can activate this role in Entra (Privileged Identity Management): ${PIM_URL} Then check again.` };
-      }
-      const unread = elig ? '' : PIM_UNREAD;
-      if (handoff) return { status: 'handoff', detail: `${handoff.detail}${unread}`, ...(handoff.howTo ? { howTo: handoff.howTo } : {}) };
-      return { status: 'missing', detail: `You don't have ${Object.values(wanted).join(' or ')} active.${unread}` };
-    });
+  const roleCheck = async (wanted, handoff) => {
+    const active = (await roles).filter((r) => wanted[r.roleTemplateId]);
+    if (active.length) return { status: 'met', detail: `Active: ${[...new Set(active.map((r) => wanted[r.roleTemplateId]))].join(', ')}` };
+    /** @type {{ roleDefinitionId: string }[] | null} */
+    let elig = null;
+    try {
+      elig = (await eligible).filter((r) => wanted[r.roleDefinitionId]);
+    } catch {
+      // Reading PIM eligibility needs its own permission; without it, only active roles are known.
+    }
+    if (elig?.length) {
+      return { status: 'eligible', detail: `Not active yet: ${[...new Set(elig.map((r) => wanted[r.roleDefinitionId]))].join(', ')}. You can activate this role in Entra (Privileged Identity Management): ${PIM_URL} Then check again.` };
+    }
+    const unread = elig ? '' : PIM_UNREAD;
+    if (handoff) return { status: 'handoff', detail: `${handoff.detail}${unread}`, ...(handoff.howTo ? { howTo: handoff.howTo } : {}) };
+    return { status: 'missing', detail: `You don't have ${Object.values(wanted).join(' or ')} active.${unread}` };
+  };
+
+  /**
+   * An Entra role, as roleCheck finds it.
+   * @param {Omit<Prereq, 'status' | 'detail'>} base
+   * @param {Record<string, string>} wanted  Template ID to name.
+   * @param {{ detail: string, howTo?: string }} [handoff]
+   */
+  const entraRole = (base, wanted, handoff) => guard(base, () => roleCheck(wanted, handoff));
 
   /** Owner, or Contributor plus User Access Administrator, per subscription; and in the existing resource group picked, which least privilege covers. */
   const azureRbac = guard(
@@ -325,17 +335,36 @@ export async function checkPrereqs(ctx, opts = {}) {
 
   /** @type {Promise<Prereq>[]} */
   const checks = [
-    entraRole(
-      {
-        id: 'consent-role',
-        label: 'Global Administrator or Privileged Role Administrator',
-        neededFor: 'Granting admin consent for the app registration\'s Microsoft Graph permissions.',
-        howTo: `A Privileged Role Administrator or Global Administrator approves the app's Microsoft Graph permissions from the installer's consent link. An Application Administrator or Cloud Application Administrator can't: ${ADMIN_CONSENT_URL}`,
-        optional: true,
-      },
-      CONSENT_ROLES,
-      { detail: 'You don\'t need this yourself: the installer gives you an admin consent link to send, and carries on.' },
-    ),
+    azure
+      ? guard(
+          {
+            id: 'consent-role',
+            label: 'Application Administrator, Cloud Application Administrator, Privileged Role Administrator or Global Administrator',
+            neededFor: 'Approving the web app\'s delegated permissions (Power BI and Microsoft Graph), so people can use the web app.',
+            howTo: 'An Application Administrator, Cloud Application Administrator, Privileged Role Administrator or Global Administrator approves the web app\'s delegated permissions (Power BI and Microsoft Graph) from the consent link. The admin script grants them too.',
+            optional: true,
+          },
+          async () => {
+            const it = await roleCheck(DELEGATED_CONSENT_ROLES, { detail: 'You don\'t need this yourself: after the deploy, the installer gives you a consent link to send, and carries on. People can use the web app once it\'s approved.' });
+            // An Application Administrator meets this row, but can't assign directory roles as the web session's other checks need.
+            const assignsDirectoryRoles = (await roles.catch(() => [])).some((r) => Object.hasOwn(CONSENT_ROLES, r.roleTemplateId));
+            if (it.status !== 'met' && (await webAppGranted(api, config))) {
+              return { status: 'met', detail: 'Already approved: the web app has its delegated permissions for everyone.', assignsDirectoryRoles };
+            }
+            return { ...it, assignsDirectoryRoles };
+          },
+        )
+      : entraRole(
+          {
+            id: 'consent-role',
+            label: 'Global Administrator or Privileged Role Administrator',
+            neededFor: 'Granting admin consent for the app registration\'s Microsoft Graph permissions.',
+            howTo: `A Privileged Role Administrator or Global Administrator approves the app's Microsoft Graph permissions from the installer's consent link. An Application Administrator or Cloud Application Administrator can't: ${ADMIN_CONSENT_URL}`,
+            optional: true,
+          },
+          CONSENT_ROLES,
+          { detail: 'You don\'t need this yourself: the installer gives you an admin consent link to send, and carries on.' },
+        ),
     entraRole(
       {
         id: 'fabric-admin',
@@ -386,17 +415,42 @@ export async function checkPrereqs(ctx, opts = {}) {
       {
         id: 'register-apps',
         label: 'Register apps in Entra',
-        neededFor: 'Creating the app registration that collects the data.',
-        howTo: 'Ask for the Application Administrator or Cloud Application Administrator role, use an app registration you already have, or get the admin pack for an admin to register it.',
+        neededFor: azure
+          ? `Creating the two app registrations: "${AZURE_APPS[0].name}", for signing in to the web app, and "${AZURE_APPS[1].name}", for Power BI.`
+          : 'Creating the app registration that collects the data.',
+        howTo: azure
+          ? 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role. Or, in the plan, choose \'Use the apps an admin created for me\' if an admin has made them, or \'An admin will create the apps for me\': the plan writes a script for an Application Administrator or Cloud Application Administrator, and stops before anything is deployed.'
+          : 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role, use an app registration you already have, or get the admin pack for an admin to register it.',
       },
       async () => {
-        if (config.app.appId) return { status: 'met', detail: `Uses the app registration ${config.app.appId}.` };
-        const r = await roles;
-        const admin = r.find((x) => CONSENT_ROLES[/** @type {keyof typeof CONSENT_ROLES} */ (x.roleTemplateId)] || APP_ROLES[/** @type {keyof typeof APP_ROLES} */ (x.roleTemplateId)]);
+        if (azure && appsRecorded(config.azure)) {
+          return { status: 'met', detail: `Uses the app registrations ${AZURE_APPS.map((a) => config.azure?.[a.key]?.clientId).join(' and ')}.` };
+        }
+        if (!azure && config.app.appId) return { status: 'met', detail: `Uses the app registration ${config.app.appId}.` };
+        const admin = (await roles).find((x) => Object.hasOwn(CREATE_APPS_ROLES, x.roleTemplateId));
         if (admin) return { status: 'met', detail: `Your ${admin.displayName} role allows it.` };
-        return (await api.graph.usersCanRegisterApps())
-          ? { status: 'met', detail: 'Users in this tenant can register apps.' }
-          : { status: 'missing', detail: 'Users in this tenant can\'t register apps, and you have no app admin role.' };
+        if (!azure) {
+          return (await api.graph.usersCanRegisterApps())
+            ? { status: 'met', detail: 'Users in this tenant can register apps.' }
+            : { status: 'missing', detail: 'Users in this tenant can\'t register apps, and you have no app admin role.' };
+        }
+        /** @type {boolean | Error} */
+        const users = await api.graph.usersCanRegisterApps().catch((/** @type {Error} */ err) => err);
+        if (users === true) return { status: 'met', detail: 'Users in this tenant can register apps.' };
+        // Apps an admin created for you, which the plan adopts: one of each name that no install has finished.
+        const left = AZURE_APPS.filter((a) => !config.azure?.[a.key]?.clientId);
+        const found = await Promise.all(left.map((a) => adoptableApps(api, a.name).catch(() => [])));
+        if (found.every((f) => f.length === 1)) {
+          return { status: 'met', detail: `An admin created ${left.length === 1 ? 'the app' : 'the apps'} for you: ${found.map((f) => `"${f[0].displayName}" (${f[0].appId})`).join(' and ')}. The plan uses ${left.length === 1 ? 'it' : 'them'}.` };
+        }
+        if (users instanceof Error) throw users;
+        // An admin made only one of the two: the plan uses it, and asks only about the other.
+        const used = found.flatMap((f) => (f.length === 1 ? [`"${f[0].displayName}" (${f[0].appId})`] : []));
+        const needed = left.filter((_, k) => !found[k].length).map((a) => `"${a.name}"`);
+        if (used.length && needed.length) {
+          return { status: 'missing', detail: `An admin created ${used[0]} for you, and the plan uses it. ${needed[0]} still needs creating: the plan offers to have an admin create it.` };
+        }
+        return { status: 'missing', detail: `Users in this tenant can't register apps, and you have no app admin role. The plan offers to have an admin create ${needed.length === 1 ? needed[0] : 'the two apps'} for you.` };
       },
     ),
     guard(
@@ -404,7 +458,9 @@ export async function checkPrereqs(ctx, opts = {}) {
         id: 'audit-ingestion',
         label: `Audit log access for Copilot interactions (${AUDIT_ROLE})`,
         neededFor: 'Loading Copilot interactions from the audit log, which most pages are built on. Without admin consent, or with audit logging off in Purview, the audit load finds 0 records.',
-        howTo: `A Global Administrator or Privileged Role Administrator grants admin consent for ${AUDIT_ROLE} (the installer gives you a link). A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: ${PURVIEW_AUDIT_URL} After install, run ${commandLine('check-audit')} to test it.`,
+        howTo: azure
+          ? `After the deploy, a Privileged Role Administrator or Global Administrator gives the jobs' managed identity its Microsoft Graph roles, including ${AUDIT_ROLE}; the installer lists them. A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: ${PURVIEW_AUDIT_URL} After install, run ${commandLine('check-audit')} to test it.`
+          : `A Global Administrator or Privileged Role Administrator grants admin consent for ${AUDIT_ROLE} (the installer gives you a link). A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: ${PURVIEW_AUDIT_URL} After install, run ${commandLine('check-audit')} to test it.`,
       },
       async () => {
         const last = config.auditCheck ? ` Last audit check (${config.auditCheck.at.slice(0, 10)}): ${AUDIT_CHECK_LABELS[config.auditCheck.result] ?? config.auditCheck.result}.` : '';
@@ -422,7 +478,9 @@ export async function checkPrereqs(ctx, opts = {}) {
         }
         const admin = (await roles).find((x) => CONSENT_ROLES[/** @type {keyof typeof CONSENT_ROLES} */ (x.roleTemplateId)]);
         if (admin) return { status: 'met', detail: `Not granted yet, but your ${admin.displayName} role lets the installer grant it.${last}` };
-        return { status: 'handoff', detail: `Not granted yet, so the audit load finds 0 records until a Privileged Role Administrator or Global Administrator approves it.${last}` };
+        return azure
+          ? { status: 'handoff', detail: `Not granted yet, so the audit load finds 0 records until a Privileged Role Administrator or Global Administrator grants it to the jobs' managed identity.${last}` }
+          : { status: 'handoff', detail: `Not granted yet, so the audit load finds 0 records until a Privileged Role Administrator or Global Administrator approves it.${last}` };
       },
     ),
     guard(
@@ -638,8 +696,9 @@ export function preflightVerdict(items, { config, yes = false, update = false })
   const environments = !!config.modules?.agentEvaluator || flows;
   /** Optional rows only matter for some choices. @type {Record<string, boolean>} */
   const relevant = {
-    // Consent is still to grant: on a re-run that already has it, the role doesn't matter.
-    'consent-role': status('audit-ingestion') !== 'met',
+    // Consent is still to grant: on a re-run that already has it, the role doesn't matter. On Azure the row is the web app's
+    // delegated consent, which its own check covers, not the managed identity's audit role.
+    'consent-role': azure || status('audit-ingestion') !== 'met',
     // As a hand-off, the role only signs in to the flows' Power Platform API connection.
     'power-platform-admin': status('power-platform-admin') === 'handoff' ? ppApiWanted(config) : environments && status('environments') !== 'met',
     environments,
@@ -665,7 +724,8 @@ export function preflightVerdict(items, { config, yes = false, update = false })
     // Only a Fabric administrator can read them, so "couldn't check" is the usual answer: it only matters with a model.
     if (it.id === 'tenant-settings' && it.status === 'unknown' && !azure && !config.semanticModel?.enabled) continue;
     // Asked, the plan offers an app you already have or the admin pack. With --yes it would try to create one, and fail.
-    if (!update && yes && it.id === 'register-apps' && it.status === 'missing' && !config.app.appId && !config.app.adminPack) block.push(it);
+    // On Azure the plan has an admin create the two apps instead, and stops before anything is deployed.
+    if (!update && yes && !azure && it.id === 'register-apps' && it.status === 'missing' && !config.app.appId && !config.app.adminPack) block.push(it);
     else warn.push(it);
   }
   return { block, warn, handoff };

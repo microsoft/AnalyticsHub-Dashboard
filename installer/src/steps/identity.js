@@ -7,13 +7,14 @@ import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { GRAPH_APP_ID, permissionsFor } from '../catalog.js';
 import { allowsAction, isPrivateVault, networkBlocked, ROLES } from '../clients/azure.js';
-import { adminConsentUrl, apiPermissionsUrl, resolveAppRoles } from '../clients/graph.js';
+import { adminConsentUrl, apiPermissionsUrl, applicationBody, azureWebApplicationBody, resolveAppRoles } from '../clients/graph.js';
 import { secretMode } from '../config.js';
 import { HttpError } from '../http.js';
 import { commandLine } from '../launch.js';
 import { c } from '../ui.js';
 import { APP_NAME } from './plan.js';
 import { addTrackedSecret, adoptAttempts, promoteSecret, settleFailedSecret } from './secrets.js';
+import { SQL_READER_NAME, WEB_APP_NAME, webAppGrants } from './azure/apps.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 
@@ -882,8 +883,9 @@ export function adminPack(ctx) {
   const perms = permissionsFor(config.modules, config.dataSources);
   const mode = secretMode(config);
   const script = [
-    '# Run in Azure Cloud Shell (Bash) as someone who can register apps and grant admin consent,',
-    '# such as a Privileged Role Administrator or Global Administrator.',
+    '# Run in Azure Cloud Shell (Bash). Registering the app needs an Application Administrator or Cloud',
+    '# Application Administrator, or anyone who can register apps: a Privileged Role Administrator alone can\'t.',
+    '# The admin-consent line needs a Privileged Role Administrator or Global Administrator. A Global Administrator can run it all.',
     `APP_ID=$(az ad app create --display-name "${APP_NAME}" --sign-in-audience AzureADMyOrg --query appId -o tsv)`,
     'az ad sp create --id "$APP_ID" -o none',
     `GRAPH=${GRAPH_APP_ID}`,
@@ -918,7 +920,7 @@ export function adminPack(ctx) {
     `Entra admin center > App registrations > New registration. Name it "${APP_NAME}", single tenant, no redirect URI.`,
     'Copy the Application (client) ID from its Overview page.',
     `API permissions > Add a permission > Microsoft Graph > Application permissions. Add: ${perms.join(', ')}.`,
-    'Select "Grant admin consent" and confirm every permission shows "Granted".',
+    'A Privileged Role Administrator or Global Administrator selects "Grant admin consent" and confirms every permission shows "Granted".',
     mode === 'keyvault-admin' && kv.name
       ? `Certificates & secrets > New client secret (12 months). Copy its Value into Key Vault ${kv.name} > Secrets > Generate/Import, named ${kv.secretName}.`
       : 'Certificates & secrets > New client secret (12 months). Copy its Value.',
@@ -942,6 +944,10 @@ export function writeAdminPack(ctx) {
     'The person setting up Analytics Hub can\'t register apps or grant admin consent in this tenant.',
     'Run the script, or follow the portal steps, then send them the client ID.',
     '',
+    'Registering the app needs an Application Administrator or Cloud Application Administrator, or anyone who can register apps:',
+    'a Privileged Role Administrator alone can\'t. Granting admin consent for its Microsoft Graph permissions needs a',
+    'Privileged Role Administrator or Global Administrator. A Global Administrator can do both.',
+    '',
     '## Azure Cloud Shell (Bash)',
     '',
     '```bash',
@@ -951,6 +957,198 @@ export function writeAdminPack(ctx) {
     '## Or in the portal',
     '',
     ...checklist.map((s, i) => `${i + 1}. ${s}`),
+    '',
+  ].join('\n');
+  writeFileSync(file, body, 'utf8');
+  return file;
+}
+
+export const AZURE_ADMIN_SCRIPT_FILE = 'analytics-hub-azure-admin-script.md';
+
+/** @param {string} s  Quoted for Bash. */
+const shq = (s) => `'${s.replace(/'/g, `'\\''`)}'`;
+
+/** The signed-in user's UPN, safe to put in the script's comments and messages. @param {Ctx} ctx */
+const runnerName = (ctx) => String(ctx.user?.upn || 'the installer user').replace(/[^\w.@+-]/g, '_');
+
+/**
+ * The Bash script an Application Administrator or Cloud Application Administrator runs in Azure Cloud Shell to
+ * create the Azure install's two app registrations for someone who can't, and approve the web app's delegated
+ * permissions for everyone. It makes no secrets, and it can be run again: it reuses the apps it made, and checks
+ * service principals, owners and grants before it adds them. The installer finds the apps itself afterwards, and
+ * adds what needs the deployed web app: redirect URIs, the identifier URI and the federated credential.
+ * @param {Ctx} ctx
+ * @param {import('./azure/apps.js').WebAppScopes} scopes  The tenant's scopes, from webAppScopes.
+ * @returns {string[]}
+ */
+export function azureAdminScript(ctx, scopes) {
+  const az = ctx.config.azure;
+  const upn = runnerName(ctx);
+  const id = (/** @type {string | undefined} */ v) => String(v ?? '').replace(/[^\w-]/g, '');
+  const web = azureWebApplicationBody({ displayName: WEB_APP_NAME, ...scopes.registration });
+  const sql = applicationBody(SQL_READER_NAME, []);
+  /** @type {Map<string, { resource: string, scopes: string[] }>} */
+  const grants = new Map();
+  for (const g of webAppGrants(scopes)) {
+    const r = grants.get(g.resourceId) ?? { resource: g.resource, scopes: [] };
+    r.scopes.push(g.scope);
+    grants.set(g.resourceId, r);
+  }
+  return [
+    `# Creates the two Azure app registrations for Analytics Hub, for ${upn}, who can't create them.`,
+    '# Paste all of it into Azure Cloud Shell (Bash) as an Application Administrator or Cloud Application',
+    '# Administrator. It makes no secrets, and it is safe to run again.',
+    'analytics_hub_apps() (',
+    '  set -euo pipefail',
+    '  shopt -s inherit_errexit 2>/dev/null || true',
+    '  G=https://graph.microsoft.com/v1.0',
+    `  RUNNER=${id(ctx.user?.id)}  # ${upn}`,
+    `  WEB_BODY=${shq(JSON.stringify(web))}`,
+    `  SQL_BODY=${shq(JSON.stringify(sql))}`,
+    '',
+    '  retry() {',
+    '    local n=1',
+    '    until "$@"; do',
+    '      if [ "$n" -ge 5 ]; then return 1; fi',
+    '      echo "Waiting 10 seconds for Entra to catch up, then trying again." >&2',
+    '      sleep 10',
+    '      n=$((n + 1))',
+    '    done',
+    '  }',
+    '',
+    '  # The app the install recorded, or one with exactly this name that RUNNER owns and no install has finished.',
+    '  find_app() {',
+    '    local id ids owned',
+    '    if [ -n "$1" ]; then',
+    '      id=$(az ad app list --filter "appId eq \'$1\'" --query "[].appId" -o tsv)',
+    '      if [ -n "$id" ]; then echo "$id"; return 0; fi',
+    '    fi',
+    '    ids=$(az ad app list --all --filter "displayName eq \'$2\'" --query "$3" -o tsv)',
+    '    for id in $ids; do',
+    '      owned=$(az ad app owner list --id "$id" --query "[?id==\'$RUNNER\'].id" -o tsv)',
+    '      if [ -n "$owned" ]; then echo "$id"; return 0; fi',
+    '    done',
+    '  }',
+    '',
+    '  own_app() {',
+    '    local owned',
+    '    owned=$(retry az ad app owner list --id "$1" --query "[?id==\'$RUNNER\'].id" -o tsv)',
+    '    if [ -z "$owned" ]; then retry az ad app owner add --id "$1" --owner-object-id "$RUNNER" -o none; fi',
+    '  }',
+    '',
+    '  sp_of() {',
+    '    local id',
+    '    id=$(retry az ad sp list --filter "appId eq \'$1\'" --query "[0].id" -o tsv)',
+    '    if [ -z "$id" ]; then id=$(retry az ad sp create --id "$1" --query id -o tsv); fi',
+    '    echo "$id"',
+    '  }',
+    '',
+    '  # Adds the scopes the web app is missing to its grant for everyone on a resource, or makes the grant.',
+    '  grant() {',
+    '    local row gid scope add s',
+    '    row=$(retry az rest -m GET -u "$G/oauth2PermissionGrants?\\$filter=clientId%20eq%20\'$WEB_SP\'" --query "value[?consentType==\'AllPrincipals\' && resourceId==\'$1\'] | [0].[id, scope]" -o tsv)',
+    '    if [ -z "$row" ]; then',
+    '      retry az rest -m POST -u "$G/oauth2PermissionGrants" -b "{\\"clientId\\":\\"$WEB_SP\\",\\"consentType\\":\\"AllPrincipals\\",\\"resourceId\\":\\"$1\\",\\"scope\\":\\"$2\\"}" -o none',
+    '      return 0',
+    '    fi',
+    '    read -r gid scope <<< "$row"',
+    '    add=""',
+    '    for s in $2; do',
+    '      case " $scope " in',
+    '        *" $s "*) ;;',
+    '        *) add="$add $s" ;;',
+    '      esac',
+    '    done',
+    '    if [ -n "$add" ]; then',
+    '      scope="$scope$add"',
+    '      retry az rest -m PATCH -u "$G/oauth2PermissionGrants/$gid" -b "{\\"scope\\":\\"${scope# }\\"}" -o none',
+    '    fi',
+    '  }',
+    '',
+    `  WEB_APP=$(find_app ${shq(id(az?.webApp?.clientId))} ${shq(WEB_APP_NAME)} '[?!spa.redirectUris].appId')`,
+    '  if [ -z "$WEB_APP" ]; then',
+    '    WEB_APP=$(az rest -m POST -u "$G/applications" -b "$WEB_BODY" --query appId -o tsv)',
+    `    echo ${shq(`Created ${WEB_APP_NAME}.`)}`,
+    '  fi',
+    '  own_app "$WEB_APP"',
+    `  SQL_APP=$(find_app ${shq(id(az?.sqlReader?.clientId))} ${shq(SQL_READER_NAME)} '[?!passwordCredentials].appId')`,
+    '  if [ -z "$SQL_APP" ]; then',
+    '    SQL_APP=$(az rest -m POST -u "$G/applications" -b "$SQL_BODY" --query appId -o tsv)',
+    `    echo ${shq(`Created ${SQL_READER_NAME}.`)}`,
+    '  fi',
+    '  own_app "$SQL_APP"',
+    '',
+    '  WEB_SP=$(sp_of "$WEB_APP")',
+    '  sp_of "$SQL_APP" >/dev/null',
+    '  owned=$(retry az rest -m GET -u "$G/servicePrincipals/$WEB_SP/owners?\\$select=id" --query "value[?id==\'$RUNNER\'].id" -o tsv)',
+    '  if [ -z "$owned" ]; then',
+    '    retry az rest -m POST -u "$G/servicePrincipals/$WEB_SP/owners/\\$ref" -b "{\\"@odata.id\\":\\"$G/directoryObjects/$RUNNER\\"}" -o none',
+    '  fi',
+    '',
+    '  # The web app\'s delegated permissions, approved for everyone in the organisation.',
+    ...[...grants].map(([resourceId, r]) => `  grant ${shq(id(resourceId))} ${shq(r.scopes.join(' '))}  # ${r.resource}`),
+    '',
+    `  echo "${WEB_APP_NAME} client ID: $WEB_APP"`,
+    `  echo "${SQL_READER_NAME} client ID: $SQL_APP"`,
+    `  echo "Done. Tell ${upn}: the installer finds the apps itself, so there's nothing to send back."`,
+    ')',
+    'analytics_hub_apps',
+  ];
+}
+
+/**
+ * Writes the Azure admin script next to the install record, with who runs it and what it changes, and returns
+ * its path.
+ * @param {Ctx} ctx
+ * @param {import('./azure/apps.js').WebAppScopes} scopes
+ */
+export function writeAzureAdminScript(ctx, scopes) {
+  const upn = runnerName(ctx);
+  const record = ctx.configFile ?? ctx.file;
+  const file = join(record ? dirname(record) : process.cwd(), AZURE_ADMIN_SCRIPT_FILE);
+  const graphScopes = webAppGrants(scopes).filter((g) => g.resource === 'Microsoft Graph').map((g) => g.scope);
+  const body = [
+    '# Analytics Hub: create the two Azure app registrations',
+    '',
+    `${upn} is installing Analytics Hub on Azure, but can't create app registrations in this tenant. The installer`,
+    'stopped before it deployed anything. This script creates the two apps it needs. It has no portal steps.',
+    '',
+    '## Who runs it',
+    '',
+    'An Application Administrator or Cloud Application Administrator. A Global Administrator can too. A Privileged',
+    'Role Administrator alone can\'t: that role can\'t create app registrations.',
+    '',
+    '## What it changes',
+    '',
+    `- It creates two app registrations, "${WEB_APP_NAME}" and "${SQL_READER_NAME}", and a service principal for each.`,
+    `  If ${upn} already owns unfinished apps with these names, it uses those instead of making more.`,
+    `- It makes ${upn} an owner of both apps and of the web app's service principal, so the installer can finish them`,
+    '  once the web app is deployed.',
+    `- It approves the web app's delegated permissions for everyone in the organisation: Power BI Dataset.Read.All and`,
+    `  Microsoft Graph ${graphScopes.join(', ')}. People sign in to the web app as themselves, and see only what`,
+    '  Power BI and Microsoft Graph already let them see.',
+    '',
+    '## What it doesn\'t change',
+    '',
+    '- It makes no client secrets or certificates.',
+    '- It adds no redirect URIs, identifier URI or federated credential, and assigns no app roles. The installer adds',
+    `  those as ${upn}, once the web app exists.`,
+    '- It grants no Microsoft Graph application permissions. After the deploy, a Privileged Role Administrator or',
+    '  Global Administrator gives the jobs\' managed identity its Microsoft Graph roles. The installer lists them.',
+    '',
+    '## Run it',
+    '',
+    'Open Azure Cloud Shell in Bash at https://shell.azure.com, or use the Azure CLI after',
+    '`az login --allow-no-subscriptions`. Paste all of the script. It\'s safe to run again if it stops part way.',
+    '',
+    '```bash',
+    ...azureAdminScript(ctx, scopes),
+    '```',
+    '',
+    '## What happens next',
+    '',
+    `Tell ${upn} it's done. When they run the installer again, it finds the two apps itself, so there's nothing to`,
+    'send back.',
     '',
   ].join('\n');
   writeFileSync(file, body, 'utf8');

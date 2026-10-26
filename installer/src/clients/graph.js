@@ -10,11 +10,47 @@ export const CONSENT_ROLES = {
   'e8611ab8-c189-46e8-94e1-60213ab1f814': 'Privileged Role Administrator',
 };
 
-/** Roles that can create app registrations even when users can't. */
+export const GLOBAL_ADMIN_ROLE = '62e90394-69f5-4237-9190-012177145e10';
+const APP_ADMIN_ROLE = '9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3';
+const CLOUD_APP_ADMIN_ROLE = '158c047a-c907-4556-b7ef-446551a6b5f7';
+
+/**
+ * Roles that can create app registrations even when users can't. A Privileged Role Administrator can't.
+ * https://learn.microsoft.com/entra/identity/role-based-access-control/permissions-reference
+ */
 export const APP_ROLES = {
-  '9b895d92-2cd3-44c7-9d02-a6ac2d5ea5c3': 'Application Administrator',
-  '158c047a-c907-4556-b7ef-446551a6b5f7': 'Cloud Application Administrator',
+  [APP_ADMIN_ROLE]: 'Application Administrator',
+  [CLOUD_APP_ADMIN_ROLE]: 'Cloud Application Administrator',
+  'cf1c38e5-3621-4004-a7cb-879624dced7c': 'Application Developer',
 };
+
+/** Roles that can register apps whatever "Users can register applications" says. */
+export const CREATE_APPS_ROLES = { [GLOBAL_ADMIN_ROLE]: 'Global Administrator', ...APP_ROLES };
+
+/**
+ * Roles that can grant tenant-wide admin consent for delegated permissions, such as the Azure web app's
+ * Power BI and Microsoft Graph ones. Microsoft Graph application permissions need CONSENT_ROLES.
+ * https://learn.microsoft.com/entra/identity/enterprise-apps/grant-admin-consent
+ */
+export const DELEGATED_CONSENT_ROLES = { ...CONSENT_ROLES, [APP_ADMIN_ROLE]: 'Application Administrator', [CLOUD_APP_ADMIN_ROLE]: 'Cloud Application Administrator' };
+
+/** Roles that can manage app registrations and service principals they don't own. */
+export const MANAGE_APPS_ROLES = { [GLOBAL_ADMIN_ROLE]: 'Global Administrator', [APP_ADMIN_ROLE]: 'Application Administrator', [CLOUD_APP_ADMIN_ROLE]: 'Cloud Application Administrator' };
+
+/**
+ * What the signed-in user's active directory roles let them do with app registrations: for each, the
+ * first role that allows it, or undefined. `create` doesn't count "Users can register applications".
+ * @param {{ roleTemplateId: string, displayName?: string }[]} roles  From myDirectoryRoles.
+ * @returns {{ consent?: string, create?: string, delegated?: string, manage?: string }}
+ */
+export function appRoleRights(roles) {
+  /** @param {Record<string, string>} set */
+  const first = (set) => {
+    const r = roles.find((x) => Object.hasOwn(set, x.roleTemplateId));
+    return r ? r.displayName || set[r.roleTemplateId] : undefined;
+  };
+  return { consent: first(CONSENT_ROLES), create: first(CREATE_APPS_ROLES), delegated: first(DELEGATED_CONSENT_ROLES), manage: first(MANAGE_APPS_ROLES) };
+}
 
 /** Directory roles that can publish a custom app to the org's Teams app catalog. */
 export const TEAMS_PUBLISH_ROLES = {
@@ -102,6 +138,62 @@ const webAppGraphAccess = (o) => ({
   resourceAppId: GRAPH_APP_ID,
   resourceAccess: [o.graphUserReadScopeId, o.graphGroupScopeId, o.graphPeopleScopeId].flatMap((id) => (id ? [{ id, type: 'Scope' }] : [])),
 });
+
+/**
+ * An app registration with Microsoft Graph application permissions, or none (the Azure SQL Reader), as
+ * the installer creates it and as the Azure admin script does.
+ * @param {string} displayName
+ * @param {{ id: string }[]} appRoles
+ */
+export function applicationBody(displayName, appRoles) {
+  return {
+    displayName,
+    signInAudience: 'AzureADMyOrg',
+    notes: 'Created by the Analytics Hub installer. Reads Copilot audit, usage report and directory data for ValueLens.',
+    requiredResourceAccess: appRoles.length ? [{ resourceAppId: GRAPH_APP_ID, resourceAccess: appRoles.map((r) => ({ id: r.id, type: 'Role' })) }] : [],
+  };
+}
+
+/**
+ * The Azure-hosted web app's registration, as the installer creates it and as the Azure admin script
+ * does. Without fqdn it has no redirect URIs: the installer adds them, with the identifier URI, once the
+ * web app is deployed. No identifierUris either way: tenant policy needs the URI to contain the app ID,
+ * so updateAzureWebApplication sets api://<fqdn>/<appId> once the app ID exists.
+ * @param {{ displayName: string, fqdn?: string, pbiScopeId: string, graphUserReadScopeId: string, graphGroupScopeId?: string, graphPeopleScopeId?: string, groupClaims?: boolean, teamsClientIds: string[] }} o
+ */
+export function azureWebApplicationBody(o) {
+  const scopeId = crypto.randomUUID();
+  return {
+    displayName: o.displayName,
+    signInAudience: 'AzureADMyOrg',
+    ...(o.fqdn ? { spa: { redirectUris: [`https://${o.fqdn}/`, `https://${o.fqdn}/?host=teams&auth=popup`] } } : {}),
+    api: {
+      oauth2PermissionScopes: [
+        {
+          id: scopeId,
+          adminConsentDescription: 'Allow users to access Analytics Hub.',
+          adminConsentDisplayName: 'Access Analytics Hub',
+          isEnabled: true,
+          type: 'User',
+          userConsentDescription: 'Allow you to access Analytics Hub.',
+          userConsentDisplayName: 'Access Analytics Hub',
+          value: 'access_as_user',
+        },
+      ],
+      preAuthorizedApplications: o.teamsClientIds.map((appId) => ({ appId, delegatedPermissionIds: [scopeId] })),
+    },
+    appRoles: [
+      { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub User', value: 'AnalyticsHub.User', description: 'Can use Analytics Hub.', isEnabled: true },
+      { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub Admin', value: 'AnalyticsHub.Admin', description: 'Can administer Analytics Hub.', isEnabled: true },
+    ],
+    requiredResourceAccess: [
+      { resourceAppId: POWER_BI_APP_ID, resourceAccess: [{ id: o.pbiScopeId, type: 'Scope' }] },
+      webAppGraphAccess(o),
+    ],
+    ...(o.groupClaims ? { groupMembershipClaims: 'SecurityGroup' } : {}),
+    notes: 'Created by the Analytics Hub installer for the Azure-hosted web app.',
+  };
+}
 
 /**
  * Entra takes a little while to replicate a new app and service principal, so
@@ -195,57 +287,34 @@ export function graphApi(http) {
     findApplication: (appId) => getOrNull(`/applications(appId='${appId}')`),
     /** @param {string} appId */
     findServicePrincipal: (appId) => getOrNull(`/servicePrincipals(appId='${appId}')`),
+    /**
+     * App registrations the signed-in user owns, following every page of GET /me/ownedObjects, which
+     * needs only User.Read. Learn documents no cast segment for it, so other objects are left out here.
+     * With a display name, only apps with exactly that name, each read again in full. An object the token
+     * can't read comes back with only its type and ID, so one without a name is read again too.
+     * https://learn.microsoft.com/graph/api/user-list-ownedobjects
+     * @param {string} [displayName]
+     * @returns {Promise<any[]>}
+     */
+    async ownedApplications(displayName) {
+      const owned = (await http.list('/me/ownedObjects')).filter((o) => o?.['@odata.type'] === '#microsoft.graph.application');
+      if (displayName === undefined) return owned;
+      const named = owned.filter((o) => o.id && (o.displayName === displayName || o.displayName == null));
+      const full = await Promise.all(named.map((o) => getOrNull(`/applications/${o.id}`)));
+      return full.filter((app) => app?.displayName === displayName);
+    },
 
     /**
      * @param {string} displayName
      * @param {{ id: string }[]} appRoles
      */
-    createApplication: (displayName, appRoles) =>
-      http.post('/applications', {
-        displayName,
-        signInAudience: 'AzureADMyOrg',
-        notes: 'Created by the Analytics Hub installer. Reads Copilot audit, usage report and directory data for ValueLens.',
-        requiredResourceAccess: appRoles.length ? [{ resourceAppId: GRAPH_APP_ID, resourceAccess: appRoles.map((r) => ({ id: r.id, type: 'Role' })) }] : [],
-      }),
+    createApplication: (displayName, appRoles) => http.post('/applications', applicationBody(displayName, appRoles)),
     /**
-     * Creates the Azure-hosted web application registration.
-     * @param {{ displayName: string, fqdn: string, pbiScopeId: string, graphUserReadScopeId: string, graphGroupScopeId?: string, graphPeopleScopeId?: string, groupClaims?: boolean, teamsClientIds: string[] }} o
+     * Creates the Azure-hosted web application registration. Without fqdn, before the web app is
+     * deployed, it has no redirect URIs yet.
+     * @param {Parameters<typeof azureWebApplicationBody>[0]} o
      */
-    createAzureWebApplication(o) {
-      const scopeId = crypto.randomUUID();
-      // No identifierUris here: tenant policy needs the URI to contain the app ID, so
-      // updateAzureWebApplication sets api://<fqdn>/<appId> once the app ID exists.
-      return http.post('/applications', {
-        displayName: o.displayName,
-        signInAudience: 'AzureADMyOrg',
-        spa: { redirectUris: [`https://${o.fqdn}/`, `https://${o.fqdn}/?host=teams&auth=popup`] },
-        api: {
-          oauth2PermissionScopes: [
-            {
-              id: scopeId,
-              adminConsentDescription: 'Allow users to access Analytics Hub.',
-              adminConsentDisplayName: 'Access Analytics Hub',
-              isEnabled: true,
-              type: 'User',
-              userConsentDescription: 'Allow you to access Analytics Hub.',
-              userConsentDisplayName: 'Access Analytics Hub',
-              value: 'access_as_user',
-            },
-          ],
-          preAuthorizedApplications: o.teamsClientIds.map((appId) => ({ appId, delegatedPermissionIds: [scopeId] })),
-        },
-        appRoles: [
-          { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub User', value: 'AnalyticsHub.User', description: 'Can use Analytics Hub.', isEnabled: true },
-          { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub Admin', value: 'AnalyticsHub.Admin', description: 'Can administer Analytics Hub.', isEnabled: true },
-        ],
-        requiredResourceAccess: [
-          { resourceAppId: POWER_BI_APP_ID, resourceAccess: [{ id: o.pbiScopeId, type: 'Scope' }] },
-          webAppGraphAccess(o),
-        ],
-        ...(o.groupClaims ? { groupMembershipClaims: 'SecurityGroup' } : {}),
-        notes: 'Created by the Analytics Hub installer for the Azure-hosted web app.',
-      });
-    },
+    createAzureWebApplication: (o) => http.post('/applications', azureWebApplicationBody(o)),
 
     /**
      * Brings the web app registration up to date on every install, upgrade and Repair. Other scopes and
@@ -423,15 +492,33 @@ export function graphApi(http) {
 
     /**
      * Admin consent for a delegated scope for all users. Reuses an existing grant, adding the scope if it's missing.
+     * When the grants can't be read and the write is refused, the error says so (`unchecked`): an admin may
+     * have made the grant already.
      * @param {{ clientId: string, resourceId: string, scope: string }} o
      */
     async grantOauth2Permission(o) {
-      const existing = /** @type {any[]} */ (await http.list('/oauth2PermissionGrants', { query: { $filter: `clientId eq '${o.clientId}' and resourceId eq '${o.resourceId}'` } }).catch(() => [])).find((g) => g.consentType === 'AllPrincipals');
-      if (!existing) return http.post('/oauth2PermissionGrants', { clientId: o.clientId, consentType: 'AllPrincipals', resourceId: o.resourceId, scope: o.scope }, replicationRetry);
-      const scopes = String(existing.scope ?? '').split(' ').filter(Boolean);
-      if (scopes.includes(o.scope)) return existing;
-      return http.patch(`/oauth2PermissionGrants/${existing.id}`, { scope: [...scopes, o.scope].join(' ') });
+      let unread = false;
+      const grants = /** @type {any[]} */ (await http.list('/oauth2PermissionGrants', { query: { $filter: `clientId eq '${o.clientId}' and resourceId eq '${o.resourceId}'` } }).catch(() => {
+        unread = true;
+        return [];
+      }));
+      const existing = grants.find((g) => g.consentType === 'AllPrincipals');
+      try {
+        if (!existing) return await http.post('/oauth2PermissionGrants', { clientId: o.clientId, consentType: 'AllPrincipals', resourceId: o.resourceId, scope: o.scope }, replicationRetry);
+        const scopes = String(existing.scope ?? '').split(' ').filter(Boolean);
+        if (scopes.includes(o.scope)) return existing;
+        return await http.patch(`/oauth2PermissionGrants/${existing.id}`, { scope: [...scopes, o.scope].join(' ') });
+      } catch (err) {
+        if (unread && err && typeof err === 'object') /** @type {any} */ (err).unchecked = true;
+        throw err;
+      }
     },
+    /**
+     * The delegated permission grants a service principal holds.
+     * @param {string} clientId  The service principal's object ID.
+     * @returns {Promise<{ id: string, clientId: string, resourceId: string, consentType?: string, scope?: string }[]>}
+     */
+    oauth2Grants: (clientId) => http.list('/oauth2PermissionGrants', { query: { $filter: `clientId eq '${clientId}'` } }),
 
     /** @param {string} principalId @param {string} resourceId @param {string} appRoleId */
     assignPrincipalToAppRole: (principalId, resourceId, appRoleId) =>

@@ -31,7 +31,9 @@ flowchart LR
    - **Capacity and workspace**, or on Azure the subscription, resource group, region and Power BI
      workspace.
    - **App registration.** Create one, use your own (it's checked first), or
-     [let an admin register it](../installer/README.md#if-you-cant-register-apps).
+     [let an admin register it](../installer/README.md#if-you-cant-register-apps). On Azure there
+     are two apps: create them, use the ones an admin created for you, or have an admin create them
+     from a script the installer writes, before anything is deployed.
    - **Where the secret goes** (Fabric only). In the notebooks by default, or a Key Vault (a vault
      admin can add the secret if you can't). See
      [Where the secret goes](../installer/README.md#where-the-secret-goes).

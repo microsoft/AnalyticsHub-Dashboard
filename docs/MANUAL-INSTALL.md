@@ -99,8 +99,9 @@ a storage account, so your files are kept between sessions.
 
 | Who | What |
 |---|---|
-| **You** | Owner, or Contributor and User Access Administrator, on the subscription ([Azure roles](PREREQUISITES.md#azure-roles)). Can register apps. Power BI Pro, and Power BI Desktop on Windows, June 2024 or later |
-| **Entra admin** (Global Administrator or Privileged Role Administrator) | Step 3, about 2 minutes |
+| **You** | Owner, or Contributor and User Access Administrator, on the subscription ([Azure roles](PREREQUISITES.md#azure-roles)). Can register apps, for step 2. Power BI Pro, and Power BI Desktop on Windows, June 2024 or later |
+| **App admin** (Application Administrator or Cloud Application Administrator) | Approves the web app's delegated permissions: the two `grant` lines in step 3, about a minute |
+| **Entra admin** (Global Administrator or Privileged Role Administrator) | Gives the managed identity its Microsoft Graph roles: the rest of step 3, about a minute. Can approve the web app's permissions too |
 | **Fabric admin** | Turns on *Service principals can call Fabric public APIs*, *Semantic Model Execute Queries REST API* and *Allow visuals created using the Power BI SDK* ([where](PREREQUISITES.md#fabric-admin-about-5-minutes)). If one is only on for security groups, adds who needs it: the managed identity for the first, after step 1, and the people you let in for the other two |
 | **Microsoft 365 admin** | Turns off concealed names in usage reports ([how](PREREQUISITES.md#microsoft-365-admin)) |
 | **Teams admin** | Step 8, if you want Teams ([what](PREREQUISITES.md#teams-admin-for-the-teams-app-azure)) |
@@ -174,7 +175,11 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
    keep the policy, do **Remove** below, then use the [installer](INSTALL.md) in a new resource
    group: it names the policy and uses private networking.
 2. **Register the apps:** the web app people sign in to, and the SQL reader that Power BI reads
-   the database as.
+   the database as. You need to be able to register apps: everyone can by default, unless *Users
+   can register applications* is off. If you can't, the [installer](INSTALL.md) can write a script
+   that an Application Administrator or Cloud Application Administrator runs to create them (a
+   Privileged Role Administrator can't), and it stops before it deploys anything: see
+   [If you can't register apps](../installer/README.md#if-you-cant-register-apps).
    ```bash
    register_apps() {
      FQDN=$(out webFqdn) && MI=$(out identityPrincipalId) && TENANT=$(az account show --query tenantId -o tsv) || return
@@ -192,9 +197,12 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
    register_apps
    ```
 3. **Entra admin** (about 2 minutes). Gives the managed identity its read-only Graph roles, and
-   consents to the web app's permissions. If that's not you, run `echo "MI=$MI WEB=$WEB"` and send
-   them what it prints and this block. They run `az login --use-device-code --allow-no-subscriptions`
-   in Cloud Shell (Bash), then paste both.
+   consents to the web app's permissions. The `for` loop gives the roles, which needs a Global
+   Administrator or Privileged Role Administrator. The two `grant` lines approve the web app's
+   delegated permissions, which an Application Administrator or Cloud Application Administrator can
+   do too. If that's not you, run `echo "MI=$MI WEB=$WEB"` and send them what it prints and this
+   block. They run `az login --use-device-code --allow-no-subscriptions` in Cloud Shell (Bash),
+   then paste both.
    ```bash
    GRAPH=$(az ad sp show --id 00000003-0000-0000-c000-000000000000 --query id -o tsv)
    for role in AuditLogsQuery.Read.All Reports.Read.All User.Read.All; do
@@ -254,7 +262,7 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
    ```
    - Open the **Users** link and select **Add user/group**. Add yourself as **Analytics Hub
      Admin**, and others as **Analytics Hub User**. Groups need Entra ID P1 or P2. If you can't
-     add them, ask the Entra admin or a Cloud Application Administrator.
+     add them, ask an Application Administrator or Cloud Application Administrator.
    - In Power BI, share **Analytics Hub Model** with the same people, with **Allow recipients to
      build content**. They need Power BI Pro.
    - Once the first load is done, open the **App** link.

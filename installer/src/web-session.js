@@ -69,7 +69,8 @@ export function describeRecord(config) {
 
 /**
  * What the home page keeps of a prerequisites check. canAssignDirectoryRoles: Global Administrator or
- * Privileged Role Administrator is active, so the user can assign directory roles themselves.
+ * Privileged Role Administrator is active, so the user can assign directory roles themselves. On Azure the
+ * consent row is met by an Application Administrator too, so the row says whether it was one of those two.
  * @param {string} upn
  * @param {import('./prereqs.js').Prereq[]} items
  */
@@ -77,7 +78,7 @@ export const prereqsSnapshot = (upn, items) => ({
   at: new Date().toISOString(),
   upn,
   items,
-  canAssignDirectoryRoles: items.some((i) => i.id === 'consent-role' && i.status === 'met'),
+  canAssignDirectoryRoles: items.some((i) => i.id === 'consent-role' && i.status === 'met' && i.assignsDirectoryRoles !== false),
 });
 
 /** @param {any} err */
