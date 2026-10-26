@@ -6,6 +6,9 @@ Port of the Fabric `Copilot_Audit_Log_Ingester` notebook:
 * windows within the trailing look-back are always re-queried (late-arriving records);
 * a failing window is re-queried with backoff, then split in halves down to `MIN_CHUNK_HOURS`;
   failures and 429s lower concurrency for the rest of the run (same helpers as the notebook);
+* a window whose query hit the audit service's record cap (isRecordCountLimitExceeded) is split at once;
+* when Graph refuses new audit searches (its per-tenant daily limit, HTTP 429), the run sends no more,
+  keeps each window's query id and merges what finished; the next run carries on and re-polls those queries;
 * records are canonicalised and flattened by `valuelens_core.audit` (golden-checked against Spark);
 * new rows replace existing rows with the same `Id` (the notebook's Delta MERGE), one file per day;
 * each page is staged gzip-compressed, and a long backfill merges in passes of whole days, so it fits the
@@ -46,7 +49,9 @@ STATE = "raw/_state/audit.json"
 # The state key holding where an unmerged reload starts.
 BACKFILL_FROM = "backfill_from"
 CHUNK_HOURS = 8
-MAX_CONCURRENT_QUERIES = 5  # Graph runs ~10 audit queries at once per tenant; leave room for other admins
+# Graph allows 50 audit searches queued or running per tenant and 200 new ones in a rolling 24 hours, shared
+# with other admins and tools; 5 at a time leaves room for them.
+MAX_CONCURRENT_QUERIES = 5
 MAX_WAIT_MIN_PER_QUERY = 240
 POLL_INTERVAL_SEC = 30
 WINDOW_RETRIES = 3
@@ -59,10 +64,41 @@ PAGE_RECORDS = 999
 # Staged records one merge pass flattens. More (a long backfill, or a large tenant's first run) merge in passes
 # of whole days, oldest first, so memory and spill follow the largest pass, not the whole history.
 MERGE_PASS_RECORDS = 250_000
+# A 429 asking to wait longer than this is the tenant's daily audit search limit, not a burst: stop asking.
+QUOTA_RETRY_AFTER_SEC = 300
+# A query an earlier run left running is re-polled, not re-sent, for this long after it was created.
+RESUME_QUERY_HOURS = 12
 
 
 class AuditQueryFailed(RuntimeError):
     """The audit service ended a query as failed or cancelled; a new query for the window may succeed."""
+
+
+class QueryQuotaReached(RuntimeError):
+    """Graph refused audit searches for the tenant (HTTP 429): the window is left for the next run."""
+
+
+class RecordLimitExceeded(RuntimeError):
+    """The query hit the audit service's record cap (isRecordCountLimitExceeded): the window is split."""
+
+
+def _resumable_query_id(entry, now, max_hours):
+    """The query an earlier run left running for this window, if it is recent enough to re-poll."""
+    entry = entry or {}
+    qid = entry.get("query_id")
+    if entry.get("status") not in ("querying", "waiting", "draining") or not max_hours or max_hours <= 0:
+        return None
+    if not isinstance(qid, str) or not qid.strip():
+        return None
+    created = audit._as_utc_datetime(entry.get("query_created_at"))
+    if created is None or now - created > timedelta(hours=max_hours):
+        return None
+    return qid.strip()
+
+
+def _refuse_on_quota(r, what):
+    if r.status_code == 429:
+        raise QueryQuotaReached(f"Graph refused {what} for the tenant (HTTP 429)")
 
 
 def is_retryable(exc) -> bool:
@@ -107,6 +143,7 @@ class AuditCollector:
         self.split_on_timeout = split_on_timeout
         self.retry_base_seconds, self.retry_max_seconds = retry_base_seconds, retry_max_seconds
         self.limiter = audit.AdaptiveLimiter(max_concurrent, min_concurrent)
+        self._quota = threading.Event()
         self.lookback = max(int(settings.audit_lookback_days), 0)
         self._lock = threading.RLock()
         self.state = store.read_json(STATE, {}) or {}
@@ -188,7 +225,8 @@ class AuditCollector:
             "recordTypeFilters": ["copilotInteraction"],
             "operationFilters": [],
         }
-        r = self.api.post(QUERIES, json=body, timeout=60)
+        r = self.api.post(QUERIES, json=body, timeout=60, give_up_after=QUOTA_RETRY_AFTER_SEC)
+        _refuse_on_quota(r, "a new audit search")
         if r.status_code == 403:
             raise PermissionError("Graph returned 403 creating an audit log query. The jobs' managed identity "
                                   "needs AuditLogsQuery.Read.All; re-run the installer to grant it.")
@@ -197,11 +235,16 @@ class AuditCollector:
 
     def wait(self, qid: str) -> int:
         """Poll a query until it succeeds; returns the number of polls."""
+        return self._poll(qid)[0]
+
+    def _poll(self, qid: str):
+        """Poll a query until it succeeds; returns (polls, the query's last status payload)."""
         deadline = self.clock() + self.max_wait_minutes * 60
         polls = 0
         while True:
-            r = self.api.get(f"{QUERIES}/{qid}", timeout=60)
+            r = self.api.get(f"{QUERIES}/{qid}", timeout=60, give_up_after=QUOTA_RETRY_AFTER_SEC)
             polls += 1
+            _refuse_on_quota(r, f"status reads for audit query {qid}")
             raise_for_status(r, f"audit query {qid}")
             payload = r.json()
             status = payload.get("status") if isinstance(payload, dict) else None
@@ -209,7 +252,7 @@ class AuditCollector:
                 raise RuntimeError(f"Query {qid} returned missing/invalid status: {status!r}")
             status = status.strip().lower()
             if status == "succeeded":
-                return polls
+                return polls, payload
             if status in ("failed", "cancelled"):
                 raise AuditQueryFailed(f"Query {qid} ended with status: {status}")
             if status not in ("notstarted", "running"):
@@ -236,7 +279,8 @@ class AuditCollector:
             if url in seen:
                 raise RuntimeError(f"Query {qid} returned repeated pagination link cycle: {url}")
             seen.add(url)
-            r = self.api.get(url, timeout=120)
+            r = self.api.get(url, timeout=120, give_up_after=QUOTA_RETRY_AFTER_SEC)
+            _refuse_on_quota(r, f"record reads for audit query {qid}")
             raise_for_status(r, f"audit records {qid}")
             payload = r.json()
             if not isinstance(payload, dict) or not isinstance(payload.get("value"), list):
@@ -264,26 +308,63 @@ class AuditCollector:
 
     def _window(self, ws, we, attempt=1):
         key = audit.stable_window_key(ws, we)
+        with self._lock:
+            prior = dict(self.manifest.get(key) or {})
+        resume = (_resumable_query_id(prior, datetime.now(timezone.utc), RESUME_QUERY_HOURS)
+                  if attempt == 1 else None)
+        if self._quota.is_set() and not resume:
+            raise QueryQuotaReached("The audit search limit was reached earlier in this run")
         self._mark(key, "querying", window_start=_iso(ws), window_end=_iso(we),
                    refreshed_at=datetime.now(timezone.utc).isoformat(), completed_at=None, timing=None,
                    attempts=attempt, error=None, **({"attempt_errors": []} if attempt == 1 else {}))
-        qid = None
+        qid, payload = None, None
         try:
             queued = self.clock()
             # Only creating and waiting hold one of the tenant's concurrent query slots; draining doesn't.
-            with self.limiter:
-                created = self.clock()
-                qid = self.create_query(ws, we)
-                self._mark(key, "waiting", query_id=qid)
-                polls = self.wait(qid)
-                ready = self.clock()
+            if resume:
+                qid = resume
+                try:
+                    with self.limiter:
+                        created = self.clock()
+                        self._mark(key, "waiting", query_id=qid)
+                        polls, payload = self._poll(qid)
+                        ready = self.clock()
+                    log.info("audit: window %s picked up query %s from an earlier run", key, qid)
+                except (PermissionError, QueryQuotaReached):
+                    raise
+                except Exception as exc:
+                    log.warning("audit: window %s: query %s from an earlier run could not be used (%s: %s); "
+                                "sending a new one", key, qid, type(exc).__name__, exc)
+                    qid = None
+            if qid is None:
+                with self.limiter:
+                    if self._quota.is_set():
+                        raise QueryQuotaReached("The audit search limit was reached earlier in this run")
+                    created = self.clock()
+                    qid = self.create_query(ws, we)
+                    self._mark(key, "waiting", query_id=qid,
+                               query_created_at=datetime.now(timezone.utc).isoformat())
+                    polls, payload = self._poll(qid)
+                    ready = self.clock()
+            capped = isinstance(payload, dict) and payload.get("isRecordCountLimitExceeded") is True
+            if capped and audit.split_window(ws, we, self.min_chunk_hours):
+                raise RecordLimitExceeded(f"Query {qid} reached the audit service's record limit")
+            if capped:
+                log.warning("audit: window %s: query %s reached the audit service's record limit at the smallest "
+                            "window (%gh); some of its records are missing", key, qid, self.min_chunk_hours)
             self._mark(key, "draining", query_id=qid)
             rows, files = self.drain(qid, key)
             timing = {"slot_wait_s": round(created - queued, 1), "ready_s": round(ready - created, 1),
                       "polls": polls, "drain_s": round(self.clock() - ready, 1)}
             self._mark(key, "succeeded", query_id=qid, rows=rows, pages=len(files), files=files, timing=timing,
-                       completed_at=datetime.now(timezone.utc).isoformat())
+                       completed_at=datetime.now(timezone.utc).isoformat(),
+                       **({"record_limit_exceeded": True} if capped else {}))
             return key, rows, dict(timing, pages=len(files))
+        except QueryQuotaReached:
+            # Keep the query id, and any pages a finished window staged before: the next run re-polls the query.
+            stopped = datetime.now(timezone.utc).isoformat()
+            self._mark(key, "waiting", query_id=qid, paused_at=stopped, throttled_at=stopped)
+            raise
         except Exception as exc:
             self._mark(key, "failed", error=f"{type(exc).__name__}: {exc}", query_id=qid, completed_at=None)
             self.store.remove(self._files(key))
@@ -293,8 +374,8 @@ class AuditCollector:
         """Fetch one window: retry with a new query, then split it when the retries run out.
 
         Returns (key, rows, outcome, detail); outcome is 'done' (detail = the window's timing), 'split'
-        (detail = the halves) or 'failed' (detail = the last error). Only PermissionError (missing Graph
-        permission) propagates.
+        (detail = the halves), 'throttled' (Graph's audit search limit; the window is left for the next run)
+        or 'failed' (detail = the last error). Only PermissionError (missing Graph permission) propagates.
         """
         key = audit.stable_window_key(ws, we)
         errors, last = [], None
@@ -305,12 +386,18 @@ class AuditCollector:
                 return key, rows, "done", timing
             except PermissionError:
                 raise
+            except QueryQuotaReached:
+                self._quota.set()
+                return key, 0, "throttled", None
             except Exception as exc:
                 last = f"{type(exc).__name__}: {exc}"
                 errors.append(f"attempt {attempt}: {last}")
                 with self._lock:
                     self._failed_attempts += 1
                 self._mark(key, "failed", attempts=attempt, attempt_errors=errors[-5:])
+                if isinstance(exc, RecordLimitExceeded):
+                    log.warning("audit: window %s: %s; splitting it", key, last)
+                    break
                 retryable = is_retryable(exc)
                 split = retryable and isinstance(exc, TimeoutError) and self.split_on_timeout
                 delay = (audit.retry_delay(attempt, self.retry_base_seconds, self.retry_max_seconds)
@@ -361,12 +448,15 @@ class AuditCollector:
                         continue
                     outcomes[key] = how
                     if how == "split":
-                        log.warning("audit: window %s kept failing; split into %s parts", key, len(detail))
+                        log.warning("audit: window %s kept failing or reached the record limit; split into %s "
+                                    "parts", key, len(detail))
                         if fatal is None:
                             for half in detail:
                                 running[pool.submit(self._run_window, *half)] = half
                     elif how == "failed":
                         log.warning("audit: window %s failed: %s", key, detail)
+                    elif how == "throttled":
+                        log.warning("audit: window %s left for the next run (audit search limit reached)", key)
                     else:
                         with self._lock:
                             self._timings.append(detail)
@@ -426,6 +516,12 @@ class AuditCollector:
         # leave the table empty. The high-water mark holds still until every window succeeds, so the
         # next run's plan still covers the failed ones.
         result = self.merge(keys, advance_high_water=not errors)
+        if self._quota.is_set():
+            raise RuntimeError(
+                f"Microsoft Graph refused new audit searches for this tenant (HTTP 429) with {len(errors)} audit "
+                f"window(s) still to fetch. The {result['rows']} row(s) from finished windows were merged. Graph "
+                f"allows at least 200 audit searches in a rolling 24 hours, shared with other admins and tools; "
+                f"the next run carries on from here and re-polls the searches already sent.")
         if errors:
             listed = "; ".join(errors[:10]) + (f"; ... and {len(errors) - 10} more" if len(errors) > 10 else "")
             raise RuntimeError(f"{len(errors)} audit window(s) failed; the {result['rows']} row(s) from finished "

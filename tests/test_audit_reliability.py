@@ -8,6 +8,7 @@ import threading
 import time
 import unittest
 import uuid
+from unittest import mock
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -223,7 +224,27 @@ class AuditReliabilityTests(unittest.TestCase):
             ns.update(namespace)
         ns.setdefault("RUN_DEADLINE", None)
         return exec_named_defs(
-            INGESTER, 8, {"AuditQueryFailed", "BudgetReached", "budget_exhausted", "_read_query_status", "wait_for_query"}, ns
+            INGESTER,
+            8,
+            {"AuditQueryFailed", "BudgetReached", "RecordLimitExceeded", "budget_exhausted", "check_budget",
+             "_read_query_status", "wait_for_query"},
+            ns,
+        )
+
+    def http_helpers(self, namespace=None):
+        """Cell 4's quota exception, budget-aware wait and retry policy, without its session or token."""
+        from urllib3.util.retry import Retry
+
+        ns = {"Retry": Retry, "time": time}
+        if namespace:
+            ns.update(namespace)
+        return exec_named_defs(
+            INGESTER,
+            4,
+            {"THROTTLE_LISTENERS", "BUDGET_CHECKS", "QUOTA_RETRY_AFTER_SEC", "QueryQuotaReached", "_notify_throttle",
+             "_wait", "_ThrottleAwareRetry"},
+            ns,
+            include_imports=False,
         )
 
     def checkpoint_helpers(self, namespace=None):
@@ -242,6 +263,9 @@ class AuditReliabilityTests(unittest.TestCase):
             "_TRANSIENT": {429, 500, 502, 503, 504},
             "AuditQueryFailed": query["AuditQueryFailed"],
             "BudgetReached": query["BudgetReached"],
+            "RecordLimitExceeded": query["RecordLimitExceeded"],
+            "QueryQuotaReached": self.http_helpers()["QueryQuotaReached"],
+            "_wait": lambda seconds: None,
             "budget_exhausted": query["budget_exhausted"],
             "RUN_DEADLINE": None,
             "TIME_BUDGET_MIN": 0,
@@ -315,6 +339,7 @@ class AuditReliabilityTests(unittest.TestCase):
                 "_validate_records_page",
                 "_drain",
                 "_process",
+                "QUOTA_PAUSED",
                 "_FATAL_HTTP",
                 "_http_status",
                 "is_retryable_window_error",
@@ -954,6 +979,7 @@ class FailedWindowRecoveryTests(unittest.TestCase):
     ingester_helpers = AuditReliabilityTests.ingester_helpers
     query_helpers = AuditReliabilityTests.query_helpers
     checkpoint_helpers = AuditReliabilityTests.checkpoint_helpers
+    http_helpers = AuditReliabilityTests.http_helpers
 
     WIN = (datetime(2026, 8, 25, 0, tzinfo=timezone.utc), datetime(2026, 8, 25, 8, tzinfo=timezone.utc))
     NEXT = (datetime(2026, 8, 25, 8, tzinfo=timezone.utc), datetime(2026, 8, 25, 16, tzinfo=timezone.utc))
@@ -1089,6 +1115,189 @@ class FailedWindowRecoveryTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Time budget of 1 min reached with 2 audit window"):
             helpers["fetch_windows"]([self.WIN, self.NEXT])
         self.assertEqual(graph.created, [])
+
+    THIRD = (datetime(2026, 8, 25, 16, tzinfo=timezone.utc), datetime(2026, 8, 26, 0, tzinfo=timezone.utc))
+
+    def test_daily_search_limit_keeps_finished_windows_and_sends_no_more_searches(self):
+        helpers, graph = self.run_helpers(lambda *a: "succeeded", MAX_CONCURRENT_QUERIES=1)
+        quota = helpers["QueryQuotaReached"]
+        refused = []
+
+        def create(ws, we):
+            if (ws, we) == self.WIN:
+                refused.append((ws, we))
+                raise quota("Graph refused a new audit search for the tenant (HTTP 429)")
+            return graph.create_query(ws, we)
+
+        helpers["create_query"] = create
+        with self.assertRaisesRegex(RuntimeError, r"refused new audit searches for this tenant \(HTTP 429\) with 2 audit window"):
+            helpers["fetch_windows"]([self.NEXT, self.WIN, self.THIRD])
+        # One refusal stops the run sending searches: THIRD is never tried.
+        self.assertEqual(graph.created, [self.NEXT])
+        self.assertEqual(refused, [self.WIN])
+        manifest = helpers["_load_manifest"]()
+        self.assertEqual(manifest[self.key(helpers, self.NEXT)]["status"], "succeeded")
+        throttled = manifest[self.key(helpers, self.WIN)]
+        self.assertEqual(throttled["status"], "waiting")
+        self.assertIn("throttled_at", throttled)
+        self.assertNotIn(self.key(helpers, self.THIRD), manifest)
+
+        # The next run fetches only what's left.
+        rerun, graph2 = self.run_helpers(lambda *a: "succeeded")
+        keys, rows = rerun["fetch_windows"]([self.NEXT, self.WIN, self.THIRD])
+        self.assertEqual(sorted(graph2.created), sorted([self.WIN, self.THIRD]))
+        self.assertEqual(len(keys), 3)
+        self.assertEqual(rows, 3)
+
+    def test_search_limit_while_waiting_keeps_the_query_for_the_next_run(self):
+        helpers, graph = self.run_helpers(lambda *a: "succeeded")
+        quota = helpers["QueryQuotaReached"]
+
+        def wait_then_throttle(qid):
+            if graph.ranges[qid][:2] == self.WIN:
+                raise quota("Graph asked to wait 3600s before the next audit request (HTTP 429)")
+            return graph.wait_for_query(qid)
+
+        helpers["wait_for_query"] = wait_then_throttle
+        with self.assertRaisesRegex(RuntimeError, "refused new audit searches"):
+            helpers["fetch_windows"]([self.WIN])
+        entry = helpers["_load_manifest"]()[self.key(helpers, self.WIN)]
+        self.assertEqual((entry["status"], entry["query_id"]), ("waiting", "q1"))
+        self.assertIn("throttled_at", entry)
+
+        rerun, graph2 = self.run_helpers(lambda *a: self.fail("nothing new should be queried"))
+        graph2.ranges["q1"] = (*self.WIN, 1)
+        rerun["wait_for_query"] = lambda qid: {"status": "succeeded", "id": qid}
+        keys, rows = rerun["fetch_windows"]([self.WIN])
+        self.assertEqual((graph2.created, len(keys), rows), ([], 1, 1))
+
+    def capped_graph(self, capped_hours, **config):
+        helpers, graph = self.run_helpers(lambda *a: "succeeded", **config)
+
+        def wait(qid):
+            ws, we, _ = graph.ranges[qid]
+            return {"status": "succeeded", "id": qid,
+                    "isRecordCountLimitExceeded": (we - ws) > timedelta(hours=capped_hours)}
+
+        helpers["wait_for_query"] = wait
+        return helpers, graph
+
+    def test_record_limit_splits_the_window_without_retrying_it(self):
+        helpers, graph = self.capped_graph(4, MIN_CHUNK_HOURS=1)
+        keys, rows = helpers["fetch_windows"]([self.WIN])
+        self.assertEqual(graph.attempts(*self.WIN), 1)
+        self.assertEqual(sorted(we - ws for ws, we in graph.created), [timedelta(hours=4)] * 2 + [timedelta(hours=8)])
+        self.assertEqual((len(keys), rows), (2, 2))
+        manifest = helpers["_load_manifest"]()
+        self.assertEqual(manifest[self.key(helpers, self.WIN)]["status"], "split")
+        self.assertIn("RecordLimitExceeded", manifest[self.key(helpers, self.WIN)]["error"])
+        self.assertEqual(helpers["QUERY_LIMITER"].history, [])
+
+    def test_record_limit_at_the_smallest_window_is_kept_and_flagged(self):
+        helpers, graph = self.capped_graph(4, MIN_CHUNK_HOURS=8)
+        keys, rows = helpers["fetch_windows"]([self.WIN])
+        self.assertEqual((graph.created, len(keys), rows), ([self.WIN], 1, 1))
+        entry = helpers["_load_manifest"]()[self.key(helpers, self.WIN)]
+        self.assertEqual(entry["status"], "succeeded")
+        self.assertTrue(entry["record_limit_exceeded"])
+
+    def test_throttled_run_stops_at_the_budget_instead_of_waiting_for_a_slot(self):
+        query = self.query_helpers({"RUN_DEADLINE": time.monotonic() - 1})
+        limiter = self.ingester_helpers()["AdaptiveLimiter"](1, 1, check=query["check_budget"])
+        limiter.__enter__()
+        started = time.monotonic()
+        with self.assertRaises(query["BudgetReached"]):
+            with limiter:
+                self.fail("no slot should be granted")
+        self.assertLess(time.monotonic() - started, 1)
+        self.assertEqual(limiter.active, 1)
+
+    def test_limiter_wait_ends_when_the_check_raises(self):
+        calls = []
+
+        def check():
+            calls.append(1)
+            if len(calls) > 1:
+                raise RuntimeError("spent")
+
+        limiter = self.ingester_helpers()["AdaptiveLimiter"](1, 1, check=check)
+        limiter.__enter__()
+        with mock.patch.object(threading.Condition, "wait", lambda self, timeout=None: calls.append(timeout)):
+            with self.assertRaisesRegex(RuntimeError, "spent"):
+                with limiter:
+                    pass
+        self.assertEqual(calls, [1, 5, 1])
+
+    def http_response(self, status, retry_after):
+        from urllib3.response import HTTPResponse
+
+        return HTTPResponse(body=b"", status=status, headers={"Retry-After": str(retry_after)}, preload_content=False)
+
+    def retry_policy(self, helpers):
+        return helpers["_ThrottleAwareRetry"](total=3, status_forcelist=(429, 503), respect_retry_after_header=True)
+
+    def test_long_retry_after_on_429_is_the_daily_limit_not_a_wait(self):
+        helpers = self.http_helpers()
+        waits = []
+        helpers["_wait"] = waits.append
+        retry = self.retry_policy(helpers)
+        with self.assertRaises(helpers["QueryQuotaReached"]):
+            retry.sleep(self.http_response(429, 3600))
+        retry.sleep(self.http_response(429, 30))
+        retry.sleep(self.http_response(503, 3600))
+        self.assertEqual(waits, [30, 3600])
+        self.assertEqual(helpers["QUOTA_RETRY_AFTER_SEC"], 300)
+
+    def test_http_retry_waits_stop_at_the_budget(self):
+        class Spent(Exception):
+            pass
+
+        sleeps, clock = [], [0.0]
+
+        def fake_sleep(seconds):
+            sleeps.append(seconds)
+            clock[0] += seconds
+
+        fake_time = type("T", (), {"monotonic": staticmethod(lambda: clock[0]), "sleep": staticmethod(fake_sleep)})
+        helpers = self.http_helpers({"time": fake_time})
+        helpers["BUDGET_CHECKS"].append(lambda: None)
+        helpers["_wait"](12)
+        self.assertEqual(sleeps, [5, 5, 2])
+
+        def spent():
+            raise Spent()
+
+        helpers["BUDGET_CHECKS"][:] = [spent]
+        sleeps.clear()
+        with self.assertRaises(Spent):
+            self.retry_policy(helpers).sleep(self.http_response(503, 3600))
+        self.assertEqual(sleeps, [])
+
+    def test_create_query_pauses_on_a_429_instead_of_retrying_it(self):
+        class Resp:
+            status_code = 429
+
+            def raise_for_status(self):
+                raise AssertionError("a 429 should not reach raise_for_status")
+
+        calls = []
+        ns = self.ingester_helpers()
+        quota = self.http_helpers()["QueryQuotaReached"]
+        transient = {429, 500, 502, 503, 504}
+        ns.update({
+            "_request": lambda *a, **k: calls.append(k["retry_statuses"]) or Resp(),
+            "QueryQuotaReached": quota,
+            "_TRANSIENT": transient,
+        })
+        with self.assertRaises(quota):
+            ns["create_query"](*self.WIN)
+        self.assertEqual(calls, [transient - {429}])
+
+    def test_http_layer_waits_only_through_the_budget_aware_sleep(self):
+        source = cells(INGESTER)[4]
+        request = source[source.index("def _request"):]
+        self.assertEqual(request.count("_wait(wait)"), 2)
+        self.assertNotIn("time.sleep(wait)", request)
 
     def seed_waiting(self, helpers, created_at, qid="old-q"):
         key = self.key(helpers, self.WIN)
@@ -1266,9 +1475,13 @@ class FailedWindowRecoveryTests(unittest.TestCase):
     def test_main_loop_wires_the_gap_guard_limiter_and_throttle_hook(self):
         source = cells(INGESTER)[10]
         self.assertIn("if MODE == 'incremental' and not ALLOW_UNRECOVERED_GAPS:", source)
-        self.assertIn("QUERY_LIMITER = AdaptiveLimiter(MAX_CONCURRENT_QUERIES, MIN_CONCURRENT_QUERIES)", source)
+        self.assertIn(
+            "QUERY_LIMITER = AdaptiveLimiter(MAX_CONCURRENT_QUERIES, MIN_CONCURRENT_QUERIES, check=check_budget)", source
+        )
         self.assertIn("THROTTLE_LISTENERS[:] = [", source)
+        self.assertIn("BUDGET_CHECKS[:] = [check_budget]", source)
         self.assertIn("ACTIVE_WINDOW_KEYS, total = fetch_windows(windows)", source)
+        self.assertIn("finally:\n    BUDGET_CHECKS.clear()", source)
         self.assertNotIn("as_completed", source)
 
 

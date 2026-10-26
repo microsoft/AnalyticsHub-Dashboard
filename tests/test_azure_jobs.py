@@ -331,6 +331,134 @@ def test_audit_throttling_halves_concurrency(tmp_path):
     assert api.on_throttle is None
 
 
+def test_api_returns_a_429_at_once_when_its_retry_after_is_beyond_give_up_after():
+    seq = [Resp(429, {}, headers={"Retry-After": "3600"}), Resp(200, {"ok": 1})]
+    api, session = make_api(lambda m, u, kw: seq.pop(0))
+    throttles = []
+    api.on_throttle = lambda: throttles.append(1)
+    assert api.get("https://graph.microsoft.com/v1.0/x", give_up_after=300).status_code == 429
+    assert len(session.calls) == 1 and throttles == [1]
+    assert "give_up_after" not in session.calls[0][2]
+    # A short wait is still retried, and without give_up_after a long one is too (capped at 120 s).
+    for retry in ("30", "3600"):
+        seq[:] = [Resp(429, {}, headers={"Retry-After": retry}), Resp(200, {"ok": 1})]
+        assert api.get("https://graph.microsoft.com/v1.0/x", give_up_after=None if retry == "3600" else 300).json() \
+            == {"ok": 1}
+
+
+class QuotaGraph(AuditGraph):
+    """Accepts `allowed` new audit searches, then answers 429 with a day-long Retry-After."""
+
+    def __init__(self, records, allowed, **kw):
+        super().__init__(records, **kw)
+        self.allowed, self.refused = allowed, 0
+
+    def __call__(self, method, url, kw):
+        if method == "POST" and url == audit_collect.QUERIES and len(self.created) >= self.allowed:
+            self.refused += 1
+            return Resp(429, {}, headers={"Retry-After": "3600"})
+        return super().__call__(method, url, kw)
+
+
+def test_audit_daily_search_limit_merges_finished_windows_and_resumes(tmp_path):
+    records = [_record(i, NOW - timedelta(hours=27 - 8 * i)) for i in range(4)]  # one in each 8 h window
+    fake = QuotaGraph(records, allowed=2)
+    api, _ = make_api(fake)
+    store = LocalStore(tmp_path)
+    with pytest.raises(RuntimeError, match=r"refused new audit searches for this tenant \(HTTP 429\) with 2 audit "
+                                           r"window\(s\) still to fetch\. The 2 row\(s\)"):
+        audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None, max_concurrent=1)
+    # One refusal, returned at once: no more searches are sent, and no new query is tried for that window.
+    assert fake.refused == 1 and len(fake.created) == 2
+    rows, _ = _parsed(store)
+    assert len(rows) == 2
+    state = store.read_json(audit_collect.STATE)
+    assert "high_water_mark" not in state
+    throttled = [w for w in state["windows"].values() if w["status"] == "waiting"]
+    assert len(throttled) == 1 and throttled[0]["throttled_at"] and throttled[0]["query_id"] is None
+
+    rerun = AuditGraph(records)
+    api, _ = make_api(rerun)
+    assert audit_collect.collect_audit(api, store, settings(), now=NOW + timedelta(minutes=5),
+                                       sleep=lambda x: None)["rows"] >= 2
+    assert len(rerun.created) == 2
+    assert len(_parsed(store)[0]) == 4 and store.read_json(audit_collect.STATE)["high_water_mark"]
+
+
+def test_audit_query_throttled_while_waiting_is_re_polled_by_the_next_run(tmp_path):
+    records = [_record(1, NOW - timedelta(hours=3))]
+    fake = AuditGraph(records)
+    throttle_reads = [True]
+
+    def handler(m, u, kw):
+        if m == "GET" and "/records" not in u and throttle_reads[0]:
+            return Resp(429, {}, headers={"Retry-After": "3600"})
+        return fake(m, u, kw)
+
+    api, _ = make_api(handler)
+    store = LocalStore(tmp_path)
+    with pytest.raises(RuntimeError, match="refused new audit searches"):
+        audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None, max_concurrent=1)
+    assert len(fake.created) == 1
+    waiting = [w for w in store.read_json(audit_collect.STATE)["windows"].values() if w["status"] == "waiting"]
+    assert len(waiting) == 1 and waiting[0]["query_id"] and waiting[0]["query_created_at"]
+
+    throttle_reads[0] = False
+    before = len(fake.created)
+    assert audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None)["rows"] == 1
+    assert len(fake.created) - before == 3  # the other three windows; the waiting one re-polls its query
+    assert store.read_json(audit_collect.STATE)["windows"][
+        audit_collect.audit.stable_window_key(*fake.created[0])]["query_id"] == waiting[0]["query_id"]
+
+
+class CappedGraph(AuditGraph):
+    """Reports isRecordCountLimitExceeded for queries longer than `capped_hours`."""
+
+    def __init__(self, records, capped_hours, **kw):
+        super().__init__(records, **kw)
+        self.capped_hours, self.spans = capped_hours, {}
+
+    def __call__(self, method, url, kw):
+        r = super().__call__(method, url, kw)
+        if method == "POST":
+            self.spans[r._body["id"]] = self.created[-1][1] - self.created[-1][0]
+        elif "/records" not in url:
+            qid = url[len(audit_collect.QUERIES) + 1:]
+            r._body["isRecordCountLimitExceeded"] = self.spans[qid] > timedelta(hours=self.capped_hours)
+        return r
+
+
+def test_audit_record_limit_splits_the_window_at_once(tmp_path):
+    records = [_record(1, NOW - timedelta(hours=20)), _record(2, NOW - timedelta(hours=13))]
+    fake = CappedGraph(records, capped_hours=4)
+    api, _ = make_api(fake)
+    store = LocalStore(tmp_path)
+    collector = audit_collect.AuditCollector(api, store, settings(), now=NOW, sleep=lambda x: None)
+    assert collector.run()["rows"] == 2
+    eight = [w for w in fake.created if w[1] - w[0] == timedelta(hours=8)]
+    assert len(eight) == len(set(eight)) == 3  # each 8 h window queried once, not retried
+    # Their halves, plus the last window (08:00-12:00), which is 4 h already.
+    assert sum(1 for w in fake.created if w[1] - w[0] == timedelta(hours=4)) == 7
+    assert collector.limiter.history == []
+    windows = store.read_json(audit_collect.STATE)["windows"].values()
+    assert sum(1 for w in windows if w["status"] == "split") == 3
+    assert not any(w.get("record_limit_exceeded") for w in windows)
+
+
+def test_audit_record_limit_at_the_smallest_window_is_kept_and_flagged(tmp_path, caplog):
+    fake = CappedGraph([_record(1, NOW - timedelta(hours=3))], capped_hours=4)
+    api, _ = make_api(fake)
+    store = LocalStore(tmp_path)
+    with caplog.at_level("WARNING", logger="valuelens_jobs.collect.audit"):
+        assert audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None,
+                                           min_chunk_hours=8)["rows"] == 1
+    assert len(fake.created) == 4
+    windows = store.read_json(audit_collect.STATE)["windows"].values()
+    assert all(w["status"] == "succeeded" for w in windows)
+    assert sum(1 for w in windows if w.get("record_limit_exceeded")) == 3  # not the 4 h window at the end
+    assert "some of its records are missing" in caplog.text
+
+
 def test_audit_retry_classification():
     assert audit_collect.is_retryable(audit_collect.AuditQueryFailed("failed"))
     assert audit_collect.is_retryable(TimeoutError("slow"))

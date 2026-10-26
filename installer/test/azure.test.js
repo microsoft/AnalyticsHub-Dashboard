@@ -1386,7 +1386,7 @@ test("Azure: a history reload that doesn't start leaves setup not finished, and 
     return azurePlanReview(started.ctx).runsOn.find((r) => r.what === 'History reload')?.detail;
   };
   assert.equal(detail(90), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=90. A run stops at 4 hours. On a large tenant, the scheduled runs after it carry on with the reload until it has all loaded.');
-  assert.equal(detail(30), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=30. Usually under an hour.');
+  assert.equal(detail(30), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=30. Usually one to two hours.');
 
   // Repair or change's question, the first place the wording shows, says the same: Azure has no pipeline.
   const asking = fakeUi();
