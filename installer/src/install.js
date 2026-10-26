@@ -45,6 +45,7 @@ import {
 import { ensureModelConnection, ensureSemanticModel, modelUrl, pendingReloads, refreshModel, rotateModelSecret, settleReloads, verifyModel } from './steps/model.js';
 import { confirmPlan, plan, preflight } from './steps/plan.js';
 import { checkPrereqs, preflightChecks, reportPreflight } from './prereqs.js';
+import { adminRequests } from './steps/handoff.js';
 import { ensureReports, reportsOn, reportsSummary } from './steps/report.js';
 import { dataAgentSummary, dataAgentWanted, ensureDataAgent } from './steps/data-agent.js';
 import { azureUploadError, dataSourcesSummary, ensureUploads, uploadCommand } from './steps/data-sources.js';
@@ -824,6 +825,7 @@ export async function showPrereqs(ctx) {
   ctx.ui.ok(`Signed in as ${ctx.user.upn} (tenant ${ctx.user.tenantId})`);
   const items = await checkPrereqs(ctx);
   ctx.ui.prereqs(items);
+  ctx.ui.adminRequests(adminRequests(items, ctx.config, { from: ctx.user.upn }));
   return items;
 }
 

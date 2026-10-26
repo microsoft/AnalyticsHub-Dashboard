@@ -6,6 +6,7 @@ import { createContext, runInContext } from 'node:vm';
 import { emptyConfig } from '../src/config.js';
 import { dataPolicyPrereq } from '../src/prereqs.js';
 import { setupCategories } from '../src/setup.js';
+import { adminRequests } from '../src/steps/handoff.js';
 
 /** A small DOM double exercises the real page renderers and their event payloads. */
 class Element {
@@ -273,4 +274,89 @@ test('prerequisites: the data policy row isn\'t tagged optional in the list or t
   assert.match(md, /^- ✗ Power Automate Premium licence: Missing \(optional\)$/m);
   assert.match(md, /^- \? Data policy: Couldn't check$/m);
   assert.doesNotMatch(md.slice(md.indexOf('Data policy')), /optional/);
+});
+
+/** Real requests, as the server sends them with a prerequisites check: one for the data policy, one for a licence. */
+function requestsFixture() {
+  const config = emptyConfig();
+  Object.assign(config.dataSources, { productFeedback: 'csv', studioCredits: 'api', resourceGraph: 'skip' });
+  /** @type {import('../src/prereqs.js').Prereq[]} */
+  const items = [
+    { id: 'power-bi-pro', label: 'Power BI Pro licence', status: 'missing', detail: 'None assigned to you.', neededFor: 'Publishing the reports.', howTo: 'Ask your licence admin.' },
+    dataPolicyPrereq(config),
+  ];
+  const requests = adminRequests(items, config, { from: 'someone@example.com' });
+  assert.deepEqual(requests.map((r) => [r.who, r.rows]), [['A Power Platform administrator', ['Data policy']], ['Your licence admin', ['Power BI Pro licence']]]);
+  return { items, requests };
+}
+
+const cls = (/** @type {Element} */ el) => /** @type {any} */ (el).className;
+
+test('prerequisites: under the list, one request per admin, with what it\'s for, the message, and a Copy request button that copies it', async () => {
+  const { items, requests } = requestsFixture();
+  const context = page();
+  /** @type {string[]} */
+  const copied = [];
+  context.navigator = { clipboard: { writeText: async (/** @type {string} */ text) => { copied.push(text); } } };
+  const panel = runInContext(`
+    app.state = ${JSON.stringify({ user: { upn: 'someone@example.com' }, prereqs: { at: 0, upn: 'someone@example.com', items, requests } })};
+    prereqsPanel(false);
+  `, context);
+  const body = all(panel).find((el) => cls(el) === 'panel-body');
+  assert.ok(body);
+  assert.deepEqual(body.children.map(cls), ['hint', 'prereqs', 'admin-requests'], 'after the rows they cover');
+  const section = body.children[2];
+  assert.equal(section.children[0].text, 'Requests for your admins');
+  assert.match(section.children[1].text, /^One message per admin\. Copy each one and send it/);
+  const cards = all(section).filter((el) => cls(el) === 'next-card');
+  assert.deepEqual(cards.map((card) => all(card).find((el) => cls(el) === 'next-name')?.text), ['A Power Platform administrator', 'Your licence admin']);
+  const licence = cards[1];
+  assert.equal(all(licence).find((el) => cls(el) === 'next-who')?.text, 'For: Power BI Pro licence');
+  assert.equal(all(licence).find((el) => el.tag === 'pre')?.text, requests[1].message);
+  assert.match(requests[1].message, /^Hi,\n\nI'm installing Analytics Hub, and I need your help with this:\n\n- Assign me a Power BI Pro licence.*\n\nThanks\nsomeone@example\.com$/s);
+  const button = all(licence).find((el) => el.tag === 'button');
+  assert.ok(button);
+  assert.equal(button.text, 'Copy request');
+  await button.events.click();
+  assert.deepEqual(copied, [requests[1].message]);
+  assert.equal(button.text, 'Copied');
+
+  // Without a clipboard, the button says to select the text instead.
+  context.navigator = {};
+  const other = all(cards[0]).find((el) => el.tag === 'button');
+  assert.ok(other);
+  await other.events.click();
+  assert.equal(other.text, 'Select the text to copy it');
+
+  // Nothing to ask anyone, or a check saved before there were requests: no section.
+  for (const prereqs of [{ at: 0, upn: 'someone@example.com', items, requests: [] }, { at: 0, upn: 'someone@example.com', items }]) {
+    const none = runInContext(`app.state = ${JSON.stringify({ user: { upn: 'someone@example.com' }, prereqs })}; prereqsPanel(false);`, context);
+    assert.equal(all(none).some((el) => cls(el) === 'admin-requests'), false);
+  }
+});
+
+test('prerequisites: the run log shows the requests after the rows, and the Markdown export lists each admin\'s asks', () => {
+  const { items, requests } = requestsFixture();
+  const context = page();
+  const logged = runInContext(`
+    app.replay = true;
+    app.run = createRun({ type: 'command', command: 'prereqs', state: 'running', at: 0, seq: 1 });
+    [
+      { type: 'prereqs', items: ${JSON.stringify(items)}, at: 1 },
+      { type: 'admin-requests', requests: ${JSON.stringify(requests)}, at: 2 },
+    ].forEach(apply);
+    [...runItems(app.run.stages)].filter((it) => it.t === 'prereqs' || it.t === 'admin-requests').map((it) => [it.t, it.el]);
+  `, context);
+  assert.deepEqual([...logged].map(([t]) => t), ['prereqs', 'admin-requests']);
+  const section = logged[1][1];
+  assert.equal(cls(section), 'admin-requests');
+  assert.equal(all(section).filter((el) => el.tag === 'button' && el.text === 'Copy request').length, 2);
+
+  const md = runInContext(`itemMarkdown(${JSON.stringify({ t: 'admin-requests', requests })}, 2).join('\\n')`, context);
+  assert.match(md, /^\*\*Requests for your admins\*\*$/m);
+  assert.match(md, /^1\. \*\*A Power Platform administrator\*\* \(for: Data policy\)$/m);
+  assert.match(md, /^2\. \*\*Your licence admin\*\* \(for: Power BI Pro licence\)$/m);
+  assert.match(md, /^ {3}- Assign me a Power BI Pro licence \(Premium Per User works too\), to publish the Analytics Hub reports\.$/m);
+  assert.doesNotMatch(md, /^Hi,|^Thanks/m, 'the asks, not the whole letter');
+  assert.equal(runInContext(`itemMarkdown({ t: 'admin-requests', requests: [] }, 2).length`, context), 0);
 });

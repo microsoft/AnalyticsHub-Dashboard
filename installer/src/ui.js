@@ -182,6 +182,20 @@ export function createUi(opts = {}) {
         if (it.status !== 'met') line(`    ${c.dim(`${it.status === 'handoff' ? 'Who does it' : 'How to get it'}: ${it.howTo}`)}`);
       }
     },
+    /**
+     * The requests to copy and send, one per admin: who it's for, the prerequisites it covers, and the message.
+     * @param {import('./steps/handoff.js').AdminRequest[]} requests
+     */
+    adminRequests: (requests) => {
+      if (!requests.length) return;
+      line(`\n  ${c.bold('Requests for your admins: copy each one and send it.')}`);
+      requests.forEach((r, i) => {
+        line(`  ${c.yellow(`${i + 1}.`)} ${c.bold(r.who)}`);
+        line(`     ${c.dim(`For: ${r.rows.join('; ')}`)}`);
+        line(`     ${c.dim('Copy and send:')}`);
+        for (const m of r.message.split('\n')) line(`       ${c.dim(m)}`);
+      });
+    },
 
     /**
      * @template T

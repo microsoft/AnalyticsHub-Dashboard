@@ -47,7 +47,11 @@ corresponding settings category directly.
 
 Moved to [Prerequisites](../docs/PREREQUISITES.md). Once you sign in, the **Prerequisites** panel
 (`prereqs` in the terminal) checks most of it, and changes nothing. `install` and `update` run the
-same checks first and list only what's missing for what you chose.
+same checks first and list only what's missing for what you chose. For what someone else has to
+do, the panel and the run log end with **Requests for your admins**: one message per admin, asking
+for everything that admin does, with a **Copy request** button. The terminal prints the same
+messages after the list, each with who it's for, "For:" and the rows it covers, and the message
+under "Copy and send:". They never include a secret.
 
 ### Where the secret goes
 

@@ -8,6 +8,7 @@
 import { allowsAction, ROLES } from '../../clients/azure.js';
 import { normaliseResourceGraph } from '../../config.js';
 import { HttpError } from '../../http.js';
+import { REPO } from '../../update-check.js';
 import { AZURE_AI_ROLES } from '../consumption.js';
 import { resourceGraphOn, resourceGraphScope, scopeName } from '../resource-graph.js';
 
@@ -15,6 +16,8 @@ import { resourceGraphOn, resourceGraphScope, scopeName } from '../resource-grap
 /** @typedef {{ scope: string, where: string, role: string, why: string }} AdminGrant */
 
 export const LEAST_PRIVILEGE_DOC = 'docs/AZURE-LEAST-PRIVILEGE.md';
+/** The same page on GitHub, for a message to an admin: the installer doesn't ship docs/. */
+export const LEAST_PRIVILEGE_URL = `https://github.com/${REPO}/blob/main/${LEAST_PRIVILEGE_DOC}`;
 
 /**
  * The roles the ARM template assigns, and so all a condition-limited Role Based Access Control

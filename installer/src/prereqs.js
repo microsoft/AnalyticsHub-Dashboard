@@ -17,6 +17,7 @@ import { canWriteSecrets } from './steps/identity.js';
 import { WORKSPACE_ROLE } from './steps/fabric.js';
 import { blockedSettings, CREATE_WORKSPACES_FIX, createWorkspacesAccess, myGroups, POWER_BI_SETTINGS, settingLabel, usableCapacity, workspacesOnCapacity } from './steps/plan.js';
 import { rlsOn } from './transform/access.js';
+import { adminRequests } from './steps/handoff.js';
 
 /**
  * "handoff" is optional admin work someone else does while you carry on: it never stops an install,
@@ -71,7 +72,7 @@ export { COPILOT_PLAN } from './seats.js';
 
 const PIM_URL = 'https://entra.microsoft.com/#view/Microsoft_Azure_PIMCommon/ActivationMenuBlade/~/aadmigratedroles';
 const ADMIN_CONSENT_URL = 'https://learn.microsoft.com/entra/identity/enterprise-apps/grant-admin-consent';
-const TENANT_SETTINGS_URL = 'https://learn.microsoft.com/fabric/admin/tenant-settings-index';
+export const TENANT_SETTINGS_URL = 'https://learn.microsoft.com/fabric/admin/tenant-settings-index';
 const FABRIC_TRIAL_URL = 'https://learn.microsoft.com/fabric/fundamentals/fabric-trial';
 const VIVA_ROLES_URL = 'https://learn.microsoft.com/viva/insights/advanced/setup-maint/assign-user-roles';
 /** Teams admin center > Teams apps > Manage apps, as in steps/azure/teams-catalog.js. */
@@ -744,7 +745,7 @@ const PREFLIGHT_HIDDEN = new Set(['fabric-capacity', 'fabric-admin']);
  * Whether a flow this install makes signs in to the Power Platform API connection.
  * @param {import('./config.js').InstallConfig} config
  */
-function ppApiWanted(config) {
+export function ppApiWanted(config) {
   try {
     return ppApiFlows(config).length > 0;
   } catch {
@@ -916,9 +917,9 @@ function printPrereqGroups(ui, { shown, handoff, confirm }, carry) {
 
 /**
  * Prints only what needs attention, then what to hand off to someone else, then what to confirm with
- * someone, before anything is created, and points to the full list. On install, stops when one is a
- * true blocker. Keeps what it checked and showed on `ctx`, for reportFlowPrereqs.
- * @param {{ ui: import('./ui.js').Ui, config: import('./config.js').InstallConfig, preflightSeen?: PreflightSeen }} ctx
+ * someone, before anything is created, and points to the full list, then the requests to send, one per admin. On
+ * install, stops when one is a true blocker. Keeps what it checked and showed on `ctx`, for reportFlowPrereqs.
+ * @param {{ ui: import('./ui.js').Ui, config: import('./config.js').InstallConfig, user?: { upn?: string }, preflightSeen?: PreflightSeen }} ctx
  * @param {Prereq[] | null} items  From preflightChecks.
  * @param {{ update?: boolean }} [opts]
  * @returns {{ block: Prereq[], warn: Prereq[], handoff: Prereq[], confirm: Prereq[] }}
@@ -943,6 +944,7 @@ export function reportPreflight(ctx, items, opts = {}) {
   if (!shown.length) ui.ok(handoff.length ? 'Prerequisites: you have what you need yourself' : 'Prerequisites: nothing missing for what you chose');
   printPrereqGroups(ui, { shown, handoff, confirm }, verdict.block.length ? '' : ` The ${opts.update ? 'update' : 'install'} carries on.`);
   ui.note(full);
+  ui.adminRequests(adminRequests([...shown, ...handoff, ...confirm], config, { from: ctx.user?.upn, all: items }));
   if (verdict.block.length) {
     ui.fail(`Stopped before creating anything: ${verdict.block.map((it) => it.label).join('; ')}.`);
     throw new Error(
@@ -963,9 +965,9 @@ const FLOW_ROWS = ['power-platform-admin', 'power-automate-premium', 'environmen
  * had they been chosen then, each once: the Power Automate Premium licence, the Power Platform Administrator
  * role (with its PIM warning, or as a hand-off), the environments, and the data policy. In the terminal, a new
  * install checks the prerequisites before its plan asks about the flows. The data policy ask shows again only for
- * another environment than the one it named. Reads nothing from the tenant, and never stops the install. Without a
- * preflight, does nothing.
- * @param {{ ui: import('./ui.js').Ui, config: import('./config.js').InstallConfig, preflightSeen?: PreflightSeen }} ctx
+ * another environment than the one it named. Then the requests to send for them, one per admin. Reads nothing from
+ * the tenant, and never stops the install. Without a preflight, does nothing.
+ * @param {{ ui: import('./ui.js').Ui, config: import('./config.js').InstallConfig, user?: { upn?: string }, preflightSeen?: PreflightSeen }} ctx
  */
 export function reportFlowPrereqs(ctx) {
   const { ui, config } = ctx;
@@ -983,6 +985,7 @@ export function reportFlowPrereqs(ctx) {
   const printed = [...groups.shown, ...groups.handoff, ...groups.confirm];
   if (!printed.length) return;
   printPrereqGroups(ui, groups, ' The install carries on.');
+  ui.adminRequests(adminRequests(printed, config, { from: ctx.user?.upn, pending: false, all: rows }));
   for (const it of printed) seen.shown.set(it.id, asShown(it, config));
 }
 
@@ -1000,12 +1003,13 @@ const ARG_PROBES = {
  */
 function resourceGraphPrereq(api, config, guard) {
   const rg = config.resourceGraph;
+  const azure = config.target === 'azure';
   return guard(
     {
       id: 'resource-graph',
       label: 'Azure Resource Graph: agents and Foundry',
-      neededFor: 'Agent configuration and Foundry resources. This checks what you can see; whoever runs the load needs the same.',
-      howTo: 'For agents: Global Reader, Power Platform Administrator or AI Administrator in Entra. For Foundry: Reader on the management group, or the tenant root group.',
+      neededFor: `Agent configuration and Foundry resources. The load reads them as ${azure ? 'the jobs\' managed identity' : 'the app'}, so this check of what you can see is only a guide.`,
+      howTo: `${azure ? 'The jobs\' managed identity' : 'The app'} needs Global Reader in Entra for agents (it's read-only), and Reader on the management group, or the tenant root group, for Foundry. The installer gives them if you can; if not, it shows the steps for an admin.`,
       optional: true,
     },
     async () => {
