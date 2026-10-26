@@ -547,7 +547,7 @@ export const BACKFILL_ENV = 'VALUELENS_AUDIT_BACKFILL_DAYS';
  * @param {number} days
  */
 const azureReloadDetail = (days) =>
-  days > 30 ? 'A run stops at 4 hours. On a large tenant, the scheduled runs after it carry on with the reload until it has all loaded.' : 'Usually under an hour.';
+  days > 30 ? 'A run stops at 4 hours. On a large tenant, the scheduled runs after it carry on with the reload until it has all loaded.' : 'Usually one to two hours.';
 
 /** Repair or change's choice to reload `days` days of history, on Azure. @param {number} days */
 const azureReloadChoice = (days) => `Runs the job once with ${days} days of history. ${azureReloadDetail(days)}`;

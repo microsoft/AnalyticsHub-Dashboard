@@ -504,7 +504,7 @@ Lakehouse SQL endpoints to sync. Otherwise a refresh straight after a load can f
 
 Each audit query waits a few minutes in Microsoft's queue, however little it returns, so the first
 load's time grows with the days of history. With 30 days a tenant of up to 10,000 people usually
-loads in under an hour. Later runs load only what's new.
+loads in one to two hours. Later runs load only what's new.
 
 On a tenant with tens of thousands of people, choose **More than 10,000** when asked how many
 people are in the tenant, under [Advanced settings](#advanced-settings). A new install chooses it

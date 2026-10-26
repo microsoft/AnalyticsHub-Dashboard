@@ -20,6 +20,23 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+### Fixed
+
+- **The audit load's time budget now covers throttling.** On Fabric, `TIME_BUDGET_MIN` was only
+  checked between polls, so HTTP retry waits and the wait for a free search slot could run past it
+  while Graph returned 429s, until the pipeline activity's 2-hour timeout. Every wait now checks the
+  budget at least every 5 seconds, and a run that reaches it keeps its query ids for the next run.
+- **The audit load pauses and resumes when the tenant's daily search limit is reached** (Fabric and
+  Azure). A tenant can start at least 200 Graph audit searches in a rolling 24 hours. When Graph
+  refuses new ones with a long Retry-After, the run stops sending, finishes the searches already
+  started and fails with a message saying so, keeping finished windows and query ids. The next run
+  carries on instead of a first load stalling on repeated 429s. On Azure, rows from finished windows
+  are merged and the high-water mark holds.
+- **An audit window that reaches the service's record cap is split** instead of being kept with
+  missing records. At the smallest window size it's kept and flagged.
+- **The installer's first-load estimate is now one to two hours**, longer on a trial or small
+  capacity or while Microsoft is throttling audit searches.
+
 ## 2026-10-26 — Analytics Hub installer 0.6.8
 
 **Published as a pre-release first.** 0.6.8 becomes Latest once a fresh install from its published

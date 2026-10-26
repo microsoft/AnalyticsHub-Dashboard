@@ -107,9 +107,17 @@ a manual Purview search of the same 8h fails too. For more than about 10,000 peo
 - Set `TIME_BUDGET_MIN` below the pipeline activity's timeout (for example `300` with a 6-hour
   timeout). When the budget runs out, the run stops before writing anything and the next run
   carries on: finished windows are reused, and queries still running in the audit service are
-  picked up rather than sent again.
+  picked up rather than sent again. The budget also covers waits while Graph is throttling (HTTP 429), so a throttled
+  run stops at the budget instead of running on to the activity's timeout.
 - Start with the default 30 days. Load more later with a backfill run.
 - Use an F64 or larger capacity, and don't run audit searches in the Purview portal while it runs.
+
+A tenant can start at least 200 audit searches in a rolling 24 hours, shared with other admins and
+tools, and with 2h windows a 30-day first load needs about 360. When Graph refuses new searches
+(HTTP 429 with a wait over `QUOTA_RETRY_AFTER_SEC`, default 300 seconds), the run stops sending new
+ones, finishes the searches it already started, writes nothing and fails with a message saying so.
+The next run carries on the same way as after a time budget. A window whose search reaches the
+service's record cap is split rather than kept incomplete.
 
 The installer does this when you choose **More than 10,000** people, which it chooses for a new
 install with more than 10,000 Copilot seats assigned. It also gives the loads and the model refresh
