@@ -6,7 +6,7 @@ import { createContext, runInContext } from 'node:vm';
 import { emptyConfig } from '../src/config.js';
 import { dataPolicyPrereq } from '../src/prereqs.js';
 import { setupCategories } from '../src/setup.js';
-import { adminRequests } from '../src/steps/handoff.js';
+import { adminRequests, doneRequests } from '../src/steps/handoff.js';
 
 /** A small DOM double exercises the real page renderers and their event payloads. */
 class Element {
@@ -359,4 +359,115 @@ test('prerequisites: the run log shows the requests after the rows, and the Mark
   assert.match(md, /^ {3}- Assign me a Power BI Pro licence \(Premium Per User works too\), to publish the Analytics Hub reports\.$/m);
   assert.doesNotMatch(md, /^Hi,|^Thanks/m, 'the asks, not the whole letter');
   assert.equal(runInContext(`itemMarkdown({ t: 'admin-requests', requests: [] }, 2).length`, context), 0);
+});
+
+/** What's left for admins at the end of a Fabric install that left Global Reader, consent, names, the export, Foundry and the Viva query. */
+function doneFixture() {
+  const config = emptyConfig();
+  Object.assign(config.app, { appId: 'app-1', servicePrincipalId: 'sp-1' });
+  Object.assign(config.dataSources, { resourceGraph: 'api', productFeedback: 'api', studioCredits: 'csv', coworkCredits: 'csv' });
+  config.modules.consumption = true;
+  config.modules.agentEvaluator = false;
+  const requests = doneRequests(config, { from: 'someone@example.com', consented: false });
+  assert.deepEqual(requests.map((r) => r.admin), ['role-admin', 'global-admin', 'm365-admin', 'azure-owner', 'viva']);
+  return requests;
+}
+
+/**
+ * An install that showed preflight's requests, ended with a card and the requests at the end, and finished.
+ * @param {import('node:vm').Context} context @param {unknown[]} done
+ */
+function finishedInstall(context, done) {
+  const { requests } = requestsFixture();
+  return runInContext(`
+    app.replay = true;
+    app.run = createRun({ type: 'command', command: 'install', state: 'running', at: 0, seq: 1 });
+    [
+      { type: 'admin-requests', requests: ${JSON.stringify(requests)}, at: 1 },
+      { type: 'step', n: 1, total: 1, title: 'Share the app', at: 2 },
+      { type: 'line', kind: 'ok', text: 'Shared it', at: 3 },
+      { type: 'next-steps', title: '1 step left', at: 4, steps: [{ id: 'share-app', title: 'Share the app with your users',
+        why: 'Only you can open it until it\\'s shared.', who: 'You' }] },
+      ...${JSON.stringify(done.length ? [{ type: 'done-requests', requests: done, at: 5 }] : [])},
+    ].forEach(apply);
+    onCommand({ type: 'command', command: 'install', state: 'done', at: 6, seq: 2 });
+    app.run;
+  `, context);
+}
+
+test('Done page: what\'s left for admins at the end, one request per admin, with notes, the message, Copy request and what you do once it\'s done', async () => {
+  const done = doneFixture();
+  const context = page();
+  /** @type {string[]} */
+  const copied = [];
+  context.navigator = { clipboard: { writeText: async (/** @type {string} */ text) => { copied.push(text); } } };
+  const run = finishedInstall(context, done);
+
+  // The outcome: the cards you do, then the requests for your admins. Preflight's requests stay in the run log.
+  const outcome = run.outcomeEl;
+  const sections = outcome.children.filter((/** @type {Element} */ el) => el.tag === 'section');
+  assert.deepEqual(sections.map(cls), ['next', 'admin-requests']);
+  const section = sections[1];
+  assert.equal(section.children[0].text, 'Still to do by your admins');
+  assert.match(section.children[1].text, /^One request per admin\. Copy each one and send it\./);
+  const cards = all(section).filter((el) => cls(el)?.startsWith('next-card'));
+  assert.deepEqual(cards.map((card) => all(card).find((el) => cls(el) === 'next-name')?.text), done.map((r) => r.who));
+  assert.equal(all(outcome).some((el) => el.text === 'Your licence admin'), false, 'preflight\'s requests aren\'t on the Done page');
+
+  done.forEach((r, i) => {
+    const card = cards[i];
+    assert.equal(all(card).find((el) => cls(el) === 'next-who')?.text, `For: ${r.rows.join('; ')}${r.optional ? ', optional' : ''}`);
+    assert.equal(all(card).find((el) => el.tag === 'pre')?.text, r.message);
+    const after = all(card).find((el) => cls(el) === 'next-after');
+    assert.ok(after, `${r.admin}: what you do once it's done`);
+    assert.deepEqual(after.children.map((li) => li.text), r.after);
+    assert.ok(all(card).some((el) => el.tag === 'strong' && el.text === 'Once it\'s done'));
+    for (const note of r.notes ?? []) assert.ok(card.children.some((el) => el.tag === 'p' && el.text === note), note);
+  });
+  const viva = cards[4];
+  assert.equal(cls(viva), 'next-card optional');
+  assert.match(all(viva).find((el) => cls(el) === 'next-who')?.text ?? '', /, optional$/);
+  assert.ok(done[2].notes?.length && done[4].notes?.length, 'the export and the Viva query carry a note for you');
+  // A link in a note or a follow-up opens.
+  const linked = runInContext(`renderDoneRequests(${JSON.stringify([{ ...done[0], notes: ['See https://example.com/a.'], after: ['Open https://example.com/b, then wait.'] }])})`, context);
+  assert.deepEqual(all(linked).filter((el) => el.tag === 'a').map((el) => el.attributes.href), ['https://example.com/a', 'https://example.com/b']);
+
+  const button = all(cards[1]).find((el) => el.tag === 'button');
+  assert.ok(button);
+  assert.equal(button.text, 'Copy request');
+  await button.events.click();
+  assert.deepEqual(copied, [done[1].message]);
+  assert.equal(button.text, 'Copied');
+
+  // The run log doesn't show them: they're on the Done page, once.
+  const items = [...runInContext('[...runItems(app.run.stages)]', context)];
+  const end = items.filter((it) => it.t === 'done-requests');
+  assert.equal(end.length, 1);
+  assert.equal(end[0].el, null);
+  assert.ok(items.find((it) => it.t === 'admin-requests')?.el, 'preflight\'s requests show in the run log');
+
+  // Nothing left for admins: no section, and the outcome doesn't make one up.
+  const none = finishedInstall(page(), []);
+  assert.equal(none.outcomeEl.children.filter((/** @type {Element} */ el) => el.tag === 'section').map(cls).join(), 'next');
+  assert.equal(runInContext('renderDoneRequests([])', context), null);
+});
+
+test('Done page: the saved record lists the requests at the end once, with each message as it\'s sent and what you do afterwards', () => {
+  const done = doneFixture();
+  const context = page();
+  finishedInstall(context, done);
+  runInContext('saved = []; download = (name, lines) => saved.push(lines.join("\\n"));', context);
+  runInContext('saveRecord(app.run)', context);
+  const [md] = runInContext('saved', context);
+  assert.equal(md.split('**Still to do by your admins**').length, 2, 'once');
+  assert.equal(md.split('**Requests for your admins**').length, 2, 'preflight\'s, once, where they were in the run');
+  done.forEach((r, i) => {
+    const head = `${i + 1}. **${r.who}**${r.optional ? ' (optional)' : ''} (for: ${r.rows.join('; ')})`;
+    assert.equal(md.split(`\n${head}\n`).length, 2, head);
+    const fenced = r.message.split('\n').map((l) => (l ? `   ${l}` : '')).join('\n');
+    assert.ok(md.includes(`   \`\`\`text\n${fenced}\n   \`\`\``), `${r.admin}: the message, as it's sent`);
+    for (const a of r.after ?? []) assert.ok(md.includes(`   - ${a}`), a);
+  });
+  assert.match(md, /^ {3}Once it's done:$/m);
+  assert.ok(md.indexOf('**Requests for your admins**') < md.indexOf('**Still to do by your admins**'), 'in the order they came');
 });

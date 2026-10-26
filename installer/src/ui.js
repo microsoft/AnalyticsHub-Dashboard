@@ -8,6 +8,8 @@ import { inspectFile } from './staging.js';
 import { dataSource, MODE_LABELS, routedSources } from './uploads.js';
 
 const useColour = process.stdout.isTTY && !process.env.NO_COLOR;
+/** The heading over what's left for admins at the end of an install or Repair, which other lines point to. */
+export const DONE_REQUESTS_TITLE = 'Still to do by your admins';
 /** @param {string} code */
 const paint = (code) => (/** @type {string} */ s) => (useColour ? `\x1b[${code}m${s}\x1b[0m` : s);
 export const c = {
@@ -194,6 +196,25 @@ export function createUi(opts = {}) {
         line(`     ${c.dim(`For: ${r.rows.join('; ')}`)}`);
         line(`     ${c.dim('Copy and send:')}`);
         for (const m of r.message.split('\n')) line(`       ${c.dim(m)}`);
+      });
+    },
+    /**
+     * What's left for admins at the end of an install or Repair, one request per admin: what it's for, notes for you,
+     * the message to copy and send, and what you do once it's done.
+     * @param {import('./steps/handoff.js').AdminRequest[]} requests
+     */
+    doneRequests: (requests) => {
+      if (!requests.length) return;
+      line(`\n  ${c.bold(c.yellow(`${DONE_REQUESTS_TITLE}: copy each request and send it.`))}`);
+      requests.forEach((r, i) => {
+        line(`  ${c.yellow(`${i + 1}.`)} ${c.bold(r.who)}${r.optional ? c.dim(' (optional)') : ''}`);
+        line(`     ${c.dim(`For: ${r.rows.join('; ')}`)}`);
+        for (const n of r.notes ?? []) line(`     ${n}`);
+        line(`     ${c.dim('Copy and send:')}`);
+        for (const m of r.message.split('\n')) line(`       ${c.dim(m)}`);
+        if (!r.after?.length) return;
+        line(`     ${c.dim('Once it\'s done:')}`);
+        for (const a of r.after) line(`       ${a}`);
       });
     },
 

@@ -39,7 +39,7 @@ import {
   STUDIO_FLOW_NAME,
   studioFlowDefinition,
 } from '../transform/flows.js';
-import { c } from '../ui.js';
+import { c, DONE_REQUESTS_TITLE } from '../ui.js';
 import { UPLOAD_DIR } from '../uploads.js';
 import { ensureWorkspaceRole } from './model.js';
 
@@ -928,6 +928,8 @@ function azureStorageStep(config) {
 /** The Microsoft 365 admin center page for product feedback (Health > Product feedback), where the export is scheduled. */
 export const FEEDBACK_EXPORT_URL = 'https://admin.microsoft.com/Adminportal/Home#/tenantfeedback';
 const feedbackExportStep = `Schedule the product feedback export to that mailbox, subject "${FEEDBACK_SUBJECT}": ${FEEDBACK_EXPORT_URL} (Microsoft 365 admin center > Health > Product feedback).`;
+/** At the end, the export is a request to a Microsoft 365 admin (feedbackDone in handoff.js), so the flow's steps point to it. */
+const feedbackExportPointer = `The product feedback export: send a Microsoft 365 admin the request for it, under "${DONE_REQUESTS_TITLE}".`;
 
 /**
  * Whether the installer signed the flow in and turned it on, and it hasn't been replaced since.
@@ -941,16 +943,18 @@ const flowConnected = (config, kind) => !!config.uploads.flowIds?.[kind] && conf
  * @param {Ctx} ctx
  * @param {FlowKind} kind
  * @param {string} link  The flows page.
+ * @param {{ exportStep?: boolean }} [opts]  exportStep: false leaves out the feedback export, which the end asks a Microsoft 365 admin for.
  */
-function flowSteps(ctx, kind, link) {
+function flowSteps(ctx, kind, link, { exportStep = true } = {}) {
   const { ui, config } = ctx;
   let n = 1;
   ui.info(`  ${n++}. Open it: ${link}`);
   ui.info(`  ${n++}. Allow pop-ups for make.powerautomate.com: each sign-in opens one. Sign in on the first action for each connection below, then pick that connection on its other actions.`);
   for (const step of connectionSteps(config, kind)) ui.info(`  ${n++}. ${step}`);
   ui.info(`  ${n++}. Save, then turn it on.`);
-  if (kind === 'feedback') ui.info(`  ${n++}. ${feedbackExportStep}`);
-  else if (kind === 'agents') ui.note('     It runs daily, an hour before the pipeline. The collector reads its newest file only when Azure Resource Graph returns no agents.');
+  if (kind === 'feedback') {
+    if (exportStep) ui.info(`  ${n++}. ${feedbackExportStep}`);
+  } else if (kind === 'agents') ui.note('     It runs daily, an hour before the pipeline. The collector reads its newest file only when Azure Resource Graph returns no agents.');
   else {
     ui.info(`  ${n++}. To load about six months now rather than at its first daily run, click Run. Or use "${commandLine('run')}", which offers to run it before the pipeline.`);
     ui.note('     After that it runs daily, an hour before the pipeline.');
@@ -974,13 +978,14 @@ export function flowsSummary(ctx) {
     const file = up.flowFiles?.[kind];
     if (up.flowIds?.[kind] && !file && flowConnected(config, kind)) {
       ui.info(c.bold(name) + c.dim(`  in ${env?.name ?? env?.url}, signed in and on`));
-      if (kind === 'feedback') ui.info(`  1. ${feedbackExportStep}`);
+      if (kind === 'feedback') ui.info(`  ${feedbackExportPointer}`);
       continue;
     }
     if (up.flowIds?.[kind] && !file) ui.info(c.bold(name) + c.dim(`  in ${env?.name ?? env?.url}, turned off`));
     else if (file) ui.info(c.bold(name) + c.dim(`  to import: ${file}`));
     else continue;
-    flowSteps(ctx, kind, link);
+    flowSteps(ctx, kind, link, { exportStep: false });
+    if (kind === 'feedback') ui.info(`  ${feedbackExportPointer}`);
   }
   ui.note(`  ${ownerLeft(kinds.length === 1)}`);
   if (flowIdentity(config) === 'app' && config.keyVault.private) {

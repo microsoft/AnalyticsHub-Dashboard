@@ -673,11 +673,13 @@ test("Azure install: when Entra refuses the managed identity's Microsoft Graph r
   assert.deepEqual(graphRoles.assigned, []);
   assert.ok(graphRoles.pending.length > wanted.length, 'the install record lists a role more than once');
 
-  const printed = graphCommandLines(ui.text());
+  const [during, end = ''] = ui.text().split('Still to do by your admins: copy each request and send it.');
+  const printed = graphCommandLines(during);
   assert.equal(printed.length, 1, 'printed once, after the grants');
   assert.equal(printed[0], graphRolesCommand('mi-sp', pendingGraphRoles(graphRoles)));
   assert.ok(printed[0].startsWith('MI=mi-sp; '), "the managed identity's principal ID");
   assert.ok(!ui.text().includes('mi-client'), 'never its client ID');
+  assert.deepEqual(graphCommandLines(end), printed, 'and once in the request at the end');
   const given = commandRoles(printed[0]);
   assert.deepEqual([...given].sort(), [...wanted].sort(), 'every role the install wants');
   assert.equal(new Set(given).size, given.length, 'each once');
@@ -695,8 +697,10 @@ test("Azure install: when Entra refuses the managed identity's Microsoft Graph r
 test("Azure install: the managed identity's Microsoft Graph role command leaves out a role the tenant doesn't have yet", async () => {
   const { config, ui } = await refusedGraphRoles({ defenderRoles: false });
   assert.match(ui.text(), /Microsoft Graph in this tenant has no ThreatHunting\.Read\.All permission yet\./);
-  const printed = graphCommandLines(ui.text());
+  const [during, end = ''] = ui.text().split('Still to do by your admins: copy each request and send it.');
+  const printed = graphCommandLines(during);
   assert.equal(printed.length, 1);
+  assert.deepEqual(graphCommandLines(end), printed, 'the request at the end leaves it out too');
   const given = commandRoles(printed[0]);
   assert.ok(given.includes('AuditLogsQuery.Read.All'));
   for (const r of ['ThreatHunting.Read.All', 'CloudApp-Discovery.Read.All']) {
@@ -2258,6 +2262,24 @@ test('Azure private networking goes ahead over private DNS zones this install cr
   assert.equal(deployed(arm), true);
 });
 
+test('Azure update: the summary lists no requests for admins at the end, though an install or Repair does', async () => {
+  const zones = () => DATA_ZONES.map((z) => dnsZone(z, { 'valuelens-install-id': 'install-1' }));
+  const title = 'Still to do by your admins: copy each request and send it.';
+  const update = await intoGroupWith(zones());
+  const updated = fakeUi();
+  update.ctx.ui = updated.ui;
+  await azureUpdate(update.ctx);
+  assert.match(updated.text(), /Record: +Keep valuelens-install\.json/, 'the summary printed');
+  assert.ok(!updated.text().includes(title), 'no requests at the end of an update');
+  assert.doesNotMatch(updated.text(), /Show user names in the Microsoft 365 usage reports/, 'nor the card for a Global Administrator');
+
+  const repair = await intoGroupWith(zones());
+  const repaired = fakeUi();
+  repair.ctx.ui = repaired.ui;
+  await installAzure(repair.ctx, { wait: true });
+  assert.ok(repaired.text().includes(title), 'the same install, repaired, lists them');
+});
+
 test('Azure private networking stops over private DNS zones another Analytics Hub install created', async () => {
   const theirs = { 'valuelens-install-id': 'install-0' };
   const all = await intoGroupWith(DATA_ZONES.map((z) => dnsZone(z, theirs)));
@@ -3001,7 +3023,8 @@ test('Azure install: a catalog sign-in nobody finishes holds it up for 5 minutes
   const out = s.ui.text();
   assert.match(out, /The installer can't publish the Teams app\. The sign-in to Microsoft Graph Command Line Tools wasn't finished within 5 minutes\. The install carries on/);
   assert.match(out, /Teams app: not published to your org's app catalog\. The sign-in to Microsoft Graph Command Line Tools wasn't finished within 5 minutes\./);
-  assert.ok(out.includes(`Teams:      Not published yet. A Teams Administrator needs to ${upload}`), 'in the summary');
+  assert.ok(out.includes('Teams:      Not published yet. Send a Teams Administrator the request for it, under "Still to do by your admins".'), 'the summary points to the request');
+  assert.ok(out.includes("Upload the Analytics Hub Teams package I'll send you (AnalyticsHub-Teams.zip) in Teams admin center > Teams apps > Manage apps (https://admin.teams.microsoft.com/policies/manage-apps)."), 'which asks for the upload');
   await azureStatus(s.ctx);
   assert.ok(s.ui.text().includes(`Pending admin action: Publish the Teams app: ${upload}`), 'and in status');
 });
@@ -3028,7 +3051,7 @@ test('Azure plan: the admin can go ahead without publishing the Teams app, and t
   const out = s.ui.text();
   assert.doesNotMatch(out, /Signing in once more/);
   assert.match(out, /Teams app: not published to your org's app catalog\. You chose to upload it by hand\./);
-  assert.match(out, /Teams: +Not published yet\. A Teams Administrator needs to upload /);
+  assert.match(out, /Teams: +Not published yet\. Send a Teams Administrator the request for it, under "Still to do by your admins"\./);
 });
 
 test("Azure install: a Teams app the installer can't publish only warns, so the install still ends set up", async () => {
@@ -3047,6 +3070,6 @@ test("Azure install: a Teams app the installer can't publish only warns, so the 
     assert.doesNotMatch(out, /✗/, label);
     assert.match(out, /Analytics Hub is set up/, label);
     assert.doesNotMatch(out, /not finished/, label);
-    assert.match(out, /Teams: +Not published yet\. A Teams Administrator needs to upload /, label);
+    assert.match(out, /Teams: +Not published yet\. Send a Teams Administrator the request for it, under "Still to do by your admins"\./, label);
   }
 });

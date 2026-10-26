@@ -1108,6 +1108,25 @@ test('ensureFlows: the feedback flow gets its OneLake connection but stays off f
   assert.ok(text().includes(`Schedule the product feedback export to that mailbox, subject "`));
   assert.ok(text().includes(FEEDBACK_EXPORT_URL));
   assert.doesNotMatch(text(), /next daily load/);
+
+  // At the end the export is a request to a Microsoft 365 admin, so the summary points to it rather than repeat it.
+  const pointer = 'The product feedback export: send a Microsoft 365 admin the request for it, under "Still to do by your admins".';
+  let before = text().length;
+  flowsSummary(ctx);
+  let summary = text().slice(before);
+  assert.match(summary, /Analytics Hub - Product feedback +in .*turned off/);
+  assert.match(summary, /\d\. Save, then turn it on\.\n +The product feedback export: send/);
+  assert.ok(summary.includes(pointer));
+  assert.doesNotMatch(summary, /Schedule the product feedback export|tenantfeedback/);
+
+  // Signed in and on: only the pointer.
+  config.uploads.flowsConnected = { feedback: /** @type {string} */ (config.uploads.flowIds?.feedback) };
+  before = text().length;
+  flowsSummary(ctx);
+  summary = text().slice(before);
+  assert.match(summary, /Analytics Hub - Product feedback +in .*signed in and on\n +The product feedback export: send/);
+  assert.equal(summary.split(pointer).length, 2, 'once');
+  assert.doesNotMatch(summary, /Schedule the product feedback export|tenantfeedback|Save, then turn it on/);
 });
 
 test('ensureFlows: when the connections can\'t be made or bound, it says so and gives the steps', async () => {

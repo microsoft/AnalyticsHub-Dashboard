@@ -18,7 +18,10 @@ they're under the list in the **Prerequisites** panel, and in the run log after 
 check the prerequisites: each card says which admin and which rows it covers, and **Copy request**
 copies the message. In the terminal, `prereqs`, install and update print them after the list, under
 "Requests for your admins: copy each one and send it.", each with "For:" and then the message under
-"Copy and send:". They never include a secret.
+"Copy and send:". At the end of an install or Repair, the Done page and the end of the terminal
+output list what's still left for admins the same way, under **Still to do by your admins**, each
+with what you do once the admin has done it. See [After it finishes](INSTALL.md#after-it-finishes).
+They never include a secret.
 
 ## At a glance
 
@@ -27,7 +30,8 @@ copies the message. In the terminal, `prereqs`, install and update print them af
 | **You**, who run the installer | Contributor on an F2 or larger capacity, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager), or an Admin or Member of a workspace already on a capacity. Power BI Pro. Can register an app, or an Application Administrator or Cloud Application Administrator registers it from the [admin pack](../installer/README.md#if-you-cant-register-apps). | Owner, or Contributor and User Access Administrator, on a subscription or resource group. Power BI Pro. Can register apps, or an Application Administrator or Cloud Application Administrator creates the two apps from a [script the installer writes](../installer/README.md#if-you-cant-register-apps). | 20 min |
 | **Fabric admin** | Turns on, or confirms, [the tenant settings](#fabric-admin-about-5-minutes), including letting you create Fabric items, and a workspace unless you use an existing one | Turns on, or confirms, the tenant settings, including letting you create a workspace unless you use an existing one | 5 min |
 | **Entra admin** (Global Administrator or Privileged Role Administrator) | Grants admin consent for read-only Graph permissions | Gives the jobs' managed identity its read-only Graph roles. Approves the web app's delegated permissions, including one to manage viewers from the app: an Application Administrator or Cloud Application Administrator can approve those too | 2 min |
-| **Microsoft 365 admin** (Global Administrator) | Turns off concealed names in usage reports | The same | 1 min |
+| **Global Administrator** | Turns off concealed names in usage reports | The same | 1 min |
+| **Microsoft 365 admin** | Schedules the product feedback export, if you want product feedback through the flow | – | 2 min |
 | **Compliance admin** | Makes sure audit logging is on in Microsoft Purview (it usually is) | The same | 1 min |
 | **Teams admin** | – | Publishes the Teams app to your org's app catalog | 2 min |
 | **Viewers** | In the Analytics Hub Viewers group. Power BI Pro below F64. | In the group. Power BI Pro. | – |

@@ -103,7 +103,7 @@ a storage account, so your files are kept between sessions.
 | **App admin** (Application Administrator or Cloud Application Administrator) | Approves the web app's delegated permissions: the two `grant` lines in step 3, about a minute |
 | **Entra admin** (Global Administrator or Privileged Role Administrator) | Gives the managed identity its Microsoft Graph roles: the rest of step 3, about a minute. Can approve the web app's permissions too |
 | **Fabric admin** | Turns on *Service principals can call Fabric public APIs*, *Semantic Model Execute Queries REST API* and *Allow visuals created using the Power BI SDK* ([where](PREREQUISITES.md#fabric-admin-about-5-minutes)). If one is only on for security groups, adds who needs it: the managed identity for the first, after step 1, and the people you let in for the other two |
-| **Microsoft 365 admin** | Turns off concealed names in usage reports ([how](PREREQUISITES.md#microsoft-365-admin)) |
+| **Global Administrator** | Turns off concealed names in usage reports ([how](PREREQUISITES.md#microsoft-365-admin)) |
 | **Teams admin** | Step 8, if you want Teams ([what](PREREQUISITES.md#teams-admin-for-the-teams-app-azure)) |
 
 Paste each block whole. If a command fails, fix the cause and paste the block again: "already
