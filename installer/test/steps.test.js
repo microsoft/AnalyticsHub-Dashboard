@@ -10,7 +10,7 @@ import { connectionName } from '../src/steps/model.js';
 import { APP_NAME, lakehouseNameFrom, largeCapacity, planCosts, planReview, reserveNames, validateNewLakehouseName } from '../src/steps/plan.js';
 import { BUSY_RETRIES, BUSY_WAIT_MS, capacityBusy, chooseLoad, firstRunStatus, historyLoaded, NETWORK_LOSSES, printDataCheck, ranSince, runDataCheck, runPipeline, status, waitForJob } from '../src/steps/run.js';
 import { firstLoadEstimate } from '../src/estimate.js';
-import { AUDIT_MANIFEST } from '../src/steps/history-progress.js';
+import { AUDIT_MANIFEST } from '../src/steps/audit-check.js';
 import { DATA_CHECK_FILE } from '../src/transform/notebook.js';
 import { PIPELINE_CHANGE, PIPELINE_VERSION, REFRESH_ACTIVITY } from '../src/transform/pipeline.js';
 import { fakeCtx, fakeFabric, fakeGraph as fakeGraphApi, fakePowerBi, fakeUi, httpError } from './fakes.js';

@@ -16,16 +16,10 @@ import { adminConsentUrl, apiPermissionsUrl } from '../clients/graph.js';
 import { HttpError } from '../http.js';
 import { commandLine } from '../launch.js';
 import { scaleProfile } from '../transform/pipeline.js';
+import { AUDIT_MANIFEST } from './audit-check.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 /** @typedef {import('./next-steps.js').NextStep} NextStep */
-
-/**
- * The audit notebook's manifest of the windows it has queried, in the Lakehouse (STAGING_DIR in
- * fabric/notebooks/Copilot_Audit_Log_Direct_Ingester.ipynb). #169's audit-check.js names the same file:
- * whichever lands second uses one constant.
- */
-export const AUDIT_MANIFEST = 'Files/_audit_staging/_manifest.json';
 
 /** The run job's audit state, in its storage (STATE in azure/jobs/valuelens_jobs/collect/audit.py). */
 export const AUDIT_STATE = Object.freeze({ container: 'raw', path: '_state/audit.json' });
