@@ -8,7 +8,7 @@ import { HttpError } from '../src/http.js';
 import { ensureAzureTranscriptAccess } from '../src/steps/azure/agent-evaluator.js';
 import {
   agentEvaluatorParameters, azureAgentEvaluatorModelDeployed, azureAgentEvaluatorOn, azureAgentEvaluatorReads, azureAgentEvaluatorRefreshes, azurePlanReview, azurePreflight, azureRefresh, azureSemanticModels, azureStatus, azureSummary,
-  azureUninstall, azureViewerModels, enabledAzureModuleIds, installAzure,
+  azureReportsWanted, azureUninstall, azureViewerModels, enabledAzureModuleIds, installAzure,
 } from '../src/steps/azure/index.js';
 import { MODEL_UPDATE_NOTE, pendingReloads } from '../src/steps/model.js';
 import { AZURE_ROLES_FILE, rlsModels } from '../src/steps/org-access.js';
@@ -125,6 +125,18 @@ function deployedBim(fabric, id) {
 
 /** The web app's models, from the last deployment. @param {any[]} deployments */
 const deployedAliases = (deployments) => Object.keys(JSON.parse(deployments.at(-1).properties.parameters.semanticModels.value)).sort();
+
+/** The web app's Agent Evaluator entry, from the last deployment. @param {any[]} deployments */
+const deployedEvaluator = (deployments) => JSON.parse(deployments.at(-1).properties.parameters.semanticModels.value).ae;
+
+/** The model a fake Fabric's report reads. @param {ReturnType<typeof fakeFabric>} fabric @param {string} id */
+function reportModel(fabric, id) {
+  const item = /** @type {any} */ (fabric.items.find((i) => i.id === id));
+  const pbir = item.content.parts.find((/** @type {any} */ p) => p.path === 'definition.pbir');
+  return JSON.parse(Buffer.from(pbir.payload, 'base64').toString('utf8')).datasetReference.byConnection.connectionString.replace('semanticmodelid=', '');
+}
+
+const AE_REPORT = 'Agent Evaluator';
 
 /** The jobs' settings from the last deployment: the modules they run, and the environments they read. @param {any[]} deployments */
 function jobSettings(deployments) {
@@ -302,6 +314,153 @@ test('Azure plan with Agent Evaluator: its model is listed, as new or updated in
   t.ctx.sources = realSources();
   t.config.modules.agentEvaluator = false;
   assert.equal(row(), undefined, 'not with the module off');
+});
+
+test('Azure install with Agent Evaluator: its report is published on its model, and the app is given it to open', async () => {
+  const t = await aeInstall();
+  assert.equal(t.ok, true);
+  const ae = t.config.agentEvaluator.model;
+  const r = /** @type {any} */ (ae.report);
+  assert.deepEqual(t.fabric.calls.filter((c) => /^(create|update)Report/.test(c)), [`createReport ${AE_REPORT}`], 'Azure publishes no other report');
+  assert.equal(t.fabric.items.find((i) => i.id === r.id)?.type, 'Report');
+  assert.equal(reportModel(t.fabric, r.id), ae.id, 'bound to the Azure Agent Evaluator model');
+  assert.deepEqual(r, { name: AE_REPORT, id: r.id, signature: r.signature, modelId: ae.id });
+  assert.deepEqual(deployedEvaluator(t.deployments), { workspaceId: t.az.powerBi.workspaceId, itemId: ae.id, reportId: r.id }, 'the final deployment gives the app its ID');
+  assert.deepEqual(azureSemanticModels(t.config).ae, { workspaceId: t.az.powerBi.workspaceId, itemId: ae.id, reportId: r.id });
+  const text = t.ui.text();
+  assert.ok(text.includes(`Published the ${AE_REPORT} report, on ${AE_MODEL}`));
+  assert.ok(text.includes(`Report:     ${AE_REPORT}  https://app.powerbi.com/groups/${t.az.powerBi.workspaceId}/reports/${r.id}`));
+  assert.ok(text.includes(`Share it once: open it in the workspace, choose Share, and add people or a group. They also need Build on ${AE_MODEL}.`));
+  assert.ok(text.indexOf(`Published the ${AE_REPORT} report`) < text.indexOf('Azure resources (final)'), 'published before the app is given its ID');
+
+  // Update and Repair leave it in place.
+  t.fabric.calls.length = 0;
+  t.ui.out.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.deepEqual(t.fabric.calls.filter((c) => /Report/.test(c)), []);
+  assert.equal(ae.report?.id, r.id);
+  assert.ok(t.ui.text().includes(`The ${AE_REPORT} report is in place`));
+  assert.equal(deployedEvaluator(t.deployments).reportId, r.id);
+});
+
+test('Azure Agent Evaluator report: Update and Repair publish a new template, bind it to a replaced model, and put back a deleted one', async () => {
+  const t = await aeInstall();
+  const ae = t.config.agentEvaluator.model;
+  const r = /** @type {any} */ (ae.report);
+  const id = r.id;
+
+  r.signature = 'an older template';
+  t.fabric.calls.length = 0;
+  t.ui.asked.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.ok(t.ui.asked.includes(`There's a new version of the ${AE_REPORT} report. Update it? Changes made to it in Power BI are replaced.`));
+  assert.deepEqual(t.fabric.calls.filter((c) => /Report/.test(c)), [`updateReport ${AE_REPORT}`]);
+  assert.notEqual(r.signature, 'an older template');
+
+  // A model deployed again under a new ID: the app opens the model until the report reads it.
+  r.modelId = 'an older model';
+  assert.equal(azureSemanticModels(t.config).ae?.reportId, undefined);
+  t.fabric.calls.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.deepEqual(t.fabric.calls.filter((c) => /Report/.test(c)), [`updateReport ${AE_REPORT}`]);
+  assert.ok(t.ui.text().includes(`The ${AE_REPORT} report reads ${AE_MODEL} again`));
+  assert.equal(r.modelId, ae.id);
+  assert.equal(deployedEvaluator(t.deployments).reportId, id);
+
+  // Deleted in Power BI: published again, and the app given the new one.
+  t.fabric.items.splice(t.fabric.items.findIndex((i) => i.id === id), 1);
+  t.fabric.calls.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.deepEqual(t.fabric.calls.filter((c) => /Report/.test(c)), [`createReport ${AE_REPORT}`]);
+  assert.ok(t.ui.text().includes(`The ${AE_REPORT} report was deleted. Publishing it again.`));
+  assert.notEqual(ae.report?.id, id);
+  assert.equal(deployedEvaluator(t.deployments).reportId, ae.report?.id);
+});
+
+test('Azure Agent Evaluator report: a failure is reported, the rest is set up, and the app opens the model', async () => {
+  const t = await aeInstall();
+  // As if it were a fresh install, whose report fails.
+  delete t.config.agentEvaluator.model.report;
+  t.fabric.items.splice(0, t.fabric.items.length, ...t.fabric.items.filter((i) => i.type !== 'Report'));
+  t.fabric.failures.createReport = [httpError(400, 'Report definition is invalid')];
+  t.ui.out.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), false, 'not finished');
+  const text = t.ui.text();
+  assert.ok(text.includes(`The ${AE_REPORT} report wasn't published: Report definition is invalid`));
+  assert.ok(text.includes('Fix the problem, then run'));
+  assert.ok(text.includes('Analytics Hub is set up, but not finished'));
+  assert.equal(/** @type {any} */ (t.config.agentEvaluator.model).report?.id, undefined);
+  assert.deepEqual(deployedEvaluator(t.deployments), { workspaceId: t.az.powerBi.workspaceId, itemId: t.az.powerBi.agentEvaluatorDatasetId }, 'the link opens the model');
+  assert.ok(t.powerBi.calls.includes(`setRefreshSchedule ${t.az.powerBi.workspaceId} ${t.az.powerBi.agentEvaluatorDatasetId}`), 'the model is still bound and scheduled');
+
+  t.ui.out.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true, 'the next Update publishes it');
+  assert.ok(/** @type {any} */ (t.config.agentEvaluator.model).report?.id);
+});
+
+test('Azure Agent Evaluator report: only with its model in use and its template, and kept with the model when unticked', async () => {
+  for (const [label, o] of /** @type {[string, Parameters<typeof aeInstall>[0]][]} */ ([['demo mode', { az: { sampleData: true } }], ['no environment', { environments: false }], ['no template', { sources: { ...realSources(), agentEvaluatorModelFile: undefined } }]])) {
+    const t = await aeInstall(o);
+    assert.ok(!t.fabric.calls.some((c) => c.startsWith('createReport')), label);
+    assert.equal(t.config.agentEvaluator.model.report, undefined, label);
+    assert.deepEqual(azureReportsWanted(t.ctx), [], label);
+    assert.doesNotMatch(t.ui.text(), /Report: /, label);
+  }
+
+  const t = await aeInstall();
+  const r = /** @type {any} */ ({ ...t.config.agentEvaluator.model.report });
+  t.config.modules.agentEvaluator = false;
+  t.fabric.calls.length = 0;
+  t.ui.out.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.deepEqual(t.fabric.calls.filter((c) => /Report/.test(c)), [], 'left alone, like its model');
+  assert.deepEqual(t.config.agentEvaluator.model.report, r, 'and its record kept');
+  assert.ok(t.fabric.items.some((i) => i.id === r.id));
+  assert.equal(deployedEvaluator(t.deployments), undefined, 'the app has no Agent Evaluator, so no link to it');
+  assert.doesNotMatch(t.ui.text(), /Report: /);
+  assert.equal(azurePlanReview(t.ctx).creates.find((c) => c.kind === 'Report'), undefined);
+
+  t.config.modules.agentEvaluator = true;
+  t.fabric.calls.length = 0;
+  assert.equal(await installAzure(t.ctx, { wait: true }), true);
+  assert.deepEqual(t.fabric.calls.filter((c) => /Report/.test(c)), [], 'ticked again, the same report is used');
+  assert.equal(deployedEvaluator(t.deployments).reportId, r.id);
+});
+
+test('Azure plan with Agent Evaluator: its report is listed, as new or in place', async () => {
+  const t = await aeInstall();
+  const row = () => azurePlanReview(t.ctx).creates.find((c) => c.kind === 'Report');
+  const detail = `From its Power BI template, reading ${AE_MODEL}. Share it with your viewers once it's published.`;
+  assert.deepEqual(row(), { kind: 'Report', name: AE_REPORT, isNew: false, detail });
+  delete t.config.agentEvaluator.model.report;
+  assert.deepEqual(row(), { kind: 'Report', name: AE_REPORT, isNew: true, detail });
+  t.ctx.sources = /** @type {any} */ ({ ...realSources(), agentEvaluatorModelFile: undefined });
+  assert.equal(row(), undefined, 'not without its template');
+});
+
+test('Azure Agent Evaluator report with a viewer group: the summary says to share it with the group, which has Build on its model', async () => {
+  const t = await aeInstall();
+  t.config.access = /** @type {any} */ ({ ...t.config.access, groupId: 'group-1', groupName: 'Analytics Hub Viewers' });
+  t.ui.out.length = 0;
+  azureSummary(t.ctx);
+  assert.ok(t.ui.text().includes(`Share it with "Analytics Hub Viewers" once: open it in the workspace, choose Share, and add the group. The group already has Build on ${AE_MODEL}.`));
+  assert.ok(azureViewerModels(t.config).some((m) => m.datasetId === t.az.powerBi.agentEvaluatorDatasetId), 'the same Build on the model as before');
+});
+
+test('Azure uninstall: the Agent Evaluator report goes with the workspace the install created, and is named in one it didn\'t', async () => {
+  const t = await aeInstall();
+  assert.ok(t.config.agentEvaluator.model.report?.id);
+  const ws = t.az.powerBi.workspaceId;
+  t.powerBi.workspaces.push({ id: ws, name: 'Analytics Hub' });
+  await azureUninstall(t.ctx);
+  assert.ok(t.powerBi.calls.includes(`deleteGroup ${ws}`), 'the workspace, and the report in it, is deleted');
+  assert.equal(t.config.agentEvaluator.model.report, undefined, 'forgotten, so a new install publishes another quietly');
+
+  const chosen = await aeInstall();
+  delete chosen.az.powerBi.createdWorkspace;
+  chosen.ui.out.length = 0;
+  await azureUninstall(chosen.ctx);
+  assert.match(chosen.ui.text(), /Delete the Analytics Hub semantic models and the Agent Evaluator report in it if you no longer need them\./);
 });
 
 test('Azure refresh and status cover the Agent Evaluator model', async () => {

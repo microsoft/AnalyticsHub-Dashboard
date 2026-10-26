@@ -268,6 +268,14 @@ Fabric notebook does (see [Add Agent Evaluator](../fabric/Add%20Agent%20Evaluato
 environments under **Module connections**, from the same list as on Fabric: see
 [Agent Evaluator](../installer/README.md#agent-evaluator) in the installer's README.
 
+**Its report.** The installer also publishes the **Agent Evaluator** Power BI report to the
+workspace, from the same template as on Fabric and bound to the Agent Evaluator model, and gives the
+web app its ID, so **Open in Agent Evaluator** on the Agents page opens it. Power BI can't share a
+report with a group through its API, so share it once with the viewer group: open it in the
+workspace, choose **Share**, and add the group, which already has Build on the model. The summary
+prints this step with the report's link. Unticking Agent Evaluator keeps the report, as it keeps the
+model.
+
 **Who reads them.** The jobs' managed identity, the one they already run as, with a token for
 `<environment URL>/.default`. In each environment it's an application user with two security roles:
 
@@ -532,7 +540,7 @@ ARM can't do these, so the installer:
   where the credit files land, the Consumption Central model, and the Copilot Studio Power Automate flow.
 - With the Agent 365 registry, product feedback or Workday org data: write access to the `landing`
   container for you, or, with private networking, read on the SharePoint site for the managed identity.
-- With Agent Evaluator: the Agent Evaluator model, and the managed identity as an application user
+- With Agent Evaluator: the Agent Evaluator model and report, and the managed identity as an application user
   in each environment you pick, with the Bot Transcript Viewer role and a transcript reader role the
   installer creates there. See [Agent Evaluator](#agent-evaluator).
 

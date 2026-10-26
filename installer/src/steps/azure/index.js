@@ -24,8 +24,9 @@ import { DEFAULT_CURRENCY } from '../../currency.js';
 import { askMoreHistory, askReportingCurrency, editSchedule, HISTORY_CHOICES, keepAwake, planCosts, PRICING, reloadLine } from '../plan.js';
 import { ensureResourceGraphAccess, planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from '../resource-graph.js';
 import { DATA_SOURCES } from '../../uploads.js';
-import { normaliseResourceGraph } from '../../config.js';
+import { AGENT_EVALUATOR_REPORT_NAME, normaliseResourceGraph } from '../../config.js';
 import { accessReview, accessSummaryLines, ensureViewerGroup, grantModelAccess, planAccess, publicAccess } from '../access.js';
+import { deployReport, reportUrl } from '../report.js';
 import { ensureOrgAccess, verifyOrgAccess } from '../org-access.js';
 import { askAdvanced, asksAdvanced } from '../advanced.js';
 import { askGrants, askLine, askMode, askParameters, ensureAzureAskAccess, planAzureAsk } from './ask.js';
@@ -1156,8 +1157,51 @@ export function azureSemanticModels(config) {
     ...(pbi.datasetId ? { [APP_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.datasetId } } : {}),
     ...(azureConsumptionModelDeployed(config) ? { [CONSUMPTION_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.consumptionDatasetId } } : {}),
     // The jobs skip refreshing it until VALUELENS_DATAVERSE_ENVIRONMENTS lists environments, once the managed identity can read one.
-    ...(azureAgentEvaluatorModelDeployed(config) ? { [EVALUATOR_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.agentEvaluatorDatasetId } } : {}),
+    ...(azureAgentEvaluatorModelDeployed(config) ? { [EVALUATOR_ALIAS]: { workspaceId: pbi.workspaceId, itemId: pbi.agentEvaluatorDatasetId, ...evaluatorReport(config) } } : {}),
   };
+}
+
+/**
+ * The Agent Evaluator report, for the app's "Open in Agent Evaluator" link, while it reads the model in use. Without
+ * one the link opens the model.
+ * @param {import('../../config.js').InstallConfig} config
+ */
+function evaluatorReport(config) {
+  const r = config.agentEvaluator.model.report;
+  return r?.id && r.modelId && r.modelId === config.azure?.powerBi?.agentEvaluatorDatasetId ? { reportId: r.id } : {};
+}
+
+/**
+ * The reports to publish on Azure: Agent Evaluator's, on its model, while that model is in use. Azure publishes no
+ * report on the main or Consumption models, and doesn't ask about reports, so the module's tick decides it. Unticked,
+ * the report is kept with its model, out of the app and the summary, and ticking it again reuses both.
+ * @param {Ctx} ctx
+ * @returns {import('../report.js').WantedReport[]}
+ */
+export function azureReportsWanted(ctx) {
+  const { config, sources } = ctx;
+  const file = sources.agentEvaluatorModelFile;
+  return azureAgentEvaluatorModelDeployed(config) && file ? [{ model: config.agentEvaluator.model, file, name: AGENT_EVALUATOR_REPORT_NAME }] : [];
+}
+
+/**
+ * Publishes or updates the Azure reports, as Fabric's ensureReports does. The models and data don't depend on them,
+ * so a failure is reported and the install carries on.
+ * @param {Ctx} ctx
+ * @returns {Promise<boolean>} false when a report failed.
+ */
+async function ensureAzureReports(ctx) {
+  let ok = true;
+  for (const w of azureReportsWanted(ctx)) {
+    try {
+      await deployReport(ctx, w);
+    } catch (err) {
+      ok = false;
+      ctx.ui.fail(`The ${w.model.report?.name ?? w.name} report wasn't published: ${/** @type {Error} */ (err).message}`);
+      ctx.ui.info(`Fix the problem, then run "${commandLine('update')}".`);
+    }
+  }
+  return ok;
 }
 
 /**
@@ -1376,6 +1420,10 @@ export function azurePlanReview(ctx) {
   if (az.powerBi?.datasetId) creates.push({ kind: 'Semantic model', name: ctx.config.semanticModel.name, isNew: false, detail: MODEL_UPDATE_NOTE });
   if (consumption && ctx.sources.consumptionModelFile) creates.push({ kind: 'Semantic model', name: cc.model.name, isNew: !az.powerBi?.consumptionDatasetId, detail: `Credit consumption, reading Azure SQL like the main model.${az.powerBi?.consumptionDatasetId ? ` ${MODEL_UPDATE_NOTE}` : ''}` });
   if (azureAgentEvaluatorOn(ctx.config) && ctx.sources.agentEvaluatorModelFile) creates.push({ kind: 'Semantic model', name: ctx.config.agentEvaluator.model.name, isNew: !az.powerBi?.agentEvaluatorDatasetId, detail: `Agent Evaluator, reading Azure SQL like the main model.${az.powerBi?.agentEvaluatorDatasetId ? ` ${MODEL_UPDATE_NOTE}` : ''}` });
+  if (azureAgentEvaluatorOn(ctx.config) && ctx.sources.agentEvaluatorModelFile) {
+    const r = ctx.config.agentEvaluator.model.report;
+    creates.push({ kind: 'Report', name: r?.name ?? AGENT_EVALUATOR_REPORT_NAME, isNew: !r?.id, detail: `From its Power BI template, reading ${ctx.config.agentEvaluator.model.name}. Share it with your viewers once it's published.` });
+  }
   const transcripts = transcriptAccessReview(ctx.config);
   creates.push(...transcripts.creates);
   if (consumption && flowsWanted(ctx.config).includes('studio')) creates.push({ kind: 'Power Automate flow', name: 'Copilot Studio credits', isNew: !ctx.config.uploads.flowIds?.studio, detail: `Daily, signed in as you; saves to ${azureDropLabel(az)}. The installer helps you sign in to its connections, then turns it on.` });
@@ -1618,6 +1666,8 @@ export async function installAzure(ctx, opts) {
 
   step('Power BI model');
   const models = await deployAzurePowerBi(ctx);
+  // Before 'Azure resources (final)', which gives the app the report's ID.
+  const reportsOk = await ensureAzureReports(ctx);
   if (!bindAfterMigration) {
     await bindAzurePowerBi(ctx, sqlSecret.value, models);
     await useSqlSecret(ctx, sqlSecret);
@@ -1652,7 +1702,7 @@ export async function installAzure(ctx, opts) {
 
   const loads = !!(ctx.runFirstLoad || ctx.reloadHistoryDays);
   // A step that fails and lets setup carry on leaves it unfinished. One that only warns doesn't.
-  let stepsOk = true;
+  let stepsOk = reportsOk;
   if (rlsOn(config)) {
     step('Org-scoped access');
     // A first load refreshes the models itself, after loading the scopes into SQL.
@@ -2456,6 +2506,8 @@ function forgetPowerBiWorkspace(ctx, pbi) {
   delete pbi.datasetId;
   delete pbi.consumptionDatasetId;
   delete pbi.agentEvaluatorDatasetId;
+  // Its report went with the workspace, so a new install publishes another rather than saying it was deleted.
+  delete config.agentEvaluator.model.report;
   if (config.fabric.workspaceId === id) delete config.fabric.workspaceId;
   ctx.save();
 }
@@ -2685,7 +2737,7 @@ export async function azureUninstall(ctx, opts = {}) {
   await removeAzureTranscriptAccess(ctx);
   if (pbi?.workspaceId) {
     if (deleteWorkspace) await deletePowerBiWorkspace(ctx, pbi, workspace);
-    else if (!check) ui.note('Left the Power BI workspace you chose alone, because the installer didn\'t create it. Delete the Analytics Hub semantic models in it if you no longer need them.');
+    else if (!check) ui.note(`Left the Power BI workspace you chose alone, because the installer didn't create it. Delete the Analytics Hub semantic models${config.agentEvaluator.model.report?.id ? ` and the ${config.agentEvaluator.model.report.name} report` : ''} in it if you no longer need them.`);
     else if (check.state === 'created') ui.note(`Left Power BI workspace "${workspace}" alone.`);
     else if (check.state === 'renamed') ui.note(`Left Power BI workspace "${check.name}" alone, because the installer created one named "${workspace}". If you renamed it, delete it in Power BI under Workspaces.`);
     else if (check.state === 'unknown') ui.warn(`Couldn't check Power BI workspace "${workspace}", so left it alone: ${check.message}. A workspace admin can delete it in Power BI under Workspaces.`);
@@ -2778,6 +2830,16 @@ export async function azureSummary(ctx, opts = {}) {
   if (azureProductFeedbackOn(config)) ui.info(`Feedback:   drop exports in ${azureDropLabel(az, AZURE_LANDING_DIRS.productFeedback)}. Each run loads them all and removes duplicates by Feedback Id.`);
   if (azureWorkdayOn(config)) ui.info(`Workday:    drop the export in ${azureDropLabel(az, AZURE_LANDING_DIRS.workday)}. Each run loads the newest one.`);
   if (azureAgentEvaluatorModelDeployed(config)) ui.info(`Evaluator:  model ${az.powerBi?.agentEvaluatorDatasetId}`);
+  for (const w of azureReportsWanted(ctx)) {
+    const r = w.model.report;
+    if (!r?.id || !az.powerBi?.workspaceId) continue;
+    ui.info(`Report:     ${r.name}  ${reportUrl(az.powerBi.workspaceId, r.id)}`);
+    // Power BI has no API to share a report with a group, so this is the one step left to do by hand.
+    const group = config.access?.groupId ? config.access.groupName : undefined;
+    ui.info(group
+      ? `            Share it with "${group}" once: open it in the workspace, choose Share, and add the group. The group already has Build on ${w.model.name}.`
+      : `            Share it once: open it in the workspace, choose Share, and add people or a group. They also need Build on ${w.model.name}.`);
+  }
   const teamsPending = az.status?.pendingAdminActions?.find((a) => a.startsWith(`${TEAMS_APP_PENDING}: `));
   if (teamsPending) ui.info(`Teams:      Not published yet. A Teams Administrator needs to ${teamsPending.slice(TEAMS_APP_PENDING.length + 2)}`);
   else if (az.teamsApp) ui.info(`Teams:      Analytics Hub ${az.teamsApp.version} in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app.`);

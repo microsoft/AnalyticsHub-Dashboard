@@ -418,9 +418,10 @@ Pages for sources you skip stay empty rather than failing. To leave the reports 
 from an earlier version gets the reports offered the next time you choose **Repair or change**;
 **Update** on its own doesn't add them.
 
-On the [Azure target](#azure-target) the installer publishes no reports: the web app's pages read
-the models. It deploys the Agent Evaluator model when Agent Evaluator is on with an environment,
-outside [demo mode](#demo-mode).
+On the [Azure target](#azure-target) the web app's pages read the models, so the installer
+publishes only the `Agent Evaluator` report. It deploys the Agent Evaluator model, and publishes
+that report bound to it, when Agent Evaluator is on with an environment, outside
+[demo mode](#demo-mode). See [Agent Evaluator](#agent-evaluator).
 
 The Analytics Hub app reads a small `fabric.config.json` deployed beside it. It contains the
 semantic model IDs the app should query and, for newer installs, the optional modules the admin
@@ -1009,11 +1010,21 @@ until the jobs first read transcripts. The installer refreshes the model, turns 
 refresh and gives the jobs the environments to read only once the managed identity can read one of
 them. The jobs' modules include `agentEvaluator` whenever the module is ticked, as on Fabric.
 
+With the model, the installer publishes the **Agent Evaluator** report to the Power BI workspace,
+from the same template as on Fabric and bound to the Agent Evaluator model. **Update** and **Repair
+or change** keep it current, and publish it again if it was deleted. The web app is told its ID, so
+**Open in Agent Evaluator** on the Agents page opens it. Power BI can't share a report with a group
+through its API, so share it once with your viewers: open it in the workspace, choose **Share**, and
+add the viewer group. The summary prints that step with the report's link. The group already has
+Build on the model. If publishing fails, the rest of the install finishes, and the next **Update**
+publishes it.
+
 When you untick an environment or the module, or uninstall, the installer removes only what it
 added there: the transcript reader role it gave, and the role itself if it created it, then the Bot
 Transcript Viewer role it gave, and the application user if it created it. Unticking the module
-keeps the model, hides its pages and turns off its scheduled refresh; ticking it again reuses the
-model. Demo mode reads no transcripts and adds no access. Switching to it removes nothing, so the
+keeps the model and its report, hides its pages and turns off its scheduled refresh; ticking it
+again reuses both. Uninstall deletes the report with a workspace the installer created, and
+otherwise lists it among what's left to delete. Demo mode reads no transcripts and adds no access. Switching to it removes nothing, so the
 managed identity keeps its access for when you switch back. See
 [Agent Evaluator on Azure](../azure/README.md#agent-evaluator).
 
