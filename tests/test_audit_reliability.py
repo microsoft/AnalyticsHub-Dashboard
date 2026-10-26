@@ -280,6 +280,9 @@ class AuditReliabilityTests(unittest.TestCase):
             "retry_delay": ingester["retry_delay"],
             "uncovered_failed_ranges": ingester["uncovered_failed_ranges"],
             "empty_recheck_windows": ingester["empty_recheck_windows"],
+            "pending_recheck_windows": ingester["pending_recheck_windows"],
+            "RECHECK_PENDING": "recheck_pending",
+            "WRITE_MODE": "merge",
             "EMPTY_RECHECK_DAYS": 30,
             "EMPTY_RECHECK_MAX": 24,
             "STAGING_ABS": str(SCRATCH),
@@ -354,6 +357,7 @@ class AuditReliabilityTests(unittest.TestCase):
                 "assert_no_unrecovered_gaps",
                 "fetch_windows",
                 "plan_empty_rechecks",
+                "clear_recheck_pending",
             },
             ns,
         )
@@ -1551,7 +1555,10 @@ class EmptyWindowRecheckTests(unittest.TestCase):
         entry = helpers["_load_manifest"]()[helpers["stable_window_key"](*self.OLD)]
         self.assertEqual(entry["rows"], 1)
 
+        # Until the rows are written the window stays in the plan, reused rather than queried again.
         rerun, graph2 = self.run_helpers(lambda *a: self.fail("nothing should be queried"))
+        self.assertEqual(rerun["plan_empty_rechecks"](self.PLAN), ([self.OLD] + self.PLAN, set()))
+        rerun["clear_recheck_pending"]()
         self.assertEqual(rerun["plan_empty_rechecks"](self.PLAN), (self.PLAN, set()))
 
     def test_still_empty_window_is_not_queried_a_third_time(self):
@@ -1562,8 +1569,52 @@ class EmptyWindowRecheckTests(unittest.TestCase):
         self.assertEqual(windows, [self.OLD])
         with contextlib.redirect_stdout(io.StringIO()):
             helpers["fetch_windows"](windows, recheck)
+        helpers["clear_recheck_pending"]()
         rerun, _ = self.run_helpers(lambda *a: "succeeded")
         self.assertEqual(rerun["plan_empty_rechecks"]([]), ([], set()))
+
+    def test_run_that_stops_before_the_write_keeps_the_recheck_rows(self):
+        helpers, graph = self.run_helpers(lambda *a: "succeeded")
+        self.seed_empty(helpers, self.OLD)
+        windows, recheck = helpers["plan_empty_rechecks"]([])
+        helpers["fetch_windows"](windows, recheck)
+        self.assertEqual(graph.attempts(*self.OLD), 1)
+        # The run raised (another window throttled) before writing: the retry plans the window again,
+        # reuses what it fetched and puts it in the active keys, so the write picks its rows up.
+        rerun, graph2 = self.run_helpers(lambda *a: self.fail("nothing should be queried"))
+        windows, recheck = rerun["plan_empty_rechecks"]([])
+        self.assertEqual((windows, recheck), ([self.OLD], set()))
+        keys, _ = rerun["fetch_windows"](windows, recheck)
+        self.assertIn(rerun["stable_window_key"](*self.OLD), keys)
+        rerun["clear_recheck_pending"]()
+        self.assertNotIn("recheck_pending", rerun["_load_manifest"]()[rerun["stable_window_key"](*self.OLD)])
+
+    def test_unfinished_recheck_is_planned_again_and_is_not_a_gap(self):
+        helpers, _ = self.run_helpers(lambda *a: "succeeded")
+        self.seed_empty(helpers, self.OLD)
+        helpers["plan_empty_rechecks"]([])
+        key = helpers["stable_window_key"](*self.OLD)
+        helpers["_mark_window"](key, "failed", error="HTTP 429")
+        rerun, graph = self.run_helpers(lambda *a: "succeeded")
+        end = rerun["end_date"]
+        rerun["assert_no_unrecovered_gaps"](end - timedelta(days=30), end - timedelta(days=7))
+        windows, recheck = rerun["plan_empty_rechecks"](self.PLAN)
+        self.assertEqual(windows, [self.OLD] + self.PLAN)
+        with contextlib.redirect_stdout(io.StringIO()):
+            rerun["fetch_windows"](windows, recheck)
+        self.assertEqual(graph.attempts(*self.OLD), 1)
+        self.assertEqual(rerun["_load_manifest"]()[key]["status"], "succeeded")
+
+    def test_backfill_overwrite_adds_no_older_windows(self):
+        helpers, _ = self.run_helpers(lambda *a: "succeeded", WRITE_MODE="overwrite")
+        self.seed_empty(helpers, self.OLD)
+        self.assertEqual(helpers["plan_empty_rechecks"](self.PLAN), (self.PLAN, set()))
+        inside, recheck = helpers["plan_empty_rechecks"]([self.OLD] + self.PLAN)
+        self.assertEqual(recheck, {helpers["stable_window_key"](*self.OLD)})
+
+    def test_flags_are_cleared_after_the_write(self):
+        source = cells(INGESTER)[20]
+        self.assertIn("write_strategy = write_output(flat)\nclear_recheck_pending()", source)
 
     def test_every_window_empty_prints_what_to_check(self):
         helpers, _ = self.run_helpers(lambda *a: "succeeded", _request=lambda *a, **k: FakeResponse({"value": []}))

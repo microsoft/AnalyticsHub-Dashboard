@@ -40,6 +40,7 @@ def test_build_windows_cover_range_without_gaps():
 RECOVERY_HELPERS = (
     "split_window", "expand_split_windows", "retry_delay", "AdaptiveLimiter",
     "_manifest_range", "uncovered_failed_ranges", "empty_recheck_windows",
+    "pending_recheck_windows",
 )
 TOKEN_HELPERS = ("token_claims", "audit_token_problems")
 
@@ -53,6 +54,7 @@ def test_recovery_helpers_are_verbatim_in_notebook_cell6():
     for name in RECOVERY_HELPERS:
         assert name in nodes, f"{name} missing from notebook cell 6"
         assert ast.get_source_segment(source, nodes[name]) == inspect.getsource(getattr(audit, name)).rstrip(), name
+    assert f"RECHECK_PENDING = {audit.RECHECK_PENDING!r}" in source
 
 
 def test_token_helpers_are_verbatim_in_notebook_cell4():
@@ -229,3 +231,15 @@ def test_golden_is_current_with_notebook():
     pytest.importorskip("pyspark")
     problems = vg.diff(ag.read_expected(), ag.run_spark(vg.spark_session()))
     assert not problems, "\n".join(problems)
+
+
+def test_pending_rechecks_are_listed_and_not_gaps():
+    h8 = timedelta(hours=8)
+    ws = datetime(2026, 8, 25, tzinfo=timezone.utc)
+    manifest = {}
+    manifest.update(_empty(ws, ws + h8, status="failed", recheck_pending=True))
+    manifest.update(_empty(ws + h8, ws + 2 * h8, status="failed"))
+    manifest.update(_empty(ws + 2 * h8, ws + 3 * h8))
+    assert audit.pending_recheck_windows(manifest) == [(ws, ws + h8)]
+    assert audit.pending_recheck_windows({}) == []
+    assert audit.uncovered_failed_ranges(manifest, ws - h8, ws + 4 * h8) == [(ws + h8, ws + 2 * h8)]

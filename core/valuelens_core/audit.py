@@ -329,12 +329,19 @@ def _manifest_range(entry):
     return (ws, we) if ws and we and ws < we else None
 
 
+RECHECK_PENDING = 'recheck_pending'
+
+
 def uncovered_failed_ranges(manifest, not_before, before):
-    """Time ranges in [not_before, before) of unfinished windows that no succeeded window covers."""
+    """Time ranges in [not_before, before) of unfinished windows that no succeeded window covers.
+
+    A window flagged RECHECK_PENDING counts as covered: every run plans it again until it is written.
+    """
     lo = _as_utc_datetime(not_before)
     hi = _as_utc_datetime(before)
     entries = [e for e in (manifest or {}).values() if isinstance(e, dict)]
-    covered = sorted(r for r in (_manifest_range(e) for e in entries if e.get('status') == 'succeeded') if r)
+    covered = sorted(r for r in (_manifest_range(e) for e in entries
+                                 if e.get('status') == 'succeeded' or e.get(RECHECK_PENDING)) if r)
     gaps = []
     for entry in entries:
         if entry.get('status') in ('succeeded', 'split'):
@@ -427,6 +434,16 @@ def empty_recheck_windows(manifest, now, trailing_cutoff, recheck_days, settle_d
         if pieces:
             due.add((ws, we))
     return sorted(due)
+
+
+def pending_recheck_windows(manifest):
+    """Windows flagged RECHECK_PENDING, oldest first: re-queried, but their rows not yet written.
+
+    A run that fails after a recheck keeps the flag, so the next run plans the window again (reusing what
+    was fetched) and writes it; the flag is cleared once the run's rows are written.
+    """
+    return sorted({rng for rng in (_manifest_range(e) for e in (manifest or {}).values()
+                                   if isinstance(e, dict) and e.get(RECHECK_PENDING)) if rng})
 
 
 # ------------------------------------------------------------------ cells 14-18 (DuckDB)

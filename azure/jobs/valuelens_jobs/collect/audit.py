@@ -200,23 +200,43 @@ class AuditCollector:
 
     def plan_rechecks(self, windows):
         """Empty windows due one more query (`audit.empty_recheck_windows`), oldest first, at most
-        `empty_recheck_max` a run.
+        `empty_recheck_max` a run, plus every window still flagged `RECHECK_PENDING` from a run that failed.
 
-        Returns the plan with the due windows before it added, the keys to query again even though they are
-        reusable, and every due key, which `prune` keeps until its turn. A due window that overlaps the plan
-        without being one of its windows is left.
+        Returns the plan with those windows before it added, the keys to query again even though they are
+        reusable, and every due or pending key, which `prune` keeps until its turn. A window that overlaps the
+        plan without being one of its windows is left. The keys to query again are flagged until a run merges.
         """
         with self._lock:
             snapshot = dict(self.manifest)
-        due = audit.empty_recheck_windows(snapshot, self.end, self.end - timedelta(days=self.lookback),
-                                          self.empty_recheck_days, self.lookback)
+        pending = audit.pending_recheck_windows(snapshot)
+        due = [w for w in audit.empty_recheck_windows(snapshot, self.end, self.end - timedelta(days=self.lookback),
+                                                      self.empty_recheck_days, self.lookback) if w not in pending]
         planned = {audit.stable_window_key(ws, we) for ws, we in self.leaves(windows)}
         start = min((audit._as_utc_datetime(ws) for ws, _ in windows), default=None)
-        fits = [w for w in due if audit.stable_window_key(*w) in planned or start is None or w[1] <= start]
+
+        def fit(ws):
+            return [w for w in ws if audit.stable_window_key(*w) in planned or start is None or w[1] <= start]
+
+        kept, fits = fit(pending), fit(due)
         picked = fits[:max(int(self.empty_recheck_max), 0)]
-        extra = [w for w in picked if audit.stable_window_key(*w) not in planned]
-        return (extra + list(windows), {audit.stable_window_key(*w) for w in picked},
-                {audit.stable_window_key(*w) for w in fits})
+        recheck = {audit.stable_window_key(*w) for w in picked}
+        if recheck:
+            with self._lock:
+                for key in recheck:
+                    self.manifest[key] = {**(self.manifest.get(key) or {}), audit.RECHECK_PENDING: True}
+                self._save()
+        extra = [w for w in sorted(kept + picked) if audit.stable_window_key(*w) not in planned]
+        return (extra + list(windows), recheck,
+                {audit.stable_window_key(*w) for w in kept + fits})
+
+    def clear_rechecks(self):
+        """Every window merged: drop the `RECHECK_PENDING` flags."""
+        with self._lock:
+            flagged = [k for k, e in self.manifest.items() if isinstance(e, dict) and e.get(audit.RECHECK_PENDING)]
+            for k in flagged:
+                self.manifest[k] = {f: v for f, v in self.manifest[k].items() if f != audit.RECHECK_PENDING}
+            if flagged:
+                self._save()
 
     def check_token(self):
         """Warn when the managed identity's Graph token can't read Copilot audit records."""
@@ -580,7 +600,8 @@ class AuditCollector:
                         "Empty windows are queried once more after they leave the look-back.",
                         min(ws for ws, _ in leaves), max(we for _, we in leaves), audit.AUDIT_ROLE)
         # Every window merged: a reload is done. Kept on a failed window, a failed merge or a run cut off, so
-        # the next run plans it again and `prune` keeps its windows.
+        # the next run plans it again and `prune` keeps its windows. The same goes for re-queried empty windows.
+        self.clear_rechecks()
         with self._lock:
             reload_from = self.state.pop(BACKFILL_FROM, None)
             if reload_from is not None:

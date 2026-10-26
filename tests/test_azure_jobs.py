@@ -372,6 +372,30 @@ def test_audit_empty_rechecks_are_capped_and_the_rest_kept_for_later(tmp_path):
     assert fake.created[before:].count(olds[1]) == 1 and olds[0] not in fake.created[before:]
 
 
+def test_audit_recheck_that_is_not_merged_is_merged_by_the_next_run(tmp_path, monkeypatch):
+    old = (NOW - timedelta(days=3), NOW - timedelta(days=3) + timedelta(hours=8))
+    fake = AuditGraph([_record(1, old[0] + timedelta(hours=1))])
+    api, _ = make_api(fake)
+    store = LocalStore(tmp_path)
+    key = _seed_empty_window(store, *old)
+    real_merge = audit_collect.AuditCollector.merge
+
+    def broken_merge(self, keys, advance_high_water=True):
+        raise OSError("storage unavailable")
+
+    monkeypatch.setattr(audit_collect.AuditCollector, "merge", broken_merge)
+    with pytest.raises(OSError):
+        audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None)
+    assert store.read_json(audit_collect.STATE)["windows"][key][audit_collect.audit.RECHECK_PENDING] is True
+    monkeypatch.setattr(audit_collect.AuditCollector, "merge", real_merge)
+    before = len(fake.created)
+    result = audit_collect.collect_audit(api, store, settings(), now=NOW + timedelta(minutes=5), sleep=lambda x: None)
+    assert old not in fake.created[before:]  # reused, not queried again
+    assert result["rows"] == 1
+    entry = store.read_json(audit_collect.STATE)["windows"][key]
+    assert entry["rows"] == 1 and audit_collect.audit.RECHECK_PENDING not in entry
+
+
 def test_audit_settled_or_old_empty_windows_are_not_queried_again(tmp_path):
     settled = (NOW - timedelta(days=5), NOW - timedelta(days=5) + timedelta(hours=8))
     too_old = (NOW - timedelta(days=40), NOW - timedelta(days=40) + timedelta(hours=8))

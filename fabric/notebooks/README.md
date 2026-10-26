@@ -131,7 +131,10 @@ service incident. Windows in the trailing `LOOKBACK_DAYS` are queried again on e
 still empty when it leaves the look-back is queried once more if it ended in the last
 `EMPTY_RECHECK_DAYS` (default 30; `0` turns this off), oldest first and at most `EMPTY_RECHECK_MAX`
 (default 24) a run. Each one is an audit search, so lower the cap on a tenant near its daily
-search limit. When every window in a run comes back empty, the run says what to check.
+search limit. If a run stops before writing (a throttled or failed window, `TIME_BUDGET_MIN`), the
+windows it queried once more stay flagged in `_manifest.json` (`recheck_pending`); the next run
+reuses what they fetched and writes it. A backfill only re-queries empty windows inside its own
+range. When every window in a run comes back empty, the run says what to check.
 
 The installer does this when you choose **More than 10,000** people, which it chooses for a new
 install with more than 10,000 Copilot seats assigned. It also gives the loads and the model refresh
