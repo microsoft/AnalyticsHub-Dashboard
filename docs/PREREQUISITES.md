@@ -137,7 +137,7 @@ there. Otherwise it gives you the command for someone who can.
 |---|---|---|
 | Fabric capacity | **Contributor**, for you | Putting the workspace on it. Not needed if you use a workspace that's already on a capacity, as its Admin or Member. Fabric only |
 | Fabric workspace | **Viewer**, for the app | Letting the models read the Lakehouse. Fabric only; the installer gives it |
-| Fabric workspace | **Contributor**, for whoever signs in to the flows' OneLake connection | *(Optional.)* Saving files from the flows. With `--flow-identity app`, the app gets it instead |
+| Fabric workspace | **Contributor** or higher, for whoever signs in to the flows' OneLake connection | *(Optional.)* Saving files from the flows. It doesn't have to be you. With `--flow-identity app`, the app gets it instead |
 | Semantic models | **Build**, for the Analytics Hub Viewers group | Letting viewers query the models. The installer gives it |
 | Power BI workspace | **Member**, for the managed identity | Refreshing the models. Azure only; the installer gives it |
 | Entra directory | **Global Reader**, for the app or managed identity | *(Optional.)* Reading how each Copilot Studio agent is set up, from Azure Resource Graph. Turned on by **Agent configuration and Foundry**. Power Platform Administrator or AI Administrator also work |
@@ -266,16 +266,46 @@ feedback or agent inventory flows.
 - [ ] **An environment for the flows.** Usually the default environment. The person who runs the
       installer needs to be able to create flows there (the Environment Maker role).
       [About environments](https://learn.microsoft.com/power-platform/admin/environments-overview).
-- [ ] **Data policies allow the connector.** If the environment has
+- [ ] **The data policy allows the flows' connectors.** The installer can't read
       [data policies](https://learn.microsoft.com/power-platform/admin/prevent-data-loss) (also
-      called DLP), they must allow
-      [**HTTP with Microsoft Entra ID (preauthorized)**](https://learn.microsoft.com/connectors/webcontents/).
-      For the product feedback flow, it must be in the same group as **Office 365 Outlook**.
-- [ ] **A Power Automate Premium licence** for whoever signs in to the Copilot Studio credits flow.
-      HTTP with Microsoft Entra ID is a premium connector.
-      [Licence types](https://learn.microsoft.com/power-platform/admin/power-automate-licensing/types).
-- [ ] **Someone signs in to the flow** once, after the install, as a Power Platform Administrator,
-      Billing Administrator or Global Administrator. Often the same person.
+      called DLP), so its **Data policy** row says what to confirm, and never stops the install. Ask
+      a Power Platform administrator to confirm that the flows' connectors are allowed and in the
+      same data group (Business or Non-business) in the flows' environment:
+      [**HTTP with Microsoft Entra ID (preauthorized)**](https://learn.microsoft.com/connectors/webcontents/)
+      for every flow, **Office 365 Outlook** for the product feedback flow, **HTTP** and **Azure Key
+      Vault** with `--flow-identity app`, and **SharePoint** when an Azure install's flow saves to a
+      SharePoint folder. If the policy
+      [filters endpoints](https://learn.microsoft.com/power-platform/admin/connector-endpoint-filtering)
+      for HTTP or HTTP with Microsoft Entra ID (preauthorized), it must allow
+      `https://api.powerplatform.com` (Copilot Studio credits and the agent inventory) and where the
+      flows save: `https://onelake.dfs.fabric.microsoft.com` on Fabric
+      (`https://onelake.blob.fabric.microsoft.com` with `--flow-identity app`), or on Azure the
+      storage account's address, `https://<name>.dfs.core.windows.net`, which the installer shows
+      once the account is made. A SharePoint folder adds none. A policy change can take up to 24
+      hours to apply.
+- [ ] **A Power Automate Premium licence for you.** The flows run on your Power Automate Premium
+      licence, because you'll own them. Whoever signs in to their connections doesn't need Premium.
+      HTTP with Microsoft Entra ID is a premium connector. The installer checks your licence.
+      [Licensing FAQ](https://learn.microsoft.com/power-platform/admin/power-automate-licensing/faqs).
+- [ ] **Someone signs in to the flows' connections** once, after the install. It doesn't have to be
+      you:
+      - The Power Platform API connection: a Power Platform or Global administrator. With only the
+        agent inventory flow, a Power Platform, Dynamics 365 or Global administrator, or someone
+        with Global Reader. If their role is only eligible in
+        [Privileged Identity Management](https://learn.microsoft.com/entra/id-governance/privileged-identity-management/pim-how-to-change-default-settings),
+        the connection needs it active whenever the flows run, and an activation lasts at most 24
+        hours, as your organisation sets it. Have someone with the role assigned permanently sign
+        in to that connection.
+      - The OneLake connection: someone with Contributor or higher on the workspace. On Azure, the
+        storage connection: someone with Storage Blob Data Contributor on the storage account, or
+        with private networking the SharePoint connection: someone who can add files to the folder.
+      - The Office 365 Outlook connection: the mailbox the export is emailed to.
+      - The Azure Key Vault connection, with `--flow-identity app`: someone who can read secrets in
+        the vault.
+- [ ] **Install as an account that will stay.** If your account or licence is removed, Power
+      Automate slows the flows down, and turns them off after 14 days unless someone takes them
+      over. A co-owner or an admin can
+      [make someone else the owner](https://learn.microsoft.com/power-automate/change-cloud-flow-owner).
 
 ### Viva Insights analyst: for Copilot Cowork credits
 
@@ -389,10 +419,10 @@ nothing fails.
 |---|---|
 | **Microsoft 365 activity** *(on by default)* | Real names in usage reports (a Global Administrator). |
 | **Agent 365 registry** | An [Agent 365](https://learn.microsoft.com/microsoft-agent-365/overview) licence for **Connected**, which is Fabric only for now. Without one, or on Azure, upload the export from the Microsoft 365 admin center. On Azure you drop it in the landing folder: see [Agent 365 registry](../azure/README.md#agent-365-registry). |
-| **Product feedback** | No API. With the flow: a Power Automate Premium licence, a mailbox for the exports, and the export schedule (Microsoft 365 admin). Or upload the export yourself. The flow and the upload are Fabric only for now: on Azure you drop the exports in the landing folder, see [Product feedback](../azure/README.md#product-feedback). |
+| **Product feedback** | No API. With the flow: a Power Automate Premium licence for you, as the flow's owner, a mailbox for the exports, and the export schedule (Microsoft 365 admin). Or upload the export yourself. The flow and the upload are Fabric only for now: on Azure you drop the exports in the landing folder, see [Product feedback](../azure/README.md#product-feedback). |
 | **Workday org data** | A Workday report of active workers with **Primary Work Email**, uploaded as a CSV. |
 | **Credit consumption** | Three cards, below. |
-| ↳ **Copilot Studio credits** | The Power Platform admin items above: environment, data policies, Premium licence and the sign-in. Or upload the exports from the Power Platform admin center each month. |
+| ↳ **Copilot Studio credits** | The Power Platform admin items above: environment, data policy, your Premium licence and the sign-in. Or upload the exports from the Power Platform admin center each month. |
 | ↳ **Copilot Cowork credits** | The Viva Insights query (Viva Insights analyst). The Dataflow that reads it is Fabric only. Or upload the Copilot Consumption Dashboard's export. |
 | ↳ **Azure AI costs** | [Owner](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#owner) or [User Access Administrator](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#user-access-administrator) on the subscription, so the installer can give the read-only cost roles. Otherwise someone with that role gives them. |
 | **Agent Evaluator** | [System Administrator](https://learn.microsoft.com/power-platform/admin/database-security) in each Power Platform environment you pick. Pick environments that save transcripts: not developer or Dataverse for Teams ones. The installer adds the app (Fabric) or the jobs' managed identity (Azure) as an application user with the [Bot Transcript Viewer](https://learn.microsoft.com/microsoft-copilot-studio/analytics-transcripts-powerapps) role, creates a security role there that reads every conversation transcript and nothing else, and gives it that role too. Creating the role, setting its privileges and deleting it on uninstall need the Create, Write and Delete privileges on security roles, which System Administrator has. Installs from before 0.6.8 get the role on **Update** or **Repair or change**, which needs the same. Otherwise a System Administrator does it: see [Agent Evaluator](../installer/README.md#agent-evaluator). |

@@ -10,18 +10,29 @@ import {
   CONNECT_POLL_MS,
   CONNECT_POLLS,
   CONNECTION_NAMES,
+  dataPolicyAsk,
+  dataPolicyConnectors,
+  dataPolicyHosts,
   ensureFlows,
   FEEDBACK_EXPORT_URL,
+  FLOW_ENVIRONMENT_HINT,
   FLOW_FILES,
   flowDefinitions,
   flowsSkipped,
   flowsSummary,
   flowsWanted,
+  INVENTORY_SIGNER,
+  isDataPolicyError,
   isOwnedConnectionName,
   offerStudioRun,
+  OWNER_LEFT,
+  ownerLeft,
   ownedConnections,
   planFlows,
+  PP_API_SIGNER,
+  PREMIUM_OWNER,
   STUDIO_RUN_POLL_MS,
+  whoSignsIn,
 } from '../src/steps/flows.js';
 import { run } from '../src/install.js';
 import { ensureWorkspaceRole } from '../src/steps/model.js';
@@ -41,6 +52,8 @@ import {
   nameByConnection,
   newConnections,
   oneLakeEndpoint,
+  ONELAKE_DFS,
+  PPAPI,
   STUDIO_BACKFILL_DAYS,
   STUDIO_FLOW_DAYS,
   STUDIO_FLOW_NAME,
@@ -348,21 +361,35 @@ test('planFlows: the tenant\'s default environment is preselected, not the first
 
   const kept = await pick({ listEnvironments: async () => [{ name: 'env-zulu', properties: { isDefault: true } }] }, { url: 'https://alpha.crm.dynamics.com', id: 'env-alpha' });
   assert.equal(kept.select.def, 'https://alpha.crm.dynamics.com', 'the saved choice wins');
+
+  // The data policy can't be read, so the hint says so, and the ask follows the pick, naming the environment.
+  assert.ok(fromApi.text.includes(FLOW_ENVIRONMENT_HINT));
+  assert.match(FLOW_ENVIRONMENT_HINT, /can't read data policies/);
+  const ask = 'Ask a Power Platform administrator to confirm that HTTP with Microsoft Entra ID (preauthorized) is allowed in Zulu. If the policy filters endpoints for HTTP with Microsoft Entra ID (preauthorized), it must allow https://api.powerplatform.com and https://onelake.dfs.fabric.microsoft.com.';
+  assert.equal(dataPolicyAsk(fromApi.config), ask);
+  assert.ok(fromApi.text.indexOf(ask) > fromApi.text.indexOf(FLOW_ENVIRONMENT_HINT));
 });
 
-/** A Dataverse environment with flows held in memory. */
+/**
+ * A Dataverse environment with flows held in memory. `fail` turns down every create: true with a 403,
+ * or with the error given. An error in `failing.update` turns down every update.
+ * @param {boolean | Error} [fail]
+ */
 function fakeDataverse(fail = false) {
   /** @type {Map<string, any>} */
   const flows = new Map();
   const calls = /** @type {string[]} */ ([]);
+  /** @type {{ update?: Error }} */
+  const failing = {};
   let n = 0;
   return {
     flows,
     calls,
+    failing,
     api: {
       async createFlow(/** @type {any} */ f) {
         calls.push(`createFlow ${f.name}`);
-        if (fail) throw new HttpError('403 No privilege', { method: 'POST', url: 'https://org/api/data/v9.2/workflows', status: 403 });
+        if (fail) throw fail instanceof Error ? fail : new HttpError('403 No privilege', { method: 'POST', url: 'https://org/api/data/v9.2/workflows', status: 403 });
         const id = `flow-${++n}`;
         flows.set(id, { workflowid: id, name: f.name, statecode: 0, clientdata: f.clientdata });
         return id;
@@ -372,6 +399,7 @@ function fakeDataverse(fail = false) {
       },
       async updateFlow(/** @type {string} */ id, /** @type {string} */ clientdata) {
         calls.push(`updateFlow ${flows.get(id).name}`);
+        if (failing.update) throw failing.update;
         const refs = Object.values(connectionReferencesOf(clientdata));
         if (refs.some((r) => !isBound(r))) {
           throw new HttpError(`PATCH https://org/api/data/v9.2/workflows(${id}) returned 400 0x80060467 FlowMissingConnection: The flow is missing a connection for api '${refs.find((r) => !isBound(r)).api.name}'.`, { method: 'PATCH', url: `https://org/api/data/v9.2/workflows(${id})`, status: 400, code: '0x80060467' });
@@ -534,6 +562,69 @@ test('ensureFlows: when the flow can\'t be created, it is written to a file to i
 
   flowsSummary(ctx);
   assert.match(text(), new RegExp(`to import: .*${FLOW_FILES.feedback}`));
+  assert.doesNotMatch(text(), /data policy/, 'any other error keeps its message');
+});
+
+/** A data policy (DLP) refusal. Learn documents no error code for one, so the wording is illustrative. */
+const dlpError = (/** @type {string} */ method) =>
+  new HttpError(`${method} https://org/api/data/v9.2/workflows returned 400: The flow uses connectors that the data loss prevention (DLP) policy "Tenant policy" blocks.`, { method, url: 'https://org/api/data/v9.2/workflows', status: 400 });
+
+test('isDataPolicyError: a data policy (DLP) refusal, by code or message; Conditional Access, permissions and missing connections aren\'t one', () => {
+  assert.equal(isDataPolicyError(dlpError('POST')), true);
+  assert.equal(isDataPolicyError(new HttpError('400 Bad Request', { method: 'POST', url: 'x', status: 400, code: 'CompanyDlpViolation' })), true);
+  assert.equal(isDataPolicyError(new Error('The flow violates your organization\'s data policies.')), true);
+  assert.equal(isDataPolicyError(new Error('DLP policy "Strict" puts these connectors in different groups')), true);
+  // Learn: the maker is told "the connector is blocked by policy". A connector's ID can have dots in it.
+  assert.equal(isDataPolicyError(new Error("The connector '/providers/Microsoft.PowerApps/apis/shared_office365' is blocked by policy.")), true);
+  assert.equal(isDataPolicyError(new Error('Blocked by policy: the HTTP with Microsoft Entra ID (preauthorized) connector.')), true);
+  assert.equal(isDataPolicyError(new Error('AADSTS53003: Access has been blocked by Conditional Access policies.')), false);
+  assert.equal(isDataPolicyError(new Error("The connector's sign-in failed. AADSTS53003: Access has been blocked by Conditional Access policies.")), false);
+  assert.equal(isDataPolicyError(new Error('Blocked by policy')), false, 'too vague: Conditional Access says it too');
+  assert.equal(isDataPolicyError(new HttpError('403 No privilege', { method: 'POST', url: 'x', status: 403 })), false);
+  assert.equal(isDataPolicyError(new HttpError('400 FlowMissingConnection', { method: 'PATCH', url: 'x', status: 400, code: '0x80060467' })), false);
+  assert.equal(isDataPolicyError(new Error('400 InvalidConnection')), false);
+  assert.equal(isDataPolicyError(undefined), false);
+});
+
+test('ensureFlows: a data policy (DLP) that turns down a create or an update gets the ask, naming the connectors, the addresses and the environment; the file says it too', async () => {
+  const dv = fakeDataverse(dlpError('POST'));
+  const { ui, text } = fakeUi();
+  const { ctx, config } = fakeCtx({ ui, fabric: fakeFabric().api, dataverse: () => dv.api });
+  ctx.configFile = join(tmp, 'valuelens-install.json');
+  config.dataSources.studioCredits = 'api';
+  config.uploads = { flowEnvironment: { url: 'https://org1.crm.dynamics.com', id: 'env-1', name: 'Sales' } };
+  await ensureFlows(ctx);
+  const ask = 'Ask a Power Platform administrator to confirm that HTTP with Microsoft Entra ID (preauthorized) is allowed in Sales. If the policy filters endpoints for HTTP with Microsoft Entra ID (preauthorized), it must allow https://api.powerplatform.com and https://onelake.dfs.fabric.microsoft.com.';
+  assert.equal(dataPolicyAsk(config), ask);
+  const out = text();
+  assert.ok(out.includes(`Couldn't save the flow ${STUDIO_FLOW_NAME} in Sales: a data policy (DLP) turned it down (${dlpError('POST').message}). ${ask} Once the policy allows them, run "`), out);
+  assert.doesNotMatch(out, /Couldn't create the flow/);
+  const written = JSON.parse(readFileSync(join(tmp, FLOW_FILES.studio), 'utf8'));
+  assert.ok(written.$comment.endsWith(` A data policy (DLP) turned it down. ${ask}`), written.$comment);
+
+  // An update the policy turns down: the same ask.
+  const dv2 = fakeDataverse();
+  const t2 = fakeUi();
+  const two = fakeCtx({ ui: t2.ui, fabric: fakeFabric().api, dataverse: () => dv2.api });
+  two.ctx.configFile = join(tmp, 'valuelens-install.json');
+  two.config.dataSources.studioCredits = 'api';
+  two.config.uploads = { flowEnvironment: { url: 'https://org1.crm.dynamics.com', id: 'env-1', name: 'Sales' } };
+  await ensureFlows(two.ctx);
+  signIn(dv2, 'flow-1');
+  dv2.failing.update = dlpError('PATCH');
+  two.config.schedule.time = '05:00';
+  await ensureFlows(two.ctx);
+  assert.ok(dv2.calls.includes(`updateFlow ${STUDIO_FLOW_NAME}`));
+  assert.ok(t2.text().includes(`Couldn't save the flow ${STUDIO_FLOW_NAME} in Sales: a data policy (DLP) turned it down (${dlpError('PATCH').message}). ${ask} Once the policy allows them, run "`));
+
+  // Any other update error keeps its message.
+  dv2.failing.update = new HttpError('500 Internal Server Error', { method: 'PATCH', url: 'x', status: 500 });
+  two.config.schedule.time = '06:00';
+  const before = t2.text().length;
+  await ensureFlows(two.ctx);
+  const later = t2.text().slice(before);
+  assert.match(later, new RegExp(`Couldn't create the flow ${STUDIO_FLOW_NAME} in Sales \\(500 Internal Server Error\\)\\.`));
+  assert.doesNotMatch(later, /data policy/);
 });
 
 test('flowsSummary: short numbered steps for each connection; the private vault note only for the app identity', () => {
@@ -548,11 +639,14 @@ test('flowsSummary: short numbered steps for each connection; the private vault 
   const out = text();
   assert.match(out, /1\. Open it: https:\/\/make\.powerautomate\.com\/environments\/env-1\/flows/);
   assert.match(out, /2\. Allow pop-ups for make\.powerautomate\.com.*pick that connection on its other actions\./);
-  assert.match(out, /3\. HTTP with Microsoft Entra ID \(preauthorized\), for the Power Platform API: Base Resource URL and Resource URI https:\/\/api\.powerplatform\.com\. Sign in as a Power Platform, Billing or Global administrator\. Its actions end in "via Power Platform API"\./);
+  assert.match(out, /3\. HTTP with Microsoft Entra ID \(preauthorized\), for the Power Platform API: Base Resource URL and Resource URI https:\/\/api\.powerplatform\.com\. Sign in as a Power Platform or Global administrator\. Its actions end in "via Power Platform API"\./);
   assert.match(out, /4\. .*for OneLake: Base Resource URL https:\/\/onelake\.dfs\.fabric\.microsoft\.com, Resource URI https:\/\/storage\.azure\.com\. Sign in as someone with Contributor or higher on Analytics\. Its actions end in "via OneLake"\./);
   assert.match(out, /5\. Save, then turn it on\./);
   assert.match(out, /6\. To load about six months now rather than at its first daily run, click Run\. Or use ".*run", which offers to run it before the pipeline\./);
-  assert.match(out, /co-owner/);
+  assert.ok(out.includes(ownerLeft(true)), 'what happens if the owner goes, said of the one flow');
+  assert.equal(OWNER_LEFT, 'If your account or licence is removed, Power Automate slows the flows down, and turns them off after 14 days unless someone takes them over. In a large organisation, install as an account that will stay.');
+  assert.equal(ownerLeft(true), 'If your account or licence is removed, Power Automate slows the flow down, and turns it off after 14 days unless someone takes it over. In a large organisation, install as an account that will stay.');
+  assert.doesNotMatch(out, /co-owner|Billing/);
   assert.doesNotMatch(out, /Key Vault|kv-private|trusted service|gateway/i);
 
   const app = fakeUi();
@@ -801,7 +895,7 @@ test('run: offers the Studio flow first, so the pipeline it starts picks up its 
  * Power Automate's view of the flows in `dv`: their state and connection references, binding them
  * and turning them on. `refs` seeds a flow's references by its ID.
  * @param {ReturnType<typeof fakeDataverse>} dv
- * @param {{ refs?: Record<string, Record<string, any>>, failSet?: boolean }} [o]
+ * @param {{ refs?: Record<string, Record<string, any>>, failSet?: boolean | Error }} [o]
  */
 function fakePowerAutomate(dv, o = {}) {
   /** @type {string[]} */
@@ -819,7 +913,7 @@ function fakePowerAutomate(dv, o = {}) {
     setConnections: async (_env, id, p) => {
       const bound = Object.entries(p.connectionReferences).map(([k, v]) => `${k}=${v.connectionName}`).sort();
       calls.push(`setConnections ${id} ${bound.join(' ')}`);
-      if (o.failSet) throw new Error('400 InvalidConnection');
+      if (o.failSet) throw o.failSet instanceof Error ? o.failSet : new Error('400 InvalidConnection');
       assert.ok(p.definition?.triggers, 'the definition goes with the references');
       refs.set(id, p.connectionReferences);
     },
@@ -832,7 +926,7 @@ function fakePowerAutomate(dv, o = {}) {
   return { api, calls, refs };
 }
 
-/** A Fabric install with the Studio flow, its connections and Power Automate faked. @param {{ ui: any, conns: ReturnType<typeof fakeConnections>, refs?: Record<string, Record<string, any>>, failSet?: boolean }} o */
+/** A Fabric install with the Studio flow, its connections and Power Automate faked. @param {{ ui: any, conns: ReturnType<typeof fakeConnections>, refs?: Record<string, Record<string, any>>, failSet?: boolean | Error }} o */
 function connectCtx(o) {
   const dv = fakeDataverse();
   const pa = fakePowerAutomate(dv, { refs: o.refs, failSet: o.failSet });
@@ -898,10 +992,11 @@ test('ensureFlows: makes the two connections with their URLs, one sign-in link e
   assert.ok(conns.calls.includes(`consentLink shared-webcontents-1 ${PAGE}`));
   const out = text();
   assert.equal(out.match(/https:\/\/consent\.example\//g)?.length, 2, 'one sign-in link per connection');
-  assert.match(out, /Analytics Hub - Power Platform API.*sign in as a Power Platform, Billing or Global administrator/);
+  assert.match(out, /Analytics Hub - Power Platform API.*sign in as a Power Platform or Global administrator/);
   assert.match(out, /Analytics Hub - OneLake.*sign in as someone with Contributor or higher on Analytics/);
   assert.match(out, /your browser blocked the pop-up: allow pop-ups for make\.powerautomate\.com/);
-  assert.match(out, /Premium connector: whoever signs in, and you as the flows' owner, need a Power Automate Premium licence/);
+  assert.ok(out.includes(`HTTP with Microsoft Entra ID (preauthorized) is a Premium connector. ${PREMIUM_OWNER}`));
+  assert.doesNotMatch(out, /whoever signs in, and you/);
   assert.deepEqual(asked, ['Signed in to the connections?']);
   assert.deepEqual(pa.calls.slice(1), [
     'setConnections flow-1 shared_webcontents=shared-webcontents-1 shared_webcontents_storage=shared-webcontents-2',
@@ -1026,9 +1121,25 @@ test('ensureFlows: when the connections can\'t be made or bound, it says so and 
   const { ui, text } = fakeUi({ answers: ['check'] });
   const { ctx, config } = connectCtx({ ui, conns, failSet: true });
   await ensureFlows(ctx);
-  assert.match(text(), /Couldn't turn on Analytics Hub - Copilot Studio credits \(400 InvalidConnection\)/);
+  assert.match(text(), /Couldn't turn on Analytics Hub - Copilot Studio credits \(400 InvalidConnection\)\. Its steps below say how to do it in Power Automate\./);
+  assert.doesNotMatch(text(), /data policy/, 'any other error keeps its message');
   assert.equal(config.uploads.flowsConnected, undefined);
   assert.match(text(), /To finish .*Copilot Studio credits/);
+});
+
+test('ensureFlows: a data policy (DLP) that won\'t let a flow be turned on gets the ask, naming the connectors, the addresses and the environment', async () => {
+  const conns = fakeConnections({ signsIn: true });
+  const { ui, text } = fakeUi({ answers: ['check'] });
+  const refused = new Error('400 Bad Request: DlpViolation: the flow uses connectors that the environment\'s data policy keeps apart.');
+  const { ctx, config } = connectCtx({ ui, conns, failSet: refused });
+  await ensureFlows(ctx);
+  const ask = dataPolicyAsk(config);
+  assert.equal(ask, 'Ask a Power Platform administrator to confirm that HTTP with Microsoft Entra ID (preauthorized) is allowed in Default. If the policy filters endpoints for HTTP with Microsoft Entra ID (preauthorized), it must allow https://api.powerplatform.com and https://onelake.dfs.fabric.microsoft.com.');
+  const out = text();
+  assert.ok(out.includes(`Couldn't turn on Analytics Hub - Copilot Studio credits: a data policy (DLP) turned it down (${refused.message}). ${ask} Once the policy allows them, its steps below say how to turn it on.`), out);
+  assert.doesNotMatch(out, /Its steps below say how to do it in Power Automate/);
+  assert.equal(config.uploads.flowsConnected, undefined);
+  assert.match(out, /To finish .*Copilot Studio credits/);
 });
 
 test('ownedConnections: Azure Storage names its account; the SharePoint drop and the app identity need no storage connection', () => {
@@ -1049,4 +1160,122 @@ test('ownedConnections: Azure Storage names its account; the SharePoint drop and
   appConfig.dataSources.studioCredits = 'api';
   appConfig.uploads = { flowIdentity: 'app' };
   assert.deepEqual(ownedConnections(app, ['studio']).map((w) => w.displayName), [CONNECTION_NAMES.ppApi], 'the app writes with its secret, so no OneLake connection');
+});
+
+/**
+ * A config with the flows chosen, for each target and flow identity the data policy ask covers.
+ * @param {'fabric' | 'fabric-app' | 'fabric-feedback' | 'azure' | 'azure-sharepoint'} kind
+ */
+function dataPolicyConfig(kind) {
+  const made = fakeCtx();
+  const { config } = made;
+  config.uploads = { flowEnvironment: { url: 'https://org1.crm.dynamics.com', id: 'env-1', name: 'Sales' } };
+  if (kind === 'fabric-feedback') {
+    config.dataSources.productFeedback = 'api';
+    return made;
+  }
+  config.dataSources.studioCredits = 'api';
+  config.dataSources.resourceGraph = 'api';
+  if (kind === 'fabric-app') {
+    config.dataSources.productFeedback = 'api';
+    config.uploads.flowIdentity = 'app';
+  }
+  if (kind.startsWith('azure')) {
+    config.target = 'azure';
+    config.modules.consumption = true;
+    const azure = /** @type {any} */ ({ outputs: { storageAccountName: 'acct' } });
+    if (kind === 'azure-sharepoint') azure.drop = { siteId: 'site-1', siteUrl: 'https://tenant.sharepoint.com/sites/drop', sitePath: 'Shared Documents/drop', folderUrl: 'https://tenant.sharepoint.com/sites/drop/Shared Documents/drop' };
+    config.azure = azure;
+  }
+  return made;
+}
+
+test('dataPolicyConnectors and dataPolicyHosts: the connectors the chosen flows use, and the addresses by target and flow identity', () => {
+  const cases = /** @type {const} */ ([
+    ['fabric', ['HTTP with Microsoft Entra ID (preauthorized)'], [PPAPI, ONELAKE_DFS]],
+    ['fabric-feedback', ['HTTP with Microsoft Entra ID (preauthorized)', 'Office 365 Outlook'], [ONELAKE_DFS]],
+    ['fabric-app', ['HTTP with Microsoft Entra ID (preauthorized)', 'HTTP', 'Office 365 Outlook', 'Azure Key Vault'], [PPAPI, 'https://onelake.blob.fabric.microsoft.com']],
+    ['azure', ['HTTP with Microsoft Entra ID (preauthorized)'], [PPAPI, 'https://acct.dfs.core.windows.net']],
+    ['azure-sharepoint', ['HTTP with Microsoft Entra ID (preauthorized)', 'SharePoint'], [PPAPI]],
+  ]);
+  for (const [kind, connectors, hosts] of cases) {
+    const { config } = dataPolicyConfig(kind);
+    assert.deepEqual(dataPolicyConnectors(config), connectors, kind);
+    assert.deepEqual(dataPolicyHosts(config), hosts, kind);
+  }
+  const { config: none } = fakeCtx();
+  Object.assign(none.dataSources, { productFeedback: 'csv', studioCredits: 'csv', resourceGraph: 'skip' });
+  assert.deepEqual([dataPolicyConnectors(none), dataPolicyHosts(none), dataPolicyAsk(none)], [[], [], ''], 'no flows, nothing to ask');
+});
+
+/** The origins a definition calls at a fixed address: its HTTP actions' and its HTTP with Microsoft Entra ID requests'. @param {any} definition */
+function calledOrigins(definition) {
+  /** @type {string[]} */
+  const found = [];
+  JSON.stringify(definition, (key, value) => {
+    if ((key === 'uri' || key === 'request/url') && typeof value === 'string' && value.startsWith('https://')) found.push(new URL(value).origin);
+    return value;
+  });
+  return found;
+}
+
+test('dataPolicyHosts: exactly the addresses the flows call, and their connections\' base URLs', () => {
+  for (const kind of /** @type {const} */ (['fabric', 'fabric-feedback', 'fabric-app', 'azure', 'azure-sharepoint'])) {
+    const { ctx, config } = dataPolicyConfig(kind);
+    const kinds = flowsWanted(config);
+    const defs = flowDefinitions(config, 't-1');
+    const called = new Set(kinds.flatMap((k) => calledOrigins(defs[k].definition)));
+    for (const c of ownedConnections(ctx, kinds)) called.add(new URL(c.parameters.baseResourceUrl).origin);
+    assert.deepEqual([...called].sort(), [...dataPolicyHosts(config)].sort(), kind);
+  }
+});
+
+test('dataPolicyAsk: names the connectors, the data group, the addresses and the environment', () => {
+  const { config } = dataPolicyConfig('fabric-app');
+  assert.equal(
+    dataPolicyAsk(config),
+    'Ask a Power Platform administrator to confirm that HTTP with Microsoft Entra ID (preauthorized), HTTP, Office 365 Outlook and Azure Key Vault are allowed and in the same data group (Business or Non-business) in Sales. If the policy filters endpoints for HTTP or HTTP with Microsoft Entra ID (preauthorized), it must allow https://api.powerplatform.com and https://onelake.blob.fabric.microsoft.com.',
+  );
+  const { config: sp } = dataPolicyConfig('azure-sharepoint');
+  assert.equal(
+    dataPolicyAsk(sp),
+    'Ask a Power Platform administrator to confirm that HTTP with Microsoft Entra ID (preauthorized) and SharePoint are allowed and in the same data group (Business or Non-business) in Sales. If the policy filters endpoints for HTTP with Microsoft Entra ID (preauthorized), it must allow https://api.powerplatform.com.',
+  );
+  // The environment by name, else its URL, else what it is.
+  config.uploads.flowEnvironment = { url: 'https://org1.crm.dynamics.com' };
+  assert.match(dataPolicyAsk(config), / in https:\/\/org1\.crm\.dynamics\.com\. /);
+  delete config.uploads.flowEnvironment;
+  assert.match(dataPolicyAsk(config), / in the Power Platform environment the flows go in\. /);
+});
+
+test('whoSignsIn: one sentence per flow, from the same signers as the sign-in links and the steps', () => {
+  const { ctx, config } = dataPolicyConfig('fabric');
+  config.fabric.workspaceName = 'Analytics';
+  assert.equal(whoSignsIn(config, 'studio'), `Who signs in: Power Platform API (${PP_API_SIGNER}); OneLake (someone with Contributor or higher on Analytics).`);
+  assert.equal(whoSignsIn(config, 'agents'), `Who signs in: Power Platform API (${PP_API_SIGNER}); OneLake (someone with Contributor or higher on Analytics).`, 'the flows share the connection, so the Studio flow\'s signer signs in');
+  for (const c of ownedConnections(ctx, ['studio'])) assert.ok(whoSignsIn(config, 'studio').includes(c.who), c.displayName);
+
+  config.dataSources.studioCredits = 'csv';
+  assert.equal(whoSignsIn(config, 'agents'), `Who signs in: Power Platform API (${INVENTORY_SIGNER}); OneLake (someone with Contributor or higher on Analytics).`);
+  config.dataSources.productFeedback = 'api';
+  assert.equal(whoSignsIn(config, 'feedback'), 'Who signs in: Office 365 Outlook (the mailbox the export is emailed to); OneLake (someone with Contributor or higher on Analytics).');
+
+  const { config: az } = dataPolicyConfig('azure');
+  assert.equal(whoSignsIn(az, 'studio'), `Who signs in: Power Platform API (${PP_API_SIGNER}); Azure Storage (someone with Storage Blob Data Contributor on acct).`);
+  const { config: sp } = dataPolicyConfig('azure-sharepoint');
+  assert.match(whoSignsIn(sp, 'studio'), /; SharePoint \(someone who can add files to https:\/\/tenant\.sharepoint\.com\/sites\/drop\/Shared Documents\/drop\)\.$/);
+  const { config: app } = dataPolicyConfig('fabric-app');
+  app.keyVault.name = 'kv-1';
+  assert.equal(whoSignsIn(app, 'studio'), `Who signs in: Power Platform API (${PP_API_SIGNER}); Azure Key Vault (someone who can read secrets in kv-1).`);
+  for (const text of [PP_API_SIGNER, INVENTORY_SIGNER]) assert.doesNotMatch(text, /Billing/);
+});
+
+test('dataPolicyHosts, dataPolicyAsk and whoSignsIn: before a new Azure install makes its storage account, they say what the address will be', () => {
+  const { config } = dataPolicyConfig('azure');
+  delete (/** @type {any} */ (config.azure)).outputs.storageAccountName;
+  const pending = 'the new storage account\'s address (https://<name>.dfs.core.windows.net), which the installer shows once it\'s made';
+  assert.deepEqual(dataPolicyHosts(config), [PPAPI, pending]);
+  assert.ok(dataPolicyAsk(config).endsWith(`it must allow ${PPAPI} and ${pending}.`), dataPolicyAsk(config));
+  assert.equal(whoSignsIn(config, 'studio'), `Who signs in: Power Platform API (${PP_API_SIGNER}); Azure Storage (someone with Storage Blob Data Contributor on the new storage account).`);
+  for (const text of [dataPolicyAsk(config), whoSignsIn(config, 'studio')]) assert.ok(!text.includes('<storage account>'), text);
 });

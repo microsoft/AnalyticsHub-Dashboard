@@ -70,7 +70,9 @@ Tick **Credit consumption** to get the Consumption Central pages, from a second 
 (*Consumption Central*) that reads the same Azure SQL database.
 
 - **Copilot Studio credits** come from the Power Platform licensing API by default, as on Fabric. The
-  installer creates a daily Power Automate flow, signed in as you through **HTTP with Microsoft Entra ID**.
+  installer creates a daily Power Automate flow, which you own. A Power Platform or Global
+  administrator signs in to its Power Platform API connection (**HTTP with Microsoft Entra ID**), and
+  someone who can write where it saves (below) to the other: neither has to be you.
   Its first run loads about six months, then it reads the last ten days. Per-user credits are best effort.
   You can choose the PPAC CSV exports instead.
 - **Cowork credits**: drop the Consumption Dashboard's Viva Insights export in the `viva` folder. The
@@ -82,8 +84,8 @@ Where the files land depends on networking:
 
 | Networking | Credit files go to | Who needs what |
 |---|---|---|
-| Public endpoints | The storage account's `landing` container: `studio/`, `viva/` (the flow keeps its own state in `flows/`) | Whoever signs the flow's storage connection in needs **Storage Blob Data Contributor** on the account. The installer gives it to you |
-| Private networking | A SharePoint folder you choose, with `studio/` and `viva/` under it. Power Automate can't reach private storage | The jobs' managed identity needs **Sites.Selected** with read on that site. The installer prints the `Grant-PnPAzureADAppSitePermission` command for a SharePoint or Global administrator to run: it can't make the grant itself (see [Known issues](../docs/TROUBLESHOOTING.md#azure)) |
+| Public endpoints | The storage account's `landing` container: `studio/`, `viva/` (the flow keeps its own state in `flows/`) | Whoever signs in to the flow's storage connection needs **Storage Blob Data Contributor** on the account. The installer gives it to you, but anyone with it can sign in |
+| Private networking | A SharePoint folder you choose, with `studio/` and `viva/` under it. Power Automate can't reach private storage | Whoever signs in to the flow's SharePoint connection needs to be able to add files to the folder. The jobs' managed identity needs **Sites.Selected** with read on that site. The installer prints the `Grant-PnPAzureADAppSitePermission` command for a SharePoint or Global administrator to run: it can't make the grant itself (see [Known issues](../docs/TROUBLESHOOTING.md#azure)) |
 
 The jobs read the files where they land and don't move them, the same as the Fabric notebooks. Put
 exports there yourself, in the Azure portal, Azure Storage Explorer or SharePoint, or with
@@ -98,7 +100,7 @@ app's pages are the same. Source by source:
 | | Fabric | Azure |
 |---|---|---|
 | Copilot Studio credits | The licensing API flow, PPAC exports, or both | The same |
-| Who the Studio flow signs in as | You, or the app registration with `--flow-identity app` | You. `--flow-identity app` warns and is ignored |
+| Who signs in to the Studio flow | A Power Platform or Global administrator to its Power Platform API connection. To OneLake, someone with Contributor or higher on the workspace. With `--flow-identity app`, the flow writes as the app registration instead, and someone who can read its secret signs in to Key Vault | The same Power Platform API sign-in. A person signs in to the storage or SharePoint connection. `--flow-identity app` warns and is ignored |
 | Copilot Cowork credits | The Viva Insights Dataflow (`coworkCredits=api`), the CSV export, or both | The CSV export. `coworkCredits=api` warns and becomes CSV, and `load-cowork` stops |
 | Azure AI and pay-as-you-go | `Ingest_Azure_AI` | The jobs read the same APIs and write the same tables. **Leave Azure AI out** at the subscription question, or `--data azureAi=skip`, leaves it out |
 | Where credit files land | The Lakehouse | The `landing` container, or a SharePoint folder with private networking (above) |

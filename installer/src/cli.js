@@ -81,8 +81,8 @@ Options:
                        With install: who the flows write to OneLake as. user (default): a person
                        signs in to an HTTP with Microsoft Entra ID connection; no Key Vault.
                        app: the app registration, with its secret from Key Vault. The vault must
-                       allow public network access. Fabric only: on Azure the Studio flow
-                       always signs in as you.
+                       allow public network access. Fabric only: on Azure a person signs in to
+                       the Studio flow's storage connection.
   --viva-partition <id>
   --viva-query <id>    With install: the Viva Insights partition and query the Cowork credits
                        Dataflow reads (needs coworkCredits=api). Fabric only: on Azure, Cowork

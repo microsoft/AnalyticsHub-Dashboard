@@ -634,6 +634,36 @@ test('rewindable: Back puts the config back and reuses the API calls; the termin
   await assert.rejects(after, { name: 'ExitPromptError' });
 });
 
+test('rewindable: Back forgets the prerequisites shown since, so the flows\' rows show again once the questions are answered again', async () => {
+  const ui = createWebUi();
+  const { ctx } = fakeCtx({ ui: /** @type {any} */ (ui), sources: /** @type {any} */ ({}) });
+  ctx.preflightSeen = { items: [], shown: new Map([['copilot-licences', 'missing']]) };
+  const seen = ctx.preflightSeen;
+  /** @type {string[][]} */
+  const runs = [];
+  const done = rewindable(ctx, async () => {
+    runs.push([...seen.shown.keys()]);
+    await ui.input('Which Power Platform environment should the flows go in?');
+    seen.shown.set('data-policy', 'unknown');
+    return ui.confirm('Go ahead?', true);
+  });
+  await tick();
+  ui.answer(latest(ui).id, 'Default');
+  await tick();
+  assert.deepEqual([...seen.shown.keys()], ['copilot-licences', 'data-policy']);
+
+  assert.equal(ui.back(), true);
+  await tick();
+  assert.equal(latest(ui).message, 'Which Power Platform environment should the flows go in?');
+  assert.deepEqual(runs, [['copilot-licences'], ['copilot-licences']], 'what preflight showed stays shown; what was shown since goes');
+  ui.answer(latest(ui).id, 'Sales');
+  await tick();
+  ui.answer(latest(ui).id, true);
+  assert.equal(await done, true);
+  assert.equal(ctx.preflightSeen, seen, 'the same record');
+  assert.deepEqual([...seen.shown.keys()], ['copilot-licences', 'data-policy']);
+});
+
 test('memoApi: the same call is made once, each caller gets its own copy, and a failure is not kept', async () => {
   /** @type {string[]} */
   const calls = [];
