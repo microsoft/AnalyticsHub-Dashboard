@@ -83,7 +83,7 @@ Set the workspace and Lakehouse at the top of each notebook, then run it.
 
 | Notebook | Reads | Writes |
 |---|---|---|
-| `Ingest_Studio` | The licensing API flow's files and any Power Platform admin centre exports in `Files/landing/studio/` | `studio_*` |
+| `Ingest_Studio` | The licensing API flow's files and any Power Platform admin centre exports in `Files/landing/studio/` and its `backfill/<YYYY-MM>/` folders | `studio_*` |
 | `Ingest_GitHub_API` | GitHub REST API *(preferred: runs unattended)* | `github_*` |
 | `Ingest_GitHub` | The emailed AI usage report in `Files/landing/github/` | `github_*` |
 | `Ingest_Azure_AI` | Azure Cost Management, Monitor, ARM and the public Retail Prices API ([setup ↗](https://github.com/microsoft/ConsumptionCentral-for-Microsoft-Copilot/blob/main/docs/ADVANCED-SETUP.md#azure-ingestion-in-fabric)) | `azure_ai_spend`, `azure_ai_tokens`, and `copilot_payg_spend` for Copilot Studio and Cowork pay-as-you-go billed in Azure; then, best-effort, `azure_deployment_health`, `azure_solution_spend` and `azure_billing_reconciliation` ([details](DATA-DICTIONARY.md#azure-capacity-solution-spend-and-reconciliation)) |
@@ -141,6 +141,32 @@ PPAC exports are optional and win for the months they cover. Each run replaces t
 the days and months the flow's files cover, in one Delta commit per table: a failed write leaves
 the table as it was, and days and months the files don't cover keep their rows. See the
 [installer's flows](../../installer/README.md#power-automate-flows).
+
+The per-agent and per-user exports carry no date: they're month to date. So each counts as the
+month, in UTC, that its file arrived in `Files/landing/studio/`, kept as `snapshot_month`. A newer
+export in the same month updates that month's rows, and one saved the next month adds a month. A
+file left in the folder keeps its own month on later runs, so it never becomes a later month's.
+Exports sent to the installer's drop folder or SharePoint get there when the upload router next
+runs, early in the pipeline and before `Ingest_Studio`, so they count as the month of that run. The
+router copies each one to the top of the folder, and moves earlier files of the same kind to
+`_loaded/`, which `Ingest_Studio` doesn't read.
+
+**Loading an earlier month's export.** In the Lakehouse, create
+`Files/landing/studio/backfill/<YYYY-MM>/`, the folder for the month the export covers, and upload
+the file there, not to the drop folder: the router ignores subfolders. Last month's export
+downloaded on the 1st goes in last month's folder, for example. A file there counts as the folder's
+month on every run, so there's nothing to move or reset afterwards. Do the same for an export sent
+on a month's last day, which may not be routed until the next month. A tenant daily export keeps
+its own dates wherever it sits.
+
+**When `Ingest_Studio` stops before writing.** It stops, and lists the paths, if `backfill/` holds a
+file outside a month folder, a folder whose name isn't `YYYY-MM`, or a month later than the current
+one. A folder inside a month folder isn't read, and the run says so. The notebook's old
+`SNAPSHOT_MONTH` setting is retired: a run with it still set stops, and points to the backfill
+folder. Either way, the Studio tables keep their rows. In the installer's pipeline, the load fails
+after its retries and the other loads still run, but the pipeline run fails, and the consumption
+model isn't refreshed until a run succeeds. Move or remove what the message lists, or remove
+`SNAPSHOT_MONTH`, then run the pipeline again or wait for the next run.
 
 Copied from [microsoft/ConsumptionCentral-for-Microsoft-Copilot ↗](https://github.com/microsoft/ConsumptionCentral-for-Microsoft-Copilot)
 (MIT) at commit `24b0ca8`. Full documentation and issues live there.

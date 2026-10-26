@@ -42,7 +42,9 @@ def test_tenant_from_users_runs_after_the_per_user_cell_and_before_the_check():
 
 
 def test_exports_replace_both_kinds_of_api_row():
-    helpers = next(s for s in _cells() if "def drop_api_rows" in s)
-    assert "t.source_file IN ('{API_SOURCE}', '{API_USER_SOURCE}')" in helpers
+    helpers = next(s for s in _cells() if "def write_export" in s)
+    writer = helpers[helpers.index("def write_export"):].split("\ndef ", 1)[0]
+    assert "t.source_file IN ('{API_SOURCE}', '{API_USER_SOURCE}')" in writer
+    assert "{same(covers)} AND {api}" in writer
     agent_api = next(s for s in _cells() if "api_raw = read(*PAT_API_AGENT" in s)
     assert "isin(*API_SOURCES)" in agent_api and "share, allocated = entitlement()" in agent_api
