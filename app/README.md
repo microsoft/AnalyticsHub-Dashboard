@@ -7,34 +7,11 @@ The app keeps no copy of your data. Each page queries the semantic model live, a
 viewing it, so row-level security applies. How each figure is worked out is in the
 [methodology](../docs/METHODOLOGY.md).
 
-## Bounded detail lists
-
-Person and registry detail lists return the top 1,000 rows, with deterministic
-tie-breakers. Consumption's Studio agent list follows the same limit. Sorting
-or filtering inside a grid acts on those returned rows; use the page filters
-to query another selection. Truncation notices identify omitted rows and flag
-unavailable full counts rather than substituting the displayed row count.
-
-Group and grand totals still cover the full filtered population, including
-groups whose people are outside the cap. Person-row counts can include the
-same person under multiple groups. Leaderboard and Studio concentration are
-computed separately across all person rows, combining repeat person keys
-before selecting positive values; Leaderboard returns only the top 1%, 5%
-and 25% cuts, without a curve. Value by habit returns whole-population
-habit totals and concentration cuts, not a truncated person list. Agent
-spotlights return full-population maxima and tie counts with two named
-winners; separate agents with the same display name still count separately.
-
-These payload limits are not proof of lower model latency. Query-shape and
-synthetic tests do not establish live DAX equivalence. Validate against the
-same model, data, filters and assumptions before deployment; the request
-scheduler's concurrency, pacing and retry protections must stay unchanged.
-
 ## Deploy it by hand
 
 You need:
 
-- A published ValueLens semantic model from any path, 1 to 4.
+- A published ValueLens semantic model, from the [Fabric](../1-fabric/README.md) or [Azure](../2-azure/README.md) path.
 - A workspace on Fabric capacity (F2 or larger, or a trial). *My workspace* won't work.
 - The tenant settings **Fabric Apps (preview)** and **Semantic Model Execute Queries REST API** turned on.
 - [Node.js](https://nodejs.org/) 24.15 or later, or 22.22 or later.
@@ -68,7 +45,69 @@ From this folder (`app`):
 
 To update it, run `npx rayfin up` again.
 
-The app also leaves out pages and sections whose optional data hasn't arrived. When it opens, it
+## Settings in the app
+
+Anyone who can open the app can change these, and the change applies for everyone. Share the item
+only with people who should.
+
+- **Rates & packs** (Consumption page): your pay-as-you-go rate, prepaid rate and Capacity Pack
+  balance. Leave a box empty to keep the model's value.
+- **Monthly budgets** (Consumption page): an optional monthly budget for Cowork / Work IQ, Copilot
+  Studio and Azure, for the Budget runway section. Leave a box empty for no budget.
+- **Prices** (Value page, Cost vs value): the Copilot licence price ($30 if empty), the reporting
+  currency for the Value page (US dollars unless the installer set another) and, for any other
+  currency, the exchange rate per $1.
+- **Time per task** (Assumptions page): the minutes each task would take without Copilot.
+  **Use research** puts them back.
+
+The app saves these in a small SQL database under its item. The Power BI report doesn't see them.
+
+## Reports
+
+A report pack is a named, ordered list of sections taken from any page. Packs are listed under
+**Reports** in the sidebar.
+
+- **Built-in packs.** *Exec pre-read*, *Finance weekly* and *Adoption review* come with the app.
+  You can't edit or delete them, but **Save a copy** starts a new pack from one.
+- **Your packs.** **New pack** opens an editor where you name the pack, tick sections from each
+  page, and put them in order. On Fabric anyone who can open the app can save, edit or delete a
+  pack, and it changes for everyone. On Azure that needs the `AnalyticsHub.Admin` role. Packs are
+  stored with the other settings: in the app's SQL database on Fabric, and in Table Storage on
+  Azure.
+- **Missing sections.** A pack skips a section whose page is hidden because its optional data
+  hasn't arrived, and says which ones it left out.
+- **Download PDF** and **Download PowerPoint** are on every page and every pack. Both show the
+  filters in use and the date the data runs to, and the file is named after it, such as
+  `exec-pre-read-data-to-2026-10-11.pdf`. The PDF uses the browser's print dialog: choose
+  **Save as PDF**. Where the browser can't open a print dialog, the report downloads as an HTML
+  file you can print later. The PowerPoint deck opens with a cover listing the filters, the data dates and any
+  sections left out, then has one slide per chart or table.
+- **Download CSV** on each chart and table also adds the data date to the file name.
+
+## Change the app
+
+| Task | How |
+|---|---|
+| Preview live | `npm run dev`, then open the app in Fabric with `&devUri=http://localhost:5173` on the URL |
+| Test | `npm test` and `npm run lint` |
+| Edit a query | `src/queries/<page>/`: a `.dax` query and a `.ts` definition per visual |
+| Edit a page | `src/screens/<page>/` |
+
+Don't commit your IDs in `fabric.yaml` or the redirect URI that `rayfin up` adds to
+`rayfin/rayfin.yml`. Its local state files are gitignored.
+
+The installer ships one build for every tenant, so it reads the model IDs from a
+`fabric.config.json` deployed next to the app. Newer files also include a `modules` block for the
+optional module choices. A deploy from this folder uses `fabric.yaml` instead. See
+[`src/lib/runtime-config.ts`](src/lib/runtime-config.ts).
+[`AGENTS.md`](AGENTS.md) has the conventions for coding agents.
+
+## How it works
+
+<details>
+<summary><strong>Pages that need optional data</strong></summary>
+
+The app leaves out pages and sections whose optional data hasn't arrived. When it opens, it
 counts the rows in the ValueLens model's optional sources (unfiltered), in one query. **Feedback**
 needs `ProductFeedback` and **Work patterns** needs `M365 Activity`. Without registry data, **Governance**
 shows how to connect the Agent 365 registry instead of empty sections, and the **Agents** leaderboard
@@ -78,7 +117,12 @@ off into `fabric.config.json` (on Azure, the web app serves them in `/app.config
 pages stay hidden without probing until the admin turns the module on. Everything shows while the
 check runs, or if it fails, and a page comes back on the next open once its data loads.
 
-## How pages load
+</details>
+
+<details>
+<summary><strong>How pages load</strong> (built for about 20,000 people)</summary>
+
+<a id="how-pages-load"></a>
 
 The app is built to stay quick for a large tenant (about 20,000 people):
 
@@ -126,59 +170,32 @@ The app is built to stay quick for a large tenant (about 20,000 people):
   id, employee Id, Hierarchy Path, Level5_User Key), which took one to two and a half minutes each
   at 20,000 people. A saved grouping that is no longer offered shows **All users**.
 
-## Settings in the app
+</details>
 
-Anyone who can open the app can change these, and the change applies for everyone. Share the item
-only with people who should.
+<details>
+<summary><strong>Bounded detail lists</strong> (top 1,000 rows)</summary>
 
-- **Rates & packs** (Consumption page): your pay-as-you-go rate, prepaid rate and Capacity Pack
-  balance. Leave a box empty to keep the model's value.
-- **Monthly budgets** (Consumption page): an optional monthly budget for Cowork / Work IQ, Copilot
-  Studio and Azure, for the Budget runway section. Leave a box empty for no budget.
-- **Prices** (Value page, Cost vs value): the Copilot licence price ($30 if empty), the reporting
-  currency for the Value page (US dollars unless the installer set another) and, for any other
-  currency, the exchange rate per $1.
-- **Time per task** (Assumptions page): the minutes each task would take without Copilot.
-  **Use research** puts them back.
+<a id="bounded-detail-lists"></a>
 
-The app saves these in a small SQL database under its item. The Power BI report doesn't see them.
+Person and registry detail lists return the top 1,000 rows, with deterministic
+tie-breakers. Consumption's Studio agent list follows the same limit. Sorting
+or filtering inside a grid acts on those returned rows; use the page filters
+to query another selection. Truncation notices identify omitted rows and flag
+unavailable full counts rather than substituting the displayed row count.
 
-## Reports
+Group and grand totals still cover the full filtered population, including
+groups whose people are outside the cap. Person-row counts can include the
+same person under multiple groups. Leaderboard and Studio concentration are
+computed separately across all person rows, combining repeat person keys
+before selecting positive values; Leaderboard returns only the top 1%, 5%
+and 25% cuts, without a curve. Value by habit returns whole-population
+habit totals and concentration cuts, not a truncated person list. Agent
+spotlights return full-population maxima and tie counts with two named
+winners; separate agents with the same display name still count separately.
 
-A report pack is a named, ordered list of sections taken from any page. Packs are listed under
-**Reports** in the sidebar.
+These payload limits are not proof of lower model latency. Query-shape and
+synthetic tests do not establish live DAX equivalence. Validate against the
+same model, data, filters and assumptions before deployment; the request
+scheduler's concurrency, pacing and retry protections must stay unchanged.
 
-- **Built-in packs.** *Exec pre-read*, *Finance weekly* and *Adoption review* come with the app.
-  You can't edit or delete them, but **Save a copy** starts a new pack from one.
-- **Your packs.** **New pack** opens an editor where you name the pack, tick sections from each
-  page, and put them in order. On Fabric anyone who can open the app can save, edit or delete a
-  pack, and it changes for everyone. On Azure that needs the `AnalyticsHub.Admin` role. Packs are
-  stored with the other settings: in the app's SQL database on Fabric, and in Table Storage on
-  Azure.
-- **Missing sections.** A pack skips a section whose page is hidden because its optional data
-  hasn't arrived, and says which ones it left out.
-- **Download PDF** and **Download PowerPoint** are on every page and every pack. Both show the
-  filters in use and the date the data runs to, and the file is named after it, such as
-  `exec-pre-read-data-to-2026-10-11.pdf`. The PDF uses the browser's print dialog: choose
-  **Save as PDF**. Where the browser can't open a print dialog, the report downloads as an HTML
-  file you can print later.   The PowerPoint deck opens with a cover listing the filters, the
-    data dates and any sections left out, then has one slide per chart or table.
-- **Download CSV** on each chart and table also adds the data date to the file name.
-
-## Change the app
-
-| Task | How |
-|---|---|
-| Preview live | `npm run dev`, then open the app in Fabric with `&devUri=http://localhost:5173` on the URL |
-| Test | `npm test` and `npm run lint` |
-| Edit a query | `src/queries/<page>/`: a `.dax` query and a `.ts` definition per visual |
-| Edit a page | `src/screens/<page>/` |
-
-Don't commit your IDs in `fabric.yaml` or the redirect URI that `rayfin up` adds to
-`rayfin/rayfin.yml`. Its local state files are gitignored.
-
-The installer ships one build for every tenant, so it reads the model IDs from a
-`fabric.config.json` deployed next to the app. Newer files also include a `modules` block for the
-optional module choices. A deploy from this folder uses `fabric.yaml` instead. See
-[`src/lib/runtime-config.ts`](src/lib/runtime-config.ts).
-[`AGENTS.md`](AGENTS.md) has the conventions for coding agents.
+</details>
