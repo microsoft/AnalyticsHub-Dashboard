@@ -62,6 +62,7 @@ const WRITERS = {
 /**
  * A request's message as Markdown, to send as it is. A line that starts "- " starts an ask. In an ask, the lines after
  * one that ends "(Bash):" are Cloud Shell commands, up to the next ask or a blank line: they go in a bash code block.
+ * Those after one that ends "(PnP):" are PnP PowerShell commands, which go in a powershell code block the same way.
  * The rest stays as it is.
  * @param {string} message
  * @returns {string[]}
@@ -71,9 +72,10 @@ export function messageMarkdown(message) {
   const out = [];
   /** @type {string[] | null} */
   let code = null;
+  let lang = 'bash';
   let inAsk = false;
   const flush = () => {
-    if (code?.length) out.push('  ```bash', ...code.map((l) => `  ${l}`), '  ```');
+    if (code?.length) out.push(`  \`\`\`${lang}`, ...code.map((l) => `  ${l}`), '  ```');
     code = null;
   };
   for (const line of message.split('\n')) {
@@ -91,7 +93,11 @@ export function messageMarkdown(message) {
       continue;
     }
     out.push(line);
-    if (inAsk && /\(Bash\):$/.test(line.trimEnd())) code = [];
+    const shell = inAsk ? /\((Bash|PnP)\):$/.exec(line.trimEnd()) : null;
+    if (shell) {
+      code = [];
+      lang = shell[1] === 'PnP' ? 'powershell' : 'bash';
+    }
   }
   flush();
   return out;

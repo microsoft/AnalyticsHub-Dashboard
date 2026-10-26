@@ -928,9 +928,21 @@ export function fakeAzureGraph(opts = {}) {
     },
     assignPrincipalToAppRole: async (/** @type {string} */ principal, /** @type {string} */ resource, /** @type {string} */ role) => {
       calls.push(`assign ${principal} ${role}`);
-      roleAssignments.push({ principalId: principal, resourceId: resource, appRoleId: role });
+      roleAssignments.push({ id: `ra-${principal}-${role}`, principalId: principal, resourceId: resource, appRoleId: role });
     },
     appRoleAssignedTo: async (/** @type {string} */ resource) => roleAssignments.filter((a) => a.resourceId === resource),
+    appRoleAssignments: async (/** @type {string} */ principal) => {
+      fail('appRoleAssignments');
+      return roleAssignments.filter((a) => a.principalId === principal).map((a) => ({ ...a }));
+    },
+    revokeAppRole: async (/** @type {string} */ resource, /** @type {string} */ id) => {
+      calls.push(`revoke ${id}`);
+      const err = failures.revokeAppRole?.shift();
+      const at = roleAssignments.findIndex((a) => a.id === id && a.resourceId === resource);
+      // A 404: someone took it back since the read.
+      if (at >= 0 && (!err || /** @type {any} */ (err).status === 404)) roleAssignments.splice(at, 1);
+      if (err) throw err;
+    },
     grantOauth2Permission: async (/** @type {any} */ g) => {
       calls.push(`oauth ${g.scope}`);
       fail('grantOauth2Permission');
@@ -950,7 +962,7 @@ export function fakeAzureGraph(opts = {}) {
       if (err) throw err;
     },
   };
-  return { api, calls, applications, servicePrincipals, siteGrantFailures, passwords, directoryRoles, failures, grants, webAppBodies, state };
+  return { api, calls, applications, servicePrincipals, siteGrantFailures, passwords, directoryRoles, failures, grants, webAppBodies, state, roleAssignments, graphSp };
 }
 
 /**

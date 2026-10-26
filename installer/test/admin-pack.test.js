@@ -7,7 +7,8 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, test } from 'node:test';
-import { graphRolesCommand } from '../src/admin-commands.js';
+import { graphRolesCommand, graphRolesRevokeCommand } from '../src/admin-commands.js';
+import { apiPermissionsUrl } from '../src/clients/graph.js';
 import { emptyConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
 import { rotateSecret, showPrereqs, summary } from '../src/install.js';
@@ -15,7 +16,7 @@ import { commandLine } from '../src/launch.js';
 import { checkPrereqs, reportFlowPrereqs, reportPreflight, settingsToConfirm } from '../src/prereqs.js';
 import { ADMIN_PACK_DIR, ADMIN_PACK_FILE, messageMarkdown, packFileName, renderAdminPack, writeAdminPackFiles } from '../src/steps/admin-pack.js';
 import { azureSummary } from '../src/steps/azure/index.js';
-import { ADMINS } from '../src/steps/handoff.js';
+import { ADMINS, APP_OWNER_ADMIN } from '../src/steps/handoff.js';
 import { adminPack, handoffCommands, isResumeLater, secretHandoff, startHandoffPack, writeAdminPack, writeHandoffPack } from '../src/steps/identity.js';
 import { letter } from '../src/steps/next-steps.js';
 import { planAdminPack } from '../src/steps/plan.js';
@@ -320,7 +321,7 @@ test('packFileName: the admin\'s key, with a short slug of who it goes to when t
   assert.equal(name('other', 'Ünïcode'), 'other-n-code.md');
 });
 
-test('messageMarkdown: the commands after an ask\'s "(Bash):" go in a bash code block; the rest stays as it is', () => {
+test('messageMarkdown: the commands after an ask\'s "(Bash):" go in a bash code block, and after "(PnP):" in a powershell one; the rest stays as it is', () => {
   const message = [
     'Hi,',
     '',
@@ -360,6 +361,11 @@ test('messageMarkdown: the commands after an ask\'s "(Bash):" go in a bash code 
     'Thanks',
   ]);
   assert.deepEqual(messageMarkdown('- One (Bash):\n  az one'), ['- One (Bash):', '  ```bash', '  az one', '  ```'], 'closed at the end');
+  assert.deepEqual(
+    messageMarkdown('- Take it back. In PowerShell (PnP):\n  Get-One -Site x\n  Revoke-One -Site x\n- Then (Bash):\n  az two\n\nRun this (PnP):\n  Not-Code'),
+    ['- Take it back. In PowerShell (PnP):', '  ```powershell', '  Get-One -Site x', '  Revoke-One -Site x', '  ```', '- Then (Bash):', '  ```bash', '  az two', '  ```', '', 'Run this (PnP):', '  Not-Code'],
+    'PnP commands in a powershell block, the next ask\'s in a bash one, and only in an ask',
+  );
 });
 
 test('writeAdminPackFiles: writes the index and a file per admin, rewrites only what changed, and removes only the admins\' files no longer needed', () => {
@@ -691,6 +697,90 @@ test('pack, the end of an Azure install: a Graph role repeated in graphRoles.pen
   assert.equal(roles.split('AuditLogsQuery.Read.All').length - 1, 2, 'once in the ask, once in the command');
   assert.doesNotMatch(roles, /User\.Read\.All/, 'none already assigned');
   noSecrets(dir);
+});
+
+test('pack, the end of an install: what it couldn\'t take back goes in the file of whoever can, the managed identity\'s command and the drop site\'s fenced', async () => {
+  // Azure: the Graph roles the jobs no longer use.
+  const dir = tmp();
+  const config = emptyConfig();
+  Object.assign(config.app, { appId: 'app-1', servicePrincipalId: 'sp-1' });
+  Object.assign(config.dataSources, { resourceGraph: 'skip', productFeedback: 'csv', studioCredits: 'csv' });
+  config.modules.consumption = false;
+  config.modules.agentEvaluator = false;
+  config.target = 'azure';
+  config.azure = /** @type {any} */ ({
+    ...config.azure,
+    resourceGroup: 'rg-ah',
+    location: 'uksouth',
+    outputs: { identityPrincipalId: 'mi-1', identityClientId: 'mi-client-1', identityId: 'id-1' },
+    graphRoles: { assigned: ['User.Read.All'], pending: [], retired: ['ThreatHunting.Read.All', 'Sites.Selected'] },
+    retiredDrops: [{ siteUrl: 'https://contoso.sharepoint.com/sites/old', siteId: 'contoso.sharepoint.com:/sites/old', granted: true }],
+  });
+  const t = fakeCtx({ ui: fakeUi().ui, graph: { myDirectoryRoles: async () => [] }, config: plant(config) });
+  t.ctx.configFile = join(dir, 'valuelens-install.json');
+  startHandoffPack(t.ctx, 'install');
+  await azureSummary(t.ctx);
+  let pack = readPack(dir);
+  const roles = pack.files['role-admin.md'];
+  assert.ok(roles.includes('\n- **For:** Microsoft Graph roles to take back\n'), roles);
+  const command = graphRolesRevokeCommand('mi-1', ['ThreatHunting.Read.All', 'Sites.Selected']);
+  assert.ok(
+    roles.includes(`no longer uses them: ThreatHunting.Read.All, Sites.Selected. In Azure Cloud Shell (Bash):\n  \`\`\`bash\n  ${command}\n  \`\`\`\n`),
+    roles,
+  );
+  assert.ok(pack.index.includes('\n   - Once it\'s done: Run the installer again and choose Repair or change: it checks the managed identity\'s roles again, and stops listing these once they\'re gone.\n'));
+  // The old drop site's, an optional request of its own, with its PnP commands in a powershell block.
+  const OLD = 'https://contoso.sharepoint.com/sites/old';
+  assert.match(pack.index, /\n\d+\. A SharePoint Administrator \(optional\): \[analytics-hub-admin-pack\/sharepoint-admin\.md\]/);
+  assert.ok(
+    pack.files['sharepoint-admin.md'].includes(
+      `If the first shows nothing, there's nothing to remove. In PowerShell (PnP):\n  \`\`\`powershell\n  Get-PnPAzureADAppSitePermission -Site ${OLD} -AppIdentity mi-client-1\n` +
+        `  Revoke-PnPAzureADAppSitePermission -Site ${OLD} -PermissionId <the Id it shows>\n  \`\`\`\n`,
+    ),
+    pack.files['sharepoint-admin.md'],
+  );
+  noSecrets(dir);
+
+  // Fabric, an app the installer made: its API permissions in a file for its owners or an app admin, and its consent
+  // for a role admin.
+  const fabricDir = tmp();
+  const fabric = plainConfig();
+  Object.assign(fabric.app, {
+    appId: 'app-1',
+    servicePrincipalId: 'sp-1',
+    existing: false,
+    retiredPermissions: ['ThreatHunting.Read.All', 'CloudApp-Discovery.Read.All'],
+    retiredConsent: ['ThreatHunting.Read.All'],
+  });
+  fabric.dataSources.resourceGraph = 'skip';
+  const f = fakeCtx({ ui: fakeUi().ui, fabric: fakeFabric().api, oneLake: { readJson: async () => null }, graph: { myDirectoryRoles: async () => [] }, config: plant(fabric) });
+  f.config.fabric.workspaceName = 'Analytics Hub';
+  f.ctx.configFile = join(fabricDir, 'valuelens-install.json');
+  startHandoffPack(f.ctx, 'install');
+  await summary(f.ctx, { dataCheck: SHOWN });
+  pack = readPack(fabricDir);
+  const owners = packFileName({ admin: 'app-admin', who: APP_OWNER_ADMIN }, ADMINS, new Set());
+  assert.match(owners, /^app-admin-an-application-administrator-a-cloud[\w-]*\.md$/);
+  assert.deepEqual(pack.names, [owners, 'role-admin.md']);
+  assert.ok(pack.files[owners].includes(`\n- **To:** ${APP_OWNER_ADMIN}\n- **For:** API permissions to remove\n\n`));
+  assert.ok(pack.files[owners].includes(`\n  1. Open its API permissions page: ${apiPermissionsUrl('app-1')}\n`), pack.files[owners]);
+  assert.ok(pack.files['role-admin.md'].includes('\n- **For:** Admin consent to take back\n\n'));
+  assert.ok(pack.files['role-admin.md'].includes('Entra ID > Enterprise apps > All applications, search for app-1'));
+  noSecrets(fabricDir);
+
+  // An app you brought: only what this run read, as one optional request.
+  for (const key of /** @type {const} */ (['existing', 'retiredPermissions', 'retiredConsent'])) delete f.config.app[key];
+  f.ctx.broughtRetired = ['Application.Read.All'];
+  startHandoffPack(f.ctx, 'repair');
+  await summary(f.ctx, { dataCheck: SHOWN });
+  pack = readPack(fabricDir);
+  assert.deepEqual(pack.names, ['role-admin.md']);
+  assert.deepEqual(entries(pack.index), ['1. A Privileged Role Administrator or Global Administrator (optional): [analytics-hub-admin-pack/role-admin.md](analytics-hub-admin-pack/role-admin.md)']);
+  assert.ok(pack.index.includes('\n   - Before you send it: The installer leaves an app you brought as it is, in case something else uses these permissions: send this only if nothing does.'));
+  assert.ok(pack.files['role-admin.md'].includes('\n- **Optional:** Analytics Hub works without it.\n'));
+  assert.ok(pack.files['role-admin.md'].includes('- Optional: take back admin consent for these Microsoft Graph application permissions of the app registration'));
+  assert.doesNotMatch(pack.files['role-admin.md'], /send this only if/, 'the note is for you');
+  noSecrets(fabricDir);
 });
 
 test('pack, a failed write: where the pack isn\'t the only way on, it warns once and the run carries on; writeAdminPack still throws', async () => {

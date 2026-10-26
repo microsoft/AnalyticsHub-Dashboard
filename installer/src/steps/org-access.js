@@ -595,6 +595,7 @@ export async function applyOrgAccess(ctx, opts = {}) {
   }
   if (!ok) return false;
   rls.applied = [...new Set(items.map((i) => i.datasetId))];
+  rls.appliedGroupId = config.access?.groupId;
   ctx.save();
   ui.ok(`Org-scoped access applied to ${[...new Set(items.map((i) => i.dataset))].join(', ')}`);
   return true;
@@ -602,11 +603,16 @@ export async function applyOrgAccess(ctx, opts = {}) {
 
 /**
  * Whether org-scoped access is on and a deployed model still needs its role members applied, so
- * ensureOrgAccess applies them (and refreshes, when asked).
+ * ensureOrgAccess applies them (and refreshes, when asked). The members are the viewer group, so
+ * another group needs them applied again, which also takes the old group out of the roles.
  * @param {import('../config.js').InstallConfig} config
  */
 export function orgAccessPending(config) {
   if (!rlsOn(config)) return false;
+  const groupId = config.access?.groupId;
+  // A record from before 0.6.9 doesn't say, so it counts as the current group.
+  const appliedGroupId = config.access?.rls?.appliedGroupId;
+  if (groupId && appliedGroupId && groupId.toLowerCase() !== appliedGroupId.toLowerCase()) return true;
   const applied = new Set(config.access?.rls?.applied ?? []);
   const models = rlsModels(config);
   return !(models.length && models.every((m) => applied.has(m.datasetId)));

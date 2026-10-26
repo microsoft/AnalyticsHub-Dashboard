@@ -84,6 +84,19 @@ export function resolveAppRoles(graphSp, permissions, optional = []) {
 }
 
 /**
+ * The Graph application permissions (app role IDs) an app registration lists on its API permissions page.
+ * @param {{ requiredResourceAccess?: { resourceAppId: string, resourceAccess: { id: string, type: string }[] }[] }} application
+ * @returns {Set<string>}
+ */
+export function declaredGraphRoles(application) {
+  return new Set(
+    (application.requiredResourceAccess ?? [])
+      .filter((r) => r.resourceAppId === GRAPH_APP_ID)
+      .flatMap((r) => (r.resourceAccess ?? []).filter((a) => a.type === 'Role').map((a) => a.id)),
+  );
+}
+
+/**
  * Direct admin-consent link. Entra may show a reply-address error after approval
  * because the app has no redirect URI; the consent still applies.
  * @param {string} tenantId
@@ -382,6 +395,26 @@ export function graphApi(http) {
       await http.patch(`/applications/${application.id}`, { requiredResourceAccess: [...others, graph] });
       return true;
     },
+    /**
+     * Takes Graph app roles off the app's required permissions, keeping the rest, and updates
+     * `application` to match. Their admin consent stays until revokeAppRole takes it back.
+     * @param {any} application
+     * @param {{ id: string }[]} appRoles
+     * @returns {Promise<boolean>}  Whether any were there.
+     */
+    async removeRequiredAccess(application, appRoles) {
+      const drop = new Set(appRoles.map((r) => r.id));
+      if (![...declaredGraphRoles(application)].some((id) => drop.has(id))) return false;
+      const current = /** @type {any[]} */ (application.requiredResourceAccess ?? []);
+      const next = current
+        .map((r) =>
+          r.resourceAppId === GRAPH_APP_ID ? { ...r, resourceAccess: r.resourceAccess.filter((/** @type {any} */ a) => !(a.type === 'Role' && drop.has(a.id))) } : r,
+        )
+        .filter((r) => r.resourceAppId !== GRAPH_APP_ID || r.resourceAccess.length);
+      await http.patch(`/applications/${application.id}`, { requiredResourceAccess: next });
+      application.requiredResourceAccess = next;
+      return true;
+    },
 
     /** New apps take a few seconds to replicate, so 400/404 are retried briefly. @param {string} appId */
     createServicePrincipal: (appId) => http.post('/servicePrincipals', { appId }, replicationRetry),
@@ -494,6 +527,13 @@ export function graphApi(http) {
      */
     grantAppRole: (resourceId, principalId, appRoleId) =>
       http.post(`/servicePrincipals/${resourceId}/appRoleAssignedTo`, { principalId, resourceId, appRoleId }, replicationRetry),
+    /**
+     * Takes back one application permission's admin consent. For Graph's roles, that needs a Privileged Role
+     * Administrator or Global Administrator.
+     * @param {string} resourceId  Graph's service principal ID.
+     * @param {string} assignmentId  The app role assignment's ID.
+     */
+    revokeAppRole: (resourceId, assignmentId) => http.del(`/servicePrincipals/${resourceId}/appRoleAssignedTo/${assignmentId}`),
 
     /**
      * Admin consent for a delegated scope for all users. Reuses an existing grant, adding the scope if it's missing.

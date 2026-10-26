@@ -6,7 +6,7 @@
  */
 import { COWORK_DATAFLOW_ACTIVITY } from '../transform/pipeline.js';
 import { commandLine } from '../launch.js';
-import { appItemUrl, shareAppPending, shareAppSteps, VIEWER_GROUP_NAME, myGroupsUrl } from './access.js';
+import { appItemUrl, groupNames, shareAppPending, shareAppSteps, sharedRetiredGroups, VIEWER_GROUP_NAME, myGroupsUrl } from './access.js';
 import { COWORK_DATAFLOW_NAME, coworkSignInSteps } from './consumption.js';
 import { coworkDataflowOn, modelDeployed } from './fabric.js';
 import { connectionSteps, FLOW_NAMES, flowsWanted, ownerLeft, ppApiFlows, ppApiSigner, whoSignsIn } from './flows.js';
@@ -104,6 +104,8 @@ function deployAppStep(config, opts) {
 }
 
 /**
+ * Share the app with the viewer group, and take it off a group that was the viewer group. Fabric has
+ * no API for either, so one "I've shared it" covers both.
  * @param {import('../config.js').InstallConfig} config
  * @param {{ tenantId?: string }} user
  * @returns {NextStep | null}
@@ -111,10 +113,17 @@ function deployAppStep(config, opts) {
 function shareStep(config, user) {
   if (!shareAppPending(config)) return null;
   const group = config.access?.groupName ?? VIEWER_GROUP_NAME;
+  const sharing = config.access?.appShared !== true;
+  const old = sharedRetiredGroups(config);
+  const names = groupNames(old);
+  const [isnt, its, them] = old.length === 1 ? ["isn't", 'its', 'it'] : ["aren't", 'their', 'them'];
+  const off = `${names} ${isnt} the viewer group any more, but ${its} members can still open the app.`;
   return {
     id: 'share-app',
-    title: `Share the app with ${group}`,
-    why: `Once only. Until it's shared, people in the group get "no access" when they open the app. After that, give people access by adding them to the group${config.access?.groupId ? ` (${myGroupsUrl(config.access.groupId)})` : ''}.`,
+    title: sharing ? `Share the app with ${group}` : `Take ${names} off the app`,
+    why: sharing
+      ? `Once only. Until it's shared, people in the group get "no access" when they open the app. After that, give people access by adding them to the group${config.access?.groupId ? ` (${myGroupsUrl(config.access.groupId)})` : ''}.${old.length ? ` ${off} Take ${them} off the app too.` : ''}`
+      : `${off} Fabric has no API to take ${them} off.`,
     who: 'You',
     link: appItemUrl(config, user.tenantId),
     linkText: 'Open the app item in Fabric',

@@ -194,6 +194,15 @@ into Azure Cloud Shell (Bash) after the deploy. `status` prints it again, and it
 under **Requests for your admins**, and at the end of the install under **Still to do by your
 admins**.
 
+**Turning something off.** If you turn off a module or data source that needed a Microsoft Graph
+permission, such as Defender, the next install, **Repair or change** or `update` takes the
+permission back. On Fabric it takes it off the app registration, if the installer created it, and
+takes back its admin consent if you're a Global Administrator or Privileged Role Administrator. On
+Azure it takes the role back from the jobs' managed identity, if you're one of those. Whatever it
+can't take back, the end of an install or Repair asks whoever can, under **Still to do by your
+admins** and in the admin pack. An app registration you brought keeps what it has. See
+[Taking access back](../docs/PERMISSIONS.md#taking-access-back).
+
 ## Azure target
 
 The installer can also set up Analytics Hub in **your Azure subscription**. Start it with
@@ -262,6 +271,14 @@ Re-runs are incremental and use the same
 `valuelens-install.json`, with `target: "azure"` and an `azure` block. The installer tags every Azure
 resource with `valuelens-install-id` and stops rather than modifying untagged resources with colliding
 names.
+
+**Moving the drop folder.** With private networking, if you move the SharePoint folder to another
+site, turn private networking off, or leave the folder nothing to hold, the jobs keep their read on
+the old site: removing a site permission isn't supported with a signed-in user's permissions. The
+end of each install or Repair has an optional request for a SharePoint Administrator, with the PnP
+PowerShell commands to take it back. Once they have, choose **Yes, it's done** when a later install
+or Repair asks. Move the folder back to that site and it keeps the read. See
+[Taking access back](../docs/PERMISSIONS.md#taking-access-back).
 
 ### A large tenant on Azure
 
@@ -444,6 +461,17 @@ The [Azure target](#azure-target) asks the same question. Its advanced settings 
 [networking](#networking), where credits come from,
 [Workday org data](../azure/README.md#workday-org-data), agent configuration and Foundry, and
 [which model Ask uses](#ask).
+
+**Changing the group.** If you choose another group under **Who can view** (**Repair or change**,
+then **Yes**), the installer takes away the Build it gave the old group on each model, including
+the model of a module you've since turned off. Like giving Build, that needs Admin or Member of
+the workspace. If Power BI refuses, the installer says so, and tries again the next time it gives
+the group Build. It doesn't change workspace roles. On Fabric there's no API to take a group off
+the app, so if the app was shared with the old group, **Share the app** asks you to remove it on
+the app's **Manage permissions** page. If the app still needs sharing with the new group, one
+answer covers both. With org-scoped access on, the installer applies the roles again with the new
+group, which takes the old one out of them. Choose the old group again and it keeps its Build and
+its share. See [Taking access back](../docs/PERMISSIONS.md#taking-access-back).
 
 ## After it finishes
 

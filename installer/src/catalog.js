@@ -465,6 +465,22 @@ export function permissionsFor(modules, dataSources) {
   return [...set].sort();
 }
 
+/** Every module on, for the most any choice of modules asks for. @type {Required<ModuleChoice>} */
+const EVERY_MODULE = { orgData: true, m365Activity: true, agent365: true, productFeedback: true, consumption: true, agentEvaluator: true, defender: true };
+
+/**
+ * The Graph application permissions an app registration the installer made no longer needs: every module's, less
+ * permissionsFor's. The installer takes them off it, with their admin consent. Org data's User.Read.All is always
+ * needed, so it's never one of them.
+ * @param {ModuleChoice} modules
+ * @param {import('./uploads.js').DataSourceModes} [dataSources]
+ * @returns {string[]}
+ */
+export function retiredPermissions(modules, dataSources) {
+  const needed = new Set(permissionsFor(modules, dataSources));
+  return permissionsFor(EVERY_MODULE).filter((p) => !needed.has(p));
+}
+
 /**
  * Graph application roles assigned to the Azure managed identity for the selected modules.
  * @param {ModuleChoice} modules
@@ -476,4 +492,12 @@ export function azureGraphRolesFor(modules) {
     for (const p of MODULES[id].azure.graphRoles) set.add(p);
   }
   return [...set].sort();
+}
+
+/**
+ * Every Graph application role azureGraphRolesFor gives the Azure managed identity for some choice of modules.
+ * @returns {string[]}
+ */
+export function everyAzureGraphRole() {
+  return azureGraphRolesFor(EVERY_MODULE);
 }

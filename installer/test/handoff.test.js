@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { test } from 'node:test';
-import { graphRolesCommand } from '../src/admin-commands.js';
+import { graphRolesCommand, graphRolesRevokeCommand } from '../src/admin-commands.js';
 import { apiPermissionsUrl } from '../src/clients/graph.js';
 import { emptyConfig } from '../src/config.js';
 import { HttpError } from '../src/http.js';
@@ -10,7 +10,7 @@ import { checkPrereqs, dataPolicyPrereq, reportFlowPrereqs, reportPreflight, set
 import { LEAST_PRIVILEGE_URL } from '../src/steps/azure/least-privilege.js';
 import { MANAGE_APPS_URL, TEAMS_APP_PENDING } from '../src/steps/azure/teams-catalog.js';
 import { flowsWanted } from '../src/steps/flows.js';
-import { ADMINS, adminRequests, ROW_ASKS } from '../src/steps/handoff.js';
+import { ADMINS, adminRequests, doneRequests, ROW_ASKS } from '../src/steps/handoff.js';
 import { AZURE_ADMIN_SCRIPT_FILE } from '../src/steps/identity.js';
 import { letter } from '../src/steps/next-steps.js';
 import { fakeUi } from './fakes.js';
@@ -223,7 +223,7 @@ test('adminRequests: no request has a secret, a key, a token, a password, a sign
       webApp: { clientId: 'web-1', clientSecret: 'PLANTED-web-secret', secretKeyId: 'PLANTED-web-key' },
       sqlReader: { clientId: 'sql-1', secretKeyId: 'PLANTED-sql-key' },
       jobsApp: { clientId: 'jobs-1' },
-      graphRoles: { assigned: [], pending: ['AuditLog.Read.All', 'AuditLogsQuery.Read.All'] },
+      graphRoles: { assigned: [], pending: ['AuditLog.Read.All', 'AuditLogsQuery.Read.All'], retired: ['ThreatHunting.Read.All'] },
       adminScript: `C:\\Users\\someone\\analytics-hub\\${AZURE_ADMIN_SCRIPT_FILE}`,
       status: { pendingAdminActions: [`Grant delegated consent on ${apiPermissionsUrl('web-1')}`, TEAMS_UPLOAD, OWNER_ACTION, DROP_SITE] },
     }),
@@ -243,7 +243,10 @@ test('adminRequests: no request has a secret, a key, a token, a password, a sign
     assert.deepEqual(requests.map((r) => r.admin), Object.keys(ADMINS).filter((k) => !endOnly.includes(k) && (config.target === 'azure' || k !== 'sharepoint-admin')), config.target);
     const text = JSON.stringify(requests);
     assert.match(text, /az role assignment create --assignee-object-id (\w[\w-]*|\$\(az ad sp show --id \S+ --query id -o tsv\)) --assignee-principal-type ServicePrincipal --role \\"Reader\\"/, 'with the commands');
-    if (config.target === 'azure') assert.match(text, /servicePrincipals\/\$MI\/appRoleAssignments/);
+    if (config.target === 'azure') {
+      assert.match(text, /servicePrincipals\/\$MI\/appRoleAssignments/);
+      assert.match(text, /-m DELETE -u https:\/\/graph\.microsoft\.com\/v1\.0\/servicePrincipals\/\$MI\/appRoleAssignments\/\$ID/, 'with the take-back');
+    }
     assert.doesNotMatch(text, /PLANTED/);
     assert.doesNotMatch(text, /\b(client secrets?|password|passcode|sign-in code|device code|bearer|access token|refresh token)\b/i);
     assert.doesNotMatch(text, /someone|C:\\\\/, 'files go by their names, not their paths');
@@ -281,6 +284,31 @@ test('adminRequests: a Graph role the Azure install lists twice as pending is as
   assert.deepEqual(asks(adminRequests([row({ id: 'audit-ingestion', status: 'met' })], azureConfig({ graphRoles: { pending: ['X'], assigned: ['X'] } }))), []);
 });
 
+test('adminRequests: the Graph roles the Azure install no longer uses and couldn\'t take back go to a role admin, with the command that does', () => {
+  const config = azureConfig({ outputs: { identityPrincipalId: 'mi-1' }, graphRoles: { assigned: [], pending: ['Reports.Read.All'], retired: ['ThreatHunting.Read.All', 'Sites.Selected'] } });
+  const revoke =
+    'Take these Microsoft Graph application permissions back from the Analytics Hub jobs\' managed identity (object ID mi-1), as Analytics Hub no longer uses them: ' +
+    `ThreatHunting.Read.All, Sites.Selected. In Azure Cloud Shell (Bash):\n  ${graphRolesRevokeCommand('mi-1', ['ThreatHunting.Read.All', 'Sites.Selected'])}`;
+  const requests = adminRequests([], config, { from: UPN });
+  assert.deepEqual(
+    requests.map((r) => [r.admin, r.who, r.rows]),
+    [['role-admin', 'A Privileged Role Administrator or Global Administrator', ['Pending admin action']]],
+  );
+  assert.deepEqual(requests[0].asks, [
+    `Give the Analytics Hub jobs' managed identity (object ID mi-1) these Microsoft Graph application permissions: Reports.Read.All. In Azure Cloud Shell (Bash):\n  ${graphRolesCommand('mi-1', ['Reports.Read.All'])}`,
+    revoke,
+  ]);
+  // Before the deploy returns the managed identity, the ask has no command.
+  assert.deepEqual(asks(adminRequests([], azureConfig({ graphRoles: { assigned: [], pending: [], retired: ['ThreatHunting.Read.All'] } }))), [
+    ['role-admin', ['Take these Microsoft Graph application permissions back from the Analytics Hub jobs\' managed identity, as Analytics Hub no longer uses them: ThreatHunting.Read.All.']],
+  ]);
+  assert.deepEqual(adminRequests([], config, { pending: false }), [], 'only with the pending actions');
+  // A Fabric install ignores what an Azure one left.
+  const fabric = plainConfig();
+  fabric.azure = /** @type {any} */ ({ graphRoles: { assigned: [], pending: [], retired: ['ThreatHunting.Read.All'] } });
+  assert.deepEqual(adminRequests([], fabric), []);
+});
+
 test('adminRequests: the Azure install\'s pending admin actions go to the admin who does each, the drop site\'s grant word for word; one it doesn\'t know goes to "An admin" as it is', () => {
   const actions = [`Grant delegated consent on ${apiPermissionsUrl('web-1')}`, TEAMS_UPLOAD, OWNER_ACTION, DROP_SITE, 'Something new: do it.'];
   const config = azureConfig({ webApp: { clientId: 'web-1' }, status: { pendingAdminActions: actions } });
@@ -316,6 +344,29 @@ test('adminRequests: the Azure install\'s pending admin actions go to the admin 
   const fabric = plainConfig();
   fabric.azure = /** @type {any} */ ({ status: { pendingAdminActions: actions }, graphRoles: { pending: ['AuditLog.Read.All'] } });
   assert.deepEqual(adminRequests([], fabric), []);
+});
+
+test('the drop site\'s take-back comes from the install record, not a pending action, so it never routes as the new site\'s grant, and preflight doesn\'t list it', () => {
+  const OLD = 'https://contoso.sharepoint.com/sites/old';
+  const config = azureConfig({
+    outputs: { identityClientId: 'jobs-1' },
+    status: { pendingAdminActions: [DROP_SITE] },
+    retiredDrops: [{ siteUrl: OLD, siteId: 'contoso.sharepoint.com:/sites/old', granted: true }],
+  });
+  const sharepoint = doneRequests(config, { from: UPN }).filter((r) => r.admin === 'sharepoint-admin');
+  assert.equal(sharepoint.length, 1, 'one request for both');
+  assert.deepEqual(sharepoint[0].rows, ['Drop site access', 'Drop site access to take back']);
+  const [grant, takeBack] = sharepoint[0].asks;
+  assert.equal(grant, DROP_SITE, 'the grant word for word');
+  assert.ok(!takeBack.startsWith('Grant-PnPAzureADAppSitePermission '), 'it doesn\'t start as the grant does');
+  assert.ok(takeBack.includes(`\n  Revoke-PnPAzureADAppSitePermission -Site ${OLD} -PermissionId <the Id it shows>`));
+  assert.equal(sharepoint[0].after?.length, 2);
+  assert.match(String(sharepoint[0].after?.[0]), /: it tries this grant again,/, 'the grant\'s, as a pending action');
+  assert.match(String(sharepoint[0].after?.[1]), /choose "Yes, it's done"\.$/, 'the take-back\'s own');
+
+  assert.deepEqual(asks(adminRequests([], config)), [['sharepoint-admin', [DROP_SITE]]], 'preflight: only the pending actions');
+  /** @type {any} */ (config.azure).status.pendingAdminActions = [];
+  assert.deepEqual(adminRequests([], config), []);
 });
 
 test('adminRequests: the Azure web app\'s consent goes with whichever request already approves it, or else to an admin who can', () => {

@@ -61,7 +61,7 @@ import { buildPipeline } from './transform/pipeline.js';
 import { c } from './ui.js';
 import { fabricUninstall } from './steps/fabric-uninstall.js';
 import { askTarget, azureRefresh, azureRotateSecret, azureRun, azureStatus, azureUninstall, azureUpdate, azureViewerModels, confirmAzurePlan, installAzure, planAzure } from './steps/azure/index.js';
-import { accessCommand, ensureViewerGroup, grantModelAccess, myGroupsUrl, shareApp } from './steps/access.js';
+import { accessCommand, ensureViewerGroup, grantModelAccess, myGroupsUrl, shareApp, sharedRetiredGroups } from './steps/access.js';
 import { nextSteps, stepsLeftTitle } from './steps/next-steps.js';
 import { ensureOrgAccess, verifyOrgAccess } from './steps/org-access.js';
 import { reviewSetup } from './setup.js';
@@ -119,6 +119,8 @@ import { reviewSetup } from './setup.js';
  * @property {boolean} [setupRetry] Revalidate saved choices without reopening every question.
  * @property {import('./prereqs.js').PreflightSeen} [preflightSeen]  What install preflight checked and showed, so the flows' rows show once they're chosen.
  * @property {import('./steps/identity.js').HandoffPack} [handoffPack]  What this run has asked admins for so far, for the admin pack.
+ * @property {string[]} [broughtRetired]  Fabric: the Graph application permissions Analytics Hub no longer uses that this run read as
+ *   consented on the app you brought, for an optional request at the end. The installer leaves that app alone.
  */
 
 /**
@@ -364,8 +366,8 @@ export async function install(ctx, opts) {
   const withReports = reportsOn(config);
   const withDataAgent = dataAgentWanted(ctx);
   const withAccess = withModel && !!config.access;
-  // Once, straight after the app is deployed and before the long first load.
-  const withShare = withApp && withAccess && config.access?.appShared !== true;
+  // Once, straight after the app is deployed and before the long first load; again for a replaced group.
+  const withShare = withApp && withAccess && (config.access?.appShared !== true || sharedRetiredGroups(config).length > 0);
   const withViva = withConsumption && config.dataSources.coworkCredits === 'api';
   const titles = [
     'Workspace',
@@ -452,12 +454,13 @@ export async function install(ctx, opts) {
   // confirms what the first check couldn't, now Entra has had time to catch up.
   if (consented) await checkAuditAccess(ctx, { consented });
   if (ctx.checkAudit) await auditProbe(ctx, consented);
-  // Before the first load or refresh, so the models open to viewers as soon as they have data.
-  if ((await ensureOrgAccess(ctx, { refresh: false })) === false) stepsOk = false;
   if (withAccess) {
     step('Viewer access');
     if (await ensureViewerGroup(ctx)) await grantModelAccess(ctx, fabricViewerModels(config));
   }
+  // After the viewer step, which can make the group again or find another: the roles' members are
+  // the group. Before the first load or refresh, so the models open to viewers as soon as they have data.
+  if ((await ensureOrgAccess(ctx, { refresh: false })) === false) stepsOk = false;
   let appDeployed = true;
   /** @type {{ since: number, workspaceId?: string, deployedAt?: string } | undefined} */
   let appFailure;
@@ -1024,6 +1027,7 @@ export async function summary(ctx, opts = {}) {
     transcripts: transcriptAsks(ctx),
     carried: askedRows(ctx),
     vault: secretMode(config) === 'keyvault-admin' && !config.keyVault.secretSetAt ? [vaultAsk(ctx)] : [],
+    broughtRetired: ctx.broughtRetired,
   });
   ui.doneRequests(requests);
   writeHandoffPack(ctx, { done: requests });

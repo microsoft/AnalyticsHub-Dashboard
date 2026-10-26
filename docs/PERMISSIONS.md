@@ -273,6 +273,7 @@ A model definition deploy drops role members, so after every deploy the installe
 | You turn it on | Everyone in the viewer group now, and you, get an `all` scope, so nobody loses anything. The models are redeployed with the roles, the members are applied, the models refresh and the installer checks a seeded person sees everyone |
 | Upgrade or Repair with it on | Any model redeploy is followed by applying the members again and checking. The scopes are untouched |
 | Someone joins the viewer group later | They see nothing until you give them a scope (or you add a default `*` scope) |
+| You choose another viewer group | The install or Repair that changes it applies the members again with the new group, which takes the old one out of the **Scoped viewers** role. The scopes are untouched |
 | You turn it off | The models are redeployed without the roles or access tables. The scopes are kept for if you turn it on again |
 
 **Giving scopes from the Share panel (Azure).** With org-scoped access on, **Share** in the Azure app has a **What people see** section:
@@ -295,6 +296,67 @@ Caveats:
 - Scopes other than `all` change at the next scheduled load. **Apply now** in `access` reloads and refreshes straight away; a new `all` scope needs it, since it changes role members.
 - Totals on a scoped viewer's pages, licence counts included, are for the people they can see.
 - Hiding names from scoped viewers isn't part of this. The app's minimum-group-size rules still apply.
+
+---
+
+## Taking access back
+
+When you turn a module or data source off, the next install, **Repair or change** or `update`
+takes back the Microsoft Graph permissions the installer gave for it that nothing you still use
+needs. When you choose another viewer group, it takes back what it gave the old group. When you
+move Azure's SharePoint drop folder, it asks for the jobs' read on the old site back. It takes
+back only what the installer gave, and only what a check shows is still there.
+Where your role lets you, the run does it. Otherwise it says who can, and the end of an install or
+Repair asks them, under **Still to do by your admins** and in their file in the admin pack. Each
+run checks again, and stops asking once it's gone. When something can't be taken back, the
+install carries on.
+
+- **The Fabric app's Graph permissions**, such as `ThreatHunting.Read.All` and
+  `CloudApp-Discovery.Read.All` when you turn Defender off, or `CopilotPackages.Read.All` and
+  `Application.Read.All` when the **Agent 365 registry** card is no longer set to **Connected**.
+  If the installer created the app, it takes them off the app's API permissions. If Entra doesn't
+  let you change the app, the request goes to one of the app's owners, an **Application
+  Administrator** or a **Cloud Application Administrator**, with the link to its API permissions
+  page. `User.Read.All` always stays: the org data needs it.
+- **Their admin consent.** If you're a **Global Administrator** or **Privileged Role
+  Administrator**, the installer revokes it. Otherwise the request goes to one of them, with the
+  steps in the Microsoft Entra admin center: **Enterprise apps**, the app, **Permissions**, the
+  **Admin consent** tab, then **Revoke permission** for each.
+- **An app registration you brought** keeps what it has, in case something else uses it. If it
+  still has admin consent for permissions Analytics Hub no longer uses, the end of an install or
+  Repair has an optional request to a Global Administrator or Privileged Role Administrator to
+  take it back. Taking the permissions off the app itself needs one of its owners or an app admin.
+- **The jobs' managed identity's Graph roles** (Azure), such as `ReportSettings.Read.All` when
+  you turn Microsoft 365 activity off, or `Sites.Selected` when the jobs no longer read a
+  SharePoint drop folder. If you're a Global Administrator or Privileged Role Administrator, the
+  installer revokes them. Otherwise the request goes to one of them, with a command for Azure
+  Cloud Shell (Bash). A role still waiting for an admin to give it is dropped from that request.
+- **The old viewer group**, when you choose another one under **Who can view**. Each time the
+  installer gives the viewer group Build (an install, a Repair, or `access`), it takes the Build
+  it gave the old group off each model through the Power BI API, including the model of a module
+  you've since turned off. Like giving Build, that needs Admin or Member of the workspace, so
+  nobody else is asked: if Power BI refuses, the run says so, and the next one to give Build tries
+  again. It doesn't change workspace roles, so it can't take away access a workspace role gives.
+  On Fabric there's no API to take a group off the app, so if the app was shared with the old
+  group, the **Share the app** step asks you to remove it on the app's **Manage permissions**
+  page. With [org-scoped access](#org-scoped-access-row-level-security) on, the members are
+  applied again with the new group, which takes the old one out of the roles. Choosing the old
+  group again keeps its Build and its share.
+- **The jobs' read on an old SharePoint drop site** (Azure, with private networking), when you
+  move the drop folder to another site, turn private networking off, or leave the folder nothing
+  to hold, such as when credit consumption reads only Azure AI. Removing a site permission isn't
+  supported with a signed-in user's permissions, so the installer can't do it, and doesn't check
+  whether it's done. The end of an install or Repair has an optional request to a **SharePoint
+  Administrator**, with two PnP PowerShell commands to run connected app-only, as an app with the
+  `Sites.FullControl.All` application permission. The request stays until a later install or
+  Repair asks whether it's done and you choose **Yes, it's done**, or until you move the folder
+  back to that site, which keeps the read. When you turn off credit consumption, Agent 365,
+  product feedback and the Workday file, the installer keeps the folder for when you turn one
+  back on, and nobody's asked: taking `Sites.Selected` back leaves the read unused.
+
+It leaves the **Global Reader** role it gave for the agents (see
+[Azure Resource Graph](#azure-resource-graph)), the Azure roles, and the Azure web app's delegated
+permissions.
 
 ---
 

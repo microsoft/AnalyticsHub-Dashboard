@@ -1,12 +1,12 @@
 // @ts-check
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { accessCommand, accessReview, ensureViewerGroup, grantModelAccess, myGroupsUrl, NEW_GROUP_ATTEMPTS, NEW_GROUP_RETRY_MS, planAccess, publicAccess, VIEWER_GROUP_NAME } from '../src/steps/access.js';
+import { accessCommand, accessReview, ensureViewerGroup, grantModelAccess, myGroupsUrl, NEW_GROUP_ATTEMPTS, NEW_GROUP_RETRY_MS, planAccess, publicAccess, recordedModels, sharedRetiredGroups, VIEWER_GROUP_NAME } from '../src/steps/access.js';
 import { fabricConfigFile } from '../src/steps/app.js';
 import { azureViewerModels, webAccess } from '../src/steps/azure/index.js';
 import { fabricViewerModels } from '../src/install.js';
 import { HttpError } from '../src/http.js';
-import { fakeCtx, fakeUi } from './fakes.js';
+import { fakeCtx, fakeUi, httpError } from './fakes.js';
 
 /** A directory with a few groups and users, recording what was changed. */
 function directory() {
@@ -62,8 +62,15 @@ function datasets() {
   const denied = new Set();
   /** How many more times each model rejects a group Power BI hasn't seen yet. @type {Record<string, number>} */
   const unseen = {};
+  /** Models whose users Power BI won't list. @type {Set<string>} */
+  const unreadable = new Set();
+  /** What taking a group's access away throws, by "<model> <group>". @type {Record<string, Error>} */
+  const removeErrors = {};
   const powerBi = {
-    datasetUsers: async (/** @type {string} */ _ws, /** @type {string} */ ds) => users[ds] ?? [],
+    datasetUsers: async (/** @type {string} */ _ws, /** @type {string} */ ds) => {
+      if (unreadable.has(ds)) throw new HttpError('Forbidden', { status: 403, method: 'GET', url: 'https://x' });
+      return users[ds] ?? [];
+    },
     addDatasetUser: async (/** @type {string} */ ws, /** @type {string} */ ds, /** @type {any} */ body) => {
       if (denied.has(ds)) throw new HttpError('Forbidden', { status: 403, method: 'POST', url: 'https://x' });
       if (unseen[ds] > 0) {
@@ -73,8 +80,30 @@ function datasets() {
       calls.push(`${ws}/${ds} ${body.identifier} ${body.principalType} ${body.datasetUserAccessRight}`);
       (users[ds] ??= []).push(body);
     },
+    updateDatasetUser: async (/** @type {string} */ ws, /** @type {string} */ ds, /** @type {any} */ body) => {
+      const err = removeErrors[`${ds} ${body.identifier}`];
+      if (err) throw err;
+      calls.push(`${ws}/${ds} ${body.identifier} ${body.principalType} ${body.datasetUserAccessRight}`);
+      users[ds] = (users[ds] ?? []).filter((u) => String(u.identifier).toLowerCase() !== String(body.identifier).toLowerCase());
+      if (body.datasetUserAccessRight !== 'None') users[ds].push(body);
+    },
   };
-  return { powerBi, users, calls, denied, unseen };
+  return { powerBi, users, calls, denied, unseen, unreadable, removeErrors };
+}
+
+/** A group's Build on a model, as Power BI lists it. @param {string} id */
+const build = (id) => ({ identifier: id, principalType: 'Group', datasetUserAccessRight: 'ReadExplore' });
+
+/**
+ * A Fabric install's record with the main model and the Consumption model deployed.
+ * @param {import('../src/config.js').InstallConfig} config
+ */
+function withModels(config) {
+  config.semanticModel.enabled = true;
+  config.semanticModel.id = 'ds-vl';
+  config.modules.consumption = true;
+  config.consumption.model.id = 'ds-cc';
+  return config;
 }
 
 const MODELS = [{ workspaceId: 'ws-1', datasetId: 'ds-vl', name: 'ValueLens' }, { workspaceId: 'ws-1', datasetId: 'ds-cc', name: 'Credits' }];
@@ -271,4 +300,186 @@ test('access: each target grants Build on the models its app queries', () => {
   assert.deepEqual(fabricViewerModels(config).map((m) => `${m.workspaceId}/${m.datasetId}`), ['ws-1/ds-vl']);
   config.modules.consumption = false;
   assert.deepEqual(azureViewerModels(config).map((m) => m.datasetId), ['az-vl', 'az-ae'], 'a Consumption model kept after an untick gets no new grants');
+});
+
+/** @typedef {import('../src/config.js').AccessConfig} AccessConfig */
+
+test('access: Build is taken back on every model the record has, a turned-off module\'s included, on both targets', () => {
+  const { config } = fakeCtx();
+  withModels(config);
+  config.modules.consumption = false;
+  config.agentEvaluator.model.id = 'ds-ae';
+  assert.deepEqual(fabricViewerModels(config).map((m) => m.datasetId), ['ds-vl']);
+  const all = ['ws-1/ds-vl Analytics Hub Model', 'ws-1/ds-cc Analytics Hub Consumption Model', 'ws-1/ds-ae Analytics Hub Agent Evaluator Model'];
+  assert.deepEqual(recordedModels(config).map((m) => `${m.workspaceId}/${m.datasetId} ${m.name}`), all);
+  config.semanticModel.enabled = false;
+  assert.deepEqual(fabricViewerModels(config), []);
+  assert.equal(recordedModels(config).length, 3, 'nor does the main model being off matter');
+
+  config.target = 'azure';
+  config.azure = { powerBi: { workspaceId: 'pbi-ws', datasetId: 'az-vl', consumptionDatasetId: 'az-cc' } };
+  assert.deepEqual(azureViewerModels(config).map((m) => m.datasetId), ['az-vl']);
+  assert.deepEqual(recordedModels(config).map((m) => `${m.workspaceId}/${m.datasetId}`), ['pbi-ws/az-vl', 'pbi-ws/az-cc'], "Azure's, not Fabric's");
+  config.azure = { powerBi: { datasetId: 'az-vl' } };
+  assert.deepEqual(recordedModels(config), [], 'nothing without a workspace');
+});
+
+test('access: choosing another viewer group takes away the Build the installer gave the old one, on every model', async () => {
+  const dir = directory();
+  dir.groups.set('g-9', { id: 'g-9', displayName: 'Copilot Leads', members: [], owners: [] });
+  dir.groups.set('g-8', { id: 'g-8', displayName: 'Copilot Pilots', members: [], owners: [] });
+  const pbi = datasets();
+  pbi.users['ds-vl'] = [build('g-9')];
+  pbi.users['ds-cc'] = [build('G-9')];
+  const { ui, text } = fakeUi({ answers: ['existing', 'Copilot Pilots', 'leads@contoso.com', ''] });
+  const { ctx } = fakeCtx({ graph: dir.graph, powerBi: pbi.powerBi, ui });
+  withModels(ctx.config).modules.consumption = false;
+  const before = { groupId: 'g-9', groupName: 'Copilot Leads', createdGroup: false, contact: 'leads@contoso.com', grantedModels: ['ds-vl', 'ds-cc'], appShared: true };
+  const record = (ctx.config.access = structuredClone(before));
+  await planAccess(ctx);
+  assert.deepEqual(record, before, 'the plan works on a copy, so the record is unchanged until it finishes');
+  const a = /** @type {AccessConfig} */ (ctx.config.access);
+  assert.deepEqual(
+    { groupId: a.groupId, grantedModels: a.grantedModels, retiredGroups: a.retiredGroups, appShared: a.appShared },
+    { groupId: 'g-8', grantedModels: [], retiredGroups: [{ groupId: 'g-9', groupName: 'Copilot Leads', datasets: ['ds-vl', 'ds-cc'], appShared: true }], appShared: undefined },
+  );
+  const review = () => accessReview(ctx.config, 'Workspace X').grants.map((g) => `${g.who}: ${g.what}`);
+  assert.deepEqual(review(), ['Copilot Pilots (group): Build (ReadExplore)', 'Copilot Leads (group): Build removed']);
+
+  // The Consumption module is off, so the new group gets Build on the main model only, but the old
+  // group loses the Build it had on both.
+  await grantModelAccess(ctx, fabricViewerModels(ctx.config));
+  assert.deepEqual(pbi.calls, ['ws-1/ds-vl g-8 Group ReadExplore', 'ws-1/ds-vl g-9 Group None', 'ws-1/ds-cc g-9 Group None']);
+  assert.match(text(), /✓ Copilot Leads no longer has Build on Analytics Hub Model\n/);
+  assert.match(text(), /✓ Copilot Leads no longer has Build on Analytics Hub Consumption Model\n/);
+  assert.deepEqual(a.grantedModels, ['ds-vl']);
+  assert.deepEqual(a.retiredGroups, [{ groupId: 'g-9', groupName: 'Copilot Leads', datasets: [], appShared: true }], 'the app is still shared with it');
+  assert.deepEqual(sharedRetiredGroups(ctx.config).map((g) => g.groupId), ['g-9']);
+  assert.deepEqual(review(), ['Copilot Pilots (group): Build (ReadExplore)']);
+});
+
+test('access: a group chosen again keeps its Build and its share, and so does one the new-group step finds by name', async () => {
+  const dir = directory();
+  dir.groups.set('g-9', { id: 'g-9', displayName: 'Copilot Leads', members: [], owners: [] });
+  /** @param {any[]} answers @param {AccessConfig} access */
+  const plan = async (answers, access) => {
+    const t = fakeCtx({ graph: dir.graph, ui: fakeUi({ answers }).ui });
+    t.config.access = access;
+    await planAccess(t.ctx);
+    return /** @type {AccessConfig} */ (t.config.access);
+  };
+
+  const back = await plan(['existing', 'Copilot Leads', 'leads@contoso.com', ''], {
+    groupId: 'g-8',
+    groupName: 'Copilot Pilots',
+    grantedModels: [],
+    retiredGroups: [{ groupId: 'G-9', groupName: 'Copilot Leads', datasets: ['ds-vl'], appShared: true }],
+  });
+  assert.deepEqual({ groupId: back.groupId, grantedModels: back.grantedModels, appShared: back.appShared }, { groupId: 'g-9', grantedModels: ['ds-vl'], appShared: true });
+  assert.equal(back.retiredGroups, undefined, 'and the group it left had nothing from the installer');
+
+  const named = await plan(['new', 'admin@contoso.com', ''], { groupId: 'g-7', groupName: VIEWER_GROUP_NAME.toUpperCase(), createdGroup: false, grantedModels: ['ds-vl'] });
+  assert.equal(named.groupId, undefined, 'the install looks the group up by name');
+  assert.equal(named.retiredGroups, undefined);
+  assert.deepEqual(named.grantedModels, ['ds-vl']);
+
+  // A group still listed from an earlier switch, as when the install stopped before taking its Build away.
+  const again = await plan(['existing', 'Copilot Leads', 'leads@contoso.com', ''], {
+    groupId: 'g-1',
+    groupName: VIEWER_GROUP_NAME,
+    createdGroup: true,
+    grantedModels: ['ds-cc'],
+    appShared: true,
+    retiredGroups: [{ groupId: 'g-1', datasets: ['ds-vl'] }, { groupId: 'g-2', datasets: ['ds-x'] }],
+  });
+  assert.deepEqual(again.retiredGroups, [{ groupId: 'g-2', datasets: ['ds-x'] }, { groupId: 'g-1', groupName: VIEWER_GROUP_NAME, datasets: ['ds-vl', 'ds-cc'], appShared: true }]);
+  assert.equal(again.appShared, undefined, 'the app is not shared with Copilot Leads yet');
+
+  // Back to a new group: Copilot Leads is retired, and the group the install finds by name is the
+  // one it made before, so it gets back its Build and its share.
+  dir.groups.set('g-1', { id: 'g-1', displayName: VIEWER_GROUP_NAME, members: [], owners: ['user-1'] });
+  const t = fakeCtx({ graph: dir.graph, ui: fakeUi({ answers: ['new', 'admin@contoso.com', ''] }).ui });
+  t.config.access = { ...again, grantedModels: ['ds-cc'] };
+  await planAccess(t.ctx);
+  const found = await ensureViewerGroup(t.ctx);
+  assert.equal(found?.id, 'g-1');
+  const a = /** @type {AccessConfig} */ (t.config.access);
+  assert.deepEqual({ groupId: a.groupId, grantedModels: a.grantedModels, appShared: a.appShared }, { groupId: 'g-1', grantedModels: ['ds-vl', 'ds-cc'], appShared: true });
+  assert.deepEqual(a.retiredGroups, [{ groupId: 'g-2', datasets: ['ds-x'] }, { groupId: 'g-9', groupName: 'Copilot Leads', datasets: ['ds-cc'] }]);
+});
+
+test('access: taking Build from old viewer groups skips what is already gone, and keeps what failed for next time', async () => {
+  const dir = directory();
+  dir.groups.set('g-5', { id: 'g-5', displayName: 'Old D', members: [], owners: [] });
+  const pbi = datasets();
+  pbi.users['ds-vl'] = [build('g-1'), build('g-2'), build('g-4')];
+  pbi.users['ds-cc'] = [build('g-1'), build('g-5'), build('g-6')];
+  pbi.removeErrors['ds-vl g-4'] = httpError(404);
+  pbi.removeErrors['ds-cc g-5'] = httpError(500, 'Server error');
+  pbi.removeErrors['ds-cc g-6'] = httpError(400, 'Bad request');
+  const { ui, text } = fakeUi();
+  const { ctx } = fakeCtx({ graph: dir.graph, powerBi: pbi.powerBi, ui });
+  withModels(ctx.config);
+  /** @type {AccessConfig} */
+  const a = {
+    groupId: 'g-1',
+    groupName: VIEWER_GROUP_NAME,
+    retiredGroups: [
+      { groupId: 'G-1', datasets: ['ds-vl'] }, // the viewer group again, as the new-group step found it by name
+      { groupId: 'g-2', groupName: 'Old A', datasets: ['ds-vl', 'ds-gone'] },
+      { groupId: 'g-3', groupName: 'Old B', datasets: ['ds-cc'] }, // someone took it off already
+      { groupId: 'g-4', datasets: ['ds-vl'] },
+      { groupId: 'g-5', groupName: 'Old D', datasets: ['ds-cc'] },
+      { groupId: 'g-6', groupName: 'Deleted', datasets: ['ds-cc'], appShared: true },
+    ],
+  };
+  ctx.config.access = a;
+  assert.deepEqual(
+    accessReview(ctx.config, 'X').grants.map((g) => g.who),
+    [`${VIEWER_GROUP_NAME} (group)`, 'Old A (group)', 'Old B (group)', 'g-4 (group)', 'Old D (group)', 'Deleted (group)'],
+  );
+  await grantModelAccess(ctx, fabricViewerModels(ctx.config));
+  assert.deepEqual(pbi.calls, ['ws-1/ds-vl g-2 Group None'], 'never a model the record does not have');
+  assert.match(text(), /✓ Old A no longer has Build on Analytics Hub Model\n/);
+  assert.match(text(), /! Couldn't take away Old D's Build on Analytics Hub Consumption Model: Server error\n/);
+  assert.match(text(), /Remove Old D from the model's Manage permissions page, or the installer tries again next time\./);
+  assert.doesNotMatch(text(), /Old B|g-4|Deleted|G-1/);
+  assert.deepEqual(a.retiredGroups, [{ groupId: 'g-5', groupName: 'Old D', datasets: ['ds-cc'] }], "a deleted group's share went with it");
+  assert.ok(pbi.users['ds-vl'].some((u) => u.identifier === 'g-1'), 'the viewer group keeps its Build');
+  assert.deepEqual(a.grantedModels, ['ds-vl', 'ds-cc']);
+
+  // Next time it works, though Power BI won't list the model's users.
+  delete pbi.removeErrors['ds-cc g-5'];
+  pbi.unreadable.add('ds-cc');
+  pbi.calls.length = 0;
+  await grantModelAccess(ctx, fabricViewerModels(ctx.config));
+  assert.deepEqual(pbi.calls, ['ws-1/ds-cc g-1 Group ReadExplore', 'ws-1/ds-cc g-5 Group None']);
+  assert.equal(a.retiredGroups, undefined);
+
+  // With no model recorded, nothing is taken away or forgotten.
+  ctx.config.semanticModel.id = undefined;
+  ctx.config.consumption.model.id = undefined;
+  dir.groups.set('g-7', { id: 'g-7', displayName: 'Old E', members: [], owners: [] });
+  a.retiredGroups = [{ groupId: 'g-7', datasets: ['ds-vl'], appShared: true }];
+  pbi.calls.length = 0;
+  await grantModelAccess(ctx, []);
+  assert.deepEqual(pbi.calls, []);
+  assert.deepEqual(a.retiredGroups, [{ groupId: 'g-7', datasets: ['ds-vl'], appShared: true }]);
+});
+
+test('access: the access command\'s grants take the old group\'s Build away too, and Azure has no app to take it off', async () => {
+  const dir = directory();
+  dir.groups.set('g-1', { id: 'g-1', displayName: VIEWER_GROUP_NAME, members: [], owners: ['user-1'] });
+  dir.groups.set('g-9', { id: 'g-9', displayName: 'Copilot Leads', members: [], owners: [] });
+  const pbi = datasets();
+  pbi.users['az-vl'] = [build('g-1'), build('g-9')];
+  const { ui } = fakeUi({ answers: ['grants', 'done'] });
+  const { ctx, config } = fakeCtx({ graph: dir.graph, powerBi: pbi.powerBi, ui });
+  config.target = 'azure';
+  config.azure = { powerBi: { workspaceId: 'pbi-ws', datasetId: 'az-vl' } };
+  config.access = { groupId: 'g-1', groupName: VIEWER_GROUP_NAME, retiredGroups: [{ groupId: 'g-9', groupName: 'Copilot Leads', datasets: ['az-vl'], appShared: true }] };
+  assert.deepEqual(sharedRetiredGroups(config), []);
+  await accessCommand(ctx, azureViewerModels(config));
+  assert.deepEqual(pbi.calls, ['pbi-ws/az-vl g-9 Group None']);
+  assert.equal(config.access.retiredGroups, undefined);
 });

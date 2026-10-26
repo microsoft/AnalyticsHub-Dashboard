@@ -1,6 +1,7 @@
 // @ts-check
 /**
- * Commands an admin pastes into Azure Cloud Shell (Bash) to give Analytics Hub's app or managed identity a role.
+ * Commands an admin pastes into Azure Cloud Shell (Bash) to give Analytics Hub's app or managed identity a role, or
+ * take one back.
  * They name the principal by its object ID, never its application (client) ID, and hold no secrets. This module
  * imports nothing from steps/, so any step can use it without a load-order cycle.
  */
@@ -51,5 +52,25 @@ export function graphRolesCommand(principalId, roles) {
     'if [ -n "$ROLE" ]; then az rest -m POST -u https://graph.microsoft.com/v1.0/servicePrincipals/$MI/appRoleAssignments ' +
     '-b "{\\"principalId\\": \\"$MI\\", \\"resourceId\\": \\"$GRAPH\\", \\"appRoleId\\": \\"$ROLE\\"}" -o none; ' +
     'else echo "Skipped $P: not in this tenant yet"; fi; done'
+  );
+}
+
+/**
+ * The counterpart of graphRolesCommand: one line that takes Microsoft Graph application permissions (app roles) back
+ * from a managed identity, each once. It looks up each role's ID as the grant does, finds the managed identity's
+ * assignment of it, and deletes that. Where there's nothing to remove, it says so. Only a Privileged Role
+ * Administrator or Global Administrator can take back Microsoft Graph app roles.
+ * @param {string} principalId  The managed identity's principal (object) ID.
+ * @param {string[]} roles  Such as ThreatHunting.Read.All.
+ */
+export function graphRolesRevokeCommand(principalId, roles) {
+  return (
+    `MI=${principalId}; GRAPH=$(az ad sp show --id ${GRAPH_APP_ID} --query id -o tsv); ` +
+    `for P in ${[...new Set(roles)].join(' ')}; do ` +
+    'ROLE=$(az ad sp show --id $GRAPH --query "appRoles[?value==\'$P\'].id | [0]" -o tsv); ID=; ' +
+    'if [ -n "$ROLE" ]; then ID=$(az rest -m GET -u https://graph.microsoft.com/v1.0/servicePrincipals/$MI/appRoleAssignments ' +
+    '--query "value[?appRoleId==\'$ROLE\' && resourceId==\'$GRAPH\'].id | [0]" -o tsv); fi; ' +
+    'if [ -n "$ID" ]; then az rest -m DELETE -u https://graph.microsoft.com/v1.0/servicePrincipals/$MI/appRoleAssignments/$ID -o none; ' +
+    'else echo "Skipped $P: nothing to remove"; fi; done'
   );
 }

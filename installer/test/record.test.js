@@ -205,6 +205,89 @@ test('record: when two commands change the same field the later save wins; a fie
     }
   }));
 
+test("record: what's left to take back is kept; once it's taken back, another command's save doesn't bring it back", () =>
+  inDir((dir) => {
+    const file = join(dir, 'valuelens-install.json');
+    const first = record();
+    Object.assign(first.app, { appId: 'app-1', existing: false, retiredPermissions: ['ThreatHunting.Read.All'], retiredConsent: ['ThreatHunting.Read.All'] });
+    const firstAzure = /** @type {any} */ (first.azure ??= /** @type {any} */ ({}));
+    firstAzure.graphRoles = { assigned: ['User.Read.All'], pending: [], retired: ['Sites.Selected'] };
+    saveConfig(file, first);
+    const install = loadConfig(file).config;
+    assert.deepEqual(install.app, first.app);
+    assert.deepEqual(install.azure?.graphRoles, firstAzure.graphRoles);
+
+    const other = loadConfig(file).config;
+    other.schedule.time = '04:00';
+    saveConfig(file, other);
+    delete install.app.retiredConsent;
+    delete (/** @type {any} */ (install.azure)).graphRoles.retired;
+    saveConfig(file, install);
+    const saved = loadConfig(file).config;
+    assert.equal(saved.app.retiredConsent, undefined);
+    assert.deepEqual(saved.app.retiredPermissions, ['ThreatHunting.Read.All']);
+    assert.equal(saved.app.existing, false);
+    assert.deepEqual(saved.azure?.graphRoles, { assigned: ['User.Read.All'], pending: [] });
+    assert.equal(saved.schedule.time, '04:00');
+
+    writeFileSync(file, JSON.stringify({ version: 1, azure: { graphRoles: { assigned: [], pending: [], retired: [] } } }));
+    assert.equal('retired' in (/** @type {any} */ (loadConfig(file).config.azure)).graphRoles, false, 'an empty list is dropped');
+  }));
+
+test('record: an old viewer group is kept until its access is taken back, and so is the group the roles were applied with', () =>
+  inDir((dir) => {
+    const file = join(dir, 'valuelens-install.json');
+    const first = record();
+    first.access = {
+      groupId: 'g-2',
+      groupName: 'Analytics Hub Viewers',
+      grantedModels: ['ds-vl'],
+      retiredGroups: [{ groupId: 'g-1', groupName: 'Copilot Leads', datasets: ['ds-vl', 'ds-cc'], appShared: true }],
+      rls: { enabled: true, orgAttribute: 'department', applied: ['ds-vl'], appliedGroupId: 'g-2' },
+    };
+    saveConfig(file, first);
+    const install = loadConfig(file).config;
+    assert.deepEqual(install.access, first.access);
+
+    const other = loadConfig(file).config;
+    other.schedule.time = '04:00';
+    saveConfig(file, other);
+    delete (/** @type {import('../src/config.js').AccessConfig} */ (install.access)).retiredGroups;
+    saveConfig(file, install);
+    const saved = loadConfig(file).config;
+    assert.equal(saved.access?.retiredGroups, undefined);
+    assert.equal(saved.access?.rls?.appliedGroupId, 'g-2');
+    assert.equal(saved.schedule.time, '04:00');
+
+    writeFileSync(file, JSON.stringify({ version: 1, access: { groupId: 'g-2', retiredGroups: [{ groupId: 'g-1' }] } }));
+    assert.deepEqual(loadConfig(file).config.access?.retiredGroups, [{ groupId: 'g-1', datasets: [] }], 'a group without its models has none');
+  }));
+
+test('record: a SharePoint site the drop folder left is kept until you say its read is taken back, and another command\'s save doesn\'t bring it back', () =>
+  inDir((dir) => {
+    const file = join(dir, 'valuelens-install.json');
+    const first = record();
+    const old = { siteUrl: 'https://contoso.sharepoint.com/sites/old', siteId: 'contoso.sharepoint.com:/sites/old', folderUrl: 'https://contoso.sharepoint.com/sites/old/Shared Documents/AH', granted: true, appId: 'mi-client', shownAt: '2026-06-01T12:00:00.000Z' };
+    first.target = 'azure';
+    first.azure = /** @type {any} */ ({ ...first.azure, drop: { siteUrl: 'https://contoso.sharepoint.com/sites/new', siteId: 'contoso.sharepoint.com:/sites/new', granted: false }, retiredDrops: [old] });
+    saveConfig(file, first);
+    const install = loadConfig(file).config;
+    assert.deepEqual(install.azure?.retiredDrops, [old]);
+
+    const other = loadConfig(file).config;
+    other.schedule.time = '04:00';
+    saveConfig(file, other);
+    delete (/** @type {import('../src/config.js').AzureConfig} */ (install.azure)).retiredDrops;
+    saveConfig(file, install);
+    const saved = loadConfig(file).config;
+    assert.equal(saved.azure?.retiredDrops, undefined);
+    assert.equal(saved.azure?.drop?.siteUrl, 'https://contoso.sharepoint.com/sites/new');
+    assert.equal(saved.schedule.time, '04:00');
+
+    writeFileSync(file, JSON.stringify({ version: 1, target: 'azure', azure: { retiredDrops: [] } }));
+    assert.equal('retiredDrops' in (/** @type {any} */ (loadConfig(file).config.azure)), false, 'an empty list is dropped');
+  }));
+
 test('record: a record saved to another file, such as the setup draft, is written as it is', () =>
   inDir((dir) => {
     const file = join(dir, 'valuelens-install.json');

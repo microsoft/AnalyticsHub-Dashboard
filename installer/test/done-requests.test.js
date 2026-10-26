@@ -3,7 +3,7 @@
 // run, in the terminal. The Done page's are in setup-page.test.js, and each module's own asks in its tests.
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { graphRolesCommand, roleAssignmentCommand } from '../src/admin-commands.js';
+import { graphRolesCommand, graphRolesRevokeCommand, roleAssignmentCommand } from '../src/admin-commands.js';
 import { apiPermissionsUrl, GLOBAL_ADMIN_ROLE } from '../src/clients/graph.js';
 import { emptyConfig } from '../src/config.js';
 import { summary } from '../src/install.js';
@@ -13,7 +13,7 @@ import { PURVIEW_AUDIT_URL } from '../src/steps/audit-check.js';
 import { azureSummary } from '../src/steps/azure/index.js';
 import { MANAGE_APPS_URL, TEAMS_APP_PENDING } from '../src/steps/azure/teams-catalog.js';
 import { flowsWanted } from '../src/steps/flows.js';
-import { ADMINS, adminRequests, doneRequests, isGlobalAdmin, namesState, namesWanted, requestsFor, ROW_ASKS } from '../src/steps/handoff.js';
+import { ADMINS, adminRequests, APP_OWNER_ADMIN, doneRequests, isGlobalAdmin, namesState, namesWanted, requestsFor, ROW_ASKS } from '../src/steps/handoff.js';
 import { vaultAsk } from '../src/steps/identity.js';
 import { CONCEALED_NAMES_AFTER, CONCEALED_NAMES_STEPS } from '../src/steps/next-steps.js';
 import { AGENT_ROLE, globalReaderCommand, readerCommand, resourceGraphScope } from '../src/steps/resource-graph.js';
@@ -393,6 +393,143 @@ test('done requests: Azure\'s pending admin actions and Graph roles go to the ad
   assert.deepEqual(doneRequests(config).map((r) => r.admin), ['global-admin'], 'nothing pending, nothing asked');
 });
 
+test('done requests: the Graph roles Azure\'s jobs no longer use and the run couldn\'t take back go to a role admin, with the command that does', () => {
+  const config = azureConfig({ graphRoles: { assigned: [], pending: ['Reports.Read.All'], retired: ['ThreatHunting.Read.All', 'Sites.Selected'] } });
+  const requests = doneRequests(config, { from: UPN });
+  assert.deepEqual(requests.map((r) => r.admin), ['role-admin', 'global-admin']);
+  const roles = /** @type {AdminRequest} */ (to(requests, 'role-admin'));
+  assert.deepEqual(roles.rows, ['Microsoft Graph roles', 'Microsoft Graph roles to take back']);
+  assert.equal(
+    roles.asks[1],
+    `Take these Microsoft Graph application permissions back from the Analytics Hub jobs' managed identity (object ID ${MI}), as Analytics Hub no longer uses them: ` +
+      `ThreatHunting.Read.All, Sites.Selected. In Azure Cloud Shell (Bash):\n  ${graphRolesRevokeCommand(MI, ['ThreatHunting.Read.All', 'Sites.Selected'])}`,
+  );
+  assert.deepEqual(roles.after, [
+    `${REPAIR}: it tries each of these roles again.`,
+    `${REPAIR}: it checks the managed identity's roles again, and stops listing these once they're gone.`,
+  ]);
+  assert.equal(roles.optional, undefined);
+  /** @type {any} */ (config.azure).graphRoles = { assigned: [], pending: [] };
+  assert.equal(to(doneRequests(config), 'role-admin'), undefined, 'nothing once a run finds them gone');
+});
+
+test('done requests: a SharePoint site the drop folder left is an optional ask of a SharePoint Administrator, with the PnP commands that take the jobs\' read back', () => {
+  const OLD = 'https://contoso.sharepoint.com/sites/old';
+  const old = { siteUrl: OLD, siteId: 'contoso.sharepoint.com:/sites/old', granted: true };
+  const config = azureConfig({ retiredDrops: [{ ...old, appId: 'jobs-1' }] });
+  const sharepoint = /** @type {AdminRequest} */ (to(doneRequests(config, { from: UPN }), 'sharepoint-admin'));
+  assert.deepEqual(sharepoint.rows, ['Drop site access to take back']);
+  assert.equal(sharepoint.optional, true);
+  assert.deepEqual(sharepoint.asks, [
+    `Optional: take the Analytics Hub jobs' read off ${OLD}, the SharePoint site their drop folder was on, as they no longer read it. ` +
+      "Removing a site permission isn't supported with delegated permissions, so run these in PnP PowerShell connected app-only, as an app with the " +
+      "Sites.FullControl.All application permission. The first shows the permission's Id: put it in the second. If the first shows nothing, there's nothing to remove." +
+      ` In PowerShell (PnP):\n  Get-PnPAzureADAppSitePermission -Site ${OLD} -AppIdentity jobs-1\n  Revoke-PnPAzureADAppSitePermission -Site ${OLD} -PermissionId <the Id it shows>`,
+  ]);
+  assert.deepEqual(sharepoint.after, [
+    'Run the installer again without --yes and choose Repair or change. At the end, when it asks whether a SharePoint Administrator has taken the jobs\' read ' +
+      'off the old drop site, choose "Yes, it\'s done".',
+  ]);
+  assert.equal(sharepoint.back, undefined, 'nothing to send back');
+  assert.doesNotMatch(sharepoint.message, /\|/, 'one command, then the other: not piped');
+
+  // The identity the record kept, else the managed identity's client ID, else its display name.
+  const identity = (/** @type {any} */ azure) => /-AppIdentity (.+)\n/.exec(String(to(doneRequests(azureConfig(azure)), 'sharepoint-admin')?.message))?.[1];
+  assert.equal(identity({ retiredDrops: [old] }), MI_CLIENT);
+  assert.equal(identity({ retiredDrops: [old], outputs: {} }), '"vlens jobs"');
+  assert.equal(identity({ retiredDrops: [old], outputs: {}, namePrefix: 'ah' }), '"ah jobs"');
+
+  // With the new site's grant waiting too: one request, which isn't optional, the grant word for word.
+  const dropSite = 'Grant-PnPAzureADAppSitePermission -AppId jobs-1 -DisplayName "vlens jobs" -Site https://contoso.sharepoint.com/sites/drop -Permissions Read';
+  /** @type {any} */ (config.azure).status = { pendingAdminActions: [dropSite] };
+  const both = doneRequests(config).filter((r) => r.admin === 'sharepoint-admin');
+  assert.equal(both.length, 1);
+  assert.deepEqual(both[0].rows, ['Drop site access', 'Drop site access to take back']);
+  assert.equal(both[0].asks[0], dropSite);
+  assert.equal(both[0].optional, undefined);
+  assert.equal(both[0].after?.length, 2);
+
+  const fabric = fabricConfig();
+  fabric.azure = /** @type {any} */ ({ retiredDrops: [old] });
+  assert.equal(to(doneRequests(fabric), 'sharepoint-admin'), undefined, 'a Fabric install ignores what an Azure one left');
+  assert.equal(to(doneRequests(azureConfig()), 'sharepoint-admin'), undefined, 'nothing kept, nothing asked');
+});
+
+const MADE_APP = 'the app registration "Analytics Hub Data Collector" (client ID app-1)';
+const REVOKE_STEPS =
+  '\n  1. In the Microsoft Entra admin center, go to Entra ID > Enterprise apps > All applications, search for app-1 and open "Analytics Hub Data Collector".' +
+  '\n  2. Choose Permissions, then the Admin consent tab.' +
+  '\n  3. For each of these permissions, choose … (More options) next to it, then Revoke permission, and confirm.';
+const CONSENT_GONE = `${REPAIR}: it checks the app's admin consent again, and stops listing these once they're gone.`;
+
+test('done requests: what the Fabric app the installer made no longer uses, and the run couldn\'t take back, goes to who can, until a run finds it gone', () => {
+  const config = fabricConfig();
+  Object.assign(config.app, { existing: false, retiredPermissions: ['ThreatHunting.Read.All', 'CloudApp-Discovery.Read.All'], retiredConsent: ['ThreatHunting.Read.All'] });
+  const requests = doneRequests(config, { from: UPN, dataCheck: SHOWN, broughtRetired: ['Ignored.Read.All'] });
+  assert.deepEqual(requests.map((r) => [r.admin, r.who, r.optional]), [['app-admin', APP_OWNER_ADMIN, undefined], ['role-admin', ADMINS['role-admin'], undefined]]);
+  const [owners, roles] = requests;
+  assert.deepEqual(owners.rows, ['API permissions to remove']);
+  assert.deepEqual(owners.asks, [
+    `Remove these Microsoft Graph application permissions from ${MADE_APP}, as Analytics Hub no longer uses them: ThreatHunting.Read.All, CloudApp-Discovery.Read.All.` +
+      `\n  1. Open its API permissions page: ${apiPermissionsUrl('app-1')}` +
+      '\n  2. For each of them, choose … (More options) next to it, then Remove permission, and confirm.',
+  ]);
+  assert.deepEqual(owners.after, [`${REPAIR}: it checks the app's API permissions again, and stops listing these once they're gone.`]);
+  assert.deepEqual(roles.rows, ['Admin consent to take back']);
+  assert.deepEqual(roles.asks, [
+    `Take back admin consent for these Microsoft Graph application permissions of ${MADE_APP}, as Analytics Hub no longer uses them: ThreatHunting.Read.All.${REVOKE_STEPS}`,
+  ]);
+  assert.deepEqual(roles.after, [CONSENT_GONE]);
+  assert.doesNotMatch(JSON.stringify(requests), /Ignored\.Read\.All/, 'the run reads a made app\'s consent itself');
+
+  // With admin consent still to grant, the role admin's request asks for both.
+  assert.deepEqual(to(doneRequests(config, { dataCheck: SHOWN, consented: false }), 'role-admin')?.rows, ['Admin consent', 'Admin consent to take back']);
+
+  // Once a run takes them back, the record no longer lists them, and there's nothing to ask.
+  delete config.app.retiredPermissions;
+  delete config.app.retiredConsent;
+  assert.deepEqual(doneRequests(config, { dataCheck: SHOWN }), []);
+
+  // An Azure install has no Fabric app to ask about.
+  const azure = azureConfig({ sampleData: true });
+  Object.assign(azure.app, { existing: false, retiredPermissions: ['ThreatHunting.Read.All'], retiredConsent: ['ThreatHunting.Read.All'] });
+  assert.deepEqual(doneRequests(azure, { broughtRetired: ['ThreatHunting.Read.All'] }), []);
+});
+
+test('done requests: for an app you brought, one optional ask to take back the consent this run read it still has; never from the record', () => {
+  for (const existing of [undefined, true]) {
+    const config = fabricConfig();
+    // A record without `existing` is an app you brought too.
+    Object.assign(config.app, { ...(existing ? { existing } : {}), retiredPermissions: ['Stale.Read.All'], retiredConsent: ['Stale.Read.All'] });
+    assert.deepEqual(doneRequests(config, { dataCheck: SHOWN }), [], `${existing}: nothing from the record`);
+    assert.deepEqual(doneRequests(config, { dataCheck: SHOWN, broughtRetired: [] }), []);
+
+    const requests = doneRequests(config, { from: UPN, dataCheck: SHOWN, broughtRetired: ['CopilotPackages.Read.All', 'Application.Read.All'] });
+    assert.deepEqual(requests.map((r) => [r.admin, r.who, r.optional]), [['role-admin', ADMINS['role-admin'], true]]);
+    const [r] = requests;
+    assert.deepEqual(r.rows, ['Admin consent to take back']);
+    assert.deepEqual(r.asks, [
+      'Optional: take back admin consent for these Microsoft Graph application permissions of ' +
+        `${MADE_APP}, as Analytics Hub no longer uses them: CopilotPackages.Read.All, Application.Read.All.${REVOKE_STEPS}`,
+    ]);
+    assert.deepEqual(r.notes, [
+      'The installer leaves an app you brought as it is, in case something else uses these permissions: send this only if nothing does. ' +
+        `Taking them off the app's API permissions too needs one of its owners, an Application Administrator or a Cloud Application Administrator: ${apiPermissionsUrl('app-1')}`,
+    ]);
+    assert.ok(!r.message.includes('send this only if'), 'the note is for you');
+    assert.deepEqual(r.after, [CONSENT_GONE]);
+    assert.doesNotMatch(JSON.stringify(requests), /Stale\.Read\.All/);
+
+    // In one request with the consent still to grant, the request as a whole isn't optional.
+    const merged = doneRequests(config, { dataCheck: SHOWN, consented: false, broughtRetired: ['Application.Read.All'] });
+    assert.deepEqual(merged.map((x) => [x.admin, x.optional, x.rows]), [['role-admin', undefined, ['Admin consent', 'Admin consent to take back']]]);
+
+    const fake = fakeUi();
+    fake.ui.doneRequests(requests);
+    assert.match(fake.text(), /\n {2}1\. A Privileged Role Administrator or Global Administrator \(optional\)\n {5}For: Admin consent to take back\n/);
+  }
+});
+
 test('done requests: the product feedback export goes to your mailbox, with a note for another one; the Viva query is optional', () => {
   const config = fabricConfig();
   config.dataSources.productFeedback = 'api';
@@ -489,11 +626,14 @@ test('done requests: no request has a secret, a key, a token, a password, a sign
     return config;
   };
   const fabric = planted(fabricConfig());
+  Object.assign(fabric.app, { existing: false, retiredPermissions: ['ThreatHunting.Read.All'], retiredConsent: ['CloudApp-Discovery.Read.All'] });
+  const brought = planted(fabricConfig());
   const azure = planted(
     azureConfig({
       webApp: { clientId: 'web-1', clientSecret: 'PLANTED-web-secret', secretKeyId: 'PLANTED-web-key' },
       sqlReader: { clientId: 'sql-1', secretKeyId: 'PLANTED-sql-key' },
-      graphRoles: { assigned: [], pending: ['AuditLogsQuery.Read.All'] },
+      graphRoles: { assigned: [], pending: ['AuditLogsQuery.Read.All'], retired: ['ThreatHunting.Read.All'] },
+      retiredDrops: [{ siteUrl: 'https://contoso.sharepoint.com/sites/old', siteId: 'contoso.sharepoint.com:/sites/old', granted: true, appId: MI_CLIENT }],
       adminScript: 'C:\\Users\\someone\\analytics-hub\\admin.sh',
       status: {
         pendingAdminActions: [
@@ -503,7 +643,13 @@ test('done requests: no request has a secret, a key, a token, a password, a sign
       },
     }),
   );
-  for (const config of [fabric, azure]) {
+  /** Each config, and the take-back rows its requests carry. @type {[InstallConfig, string[]][]} */
+  const cases = [
+    [fabric, ['API permissions to remove', 'Admin consent to take back']],
+    [brought, ['Admin consent to take back']],
+    [azure, ['Microsoft Graph roles to take back', 'Drop site access to take back']],
+  ];
+  for (const [config, takeBack] of cases) {
     // With the asks the end carries from preflight and the flows' check.
     const carried = [
       row({ id: 'consent-role', howTo: `Ask a Global Administrator to grant admin consent, and to check audit logging is on: ${PURVIEW_AUDIT_URL}` }),
@@ -512,9 +658,10 @@ test('done requests: no request has a secret, a key, a token, a password, a sign
       dataPolicyPrereq(config),
       unreadSettings(config),
     ];
-    const requests = doneRequests(config, { from: UPN, consented: false, carried });
+    const requests = doneRequests(config, { from: UPN, consented: false, carried, broughtRetired: ['Application.Read.All'] });
     assert.ok(requests.length >= 4, config.target);
     for (const admin of ['compliance', 'licence', 'power-platform', 'fabric-admin']) assert.ok(to(requests, admin), `${config.target}: ${admin}`);
+    for (const label of takeBack) assert.ok(requests.some((r) => r.rows.includes(label)), `${config.target}: ${label}`);
     const text = JSON.stringify(requests);
     assert.doesNotMatch(text, /PLANTED/);
     assert.doesNotMatch(text, /\b(client secrets?|password|passcode|sign-in code|device code|bearer|access token|refresh token)\b/i);
@@ -859,6 +1006,45 @@ test('azure summary: an update lists no requests, so its Teams line says what to
 
   const admin = await azureSummaryText(azureConfig(), [GLOBAL_ADMIN], { update: true });
   assert.doesNotMatch(admin, /Show user names in the Microsoft 365 usage reports|steps? left/, 'nor the card for a Global Administrator');
+});
+
+test('azure summary: a drop site to take back is listed, then asked about at the end of each install or Repair after, until you say it\'s done', async () => {
+  const OLD = 'https://contoso.sharepoint.com/sites/old';
+  const config = azureConfig({ retiredDrops: [{ siteUrl: OLD, siteId: 'contoso.sharepoint.com:/sites/old', granted: true }] });
+  const az = /** @type {any} */ (config.azure);
+  const question = `Has a SharePoint Administrator taken the Analytics Hub jobs' read off ${OLD}?`;
+  const end = async (/** @type {Parameters<typeof fakeUi>[0]} */ ui, /** @type {{ update?: boolean }} */ opts = {}) => {
+    const fake = fakeUi(ui);
+    const t = fakeCtx({ ui: fake.ui, graph: { myDirectoryRoles: async () => [] }, config });
+    await azureSummary(t.ctx, opts);
+    return { ...fake, saves: t.saves() };
+  };
+
+  const update = await end({ answers: ['yes'] }, { update: true });
+  assert.deepEqual(update.asked, []);
+  assert.equal(az.retiredDrops[0].shownAt, undefined, 'an update lists no requests');
+
+  const first = await end({ answers: ['yes'] });
+  assert.deepEqual(first.asked, [], 'no admin has had it yet');
+  assert.match(first.text(), /\n {2}\d\. A SharePoint Administrator \(optional\)\n/);
+  assert.ok(first.text().includes(`Get-PnPAzureADAppSitePermission -Site ${OLD} -AppIdentity ${MI_CLIENT}`));
+  assert.equal(az.retiredDrops[0].shownAt, '2026-06-01T12:00:00.000Z');
+  assert.equal(first.saves, 1);
+
+  const notYet = await end({ answers: ['no'] });
+  assert.deepEqual(notYet.asked, [question]);
+  assert.ok(notYet.text().includes('Get-PnPAzureADAppSitePermission'), 'still listed');
+  assert.equal(notYet.saves, 0, 'nothing changed');
+  const yes = await end({ yes: true });
+  assert.deepEqual(yes.asked, [], '--yes answers "Not yet" without asking');
+  assert.ok(yes.text().includes('Get-PnPAzureADAppSitePermission'));
+
+  const done = await end({ answers: ['yes'] });
+  assert.deepEqual(done.asked, [question]);
+  assert.match(done.text(), /The jobs no longer have read on https:\/\/contoso\.sharepoint\.com\/sites\/old/);
+  assert.doesNotMatch(done.text(), /Get-PnPAzureADAppSitePermission|A SharePoint Administrator/);
+  assert.equal(az.retiredDrops, undefined);
+  assert.equal(done.saves, 1);
 });
 
 test('azure summary: a Global Administrator gets concealed names as their own card, and nothing for sample data', async () => {

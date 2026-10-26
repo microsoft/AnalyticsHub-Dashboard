@@ -3,8 +3,8 @@
 import { randomUUID } from 'node:crypto';
 import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { graphRolesCommand, pendingGraphRoles } from '../../admin-commands.js';
-import { azureGraphRolesFor, collectedLabels, ESSENTIAL_MODULES, MODULES, OPTIONAL_MODULES } from '../../catalog.js';
+import { graphRolesCommand, graphRolesRevokeCommand, pendingGraphRoles } from '../../admin-commands.js';
+import { azureGraphRolesFor, collectedLabels, ESSENTIAL_MODULES, everyAzureGraphRole, MODULES, OPTIONAL_MODULES } from '../../catalog.js';
 import { semanticModelDefinition } from '../../clients/fabric.js';
 import { adminConsentUrl, apiPermissionsUrl, resolveAppRoles } from '../../clients/graph.js';
 import { apiVersionResolver, armErrors, resourceIdParts, ROLES } from '../../clients/azure.js';
@@ -974,6 +974,16 @@ const withThe = (/** @type {string} */ name) => (name.startsWith('the ') ? name 
 export const azureGraphRoles = (config) => [...azureGraphRolesFor(config.modules), ...(azureReadsDrop(config) && azureDropsToSharePoint(config.azure) ? ['Sites.Selected'] : [])];
 
 /**
+ * The Microsoft Graph application permissions the installer may have given the jobs' managed identity for a choice
+ * since switched off, such as a module or the SharePoint drop folder, sorted. Only these are ever taken back.
+ * @param {import('../../config.js').InstallConfig} config
+ */
+export function azureRetiredGraphRoles(config) {
+  const needed = new Set(azureGraphRoles(config));
+  return [...new Set([...everyAzureGraphRole(), 'Sites.Selected'])].filter((r) => !needed.has(r)).sort();
+}
+
+/**
  * The Agent 365 registry on Azure: its CSV export, which you drop where the jobs read it. Asks nothing;
  * the Agent 365 API is Fabric only for now.
  * @param {Ctx} ctx
@@ -1096,33 +1106,79 @@ export async function planAzureConsumption(ctx, subs) {
  * With private networking, the SharePoint folder the jobs read dropped files from (the credit files, the
  * Agent 365 export, product feedback exports and the Workday export), because Power Automate and your browser can't reach the
  * storage account. Without private networking they land in the landing container. Leaves the folder alone
- * when the jobs read no files.
+ * when the jobs read no files. A site the folder leaves while the jobs had read on it, or a grant of it was waiting,
+ * is kept for a SharePoint Administrator to take back (retireDropSite).
  * @param {Ctx} ctx
  */
 export async function planAzureDrop(ctx) {
   const { ui, config } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
+  // The jobs stop reading the drop: it stays as it is, and taking Sites.Selected back leaves its grant unusable.
   if (!azureReadsDrop(config)) return;
+  const before = az.drop;
   const contents = azureDropContents(config);
-  if (!isPrivate(az) || !contents.length) {
-    delete az.drop;
-    return;
+  if (!isPrivate(az) || !contents.length) delete az.drop;
+  else {
+    const through = contents.includes(CREDIT_FILES) ? ', where Power Automate runs, so the flow and your uploads go' : ', so your uploads go';
+    ui.note(`Private networking keeps ${az.namePrefix ?? 'the'} storage off the internet${through} to a SharePoint folder the jobs read instead.`);
+    const folderUrl = await ui.input(`SharePoint folder for ${joinList(contents)} (the address of a folder in a document library)`, {
+      default: az.drop?.folderUrl ?? '',
+      validate: (v) => {
+        try {
+          parseDropFolder(v);
+          return true;
+        } catch (err) {
+          return /** @type {Error} */ (err).message;
+        }
+      },
+    });
+    const parsed = parseDropFolder(folderUrl);
+    az.drop = { ...parsed, granted: sameSite(az.drop?.siteId, parsed.siteId) ? az.drop?.granted : false };
   }
-  const through = contents.includes(CREDIT_FILES) ? ', where Power Automate runs, so the flow and your uploads go' : ', so your uploads go';
-  ui.note(`Private networking keeps ${az.namePrefix ?? 'the'} storage off the internet${through} to a SharePoint folder the jobs read instead.`);
-  const folderUrl = await ui.input(`SharePoint folder for ${joinList(contents)} (the address of a folder in a document library)`, {
-    default: az.drop?.folderUrl ?? '',
-    validate: (v) => {
-      try {
-        parseDropFolder(v);
-        return true;
-      } catch (err) {
-        return /** @type {Error} */ (err).message;
-      }
-    },
-  });
-  const parsed = parseDropFolder(folderUrl);
-  az.drop = { ...parsed, granted: az.drop?.siteId === parsed.siteId ? az.drop?.granted : false };
+  retireDropSite(az, before);
+}
+
+/** The same SharePoint site: site IDs and URLs ignore case. @param {string | undefined} a @param {string | undefined} b */
+const sameSite = (a, b) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
+
+/**
+ * Whether a pending admin action is the drop site's read grant for a site (grantDropSite's command).
+ * @param {string} action
+ * @param {string | undefined} siteUrl
+ */
+const isDropGrant = (action, siteUrl) =>
+  !!siteUrl && action.startsWith('Grant-PnPAzureADAppSitePermission ') && action.toLowerCase().includes(` -site ${siteUrl.toLowerCase()} `);
+
+/**
+ * After planAzureDrop, the sites the jobs may still have read on. A site the drop folder left, `before`, is kept in
+ * retiredDrops when the jobs had read on it or its grant was waiting for an admin, and that grant is no longer asked
+ * for: a SharePoint Administrator takes the read back, which can't be done with your sign-in. When the folder moves
+ * back to a kept site, the site's read, or its waiting grant, comes back with it.
+ * @param {import('../../config.js').AzureConfig} az
+ * @param {import('../../config.js').AzureDrop | undefined} before  The drop folder the record had.
+ */
+export function retireDropSite(az, before) {
+  const now = az.drop;
+  let kept = az.retiredDrops ?? [];
+  const back = kept.find((d) => sameSite(d.siteId, now?.siteId));
+  if (back) {
+    if (now && !sameSite(now.siteId, before?.siteId)) now.granted = back.granted ?? false;
+    kept = kept.filter((d) => d !== back);
+  }
+  if (before?.siteId && before.siteUrl && !sameSite(before.siteId, now?.siteId)) {
+    const actions = az.status?.pendingAdminActions ?? [];
+    const waiting = actions.some((a) => isDropGrant(a, before.siteUrl));
+    if (before.granted || waiting) {
+      const appId = az.outputs?.identityClientId;
+      kept = [
+        ...kept.filter((d) => !sameSite(d.siteId, before.siteId)),
+        { siteUrl: before.siteUrl, siteId: before.siteId, folderUrl: before.folderUrl, granted: !!before.granted, ...(appId ? { appId: String(appId) } : {}) },
+      ];
+    }
+    if (waiting && az.status) az.status.pendingAdminActions = actions.filter((a) => !isDropGrant(a, before.siteUrl));
+  }
+  if (kept.length) az.retiredDrops = kept;
+  else delete az.retiredDrops;
 }
 
 /**
@@ -2340,13 +2396,77 @@ async function useSqlSecret(ctx, secret) {
   await promoteSecret(ctx, r, r.objectId, secret.keyId);
 }
 
-/** @param {Ctx} ctx */
+/**
+ * Takes back the Microsoft Graph application permissions the installer gave the jobs' managed identity for a choice
+ * since switched off: only azureRetiredGraphRoles', and only those a live read of its roles shows. When that read
+ * fails, the install record's say which it may still have. Whatever it can't take back, it records and hands a
+ * Privileged Role Administrator or Global Administrator the command that does. It never stops the install, and the
+ * next run checks again.
+ * @param {Ctx} ctx
+ * @param {string} principalId  The managed identity's principal (object) ID.
+ * @param {{ id: string, appRoles: { id: string, value: string }[] }} graphSp
+ */
+async function takeBackManagedIdentityGraphRoles(ctx, principalId, graphSp) {
+  const { config, api, ui } = ctx;
+  const graphRoles = (/** @type {import('../../config.js').AzureConfig} */ (config.azure).graphRoles ??= { assigned: [], pending: [] });
+  const retiredNames = azureRetiredGraphRoles(config);
+  const isRetired = (/** @type {string} */ r) => retiredNames.includes(r);
+  // What the record says it may still have, from this run's record or an earlier run's take-back.
+  const recorded = [...graphRoles.assigned, ...(graphRoles.retired ?? [])].filter(isRetired);
+  graphRoles.assigned = graphRoles.assigned.filter((r) => !isRetired(r));
+  graphRoles.pending = graphRoles.pending.filter((r) => !isRetired(r));
+  /** @type {string[]} */
+  const done = [];
+  /** @type {string[]} */
+  const left = [];
+  const byId = new Map(resolveAppRoles(graphSp, retiredNames, retiredNames).roles.map((r) => [r.id, r.value]));
+  /** @type {{ id: string, appRoleId: string }[]} */
+  let stale = [];
+  if (byId.size) {
+    try {
+      stale = (await api.graph.appRoleAssignments(principalId)).filter((a) => a.resourceId === graphSp.id && byId.has(a.appRoleId));
+    } catch (err) {
+      if (!(err instanceof HttpError)) throw err;
+      // Without the read there are no assignment IDs to delete, so an admin takes back what the record lists.
+      left.push(...recorded);
+    }
+  }
+  for (const a of stale) {
+    const role = /** @type {string} */ (byId.get(a.appRoleId));
+    try {
+      await api.graph.revokeAppRole(graphSp.id, a.id);
+      done.push(role);
+    } catch (err) {
+      if (!(err instanceof HttpError)) throw err;
+      if (err.status === 404) done.push(role);
+      else left.push(role);
+    }
+  }
+  const remaining = [...new Set(left)].sort();
+  if (remaining.length) graphRoles.retired = remaining;
+  else delete graphRoles.retired;
+  const taken = [...new Set(done)].sort();
+  if (taken.length) ui.ok(`Took ${taken.join(', ')} back from the managed identity, as Analytics Hub no longer uses ${taken.length > 1 ? 'them' : 'it'}`);
+  if (!remaining.length) return;
+  ui.warn(
+    `The managed identity still has ${remaining.length === 1 ? 'this Microsoft Graph application permission' : 'these Microsoft Graph application permissions'}, which Analytics Hub no longer uses: ` +
+      `${remaining.join(', ')}. Only a Privileged Role Administrator or Global Administrator can take ${remaining.length === 1 ? 'it' : 'them'} back. They can run this in Azure Cloud Shell (Bash):`,
+  );
+  ui.info(graphRolesRevokeCommand(principalId, remaining));
+}
+
+/**
+ * Gives the jobs' managed identity the Microsoft Graph application permissions the install needs, after taking back
+ * those it no longer does.
+ * @param {Ctx} ctx
+ */
 async function assignManagedIdentityGraphRoles(ctx) {
   const { config, api, ui } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
   const principalId = az.outputs?.identityPrincipalId;
   if (!principalId) throw new Error('The ARM deployment did not return identityPrincipalId.');
   const graphSp = await api.graph.graphServicePrincipal();
+  await takeBackManagedIdentityGraphRoles(ctx, principalId, graphSp);
   const wanted = azureGraphRoles(config);
   const { roles, missing } = resolveAppRoles(graphSp, wanted, OPTIONAL_PERMISSIONS);
   for (const m of missing) {
@@ -2878,6 +2998,7 @@ export async function azureStatus(ctx) {
     ui.info(graphRolesCommand(az.outputs.identityPrincipalId, graphPending));
   }
   for (const action of az.status?.pendingAdminActions ?? []) ui.warn(`Pending admin action: ${action}`);
+  for (const d of az.retiredDrops ?? []) ui.info(`Optional admin action: take the jobs' read off ${d.siteUrl}, where the drop folder was.`);
   await azureTranscriptStatus(ctx);
   for (const [label, name] of [['Run job', az.outputs?.runJobName], ['Migrate job', az.outputs?.migrateJobName]]) {
     if (!name) continue;
@@ -3320,6 +3441,7 @@ export async function azureSummary(ctx, opts = {}) {
  */
 async function azureDoneRequests(ctx) {
   const { ui, config } = ctx;
+  await askRetiredDropsDone(ctx);
   // The first load runs in the background, so no data check tells whether the usage reports conceal names.
   const names = namesWanted(config, null);
   // A Global Administrator shows them, so it's their own card rather than a request.
@@ -3331,6 +3453,35 @@ async function azureDoneRequests(ctx) {
   const requests = doneRequests(config, { from: ctx.user?.upn, globalAdmin, transcripts: azureTranscriptAsks(ctx), carried: askedRows(ctx) });
   ui.doneRequests(requests);
   writeHandoffPack(ctx, { done: requests });
+  const listed = (config.azure?.retiredDrops ?? []).filter((d) => !d.shownAt);
+  for (const d of listed) d.shownAt = ctx.now().toISOString();
+  if (listed.length) ctx.save();
+}
+
+/**
+ * Whether a SharePoint Administrator has taken the jobs' read off each old drop site an earlier run's requests listed.
+ * One they have leaves the record. With --yes they all stay, and the requests list them again.
+ * @param {Ctx} ctx
+ */
+export async function askRetiredDropsDone(ctx) {
+  const { ui } = ctx;
+  const az = ctx.config.azure;
+  if (ui.yes || !az?.retiredDrops?.some((d) => d.shownAt)) return;
+  let changed = false;
+  for (const d of [...az.retiredDrops]) {
+    if (!d.shownAt) continue;
+    const done = await ui.select(`Has a SharePoint Administrator taken the Analytics Hub jobs' read off ${d.siteUrl}?`, [
+      { name: 'Not yet', value: 'no', description: 'It stays in the requests for admins, and the next run asks again.' },
+      { name: "Yes, it's done", value: 'yes' },
+    ], 'no');
+    if (done !== 'yes') continue;
+    az.retiredDrops = (az.retiredDrops ?? []).filter((x) => x !== d);
+    changed = true;
+    ui.ok(`The jobs no longer have read on ${d.siteUrl}`);
+  }
+  if (!changed) return;
+  if (!az.retiredDrops?.length) delete az.retiredDrops;
+  ctx.save();
 }
 
 /** @param {Ctx} ctx @param {string} label @param {string | undefined} expires */

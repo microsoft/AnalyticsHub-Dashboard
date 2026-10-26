@@ -25,7 +25,11 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {import('./transform/pipeline.js').TenantScale} [scale]  How the loads are sized. Standard when absent.
  * @property {import('./currency.js').ReportingConfig} [reporting]  The currency the Value page reports in until one is saved in the app. Asked for when absent.
  * @property {{ frequency: 'daily' | 'weekly', time: string, weekday: string, timeZone: string }} schedule
- * @property {{ appId?: string, objectId?: string, servicePrincipalId?: string, displayName?: string, secretExpires?: string, secretKeyId?: string, retiredSecretKeyIds?: string[], pendingSecretKeyIds?: string[], secretAttempts?: { ref: string, at: string }[], existing?: boolean, adminPack?: string, secretDays?: number }} app  pendingSecretKeyIds: notebook secrets created by a run that hadn't finished writing them. secretAttempts: notebook secrets asked of Entra whose key ID isn't saved yet; the ref is in the secret's name. secretDays: how long a secret kept in the notebooks lasts (--secret-days). 90 when absent.
+ * @property {{ appId?: string, objectId?: string, servicePrincipalId?: string, displayName?: string, secretExpires?: string, secretKeyId?: string, retiredSecretKeyIds?: string[], pendingSecretKeyIds?: string[], secretAttempts?: { ref: string, at: string }[], existing?: boolean, adminPack?: string, secretDays?: number, retiredPermissions?: string[], retiredConsent?: string[] }} app  pendingSecretKeyIds: notebook secrets created by a run that hadn't finished writing them. secretAttempts: notebook secrets asked of Entra whose key ID isn't saved yet; the ref is in the secret's name. secretDays: how long a secret kept in the notebooks lasts (--secret-days). 90 when absent.
+ *   existing: false when the installer made the app. Otherwise, absent included, it's treated as an app you brought, and nothing is taken off it.
+ *   retiredPermissions and retiredConsent: Graph application permissions Analytics Hub no longer uses that you couldn't take off the
+ *   app the installer made: off its API permissions, which an app admin or its owner does, and their admin consent, which a
+ *   Privileged Role Administrator or Global Administrator revokes. Each run tries again and clears them once they're gone.
  * @property {{ subscriptionId?: string, resourceGroup?: string, name?: string, id?: string, uri?: string, location?: string, secretName: string, existing?: boolean, rbac?: boolean, private?: boolean, secretSetAt?: string, mode?: SecretMode, handoff?: SecretHandoff } & import('./steps/secrets.js').SecretSlot} keyVault  The secret* fields track the app secrets made for the vault (see steps/secrets.js); previousSecretKeyIds are replaced ones left on the app until they expire.
  * @property {{ capacityId?: string, workspaceId?: string, workspaceName?: string, lakehouseId?: string, lakehouseName?: string, notebooks: Partial<Record<import('./catalog.js').NotebookKey, string>>, notebookNames?: Partial<Record<import('./catalog.js').NotebookKey, string>>, notebookHashes?: Partial<Record<import('./catalog.js').NotebookKey, string>>, pipelineId?: string, pipelineName?: string, pipelineModules?: string, pipelineVersion?: number, scheduleId?: string, vaultEndpointId?: string, deployedRouter?: string, secretInNotebooks?: boolean, createdWorkspace?: boolean, pendingItems?: Record<string, { name: string, ref: string, at?: string, operation?: string }>, transcriptAccess?: FabricTranscriptAccess[] }} fabric  pendingItems: the name and description ref of each item being created, and when, so a run stopped mid-create finds that item again and nothing else. operation: Fabric's URL for the create once it accepted it, to ask how it went. transcriptAccess: each Dataverse environment where the installer gave the app the role that reads every transcript.
  * @property {{ jobId?: string, status?: string, startedAt?: string, finishedAt?: string, coworkSkipped?: boolean }} [firstRun]  coworkSkipped: the first load left out the Cowork Dataflow, which wasn't signed in yet.
@@ -77,8 +81,19 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {string} [contact]  Who people ask for access. Defaults to the installer.
  * @property {string} [requestUrl]  Optional link for access requests, e.g. a My Access package or a form.
  * @property {string[]} [grantedModels]  Semantic model IDs the group has Build (ReadExplore) on.
+ * @property {RetiredGroup[]} [retiredGroups]  Groups that were the viewer group, until the installer has taken away the
+ *   Build it gave them and you've taken them off the app.
  * @property {boolean} [appShared]  The user said the Fabric app item is shared with the group. Fabric has no API to check.
  * @property {RlsConfig} [rls]  Org-scoped access (row-level security). Off when absent.
+ */
+
+/**
+ * A group that was the viewer group, and what it still has from the installer.
+ * @typedef {object} RetiredGroup
+ * @property {string} groupId
+ * @property {string} [groupName]
+ * @property {string[]} datasets  Semantic model IDs it still has the installer's Build on.
+ * @property {boolean} [appShared]  The Fabric app item was shared with it, and nobody has said it's been taken off.
  */
 
 /**
@@ -87,6 +102,8 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {boolean} enabled
  * @property {'department' | 'country'} [orgAttribute]  What an org scope matches. Defaults to department.
  * @property {string[]} [applied]  Models whose role members were applied since they were last deployed. A deploy drops members.
+ * @property {string} [appliedGroupId]  The viewer group the roles were last applied with. Their members are the group, so
+ *   another group applies them again. Absent on a record from before 0.6.9, which counts as the current group.
  */
 
 /**
@@ -312,8 +329,12 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  *   `consumptionDatasetId` is the Consumption model, deployed with credit consumption.
  *   `agentEvaluatorDatasetId` is the Agent Evaluator model, deployed with Agent Evaluator.
  * @property {AzureDrop} [drop] Private networking with credit consumption or a CSV export (Agent 365, product feedback, Workday): the SharePoint folder the Studio flow and CSV uploads land in.
+ * @property {RetiredDrop[]} [retiredDrops] SharePoint sites the drop folder was on, whose read the jobs may still have, for a
+ *   SharePoint Administrator to take back. Each stays until you say it's done or the drop folder moves back to it.
  * @property {boolean} [storageRole] The installer gave the signed-in user Storage Blob Data Contributor on the landing container, for the Studio flow and CSV uploads.
- * @property {{ assigned: string[], pending: string[] }} [graphRoles]
+ * @property {{ assigned: string[], pending: string[], retired?: string[] }} [graphRoles]  The jobs' managed identity's Microsoft Graph roles:
+ *   those the installer gave it, those it couldn't, and `retired`: roles it no longer uses that it couldn't take back, for a Privileged
+ *   Role Administrator or Global Administrator to remove. Each run tries again and clears them once they're gone.
  * @property {string} [teamsPackage]
  * @property {{ id: string, externalId: string, version: string, sha256: string, publishedAt: string }} [teamsApp]  The Teams app the installer
  *   published to the org's app catalog: its catalog ID, the manifest's ID (the web app's client ID), and the package's version and hash.
@@ -377,6 +398,18 @@ export const flowIdentity = (config) => (config.target !== 'azure' && config.upl
  * @property {string} [driveId]  Graph drive ID. Empty when drivePath starts with the library's name.
  * @property {string} [drivePath]  The folder for the jobs: under the drive's root, or library/folder when driveId is empty.
  * @property {boolean} [granted]  The managed identity has read on the site (Sites.Selected).
+ */
+
+/**
+ * A SharePoint site the Azure drop folder moved off, or that private networking stopped using, while the jobs had read
+ * on it or a grant of it was waiting for an admin. The installer can't take a site permission back with your sign-in.
+ * @typedef {object} RetiredDrop
+ * @property {string} siteUrl
+ * @property {string} siteId  As AzureDrop's.
+ * @property {string} [folderUrl]  The drop folder that was on it.
+ * @property {boolean} [granted]  The jobs had read on it. Else its grant was still waiting for an admin.
+ * @property {string} [appId]  The jobs' managed identity's client ID, which the permission is for.
+ * @property {string} [shownAt]  When a run's requests for admins first listed it, so later runs ask whether it's done.
  */
 
 // Names for items a new install creates. An existing install keeps the names saved in its record.
@@ -467,6 +500,7 @@ function normaliseConfig(raw, file) {
           access: {
             ...raw.access,
             grantedModels: [...(raw.access.grantedModels ?? [])],
+            ...(raw.access.retiredGroups ? { retiredGroups: raw.access.retiredGroups.map((g) => ({ ...g, datasets: [...(g.datasets ?? [])] })) } : {}),
             ...(raw.access.rls ? { rls: { ...raw.access.rls, applied: Array.isArray(raw.access.rls.applied) ? [...raw.access.rls.applied] : [] } } : {}),
           },
         }
@@ -481,7 +515,12 @@ function normaliseConfig(raw, file) {
       ...(raw.azure?.sqlReader ? { sqlReader: { ...raw.azure.sqlReader } } : {}),
       ...(raw.azure?.powerBi ? { powerBi: { ...raw.azure.powerBi } } : {}),
       ...(raw.azure?.drop ? { drop: { ...raw.azure.drop } } : {}),
-      graphRoles: { assigned: [...(raw.azure?.graphRoles?.assigned ?? [])], pending: [...(raw.azure?.graphRoles?.pending ?? [])] },
+      ...(raw.azure?.retiredDrops?.length ? { retiredDrops: raw.azure.retiredDrops.map((d) => ({ ...d })) } : {}),
+      graphRoles: {
+        assigned: [...(raw.azure?.graphRoles?.assigned ?? [])],
+        pending: [...(raw.azure?.graphRoles?.pending ?? [])],
+        ...(raw.azure?.graphRoles?.retired?.length ? { retired: [...raw.azure.graphRoles.retired] } : {}),
+      },
       ...(raw.azure?.status ? { status: { ...raw.azure.status } } : {}),
     },
     consumption: { ...(raw.consumption ?? {}), model: { ...base.consumption.model, ...(raw.consumption?.model ?? {}) } },
@@ -494,6 +533,7 @@ function normaliseConfig(raw, file) {
     dataAgent: { ...base.dataAgent, ...(raw.dataAgent ?? {}) },
   };
   if (!config.reporting) delete config.reporting;
+  if (config.azure && !config.azure.retiredDrops?.length) delete config.azure.retiredDrops;
   assertNoSecrets(config);
   return config;
 }
