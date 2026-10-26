@@ -137,6 +137,52 @@ class LicenseClassificationTests(unittest.TestCase):
         self.assertEqual([row["HasCopilot"] for row in namespace["rows"]], ["TRUE", "FALSE", "FALSE"])
         self.assertIn("concealed", output.getvalue())
 
+    def run_checks(self, rows, live, copilot_users=None):
+        code = cells(COPIES[0])
+        namespace = {"copilot_users": copilot_users, "report_upn_col": "UPN", "live_licences": live}
+        exec(compile(code[2], "config", "exec"), namespace)
+        namespace["rows"] = rows
+        output = io.StringIO()
+        with contextlib.redirect_stdout(output):
+            exec(compile(code[8], "classifier", "exec"), namespace)
+        return namespace, output.getvalue()
+
+    def test_entra_check_unticks_stale_flags_and_counts_missed_users(self):
+        rows = [{"UPN": "Ada@contoso.com", "Assigned Products": "Microsoft 365 Copilot"},
+                {"UPN": "bob@contoso.com", "Assigned Products": "Microsoft 365 E3"},
+                {"UPN": "cy@contoso.com", "Assigned Products": "Microsoft 365 Copilot"},
+                {"UPN": "dee@contoso.com", "Assigned Products": "Microsoft 365 E3"}]
+        known = {"ada@contoso.com", "bob@contoso.com", "cy@contoso.com", "dee@contoso.com"}
+        namespace, output = self.run_checks(rows, (known, {"ada@contoso.com", "dee@contoso.com"}),
+                                            copilot_users={"bob@contoso.com"})
+        self.assertEqual([row["HasCopilot"] for row in rows], ["TRUE", "FALSE", "FALSE", "FALSE"])
+        self.assertEqual(namespace["copilot_count"], 1)
+        self.assertEqual(namespace["licence_checks"],
+                         {"deleted": 0, "live_checked": True, "live_removed": 2, "live_missed": 1})
+        self.assertIn("Entra shows no enabled Copilot plan today: 2", output)
+        self.assertIn("1 user(s) have an enabled Copilot plan in Entra", output)
+
+    def test_entra_check_skipped_when_unavailable_or_names_differ(self):
+        rows = [{"UPN": "ada@contoso.com", "Assigned Products": "Microsoft 365 Copilot"}]
+        _, output = self.run_checks(rows, None)
+        self.assertEqual(rows[0]["HasCopilot"], "TRUE")
+        self.assertIn("reflect the reports only", output)
+        _, output = self.run_checks(rows, ({"e58eef6a6bbd3d0293cb306d24a42057"}, set()))
+        self.assertEqual(rows[0]["HasCopilot"], "TRUE")
+        self.assertIn("None of the report users are in Microsoft Entra", output)
+
+    def test_deleted_users_are_never_counted(self):
+        rows = [{"UPN": "ada@contoso.com", "Is Deleted": "False", "Assigned Products": "Microsoft 365 Copilot"},
+                {"UPN": "gone@contoso.com", "Is Deleted": "True", "Assigned Products": "Microsoft 365 Copilot"}]
+        namespace, output = self.run_checks(rows, None, copilot_users={"gone@contoso.com"})
+        self.assertEqual([row["HasCopilot"] for row in rows], ["TRUE", "FALSE"])
+        self.assertIn("Not counted because the user is deleted: 1", output)
+
+    def test_live_check_is_on_by_default(self):
+        namespace = {}
+        exec(compile(cells(COPIES[0])[2], "config", "exec"), namespace)
+        self.assertIs(namespace["LIVE_LICENCE_CHECK"], True)
+
     def test_report_parsing_preserves_quoted_mixed_products_and_checks_header(self):
         code = cells(COPIES[0])[6]
         for text, valid in [
@@ -145,7 +191,7 @@ class LicenseClassificationTests(unittest.TestCase):
         ]:
             response = SimpleNamespace(text=text, raise_for_status=lambda: None)
             namespace = {"graph_get": lambda *a, **k: response,
-                         "REPORT_PERIOD": "D7", "headers": {}}
+                         "REPORT_PERIOD": "D7", "headers": {}, "LIVE_LICENCE_CHECK": False}
             with contextlib.redirect_stdout(io.StringIO()):
                 if valid:
                     exec(compile(code, "report-fetch", "exec"), namespace)
@@ -153,6 +199,46 @@ class LicenseClassificationTests(unittest.TestCase):
                 else:
                     with self.assertRaisesRegex(ValueError, "missing 'Assigned Products'"):
                         exec(compile(code, "report-fetch", "exec"), namespace)
+
+    def test_live_licence_fetch_pages_and_skips_on_403(self):
+        code = cells(COPIES[0])[6]
+        report = SimpleNamespace(text="User Principal Name,Assigned Products\nada@contoso.com,Microsoft 365 E3\n")
+        plan = {"servicePlanId": "a62f8878-de10-42f3-b68f-6149a25ceb97", "capabilityStatus": "Enabled"}
+        pages = {
+            "users?": {"value": [{"userPrincipalName": "ada@contoso.com", "assignedPlans": [plan]}],
+                       "@odata.nextLink": "https://graph.microsoft.com/v1.0/users?$skiptoken=2"},
+            "skiptoken=2": {"value": [{"userPrincipalName": "bob@contoso.com", "assignedPlans": []}]},
+        }
+
+        class HTTPError(Exception):
+            def __init__(self, status):
+                super().__init__(status)
+                self.response = SimpleNamespace(status_code=status)
+
+        def run(users_status=200):
+            def graph_get(url, timeout=60):
+                if "/users" not in url:
+                    return report
+                if users_status != 200:
+                    raise HTTPError(users_status)
+                body = pages["skiptoken=2" if "skiptoken=2" in url else "users?"]
+                return SimpleNamespace(json=lambda: body)
+            namespace = {"graph_get": graph_get, "REPORT_PERIOD": "D7", "LIVE_LICENCE_CHECK": True,
+                         "requests": SimpleNamespace(HTTPError=HTTPError)}
+            output = io.StringIO()
+            with contextlib.redirect_stdout(output):
+                exec(compile(code, "report-fetch", "exec"), namespace)
+            return namespace, output.getvalue()
+
+        namespace, output = run()
+        self.assertEqual(namespace["live_licences"],
+                         ({"ada@contoso.com", "bob@contoso.com"}, {"ada@contoso.com"}))
+        self.assertIn("2 users from Microsoft Entra; 1 have an enabled Copilot plan", output)
+        namespace, output = run(403)
+        self.assertIsNone(namespace["live_licences"])
+        self.assertIn("Grant User.Read.All", output)
+        with self.assertRaises(HTTPError):
+            run(500)
 
     def test_active_pbits_consume_flags_not_assigned_product_classifiers(self):
         paths = [p for p in ROOT.rglob("*.pbit")

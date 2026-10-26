@@ -20,6 +20,21 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**Licensed users: no more unlicensed users shown as licensed.** Since 0.6.8, a user in the
+Microsoft 365 Copilot usage report counts as licensed. That report, like the active-user report,
+can run days behind licence changes, so users whose Copilot licence had been removed showed as
+licensed but inactive. Now, in Fabric and on Azure, the licensed-users ingest also reads each
+user's assigned plans from Microsoft Entra (`/v1.0/users`) and unticks the flag for anyone without
+an enabled Microsoft 365 Copilot service plan (`M365_COPILOT_APPS`) today. It never ticks a flag,
+so a licence the patterns don't know stays unlicensed; the log counts those users so you can add
+the product. Users the report marks as deleted are never counted.
+
+- **Nothing to grant.** The check uses `User.Read.All`, which org data already needs. Without it
+  (403), the check is skipped and the log says so.
+- **Concealed names:** when none of the report's users are found in Entra, the check is skipped and
+  the log says why.
+- **Turn it off** in the Fabric notebook with `LIVE_LICENCE_CHECK = False`.
+
 ### Fixed
 
 - **The audit load's time budget now covers throttling.** On Fabric, `TIME_BUDGET_MIN` was only

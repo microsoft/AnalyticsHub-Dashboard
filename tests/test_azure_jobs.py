@@ -698,6 +698,11 @@ LICENSED_CSV = ("\ufeffReport Refresh Date,User Principal Name,Display Name,Assi
 COPILOT_CSV = "\ufeffReport Refresh Date,User Principal Name,Display Name,Last Activity Date\n"
 
 
+def _live_user(upn, status="Enabled", plan=graph.licensed.COPILOT_PLAN_ID):
+    plans = [] if status is None else [{"servicePlanId": plan, "capabilityStatus": status}]
+    return {"userPrincipalName": upn, "assignedPlans": plans}
+
+
 def test_collect_licensed_and_org(tmp_path):
     users_page2 = graph.org.USERS_URL + "&$skiptoken=2"
 
@@ -706,6 +711,8 @@ def test_collect_licensed_and_org(tmp_path):
             return Resp(200, text=LICENSED_CSV, content=LICENSED_CSV.encode("utf-8-sig"))
         if url == graph.COPILOT_USAGE_URL:
             return Resp(200, text=COPILOT_CSV, content=COPILOT_CSV.encode())
+        if url == graph.licensed.LIVE_USERS_URL:
+            return Resp(200, {"value": [_live_user("ada@contoso.com"), _live_user("bob@contoso.com", None)]})
         if url == graph.org.USERS_URL:
             return Resp(200, {"value": [{"userPrincipalName": "ceo@contoso.com", "displayName": "Ceo"}],
                               "@odata.nextLink": users_page2})
@@ -772,14 +779,61 @@ def _licensed_flags(store):
     return duckdb.sql(f"SELECT UPN_Normalized, Has_license FROM '{path}' ORDER BY 1").fetchall()
 
 
-def _licensed_api(copilot):
+def _licensed_api(copilot, live=None, csv=LICENSED_CSV):
+    live = live if live is not None else [Resp(403, {})]
+
     def handler(m, url, kw):
         if "getOffice365ActiveUserDetail" in url:
-            return Resp(200, text=LICENSED_CSV, content=LICENSED_CSV.encode("utf-8-sig"))
+            return Resp(200, text=csv, content=csv.encode("utf-8-sig"))
         if url == graph.COPILOT_USAGE_URL:
             return copilot
+        if url == graph.licensed.LIVE_USERS_URL:
+            return live[0]
+        if url == graph.licensed.LIVE_USERS_URL + "&$skiptoken=2":
+            return live[1]
         raise AssertionError(url)
     return make_api(handler)[0]
+
+
+def test_collect_licensed_unticks_users_entra_shows_unlicensed(tmp_path, caplog):
+    text = COPILOT_CSV + "2026-09-09,bob@contoso.com,Bob,\n2026-09-09,ada@contoso.com,Ada,2026-09-08\n"
+    csv = LICENSED_CSV + "2026-09-09,cy@contoso.com,Cy,Microsoft 365 E3\n"
+    page2 = graph.licensed.LIVE_USERS_URL + "&$skiptoken=2"
+    live = [Resp(200, {"value": [_live_user("ada@contoso.com"), _live_user("bob@contoso.com", "Deleted")],
+                       "@odata.nextLink": page2}),
+            Resp(200, {"value": [_live_user("cy@contoso.com")]})]
+    store = LocalStore(tmp_path)
+    with caplog.at_level("INFO", logger="valuelens_jobs.collect"):
+        graph.collect_licensed(_licensed_api(Resp(200, text=text, content=text.encode()), live, csv), store,
+                               settings())
+    assert _licensed_flags(store) == [("ada@contoso.com", "TRUE"), ("bob@contoso.com", "FALSE"),
+                                      ("cy@contoso.com", "FALSE")]
+    assert "1 user(s) not counted because Entra shows no enabled Copilot plan" in caplog.text
+    assert "1 user(s) have an enabled Copilot plan in Entra but no matching" in caplog.text
+
+
+def test_collect_licensed_skips_entra_check_when_names_differ(tmp_path, caplog):
+    live = [Resp(200, {"value": [_live_user("someone@contoso.com")]})]
+    store = LocalStore(tmp_path)
+    with caplog.at_level("WARNING", logger="valuelens_jobs.collect"):
+        graph.collect_licensed(_licensed_api(Resp(404, {}), live), store, settings())
+    assert _licensed_flags(store) == [("ada@contoso.com", "TRUE"), ("bob@contoso.com", "FALSE")]
+    assert "none of the report users are in Microsoft Entra" in caplog.text
+
+
+def test_collect_licensed_rejects_foreign_users_link(tmp_path):
+    live = [Resp(200, {"value": [], "@odata.nextLink": "https://evil.example/u"})]
+    with pytest.raises(RuntimeError, match="non-Graph"):
+        graph.collect_licensed(_licensed_api(Resp(404, {}), live), LocalStore(tmp_path), settings())
+
+
+def test_collect_licensed_never_counts_deleted_users(tmp_path):
+    csv = ("Report Refresh Date,User Principal Name,Display Name,Is Deleted,Assigned Products\n"
+           "2026-09-09,ada@contoso.com,Ada,False,MICROSOFT 365 COPILOT\n"
+           "2026-09-09,gone@contoso.com,Gone,True,MICROSOFT 365 COPILOT\n")
+    store = LocalStore(tmp_path)
+    graph.collect_licensed(_licensed_api(Resp(404, {}), csv=csv), store, settings())
+    assert _licensed_flags(store) == [("ada@contoso.com", "TRUE"), ("gone@contoso.com", "FALSE")]
 
 
 def test_collect_licensed_counts_users_in_copilot_report(tmp_path, caplog):
@@ -1443,6 +1497,8 @@ def test_full_local_pipeline_collect_to_publish(tmp_path, monkeypatch):
             return Resp(200, text=LICENSED_CSV, content=LICENSED_CSV.encode())
         if url == graph.COPILOT_USAGE_URL:
             return Resp(200, text=COPILOT_CSV, content=COPILOT_CSV.encode())
+        if url == graph.licensed.LIVE_USERS_URL:
+            return Resp(403, {})
         return fake(m, url, kw)
 
     api, _ = make_api(handler)

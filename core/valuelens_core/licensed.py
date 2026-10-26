@@ -27,6 +27,9 @@ COPILOT_SKU_EXCLUDE = [
 ]
 TABLE = 'copilot_licensed_users'
 _INVALID = re.compile(r'[ ,;{}()\n\t=]')
+# M365_COPILOT_APPS: the service plan in every Microsoft 365 Copilot SKU, including EDU, Sales and E7.
+COPILOT_PLAN_ID = 'a62f8878-de10-42f3-b68f-6149a25ceb97'
+LIVE_USERS_URL = 'https://graph.microsoft.com/v1.0/users?$select=userPrincipalName,assignedPlans&$top=999'
 
 
 def _normalise_header(value):
@@ -136,6 +139,60 @@ def _parse_copilot_usage_report(csv_text):
     return users
 
 
+def live_copilot_licences(users, known=None, enabled=None):
+    """Graph /users items (userPrincipalName, assignedPlans) -> (every UPN, UPNs with an enabled Copilot plan).
+
+    Pass the sets back in to add one page at a time. A removed licence stays in assignedPlans with
+    capabilityStatus 'Deleted', and a disabled one isn't 'Enabled', so neither counts.
+    """
+    known = set() if known is None else known
+    enabled = set() if enabled is None else enabled
+    for user in users or []:
+        upn = _normalise_identity((user or {}).get('userPrincipalName'))
+        if not upn:
+            continue
+        known.add(upn)
+        if any(str((plan or {}).get('servicePlanId') or '').strip().lower() == COPILOT_PLAN_ID
+               and (plan or {}).get('capabilityStatus') == 'Enabled'
+               for plan in user.get('assignedPlans') or []):
+            enabled.add(upn)
+    return known, enabled
+
+
+def _is_deleted(row):
+    col = _pick_report_column(list(row), 'Is Deleted', 'isDeleted')
+    return col is not None and str(row.get(col) or '').strip().lower() in ('true', 'yes', '1')
+
+
+def apply_licence_checks(rows, upn_col, live=None):
+    """Turn report-based HasCopilot TRUE flags FALSE for deleted users and, when `live` is given, for users
+    without an enabled Copilot plan in Microsoft Entra now. Never sets TRUE. Returns counts for the log.
+
+    `live` is `live_copilot_licences`'s (known, enabled), or None when it couldn't be read. It is skipped when
+    none of the report's users are in Entra (for example, the report shows concealed names).
+    """
+    stats = {'deleted': 0, 'live_checked': False, 'live_removed': 0, 'live_missed': 0}
+    for row in rows:
+        if row.get('HasCopilot') == 'TRUE' and _is_deleted(row):
+            row['HasCopilot'] = 'FALSE'
+            stats['deleted'] += 1
+    if live is None:
+        return stats
+    known, enabled = live
+    if not ({_normalise_identity(row.get(upn_col)) for row in rows} & known):
+        return stats
+    stats['live_checked'] = True
+    for row in rows:
+        upn = _normalise_identity(row.get(upn_col))
+        if row.get('HasCopilot') == 'TRUE':
+            if upn not in enabled:
+                row['HasCopilot'] = 'FALSE'
+                stats['live_removed'] += 1
+        elif upn in enabled and not _is_deleted(row):
+            stats['live_missed'] += 1
+    return stats
+
+
 def _normalise_product(value):
     return ' '.join((value or '').upper().split())
 
@@ -193,12 +250,13 @@ def licence_sources(rows, upn_col, is_copilot, copilot_users):
 
 
 def build_snapshot(csv_text, *, patterns=None, exclude=None, table_exists=False, allow_empty=False,
-                   copilot_users=None, stats=None):
+                   copilot_users=None, stats=None, live=None):
     """CSV text -> (columns, rows) for `copilot_licensed_users`. Mirrors the notebook cells 2-4.
 
     `copilot_users` is the set of normalised UPNs from the Copilot usage report, or None when it was not
-    fetched. A user in that set counts as licensed even if no assigned product matched. Pass a dict as
-    `stats` to receive the `licence_sources` counts.
+    fetched. A user in that set counts as licensed even if no assigned product matched. `live` is
+    `live_copilot_licences`'s result, or None; see `apply_licence_checks`. Pass a dict as `stats` to
+    receive the `licence_sources` and `apply_licence_checks` counts.
     """
     fieldnames, rows, upn_col, _products_col = _parse_active_user_report(csv_text)
     _validate_report_rows(rows, upn_col)
@@ -210,6 +268,9 @@ def build_snapshot(csv_text, *, patterns=None, exclude=None, table_exists=False,
         if not ok and copilot_users:
             ok = _normalise_identity(row.get(upn_col)) in copilot_users
         row['HasCopilot'] = 'TRUE' if ok else 'FALSE'
+    checks = apply_licence_checks(rows, upn_col, live)
+    if stats is not None:
+        stats.update(checks)
 
     # spark.createDataFrame(list_of_dicts) orders the inferred columns by key.
     columns = sorted(rows[0].keys()) if rows else list(fieldnames)
