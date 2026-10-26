@@ -136,7 +136,9 @@ Something failed? Choose **Rerun failed loads** (`rerun-failed`), or see
 - **Then what's left for your admins.** Under **Still to do by your admins**: one request per
   admin, with what it's for, the message to send (**Copy request** copies it), and what you do
   once they've done it. It comes from what the install recorded and from this run, so it doesn't
-  ask for what the installer did itself. It can ask for:
+  ask for what the installer did itself. The admin pack next to the install record is rewritten
+  with the same requests, a file for each admin: see **The admin pack** in
+  [Prerequisites](PREREQUISITES.md). It can ask for:
   - **Global Reader** for **Analytics Hub Data Collector**, or on Azure for the jobs' managed
     identity, from a Privileged Role Administrator or Global Administrator, when agent
     configuration comes from Azure Resource Graph and the installer couldn't give it. The message
@@ -154,12 +156,22 @@ Something failed? Choose **Rerun failed loads** (`rerun-failed`), or see
     the Foundry resources. Once they're given, run the installer again without `--yes` and choose
     **Repair or change**: when it says you can't assign Azure roles there, choose the option the
     request names.
+  - **The client secret** (Fabric), from a Key Vault admin, when you chose **A vault admin will
+    add the secret for me** and haven't told the installer it's there. The message has the vault,
+    the secret's name, the portal steps and the Cloud Shell commands. Once it's in the vault, run
+    the installer again without `--yes`, choose **Repair or change**, and answer **Has the admin
+    added the secret?** with **Yes, carry on**.
   - **The Cowork credits query** (Fabric, optional), from an Insights Analyst, when Cowork credits
     come from the CSV export.
   - **Copilot Studio transcripts**, from a System Administrator of each Agent Evaluator
     environment the installer can't read in full.
   - On Azure, the install's pending admin actions too, such as the jobs' managed identity's
     Microsoft Graph roles and the Teams app.
+  - What the prerequisites check asked for that a finished install doesn't settle: audit logging
+    in Microsoft Purview, until, on Fabric, a data check or the audit check finds audit records; the
+    Power Automate Premium licence, when you have flows; the data policy, until every flow is on;
+    and the tenant settings the installer couldn't read and the install doesn't prove are on. Where
+    there's something to run once it's done, such as `check-audit` or `update`, the request says so.
 - **Admin consent.** If you couldn't grant it, the request goes to a Privileged Role Administrator
   or Global Administrator, with the link. They select **Grant admin consent**. Then load the audit
   history, as the request says: run `run --backfill-days <n>`, or, for 30, 90 or 180 days, open the

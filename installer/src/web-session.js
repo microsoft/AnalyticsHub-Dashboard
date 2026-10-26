@@ -72,16 +72,19 @@ export function describeRecord(config) {
  * What the home page keeps of a prerequisites check. canAssignDirectoryRoles: Global Administrator or
  * Privileged Role Administrator is active, so the user can assign directory roles themselves. On Azure the
  * consent row is met by an Application Administrator too, so the row says whether it was one of those two.
- * requests: one request per admin to copy and send, for the rows that need someone else.
+ * requests: one request per admin to copy and send, for the rows that need someone else. adminPack: where the
+ * check wrote them as files, the index and a file for each admin, when it wrote them.
  * @param {string} upn
  * @param {import('./prereqs.js').Prereq[]} items
  * @param {import('./config.js').InstallConfig} [config]  The install the check was for: without it, no requests.
+ * @param {import('./steps/admin-pack.js').PackPaths} [adminPack]
  */
-export const prereqsSnapshot = (upn, items, config) => ({
+export const prereqsSnapshot = (upn, items, config, adminPack) => ({
   at: new Date().toISOString(),
   upn,
   items,
   requests: config ? adminRequests(items, config, { from: upn }) : [],
+  adminPack: adminPack ?? null,
   canAssignDirectoryRoles: items.some((i) => i.id === 'consent-role' && i.status === 'met' && i.assignsDirectoryRoles !== false),
 });
 
@@ -217,7 +220,7 @@ export function createSession(o) {
       let ok = true;
       if (command === 'prereqs') {
         const items = await showPrereqs(ctx);
-        prereqs = prereqsSnapshot(signedIn.user.upn, items, ctx.config);
+        prereqs = prereqsSnapshot(signedIn.user.upn, items, ctx.config, ctx.handoffPack?.paths);
       } else ok = await runCommand(ctx, command, { wait: req.wait !== false, backfillDays: req.backfillDays });
       ui.emit({ type: 'command', command, state: ok ? 'done' : 'failed', ...(ok ? {} : { error: 'It didn\'t finish successfully. The details are above.' }) });
     } catch (err) {

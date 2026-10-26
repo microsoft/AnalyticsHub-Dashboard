@@ -1,7 +1,7 @@
 // @ts-check
 /** Command-line entry point. */
 import { readFileSync, existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { AZ_LOGIN } from './auth.js';
 import { orgUrl } from './clients/dataverse.js';
@@ -11,6 +11,7 @@ import { connect, createCtx, preview, runCommand } from './install.js';
 import { adoptUploadedRecord, cloudShellKeepsFiles, cloudShellRecordMessage, commandLine, inCloudShell } from './launch.js';
 import { runWizard } from './server.js';
 import { loadSources } from './sources.js';
+import { ADMIN_PACK_FILE } from './steps/admin-pack.js';
 import { azureUploadError } from './steps/data-sources.js';
 import { recordWorkspaceGone, staleRecordMessage } from './steps/fabric.js';
 import { isResumeLater, MAX_SECRET_DAYS, NOTEBOOK_SECRET_DAYS } from './steps/identity.js';
@@ -406,8 +407,12 @@ export async function main(argv) {
       const ok = await runCommand(ctx, args.command, { wait: args.wait, backfillDays: args.backfillDays, files: args.files, run: args.run });
       return ok ? 0 : 1;
     } finally {
-      // Also after a failure part way: the record is what lets the next run carry on.
-      if (args.cloudShell && !cloudShellKeepsFiles() && existsSync(args.configFile)) ui.warn(cloudShellRecordMessage(args.configFile));
+      // Also after a failure part way: the record is what lets the next run carry on, and the pack is what an admin needs.
+      if (args.cloudShell && !cloudShellKeepsFiles()) {
+        const pack = join(dirname(args.configFile), ADMIN_PACK_FILE);
+        const keep = { record: existsSync(args.configFile), pack: existsSync(pack) ? pack : undefined };
+        if (keep.record || keep.pack) ui.warn(cloudShellRecordMessage(args.configFile, undefined, keep));
+      }
     }
   } catch (err) {
     const e = /** @type {any} */ (err);

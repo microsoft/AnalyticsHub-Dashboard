@@ -149,7 +149,7 @@ anything. If you can't, choose **An admin will create the apps for me** under **
 
 | Who | Does | Needs |
 |---|---|---|
-| You | Run the installer. It writes `analytics-hub-azure-admin-script.md` next to the install record, and stops before it deploys anything | Nothing more |
+| You | Run the installer. It writes `analytics-hub-azure-admin-script.md` next to the install record, with the same script in the app admin's file in the admin pack (`analytics-hub-admin-pack/app-admin.md`), and stops before it deploys anything | Nothing more |
 | Your app admin | Pastes the script into Azure Cloud Shell (Bash). It creates the two apps and their service principals, makes you an owner of them, and approves the web app's delegated permissions. It makes no secrets, and it's safe to run again | **Application Administrator** or **Cloud Application Administrator**. A Privileged Role Administrator can't create app registrations |
 | You | Run the installer again. It finds the apps itself, deploys, and finishes the apps as their owner once the web app exists | Owner of the two apps: the script makes you one |
 

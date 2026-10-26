@@ -3,6 +3,7 @@
 import { copyFileSync, existsSync, mkdirSync, renameSync, unlinkSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
+import { ADMIN_PACK_DIR } from './steps/admin-pack.js';
 import { REPO } from './update-check.js';
 
 /** Set by AnalyticsHubInstaller.exe, which runs the installer with the Node.js it carries. */
@@ -44,15 +45,24 @@ export function inCloudShell(env = process.env) {
 export const cloudShellKeepsFiles = (home = homedir()) => existsSync(join(home, 'clouddrive'));
 
 /**
- * Said at the end of a run in Cloud Shell without a storage account, where the install record goes
- * when the session ends or times out.
+ * Said at the end of a run in Cloud Shell without a storage account, where the install record and the admin pack
+ * go when the session ends or times out.
  * @param {string} file  The install record.
  * @param {string} [home]
+ * @param {{ record?: boolean, pack?: string }} [o]  record: false when there's no record yet, as after a check of
+ *   the prerequisites. pack: the admin pack's index, when there is one.
  */
-export function cloudShellRecordMessage(file, home = homedir()) {
-  const rel = relative(home, file);
-  const path = rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : file;
-  return `This Cloud Shell has no storage account, so ${basename(file)} goes when the session ends or times out. Download it now: in Cloud Shell's toolbar choose Manage files > Download and enter ${path}. To carry on in a new session, upload it with Manage files > Upload, then run the installer again.`;
+export function cloudShellRecordMessage(file, home = homedir(), o = {}) {
+  const at = (/** @type {string} */ p) => {
+    const rel = relative(home, p);
+    return rel && !rel.startsWith('..') && !isAbsolute(rel) ? rel : p;
+  };
+  const record = o.record !== false;
+  const pack = o.pack ? `${at(o.pack)} and each file in ${at(join(dirname(o.pack), ADMIN_PACK_DIR))}` : '';
+  if (!record) return `This Cloud Shell has no storage account, so the admin pack goes when the session ends or times out. Download it now: in Cloud Shell's toolbar choose Manage files > Download and enter ${pack}.`;
+  const what = pack ? `${basename(file)} and the admin pack go` : `${basename(file)} goes`;
+  const get = pack ? `Download them now: in Cloud Shell's toolbar choose Manage files > Download and enter ${at(file)}, then ${pack}.` : `Download it now: in Cloud Shell's toolbar choose Manage files > Download and enter ${at(file)}.`;
+  return `This Cloud Shell has no storage account, so ${what} when the session ends or times out. ${get} To carry on in a new session, upload ${pack ? basename(file) : 'it'} with Manage files > Upload, then run the installer again.`;
 }
 
 /**

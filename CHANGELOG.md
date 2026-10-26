@@ -212,9 +212,11 @@ Deployment instructions do **not** live here. They live in the READMEs:
   output: one request per admin, with what it's for, the message to copy and send (**Copy
   request** in the browser), and what you do once the admin has done it. The requests come from the
   install record and that run, not from your roles, so they don't ask for what the installer did
-  itself. Preflight's requests don't change, and stay in the run log. An update doesn't list them.
-  No request includes a secret. The Done page's cards are now only what you do: deploy and share
-  the app, and sign in to the flows and the Cowork Dataflow.
+  itself. Preflight's requests don't change, and stay in the run log, and the end lists again the
+  ones a finished install doesn't settle, such as audit logging in Microsoft Purview (see the
+  hand-off pack, below). An update doesn't list what's left. No request includes a secret. The Done
+  page's cards are now only what you do: deploy and share the app, and sign in to the flows and the
+  Cowork Dataflow.
   - **Global Reader.** Fabric's Done card that asked for it is now a request to a Privileged Role
     Administrator or Global Administrator, with the same steps and command. On Azure, the jobs'
     managed identity's Global Reader, which the installer only printed, is a request too.
@@ -250,6 +252,79 @@ Deployment instructions do **not** live here. They live in the READMEs:
   - In the browser, the installer's own window lists who each request goes to, and points to the
     Done page. The run log the browser saves has each request once. INSTALL, PREREQUISITES,
     PERMISSIONS, MANUAL-INSTALL and the READMEs say the same.
+- **One hand-off pack, with a file per admin.** The requests for your admins are now also files
+  you can send as they are, next to the install record. `analytics-hub-admin-pack.md` is for you:
+  what happened, when it was written and by what, which file goes to which admin and the
+  prerequisites it's for, what to check before you send it and what to do once it's done, and the
+  command to carry on. The `analytics-hub-admin-pack` folder beside it has a file for each admin,
+  such as `app-admin.md` or `fabric-admin.md`, and one for the System Administrator of each Agent
+  Evaluator environment: the request, with the exact setting and role names and the links, each
+  command in a bash code block, what to send back and what happens next. No file includes a secret.
+  - **When it's written.** It's written when you check the prerequisites (`prereqs`, or **Check
+    prerequisites** in the browser), and when install and update check them, before a run with
+    `--yes` stops there, so a stopped run leaves the files. An install adds what it hands to an
+    admin on the way: the flows' rows, the app when you choose **An admin will register the app for
+    me** or Entra refuses to register it, the Azure admin script, and the steps for a vault admin to
+    add the client secret. The end of an install or Repair rewrites it with what's still left; an update doesn't. `check`, `status`, `uninstall` and
+    the check the browser runs when you sign in write nothing, and nothing is written until there's
+    something to ask. Where a write is new, one that fails warns once and the run carries on.
+  - **What the end keeps.** The end of an install or Repair, on the Done page, in the terminal and in
+    the pack, also lists what preflight and the flows' check asked for that a finished install
+    doesn't settle, so rewriting the pack doesn't lose it, with what you do once it's done where
+    there's something to do:
+    - audit logging in Microsoft Purview, from a Compliance Administrator. On Fabric it's left out
+      when the run's data check, or else the last one the Lakehouse holds, or the last audit check
+      found audit records, and it says to run `check-audit` once it's on. On Azure, with no data
+      check at the end, it stays;
+    - the Power Automate Premium licence, from your licence admin, when the install has flows. While
+      a flow is off, it says to run `update`, which turns on each flow that's off once its
+      connections are signed in;
+    - the data policy, from a Power Platform administrator, until every flow is on. It says to run
+      `update`, which also saves any flow the policy turned down;
+    - the tenant settings, from a Fabric administrator, and the capacity's XMLA endpoint, from a
+      Fabric capacity admin, when preflight couldn't read them: only those the install record
+      doesn't prove are on, and on Fabric only those for what you chose. A workspace proves "Create
+      workspaces", its Lakehouse and pipeline prove "Users can create Fabric items", the deployed app
+      proves its setting, and org-scoped access, once applied, proves the XMLA endpoint.
+
+    A finished install settles the rest of preflight's asks, or the end asks for them from the
+    install record, so no ask shows twice.
+  - **Old files.** Each write removes the file of an admin with nothing left to do, and leaves any
+    other file in the folder. Once nothing is left, the index says nothing is waiting on an admin.
+  - **The app admin.** On Fabric, the Cloud Shell script and portal steps that were the whole admin
+    pack are now in the app admin's file, with who can do what. `analytics-hub-admin-pack.md` keeps
+    its name and place, as the index: an install record from an earlier version that names it still
+    counts as a pack waiting for an admin, and the next write turns it into the index. After Entra
+    refuses to register the app, the index says so, rather than that you can't register apps. On
+    Azure, `analytics-hub-azure-admin-script.md` doesn't change, and the app admin's file has the
+    same script. While a pack or script waits for an admin, the register-apps prerequisite is a
+    hand-off to an Application Administrator or Cloud Application Administrator, even when your role
+    or the tenant setting looks as if it lets you register apps, so they get a request and their
+    file. Before, the row stayed met, and no request asked them to use the pack.
+  - **The vault admin** (Fabric). When you choose **A vault admin will add the secret for me**, the
+    steps the installer shows are also a request to a Key Vault admin, in their own file,
+    `vault-admin.md`: the vault, the secret's name and the app, the vault's link in the Azure
+    portal, read access for you when you need it, who can create the secret and who can add it to
+    the vault, the portal steps, and the Azure Cloud Shell commands that create the secret and store
+    it in one go, so no one sees its value. It's written before the installer asks **Has the admin added the secret?**,
+    and with `--yes`, which carries on without the secret. Until you tell the installer it's there,
+    each write keeps the request, and the end of an install or Repair lists it under **Still to do
+    by your admins**: once it's done, run the installer again without `--yes`, choose **Repair or
+    change**, and answer **Yes, carry on**. Until then, the summary's Secret line says the secret is
+    waiting for a vault admin and that data loads fail until it's there, where it said a vault admin
+    had added it. **Create new secrets** (`rotate-secret`) writes the pack with the vault admin's
+    request to replace the secret, and only that: its index says so, and that a Repair shows
+    anything else still waiting.
+  - **Where it shows.** The terminal prints the index's path ("Start here:") and a line for each
+    admin's file after the requests, and nothing more when a later write changes no file. In the
+    browser, the Prerequisites panel, the Done page and the saved run log show the paths, with
+    **Copy path** for the index. The messages that named the pack, such as **Stop and resume
+    later** while you wait for an admin to register the app, name the admin's own file. In Cloud
+    Shell without a storage account, the reminder at the end names the pack as well as the install
+    record.
+  - The Prerequisites check now says it "changes nothing in your tenant": it writes the pack next to
+    the install record, and nothing in the tenant. PREREQUISITES, INSTALL, PERMISSIONS,
+    TROUBLESHOOTING, AZURE-LEAST-PRIVILEGE and the installer README say the same.
 
 ## 2026-10-26 — Analytics Hub installer 0.6.8
 

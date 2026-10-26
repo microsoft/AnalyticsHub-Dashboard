@@ -19,7 +19,7 @@ import { POWER_PLATFORM_URL, powerPlatformApi } from './clients/powerplatform.js
 import { saveConfig, secretMode } from './config.js';
 import { createClient, defaultSleep } from './http.js';
 import { commandLine } from './launch.js';
-import { ensureConsent, ensureApp, ensureKeyVault, newSecret, notebookSecretDays } from './steps/identity.js';
+import { askedRows, copyHandoffPack, ensureConsent, ensureApp, ensureKeyVault, newSecret, notebookSecretDays, startHandoffPack, vaultAsk, writeHandoffPack } from './steps/identity.js';
 import {
   agentEvaluatorModelWanted, agentEvaluatorSummary, ensureAgentEvaluatorModel, ensureTranscriptAccess, fabricReadRoleWanted, removeFabricReadRoles, transcriptAsks,
 } from './steps/agent-evaluator.js';
@@ -118,6 +118,7 @@ import { reviewSetup } from './setup.js';
  * @property {string} [setupSection] Open this settings category directly after a failure.
  * @property {boolean} [setupRetry] Revalidate saved choices without reopening every question.
  * @property {import('./prereqs.js').PreflightSeen} [preflightSeen]  What install preflight checked and showed, so the flows' rows show once they're chosen.
+ * @property {import('./steps/identity.js').HandoffPack} [handoffPack]  What this run has asked admins for so far, for the admin pack.
  */
 
 /**
@@ -275,6 +276,7 @@ export async function rewindable(ctx, fn) {
   const { pendingSecret, runFirstLoad, reloadHistoryDays, pendingUploads } = ctx;
   // Going back drops what was shown since, so the flows' prerequisites show again.
   const shown = ctx.preflightSeen && new Map(ctx.preflightSeen.shown);
+  const pack = ctx.handoffPack && copyHandoffPack(ctx.handoffPack);
   const real = ctx.api;
   ctx.api = memoApi(real);
   ctx.liveApi = real;
@@ -292,6 +294,11 @@ export async function rewindable(ctx, fn) {
         ctx.reloadHistoryDays = reloadHistoryDays;
         ctx.pendingUploads = pendingUploads;
         if (ctx.preflightSeen && shown) ctx.preflightSeen.shown = new Map(shown);
+        // The pack's files stay as they are until the next write, which puts back what's asked.
+        if (pack) {
+          const now = ctx.handoffPack;
+          ctx.handoffPack = { ...copyHandoffPack(pack), key: now?.key, at: now?.at, paths: now?.paths, shown: now?.shown, warned: now?.warned };
+        }
       }
     }
   } finally {
@@ -311,6 +318,8 @@ export async function rewindable(ctx, fn) {
  */
 export async function install(ctx, opts) {
   const { ui, config } = ctx;
+  const installed = config.target === 'azure' ? config.azure?.subscriptionId && config.azure.resourceGroup : config.fabric.workspaceId && config.fabric.lakehouseId;
+  startHandoffPack(ctx, installed ? 'repair' : 'install');
   let go;
   /** @type {import('./steps/plan.js').Preflight | undefined} */
   let pre;
@@ -697,6 +706,7 @@ async function tryDeployApp(ctx, opts = {}) {
  */
 export async function update(ctx, opts = {}) {
   const { ui, config } = ctx;
+  startHandoffPack(ctx, 'update');
   if (config.target === 'azure') {
     await updatePrereqs(ctx);
     return azureUpdate(ctx);
@@ -833,15 +843,18 @@ async function updatePrereqs(ctx) {
 }
 
 /**
- * Prints what the signed-in user has and lacks for an install. Changes nothing.
+ * Prints what the signed-in user has and lacks for an install, with the requests to send and the admin pack.
+ * Changes nothing in your tenant.
  * @param {Ctx} ctx
  */
 export async function showPrereqs(ctx) {
   ctx.ui.heading('Prerequisites');
   ctx.ui.ok(`Signed in as ${ctx.user.upn} (tenant ${ctx.user.tenantId})`);
+  startHandoffPack(ctx, 'prereqs');
   const items = await checkPrereqs(ctx);
   ctx.ui.prereqs(items);
   ctx.ui.adminRequests(adminRequests(items, ctx.config, { from: ctx.user.upn }));
+  writeHandoffPack(ctx, { asked: items, all: items, why: 'It changes nothing in your tenant: it lists what an admin needs to do before you install.' });
   return items;
 }
 
@@ -957,6 +970,8 @@ export async function rotateSecret(ctx) {
   }
   if (mode === 'keyvault-admin') {
     if (!(await ui.confirm(`Show the steps for a vault admin to replace the secret in ${config.keyVault.name}${sm.connectionId ? ', and replace the connection\'s' : ''}?`, true))) return;
+    // Their steps go in the admin pack, in place of what an earlier run left there.
+    startHandoffPack(ctx, 'rotate-secret');
   } else {
     ui.note('The notebooks\' old secret keeps working until it expires. Delete it from the app\'s Certificates & secrets page once a run has succeeded.');
     if (!(await ui.confirm(`Create new secrets and replace the one in Key Vault${sm.connectionId ? ' and the connection\'s' : ''}?`, true))) return;
@@ -1000,16 +1015,18 @@ export async function summary(ctx, opts = {}) {
   const globalAdmin = !!names && (await isGlobalAdmin(api));
   const left = nextSteps(config, ctx.user, { appFailed: opts.appFailed, names: globalAdmin && names ? names : undefined });
   if (left.length) ui.nextSteps(stepsLeftTitle(left), left);
-  ui.doneRequests(
-    doneRequests(config, {
-      from: ctx.user?.upn,
-      consented: opts.consented,
-      dataCheck: check,
-      globalAdmin,
-      backfillDays: opts.backfillDays,
-      transcripts: transcriptAsks(ctx),
-    }),
-  );
+  const requests = doneRequests(config, {
+    from: ctx.user?.upn,
+    consented: opts.consented,
+    dataCheck: check,
+    globalAdmin,
+    backfillDays: opts.backfillDays,
+    transcripts: transcriptAsks(ctx),
+    carried: askedRows(ctx),
+    vault: secretMode(config) === 'keyvault-admin' && !config.keyVault.secretSetAt ? [vaultAsk(ctx)] : [],
+  });
+  ui.doneRequests(requests);
+  writeHandoffPack(ctx, { done: requests });
   ui.info(`Workspace:  ${f.workspaceName}  ${c.dim(`https://app.fabric.microsoft.com/groups/${ws}`)}`);
   ui.info(`Lakehouse:  ${f.lakehouseName}`);
   ui.info(`Pipeline:   ${f.pipelineName ?? PIPELINE_NAME}, ${describeSchedule(config.schedule)}`);
@@ -1017,7 +1034,10 @@ export async function summary(ctx, opts = {}) {
   const expires = config.app.secretExpires ? `, expires ${config.app.secretExpires.slice(0, 10)}` : '';
   const expiresOn = config.app.secretExpires ? ` on ${config.app.secretExpires.slice(0, 10)}` : '';
   if (mode === 'notebook') ui.info(`Secret:     in the notebooks${expires}  ${c.dim('No Key Vault: anyone with a role in the workspace can read it. Each install, repair or update replaces it.')}`);
-  else ui.info(`Secret:     ${config.keyVault.name} / ${config.keyVault.secretName}${expires}${mode === 'keyvault-admin' ? c.dim('  Added by a vault admin.') : ''}`);
+  else {
+    const admin = config.keyVault.secretSetAt ? '  Added by a vault admin.' : '  Waiting for a vault admin to add it. Data loads fail until it\'s there.';
+    ui.info(`Secret:     ${config.keyVault.name} / ${config.keyVault.secretName}${expires}${mode === 'keyvault-admin' ? c.dim(admin) : ''}`);
+  }
   if (config.keyVault.private) ui.info(`            ${c.dim('Private vault, reached through a managed private endpoint. Spark sessions take a few minutes longer to start.')}`);
 
   const sm = config.semanticModel;

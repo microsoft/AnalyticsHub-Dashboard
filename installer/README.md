@@ -46,14 +46,17 @@ corresponding settings category directly.
 ## Before you start
 
 Moved to [Prerequisites](../docs/PREREQUISITES.md). Once you sign in, the **Prerequisites** panel
-(`prereqs` in the terminal) checks most of it, and changes nothing. `install` and `update` run the
+(`prereqs` in the terminal) checks most of it, and changes nothing in your tenant. `install` and `update` run the
 same checks first and list only what's missing for what you chose. For what someone else has to
 do, the panel and the run log end with **Requests for your admins**: one message per admin, asking
 for everything that admin does, with a **Copy request** button. The terminal prints the same
 messages after the list, each with who it's for, "For:" and the rows it covers, and the message
 under "Copy and send:". At the end of an install or Repair, the Done page and the terminal list
 what's still left for admins the same way, under **Still to do by your admins**, each with what you
-do once the admin has done it. They never include a secret.
+do once the admin has done it. They never include a secret. The installer also writes them as the
+admin pack, next to the install record: `analytics-hub-admin-pack.md`, for you, says which file
+goes to which admin and how to carry on, and the `analytics-hub-admin-pack` folder has a file for
+each admin to send as it is. See **The admin pack** in [Prerequisites](../docs/PREREQUISITES.md).
 
 ### Where the secret goes
 
@@ -70,13 +73,18 @@ three places for it. For a new Fabric install, the default is no Key Vault:
 Installs that already keep the secret in Key Vault carry on using it. `--flow-identity app` reads
 the secret from Key Vault, so it goes to the Key Vault questions.
 
-**A vault admin adds the secret.** The installer shows the vault, the secret name and one
-Azure Cloud Shell command for the admin. The command creates a new client secret on the app and
-stores it in the vault in one step, so nobody, including the installer, sees its value. If you
-don't have read access yet and can't give it to yourself, the command gives it to you as well.
-The installer can make the admin an owner of the app, so they can create its secret: enter their
-email when asked. Then answer **Has the admin added it?** with **Yes, carry on**, or choose
-**Stop and resume later** and run the installer again once it's there. Your answers are kept.
+**A vault admin adds the secret.** The installer shows the vault, the secret name and the Azure
+Cloud Shell commands for the admin. They create a new client secret on the app and store it in the
+vault in one step, so nobody, including the installer, sees its value. If you don't have read
+access yet and can't give it to yourself, they give it to you as well. The installer can make the
+admin an owner of the app, so they can create its secret: enter their email when asked. The same
+steps, with the portal steps and who can do what, then go in the vault admin's file in the admin
+pack, `analytics-hub-admin-pack/vault-admin.md`, to send as it is (see **The admin pack** in
+[Prerequisites](../docs/PREREQUISITES.md)). Then answer **Has the admin added the secret?** with
+**Yes, carry on**, or choose **Stop and resume later** and run the installer again once it's there.
+Your answers are kept. With `--yes`, the install carries on without the secret, and data loads fail
+until it's there. Until you answer **Yes, carry on**, the end of an install or Repair lists it under
+**Still to do by your admins**, and the summary says the secret is waiting for a vault admin.
 Read access is all the notebooks need: they read the secret with `notebookutils` as the person
 the run uses. The choice is recorded in the install record as `keyVault.mode: "keyvault-admin"`.
 
@@ -120,12 +128,15 @@ Privileged Role Administrator can't, though it can grant admin consent. The inst
 anything is created, but it can't see custom roles, so it still offers to create the apps. Choose
 that only if a custom role lets you register apps. On Azure, if Entra then refuses, the installer
 writes the admin script and stops before it deploys anything. On Fabric, it writes the admin pack
-below and stops, and the next run offers **An admin will register the app for me** as the default.
+below, with a file for an admin who can register the app, and stops. The next run offers **An
+admin will register the app for me** as the default.
 
 **On Fabric**, choose **An admin will register the app for me** in the app registration question.
-Before anything is created, the installer writes `analytics-hub-admin-pack.md` next to the install
-record. It holds an Azure Cloud Shell script and the same steps for the portal. An Application
-Administrator or Cloud Application Administrator uses it to:
+Before anything is created, the installer writes the admin pack next to the install record:
+`analytics-hub-admin-pack.md`, for you, says what happened and who gets which file, and
+`analytics-hub-admin-pack/app-admin.md` is the app admin's. It holds an Azure Cloud Shell script
+and the same steps for the portal. An Application Administrator or Cloud Application Administrator
+uses it to:
 
 1. Register the app, with every Graph application permission the modules you picked need.
 2. Grant admin consent. They're Microsoft Graph application permissions, so this step needs a
@@ -158,8 +169,9 @@ registrations**, choose who creates them:
   Application Administrator or Global Administrator. Uninstall leaves these apps, and names them for
   an admin to delete.
 - **An admin will create the apps for me.** The installer writes `analytics-hub-azure-admin-script.md`
-  next to the install record, and stops before it deploys anything. An Application Administrator
-  or Cloud Application Administrator pastes its script into Azure Cloud Shell. It creates both apps
+  next to the install record, with the same script in the app admin's file in the admin pack
+  (`analytics-hub-admin-pack/app-admin.md`), and stops before it deploys anything. An Application
+  Administrator or Cloud Application Administrator pastes its script into Azure Cloud Shell. It creates both apps
   and their service principals, makes you an owner of them, and approves the web app's delegated
   permissions (Power BI and Microsoft Graph). It makes no secrets, and it's safe to run again. Then
   run the installer again: it finds the apps itself, so there's nothing to send back.

@@ -59,8 +59,10 @@ install, repair or update replaces them. **Check status** warns you 30 days befo
 new secrets** (`rotate-secret`). Where the secret goes decides what happens:
 
 - **Key Vault, written by the installer:** it creates and stores a new secret.
-- **A vault admin adds it:** it shows the admin the same steps again, then waits for you to say
-  it's done.
+- **A vault admin adds it:** it shows the admin the same steps again, writes them to the vault
+  admin's file in the admin pack, `analytics-hub-admin-pack/vault-admin.md`, then waits for you to
+  say it's done. The pack it writes holds only that request: to see anything else still waiting on
+  an admin, choose **Repair or change**.
 - **In the notebooks:** it creates a new secret, rewrites the notebooks and removes the old one.
   If you brought the app, paste its new secret when asked. Add `--secret-days <n>` to change how
   long the new one lasts.

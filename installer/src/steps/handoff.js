@@ -8,15 +8,16 @@ import { graphRolesCommand, objectIdOrLookup, pendingGraphRoles, roleAssignmentC
 import { apiPermissionsUrl, GLOBAL_ADMIN_ROLE } from '../clients/graph.js';
 import { secretMode } from '../config.js';
 import { commandLine } from '../launch.js';
-import { ppApiWanted, preflightVerdict, settingsToConfirm, TENANT_SETTINGS_URL } from '../prereqs.js';
+import { ppApiWanted, preflightVerdict, settingsLeft, settingsToConfirm, TENANT_SETTINGS_URL } from '../prereqs.js';
 import { isVivaId } from '../transform/dataflow.js';
 import { FEEDBACK_SUBJECT } from '../transform/flows.js';
+import { adminFileName } from './admin-pack.js';
 import { AUDIT_ROLE, PURVIEW_AUDIT_URL } from './audit-check.js';
 import { AZURE_APPS } from './azure/apps.js';
 import { LEAST_PRIVILEGE_URL } from './azure/least-privilege.js';
 import { MANAGE_APPS_URL, TEAMS_APP_PENDING } from './azure/teams-catalog.js';
 import { AZURE_AI_ROLES, DATAFLOW_GUIDE } from './consumption.js';
-import { FEEDBACK_EXPORT_URL, FLOW_NAMES, flowsWanted, ppApiSigner } from './flows.js';
+import { FEEDBACK_EXPORT_URL, FLOW_NAMES, flowConnected, flowsWanted, ppApiSigner } from './flows.js';
 import { CONCEALED_NAMES_AFTER, CONCEALED_NAMES_STEPS, CONCEALED_NAMES_WHY, letter, M365_ADMIN_URL } from './next-steps.js';
 import { APP_NAME } from './plan.js';
 import { AGENT_ROLE, ENTRA_ROLES_URL, globalReaderCommand, readerCommand, resourceGraphOn, resourceGraphScope, scopeName } from './resource-graph.js';
@@ -38,6 +39,7 @@ export const ADMINS = {
   teams: 'A Teams Administrator',
   'sharepoint-admin': 'A SharePoint Administrator',
   'azure-owner': 'An Azure Owner or User Access Administrator',
+  'vault-admin': 'A Key Vault admin',
   viva: 'An Insights Analyst',
   licence: 'Your licence admin',
   other: 'An admin',
@@ -56,6 +58,7 @@ export const ADMINS = {
  * @property {boolean} [optional]  Everything it asks for is optional.
  * @property {string[]} [notes]  For you, before you send it.
  * @property {string[]} [after]  For you, once the admin has done it.
+ * @property {string[]} [back]  What the admin sends you back, one item each.
  */
 /**
  * @typedef {object} Ask
@@ -68,6 +71,7 @@ export const ADMINS = {
  * @property {boolean} [optional]
  * @property {string} [note]  For you, before you send it.
  * @property {string[]} [after]  For you, once it's done.
+ * @property {string} [back]  What the admin sends you back.
  * @property {string} [kind]  Which pending admin action it's for: graph, consent, teams, owner, drop-site or other.
  */
 /**
@@ -94,6 +98,7 @@ const XMLA_UNREAD = 'XMLA endpoint must also be Read Write';
 const WEB_CONSENT = 'the Analytics Hub web app\'s delegated permissions (Power BI and Microsoft Graph)';
 const RG_AGENTS = 'Copilot Studio agents';
 const RG_FOUNDRY = 'Foundry resources';
+const VIVA_BACK = 'The Cowork credits query\'s partition ID and query ID.';
 
 /** @param {string} p */
 const fileName = (p) => p.split(/[\\/]/).pop() || p;
@@ -220,6 +225,19 @@ const connectionAsk = (config) => ({
 });
 
 /**
+ * Turning on the Fabric tenant settings someone who can't read them needs.
+ * @param {string[]} settings  By their names in the admin portal.
+ * @returns {Ask}
+ */
+const settingsAsk = (settings) => ({
+  admin: 'fabric-admin',
+  text: `Confirm these Fabric tenant settings are on for me, or for a group I'm in, and turn on any that are off: ${settings.join('; ')}. They're in Fabric under Admin portal > Tenant settings: ${TENANT_SETTINGS_URL}`,
+});
+
+/** @returns {Ask} */
+const xmlaAsk = () => ({ admin: 'capacity-admin', text: 'Set the XMLA endpoint to Read Write on the Fabric capacity Analytics Hub\'s workspace uses.' });
+
+/**
  * What each prerequisite asks of an admin when it needs someone else, by row ID: null when it never does, such as
  * a row the install carries on without, or one another row asks for.
  * @type {Record<string, null | ((it: Prereq, c: AskContext) => Ask[])>}
@@ -247,16 +265,20 @@ export const ROW_ASKS = {
   'register-apps': (it, c) => {
     const { config } = c;
     if (config.target !== 'azure') {
-      const pack = config.app?.adminPack ? ` (${fileName(config.app.adminPack)})` : '';
-      return [{ admin: 'app-admin', text: `Register the app Analytics Hub uses to collect data, in Microsoft Entra. I'll send you the installer's admin pack${pack}, which says how, and what to send back.` }];
+      // Once you've chosen to have an admin register it, their own file in the admin pack has the script and steps.
+      const steps =
+        config.app?.adminPack && !config.app.appId
+          ? `The installer's Cloud Shell script and portal steps for it are in ${adminFileName('app-admin')}, from its admin pack, with what to send back.`
+          : 'I\'ll send you the installer\'s Cloud Shell script and portal steps for it, which say what to send back.';
+      return [{ admin: 'app-admin', text: `Register the app Analytics Hub uses to collect data, in Microsoft Entra. ${steps}` }];
     }
-    const script = config.azure?.adminScript;
-    if (script) {
+    if (config.azure?.adminScript) {
+      // The app admin's own file in the admin pack has the script, as the file it records does.
       return [
         {
           admin: 'app-admin',
           coversConsent: true,
-          text: `Run the script in ${fileName(script)}, which I'll send you, in Azure Cloud Shell (Bash). It creates Analytics Hub's app registrations and approves ${WEB_CONSENT}. It makes no secrets.`,
+          text: `Run the script in ${adminFileName('app-admin')}, from the installer's admin pack, in Azure Cloud Shell (Bash). It creates Analytics Hub's app registrations and approves ${WEB_CONSENT}. It makes no secrets.`,
         },
       ];
     }
@@ -320,21 +342,14 @@ export const ROW_ASKS = {
     {
       admin: 'viva',
       text: 'Create the Copilot Cowork credits query in Viva Insights (Consumption query, the preselected credit metrics, Auto-refresh on), and send me its partition ID and query ID.',
+      back: VIVA_BACK,
     },
   ],
   'defender-licence': null,
   'tenant-settings': (it, c) => {
     // Readable settings mean you're a Fabric administrator, and can turn them on yourself.
     if (!it.detail.includes(SETTINGS_UNREAD)) return [];
-    return [
-      {
-        admin: 'fabric-admin',
-        text: `Confirm these Fabric tenant settings are on for me, or for a group I'm in, and turn on any that are off: ${settingsToConfirm(c.config).join('; ')}. They're in Fabric under Admin portal > Tenant settings: ${TENANT_SETTINGS_URL}`,
-      },
-      ...(it.detail.includes(XMLA_UNREAD)
-        ? [/** @type {Ask} */ ({ admin: 'capacity-admin', text: 'Set the XMLA endpoint to Read Write on the Fabric capacity Analytics Hub\'s workspace uses.' })]
-        : []),
-    ];
+    return [settingsAsk(settingsToConfirm(c.config)), ...(it.detail.includes(XMLA_UNREAD) ? [xmlaAsk()] : [])];
   },
   'resource-graph': (it, c) => {
     const { config } = c;
@@ -473,6 +488,7 @@ export function adminRequests(rows, config, opts = {}) {
     const mine = asks.filter((a) => a.admin === admin);
     if (!mine.length) return [];
     const texts = [...new Set(mine.map((a) => a.text))];
+    const back = [...new Set(mine.flatMap((a) => (a.back ? [a.back] : [])))];
     const intro = `I'm installing Analytics Hub, and I need your help with ${texts.length === 1 ? 'this' : 'these'}:`;
     return [
       {
@@ -481,6 +497,7 @@ export function adminRequests(rows, config, opts = {}) {
         rows: [...new Set(mine.map((a) => a.label ?? PENDING_LABEL))],
         asks: texts,
         message: letter([intro, '', ...texts.map((t) => `- ${t}`)], opts.from),
+        ...(back.length ? { back } : {}),
       },
     ];
   });
@@ -565,11 +582,14 @@ export async function isGlobalAdmin(api) {
  * @typedef {object} DoneOptions
  * @property {string} [from]  Your sign-in: it signs each message, and it's the mailbox the product feedback export goes to.
  * @property {boolean} [consented]  This run's admin consent (Fabric). False when it's still needed.
- * @property {{ identity?: { licensed?: number, audit?: number, masked?: number } } | null} [dataCheck]  This run's data check,
- *   or else the last one the Lakehouse holds.
+ * @property {{ identity?: { licensed?: number, audit?: number, masked?: number }, tables?: { audit?: { rows?: number } }, auditExcluded?: { parsed?: number } } | null} [dataCheck]
+ *   This run's data check, or else the last one the Lakehouse holds.
  * @property {boolean} [globalAdmin]  You're a Global Administrator, so concealed names are your own card rather than a request.
  * @property {number} [backfillDays]  The audit history the skipped load would have loaded.
  * @property {Ask[]} [transcripts]  The Agent Evaluator's asks, one per environment, from its module.
+ * @property {Prereq[]} [carried]  The rows preflight and the flows' check showed as needing someone else in this run, which
+ *   the admin pack keeps. Their asks that a finished install doesn't settle are asked for again (carriedDone).
+ * @property {Ask[]} [vault]  The vault admin's ask while the app's client secret waits for them (Fabric), from identity.js's vaultAsk.
  */
 
 /**
@@ -783,16 +803,85 @@ function vivaDone(config) {
         `${numberedLines(steps)}\n  Then send me the partition ID and the query ID. They look like 00000000-0000-0000-0000-000000000000.\n  Guide: ${DATAFLOW_GUIDE}`,
       note: 'With it, a Dataflow reads Cowork credits on every run, rather than someone uploading the Consumption Dashboard export.',
       after: ['Run the installer again and choose Connected (Dataflow) for Cowork credits, with the two IDs.'],
+      back: VIVA_BACK,
     },
   ];
 }
 
 /**
+ * Whether audit logging is on in Microsoft Purview, because something found audit records: this run's data check, or
+ * else the last one the Lakehouse holds, loaded or left out some, or the last audit check's search found some.
+ * @param {InstallConfig} config
+ * @param {DoneOptions['dataCheck']} dataCheck
+ */
+const auditRecordsFound = (config, dataCheck) =>
+  Number(dataCheck?.tables?.audit?.rows ?? 0) > 0 ||
+  Number(dataCheck?.auditExcluded?.parsed ?? 0) > 0 ||
+  ['records', 'no-copilot'].includes(config.auditCheck?.result ?? '');
+
+/**
+ * The asks of the rows preflight and the flows' check showed in this run that a finished install doesn't settle: audit
+ * logging in Microsoft Purview until something finds audit records, Power Automate Premium for the flows' owner, the data
+ * policy until every flow is on, and the Fabric tenant settings the install record doesn't prove are on, as settingsLeft
+ * recomputes them. A finished install settles every other row's ask, or the record's own asks above ask for it.
+ * @param {AskContext} c
+ * @param {DoneOptions} opts
+ * @returns {Ask[]}
+ */
+function carriedDone(c, opts) {
+  const { config } = c;
+  const rows = opts.carried ?? [];
+  /** @type {AskContext} */
+  const cc = { ...c, status: (id) => rows.find((r) => r.id === id)?.status, ppApi: false };
+  const flows = flowsWanted(config);
+  const off = flows.filter((k) => !flowConnected(config, k) || !!config.uploads?.flowFiles?.[k]);
+  const update = commandLine('update');
+  return rows
+    .filter((it) => needsSomeoneElse(it, cc))
+    .flatMap((it) => {
+      const asks = () => ROW_ASKS[it.id]?.(it, cc) ?? [];
+      /** @param {Ask[]} these @param {string[]} after */
+      const carry = (these, after) => these.map((a) => ({ label: it.label, ...a, ...(after.length ? { after } : {}) }));
+      switch (it.id) {
+        case 'consent-role':
+        case 'audit-ingestion': {
+          if (auditRecordsFound(config, opts.dataCheck)) return [];
+          // Azure runs no live audit search to test it with.
+          const test = config.target === 'azure' ? [] : [`If they turned it on, new records take from 60 minutes to 24 hours to appear. Then run "${commandLine('check-audit')}" to test it.`];
+          return carry(asks().filter((a) => a.label === PURVIEW_LABEL), test);
+        }
+        case 'power-automate-premium':
+          return flows.length ? carry(asks(), off.length ? [`Run "${update}": it turns on each flow that's off, once its connections are signed in.`] : []) : [];
+        case 'data-policy':
+          return off.length ? carry(asks(), [`Run "${update}": it saves any flow the policy turned down, and turns on each flow that's off once its connections are signed in.`]) : [];
+        case 'tenant-settings': {
+          // Only when preflight asked: settings you could read, you turn on yourself.
+          if (!asks().length) return [];
+          const left = settingsLeft(config);
+          if (!left.settings.length) return [];
+          const xmla = left.xmla
+            ? [`Apply org-scoped access: run "${commandLine('access')}", choose "Org-scoped access: who sees which orgs", then "Apply now". Until then, people outside the workspace see nothing.`]
+            : [];
+          const after = [
+            ...(left.create ? [`${REPAIR}: it creates what the install couldn't.`] : []),
+            ...(left.app ? [`Run "${commandLine('deploy-app')}" to deploy the Analytics Hub app.`] : []),
+            ...xmla,
+          ];
+          return [...carry([settingsAsk(left.settings)], after), ...(left.xmla ? carry([xmlaAsk()], xmla) : [])];
+        }
+        default:
+          return [];
+      }
+    });
+}
+
+/**
  * What's left for admins at the end of an install or Repair: one request per admin, in the order of ADMINS, from the
  * install record and this run rather than your roles. Each asks for everything that admin does, once, as a message
- * signed by `from`, with notes for you before you send it and what you do once it's done. Preflight's rows aren't
- * asked for again: by the end they were met or let through. A request per `who` when asks name one, such as each
- * environment's System Administrator.
+ * signed by `from`, with notes for you before you send it and what you do once it's done. Of the rows preflight and the
+ * flows' check showed in this run, `carried`, only the asks a finished install doesn't settle are asked for again
+ * (carriedDone): by the end, the rest were met, let through, or asked for from the record. A request per `who` when
+ * asks name one, such as each environment's System Administrator.
  * @param {InstallConfig} config
  * @param {DoneOptions} [opts]
  * @returns {AdminRequest[]}
@@ -823,8 +912,23 @@ export function doneRequests(config, opts = {}) {
     ...namesDone(config, opts),
     ...feedbackDone(config, opts),
     ...vivaDone(config),
+    ...carriedDone(c, opts),
     ...(opts.transcripts ?? []),
+    ...(opts.vault ?? []),
   ]);
+  return requestsFor(asks, opts.from, true);
+}
+
+/**
+ * One request per admin from their asks, in the order of ADMINS, and one per `who` when asks name one. Each asks for
+ * everything that admin does, once, as a message signed by `from`, with notes for you before you send it, what you do
+ * once it's done, and what the admin sends back.
+ * @param {Ask[]} asks
+ * @param {string | undefined} from
+ * @param {boolean} installed  The install has finished, as at its end; else it's under way.
+ * @returns {AdminRequest[]}
+ */
+export function requestsFor(asks, from, installed) {
   return /** @type {AdminKey[]} */ (Object.keys(ADMINS)).flatMap((admin) => {
     const mine = asks.filter((a) => a.admin === admin);
     return [...new Set(mine.map((a) => a.who ?? ADMINS[admin]))].map((who) => {
@@ -832,16 +936,18 @@ export function doneRequests(config, opts = {}) {
       const texts = [...new Set(these.map((a) => a.text))];
       const notes = [...new Set(these.flatMap((a) => (a.note ? [a.note] : [])))];
       const after = [...new Set(these.flatMap((a) => a.after ?? []))];
-      const intro = `I've installed Analytics Hub, and I need your help with ${texts.length === 1 ? 'this' : 'these'}:`;
+      const back = [...new Set(these.flatMap((a) => (a.back ? [a.back] : [])))];
+      const intro = `${installed ? 'I\'ve installed' : 'I\'m installing'} Analytics Hub, and I need your help with ${texts.length === 1 ? 'this' : 'these'}:`;
       return /** @type {AdminRequest} */ ({
         admin,
         who,
         rows: [...new Set(these.map((a) => a.label ?? PENDING_LABEL))],
         asks: texts,
-        message: letter([intro, '', ...texts.map((t) => `- ${t}`)], opts.from),
+        message: letter([intro, '', ...texts.map((t) => `- ${t}`)], from),
         ...(these.every((a) => a.optional) ? { optional: true } : {}),
         ...(notes.length ? { notes } : {}),
         ...(after.length ? { after } : {}),
+        ...(back.length ? { back } : {}),
       });
     });
   });

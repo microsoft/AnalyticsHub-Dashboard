@@ -175,7 +175,7 @@ test('adminRequests: for someone with no admin roles on Fabric, the prerequisite
   assert.deepEqual(requests.map((r) => r.admin), ['app-admin', 'role-admin', 'fabric-admin', 'capacity-admin', 'compliance', 'power-platform', 'licence']);
   const by = Object.fromEntries(requests.map((r) => [r.admin, r]));
   assert.deepEqual(by['app-admin'].asks, [
-    'Register the app Analytics Hub uses to collect data, in Microsoft Entra. I\'ll send you the installer\'s admin pack, which says how, and what to send back.',
+    'Register the app Analytics Hub uses to collect data, in Microsoft Entra. I\'ll send you the installer\'s Cloud Shell script and portal steps for it, which say what to send back.',
   ]);
   // The consent and the audit rows both need the app's admin consent: one ask, for both rows.
   assert.deepEqual(by['role-admin'].asks, [FABRIC_CONSENT_LATER]);
@@ -237,8 +237,9 @@ test('adminRequests: no request has a secret, a key, a token, a password, a sign
       dataPolicyPrereq(config),
     ];
     const requests = adminRequests(rows, config, { from: UPN });
-    // Preflight asks a Global Administrator and a Microsoft 365 admin for nothing: their requests come at the end.
-    const endOnly = ['other', 'global-admin', 'm365-admin'];
+    // Preflight asks a Global Administrator and a Microsoft 365 admin for nothing: their requests come at the end. A
+    // vault admin's come from the steps the install shows them, and the end.
+    const endOnly = ['other', 'global-admin', 'm365-admin', 'vault-admin'];
     assert.deepEqual(requests.map((r) => r.admin), Object.keys(ADMINS).filter((k) => !endOnly.includes(k) && (config.target === 'azure' || k !== 'sharepoint-admin')), config.target);
     const text = JSON.stringify(requests);
     assert.match(text, /az role assignment create --assignee-object-id (\w[\w-]*|\$\(az ad sp show --id \S+ --query id -o tsv\)) --assignee-principal-type ServicePrincipal --role \\"Reader\\"/, 'with the commands');
@@ -348,14 +349,14 @@ test('adminRequests: the Azure web app\'s consent goes with whichever request al
   assert.deepEqual(asks(adminRequests([register], azureConfig())), [
     ['app-admin', [`Create Analytics Hub's two app registrations, "Analytics Hub (Azure)" and "Analytics Hub SQL Reader", and approve ${WEB_CONSENT}. I'll send you a script from the installer that does it.`]],
   ]);
-  // The admin script does both, and goes by its file name.
+  // The admin script does both. The app admin's own file in the admin pack has it, under that file's name.
   const scripted = adminRequests([consent, register], azureConfig({ adminScript: `C:\\Users\\someone\\analytics-hub\\${AZURE_ADMIN_SCRIPT_FILE}` }), { from: UPN });
   assert.deepEqual(shape(scripted), [
     [
       'app-admin',
       ['Consent', 'Register apps'],
       [
-        `Run the script in ${AZURE_ADMIN_SCRIPT_FILE}, which I'll send you, in Azure Cloud Shell (Bash). It creates Analytics Hub's app registrations and approves ${WEB_CONSENT}. It makes no secrets.`,
+        `Run the script in app-admin.md, from the installer's admin pack, in Azure Cloud Shell (Bash). It creates Analytics Hub's app registrations and approves ${WEB_CONSENT}. It makes no secrets.`,
       ],
     ],
   ]);

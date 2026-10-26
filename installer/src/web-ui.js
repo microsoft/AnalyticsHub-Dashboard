@@ -258,6 +258,13 @@ export function createWebUi(opts = {}) {
     doneRequests: (requests) => {
       if (requests.length) emit({ type: 'done-requests', requests });
     },
+    /**
+     * Where the admin pack is: the index for you, and a file for each admin. The end's goes on the Done page.
+     * @param {import('./steps/admin-pack.js').PackPaths} pack
+     */
+    adminPack: (pack) => {
+      emit({ type: 'admin-pack', index: pack.index, files: pack.files, ...(pack.done ? { done: true } : {}) });
+    },
 
     /**
      * @template T

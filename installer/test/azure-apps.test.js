@@ -11,7 +11,7 @@ import { after, test } from 'node:test';
 import { appRoleRights, applicationBody, azureWebApplicationBody, graphApi } from '../src/clients/graph.js';
 import { SQL_READER_NAME, WEB_APP_NAME, webAppScopes } from '../src/steps/azure/apps.js';
 import { azureAppsGate, azureRotateSecret, azureStatus, installAzure, planAzure, planAzureApps } from '../src/steps/azure/index.js';
-import { AZURE_ADMIN_SCRIPT_FILE, azureAdminScript, isResumeLater } from '../src/steps/identity.js';
+import { AZURE_ADMIN_SCRIPT_FILE, azureAdminScript, azureScriptExtra, isResumeLater } from '../src/steps/identity.js';
 import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi, httpError } from './fakes.js';
 
 const GA = '62e90394-69f5-4237-9190-012177145e10';
@@ -96,7 +96,9 @@ function azureCtx(o = {}) {
     Object.assign(powerBi.api, { datasetUsers: async () => [], addDatasetUser: async () => null });
   }
   const script = () => join(dirname(String(t.ctx.configFile)), AZURE_ADMIN_SCRIPT_FILE);
-  return { ...t, arm, graph, powerBi, u, selects, confirms, script, az: () => /** @type {any} */ (t.config.azure) };
+  /** The app admin's file in the admin pack, beside the script. */
+  const appFile = () => join(dirname(String(t.ctx.configFile)), 'analytics-hub-admin-pack', 'app-admin.md');
+  return { ...t, arm, graph, powerBi, u, selects, confirms, script, appFile, az: () => /** @type {any} */ (t.config.azure) };
 }
 
 /**
@@ -205,16 +207,49 @@ test("Azure apps plan: with no role or setting to create apps, an admin is the d
   assert.doesNotMatch(t.u.text(), /You can't/);
   assert.equal(t.az().adminScript, t.script(), 'the file is recorded');
   assert.ok(existsSync(t.script()), 'the file is written');
+  assert.ok(existsSync(t.appFile()), 'and the app admin\'s file in the admin pack');
   assert.match(t.u.text(), /Send this file to an Application Administrator or Cloud Application Administrator/);
   assert.deepEqual(t.graph.calls, [], 'nothing changes in Entra');
   // The stop comes after the preflight, so one run lists everything.
   await assert.rejects(azureAppsGate(t.ctx, NONE), (/** @type {Error} */ err) => {
     assert.ok(isResumeLater(err));
-    assert.match(err.message, new RegExp(`An admin needs to create the app registrations, so the installer stopped before deploying anything\\. Send ${re(t.script())} to an Application Administrator or Cloud Application Administrator\\.`));
+    assert.match(
+      err.message,
+      new RegExp(
+        `An admin needs to create the app registrations, so the installer stopped before deploying anything\\. Send ${re(t.appFile())}, or ${re(t.script())} \\(the same script on its own\\), ` +
+          'to an Application Administrator or Cloud Application Administrator\\.',
+      ),
+    );
     assert.match(err.message, RUN_AGAIN);
     assert.match(err.message, /the installer finds the apps itself\.$/, 'no --yes, so nothing about running without it');
     return true;
   });
+});
+
+test('Azure apps plan: the app admin\'s file in the admin pack has the admin script, from the same builder, and the index says the script on its own is the same', async () => {
+  const t = azureCtx();
+  await planAzureApps(t.ctx, NONE);
+  const index = join(dirname(t.script()), 'analytics-hub-admin-pack.md');
+  const matches = () => {
+    const script = readFileSync(t.script(), 'utf8');
+    const app = readFileSync(t.appFile(), 'utf8');
+    const { sections = [], next = [] } = azureScriptExtra(script);
+    assert.ok(sections[0] === '## Who runs it' && app.includes(`\n${sections.join('\n')}\n`), 'the script file\'s sections, as they are');
+    const start = script.indexOf('```bash\n');
+    const bash = script.slice(start, script.indexOf('\n```', start) + 4);
+    assert.ok(start > 0 && bash.includes('-u "$G/applications"') && app.includes(bash), 'the same commands');
+    assert.ok(next.length && app.endsWith(`## What happens next\n\n${next.join('\n')}\n`), app);
+    for (const text of [script, app, readFileSync(index, 'utf8')]) {
+      assert.doesNotMatch(text, /eyJ[\w-]+\.[\w-]+|8Q~|\b(password|passcode|sign-in code|device code|bearer|access token|refresh token)\b/i, 'it makes no secrets');
+    }
+  };
+  matches();
+  const text = readFileSync(index, 'utf8');
+  assert.ok(text.includes(`${AZURE_ADMIN_SCRIPT_FILE}, beside this file, has the same script as analytics-hub-admin-pack/app-admin.md: send the app admin either one.`), text);
+  assert.ok(text.includes('\n   - Once it\'s done: Run the installer again: it finds the apps itself.\n'), text);
+  // The gate writes them again, still from the one builder.
+  await assert.rejects(azureAppsGate(t.ctx, NONE), (/** @type {Error} */ err) => isResumeLater(err));
+  matches();
 });
 
 test("Azure apps plan: someone who can create apps but can't approve the consent is told about the consent link, and offered an admin", async () => {
@@ -324,7 +359,13 @@ test("Azure apps plan: when an admin made only the web app, someone who can't cr
   assert.ok(md.includes(`SQL_APP=$(find_app '' '${SQL_READER_NAME}'`));
   await assert.rejects(azureAppsGate(t.ctx, NONE), (/** @type {Error} */ err) => {
     assert.ok(isResumeLater(err));
-    assert.ok(err.message.includes(`An admin needs to create "${SQL_READER_NAME}", so the installer stopped before deploying anything. Send ${t.script()} to an Application Administrator or Cloud Application Administrator.`), err.message);
+    assert.ok(
+      err.message.includes(
+        `An admin needs to create "${SQL_READER_NAME}", so the installer stopped before deploying anything. ` +
+          `Send ${t.appFile()}, or ${t.script()} (the same script on its own), to an Application Administrator or Cloud Application Administrator.`,
+      ),
+      err.message,
+    );
     assert.match(err.message, /the installer finds the app itself\./);
     return true;
   });
@@ -457,7 +498,13 @@ test("Azure apps --yes: when an admin made only the web app, someone who can't c
   webOnly(t.graph);
   await assert.rejects(planAzure(t.ctx, NONE), (/** @type {Error} */ err) => {
     assert.ok(isResumeLater(err), err.message);
-    assert.ok(err.message.includes(`An admin needs to create "${SQL_READER_NAME}", so the installer stopped before deploying anything. Send ${t.script()} to an Application Administrator or Cloud Application Administrator.`), err.message);
+    assert.ok(
+      err.message.includes(
+        `An admin needs to create "${SQL_READER_NAME}", so the installer stopped before deploying anything. ` +
+          `Send ${t.appFile()}, or ${t.script()} (the same script on its own), to an Application Administrator or Cloud Application Administrator.`,
+      ),
+      err.message,
+    );
     assert.match(err.message, /the installer finds the app itself\./);
     return true;
   });
@@ -700,11 +747,12 @@ test('Azure install: a 403 creating the apps writes the admin file and stops bef
   await assert.rejects(installAzure(t.ctx, { wait: true }), (/** @type {Error} */ err) => {
     assert.ok(isResumeLater(err), err.message);
     assert.match(err.message, /^Entra didn't let you create the app registrations \(.*Insufficient privileges.*\), so the installer stopped before deploying anything\./);
-    assert.ok(err.message.includes(`Send ${t.script()} to an Application Administrator or Cloud Application Administrator.`));
+    assert.ok(err.message.includes(`Send ${t.appFile()}, or ${t.script()} (the same script on its own), to an Application Administrator or Cloud Application Administrator.`), err.message);
     assert.match(err.message, RUN_AGAIN);
     return true;
   });
   assert.ok(existsSync(t.script()));
+  assert.ok(existsSync(t.appFile()));
   assert.equal(t.az().adminScript, t.script());
   assert.ok(!t.arm.calls.some((c) => c.startsWith('ensureResourceGroup') || c.startsWith('deployTemplate')), t.arm.calls.join('\n'));
   const web = t.graph.applications.find((a) => a.displayName === WEB_APP_NAME);
@@ -739,7 +787,7 @@ test("Azure install: someone with no role the installer can see can still choose
   await assert.rejects(installAzure(t.ctx, { wait: true }), (/** @type {Error} */ err) => {
     assert.ok(isResumeLater(err), err.message);
     assert.match(err.message, /^Entra didn't let you create the app registrations \(.*Insufficient privileges.*\), so the installer stopped before deploying anything\./);
-    assert.ok(err.message.includes(`Send ${t.script()} to an Application Administrator or Cloud Application Administrator.`), err.message);
+    assert.ok(err.message.includes(`Send ${t.appFile()}, or ${t.script()} (the same script on its own), to an Application Administrator or Cloud Application Administrator.`), err.message);
     assert.match(err.message, RUN_AGAIN);
     return true;
   });

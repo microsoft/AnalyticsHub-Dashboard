@@ -491,7 +491,7 @@ test('checkPrereqs: a Privileged Role Administrator alone can\'t register apps, 
     assert.equal(dev['register-apps'].detail, 'Your Application Developer role allows it.');
   }
   const fabric = await run({ roles: [], usersCanRegister: false });
-  assert.equal(fabric['register-apps'].howTo, 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role, use an app registration you already have, or get the admin pack for an admin to register it.');
+  assert.equal(fabric['register-apps'].howTo, 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role, use an app registration you already have, or choose "An admin will register the app for me" in the plan: it puts the Cloud Shell script and portal steps in the app admin\'s file in the admin pack.');
 });
 
 test('checkPrereqs: on Azure, registering apps is met by recorded apps, a role, the tenant setting, or one unfinished app of each name an admin made; otherwise the plan has an admin create them', async () => {
@@ -530,6 +530,41 @@ test('checkPrereqs: on Azure, registering apps is met by recorded apps, a role, 
   assert.equal(cant.detail, 'Users in this tenant can\'t register apps, and you have no app admin role. The plan offers to have an admin create the two apps for you.');
   assert.equal(cant.howTo, 'Ask for the Application Administrator, Cloud Application Administrator or Application Developer role. Or, in the plan, choose \'Use the apps an admin created for me\' if an admin has made them, or \'An admin will create the apps for me\': the plan writes a script for an Application Administrator or Cloud Application Administrator, and stops before anything is deployed. The installer can\'t see custom roles: if one lets you register apps, choose \'Create the two apps\'.');
   assert.match(cant.neededFor, /"Analytics Hub \(Azure\)", for signing in to the web app, and "Analytics Hub SQL Reader", for Power BI/);
+});
+
+test('checkPrereqs: while the admin pack or the admin script waits, an admin registers the apps, whatever your role or the tenant setting seems to allow', async () => {
+  const howTo = 'An Application Administrator or Cloud Application Administrator, from app-admin.md in the admin pack.';
+  const appAdmin = { roles: [role(APP_ADMIN, 'Application Administrator')], usersCanRegister: true };
+  const fabric = emptyConfig();
+  // The pack's path: the index since the pack was split, a single file before.
+  fabric.app.adminPack = '/records/analytics-hub-admin-pack.md';
+  for (const over of [{}, appAdmin, { roles: [], usersCanRegister: false }]) {
+    const row = (await run(over, fabric))['register-apps'];
+    assert.equal(row.status, 'handoff', JSON.stringify(over));
+    assert.equal(row.detail, 'An admin registers the app for you, with the script and portal steps in the installer\'s admin pack. Once they send you its client ID, the plan asks for it.');
+    assert.equal(row.howTo, howTo);
+  }
+  fabric.app.appId = 'app-1';
+  const registered = (await run(appAdmin, fabric))['register-apps'];
+  assert.equal(registered.status, 'met', 'the admin sent the client ID');
+  assert.equal(registered.detail, 'Uses the app registration app-1.');
+
+  const script = { adminScript: '/records/analytics-hub-azure-admin-script.md' };
+  for (const over of [{}, appAdmin]) {
+    const row = (await run(over, azureConfig(script)))['register-apps'];
+    assert.equal(row.status, 'handoff');
+    assert.equal(row.detail, 'An admin creates the app registrations for you, with the installer\'s script. Once they\'ve run it, the plan finds them itself.');
+    assert.equal(row.howTo, howTo);
+  }
+  const web = { id: 'web-obj', appId: 'web-1', displayName: 'Analytics Hub (Azure)' };
+  const sql = { id: 'sql-obj', appId: 'sql-1', displayName: 'Analytics Hub SQL Reader' };
+  const owning = (/** @type {any[]} */ apps) => ({ ownedApplications: async (/** @type {string} */ name) => apps.filter((a) => a.displayName === name) });
+  const made = (await runWith(appAdmin, azureConfig(script), owning([web, sql])))['register-apps'];
+  assert.equal(made.status, 'met', 'the admin ran the script');
+  assert.equal(made.detail, 'An admin created the apps for you: "Analytics Hub (Azure)" (web-1) and "Analytics Hub SQL Reader" (sql-1). The plan uses them.');
+  assert.equal((await runWith(appAdmin, azureConfig(script), owning([web])))['register-apps'].status, 'handoff', 'one of the two is still to make');
+  const recorded = (await run(appAdmin, azureConfig({ ...script, webApp: { clientId: 'web-1' }, sqlReader: { clientId: 'sql-1' } })))['register-apps'];
+  assert.equal(recorded.status, 'met');
 });
 
 test('checkPrereqs: on Azure, the consent row is the web app\'s delegated permissions: met by four roles or by grants already made, otherwise a hand-off', async () => {
@@ -1001,7 +1036,7 @@ test('preflightVerdict: only can\'t-register-apps with --yes blocks an install; 
   brought.app.appId = 'app-1';
   assert.deepEqual(preflightVerdict(cant, { config: brought, yes: true }).block, []);
   const pack = plainConfig();
-  pack.app.adminPack = /** @type {any} */ ({ writtenAt: '2026-06-01' });
+  pack.app.adminPack = '/records/analytics-hub-admin-pack.md';
   assert.deepEqual(preflightVerdict(cant, { config: pack, yes: true }).block, []);
   // Everything else only warns, even with --yes.
   const missing = ['audit-ingestion', 'power-bi-pro', 'tenant-settings', 'key-vault', 'consent-role'].map((id) => row({ id }));
@@ -1119,7 +1154,7 @@ test('preflight: with --yes, no way to register the app stops it before anything
     assert.equal(
       /** @type {Error} */ (err).message,
       'Users in this tenant can\'t register apps and you have no app admin role, so with --yes the installer can\'t create its app registration. ' +
-        'Run it without --yes to choose an app registration you already have or get the admin pack for an admin, or ask for the Application Administrator or Cloud Application Administrator role. ' +
+        'Run it without --yes to use an app registration you already have, or to choose "An admin will register the app for me", which puts the script for an admin in the admin pack. Or ask for the Application Administrator or Cloud Application Administrator role. ' +
         `The installer can't see custom roles: if one lets you register apps, run "${commandLine('install')}" again without --yes, and choose to create it yourself.`,
     );
     return true;
