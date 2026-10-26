@@ -471,7 +471,7 @@ it. The installer stops before deploying when a zone it would create is there wi
 zone the install uses is there, or use another resource group.
 
 When Azure Policy blocks a deployment, the installer lists each policy, assignment and resource, and
-prints `az deployment group show -g <resource group> -n valuelens --query properties.error` for the
+prints `az deployment group show -g "<resource group>" -n valuelens --query properties.error` for the
 full error. For any failed deployment it also reads the deployment operations, including nested
 modules, and shows each failing resource's own error. To see them yourself:
 `az deployment operation group list -g <resource group> -n vl-sql --query "[?properties.provisioningState=='Failed']"`.

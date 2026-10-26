@@ -202,7 +202,8 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
    delegated permissions, which an Application Administrator or Cloud Application Administrator can
    do too. If that's not you, run `echo "MI=$MI WEB=$WEB"` and send them what it prints and this
    block. They run `az login --use-device-code --allow-no-subscriptions` in Cloud Shell (Bash),
-   then paste both.
+   then paste both. `$MI` is the managed identity's principal (object) ID, not its client ID:
+   Microsoft Graph app roles and Azure role assignments need the object ID.
    ```bash
    GRAPH=$(az ad sp show --id 00000003-0000-0000-c000-000000000000 --query id -o tsv)
    for role in AuditLogsQuery.Read.All Reports.Read.All User.Read.All; do

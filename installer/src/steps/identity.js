@@ -310,7 +310,7 @@ export function handoffCommands(config, o = {}) {
   if (o.userId && kv.handoff?.grantRead) {
     lines.push(
       kv.rbac
-        ? `az role assignment create --role "Key Vault Secrets User" --assignee-object-id ${o.userId} --assignee-principal-type User --scope ${kv.id}`
+        ? `az role assignment create --role "Key Vault Secrets User" --assignee-object-id ${o.userId} --assignee-principal-type User --scope "${kv.id}"`
         : `az keyvault set-policy --name ${kv.name} --object-id ${o.userId} --secret-permissions get list`,
     );
   }
@@ -474,9 +474,16 @@ export async function ensureApp(ctx) {
       application = await api.graph.createApplication(APP_NAME, roles);
     } catch (err) {
       if (!isStatus(err, 403)) throw err;
-      throw new Error(
-        'You can\'t create app registrations in this tenant. Ask an admin to create one with the permissions in docs/PERMISSIONS.md, ' +
-          'then run the installer again and choose "Use an app registration I already have".',
+      // As if the plan's admin option had been chosen, so the next run offers it as the default, even where the plan
+      // didn't offer it this time (plan.js, "App registration").
+      app.adminPack = writeAdminPack(ctx);
+      app.existing = true;
+      ctx.save();
+      throw new ResumeLater(
+        `Entra didn't let you create the app registration (${/** @type {Error} */ (err).message.split('\n')[0]}), so the installer stopped. ` +
+          `Send ${app.adminPack} to an Application Administrator or Cloud Application Administrator: it has a Cloud Shell script and portal steps to register the app. ` +
+          `Once they send you its client ID, run "${commandLine('install')}" again${ui.yes ? ' without --yes' : ''} and choose "An admin will register the app for me" to enter it. ` +
+          'Or, if an admin has already made one, choose "Use an app registration I already have". The installer reuses what it has made, such as the workspace.',
       );
     }
     app.appId = application.appId;
@@ -1134,7 +1141,8 @@ export function writeAzureAdminScript(ctx, scopes) {
     '- It adds no redirect URIs, identifier URI or federated credential, and assigns no app roles. The installer adds',
     `  those as ${upn}, once the web app exists.`,
     '- It grants no Microsoft Graph application permissions. After the deploy, a Privileged Role Administrator or',
-    '  Global Administrator gives the jobs\' managed identity its Microsoft Graph roles. The installer lists them.',
+    '  Global Administrator gives the jobs\' managed identity its Microsoft Graph roles, with a command the',
+    '  installer prints.',
     '',
     '## Run it',
     '',

@@ -44,7 +44,9 @@ which Power BI reads the database as.
   **Cloud Application Administrator**. The installer does it if you hold one of those roles, the
   admin's script does it, or the installer gives you a consent link to send.
 - **Who gives the managed identity its Graph app roles:** a **Global Administrator** or
-  **Privileged Role Administrator**, after the deploy.
+  **Privileged Role Administrator**, after the deploy. If you aren't one, the installer prints a
+  command for them to paste into Azure Cloud Shell (Bash). `status` repeats it, and it's in their
+  request under **Requests for your admins**.
 
 The optional **Microsoft 365 activity** notebook (Fabric path, `m365_activity_daily`) reads the
 Microsoft 365 usage reports with the same `Reports.Read.All`, so it needs no extra permission.

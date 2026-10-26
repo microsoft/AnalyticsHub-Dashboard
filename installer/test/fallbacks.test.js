@@ -156,7 +156,7 @@ test('vault admin: the commands create the secret in the vault and never hold it
   config.keyVault.handoff = { grantRead: true };
   const rbac = handoffCommands(config, { userId: 'user-1' });
   assert.equal(rbac.length, 2);
-  assert.equal(rbac[0], `az role assignment create --role "Key Vault Secrets User" --assignee-object-id user-1 --assignee-principal-type User --scope ${VAULT_ID}`);
+  assert.equal(rbac[0], `az role assignment create --role "Key Vault Secrets User" --assignee-object-id user-1 --assignee-principal-type User --scope "${VAULT_ID}"`);
   config.keyVault.rbac = false;
   assert.equal(handoffCommands(config, { userId: 'user-1' })[0], 'az keyvault set-policy --name kv-test --object-id user-1 --secret-permissions get list');
   assert.equal(handoffCommands(config).length, 1, 'no reader line without a user');
