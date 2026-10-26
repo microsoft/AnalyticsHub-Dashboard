@@ -68,6 +68,7 @@ publishers and sensitivity labels. With both sources, the page still reads the r
   whole numbers, and the sidebar text and appendix counts meet contrast. The teal and amber chart colours
   meet 3:1, charts are named for screen readers, chart titles are level-3 headings, there's a skip
   link, and animation respects the system's reduced-motion setting.
+- **Support file.** When a set-up or a load goes wrong, the installer can write one redacted zip to email to us: the last run's steps with the failed step and its error, prerequisite checks, recent pipeline, notebook, refresh and Azure job runs with their errors, row counts per table, a summary of throttling, sign-in and time-out errors, and the settings. Tokens, secrets and keys are removed, no data rows are read, and email addresses, UPNs and names are hashed. Run `valuelens-install --support-bundle`, or use **Having trouble? Create a support file** at the foot of the installer window, which shows every file before you download it. The new `AnalyticsHub_Support_File` notebook writes the same file for a set-up done by hand.
 
 ### Fixed
 

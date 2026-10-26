@@ -1,9 +1,9 @@
 // @ts-check
 /**
- * Reads entries from a zip file, enough for a Power BI template (.pbit).
+ * Reads entries from a zip file, enough for a Power BI template (.pbit), and writes small ones.
  * Handles stored and deflated entries; no ZIP64, encryption or multi-disk archives.
  */
-import { inflateRawSync } from 'node:zlib';
+import { deflateRawSync, inflateRawSync } from 'node:zlib';
 
 const EOCD = 0x06054b50;
 const CENTRAL = 0x02014b50;
@@ -70,6 +70,81 @@ export function readZipEntries(buf, prefix) {
     if (entry.name.startsWith(prefix) && !entry.name.endsWith('/')) out.set(entry.name, entryData(buf, entry));
   }
   return out;
+}
+
+/** zlib.crc32 needs Node 20.15 or later. */
+const CRC_TABLE = (() => {
+  const t = new Uint32Array(256);
+  for (let n = 0; n < 256; n++) {
+    let c = n;
+    for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+    t[n] = c >>> 0;
+  }
+  return t;
+})();
+
+/** @param {Buffer} data */
+export function crc32(data) {
+  let c = 0xffffffff;
+  for (let i = 0; i < data.length; i++) c = CRC_TABLE[(c ^ data[i]) & 0xff] ^ (c >>> 8);
+  return (c ^ 0xffffffff) >>> 0;
+}
+
+/**
+ * Builds a zip of deflated files, all dated `at`.
+ * @param {{ name: string, data: Buffer | string }[]} files
+ * @param {Date} [at]
+ * @returns {Buffer}
+ */
+export function writeZip(files, at = new Date()) {
+  const time = (at.getHours() << 11) | (at.getMinutes() << 5) | Math.floor(at.getSeconds() / 2);
+  const date = ((Math.max(at.getFullYear(), 1980) - 1980) << 9) | ((at.getMonth() + 1) << 5) | at.getDate();
+  /** @type {Buffer[]} */
+  const locals = [];
+  /** @type {Buffer[]} */
+  const centrals = [];
+  let offset = 0;
+  for (const file of files) {
+    const name = Buffer.from(file.name, 'utf8');
+    const data = Buffer.isBuffer(file.data) ? file.data : Buffer.from(file.data, 'utf8');
+    const packed = deflateRawSync(data);
+    const crc = crc32(data);
+    const local = Buffer.alloc(30);
+    local.writeUInt32LE(LOCAL, 0);
+    local.writeUInt16LE(20, 4);
+    local.writeUInt16LE(0x0800, 6);
+    local.writeUInt16LE(8, 8);
+    local.writeUInt16LE(time, 10);
+    local.writeUInt16LE(date, 12);
+    local.writeUInt32LE(crc, 14);
+    local.writeUInt32LE(packed.length, 18);
+    local.writeUInt32LE(data.length, 22);
+    local.writeUInt16LE(name.length, 26);
+    const central = Buffer.alloc(46);
+    central.writeUInt32LE(CENTRAL, 0);
+    central.writeUInt16LE(20, 4);
+    central.writeUInt16LE(20, 6);
+    central.writeUInt16LE(0x0800, 8);
+    central.writeUInt16LE(8, 10);
+    central.writeUInt16LE(time, 12);
+    central.writeUInt16LE(date, 14);
+    central.writeUInt32LE(crc, 16);
+    central.writeUInt32LE(packed.length, 20);
+    central.writeUInt32LE(data.length, 24);
+    central.writeUInt16LE(name.length, 28);
+    central.writeUInt32LE(offset, 42);
+    locals.push(local, name, packed);
+    centrals.push(central, name);
+    offset += 30 + name.length + packed.length;
+  }
+  const dir = Buffer.concat(centrals);
+  const end = Buffer.alloc(22);
+  end.writeUInt32LE(EOCD, 0);
+  end.writeUInt16LE(files.length, 8);
+  end.writeUInt16LE(files.length, 10);
+  end.writeUInt32LE(dir.length, 12);
+  end.writeUInt32LE(offset, 16);
+  return Buffer.concat([...locals, dir, end]);
 }
 
 /**
