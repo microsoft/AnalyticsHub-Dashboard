@@ -15,7 +15,9 @@ Port of the Fabric `Copilot_Audit_Log_Ingester` notebook:
   run job's memory and disk;
 * a reload (VALUELENS_AUDIT_BACKFILL_DAYS, set on one run) is remembered in the state until a run has merged
   it, so one that outlasts a run carries over to the next runs;
-* each window logs how long it waited for a query slot, for its query and to drain its pages.
+* each window logs how long it waited for a query slot, for its query and to drain its pages;
+* a window still empty when it leaves the look-back is queried once more (EMPTY_RECHECK_DAYS), since the audit
+  service can answer with no records and add them later, and a run where every window is empty logs what to check.
 """
 from __future__ import annotations
 
@@ -37,7 +39,7 @@ import duckdb
 
 from valuelens_core import audit
 
-from ..api import TRANSIENT, HttpError, _is_network_error, raise_for_status
+from ..api import GRAPH, TRANSIENT, HttpError, _is_network_error, raise_for_status
 from ..tables import ident, q
 
 log = logging.getLogger("valuelens_jobs.collect.audit")
@@ -68,6 +70,10 @@ MERGE_PASS_RECORDS = 250_000
 QUOTA_RETRY_AFTER_SEC = 300
 # A query an earlier run left running is re-polled, not re-sent, for this long after it was created.
 RESUME_QUERY_HOURS = 12
+# A window still empty when it leaves the look-back is queried once more if it ended in the last
+# EMPTY_RECHECK_DAYS, oldest first and at most EMPTY_RECHECK_MAX a run (each one is an audit search).
+EMPTY_RECHECK_DAYS = 30
+EMPTY_RECHECK_MAX = 24
 
 
 class AuditQueryFailed(RuntimeError):
@@ -132,8 +138,10 @@ class AuditCollector:
                  max_concurrent=MAX_CONCURRENT_QUERIES, window_retries=WINDOW_RETRIES,
                  min_chunk_hours=MIN_CHUNK_HOURS, split_on_timeout=SPLIT_ON_TIMEOUT,
                  retry_base_seconds=RETRY_BASE_SEC, retry_max_seconds=RETRY_MAX_SEC,
-                 min_concurrent=MIN_CONCURRENT_QUERIES, merge_pass_records=MERGE_PASS_RECORDS):
+                 min_concurrent=MIN_CONCURRENT_QUERIES, merge_pass_records=MERGE_PASS_RECORDS,
+                 empty_recheck_days=EMPTY_RECHECK_DAYS, empty_recheck_max=EMPTY_RECHECK_MAX):
         self.api, self.store, self.settings = api, store, settings
+        self.empty_recheck_days, self.empty_recheck_max = empty_recheck_days, empty_recheck_max
         self.merge_pass_records = max(int(merge_pass_records), 0)
         self.end = now or datetime.now(timezone.utc)
         self.sleep, self.clock = sleep, clock
@@ -189,6 +197,39 @@ class AuditCollector:
         if pending is not None:
             start = min(audit._as_utc_datetime(start), pending)
         return audit.build_windows(start, self.end, self.chunk_hours)
+
+    def plan_rechecks(self, windows):
+        """Empty windows due one more query (`audit.empty_recheck_windows`), oldest first, at most
+        `empty_recheck_max` a run.
+
+        Returns the plan with the due windows before it added, the keys to query again even though they are
+        reusable, and every due key, which `prune` keeps until its turn. A due window that overlaps the plan
+        without being one of its windows is left.
+        """
+        with self._lock:
+            snapshot = dict(self.manifest)
+        due = audit.empty_recheck_windows(snapshot, self.end, self.end - timedelta(days=self.lookback),
+                                          self.empty_recheck_days, self.lookback)
+        planned = {audit.stable_window_key(ws, we) for ws, we in self.leaves(windows)}
+        start = min((audit._as_utc_datetime(ws) for ws, _ in windows), default=None)
+        fits = [w for w in due if audit.stable_window_key(*w) in planned or start is None or w[1] <= start]
+        picked = fits[:max(int(self.empty_recheck_max), 0)]
+        extra = [w for w in picked if audit.stable_window_key(*w) not in planned]
+        return (extra + list(windows), {audit.stable_window_key(*w) for w in picked},
+                {audit.stable_window_key(*w) for w in fits})
+
+    def check_token(self):
+        """Warn when the managed identity's Graph token can't read Copilot audit records."""
+        tokens = getattr(self.api, "tokens", None)
+        try:
+            token = tokens.get(GRAPH) if tokens is not None else None
+        except Exception as exc:
+            log.info("audit: could not read the Graph token to check its roles (%s)", type(exc).__name__)
+            return
+        problems = audit.audit_token_problems(token) if isinstance(token, str) else []
+        if problems:
+            log.warning("audit: %s. Searches may come back empty or be refused; re-run the installer to grant the "
+                        "jobs' managed identity %s.", "; ".join(problems), audit.AUDIT_ROLE)
 
     def _files(self, key):
         return sorted(rel for rel in self.store.list(STAGING) if rel.split("/")[-1].startswith(f"win_{key}_"))
@@ -483,15 +524,18 @@ class AuditCollector:
 
     # -------------------------------------------------------------- run
     def run(self) -> dict:
+        self.check_token()
         self.remember_backfill()
-        windows = self.plan()
+        windows, recheck, due = self.plan_rechecks(self.plan())
         self.store.pull(STAGING)
         leaves = self.leaves(windows)
         pending = [(ws, we) for ws, we in leaves
-                   if not self._reusable(audit.stable_window_key(ws, we), we,
+                   if audit.stable_window_key(ws, we) in recheck
+                   or not self._reusable(audit.stable_window_key(ws, we), we,
                                          self.manifest.get(audit.stable_window_key(ws, we)))]
-        log.info("audit: %s window(s) of %sh from %s; %s to query (<= %s at a time)", len(windows),
-                 self.chunk_hours, windows[0][0] if windows else "-", len(pending), self.limiter.limit)
+        log.info("audit: %s window(s) of %sh from %s; %s to query (<= %s at a time)%s", len(windows),
+                 self.chunk_hours, windows[0][0] if windows else "-", len(pending), self.limiter.limit,
+                 f"; {len(recheck)} came back empty before and are queried once more" if recheck else "")
         previous = getattr(self.api, "on_throttle", None)
         self.api.on_throttle = lambda: self.limiter.shrink("HTTP 429 (throttled) from Graph", halve=True)
         started = self.clock()
@@ -528,6 +572,13 @@ class AuditCollector:
                                f"windows were merged and the next run resumes the rest. Each failed window was "
                                f"retried {self.window_retries}x and split down to {self.min_chunk_hours:g}h. "
                                f"Failed: {listed}")
+        if keys and result["rows"] == 0:
+            log.warning("audit: every audit window succeeded, but none had Copilot interaction records (%s to %s). "
+                        "If people used Copilot then, check that the jobs' managed identity has %s (re-run the "
+                        "installer to grant it), that auditing is on in Microsoft Purview (Audit), and that a "
+                        "Purview audit search for the same hours, record type CopilotInteraction, finds records. "
+                        "Empty windows are queried once more after they leave the look-back.",
+                        min(ws for ws, _ in leaves), max(we for _, we in leaves), audit.AUDIT_ROLE)
         # Every window merged: a reload is done. Kept on a failed window, a failed merge or a run cut off, so
         # the next run plans it again and `prune` keeps its windows.
         with self._lock:
@@ -536,7 +587,7 @@ class AuditCollector:
                 self._save()
         if reload_from is not None:
             log.info("audit: the reload from %s is merged", reload_from)
-        self.prune({audit.stable_window_key(ws, we) for ws, we in self.leaves(windows, include_parents=True)})
+        self.prune({audit.stable_window_key(ws, we) for ws, we in self.leaves(windows, include_parents=True)} | due)
         return result
 
     def merge(self, keys, advance_high_water=True) -> dict:

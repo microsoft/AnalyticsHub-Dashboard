@@ -119,6 +119,20 @@ ones, finishes the searches it already started, writes nothing and fails with a 
 The next run carries on the same way as after a time budget. A window whose search reaches the
 service's record cap is split rather than kept incomplete.
 
+## Empty audit windows
+
+Before its first search the audit ingester reads the app's Graph token and stops with the fix if
+the token is for another tenant than `TENANT_ID`, or lacks the `AuditLogsQuery.Read.All`
+application permission. The per-service `AuditLogsQuery-*` permissions (Exchange, SharePoint and
+the like) don't cover Copilot interactions.
+
+The audit service can answer a search with no records and add them later, for example during a
+service incident. Windows in the trailing `LOOKBACK_DAYS` are queried again on every run. A window
+still empty when it leaves the look-back is queried once more if it ended in the last
+`EMPTY_RECHECK_DAYS` (default 30; `0` turns this off), oldest first and at most `EMPTY_RECHECK_MAX`
+(default 24) a run. Each one is an audit search, so lower the cap on a tenant near its daily
+search limit. When every window in a run comes back empty, the run says what to check.
+
 The installer does this when you choose **More than 10,000** people, which it chooses for a new
 install with more than 10,000 Copilot seats assigned. It also gives the loads and the model refresh
 longer time limits. For a smaller tenant it uses 24h windows, which need fewer queries each day.

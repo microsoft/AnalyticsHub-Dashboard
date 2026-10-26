@@ -1,6 +1,8 @@
 """Behavioral notebook checks for audit ingestion reliability and merge safety."""
 
 import ast
+import contextlib
+import io
 import json
 import shutil
 import tempfile
@@ -277,6 +279,9 @@ class AuditReliabilityTests(unittest.TestCase):
             "expand_split_windows": ingester["expand_split_windows"],
             "retry_delay": ingester["retry_delay"],
             "uncovered_failed_ranges": ingester["uncovered_failed_ranges"],
+            "empty_recheck_windows": ingester["empty_recheck_windows"],
+            "EMPTY_RECHECK_DAYS": 30,
+            "EMPTY_RECHECK_MAX": 24,
             "STAGING_ABS": str(SCRATCH),
             "MANIFEST": str(SCRATCH / "_manifest.json"),
             "LOCAL_STAGE_TMP_DIR": str(SCRATCH),
@@ -348,6 +353,7 @@ class AuditReliabilityTests(unittest.TestCase):
                 "_fmt_range",
                 "assert_no_unrecovered_gaps",
                 "fetch_windows",
+                "plan_empty_rechecks",
             },
             ns,
         )
@@ -1480,9 +1486,119 @@ class FailedWindowRecoveryTests(unittest.TestCase):
         )
         self.assertIn("THROTTLE_LISTENERS[:] = [", source)
         self.assertIn("BUDGET_CHECKS[:] = [check_budget]", source)
-        self.assertIn("ACTIVE_WINDOW_KEYS, total = fetch_windows(windows)", source)
+        self.assertIn("windows, EMPTY_RECHECK_KEYS = plan_empty_rechecks(windows)", source)
+        self.assertIn("ACTIVE_WINDOW_KEYS, total = fetch_windows(windows, EMPTY_RECHECK_KEYS)", source)
         self.assertIn("finally:\n    BUDGET_CHECKS.clear()", source)
         self.assertNotIn("as_completed", source)
+
+
+class EmptyWindowRecheckTests(unittest.TestCase):
+    """Windows that came back empty are queried once more after they leave the look-back."""
+
+    setUp = AuditReliabilityTests.setUp
+    tearDown = AuditReliabilityTests.tearDown
+    ingester_helpers = AuditReliabilityTests.ingester_helpers
+    query_helpers = AuditReliabilityTests.query_helpers
+    checkpoint_helpers = AuditReliabilityTests.checkpoint_helpers
+    http_helpers = AuditReliabilityTests.http_helpers
+    run_helpers = FailedWindowRecoveryTests.run_helpers
+
+    # end_date is 2026-09-10, so with LOOKBACK_DAYS = 7 these windows are past the look-back.
+    OLD = (datetime(2026, 8, 25, 0, tzinfo=timezone.utc), datetime(2026, 8, 25, 8, tzinfo=timezone.utc))
+    OLDER = (datetime(2026, 8, 24, 16, tzinfo=timezone.utc), datetime(2026, 8, 25, 0, tzinfo=timezone.utc))
+    PLAN = [(datetime(2026, 9, 3, 0, tzinfo=timezone.utc), datetime(2026, 9, 3, 8, tzinfo=timezone.utc))]
+
+    def seed_empty(self, helpers, *wins, completed=None):
+        for ws, we in wins:
+            key = helpers["stable_window_key"](ws, we)
+            helpers["manifest"][key] = {
+                "status": "succeeded", "window_start": ws.isoformat(), "window_end": we.isoformat(),
+                "rows": 0, "pages": 0, "files": [],
+                "completed_at": (completed or we + timedelta(hours=1)).isoformat(),
+            }
+        helpers["_save_manifest"](helpers["manifest"])
+
+    def test_plan_adds_due_empty_windows_before_the_plan_oldest_first(self):
+        helpers, _ = self.run_helpers(lambda *a: "succeeded")
+        self.seed_empty(helpers, self.OLD, self.OLDER)
+        windows, recheck = helpers["plan_empty_rechecks"](self.PLAN)
+        self.assertEqual(windows, [self.OLDER, self.OLD] + self.PLAN)
+        self.assertEqual(recheck, {helpers["stable_window_key"](*w) for w in (self.OLDER, self.OLD)})
+
+    def test_plan_caps_rechecks_and_skips_settled_or_old_windows(self):
+        helpers, _ = self.run_helpers(lambda *a: "succeeded", EMPTY_RECHECK_MAX=1)
+        self.seed_empty(helpers, self.OLD, self.OLDER)
+        settled = (datetime(2026, 8, 20, 0, tzinfo=timezone.utc), datetime(2026, 8, 20, 8, tzinfo=timezone.utc))
+        self.seed_empty(helpers, settled, completed=settled[1] + timedelta(days=9))
+        too_old = (datetime(2026, 7, 1, 0, tzinfo=timezone.utc), datetime(2026, 7, 1, 8, tzinfo=timezone.utc))
+        self.seed_empty(helpers, too_old)
+        windows, recheck = helpers["plan_empty_rechecks"](self.PLAN)
+        self.assertEqual(windows, [self.OLDER] + self.PLAN)
+        self.assertEqual(recheck, {helpers["stable_window_key"](*self.OLDER)})
+
+    def test_recheck_is_off_when_empty_recheck_days_is_zero(self):
+        helpers, _ = self.run_helpers(lambda *a: "succeeded", EMPTY_RECHECK_DAYS=0)
+        self.seed_empty(helpers, self.OLD)
+        self.assertEqual(helpers["plan_empty_rechecks"](self.PLAN), (self.PLAN, set()))
+
+    def test_due_window_is_queried_again_and_then_settles(self):
+        helpers, graph = self.run_helpers(lambda *a: "succeeded")
+        self.seed_empty(helpers, self.OLD)
+        windows, recheck = helpers["plan_empty_rechecks"](self.PLAN)
+        keys, rows = helpers["fetch_windows"](windows, recheck)
+        self.assertEqual(graph.attempts(*self.OLD), 1)
+        self.assertEqual(rows, 2)
+        entry = helpers["_load_manifest"]()[helpers["stable_window_key"](*self.OLD)]
+        self.assertEqual(entry["rows"], 1)
+
+        rerun, graph2 = self.run_helpers(lambda *a: self.fail("nothing should be queried"))
+        self.assertEqual(rerun["plan_empty_rechecks"](self.PLAN), (self.PLAN, set()))
+
+    def test_still_empty_window_is_not_queried_a_third_time(self):
+        helpers, graph = self.run_helpers(lambda *a: "succeeded")
+        self.seed_empty(helpers, self.OLD)
+        helpers["_request"] = lambda *a, **k: FakeResponse({"value": []})
+        windows, recheck = helpers["plan_empty_rechecks"]([])
+        self.assertEqual(windows, [self.OLD])
+        with contextlib.redirect_stdout(io.StringIO()):
+            helpers["fetch_windows"](windows, recheck)
+        rerun, _ = self.run_helpers(lambda *a: "succeeded")
+        self.assertEqual(rerun["plan_empty_rechecks"]([]), ([], set()))
+
+    def test_every_window_empty_prints_what_to_check(self):
+        helpers, _ = self.run_helpers(lambda *a: "succeeded", _request=lambda *a, **k: FakeResponse({"value": []}))
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            keys, rows = helpers["fetch_windows"](self.PLAN)
+        self.assertEqual(rows, 0)
+        text = out.getvalue()
+        self.assertIn("Every audit window succeeded, but none had Copilot interaction records", text)
+        self.assertIn("AuditLogsQuery.Read.All", text)
+        self.assertIn("TENANT_ID", text)
+
+    def test_windows_with_records_print_no_warning(self):
+        helpers, _ = self.run_helpers(lambda *a: "succeeded")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            helpers["fetch_windows"](self.PLAN)
+        self.assertNotIn("none had Copilot interaction records", out.getvalue())
+
+
+class AuditTokenPreflightTests(unittest.TestCase):
+    """Cell 4 stops before any search when the token can't read Copilot audit records."""
+
+    def test_preflight_runs_after_the_token_and_names_the_fix(self):
+        source = cells(INGESTER)[4]
+        self.assertIn("def audit_token_problems(token, tenant_id=None):", source)
+        after = source[source.index("def get_headers"):]
+        self.assertIn("audit_token_problems(", after)
+        self.assertIn("raise RuntimeError", after)
+        self.assertIn("AuditLogsQuery.Read.All", after)
+
+    def test_config_cell_sets_recheck_defaults(self):
+        source = cells(INGESTER)[2]
+        self.assertRegex(source, r"EMPTY_RECHECK_DAYS\s+= 30\b")
+        self.assertRegex(source, r"EMPTY_RECHECK_MAX\s+= 24\b")
 
 
 if __name__ == "__main__":

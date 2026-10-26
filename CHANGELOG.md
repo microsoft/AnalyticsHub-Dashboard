@@ -49,6 +49,15 @@ the product. Users the report marks as deleted are never counted.
   are merged and the high-water mark holds.
 - **An audit window that reaches the service's record cap is split** instead of being kept with
   missing records. At the smallest window size it's kept and flagged.
+- **Audit windows that came back empty are queried once more** (Fabric and Azure). The audit
+  service can answer a search with no records and add them later, as during the service incident
+  of early October 2026. A window still empty when it leaves the look-back is queried again if it
+  ended in the last 30 days (`EMPTY_RECHECK_DAYS`), at most 24 a run (`EMPTY_RECHECK_MAX`), and
+  a run where every window comes back empty says what to check.
+- **The audit load checks its token before searching.** On Fabric, the ingester stops with the
+  fix when the app's token is for another tenant than `TENANT_ID` or lacks
+  `AuditLogsQuery.Read.All` (the per-service `AuditLogsQuery-*` permissions don't cover Copilot).
+  On Azure, the jobs log a warning instead, since a managed identity's token can lag a new grant.
 - **The installer's first-load estimate is now one to two hours**, longer on a trial or small
   capacity or while Microsoft is throttling audit searches.
 
