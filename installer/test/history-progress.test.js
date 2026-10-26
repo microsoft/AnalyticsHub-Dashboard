@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { apiPermissionsUrl } from '../src/clients/graph.js';
 import { emptyConfig } from '../src/config.js';
+import { AUDIT_MANIFEST } from '../src/steps/audit-check.js';
 import {
-  AUDIT_MANIFEST,
   AUDIT_STATE,
   azureHistory,
   clearPendingHistory,
