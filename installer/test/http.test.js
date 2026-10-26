@@ -65,6 +65,35 @@ test('Fabric listWorkspaces: the roles filter goes in the query, comma-separated
   assert.equal(f.calls[1].url, 'https://api.example.com/v1/workspaces');
 });
 
+test('Fabric tenantSettings: reads Learn\'s value list and the older tenantSettings one, and follows every continuationUri', async () => {
+  const setting = (/** @type {string} */ settingName) => ({ settingName, title: settingName, enabled: true });
+  const f = fakeFetch([
+    () => ({ body: { value: [setting('A')], continuationToken: 't1', continuationUri: 'https://api.example.com/v1/admin/tenantsettings?continuationToken=t1' } }),
+    () => ({ body: { value: [setting('B')] } }),
+    () => ({ body: { tenantSettings: [setting('C')] } }),
+    () => ({ body: {} }),
+  ]);
+  const fabric = fabricApi(client(f).http);
+  assert.deepEqual((await fabric.tenantSettings()).map((s) => s.settingName), ['A', 'B'], 'both pages');
+  assert.equal(new URL(f.calls[0].url).pathname, '/v1/admin/tenantsettings');
+  assert.equal(f.calls[1].url, 'https://api.example.com/v1/admin/tenantsettings?continuationToken=t1');
+  assert.deepEqual((await fabric.tenantSettings()).map((s) => s.settingName), ['C'], 'the older shape');
+  assert.deepEqual(await fabric.tenantSettings(), [], 'no list is an empty one');
+  assert.equal(f.calls.length, 4);
+
+  const loop = fakeFetch([() => ({ body: { value: [setting('A')], continuationUri: 'https://api.example.com/v1/admin/tenantsettings?continuationToken=t1' } }), () => ({ body: { value: [setting('B')], continuationUri: 'https://api.example.com/v1/admin/tenantsettings?continuationToken=t1' } })]);
+  assert.deepEqual((await fabricApi(client(loop).http).tenantSettings()).map((s) => s.settingName), ['A', 'B'], 'a page that points back at itself ends the list');
+});
+
+test('Graph myDirectGroupIds: direct memberships only, IDs alone, with no type cast that would need advanced query headers', async () => {
+  const f = fakeFetch([() => ({ body: { value: [{ id: 'g-1' }], '@odata.nextLink': 'https://api.example.com/v1/me/memberOf?$skiptoken=x' } }), () => ({ body: { value: [{ id: 'g-2' }] } })]);
+  assert.deepEqual(await graphApi(client(f).http).myDirectGroupIds(), ['g-1', 'g-2']);
+  const first = new URL(f.calls[0].url);
+  assert.equal(first.pathname, '/v1/me/memberOf');
+  assert.equal(first.searchParams.get('$select'), 'id');
+  assert.equal(f.calls[0].headers.ConsistencyLevel, undefined);
+});
+
 test('retries throttling using Retry-After', async () => {
   const f = fakeFetch([() => ({ status: 429, headers: { 'Retry-After': '7' } }), () => ({ body: { ok: true } })]);
   const { http, sleeps } = client(f);

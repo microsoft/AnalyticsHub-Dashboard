@@ -330,7 +330,9 @@ app's ID and version in the org's app catalog.
   for up to 45 minutes, and says it's deleted only once it's gone (`--no-wait` stops at the accepted delete).
   It deletes the Power BI workspace only if the installer created it (`powerBi.createdWorkspace`) and it still has
   the name the installer gave it, after asking. Picking an existing workspace clears that flag; before 0.6.8 it
-  didn't, and workspace names are unique in Power BI, so the name check keeps those older records safe.
+  didn't, and workspace names are unique in Power BI, so the name check keeps those older records safe. Install
+  creates the workspace first, before the apps and the resource group, so a run that stops before the deploy can
+  leave one that nothing uses yet. The next run keeps it without asking, so Uninstall still deletes it.
 
 ### 5.3 Permissions the installing user needs
 
@@ -339,8 +341,8 @@ app's ID and version in the org's app catalog.
 | Contributor **and** User Access Administrator (or Owner) on the subscription or resource group | To create resources and the MI's role assignments |
 | Register apps (the default user setting) or Application Administrator | For the web app and SQL reader registrations |
 | Privileged Role Administrator or Global Administrator (or send them a link) | To assign Graph app roles to the MI (equivalent to admin consent today) |
-| Power BI Pro (or PPU) licence, and the tenant setting *Create workspaces* on for them | For the model workspace |
-| Fabric tenant settings: *Semantic Model Execute Queries REST API* (for the web app's queries), *Service principals can call Fabric public APIs* (for MI refresh) and *Allow visuals created using the Power BI SDK* (for the reports) | The installer checks them if the user is a Fabric administrator. Otherwise it lists them, with *Create workspaces*, for one to confirm |
+| Power BI Pro (or PPU) licence, and the tenant setting *Create workspaces* on for them, or Admin or Member of an existing workspace | For the model workspace. The installer creates it first, and stops there if Power BI refuses |
+| Fabric tenant settings: *Semantic Model Execute Queries REST API* (for the web app's queries), *Service principals can call Fabric public APIs* (for MI refresh) and *Allow visuals created using the Power BI SDK* (for the reports) | The installer checks them if the user is a Fabric administrator, and *Create workspaces* too, with the security groups it's on for. Otherwise it lists them, with *Create workspaces*, for one to confirm |
 | Teams Administrator or Global Administrator, and consent to `AppCatalog.ReadWrite.All` for Microsoft Graph Command Line Tools (or a Teams admin uploads the package) | To publish the tab to the org's app catalog |
 
 ### 5.4 Quota and policy preflight (MSCAPS lessons)
