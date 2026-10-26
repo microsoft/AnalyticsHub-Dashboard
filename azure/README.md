@@ -533,7 +533,9 @@ ARM can't do these, so the installer:
 - With credit consumption: the managed identity's Cost Management and Azure AI roles, write access to
   where the credit files land, the Consumption Central model, and the Copilot Studio Power Automate flow.
 - With the Agent 365 registry, product feedback or Workday org data: write access to the `landing`
-  container for you, or, with private networking, read on the SharePoint site for the managed identity.
+  container for you. With private networking, the managed identity needs read on the SharePoint site
+  instead, and the installer prints the command for a SharePoint or Global administrator to run: it
+  can't make the grant itself (see [Known issues](../docs/TROUBLESHOOTING.md#azure)).
 - With Agent Evaluator: the Agent Evaluator model, and the managed identity as an application user
   in each environment you pick, with the Bot Transcript Viewer role and a transcript reader role the
   installer creates there. See [Agent Evaluator](#agent-evaluator).
