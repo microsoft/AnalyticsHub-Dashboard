@@ -975,8 +975,9 @@ test('printDataCheck explains hidden user names in the licence roster', () => {
   const { ctx } = fakeCtx({ ui: ui.ui });
   printDataCheck(ctx, { tables: {}, identity: { licensed: 98, audit: 166, matched: 0, masked: 98 } });
   assert.match(ui.text(), /! Licensed users: 98 of 98 user names are hidden/);
-  assert.match(ui.text(), /Settings > Org settings > Reports/);
-  assert.match(ui.text(), /Display concealed user, group, and site names in all reports/);
+  assert.match(ui.text(), /A Global Administrator unticks "Conceal user, group, and site names in all reports"/);
+  assert.match(ui.text(), /Settings > Org settings > Services > Reports/);
+  assert.doesNotMatch(ui.text(), /Display concealed/);
 });
 
 test('printDataCheck warns when no licence matches Copilot activity', () => {

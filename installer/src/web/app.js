@@ -958,8 +958,10 @@ function renderItem(it) {
   }
 }
 
-const PREREQ_GLYPH = { met: 'check', missing: 'x', eligible: 'clock', unknown: 'circle' };
-const PREREQ_STATE = { met: 'You have it', missing: 'Missing', eligible: 'Can be activated', unknown: 'Couldn\'t check' };
+const PREREQ_GLYPH = { met: 'check', missing: 'x', eligible: 'clock', unknown: 'circle', handoff: 'link' };
+const PREREQ_STATE = { met: 'You have it', missing: 'Missing', eligible: 'Can be activated', unknown: 'Couldn\'t check', handoff: 'Hand-off' };
+/** What follows "How to get it" or, for a hand-off, who does it. */
+const prereqHow = (status) => (status === 'handoff' ? 'Who does it' : 'How to get it');
 
 /** What the signed-in user has and lacks, each with what it's for and how to get it. */
 function renderPrereqs(items) {
@@ -977,7 +979,7 @@ function renderPrereqs(items) {
             h('span', null, h('strong', null, r.name), r.detail ? `: ${r.detail}` : ''))))
           : null,
         h('p', { class: 'prereq-why' }, h('strong', null, 'Needed for: '), it.neededFor),
-        it.status !== 'met' ? h('p', { class: 'prereq-how' }, h('strong', null, 'How to get it: '), linkify(it.howTo ?? '')) : null))));
+        it.status !== 'met' ? h('p', { class: 'prereq-how' }, h('strong', null, `${prereqHow(it.status)}: `), linkify(it.howTo ?? '')) : null))));
 }
 
 const LOAD_GLYPH = { ok: 'check', warning: 'warn', failed: 'x', skipped: 'minus', running: 'clock', todo: 'warn' };
@@ -1524,7 +1526,7 @@ function renderHome() {
   }
 
   if (!rec?.installed) {
-    kids.unshift(head('sliders', 'Set up Analytics Hub', `Fabric installer ${st.version}`));
+    kids.unshift(head('sliders', 'Set up Analytics Hub', `Analytics Hub installer ${st.version}`));
     kids.push(updateBanner());
     kids.push(staleBanner(busy));
     if (running) kids.push(runningBanner());
@@ -1651,9 +1653,9 @@ function prereqsPanel(busy) {
     p ? 'Check again' : st.user ? 'Check prerequisites' : 'Sign in and check');
   let body;
   if (p) {
-    const counts = ['met', 'eligible', 'missing', 'unknown'].map((s) => [s, p.items.filter((i) => i.status === s).length]).filter(([, n]) => n);
+    const counts = ['met', 'eligible', 'missing', 'unknown', 'handoff'].map((s) => [s, p.items.filter((i) => i.status === s).length]).filter(([, n]) => n);
     body = [
-      h('p', { class: 'hint' }, `Checked as ${p.upn} at ${when}. ${counts.map(([s, n]) => `${n} ${PREREQ_STATE[s].toLowerCase()}`).join(', ')}. Only active roles count. A role you can activate yourself in Entra (Privileged Identity Management) needs activating first.`),
+      h('p', { class: 'hint' }, `Checked as ${p.upn} at ${when}. ${counts.map(([s, n]) => `${n} ${s === 'handoff' ? 'to hand off' : PREREQ_STATE[s].toLowerCase()}`).join(', ')}. Only active roles count. A role you can activate yourself in Entra (Privileged Identity Management) needs activating first.`),
       renderPrereqs(p.items),
     ];
   } else if (st.user) {
@@ -1704,7 +1706,7 @@ function renderRail() {
   const where = app.view === 'run' && run ? (target(run)?.title ?? run.title) : 'Home';
 
   const top = h('div', { class: 'rail-top' },
-    h('div', { class: 'brand' }, h('span', { class: 'brand-name' }, 'Analytics Hub'), h('span', { class: 'brand-sub' }, 'Fabric installer')),
+    h('div', { class: 'brand' }, h('span', { class: 'brand-name' }, 'Analytics Hub'), h('span', { class: 'brand-sub' }, 'Installer')),
     h('button', {
       type: 'button', class: 'rail-toggle', 'data-key': 'toggle', 'aria-expanded': String(app.railOpen), 'aria-controls': 'rail-menu',
       onclick: () => {
@@ -1922,11 +1924,11 @@ function itemMarkdown(it, depth) {
       ]), ''];
     case 'prereqs':
       return it.items.flatMap((p) => [
-        `- ${{ met: '✓', missing: '✗', eligible: '◐', unknown: '?' }[p.status] ?? ''} ${p.label}: ${PREREQ_STATE[p.status] ?? p.status}${p.optional ? ' (optional)' : ''}`,
+        `- ${{ met: '✓', missing: '✗', eligible: '◐', unknown: '?', handoff: '→' }[p.status] ?? ''} ${p.label}: ${PREREQ_STATE[p.status] ?? p.status}${p.optional ? ' (optional)' : ''}`,
         `  - ${p.detail}`,
         ...(p.rows ?? []).map((r) => `  - ${r.name}: ${r.detail ?? PREREQ_STATE[r.status]}`),
         `  - Needed for: ${p.neededFor}`,
-        ...(p.status !== 'met' ? [`  - How to get it: ${p.howTo}`] : []),
+        ...(p.status !== 'met' ? [`  - ${prereqHow(p.status)}: ${p.howTo}`] : []),
       ]);
     default:
       return [];

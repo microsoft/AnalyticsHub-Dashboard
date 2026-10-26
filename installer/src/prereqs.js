@@ -5,16 +5,21 @@
  * reports "unknown" rather than failing when it can't be read.
  */
 import { allowsAction, ROLES } from './clients/azure.js';
-import { APP_ROLES, CONSENT_ROLES, FABRIC_ADMIN_ROLE, POWER_PLATFORM_ADMIN_ROLE, TEAMS_PUBLISH_ROLES } from './clients/graph.js';
+import { APP_ROLES, CONSENT_ROLES, FABRIC_ADMIN_ROLE, INSIGHTS_ANALYST_ROLE, POWER_PLATFORM_ADMIN_ROLE, TEAMS_PUBLISH_ROLES } from './clients/graph.js';
 import { secretMode } from './config.js';
 import { commandLine } from './launch.js';
 import { copilotLicences } from './seats.js';
 import { AUDIT_CHECK_FAILS, AUDIT_CHECK_LABELS, AUDIT_ROLE, PURVIEW_AUDIT_URL } from './steps/audit-check.js';
-import { flowsWanted } from './steps/flows.js';
+import { flowsWanted, ppApiFlows } from './steps/flows.js';
 import { canWriteSecrets } from './steps/identity.js';
-import { blockedSettings, runsFabric } from './steps/plan.js';
+import { blockedSettings, POWER_BI_SETTINGS, settingLabel, usableCapacity, workspacesOnCapacity } from './steps/plan.js';
+import { rlsOn } from './transform/access.js';
 
-/** @typedef {'met' | 'missing' | 'eligible' | 'unknown'} PrereqStatus */
+/**
+ * "handoff" is optional admin work someone else does while you carry on: it never stops an install,
+ * and never counts as missing or as needing attention.
+ * @typedef {'met' | 'missing' | 'eligible' | 'unknown' | 'handoff'} PrereqStatus
+ */
 /**
  * @typedef {object} Prereq
  * @property {string} id
@@ -22,7 +27,7 @@ import { blockedSettings, runsFabric } from './steps/plan.js';
  * @property {PrereqStatus} status
  * @property {string} detail  What was found.
  * @property {string} neededFor
- * @property {string} howTo  How to get it, when it's missing.
+ * @property {string} howTo  How to get it when it's missing; for a hand-off, who does it.
  * @property {boolean} [optional]  Only some features need it.
  * @property {{ name: string, status: PrereqStatus, detail?: string }[]} [rows]  Per subscription or environment.
  */
@@ -53,6 +58,34 @@ export const PREMIUM_FLOW_PLANS = {
 export { COPILOT_PLAN } from './seats.js';
 
 const PIM_URL = 'https://entra.microsoft.com/#view/Microsoft_Azure_PIMCommon/ActivationMenuBlade/~/aadmigratedroles';
+const ADMIN_CONSENT_URL = 'https://learn.microsoft.com/entra/identity/enterprise-apps/grant-admin-consent';
+const TENANT_SETTINGS_URL = 'https://learn.microsoft.com/fabric/admin/tenant-settings-index';
+const FABRIC_TRIAL_URL = 'https://learn.microsoft.com/fabric/fundamentals/fabric-trial';
+const VIVA_ROLES_URL = 'https://learn.microsoft.com/viva/insights/advanced/setup-maint/assign-user-roles';
+/** Teams admin center > Teams apps > Manage apps, as in steps/azure/teams-catalog.js. */
+const TEAMS_MANAGE_APPS_URL = 'https://admin.teams.microsoft.com/policies/manage-apps';
+const XMLA_SETTING = 'Allow XMLA endpoints and Analyze in Excel with on-premises semantic models';
+/** Ends an Entra role row's detail when the roles you could activate through PIM can't be read. */
+const PIM_UNREAD = ' Couldn\'t check for roles you could activate yourself.';
+
+/**
+ * The Fabric tenant settings this install needs, by their names in the admin portal, for someone who
+ * can't read them to ask a Fabric administrator to confirm.
+ * @param {import('./config.js').InstallConfig} config
+ * @returns {string[]}
+ */
+export function settingsToConfirm(config) {
+  const azure = config.target === 'azure';
+  // Without a recorded workspace, the installer creates one.
+  const workspace = azure ? config.azure?.powerBi?.workspaceId : config.fabric?.workspaceId;
+  return [
+    ...(workspace ? [] : ['"Create workspaces"']),
+    ...(azure ? [] : ['"Users can create Fabric items"']),
+    // As blockedSettings is asked below: the app's settings on Fabric, and on Azure the one its web app needs; the reports' always.
+    ...POWER_BI_SETTINGS.filter((s) => !azure || !s.app || s.web).map((s) => settingLabel(s)),
+    ...(rlsOn(config) ? [`"${XMLA_SETTING}"`] : []),
+  ];
+}
 
 /**
  * Whether the signed-in user has Global Administrator or Privileged Role Administrator active, so they
@@ -184,11 +217,13 @@ export async function checkPrereqs(ctx, opts = {}) {
   };
 
   /**
-   * An Entra role: active, one the user can activate through PIM, or missing.
+   * An Entra role: active, one the user can activate through PIM, or missing. With `handoff`, a role
+   * the user lacks is a hand-off instead: someone else does that work while the install carries on.
    * @param {Omit<Prereq, 'status' | 'detail'>} base
    * @param {Record<string, string>} wanted  Template ID to name.
+   * @param {{ detail: string, howTo?: string }} [handoff]  What to say instead of "missing", and who does it.
    */
-  const entraRole = (base, wanted) =>
+  const entraRole = (base, wanted, handoff) =>
     guard(base, async () => {
       const active = (await roles).filter((r) => wanted[r.roleTemplateId]);
       if (active.length) return { status: 'met', detail: `Active: ${[...new Set(active.map((r) => wanted[r.roleTemplateId]))].join(', ')}` };
@@ -202,7 +237,9 @@ export async function checkPrereqs(ctx, opts = {}) {
       if (elig?.length) {
         return { status: 'eligible', detail: `Not active yet: ${[...new Set(elig.map((r) => wanted[r.roleDefinitionId]))].join(', ')}. You can activate this role in Entra (Privileged Identity Management): ${PIM_URL} Then check again.` };
       }
-      return { status: 'missing', detail: `You don't have ${Object.values(wanted).join(' or ')} active.${elig ? '' : ' Couldn\'t check for roles you could activate yourself.'}` };
+      const unread = elig ? '' : PIM_UNREAD;
+      if (handoff) return { status: 'handoff', detail: `${handoff.detail}${unread}`, ...(handoff.howTo ? { howTo: handoff.howTo } : {}) };
+      return { status: 'missing', detail: `You don't have ${Object.values(wanted).join(' or ')} active.${unread}` };
     });
 
   /** Owner, or Contributor plus User Access Administrator, per subscription; and in the existing resource group picked, which least privilege covers. */
@@ -262,6 +299,30 @@ export async function checkPrereqs(ctx, opts = {}) {
     },
   );
 
+  /** System Administrator in at least one environment; the Power Platform Administrator row reads it too. */
+  const environments = guard(
+    {
+      id: 'environments',
+      label: 'Power Platform environments, System Administrator in each',
+      neededFor: 'Agent Evaluator reads Copilot Studio transcripts from Dataverse, and the flows are created in an environment.',
+      howTo: 'Ask an environment admin for the System Administrator security role, or a Power Platform Administrator to add the app for you.',
+      optional: true,
+    },
+    async () => {
+      const envs = (await api.discovery.instances()).filter((i) => i.Url && (i.State ?? 0) === 0);
+      if (!envs.length) return { status: 'missing', detail: 'No Dataverse environments you can see.' };
+      const rows = envs.slice(0, MAX_ENVIRONMENTS).map((i) => ({
+        name: i.FriendlyName ?? i.UniqueName ?? i.Url,
+        status: /** @type {PrereqStatus} */ (i.IsUserSysAdmin === true ? 'met' : i.IsUserSysAdmin === false ? 'missing' : 'unknown'),
+        detail: i.IsUserSysAdmin === true ? 'System Administrator' : i.IsUserSysAdmin === false ? 'Not a System Administrator' : 'Couldn\'t tell',
+      }));
+      const admin = rows.filter((r) => r.status === 'met').length;
+      const more = envs.length > MAX_ENVIRONMENTS ? ` Showing the first ${MAX_ENVIRONMENTS} of ${envs.length}.` : '';
+      const status = /** @type {PrereqStatus} */ (admin ? 'met' : rows.some((r) => r.status === 'unknown') ? 'unknown' : 'missing');
+      return { status, detail: `System Administrator in ${admin} of ${rows.length} ${rows.length === 1 ? 'environment' : 'environments'}.${more}`, rows };
+    },
+  );
+
   /** @type {Promise<Prereq>[]} */
   const checks = [
     entraRole(
@@ -269,30 +330,42 @@ export async function checkPrereqs(ctx, opts = {}) {
         id: 'consent-role',
         label: 'Global Administrator or Privileged Role Administrator',
         neededFor: 'Granting admin consent for the app registration\'s Microsoft Graph permissions.',
-        howTo: 'If that isn\'t you, carry on: the installer gives you a link for a Global Administrator or Privileged Role Administrator to approve.',
+        howTo: `A Privileged Role Administrator or Global Administrator approves the app's Microsoft Graph permissions from the installer's consent link. An Application Administrator or Cloud Application Administrator can't: ${ADMIN_CONSENT_URL}`,
         optional: true,
       },
       CONSENT_ROLES,
+      { detail: 'You don\'t need this yourself: the installer gives you an admin consent link to send, and carries on.' },
     ),
     entraRole(
       {
         id: 'fabric-admin',
-        label: 'Fabric administrator — only needed if the tenant settings below are off',
-        neededFor: 'Reading and switching on the Fabric tenant settings the model, reports and app need. If they are already on, you don\'t need this role.',
-        howTo: 'Ask a Fabric administrator to check the tenant settings below and turn on any that are off, or ask a Global Administrator for the Fabric Administrator role.',
+        label: 'Fabric Administrator',
+        neededFor: 'Reading the Fabric tenant settings the model, reports and app need, and turning on any that are off.',
+        howTo: `A Fabric administrator confirms the settings under "Fabric tenant settings" are on, and turns on any that are off, in Fabric under Admin portal > Tenant settings: ${TENANT_SETTINGS_URL}`,
         optional: true,
       },
       { [FABRIC_ADMIN_ROLE]: 'Fabric Administrator' },
+      { detail: 'You don\'t need this role yourself: a Fabric administrator turns on, or confirms, the tenant settings for you.' },
     ),
     entraRole(
       {
         id: 'power-platform-admin',
         label: 'Power Platform Administrator',
-        neededFor: 'Adding the app to Power Platform environments for Agent Evaluator and the flows when you aren\'t a System Administrator there.',
+        neededFor: 'Adding the app to Power Platform environments for Agent Evaluator and the flows when you aren\'t a System Administrator there, and signing in to the flows\' Power Platform API connection.',
         howTo: 'Ask a Global Administrator for the Power Platform Administrator role, or be a System Administrator in each environment you use.',
         optional: true,
       },
       { [POWER_PLATFORM_ADMIN_ROLE]: 'Power Platform Administrator' },
+    ).then(async (it) =>
+      // A System Administrator in an environment makes the flows there; only their Power Platform API connection needs an admin to sign in.
+      it.status === 'missing' && (await environments).status === 'met'
+        ? {
+            ...it,
+            status: /** @type {PrereqStatus} */ ('handoff'),
+            detail: 'You\'re a System Administrator in an environment, so you can make the flows there yourself. Only the flows\' Power Platform API connection needs an admin to sign in to it, and the installer gives you the steps to send them.',
+            howTo: 'The agents inventory flow\'s connection signs in as a Power Platform administrator, or an admin with Global Reader. The other flows that call the Power Platform API sign in as a Power Platform, Billing or Global administrator.',
+          }
+        : it,
     ),
     ...(azure
       ? [
@@ -301,10 +374,11 @@ export async function checkPrereqs(ctx, opts = {}) {
               id: 'teams-admin',
               label: 'Teams Administrator or Global Administrator',
               neededFor: 'Publishing the Teams app to your org\'s app catalog, so people find Analytics Hub in Teams, Outlook and the Microsoft 365 Copilot app.',
-              howTo: 'If that isn\'t you, carry on: the installer prints the steps for a Teams Administrator to upload the Teams package.',
+              howTo: `A Teams Administrator or Global Administrator uploads the Teams package in the Teams admin center, under Teams apps > Manage apps: ${TEAMS_MANAGE_APPS_URL}`,
               optional: true,
             },
             TEAMS_PUBLISH_ROLES,
+            { detail: 'You don\'t need this yourself: the installer prints the steps for a Teams Administrator to upload the Teams package, and carries on.' },
           ),
         ]
       : []),
@@ -337,7 +411,7 @@ export async function checkPrereqs(ctx, opts = {}) {
         if (azure) {
           const g = config.azure?.graphRoles;
           if (g?.assigned?.includes(AUDIT_ROLE)) return { status: 'met', detail: `The jobs' managed identity has it.${last}` };
-          if (g?.pending?.includes(AUDIT_ROLE)) return { status: 'missing', detail: `The jobs' managed identity doesn't have it yet.${last}` };
+          if (g?.pending?.includes(AUDIT_ROLE)) return { status: 'handoff', detail: `The jobs' managed identity doesn't have it yet, so the audit load finds 0 records until a Privileged Role Administrator or Global Administrator grants it.${last}` };
         } else if (config.app.servicePrincipalId) {
           const graphSp = await api.graph.graphServicePrincipal();
           const role = graphSp.appRoles?.find((/** @type {{ value: string }} */ r) => r.value === AUDIT_ROLE);
@@ -348,7 +422,7 @@ export async function checkPrereqs(ctx, opts = {}) {
         }
         const admin = (await roles).find((x) => CONSENT_ROLES[/** @type {keyof typeof CONSENT_ROLES} */ (x.roleTemplateId)]);
         if (admin) return { status: 'met', detail: `Not granted yet, but your ${admin.displayName} role lets the installer grant it.${last}` };
-        return { status: 'missing', detail: `Not granted yet. A Global Administrator or Privileged Role Administrator needs to approve it.${last}` };
+        return { status: 'handoff', detail: `Not granted yet, so the audit load finds 0 records until a Privileged Role Administrator or Global Administrator approves it.${last}` };
       },
     ),
     guard(
@@ -412,11 +486,20 @@ export async function checkPrereqs(ctx, opts = {}) {
               id: 'fabric-capacity',
               label: 'Active Fabric capacity',
               neededFor: 'The Analytics Hub workspace, Lakehouse, notebooks and pipeline run on it.',
-              howTo: 'Start a Fabric trial, or ask a capacity admin to make you a contributor on an F2 or larger capacity.',
+              howTo: `To create the workspace on a capacity, or move one onto it, you need to be that capacity's admin or contributor. Ask its capacity admin, or start a Fabric trial: ${FABRIC_TRIAL_URL} Or ask to be an Admin or Member of a workspace that's already on a capacity.`,
             },
             async () => {
-              const caps = (await api.fabric.listCapacities()).filter((cap) => cap.state === 'Active' && runsFabric(cap));
-              if (!caps.length) return { status: 'missing', detail: 'No active Fabric capacity (F2 or larger, or a trial) you can assign workspaces to.' };
+              const listed = await api.fabric.listCapacities();
+              const caps = listed.filter(usableCapacity);
+              if (!caps.length) {
+                const onCapacity = await workspacesOnCapacity(api, config, listed).catch(() => []);
+                if (!onCapacity.length) return { status: 'missing', detail: 'No active Fabric capacity (F2 or larger, or a trial) you can create a workspace on, and no workspace you\'re an Admin or Member of that\'s already on one.' };
+                const names = onCapacity.slice(0, 3).map((w) => `"${w.displayName ?? w.id}"`);
+                return {
+                  status: 'met',
+                  detail: `No capacity you can create a workspace on, but you can use a workspace that's already on one: ${names.join(', ')}${onCapacity.length > 3 ? ', ...' : ''}. The installer can't create a new workspace, and can't check that capacity's size or state.`,
+                };
+              }
               const names = caps.slice(0, 3).map((cap) => `${cap.displayName ?? cap.id}${cap.sku ? ` (${cap.sku})` : ''}`);
               return { status: 'met', detail: `${caps.length} available: ${names.join(', ')}${caps.length > 3 ? ', ...' : ''}` };
             },
@@ -450,38 +533,18 @@ export async function checkPrereqs(ctx, opts = {}) {
             },
           ),
         ]),
-    guard(
+    environments,
+    entraRole(
       {
-        id: 'environments',
-        label: 'Power Platform environments, System Administrator in each',
-        neededFor: 'Agent Evaluator reads Copilot Studio transcripts from Dataverse, and the flows are created in an environment.',
-        howTo: 'Ask an environment admin for the System Administrator security role, or a Power Platform Administrator to add the app for you.',
+        id: 'viva-analyst',
+        label: 'Viva Insights analyst',
+        neededFor: 'Only Copilot Cowork credits read straight from Viva Insights: someone with the Insights Analyst role creates the query the installer reads. You can add it later, and use the CSV export meanwhile.',
+        howTo: `An Insights Analyst creates the Cowork credits query and sends you its partition and query IDs. Or a Global Administrator assigns you Insights Analyst in the Microsoft 365 admin center (Settings > Viva > Viva Insights, or Role assignments), or a Privileged Role Administrator does in Privileged Identity Management if your organisation uses it: ${VIVA_ROLES_URL}`,
         optional: true,
       },
-      async () => {
-        const envs = (await api.discovery.instances()).filter((i) => i.Url && (i.State ?? 0) === 0);
-        if (!envs.length) return { status: 'missing', detail: 'No Dataverse environments you can see.' };
-        const rows = envs.slice(0, MAX_ENVIRONMENTS).map((i) => ({
-          name: i.FriendlyName ?? i.UniqueName ?? i.Url,
-          status: /** @type {PrereqStatus} */ (i.IsUserSysAdmin === true ? 'met' : i.IsUserSysAdmin === false ? 'missing' : 'unknown'),
-          detail: i.IsUserSysAdmin === true ? 'System Administrator' : i.IsUserSysAdmin === false ? 'Not a System Administrator' : 'Couldn\'t tell',
-        }));
-        const admin = rows.filter((r) => r.status === 'met').length;
-        const more = envs.length > MAX_ENVIRONMENTS ? ` Showing the first ${MAX_ENVIRONMENTS} of ${envs.length}.` : '';
-        const status = /** @type {PrereqStatus} */ (admin ? 'met' : rows.some((r) => r.status === 'unknown') ? 'unknown' : 'missing');
-        return { status, detail: `System Administrator in ${admin} of ${rows.length} ${rows.length === 1 ? 'environment' : 'environments'}.${more}`, rows };
-      },
+      { [INSIGHTS_ANALYST_ROLE]: 'Insights Analyst' },
+      { detail: 'You don\'t need it yourself: an Insights Analyst can create the Cowork credits query and share it with you. Only Cowork credits read from Viva Insights need it, and the CSV export works meanwhile.' },
     ),
-    // Viva Insights roles aren't readable through Graph, so this one is always "couldn't check".
-    Promise.resolve({
-      id: 'viva-analyst',
-      label: 'Viva Insights analyst',
-      status: /** @type {PrereqStatus} */ ('unknown'),
-      detail: 'Couldn\'t check: Viva Insights roles can\'t be read through Microsoft Graph.',
-      neededFor: 'Only Copilot Cowork credits read straight from Viva Insights: someone with the Insights Analyst role creates the query the installer reads. You can add it later, and use the CSV export meanwhile.',
-      howTo: 'Ask a Viva Insights administrator for the Insights Analyst role, or ask an analyst to create the Cowork credits query and send you its partition and query IDs.',
-      optional: true,
-    }),
     ...(config.modules.defender
       ? [
           guard(
@@ -509,8 +572,10 @@ export async function checkPrereqs(ctx, opts = {}) {
       {
         id: 'tenant-settings',
         label: 'Fabric tenant settings',
-        neededFor: 'The model\'s connection, the app\'s queries and the reports\' custom visuals each need a tenant setting on.',
-        howTo: 'A Fabric administrator switches them on in the admin portal, under Tenant settings.',
+        neededFor: azure
+          ? 'Creating the Power BI workspace, the model\'s connection, the web app\'s queries and the reports\' custom visuals each need a tenant setting on.'
+          : 'Creating the workspace and its items, the model\'s connection, the app\'s queries and the reports\' custom visuals each need a tenant setting on.',
+        howTo: `A Fabric administrator turns them on, for everyone or for a group you're in, in Fabric under Admin portal > Tenant settings: ${TENANT_SETTINGS_URL}`,
       },
       async () => {
         /** @type {any[]} */
@@ -518,11 +583,16 @@ export async function checkPrereqs(ctx, opts = {}) {
         try {
           list = await api.fabric.tenantSettings();
         } catch {
-          return { status: 'unknown', detail: 'Couldn\'t check: only a Fabric Administrator can read tenant settings.' };
+          const xmla = rlsOn(config) ? ' The capacity\'s XMLA endpoint must also be Read Write, which a capacity admin sets.' : '';
+          return {
+            status: 'unknown',
+            detail: `Couldn't check: only a Fabric administrator can read tenant settings. Ask one to confirm these are on for you, or for a group you're in: ${settingsToConfirm(config).join('; ')}.${xmla}`,
+          };
         }
-        const off = blockedSettings(Object.fromEntries(list.map((s) => [s.settingName, s])), { app: !azure, reports: true });
+        const byName = Object.fromEntries(list.map((s) => [s.settingName, s]));
+        const off = blockedSettings(byName, { app: !azure, web: azure, reports: true });
         return off.length
-          ? { status: 'missing', detail: `Off: ${off.map((s) => s.title).join('; ')}.` }
+          ? { status: 'missing', detail: `Off: ${off.map((s) => settingLabel(s, byName[s.name]?.title)).join('; ')}.` }
           : { status: 'met', detail: 'The settings Analytics Hub needs are on.' };
       },
     ),
@@ -533,20 +603,33 @@ export async function checkPrereqs(ctx, opts = {}) {
 
 /**
  * Rows install and update preflight leave out even when not met: the Fabric capacity, which preflight
- * checks and stops on itself; the Fabric administrator role, which the tenant settings row covers; and
- * the Viva Insights analyst role, which can never be read.
+ * checks and stops on itself; and the Fabric administrator role, which the tenant settings row covers.
  */
-const PREFLIGHT_HIDDEN = new Set(['fabric-capacity', 'fabric-admin', 'viva-analyst']);
+const PREFLIGHT_HIDDEN = new Set(['fabric-capacity', 'fabric-admin']);
+
+/**
+ * Whether a flow this install makes signs in to the Power Platform API connection.
+ * @param {import('./config.js').InstallConfig} config
+ */
+function ppApiWanted(config) {
+  try {
+    return ppApiFlows(config).length > 0;
+  } catch {
+    // Without the flow definitions, assume every flow but feedback's might.
+    return flowsWanted(config).some((k) => k !== 'feedback');
+  }
+}
 
 /**
  * What install and update preflight make of the checks: what stops an install before anything is
- * created, and what to show and carry on with. Met rows, rows for features not chosen, and optional
- * rows that couldn't be checked are left out. A row that couldn't be checked, or took too long, never
- * blocks. An update never blocks: it's already installed.
+ * created, what to show and carry on with, and what to hand off to someone else. Met rows, rows for
+ * features not chosen, and optional rows that couldn't be checked are left out. A row that couldn't be
+ * checked, or took too long, never blocks, and nor does a hand-off. An update never blocks: it's
+ * already installed.
  * @param {Prereq[]} items
  * @param {{ config: import('./config.js').InstallConfig, yes?: boolean, update?: boolean }} opts
  *   yes: --yes, so nobody is asked and a choice that can't work fails late.
- * @returns {{ block: Prereq[], warn: Prereq[] }}
+ * @returns {{ block: Prereq[], warn: Prereq[], handoff: Prereq[] }}
  */
 export function preflightVerdict(items, { config, yes = false, update = false }) {
   const azure = config.target === 'azure';
@@ -557,18 +640,27 @@ export function preflightVerdict(items, { config, yes = false, update = false })
   const relevant = {
     // Consent is still to grant: on a re-run that already has it, the role doesn't matter.
     'consent-role': status('audit-ingestion') !== 'met',
-    'power-platform-admin': environments && status('environments') !== 'met',
+    // As a hand-off, the role only signs in to the flows' Power Platform API connection.
+    'power-platform-admin': status('power-platform-admin') === 'handoff' ? ppApiWanted(config) : environments && status('environments') !== 'met',
     environments,
     'power-automate-premium': flows,
     // On Fabric, Azure access is only for the Key Vault (its own row) and credit consumption.
     'azure-rbac': azure || !!config.modules?.consumption,
+    // Only Cowork credits read from Viva Insights, which is Fabric only.
+    'viva-analyst': !azure && !!config.modules?.consumption && config.dataSources?.coworkCredits === 'api',
   };
   /** @type {Prereq[]} */
   const block = [];
   /** @type {Prereq[]} */
   const warn = [];
+  /** @type {Prereq[]} */
+  const handoff = [];
   for (const it of items) {
     if (it.status === 'met' || PREFLIGHT_HIDDEN.has(it.id) || relevant[it.id] === false) continue;
+    if (it.status === 'handoff') {
+      handoff.push(it);
+      continue;
+    }
     if (it.status === 'unknown' && it.optional) continue;
     // Only a Fabric administrator can read them, so "couldn't check" is the usual answer: it only matters with a model.
     if (it.id === 'tenant-settings' && it.status === 'unknown' && !azure && !config.semanticModel?.enabled) continue;
@@ -576,7 +668,33 @@ export function preflightVerdict(items, { config, yes = false, update = false })
     if (!update && yes && it.id === 'register-apps' && it.status === 'missing' && !config.app.appId && !config.app.adminPack) block.push(it);
     else warn.push(it);
   }
-  return { block, warn };
+  return { block, warn, handoff };
+}
+
+/**
+ * The hand-offs preflight shows. On Fabric the app's admin consent includes its audit log permission,
+ * so that's one ask, not two. On Azure they're different asks: the web app's consent, and the jobs'
+ * managed identity's Graph role.
+ * @param {Prereq[]} handoff
+ * @param {import('./config.js').InstallConfig} config
+ * @returns {Prereq[]}
+ */
+function handoffsToShow(handoff, config) {
+  const consent = handoff.find((it) => it.id === 'consent-role');
+  const audit = handoff.find((it) => it.id === 'audit-ingestion');
+  if (config.target === 'azure' || !consent || !audit) return handoff;
+  return handoff
+    .filter((it) => it !== audit)
+    .map((it) => {
+      if (it !== consent) return it;
+      // The audit note follows the consent sentence it refers to; "couldn't check" stays last.
+      const unread = it.detail.endsWith(PIM_UNREAD) ? PIM_UNREAD : '';
+      return {
+        ...it,
+        detail: `${it.detail.slice(0, it.detail.length - unread.length)} That consent includes ${AUDIT_ROLE}: until it's approved, the audit load finds 0 records.${unread}`,
+        howTo: `${it.howTo} A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: ${PURVIEW_AUDIT_URL} After install, run ${commandLine('check-audit')} to test it.`,
+      };
+    });
 }
 
 /**
@@ -595,30 +713,41 @@ export async function preflightChecks(ctx, opts = {}) {
 }
 
 /**
- * Prints only what needs attention, before anything is created, and points to the full list.
- * On install, stops when one is a true blocker.
+ * Prints only what needs attention, then what to hand off to someone else, before anything is
+ * created, and points to the full list. On install, stops when one is a true blocker.
  * @param {{ ui: import('./ui.js').Ui, config: import('./config.js').InstallConfig }} ctx
  * @param {Prereq[] | null} items  From preflightChecks.
  * @param {{ update?: boolean }} [opts]
- * @returns {{ block: Prereq[], warn: Prereq[] }}
+ * @returns {{ block: Prereq[], warn: Prereq[], handoff: Prereq[] }}
  */
 export function reportPreflight(ctx, items, opts = {}) {
   const { ui, config } = ctx;
   const full = `Run "${commandLine('prereqs')}" for the full list.`;
   if (!items) {
     ui.note(`Couldn't check the prerequisites. ${full}`);
-    return { block: [], warn: [] };
+    return { block: [], warn: [], handoff: [] };
   }
   const verdict = preflightVerdict(items, { config, yes: ui.yes, update: opts.update });
+  const handoff = handoffsToShow(verdict.handoff, config);
   const shown = [...verdict.block, ...verdict.warn];
-  if (!shown.length) {
+  if (!shown.length && !handoff.length) {
     ui.ok('Prerequisites: nothing missing for what you chose');
-    return verdict;
+    return { ...verdict, handoff };
   }
-  const n = shown.length === 1 ? '1 prerequisite needs' : `${shown.length} prerequisites need`;
   const carry = verdict.block.length ? '' : ` The ${opts.update ? 'update' : 'install'} carries on.`;
-  ui.warn(`${n} attention.${carry}`);
-  ui.prereqs(shown);
+  if (shown.length) {
+    const n = shown.length === 1 ? '1 prerequisite needs' : `${shown.length} prerequisites need`;
+    ui.warn(`${n} attention.${carry}`);
+    ui.prereqs(shown);
+  } else {
+    ui.ok('Prerequisites: you have what you need yourself');
+  }
+  if (handoff.length) {
+    const one = handoff.length === 1;
+    // Said once: the attention line already says the install carries on.
+    ui.info(`${one ? 'Hand-off' : 'Hand-offs'}: someone else does ${one ? 'this' : 'these'}.${shown.length ? '' : carry}`);
+    ui.prereqs(handoff);
+  }
   ui.note(full);
   if (verdict.block.length) {
     ui.fail(`Stopped before creating anything: ${verdict.block.map((it) => it.label).join('; ')}.`);
@@ -629,7 +758,7 @@ export function reportPreflight(ctx, items, opts = {}) {
         : verdict.block.map((it) => it.howTo).join(' '),
     );
   }
-  return verdict;
+  return { ...verdict, handoff };
 }
 
 const ARG_PROBES = {
