@@ -35,94 +35,84 @@ credit consumption and cost.
 
 https://github.com/user-attachments/assets/b415625d-c2ae-467f-9a91-59ef9adca6c8
 
-**Manual setup, start to finish:** [watch it](fabric/README.md#set-it-up-by-hand).
 
 <a id="what-you-get"></a>
 
 ## What you get
 
 - An app and Power BI reports on Copilot and agent use, value and cost.
-- Data from the audit log, licences and your org, loaded every day.
-- Everything stays in your own tenant. Analytics Hub itself is free.
+- Fresh data every day, kept in your own tenant.
+- Analytics Hub is free. You pay for the Fabric capacity or Azure resources it runs on.
 
 <a id="getting-started"></a>
 
 ## Before you start
 
-You need:
-
-- [ ] **Somewhere to run it.** A Fabric capacity, F2 or larger, or a
-      [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager).
-      Or Owner on an Azure subscription or resource group, and a Power BI workspace.
-- [ ] **Power BI Pro** for you.
-- [ ] **Rights to register an app** in Entra, or an admin who can.
-- [ ] **A few minutes from your admins.** Fabric, Entra, Microsoft 365, and Teams on Azure.
-      Send each one [their row](docs/PREREQUISITES.md#at-a-glance).
-- [ ] **A Windows 10 or 11 PC.** No admin rights needed. Or use Azure Cloud Shell.
+- [ ] A Fabric capacity (F2+ or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager)), or Owner on an Azure subscription or resource group.
+- [ ] Power BI Pro.
+- [ ] Rights to register an app in Entra, or an admin who can.
+- [ ] A few minutes from your admins. Send each one [their row](docs/PREREQUISITES.md#at-a-glance).
+- [ ] A Windows 10 or 11 PC. No admin rights needed.
 
 <a id="fabric-or-azure"></a><a id="architecture-and-running-costs"></a>
 
-**Fabric or Azure?** Pick [Fabric](1-fabric/) unless you'd rather not use it. [Azure](2-azure/)
-costs about $5–40 a month for a small tenant. See [Architecture and costs](docs/ARCHITECTURE.md).
-
-Full list: [Prerequisites](docs/PREREQUISITES.md).
+Not sure? Pick [Fabric](1-fabric/). [Azure](2-azure/) costs about $5–40 a month for a small tenant
+([costs](docs/ARCHITECTURE.md)). Full list: [Prerequisites](docs/PREREQUISITES.md).
 
 ## Choose your path
 
+```mermaid
+flowchart LR
+    A[Before you start] --> B{Can you run<br>the installer?}
+    B -- "Yes (recommended)" --> C[Installer<br>about 20 min]
+    B -- No --> D[Manual<br>step by step]
+    C --> E[Check it worked]
+    D --> E
+```
+
 | Path | Suits |
 |---|---|
-| **[Installer](#installer)** (recommended, fastest) | Most people. About 20 minutes. It sets everything up and tells you what's left. |
-| **[Manual](#manual)** (step by step) | You can't run the installer, or you want to see each piece. Takes longer. |
+| **[Installer](#installer)** (recommended, fastest) | Most people. It sets everything up and tells you what's left. |
+| **[Manual](#manual)** (step by step) | You can't run the installer, or want to see each piece. |
 
 <a id="automatic-the-installer"></a><a id="run-the-installer"></a>
 
 ## Installer
 
-1. Send each admin [their row](docs/PREREQUISITES.md#at-a-glance) of the prerequisites.
-2. On your PC, open PowerShell and paste this:
+1. Paste this into PowerShell, or [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe):
 
    ```powershell
    irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
    ```
 
-   Or [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe) and open it.
-3. It opens in your browser. Choose **Set up Analytics Hub** and sign in.
-4. Choose **Microsoft Fabric** or **Your Azure subscription**.
-5. Answer the questions. It takes about 5 minutes.
-6. Check the plan and choose **Go ahead**. Keep the PC awake until it finishes.
-7. Read the Done page. It lists anything left to do, and who does it.
-   Then [check it worked](docs/INSTALL.md#check-it-worked).
+2. In your browser, choose **Set up Analytics Hub** and sign in.
+3. Choose **Microsoft Fabric** or **Your Azure subscription**.
+4. Answer the questions (about 5 minutes).
+5. Check the plan and choose **Go ahead**. Keep the PC awake.
+6. Do what the Done page lists, then [check it worked](docs/INSTALL.md#check-it-worked).
 
-Blocked? Try [Azure Cloud Shell](docs/INSTALL.md#locked-down-tenant--azure-cloud-shell) or an
-[IT-approved Node.js](docs/INSTALL.md#it-approved-nodejs). Don't work around your IT policy.
-To check the download, see [Check the download](docs/INSTALL.md#check-the-download).
-Every option: [Install](docs/INSTALL.md).
+Blocked by IT policy? Don't work around it. See [other ways to run it](docs/INSTALL.md).
 
 <a id="manual-step-by-step"></a>
 
 ## Manual
 
-**On Fabric.** [Watch the video](fabric/README.md#set-it-up-by-hand) first.
+**Fabric** ([watch the video](fabric/README.md#set-it-up-by-hand) first):
 
-1. [Get the prerequisites](docs/MANUAL-INSTALL.md#1-prerequisites).
-2. [Load the data](fabric/notebooks/README.md) with the notebooks.
-3. [Publish the report](fabric/notebooks/README.md#load-the-data) from Power BI Desktop.
-4. [Schedule the pipeline](fabric/pipelines/README.md).
-5. [Deploy the app](app/README.md#deploy-it-by-hand). Optional.
-6. [Check it worked](docs/MANUAL-INSTALL.md#3-verify).
+1. [Prerequisites](docs/MANUAL-INSTALL.md#1-prerequisites)
+2. [Load the data](fabric/notebooks/README.md)
+3. [Publish the report](fabric/notebooks/README.md#load-the-data)
+4. [Schedule the pipeline](fabric/pipelines/README.md)
+5. [Deploy the app](app/README.md#deploy-it-by-hand) (optional)
+6. [Check it worked](docs/MANUAL-INSTALL.md#3-verify)
 
-**On Azure.** Follow [seven steps in Azure Cloud Shell](docs/MANUAL-INSTALL.md#azure).
-
-All the detail: [Manual install](docs/MANUAL-INSTALL.md).
+**Azure:** [seven steps in Azure Cloud Shell](docs/MANUAL-INSTALL.md#azure).
 
 ## After setup
 
-- **Check it worked.** [Installer](docs/INSTALL.md#check-it-worked) or
-  [manual](docs/MANUAL-INSTALL.md#3-verify).
-- **Refresh.** The data loads every day. To run it now, or change the schedule, start the
-  installer again.
-- **Update or remove.** See [Update or remove](docs/UPDATE.md).
-- **Get help.** Read [Troubleshooting](docs/TROUBLESHOOTING.md) and the [FAQ](docs/FAQ.md), or
+- **Refresh:** automatic, every day. To run it now, start the installer again.
+- **Update or remove:** [Update](docs/UPDATE.md).
+- **Help:** [Troubleshooting](docs/TROUBLESHOOTING.md) · [FAQ](docs/FAQ.md) ·
   [open an issue](https://github.com/microsoft/AnalyticsHub-Dashboard/issues).
 
 ---
@@ -150,51 +140,20 @@ All the detail: [Manual install](docs/MANUAL-INSTALL.md).
 
 </details>
 
-<a id="reference"></a><a id="why-its-more-than-the-built-in-reports"></a><a id="what-you-can-do-with-it"></a><a id="optional-add-ons"></a><a id="what-data-is-collected"></a><a id="power-bi-reports"></a><a id="documentation"></a><a id="whats-here"></a><a id="repository-layout"></a>
+<a id="reference"></a><a id="troubleshooting"></a><a id="why-its-more-than-the-built-in-reports"></a><a id="what-you-can-do-with-it"></a><a id="optional-add-ons"></a><a id="what-data-is-collected"></a><a id="power-bi-reports"></a><a id="documentation"></a><a id="whats-here"></a><a id="repository-layout"></a><a id="copilot-managed-app-preview"></a><a id="help"></a>
 
 <details>
-<summary><strong>Reference</strong></summary>
+<summary><strong>Reference, archived options and contributing</strong></summary>
 
-- [All docs](docs/README.md): the data, permissions, costs and every other page.
-- [App guide](docs/APP-GUIDE.md): every page, and the Power BI reports.
-- [Installer reference](installer/README.md): every option and command.
-- [Release notes](CHANGELOG.md).
+- [All docs](docs/README.md): the data, permissions and costs.
+- [App guide](docs/APP-GUIDE.md) · [Installer reference](installer/README.md) ·
+  [Release notes](CHANGELOG.md)
+- Archived: parked ideas, like the Copilot Managed App, are in [ideas](ideas/README.md). Not
+  supported.
+- [Support](SUPPORT.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) ·
+  [MIT licence](LICENSE)
 
-</details>
-
-<a id="troubleshooting"></a>
-
-<details>
-<summary><strong>Troubleshooting</strong></summary>
-
-- [Troubleshooting](docs/TROUBLESHOOTING.md): error messages and known issues.
-- [FAQ](docs/FAQ.md): short answers.
-- Something failed in the installer? Start it again and choose **Rerun failed loads**.
-
-</details>
-
-<a id="copilot-managed-app-preview"></a>
-
-<details>
-<summary><strong>Archived options</strong></summary>
-
-Parked ideas, like the Copilot Managed App, are in [ideas](ideas/README.md). They aren't
-supported.
-
-</details>
-
-<a id="help"></a>
-
-<details>
-<summary><strong>Help and contributing</strong></summary>
-
-[Open an issue](https://github.com/microsoft/AnalyticsHub-Dashboard/issues) ·
-[Support](SUPPORT.md) · [Report a vulnerability](SECURITY.md) · [Contributing](CONTRIBUTING.md) ·
-[MIT licence](LICENSE)
-
-Created by [Keith McGrane](https://github.com/Keithland89).
-
-To contribute, open a pull request against `main`. Keith reviews and approves every change, and
-only Keith creates release tags. See [Contributing](CONTRIBUTING.md#reviews-and-releases).
+Created by [Keith McGrane](https://github.com/Keithland89). Keith reviews every pull request
+against `main`, and only Keith creates release tags.
 
 </details>
