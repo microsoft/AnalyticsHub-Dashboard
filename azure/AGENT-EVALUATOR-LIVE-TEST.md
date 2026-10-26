@@ -1,11 +1,10 @@
 # Agent Evaluator on Azure: live test
 
 **Don't run any of this until it's approved.** It changes a tenant and costs money: see
-[What it changes](#what-it-changes). Run it on a 0.6.8 pre-release that gives the jobs' managed
-identity the transcript reader role, so later than rc.2. rc.2 was the first release candidate with
-Agent Evaluator on Azure, but it gave the managed identity only Bot Transcript Viewer, which reads
-only the transcripts the identity owns or that are shared with it. In a test environment, that was
-none.
+[What it changes](#what-it-changes). Run it on installer 0.6.8 or later, which gives the jobs'
+managed identity the transcript reader role. rc.2 was the first release candidate with Agent
+Evaluator on Azure, but it gave the managed identity only Bot Transcript Viewer, which reads only
+the transcripts the identity owns or that are shared with it. In a test environment, that was none.
 
 This test runs Agent Evaluator end to end on the Azure path, against real Copilot Studio
 transcripts:
