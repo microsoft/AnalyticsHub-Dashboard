@@ -31,6 +31,8 @@ Use a minimal fabricated example where possible. Do not post tenant exports,
 credentials, user identities, prompts or private solution packages. Redact logs
 and screenshots before sharing them.
 
+<sub>Stuck? Create a support file and email it to us. See [Troubleshooting](docs/TROUBLESHOOTING.md).</sub>
+
 ## Security and contributions
 
 Do **not** report security vulnerabilities in public issues. Follow the private

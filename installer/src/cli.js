@@ -16,6 +16,8 @@ import { recordWorkspaceGone, staleRecordMessage } from './steps/fabric.js';
 import { isResumeLater, MAX_SECRET_DAYS, NOTEBOOK_SECRET_DAYS } from './steps/identity.js';
 import { isManagementGroupId, managementGroupId } from './steps/resource-graph.js';
 import { isVivaId } from './transform/dataflow.js';
+import { buildSupportFiles, collectSupport, loadRecord, recordRun, writeSupportFile } from './support.js';
+import { checkPrereqs } from './prereqs.js';
 import { c, createUi } from './ui.js';
 import { CURRENCIES, DEFAULT_CURRENCY, parseRate, toCurrencyCode } from './currency.js';
 import { DATA_SOURCE_IDS, modulesFromSources, parseDataFlags } from './uploads.js';
@@ -64,7 +66,8 @@ Options:
   --use-az             Use the account you are signed in to with the Azure CLI. In Azure Cloud
                        Shell, run ${AZ_LOGIN} first
   --backfill-days <n>  With run: reload n days of audit history and rebuild the curated table
-  --out <dir>          With preview: where to write (default ./valuelens-preview)
+  --out <dir>          With preview: where to write (default ./valuelens-preview). With
+                       --support-bundle: the folder for the support file (default: this folder)
   --data <id=mode>     With install: how a source arrives, api, csv or skip. Repeat it or use
                        commas, e.g. --data productFeedback=flow,agent365=api. flow is the
                        Power Automate flow, the api mode of productFeedback and studioCredits.
@@ -116,6 +119,16 @@ Options:
   --no-wait            Don't wait for the first load or a refresh to finish, or for Azure to delete
                        the resource group on uninstall
   --verbose            Print each API call
+  --support-bundle     Make a support file to email to us when something goes wrong: one zip with
+                       the installer's version, the last runs' steps and errors, the prerequisites
+                       check, recent pipeline, notebook and job runs, row counts and the install
+                       record. Secrets are removed and people are hashed; open it to check before
+                       sending. It signs in to read runs and row counts; without a sign-in it says
+                       what it couldn't collect. Writes to --out (default: this folder)
+  --offline            With --support-bundle: don't sign in; use only the files on this computer
+  --log <file>         With --support-bundle: also summarise a collector or script log (counts of
+                       429, 401, 403, time-outs and windows, and the first error). Repeat for more.
+                       The log itself isn't included
   -h, --help           Show this help
   -v, --version        Show the version
 `;
@@ -163,6 +176,9 @@ export function parseCli(argv, env = process.env) {
       'key-vault': { type: 'boolean' },
       'secret-days': { type: 'string' },
       'allow-model-reset': { type: 'boolean' },
+      'support-bundle': { type: 'boolean' },
+      offline: { type: 'boolean' },
+      log: { type: 'string', multiple: true },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' },
     },
@@ -171,6 +187,11 @@ export function parseCli(argv, env = process.env) {
   const files = command === 'upload' ? positionals.slice(1) : [];
   if (command !== 'upload' && positionals.length > 1) throw new Error(`Unexpected argument: ${positionals[1]}`);
   if (!COMMANDS.includes(command)) throw new Error(`Unknown command "${command}". Try --help.`);
+  const supportBundle = !!values['support-bundle'];
+  if (supportBundle && (positionals.length || values['dry-run'])) throw new Error('--support-bundle makes a support file on its own. Leave out the command.');
+  if (supportBundle && values.ui) throw new Error('Choose one of --ui and --support-bundle. On the page, use "Create a support file" at the bottom of the menu.');
+  if (values.offline && !supportBundle) throw new Error('--offline goes with --support-bundle.');
+  if (values.log?.length && !supportBundle) throw new Error('--log goes with --support-bundle.');
   if (values.run && command !== 'upload') throw new Error('--run goes with upload.');
   if (values['check-audit'] && command !== 'install' && command !== 'update') throw new Error('--check-audit goes with install or update. On its own, run check-audit.');
   if (values['check-audit'] && values.target === 'azure') throw new Error('--check-audit is for the Fabric target only. On Azure, run check-audit.');
@@ -248,7 +269,10 @@ export function parseCli(argv, env = process.env) {
     method: /** @type {'browser' | 'device-code' | 'azure-cli'} */ (values['use-az'] ? 'azure-cli' : values['device-code'] || cloudShell ? 'device-code' : 'browser'),
     cloudShell,
     backfillDays,
-    outDir: values.out ?? 'valuelens-preview',
+    outDir: values.out ?? (supportBundle ? '.' : 'valuelens-preview'),
+    supportBundle,
+    offline: !!values.offline,
+    logFiles: values.log ?? [],
     yes: !!values.yes,
     wait: !values['no-wait'],
     ui: !!values.ui,
@@ -339,11 +363,53 @@ export async function startFresh(o) {
 }
 
 /**
+ * --support-bundle: signs in if it can, collects, redacts and writes the support file.
+ * @param {ReturnType<typeof parseCli>} args
+ * @param {((m: string) => void) | undefined} debug
+ */
+export async function supportBundle(args, debug, o = { connect }) {
+  const ui = createUi();
+  ui.line(c.bold(`Analytics Hub installer ${version()}: support file`));
+  const record = loadRecord(args.configFile);
+  /** @type {any} */
+  let api;
+  /** @type {any} */
+  let user;
+  /** @type {string | undefined} */
+  let offline;
+  if (args.offline) offline = 'Made with --offline.';
+  else if (!record.existed) offline = 'There is no install record, so there was nothing to read online.';
+  else {
+    ui.note(args.method === 'azure-cli' ? 'Using your Azure CLI sign-in to read run statuses and row counts…' : 'Signing in to read run statuses and row counts. If sign-in is the problem, run again with --offline.');
+    try {
+      ({ api, user } = await o.connect({ tenantId: args.tenantId ?? record.config.tenantId, method: args.method, ui, debug }));
+    } catch (err) {
+      offline = `Sign-in failed: ${/** @type {any} */ (err)?.message ?? err}`;
+      ui.warn(`${offline} The support file has what's on this computer.`);
+    }
+  }
+  if (api) ui.note('Reading recent runs, the prerequisites and row counts…');
+  const data = await collectSupport({
+    config: record.config, configFile: args.configFile, recordExists: record.existed, recordError: record.error, version: version(),
+    api, user, offline, logFiles: args.logFiles, checkPrereqs: (ctx) => checkPrereqs(ctx),
+  });
+  const files = buildSupportFiles(data);
+  const path = writeSupportFile(files, args.outDir);
+  ui.ok(`Support file: ${path}`);
+  for (const f of files) ui.info(`${f.name.padEnd(20)} ${Buffer.byteLength(f.text, 'utf8').toLocaleString('en-GB')} bytes`);
+  ui.note('Secrets are removed and people\'s names and email addresses are hashed. Every file inside is plain text:');
+  ui.note('open the zip to check it, then email it to us.');
+  return path;
+}
+
+/**
  * @param {string[]} argv
  * @returns {Promise<number>} Exit code.
  */
 export async function main(argv) {
   let verbose = false;
+  /** @type {ReturnType<typeof recordRun> | null} */
+  let rec = null;
   try {
     const args = parseCli(argv);
     verbose = args.verbose;
@@ -356,16 +422,22 @@ export async function main(argv) {
       return 0;
     }
     const debug = verbose ? (/** @type {string} */ m) => process.stderr.write(`${c.dim(m)}\n`) : undefined;
+    if (args.supportBundle) {
+      await supportBundle(args, debug);
+      return 0;
+    }
     if (args.ui) {
       await runWizard({ configFile: args.configFile, sourceDir: args.sourceDir, tenantId: args.tenantId, method: args.method, open: args.open, version: version(), debug });
       return 0;
     }
     const ui = createUi({ yes: args.yes });
+    if (args.command !== 'preview' && args.command !== 'status') rec = recordRun(ui, { command: args.command, configFile: args.configFile, version: version() });
     const uploaded = args.cloudShell && args.command !== 'prereqs' ? adoptUploadedRecord(args.configFile) : undefined;
     const loaded = loadConfig(args.configFile);
     let config = loaded.config;
     const existed = loaded.existed;
     if (args.target) config.target = args.target;
+    rec?.setRoute(config.target === 'azure' ? 'azure' : 'fabric');
     if (args.csvFiles.length && config.target === 'azure') throw azureUploadError(config, '--csv');
     const sources = loadSources(args.sourceDir);
     applyDataFlags(config, args);
@@ -390,6 +462,7 @@ export async function main(argv) {
       debug,
       checkTokens: args.cloudShell && args.method === 'azure-cli',
     });
+    rec?.setUser(user);
     if (existed && args.command !== 'prereqs' && (await startFresh({ ui, config, file: args.configFile, fabric: api.fabric, tenantId: user.tenantId, command: args.command }))) {
       config = loadConfig(args.configFile).config;
       if (args.target) config.target = args.target;
@@ -404,6 +477,7 @@ export async function main(argv) {
     if (args.secretDays) config.app.secretDays = args.secretDays;
     try {
       const ok = await runCommand(ctx, args.command, { wait: args.wait, backfillDays: args.backfillDays, files: args.files, run: args.run });
+      rec?.finish(ok);
       return ok ? 0 : 1;
     } finally {
       // Also after a failure part way: the record is what lets the next run carry on.
@@ -411,6 +485,7 @@ export async function main(argv) {
     }
   } catch (err) {
     const e = /** @type {any} */ (err);
+    rec?.finish(false, e?.name === 'ExitPromptError' ? 'Cancelled.' : (e?.message ?? String(err)));
     if (e?.name === 'ExitPromptError') {
       process.stderr.write('\nCancelled.\n');
       return 130;

@@ -4,6 +4,8 @@ Find the message or symptom, then do what it says. Still stuck? Check [Known iss
 then [open an issue](https://github.com/microsoft/AnalyticsHub-Dashboard/issues) with the message and
 the installer's version.
 
+<sub>Stuck? Create a support file and email it to us: **Having trouble? Create a support file** at the foot of the installer, `valuelens-install --support-bundle`, or the `AnalyticsHub_Support_File` notebook if you set up by hand. It's redacted; open it to check before you send it.</sub>
+
 ## Starting the installer
 
 | Problem | What to do |
