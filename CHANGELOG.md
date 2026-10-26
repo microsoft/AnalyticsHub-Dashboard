@@ -274,9 +274,37 @@ sets the number. On Fabric and Azure.
   since each file restates only the last ten days, the oldest of them could stay short for good.
   Now each of those writes replaces the rows in one Delta commit, so a write that fails leaves its
   table as it was, and the next run fills it in. That includes the `ppac-api-users` totals summed
-  from the per-user file: a failed write keeps the last run's. The exports load as before. 0.6.7
-  has this problem too; **Update** deploys the fixed notebook. Azure isn't affected: there, the run
-  job changes a copy of each table and saves it whole at the end.
+  from the per-user file: a failed write keeps the last run's. 0.6.7 has this problem too;
+  **Update** deploys the fixed notebook. Azure isn't affected: there, the run job changes a copy of
+  each table and saves it whole at the end.
+
+**Fixed:**
+
+- **Fabric: a Copilot Studio export left in its folder no longer becomes each new month's.** The
+  per-agent and per-user exports from the Power Platform admin center carry no date, so
+  `Consumption_Ingest_Studio` gave them the month it ran in. It reads every export in
+  `Files/landing/studio/` on every run, and the upload router leaves the newest of each kind there.
+  So from the first run of each month, the last export was stored again as that month's:
+  Consumption Central showed it as the new month's agent and user figures and, with the Copilot
+  Studio credits flow, kept the flow's figures for that month off those pages. Now an export counts
+  for the month, in UTC, that it was uploaded or routed in: its file's modification time. One left
+  in the folder keeps that month. So with the flow, a month with no new export shows the flow's
+  figures; with exports only, the pages keep showing the last export, as before.
+  To load an earlier month's export, create `Files/landing/studio/backfill/YYYY-MM/` in the
+  Lakehouse, for the month it covers, and upload it there rather than to the drop folder: it counts
+  as that month on every run. Do the same for an export sent on a month's last day, which may not
+  be routed until the next month. The notebook's `SNAPSHOT_MONTH` setting is retired: a run with it
+  still set stops before it writes, and says to use the backfill folder instead. A run also stops
+  before it writes, and lists them, when `backfill/` holds a file outside a month folder, a folder
+  not named `YYYY-MM`, or a month after the current one. Either way, the Studio tables keep their
+  rows, the pipeline run fails and the consumption model isn't refreshed: move or remove what the
+  message lists, or remove `SNAPSHOT_MONTH`, then run the pipeline again. With no tenant export, the
+  per-agent and per-user exports now load: the run used to read them as the tenant export, and fail.
+  And each export is now written in one Delta commit per table, as the flow's files are. If an
+  earlier version has already run this month with an export left in the folder, that export stays as
+  this month's; with the flow, the flow's figures take over next month. **Update** deploys the new
+  notebook. **Repair or change** keeps the old one when you brought your own app and its secret is
+  in the notebooks. Azure isn't changed.
 
 ## Analytics Hub installer 0.6.8-rc.2 (unreleased)
 
