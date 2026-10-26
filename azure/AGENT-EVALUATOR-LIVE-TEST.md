@@ -40,7 +40,8 @@ are in `ContainerAppConsoleLogs` (columns `ContainerGroupName` and `Log`), not
 - A test tenant that's approved for this, and a subscription where you can create resource groups.
 - Environment **A**, and optionally **B**: Power Platform environments with Copilot Studio agents
   that people have chatted with in the last 30 days. B tests the manual path and a second
-  environment. Dataverse for Teams environments won't work: they don't save transcripts.
+  environment. Developer and Dataverse for Teams environments won't work: Copilot Studio doesn't
+  save their transcripts.
 - Transcripts saved in each environment. In the [Power Platform admin
   center](https://admin.powerplatform.microsoft.com), go to **Manage** > **Environments** > the
   environment > **Settings** > **Product** > **Features**. Under **Copilot Studio agents**, turn on
@@ -151,8 +152,8 @@ $since = (Get-Date).ToUniversalTime().AddDays(-180).ToString('yyyy-MM-ddTHH:mm:s
 ```
 
 Do the same for B, and note the counts. If an environment has no transcripts, chat with one of its
-agents in Copilot Studio's test pane, then wait. Dataverse writes a transcript when a conversation
-ends, or after it's been idle for about 30 minutes.
+agents in Copilot Studio's test pane (not in a developer environment), then wait. Dataverse writes a
+transcript when a conversation ends, or after it's been idle for about 30 minutes.
 
 ## 2. Install
 
