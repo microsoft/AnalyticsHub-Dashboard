@@ -244,6 +244,8 @@ export async function startServer(o) {
       }
       case '/api/keep':
         return json(res, 200, session.keepRecord());
+      case '/api/support-file':
+        return json(res, 200, await session.supportFile());
       case '/api/quit':
         if (session.running) return json(res, 409, { error: `"${session.running}" is still running.` });
         json(res, 200, { ok: true });

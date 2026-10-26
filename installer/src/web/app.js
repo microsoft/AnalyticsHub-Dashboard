@@ -1735,11 +1735,50 @@ function renderRail() {
       icon(dark ? 'sun' : 'moon'), dark ? 'Light theme' : 'Dark theme'),
     h('button', {
       type: 'button', class: 'foot-btn', 'data-key': 'close', disabled: running, title: running ? 'Wait for the current command to finish' : null, onclick: quit,
-    }, icon('power'), 'Close installer'));
+    }, icon('power'), 'Close installer'),
+    h('button', { type: 'button', class: 'foot-link', 'data-key': 'support', onclick: supportFile }, 'Having trouble? Create a support file'));
 
   rail.classList.toggle('open', app.railOpen);
   rail.replaceChildren(top, dests, foot);
   if (focusKey) rail.querySelector(`[data-key="${focusKey}"]`)?.focus();
+}
+
+/* ---------- Support file ---------- */
+
+// Shows what's in the support file before the customer downloads and sends it.
+async function supportFile() {
+  if (app.supportBusy) return;
+  app.supportBusy = true;
+  announce('Making the support file…');
+  const r = await post('/api/support-file');
+  app.supportBusy = false;
+  if (!r.ok) {
+    announce(r.body?.error ?? 'The support file wasn\'t made. Try again.');
+    return;
+  }
+  const { name, files, zip } = r.body;
+  const save = () => {
+    const bytes = Uint8Array.from(atob(zip), (ch) => ch.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
+    const a = h('a', { href: url, download: name, hidden: true });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+  const dlg = h('dialog', { class: 'support', 'aria-labelledby': 'support-title' },
+    h('h2', { id: 'support-title' }, 'Support file'),
+    h('p', { class: 'sub' }, 'Secrets are removed, and people\'s names and email addresses are hashed. There are no data rows, only row counts. Check what\'s inside, then download it and email it to us.'),
+    h('ul', { class: 'support-files' }, files.map((f) => h('li', null,
+      h('details', null,
+        h('summary', null, f.name, h('span', { class: 'support-size' }, `${f.bytes.toLocaleString()} bytes`)),
+        h('pre', null, f.text))))),
+    h('div', { class: 'support-actions' },
+      h('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, 'Close'),
+      h('button', { type: 'button', class: 'btn primary', onclick: save }, `Download ${name}`)));
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
 }
 
 /* ---------- Views, scrolling and following ---------- */
