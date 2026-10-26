@@ -20,6 +20,40 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**Fixed:**
+
+- **Azure: a Copilot Studio export left in its folder no longer becomes each new month's.** The
+  per-agent and per-user exports from the Power Platform admin center carry no date, so the run job
+  gave them the month it ran in. It reads every export in `studio/` on every run, and nothing
+  removes them, so each run stored every export in the folder again as that month's: Consumption
+  Central showed them as each new month's agent and user figures and, with the Copilot Studio
+  credits flow, kept the flow's figures for that month off those pages. Where two exports in the
+  folder had a row with the same key, tenant exports included, both rows were stored and added
+  together. Now a per-agent or per-user export counts for the month, in UTC, that it was uploaded:
+  its blob's last-modified time in `landing`, or its SharePoint item's. One left in the folder keeps
+  that month, and where two exports of a kind share a key, the newer upload's rows win. So with the
+  flow, a month with no new export shows the flow's figures; with exports only, the pages keep
+  showing the last export, as before. To load an earlier month's export, create
+  `studio/backfill/YYYY-MM/` where the exports land, for the month it covers, and upload it there:
+  it counts as that month on every run. The Studio load stops before it writes, and lists them, when
+  `backfill/` holds a file outside a month folder, a folder not named `YYYY-MM`, or a month after the
+  current one. The Studio tables then keep their rows, the other loads are still published and
+  refreshed, and the run fails: move or remove what the message lists, then run again. With no
+  tenant export, the per-agent and per-user exports now load: the run read them as the tenant export
+  and failed, so nothing in `studio/` loaded, the flow's files included. A CSV whose name matches an
+  export but lacks its key columns is now skipped, with a warning, rather than failing the load. And
+  where a tenant export has a day's credits with no environment, the flow's credits for that day
+  with no environment are now left out, as they are for an environment, rather than counted as well.
+  Updating leaves the copies that earlier versions stored, so each month that holds one stays
+  covered by an export: with the flow, the flow's figures aren't used for it. That includes this
+  month, if an earlier version has already run this month with an export in the folder; the flow's
+  figures take over next month. That month's own export, uploaded that month or put in its backfill
+  folder, replaces the copied rows it matches on the table's key, but a copied agent or user it
+  doesn't list stays. Tenant rows that an export still in the folder has are rewritten from the
+  newest export that has them. **Update** deploys the new job image. These are the rules Fabric's
+  `Consumption_Ingest_Studio` follows in this release. See
+  [Credit consumption](azure/README.md#credit-consumption).
+
 ## 2026-10-26 — Analytics Hub installer 0.6.8
 
 **Published as a pre-release first.** 0.6.8 becomes Latest once a fresh install from its published
