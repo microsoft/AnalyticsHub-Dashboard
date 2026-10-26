@@ -35,8 +35,27 @@ the product. Users the report marks as deleted are never counted.
   the log says why.
 - **Turn it off** in the Fabric notebook with `LIVE_LICENCE_CHECK = False`.
 
+### Changed
+
+- **The app keeps your place.** Each page and tab has its own link, so Back, refresh, Copy app link
+  and a shared link open the same view. In Fabric, Copy app link still opens the app's first page.
+- **The app works on a phone or a narrow window.** Below 1024px the sidebar shrinks to icons; below
+  768px it becomes a menu behind a top bar. Filters stay put on a phone instead of covering the
+  page, and a chart no longer holds the page wider than the window after a resize.
+- **Fewer words.** Each page opens with one sentence. Method notes are closed until you open them,
+  "How grading works" moves to the Appendix, and the licence, audience and agent filters fold into
+  **More filters**.
+- **Plainer errors.** Each error opens with one plain sentence. When several parts of a page fail
+  for the same reason, only the first explains; the technical detail sits behind **Details** and
+  setup steps for admins behind **For your admin**.
+- **Easier to read.** Rates no longer pad to two decimals (3.2, not 3.20), hours of 100 or more are
+  whole numbers, and the sidebar text and appendix counts meet contrast. The teal and amber chart colours
+  meet 3:1, charts are named for screen readers, chart titles are level-3 headings, there's a skip
+  link, and animation respects the system's reduced-motion setting.
+
 ### Fixed
 
+- **A cost card no longer says "Billed in undefined"** when the billing currency is unknown.
 - **The audit load's time budget now covers throttling.** On Fabric, `TIME_BUDGET_MIN` was only
   checked between polls, so HTTP retry waits and the wait for a free search slot could run past it
   while Graph returned 429s, until the pipeline activity's 2-hour timeout. Every wait now checks the
