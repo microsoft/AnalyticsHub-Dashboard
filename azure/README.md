@@ -90,6 +90,46 @@ exports there yourself, in the Azure portal, Azure Storage Explorer or SharePoin
 `az storage blob upload`: the installer's `upload` command and `--csv` are Fabric only for now, and on
 Azure they stop and name the folder.
 
+**Copilot Studio exports and their month.** A tenant export has its own dates. The per-agent and
+per-user exports carry none: they're month to date, so each counts as the month, in UTC, that it was
+uploaded to `studio/`. That's the time the service last recorded a change to the file: in Storage,
+the blob's last-modified time, which any change to the blob, its properties or its metadata moves;
+in SharePoint, the item's last-modified time, not the date a sync client keeps for the file. So an
+old export uploaded again, or changed, counts as the month of that upload or change. A file left in
+the folder keeps its month on later runs. A newer export of the same kind in the same month updates
+that month's rows, and one uploaded the next month adds a month. Where two exports overlap, the newer
+upload's rows win, so they aren't added together. A CSV whose name matches an export but lacks that
+export's key columns is skipped, and the run's log names it and the missing columns.
+
+**Loading an earlier month's export.** Create `studio/backfill/<YYYY-MM>/`, in the `landing`
+container or under your SharePoint folder, for the month the export covers, and upload the file
+there. Last month's export downloaded on the 1st goes in last month's folder, for example. It counts
+as that folder's month on every run, so there's nothing to move afterwards. A tenant export keeps its
+own dates wherever it sits. The jobs don't read other folders under `studio/`, the flow's files in
+`backfill/`, or a folder inside a month folder.
+
+**When the Studio load stops.** It stops before writing, and lists the paths, if `backfill/` holds a
+file outside a month folder, a folder whose name isn't `YYYY-MM`, or a month after the current one
+(UTC). The Studio tables keep their rows. The other loads still run, and what they collect is
+published and refreshed, but the run fails: **Check status** (`status`) shows it as `Failed`, and its
+log has the message, which starts `Nothing was written.` Read the log in the Log Analytics workspace,
+or with `az containerapp job logs show -g <resource group> -n <run job> --execution <run> --container run`.
+Move or remove what it lists, then run again (`run`) or wait for the next run.
+
+**Updating from an earlier version.** Earlier versions gave a per-agent or per-user export the month
+of each run that read it, so an export left in `studio/` was stored again as each later month's, in
+`studio_agent` and `studio_user`. Where two exports in the folder had a row with the same key, both
+rows were stored and added together, in those tables and in `studio_tenant_daily`. On the first run
+after updating, each tenant row that an export still in the folder has is rewritten from the newest
+export that has it; rows that only a removed export had stay as stored. Updating leaves the agent
+and user copies in place, and each month that holds one stays covered by an export: with the
+flow, the log says "an export covers this month, so the API figures aren't used" (for users, "…so the
+API user figures aren't used"), and the flow's figures aren't used for that month. That includes this
+month, if an earlier version has already run this month with an export in the folder; the flow's
+figures take over next month. A month's own export, uploaded that month or put in its backfill folder
+as above, replaces the copied rows it matches on the table's key, but a copied agent or user it
+doesn't list stays. Removing what stays is a separate decision, and isn't part of this update.
+
 ### Parity with Fabric
 
 The jobs write the same tables as the Fabric notebooks, and the Consumption Central model and the
