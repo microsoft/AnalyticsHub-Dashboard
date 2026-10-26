@@ -20,16 +20,51 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
-**Fixed:**
+## 2026-10-26 — Analytics Hub installer 0.6.8
 
-- **Azure uninstall from a resource group you already had.** It asked Azure to delete each resource
-  the install had tagged with API version 2021-04-01, which most of them don't support. So it
-  stopped part-way, with `NoRegisteredProviderFound`, and left the rest of those resources and the
-  **Analytics Hub** and SQL reader app registrations behind. Now it uses a version each resource's
-  provider offers, deletes each resource before what it depends on, and waits for Azure to finish
-  each one. If one can't be deleted, it carries on, still deletes the app registrations, then lists
-  what's left and exits with an error: run **Uninstall** again to finish. Uninstall from a resource
-  group the installer created still deletes the whole group. 0.6.7 has this problem too.
+**Published as a pre-release first.** 0.6.8 becomes Latest once a fresh install from its published
+exe passes. Until then, the `releases/latest` links, including the PowerShell command, still serve
+0.6.7, and the installer doesn't offer 0.6.8 as an update. This command installs 0.6.8 either way:
+`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.8/install.ps1 | iex`.
+
+**What changed since 0.6.7:** Every module now works on Azure: Agent Evaluator, the Agent 365
+registry, product feedback and Workday org data install there too, and credit consumption is checked
+against Fabric. An Azure install can use a resource group your Azure admin creates, with least
+privilege, and setup sizes for tenants with more than 10,000 Copilot seats. On Azure, a long history
+loads and processes within the run job's memory and disk, runs after the first load no longer fail
+in processing, the installer doesn't start a run while another is going, a new install with public
+endpoints completes, uninstall works in a resource group you already had, Share adds people by
+email, private networking leaves private DNS zones already in the resource group alone, turning on
+org-scoped access and scoped delegation in Share no longer fail, and Repair keeps a shared-capacity
+(Pro) install's workspace where it is. Agent Evaluator reads every Copilot Studio transcript, on
+both paths. A user who isn't an Entra admin can now create the viewer group. Install and update
+check the prerequisites themselves, and the installer checks that the app can read the audit log,
+with a new `check-audit` command. The app's first pages load sooner, several of its slowest queries
+are faster, it fetches ahead only the next two pages, and when more than 10,000 people have Copilot
+activity it opens on the last 12 weeks. Changing Group by no longer crashes two Adoption pages, and
+the Executive summary no longer says everyone has a department. M365 Activity refreshes
+incrementally, refresh does less work for Consumption Central and Agent Evaluator, and users in the
+Microsoft 365 Copilot usage report count as licensed. On Fabric, the installer has you sign in to
+Viva Insights first when Cowork credits come from the Dataflow, Repair or change redeploys the app
+after an update, and the app shows saved task times, report packs and commercial terms again: check
+your terms after updating. The README sets out setup step by step, from prerequisites to after
+setup, and points to ValueLens and Consumption Central for a more targeted report. Azure by hand, in
+Azure Cloud Shell, works once 0.6.8 is Latest. The details are below, including the two release
+candidates'.
+
+**Update an existing install:** run the command above, or open installer 0.6.8, and choose
+**Update**. On Azure, that redeploys with this version's images, adds the Agent Evaluator, Agent 365
+and product feedback tables (migrations `V008` to `V010`), and redeploys and reloads the ValueLens
+model; the jobs' next run recomputes every month once. On Fabric, it redeploys and reloads the
+ValueLens model, redeploys the notebooks, updates and republishes the Ask data agent, and offers to
+replace the pipeline and redeploy the app: let it redeploy the app. To turn on a module Azure now
+supports, choose **Repair or change**, then **Data collection**; Agent Evaluator's environments are
+under **Module connections**, and Workday org data is under the advanced settings: see
+[Workday org data](azure/README.md#workday-org-data). Some Azure installs that ticked **Credit
+consumption** before 0.6.8 keep Copilot Studio and Cowork left out: to turn them on, choose **Repair
+or change**, then **Module connections**, and pick their sources. If you use Agent Evaluator, update
+as a System Administrator of each of its environments, then reload the history once, as below. The
+tag also publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.8`.
 
 **Azure: the installer doesn't start a run while one is going.** It used to start the run job
 without checking, so a **Repair or change** during a long first load started a second run beside
@@ -39,11 +74,6 @@ If a run is going, it doesn't start another: it says which run is going, and wha
 has finished. A history reload that doesn't start isn't recorded, so the next **Repair or change**
 offers it again. As on Fabric, `run` then exits with an error, a run that started more than 24
 hours ago doesn't count, and if the installer can't check, it starts the run as before.
-
-**Known issue:** on Azure, the schedule can still start a run while another is going, for example
-when a long first load reaches the scheduled time. If it does, stop the newer run, then reload the
-history once the other has finished, as [Troubleshooting](docs/TROUBLESHOOTING.md#azure) shows. A
-fuller fix is planned.
 
 **Azure: private networking no longer takes over private DNS zones already in the resource
 group.** With private networking, an install creates its `privatelink.*` zones in its resource group
@@ -61,83 +91,6 @@ resource group.
   zones the install doesn't create, such as Key Vault's.
 - **An install that already took over a zone** isn't detected: the zone now has that install's tag,
   and the install record doesn't say which zones were there before it.
-
-**Fixed:**
-
-- **Azure: a first install with public endpoints no longer stops at Power BI model** with
-  `DM_GWPipeline_Gateway_DataSourceAccessError`. Public endpoints are the default unless a policy
-  keeps Azure SQL private. Power BI tests the SQL reader's sign-in when it takes the models'
-  credentials, but the reader's database user is made by the database migration, which ran later.
-  Now a new **Power BI credentials** step sets them after **Database migration**. Private networking
-  is unchanged. To finish an install that stopped there, run setup again. Every earlier installer
-  with the Azure path (0.5.0 to 0.6.7) has this problem.
-
-**Fixed:**
-
-- **Agent Evaluator reads every Copilot Studio transcript.** The installer gave the transcript
-  reader, the jobs' managed identity on Azure or the app on Fabric, only the
-  **Bot Transcript Viewer** role, which reads only the transcripts the reader owns or that are
-  shared with it. In a test environment, Copilot Studio's own service user owned them, so on Azure
-  the first load read none, and its status said `empty`. Fabric gave its app the same role. Now, in
-  each environment you pick, the installer also creates a role for the install,
-  *Analytics Hub transcript reader* followed by the first 8 characters of the install's ID, with one
-  privilege: ConversationTranscript read at Organization depth. It reads the role back to check
-  that, gives it to the reader beside Bot Transcript Viewer, and asks Dataverse whether the reader
-  can read a transcript. Unticking the environment or **Agent Evaluator**, or uninstalling, takes
-  the role away and deletes it. The installer never changes or deletes a role it didn't create.
-  It adds transcript read to its role only while no user or team other than the reader has the role.
-  On Azure, Dataverse's first delete of an application user the installer created only
-  soft-deletes it: the user stays, deactivated with no role, and ticking the environment again
-  found it disabled. Now the installer reads the user back and deletes it again, and says it
-  removed the user only once it's gone. Otherwise it warns, and prints how a System Administrator
-  deletes it for good.
-  Creating the role needs a System Administrator of the environment, as adding the reader does;
-  otherwise the installer prints the admin center steps. To fix an existing install, run
-  **Update** or **Repair or change** as a System Administrator of each environment, then reload
-  the history once, for example with `run --backfill-days 30`. Later runs read only the last 14
-  days of transcripts, and a reload reads up to 180 days, so it picks up the older ones the
-  environment still keeps.
-
-**Fixed:**
-
-- **Azure: runs after the first load no longer fail at `process`.** Each run of the run job starts
-  in a new container, with none of the earlier runs' files on its disk. `process` downloaded only
-  its inputs, then read the months that earlier runs had curated from that disk. So every run after
-  the first load, other than a full rebuild, failed there with
-  `No files found that match the pattern` and a path ending in `month-….parquet`. Those runs didn't
-  publish or refresh, so the dashboard stopped updating, and `status` showed them as Failed. Azure
-  installs on 0.6.6 and 0.6.7 have this problem; Fabric doesn't. Now `process` downloads the month
-  files it reads, each once a run. A full rebuild reads none of them, so it downloads none. The
-  failed runs still collected their data, and the next run after you update processes it. If you
-  set `VALUELENS_PROCESS_FULL_REBUILD=true` on the run job to get by, updating removes it, since
-  **Update** redeploys the run job's settings. Runs then go back to recomputing only recent and
-  changed months.
-
-**Fixed:**
-
-- **Fabric: Repair or change redeploys the app after an update.** It pushed the new version's
-  semantic model, notebooks and pipeline, but its question about the app, "Deploy it again?",
-  defaulted to no unless the app's pages, currency or who can view it had changed. So with the
-  defaults, the app stayed at the earlier version, on the new model. Installers up to 0.6.7 have
-  this problem, on Fabric only; on Azure, both Update and Repair or change redeploy the web app.
-  Now the install record keeps the installer version that deployed the app. When another version
-  deployed it, or the record has none, as with every install from 0.6.7 and earlier, the question
-  says the app needs redeploying to update it to this version, and defaults to yes. Answer no, and
-  the next Repair or change asks again. **Update** already defaulted to redeploying the app.
-
-**Fixed:**
-
-- **App: changing Group by no longer crashes Adoption's Trend heatmap and Activation pages.** With
-  either page showing data, picking another attribute under **Group by**, such as Office location,
-  or going back to Organization, replaced the whole app with "Something went wrong" and
-  `Column "Chat + Agent Org DataOrganization" was not found.` **Try Again** recovered, but opened
-  the Executive summary grouped by Organization, so the filters were lost. The app in 0.6.7 and
-  0.6.6 has this problem too. While the answer for the new attribute loaded, these pages read the
-  previous answer by the new attribute's column names, so they couldn't find the column they rank
-  by. Now each answer is read by the column names of the query that asked for it: the previous
-  answer stays on screen, with its own labels, until the new one comes, as it does when a filter
-  changes. And a chart that can't find the column it ranks by shows its rows unranked, rather than
-  stop the app.
 
 **Azure: Share adds people by email, and shows viewers' names.** In 0.6.7 and the 0.6.8 release
 candidates, on an Azure install with a viewer group, adding someone by email in **Share** failed,
@@ -161,51 +114,6 @@ the group in My Groups.
   waiting for approval or the message about owners. A scope a leader gives still waits for an
   admin.
 
-**Fixed:**
-
-- **A user who isn't an Entra admin can create the viewer group.** Setup, `access` and turning on
-  org-scoped access stopped with Graph's 400 "Request contains a property with duplicate values"
-  when they kept **A new group**. Entra makes a user who isn't an admin an owner of a security
-  group they create, so Graph refused the request, which named them as owner too. Now, when Graph
-  refuses it for that reason, the installer sends it again without naming them, and Entra makes
-  them owner. An admin's group is created as before, naming them as owner. If Graph refuses the
-  group for another reason, the installer now warns that there's no viewer group yet, and says to
-  run `access` and choose **A group I already have**, instead of stopping with the error. And the
-  plan before **Go ahead?** says you own the viewer group only when the installer creates it. 0.6.7
-  has this problem too; its release notes list it as a Known issue.
-
-**Fixed:**
-
-- **Azure: turning on org-scoped access no longer fails with 403 AuthorizationPermissionMismatch.**
-  The installer read the scope list from the install's storage account before it gave you
-  **Storage Blob Data Contributor** there. So unless you already had that role, turning org-scoped
-  access on, opening `access` once it was on, and applying it during setup could fail with that
-  403. In testing, it turned on only once a test user was given the role by hand. 0.6.7 has this
-  problem too, and its release notes list it as a Known issue. Now, on Azure, the installer gives
-  you the role before it first reads or writes the scope list, then retries for a few minutes while
-  a new role takes effect. It asks every time, even if the install gave the role to someone before,
-  so a second admin gets it too; if you have it already, that counts as given. If you can't assign
-  roles on the storage account but someone gave you the role, it now goes ahead; before, it could
-  stop and say you needed the role. Without the role, it says to ask an Owner or User Access
-  Administrator for it (Azure portal > the storage account > **Access control (IAM)**), wait about
-  5 minutes and try again, instead of showing the 403. Private networking and Fabric are unchanged.
-
-**Fixed:**
-
-- **Azure: Repair keeps a shared-capacity (Pro) install's workspace where it is.** A Repair with
-  `--yes`, or one that took every default, moved it onto your first active capacity. Installers up
-  to 0.6.7 have this problem, and 0.6.7's release notes list it as a known issue. The install record
-  didn't keep the choice **None (shared capacity, Pro)** at **Capacity for the Power BI workspace**,
-  so Repair suggested the first active capacity instead. Now the record keeps None, and Repair
-  suggests where the workspace is: the capacity you chose, if it's active; otherwise the active
-  capacity the workspace is on, or None if it's on shared capacity; failing that, None if that was
-  the choice. Earlier installers didn't keep None, so a record with a workspace and no capacity is
-  taken to have chosen it. If the capacity you chose is paused, Repair still suggests the first
-  active capacity, as before. A new install still suggests the first active capacity, and private
-  networking still needs a capacity. Choosing None doesn't move a workspace off a capacity: if a
-  Repair moved yours, set it back to Pro in the workspace's settings in Power BI, then run Repair
-  without `--yes` and choose None. Fabric isn't affected.
-
 **App: fetches ahead only the next two pages.** Once the page on screen has loaded, the app used
 to fetch the first tab of every other page in the background, about 45 queries per open. It now
 fetches the first tab of the next two pages in the menu, and the two after whichever page you open
@@ -213,56 +121,6 @@ next. Those background queries share the capacity with the page on screen, and o
 each runs longer and slows the ones in front of it. Pages further down the menu load when opened,
 as they did before the prefetcher. `PREFETCH_AHEAD` in `app/src/components/prefetch-targets.ts`
 sets the number. On Fabric and Azure.
-
-- **Licensed users: the Copilot usage report counts too.** The licensed-users ingest, in Fabric
-  and on Azure, now also reads the Microsoft 365 Copilot usage report, which lists every
-  Copilot-enabled user. A user in that report is flagged as licensed even when their assigned
-  product name doesn't match the Copilot patterns, for example a renamed or bundled SKU. It uses
-  the `Reports.Read.All` permission the ingest already has, so there's nothing new to grant. If the
-  report returns 400, 403 or 404, the run falls back to assigned products and says so in the log.
-  Other errors stop the run and keep the previous snapshot. The log shows how many users each
-  source found, and warns if no names match between the two reports (concealed names).
-
-- Installer: M365 Activity now refreshes incrementally (12 months kept, the last 35 days reloaded), instead of reloading the whole table on every refresh. The first refresh after an install or **Repair or change** still loads it all once.
-
-- Consumption Central refresh does less work for large user counts, with the same results. The
-  Studio and GitHub usage intensity groups find each percentile cut once instead of ranking every
-  user against every other user, and `Weeks Ago` no longer looks up the latest week separately for
-  every row. The Cowork usage cohorts are now worked out in the `CoworkBilling` query, which sorts
-  the credits once and compares each user with five cut values, instead of ranking every user for
-  every user. `Weeks Active` and `Weeks Over Limit` are unchanged. The overall saving still needs
-  timing on a large copy.
-- The Microsoft 365 activity and Agent Evaluator notebooks now compact the tables they wrote
-  (`OPTIMIZE ... VORDER`) once at the end of each run, so the daily and incremental writes no
-  longer pile up small files that slow down refresh. A failed compaction is reported and the load
-  still succeeds. Set `RUN_OPTIMIZE = False` to turn it off.
-- The Agent Evaluator report no longer loads eight columns that nothing in it reads: error
-  messages, the 500-character transcript preview, the first and last bot messages, and the
-  variable copies other than the user's UPN. Refresh reads less data and the model is smaller.
-
-**Changed:**
-
-- **The app opens on the last 12 weeks for a large organization.** When more than 10,000 people
-  have Copilot activity, the date filter starts at **Last 12 weeks**, the 84 days to the last day
-  with activity, rather than all dates. With 20,000 people, a three-month window made the
-  Adoption summary about 30% quicker and the org-to-person drill about 15% quicker; bigger
-  tenants gain more. Each query works out the tenant's size and the dates itself, so the first
-  page doesn't wait for anything extra. The filter bar shows the dates and says it's the default
-  for large organizations, and **Show all dates** widens it in one click. **Clear filters** is now
-  **Reset filters**, and goes back to this default. Smaller tenants still start on **All dates**.
-  Consumption Central and the Agent Evaluator keep every date until you choose a range.
-
-**Fixed:**
-
-- **Azure: scoped delegation in the Share panel no longer fails with 503.** With org-scoped access
-  on, the panel couldn't show, give, take back or approve scopes: each request failed at once with
-  "Couldn't reach the Analytics Hub database. Try again in a minute.", even with the database
-  online, and the web app logged `SQL connection failed` with "must be an instance of the token
-  credential class". The SQL driver copies its settings into plain objects, which dropped the
-  managed identity's `getToken`, so it refused the identity before connecting. Now the web app
-  hands the driver a credential with its own `getToken`, which survives the copy. The fault has
-  been in the web app since 0.6.0, but the Share panel offers scoped delegation on Azure only since
-  0.6.8-rc.2, so released versions, 0.6.7 included, couldn't reach it from the app.
 
 **Installer: audit-ingestion checks, and the Viva Insights sign-in first.**
 
@@ -297,6 +155,171 @@ sets the number. On Fabric and Azure.
   true blocker stops an install: with `--yes`, no way to register the app (you can't, and there's no
   app registration or admin pack to use instead). Update only warns. `prereqs` still gives the full
   list.
+
+**Changed:**
+
+- **Licensed users: the Copilot usage report counts too.** The licensed-users ingest, in Fabric
+  and on Azure, now also reads the Microsoft 365 Copilot usage report, which lists every
+  Copilot-enabled user. A user in that report is flagged as licensed even when their assigned
+  product name doesn't match the Copilot patterns, for example a renamed or bundled SKU. It uses
+  the `Reports.Read.All` permission the ingest already has, so there's nothing new to grant. If the
+  report returns 400, 403 or 404, the run falls back to assigned products and says so in the log.
+  Other errors stop the run and keep the previous snapshot. The log shows how many users each
+  source found, and warns if no names match between the two reports (concealed names).
+- Installer: M365 Activity now refreshes incrementally (12 months kept, the last 35 days reloaded), instead of reloading the whole table on every refresh. The first refresh after an install or **Repair or change** still loads it all once.
+- Consumption Central refresh does less work for large user counts, with the same results. The
+  Studio and GitHub usage intensity groups find each percentile cut once instead of ranking every
+  user against every other user, and `Weeks Ago` no longer looks up the latest week separately for
+  every row. The Cowork usage cohorts are now worked out in the `CoworkBilling` query, which sorts
+  the credits once and compares each user with five cut values, instead of ranking every user for
+  every user. `Weeks Active` and `Weeks Over Limit` are unchanged. The overall saving still needs
+  timing on a large copy.
+- The Microsoft 365 activity and Agent Evaluator notebooks now compact the tables they wrote
+  (`OPTIMIZE ... VORDER`) once at the end of each run, so the daily and incremental writes no
+  longer pile up small files that slow down refresh. A failed compaction is reported and the load
+  still succeeds. Set `RUN_OPTIMIZE = False` to turn it off.
+- The Agent Evaluator report no longer loads eight columns that nothing in it reads: error
+  messages, the 500-character transcript preview, the first and last bot messages, and the
+  variable copies other than the user's UPN. Refresh reads less data and the model is smaller.
+- **The app opens on the last 12 weeks for a large organization.** When more than 10,000 people
+  have Copilot activity, the date filter starts at **Last 12 weeks**, the 84 days to the last day
+  with activity, rather than all dates. With 20,000 people, a three-month window made the
+  Adoption summary about 30% quicker and the org-to-person drill about 15% quicker; bigger
+  tenants gain more. Each query works out the tenant's size and the dates itself, so the first
+  page doesn't wait for anything extra. The filter bar shows the dates and says it's the default
+  for large organizations, and **Show all dates** widens it in one click. **Clear filters** is now
+  **Reset filters**, and goes back to this default. Smaller tenants still start on **All dates**.
+  Consumption Central and the Agent Evaluator keep every date until you choose a range.
+
+**Fixed:**
+
+- **Azure uninstall from a resource group you already had.** It asked Azure to delete each resource
+  the install had tagged with API version 2021-04-01, which most of them don't support. So it
+  stopped part-way, with `NoRegisteredProviderFound`, and left the rest of those resources and the
+  **Analytics Hub** and SQL reader app registrations behind. Now it uses a version each resource's
+  provider offers, deletes each resource before what it depends on, and waits for Azure to finish
+  each one. If one can't be deleted, it carries on, still deletes the app registrations, then lists
+  what's left and exits with an error: run **Uninstall** again to finish. Uninstall from a resource
+  group the installer created still deletes the whole group. 0.6.7 has this problem too.
+- **Azure: a first install with public endpoints no longer stops at Power BI model** with
+  `DM_GWPipeline_Gateway_DataSourceAccessError`. Public endpoints are the default unless a policy
+  keeps Azure SQL private. Power BI tests the SQL reader's sign-in when it takes the models'
+  credentials, but the reader's database user is made by the database migration, which ran later.
+  Now a new **Power BI credentials** step sets them after **Database migration**. Private networking
+  is unchanged. To finish an install that stopped there, run setup again. Every earlier installer
+  with the Azure path (0.5.0 to 0.6.7) has this problem.
+- **Agent Evaluator reads every Copilot Studio transcript.** The installer gave the transcript
+  reader, the jobs' managed identity on Azure or the app on Fabric, only the
+  **Bot Transcript Viewer** role, which reads only the transcripts the reader owns or that are
+  shared with it. In a test environment, Copilot Studio's own service user owned them, so on Azure
+  the first load read none, and its status said `empty`. Fabric gave its app the same role. Now, in
+  each environment you pick, the installer also creates a role for the install,
+  *Analytics Hub transcript reader* followed by the first 8 characters of the install's ID, with one
+  privilege: ConversationTranscript read at Organization depth. It reads the role back to check
+  that, gives it to the reader beside Bot Transcript Viewer, and asks Dataverse whether the reader
+  can read a transcript. Unticking the environment or **Agent Evaluator**, or uninstalling, takes
+  the role away and deletes it. The installer never changes or deletes a role it didn't create.
+  It adds transcript read to its role only while no user or team other than the reader has the role.
+  On Azure, Dataverse's first delete of an application user the installer created only
+  soft-deletes it: the user stays, deactivated with no role, and ticking the environment again
+  found it disabled. Now the installer reads the user back and deletes it again, and says it
+  removed the user only once it's gone. Otherwise it warns, and prints how a System Administrator
+  deletes it for good.
+  Creating the role needs a System Administrator of the environment, as adding the reader does;
+  otherwise the installer prints the admin center steps. To fix an existing install, run
+  **Update** or **Repair or change** as a System Administrator of each environment, then reload
+  the history once, for example with `run --backfill-days 30`. Later runs read only the last 14
+  days of transcripts, and a reload reads up to 180 days, so it picks up the older ones the
+  environment still keeps.
+- **Azure: runs after the first load no longer fail at `process`.** Each run of the run job starts
+  in a new container, with none of the earlier runs' files on its disk. `process` downloaded only
+  its inputs, then read the months that earlier runs had curated from that disk. So every run after
+  the first load, other than a full rebuild, failed there with
+  `No files found that match the pattern` and a path ending in `month-….parquet`. Those runs didn't
+  publish or refresh, so the dashboard stopped updating, and `status` showed them as Failed. Azure
+  installs on 0.6.6 and 0.6.7 have this problem; Fabric doesn't. Now `process` downloads the month
+  files it reads, each once a run. A full rebuild reads none of them, so it downloads none. The
+  failed runs still collected their data, and the next run after you update processes it. If you
+  set `VALUELENS_PROCESS_FULL_REBUILD=true` on the run job to get by, updating removes it, since
+  **Update** redeploys the run job's settings. Runs then go back to recomputing only recent and
+  changed months.
+- **Fabric: Repair or change redeploys the app after an update.** It pushed the new version's
+  semantic model, notebooks and pipeline, but its question about the app, "Deploy it again?",
+  defaulted to no unless the app's pages, currency or who can view it had changed. So with the
+  defaults, the app stayed at the earlier version, on the new model. Installers up to 0.6.7 have
+  this problem, on Fabric only; on Azure, both Update and Repair or change redeploy the web app.
+  Now the install record keeps the installer version that deployed the app. When another version
+  deployed it, or the record has none, as with every install from 0.6.7 and earlier, the question
+  says the app needs redeploying to update it to this version, and defaults to yes. Answer no, and
+  the next Repair or change asks again. **Update** already defaulted to redeploying the app.
+- **App: changing Group by no longer crashes Adoption's Trend heatmap and Activation pages.** With
+  either page showing data, picking another attribute under **Group by**, such as Office location,
+  or going back to Organization, replaced the whole app with "Something went wrong" and
+  `Column "Chat + Agent Org DataOrganization" was not found.` **Try Again** recovered, but opened
+  the Executive summary grouped by Organization, so the filters were lost. The app in 0.6.7 and
+  0.6.6 has this problem too. While the answer for the new attribute loaded, these pages read the
+  previous answer by the new attribute's column names, so they couldn't find the column they rank
+  by. Now each answer is read by the column names of the query that asked for it: the previous
+  answer stays on screen, with its own labels, until the new one comes, as it does when a filter
+  changes. And a chart that can't find the column it ranks by shows its rows unranked, rather than
+  stop the app.
+- **A user who isn't an Entra admin can create the viewer group.** Setup, `access` and turning on
+  org-scoped access stopped with Graph's 400 "Request contains a property with duplicate values"
+  when they kept **A new group**. Entra makes a user who isn't an admin an owner of a security
+  group they create, so Graph refused the request, which named them as owner too. Now, when Graph
+  refuses it for that reason, the installer sends it again without naming them, and Entra makes
+  them owner. An admin's group is created as before, naming them as owner. If Graph refuses the
+  group for another reason, the installer now warns that there's no viewer group yet, and says to
+  run `access` and choose **A group I already have**, instead of stopping with the error. And the
+  plan before **Go ahead?** says you own the viewer group only when the installer creates it. 0.6.7
+  has this problem too; its release notes list it as a Known issue.
+- **Azure: turning on org-scoped access no longer fails with 403 AuthorizationPermissionMismatch.**
+  The installer read the scope list from the install's storage account before it gave you
+  **Storage Blob Data Contributor** there. So unless you already had that role, turning org-scoped
+  access on, opening `access` once it was on, and applying it during setup could fail with that
+  403. In testing, it turned on only once a test user was given the role by hand. 0.6.7 has this
+  problem too, and its release notes list it as a Known issue. Now, on Azure, the installer gives
+  you the role before it first reads or writes the scope list, then retries for a few minutes while
+  a new role takes effect. It asks every time, even if the install gave the role to someone before,
+  so a second admin gets it too; if you have it already, that counts as given. If you can't assign
+  roles on the storage account but someone gave you the role, it now goes ahead; before, it could
+  stop and say you needed the role. Without the role, it says to ask an Owner or User Access
+  Administrator for it (Azure portal > the storage account > **Access control (IAM)**), wait about
+  5 minutes and try again, instead of showing the 403. Private networking and Fabric are unchanged.
+- **Azure: Repair keeps a shared-capacity (Pro) install's workspace where it is.** A Repair with
+  `--yes`, or one that took every default, moved it onto your first active capacity. Installers up
+  to 0.6.7 have this problem, and 0.6.7's release notes list it as a known issue. The install record
+  didn't keep the choice **None (shared capacity, Pro)** at **Capacity for the Power BI workspace**,
+  so Repair suggested the first active capacity instead. Now the record keeps None, and Repair
+  suggests where the workspace is: the capacity you chose, if it's active; otherwise the active
+  capacity the workspace is on, or None if it's on shared capacity; failing that, None if that was
+  the choice. Earlier installers didn't keep None, so a record with a workspace and no capacity is
+  taken to have chosen it. If the capacity you chose is paused, Repair still suggests the first
+  active capacity, as before. A new install still suggests the first active capacity, and private
+  networking still needs a capacity. Choosing None doesn't move a workspace off a capacity: if a
+  Repair moved yours, set it back to Pro in the workspace's settings in Power BI, then run Repair
+  without `--yes` and choose None. Fabric isn't affected.
+- **Azure: scoped delegation in the Share panel no longer fails with 503.** With org-scoped access
+  on, the panel couldn't show, give, take back or approve scopes: each request failed at once with
+  "Couldn't reach the Analytics Hub database. Try again in a minute.", even with the database
+  online, and the web app logged `SQL connection failed` with "must be an instance of the token
+  credential class". The SQL driver copies its settings into plain objects, which dropped the
+  managed identity's `getToken`, so it refused the identity before connecting. Now the web app
+  hands the driver a credential with its own `getToken`, which survives the copy. The fault has
+  been in the web app since 0.6.0, but the Share panel offers scoped delegation on Azure only since
+  0.6.8-rc.2, so released versions, 0.6.7 included, couldn't reach it from the app.
+
+**Docs:**
+
+- **Agent Evaluator: pick environments that save transcripts.** Copilot Studio doesn't save
+  conversation transcripts in developer or Dataverse for Teams environments, so Agent Evaluator
+  finds none there. The installer's [Agent Evaluator](installer/README.md#agent-evaluator) section,
+  Prerequisites and Troubleshooting now say so.
+
+**Known issue:** on Azure, the schedule can still start a run while another is going, for example
+when a long first load reaches the scheduled time. If it does, stop the newer run, then reload the
+history once the other has finished, as [Troubleshooting](docs/TROUBLESHOOTING.md#azure) shows. A
+fuller fix is planned.
 
 **Known issue:** on Azure, **Uninstall** deletes the install's managed identity but leaves the roles
 it was given outside the resource group, such as Reader on the management group and Cost Management
@@ -349,18 +372,11 @@ the file in or upload it with the installer, re-save its Usage Date in the form 
 a file has already loaded with blank dates, remove it from the landing folder and delete those rows
 before you load the corrected file. See [Troubleshooting](docs/TROUBLESHOOTING.md#runs-and-loads).
 
-**Docs:**
+## 2026-10-21 — Analytics Hub installer 0.6.8-rc.2 (pre-release)
 
-- **Agent Evaluator: pick environments that save transcripts.** Copilot Studio doesn't save
-  conversation transcripts in developer or Dataverse for Teams environments, so Agent Evaluator
-  finds none there. The installer's [Agent Evaluator](installer/README.md#agent-evaluator) section,
-  Prerequisites and Troubleshooting now say so.
-
-## Analytics Hub installer 0.6.8-rc.2 (unreleased)
-
-**Release candidate preparation only.** 0.6.8-rc.2 is not published, and 0.6.7 remains Latest. Its
-tag, `installer-v0.6.8-rc.2`, drafts a pre-release, which `releases/latest` and the installer's
-update check skip.
+**A pre-release, for testing.** 0.6.7 stays Latest, so the `releases/latest` links still serve it.
+To install 0.6.8-rc.2, use
+`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.8-rc.2/install.ps1 | iex`.
 
 **What changed since 0.6.8-rc.1:** Agent Evaluator works on Azure, so every module now does. The
 installer offers it and gives the jobs' managed identity access to the Copilot Studio transcripts,
@@ -375,14 +391,14 @@ pass, the Adoption summary is two queries asked at once, and Leaderboards' share
 1%, 5% and 25% without the curve. On Azure, the web app reuses each user's Power BI and Graph tokens
 for up to 10 minutes, and compresses what it sends. The details are below.
 
-**Update an existing install:** once 0.6.8-rc.2 is published, run its pinned command, or open it
-from its release page, and choose **Update**. On Azure, that redeploys with this version's images,
-adds the Agent Evaluator tables (migration `V008`), and redeploys and reloads the ValueLens model
-with the faster measures. The jobs' next run recomputes every month once. To turn on Agent
-Evaluator, choose **Repair or change**, tick **Agent Evaluator** under **Data collection**, and pick
-its environments under **Module connections**. On Fabric, Update redeploys and reloads the ValueLens
-model with the faster measures, and updates and republishes the Ask data agent. Let it redeploy the
-app too: the other changes are in the app. From 0.6.7, the 0.6.8-rc.1 notes below apply too.
+**Update an existing install:** run the pinned command, or open installer 0.6.8-rc.2 and choose
+**Update**. On Azure, that redeploys with this version's images, adds the Agent Evaluator tables
+(migration `V008`), and redeploys and reloads the ValueLens model with the faster measures. The
+jobs' next run recomputes every month once. To turn on Agent Evaluator, choose **Repair or change**,
+tick **Agent Evaluator** under **Data collection**, and pick its environments under **Module
+connections**. On Fabric, Update redeploys and reloads the ValueLens model with the faster measures,
+and updates and republishes the Ask data agent. Let it redeploy the app too: the other changes are
+in the app. From 0.6.7, the 0.6.8-rc.1 notes below apply too.
 
 **Open the ValueLens templates in Power BI Desktop June 2024 or later.** Earlier releases show
 errors in most habit-stage visuals. The app, published reports and Desktop connected live to a
