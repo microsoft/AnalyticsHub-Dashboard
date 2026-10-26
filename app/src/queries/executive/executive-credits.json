@@ -42,7 +42,7 @@
           "sort": null,
           "scale": {
             "domain": ["Copilot Studio agents", "Cowork"],
-            "range": ["#f1963a", "#8783ff"]
+            "range": ["#c46a12", "#8783ff"]
           },
           "legend": { "orient": "top", "direction": "horizontal", "symbolType": "square", "symbolLimit": 10, "labelLimit": 240 }
         },

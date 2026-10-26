@@ -8,7 +8,7 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import { BUSY_MESSAGE } from "@/lib/query-scheduler";
-import { QueryError } from "./query-states";
+import { ErrorGroup, QueryError } from "./query-states";
 
 describe("QueryError", () => {
     it("says Power BI is busy, rather than that the query broke, when it was throttled", () => {
@@ -32,7 +32,8 @@ describe("QueryError", () => {
         const message = "The column 'Agents 365'[Owner account] cannot be found or may not be used in this expression.";
         render(<QueryError message={message} />);
 
-        expect(screen.getByText("Update your install")).toBeTruthy();
+        expect(screen.getByText("Needs an update")).toBeTruthy();
+        expect(screen.getByText("For your admin")).toBeTruthy();
         expect(screen.getByText(/Agents 365\[Owner account\]/)).toBeTruthy();
         expect(screen.getByText(message)).toBeTruthy();
     });
@@ -45,6 +46,26 @@ describe("QueryError", () => {
         expect(screen.getByText("Data not loaded yet")).toBeTruthy();
         expect(screen.getByText(/choose\s+Repair or change/)).toBeTruthy();
         expect(screen.queryByText("This didn't load")).toBeNull();
-        expect(screen.queryByText("Update your install")).toBeNull();
+        expect(screen.queryByText("Needs an update")).toBeNull();
+    });
+
+    it("keeps the raw error out of the way, behind Details", () => {
+        render(<QueryError message="DAX comparison operations do not support comparing values of type Text" />);
+
+        expect(screen.getByText("This didn't load")).toBeTruthy();
+        expect(screen.getByText("Details").closest("details")?.open).toBe(false);
+    });
+
+    it("says a failure in full once per page, however many parts fail for the same reason", () => {
+        render(
+            <ErrorGroup>
+                <QueryError message="Something broke" />
+                <QueryError message="Something broke" />
+                <QueryError message="Something else broke" />
+            </ErrorGroup>,
+        );
+
+        expect(screen.getAllByRole("alert")).toHaveLength(2);
+        expect(screen.getAllByText("This didn't load either, for the same reason.")).toHaveLength(1);
     });
 });

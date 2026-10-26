@@ -33,6 +33,16 @@ export function appLink(): string {
     return fabricItemUrl() ?? window.location.href;
 }
 
+/**
+ * A link back to the view on screen, with its filters, where the host lets
+ * one carry it. On Azure that is this site with the view's hash. A Fabric
+ * item's link opens the app at its start, so there it is the app's link.
+ */
+export function viewLink(): string {
+    if (runtimeConfig().host === "azure") return `${window.location.origin}/${window.location.hash}`;
+    return appLink();
+}
+
 /** Where a group's members and owners can see and, as owners, manage it. */
 export function myGroupsUrl(groupId: string): string {
     return `https://myaccount.microsoft.com/groups/${encodeURIComponent(groupId)}`;

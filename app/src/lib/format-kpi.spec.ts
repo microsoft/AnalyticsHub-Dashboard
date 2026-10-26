@@ -19,10 +19,21 @@ describe("formatKpi", () => {
     });
 
     it("keeps existing formats available without options", () => {
-        expect(formatKpi(154.153, "hours")).toBe("154.2");
+        expect(formatKpi(54.153, "hours")).toBe("54.2");
         expect(formatKpi(412_345.6, "hours")).toBe("412,346");
         expect(formatKpi(0.1234, "percent")).toBe("12.3%");
-        expect(formatKpi(1.2, "rate")).toBe("1.20");
+        expect(formatKpi(1.2, "rate")).toBe("1.2");
+    });
+
+    it("rounds hours in the hundreds to the hour, as the bars label them", () => {
+        expect(formatKpi(782.8, "hours")).toBe("783");
+        expect(formatKpi(99.94, "hours")).toBe("99.9");
+    });
+
+    it("never pads a rate with zeros, so a whole rate reads like the count beside it", () => {
+        expect(formatKpi(40, "rate")).toBe("40");
+        expect(formatKpi(3.256, "rate")).toBe("3.26");
+        expect(formatKpi(0.04, "rate")).toBe("0.04");
     });
 
     it("keeps cents on billed amounts and four decimals on unit prices", () => {

@@ -7,7 +7,7 @@
 
 import { useStageFilter } from "@/hooks/stage-filter.context";
 import { stageAnchor } from "@/components/destinations";
-import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
+import { AdminSteps, QueryEmpty, QueryError, QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
 import { useSourceAvailability } from "@/hooks/source-availability.context";
 import { useM365Activity } from "@/hooks/use-m365-activity";
@@ -55,12 +55,35 @@ function WorkPatternsContent() {
             ) : m365.state === "missing" ? (
                 <QueryEmpty
                     title="Microsoft 365 activity isn't set up"
-                    description="This ValueLens install predates Microsoft 365 activity. Pull the latest ValueLens and run npx valuelens-install update to add it. The page fills in after the next pipeline run."
+                    description={
+                        <>
+                            <p>This install predates Microsoft 365 activity, so there's nothing to show yet.</p>
+                            <AdminSteps>
+                                <p>
+                                    Update the install to add Microsoft 365 activity. The page fills in after the next
+                                    pipeline run.
+                                </p>
+                            </AdminSteps>
+                        </>
+                    }
                 />
             ) : (
                 <QueryEmpty
                     title="No Microsoft 365 activity yet"
-                    description="Either the module is switched off, or it hasn't loaded yet. To switch it on, run npx valuelens-install and tick Microsoft 365 activity; it needs the Reports.Read.All permission. The usage reports run two to three days behind, so the first days take a little while to show."
+                    description={
+                        <>
+                            <p>
+                                Either it's switched off or it hasn't loaded yet. The usage reports run two to three
+                                days behind.
+                            </p>
+                            <AdminSteps>
+                                <p>
+                                    To switch it on, run the installer again and tick Microsoft 365 activity. It needs
+                                    the Reports.Read.All permission.
+                                </p>
+                            </AdminSteps>
+                        </>
+                    }
                 />
             )}
         </Section>
@@ -72,7 +95,17 @@ function M365NotConfigured() {
         <Section id={stageAnchor("m365-activity")} title={M365_ACTIVITY_TITLE} description={M365_ACTIVITY_DESCRIPTION}>
             <QueryEmpty
                 title="Microsoft 365 activity isn't turned on"
-                description="Run the installer again and tick Microsoft 365 activity. It needs Reports.Read.All, and the page fills in after the next load and model refresh."
+                description={
+                    <>
+                        <p>Microsoft 365 activity is an optional source that isn't connected.</p>
+                        <AdminSteps>
+                            <p>
+                                Run the installer again and tick Microsoft 365 activity. It needs Reports.Read.All, and
+                                the page fills in after the next load and model refresh.
+                            </p>
+                        </AdminSteps>
+                    </>
+                }
             />
         </Section>
     );

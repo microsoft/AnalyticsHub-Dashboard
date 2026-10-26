@@ -195,7 +195,7 @@ export function GlossaryStage() {
                                                 )}
                                             >
                                                 <span>{page.page}</span>
-                                                <span className="tabular-nums opacity-80">{page.entries.length}</span>
+                                                <span className="tabular-nums">{page.entries.length}</span>
                                             </button>
                                         </li>
                                     ))}

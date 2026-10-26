@@ -29,7 +29,7 @@ describe("GovernanceScreen", () => {
         );
 
         expect(screen.getByRole("heading", { name: "Governance" })).toBeTruthy();
-        expect(screen.getByText("Update your install")).toBeTruthy();
+        expect(screen.getByText("Needs an update")).toBeTruthy();
         expect(screen.getByText(/Agents 365\[Owner account\]/)).toBeTruthy();
         expect(screen.queryByText("Connect the Agent 365 registry")).toBeNull();
         expect(screen.getByText("Defender isn't turned on")).toBeTruthy();

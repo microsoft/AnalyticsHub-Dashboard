@@ -25,7 +25,8 @@ export function Headlined({ text, children }: { text: string | undefined; childr
             <p className="text-[length:var(--text-300)] leading-300 text-foreground" data-headline="" {...{ [CAPTURE_EXCLUDE_ATTR]: "" }}>
                 {text}
             </p>
-            <div className="min-h-0 flex-1">{children}</div>
+            {/* No intrinsic width, so a chart drawn wide can't hold its grid column open after the window narrows. */}
+            <div className="min-h-0 flex-1 [contain:inline-size]">{children}</div>
         </div>
     );
 }

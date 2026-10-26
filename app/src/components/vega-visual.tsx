@@ -4,7 +4,7 @@
 //        Licensed under the MIT license. See LICENSE file in the project root for full license information.
 // </copyright>
 //-----------------------------------------------------------------------
-import type { ComponentProps } from "react";
+import { useMemo, type ComponentProps } from "react";
 import { VegaVisual as EvalVegaVisual } from "@microsoft/fabric-visuals";
 import { EmbeddableVegaVisual } from "@microsoft/fabric-visuals/embeddable";
 import { useIsPrefetch } from "@/hooks/prefetch.context";
@@ -29,7 +29,10 @@ export function isEvalBlocked(): boolean {
  */
 const HostVegaVisual = isEvalBlocked() ? EmbeddableVegaVisual : EvalVegaVisual;
 
-export type VegaVisualProps = ComponentProps<typeof HostVegaVisual>;
+export type VegaVisualProps = ComponentProps<typeof HostVegaVisual> & {
+    /** What the chart shows, read by screen readers in place of "Vega visualization". */
+    label: string;
+};
 
 /**
  * Row-per-category charts size their frame from the row count, and the stock
@@ -37,9 +40,14 @@ export type VegaVisualProps = ComponentProps<typeof HostVegaVisual>;
  * collapse onto one line and the bars vanish until the window is resized.
  * Remounting on a new row count draws the chart fresh at its new size.
  */
-export function VegaVisual(props: VegaVisualProps) {
+export function VegaVisual({ label, spec, ...props }: VegaVisualProps) {
     // A page fetched ahead of a visit only wants its data; drawing it would cost the open page.
     const prefetching = useIsPrefetch();
+    // Vega names the chart from the spec's description.
+    const described = useMemo(
+        () => (spec && typeof spec === "object" ? ({ ...(spec as object), description: label } as typeof spec) : spec),
+        [spec, label],
+    );
     if (prefetching) return null;
-    return <HostVegaVisual key={rowCountKey(props.data)} {...props} />;
+    return <HostVegaVisual key={rowCountKey(props.data)} spec={described} {...props} />;
 }

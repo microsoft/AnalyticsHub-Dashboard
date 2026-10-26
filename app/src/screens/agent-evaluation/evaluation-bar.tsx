@@ -42,7 +42,7 @@ export function EvaluationBar({ options, selection, onChange }: EvaluationBarPro
         <div
             role="group"
             aria-label="Agent Evaluation slicers"
-            className="sticky top-0 z-10 -mx-700 -mb-200 flex flex-wrap items-center gap-x-400 gap-y-200 border-b border-border bg-background px-700 py-300"
+            className="z-10 md:sticky md:top-0 -mx-400 -mb-200 md:-mx-600 lg:-mx-700 flex flex-wrap items-center gap-x-400 gap-y-200 border-b border-border bg-background px-400 py-300 md:px-600 lg:px-700"
         >
             <ChoiceMenu
                 label="Date"

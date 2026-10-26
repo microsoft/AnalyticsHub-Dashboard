@@ -233,6 +233,7 @@ export function TaskValueBreakdown({ extra, prefix, assumption }: TaskValueBreak
                 ) : (
                     <Headlined text={timeSaved}>
                         <VegaVisual
+                            label="Time saved by Task Breakdown"
                             spec={source.vegaLiteSpec}
                             data={tree.tasks}
                             capabilities={source.capabilities}

@@ -99,6 +99,7 @@ function FitByTaskChart() {
             ) : (
                 <Headlined text={headline}>
                     <VegaVisual
+                        label="What goes to Cowork"
                         spec={spec}
                         data={table}
                         theme={theme}
@@ -118,7 +119,7 @@ function FitByTaskChart() {
 function FitRules({ notice }: { notice: string | undefined }) {
     const headingId = useId();
     const { grades, notes } = useMemo(() => parseFitNotice(notice), [notice]);
-    const showGrading = useShowStage("efficiency", "grading-method");
+    const showGrading = useShowStage("appendix", "grading-method");
     return (
         <article aria-labelledby={headingId} className="flex flex-col rounded-xl border border-border bg-card">
             <h3
@@ -187,7 +188,7 @@ export function CoworkFitStage() {
         <Section
             id={stageAnchor("cowork-fit")}
             title="Cowork fit"
-            description="Whether the work people hand to Cowork suits it. Each session is graded by what it touched: many apps and sources suit Cowork; chat with nothing attached is worth a look."
+            description="Whether the work people hand to Cowork suits it, judged by the apps and sources each session touched."
         >
             <FilterNote ignored={COWORK_ONLY} reason="Cowork fit always reads every Cowork session." />
             {unlicensed ? (
