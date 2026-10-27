@@ -1394,17 +1394,17 @@ test("Azure: a history reload that doesn't start leaves setup not finished, and 
   assert.doesNotMatch(started.ui.text(), /not finished|steps? left/);
   assert.ok(started.ui.text().includes('Setup is finished. The reload carries on in Azure, so you can close this window. See how far it has got with "valuelens-install status".'));
   // One run stops at 4 hours, and the scheduled runs after it carry the reload on: Fabric's time budget and retries don't fit.
-  assert.match(started.ui.text(), /Estimate for 90 days of history, for up to 10,000 people: about 3 hours, in one run\. The audit service's queue can add hours/);
-  assert.match(started.ui.text(), /Each run gets up to 4 hours\. A run cut off then publishes nothing, so the reports show the new history once one run fetches everything left\. .*Job images older than this installer ignore VALUELENS_AUDIT_BACKFILL_DAYS/);
+  assert.match(started.ui.text(), /Estimate for 90 days of history, for up to 10,000 people: 1 to 2 days, over two or three runs\. The audit service's queue can add hours/);
+  assert.match(started.ui.text(), /Each run gets up to 4 hours, and one cut off then publishes nothing\. A run stopped at the search limit publishes what it has fetched\. .*Job images older than this installer ignore VALUELENS_AUDIT_BACKFILL_DAYS/);
   assert.doesNotMatch(started.ui.text(), /many hours on a large tenant|time budget|pipeline's retries/);
   const detail = (/** @type {number} */ days) => {
     started.ctx.reloadHistoryDays = days;
     return azurePlanReview(started.ctx).runsOn.find((r) => r.what === 'History reload')?.detail;
   };
-  assert.equal(detail(90), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=90. Estimate: about 3 hours. A run stops at 4 hours, and the scheduled runs after it carry on with the reload until it has all loaded.');
-  assert.equal(detail(30), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=30. Estimate: about an hour.');
+  assert.equal(detail(90), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=90. Estimate: 1 to 2 days, over two or three runs. A run stops at 4 hours, and the scheduled runs after it carry on with the reload until it has all loaded.');
+  assert.equal(detail(30), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=30. Estimate: 2 to 3 hours.');
   started.config.scale = 'large';
-  assert.equal(detail(180), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=180. Estimate: about 8 hours, over two or three runs. A run stops at 4 hours, and the scheduled runs after it carry on with the reload until it has all loaded.');
+  assert.equal(detail(180), 'The run job, once, with VALUELENS_AUDIT_BACKFILL_DAYS=180. Estimate: 2 to 3 days, over three or four runs. A run stops at 4 hours, and the scheduled runs after it carry on with the reload until it has all loaded.');
 
   // Repair or change's question, the first place the wording shows, says the same: Azure has no pipeline.
   const asking = fakeUi();
@@ -1424,8 +1424,8 @@ test("Azure: a history reload that doesn't start leaves setup not finished, and 
   assert.equal(reload?.message, 'You asked for 30 days of history. Load more?');
   assert.deepEqual(reload?.choices.map((c) => c.description), [
     undefined,
-    'Runs the job once with 90 days of history. Estimate: about 3 hours. A run stops at 4 hours, and the scheduled runs after it carry on with the reload until it has all loaded.',
-    'Runs the job once with 180 days of history. Estimate: about 6 hours, over two runs. A run stops at 4 hours, and the scheduled runs after it carry on with the reload until it has all loaded.',
+    'Runs the job once with 90 days of history. Estimate: 1 to 2 days, over two or three runs. A run stops at 4 hours, and the scheduled runs after it carry on with the reload until it has all loaded.',
+    'Runs the job once with 180 days of history. Estimate: 2 to 3 days, over three or four runs. A run stops at 4 hours, and the scheduled runs after it carry on with the reload until it has all loaded.',
   ]);
 });
 
@@ -1561,16 +1561,16 @@ test('Azure first load: the plan and its start give the estimate, once, and the 
   const t = await azureModelChanged();
   t.ctx.runFirstLoad = true;
   const row = () => azurePlanReview(t.ctx).runsOn.find((r) => r.what === 'First load');
-  assert.deepEqual(row(), { what: 'First load', where: '30 days of audit history, straight after setup', detail: 'Estimate for up to 10,000 people: about an hour.' });
+  assert.deepEqual(row(), { what: 'First load', where: '30 days of audit history, straight after setup', detail: 'Estimate for up to 10,000 people: 2 to 3 hours.' });
   assert.equal(await confirmAzurePlan(t.ctx), true);
-  assert.match(t.ui.text(), /First load: +30 days of history, straight after setup .*Estimate for up to 10,000 people: about an hour\./);
+  assert.match(t.ui.text(), /First load: +30 days of history, straight after setup .*Estimate for up to 10,000 people: 2 to 3 hours\./);
   assert.ok(t.ui.text().includes('Keep this PC plugged in and awake until the installer says setup is finished.'));
 
   t.ui.out.length = 0;
   assert.equal(await installAzure(t.ctx, { wait: true }), true);
   let text = t.ui.text();
   assert.ok(
-    text.includes("Estimate for 30 days of history, for up to 10,000 people: about an hour, in one run. The audit service's queue can add hours, and a large tenant's history can take more than one run. Each run gets up to 4 hours. A run cut off then publishes nothing, so the reports show the new history once one run fetches everything left."),
+    text.includes("Estimate for 30 days of history, for up to 10,000 people: 2 to 3 hours, in one run. The audit service's queue can add hours, and so can Microsoft throttling audit searches. Each run gets up to 4 hours. A run cut off then publishes nothing, so the reports show the new history once one run fetches everything left."),
     text,
   );
   assert.ok(text.includes('Setup is finished. The first load carries on in Azure, so you can close this window. See how far it has got with "valuelens-install status".'), text);

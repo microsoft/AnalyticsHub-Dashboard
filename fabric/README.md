@@ -27,8 +27,8 @@ and what to ask other admins for, by person, with the optional extras and the co
   [Send this to your Viva Insights analyst](../docs/PREREQUISITES.md#send-this-to-your-viva-insights-analyst-first).
 
 It takes about 5 minutes of questions and about 15 minutes of setup. Then the first load of history
-takes about 25 minutes with 30 days, or 2 to 3 hours with 180 days, for up to 10,000 people. A
-larger tenant takes hours: see [How long it takes](../docs/PREREQUISITES.md#how-long-it-takes).
+takes 1 to 2 hours with 30 days, or 3 to 5 hours with 180 days, for up to 10,000 people. A larger
+tenant takes days: see [How long it takes](../docs/PREREQUISITES.md#how-long-it-takes).
 Keep the PC awake and plugged in until the installer says setup is finished. After that you can
 close the window, and the load carries on in Fabric.
 

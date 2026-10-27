@@ -19,10 +19,12 @@ import {
   readFabricProgress,
   recordPendingHistory,
   showHistoryStep,
+  throttledAt,
   utcTime,
 } from '../src/steps/history-progress.js';
 import { fakeCtx, fakeUi, httpError } from './fakes.js';
 
+const MIN = 60_000;
 const H = 3_600_000;
 const D = 24 * H;
 /** @param {string} s  A UTC time with no zone. */
@@ -72,6 +74,26 @@ const list = (start, count, hours = 24, rows = 12) => Array.from({ length: count
 /** @param {string} text */
 const lines = (text) => text.split('\n').map((s) => s.trim()).filter(Boolean);
 
+/** @param {string[]} out */
+const last = (out) => out[out.length - 1];
+
+/**
+ * A load stopped at the tenant's audit search limit, as both collectors leave it: the windows fetched before it,
+ * their searches created at `created`, then the windows waiting when it stopped, each stamped with its own stop.
+ * @param {[number, number][]} windows
+ * @param {number} fetched  How many windows, oldest first, succeeded.
+ * @param {number[]} stops  The next windows' stops.
+ * @param {number} created
+ */
+function stoppedAtLimit(windows, fetched, stops, created) {
+  const out = entries(windows, (i) => (i < fetched ? 'succeeded' : i < fetched + stops.length ? 'waiting' : undefined));
+  Object.values(out).forEach((e, i) => {
+    if (i < fetched) e.query_created_at = iso(created);
+    else e.paused_at = e.throttled_at = iso(stops[i - fetched]);
+  });
+  return out;
+}
+
 test('utcTime: Python isoformat, with or without a zone, is UTC', () => {
   assert.equal(utcTime('2026-05-01T08:00:00+00:00'), t('2026-05-01T08:00:00'));
   assert.equal(utcTime('2026-05-01T08:00:00.123456+00:00'), t('2026-05-01T08:00:00.123'));
@@ -116,6 +138,32 @@ test('newestEnd: the end of the newest window a run started on, fetched or not',
   assert.equal(newestEnd(MIXED), t('2026-05-08T00:00:00'));
   assert.equal(newestEnd({ 'v2_202605090000_202605100000': { rows: 4 } }), undefined, 'an entry with no status');
   for (const v of [null, {}, []]) assert.equal(newestEnd(v), undefined);
+});
+
+test('throttledAt: the newest stop at the search limit, unless a run has searched since', () => {
+  const w = plan(t('2026-05-29T00:00:00'), t('2026-06-01T00:00:00'), 8);
+  const stop = t('2026-06-01T09:30:00');
+  // Windows waiting for a search slot when the limit was reached each give up as they get one, minutes apart.
+  assert.equal(throttledAt(stoppedAtLimit(w, 3, [stop - 4 * MIN, stop, stop - 2 * MIN], stop - 2 * H)), stop);
+  // A worker already creating a search when another reached the limit can still create its own, just after.
+  assert.equal(throttledAt(stoppedAtLimit(w, 3, [stop], stop + 10 * MIN)), stop);
+  assert.equal(throttledAt(stoppedAtLimit(w, 3, [stop], stop + 10 * MIN + 1000)), undefined, 'a later run has searched');
+
+  // A stop at the time budget stamps only paused_at, so a throttled_at left from an earlier stop no longer matches.
+  const budget = stoppedAtLimit(w, 3, [stop, stop], stop - 2 * H);
+  const [first, second] = Object.values(budget).slice(3);
+  delete first.throttled_at;
+  second.paused_at = iso(stop + H);
+  assert.equal(throttledAt(budget), undefined);
+
+  // Only windows still waiting count: a later run fetches a window, or starts on it, without clearing its stamps.
+  for (const status of ['succeeded', 'querying', 'failed']) {
+    const later = stoppedAtLimit(w, 3, [stop], stop - 2 * H);
+    Object.values(later)[3].status = status;
+    assert.equal(throttledAt(later), undefined, status);
+  }
+  assert.equal(throttledAt({ ...stoppedAtLimit(w, 0, [stop], 0), x: null, y: 'waiting' }), stop, 'entries that are not windows are skipped');
+  for (const v of [null, undefined, [], 'x', 3, {}]) assert.equal(throttledAt(v), undefined);
 });
 
 test('coverage: how much of the range the fetched windows cover, and what is left', () => {
@@ -372,6 +420,51 @@ test('fabricHistory: a first load waiting for consent points to its step', async
   assert.doesNotMatch(ui.text(), /Start the first load|To carry on/, 'the step has the command');
 });
 
+test('fabricHistory: a load stopped at the search limit says when a run can search again', async () => {
+  const windows = plan(t('2025-12-03T08:00:00'), t('2026-06-01T08:00:00'), 2);
+  const stop = t('2026-06-01T09:30:00');
+  /**
+   * @param {Record<string, any>} manifest
+   * @param {{ status?: string, start?: string, loaded?: boolean }} [o]  loaded: a reload, after a first load.
+   */
+  const show = async (manifest, o = {}) => {
+    const { status = 'Failed', start = '2026-06-01T08:00:00' } = o;
+    const { ctx, config, ui } = fabricCtx(async () => manifest, { days: 180, scale: 'large' });
+    config.firstRun = o.loaded
+      ? { jobId: 'job-1', status: 'Completed', startedAt: '2026-05-01T08:00:00.000Z' }
+      : { jobId: 'job-2', status, startedAt: `${start}.000Z` };
+    await fabricHistory(ctx, { jobs: [{ id: 'job-2', status, startTimeUtc: start }] });
+    return lines(ui.text());
+  };
+  const why = "because the tenant's audit search limit was reached.";
+
+  const out = await show(stoppedAtLimit(windows, 200, [stop - 3 * MIN, stop], stop - 2 * H));
+  assert.equal(last(out), `The audit load stopped at 2026-06-01 09:30 UTC ${why} Run "valuelens-install run" after 2026-06-02 09:30 UTC: it carries on from the windows already fetched.`);
+  const unstamped = await show(entries(windows, (i) => (i < 200 ? 'succeeded' : i < 202 ? 'waiting' : undefined)));
+  assert.deepEqual(out.slice(0, -1), unstamped.slice(0, -1), 'only the note differs');
+  assert.equal(last(unstamped), 'To carry on, run "valuelens-install run". It reuses the windows already fetched.');
+
+  // A reload says its days. A stop part-way through a minute gives the minute after, so it's never early.
+  const reload = await show(stoppedAtLimit(windows, 200, [stop + 20_000], stop - 2 * H), { loaded: true });
+  assert.equal(last(reload), `The audit load stopped at 2026-06-01 09:30 UTC ${why} Run "valuelens-install run --backfill-days 180" after 2026-06-02 09:31 UTC: it carries on from the windows already fetched.`);
+  const none = await show(stoppedAtLimit(windows, 0, [stop], 0));
+  assert.equal(last(none), `The audit load stopped at 2026-06-01 09:30 UTC ${why} Run "valuelens-install run" after 2026-06-02 09:30 UTC to load it.`);
+
+  // A day after it stopped, the limit no longer holds it back; nor does a stop at the time budget.
+  const usual = 'To carry on, run "valuelens-install run". It reuses the windows already fetched.';
+  const day = await show(stoppedAtLimit(windows, 200, [t('2026-05-31T12:00:00')], t('2026-05-31T10:00:00')), { start: '2026-05-31T08:00:00' });
+  assert.equal(last(day), usual);
+  const almost = await show(stoppedAtLimit(windows, 200, [t('2026-05-31T12:01:00')], t('2026-05-31T10:00:00')), { start: '2026-05-31T08:00:00' });
+  assert.match(last(almost), /stopped at 2026-05-31 12:01 UTC .* after 2026-06-01 12:01 UTC:/);
+  const budget = stoppedAtLimit(windows, 200, [stop], stop - 2 * H);
+  for (const e of Object.values(budget)) delete e.throttled_at;
+  assert.equal(last(await show(budget)), usual);
+
+  // While the pipeline runs, it says so.
+  const going = await show(stoppedAtLimit(windows, 200, [stop], stop - 2 * H), { status: 'InProgress', start: '2026-06-01T11:00:00' });
+  assert.match(last(going), /^The pipeline is running\./);
+});
+
 /**
  * A run job execution.
  * @param {string} status @param {string} startTime @param {string[]} [args]
@@ -444,6 +537,37 @@ test('azureHistory: a first load with nothing published says what is fetched, no
   await azureHistory(stuck.ctx, { executions: [exec('Running', '2026-05-30T11:00:00+00:00')] });
   assert.match(stuck.ui.text(), /The next scheduled run starts loading it, or start one now with "valuelens-install run"\./);
   assert.doesNotMatch(`${cut.ui.text()}${fetched.ui.text()}${going.ui.text()}`, /loaded now|activity up to/);
+});
+
+test('azureHistory: a run stopped at the search limit says when a run can search again', async () => {
+  const stop = t('2026-06-01T05:30:00');
+  /** @param {Record<string, any>} windows @param {any[]} [executions] */
+  const show = async (windows, executions = [exec('Failed', '2026-06-01T02:00:00+00:00')]) => {
+    const { ctx, ui } = azureCtx(async () => JSON.stringify({ windows }));
+    await azureHistory(ctx, { executions });
+    return lines(ui.text()).slice(2);
+  };
+  const why = "The last run stopped at 2026-06-01 05:30 UTC because the tenant's audit search limit was reached.";
+  assert.deepEqual(await show(stoppedAtLimit(AZ_WINDOWS, 60, [stop - 2 * MIN, stop], t('2026-06-01T05:00:00'))), [
+    'Fetched from the audit log: about 20 of 30 days, 2026-05-02 to 2026-05-22; about 30 windows left',
+    'In the reports: not all of it yet',
+    `${why} The next scheduled run carries on where it stopped, or start one after 2026-06-02 05:30 UTC with "valuelens-install run".`,
+  ]);
+  const none = await show(stoppedAtLimit(AZ_WINDOWS, 0, [stop], 0));
+  assert.equal(last(none), `${why} The next scheduled run starts loading it, or start one after 2026-06-02 05:30 UTC with "valuelens-install run".`);
+
+  // A run going, a run that has searched since, or a day gone by: the usual notes.
+  const going = await show(stoppedAtLimit(AZ_WINDOWS, 60, [stop], t('2026-06-01T05:00:00')), [exec('Running', '2026-06-01T11:00:00+00:00'), exec('Failed', '2026-06-01T02:00:00+00:00')]);
+  assert.equal(last(going), 'A run is going now. What it fetches reaches the reports if it finishes within its 4 hours.');
+  const usual = 'The next scheduled run carries on where it stopped, or start one now with "valuelens-install run".';
+  const searched = await show(stoppedAtLimit(AZ_WINDOWS, 60, [stop], t('2026-06-01T10:00:00')), [exec('Failed', '2026-06-01T10:00:00+00:00'), exec('Failed', '2026-06-01T02:00:00+00:00')]);
+  assert.equal(last(searched), usual);
+  const day = await show(stoppedAtLimit(AZ_WINDOWS, 60, [t('2026-05-31T12:00:00')], t('2026-05-31T11:00:00')), [exec('Failed', '2026-05-31T09:00:00+00:00')]);
+  assert.equal(last(day), usual);
+
+  // All the days asked for are fetched, though a window outside them stopped at the limit: the next run publishes them.
+  const done = { ...entries(AZ_WINDOWS, () => 'succeeded'), ...stoppedAtLimit(plan(t('2026-04-01T00:00:00'), t('2026-04-01T08:00:00'), 8), 0, [stop], 0) };
+  assert.equal(last(await show(done)), 'The next run publishes it. Start one sooner with "valuelens-install run".');
 });
 
 test('azureHistory: windows that all came back empty mean no activity, not a load still to come', async () => {

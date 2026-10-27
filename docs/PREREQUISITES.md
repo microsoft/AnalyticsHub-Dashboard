@@ -55,19 +55,32 @@ The first load takes longer with more days of history and more people. Count eve
 Microsoft 365 licence and an enabled account, not only those with a Copilot seat. The installer
 counts them for you and asks you to check.
 
-These are estimates, scaled from two measured loads, until timed runs of the installer replace
-them. The plan shows the one for your install beside the history question, and the installer says
-it again when the load starts.
+These are estimates. They count the tenant's audit search limit, below, and the time each search
+takes, scaled from two measured loads until timed runs of the installer replace them. The plan
+shows the one for your install beside the history question, and the installer says it again when
+the load starts.
 
 | History | Fabric, up to 10,000 people | Fabric, more than 10,000 | Azure, up to 10,000 | Azure, more than 10,000 |
 |---|---|---|---|---|
-| 30 days | About 25 minutes | About 4 hours | About an hour | 1 to 2 hours |
-| 90 days | About an hour | About 12 hours | About 3 hours | About 4 hours, in one or two runs |
-| 180 days | 2 to 3 hours | A day or more, over two runs | About 6 hours, over two runs | About 8 hours, over two or three runs |
+| 30 days | 1 to 2 hours | 1 to 2 days, over two or three runs | 2 to 3 hours | 2 to 4 hours, in one or two runs |
+| 90 days | 2 to 3 hours | 5 to 6 days, over six or seven runs | 1 to 2 days, over two or three runs | 1 to 2 days, over two or three runs |
+| 180 days | 3 to 5 hours | 10 to 11 days, over 11 or 12 runs | 2 to 3 days, over three or four runs | 2 to 3 days, over three or four runs |
 
-The audit service's queue can add hours on a busy day, and a large tenant's history can take more
-than one run. On Azure the run job runs once a day, so a load over two runs finishes the next day,
-unless you start a run sooner. What each target does then is under
+Most of a long load is waiting for the tenant's audit search limit. The load starts one audit
+search for each window of history it reads: a day on Fabric, or 2 hours for more than 10,000
+people, and 8 hours on Azure. A tenant can start at least 200 audit searches in a rolling 24 hours,
+shared with other admins and tools, and a tenant with more licences can get more: see
+[Microsoft Graph throttling limits](https://learn.microsoft.com/graph/throttling-limits#security-audit-log-query-service-limits).
+A load that needs more stops when they're used up, and a run a day later carries on. The audit
+service's queue can add hours on a busy day.
+
+- **Fabric.** The scheduled runs load only the newest days, so they don't carry a first load on.
+  When a load needs more than one run, start each run after the first with `run`, a day apart.
+  `status` gives the command, and when a run can search again.
+- **Azure.** Each scheduled run carries the load on, and the run job runs daily unless you chose
+  weekly. On a weekly schedule, start the runs in between with `run`: otherwise each waits a week.
+
+What each target does when a run can't fetch it all is under
 [How long the first load takes](../installer/README.md#how-long-the-first-load-takes).
 
 ## Permissions

@@ -637,7 +637,7 @@ test("run starts the first load again when the last one didn't load the history"
   assert.match(fabric.calls[0], /"AuditMode":"backfill"/);
   assert.match(fabric.calls[0], /"BackfillDays":30/);
   assert.match(ui.text(), /Started the first load: 30 days of audit history/);
-  assert.match(ui.text(), /Estimate for 30 days of history, for an install with no tenant size set: about an hour, in one run\./);
+  assert.match(ui.text(), /Estimate for 30 days of history, for an install with no tenant size set: 2 to 3 hours, in one run\./);
   assert.equal(config.firstRun?.jobId, 'job-1');
   assert.equal(config.firstRun?.status, 'Incomplete', 'job-1 has no proof the history loaded');
 });
@@ -685,10 +685,10 @@ test('tenant size: a big capacity suggests a large tenant, and the first-load es
   for (const sku of ['F64', 'F128', 'P1', 'p3', 'FTL64', 'ftl128']) assert.equal(largeCapacity({ sku }), true, sku);
   for (const sku of ['F2', 'F32', 'FT1', 'FTL4', 'FTL32', 'Trial', 'A4', 'PP3', undefined]) assert.equal(largeCapacity({ sku }), false, String(sku));
 
-  assert.match(firstLoadEstimate(30, 'standard'), /^Estimate for 30 days of history, for up to 10,000 people: about 25 minutes, in one run\./);
-  assert.match(firstLoadEstimate(30, undefined), /for an install with no tenant size set: about an hour/);
-  assert.match(firstLoadEstimate(90, 'standard'), /^Estimate for 90 days of history, for up to 10,000 people: about an hour/);
-  assert.match(firstLoadEstimate(30, 'large'), /for more than 10,000 people: about 4 hours.*more than one run.*F64 or larger capacity helps/);
+  assert.match(firstLoadEstimate(30, 'standard'), /^Estimate for 30 days of history, for up to 10,000 people: 1 to 2 hours, in one run\./);
+  assert.match(firstLoadEstimate(30, undefined), /for an install with no tenant size set: 2 to 3 hours/);
+  assert.match(firstLoadEstimate(90, 'standard'), /^Estimate for 90 days of history, for up to 10,000 people: 2 to 3 hours/);
+  assert.match(firstLoadEstimate(30, 'large'), /for more than 10,000 people: 1 to 2 days, over two or three runs\..*F64 or larger capacity helps/);
 
   const config = emptyConfig();
   const unsized = pipelineSignature(config);
@@ -1090,7 +1090,7 @@ test("a load of history that a run going holds back is kept for later, unless it
   assert.equal(pending()?.days, 90);
   assert.equal((await runPipeline(ctx, { backfillDays: 90, wait: false })).started, true);
   assert.equal(pending(), undefined);
-  assert.match(ui.text(), /Estimate for 90 days of history, for an install with no tenant size set: about 3 hours, in one run\..*It runs in Fabric\. Check on it with "valuelens-install status"\./);
+  assert.match(ui.text(), /Estimate for 90 days of history, for an install with no tenant size set: 1 to 2 days, over two or three runs\..*It runs in Fabric\. Check on it with "valuelens-install status"\./);
 });
 
 test('the first load says setup is finished, or not, before it waits for the pipeline', async () => {
