@@ -25,8 +25,8 @@ test('askMoreHistory: offers only more than is loaded, and leaves the record alo
   assert.equal(s.selects.length, 1);
   assert.match(s.selects[0].message, /Load more audit history\? 30 days are loaded now/);
   assert.deepEqual(s.selects[0].choices.map((c) => c.value), [0, 90, 180]);
-  // No tenant size set: the template's figures, labelled an estimate. A reload can take more than one run, so not "once".
-  assert.equal(s.selects[0].choices[2].description, 'Runs the pipeline with 180 days of history. Estimate: about 6 hours, over two runs. The scheduled runs carry on as usual after it.');
+  // No tenant size set: the notebook template's 8-hour windows, labelled an estimate. A reload can take more than one run, so not "once".
+  assert.equal(s.selects[0].choices[2].description, 'Runs the pipeline with 180 days of history. Estimate: 2 to 3 days, over three or four runs. You start each run after the first by hand, a day apart. The scheduled runs carry on as usual after it.');
   assert.equal(ctx.reloadHistoryDays, 90);
   assert.equal(config.history.days, 30, 'saved only once the reload has started');
 
@@ -35,7 +35,7 @@ test('askMoreHistory: offers only more than is loaded, and leaves the record alo
   l.config.history.days = 30;
   l.config.scale = 'large';
   await askMoreHistory(l.ctx);
-  assert.equal(large.selects[0].choices[1].description, 'Runs the pipeline with 90 days of history. Estimate: about 12 hours. The scheduled runs carry on as usual after it.');
+  assert.equal(large.selects[0].choices[1].description, 'Runs the pipeline with 90 days of history. Estimate: 5 to 6 days, over six or seven runs. You start each run after the first by hand, a day apart. The scheduled runs carry on as usual after it.');
 
   const keep = selectUi();
   const k = fakeCtx({ ui: keep.ui });
@@ -56,26 +56,26 @@ test('askMoreHistory: offers only more than is loaded, and leaves the record alo
 test('reloadLine and reloadDetail describe the reload for the plan summary', () => {
   assert.deepEqual(HISTORY_CHOICES.map((c) => c.value), [30, 90, 180]);
   assert.match(reloadLine(90), /90 days/);
-  assert.equal(reloadDetail(180, 'standard'), 'Estimate: 2 to 3 hours. The scheduled runs carry on as usual after it.');
-  assert.equal(reloadDetail(180), 'Estimate: about 6 hours, over two runs. The scheduled runs carry on as usual after it.');
+  assert.equal(reloadDetail(180, 'standard'), 'Estimate: 3 to 5 hours. The scheduled runs carry on as usual after it.');
+  assert.equal(reloadDetail(180), 'Estimate: 2 to 3 days, over three or four runs. You start each run after the first by hand, a day apart. The scheduled runs carry on as usual after it.');
 });
 
 test('historyChoices: each choice has its estimate for the target and tenant size, beside the question', () => {
   for (const ch of HISTORY_CHOICES) assert.doesNotMatch(ch.name, /minute|hour/, 'the time is in the estimate, not the name');
   assert.deepEqual(historyChoices('fabric', 'standard').map((c) => c.description), [
-    'Estimate for up to 10,000 people: about 25 minutes.',
-    'Estimate for up to 10,000 people: about an hour.',
+    'Estimate for up to 10,000 people: 1 to 2 hours.',
     'Estimate for up to 10,000 people: 2 to 3 hours.',
+    'Estimate for up to 10,000 people: 3 to 5 hours.',
   ]);
   assert.deepEqual(historyChoices('fabric', undefined).map((c) => c.description), [
-    'Estimate for an install with no tenant size set: about an hour.',
-    'Estimate for an install with no tenant size set: about 3 hours.',
-    'Estimate for an install with no tenant size set: about 6 hours, over two runs.',
+    'Estimate for an install with no tenant size set: 2 to 3 hours.',
+    'Estimate for an install with no tenant size set: 1 to 2 days, over two or three runs. You start each run after the first by hand, a day apart.',
+    'Estimate for an install with no tenant size set: 2 to 3 days, over three or four runs. You start each run after the first by hand, a day apart.',
   ]);
   assert.deepEqual(historyChoices('azure', 'large').map((c) => c.description), [
-    'Estimate for more than 10,000 people: 1 to 2 hours.',
-    'Estimate for more than 10,000 people: about 4 hours, in one or two runs.',
-    'Estimate for more than 10,000 people: about 8 hours, over two or three runs.',
+    'Estimate for more than 10,000 people: 2 to 4 hours, in one or two runs.',
+    'Estimate for more than 10,000 people: 1 to 2 days, over two or three runs.',
+    'Estimate for more than 10,000 people: 2 to 3 days, over three or four runs.',
   ]);
   assert.deepEqual(historyChoices('azure', undefined).map((c) => [c.value, c.name]), HISTORY_CHOICES.map((c) => [c.value, c.name]));
 });

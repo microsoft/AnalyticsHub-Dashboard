@@ -37,6 +37,9 @@ const DAY = 24 * HOUR;
 /** A run that started longer ago than this is stuck, not running, as when starting one. */
 const STUCK_MS = DAY;
 
+/** How long after a stop at the search limit a search can still be created, by a worker already creating one. */
+const QUOTA_SLACK = 10 * MINUTE;
+
 /** @param {unknown} v @returns {v is Record<string, any>} */
 const isObject = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
 
@@ -58,6 +61,9 @@ export function utcTime(v) {
   const t = Date.parse(/T[\d:.]+$/.test(s) ? `${s}Z` : s);
   return Number.isFinite(t) ? t : undefined;
 }
+
+/** A time to the minute, in UTC: "2026-06-01 09:30". @param {number} ms */
+const minute = (ms) => new Date(ms).toISOString().slice(0, 16).replace('T', ' ');
 
 const WINDOW_KEY = /^(?:v\d+_)?(\d{12})_(\d{12})$/;
 
@@ -122,6 +128,50 @@ export function fetchedWindows(entries) {
     out.push(typeof entry.rows === 'number' && entry.rows >= 0 ? { ...range, rows: entry.rows } : range);
   }
   return out.sort((a, b) => a.start - b.start || a.end - b.end);
+}
+
+/**
+ * When a load last stopped at the tenant's audit search limit, unless a later run has searched since. undefined
+ * when it didn't.
+ *
+ * Both collectors stamp a window they stop at the limit with throttled_at, and paused_at with the same time; a
+ * stop at the time budget stamps only paused_at, so a throttled_at left from before no longer matches it. Each
+ * stamp is its window's own time: windows that were waiting for a search slot are stamped minutes after the first,
+ * so the newest counts. Windows reached after the stop aren't stamped. A worker already creating a search when
+ * another reached the limit can still create its own, seconds later, so only a search created more than
+ * QUOTA_SLACK after the stop means a later run.
+ * @param {unknown} entries
+ * @returns {number | undefined}
+ */
+export function throttledAt(entries) {
+  if (!isObject(entries)) return undefined;
+  /** @type {number | undefined} */
+  let created;
+  /** @type {number | undefined} */
+  let stop;
+  for (const [, entry] of windowEntries(entries)) {
+    const made = utcTime(entry.query_created_at);
+    if (made !== undefined && (created === undefined || made > created)) created = made;
+    if (entry.status !== 'waiting') continue;
+    const at = utcTime(entry.throttled_at);
+    if (at === undefined || at !== utcTime(entry.paused_at)) continue;
+    if (stop === undefined || at > stop) stop = at;
+  }
+  if (stop === undefined || (created !== undefined && created > stop + QUOTA_SLACK)) return undefined;
+  return stop;
+}
+
+/**
+ * The stop at the search limit that `status` mentions: one within the last day, while the limit can still hold.
+ * @param {Progress | NoProgress} progress
+ * @param {number} now
+ * @returns {{ at: string, after: string } | undefined}  at: when it stopped. after: when a day has passed, to the
+ *   minute after it.
+ */
+function searchLimitStop(progress, now) {
+  const stop = progress.read ? throttledAt(progress.entries) : undefined;
+  if (stop === undefined || now >= stop + DAY) return undefined;
+  return { at: minute(stop), after: minute(Math.ceil((stop + DAY) / MINUTE) * MINUTE) };
 }
 
 /**
@@ -370,7 +420,12 @@ export async function fabricHistory(ctx, opts = {}) {
     ui.note(`The newest days load with the next scheduled run. Start one sooner with "${commandLine('run')}".`);
   } else {
     const again = commandLine(loaded ? `run --backfill-days ${days}` : 'run');
-    if (cov && cov.fetchedHours <= 0) ui.note(`To load it, run "${again}".`);
+    const limit = searchLimitStop(progress, now);
+    if (limit) {
+      const why = `The audit load stopped at ${limit.at} UTC because the tenant's audit search limit was reached.`;
+      if (cov && cov.fetchedHours <= 0) ui.note(`${why} Run "${again}" after ${limit.after} UTC to load it.`);
+      else ui.note(`${why} Run "${again}" after ${limit.after} UTC: it carries on from the windows already fetched.`);
+    } else if (cov && cov.fetchedHours <= 0) ui.note(`To load it, run "${again}".`);
     else ui.note(`To carry on, run "${again}". It reuses ${cov ? 'the' : 'any'} windows already fetched.`);
   }
 }
@@ -436,8 +491,13 @@ export async function azureHistory(ctx, opts = {}) {
   ui.info(`Fetched from the audit log: ${fetchedText(cov, days, from)}`);
   if (hwm === undefined) ui.info(`In the reports: ${cov.fetchedHours > 0 ? 'not all of it yet' : 'none of it yet'}`);
   if (pending) return;
+  const limit = cov.complete ? undefined : searchLimitStop(progress, now);
   if (running) ui.note('A run is going now. What it fetches reaches the reports if it finishes within its 4 hours.');
-  else if (cov.complete) ui.note(`The next run publishes it. Start one sooner with "${commandLine('run')}".`);
+  else if (limit) {
+    const next = cov.fetchedHours > 0 ? 'carries on where it stopped' : 'starts loading it';
+    ui.note(`The last run stopped at ${limit.at} UTC because the tenant's audit search limit was reached. ` +
+      `The next scheduled run ${next}, or start one after ${limit.after} UTC with "${commandLine('run')}".`);
+  } else if (cov.complete) ui.note(`The next run publishes it. Start one sooner with "${commandLine('run')}".`);
   else if (cov.fetchedHours > 0) ui.note(`The next scheduled run carries on where it stopped, or start one now with "${commandLine('run')}".`);
   else ui.note(`The next scheduled run starts loading it, or start one now with "${commandLine('run')}".`);
 }
