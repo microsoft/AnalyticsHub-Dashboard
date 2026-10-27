@@ -855,7 +855,8 @@ def test_overlapping_runs_count_as_published_only_what_was_merged_when_the_proce
     store.write_json(audit_collect.STATE, {"high_water_mark": HWM_1, "published": {}})
 
     def merged_meanwhile(st):
-        # There's no run lock yet: another run merges newer windows while this one processes.
+        # Runs can still overlap, when the run lock couldn't be checked or with a job image from before 0.6.9:
+        # another run merges newer windows while this one processes.
         st.write_json(audit_collect.STATE, dict(_state(st), high_water_mark=HWM_2))
 
     _fake_steps(monkeypatch, store, during_process=merged_meanwhile)
