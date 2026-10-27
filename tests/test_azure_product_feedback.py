@@ -329,12 +329,12 @@ def test_collect_wiring_and_publish_targets(tmp_path, monkeypatch):
         monkeypatch.setattr(mod, name, lambda *a, _n=name, **k: called.append(_n))
     store = LocalStore(tmp_path)
     jobs_main.collect(store, Settings(modules=frozenset({"core", "productFeedback"})), api=object())
-    assert called == ["collect_licensed", "collect_audit", "collect_product_feedback"]
+    assert called == ["collect_licensed", "collect_product_feedback", "collect_audit"]
     called.clear()
     jobs_main.collect(store, Settings(modules=frozenset({"core", "agent365", "productFeedback", "resourceGraph"})),
                       api=object())
-    assert called == ["collect_licensed", "collect_audit", "collect_agent365", "collect_product_feedback",
-                      "collect_resource_graph"]
+    assert called == ["collect_licensed", "collect_agent365", "collect_product_feedback", "collect_resource_graph",
+                      "collect_audit"]
 
     assert Settings.from_env({"VALUELENS_MODULES": "core,productFeedback"}).has("productFeedback")
     assert jobs_main.publish_targets(Settings(modules=frozenset({"core", "productFeedback"}))) == [

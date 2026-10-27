@@ -77,8 +77,10 @@ service's queue can add hours on a busy day.
 - **Fabric.** The scheduled runs load only the newest days, so they don't carry a first load on.
   When a load needs more than one run, start each run after the first with `run`, a day apart.
   `status` gives the command, and when a run can search again.
-- **Azure.** Each scheduled run carries the load on, and the run job runs daily unless you chose
-  weekly. On a weekly schedule, start the runs in between with `run`: otherwise each waits a week.
+- **Azure.** Each scheduled run carries the load on: it fetches for up to about 3 hours, newest
+  weeks first, then publishes what it has loaded, so the reports fill in after each run. The run job
+  runs daily unless you chose weekly. On a weekly schedule, start the runs in between with `run`:
+  otherwise each waits a week.
 
 What each target does when a run can't fetch it all is under
 [How long the first load takes](../installer/README.md#how-long-the-first-load-takes).

@@ -25,9 +25,11 @@
  *
  * On Fabric, the audit load stops at its time budget (90 minutes, or 300 for a large tenant) and the pipeline's two
  * retries carry on, so one run fetches for up to three budgets. The schedule loads only the newest days, so it
- * doesn't carry a first load or a reload on: each run after the first is started by hand. On Azure, a run stops at
- * 4 hours and no retry is counted on, so a load whose high end reaches 4 hours can take a second run, and the
- * scheduled runs carry a load on. The audit service's queue on a busy day isn't counted: it can add hours.
+ * doesn't carry a first load or a reload on: each run after the first is started by hand. On Azure, a run has
+ * 4 hours and keeps at least the last hour to process and publish, so it fetches for up to about 3 hours (less
+ * what the other collectors take first), then publishes what it has loaded; no retry is counted on. So a load
+ * whose high end reaches 4 hours can take a second run, and the scheduled runs carry a load on. The audit
+ * service's queue on a busy day isn't counted: it can add hours.
  */
 import { commandLine } from './launch.js';
 
@@ -213,11 +215,12 @@ export function firstLoadEstimate(days, scale, target = 'fabric', opts = {}) {
   const head = `Estimate for ${daysPhrase(days, est.days)} of history, ${BAND_LABELS[est.band]}: ${est.time}, ${runsPhrase(est.runs)}. ` +
     `The audit service's queue can add hours, and so can Microsoft throttling audit searches. ${limit}`;
   if (target === 'azure') {
+    const each = 'Each run fetches for up to about 3 hours, newest weeks first, then publishes what it has loaded, so the reports fill in after each run. ';
     if (over) {
-      return `${head}Each run gets up to 4 hours, and one cut off then publishes nothing. A run stopped at the search limit publishes what it has fetched. ` +
+      return `${head}${each}A run stopped at the search limit does the same. ` +
         `The next scheduled run carries on where it stopped. The estimate counts a run a day: on a weekly schedule, start the runs in between with "${commandLine('run')}". `;
     }
-    return `${head}Each run gets up to 4 hours. A run cut off then publishes nothing, so the reports show the new history once one run fetches everything left. ` +
+    return `${head}${each}` +
       `The next scheduled run carries on where it stopped, or start one sooner with "${commandLine('run')}". `;
   }
   const again = commandLine(opts.reload ? `run --backfill-days ${days}` : 'run');

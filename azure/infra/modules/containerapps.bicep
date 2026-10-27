@@ -117,10 +117,14 @@ var jobEnv = concat(commonEnv, [
   { name: 'VALUELENS_WORKDAY_OUTPUT_TABLE', value: workdayOutputTable }
   { name: 'VALUELENS_WORKDAY_ALLOW_BASE_OVERWRITE', value: workdayAllowBaseOverwrite ? 'true' : 'false' }
 ])
+// The run job's replica timeout. The job reads it too, to stop fetching audit history in time to publish
+// what it has loaded before Container Apps stops the replica (azure/DESIGN.md, audit collector).
+var runJobTimeoutSec = 14400
 // `process` caps DuckDB at 5 of the run job's 8 GiB: some DuckDB memory sits outside the cap, and its
 // default (80%) left under 1 GiB spare at 20,000 people. Change both together (azure/DESIGN.md, risks).
 var runJobEnv = concat(jobEnv, [
   { name: 'VALUELENS_DUCKDB_MEMORY_LIMIT', value: '5GiB' }
+  { name: 'VALUELENS_JOB_TIMEOUT_SEC', value: string(runJobTimeoutSec) }
 ])
 var registries = empty(registryServer) ? [] : [{ server: registryServer, identity: identityId }]
 var identity = {
@@ -139,7 +143,7 @@ resource runJob 'Microsoft.App/jobs@2024-03-01' = {
     configuration: {
       triggerType: 'Schedule'
       registries: registries
-      replicaTimeout: 14400
+      replicaTimeout: runJobTimeoutSec
       replicaRetryLimit: 1
       scheduleTriggerConfig: { cronExpression: runSchedule, parallelism: 1, replicaCompletionCount: 1 }
     }

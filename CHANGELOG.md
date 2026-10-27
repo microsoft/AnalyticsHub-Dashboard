@@ -65,12 +65,12 @@ the history question, and the installer says it again when the first load or a r
 what happens when a run can't fetch it all. On Fabric, the audit load stops at its time budget
 without writing anything, and the pipeline's retries carry on. It stops the same way at the search
 limit, where the retries stop too, and the scheduled runs don't carry a first load or a reload on:
-the estimate says to start each run after the first by hand, a day apart. On Azure, a run cut off
-at 4 hours publishes nothing, a run stopped at the search limit publishes what it has fetched, and
-the next run carries on. One rule replaces the others: keep the PC awake until the installer says
-setup is finished, then you can close the window. `status` now shows the days asked for, how much
-has been fetched from the audit log and what's in the reports, and, within a day of a stop at the
-search limit, when a run can search again. It reads the Fabric notebook's window
+the estimate says to start each run after the first by hand, a day apart. On Azure, each run
+publishes what it has loaded, also when it stops at the search limit, and the next run carries on.
+One rule replaces the others: keep the PC awake until the installer says setup is finished, then you
+can close the window. `status` now shows the days asked for, how much has been fetched from the
+audit log and what's in the reports, and, within a day of a stop at the search limit, when a run can
+search again. It reads the Fabric notebook's window
 manifest in the Lakehouse, or the Azure run job's state in its storage, with the access the
 installer already has. When it can't, for example on a private Azure install, it says why and lists
 the runs instead. A first load or reload that couldn't start, because admin consent or the Key
@@ -80,6 +80,33 @@ until a run with it starts. Earlier installers ignore the new record field. On A
 change** no longer says history is loaded because a run has started, even one that published
 nothing: *Load more audit history?* reads the run job's state, and where it can't, it says what was
 asked for.
+
+**Azure: a run that runs out of time publishes what it has loaded, newest weeks first, and the next
+run carries on.** On a large tenant the first load of the audit history can take longer than the
+run job's 4 hours. A run cut off there published nothing, so the reports stayed empty until one run
+fetched everything left, a day or more later on the daily schedule. A throttled audit fetch could
+also use the whole 4 hours, so the sources after it never ran and nothing was published. Now the
+run job collects the audit log last, after the other sources, newest weeks first, within a time
+budget counted from the run's start: its 4 hours less a reserve of an hour, or 1.5 times the last
+run's merge-to-publish time if that's longer. The budget is checked in every wait: each poll, page
+and retry, and a throttled request. At the budget no new window starts, and a window with a query
+under way keeps it: the next run polls that query again if it's under 26 hours old, and otherwise
+starts a new one. A stop at the budget isn't a failure: the run merges the windows it finished,
+publishes and refreshes, and logs how far back the history is loaded and how many windows are
+left. The next run carries on and merges only the windows it hasn't merged, and `status` shows how
+far back the reports go while the load is under way. It counts as in the reports only what a run
+has published: history a run has loaded but not published yet, while that run is still going or
+after it stopped before publishing, shows as loaded, with the run that publishes it. Months merged
+newest first can curate differently from one pass, so a load that took more than one run rebuilds
+every month once when it's complete. Org-scoped access applies once the first run publishes, while
+the history is still loading. The refresh step stops waiting 10 minutes before the run's limit, and
+a refresh still running then carries on in Power BI. When a run republishes days older than the
+incremental window, a full refresh is owed until a run sees one complete, so the next run does it
+if this one couldn't. [How long it takes](docs/PREREQUISITES.md#how-long-it-takes) and the
+installer's Azure estimate now say each run fetches for up to about 3 hours and publishes what it
+has loaded. The run job gets its time limit as `VALUELENS_JOB_TIMEOUT_SEC`, and assumes 4 hours
+without it. `VALUELENS_AUDIT_TIME_BUDGET_MIN` sets the audit fetch's budget instead, in minutes from
+the run's start.
 
 ### Changed
 

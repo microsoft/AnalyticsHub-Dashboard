@@ -519,7 +519,8 @@ def test_collect_order_and_publish_targets(tmp_path, monkeypatch):
         monkeypatch.setattr(mod, name, lambda *a, _n=name, **k: called.append(_n))
     store = LocalStore(tmp_path)
     jobs_main.collect(store, DEFAULT, api=object())
-    assert called == ["collect_licensed", "collect_audit", "collect_org", "collect_workday"]
+    # The audit history runs last, so a slow fetch never keeps the others from running.
+    assert called == ["collect_licensed", "collect_org", "collect_workday", "collect_audit"]
     called.clear()
     # It enriches the org data, so it runs only with the orgData module.
     jobs_main.collect(store, Settings(modules=frozenset({"core", "workday"})), api=object())
