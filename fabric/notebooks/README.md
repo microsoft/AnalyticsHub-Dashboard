@@ -130,6 +130,23 @@ the installer sets 120, or 270 for more than 10,000) caps the time spent on thos
 refreshes: when it runs out, the ingester leaves the rest to the next run and writes what it has.
 `0` means no limit. Set it below the pipeline activity's timeout.
 
+## Empty audit windows
+
+Before its first search the audit ingester reads the app's Graph token and stops with the fix if
+the token is for another tenant than `TENANT_ID`, or lacks the `AuditLogsQuery.Read.All`
+application permission. The per-service `AuditLogsQuery-*` permissions (Exchange, SharePoint and
+the like) don't cover Copilot interactions.
+
+The audit service can answer a search with no records and add them later, for example during a
+service incident. Windows in the trailing `LOOKBACK_DAYS` are queried again on every run. A window
+still empty when it leaves the look-back is queried once more if it ended in the last
+`EMPTY_RECHECK_DAYS` (default 30; `0` turns this off), oldest first and at most `EMPTY_RECHECK_MAX`
+(default 24) a run. Each one is an audit search, so lower the cap on a tenant near its daily
+search limit. If a run stops before writing (a throttled or failed window, `TIME_BUDGET_MIN`), the
+windows it queried once more stay flagged in `_manifest.json` (`recheck_pending`); the next run
+reuses what they fetched and writes it. A backfill only re-queries empty windows inside its own
+range. When every window in a run comes back empty, the run says what to check.
+
 ## People show as IDs
 
 If licensed users show as 32-character IDs, Microsoft 365 reports are concealing names. In the

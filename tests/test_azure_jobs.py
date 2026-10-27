@@ -331,6 +331,123 @@ def test_audit_throttling_halves_concurrency(tmp_path):
     assert api.on_throttle is None
 
 
+def _seed_empty_window(store, ws, we, completed=None):
+    key = audit_collect.audit.stable_window_key(ws, we)
+    state = store.read_json(audit_collect.STATE, {}) or {}
+    state.setdefault("windows", {})[key] = {
+        "status": "succeeded", "window_start": ws.isoformat(), "window_end": we.isoformat(), "rows": 0,
+        "pages": 0, "files": [], "completed_at": (completed or we + timedelta(hours=1)).isoformat()}
+    store.write_json(audit_collect.STATE, state)
+    return key
+
+
+def test_audit_empty_window_is_queried_once_more_after_it_leaves_the_look_back(tmp_path):
+    old = (NOW - timedelta(days=3), NOW - timedelta(days=3) + timedelta(hours=8))
+    fake = AuditGraph([_record(1, old[0] + timedelta(hours=1)), _record(2, NOW - timedelta(hours=3))])
+    api, _ = make_api(fake)
+    store = LocalStore(tmp_path)
+    key = _seed_empty_window(store, *old)
+    assert audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None)["rows"] == 2
+    assert fake.created.count(old) == 1
+    assert store.read_json(audit_collect.STATE)["windows"][key]["rows"] == 1
+    # It has records now, so it isn't queried again.
+    before = len(fake.created)
+    audit_collect.collect_audit(api, store, settings(), now=NOW + timedelta(minutes=5), sleep=lambda x: None)
+    assert old not in fake.created[before:]
+
+
+def test_audit_empty_rechecks_are_capped_and_the_rest_kept_for_later(tmp_path):
+    olds = [(NOW - timedelta(days=d), NOW - timedelta(days=d) + timedelta(hours=8)) for d in (4, 3)]
+    fake = AuditGraph([])
+    api, _ = make_api(fake)
+    store = LocalStore(tmp_path)
+    keys = [_seed_empty_window(store, *w) for w in olds]
+    audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None, empty_recheck_max=1)
+    assert fake.created.count(olds[0]) == 1 and olds[1] not in fake.created
+    windows = store.read_json(audit_collect.STATE)["windows"]
+    assert keys[1] in windows  # due later, so prune keeps it
+    before = len(fake.created)
+    audit_collect.collect_audit(api, store, settings(), now=NOW + timedelta(minutes=5), sleep=lambda x: None,
+                                empty_recheck_max=1)
+    assert fake.created[before:].count(olds[1]) == 1 and olds[0] not in fake.created[before:]
+
+
+def test_audit_recheck_that_is_not_merged_is_merged_by_the_next_run(tmp_path, monkeypatch):
+    old = (NOW - timedelta(days=3), NOW - timedelta(days=3) + timedelta(hours=8))
+    fake = AuditGraph([_record(1, old[0] + timedelta(hours=1))])
+    api, _ = make_api(fake)
+    store = LocalStore(tmp_path)
+    key = _seed_empty_window(store, *old)
+    real_merge = audit_collect.AuditCollector.merge
+
+    def broken_merge(self, keys, advance_high_water=True):
+        raise OSError("storage unavailable")
+
+    monkeypatch.setattr(audit_collect.AuditCollector, "merge", broken_merge)
+    with pytest.raises(OSError):
+        audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None)
+    assert store.read_json(audit_collect.STATE)["windows"][key][audit_collect.audit.RECHECK_PENDING] is True
+    monkeypatch.setattr(audit_collect.AuditCollector, "merge", real_merge)
+    before = len(fake.created)
+    result = audit_collect.collect_audit(api, store, settings(), now=NOW + timedelta(minutes=5), sleep=lambda x: None)
+    assert old not in fake.created[before:]  # reused, not queried again
+    assert result["rows"] == 1
+    entry = store.read_json(audit_collect.STATE)["windows"][key]
+    assert entry["rows"] == 1 and audit_collect.audit.RECHECK_PENDING not in entry
+
+
+def test_audit_settled_or_old_empty_windows_are_not_queried_again(tmp_path):
+    settled = (NOW - timedelta(days=5), NOW - timedelta(days=5) + timedelta(hours=8))
+    too_old = (NOW - timedelta(days=40), NOW - timedelta(days=40) + timedelta(hours=8))
+    fake = AuditGraph([])
+    api, _ = make_api(fake)
+    store = LocalStore(tmp_path)
+    _seed_empty_window(store, *settled, completed=settled[1] + timedelta(days=2))
+    _seed_empty_window(store, *too_old)
+    audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None)
+    assert settled not in fake.created and too_old not in fake.created
+
+
+def test_audit_run_with_every_window_empty_logs_what_to_check(tmp_path, caplog):
+    api, _ = make_api(AuditGraph([]))
+    with caplog.at_level("WARNING", logger="valuelens_jobs.collect.audit"):
+        assert audit_collect.collect_audit(api, LocalStore(tmp_path), settings(), now=NOW,
+                                           sleep=lambda x: None)["rows"] == 0
+    assert "none had Copilot interaction records" in caplog.text
+    assert "AuditLogsQuery.Read.All" in caplog.text and "Purview" in caplog.text
+
+
+def test_audit_run_with_records_logs_no_empty_warning(tmp_path, caplog):
+    api, _ = make_api(AuditGraph([_record(1, NOW - timedelta(hours=3))]))
+    with caplog.at_level("WARNING", logger="valuelens_jobs.collect.audit"):
+        audit_collect.collect_audit(api, LocalStore(tmp_path), settings(), now=NOW, sleep=lambda x: None)
+    assert "none had Copilot interaction records" not in caplog.text
+
+
+def _jwt(claims):
+    import base64
+
+    body = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+    return f"eyJhbGciOiJub25lIn0.{body}.sig"
+
+
+def test_audit_warns_when_the_token_lacks_the_audit_role(tmp_path, caplog):
+    api, _ = make_api(AuditGraph([]))
+    api.tokens.get = lambda scope, force=False: _jwt({"tid": "t", "roles": ["AuditLogsQuery-Exchange.Read.All"]})
+    with caplog.at_level("WARNING", logger="valuelens_jobs.collect.audit"):
+        audit_collect.collect_audit(api, LocalStore(tmp_path), settings(), now=NOW, sleep=lambda x: None)
+    assert "AuditLogsQuery-Exchange.Read.All but not AuditLogsQuery.Read.All" in caplog.text
+    assert "re-run the installer" in caplog.text
+
+
+def test_audit_token_with_the_role_gives_no_warning(tmp_path, caplog):
+    api, _ = make_api(AuditGraph([_record(1, NOW - timedelta(hours=3))]))
+    api.tokens.get = lambda scope, force=False: _jwt({"tid": "t", "roles": ["AuditLogsQuery.Read.All"]})
+    with caplog.at_level("WARNING", logger="valuelens_jobs.collect.audit"):
+        audit_collect.collect_audit(api, LocalStore(tmp_path), settings(), now=NOW, sleep=lambda x: None)
+    assert "AuditLogsQuery" not in caplog.text
+
+
 def test_api_returns_a_429_at_once_when_its_retry_after_is_beyond_give_up_after():
     seq = [Resp(429, {}, headers={"Retry-After": "3600"}), Resp(200, {"ok": 1})]
     api, session = make_api(lambda m, u, kw: seq.pop(0))

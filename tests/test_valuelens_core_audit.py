@@ -39,8 +39,10 @@ def test_build_windows_cover_range_without_gaps():
 
 RECOVERY_HELPERS = (
     "split_window", "expand_split_windows", "retry_delay", "AdaptiveLimiter",
-    "_manifest_range", "uncovered_failed_ranges",
+    "_manifest_range", "uncovered_failed_ranges", "empty_recheck_windows",
+    "pending_recheck_windows",
 )
+TOKEN_HELPERS = ("token_claims", "audit_token_problems")
 
 
 def test_recovery_helpers_are_verbatim_in_notebook_cell6():
@@ -52,6 +54,86 @@ def test_recovery_helpers_are_verbatim_in_notebook_cell6():
     for name in RECOVERY_HELPERS:
         assert name in nodes, f"{name} missing from notebook cell 6"
         assert ast.get_source_segment(source, nodes[name]) == inspect.getsource(getattr(audit, name)).rstrip(), name
+    assert f"RECHECK_PENDING = {audit.RECHECK_PENDING!r}" in source
+
+
+def test_token_helpers_are_verbatim_in_notebook_cell4():
+    import ast
+    import inspect
+
+    source = "".join(ag._cells()[4]["source"])
+    nodes = {n.name: n for n in ast.parse(source).body if isinstance(n, ast.FunctionDef)}
+    for name in TOKEN_HELPERS:
+        assert name in nodes, f"{name} missing from notebook cell 4"
+        assert ast.get_source_segment(source, nodes[name]) == inspect.getsource(getattr(audit, name)).rstrip(), name
+    assert f"AUDIT_ROLE = {audit.AUDIT_ROLE!r}" in source
+
+
+def _jwt(claims):
+    import base64
+
+    body = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+    return f"eyJhbGciOiJub25lIn0.{body}.sig"
+
+
+TENANT = "11111111-2222-3333-4444-555555555555"
+
+
+def test_audit_token_problems():
+    good = _jwt({"tid": TENANT, "roles": ["AuditLogsQuery.Read.All", "User.Read.All"]})
+    assert audit.audit_token_problems(good, TENANT) == []
+    assert audit.audit_token_problems(good, TENANT.upper()) == []
+    # A tenant given by domain name can't be compared, so only the role is checked.
+    assert audit.audit_token_problems(good, "contoso.onmicrosoft.com") == []
+    other = audit.audit_token_problems(_jwt({"tid": "99999999-2222-3333-4444-555555555555",
+                                             "roles": ["AuditLogsQuery.Read.All"]}), TENANT)
+    assert len(other) == 1 and "not TENANT_ID" in other[0]
+    none = audit.audit_token_problems(_jwt({"tid": TENANT, "roles": ["User.Read.All"]}), TENANT)
+    assert none == ["the token has no AuditLogsQuery.Read.All application permission"]
+    scoped = audit.audit_token_problems(_jwt({"tid": TENANT, "roles": ["AuditLogsQuery-SharePoint.Read.All",
+                                                                       "AuditLogsQuery-Exchange.Read.All"]}))
+    assert len(scoped) == 1 and "AuditLogsQuery-Exchange.Read.All, AuditLogsQuery-SharePoint.Read.All" in scoped[0]
+    assert "not Copilot interactions" in scoped[0]
+    # Tokens that can't be decoded are not flagged.
+    for token in (None, "", "opaque", "a.!!!.c", _jwt(["not", "a", "dict"])):
+        assert audit.audit_token_problems(token, TENANT) == []
+
+
+def _empty(ws, we, completed=None, **extra):
+    entry = {"status": "succeeded", "window_start": ws.isoformat(), "window_end": we.isoformat(), "rows": 0,
+             "pages": 0, "files": [], "completed_at": (completed or we + timedelta(hours=1)).isoformat()}
+    entry.update(extra)
+    return {audit.stable_window_key(ws, we): entry}
+
+
+def test_empty_recheck_windows():
+    now = datetime(2026, 9, 10, tzinfo=timezone.utc)
+    cutoff = now - timedelta(days=7)
+    h8 = timedelta(hours=8)
+    due = datetime(2026, 8, 25, tzinfo=timezone.utc)
+    manifest = {}
+    manifest.update(_empty(due, due + h8))
+    manifest.update(_empty(due - h8, due))
+    # Still in the look-back, so the trailing re-query covers it.
+    recent = cutoff + timedelta(hours=1)
+    manifest.update(_empty(recent, recent + h8))
+    # Older than recheck_days.
+    old = now - timedelta(days=31)
+    manifest.update(_empty(old, old + h8))
+    # Fetched again well after it ended: settled.
+    settled = datetime(2026, 8, 20, tzinfo=timezone.utc)
+    manifest.update(_empty(settled, settled + h8, completed=settled + h8 + timedelta(days=8)))
+    # Has records, failed, or not succeeded.
+    had = datetime(2026, 8, 21, tzinfo=timezone.utc)
+    manifest.update(_empty(had, had + h8, rows=3, pages=1, files=["x"]))
+    manifest.update(_empty(had + h8, had + 2 * h8, status="failed"))
+    assert audit.empty_recheck_windows(manifest, now, cutoff, 30, 7) == [(due - h8, due), (due, due + h8)]
+    assert audit.empty_recheck_windows(manifest, now, cutoff, 0, 7) == []
+    # A later fetch of the same hours (here two 4 h halves) supersedes the empty window.
+    later = due + h8 + timedelta(days=9)
+    manifest.update(_empty(due, due + timedelta(hours=4), completed=later))
+    manifest.update(_empty(due + timedelta(hours=4), due + h8, completed=later))
+    assert audit.empty_recheck_windows(manifest, now, cutoff, 30, 7) == [(due - h8, due)]
 
 
 def test_split_window_halves_down_to_minimum():
@@ -149,3 +231,15 @@ def test_golden_is_current_with_notebook():
     pytest.importorskip("pyspark")
     problems = vg.diff(ag.read_expected(), ag.run_spark(vg.spark_session()))
     assert not problems, "\n".join(problems)
+
+
+def test_pending_rechecks_are_listed_and_not_gaps():
+    h8 = timedelta(hours=8)
+    ws = datetime(2026, 8, 25, tzinfo=timezone.utc)
+    manifest = {}
+    manifest.update(_empty(ws, ws + h8, status="failed", recheck_pending=True))
+    manifest.update(_empty(ws + h8, ws + 2 * h8, status="failed"))
+    manifest.update(_empty(ws + 2 * h8, ws + 3 * h8))
+    assert audit.pending_recheck_windows(manifest) == [(ws, ws + h8)]
+    assert audit.pending_recheck_windows({}) == []
+    assert audit.uncovered_failed_ranges(manifest, ws - h8, ws + 4 * h8) == [(ws + h8, ws + 2 * h8)]
