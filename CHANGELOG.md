@@ -44,7 +44,7 @@ the product. Users the report marks as deleted are never counted.
   page, and a chart no longer holds the page wider than the window after a resize.
 - **Fewer words.** Each page opens with one sentence. Method notes are closed until you open them,
   "How grading works" moves to the Appendix, and the licence, audience and agent filters fold into
-  **More filters**.
+    **More filters** beside the dates and org.
 - **Plainer errors.** Each error opens with one plain sentence. When several parts of a page fail
   for the same reason, only the first explains; the technical detail sits behind **Details** and
   setup steps for admins behind **For your admin**.
