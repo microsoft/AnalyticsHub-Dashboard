@@ -119,6 +119,17 @@ ones, finishes the searches it already started, writes nothing and fails with a 
 The next run carries on the same way as after a time budget. A window whose search reaches the
 service's record cap is split rather than kept incomplete.
 
+The installer does this when you choose **More than 10,000** people, which it chooses for a new
+install with more than 10,000 Copilot seats assigned. It also gives the loads and the model refresh
+longer time limits. For a smaller tenant it uses 24h windows, which need fewer queries each day.
+
+The Agent 365 registry ingester refreshes each agent's detail on its own day of the week (a hash of
+the agent ID picks it), so a daily run refreshes about a seventh of the agents, not all of them on
+one day. New and changed agents are always fetched first. `TIME_BUDGET_MIN` (default 75 minutes;
+the installer sets 120, or 270 for more than 10,000) caps the time spent on those scheduled
+refreshes: when it runs out, the ingester leaves the rest to the next run and writes what it has.
+`0` means no limit. Set it below the pipeline activity's timeout.
+
 ## Empty audit windows
 
 Before its first search the audit ingester reads the app's Graph token and stops with the fix if
@@ -135,17 +146,6 @@ search limit. If a run stops before writing (a throttled or failed window, `TIME
 windows it queried once more stay flagged in `_manifest.json` (`recheck_pending`); the next run
 reuses what they fetched and writes it. A backfill only re-queries empty windows inside its own
 range. When every window in a run comes back empty, the run says what to check.
-
-The installer does this when you choose **More than 10,000** people, which it chooses for a new
-install with more than 10,000 Copilot seats assigned. It also gives the loads and the model refresh
-longer time limits. For a smaller tenant it uses 24h windows, which need fewer queries each day.
-
-The Agent 365 registry ingester refreshes each agent's detail on its own day of the week (a hash of
-the agent ID picks it), so a daily run refreshes about a seventh of the agents, not all of them on
-one day. New and changed agents are always fetched first. `TIME_BUDGET_MIN` (default 75 minutes;
-the installer sets 120, or 270 for more than 10,000) caps the time spent on those scheduled
-refreshes: when it runs out, the ingester leaves the rest to the next run and writes what it has.
-`0` means no limit. Set it below the pipeline activity's timeout.
 
 ## People show as IDs
 

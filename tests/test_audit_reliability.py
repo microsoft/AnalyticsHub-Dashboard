@@ -1612,9 +1612,17 @@ class EmptyWindowRecheckTests(unittest.TestCase):
         inside, recheck = helpers["plan_empty_rechecks"]([self.OLD] + self.PLAN)
         self.assertEqual(recheck, {helpers["stable_window_key"](*self.OLD)})
 
+    def test_backfill_replace_adds_no_older_windows(self):
+        helpers, _ = self.run_helpers(lambda *a: "succeeded", WRITE_MODE="replace")
+        self.seed_empty(helpers, self.OLD)
+        self.assertEqual(helpers["plan_empty_rechecks"](self.PLAN), (self.PLAN, set()))
+        inside, recheck = helpers["plan_empty_rechecks"]([self.OLD] + self.PLAN)
+        self.assertEqual(recheck, {helpers["stable_window_key"](*self.OLD)})
+
     def test_flags_are_cleared_after_the_write(self):
-        source = cells(INGESTER)[20]
-        self.assertIn("write_strategy = write_output(flat)\nclear_recheck_pending()", source)
+        writes = [c for c in cells(INGESTER) if "write_strategy = write_output(flat)" in c]
+        self.assertEqual(len(writes), 1)
+        self.assertIn("write_strategy = write_output(flat)\nclear_recheck_pending()", writes[0])
 
     def test_every_window_empty_prints_what_to_check(self):
         helpers, _ = self.run_helpers(lambda *a: "succeeded", _request=lambda *a, **k: FakeResponse({"value": []}))
