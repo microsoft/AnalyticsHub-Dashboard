@@ -27,8 +27,8 @@ export const evaluatorConnection = "ae";
 export const FORMAT_WHOLE = "#,0";
 /** Share of a population, returned by the model as a fraction. */
 export const FORMAT_PERCENT = "0.0%";
-/** Rates such as sessions per user per week. */
-export const FORMAT_RATE = "0.00";
+/** Rates such as sessions per user per week: a tenth is as fine as anyone reads them. */
+export const FORMAT_RATE = "0.0";
 /** Hours, which are meaningful to one decimal place. */
 export const FORMAT_HOURS = "#,0.0";
 /** Billed amounts, to the cent. */

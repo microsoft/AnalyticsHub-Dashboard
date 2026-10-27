@@ -387,7 +387,7 @@ export function TimePerTaskStage() {
         <Section
             id={stageAnchor("time-per-task")}
             title="Time per task"
-            description="How long each task would take someone without Copilot. Every hours and value figure in the app is worked out from these minutes."
+            description="How long each task would take without Copilot, the minutes every hours and value figure starts from."
             actions={rows && rows.length > 0 ? toolbar : undefined}
         >
             <p className={cn(BODY, "max-w-[85ch] text-muted-foreground")}>

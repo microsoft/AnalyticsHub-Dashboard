@@ -567,6 +567,7 @@ export function AgentRegistryStage() {
                 ) : (
                     <Headlined text={usageHeadline}>
                         <VegaVisual
+                            label="Most-used agents"
                             spec={usage.vegaLiteSpec}
                             data={usageTable}
                             theme={theme}

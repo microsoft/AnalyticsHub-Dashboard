@@ -7,7 +7,7 @@
 
 import { useRef, type KeyboardEvent } from "react";
 import { cn } from "@/lib/utils";
-import type { StageId } from "./destinations";
+import { STAGE_PANEL_ID, stageTabId, type StageId } from "./destinations";
 
 interface StageTabsProps {
     /** Names the tab list for assistive technology, e.g. "Adoption stages". */
@@ -26,7 +26,7 @@ const KEYS: Record<string, (index: number, count: number) => number> = {
 
 /**
  * A page's stages as tabs. A page shows one stage at a time, so it only
- * queries what is open; the sidebar lists the same stages.
+ * queries what is open. The open stage's content is the tab panel `STAGE_PANEL_ID`.
  */
 export function StageTabs({ label, stages, open, onOpen }: StageTabsProps) {
     const refs = useRef<(HTMLButtonElement | null)[]>([]);
@@ -52,6 +52,8 @@ export function StageTabs({ label, stages, open, onOpen }: StageTabsProps) {
                         }}
                         type="button"
                         role="tab"
+                        id={stageTabId(stage.id)}
+                        aria-controls={selected ? STAGE_PANEL_ID : undefined}
                         aria-selected={selected}
                         tabIndex={selected ? 0 : -1}
                         onClick={() => onOpen(stage.id)}

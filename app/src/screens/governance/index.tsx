@@ -7,7 +7,7 @@
 
 import { useStageFilter } from "@/hooks/stage-filter.context";
 import { stageAnchor } from "@/components/destinations";
-import { ModelUpdateRequired, QueryEmpty, QueryLoading } from "@/components/query-states";
+import { AdminSteps, ModelUpdateRequired, QueryEmpty, QueryLoading } from "@/components/query-states";
 import { Section } from "@/components/section";
 import { useSourceAvailability } from "@/hooks/source-availability.context";
 import { useModelRequirementState } from "@/hooks/use-model-requirements";
@@ -95,9 +95,16 @@ function ConnectRegistry({ configured }: { configured: boolean }) {
             <QueryEmpty
                 title={configured ? "Connect the Agent 365 registry" : "Agent 365 registry isn't turned on"}
                 description={
-                    configured
-                        ? "Governance reads the Agent 365 registry, and the model has no registry data yet. Run the installer again with Agent 365 registry ticked (or run the registry ingester), let the next load finish, then reopen the app."
-                        : "Run the installer again and tick Agent 365 registry. You can connect the API or upload the Microsoft 365 admin center Agents export; Governance fills in after the next load and model refresh."
+                    <>
+                        <p>Governance comes from the Agent 365 registry, which isn't connected yet.</p>
+                        <AdminSteps>
+                            <p>
+                                {configured
+                                    ? "Governance reads the Agent 365 registry, and the model has no registry data yet. Run the installer again with Agent 365 registry ticked (or run the registry ingester), let the next load finish, then reopen the app."
+                                    : "Run the installer again and tick Agent 365 registry. You can connect the API or upload the Microsoft 365 admin center Agents export; Governance fills in after the next load and model refresh."}
+                            </p>
+                        </AdminSteps>
+                    </>
                 }
             />
         </Section>

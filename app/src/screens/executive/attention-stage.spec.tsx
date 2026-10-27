@@ -124,14 +124,14 @@ describe("What needs attention", () => {
 
     it("opens the page behind each decision at the right stage", () => {
         const navigate = renderStage();
-        fireEvent.click(within(items()[2]).getByRole("button", { name: /Open Readiness/ }));
+        fireEvent.click(within(items()[2]).getByRole("link", { name: /Open Readiness/ }));
         expect(navigate).toHaveBeenCalledWith("readiness", "license-readiness");
     });
 
     it("leaves the links out when there's no app shell to open them in", () => {
         renderStage(null);
         expect(items()).toHaveLength(3);
-        expect(screen.queryByRole("button", { name: /Open / })).toBeNull();
+        expect(screen.queryByRole("link", { name: /Open / })).toBeNull();
     });
 
     it("says what the figures rest on", () => {

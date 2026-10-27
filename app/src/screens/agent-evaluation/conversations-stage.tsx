@@ -122,7 +122,7 @@ export function ConversationsStage({ extra }: { extra: readonly string[] }) {
         <Section
             id={stageAnchor("agent-conversations")}
             title="Conversations & topics"
-            description="What people asked about, where agents found answers, and what people wrote back. Never the conversations themselves."
+            description="What people asked about, where agents found answers, and what people wrote back, never the conversations themselves."
         >
             <NotFilteredHint from={[summary.notFilteredBy]} />
             <KpiRowState

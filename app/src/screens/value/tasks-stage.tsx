@@ -197,6 +197,7 @@ export function TasksStage() {
                     ) : (
                         <Headlined text={breakdownHeadline}>
                             <VegaVisual
+                                label={breakdown.title}
                                 spec={breakdown.vegaLiteSpec}
                                 data={top.table}
                                 theme={theme}

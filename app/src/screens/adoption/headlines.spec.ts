@@ -27,14 +27,14 @@ describe("perUserHeadline", () => {
     it("compares the highest and lowest weekly averages without claiming a cause", () => {
         const text = perUserHeadline(plenty)(trend);
         expect(text).toBe(
-            "Sessions per user are highest for licensed chat, at 3.20 a week against 1.40 for unlicensed chat. A comparison, not a cause.",
+            "Sessions per user are highest for licensed chat, at 3.2 a week against 1.4 for unlicensed chat. A comparison, not a cause.",
         );
         expect(text).not.toMatch(CAUSAL_WORDS);
     });
 
     it("leaves out a surface used by too few people", () => {
         expect(perUserHeadline({ ...plenty, Licensed: 3 })(trend)).toBe(
-            "Sessions per user are highest for agents, at 2.10 a week against 1.40 for unlicensed chat. A comparison, not a cause.",
+            "Sessions per user are highest for agents, at 2.1 a week against 1.4 for unlicensed chat. A comparison, not a cause.",
         );
     });
 

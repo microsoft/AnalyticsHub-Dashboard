@@ -153,7 +153,7 @@ export function AttentionStage({ data }: { data: ExecutiveData }) {
         <Section
             id={stageAnchor("what-needs-attention")}
             title="What needs attention"
-            description="Decisions the data points to, the most people or hours affected first. Each comes from a fixed rule, so the same data always gives the same list."
+            description="Decisions the data points to, the most people or hours affected first."
         >
             <FilterNote
                 ignored={ESTATE_IGNORES}

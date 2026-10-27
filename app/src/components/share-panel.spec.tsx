@@ -48,16 +48,18 @@ describe("SharePanel", () => {
         runtime.access = { groupId: "group-1", groupName: "Analytics Hub Viewers", contact: "admin@example.com" };
     });
 
-    it("copies the app link", async () => {
+    it("on Azure, copies a link to the view on screen", async () => {
         const writeText = vi.fn().mockResolvedValue(undefined);
         Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
         api.loadAccess.mockResolvedValue({ group: { id: "group-1", name: "Analytics Hub Viewers" }, canManage: false });
+        window.history.replaceState(null, "", "/?host=teams#/value/estimated-value?licence=licensed");
         openPanel();
 
-        fireEvent.click(screen.getByRole("button", { name: "Copy app link" }));
+        fireEvent.click(screen.getByRole("button", { name: "Copy link to this view" }));
 
         expect(await screen.findByRole("button", { name: "Link copied" })).toBeInTheDocument();
-        expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/`);
+        expect(writeText).toHaveBeenCalledWith(`${window.location.origin}/#/value/estimated-value?licence=licensed`);
+        window.history.replaceState(null, "", "/");
     });
 
     it("points Fabric users to My Groups", () => {

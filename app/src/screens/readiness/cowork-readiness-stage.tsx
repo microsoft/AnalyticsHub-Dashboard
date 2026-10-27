@@ -83,7 +83,7 @@ export function CoworkReadinessStage() {
         <Section
             id={stageAnchor("cowork-readiness")}
             title="Cowork readiness"
-            description="Who to offer Cowork next. Everyone here uses Copilot but has not tried Cowork; the broader and deeper their everyday use, the readier they are."
+            description="Copilot users who haven't tried Cowork yet, the broadest and deepest everyday users first."
         >
             {summary.data?.status === "error" ? (
                 <QueryError message={summary.data.error.message} onRetry={summary.refetch} />
@@ -173,6 +173,7 @@ function CoworkReadinessByOrg() {
             ) : (
                 <Headlined text={byOrgHeadline}>
                     <VegaVisual
+                        label={`Breadth of use by ${org.noun}`}
                         spec={byOrg.vegaLiteSpec}
                         data={top.table}
                         theme={theme}

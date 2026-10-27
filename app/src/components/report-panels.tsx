@@ -6,7 +6,7 @@
 //-----------------------------------------------------------------------
 
 import { useEffect, useId, useMemo, useRef, useState, type ComponentProps, type ReactNode, type RefObject } from "react";
-import { Copy, Download } from "lucide-react";
+import { ChevronRight, Copy, Download } from "lucide-react";
 import { DataGrid, type GridColumnDef, type Row } from "@microsoft/fabric-datagrid";
 import { VegaVisual, type VegaVisualHandle, type VisualizationSpec } from "@/components/vega-visual";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
@@ -112,7 +112,7 @@ export function ChartPanel({ spec, title, subtitle, capabilities, headline, head
             {(table) => (
                 <Headlined text={text}>
                     <ChartFrame title={title} subtitle={subtitle} table={table}>
-                        {(visual) => <VegaVisual ref={visual} spec={spec} data={table} theme={theme} capabilities={capabilities} />}
+                        {(visual) => <VegaVisual ref={visual} label={title} spec={spec} data={table} theme={theme} capabilities={capabilities} />}
                     </ChartFrame>
                 </Headlined>
             )}
@@ -215,28 +215,41 @@ export interface Note {
     text: string | undefined;
 }
 
-/** The report's side cards — rates, dates, caveats — gathered into one card in the model's own words. */
+/**
+ * The report's side cards — rates, dates, caveats — gathered into one card in the model's own words.
+ * Closed until someone asks, so the figures lead; an export only carries the card while it is open.
+ */
 export function NoteCard({ title, notes, children }: { title: string; notes: readonly Note[]; children?: ReactNode }) {
     const headingId = useId();
+    const [open, setOpen] = useState(false);
     const shown = notes.filter((note): note is { term: string; text: string } => Boolean(note.text));
     if (shown.length === 0 && !children) return null;
     return (
-        <article aria-labelledby={headingId} className="flex flex-col rounded-xl border border-border bg-card" data-export="">
-            <h3
-                id={headingId}
-                className="border-b border-border px-500 py-300 text-[length:var(--text-300)] leading-300 font-semibold text-foreground"
-            >
-                {title}
-            </h3>
-            <dl className="flex flex-col divide-y divide-border px-500">
-                {shown.map((note) => (
-                    <div key={note.term} className="flex flex-col gap-100 py-300">
-                        <dt className={`${SMALL} font-semibold text-foreground`}>{note.term}</dt>
-                        <dd className={`${SMALL} max-w-[68ch] whitespace-pre-line text-muted-foreground`}>{note.text}</dd>
-                    </div>
-                ))}
-            </dl>
-            {children}
+        <article
+            aria-labelledby={headingId}
+            className="rounded-xl border border-border bg-card"
+            data-export={open ? "" : undefined}
+        >
+            <details className="group" onToggle={(event) => setOpen(event.currentTarget.open)}>
+                <summary className="flex cursor-pointer list-none items-center gap-200 rounded-xl px-500 py-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring [&::-webkit-details-marker]:hidden">
+                    <ChevronRight
+                        className="icon-size-200 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
+                        aria-hidden="true"
+                    />
+                    <h3 id={headingId} className="text-[length:var(--text-300)] leading-300 font-semibold text-foreground">
+                        {title}
+                    </h3>
+                </summary>
+                <dl className="flex flex-col divide-y divide-border border-t border-border px-500">
+                    {shown.map((note) => (
+                        <div key={note.term} className="flex flex-col gap-100 py-300">
+                            <dt className={`${SMALL} font-semibold text-foreground`}>{note.term}</dt>
+                            <dd className={`${SMALL} max-w-[68ch] whitespace-pre-line text-muted-foreground`}>{note.text}</dd>
+                        </div>
+                    ))}
+                </dl>
+                {children}
+            </details>
         </article>
     );
 }
