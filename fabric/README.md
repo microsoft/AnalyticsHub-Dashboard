@@ -50,8 +50,8 @@ you're responsible for the data once it's in your workspace.
    done.
 4. Choose **Set up Analytics Hub** and sign in with your work account.
 5. Answer the questions. Under **Data sources**, choose the data you want: each source has a
-   card. Then **Change the advanced settings?** **No** takes the defaults, which suit most
-   organisations: see [Advanced settings](../installer/README.md#advanced-settings). **Back** takes
+   card. Then **Change the advanced settings?** **No** keeps what you chose last time, or takes the
+   defaults: see [Advanced settings](../installer/README.md#advanced-settings). **Back** takes
    you to the previous question, with your answer filled in.
 6. Check the plan and approve it. Nothing is created until you do.
 7. Wait for it to finish. It sets everything up, loads the first data and gives you a link to the

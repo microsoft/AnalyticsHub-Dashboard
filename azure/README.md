@@ -21,7 +21,7 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
    `npm install` (see [Without the exe](../docs/INSTALL.md#without-the-exe)). To check a
    download, see [Check the download](../docs/INSTALL.md#check-the-download).
 2. Pick **Your Azure subscription** and tick the data to collect. **Change the advanced settings?**
-   **No** takes the defaults that suit most organisations: see
+   **No** keeps what you chose last time, or takes the defaults: see
    [Advanced settings](../installer/README.md#advanced-settings). With **Yes** you can also
    choose which data the dashboard shows:
    - **Your tenant's data** (the default) collects from the audit log and Microsoft Graph.
@@ -29,7 +29,10 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
      last week. It's handy for a demo or to try Analytics Hub before the Graph permissions are granted. Run
      the installer again, choose **Repair or change**, then **Yes** for the advanced settings, and pick
      your tenant's data to switch; the next run replaces the sample.
-3. Choose the subscription, resource group, region and Power BI workspace. The installer only offers
+3. Say about how many people work in your organisation: the installer fills it in from its count of
+   everyone with a licence and an enabled account. For more than 10,000, see
+   [A large tenant on Azure](../installer/README.md#a-large-tenant-on-azure). Then choose the
+   subscription, resource group, region and Power BI workspace. The installer only offers
    regions that your Azure Policy allowed locations permit and where everything it deploys is
    available. It says why the others were left out.
 4. Review the plan and approve it. The installer prints the web app's URL and writes `AnalyticsHub-Teams.zip`,

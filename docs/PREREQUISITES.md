@@ -48,6 +48,8 @@ yourself, the installer does their part.
 | Copilot Studio credits | After the Studio flow's first run. Run it straight away, or it runs the next day |
 
 A tenant with more than 10,000 people takes longer: see [A large tenant](../installer/README.md#a-large-tenant).
+Count everyone with a Microsoft 365 licence and an enabled account, not only those with a Copilot
+seat. The installer counts them for you and asks you to check.
 
 **Keep this PC awake and plugged in** until the installer says it's finished, and keep the
 installer window open. If the PC sleeps, setup stops until it wakes.
