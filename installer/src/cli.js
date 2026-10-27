@@ -63,7 +63,8 @@ Options:
                        in Azure Cloud Shell
   --use-az             Use the account you are signed in to with the Azure CLI. In Azure Cloud
                        Shell, run ${AZ_LOGIN} first
-  --backfill-days <n>  With run: reload n days of audit history and rebuild the curated table
+  --backfill-days <n>  With run: reload n days of audit history, keep older history and rebuild
+                       the curated table
   --out <dir>          With preview: where to write (default ./valuelens-preview)
   --data <id=mode>     With install: how a source arrives, api, csv or skip. Repeat it or use
                        commas, e.g. --data productFeedback=flow,agent365=api. flow is the

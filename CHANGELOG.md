@@ -36,6 +36,21 @@ Deployment instructions do **not** live here. They live in the READMEs:
   missing records. At the smallest window size it's kept and flagged.
 - **The installer's first-load estimate is now one to two hours**, longer on a trial or small
   capacity or while Microsoft is throttling audit searches.
+- **Fabric: reloading audit history keeps older days.** A reload replaced the whole parsed audit
+  table with only the days it reloaded: `run --backfill-days <n>`, **Repair or change**'s
+  *Load more audit history?*, the home page's **Audit history** picker, or a backfill run of the
+  audit ingester set up by hand. So older rows were lost, including any the audit log no longer
+  keeps. Now a reload replaces rows from the first record it reads onwards, and keeps older ones.
+  Rows already lost aren't brought back. 0.6.8 has this problem too.
+- **Azure: Azure AI costs keep older days.** Each run of the run job replaced every Azure AI table
+  with only the last 90 days. Now it replaces those days and keeps older ones, in storage and in the
+  SQL tables the reports read. The monthly tables replace whole months. Totals over all available
+  days grow, as on Fabric. Days already dropped aren't brought back. 0.6.8 has this problem too.
+- **Fabric: Azure AI costs keep older days.** `Ingest_Azure_AI` kept only the last `DAYS` days in
+  its six tables. Now it replaces those days and keeps the rest. The monthly tables replace whole
+  months. The Foundry and pay-as-you-go pages' default, "All available days", and the solution
+  spend totals now include the older days. Days already dropped aren't brought back. 0.6.8 has
+  this problem too.
 
 ## 2026-10-26 — Analytics Hub installer 0.6.8
 
