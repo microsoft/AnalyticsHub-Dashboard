@@ -125,6 +125,32 @@ run that crashed, the retry takes its lock back. If the lock can't be checked, t
 as before and warns. Install and update still migrate the database while a run is going. This
 fixes 0.6.8's known issue once `update` brings the new job image.
 
+**Azure: a long first load starts its next run straight away, until the history is loaded.** A
+first load or a reload that took more than one run waited for the next scheduled run between runs,
+so on the daily schedule a load over three runs took three days. Now a run that stopped at its time
+limit starts the next run itself, once it has released its lock, when it loaded more of the
+history, had no errors and loaded the tenant's data, not a sample. At most 8 runs a day (UTC)
+start one, so a load that needs more carries on with the next scheduled run. A run stopped at the
+tenant's audit search limit doesn't start one, since a run started straight away would stop at the
+limit too: the next scheduled run carries on. The next run uses the run job's own template and
+settings, as a scheduled run does, so org-scoped access applies as usual. If the run couldn't
+release its lock, it waits a minute for the lock to lapse first. The run job gets an identity of its
+own, which the web app and the migrate job don't have, and on install, update and repair the
+installer gives it **Container Apps Jobs Operator** on the run job alone, after the deploy. The role
+lets it start, stop and inspect that job, which runs as the jobs' managed identity, so it reaches no
+data the run job couldn't already. The plan's review lists it. The least-privilege condition still
+lets the installer give only its four roles, so under it, or whenever Azure refuses, the installer
+warns, carries on, and adds a pending admin action to `status` with the command for an Owner or User
+Access Administrator. Until then, the next scheduled run carries the load on, as before. A start
+that fails, for example with a 403, or behind an egress firewall that blocks `management.azure.com`,
+logs one warning and doesn't fail the run. The next run can still stop behind another run's lock: if
+that run loads the data, it carries the load on, and otherwise the next scheduled run does.
+[How long it takes](docs/PREREQUISITES.md#how-long-it-takes) now says that a run stopped at its time
+limit starts the next straight away, and the installer's estimate, when the load starts, says
+whether the next run starts by itself. The runs are the ones the schedule would make, sooner, so
+they cost the same, but on Azure SQL's free offer they use the month's allowance sooner. An install
+from before 0.6.9 gets this with `update`.
+
 ### Changed
 
 - **The app keeps your place.** Each page and tab has its own link, so Back, refresh, Copy app link

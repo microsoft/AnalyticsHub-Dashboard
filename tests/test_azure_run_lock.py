@@ -367,10 +367,13 @@ def test_a_release_that_fails_only_warns(caplog):
         def release(self):
             raise StorageError(500, "InternalError")
 
-    runlock.RunLock(None, Lease(), "me", {}, every=3600).release()
+    # It says whether it released the lock, so a run that starts the next one can wait for the lock to lapse.
+    assert runlock.RunLock(None, Lease(), "me", {}, every=3600).release() is False
     assert [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING] == [
         "run: couldn't release the run lock (StorageError InternalError: InternalError); it lapses by itself within "
         "60 s"]
+    assert runlock.RunLock(None, SimpleNamespace(renew=lambda: None, release=lambda: None), "me", {},
+                           every=3600).release() is True
 
 
 # ---------------------------------------------------------------- AdlsStore, with a fake blob client

@@ -157,9 +157,22 @@ test('firstLoadEstimate: the estimate, the queue, and what each target does with
   assert.match(azure, /Each run fetches for up to about 3 hours, newest weeks first, then publishes what it has loaded, so the reports fill in after each run\./);
   assert.doesNotMatch(azure, /publishes nothing|4 hours/, 'a run out of time publishes what it has loaded');
   assert.match(firstLoadEstimate(180, 'large', 'azure'), /^Estimate for 180 days of history, for more than 10,000 people: 2 to 3 days, over three or four runs\./);
-  assert.match(azure, /The next scheduled run carries on where it stopped, or start one sooner with "valuelens-install run"/);
+  // On an install from before 0.6.9 until an update or a repair, or in demo mode, it isn't known whether the run job can start itself.
+  assert.match(azure, /If the run job can start itself, the next run starts straight away and carries on where it stopped; if not, the next scheduled run does, or start one sooner with "valuelens-install run"\. $/);
+  // 30 days on a large tenant is the one Azure load within the search allowance that can take a second run.
+  const chained = firstLoadEstimate(30, 'large', 'azure', { selfStart: true });
+  assert.match(chained, /so the reports fill in after each run\. The next run then starts by itself and carries on where it stopped, until the history is loaded\. /);
+  assert.match(chained, /If a run ends with an error or fetches nothing, the next scheduled run carries on instead\. $/);
+  assert.doesNotMatch(chained, /start one sooner|admin/, 'nothing to do');
+  // While an admin hasn't given the role: one run at each scheduled run, as before.
+  const pending = firstLoadEstimate(30, 'large', 'azure', { selfStart: false });
+  assert.match(pending, /The next scheduled run carries on where it stopped, or start one sooner with "valuelens-install run"\. /);
+  assert.match(pending, /An admin can let the next run start straight away: see the pending admin action in "valuelens-install status"\. $/);
+  assert.doesNotMatch(pending, /starts by itself/);
+  assert.match(firstLoadEstimate(30, 'large', 'azure', { reload: true, selfStart: true }), /The next run then starts by itself/, 'a reload carries itself on too');
   assert.doesNotMatch(azure, /time budget|retries|capacity/, 'Azure has no pipeline retries to count on, and no Fabric capacity');
   assert.doesNotMatch(azure, /It needs/, 'within the allowance, the searches go unsaid');
+  assert.doesNotMatch(`${fabric}${azure}${chained}${pending}`, /daily|usually takes under an hour/);
   assert.equal(firstLoadEstimate(0, 'standard'), '');
 });
 
@@ -177,6 +190,13 @@ test('firstLoadEstimate: a load over the search allowance says what it needs and
   assert.match(azure, /Each run fetches for up to about 3 hours, newest weeks first, then publishes what it has loaded, so the reports fill in after each run\. A run stopped at the search limit does the same\. /);
   assert.match(azure, /The next scheduled run carries on where it stopped\. The estimate counts a run a day: on a weekly schedule, start the runs in between with "valuelens-install run"\. $/);
   assert.doesNotMatch(azure, /start one sooner|time budget|retries|capacity/);
+  // With the role, a run stopped at its time limit starts the next; after a stop at the search limit, the next scheduled run carries on.
+  const chained = firstLoadEstimate(90, 'standard', 'azure', { selfStart: true });
+  assert.match(chained, /does the same\. A run stopped at its time limit then starts the next one by itself; after a stop at the search limit, the next scheduled run carries on where it stopped\. The estimate counts a run a day: /);
+  assert.doesNotMatch(chained, /start one sooner|An admin|until the history is loaded/, 'the head names other admins, so not /admin/');
+  const pending = firstLoadEstimate(90, 'standard', 'azure', { selfStart: false });
+  assert.match(pending, /The next scheduled run carries on where it stopped\. An admin can let a run stopped at its time limit start the next one straight away: see the pending admin action in "valuelens-install status"\. The estimate counts a run a day: /);
+  assert.doesNotMatch(pending, /starts the next one by itself/);
   for (const { target, band, days } of rows()) {
     const text = firstLoadEstimate(days, band === 'unsized' ? undefined : band, target);
     assert.doesNotMatch(text, /daily|usually takes under an hour/, `${target} ${band} ${days}`);
