@@ -211,6 +211,14 @@ which lists every Copilot-enabled user, active or not. It needs the same `Report
 permission. If that report returns 400, 403 or 404, the flag comes from assigned products only for
 that run.
 
+Two checks can then turn the flag off, never on. A row the report marks `Is Deleted` is never
+counted. And, because both reports can lag licence changes by days, the ingest reads each user's
+`assignedPlans` from Microsoft Entra (`/v1.0/users`, with the `User.Read.All` permission org data
+already needs) and unticks anyone without an enabled `M365_COPILOT_APPS` service plan
+(`a62f8878-de10-42f3-b68f-6149a25ceb97`) today. That check is skipped, and the log says so, when
+`/users` returns 403 or when none of the report's users are found in Entra (concealed names). Turn
+it off in the Fabric notebook with `LIVE_LICENCE_CHECK = False`.
+
 ### 3. `copilot_org_data` — Entra org / people data
 Dashboard normalizes dynamically (UPN/PersonId variants, `Department`→`Organization` when there's
 no `Organization` column) and adds `PersonId_Normalized` + `TotalEmployees` if missing.

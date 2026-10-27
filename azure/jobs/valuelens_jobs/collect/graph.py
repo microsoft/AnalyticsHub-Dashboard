@@ -52,6 +52,27 @@ def _copilot_users(api):
     return licensed._parse_copilot_usage_report(_text(r))
 
 
+def _live_licences(api):
+    """(every UPN, UPNs with an enabled Copilot plan) from Entra now, or None when /users can't be read."""
+    known, enabled, url, seen = set(), set(), licensed.LIVE_USERS_URL, set()
+    while url:
+        if url in seen:
+            raise RuntimeError(f"Graph /users paging looped back to {url}.")
+        seen.add(url)
+        r = api.get(url, timeout=120)
+        if r.status_code in (400, 403, 404):
+            log.warning("licensed: /users returned HTTP %s; flags are not checked against today's licences "
+                        "this run. Grant User.Read.All to turn the check on.", r.status_code)
+            return None
+        raise_for_status(r, "/users licence check")
+        page = r.json()
+        licensed.live_copilot_licences(page.get("value"), known, enabled)
+        url = page.get("@odata.nextLink")
+        if url and not _is_graph(url):
+            raise RuntimeError(f"Graph /users returned a non-Graph nextLink: {url}")
+    return known, enabled
+
+
 def collect_licensed(api, store, settings, *, allow_empty=False) -> int:
     prefix = f"raw/{licensed.TABLE}"
     r = api.get(LICENSED_URL, timeout=300)
@@ -59,11 +80,24 @@ def collect_licensed(api, store, settings, *, allow_empty=False) -> int:
     raise_for_status(r, "licensed users report")
     text = _text(r)
     copilot_users = _copilot_users(api)
+    live = _live_licences(api)
     stats = {}
     columns, rows = licensed.build_snapshot(text, table_exists=bool(store.list(prefix)), allow_empty=allow_empty,
-                                            copilot_users=copilot_users, stats=stats)
+                                            copilot_users=copilot_users, stats=stats, live=live)
     count = _replace_snapshot(store, prefix, columns, rows)
     log.info("licensed: %s users written", count)
+    if stats["deleted"]:
+        log.info("licensed: %s deleted user(s) not counted", stats["deleted"])
+    if stats["live_checked"]:
+        log.info("licensed: %s user(s) not counted because Entra shows no enabled Copilot plan today",
+                 stats["live_removed"])
+        if stats["live_missed"]:
+            log.warning("licensed: %s user(s) have an enabled Copilot plan in Entra but no matching product or "
+                        "usage-report entry; they stay unlicensed.", stats["live_missed"])
+    elif live is not None:
+        log.warning("licensed: none of the report users are in Microsoft Entra, so flags were not checked against "
+                    "today's licences. If the report shows concealed names, untick 'Display concealed user, group, "
+                    "and site names in all reports' in the Microsoft 365 admin center.")
     if copilot_users is not None:
         log.info("licensed: %s by product and report, %s by product only, %s by Copilot report only",
                  stats["by_both"], stats["by_product_only"], stats["by_report_only"])

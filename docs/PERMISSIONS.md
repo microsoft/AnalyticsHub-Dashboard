@@ -21,7 +21,7 @@ Pulled automatically by the 3 core notebooks via one **Entra app registration** 
 | Source | Graph application permission | Manual-export role (if pulling by hand) |
 |---|---|---|
 | Audit logs (`copilot_interactions_parsed`) | `AuditLogsQuery.Read.All` | Audit Reader or Compliance Administrator |
-| Licensed users (`copilot_licensed_users`) | `Reports.Read.All` | Global Reader or Reports Reader |
+| Licensed users (`copilot_licensed_users`) | `Reports.Read.All` (+ `User.Read.All`, which org data needs anyway, to check flags against today's licences; skipped without it) | Global Reader or Reports Reader |
 | Org data (`copilot_org_data`) | `User.Read.All` | Global Reader or User Administrator |
 
 One app registration covers all three on Fabric; on Azure, the jobs' managed identity gets them as

@@ -46,7 +46,8 @@ USERS = [
 
 @pytest.fixture(scope="module")
 def nb_licensed():
-    return notebook_source.namespace(LICENSED_NB, {"COPILOT_SKU_PATTERNS", "COPILOT_SKU_EXCLUDE", "_pats", "_excl"})
+    return notebook_source.namespace(LICENSED_NB, {"COPILOT_SKU_PATTERNS", "COPILOT_SKU_EXCLUDE", "_pats", "_excl",
+                                                   "COPILOT_PLAN_ID"})
 
 
 def test_licence_patterns_match_notebook(nb_licensed):
@@ -117,9 +118,62 @@ def test_licensed_snapshot_counts_users_in_copilot_report():
     assert [r[2] for r in rows] == ["TRUE", "TRUE", "FALSE"]
     # Ada appears twice in the active-user report (an identical duplicate row).
     assert stats == {"by_product_only": 0, "by_report_only": 1, "by_both": 2, "report_users": 3,
-                     "report_not_in_active": 1}
+                     "report_not_in_active": 1, "deleted": 0, "live_checked": False, "live_removed": 0,
+                     "live_missed": 0}
     assert licensed.build_snapshot(CSV, copilot_users=None) == licensed.build_snapshot(CSV)
     assert licensed.build_snapshot(CSV, copilot_users=set()) == licensed.build_snapshot(CSV)
+
+
+LIVE_USERS = [
+    {"userPrincipalName": "Ada@contoso.com", "assignedPlans": [
+        {"servicePlanId": "A62F8878-DE10-42F3-B68F-6149A25CEB97", "capabilityStatus": "Enabled"}]},
+    {"userPrincipalName": "bob@contoso.com", "assignedPlans": [
+        {"servicePlanId": licensed.COPILOT_PLAN_ID, "capabilityStatus": "Deleted"},
+        {"servicePlanId": "00000000-0000-0000-0000-000000000000", "capabilityStatus": "Enabled"}]},
+    {"userPrincipalName": "cy@contoso.com", "assignedPlans": [
+        {"servicePlanId": licensed.COPILOT_PLAN_ID, "capabilityStatus": "Suspended"}]},
+    {"userPrincipalName": "dee@contoso.com", "assignedPlans": [
+        {"servicePlanId": licensed.COPILOT_PLAN_ID, "capabilityStatus": "Enabled"}]},
+    {"userPrincipalName": None, "assignedPlans": None},
+    None,
+]
+
+
+def test_live_licences_match_notebook(nb_licensed):
+    known, enabled = licensed.live_copilot_licences(LIVE_USERS)
+    assert known == {"ada@contoso.com", "bob@contoso.com", "cy@contoso.com", "dee@contoso.com"}
+    assert enabled == {"ada@contoso.com", "dee@contoso.com"}
+    assert nb_licensed["live_copilot_licences"](LIVE_USERS) == (known, enabled)
+    assert nb_licensed["COPILOT_PLAN_ID"] == licensed.COPILOT_PLAN_ID
+    paged = licensed.live_copilot_licences(LIVE_USERS[2:])
+    assert licensed.live_copilot_licences(LIVE_USERS[:2], *paged) == (known, enabled)
+
+
+@pytest.mark.parametrize("live", [None, "real", "concealed"])
+def test_licence_checks_match_notebook(nb_licensed, live):
+    live = {None: None, "real": licensed.live_copilot_licences(LIVE_USERS),
+            "concealed": ({"e58eef6a6bbd3d0293cb306d24a42057"}, set())}[live]
+
+    def rows():
+        return [{"UPN": "ada@contoso.com", "Is Deleted": "False", "HasCopilot": "TRUE"},
+                {"UPN": "bob@contoso.com", "Is Deleted": "False", "HasCopilot": "TRUE"},
+                {"UPN": "gone@contoso.com", "Is Deleted": "True", "HasCopilot": "TRUE"},
+                {"UPN": "dee@contoso.com", "Is Deleted": "", "HasCopilot": "FALSE"}]
+    core_rows, nb_rows = rows(), rows()
+    assert licensed.apply_licence_checks(core_rows, "UPN", live) == \
+        nb_licensed["apply_licence_checks"](nb_rows, "UPN", live)
+    assert core_rows == nb_rows
+
+
+def test_licensed_snapshot_unticks_users_without_a_live_plan():
+    stats = {}
+    live = licensed.live_copilot_licences([{"userPrincipalName": "ada@contoso.com", "assignedPlans": [
+        {"servicePlanId": licensed.COPILOT_PLAN_ID, "capabilityStatus": "Enabled"}]},
+        {"userPrincipalName": "bob@contoso.com"}, {"userPrincipalName": "cy@contoso.com"}])
+    _, rows = licensed.build_snapshot(CSV, copilot_users=licensed._parse_copilot_usage_report(COPILOT_CSV),
+                                      stats=stats, live=live)
+    assert [r[2] for r in rows] == ["TRUE", "FALSE", "FALSE"]
+    assert (stats["live_checked"], stats["live_removed"], stats["live_missed"]) == (True, 1, 0)
 
 
 def test_org_matches_notebook():
