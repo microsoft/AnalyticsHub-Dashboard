@@ -12,6 +12,7 @@ import { appItemUrl, shareAppPending, shareAppSteps, VIEWER_GROUP_NAME, myGroups
 import { COWORK_DATAFLOW_NAME, coworkSignInSteps, DATAFLOW_GUIDE } from './consumption.js';
 import { coworkDataflowOn, modelDeployed } from './fabric.js';
 import { connectionSteps, FLOW_NAMES, flowsWanted } from './flows.js';
+import { historyStep } from './history-progress.js';
 import { APP_NAME } from './plan.js';
 import { AGENT_DIRECTORY_ROLES, resourceGraphOn } from './resource-graph.js';
 
@@ -46,8 +47,9 @@ const letter = (body, from) => ['Hi,', '', ...body, '', 'Thanks', ...(from ? [fr
 const numbered = (steps) => steps.map((s, i) => `${i + 1}. ${s}`);
 
 /**
- * The cards, in the order to do them: deploy the app if it isn't, share it, sign in to the flows and the
- * Cowork Dataflow, then hand-offs to other admins. Empty when nothing is left.
+ * The cards, in the order to do them: load the audit history if the installer couldn't start it, deploy the app if
+ * it isn't, share it, sign in to the flows and the Cowork Dataflow, then hand-offs to other admins. Empty when
+ * nothing is left.
  * @param {import('../config.js').InstallConfig} config
  * @param {{ tenantId?: string, upn?: string }} [user]
  * @param {{ appFailed?: boolean }} [opts]  appFailed: this run's app step failed.
@@ -55,6 +57,7 @@ const numbered = (steps) => steps.map((s, i) => `${i + 1}. ${s}`);
  */
 export function nextSteps(config, user = {}, opts = {}) {
   return [
+    historyStep(config, user),
     deployAppStep(config, opts),
     shareStep(config, user),
     flowsStep(config, user),

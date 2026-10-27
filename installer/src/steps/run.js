@@ -4,6 +4,7 @@
  * it runs after the first load, after `run`, and on `check`.
  */
 import { isTransientNetworkError } from '../auth.js';
+import { firstLoadEstimate } from '../estimate.js';
 import { commandLine } from '../launch.js';
 import { failedCards, fillRerun, loadCards, VIVA_ACTIVITY } from '../loads.js';
 import { DATA_CHECK_FILE } from '../transform/notebook.js';
@@ -12,6 +13,7 @@ import { c, formatDuration } from '../ui.js';
 import { emptyAuditHelp } from './audit-check.js';
 import { coworkConnections, coworkNextStep, coworkSignInSteps, VIVA_LOAD_FILE } from './consumption.js';
 import { agentEvaluatorOn, coworkDataflowOn, modelDeployed } from './fabric.js';
+import { clearPendingHistory, fabricHistory, fabricJobGoing, recordPendingHistory } from './history-progress.js';
 import { modelRefreshes } from './model.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
@@ -132,48 +134,62 @@ function reportJob(ctx, job, what, again) {
  * @property {string[]} [counted]  Those that leave an install partly set up: see {@link countedFailures}.
  */
 
-/**
- * How long loading the audit history is likely to take. Microsoft queues each audit query for a few
- * minutes whatever its size, so the time grows with the days asked for and, on a large tenant, with
- * the number of short windows.
- * @param {number} days
- * @param {string} [scale]
- */
-export function firstLoadEstimate(days, scale) {
-  if (scale === 'large') {
-    return `Loading ${days} days of history on a large tenant can take several hours, and may need more than one run: each run picks up where the last stopped. An F64 or larger capacity helps. `;
-  }
-  if (days > 30) {
-    return `Loading ${days} days of history can take a few hours, longer on a trial or small capacity. Each run picks up where the last stopped. `;
-  }
-  return 'Loading the history usually takes one to two hours, longer on a trial or small capacity or while Microsoft is throttling audit searches. Each run picks up where the last stopped. ';
-}
-
 /** A run that started longer ago than this is stuck, not running. */
 const STUCK_MS = 24 * 3_600_000;
 
 /**
- * Starts the pipeline. With `backfillDays` it reloads that much audit history and rebuilds the curated table.
- * It doesn't start a run while another is going: two at once overload a small capacity.
+ * What to do with this window while the pipeline runs. Once the installer says setup is finished, the load carries
+ * on in Fabric without it; keeping it open only lets the installer check the data and list what's next.
  * @param {Ctx} ctx
- * @param {{ backfillDays?: number, wait?: boolean, first?: boolean, skipCowork?: boolean }} opts  skipCowork: leave the Cowork
- *   Dataflow out of this run only (SkipCowork), because its connections aren't signed in yet.
+ * @param {boolean | undefined} setup  undefined outside setup; otherwise whether every step before the load worked.
+ * @param {string} load  "first load" or "reload".
+ */
+function closingNote(ctx, setup, load) {
+  const { ui } = ctx;
+  if (setup === undefined) {
+    ui.note(`${ui.web ? 'You can close this window' : 'You can press Ctrl+C'}; the run carries on in Fabric.`);
+  } else if (setup) {
+    ui.ok('Setup is finished');
+    ui.note(
+      `The ${load} carries on in Fabric, so you can ${ui.web ? 'close this window' : 'press Ctrl+C'} now and see how far it has got with "${commandLine('status')}". ` +
+        'If you keep this window open, the installer checks the data when the load finishes and lists what to do next.',
+    );
+  } else {
+    ui.note(
+      "Setup isn't finished: a step above didn't work. Keep this window open, and when the load finishes the installer lists what's left. " +
+        `The load carries on in Fabric if you close it, and "${commandLine('status')}" shows how far it has got.`,
+    );
+  }
+}
+
+/**
+ * Starts the pipeline. With `backfillDays` it reloads that much audit history and rebuilds the curated table.
+ * It doesn't start a run while another is going: two at once overload a small capacity. A load of history that
+ * doesn't start for that reason is kept in the install record, so `status` still gives its command.
+ * @param {Ctx} ctx
+ * @param {{ backfillDays?: number, wait?: boolean, first?: boolean, skipCowork?: boolean, setup?: boolean }} opts  skipCowork: leave the Cowork
+ *   Dataflow out of this run only (SkipCowork), because its connections aren't signed in yet. setup: this is the
+ *   install's own load, and whether every step before it worked, so the installer can say whether setup is finished.
  * @returns {Promise<RunResult>}
  */
 export async function runPipeline(ctx, opts) {
   const { ui, config, api } = ctx;
   const f = config.fabric;
   if (!f.workspaceId || !f.pipelineId) throw new Error('There is no pipeline yet. Run the installer first.');
+  const days = opts.backfillDays;
   const running = (await api.fabric.listJobs(f.workspaceId, f.pipelineId).catch(() => [])).find((j) => {
     const started = utc(j.startTimeUtc);
     return (j.status === 'InProgress' || j.status === 'NotStarted') && !(started && ctx.now().getTime() - started.getTime() > STUCK_MS);
   });
   if (running) {
+    // The first load going already is the load asked for. Any other load of history waits, with its command kept.
+    const covered = !!opts.first && running.id === config.firstRun?.jobId && (days ?? 0) <= config.history.days;
+    const again = days && !covered ? `run --backfill-days ${days}` : 'run';
     ui.warn('The pipeline is already running, so this didn\'t start another.');
-    ui.note(`Check on it with "${commandLine('status')}". Once it has finished, run "${commandLine('run')}" to start a new run.`);
+    ui.note(`Check on it with "${commandLine('status')}". Once it has finished, run "${commandLine(again)}" to start a new run.`);
+    if (days && !covered) recordPendingHistory(ctx, { days, reason: 'running', first: opts.first });
     return { jobId: running.id, status: running.status, ok: false, started: false };
   }
-  const days = opts.backfillDays;
   /** @type {Record<string, any> | undefined} */
   let parameters = days ? firstRunParameters(days) : undefined;
   if (opts.skipCowork) parameters = { ...parameters, [SKIP_COWORK_PARAMETER]: true };
@@ -184,14 +200,17 @@ export async function runPipeline(ctx, opts) {
     config.firstRun = { jobId, status: 'NotStarted', startedAt, ...(opts.skipCowork ? { coworkSkipped: true } : {}) };
     ctx.save();
   }
+  if (days) clearPendingHistory(ctx, { days, first: !!opts.first });
   if (!days) ui.ok('Started the pipeline');
   else if (opts.first) ui.ok(`Started the first load: ${days} days of audit history`);
   else ui.ok(`Started the pipeline with ${days} days of audit history`);
+  const estimate = days ? firstLoadEstimate(days, config.scale, 'fabric', { reload: !opts.first }) : '';
   if (!opts.wait) {
-    ui.note(`It runs in Fabric. Check on it with "${commandLine('status')}".`);
+    ui.note(`${estimate}It runs in Fabric. Check on it with "${commandLine('status')}".`);
     return { jobId, status: 'NotStarted', started: true };
   }
-  ui.note(`${days ? firstLoadEstimate(days, config.scale) : ''}${ui.web ? 'You can close this window' : 'You can press Ctrl+C'}; the run carries on in Fabric.`);
+  if (estimate) ui.note(estimate.trim());
+  closingNote(ctx, opts.setup, days && !opts.first ? 'reload' : 'first load');
   const job = await waitForJob(ctx, url, 'Pipeline');
   const ok = reportJob(ctx, job, 'Pipeline');
   const runs = TERMINAL.has(job?.status) ? await activityRuns(ctx, jobId, { startTimeUtc: job.startTimeUtc ?? startedAt, endTimeUtc: job.endTimeUtc }) : null;
@@ -359,8 +378,9 @@ export function firstRunStatus(config, status, runs) {
  * Whether the history has loaded. A first load that failed only in other loads did load it, so it is
  * marked completed. Installs from before the installer tracked the first load count any completed run.
  * @param {Ctx} ctx
+ * @param {any[]} [jobs]  The pipeline's runs, when they're listed already.
  */
-export async function historyLoaded(ctx) {
+export async function historyLoaded(ctx, jobs) {
   const { config, api } = ctx;
   const f = config.fabric;
   if (!f.workspaceId || !f.pipelineId) return false;
@@ -373,7 +393,7 @@ export async function historyLoaded(ctx) {
     ctx.save();
     return true;
   }
-  return (await api.fabric.listJobs(f.workspaceId, f.pipelineId).catch(() => [])).some((j) => j.status === 'Completed');
+  return (jobs ?? (await api.fabric.listJobs(f.workspaceId, f.pipelineId).catch(() => []))).some((j) => j.status === 'Completed');
 }
 
 /**
@@ -589,9 +609,9 @@ export async function status(ctx) {
   if (sm?.connectionId) expiry(ctx, 'Model connection secret', sm.secretExpires);
 
   ui.heading('Recent runs');
-  const jobs = (await api.fabric.listJobs(f.workspaceId, f.pipelineId))
-    .sort((a, b) => String(b.startTimeUtc ?? '').localeCompare(String(a.startTimeUtc ?? '')))
-    .slice(0, 5);
+  // Every run, newest first. The newest five are shown.
+  const all = (await api.fabric.listJobs(f.workspaceId, f.pipelineId)).sort((a, b) => String(b.startTimeUtc ?? '').localeCompare(String(a.startTimeUtc ?? '')));
+  const jobs = all.slice(0, 5);
   if (!jobs.length) ui.note('No runs yet.');
   for (const job of jobs) {
     const start = utc(job.startTimeUtc);
@@ -615,14 +635,15 @@ export async function status(ctx) {
     } else if (capacityBusy(latest.failureReason)) busyNote(ctx, 'run');
   }
 
-  if (config.firstRun?.jobId && !TERMINAL.has(config.firstRun.status ?? '') && config.firstRun.status !== 'Incomplete') {
-    const job = jobs.find((j) => j.id === config.firstRun?.jobId);
-    if (job && TERMINAL.has(job.status)) {
-      const runs = job.status === 'Completed' ? await activityRuns(ctx, job.id, job) : null;
-      config.firstRun = { ...config.firstRun, status: firstRunStatus(config, job.status, runs), finishedAt: utc(job.endTimeUtc)?.toISOString() };
-      ctx.save();
-    }
+  // From every run, not only those shown: the first load may have finished several runs ago.
+  const firstJob = config.firstRun?.jobId ? all.find((j) => j.id === config.firstRun?.jobId) : undefined;
+  if (firstJob && !TERMINAL.has(config.firstRun?.status ?? '') && config.firstRun?.status !== 'Incomplete' && TERMINAL.has(firstJob.status)) {
+    const runs = firstJob.status === 'Completed' ? await activityRuns(ctx, firstJob.id, firstJob) : null;
+    config.firstRun = { ...config.firstRun, status: firstRunStatus(config, firstJob.status, runs), finishedAt: utc(firstJob.endTimeUtc)?.toISOString() };
+    ctx.save();
   }
+  // Whether the history has loaded, decided as `run` decides it. A first load that's going isn't asked about until it ends.
+  const loaded = firstJob && fabricJobGoing(firstJob, ctx.now().getTime()) ? config.firstRun?.status === 'Completed' : await historyLoaded(ctx, all);
 
   for (const m of [sm, cm, am]) {
     if (!m?.id) continue;
@@ -646,8 +667,10 @@ export async function status(ctx) {
     }
   }
 
+  /** @type {any} */
+  let summary = null;
   if (f.lakehouseId) {
-    const summary = await api.oneLake.readJson(f.workspaceId, f.lakehouseId, DATA_CHECK_FILE).catch(() => null);
+    summary = await api.oneLake.readJson(f.workspaceId, f.lakehouseId, DATA_CHECK_FILE).catch(() => null);
     if (summary) {
       ui.heading(`Last data check${summary.checkedAt ? ` (${String(summary.checkedAt).slice(0, 16).replace('T', ' ')} UTC)` : ''}`);
       if (ranSince(jobs, summary.checkedAt)) {
@@ -660,6 +683,7 @@ export async function status(ctx) {
       ui.note(`It hasn't run yet. Run "${commandLine('check')}" to see what the pipeline loaded.`);
     }
   }
+  await fabricHistory(ctx, { jobs: all, summary, loaded });
 }
 
 /**

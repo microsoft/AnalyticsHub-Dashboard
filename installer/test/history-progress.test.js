@@ -1,0 +1,734 @@
+// @ts-check
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { apiPermissionsUrl } from '../src/clients/graph.js';
+import { emptyConfig } from '../src/config.js';
+import { AUDIT_MANIFEST } from '../src/steps/audit-check.js';
+import {
+  AUDIT_STATE,
+  azureHistory,
+  clearPendingHistory,
+  coverage,
+  fabricHistory,
+  fetchedWindows,
+  historyStep,
+  keyRange,
+  newestEnd,
+  pendingHistory,
+  readAzureProgress,
+  readFabricProgress,
+  recordPendingHistory,
+  showHistoryStep,
+  throttledAt,
+  utcTime,
+} from '../src/steps/history-progress.js';
+import { fakeCtx, fakeUi, httpError } from './fakes.js';
+
+const MIN = 60_000;
+const H = 3_600_000;
+const D = 24 * H;
+/** @param {string} s  A UTC time with no zone. */
+const t = (s) => Date.parse(`${s}Z`);
+/** @param {number} ms  As Python's isoformat writes it. */
+const iso = (ms) => new Date(ms).toISOString().replace('.000Z', '+00:00');
+/** @param {number} ms */
+const stamp = (ms) => new Date(ms).toISOString().slice(0, 16).replace(/[-T:]/g, '');
+
+/**
+ * The windows a load plans, as the notebook and the job do: on a grid anchored at the hour, the last one cut at `end`.
+ * @param {number} start @param {number} end @param {number} hours
+ * @returns {[number, number][]}
+ */
+function plan(start, end, hours) {
+  const d = new Date(start);
+  let cur = Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), d.getUTCHours() - (d.getUTCHours() % hours));
+  /** @type {[number, number][]} */
+  const out = [];
+  for (; cur < end; cur += hours * H) out.push([cur, Math.min(cur + hours * H, end)]);
+  return out;
+}
+
+/**
+ * A manifest's or state's window entries. `status(i)` is each window's; a window with none is left out.
+ * @param {[number, number][]} windows
+ * @param {(i: number) => string | undefined} status
+ * @param {number} [rows]
+ */
+function entries(windows, status, rows = 12) {
+  /** @type {Record<string, any>} */
+  const out = {};
+  windows.forEach(([s, e], i) => {
+    const st = status(i);
+    if (!st) return;
+    out[`v2_${stamp(s)}_${stamp(e)}`] =
+      st === 'succeeded'
+        ? { status: st, window_start: iso(s), window_end: iso(e), rows, pages: 1, files: [`win_${stamp(s)}_0.jsonl`], completed_at: iso(e + H) }
+        : { status: st, window_start: iso(s), window_end: iso(e) };
+  });
+  return out;
+}
+
+/** @param {number} start @param {number} count @param {number} [hours] @param {number} [rows] */
+const list = (start, count, hours = 24, rows = 12) => Array.from({ length: count }, (_, i) => ({ start: start + i * hours * H, end: start + (i + 1) * hours * H, rows }));
+
+/** @param {string} text */
+const lines = (text) => text.split('\n').map((s) => s.trim()).filter(Boolean);
+
+/** @param {string[]} out */
+const last = (out) => out[out.length - 1];
+
+/**
+ * A load stopped at the tenant's audit search limit, as both collectors leave it: the windows fetched before it,
+ * their searches created at `created`, then the windows waiting when it stopped, each stamped with its own stop.
+ * @param {[number, number][]} windows
+ * @param {number} fetched  How many windows, oldest first, succeeded.
+ * @param {number[]} stops  The next windows' stops.
+ * @param {number} created
+ */
+function stoppedAtLimit(windows, fetched, stops, created) {
+  const out = entries(windows, (i) => (i < fetched ? 'succeeded' : i < fetched + stops.length ? 'waiting' : undefined));
+  Object.values(out).forEach((e, i) => {
+    if (i < fetched) e.query_created_at = iso(created);
+    else e.paused_at = e.throttled_at = iso(stops[i - fetched]);
+  });
+  return out;
+}
+
+test('utcTime: Python isoformat, with or without a zone, is UTC', () => {
+  assert.equal(utcTime('2026-05-01T08:00:00+00:00'), t('2026-05-01T08:00:00'));
+  assert.equal(utcTime('2026-05-01T08:00:00.123456+00:00'), t('2026-05-01T08:00:00.123'));
+  assert.equal(utcTime('2026-05-01T08:00:00.123456'), t('2026-05-01T08:00:00.123'));
+  assert.equal(utcTime('2026-05-01T08:00:00'), t('2026-05-01T08:00:00'));
+  assert.equal(utcTime(' 2026-05-01T08:00:00Z '), t('2026-05-01T08:00:00'));
+  for (const v of [undefined, null, '', '  ', 'soon', 5, {}]) assert.equal(utcTime(v), undefined, String(v));
+});
+
+test('keyRange: versioned keys and those from before keys had a version; anything else is no window', () => {
+  assert.deepEqual(keyRange('v2_202605010800_202605011600'), { start: t('2026-05-01T08:00:00'), end: t('2026-05-01T16:00:00') });
+  assert.deepEqual(keyRange('202605010000_202605020000'), { start: t('2026-05-01T00:00:00'), end: t('2026-05-02T00:00:00') });
+  for (const key of ['v2_202605011600_202605010800', 'v2_2026050108_2026050116', 'win_x', 'high_water_mark']) assert.equal(keyRange(key), undefined, key);
+});
+
+/** Entries of every kind a manifest or state can hold. */
+const MIXED = {
+  'v2_202605020000_202605030000': { status: 'succeeded', window_start: '2026-05-02T00:00:00+00:00', window_end: '2026-05-03T00:00:00+00:00', rows: 0 },
+  // A notebook from before keys had a version kept only the status and rows.
+  '202605010000_202605020000': { status: 'succeeded', rows: 7 },
+  'v2_202605030000_202605040000': { status: 'failed', error: 'throttled' },
+  'v2_202605040000_202605050000': { status: 'split', parts: ['a', 'b'] },
+  'v2_202605050000_202605060000': { status: 'querying' },
+  'v2_202605060000_202605070000': { status: 'succeeded', rows: -1 },
+  'v2_202605070000_202605080000': { status: 'succeeded', rows: '3' },
+  'odd-key': { status: 'succeeded', rows: 1 },
+  'v2_202605080000_202605090000': 'succeeded',
+  'v2_202605090000_202605100000': { rows: 4 },
+};
+
+test('fetchedWindows: the succeeded windows of any key version, oldest first', () => {
+  assert.deepEqual(fetchedWindows(MIXED), [
+    { start: t('2026-05-01T00:00:00'), end: t('2026-05-02T00:00:00'), rows: 7 },
+    { start: t('2026-05-02T00:00:00'), end: t('2026-05-03T00:00:00'), rows: 0 },
+    { start: t('2026-05-06T00:00:00'), end: t('2026-05-07T00:00:00') },
+    { start: t('2026-05-07T00:00:00'), end: t('2026-05-08T00:00:00') },
+  ]);
+  for (const v of [null, undefined, [], 'x', 3]) assert.deepEqual(fetchedWindows(v), []);
+});
+
+test('newestEnd: the end of the newest window a run started on, fetched or not', () => {
+  assert.equal(newestEnd(MIXED), t('2026-05-08T00:00:00'));
+  assert.equal(newestEnd({ 'v2_202605090000_202605100000': { rows: 4 } }), undefined, 'an entry with no status');
+  for (const v of [null, {}, []]) assert.equal(newestEnd(v), undefined);
+});
+
+test('throttledAt: the newest stop at the search limit, unless a run has searched since', () => {
+  const w = plan(t('2026-05-29T00:00:00'), t('2026-06-01T00:00:00'), 8);
+  const stop = t('2026-06-01T09:30:00');
+  // Windows waiting for a search slot when the limit was reached each give up as they get one, minutes apart.
+  assert.equal(throttledAt(stoppedAtLimit(w, 3, [stop - 4 * MIN, stop, stop - 2 * MIN], stop - 2 * H)), stop);
+  // A worker already creating a search when another reached the limit can still create its own, just after.
+  assert.equal(throttledAt(stoppedAtLimit(w, 3, [stop], stop + 10 * MIN)), stop);
+  assert.equal(throttledAt(stoppedAtLimit(w, 3, [stop], stop + 10 * MIN + 1000)), undefined, 'a later run has searched');
+
+  // A stop at the time budget stamps only paused_at, so a throttled_at left from an earlier stop no longer matches.
+  const budget = stoppedAtLimit(w, 3, [stop, stop], stop - 2 * H);
+  const [first, second] = Object.values(budget).slice(3);
+  delete first.throttled_at;
+  second.paused_at = iso(stop + H);
+  assert.equal(throttledAt(budget), undefined);
+
+  // Only windows still waiting count: a later run fetches a window, or starts on it, without clearing its stamps.
+  for (const status of ['succeeded', 'querying', 'failed']) {
+    const later = stoppedAtLimit(w, 3, [stop], stop - 2 * H);
+    Object.values(later)[3].status = status;
+    assert.equal(throttledAt(later), undefined, status);
+  }
+  assert.equal(throttledAt({ ...stoppedAtLimit(w, 0, [stop], 0), x: null, y: 'waiting' }), stop, 'entries that are not windows are skipped');
+  for (const v of [null, undefined, [], 'x', 3, {}]) assert.equal(throttledAt(v), undefined);
+});
+
+test('coverage: how much of the range the fetched windows cover, and what is left', () => {
+  const from = t('2026-05-02T12:00:00');
+  const until = t('2026-06-01T12:00:00');
+  const range = { from, until, chunkHours: 24 };
+  assert.deepEqual(coverage(list(from, 30), range), { fetchedHours: 720, windowsLeft: 0, complete: true, through: until, tailOnly: false, allEmpty: false });
+  assert.deepEqual(coverage(list(from, 10), range), { fetchedHours: 240, windowsLeft: 20, complete: false, through: from + 10 * D, tailOnly: true, allEmpty: false });
+  assert.deepEqual(coverage([...list(from, 10), ...list(from + 15 * D, 15)], range), {
+    fetchedHours: 600,
+    windowsLeft: 5,
+    complete: false,
+    through: from + 10 * D,
+    tailOnly: false,
+    allEmpty: false,
+  });
+  assert.deepEqual(coverage(list(from + 5 * D, 25), range), { fetchedHours: 600, windowsLeft: 5, complete: false, tailOnly: false, allEmpty: false }, 'no history from the start of the range');
+  assert.deepEqual(
+    coverage(list(from + H, 359, 2), { from, until, chunkHours: 2 }),
+    { fetchedHours: 718, windowsLeft: 0, complete: true, through: until - H, tailOnly: false, allEmpty: false },
+    'a window at each end is no gap',
+  );
+  // Windows overlap the range at each end, and a version's windows can overlap another's.
+  const empty = list(from - 12 * H, 31, 24, 0);
+  assert.deepEqual(coverage([...empty, ...list(from, 2, 24, 0)].sort((a, b) => a.start - b.start), range), {
+    fetchedHours: 720,
+    windowsLeft: 0,
+    complete: true,
+    through: until,
+    tailOnly: false,
+    allEmpty: true,
+  });
+  const unknownRows = empty.map((w, i) => (i === 3 ? { start: w.start, end: w.end } : w));
+  assert.equal(coverage(unknownRows, range).allEmpty, false, 'rows not recorded');
+  assert.equal(coverage([...empty, { start: until + H, end: until + 2 * H, rows: 5 }], range).allEmpty, true, 'records outside the range');
+  assert.deepEqual(coverage([], range), { fetchedHours: 0, windowsLeft: 30, complete: false, tailOnly: false, allEmpty: false });
+  assert.equal(coverage([], { from, until }).windowsLeft, 90, 'the template window of 8 hours');
+});
+
+test('readFabricProgress: reads the notebook manifest with the OneLake client', async () => {
+  assert.equal(AUDIT_MANIFEST, 'Files/_audit_staging/_manifest.json');
+  const doc = { 'v2_202605010000_202605020000': { status: 'succeeded', rows: 3 }, 'v2_202605020000_202605030000': { status: 'querying' } };
+  /** @type {any[]} */
+  const calls = [];
+  const { ctx } = fakeCtx({ oneLake: { readJson: async (/** @type {any[]} */ ...args) => (calls.push(args), doc) } });
+  assert.deepEqual(await readFabricProgress(ctx), { read: true, entries: doc, windows: [{ start: t('2026-05-01T00:00:00'), end: t('2026-05-02T00:00:00'), rows: 3 }] });
+  assert.deepEqual(calls, [['ws-1', 'lh-1', AUDIT_MANIFEST]]);
+
+  /** @param {() => Promise<any>} readJson */
+  const read = (readJson) => readFabricProgress(fakeCtx({ oneLake: { readJson } }).ctx);
+  assert.deepEqual(await read(async () => null), { read: true, entries: {}, windows: [], missing: true }, 'no manifest yet');
+  assert.deepEqual((await read(async () => ({ windows: doc, version: 3 })))?.read && 'read', 'read', 'windows under a key of their own');
+  assert.deepEqual(await read(async () => []), { read: false, reason: 'unreadable' });
+  assert.deepEqual(await read(async () => 'text'), { read: false, reason: 'unreadable' });
+  assert.deepEqual(await read(() => Promise.reject(httpError(403, 'Forbidden'))), { read: false, reason: 'forbidden' });
+  assert.deepEqual(await read(() => Promise.reject(httpError(401, 'Unauthorized'))), { read: false, reason: 'forbidden' });
+  assert.deepEqual(await read(() => Promise.reject(httpError(500, 'Server error'))), { read: false, reason: 'error' });
+  assert.deepEqual(await read(() => Promise.reject(new Error('getaddrinfo ENOTFOUND onelake.dfs.fabric.microsoft.com'))), { read: false, reason: 'error' });
+  assert.deepEqual(await read(() => Promise.reject(new SyntaxError('Unexpected token'))), { read: false, reason: 'unreadable' });
+
+  assert.deepEqual(await readFabricProgress(fakeCtx().ctx), { read: false, reason: 'unavailable' }, 'no OneLake client');
+  const noLakehouse = fakeCtx({ oneLake: { readJson: async () => assert.fail('not read') } });
+  delete noLakehouse.config.fabric.lakehouseId;
+  assert.deepEqual(await readFabricProgress(noLakehouse.ctx), { read: false, reason: 'unavailable' });
+});
+
+/**
+ * An Azure install whose job state `readText` returns.
+ * @param {(container: string, path: string) => Promise<any>} readText
+ * @param {{ calls?: any[], days?: number }} [o]
+ */
+function azureCtx(readText, o = {}) {
+  const ui = fakeUi();
+  const config = emptyConfig();
+  config.target = 'azure';
+  config.history.days = o.days ?? 30;
+  const az = /** @type {any} */ (config.azure);
+  az.subscriptionId = 'sub-1';
+  az.resourceGroup = 'rg-vlens';
+  az.outputs = { runJobName: 'vlens-run', storageAccountName: 'vlensst' };
+  const { ctx } = fakeCtx({
+    ui: ui.ui,
+    config,
+    dataLake: (account) => {
+      o.calls?.push(account);
+      return { readText: (/** @type {string} */ container, /** @type {string} */ path) => (o.calls?.push(container, path), readText(container, path)) };
+    },
+  });
+  return { ctx, config, az, ui };
+}
+
+test('readAzureProgress: reads the job state with the Data Lake client, and ignores fields it does not know', async () => {
+  assert.deepEqual(AUDIT_STATE, { container: 'raw', path: '_state/audit.json' });
+  const windows = { 'v2_202605010000_202605010800': { status: 'succeeded', rows: 3, window_start: '2026-05-01T00:00:00+00:00', window_end: '2026-05-01T08:00:00+00:00' } };
+  const state = {
+    windows,
+    high_water_mark: '2026-05-31T23:59:00.250000+00:00',
+    backfill_from: '2026-03-03T00:00:00+00:00',
+    publish: { from: '2026-03-03', windows: 4 },
+    version: 3,
+  };
+  /** @type {any[]} */
+  const calls = [];
+  const { ctx } = azureCtx(async () => JSON.stringify(state), { calls });
+  assert.deepEqual(await readAzureProgress(ctx), {
+    read: true,
+    entries: windows,
+    windows: [{ start: t('2026-05-01T00:00:00'), end: t('2026-05-01T08:00:00'), rows: 3 }],
+    highWaterMark: t('2026-05-31T23:59:00.250'),
+    backfillFrom: t('2026-03-03T00:00:00'),
+  });
+  assert.deepEqual(calls, ['vlensst', 'raw', '_state/audit.json']);
+
+  /** @param {() => Promise<any>} readText */
+  const read = (readText) => readAzureProgress(azureCtx(readText).ctx);
+  assert.deepEqual(await read(async () => '{}'), { read: true, entries: {}, windows: [] }, 'missing fields are unknown');
+  assert.deepEqual(await read(async () => '{"windows":[],"high_water_mark":"soon"}'), { read: true, entries: {}, windows: [] });
+  assert.deepEqual(await read(async () => null), { read: true, entries: {}, windows: [], missing: true }, 'no state yet');
+  assert.deepEqual(await read(async () => '[]'), { read: false, reason: 'unreadable' });
+  assert.deepEqual(await read(async () => 'not json'), { read: false, reason: 'unreadable' });
+  assert.deepEqual(await read(async () => ''), { read: false, reason: 'unreadable' });
+  assert.deepEqual(await read(() => Promise.reject(httpError(403, 'AuthorizationPermissionMismatch'))), { read: false, reason: 'forbidden' });
+  assert.deepEqual(await read(() => Promise.reject(Object.assign(new Error('fetch failed'), { code: 'ECONNRESET' }))), { read: false, reason: 'error' });
+
+  const priv = azureCtx(async () => assert.fail('a private install is not read'), { calls: [] });
+  priv.az.publicNetworkAccess = false;
+  assert.deepEqual(await readAzureProgress(priv.ctx), { read: false, reason: 'private' });
+  const noStorage = azureCtx(async () => assert.fail('not read'));
+  delete noStorage.az.outputs.storageAccountName;
+  assert.deepEqual(await readAzureProgress(noStorage.ctx), { read: false, reason: 'unavailable' });
+  const noClient = azureCtx(async () => '{}');
+  /** @type {any} */ (noClient.ctx.api).dataLake = undefined;
+  assert.deepEqual(await readAzureProgress(noClient.ctx), { read: false, reason: 'unavailable' });
+});
+
+/**
+ * A Fabric install whose manifest `readJson` returns.
+ * @param {() => Promise<any>} readJson
+ * @param {{ days?: number, scale?: 'standard' | 'large' }} [o]
+ */
+function fabricCtx(readJson, o = {}) {
+  const ui = fakeUi();
+  const config = emptyConfig();
+  config.history.days = o.days ?? 30;
+  if (o.scale) config.scale = o.scale;
+  const { ctx } = fakeCtx({ ui: ui.ui, config, oneLake: { readJson } });
+  return { ctx, config, ui };
+}
+
+test('fabricHistory: a large first load part-way through, while the pipeline runs', async () => {
+  const from = t('2025-12-03T08:00:00');
+  const until = t('2026-06-01T08:00:00');
+  const manifest = entries(plan(from, until, 2), (i) => (i < 564 ? 'succeeded' : i === 564 ? 'querying' : undefined));
+  const { ctx, config, ui } = fabricCtx(async () => manifest, { days: 180, scale: 'large' });
+  config.firstRun = { jobId: 'job-1', status: 'InProgress', startedAt: '2026-06-01T08:00:00.000Z' };
+  await fabricHistory(ctx, { jobs: [{ id: 'job-1', status: 'InProgress', startTimeUtc: '2026-06-01T08:00:00' }] });
+  assert.deepEqual(lines(ui.text()), [
+    'Audit history',
+    'Asked for: 180 days',
+    'Fetched from the audit log: about 47 of 180 days, 2025-12-03 to 2026-01-19; about 1,596 windows left',
+    'In the reports: not the full history yet. The first load writes it once every window is fetched.',
+    "The pipeline is running. If its audit load reaches its time budget, the pipeline's retries carry on from where it stopped.",
+  ]);
+});
+
+test('fabricHistory: a reload with a gap, after a run that failed', async () => {
+  const windows = plan(t('2025-12-03T00:00:00'), t('2026-06-01T06:00:00'), 24);
+  assert.equal(windows.length, 181);
+  const manifest = entries(windows, (i) => (i < 100 || i >= 150 ? 'succeeded' : i === 100 ? 'failed' : undefined));
+  const { ctx, config, ui } = fabricCtx(async () => manifest, { days: 180, scale: 'standard' });
+  config.firstRun = { jobId: 'job-1', status: 'Completed', startedAt: '2026-05-01T08:00:00.000Z' };
+  const summary = { tables: { audit: { rows: 5000, from: '2026-05-01', to: '2026-05-31T23:00:00' } } };
+  await fabricHistory(ctx, { jobs: [{ id: 'job-2', status: 'Failed', startTimeUtc: '2026-06-01T06:00:00' }], summary });
+  assert.deepEqual(lines(ui.text()), [
+    'Audit history',
+    'Asked for: 180 days',
+    'Fetched from the audit log: about 130 of 180 days, 2025-12-03 to 2026-03-13; about 50 windows left',
+    'In the reports: 2026-05-01 to 2026-05-31, at the last data check',
+    'To carry on, run "valuelens-install run --backfill-days 180". It reuses the windows already fetched.',
+  ]);
+});
+
+test('fabricHistory: a load that is complete, and one with only its newest days to fetch', async () => {
+  const windows = plan(t('2026-05-02T02:05:00'), t('2026-06-01T02:05:00'), 24);
+  assert.equal(windows.length, 31);
+  const done = fabricCtx(async () => entries(windows, () => 'succeeded'), { scale: 'standard' });
+  done.config.firstRun = { jobId: 'job-1', status: 'Completed', startedAt: '2026-06-01T02:05:00.000Z' };
+  await fabricHistory(done.ctx, { jobs: [{ id: 'job-1', status: 'Completed', startTimeUtc: '2026-06-01T02:05:00' }] });
+  assert.deepEqual(lines(done.ui.text()), [
+    'Audit history',
+    'Asked for: 30 days',
+    'Fetched from the audit log: all 30 days, 2026-05-02 to 2026-06-01',
+    'In the reports: run "valuelens-install check" to see the dates.',
+  ]);
+
+  const tail = fabricCtx(async () => entries(windows, (i) => (i < 26 ? 'succeeded' : 'failed')), { scale: 'standard' });
+  tail.config.firstRun = { jobId: 'job-1', status: 'Completed', startedAt: '2026-05-01T08:00:00.000Z' };
+  await fabricHistory(tail.ctx, { jobs: [{ id: 'job-2', status: 'Failed', startTimeUtc: '2026-06-01T02:05:00' }] });
+  assert.deepEqual(lines(tail.ui.text()).slice(2), [
+    'Fetched from the audit log: about 26 of 30 days, 2026-05-02 to 2026-05-28; about 4 windows left',
+    'In the reports: run "valuelens-install check" to see the dates.',
+    'The newest days load with the next scheduled run. Start one sooner with "valuelens-install run".',
+  ]);
+});
+
+test('fabricHistory: when the manifest cannot be read, or is not there', async () => {
+  const denied = fabricCtx(() => Promise.reject(httpError(403, 'Forbidden')));
+  denied.config.firstRun = { jobId: 'job-1', status: 'Failed', startedAt: '2026-06-01T08:00:00.000Z' };
+  await fabricHistory(denied.ctx, { jobs: [{ id: 'job-1', status: 'Failed', startTimeUtc: '2026-06-01T08:00:00' }] });
+  assert.deepEqual(lines(denied.ui.text()).slice(1), [
+    'Asked for: 30 days',
+    "How much has been fetched can't be read from this PC: your account can't read the Lakehouse's files.",
+    'In the reports: not the full history yet. The first load writes it once every window is fetched.',
+    'To carry on, run "valuelens-install run". It reuses any windows already fetched.',
+  ]);
+
+  // A loaded install whose staging area has gone: nothing to say about what was fetched.
+  const gone = fabricCtx(async () => null);
+  gone.config.firstRun = { jobId: 'job-1', status: 'Completed', startedAt: '2026-05-01T08:00:00.000Z' };
+  await fabricHistory(gone.ctx, { jobs: [] });
+  assert.deepEqual(lines(gone.ui.text()).slice(1), ['Asked for: 30 days', 'In the reports: run "valuelens-install check" to see the dates.']);
+
+  const fresh = fabricCtx(async () => null);
+  await fabricHistory(fresh.ctx, { jobs: [] });
+  assert.deepEqual(lines(fresh.ui.text()).slice(1), [
+    'Asked for: 30 days',
+    'Fetched from the audit log: none yet',
+    'In the reports: not the full history yet. The first load writes it once every window is fetched.',
+    'Start the first load with "valuelens-install run".',
+  ]);
+
+  // A first load that failed before it fetched anything: nothing to carry on from.
+  const none = fabricCtx(async () => null);
+  none.config.firstRun = { jobId: 'job-1', status: 'Failed', startedAt: '2026-06-01T08:00:00.000Z' };
+  await fabricHistory(none.ctx, { jobs: [{ id: 'job-1', status: 'Failed', startTimeUtc: '2026-06-01T08:00:00' }] });
+  assert.deepEqual(lines(none.ui.text()).slice(2), [
+    'Fetched from the audit log: none yet',
+    'In the reports: not the full history yet. The first load writes it once every window is fetched.',
+    'To load it, run "valuelens-install run".',
+  ]);
+
+  const empty = fabricCtx(async () => null);
+  empty.config.firstRun = { jobId: 'job-1', status: 'Completed', startedAt: '2026-05-01T08:00:00.000Z' };
+  await fabricHistory(empty.ctx, { jobs: [], summary: { tables: { audit: { rows: 0 } } } });
+  assert.match(empty.ui.text(), /In the reports: no Copilot activity, at the last data check/);
+});
+
+test('fabricHistory: a first load waiting for consent points to its step', async () => {
+  const { ctx, config, ui } = fabricCtx(async () => null);
+  config.history.pending = { days: 30, reason: 'consent', at: '2026-06-01T11:00:00.000Z', first: true };
+  await fabricHistory(ctx, { jobs: [] });
+  const out = lines(ui.text());
+  assert.equal(out[1], 'Asked for: 30 days, waiting to start (see the step below)');
+  assert.doesNotMatch(ui.text(), /Start the first load|To carry on/, 'the step has the command');
+});
+
+test('fabricHistory: a load stopped at the search limit says when a run can search again', async () => {
+  const windows = plan(t('2025-12-03T08:00:00'), t('2026-06-01T08:00:00'), 2);
+  const stop = t('2026-06-01T09:30:00');
+  /**
+   * @param {Record<string, any>} manifest
+   * @param {{ status?: string, start?: string, loaded?: boolean }} [o]  loaded: a reload, after a first load.
+   */
+  const show = async (manifest, o = {}) => {
+    const { status = 'Failed', start = '2026-06-01T08:00:00' } = o;
+    const { ctx, config, ui } = fabricCtx(async () => manifest, { days: 180, scale: 'large' });
+    config.firstRun = o.loaded
+      ? { jobId: 'job-1', status: 'Completed', startedAt: '2026-05-01T08:00:00.000Z' }
+      : { jobId: 'job-2', status, startedAt: `${start}.000Z` };
+    await fabricHistory(ctx, { jobs: [{ id: 'job-2', status, startTimeUtc: start }] });
+    return lines(ui.text());
+  };
+  const why = "because the tenant's audit search limit was reached.";
+
+  const out = await show(stoppedAtLimit(windows, 200, [stop - 3 * MIN, stop], stop - 2 * H));
+  assert.equal(last(out), `The audit load stopped at 2026-06-01 09:30 UTC ${why} Run "valuelens-install run" after 2026-06-02 09:30 UTC: it carries on from the windows already fetched.`);
+  const unstamped = await show(entries(windows, (i) => (i < 200 ? 'succeeded' : i < 202 ? 'waiting' : undefined)));
+  assert.deepEqual(out.slice(0, -1), unstamped.slice(0, -1), 'only the note differs');
+  assert.equal(last(unstamped), 'To carry on, run "valuelens-install run". It reuses the windows already fetched.');
+
+  // A reload says its days. A stop part-way through a minute gives the minute after, so it's never early.
+  const reload = await show(stoppedAtLimit(windows, 200, [stop + 20_000], stop - 2 * H), { loaded: true });
+  assert.equal(last(reload), `The audit load stopped at 2026-06-01 09:30 UTC ${why} Run "valuelens-install run --backfill-days 180" after 2026-06-02 09:31 UTC: it carries on from the windows already fetched.`);
+  const none = await show(stoppedAtLimit(windows, 0, [stop], 0));
+  assert.equal(last(none), `The audit load stopped at 2026-06-01 09:30 UTC ${why} Run "valuelens-install run" after 2026-06-02 09:30 UTC to load it.`);
+
+  // A day after it stopped, the limit no longer holds it back; nor does a stop at the time budget.
+  const usual = 'To carry on, run "valuelens-install run". It reuses the windows already fetched.';
+  const day = await show(stoppedAtLimit(windows, 200, [t('2026-05-31T12:00:00')], t('2026-05-31T10:00:00')), { start: '2026-05-31T08:00:00' });
+  assert.equal(last(day), usual);
+  const almost = await show(stoppedAtLimit(windows, 200, [t('2026-05-31T12:01:00')], t('2026-05-31T10:00:00')), { start: '2026-05-31T08:00:00' });
+  assert.match(last(almost), /stopped at 2026-05-31 12:01 UTC .* after 2026-06-01 12:01 UTC:/);
+  const budget = stoppedAtLimit(windows, 200, [stop], stop - 2 * H);
+  for (const e of Object.values(budget)) delete e.throttled_at;
+  assert.equal(last(await show(budget)), usual);
+
+  // While the pipeline runs, it says so.
+  const going = await show(stoppedAtLimit(windows, 200, [stop], stop - 2 * H), { status: 'InProgress', start: '2026-06-01T11:00:00' });
+  assert.match(last(going), /^The pipeline is running\./);
+});
+
+/**
+ * A run job execution.
+ * @param {string} status @param {string} startTime @param {string[]} [args]
+ */
+const exec = (status, startTime, args = ['run']) => ({ name: `vlens-run-${startTime.slice(11, 13)}`, properties: { status, startTime, template: { containers: [{ name: 'run', args }] } } });
+
+const AZ_WINDOWS = plan(t('2026-05-02T00:00:00'), t('2026-06-01T02:00:00'), 8);
+
+test('azureHistory: published history is in the reports up to the high-water mark', async () => {
+  const state = { high_water_mark: '2026-06-01T01:58:00+00:00', windows: entries(AZ_WINDOWS.slice(-3), () => 'succeeded') };
+  const { ctx, ui } = azureCtx(async () => JSON.stringify(state));
+  await azureHistory(ctx, { executions: [exec('Succeeded', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(ui.text()), ['Audit history', 'Asked for: 30 days', '✓ In the reports: activity up to 2026-06-01']);
+});
+
+test('azureHistory: a reload part-way through is not in the reports yet', async () => {
+  const windows = plan(t('2026-03-03T00:00:00'), t('2026-06-01T02:00:00'), 8);
+  assert.equal(windows.length, 271);
+  const state = {
+    high_water_mark: '2026-05-31T23:59:00+00:00',
+    backfill_from: '2026-03-03T00:00:00+00:00',
+    windows: entries(windows, (i) => (i < 135 ? 'succeeded' : i === 135 ? 'querying' : undefined)),
+  };
+  const { ctx, az, ui } = azureCtx(async () => JSON.stringify(state), { days: 90 });
+  az.status = { lastRun: { name: 'vlens-run-02', status: 'Failed', finishedAt: '2026-06-01T06:00:00.000Z' } };
+  await azureHistory(ctx, { executions: [exec('Failed', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(ui.text()), [
+    'Audit history',
+    'Asked for: 90 days',
+    "In the reports: activity up to 2026-05-31. The reload from 2026-03-03 isn't all in them yet.",
+    'Fetched from the audit log: about 45 of 90 days, 2026-03-03 to 2026-04-17; about 135 windows left',
+    'The next scheduled run carries on where it stopped, or start one now with "valuelens-install run".',
+  ]);
+});
+
+test('azureHistory: a first load with nothing published says what is fetched, not that it is loaded', async () => {
+  const partial = { windows: entries(AZ_WINDOWS, (i) => (i < 60 ? 'succeeded' : i === 60 ? 'querying' : undefined)) };
+  const cut = azureCtx(async () => JSON.stringify(partial));
+  await azureHistory(cut.ctx, { executions: [exec('Failed', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(cut.ui.text()).slice(2), [
+    'Fetched from the audit log: about 20 of 30 days, 2026-05-02 to 2026-05-22; about 30 windows left',
+    'In the reports: not all of it yet',
+    'The next scheduled run carries on where it stopped, or start one now with "valuelens-install run".',
+  ]);
+
+  // A run of only some steps loads no history: it is neither going nor where the history ends.
+  const steps = azureCtx(async () => JSON.stringify(partial));
+  await azureHistory(steps.ctx, { executions: [exec('Running', '2026-06-01T11:30:00+00:00', ['run', '--steps', 'access']), exec('Failed', '2026-06-01T02:00:00+00:00')] });
+  assert.equal(steps.ui.text(), cut.ui.text());
+
+  const fetched = azureCtx(async () => JSON.stringify({ windows: entries(AZ_WINDOWS, () => 'succeeded') }));
+  await azureHistory(fetched.ctx, { executions: [exec('Failed', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(fetched.ui.text()).slice(2), [
+    'Fetched from the audit log: all 30 days, 2026-05-02 to 2026-06-01',
+    'In the reports: not all of it yet',
+    'The next run publishes it. Start one sooner with "valuelens-install run".',
+  ]);
+
+  const going = azureCtx(async () => null);
+  /** @type {any} */ (going.az).status = { lastRun: { name: 'vlens-run-11', status: 'Running', startedAt: '2026-06-01T11:00:00.000Z' } };
+  await azureHistory(going.ctx, { executions: [exec('Running', '2026-06-01T11:00:00+00:00')] });
+  assert.deepEqual(lines(going.ui.text()).slice(2), [
+    'Fetched from the audit log: none yet',
+    'In the reports: none of it yet',
+    'A run is going now. What it fetches reaches the reports if it finishes within its 4 hours.',
+  ]);
+
+  // A run that started over a day ago is stuck, not going.
+  const stuck = azureCtx(async () => JSON.stringify({ windows: {} }));
+  await azureHistory(stuck.ctx, { executions: [exec('Running', '2026-05-30T11:00:00+00:00')] });
+  assert.match(stuck.ui.text(), /The next scheduled run starts loading it, or start one now with "valuelens-install run"\./);
+  assert.doesNotMatch(`${cut.ui.text()}${fetched.ui.text()}${going.ui.text()}`, /loaded now|activity up to/);
+});
+
+test('azureHistory: a run stopped at the search limit says when a run can search again', async () => {
+  const stop = t('2026-06-01T05:30:00');
+  /** @param {Record<string, any>} windows @param {any[]} [executions] */
+  const show = async (windows, executions = [exec('Failed', '2026-06-01T02:00:00+00:00')]) => {
+    const { ctx, ui } = azureCtx(async () => JSON.stringify({ windows }));
+    await azureHistory(ctx, { executions });
+    return lines(ui.text()).slice(2);
+  };
+  const why = "The last run stopped at 2026-06-01 05:30 UTC because the tenant's audit search limit was reached.";
+  assert.deepEqual(await show(stoppedAtLimit(AZ_WINDOWS, 60, [stop - 2 * MIN, stop], t('2026-06-01T05:00:00'))), [
+    'Fetched from the audit log: about 20 of 30 days, 2026-05-02 to 2026-05-22; about 30 windows left',
+    'In the reports: not all of it yet',
+    `${why} The next scheduled run carries on where it stopped, or start one after 2026-06-02 05:30 UTC with "valuelens-install run".`,
+  ]);
+  const none = await show(stoppedAtLimit(AZ_WINDOWS, 0, [stop], 0));
+  assert.equal(last(none), `${why} The next scheduled run starts loading it, or start one after 2026-06-02 05:30 UTC with "valuelens-install run".`);
+
+  // A run going, a run that has searched since, or a day gone by: the usual notes.
+  const going = await show(stoppedAtLimit(AZ_WINDOWS, 60, [stop], t('2026-06-01T05:00:00')), [exec('Running', '2026-06-01T11:00:00+00:00'), exec('Failed', '2026-06-01T02:00:00+00:00')]);
+  assert.equal(last(going), 'A run is going now. What it fetches reaches the reports if it finishes within its 4 hours.');
+  const usual = 'The next scheduled run carries on where it stopped, or start one now with "valuelens-install run".';
+  const searched = await show(stoppedAtLimit(AZ_WINDOWS, 60, [stop], t('2026-06-01T10:00:00')), [exec('Failed', '2026-06-01T10:00:00+00:00'), exec('Failed', '2026-06-01T02:00:00+00:00')]);
+  assert.equal(last(searched), usual);
+  const day = await show(stoppedAtLimit(AZ_WINDOWS, 60, [t('2026-05-31T12:00:00')], t('2026-05-31T11:00:00')), [exec('Failed', '2026-05-31T09:00:00+00:00')]);
+  assert.equal(last(day), usual);
+
+  // All the days asked for are fetched, though a window outside them stopped at the limit: the next run publishes them.
+  const done = { ...entries(AZ_WINDOWS, () => 'succeeded'), ...stoppedAtLimit(plan(t('2026-04-01T00:00:00'), t('2026-04-01T08:00:00'), 8), 0, [stop], 0) };
+  assert.equal(last(await show(done)), 'The next run publishes it. Start one sooner with "valuelens-install run".');
+});
+
+test('azureHistory: windows that all came back empty mean no activity, not a load still to come', async () => {
+  const { ctx, ui } = azureCtx(async () => JSON.stringify({ windows: entries(AZ_WINDOWS, () => 'succeeded', 0) }));
+  await azureHistory(ctx, { executions: [exec('Succeeded', '2026-06-01T02:00:00+00:00')] });
+  assert.deepEqual(lines(ui.text()).slice(2), [
+    'Fetched from the audit log: all 30 days, with no Copilot activity in them',
+    'In the reports: no Copilot activity, because the audit log returned none for those days',
+  ]);
+});
+
+test('azureHistory: when the state cannot be read, it falls back to the runs, and never fails', async () => {
+  const priv = azureCtx(async () => assert.fail('a private install is not read'));
+  priv.az.publicNetworkAccess = false;
+  await azureHistory(priv.ctx, { executions: [] });
+  assert.deepEqual(lines(priv.ui.text()).slice(1), [
+    'Asked for: 30 days',
+    "How much has loaded can't be read from this PC: it's a private install, so its storage can't be reached from outside its network.",
+    'The reports have the history asked for once a run of the run job succeeds. Its runs are listed above.',
+  ]);
+
+  for (const [err, reason] of /** @type {[Error, RegExp][]} */ ([
+    [httpError(403, 'AuthorizationPermissionMismatch'), /your account can't read the job's storage\./],
+    [new Error('fetch failed'), /the job's storage couldn't be reached just now\./],
+  ])) {
+    const { ctx, ui } = azureCtx(() => Promise.reject(err));
+    await azureHistory(ctx, { executions: [exec('Failed', '2026-06-01T02:00:00+00:00')] });
+    assert.match(ui.text(), reason);
+    assert.doesNotMatch(ui.text(), /loaded now|activity up to|Fetched from/);
+  }
+
+  const sample = azureCtx(async () => assert.fail('not read'));
+  sample.az.sampleData = true;
+  await azureHistory(sample.ctx, {});
+  const notDeployed = azureCtx(async () => assert.fail('not read'));
+  delete notDeployed.az.outputs.runJobName;
+  await azureHistory(notDeployed.ctx, {});
+  assert.equal(`${sample.ui.text()}${notDeployed.ui.text()}`, '', 'sample data and an install with no run job have no history to load');
+});
+
+test('azureHistory: a reload waiting to start points to its step', async () => {
+  const { ctx, config, ui } = azureCtx(async () => JSON.stringify({ high_water_mark: '2026-06-01T01:58:00+00:00' }));
+  config.history.pending = { days: 90, reason: 'running', at: '2026-06-01T11:00:00.000Z' };
+  await azureHistory(ctx, { executions: [] });
+  assert.deepEqual(lines(ui.text()).slice(1), ['Asked for: 30 days, and a reload of 90 days waiting to start (see the step below)', '✓ In the reports: activity up to 2026-06-01']);
+});
+
+test('pendingHistory: a load waiting to start, until a run with it starts', () => {
+  const config = emptyConfig();
+  assert.equal(pendingHistory(config), undefined);
+  config.history.pending = { days: 90, reason: 'running', at: '2026-06-01T11:00:00.000Z' };
+  assert.equal(pendingHistory(config)?.days, 90);
+  config.history.days = 90;
+  assert.equal(pendingHistory(config), undefined, 'a reload that started raised the days asked for');
+  config.history.days = 180;
+  assert.equal(pendingHistory(config), undefined);
+
+  config.history = { days: 30, pending: { days: 30, reason: 'consent', at: '2026-06-01T11:00:00.000Z', first: true } };
+  assert.equal(pendingHistory(config)?.reason, 'consent');
+  config.firstRun = { jobId: 'job-0', status: 'Failed', startedAt: '2026-05-01T08:00:00.000Z' };
+  assert.equal(pendingHistory(config)?.reason, 'consent', 'an earlier first load');
+  config.firstRun = { jobId: 'job-1', status: 'InProgress', startedAt: '2026-06-01T11:30:00.000Z' };
+  assert.equal(pendingHistory(config), undefined, 'a first load started since, by any installer');
+
+  const azure = emptyConfig();
+  azure.target = 'azure';
+  azure.history.pending = { days: 30, reason: 'failed', at: '2026-06-01T11:00:00.000Z', first: true };
+  assert.ok(pendingHistory(azure));
+  /** @type {any} */ (azure.azure).status = { lastRun: { name: 'r', status: 'Succeeded', finishedAt: '2026-06-01T11:45:00.000Z' } };
+  assert.equal(pendingHistory(azure), undefined, 'a waited run keeps only when it finished');
+
+  for (const pending of [{ days: 0 }, { days: 'x' }, 'soon', null]) {
+    config.history = { days: 30, pending: /** @type {any} */ (pending) };
+    assert.equal(pendingHistory(config), undefined, JSON.stringify(pending));
+  }
+});
+
+test('recordPendingHistory and clearPendingHistory: kept in the record until a run covers it', () => {
+  const { ctx, config, saves } = fakeCtx();
+  recordPendingHistory(ctx, { days: 0, reason: 'failed' });
+  recordPendingHistory(ctx, { days: undefined, reason: 'failed' });
+  assert.equal(config.history.pending, undefined);
+  assert.equal(saves(), 0);
+
+  recordPendingHistory(ctx, { days: 30, reason: 'consent', first: true });
+  assert.deepEqual(config.history.pending, { days: 30, reason: 'consent', at: '2026-06-01T12:00:00.000Z', first: true });
+  assert.equal(saves(), 1);
+  recordPendingHistory(ctx, { days: 20, reason: 'keyVault' });
+  assert.deepEqual(config.history.pending, { days: 30, reason: 'keyVault', at: '2026-06-01T12:00:00.000Z', first: true }, 'keeps the bigger load, and that it is the first');
+
+  clearPendingHistory(ctx, { days: 7 });
+  assert.ok(config.history.pending, 'a run with less history');
+  assert.equal(saves(), 2);
+  clearPendingHistory(ctx, { first: true });
+  assert.equal(config.history.pending, undefined, 'the first load');
+  assert.equal(saves(), 3);
+
+  recordPendingHistory(ctx, { days: 90, reason: 'running' });
+  clearPendingHistory(ctx, { first: true });
+  assert.ok(config.history.pending, 'a first load is not a reload');
+  clearPendingHistory(ctx, { days: 180 });
+  assert.equal(config.history.pending, undefined);
+  const before = saves();
+  clearPendingHistory(ctx, { days: 180 });
+  assert.equal(saves(), before, 'nothing to clear');
+});
+
+test('historyStep: what stopped the load, and the commands that already exist', () => {
+  const { config } = fakeCtx();
+  const user = { tenantId: 'tenant-1' };
+  assert.equal(historyStep(config, user), null);
+
+  config.history.pending = { days: 30, reason: 'consent', at: '2026-06-01T11:00:00.000Z', first: true };
+  assert.deepEqual(historyStep(config, user), {
+    id: 'load-history',
+    title: 'Load 30 days of audit history',
+    why: "The first load didn't start, because the data collector app's permissions haven't been approved yet. Until it runs, the reports don't have the history.",
+    who: 'You',
+    link: apiPermissionsUrl('app-1'),
+    linkText: "The app's API permissions in Entra",
+    steps: [
+      'Ask a Global Administrator or Privileged Role Administrator to open the link and select "Grant admin consent", or to use https://login.microsoftonline.com/tenant-1/adminconsent?client_id=app-1.',
+      'Run "valuelens-install run --backfill-days 30".',
+      'See how far it has got with "valuelens-install status".',
+    ],
+  });
+
+  config.keyVault.name = 'kv-test';
+  config.keyVault.id = '/subscriptions/sub-1/resourceGroups/rg-vlens/providers/Microsoft.KeyVault/vaults/kv-test';
+  config.history.pending = { days: 90, reason: 'keyVault', at: '2026-06-01T11:00:00.000Z' };
+  const vault = historyStep(config, user);
+  assert.equal(vault?.title, 'Load 90 days of audit history');
+  assert.equal(vault?.why, "The reload of 90 days didn't start, because the private endpoint to kv-test hasn't been approved yet. Until it runs, the reports keep the history they have.");
+  assert.equal(vault?.link, `https://portal.azure.com/#@tenant-1/resource${config.keyVault.id}/networking`);
+  assert.deepEqual(vault?.steps, [
+    'Ask someone who manages kv-test to approve the private endpoint, under Networking, Private endpoint connections.',
+    'Run "valuelens-install run --backfill-days 90".',
+    'See how far it has got with "valuelens-install status".',
+  ]);
+
+  config.history.pending = { days: 90, reason: 'running', at: '2026-06-01T11:00:00.000Z' };
+  assert.equal(historyStep(config, user)?.steps?.[0], 'Wait for the run that\'s going to finish. "valuelens-install status" shows it.');
+  config.history.pending = { days: 90, reason: 'failed', at: '2026-06-01T11:00:00.000Z' };
+  const failed = historyStep(config, user);
+  assert.equal(failed?.why, "The reload of 90 days didn't start. Until it runs, the reports keep the history they have.");
+  assert.equal(failed?.steps?.length, 2);
+
+  delete config.app.appId;
+  config.history.pending = { days: 30, reason: 'consent', at: '2026-06-01T11:00:00.000Z', first: true };
+  const noApp = historyStep(config, {});
+  assert.equal(noApp?.link, undefined);
+  assert.equal(noApp?.steps?.[0], 'Ask a Global Administrator or Privileged Role Administrator to grant admin consent to the data collector app.');
+});
+
+test('showHistoryStep: the step, in the next steps, only while the load is waiting', () => {
+  const ui = fakeUi();
+  const { ctx, config } = fakeCtx({ ui: ui.ui });
+  showHistoryStep(ctx);
+  assert.equal(ui.text(), '');
+  config.history.pending = { days: 30, reason: 'consent', at: '2026-06-01T11:00:00.000Z', first: true };
+  showHistoryStep(ctx);
+  assert.match(ui.text(), /1 step left\n {2}1\. Load 30 days of audit history {2}You\n/);
+  assert.match(ui.text(), /c\. See how far it has got with "valuelens-install status"\./);
+});

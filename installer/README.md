@@ -226,16 +226,14 @@ Each run of the collector job has 4 vCPU, 8 GiB and up to 4 hours, which Azure e
 loads the data and then refreshes the semantic models, waiting up to 2 hours for each refresh. On a
 large tenant the first load may not fit in one run. The audit collector records each time window as
 it finishes, so the next run (the next scheduled one, or **Run** on the home page) queries only the
-windows still to do, and then loads them all. The dashboard fills in once that's done. A reload of
-more history carries over the same way: when a run stops at 4 hours, the next runs carry on with it,
-and the dashboard gets the extra history once a run has loaded all of it. At 20,000
-seats, start with 30 days of history and [load more](#load-more-audit-history) once the first load
-has finished. In an offline test at 20,000 seats, with the audit service simulated, the run stayed
-within the job's memory and disk. Collecting the audit records took about 3 minutes for the first
-30 days and 18 minutes for 180 days, plus the time each audit query waits in Microsoft's queue,
-which the test couldn't measure. Processing them took about 3 minutes for the first 30 days, 5
-minutes for a nightly run and 25 to 35 minutes for 180 days. How long the refresh takes depends on
-the capacity and the history loaded.
+windows still to do, and then loads them all. A run cut off at 4 hours publishes nothing, so the
+dashboard fills in once one run has fetched everything left. A reload of more history carries over
+the same way. On a large tenant, start with 30 days of history and
+[load more](#load-more-audit-history) once the first load has finished. In an offline test at
+20,000 seats, with the audit service simulated, the run stayed within the job's memory and disk,
+and processing a nightly run took about 5 minutes. For how long the first load takes, see
+[How long the first load takes](#how-long-the-first-load-takes). How long the refresh takes
+depends on the capacity and the history loaded.
 
 ### Demo mode
 
@@ -332,6 +330,9 @@ Azure commands:
 - `run` starts the Container Apps run job, unless a run of it is already going. Then it says which
   one, and to run `run` again once it has finished.
 - `status` shows job executions, the web URL, pending admin actions, and SQL reader secret expiry.
+  It shows how much audit history is in the reports, read from the run job's state in its storage,
+  and a load of history that couldn't start, with its command. On a private install, or without
+  read access to the storage, it says it can't read the history and lists the runs instead.
   With Agent Evaluator it also shows which environments the jobs' managed identity can read, and
   what the jobs' last read found in each.
 - `refresh` starts a Power BI model refresh. It refreshes the Agent Evaluator model only once the
@@ -515,8 +516,8 @@ Lakehouse SQL endpoints to sync. Otherwise a refresh straight after a load can f
 ## A large tenant
 
 Each audit query waits a few minutes in Microsoft's queue, however little it returns, so the first
-load's time grows with the days of history. With 30 days a tenant of up to 10,000 people usually
-loads in one to two hours. Later runs load only what's new.
+load's time grows with the days of history, and with the people in the tenant. Later runs load only
+what's new. See [How long the first load takes](#how-long-the-first-load-takes).
 
 On a tenant with tens of thousands of people, choose **More than 10,000** when placement asks
 **About how many people work in your organisation?** It's asked on both targets: in **Fabric
@@ -561,16 +562,73 @@ With 30,000 or more people on a capacity smaller than F64, the plan warns and sa
 or larger capacity in **Fabric placement**. If your organisation's policy keeps you on the smaller
 capacity, setup still works, but the loads take longer and may hit their time limits.
 
-Expect the first load to take several hours. Start with 30 days, use an F64 or larger capacity,
-and [load more history](#load-more-audit-history) later. Don't run audit searches in the
-Purview portal while it loads. To change the tenant size, run the installer again and answer the
-size question: in the browser, choose **Repair or change**, then **Fabric placement** or **Azure
-placement**. An install from an earlier version keeps its audit windows and time
-limits until you do. An install that has a tenant size gets the new time limits on its next
+Expect the first load to take a day or more on Fabric, or a few hours on Azure with 30 days of
+history: see [How long the first load takes](#how-long-the-first-load-takes). Start with 30 days,
+use an F64 or larger capacity, and [load more history](#load-more-audit-history) later. Don't run
+audit searches in the Purview portal while it loads. To change the tenant size, run the installer
+again and answer the size question: in the browser, choose **Repair or change**, then **Fabric
+placement** or **Azure placement**. An install from an earlier version keeps its audit windows and
+time limits until you do. An install that has a tenant size gets the new time limits on its next
 **Update** or **Repair or change**, and keeps its data and settings.
 
 On the Azure target, the Power BI capacity, Azure SQL and web app sizing and the run job's time
 limit are under [A large tenant on Azure](#a-large-tenant-on-azure).
+
+### How long the first load takes
+
+The plan shows an estimate beside the history question, and the installer says it again when the
+first load or a reload starts. The estimates for each target and tenant size are in
+[How long it takes](../docs/PREREQUISITES.md#how-long-it-takes). Two things set them:
+
+- **The audit search limit.** The load starts one audit search for each window of history it
+  reads: a day on Fabric, or 2 hours for more than 10,000 people, and 8 hours on Azure. A tenant
+  can start at least 200 audit searches in a rolling 24 hours, shared with other admins and tools,
+  and a tenant with more licences can get more: see
+  [Microsoft Graph throttling limits](https://learn.microsoft.com/graph/throttling-limits#security-audit-log-query-service-limits).
+  A load that needs more stops when they're used up, and a run a day later carries on. So 30 days
+  of 2-hour windows, about 360 searches, take two or three runs. The estimates allow one run more
+  than the searches need, for searches others start and windows searched again, such as a window
+  split at the audit service's record cap.
+- **The time each search takes.** It's scaled from two measurements, until timed runs of the
+  installer replace them:
+  - By hand on Azure, 30 days of history took 58 minutes.
+  - In an offline test at 20,000 seats, with the audit service simulated, collecting the audit
+    records took about 3 minutes for 30 days and 18 minutes for 180, and processing them about 3
+    minutes and 25 to 35 minutes. The test couldn't measure the time each audit query waits in
+    Microsoft's queue.
+
+A Fabric install from an earlier version, with no tenant size set, reads 8-hour windows: allow
+2 to 3 hours for 30 days, 1 to 2 days over two or three runs for 90, and 2 to 3 days over three or
+four runs for 180. On a busy day the audit service's queue can add hours, and a trial or small
+capacity takes longer.
+
+A load can take more than one run:
+
+- **Fabric.** The audit load has a time budget of 90 minutes, or 5 hours for more than 10,000
+  people. If it reaches it, it stops without writing anything, and the pipeline's two retries carry
+  on from where it stopped: windows already fetched aren't read again. If it reaches the search
+  limit, it stops the same way, and the retries stop at it too. The reports show the new history
+  once every window is fetched. The scheduled runs load only the newest days, so they don't carry a
+  first load or a reload on. If a run ends before every window is fetched, start another with
+  `run`, or `run --backfill-days <n>` for a reload, a day later if it stopped at the search limit:
+  it carries on from the windows already fetched. `status` gives the command, and after a stop at
+  the search limit, the time a run can search again.
+- **Azure.** Each run of the run job gets up to 4 hours. A run cut off then publishes nothing, but
+  a run stopped at the search limit publishes what it has fetched. The next scheduled run, the next
+  day, carries on where it stopped, or start one sooner with `run`. The estimates count one run a
+  day, and no retry of a run that's cut off: on a weekly schedule, start the runs in between with
+  `run`.
+
+Keep the PC awake until the installer says setup is finished. After that you can close the window,
+and the load carries on. `status` shows how far it has got: the days asked for, how much has been
+fetched from the audit log, and what's in the reports. When the search limit stopped the load in
+the last day, it says when, and when a run can search again. What's been fetched isn't in the
+reports until it's written: on Fabric, a first load or a reload writes once every window is
+fetched, and on Azure, a run publishes what it fetched when it finishes. If `status` can't read the
+progress, for example on a private Azure install or without read access to the job's storage, it
+says so and lists the runs since. A load of history the installer couldn't start, such as a first
+load waiting for admin consent, stays in `status` and on the Done page, with its command, until it
+starts.
 
 ### Load more audit history
 
@@ -578,23 +636,29 @@ The first load reads the history you chose: 30, 90 or 180 days. To load more lat
 work:
 
 - **Repair or change** asks *Load more audit history?* once the first load has finished, offering
-  only more than you have. Keep is the default. The plan shows the reload, and it runs once,
+  only more than you have. On Azure, it reads the run job's state to tell, since a run that started
+  may have published nothing. Where it can't read the state, on a private install or without read
+  access to the job's storage, it asks *You asked for N days of history. Load more?* instead, once
+  the installer has started a run. Keep is the default. The plan shows the reload, and it runs once,
   straight after the repair. Later runs load only what's new. If a run is already going, the reload
-  doesn't start: use `run --backfill-days <n>` once that run has finished.
+  doesn't start: use `run --backfill-days <n>` once that run has finished. The installer keeps
+  the reload in the install record, and `status` and the Done page show it, with that command,
+  until a run with it starts.
 - On the home page, the **Run** row has an **Audit history** picker: the usual run, or 30, 90 or
   180 days.
 - In the terminal: `run --backfill-days <n>`, with `<n>` from 1 to 180.
 
 The record keeps the most history loaded, once the reload has started. On Fabric, windows already
-read are reused, so a reload only queries what's missing. On a large tenant, 90 or 180 days can
-take many hours.
+read are reused, so a reload only queries what's missing. 90 or 180 days can take days, over
+several runs: see [How long the first load takes](#how-long-the-first-load-takes).
 
 On the [Azure target](#azure-target), the reload starts the run job once with
 `VALUELENS_AUDIT_BACKFILL_DAYS` set, and leaves its usual settings alone. Job images older than
 this installer ignore it and run as usual: run `update` first if yours is.
 
 The run records the reload before it reads anything. If it stops short, at the run job's 4-hour
-limit or on a query that fails, the next runs carry the reload on and query only what's missing.
+limit, at the tenant's audit search limit or on a query that fails, the next runs carry the reload
+on and query only what's missing.
 The audit history and Agent Evaluator both carry it over until they've finished it: the audit
 history until a run has loaded every window, and Agent Evaluator until it has read each environment.
 The dashboard gets the extra history once a run has loaded all of it.

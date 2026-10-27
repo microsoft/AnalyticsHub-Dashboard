@@ -26,9 +26,11 @@ and what to ask other admins for, by person, with the optional extras and the co
 - For Copilot Cowork credits, a **Viva Insights query** built first.
   [Send this to your Viva Insights analyst](../docs/PREREQUISITES.md#send-this-to-your-viva-insights-analyst-first).
 
-It takes about 5 minutes of questions and about 15 minutes of setup. The first data reaches the
-app about 25 minutes after you choose **Go ahead** with 30 days of history, or about 2 hours with
-180 days. Keep the PC awake and plugged in until it finishes.
+It takes about 5 minutes of questions and about 15 minutes of setup. Then the first load of history
+takes 1 to 2 hours with 30 days, or 3 to 5 hours with 180 days, for up to 10,000 people. A larger
+tenant takes days: see [How long it takes](../docs/PREREQUISITES.md#how-long-it-takes).
+Keep the PC awake and plugged in until the installer says setup is finished. After that you can
+close the window, and the load carries on in Fabric.
 
 Read the [disclaimer](../README.md#disclaimer) too: these aren't the official Copilot reports, and
 you're responsible for the data once it's in your workspace.
@@ -46,16 +48,16 @@ you're responsible for the data once it's in your workspace.
    [Check the download](../docs/INSTALL.md#check-the-download). If your organisation blocks
    them, use another route in [Install](../docs/INSTALL.md) or ask your IT team.
 2. The first time, it takes about a minute to unpack.
-3. Then it opens in your browser. Keep the installer window open until you're
-   done.
+3. Then it opens in your browser. Keep the installer window open until it says setup is finished.
 4. Choose **Set up Analytics Hub** and sign in with your work account.
 5. Answer the questions. Under **Data sources**, choose the data you want: each source has a
    card. Then **Change the advanced settings?** **No** keeps what you chose last time, or takes the
    defaults: see [Advanced settings](../installer/README.md#advanced-settings). **Back** takes
    you to the previous question, with your answer filled in.
 6. Check the plan and approve it. Nothing is created until you do.
-7. Wait for it to finish. It sets everything up, loads the first data and gives you a link to the
-   app.
+7. Wait until it says setup is finished. Then you can close the window, and the first load carries
+   on in Fabric. If you keep it open, it checks the data when the load finishes and gives you a
+   link to the app.
 
 If admin consent isn't granted yet, the installer skips the first load. Once an admin has granted
 it, start the installer again and choose **Run now**.
