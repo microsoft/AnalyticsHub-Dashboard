@@ -353,6 +353,8 @@ export function FilterBar({ destinationLabel }: { destinationLabel: string }) {
 
     const has = (key: FilterKey) => applicable.includes(key);
     const more = MORE_FILTERS.filter(has);
+    // Fold them only beside dates or org; a page with nothing else shows them as they are.
+    const folded = more.length > 0 && (has("dateRange") || has("organizations"));
     const moreSet = more.filter((key) => isFilterInEffect(filters, key, options)).length;
     // Reset filters returns to where the tenant starts: the last 12 weeks on a large tenant, every date on a small one.
     const changed = FILTER_KEYS.some((key) => differsFromTenantDefault(filters, key, options));
@@ -380,6 +382,45 @@ export function FilterBar({ destinationLabel }: { destinationLabel: string }) {
         };
     });
 
+    const moreFilters = (
+        <>
+            {has("licence") && (
+                <LabelledSegment
+                    label={filterLabel("licence", "")}
+                    options={LICENCE_OPTIONS}
+                    value={filters.licence}
+                    onChange={(licence) => setFilters((current) => ({ ...current, licence }))}
+                />
+            )}
+            {has("audience") && (
+                <LabelledSegment
+                    label={filterLabel("audience", "")}
+                    options={audienceOptions}
+                    value={filters.audience}
+                    onChange={(audience) => setFilters((current) => ({ ...current, audience }))}
+                />
+            )}
+            {has("agentTypes") && (
+                <MultiSelectFilter
+                    filterKey="agentTypes"
+                    label={filterLabel("agentTypes", "")}
+                    allLabel="All agent types"
+                    noun="agent types"
+                    choices={options?.agentTypes}
+                />
+            )}
+            {has("agentNames") && (
+                <MultiSelectFilter
+                    filterKey="agentNames"
+                    label={filterLabel("agentNames", "")}
+                    allLabel="All agents"
+                    noun="agents"
+                    choices={options?.agentNames}
+                />
+            )}
+        </>
+    );
+
     return (
         <div
             role="group"
@@ -400,7 +441,8 @@ export function FilterBar({ destinationLabel }: { destinationLabel: string }) {
                     choicesOf={orgAttribute.column}
                 />
             )}
-            {more.length > 0 && (
+            {!folded && moreFilters}
+            {folded && (
                 <button
                     type="button"
                     aria-expanded={moreOpen}
@@ -436,44 +478,11 @@ export function FilterBar({ destinationLabel }: { destinationLabel: string }) {
                 )}
             </div>
 
-            <div id={moreId} hidden={!moreOpen} className="basis-full">
-                <div className="flex flex-wrap items-center gap-x-400 gap-y-200">
-                    {has("licence") && (
-                        <LabelledSegment
-                            label={filterLabel("licence", "")}
-                            options={LICENCE_OPTIONS}
-                            value={filters.licence}
-                            onChange={(licence) => setFilters((current) => ({ ...current, licence }))}
-                        />
-                    )}
-                    {has("audience") && (
-                        <LabelledSegment
-                            label={filterLabel("audience", "")}
-                            options={audienceOptions}
-                            value={filters.audience}
-                            onChange={(audience) => setFilters((current) => ({ ...current, audience }))}
-                        />
-                    )}
-                    {has("agentTypes") && (
-                        <MultiSelectFilter
-                            filterKey="agentTypes"
-                            label={filterLabel("agentTypes", "")}
-                            allLabel="All agent types"
-                            noun="agent types"
-                            choices={options?.agentTypes}
-                        />
-                    )}
-                    {has("agentNames") && (
-                        <MultiSelectFilter
-                            filterKey="agentNames"
-                            label={filterLabel("agentNames", "")}
-                            allLabel="All agents"
-                            noun="agents"
-                            choices={options?.agentNames}
-                        />
-                    )}
+            {folded && (
+                <div id={moreId} hidden={!moreOpen} className="basis-full">
+                    <div className="flex flex-wrap items-center gap-x-400 gap-y-200">{moreFilters}</div>
                 </div>
-            </div>
+            )}
 
             {(notApplied.length > 0 || optionsError) && (
                 <p className="flex basis-full items-center gap-200 text-[length:var(--text-200)] leading-200 text-muted-foreground">
