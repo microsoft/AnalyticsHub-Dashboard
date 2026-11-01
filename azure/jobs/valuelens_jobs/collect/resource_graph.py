@@ -10,8 +10,12 @@ A port of the Fabric notebook `Copilot_Resource_Graph_Ingester` (same tables and
 * `arg_foundry_resources`: Foundry accounts and projects, and Azure Machine Learning workspaces, from
   `resources`. The identity needs Reader where the resources are: a management group, or the tenant
   root group to see all of them. Resource Graph returns only what the identity can see.
+* `arg_agent_detail`: per agent, what Governance needs beyond `arg_agent_config` (components,
+  knowledge by type, editors, creator), and whether the owner's account is still active, checked in
+  Microsoft Graph with `User.Read.All`, which the identity has for org data. It lets the Governance
+  pages work without Agent 365.
 * `arg_status`: one row per probe (ok, empty, forbidden, error or skipped) so the dashboard can say
-  why a page is empty.
+  why a page is empty. The owner check is the `owner_accounts` probe.
 
 Every probe is best effort: a failed probe leaves its table as it was and the others still run.
 """
@@ -23,6 +27,7 @@ from datetime import date, datetime, timezone
 from urllib.parse import urlsplit
 
 from ..api import ARM as ARM_SCOPE
+from ..api import GRAPH as GRAPH_SCOPE
 from ..api import HttpError
 from ..dropfolder import open_dropfolder
 from ..tables import parquet_glob, write_rows
@@ -42,6 +47,10 @@ TBL_ENVIRONMENTS = "arg_environments"
 TBL_FLOWS = "arg_agent_flows"
 TBL_FOUNDRY = "arg_foundry_resources"
 TBL_STATUS = "arg_status"
+TBL_DETAIL = "arg_agent_detail"
+OWNER_PROBE = "owner_accounts"
+OWNER_BATCH_SIZE = 20
+GRAPH_BATCH_URL = "https://graph.microsoft.com/v1.0/$batch"
 
 AGENT_TYPE = "microsoft.copilotstudio/agents"
 ENVIRONMENT_TYPE = "microsoft.powerplatform/environments"
@@ -91,9 +100,17 @@ ARG_SCHEMAS = {
                   ("DisableLocalAuth", "BOOLEAN"), ("IsProject", "BOOLEAN"), ("AccountId", "VARCHAR")],
     TBL_STATUS: [("SnapshotDate", "DATE"), ("Probe", "VARCHAR"), ("Status", "VARCHAR"), ("Rows", "BIGINT"),
                  ("Source", "VARCHAR"), ("Detail", "VARCHAR")],
+    TBL_DETAIL: [("SnapshotDate", "DATE"), ("AgentResourceId", "VARCHAR"), ("CreatedBy", "VARCHAR"),
+                 ("QuarantinedAt", "VARCHAR"), ("TopicCount", "BIGINT"), ("ToolCount", "BIGINT"),
+                 ("KnowledgeCount", "BIGINT"), ("EditorUserCount", "BIGINT"), ("EntraAgentBlueprintId", "VARCHAR"),
+                 ("Harness", "VARCHAR"), ("InstructionsCharCount", "BIGINT"), ("KnowledgeTypes", "VARCHAR"),
+                 ("SharePointSiteCount", "BIGINT"), ("GraphConnectorCount", "BIGINT"), ("PublicSiteCount", "BIGINT"),
+                 ("FileKnowledgeCount", "BIGINT"), ("DataverseSourceCount", "BIGINT"), ("OwnerAccount", "VARCHAR"),
+                 ("OwnerUpn", "VARCHAR"), ("Source", "VARCHAR")],
 }
 SOURCE_ARG = "Resource Graph"
 SOURCE_INVENTORY = "Inventory API (flow)"
+SOURCE_GRAPH = "Microsoft Graph"
 
 
 def arg_body(query, skip_token=None, management_group=""):
@@ -204,6 +221,44 @@ def agent_row(record, snapshot, source=SOURCE_ARG):
         "LastPublishedAt": _text(_prop(props, "lastPublishedAt")),
         "Source": source,
     }
+
+
+KNOWLEDGE_BY_TYPE = (("sharepointSites", "SharePointSiteCount"), ("graphConnectors", "GraphConnectorCount"),
+                     ("publicSites", "PublicSiteCount"), ("files", "FileKnowledgeCount"),
+                     ("dataverseSources", "DataverseSourceCount"))
+
+
+def _folded(value):
+    return {str(k).lower(): v for k, v in value.items()} if isinstance(value, dict) else {}
+
+
+def detail_row(record, snapshot, source=SOURCE_ARG):
+    """One `arg_agent_detail` row: what Governance needs beyond `arg_agent_config`. The owner columns
+    are filled by `apply_owners`."""
+    props = record.get("properties") or {}
+    components = _folded(_prop(props, "componentsCounts"))
+    by_type = _folded(components.get("knowledgebytype"))
+    editors = _folded(_prop(props, "sharedWithEditors"))
+    row = {
+        "SnapshotDate": snapshot,
+        "AgentResourceId": _text(record.get("id")).lower(),
+        "CreatedBy": _text(_prop(props, "createdBy")),
+        "QuarantinedAt": _text(_prop(props, "quarantinedAt")),
+        "TopicCount": _count(components.get("topics")),
+        "ToolCount": _count(components.get("tools")),
+        "KnowledgeCount": _count(components.get("knowledge")),
+        "EditorUserCount": _count(editors.get("usercount")),
+        "EntraAgentBlueprintId": _guid(_prop(props, "entraAgentBlueprintId")),
+        "Harness": _text(_prop(props, "harness")),
+        "InstructionsCharCount": _count(_prop(props, "instructionsCharactersCount")),
+        "KnowledgeTypes": "; ".join(name for name, _ in KNOWLEDGE_BY_TYPE if _count(by_type.get(name.lower()))),
+        "OwnerAccount": "",
+        "OwnerUpn": "",
+        "Source": source,
+    }
+    for name, column in KNOWLEDGE_BY_TYPE:
+        row[column] = _count(by_type.get(name.lower()))
+    return row
 
 
 def environment_row(record, snapshot, source=SOURCE_ARG):
@@ -325,12 +380,86 @@ def _failure(exc):
     return failure_status(getattr(exc, "status_code", None)), f"{type(exc).__name__}: {exc}"
 
 
-def collect_rows(include_agents, include_foundry, run_query, read_inventory, read_registry, snapshot):
+def _is_object_id(value):
+    parts = value.split("-")
+    return (len(value) == 36 and [len(p) for p in parts] == [8, 4, 4, 4, 12]
+            and all(c in "0123456789abcdef" for p in parts for c in p))
+
+
+def owner_accounts(owner_ids, post_batch):
+    """{owner id: (account, UPN)} for each Entra object id, through Graph `$batch`, 20 a request.
+
+    The account is "Active", "Disabled" or "Not found" (Graph's 404). `post_batch(body)` returns
+    (HTTP status, parsed body). An id Graph couldn't answer for is left out, so it reads as unknown
+    rather than as an owner who left. Also returns how many ids were refused (401/403) and how many
+    failed otherwise.
+    """
+    ids = sorted({_guid(i) for i in owner_ids if _is_object_id(_guid(i))})
+    found, refused, failed = {}, 0, 0
+    for start in range(0, len(ids), OWNER_BATCH_SIZE):
+        chunk = ids[start:start + OWNER_BATCH_SIZE]
+        body = {"requests": [{"id": str(n), "method": "GET",
+                              "url": f"/users/{key}?$select=id,accountEnabled,userPrincipalName"}
+                             for n, key in enumerate(chunk)]}
+        code, payload = post_batch(body)
+        if code in (401, 403):
+            refused += len(chunk)
+            continue
+        if not 200 <= (code or 0) < 300:
+            failed += len(chunk)
+            continue
+        answered = set()
+        for item in (payload or {}).get("responses") or []:
+            try:
+                key = chunk[int(item.get("id"))]
+            except (TypeError, ValueError, IndexError):
+                continue
+            answered.add(key)
+            status, user = item.get("status"), item.get("body") or {}
+            enabled = user.get("accountEnabled") if isinstance(user, dict) else None
+            if status == 404:
+                found[key] = ("Not found", "")
+            elif status == 200 and isinstance(enabled, bool):
+                found[key] = ("Active" if enabled else "Disabled", _text(user.get("userPrincipalName")))
+            elif status in (401, 403):
+                refused += 1
+            else:
+                failed += 1
+        failed += len(set(chunk) - answered)
+    return found, refused, failed
+
+
+def apply_owners(tables, agents, post_batch, snapshot):
+    """Fills the owner columns of `arg_agent_detail` from each agent's `OwnerId`; returns the
+    `owner_accounts` status row. Rows stay blank when the check is off or Graph refuses it."""
+    if post_batch is None:
+        return status_row(OWNER_PROBE, "skipped", 0, SOURCE_GRAPH, "Owner check turned off", snapshot)
+    owners = {row["AgentResourceId"]: row["OwnerId"] for row in agents}
+    if not any(owners.values()):
+        return status_row(OWNER_PROBE, "empty", 0, SOURCE_GRAPH, "No agent has an owner on record", snapshot)
+    try:
+        found, refused, failed = owner_accounts(owners.values(), post_batch)
+    except Exception as exc:
+        status, detail = _failure(exc)
+        return status_row(OWNER_PROBE, status, 0, SOURCE_GRAPH, detail, snapshot)
+    for row in tables.get(TBL_DETAIL, []):
+        account, upn = found.get(owners.get(row["AgentResourceId"]) or "", ("", ""))
+        row.update(OwnerAccount=account, OwnerUpn=upn)
+    if refused and not found:
+        return status_row(OWNER_PROBE, "forbidden", 0, SOURCE_GRAPH,
+                          "Graph refused the owner check: grant User.Read.All", snapshot)
+    detail = "; ".join(f"{n} {what}" for n, what in ((refused, "refused"), (failed, "not answered")) if n)
+    return status_row(OWNER_PROBE, "ok" if found else "empty", len(found), SOURCE_GRAPH, detail, snapshot)
+
+
+def collect_rows(include_agents, include_foundry, run_query, read_inventory, read_registry, snapshot,
+                 post_batch=None):
     """Rows per table, and one status row per probe. Every probe is best effort.
 
     `run_query(kql)` returns Resource Graph records; `read_inventory()` returns (file name, records)
-    from the newest inventory flow file; `read_registry()` returns `agents_365` rows. A table that
-    couldn't be read is left out, so its last snapshot stays.
+    from the newest inventory flow file; `read_registry()` returns `agents_365` rows; `post_batch(body)`
+    sends a Graph `$batch` for the owner check (None turns it off). A table that couldn't be read is
+    left out, so its last snapshot stays.
     """
     probes = (list(INVENTORY_TABLES) if include_agents else []) + ([TBL_FOUNDRY] if include_foundry else [])
     fetched, refused = {}, {}
@@ -373,12 +502,15 @@ def collect_rows(include_agents, include_foundry, run_query, read_inventory, rea
             rows = [ROW_BUILDERS[table](r, snapshot, source) for r in records]
         if table == TBL_AGENTS:
             resolve_titles(rows, registry)
+            tables[TBL_DETAIL] = [detail_row(r, snapshot, source) for r in records]
         detail = ""
         if source == SOURCE_INVENTORY:
             first = refused.get(table, ("empty", ""))[0]
             detail = f"Resource Graph {first}; read {inventory_used}"
         tables[table] = rows
         statuses.append(status_row(table, "ok" if rows else "empty", len(rows), source, detail, snapshot))
+    if TBL_DETAIL in tables:
+        statuses.append(apply_owners(tables, tables[TBL_AGENTS], post_batch, snapshot))
     for table in (*INVENTORY_TABLES, TBL_FOUNDRY):
         if table not in probes:
             statuses.append(status_row(table, "skipped", 0, SOURCE_ARG, "Turned off in the installer", snapshot))
@@ -470,6 +602,16 @@ def latest_inventory(store, settings, api):
     return name, inventory_records(payload)
 
 
+def post_owner_batch(api, body):
+    """One Graph `$batch` for the owner check, as (HTTP status, parsed body)."""
+    r = api.request("POST", GRAPH_BATCH_URL, scope=GRAPH_SCOPE, timeout=120, allow_redirects=False, json=body)
+    try:
+        payload = r.json() if 200 <= r.status_code < 300 else None
+    except ValueError:
+        payload = None
+    return r.status_code, payload
+
+
 def collect_resource_graph(api, store, settings, *, today: date | None = None) -> dict:
     snapshot = today or datetime.now(timezone.utc).date()
     group = settings.arg_management_group
@@ -479,7 +621,8 @@ def collect_resource_graph(api, store, settings, *, today: date | None = None) -
 
     tables, statuses = collect_rows(settings.arg_agents, settings.arg_foundry, run_query,
                                     lambda: latest_inventory(store, settings, api),
-                                    lambda: load_registry(store), snapshot)
+                                    lambda: load_registry(store), snapshot,
+                                    lambda body: post_owner_batch(api, body))
     for row in statuses:
         if row["Status"] in ("forbidden", "error"):
             log.warning("resource_graph %s: %s %s", row["Probe"], row["Status"], row["Detail"])

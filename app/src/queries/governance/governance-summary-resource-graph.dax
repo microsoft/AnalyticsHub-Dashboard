@@ -1,0 +1,16 @@
+EVALUATE
+VAR __Date = MAX('Agent Configuration'[SnapshotDate])
+VAR __Agents = FILTER('Agent Configuration', 'Agent Configuration'[SnapshotDate] = __Date)
+RETURN
+    ROW(
+        "Tenant Agents", COUNTROWS(__Agents) + 0,
+        "Seen In Use", COUNTROWS(FILTER(__Agents, COALESCE('Agent Configuration'[Total Users], 0) > 0)) + 0,
+        "Needs Review", COUNTROWS(FILTER(__Agents, NOT ISBLANK('Agent Configuration'[Governance Flags]))) + 0,
+        "No Sign In", COUNTROWS(FILTER(__Agents, CONTAINSSTRING('Agent Configuration'[Governance Flags], "No sign-in required"))) + 0,
+        "Owner Left", COUNTROWS(FILTER(__Agents, CONTAINSSTRING('Agent Configuration'[Governance Flags], "Owner has left"))) + 0,
+        "No Owner", COUNTROWS(FILTER(__Agents, CONTAINSSTRING('Agent Configuration'[Governance Flags], "No owner on record"))) + 0,
+        "Org Wide Org Data", COUNTROWS(FILTER(__Agents, CONTAINSSTRING('Agent Configuration'[Governance Flags], "Org-wide with org data"))) + 0,
+        "Shared Unused", COUNTROWS(FILTER(__Agents, CONTAINSSTRING('Agent Configuration'[Governance Flags], "Shared, no recorded use"))) + 0,
+        "Org Wide", COUNTROWS(FILTER(__Agents, 'Agent Configuration'[Sharing Scope] = "Whole organisation")) + 0,
+        "Owners Checked", COUNTROWS(FILTER(__Agents, NOT ISBLANK('Agent Configuration'[Owner account]))) + 0
+    )

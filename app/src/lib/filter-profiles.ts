@@ -157,6 +157,23 @@ export const RESOURCE_GRAPH: FilterProfile = unfiltered(
     "Azure Resource Graph lists configuration and resources at their latest load, for the whole tenant.",
 );
 
+/** The agent name column Resource Graph records, which the agent filter matches by name. */
+export const RESOURCE_GRAPH_AGENT_NAME = "'Agent Configuration'[AgentName]";
+
+/**
+ * Governance read from Resource Graph when the Agent 365 registry isn't
+ * connected: Copilot Studio agents at the latest load. Only the agent filter
+ * applies, matched by name as the registry matches it.
+ */
+export const RESOURCE_GRAPH_AGENTS: FilterProfile = {
+    dateRange: notApplied("Azure Resource Graph lists agents as they stand at the latest load."),
+    organizations: notApplied("Azure Resource Graph doesn't record an organization for agents or owners."),
+    licence: notApplied("Azure Resource Graph lists agents, not people."),
+    audience: notApplied("Azure Resource Graph lists agents, not activity."),
+    agentTypes: notApplied("agent types come from the Agent 365 registry, which isn't connected."),
+    agentNames: (state) => treatAs(RESOURCE_GRAPH_AGENT_NAME, state.agentNames),
+};
+
 /** Defender's shadow AI findings: a recent snapshot by device and tool. */
 export const SHADOW_AI: FilterProfile = unfiltered(
     "Defender's shadow AI findings are a recent snapshot by device and tool, not linked to these filters.",

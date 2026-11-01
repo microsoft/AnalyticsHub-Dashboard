@@ -782,13 +782,34 @@ The review queue puts the riskiest agents first. Each flag has a weight: *No sig
 Agents are sorted by the sum of their weights, then by number of flags, then by most users.
 
 - **The owner check needs the Fabric registry ingester** with `CHECK_OWNER_ACCOUNT` on, and
-  `User.Read.All`. A registry loaded from a CSV export leaves every owner *Not checked*.
+  `User.Read.All`. A registry loaded from a CSV export leaves owners *Not checked*, unless the
+  Azure Resource Graph source is on: its own owner check fills them in.
 - **Sharing and data access are what the registry declares**, not what the agent has actually
   surfaced. A CSV export may leave them *Not stated* or *Not reported*.
 - *Shared, no recorded use* inherits the usage matching above, so a renamed agent can be flagged.
 - *No sign-in required* needs the Azure Resource Graph source (agent configuration) or the
   Defender source with its agent probe; without either no agent gets the flag. It is what the
   agent's configuration, or Defender, records about its authentication, not a test of it.
+
+#### Without Agent 365
+
+Agent 365 is optional. Without the registry, the page reads the optional Azure Resource Graph
+source instead, which needs no Agent 365 licence. It covers the same tabs, flags and weights, using
+the Resource Graph columns of the same names
+([Data Dictionary](DATA-DICTIONARY.md#7-azure-resource-graph--agent-configuration-and-the-foundry-estate)).
+
+- **Copilot Studio agents only**, at the latest load. Microsoft and partner agents aren't listed,
+  nor are descriptions, publishers or sensitivity labels. Quarantined agents take the place of
+  blocked ones.
+- **Owner** is the agent's Resource Graph owner, checked in Microsoft Graph by the Resource Graph
+  load (`User.Read.All`). The check reads the owner ID as an Entra user, so an owner ID that isn't
+  a user's object ID reads *Not found*. *No owner on record* means Resource Graph lists no owner.
+- **Sharing and data access** come from the agent's sharing settings and knowledge sources.
+  Uploaded files count as *Uploaded files only*; any SharePoint, Graph connector, Dataverse or
+  knowledge connector source counts as *Organisation content*.
+- **Only the agent filter applies**, matched by name. Agent types come from the registry.
+- With both sources, the page reads the registry, and the Resource Graph owner check fills in
+  owners the registry didn't check.
 
 ### Shadow AI: what other AI tools are in use?
 

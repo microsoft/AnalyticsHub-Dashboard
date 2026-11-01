@@ -12,6 +12,7 @@ import { QueryEmpty, QueryError, QueryLoading } from "@/components/query-states"
 import { readNumber } from "@/lib/summary-row";
 import { BODY } from "@/lib/type-scale";
 import { NOT_COLLECTED, RESOURCE_GRAPH_FORBIDDEN, RESOURCE_GRAPH_NO_DATA, RESOURCE_GRAPH_NOT_SET_UP } from "@/queries/governance";
+import type { GovernanceMode } from "@/queries/governance";
 import type { ResourceGraphSummary } from "./resource-graph-summary";
 
 function Notes({ notes }: { notes: readonly string[] }) {
@@ -27,11 +28,22 @@ function Notes({ notes }: { notes: readonly string[] }) {
  * Agent configuration and Foundry exposure from Azure Resource Graph: agents
  * anyone can use without signing in or that search the web, and Foundry
  * resources open to the public network. Says plainly when the source is off
- * or the load's identity lacks a role, rather than showing zeroes.
+ * or the load's identity lacks a role, rather than showing zeroes. Without
+ * Agent 365 (`resourceGraph`), the agent figures count every agent Resource
+ * Graph loads rather than those matched to the registry.
  */
-export function ResourceGraphPanel({ summary, className }: { summary: ResourceGraphSummary; className?: string }) {
+export function ResourceGraphPanel({
+    summary,
+    className,
+    mode = "registry",
+}: {
+    summary: ResourceGraphSummary;
+    className?: string;
+    mode?: GovernanceMode;
+}) {
     const { result, view } = summary;
     const row = result.row;
+    const standalone = mode === "resourceGraph";
     switch (view.kind) {
         case "loading":
             return <QueryLoading />;
@@ -59,21 +71,25 @@ export function ResourceGraphPanel({ summary, className }: { summary: ResourceGr
                     <div className={className}>
                         <KpiCard
                             label="No sign-in required"
-                            value={agentValue("[No Sign In]")}
+                            value={agentValue(standalone ? "[No Sign In Configured]" : "[No Sign In]")}
                             emptyValue={agentEmpty}
                             emphasis
                             detail={
-                                <KpiStat label="Any agent, live or not" value={agentValue("[No Sign In Configured]")} />
+                                standalone ? undefined : (
+                                    <KpiStat label="Any agent, live or not" value={agentValue("[No Sign In Configured]")} />
+                                )
                             }
                         />
                         <KpiCard
                             label="Web search on"
-                            value={agentValue("[Web Search]")}
+                            value={agentValue(standalone ? "[Web Search Configured]" : "[Web Search]")}
                             emptyValue={agentEmpty}
                             detail={
                                 <div className="flex flex-col gap-100">
                                     <KpiStat label="Agents configured" value={agentValue("[Configured Agents]")} />
-                                    <KpiStat label="Matched to the registry" value={agentValue("[Matched Agents]")} />
+                                    {!standalone && (
+                                        <KpiStat label="Matched to the registry" value={agentValue("[Matched Agents]")} />
+                                    )}
                                 </div>
                             }
                         />

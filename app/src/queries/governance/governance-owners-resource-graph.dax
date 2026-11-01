@@ -1,0 +1,37 @@
+EVALUATE
+VAR __Date = MAX('Agent Configuration'[SnapshotDate])
+VAR __Live =
+    FILTER(
+        'Agent Configuration',
+        'Agent Configuration'[SnapshotDate] = __Date
+            && NOT ('Agent Configuration'[IsQuarantined] = TRUE())
+    )
+VAR __Status =
+    ADDCOLUMNS(
+        __Live,
+        "@Status",
+            SWITCH(
+                TRUE(),
+                TRIM(COALESCE('Agent Configuration'[OwnerId], "")) = "", "No owner on record",
+                'Agent Configuration'[Owner account] = "Disabled", "Owner disabled",
+                'Agent Configuration'[Owner account] = "Not found", "Owner not found",
+                'Agent Configuration'[Owner account] = "Active", "Owner active",
+                "Not checked"
+            )
+    )
+RETURN
+    SELECTCOLUMNS(
+        GROUPBY(__Status, [@Status], "@Agents", COUNTX(CURRENTGROUP(), 1)),
+        "Status Order",
+            SWITCH(
+                [@Status],
+                "Owner active", 1,
+                "Owner disabled", 2,
+                "Owner not found", 3,
+                "No owner on record", 4,
+                5
+            ),
+        "Owner Status", [@Status],
+        "Agents", [@Agents]
+    )
+ORDER BY [Status Order]

@@ -50,6 +50,13 @@ RETURN
                 )
             ) + 0,
         "Web Search", COUNTROWS(FILTER(__Live, 'Agents 365'[Title ID] IN __WebSearch)) + 0,
+        "Web Search Configured",
+            COUNTROWS(
+                FILTER(
+                    __Config,
+                    'Agent Configuration'[WebSearchEnabled] = TRUE() && NOT ('Agent Configuration'[IsQuarantined] = TRUE())
+                )
+            ) + 0,
         "Foundry Resources", COUNTROWS(__Foundry) + 0,
         "Foundry Public", COUNTROWS(FILTER(__Foundry, 'Foundry Resources'[PublicNetwork] = TRUE())) + 0,
         "Foundry Public Projects",

@@ -12,3 +12,4 @@ export * from "./governance-review-queue";
 export * from "./shadow-ai";
 export * from "./governance-resource-graph";
 export * from "./governance-public-web";
+export * from "./governance-mode";

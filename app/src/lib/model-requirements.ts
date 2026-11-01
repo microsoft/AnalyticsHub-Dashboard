@@ -8,7 +8,7 @@
 import { isMissingFromModelError, parseMissingModelObject } from "@/lib/model-errors";
 import { connection } from "@/queries/shared";
 
-export type ModelRequirementScope = "governance";
+export type ModelRequirementScope = "governance" | "governanceResourceGraph" | "governanceOwnerFallback";
 
 export interface ModelObjectRequirement {
     /** Connection alias from `fabric.yaml`, e.g. `vl`. */
@@ -35,6 +35,30 @@ export const MODEL_REQUIREMENTS: Readonly<Record<ModelRequirementScope, readonly
             model: connection,
             table: "Agents 365",
             columns: ["Owner account", "Governance Flags", "Data Access", "Sharing Scope"],
+        },
+    ],
+    // Governance without Agent 365: the same fields, worked out from Resource Graph.
+    governanceResourceGraph: [
+        {
+            model: connection,
+            table: "Agent Configuration",
+            columns: [
+                "Owner account",
+                "Owner UPN",
+                "Governance Flags",
+                "Data Access",
+                "Sharing Scope",
+                "Agent Type Label",
+                "Total Users",
+            ],
+        },
+    ],
+    // Optional: Resource Graph's owner check for registry agents the registry didn't check.
+    governanceOwnerFallback: [
+        {
+            model: connection,
+            table: "Agents 365",
+            columns: ["Owner account (Resource Graph)"],
         },
     ],
 };

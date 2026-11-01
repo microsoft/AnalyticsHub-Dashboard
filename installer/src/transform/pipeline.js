@@ -605,7 +605,7 @@ export function buildPipeline(template, settings) {
       notebookStep(settings, {
         key: 'resourceGraph',
         name: RESOURCE_GRAPH_ACTIVITY,
-        description: 'Reads Copilot Studio agent configuration, Power Platform environments, agent flows and Foundry resources from Azure Resource Graph, or the agent inventory flow\'s newest file in Files/arg_inventory. Writes arg_agent_config, arg_environments, arg_agent_flows, arg_foundry_resources and arg_status; what it can\'t read is recorded there, not failed.',
+        description: 'Reads Copilot Studio agent configuration, Power Platform environments, agent flows and Foundry resources from Azure Resource Graph, or the agent inventory flow\'s newest file in Files/arg_inventory. Writes arg_agent_config, arg_agent_detail (with each owner\'s account state from Microsoft Graph), arg_environments, arg_agent_flows, arg_foundry_resources and arg_status; what it can\'t read is recorded there, not failed.',
         timeout: '0.00:30:00',
       }),
     );

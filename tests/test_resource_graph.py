@@ -1,5 +1,5 @@
 """Azure Resource Graph source (#162): the Azure jobs' collector, the Fabric notebook's shared block,
-the inventory flow fallback, publish targets and the V004 migration. HTTP is faked at the session level."""
+the inventory flow fallback, the owner check, publish targets and the V004 and V011 migrations. HTTP is faked at the session level."""
 from __future__ import annotations
 
 import ast
@@ -22,6 +22,7 @@ from valuelens_jobs.storage import LocalStore
 
 ROOT = notebook_source.ROOT
 V004 = ROOT / "azure" / "sql" / "migrations" / "V004__resource_graph.sql"
+V011 = ROOT / "azure" / "sql" / "migrations" / "V011__arg_agent_detail.sql"
 COLLECTOR = ROOT / "azure" / "jobs" / "valuelens_jobs" / "collect" / "resource_graph.py"
 NOTEBOOK = "Copilot_Resource_Graph_Ingester.ipynb"
 SHARED_START = "# --- Shared with the Fabric notebook Copilot_Resource_Graph_Ingester.ipynb (section 2); keep identical. ---\n"
@@ -30,6 +31,7 @@ TODAY = date(2026, 9, 10)
 BOT = "AAAAAAAA-0000-0000-0000-000000000001"
 ENV = "BBBBBBBB-0000-0000-0000-000000000002"
 ACCOUNT = "/subscriptions/S1/resourceGroups/RG/providers/Microsoft.CognitiveServices/accounts/Hub"
+OWNER = "dddddddd-0000-0000-0000-000000000004"
 
 
 # ---------------------------------------------------------------- fakes
@@ -117,6 +119,20 @@ def by_query(responses):
     return handler
 
 
+def graph_batch(answers, calls=None):
+    """A `post_batch` answering each `/users/{id}` request from `answers[id]` = (status, body)."""
+    def post(body):
+        if calls is not None:
+            calls.append(body)
+        responses = []
+        for req in body["requests"]:
+            key = req["url"].split("/users/", 1)[1].split("?", 1)[0]
+            status, user = answers.get(key, (404, {}))
+            responses.append({"id": req["id"], "status": status, "body": user})
+        return 200, {"responses": responses}
+    return post
+
+
 def parquet(store, table):
     path = (store.root / "raw" / table / "part-0.parquet").as_posix()
     rel = duckdb.sql(f"SELECT * FROM read_parquet('{path}')")
@@ -145,7 +161,7 @@ def test_notebook_config_is_what_the_installer_sets():
     config = next(c for c in _cells() if c["cell_type"] == "code" and "# === CONFIG ===" in "".join(c["source"]))
     text = "".join(config["source"])
     for name in ("TENANT_ID", "CLIENT_ID", "CLIENT_SECRET", "MANAGEMENT_GROUP", "INCLUDE_AGENTS", "INCLUDE_FOUNDRY",
-                 "REGISTRY_TABLE", "INVENTORY_FOLDER"):
+                 "REGISTRY_TABLE", "INVENTORY_FOLDER", "CHECK_OWNER_ACCOUNT"):
         assert re.search(rf"^{name}\s*=", text, re.M), name
     assert "INVENTORY_FOLDER = 'Files/arg_inventory'" in text
 
@@ -154,10 +170,14 @@ def test_notebook_runs_the_shared_logic_like_the_collector():
     ns = notebook_source.namespace(NOTEBOOK, {"ARG_SCHEMAS", "ARG_QUERIES", "TBL_AGENTS", "TBL_FOUNDRY", "TBL_STATUS",
                                               "INVENTORY_TABLES", "INVENTORY_TYPES", "ROW_BUILDERS", "AGENT_TYPE",
                                               "ENVIRONMENT_TYPE", "FLOW_TYPE", "FOUNDRY_TYPES", "TBL_ENVIRONMENTS",
-                                              "TBL_FLOWS", "SOURCE_ARG", "SOURCE_INVENTORY", "ARG_PAGE_SIZE"})
+                                              "TBL_FLOWS", "SOURCE_ARG", "SOURCE_INVENTORY", "ARG_PAGE_SIZE",
+                                              "TBL_DETAIL", "OWNER_PROBE", "OWNER_BATCH_SIZE", "GRAPH_BATCH_URL",
+                                              "SOURCE_GRAPH", "KNOWLEDGE_BY_TYPE"})
     assert ns["ARG_SCHEMAS"] == rg.ARG_SCHEMAS and ns["ARG_QUERIES"] == rg.ARG_QUERIES
-    args = (True, True, lambda kql: [], lambda: ("x.json", [agent_record()]), lambda: [], TODAY)
+    args = (True, True, lambda kql: [], lambda: ("x.json", [agent_record(ownerId=OWNER)]), lambda: [], TODAY,
+            graph_batch({OWNER: (200, {"accountEnabled": False, "userPrincipalName": "a@example.invalid"})}))
     assert ns["collect_rows"](*args) == rg.collect_rows(*args)
+    assert rg.collect_rows(*args)[0][rg.TBL_DETAIL][0]["OwnerAccount"] == "Disabled"
 
 
 # ---------------------------------------------------------------- normalisers
@@ -236,7 +256,8 @@ def test_collect_rows_falls_back_to_the_inventory_flow():
                                        [agent_record(), env_record(), flow_record()]),
                                        lambda: [{"Title ID": "T1", "Bot Id": BOT}], TODAY)
     assert {t: len(r) for t, r in tables.items()} == {rg.TBL_AGENTS: 1, rg.TBL_ENVIRONMENTS: 1, rg.TBL_FLOWS: 1,
-                                                       rg.TBL_FOUNDRY: 2}
+                                                       rg.TBL_FOUNDRY: 2, rg.TBL_DETAIL: 1}
+    assert tables[rg.TBL_DETAIL][0]["Source"] == rg.SOURCE_INVENTORY
     assert tables[rg.TBL_AGENTS][0]["TitleId"] == "T1"
     assert tables[rg.TBL_AGENTS][0]["Source"] == rg.SOURCE_INVENTORY
     status = {s["Probe"]: s for s in statuses}
@@ -256,7 +277,9 @@ def test_collect_rows_records_why_a_probe_is_empty():
 
     tables, statuses = rg.collect_rows(True, True, run_query, bad_inventory, lambda: [], TODAY)
     status = {s["Probe"]: s for s in statuses}
-    assert set(tables) == {rg.TBL_AGENTS, rg.TBL_ENVIRONMENTS, rg.TBL_FLOWS} and tables[rg.TBL_AGENTS] == []
+    assert set(tables) == {rg.TBL_AGENTS, rg.TBL_ENVIRONMENTS, rg.TBL_FLOWS, rg.TBL_DETAIL}
+    assert tables[rg.TBL_AGENTS] == [] and tables[rg.TBL_DETAIL] == []
+    assert status[rg.OWNER_PROBE]["Status"] == "skipped"
     assert status[rg.TBL_AGENTS]["Status"] == "empty"
     assert status[rg.TBL_FOUNDRY]["Status"] == "error" and rg.TBL_FOUNDRY not in tables
 
@@ -307,12 +330,17 @@ def test_collect_writes_tables_and_status(tmp_path):
         rg.TBL_FOUNDRY: Resp(body={"data": foundry_records()}),
     }))
     out = rg.collect_resource_graph(api, store, Settings(modules=frozenset({"resourceGraph"})), today=TODAY)
-    assert out == {rg.TBL_AGENTS: 1, rg.TBL_ENVIRONMENTS: 1, rg.TBL_FLOWS: 0, rg.TBL_FOUNDRY: 2, rg.TBL_STATUS: 4}
+    assert out == {rg.TBL_AGENTS: 1, rg.TBL_ENVIRONMENTS: 1, rg.TBL_FLOWS: 0, rg.TBL_FOUNDRY: 2, rg.TBL_DETAIL: 1,
+                   rg.TBL_STATUS: 5}
     agents = parquet(store, rg.TBL_AGENTS)
     assert agents[0]["NoSignIn"] is True and agents[0]["TitleId"] == "" and agents[0]["SnapshotDate"] == TODAY
     assert [c for c, _ in rg.ARG_SCHEMAS[rg.TBL_AGENTS]] == list(agents[0])
     status = {r["Probe"]: r["Status"] for r in parquet(store, rg.TBL_STATUS)}
-    assert status == {rg.TBL_AGENTS: "ok", rg.TBL_ENVIRONMENTS: "ok", rg.TBL_FLOWS: "empty", rg.TBL_FOUNDRY: "ok"}
+    assert status == {rg.TBL_AGENTS: "ok", rg.TBL_ENVIRONMENTS: "ok", rg.TBL_FLOWS: "empty", rg.TBL_FOUNDRY: "ok",
+                      rg.OWNER_PROBE: "empty"}
+    detail = parquet(store, rg.TBL_DETAIL)
+    assert [c for c, _ in rg.ARG_SCHEMAS[rg.TBL_DETAIL]] == list(detail[0])
+    assert detail[0]["AgentResourceId"] == agents[0]["AgentResourceId"] and detail[0]["OwnerAccount"] == ""
 
 
 def test_collect_uses_the_landing_inventory_and_keeps_refused_foundry(tmp_path):
@@ -328,7 +356,7 @@ def test_collect_uses_the_landing_inventory_and_keeps_refused_foundry(tmp_path):
     api, _ = make_api(lambda m, u, kw: Resp(403, {"error": {"code": "AuthorizationFailed"}}))
     settings = Settings(modules=frozenset({"resourceGraph"}), arg_management_group="mg-1")
     out = rg.collect_resource_graph(api, store, settings, today=TODAY)
-    assert out == {rg.TBL_AGENTS: 1, rg.TBL_ENVIRONMENTS: 1, rg.TBL_FLOWS: 1, rg.TBL_STATUS: 4}
+    assert out == {rg.TBL_AGENTS: 1, rg.TBL_ENVIRONMENTS: 1, rg.TBL_FLOWS: 1, rg.TBL_DETAIL: 1, rg.TBL_STATUS: 5}
     assert parquet(store, rg.TBL_AGENTS)[0]["Source"] == rg.SOURCE_INVENTORY
     assert {r["SnapshotDate"] for r in parquet(store, rg.TBL_FOUNDRY)} == {date(2026, 9, 9)}
     status = {r["Probe"]: r for r in parquet(store, rg.TBL_STATUS)}
@@ -368,8 +396,8 @@ def test_collect_wiring_and_publish_targets(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------- V004
-def _v004_tables() -> dict:
-    sql = V004.read_text(encoding="utf-8")
+def _v004_tables(*paths) -> dict:
+    sql = "\n".join(p.read_text(encoding="utf-8") for p in (paths or (V004, V011)))
     out = {}
     for name, body in re.findall(r"CREATE TABLE dbo\.(\w+) \((.*?)\n\);", sql, re.S):
         out[name] = [tuple(m) for m in re.findall(r"\[(\w+)\] ([A-Z]+(?:\(\d+\))?) NULL", body)]
@@ -382,9 +410,11 @@ def test_v004_matches_collector_schemas():
     assert "WHERE version = 4)" in sql and "VALUES (4," in sql
     tables = _v004_tables()
     assert list(tables) == pub.RESOURCE_GRAPH
+    assert list(_v004_tables(V011)) == [rg.TBL_DETAIL]
+    both = sql + V011.read_text(encoding="utf-8")
     for name, cols in tables.items():
         assert cols == [(c, pub.sql_type(t)) for c, t in rg.ARG_SCHEMAS[name]], name
-        assert f"IF OBJECT_ID(N'dbo.{name}', N'U') IS NULL" in sql
+        assert f"IF OBJECT_ID(N'dbo.{name}', N'U') IS NULL" in both
 
 
 def test_publish_resource_graph_onto_v004_tables_in_sqlite(tmp_path):
@@ -403,4 +433,91 @@ def test_publish_resource_graph_onto_v004_tables_in_sqlite(tmp_path):
     assert results[rg.TBL_FOUNDRY] == {"table": rg.TBL_FOUNDRY, "skipped": True}
     assert all(not r.get("added_columns") for r in results.values())
     assert conn.execute("SELECT count(*) FROM arg_agent_config WHERE NoSignIn = 1").fetchone() == (1,)
-    assert conn.execute("SELECT count(*) FROM arg_status").fetchone() == (4,)
+    assert conn.execute("SELECT count(*) FROM arg_status").fetchone() == (5,)
+    assert conn.execute("SELECT count(*) FROM arg_agent_detail").fetchone() == (1,)
+
+
+# ---------------------------------------------------------------- agent detail and owner check
+def test_v011_creates_the_detail_table():
+    sql = V011.read_text(encoding="utf-8")
+    assert sql_mod.batches(sql) and dict(sql_mod.migrations(V011.parent))[11] == V011
+    assert "WHERE version = 11)" in sql and "VALUES (11," in sql
+
+
+def test_detail_row_reads_components_knowledge_and_editors():
+    record = agent_record(
+        createdBy="maker@example.invalid", quarantinedAt="", entraAgentBlueprintId="EEEE", harness="Copilot",
+        instructionsCharactersCount="1200", sharedWithEditors={"userCount": 3},
+        componentsCounts={"topics": 9, "tools": "2", "knowledge": 4, "connectedAgents": 1,
+                          "knowledgeByType": {"sharepointSites": 2, "files": 1, "publicSites": 0}})
+    row = rg.detail_row(record, TODAY)
+    assert set(row) == {c for c, _ in rg.ARG_SCHEMAS[rg.TBL_DETAIL]}
+    assert row["AgentResourceId"] == rg.agent_row(record, TODAY)["AgentResourceId"]
+    assert (row["TopicCount"], row["ToolCount"], row["KnowledgeCount"], row["EditorUserCount"]) == (9, 2, 4, 3)
+    assert (row["SharePointSiteCount"], row["FileKnowledgeCount"], row["PublicSiteCount"]) == (2, 1, 0)
+    assert row["KnowledgeTypes"] == "sharepointSites; files"
+    assert row["CreatedBy"] == "maker@example.invalid" and row["EntraAgentBlueprintId"] == "eeee"
+    assert row["InstructionsCharCount"] == 1200 and row["Harness"] == "Copilot" and row["OwnerAccount"] == ""
+    bare = rg.detail_row({"id": "/X"}, TODAY)
+    assert bare["AgentResourceId"] == "/x" and bare["KnowledgeTypes"] == "" and bare["TopicCount"] == 0
+
+
+def test_owner_accounts_batches_and_maps_statuses():
+    ids = [f"{n:08x}-0000-0000-0000-000000000000" for n in range(25)]
+    answers = {ids[0]: (200, {"accountEnabled": True, "userPrincipalName": "a@example.invalid"}),
+               ids[1]: (200, {"accountEnabled": False}), ids[2]: (404, {}), ids[3]: (429, {}),
+               ids[4]: (200, {})}
+    answers.update({i: (200, {"accountEnabled": True}) for i in ids[5:]})
+    calls = []
+    found, refused, failed = rg.owner_accounts([*ids, ids[0].upper(), "", "OWNER-1", "a/../b"],
+                                               graph_batch(answers, calls))
+    assert [len(c["requests"]) for c in calls] == [20, 5]
+    assert all(r["url"].startswith("/users/") and r["url"].endswith("?$select=id,accountEnabled,userPrincipalName")
+               for c in calls for r in c["requests"])
+    assert found[ids[0]] == ("Active", "a@example.invalid") and found[ids[1]] == ("Disabled", "")
+    assert found[ids[2]] == ("Not found", "") and ids[3] not in found and ids[4] not in found
+    assert (refused, failed, len(found)) == (0, 2, 23)
+
+
+def test_owner_check_refused_leaves_owners_blank():
+    tables = {rg.TBL_DETAIL: [rg.detail_row(agent_record(ownerId=OWNER), TODAY)]}
+    agents = [rg.agent_row(agent_record(ownerId=OWNER), TODAY)]
+    status = rg.apply_owners(tables, agents, lambda body: (403, None), TODAY)
+    assert status["Probe"] == rg.OWNER_PROBE and status["Status"] == "forbidden" and "User.Read.All" in status["Detail"]
+    assert tables[rg.TBL_DETAIL][0]["OwnerAccount"] == ""
+    per_item = rg.apply_owners(tables, agents, graph_batch({OWNER: (403, {})}), TODAY)
+    assert per_item["Status"] == "forbidden"
+
+    def broken(body):
+        raise api_mod.HttpError("token", 401)
+    assert rg.apply_owners(tables, agents, broken, TODAY)["Status"] == "forbidden"
+    assert rg.apply_owners(tables, agents, None, TODAY)["Status"] == "skipped"
+    none = [rg.agent_row(agent_record(ownerId=""), TODAY)]
+    assert rg.apply_owners(tables, none, graph_batch({}), TODAY)["Status"] == "empty"
+
+
+def test_collect_checks_owners_in_graph(tmp_path):
+    store = LocalStore(tmp_path)
+    graph_calls = []
+
+    def handler(method, url, kw):
+        if url == rg.GRAPH_BATCH_URL:
+            graph_calls.append(kw)
+            return Resp(body={"responses": [{"id": "0", "status": 404, "body": {}}]})
+        return by_query({
+            rg.TBL_AGENTS: Resp(body={"data": [agent_record(ownerId=OWNER.upper())]}),
+            rg.TBL_ENVIRONMENTS: Resp(body={"data": []}),
+            rg.TBL_FLOWS: Resp(body={"data": []}),
+            rg.TBL_FOUNDRY: Resp(body={"data": []}),
+        })(method, url, kw)
+
+    api, session = make_api(handler)
+    rg.collect_resource_graph(api, store, Settings(modules=frozenset({"resourceGraph"})), today=TODAY)
+    assert len(graph_calls) == 1 and graph_calls[0]["allow_redirects"] is False
+    assert graph_calls[0]["json"]["requests"][0]["url"].startswith(f"/users/{OWNER}?")
+    assert session.calls[-1][0] == "POST"
+    detail = parquet(store, rg.TBL_DETAIL)
+    assert detail[0]["OwnerAccount"] == "Not found"
+    status = {r["Probe"]: r for r in parquet(store, rg.TBL_STATUS)}
+    assert status[rg.OWNER_PROBE]["Status"] == "ok" and status[rg.OWNER_PROBE]["Rows"] == 1
+    assert status[rg.OWNER_PROBE]["Source"] == rg.SOURCE_GRAPH
