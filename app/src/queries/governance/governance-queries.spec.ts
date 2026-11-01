@@ -43,6 +43,46 @@ const modules = [
         columns: liveColumns.governanceResourceGraph,
     },
     { name: "governancePublicWeb", factory: () => governancePublicWeb(), columns: liveColumns.governanceExposure },
+    {
+        name: "governanceSummary (Resource Graph)",
+        factory: () => governanceSummary("resourceGraph"),
+        columns: liveColumns.governanceSummaryResourceGraph,
+    },
+    {
+        name: "governanceExposure (Resource Graph)",
+        factory: () => governanceExposure("resourceGraph"),
+        columns: liveColumns.governanceExposure,
+    },
+    {
+        name: "governanceOwners (Resource Graph)",
+        factory: () => governanceOwners("resourceGraph"),
+        columns: liveColumns.governanceOwners,
+    },
+    {
+        name: "governanceReviewQueue (Resource Graph)",
+        factory: () => governanceReviewQueue("resourceGraph"),
+        columns: liveColumns.governanceReviewQueueResourceGraph,
+    },
+    {
+        name: "governancePublicWeb (Resource Graph)",
+        factory: () => governancePublicWeb("resourceGraph"),
+        columns: liveColumns.governanceExposure,
+    },
+    {
+        name: "governanceSummary (owner fallback)",
+        factory: () => governanceSummary("registryOwnerFallback"),
+        columns: liveColumns.governanceSummary,
+    },
+    {
+        name: "governanceOwners (owner fallback)",
+        factory: () => governanceOwners("registryOwnerFallback"),
+        columns: liveColumns.governanceOwners,
+    },
+    {
+        name: "governanceReviewQueue (owner fallback)",
+        factory: () => governanceReviewQueue("registryOwnerFallback"),
+        columns: liveColumns.governanceReviewQueue,
+    },
 ];
 
 /**
@@ -58,6 +98,8 @@ const shadowModules = [
 const specModules = [
     { name: "governanceExposure", factory: () => governanceExposure() },
     { name: "governanceOwners", factory: () => governanceOwners() },
+    { name: "governanceExposure (Resource Graph)", factory: () => governanceExposure("resourceGraph") },
+    { name: "governanceOwners (Resource Graph)", factory: () => governanceOwners("resourceGraph") },
     { name: "shadowAiTools", factory: () => shadowAiTools() },
 ];
 
@@ -159,6 +201,55 @@ describe("governance flags", () => {
 
     it("emits every owner status the chart colours", () => {
         for (const status of OWNER_STATUSES) expect(governanceOwners().query).toContain(`"${status}"`);
+    });
+});
+
+describe("governance without Agent 365", () => {
+    const factories = {
+        summary: governanceSummary,
+        exposure: governanceExposure,
+        owners: governanceOwners,
+        queue: governanceReviewQueue,
+        publicWeb: governancePublicWeb,
+    };
+
+    it.each(Object.entries(factories))("the %s query reads Resource Graph alone", (_, factory) => {
+        const { query } = factory("resourceGraph");
+        expect(query).not.toContain("'Agents 365'");
+        expect(query).toContain("'Agent Configuration'");
+        expect(query).toContain("MAX('Agent Configuration'[SnapshotDate])");
+    });
+
+    it("counts and weighs every flag by the same labels as the registry", () => {
+        const summary = governanceSummary("resourceGraph").query;
+        const queue = governanceReviewQueue("resourceGraph").query;
+        for (const flag of FLAGS) expect(summary).toContain(`"${flag}"`);
+        for (const [flag, weight] of Object.entries(FLAG_WEIGHTS)) {
+            expect(queue).toContain(`CONTAINSSTRING('Agent Configuration'[Governance Flags], "${flag}"), ${weight})`);
+        }
+    });
+
+    it("lists only flagged agents, with a stable resource ID tie-breaker", () => {
+        const query = governanceReviewQueue("resourceGraph").query.trim();
+        expect(query).toMatch(/NOT ISBLANK\('Agent Configuration'\[Governance Flags\]\)/);
+        expect(query).toMatch(
+            /TOPN\(\s*1000,\s*_queue,\s*\[Priority\], DESC,\s*\[Flag Count\], DESC,\s*\[Users\], DESC,\s*\[Agent\], ASC,\s*\[Agent Id\], ASC\s*\)/,
+        );
+        expect(query).toMatch(
+            /ORDER BY \[Priority\] DESC, \[Flag Count\] DESC, \[Users\] DESC, \[Agent\] ASC, \[Agent Id\] ASC$/,
+        );
+    });
+
+    it("emits every owner status the chart colours", () => {
+        for (const status of OWNER_STATUSES) expect(governanceOwners("resourceGraph").query).toContain(`"${status}"`);
+    });
+
+    it("fills the registry's unchecked owners from Resource Graph only in the fallback mode", () => {
+        const fallback = "'Agents 365'[Owner account (Resource Graph)]";
+        for (const factory of [governanceSummary, governanceOwners, governanceReviewQueue]) {
+            expect(factory().query).not.toContain(fallback);
+            expect(factory("registryOwnerFallback").query).toContain(fallback);
+        }
     });
 });
 

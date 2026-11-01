@@ -35,6 +35,22 @@ the product. Users the report marks as deleted are never counted.
   the log says why.
 - **Turn it off** in the Fabric notebook with `LIVE_LICENCE_CHECK = False`.
 
+**Governance works without Agent 365.** Estate health, Exposure, Accountability and Review queue
+used to need the Agent 365 registry, which needs an Agent 365 licence. Without it they now read the
+Copilot Studio agents the optional Azure Resource Graph source loads, with the same flags and
+weights. Each tab says what that leaves out: Microsoft and partner agents, descriptions,
+publishers and sensitivity labels. With both sources, the page still reads the registry.
+
+- **Owner checks without the registry.** The Resource Graph load (Fabric notebook and Azure jobs)
+  writes a new table, `arg_agent_detail` (Azure migration `V011`), with each agent's knowledge
+  sources and components, and whether its owner's Entra account is still active. It uses
+  `User.Read.All`, which org data already needs. Turn it off in the Fabric notebook with
+  `CHECK_OWNER_ACCOUNT = False`.
+- **Registry owners from a CSV export** are no longer all *Not checked*: when Resource Graph is on,
+  its owner check fills them in.
+- **Update the model** to get the new columns: run the installer's Repair or change. Until then,
+  Governance asks for the update.
+
 ### Changed
 
 - **The app keeps your place.** Each page and tab has its own link, so Back, refresh, Copy app link

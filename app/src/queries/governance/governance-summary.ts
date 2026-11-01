@@ -5,10 +5,11 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { REGISTRY } from "@/lib/filter-profiles";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { connection, FORMAT_WHOLE } from "../shared";
+import { governanceFilters, registryQuery, type GovernanceMode } from "./governance-mode";
 import query from "./governance-summary.dax?raw";
+import resourceGraphQuery from "./governance-summary-resource-graph.dax?raw";
 
 const columnMetadata: ColumnMetadataMap = {
     "[Tenant Agents]": { name: "Tenant Agents", displayName: "Built in this tenant", format: FORMAT_WHOLE },
@@ -27,6 +28,16 @@ const columnMetadata: ColumnMetadataMap = {
 };
 
 /**
+ * Without Agent 365 the summary counts Copilot Studio agents from Resource
+ * Graph, and adds how many anyone has used, as there is no lifecycle chart.
+ */
+const resourceGraphColumnMetadata: ColumnMetadataMap = {
+    ...columnMetadata,
+    "[Tenant Agents]": { name: "Tenant Agents", displayName: "Copilot Studio agents", format: FORMAT_WHOLE },
+    "[Seen In Use]": { name: "Seen In Use", displayName: "Seen in use", format: FORMAT_WHOLE },
+};
+
+/**
  * The tenant-built agents and how many carry each governance flag.
  *
  * The flags themselves are the model's `Governance Flags` column, which only
@@ -35,7 +46,18 @@ const columnMetadata: ColumnMetadataMap = {
  * flag means. `Owners Checked` is zero when the ingester's owner-account
  * check is off or the registry came from a CSV, so the page can say the
  * owner figures are missing rather than reporting that nobody has left.
+ *
+ * `mode` picks the source: the registry, the registry with Resource Graph's
+ * owner check filling its gaps, or Resource Graph alone.
  */
-export function governanceSummary() {
-    return { connection, query, columnMetadata, filters: REGISTRY };
+export function governanceSummary(mode: GovernanceMode = "registry") {
+    if (mode === "resourceGraph") {
+        return {
+            connection,
+            query: resourceGraphQuery,
+            columnMetadata: resourceGraphColumnMetadata,
+            filters: governanceFilters(mode),
+        };
+    }
+    return { connection, query: registryQuery(query, mode), columnMetadata, filters: governanceFilters(mode) };
 }

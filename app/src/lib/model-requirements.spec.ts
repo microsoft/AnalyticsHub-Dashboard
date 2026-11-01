@@ -54,4 +54,24 @@ describe("model requirements", () => {
             expect(dax).toContain(`'Agents 365'[${column}]`);
         }
     });
+
+    it("keeps the Resource Graph and owner-fallback requirements aligned with the DAX that reads them", () => {
+        const resourceGraph = MODEL_REQUIREMENTS.governanceResourceGraph[0]!;
+        const dax = [
+            governanceSummary("resourceGraph").query,
+            governanceExposure("resourceGraph").query,
+            governanceOwners("resourceGraph").query,
+            governanceReviewQueue("resourceGraph").query,
+        ].join("\n");
+        expect(resourceGraph.table).toBe("Agent Configuration");
+        for (const column of resourceGraph.columns) {
+            expect(dax).toContain(`'Agent Configuration'[${column}]`);
+        }
+
+        const fallback = MODEL_REQUIREMENTS.governanceOwnerFallback[0]!;
+        const fallbackDax = governanceSummary("registryOwnerFallback").query;
+        for (const column of fallback.columns) {
+            expect(fallbackDax).toContain(`'${fallback.table}'[${column}]`);
+        }
+    });
 });

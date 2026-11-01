@@ -21,6 +21,7 @@ const columnMetadata: ColumnMetadataMap = {
     "[No Sign In]": whole("No Sign In", "No sign-in required"),
     "[No Sign In Configured]": whole("No Sign In Configured", "No sign-in required, any agent"),
     "[Web Search]": whole("Web Search", "Web search on"),
+    "[Web Search Configured]": whole("Web Search Configured", "Web search on, any agent"),
     "[Foundry Resources]": whole("Foundry Resources", "Foundry resources"),
     "[Foundry Public]": whole("Foundry Public", "Open to the public network"),
     "[Foundry Public Projects]": whole("Foundry Public Projects", "Projects open to the public network"),

@@ -1,0 +1,46 @@
+EVALUATE
+// Capped at the top 1,000 in the queue's order; Total counts every flagged agent.
+VAR __Date = MAX('Agent Configuration'[SnapshotDate])
+VAR _queue =
+    SELECTCOLUMNS(
+        FILTER(
+            'Agent Configuration',
+            'Agent Configuration'[SnapshotDate] = __Date
+                && NOT ISBLANK('Agent Configuration'[Governance Flags])
+        ),
+        "Agent", 'Agent Configuration'[AgentName],
+        "Agent Id", 'Agent Configuration'[AgentResourceId],
+        "Type", 'Agent Configuration'[Agent Type Label],
+        "Creator", 'Agent Configuration'[Owner UPN],
+        "Sharing Scope", 'Agent Configuration'[Sharing Scope],
+        "Data Access", 'Agent Configuration'[Data Access],
+        "Users", COALESCE('Agent Configuration'[Total Users], 0),
+        "Owner Account", COALESCE('Agent Configuration'[Owner account], "Not checked"),
+        "Flag Count",
+            LEN('Agent Configuration'[Governance Flags])
+                - LEN(SUBSTITUTE('Agent Configuration'[Governance Flags], ";", ""))
+                + 1,
+        "Priority",
+            IF(CONTAINSSTRING('Agent Configuration'[Governance Flags], "No sign-in required"), 3)
+                + IF(CONTAINSSTRING('Agent Configuration'[Governance Flags], "Owner has left"), 3)
+                + IF(CONTAINSSTRING('Agent Configuration'[Governance Flags], "Org-wide with org data"), 2)
+                + IF(CONTAINSSTRING('Agent Configuration'[Governance Flags], "No owner on record"), 2)
+                + IF(CONTAINSSTRING('Agent Configuration'[Governance Flags], "Shared, no recorded use"), 1)
+                + 0,
+        "Flags", 'Agent Configuration'[Governance Flags]
+    )
+VAR _total = COUNTROWS(_queue)
+RETURN
+    ADDCOLUMNS(
+        TOPN(
+            1000,
+            _queue,
+            [Priority], DESC,
+            [Flag Count], DESC,
+            [Users], DESC,
+            [Agent], ASC,
+            [Agent Id], ASC
+        ),
+        "Total", _total
+    )
+ORDER BY [Priority] DESC, [Flag Count] DESC, [Users] DESC, [Agent] ASC, [Agent Id] ASC

@@ -5,13 +5,14 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { REGISTRY } from "@/lib/filter-profiles";
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { contrastingTextColor } from "@/lib/color-scale";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { connection, FORMAT_WHOLE } from "../shared";
+import { governanceFilters, type GovernanceMode } from "./governance-mode";
 import query from "./governance-exposure.dax?raw";
+import resourceGraphQuery from "./governance-exposure-resource-graph.dax?raw";
 import spec from "./governance-exposure.json";
 
 const columnMetadata: ColumnMetadataMap = {
@@ -28,9 +29,17 @@ const columnMetadata: ColumnMetadataMap = {
  * the cell where whole-organisation sharing meets organisation content is
  * the one worth a look. Blocked agents are left out, since nobody can reach
  * them. The order columns keep both axes in risk order, widest first.
+ * Without Agent 365 (`resourceGraph`), the same grid over Copilot Studio
+ * agents from Resource Graph.
  */
-export function governanceExposure() {
-    return { connection, query, columnMetadata, vegaLiteSpec: spec as VisualizationSpec, filters: REGISTRY };
+export function governanceExposure(mode: GovernanceMode = "registry") {
+    return {
+        connection,
+        query: mode === "resourceGraph" ? resourceGraphQuery : query,
+        columnMetadata,
+        vegaLiteSpec: spec as VisualizationSpec,
+        filters: governanceFilters(mode),
+    };
 }
 
 /** Every data access column, in risk order, so the grid keeps its shape whatever the filters leave. */

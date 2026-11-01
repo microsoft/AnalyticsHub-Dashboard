@@ -17,7 +17,7 @@ import { CONSENT_ROLES, GLOBAL_READER_ROLE, POWER_PLATFORM_ADMIN_ROLE } from '..
 import { AGENT_INVENTORY_DIR, AGENT_INVENTORY_FLOW_NAME, CONNECTORS, connectorsUsed, PPAPI } from '../src/transform/flows.js';
 import { buildConsumptionModel, buildModel, loadTemplateModel } from '../src/transform/model.js';
 import { buildPipeline, findActivity, LANE_ORDER, REFRESH_ACTIVITY, RESOURCE_GRAPH_ACTIVITY } from '../src/transform/pipeline.js';
-import { AGENT_CONFIG_TABLE, ARG_TABLES, ENVIRONMENTS_TABLE, FOUNDRY_TABLE } from '../src/transform/resource-graph.js';
+import { addGovernanceColumns, AGENT_CONFIG_TABLE, AGENT_DETAIL_TABLE, ARG_TABLES, AUDIT_TABLE, ENVIRONMENTS_TABLE, FOUNDRY_TABLE, REGISTRY_OWNER_FALLBACK, REGISTRY_OWNER_LINE, REGISTRY_TABLE } from '../src/transform/resource-graph.js';
 import { DATA_SOURCES, dataSource, defaultDataSources, normaliseDataSources, parseDataFlags, routedSources, routerWanted, UPLOADABLE_SOURCES } from '../src/uploads.js';
 import { fakeArm, fakeAzureGraph, fakeCtx, fakeFabric, fakePowerBi, fakeUi, realSources } from './fakes.js';
 
@@ -284,7 +284,7 @@ test('models: the Resource Graph tables are always there, read from the Lakehous
   for (const t of ARG_TABLES) {
     const table = on.tables.find((x) => x.name === t.name);
     assert.ok(table, t.name);
-    assert.deepEqual(table.columns.map((/** @type {any} */ c) => c.name), t.columns.map((c) => c.name));
+    assert.deepEqual(table.columns.filter((/** @type {any} */ c) => c.type !== 'calculated').map((/** @type {any} */ c) => c.name), t.columns.map((c) => c.name));
     assert.match(table.partitions[0].source.expression.join('\n'), new RegExp(`try FabricTable\\("${t.source}"\\) otherwise EmptyTable\\(Columns\\)`));
   }
   const config = on.tables.find((x) => x.name === AGENT_CONFIG_TABLE);
@@ -307,6 +307,63 @@ test('models: the Resource Graph tables are always there, read from the Lakehous
   assert.ok(!ccOn.relationships?.some((/** @type {any} */ r) => r.fromTable === FOUNDRY_TABLE || r.toTable === FOUNDRY_TABLE));
   const ccOff = buildConsumptionModel(cc, { server: 's', database: 'd' }).model;
   assert.doesNotMatch(ccOff.tables.find((x) => x.name === FOUNDRY_TABLE).partitions[0].source.expression.join('\n'), /GetTable/);
+});
+
+test('models: Governance fields from Resource Graph, so the Governance tabs work without Agent 365', () => {
+  const template = loadTemplateModel(/** @type {string} */ (realSources().modelFile));
+  const settings = { server: 's', database: 'd', modules: { ...defaultModules(), agent365: true } };
+  const calculated = (/** @type {any} */ model, /** @type {string} */ table) =>
+    model.tables.find((/** @type {any} */ t) => t.name === table).columns.filter((/** @type {any} */ c) => c.type === 'calculated');
+  for (const on of [true, false]) {
+    const model = buildModel(template, { ...settings, resourceGraph: on }).model;
+    const config = calculated(model, AGENT_CONFIG_TABLE);
+    assert.deepEqual(
+      config.map((/** @type {any} */ c) => c.name),
+      ['Owner account', 'Owner UPN', 'Sharing Scope', 'Data Access', 'Agent Type Label', 'Total Users', 'Governance Flags'],
+      `resourceGraph ${on}`,
+    );
+    const dax = (/** @type {string} */ n) => config.find((/** @type {any} */ c) => c.name === n).expression.join('\n');
+    assert.match(dax('Owner account'), new RegExp(`'${AGENT_DETAIL_TABLE}'\\[OwnerAccount\\]`));
+    assert.match(dax('Total Users'), /REMOVEFILTERS\('Agent Configuration'\)/);
+    // The registry's own flag wording, so both modes read the same.
+    for (const flag of ['No sign-in required', 'Owner has left', 'No owner on record', 'Org-wide with org data', 'Shared, no recorded use']) {
+      assert.ok(dax('Governance Flags').includes(`"; ${flag}"`), flag);
+    }
+    assert.ok(calculated(model, REGISTRY_TABLE).some((/** @type {any} */ c) => c.name === 'Owner account (Resource Graph)'));
+    const flags = calculated(model, REGISTRY_TABLE).find((/** @type {any} */ c) => c.name === 'Governance Flags').expression.join('\n');
+    assert.ok(flags.includes(REGISTRY_OWNER_FALLBACK), 'registry flags fall back to the Resource Graph owner check');
+    assert.ok(!flags.includes(REGISTRY_OWNER_LINE));
+  }
+  const tags = (/** @type {any} */ m) => JSON.stringify(calculated(m, AGENT_CONFIG_TABLE).map((/** @type {any} */ c) => c.lineageTag));
+  assert.equal(tags(buildModel(template, settings).model), tags(buildModel(template, { ...settings, resourceGraph: true }).model), 'stable lineage');
+  const original = template.model.tables.find((t) => t.name === REGISTRY_TABLE)?.columns.find((/** @type {any} */ c) => c.name === 'Governance Flags')?.expression;
+  assert.ok(![].concat(original).join('\n').includes(REGISTRY_OWNER_FALLBACK), 'the template is never modified');
+});
+
+test('Governance columns: left out when a table they need is missing; registry flags changed only when they match', () => {
+  const table = (/** @type {string} */ name, /** @type {any[]} */ columns = []) => ({ name, columns: [...columns] });
+  const flags = { type: 'calculated', name: 'Governance Flags', expression: ['VAR _x = 1', `    ${REGISTRY_OWNER_LINE}`, 'RETURN _x'] };
+  const model = /** @type {any} */ ({ tables: [table(AGENT_CONFIG_TABLE), table(AGENT_DETAIL_TABLE), table(REGISTRY_TABLE, [flags])] });
+  const added = addGovernanceColumns(model);
+  // No audit table: Total Users can't be worked out, nor the flags built on it.
+  assert.deepEqual(
+    added.columns,
+    ['Owner account', 'Owner UPN', 'Sharing Scope', 'Data Access', 'Agent Type Label'].map((n) => `${AGENT_CONFIG_TABLE}[${n}]`).concat(`${REGISTRY_TABLE}[Owner account (Resource Graph)]`),
+  );
+  assert.equal(added.ownerFallback, true);
+  assert.deepEqual(model.tables[2].columns[0].expression, ['VAR _x = 1', ...REGISTRY_OWNER_FALLBACK.split('\n'), 'RETURN _x']);
+
+  const changed = { type: 'calculated', name: 'Governance Flags', expression: 'VAR _Owner = [Owner account]\nRETURN _Owner' };
+  const other = /** @type {any} */ ({
+    tables: [table(AGENT_CONFIG_TABLE, [{ name: 'Sharing Scope' }]), table(AGENT_DETAIL_TABLE), table(AUDIT_TABLE), table(REGISTRY_TABLE, [changed])],
+  });
+  const second = addGovernanceColumns(other);
+  assert.equal(second.ownerFallback, false);
+  assert.equal(changed.expression, 'VAR _Owner = [Owner account]\nRETURN _Owner', 'a registry flag rule it was not written against is left alone');
+  assert.equal(other.tables[0].columns.filter((/** @type {any} */ c) => c.name === 'Sharing Scope').length, 1, 'a column the table has is not added twice');
+  // The flags read Sharing Scope, which wasn't added, so they're left out too.
+  assert.ok(!second.columns.includes(`${AGENT_CONFIG_TABLE}[Governance Flags]`));
+  assert.ok(second.columns.includes(`${AGENT_CONFIG_TABLE}[Total Users]`));
 });
 
 /**

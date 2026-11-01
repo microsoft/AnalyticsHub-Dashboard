@@ -112,7 +112,9 @@ model reads `dbo.<table>` in Azure SQL. Each collector fails on its own, and the
   `Copilot_Resource_Graph_Ingester`. It writes daily snapshots of `arg_agent_config`,
   `arg_environments` and `arg_agent_flows` (Copilot Studio agents, environments and agent flows, from
   `PowerPlatformResources`), `arg_foundry_resources` (Foundry accounts and projects, from `resources`,
-  with lower-case ids that join to Azure AI spend) and `arg_status` (one row per probe: `ok`, `empty`,
+  with lower-case ids that join to Azure AI spend), `arg_agent_detail` (each agent's knowledge sources
+  and components, and whether its owner's Entra account is still active, checked with `User.Read.All`)
+  and `arg_status` (one row per probe: `ok`, `empty`,
   `forbidden`, `error` or `skipped`).
   - Each probe is best effort. A refused probe leaves its table as it was, and the job doesn't fail.
   - The managed identity needs **Reader** at the management group (or the tenant root group) for
@@ -152,9 +154,9 @@ state is ignored. Where the folder lives depends on the networking mode:
 | `viva_credits_weekly` | viva | by `metric_date` |
 | `viva_spending_policy` | viva | snapshot |
 | `azure_ai_spend`, `azure_ai_tokens`, `copilot_payg_spend`, `azure_deployment_health`, `azure_solution_spend`, `azure_billing_reconciliation` | azure_ai | snapshot |
-| `arg_agent_config`, `arg_environments`, `arg_agent_flows`, `arg_foundry_resources`, `arg_status` | resource_graph | snapshot |
+| `arg_agent_config`, `arg_agent_detail`, `arg_environments`, `arg_agent_flows`, `arg_foundry_resources`, `arg_status` | resource_graph | snapshot |
 
-`azure/sql/migrations/V002__consumption.sql` and `V004__resource_graph.sql` create every table up front, so a refresh before
+`azure/sql/migrations/V002__consumption.sql`, `V004__resource_graph.sql` and `V011__arg_agent_detail.sql` create every table up front, so a refresh before
 the first collection finds empty tables. A table whose source has never run is skipped at
 publish. The consumption tables never trigger the full refresh of the incremental Copilot model.
 

@@ -5,10 +5,11 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { REGISTRY } from "@/lib/filter-profiles";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { connection, FORMAT_WHOLE, TOTAL_COLUMN } from "../shared";
+import { governanceFilters, registryQuery, type GovernanceMode } from "./governance-mode";
 import query from "./governance-review-queue.dax?raw";
+import resourceGraphQuery from "./governance-review-queue-resource-graph.dax?raw";
 
 const columnMetadata: ColumnMetadataMap = {
     "[Agent]": { name: "Agent", displayName: "Agent" },
@@ -24,6 +25,15 @@ const columnMetadata: ColumnMetadataMap = {
     "[Flags]": { name: "Flags", displayName: "Why it's here" },
     ...TOTAL_COLUMN,
 };
+
+/** Without Agent 365 the queue keys agents by their Resource Graph ID and shows the owner Resource Graph records. */
+const resourceGraphColumnMetadata: ColumnMetadataMap = Object.fromEntries(
+    Object.entries(columnMetadata).map(([key, def]) => {
+        if (key === "[Registry Id]") return ["[Agent Id]", { name: "Agent Id", displayName: "Resource ID" }];
+        if (key === "[Creator]") return [key, { ...def, displayName: "Owner" }];
+        return [key, def];
+    }),
+);
 
 /** How much each flag weighs in the queue's `Priority`, matching the query. */
 export const FLAG_WEIGHTS = {
@@ -41,7 +51,17 @@ export const FLAG_WEIGHTS = {
  * merely unused. Ties go to the most flags and then the most users, since an
  * agent many people rely on is the one to sort out before it breaks. The
  * queue stops at the top `LIST_LIMIT`; `Total` counts every flagged agent.
+ * Without Agent 365 (`resourceGraph`), the queue lists Copilot Studio agents
+ * from Resource Graph, with the same flags and weights.
  */
-export function governanceReviewQueue() {
-    return { connection, query, columnMetadata, filters: REGISTRY };
+export function governanceReviewQueue(mode: GovernanceMode = "registry") {
+    if (mode === "resourceGraph") {
+        return {
+            connection,
+            query: resourceGraphQuery,
+            columnMetadata: resourceGraphColumnMetadata,
+            filters: governanceFilters(mode),
+        };
+    }
+    return { connection, query: registryQuery(query, mode), columnMetadata, filters: governanceFilters(mode) };
 }

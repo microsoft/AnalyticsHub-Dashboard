@@ -118,7 +118,7 @@ the Power BI refresh.
 
 **SQL design.** Tables have the same names as the Lakehouse tables (`dbo.copilot_interactions_curated`,
 `dbo.copilot_licensed_users`, `dbo.copilot_org_data`, `dbo.m365_activity_daily`, `dbo.agents_365` (created by `V009`),
-`dbo.user_feedback` (created by `V010`), and the consumption and evaluator tables). This keeps the model's M expressions 1:1.
+`dbo.user_feedback` (created by `V010`), `dbo.arg_agent_detail` (created by `V011`), and the consumption and evaluator tables). This keeps the model's M expressions 1:1.
 The large facts get **clustered columnstore**. Publishing uses a staging table plus `MERGE` by date partition,
 as in PnP's `InsertBatch`. Authentication is **Entra-only**: the jobs use the MI, and Power BI uses the
 reader SP (section 3.3).

@@ -110,7 +110,8 @@ optional module choices. A deploy from this folder uses `fabric.yaml` instead. S
 The app leaves out pages and sections whose optional data hasn't arrived. When it opens, it
 counts the rows in the ValueLens model's optional sources (unfiltered), in one query. **Feedback**
 needs `ProductFeedback` and **Work patterns** needs `M365 Activity`. Without registry data, **Governance**
-shows how to connect the Agent 365 registry instead of empty sections, and the **Agents** leaderboard
+reads the Copilot Studio agents Azure Resource Graph loads, says above each tab what that leaves out,
+and only asks for a source when neither has data. The **Agents** leaderboard
 drops its registry columns. Governance's **Shadow AI** section needs `Defender Status`, and says how to
 turn Defender on without it; it doesn't depend on the registry. Newer installer builds also write which optional modules were switched
 off into `fabric.config.json` (on Azure, the web app serves them in `/app.config.json`); those

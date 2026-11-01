@@ -15,8 +15,10 @@ import { formatKpi } from "@/lib/format-kpi";
 import { readNumber } from "@/lib/summary-row";
 import { BODY } from "@/lib/type-scale";
 import { agentEstateSummary, agentLifecycle, describeRegistryLinkage, type RegistryLinkage } from "@/queries/agents";
+import type { GovernanceMode } from "@/queries/governance";
 import { ResourceGraphPanel } from "./resource-graph-panel";
 import { useResourceGraphSummary } from "./resource-graph-summary";
+import { WithoutAgent365Note } from "./without-agent-365-note";
 
 const ESTATE = agentEstateSummary();
 const LIFECYCLE = agentLifecycle();
@@ -68,17 +70,44 @@ const FLAG_NOTES = [
     },
 ] as const;
 
+/** The same flags as Resource Graph raises them, without Agent 365. */
+const RESOURCE_GRAPH_FLAG_NOTES = [
+    {
+        term: "No sign-in required",
+        text: "The agent answers anyone who reaches it without asking them to sign in, so nothing ties a conversation to a person.",
+    },
+    {
+        term: "Owner has left",
+        text: "The owner's Entra account is disabled or no longer exists, so nobody is accountable for the agent.",
+    },
+    FLAG_NOTES[2],
+    {
+        term: "No owner on record",
+        text: "Azure Resource Graph names no owner for the agent.",
+    },
+    FLAG_NOTES[4],
+] as const;
+
 interface EstateHealthStageProps {
     summary: SummaryResult;
+    mode?: GovernanceMode;
 }
 
 /**
- * How big the registry is, how much of what was built here needs a review,
- * and where every registered agent sits in its lifecycle. The report's
- * Agent Health page, with the registry linkage note that used to sit on
- * Leaderboards.
+ * How big the estate is, how much of what was built here needs a review,
+ * and, with the Agent 365 registry, where every registered agent sits in its
+ * lifecycle. Without the registry it counts the Copilot Studio agents Azure
+ * Resource Graph loads instead.
  */
-export function EstateHealthStage({ summary }: EstateHealthStageProps) {
+export function EstateHealthStage({ summary, mode = "registry" }: EstateHealthStageProps) {
+    return mode === "resourceGraph" ? <ResourceGraphEstateHealth summary={summary} /> : <RegistryEstateHealth summary={summary} />;
+}
+
+/**
+ * The report's Agent Health page, with the registry linkage note that used
+ * to sit on Leaderboards.
+ */
+function RegistryEstateHealth({ summary }: { summary: SummaryResult }) {
     const estate = useSummaryQuery(ESTATE);
     const lifecycle = useTableQuery(LIFECYCLE);
     const resourceGraph = useResourceGraphSummary();
@@ -165,6 +194,58 @@ export function EstateHealthStage({ summary }: EstateHealthStageProps) {
                 <div className="self-start">
                     <NoteCard title="Why an agent needs a review" notes={FLAG_NOTES} />
                 </div>
+            </div>
+        </Section>
+    );
+}
+
+/** Estate health from Resource Graph: Copilot Studio agents and their flags, with no lifecycle chart. */
+function ResourceGraphEstateHealth({ summary }: { summary: SummaryResult }) {
+    const resourceGraph = useResourceGraphSummary();
+    const row = summary.row;
+    const empty = summary.loaded && (readNumber(row, "[Tenant Agents]") ?? 0) === 0;
+
+    return (
+        <Section
+            id={stageAnchor("estate-health")}
+            title="Estate health"
+            description="How many Copilot Studio agents there are, and how many of them need a review."
+        >
+            <WithoutAgent365Note />
+            <KpiRowState
+                summary={empty ? { ...summary, row: undefined } : summary}
+                count={4}
+                className={KPI_GRID}
+                emptyTitle="No Copilot Studio agents yet"
+                emptyDescription="Azure Resource Graph hasn't loaded any Copilot Studio agents. Run the load, refresh the model, then reopen the app."
+            >
+                <KpiCard
+                    label="Copilot Studio agents"
+                    value={readNumber(row, "[Tenant Agents]")}
+                    detail={<KpiStat label="Seen in use" value={readNumber(row, "[Seen In Use]")} />}
+                />
+                <KpiCard
+                    label="Need a review"
+                    value={readNumber(row, "[Needs Review]")}
+                    emphasis
+                    detail={<KpiStat label="No sign-in required" value={readNumber(row, "[No Sign In]")} />}
+                />
+                <KpiCard
+                    label="Shared org-wide"
+                    value={readNumber(row, "[Org Wide]")}
+                    detail={<KpiStat label="Reading org content" value={readNumber(row, "[Org Wide Org Data]")} />}
+                />
+                <KpiCard
+                    label="Owner has left"
+                    value={readNumber(row, "[Owner Left]")}
+                    detail={<KpiStat label="No owner on record" value={readNumber(row, "[No Owner]")} />}
+                />
+            </KpiRowState>
+
+            <ResourceGraphPanel summary={resourceGraph} mode="resourceGraph" className="grid gap-300 md:grid-cols-3" />
+
+            <div className="max-w-[80ch]">
+                <NoteCard title="Why an agent needs a review" notes={RESOURCE_GRAPH_FLAG_NOTES} />
             </div>
         </Section>
     );

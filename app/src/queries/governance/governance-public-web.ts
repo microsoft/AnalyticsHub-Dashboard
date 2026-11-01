@@ -5,11 +5,12 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { REGISTRY } from "@/lib/filter-profiles";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { connection } from "../shared";
 import { EXPOSURE_ACCESS, governanceExposure } from "./governance-exposure";
+import { governanceFilters, type GovernanceMode } from "./governance-mode";
 import query from "./governance-public-web.dax?raw";
+import resourceGraphQuery from "./governance-public-web-resource-graph.dax?raw";
 
 /** The extra data access column for agents that search the web. */
 export const PUBLIC_WEB = "Public web";
@@ -23,8 +24,13 @@ export const EXPOSURE_ACCESS_WITH_WEB = [...EXPOSURE_ACCESS, PUBLIC_WEB] as cons
  * in their usual data access column; this adds a column rather than moving
  * them. Its own query, as only models with Resource Graph have the table.
  */
-export function governancePublicWeb() {
-    return { connection, query, columnMetadata: governanceExposure().columnMetadata, filters: REGISTRY };
+export function governancePublicWeb(mode: GovernanceMode = "registry") {
+    return {
+        connection,
+        query: mode === "resourceGraph" ? resourceGraphQuery : query,
+        columnMetadata: governanceExposure(mode).columnMetadata,
+        filters: governanceFilters(mode),
+    };
 }
 
 /** Adds the public web cells to the exposure grid, matching columns by name. */
