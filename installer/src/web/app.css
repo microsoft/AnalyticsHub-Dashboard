@@ -168,6 +168,36 @@ button.stage:hover { color: var(--fg); }
 }
 .foot-btn:hover:not(:disabled) { background: var(--muted); color: var(--fg); }
 .foot-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.foot-link {
+  align-self: flex-start;
+  border: 0;
+  padding: 0 4px;
+  background: transparent;
+  color: var(--muted-fg);
+  font-size: 12px;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+.foot-link:hover { color: var(--fg); }
+
+dialog.support {
+  width: min(720px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px;
+  background: var(--bg);
+  color: var(--fg);
+}
+dialog.support::backdrop { background: rgb(0 0 0 / 40%); }
+dialog.support h2 { margin: 0 0 8px; font-size: 18px; }
+.support-files { list-style: none; margin: 16px 0; padding: 0; border-top: 1px solid var(--border); }
+.support-files li { border-bottom: 1px solid var(--border); }
+.support-files summary { display: flex; gap: 12px; padding: 8px 4px; cursor: pointer; font-family: var(--mono); font-size: 13px; }
+.support-size { margin-left: auto; color: var(--muted-fg); }
+.support-files pre { max-height: 240px; overflow: auto; margin: 0 0 8px; padding: 8px; background: var(--muted); font-size: 12px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.support-actions { display: flex; justify-content: flex-end; gap: 8px; }
 
 /* Page */
 .link {
