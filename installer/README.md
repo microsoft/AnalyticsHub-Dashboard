@@ -350,6 +350,7 @@ then **Yes**.
 | [Power BI](#power-bi-reports) | The semantic model, the Power BI reports and the app. Or the model and reports, the model and app, the model only, or neither. |
 | Who can view | A new **Analytics Hub Viewers** group. You're who people ask for access. **Manage access** changes it later. |
 | [Audit history](#load-more-audit-history) for the first load | 30 days. Or 90 or 180. |
+| Audit source | **Office 365 Management Activity API** (recommended, and new installs): the last 7 days, read from files the audit service has already written, so it isn't slowed or capped like a search. Or **Microsoft Sentinel**: its `CopilotActivity` table, otherwise the Management Activity API, so the first load covers what Sentinel holds, else 7 days. Or **Graph audit search**: any history, but slow and quota-limited on a large tenant. Installs from before this option keep Graph. Not on Azure, which always uses Graph. See [Where the audit log comes from](../fabric/notebooks/README.md#where-the-audit-log-comes-from). |
 | [How many people are in the tenant](#a-large-tenant) | More than 10,000 on an F64 or larger capacity or with more than 10,000 Copilot seats assigned, otherwise up to 10,000. An existing install keeps its size. |
 | Lakehouse name | `Analytics_Hub`, or the next free name (`ValueLens` on earlier installs, which keep it). Spaces and hyphens become underscores. |
 | A new Key Vault's resource group, region and name, and the secret's name | `rg-valuelens`, the capacity's region, `valuelens-` and six random characters, and the default secret name. If you can't use `rg-valuelens`, it asks. |
@@ -560,8 +561,21 @@ work:
   straight after the repair. Later runs load only what's new. If a run is already going, the reload
   doesn't start: use `run --backfill-days <n>` once that run has finished.
 - On the home page, the **Run** row has an **Audit history** picker: the usual run, or 30, 90 or
-  180 days.
-- In the terminal: `run --backfill-days <n>`, with `<n>` from 1 to 180.
+  180 days. With the Management Activity API or Sentinel as the audit source, the 90 and 180 day
+  choices also come *from Microsoft Graph audit search*, which reads the days older than 7 from
+  Graph for that run.
+- In the terminal: `run --backfill-days <n>`, with `<n>` from 1 to 180. Add `--graph-history` to
+  read the days older than 7 from Graph audit search for that run.
+
+**Graph history (optional).** The Management Activity API keeps 7 days, so with it (or Sentinel)
+a history load covers 7 days (or what Sentinel holds) and leaves older days out. To load them,
+choose *Yes* for *Should history loads read the days older than 7 from Microsoft Graph audit
+search?* under Advanced settings, or run `install --graph-history`: the first load and later
+reloads then read those days from Graph. Scheduled runs keep reading the Management Activity
+API. It's slow on a large tenant (each Graph search can take hours) and needs
+`AuditLogsQuery.Read.All`, which the app already has. The plan shows *History loads read the days
+older than 7 from Microsoft Graph audit search* when it's on. Pipelines from before this version
+don't have the `AuditGraphHistory` parameter: run **Update** first.
 
 A reload keeps older history. On Fabric it replaces the parsed audit rows from the first record it
 reads onwards, then rebuilds the curated table. On the Azure target the run job merges what it reads
@@ -738,9 +752,11 @@ addresses, the M365 Copilot licence flag and the exact prepaid split.
 | Read Cowork credits with a Dataflow | `install --data coworkCredits=api --viva-partition <id> --viva-query <id>` |
 | Read agent configuration and Foundry from Resource Graph | `install --data resourceGraph=api --arg-management-group <id>` |
 | Report the Value page in another currency | `install --currency GBP --exchange-rate 0.79` |
+| Read the audit log from the Management Activity API, from Sentinel then the Management Activity API, or from the Graph audit search | `install --audit-source feed`, `install --audit-source auto` or `install --audit-source graph` |
+| Read history loads' days older than 7 from the Graph audit search (Management Activity API and Sentinel sources) | `install --graph-history`, or for one reload `run --backfill-days <n> --graph-history` |
 | Upload exports later, then load them now | `upload feedback.csv agents.csv --run` |
 | Check the app can read the audit log, and that it has Copilot records | `check-audit` |
-| Run that audit search during the install too | `install --check-audit` |
+| Check the selected audit sources during the install too | `install --check-audit` |
 | Run only the loads that failed last time | `rerun-failed` |
 | Delete the Fabric workspace and everything in it | `uninstall` |
 | After signing in to the Cowork Dataflow, refresh it and load Cowork credits | `load-cowork` |
@@ -763,7 +779,15 @@ whole tenant, and `--no-arg-agents` or `--no-arg-foundry` leaves agents or Found
 how many of it make $1. Without the rate, set it under **Prices** in the app. In the browser, choose
 the currency under [Advanced settings](#advanced-settings) instead.
 
-`check-audit` gets the app's token for your tenant and checks it has `AuditLogsQuery.Read.All` as an
+With the Management Activity API (or Sentinel), `check-audit` checks that the Management Activity
+API's `Audit.General` subscription is enabled and reads one day's content listing; with Sentinel it
+also queries Sentinel for Copilot interactions from the last day. It uses separate app-only tokens
+for each API. It does not start a subscription, download
+blobs, or run Graph audit search. A readable content listing proves access, not that those blobs
+contain Copilot records; the notebook filters downloaded records to type 261. First content after
+subscription start can take up to 12 hours. With Sentinel, both sources are reported even when only one works.
+
+With Graph, `check-audit` gets the app's token for your tenant and checks it has `AuditLogsQuery.Read.All` as an
 Application permission with admin consent. It then runs a small audit search for Copilot
 interactions from the last 2 days (if there are none, for any record from the last day) and says
 which it found, with who fixes what: consent (a Global Administrator or Privileged Role
@@ -771,7 +795,8 @@ Administrator), the secret (`rotate-secret`), or audit logging (a Compliance Adm
 Purview > Audit). The search can take a few minutes. Installs and updates run the token check on
 their own when the secret is to hand (it's just been made, or Key Vault gives it): once after
 consent, where a problem is only noted as Entra may not have caught up, and again once the pipeline
-is deployed, which reports and keeps what it finds. `--check-audit` adds the search, on Fabric. On
+is deployed, which reports and keeps what it finds. Management Activity API and Sentinel installs check source access instead of
+the Graph token role; `--check-audit` also checks the feed content listing. On
 Azure, `check-audit` checks the jobs' managed identity has the role. `check-audit` reads the app's
 secret from Key Vault where it can, and otherwise asks you to paste one. Once a load has run, a
 problem it finds also says how to reload the days read as empty: rename

@@ -6,7 +6,7 @@
 import { existsSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { normaliseModules } from './catalog.js';
+import { AUDIT_SOURCES, normaliseModules } from './catalog.js';
 import { normaliseReporting } from './currency.js';
 import { normaliseDataSources } from './uploads.js';
 
@@ -22,13 +22,14 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {import('./uploads.js').DataSourceModes} dataSources  How each source arrives: API, uploaded CSV, or skipped.
  * @property {UploadsConfig} uploads
  * @property {{ days: number }} history
+ * @property {{ source: import('./catalog.js').AuditSource, graphHistory?: boolean }} audit  Where the audit load reads Copilot interactions. New installs use `feed`; a record without it keeps `graph`. `graphHistory`: backfill runs read the days the source doesn't hold from the Graph audit search.
  * @property {import('./transform/pipeline.js').TenantScale} [scale]  How the loads are sized. Standard when absent.
  * @property {import('./currency.js').ReportingConfig} [reporting]  The currency the Value page reports in until one is saved in the app. Asked for when absent.
  * @property {{ frequency: 'daily' | 'weekly', time: string, weekday: string, timeZone: string }} schedule
  * @property {{ appId?: string, objectId?: string, servicePrincipalId?: string, displayName?: string, secretExpires?: string, secretKeyId?: string, retiredSecretKeyIds?: string[], pendingSecretKeyIds?: string[], secretAttempts?: { ref: string, at: string }[], existing?: boolean, adminPack?: string, secretDays?: number }} app  pendingSecretKeyIds: notebook secrets created by a run that hadn't finished writing them. secretAttempts: notebook secrets asked of Entra whose key ID isn't saved yet; the ref is in the secret's name. secretDays: how long a secret kept in the notebooks lasts (--secret-days). 90 when absent.
  * @property {{ subscriptionId?: string, resourceGroup?: string, name?: string, id?: string, uri?: string, location?: string, secretName: string, existing?: boolean, rbac?: boolean, private?: boolean, secretSetAt?: string, mode?: SecretMode, handoff?: SecretHandoff } & import('./steps/secrets.js').SecretSlot} keyVault  The secret* fields track the app secrets made for the vault (see steps/secrets.js); previousSecretKeyIds are replaced ones left on the app until they expire.
  * @property {{ capacityId?: string, workspaceId?: string, workspaceName?: string, lakehouseId?: string, lakehouseName?: string, notebooks: Partial<Record<import('./catalog.js').NotebookKey, string>>, notebookNames?: Partial<Record<import('./catalog.js').NotebookKey, string>>, notebookHashes?: Partial<Record<import('./catalog.js').NotebookKey, string>>, pipelineId?: string, pipelineName?: string, pipelineModules?: string, pipelineVersion?: number, scheduleId?: string, vaultEndpointId?: string, deployedRouter?: string, secretInNotebooks?: boolean, createdWorkspace?: boolean, pendingItems?: Record<string, { name: string, ref: string, at?: string, operation?: string }>, transcriptAccess?: FabricTranscriptAccess[] }} fabric  pendingItems: the name and description ref of each item being created, and when, so a run stopped mid-create finds that item again and nothing else. operation: Fabric's URL for the create once it accepted it, to ask how it went. transcriptAccess: each Dataverse environment where the installer gave the app the role that reads every transcript.
- * @property {{ jobId?: string, status?: string, startedAt?: string, finishedAt?: string, coworkSkipped?: boolean }} [firstRun]  coworkSkipped: the first load left out the Cowork Dataflow, which wasn't signed in yet.
+ * @property {{ jobId?: string, status?: string, startedAt?: string, finishedAt?: string, coworkSkipped?: boolean, graphHistory?: boolean }} [firstRun]  coworkSkipped: the first load left out the Cowork Dataflow, which wasn't signed in yet. graphHistory: it read older days from the Graph audit search.
  * @property {SemanticModelConfig} semanticModel
  * @property {FabricAppConfig} fabricApp
  * @property {AzureConfig} [azure]
@@ -54,6 +55,7 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {string} at  When, as an ISO date.
  * @property {'ok' | 'records' | 'no-copilot' | 'empty-log' | 'no-role' | 'bad-secret' | 'wrong-tenant' | 'refused' | 'timeout' | 'error'} result
  * @property {string} [detail]
+ * @property {import('./catalog.js').AuditSource} [source]  Absent on older Graph-only checks.
  */
 
 /**
@@ -396,6 +398,7 @@ export function emptyConfig() {
     dataSources: normaliseDataSources(undefined, normaliseModules(undefined)),
     uploads: {},
     history: { days: 30 },
+    audit: { source: 'feed' },
     schedule: { frequency: 'daily', time: '02:00', weekday: 'Sunday', timeZone: 'UTC' },
     app: {},
     keyVault: { secretName: 'valuelens-client-secret' },
@@ -454,6 +457,11 @@ function normaliseConfig(raw, file) {
     // studioFlow and feedbackFlow are read once, above: each flow is now its source's api mode.
     uploads: Object.fromEntries(Object.entries(raw.uploads ?? {}).filter(([k]) => k !== 'studioFlow' && k !== 'feedbackFlow')),
     history: { ...base.history, ...(raw.history ?? {}) },
+    // An install from before the choice keeps reading Graph until someone changes it.
+    audit: {
+      source: AUDIT_SOURCES.includes(raw.audit?.source) ? raw.audit.source : 'graph',
+      ...(raw.audit?.graphHistory === true ? { graphHistory: true } : {}),
+    },
     reporting: normaliseReporting(raw.reporting),
     schedule: { ...base.schedule, ...(raw.schedule ?? {}) },
     app: { ...(raw.app ?? {}) },

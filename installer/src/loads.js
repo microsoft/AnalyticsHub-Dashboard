@@ -108,6 +108,7 @@ export const STATUS_TABLES = [
   { activity: RESOURCE_GRAPH_ACTIVITY, table: 'arg_status', item: 'Probe', status: 'Status' },
   { activity: 'Run_Defender_Ingester', table: 'defender_status', item: 'Probe', status: 'Status' },
   { activity: AGENT_EVALUATOR_ACTIVITY, table: 'evaluator_status', item: 'Environment', status: 'Status' },
+  { activity: 'Run_Audit_Log_Ingester', table: 'audit_source_status', item: 'Source', status: 'Status' },
 ];
 
 /**

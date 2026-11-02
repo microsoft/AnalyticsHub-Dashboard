@@ -3,6 +3,7 @@
  * Runs the pipeline and the data check, and reports on them. The data check isn't in the pipeline:
  * it runs after the first load, after `run`, and on `check`.
  */
+import { auditSource, graphHistoryOn, readsFeed } from '../catalog.js';
 import { isTransientNetworkError } from '../auth.js';
 import { commandLine } from '../launch.js';
 import { failedCards, fillRerun, loadCards, VIVA_ACTIVITY } from '../loads.js';
@@ -157,8 +158,9 @@ const STUCK_MS = 24 * 3_600_000;
  * and rebuilds the curated table.
  * It doesn't start a run while another is going: two at once overload a small capacity.
  * @param {Ctx} ctx
- * @param {{ backfillDays?: number, wait?: boolean, first?: boolean, skipCowork?: boolean }} opts  skipCowork: leave the Cowork
- *   Dataflow out of this run only (SkipCowork), because its connections aren't signed in yet.
+ * @param {{ backfillDays?: number, wait?: boolean, first?: boolean, skipCowork?: boolean, graphHistory?: boolean }} opts  skipCowork: leave the Cowork
+ *   Dataflow out of this run only (SkipCowork), because its connections aren't signed in yet. graphHistory: on a backfill,
+ *   read the days the audit source doesn't hold from the Graph audit search (defaults to the install's choice).
  * @returns {Promise<RunResult>}
  */
 export async function runPipeline(ctx, opts) {
@@ -175,19 +177,21 @@ export async function runPipeline(ctx, opts) {
     return { jobId: running.id, status: running.status, ok: false, started: false };
   }
   const days = opts.backfillDays;
+  const graphHistory = !!days && (opts.graphHistory ?? graphHistoryOn(config)) && readsFeed(auditSource(config));
   /** @type {Record<string, any> | undefined} */
-  let parameters = days ? firstRunParameters(days) : undefined;
+  let parameters = days ? firstRunParameters(days, graphHistory) : undefined;
   if (opts.skipCowork) parameters = { ...parameters, [SKIP_COWORK_PARAMETER]: true };
   const startedAt = ctx.now().toISOString();
   const url = await api.fabric.runJob(f.workspaceId, f.pipelineId, 'Pipeline', parameters ? { parameters } : undefined);
   const jobId = jobIdFrom(url);
   if (opts.first) {
-    config.firstRun = { jobId, status: 'NotStarted', startedAt, ...(opts.skipCowork ? { coworkSkipped: true } : {}) };
+    config.firstRun = { jobId, status: 'NotStarted', startedAt, ...(opts.skipCowork ? { coworkSkipped: true } : {}), ...(graphHistory ? { graphHistory: true } : {}) };
     ctx.save();
   }
   if (!days) ui.ok('Started the pipeline');
   else if (opts.first) ui.ok(`Started the first load: ${days} days of audit history`);
   else ui.ok(`Started the pipeline with ${days} days of audit history`);
+  if (graphHistory) ui.note('Days older than the audit source holds are read from the Microsoft Graph audit search on this run.');
   if (!opts.wait) {
     ui.note(`It runs in Fabric. Check on it with "${commandLine('status')}".`);
     return { jobId, status: 'NotStarted', started: true };
@@ -381,8 +385,8 @@ export async function historyLoaded(ctx) {
  * What `run` starts: the first load, with the history, until a run has loaded it; then the usual
  * incremental run. Asking for history days always loads that much.
  * @param {Ctx} ctx
- * @param {{ backfillDays?: number, wait: boolean }} opts
- * @returns {Promise<{ backfillDays?: number, wait: boolean, first?: boolean }>}
+ * @param {{ backfillDays?: number, wait: boolean, graphHistory?: boolean }} opts
+ * @returns {Promise<{ backfillDays?: number, wait: boolean, first?: boolean, graphHistory?: boolean }>}
  */
 export async function chooseLoad(ctx, opts) {
   const loaded = await historyLoaded(ctx);

@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { AZ_LOGIN } from './auth.js';
 import { orgUrl } from './clients/dataverse.js';
+import { AUDIT_SOURCES } from './catalog.js';
 import { archiveConfig, DEFAULT_CONFIG_FILE, loadConfig, normaliseResourceGraph } from './config.js';
 import { HttpError } from './http.js';
 import { connect, createCtx, preview, runCommand } from './install.js';
@@ -39,7 +40,7 @@ Commands:
                    and refresh the consumption model. Fabric only
   check            Run the data check again, without the pipeline
   check-audit      Check the app registration can read Copilot interactions in the audit log:
-                   its token, then a small live audit search. Says who fixes what it finds
+                   Auto checks Sentinel and the Management API; Graph runs a small audit search
   refresh          Refresh the semantic model now
   deploy-app       Deploy the Analytics Hub app again
   status           Show recent runs and refreshes, the last data check and when secrets expire
@@ -67,6 +68,9 @@ Options:
                        Shell, run ${AZ_LOGIN} first
   --backfill-days <n>  With run: reload n days of audit history, keep older history and rebuild
                        the curated table
+  --graph-history      With run --backfill-days: read the days the Management Activity API doesn't
+                       hold (older than 7) from Microsoft Graph audit search, this run only. With
+                       install: every history load does. Fabric only
   --out <dir>          With preview: where to write (default ./valuelens-preview). With
                        --support-bundle: the folder for the support file (default: this folder)
   --data <id=mode>     With install: how a source arrives, api, csv or skip. Repeat it or use
@@ -100,8 +104,14 @@ Options:
                        ${CURRENCIES.map((cur) => cur.code).join(', ')}
   --exchange-rate <n>  With --currency: how many of it to 1 US dollar, e.g. 0.79. Without it,
                        set the rate under Prices in the app
+  --audit-source <s>   With install: where the audit load reads Copilot interactions. feed (default
+                       for a new install): the Office 365 Management Activity API, the last 7 days
+                       and then every new record; fast on a large tenant. auto: Microsoft Sentinel's
+                       CopilotActivity table, otherwise the Management Activity API.
+                       graph: Microsoft Graph audit search; any history, but slow on a large tenant.
+                       Fabric only: Azure reads Graph
   --run                 With upload: run the pipeline straight after, to load the files now
-  --check-audit        With install or update: also run a small live audit search as the app,
+  --check-audit        With install or update: also check the selected audit sources as the app,
                        to check the audit log has Copilot interactions to load. It can take a
                        few minutes. Fabric only
   --no-key-vault       With install: no Key Vault, the default for a new Fabric install. The client
@@ -150,6 +160,7 @@ export function parseCli(argv, env = process.env) {
       'device-code': { type: 'boolean' },
       'use-az': { type: 'boolean' },
       'backfill-days': { type: 'string' },
+      'graph-history': { type: 'boolean' },
       out: { type: 'string' },
       yes: { type: 'boolean', short: 'y' },
       'no-wait': { type: 'boolean' },
@@ -170,6 +181,7 @@ export function parseCli(argv, env = process.env) {
       'no-arg-foundry': { type: 'boolean' },
       currency: { type: 'string' },
       'exchange-rate': { type: 'string' },
+      'audit-source': { type: 'string' },
       run: { type: 'boolean' },
       'check-audit': { type: 'boolean' },
       'secret-in-notebook': { type: 'boolean' },
@@ -210,7 +222,7 @@ export function parseCli(argv, env = process.env) {
     secretDays = Number(values['secret-days']);
     if (!Number.isInteger(secretDays) || secretDays < 1 || secretDays > MAX_SECRET_DAYS) throw new Error(`--secret-days must be a whole number from 1 to ${MAX_SECRET_DAYS}.`);
   }
-  const installOnly = ['feedback-flow', 'studio-flow', 'flow-environment', 'flow-identity', 'viva-partition', 'viva-query', 'arg-management-group', 'no-arg-agents', 'no-arg-foundry', 'currency', 'exchange-rate'].filter((k) => values[/** @type {'feedback-flow'} */ (k)] !== undefined);
+  const installOnly = ['feedback-flow', 'studio-flow', 'flow-environment', 'flow-identity', 'viva-partition', 'viva-query', 'arg-management-group', 'no-arg-agents', 'no-arg-foundry', 'currency', 'exchange-rate', 'audit-source'].filter((k) => values[/** @type {'feedback-flow'} */ (k)] !== undefined);
   if ((values.data?.length || values.csv?.length || installOnly.length) && !['install', 'preview'].includes(command)) {
     throw new Error(`--data, --csv${installOnly.map((k) => ` and --${k}`).join('')} go with install. To add exports later, use upload.`);
   }
@@ -225,6 +237,9 @@ export function parseCli(argv, env = process.env) {
   if (argManagementGroup && !isManagementGroupId(argManagementGroup)) throw new Error('--arg-management-group should be a management group ID, as the Azure portal shows it under Management groups.');
   if (values['no-arg-agents'] && values['no-arg-foundry']) throw new Error('--no-arg-agents and --no-arg-foundry together leave Resource Graph nothing to read. Use --data resourceGraph=skip.');
   const currency = values.currency === undefined ? undefined : toCurrencyCode(values.currency);
+  const auditSourceFlag = values['audit-source']?.trim().toLowerCase();
+  if (auditSourceFlag !== undefined && !AUDIT_SOURCES.includes(/** @type {any} */ (auditSourceFlag))) throw new Error(`--audit-source must be ${AUDIT_SOURCES.map((s) => `"${s}"`).join(' or ')}.`);
+  if (auditSourceFlag !== undefined && values.target === 'azure') throw new Error('--audit-source is for the Fabric target only. On Azure, the audit collector reads Microsoft Graph.');
   if (values.currency !== undefined && !currency) throw new Error(`--currency should be one of ${CURRENCIES.map((cur) => cur.code).join(', ')}.`);
   /** @type {number | undefined} */
   let exchangeRate;
@@ -251,6 +266,7 @@ export function parseCli(argv, env = process.env) {
   if (values.ui && (positionals.length || values['dry-run'])) throw new Error('--ui opens a home page where you choose what to do. Leave out the command.');
   if (values.ui && values.yes) throw new Error('Choose one of --ui and --yes.');
   if (values.ui && (values.currency !== undefined || values['exchange-rate'] !== undefined)) throw new Error('With --ui, choose the currency under Advanced settings.');
+  if (values.ui && auditSourceFlag !== undefined) throw new Error('With --ui, choose the audit source under Advanced settings.');
   if (values.ui && (values.data?.length || values.csv?.length || installOnly.length)) throw new Error('With --ui, choose data sources and exports on the Data sources page.');
   if (values['allow-model-reset'] && !['install', 'update', 'access'].includes(command)) throw new Error('--allow-model-reset goes with install, update or access.');
   if (values.ui && values['allow-model-reset']) throw new Error('With --ui, the page asks before a model\'s data is cleared. Leave out --allow-model-reset.');
@@ -259,6 +275,14 @@ export function parseCli(argv, env = process.env) {
   if (values['backfill-days'] !== undefined) {
     backfillDays = Number(values['backfill-days']);
     if (!Number.isInteger(backfillDays) || backfillDays < 1 || backfillDays > 180) throw new Error('--backfill-days must be a whole number from 1 to 180.');
+  }
+  const graphHistory = !!values['graph-history'];
+  if (graphHistory) {
+    if (values.ui) throw new Error('With --ui, choose Graph history under Advanced settings, or in the history choice on Run now.');
+    if (values.target === 'azure') throw new Error('--graph-history is for the Fabric target only. On Azure, the audit collector reads Microsoft Graph.');
+    if (auditSourceFlag === 'graph') throw new Error('--audit-source graph reads every day from Microsoft Graph already. Leave out --graph-history.');
+    if (command === 'run' && backfillDays === undefined) throw new Error('--graph-history goes with --backfill-days on run, e.g. run --backfill-days 90 --graph-history.');
+    if (!['install', 'preview', 'run'].includes(command)) throw new Error('--graph-history goes with install, or with run --backfill-days.');
   }
   return {
     command,
@@ -270,6 +294,7 @@ export function parseCli(argv, env = process.env) {
     method: /** @type {'browser' | 'device-code' | 'azure-cli'} */ (values['use-az'] ? 'azure-cli' : values['device-code'] || cloudShell ? 'device-code' : 'browser'),
     cloudShell,
     backfillDays,
+    graphHistory,
     outDir: values.out ?? (supportBundle ? '.' : 'valuelens-preview'),
     supportBundle,
     offline: !!values.offline,
@@ -292,6 +317,7 @@ export function parseCli(argv, env = process.env) {
     argFoundry: values['no-arg-foundry'] ? false : undefined,
     currency,
     exchangeRate,
+    auditSource: /** @type {import('./catalog.js').AuditSource | undefined} */ (auditSourceFlag),
     files,
     run: values.run,
     checkAudit: !!values['check-audit'],
@@ -310,12 +336,14 @@ export function version() {
 }
 
 /**
- * Applies --data, the flow flags, the Viva IDs and the currency to the install record's answers. The
+ * Applies --data, the flow flags, the Viva IDs, the currency and the audit source to the install record's answers. The
  * Data sources screen then opens with them, and --yes takes them as they are.
  * @param {import('./config.js').InstallConfig} config
- * @param {{ dataSources: Partial<import('./uploads.js').DataSourceModes>, feedbackFlow?: boolean, studioFlow?: boolean, flowEnvironment?: string, flowIdentity?: import('./config.js').FlowIdentity, vivaPartition?: string, vivaQuery?: string, argManagementGroup?: string, argAgents?: boolean, argFoundry?: boolean, currency?: string, exchangeRate?: number }} args
+ * @param {{ dataSources: Partial<import('./uploads.js').DataSourceModes>, feedbackFlow?: boolean, studioFlow?: boolean, flowEnvironment?: string, flowIdentity?: import('./config.js').FlowIdentity, vivaPartition?: string, vivaQuery?: string, argManagementGroup?: string, argAgents?: boolean, argFoundry?: boolean, currency?: string, exchangeRate?: number, auditSource?: import('./catalog.js').AuditSource, graphHistory?: boolean, command?: string }} args
  */
 export function applyDataFlags(config, args) {
+  if (args.auditSource) config.audit = { source: args.auditSource, ...(config.audit?.graphHistory ? { graphHistory: true } : {}) };
+  if (args.graphHistory && args.command !== 'run') config.audit = { ...config.audit, graphHistory: true };
   // --studio-flow and --feedback-flow are from before each flow was its source's api mode: with csv (as the old docs had it) or alone, they mean api.
   const studio = args.studioFlow && args.dataSources.studioCredits !== 'skip' ? { studioCredits: /** @type {const} */ ('api') } : {};
   const feedback = args.feedbackFlow && args.dataSources.productFeedback !== 'skip' ? { productFeedback: /** @type {const} */ ('api') } : {};
@@ -477,7 +505,7 @@ export async function main(argv) {
   if (args.checkAudit) ctx.checkAudit = true;
     if (args.secretDays) config.app.secretDays = args.secretDays;
     try {
-      const ok = await runCommand(ctx, args.command, { wait: args.wait, backfillDays: args.backfillDays, files: args.files, run: args.run });
+      const ok = await runCommand(ctx, args.command, { wait: args.wait, backfillDays: args.backfillDays, ...(args.graphHistory && args.command === 'run' ? { graphHistory: true } : {}), files: args.files, run: args.run });
       rec?.finish(ok);
       return ok ? 0 : 1;
     } finally {

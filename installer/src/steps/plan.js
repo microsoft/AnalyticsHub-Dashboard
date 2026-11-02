@@ -5,7 +5,7 @@
  */
 import { randomBytes } from 'node:crypto';
 import { rlsOn } from '../transform/access.js';
-import { collectedLabels, ESSENTIAL_MODULES, MODULES, notebooksFor, OPTIONAL_MODULES, permissionsFor } from '../catalog.js';
+import { auditSource, collectedLabels, ESSENTIAL_MODULES, graphHistoryOn, MANAGEMENT_API_ROLE, MODULES, notebooksFor, OPTIONAL_MODULES, permissionsFor, readsFeed } from '../catalog.js';
 import { allowsAction, armLocation, validateVaultName } from '../clients/azure.js';
 import { TRANSCRIPT_ROLE } from '../clients/dataverse.js';
 import { APP_ROLES, CONSENT_ROLES } from '../clients/graph.js';
@@ -355,6 +355,71 @@ export const HISTORY_CHOICES = [
   { name: '180 days (the most the audit log keeps by default; many hours)', value: 180 },
 ];
 
+/** What the history choice means when the audit load reads Sentinel or the Management Activity API. */
+export const AUTO_HISTORY_NOTE =
+  'The audit load reads the Office 365 Management Activity API, which keeps 7 days (and Microsoft Sentinel first, for the days it holds, if you chose it). ' +
+  'Older days are left out unless history loads read them from the Microsoft Graph audit search, which you can choose next.';
+
+/** Whether history loads read the older days from Graph. */
+export const GRAPH_HISTORY_CHOICES = [
+  { name: 'No, load the last 7 days (recommended on a large tenant)', value: false, description: 'Fast. Scheduled runs keep up from there.' },
+  {
+    name: 'Yes, read the older days from Microsoft Graph audit search',
+    value: true,
+    description: 'Only history loads use Graph; scheduled runs keep reading the Management Activity API. Each Graph search can take hours on a large tenant.',
+  },
+];
+
+/**
+ * Asks whether history loads read the days the feed doesn't hold from Graph. Graph installs read it anyway.
+ * @param {Ctx} ctx
+ */
+export async function planGraphHistory(ctx) {
+  const { ui, config } = ctx;
+  if (!readsFeed(auditSource(config))) {
+    delete config.audit.graphHistory;
+    return;
+  }
+  const on = await ui.select('Should history loads read the days older than 7 from Microsoft Graph audit search?', GRAPH_HISTORY_CHOICES, graphHistoryOn(config));
+  if (on) config.audit.graphHistory = true;
+  else delete config.audit.graphHistory;
+}
+
+/** The audit source choices, the Management Activity API first. */
+export const AUDIT_SOURCE_CHOICES = [
+  {
+    name: 'Office 365 Management Activity API (recommended)',
+    value: /** @type {import('../catalog.js').AuditSource} */ ('feed'),
+    description: 'Fast and reliable on any tenant size. Loads the last 7 days, then keeps up. Adds the Management API\'s ActivityFeed.Read.',
+  },
+  {
+    name: 'Microsoft Sentinel, otherwise the Office 365 Management Activity API',
+    value: /** @type {import('../catalog.js').AuditSource} */ ('auto'),
+    description: 'For tenants with the Microsoft Copilot data connector in Sentinel. Loads what Sentinel holds, or the last 7 days. Adds ThreatHunting.Read.All and ActivityFeed.Read.',
+  },
+  {
+    name: 'Microsoft Graph audit search',
+    value: /** @type {import('../catalog.js').AuditSource} */ ('graph'),
+    description: 'Loads up to 180 days of history, but each search can take hours, or time out, on a large tenant.',
+  },
+];
+
+/**
+ * Asks where the audit load reads Copilot interactions.
+ * @param {Ctx} ctx
+ */
+export async function planAuditSource(ctx) {
+  const { ui, config } = ctx;
+  const before = auditSource(config);
+  const graphHistory = config.audit?.graphHistory;
+  config.audit = { source: await ui.select('Where should the audit load read Copilot interactions?', AUDIT_SOURCE_CHOICES, before), ...(graphHistory ? { graphHistory } : {}) };
+  // The app's permissions depend on the source, so look them up again.
+  if (config.audit.source !== before) {
+    delete ctx.graphRoles;
+    delete ctx.managementRoles;
+  }
+}
+
 /**
  * What reloading `days` days of history runs, on Fabric: the pipeline, once.
  * @param {number} days
@@ -409,7 +474,7 @@ export async function plan(ctx, pre, section) {
     await planDataSources(ctx);
     if (!section) await askAdvanced(
       ctx,
-      'the model and app, who can view, audit history, tenant size, the Lakehouse name, the new Key Vault\'s details, the schedule, the first load, the Value page currency and where Resource Graph reads',
+      'the model and app, who can view, the audit source, audit history, tenant size, the Lakehouse name, the new Key Vault\'s details, the schedule, the first load, the Value page currency and where Resource Graph reads',
     );
   }
   if (editing('governance')) {
@@ -433,11 +498,18 @@ export async function plan(ctx, pre, section) {
   }
 
   if (editing('schedule')) {
+    if (advanced() && config.target !== 'azure') await planAuditSource(ctx);
     if (config.firstRun?.status !== 'Completed') {
       delete ctx.reloadHistoryDays;
-      if (advanced()) config.history.days = await ui.select('How much audit history should the first load pull?', HISTORY_CHOICES, config.history.days);
+      if (advanced()) {
+        if (readsFeed(auditSource(config))) ui.note(AUTO_HISTORY_NOTE);
+        config.history.days = await ui.select('How much audit history should the first load pull?', HISTORY_CHOICES, config.history.days);
+        if (config.target !== 'azure') await planGraphHistory(ctx);
+      }
     } else {
+      if (readsFeed(auditSource(config))) ui.note(AUTO_HISTORY_NOTE);
       await askMoreHistory(ctx);
+      if (ctx.reloadHistoryDays && config.target !== 'azure') await planGraphHistory(ctx);
     }
   }
 
@@ -1162,15 +1234,24 @@ export function planReview(ctx, pre) {
   creates.push(...access.creates);
 
   const appWho = `${appName} (app)`;
+  const source = auditSource(config);
   /** @type {ReviewGrant[]} */
   const grants = [
     {
       who: appWho,
-      what: `Microsoft Graph application permissions: ${permissionsFor(config.modules, config.dataSources).join(', ')}`,
+      what: `Microsoft Graph application permissions: ${permissionsFor(config.modules, config.dataSources, source).join(', ')}`,
       where: 'Your tenant, through admin consent',
       detail: pre && !pre.canConsent ? 'You can\'t grant it yourself. You get a link for a Global Administrator or Privileged Role Administrator to approve.' : undefined,
     },
   ];
+  if (readsFeed(source)) {
+    grants.push({
+      who: appWho,
+      what: `Office 365 Management APIs application permission: ${MANAGEMENT_API_ROLE}`,
+      where: 'Your tenant, through admin consent',
+      detail: source === 'auto' ? 'Reads Copilot interactions from the Management Activity API when Microsoft Sentinel doesn\'t hold them.' : 'Reads Copilot interactions from the Management Activity API.',
+    });
+  }
   if (!kv.uri && mode === 'keyvault-admin') {
     grants.push({
       who: `${user.upn} (you)`,
@@ -1237,6 +1318,13 @@ export function planReview(ctx, pre) {
   return { creates, grants, runsOn, costs: planCosts(config) };
 }
 
+/** The audit source in the summary before Go ahead. */
+export const AUDIT_SOURCE_LINES = {
+  feed: `Office 365 Management Activity API ${c.dim('(first load: the last 7 days; a new subscription can take up to 12 hours to show content)')}`,
+  auto: `Microsoft Sentinel, otherwise the Office 365 Management Activity API ${c.dim('(first load: what Sentinel holds, else 7 days; a new Management API subscription can take up to 12 hours to show content)')}`,
+  graph: `Microsoft Graph audit search ${c.dim('(any history; slow on a large tenant)')}`,
+};
+
 /** @param {number} days */
 export const reloadLine = (days) => `Reload ${days} days of history after setup`;
 
@@ -1295,6 +1383,8 @@ export async function confirmPlan(ctx, pre) {
     ui.info(`Agents:      ${envs.length ? `${names}${waiting}` : c.dim('no environments chosen')}`);
   }
   if (resourceGraphOn(config)) ui.info(`Governance:  ${resourceGraphKinds(config)} from Azure Resource Graph, in ${scopeName(config)}`);
+  if (config.target !== 'azure') ui.info(`Audit:       ${AUDIT_SOURCE_LINES[auditSource(config)]}`);
+  if (graphHistoryOn(config)) ui.info(`             ${c.dim('History loads read the days older than 7 from Microsoft Graph audit search')}`);
   if (ctx.runFirstLoad) ui.info(`First load:  ${config.history.days} days of history, straight after setup`);
   if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)} ${c.dim(`(${reloadDetail(ctx.reloadHistoryDays)})`)}`);
   ui.review(planReview(ctx, pre));

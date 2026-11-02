@@ -22,7 +22,7 @@ const NO_RECORD = ['install', 'prereqs'];
 const METHODS = ['browser', 'device-code', 'azure-cli'];
 
 /** @typedef {'browser' | 'device-code' | 'azure-cli'} Method */
-/** @typedef {{ command: string, method?: Method, tenant?: string, backfillDays?: number, wait?: boolean, section?: string, retry?: boolean }} StartRequest */
+/** @typedef {{ command: string, method?: Method, tenant?: string, backfillDays?: number, graphHistory?: boolean, wait?: boolean, section?: string, retry?: boolean }} StartRequest */
 
 /**
  * What the home page shows about an install record.
@@ -218,7 +218,7 @@ export function createSession(o) {
       if (command === 'prereqs') {
         const items = await showPrereqs(ctx);
         prereqs = prereqsSnapshot(signedIn.user.upn, items);
-      } else ok = await runCommand(ctx, command, { wait: req.wait !== false, backfillDays: req.backfillDays });
+      } else ok = await runCommand(ctx, command, { wait: req.wait !== false, backfillDays: req.backfillDays, ...(req.graphHistory ? { graphHistory: true } : {}) });
       rec?.finish(ok);
       ui.emit({ type: 'command', command, state: ok ? 'done' : 'failed', ...(ok ? {} : { error: 'It didn\'t finish successfully. The details are above.' }) });
     } catch (err) {
@@ -310,6 +310,9 @@ export function createSession(o) {
       }
       if (req.backfillDays !== undefined && (!Number.isInteger(req.backfillDays) || req.backfillDays < 1 || req.backfillDays > 180)) {
         return { ok: false, status: 400, error: 'Reload from 1 to 180 days.' };
+      }
+      if (req.graphHistory !== undefined && (req.graphHistory !== true || req.command !== 'run' || req.backfillDays === undefined)) {
+        return { ok: false, status: 400, error: 'Graph history goes with a history reload on Run now.' };
       }
       running = req.command;
       current = execute(req, /** @type {Method} */ (method));

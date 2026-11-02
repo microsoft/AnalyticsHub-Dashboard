@@ -291,19 +291,22 @@ export function graphApi(http) {
       return scope.id;
     },
     /**
-     * Adds Graph app roles to the app's required permissions, keeping what is there.
+     * Adds app roles of one API (Graph unless given) to the app's required permissions, keeping what is there.
      * @param {any} application
      * @param {{ id: string }[]} appRoles
+     * @param {string} [resourceAppId]
      */
-    async ensureRequiredAccess(application, appRoles) {
+    async ensureRequiredAccess(application, appRoles, resourceAppId = GRAPH_APP_ID) {
       const current = /** @type {any[]} */ (application.requiredResourceAccess ?? []);
-      const graph = current.find((r) => r.resourceAppId === GRAPH_APP_ID) ?? { resourceAppId: GRAPH_APP_ID, resourceAccess: [] };
-      const have = new Set(graph.resourceAccess.map((/** @type {any} */ a) => a.id));
+      const api = current.find((r) => r.resourceAppId === resourceAppId) ?? { resourceAppId, resourceAccess: [] };
+      const have = new Set(api.resourceAccess.map((/** @type {any} */ a) => a.id));
       const add = appRoles.filter((r) => !have.has(r.id));
       if (!add.length) return false;
-      graph.resourceAccess = [...graph.resourceAccess, ...add.map((r) => ({ id: r.id, type: 'Role' }))];
-      const others = current.filter((r) => r.resourceAppId !== GRAPH_APP_ID);
-      await http.patch(`/applications/${application.id}`, { requiredResourceAccess: [...others, graph] });
+      api.resourceAccess = [...api.resourceAccess, ...add.map((r) => ({ id: r.id, type: 'Role' }))];
+      const others = current.filter((r) => r.resourceAppId !== resourceAppId);
+      const requiredResourceAccess = [...others, api];
+      await http.patch(`/applications/${application.id}`, { requiredResourceAccess });
+      application.requiredResourceAccess = requiredResourceAccess;
       return true;
     },
 

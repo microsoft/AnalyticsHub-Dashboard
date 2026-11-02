@@ -8,6 +8,43 @@ import { routerWanted } from './uploads.js';
 /** Microsoft Graph's application ID. Same in every tenant. */
 export const GRAPH_APP_ID = '00000003-0000-0000-c000-000000000000';
 
+/** The Office 365 Management APIs' application ID, and the role the Management Activity API needs. */
+export const MANAGEMENT_API_APP_ID = 'c5393580-f805-4401-95e8-94b7a6ef2fc2';
+export const MANAGEMENT_API_ROLE = 'ActivityFeed.Read';
+/** The Graph permission that reads Microsoft Sentinel's CopilotActivity table (advanced hunting). */
+export const SENTINEL_PERMISSION = 'ThreatHunting.Read.All';
+
+/**
+ * Where the audit load reads Copilot interactions (the ingester's AUDIT_SOURCE):
+ * - `feed` (the default): the Office 365 Management Activity API (Audit.General) for the last 7 days.
+ *   Fast on a large tenant; older history isn't loaded.
+ * - `auto`: Microsoft Sentinel's CopilotActivity table for the hours it holds, otherwise the Management
+ *   Activity API for the last 7 days.
+ * - `graph`: Microsoft Graph audit search for every window. Loads any history, but slow on a large tenant.
+ * @typedef {'feed' | 'auto' | 'graph'} AuditSource
+ */
+/** @type {AuditSource[]} */
+export const AUDIT_SOURCES = ['feed', 'auto', 'graph'];
+
+/**
+ * The audit source an install uses. Azure runs its own collector, which reads Graph.
+ * @param {{ target?: string, audit?: { source?: string } }} config
+ * @returns {AuditSource}
+ */
+export const auditSource = (config) => {
+  const source = /** @type {AuditSource} */ (config.audit?.source);
+  return config.target !== 'azure' && AUDIT_SOURCES.includes(source) ? source : 'graph';
+};
+
+/** Whether the source reads the Office 365 Management Activity API (it needs ActivityFeed.Read). */
+export const readsFeed = (/** @type {AuditSource} */ source) => source === 'feed' || source === 'auto';
+
+/**
+ * Whether backfill runs read the days the feed doesn't hold from the Graph audit search.
+ * @param {{ target?: string, audit?: { source?: string, graphHistory?: boolean } }} config
+ */
+export const graphHistoryOn = (config) => readsFeed(auditSource(config)) && config.audit?.graphHistory === true;
+
 /** @typedef {'core' | 'orgData' | 'm365Activity' | 'agent365' | 'productFeedback' | 'consumption' | 'agentEvaluator' | 'defender'} ModuleId */
 
 /**
@@ -451,17 +488,20 @@ export function notebooksFor(modules, opts = {}) {
 /**
  * Graph application permissions the app registration needs, de-duplicated and sorted.
  * Org data's User.Read.All is always included, because org data is always collected.
- * Agent 365 from its CSV export needs none of the registry's permissions.
+ * Agent 365 from its CSV export needs none of the registry's permissions. The `auto` audit source
+ * reads Sentinel with ThreatHunting.Read.All; the Management Activity API role isn't a Graph permission.
  * @param {ModuleChoice} modules
  * @param {import('./uploads.js').DataSourceModes} [dataSources]
+ * @param {AuditSource} [source]
  * @returns {string[]}
  */
-export function permissionsFor(modules, dataSources) {
+export function permissionsFor(modules, dataSources, source = 'graph') {
   const set = new Set([...MODULES.core.permissions, ...MODULES.orgData.permissions]);
   for (const id of enabledModules(modules)) {
     if (id === 'agent365' && dataSources?.agent365 === 'csv') continue;
     for (const p of MODULES[id].permissions) set.add(p);
   }
+  if (source === 'auto') set.add(SENTINEL_PERMISSION);
   return [...set].sort();
 }
 

@@ -6,8 +6,9 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { ClientSecretCredential } from '@azure/identity';
 import { APP_CATALOG_SCOPE, APP_GRAPH_SCOPE, checkTokens, createCredential, createTokenProvider, decodeJwt, GRAPH_CLI_APP_ID } from './auth.js';
-import { notebooksFor, permissionsFor } from './catalog.js';
+import { MANAGEMENT_API_ROLE, auditSource, notebooksFor, permissionsFor, readsFeed } from './catalog.js';
 import { armApi, keyVaultApi } from './clients/azure.js';
+import { auditSourcesApi } from './clients/audit-sources.js';
 import { connectionsApi, POWERAPPS_URL } from './clients/connections.js';
 import { dataverseApi, dataverseScope, DISCOVERY_URL, discoveryApi, orgUrl } from './clients/dataverse.js';
 import { FLOW_URL, flowApi } from './clients/flow.js';
@@ -82,6 +83,7 @@ import { reviewSetup } from './setup.js';
  * @property {(url: string) => import('./clients/dataverse.js').DataverseApi} dataverse  A Dataverse environment, by org URL.
  * @property {(account: string) => import('./clients/onelake.js').DataLakeApi} dataLake  An Azure storage account's files, by account name.
  * @property {(appId: string, secret: string) => { token: () => Promise<string>, audit: import('./clients/graph.js').AuditApi }} [appGraph]  Graph as the app registration, signed in with its client secret, to check what the loads can read. Each call gets a fresh token.
+ * @property {(appId: string, secret: string) => import('./clients/audit-sources.js').AuditSourcesApi} [appAuditSources]  Read-only Auto source checks as the app.
  *
  * @typedef {{ id: string, upn: string, tenantId: string, displayName?: string }} User
  *
@@ -108,6 +110,7 @@ import { reviewSetup } from './setup.js';
  * @property {number} [reloadHistoryDays]  Repair or change: reload this many days of audit history after setup.
  * @property {import('./steps/azure/regions.js').RegionCheck} [azureRegions]  Azure: what the region preflight found, for placing the Ask model.
  * @property {{ sp: any, roles: { id: string, value: string }[] }} [graphRoles]
+ * @property {{ sp: any, roles: { id: string, value: string }[] }} [managementRoles]  The Office 365 Management APIs' ActivityFeed.Read, for the `auto` audit source.
  * @property {import('./steps/azure/teams-catalog.js').CatalogAccess} [teamsCatalog]  Azure: whether this run can publish the Teams app to the org's app catalog, and why not.
  * @property {import('./steps/app.js').Runner} [runner]  Runs the app's build tools; tests replace it.
  * @property {import('./staging.js').PendingUpload[]} [pendingUploads]  Exports to upload to the drop folder during the install.
@@ -155,6 +158,10 @@ export async function connect(opts) {
     const appToken = createTokenProvider(new ClientSecretCredential(opts.tenantId || claims.tid, appId, secret), { debug: opts.debug });
     const token = () => appToken(APP_GRAPH_SCOPE);
     return { token, audit: auditApi(createClient({ baseUrl: 'https://graph.microsoft.com/beta', getToken: token, debug: opts.debug })) };
+  };
+  api.appAuditSources = (appId, secret) => {
+    const appToken = createTokenProvider(new ClientSecretCredential(opts.tenantId || claims.tid, appId, secret), { debug: opts.debug });
+    return auditSourcesApi(appToken, opts.tenantId || claims.tid);
   };
   if (opts.method !== 'azure-cli') {
     // The app the installer signs in with can't ask for the app catalog scope, so publishing the
@@ -769,7 +776,7 @@ function notFinished(ctx, what) {
 /**
  * Starts the pipeline: the first load until one has loaded the history, then the usual run.
  * @param {Ctx} ctx
- * @param {{ backfillDays?: number, wait: boolean }} opts
+ * @param {{ backfillDays?: number, wait: boolean, graphHistory?: boolean }} opts
  */
 export async function run(ctx, opts) {
   if (ctx.config.target === 'azure') return azureRun(ctx, opts);
@@ -824,7 +831,7 @@ export async function showPrereqs(ctx) {
  * Runs one command against a signed-in context.
  * @param {Ctx} ctx
  * @param {string} command
- * @param {{ wait: boolean, backfillDays?: number, files?: string[], run?: boolean }} opts
+ * @param {{ wait: boolean, backfillDays?: number, graphHistory?: boolean, files?: string[], run?: boolean }} opts
  * @returns {Promise<boolean>} false when a run, refresh or resource group delete it waited for didn't succeed.
  */
 export async function runCommand(ctx, command, opts) {
@@ -1120,7 +1127,8 @@ export function preview(o) {
   writeFileSync(join(out, 'schedule.json'), `${JSON.stringify(scheduleBody(config.schedule, o.now), null, 2)}\n`, 'utf8');
   writeFileSync(
     join(out, 'graph-permissions.txt'),
-    `Microsoft Graph application permissions for the app registration:\n${permissionsFor(config.modules, config.dataSources).map((p) => `  ${p}\n`).join('')}`,
+    `Microsoft Graph application permissions for the app registration:\n${permissionsFor(config.modules, config.dataSources, auditSource(config)).map((p) => `  ${p}\n`).join('')}` +
+      (readsFeed(auditSource(config)) ? `\nOffice 365 Management APIs application permissions:\n  ${MANAGEMENT_API_ROLE}\n` : ''),
     'utf8',
   );
   if (withModel) {

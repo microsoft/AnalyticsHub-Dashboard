@@ -77,7 +77,7 @@ const COMMANDS = {
   'check-audit': {
     title: 'Check audit ingestion', short: 'Check audit', icon: 'shield', section: 'Audit check',
     row: 'Check audit ingestion', button: 'Check audit',
-    desc: 'Check the app registration can read Copilot interactions in the audit log, with a small live audit search, and say who fixes what it finds. Takes a few minutes. Changes nothing.',
+    desc: 'Check the selected audit sources as the app. The Management Activity API (and Sentinel, if chosen) are read without starting anything; Graph runs a small audit search. Says who fixes what it finds. Changes nothing.',
     off: 'There is no app registration yet.',
   },
   update: {
@@ -1601,7 +1601,7 @@ function renderHome() {
         history),
       h('button', {
         type: 'button', class: cmd === primary ? 'btn primary' : 'btn', disabled: !can || busy,
-        onclick: () => start(cmd, cmd === 'run' && app.backfill ? { backfillDays: Number(app.backfill) } : {}),
+        onclick: () => start(cmd, cmd === 'run' && app.backfill ? backfillRequest(app.backfill) : {}),
       }, c.button));
   });
   kids.push(h('section', { class: 'panel' },
@@ -1617,15 +1617,24 @@ const BACKFILL = [
   { value: '30', name: 'Reload the last 30 days of audit history' },
   { value: '90', name: 'Reload the last 90 days of audit history' },
   { value: '180', name: 'Reload the last 180 days of audit history' },
+  { value: '90:graph', name: 'Reload 90 days, older than 7 from Microsoft Graph audit search' },
+  { value: '180:graph', name: 'Reload 180 days, older than 7 from Microsoft Graph audit search' },
 ];
+
+/** The run request for a history choice: "90:graph" also reads the older days from Graph, this run only. */
+function backfillRequest(value) {
+  const [days, graph] = String(value).split(':');
+  return { backfillDays: Number(days), ...(graph === 'graph' ? { graphHistory: true } : {}) };
+}
 
 /** Run now can reload older audit history, like run --backfill-days. */
 function historyPicker(busy) {
   const hint = h('span', { class: 'row-desc', id: 'backfill-hint' });
   const paint = () => {
-    const n = Number(app.backfill || 0);
+    const n = Number(String(app.backfill || '0').split(':')[0]);
+    const graph = String(app.backfill || '').endsWith(':graph');
     hint.textContent = n >= 90
-      ? `In a large tenant, ${n} days can take several hours to load. The usual schedule carries on afterwards.`
+      ? `In a large tenant, ${n} days can take several hours to load${graph ? ', and longer from Graph audit search' : ''}. The usual schedule carries on afterwards.`
       : n ? 'Reloads these days (older days are kept) and rebuilds the curated table, then runs the data check.' : '';
     hint.hidden = !n;
   };
