@@ -28,8 +28,25 @@
  * doesn't carry a first load or a reload on: each run after the first is started by hand. On Azure, a run stops at
  * 4 hours and no retry is counted on, so a load whose high end reaches 4 hours can take a second run, and the
  * scheduled runs carry a load on. The audit service's queue on a busy day isn't counted: it can add hours.
+ *
+ * The figures are for Microsoft Graph audit search, which Azure and a Fabric install with the Graph source read. A
+ * Fabric install that reads the Office 365 Management Activity API (feed, or auto after Microsoft Sentinel) loads
+ * the last FEED_DAYS days in one run, and leaves the older days out. Only a load that reads those from Graph
+ * (Graph history) takes the figures.
  */
+import { readsFeed } from './catalog.js';
 import { commandLine } from './launch.js';
+
+/** The days the Office 365 Management Activity API keeps: FEED_RETENTION in the audit notebook. */
+export const FEED_DAYS = 7;
+
+/**
+ * Where a Fabric load reads its history, for the estimate. With no source, it reads Graph.
+ * @typedef {object} SourceOpts
+ * @property {import('./catalog.js').AuditSource} [source]  The install's audit source.
+ * @property {boolean} [graphHistory]  Whether the load reads the older days from Graph. undefined: not asked
+ *   yet, so the short form says both.
+ */
 
 /** The rows of the table: the history the installer offers. A load of other days uses the next row up. */
 export const ESTIMATE_DAYS = /** @type {const} */ ([30, 90, 180]);
@@ -175,34 +192,92 @@ function searchesPhrase(days, row, searches) {
 }
 
 /**
+ * The source a Fabric load reads its history from when it isn't Graph: feed or auto. undefined: Graph.
+ * @param {EstimateTarget} target
+ * @param {SourceOpts} opts
+ * @returns {'feed' | 'auto' | undefined}
+ */
+function heldSource(target, opts) {
+  if (target !== 'fabric' || opts.graphHistory === true || !opts.source || !readsFeed(opts.source)) return undefined;
+  return /** @type {'feed' | 'auto'} */ (opts.source);
+}
+
+/**
+ * The days a feed or auto load holds: "the last 7 days", "the last day", or "what Sentinel holds, or the last 7 days".
+ * @param {'feed' | 'auto'} source
+ * @param {number} days
+ */
+function heldPhrase(source, days) {
+  const held = Math.min(days, FEED_DAYS);
+  const last = held === 1 ? 'the last day' : `the last ${held} days`;
+  return source === 'auto' && days > FEED_DAYS ? `what Sentinel holds, or ${last}` : last;
+}
+
+/**
  * One line, for a question's choice or a plan row: "Estimate: 1 to 2 hours." With `band`, it says who the figures
  * are for: "Estimate for up to 10,000 people: 1 to 2 hours." On Fabric, a load of more than one run says the runs
  * after the first are started by hand: the schedule doesn't carry it on. Each such load is over the search
  * allowance, so they're a day apart.
+ *
+ * A feed or auto load says the days it holds, in one run: "Estimate: the last 7 days, in one run." With
+ * graphHistory false, it adds that the older days are left out. Before the Graph history question (undefined), it
+ * adds the figures for reading them from Graph.
  * @param {number} days
  * @param {string | undefined} scale
  * @param {EstimateTarget} [target]
- * @param {{ band?: boolean }} [opts]
+ * @param {{ band?: boolean } & SourceOpts} [opts]
  */
 export function estimateShort(days, scale, target = 'fabric', opts = {}) {
   const est = estimateFor(target, days, scale);
   if (!est) return '';
   const runs = est.runs[1] > 1;
   const byHand = runs && target === 'fabric' ? ' You start each run after the first by hand, a day apart.' : '';
-  return `Estimate${opts.band ? ` ${BAND_LABELS[est.band]}` : ''}: ${est.time}${runs ? `, ${runsPhrase(est.runs)}` : ''}.${byHand}`;
+  const graph = `${est.time}${runs ? `, ${runsPhrase(est.runs)}` : ''}.${byHand}`;
+  const held = heldSource(target, opts);
+  if (!held) return `Estimate${opts.band ? ` ${BAND_LABELS[est.band]}` : ''}: ${graph}`;
+  const head = `Estimate: ${heldPhrase(held, days)}, in one run.`;
+  if (days <= FEED_DAYS) return head;
+  if (opts.graphHistory === false) return `${head} ${held === 'auto' ? "Older days Sentinel doesn't hold are left out." : 'Older days are left out.'}`;
+  return `${head} With the older days from Microsoft Graph audit search${opts.band ? `, ${BAND_LABELS[est.band]}` : ''}: ${graph}`;
+}
+
+/**
+ * firstLoadEstimate for a feed or auto load: the days it holds, the older days left out, and on a first load, a
+ * new subscription's wait. Ends with a space.
+ * @param {'feed' | 'auto'} source
+ * @param {number} days
+ * @param {{ reload?: boolean }} opts
+ */
+function heldEstimate(source, days, opts) {
+  const auto = source === 'auto';
+  const older = days > FEED_DAYS;
+  let text = `Estimate: ${heldPhrase(source, days)}, in one run. `;
+  if (older) {
+    text += `The Office 365 Management Activity API keeps ${FEED_DAYS} days, so the older days of the ${days} asked for${auto ? " that Sentinel doesn't hold" : ''} are left out. `;
+  }
+  if (!opts.reload) {
+    text += 'A new Management Activity API subscription can take up to 12 hours to show content, and has nothing from before it started, ' +
+      `so the first load may find ${auto ? 'only what Sentinel holds' : 'nothing'}: the scheduled runs pick up from then on. `;
+  }
+  if (older) text += `Once this run has finished, you can load the older days from Microsoft Graph audit search with "${commandLine(`run --backfill-days ${days} --graph-history`)}". `;
+  return text;
 }
 
 /**
  * What to expect when the first load, or a reload of more history, starts: the estimate, what can make it longer,
- * and what each target does when a run can't fetch it all. Ends with a space, for the note that follows.
+ * and what each target does when a run can't fetch it all. Ends with a space, for the note that follows. A feed or
+ * auto load that doesn't read Graph (graphHistory not true) says the days it holds instead, and how to load the
+ * older days from Graph.
  * @param {number} days
  * @param {string | undefined} scale
  * @param {EstimateTarget} [target]
- * @param {{ reload?: boolean }} [opts]  reload: a reload of more history, which on Fabric takes its own command to carry on.
+ * @param {{ reload?: boolean } & SourceOpts} [opts]  reload: a reload of more history, which on Fabric takes its own command to carry on.
  */
 export function firstLoadEstimate(days, scale, target = 'fabric', opts = {}) {
   const est = estimateFor(target, days, scale);
   if (!est) return '';
+  const held = heldSource(target, opts);
+  if (held) return heldEstimate(held, days, opts);
   const searches = searchesFor(target, est.band, est.days);
   const over = searches > SEARCH_ALLOWANCE;
   const needs = `It needs ${searchesPhrase(days, est.days, searches)} audit searches`;
@@ -220,7 +295,9 @@ export function firstLoadEstimate(days, scale, target = 'fabric', opts = {}) {
     return `${head}Each run gets up to 4 hours. A run cut off then publishes nothing, so the reports show the new history once one run fetches everything left. ` +
       `The next scheduled run carries on where it stopped, or start one sooner with "${commandLine('run')}". `;
   }
-  const again = commandLine(opts.reload ? `run --backfill-days ${days}` : 'run');
+  // A reload that read the older days from Graph carries on reading them from Graph.
+  const viaGraph = opts.graphHistory === true && !!opts.source && readsFeed(opts.source) ? ' --graph-history' : '';
+  const again = commandLine(opts.reload ? `run --backfill-days ${days}${viaGraph}` : 'run');
   // A large tenant's advice from the sizing: a bigger capacity helps.
   const capacity = est.band === 'large' ? 'A trial or small capacity takes longer, and an F64 or larger capacity helps. ' : 'A trial or small capacity takes longer. ';
   const budget = 'If the audit load reaches its time budget, it stops without writing anything, and the pipeline\'s retries carry on from where it stopped; ' +

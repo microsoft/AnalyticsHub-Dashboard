@@ -108,14 +108,19 @@ install's size and SQL choice, and the plan warns when the people counted have o
 **An honest first-load estimate, and `status` shows how much history has loaded.** The docs said
 the first data arrived about 25 minutes after **Go ahead**, or about 2 hours with 180 days, and the
 installer said loading usually took under an hour. The docs also said to keep the installer window
-open, while the installer said you could close it. But a load starts one audit search for each
-window of history it reads, and a tenant can start at least 200 in a rolling 24 hours, so a large
-tenant's first load takes days, over several runs. Now one table of estimates, by target, tenant
-size and days of history, is in [How long it takes](docs/PREREQUISITES.md#how-long-it-takes). It
-counts the search limit, and the time each search takes, scaled from two measured loads. Its
-figures are labelled estimates until timed runs of the installer replace them. With 30 days and up
-to 10,000 people, the first load takes 1 to 2 hours on Fabric and 2 to 3 hours on Azure; a large
-tenant's takes 1 to 2 days on Fabric and 2 to 4 hours on Azure. The plan shows the estimate beside
+open, while the installer said you could close it. But a load from the Graph audit search starts
+one search for each window of history it reads, and a tenant can start at least 200 in a rolling
+24 hours, so a large tenant's first load takes days, over several runs. Now one table of estimates
+for loads from the Graph audit search, by target, tenant size and days of history, is in
+[How long it takes](docs/PREREQUISITES.md#how-long-it-takes). It counts the search limit, and the
+time each search takes, scaled from two measured loads. Its figures are labelled estimates until
+timed runs of the installer replace them. With 30 days and up to 10,000 people, such a first load
+takes 1 to 2 hours on Fabric and 2 to 3 hours on Azure; a large tenant's takes 1 to 2 days on
+Fabric and 2 to 4 hours on Azure. On Fabric with the Management Activity API or Sentinel as the
+audit source, as on a new install, the estimate says instead that the first load reads the last 7
+days, or what Sentinel holds, in one run, that a new subscription can take up to 12 hours to show
+content, and that the older days are left out. With Graph history on, the older days load from the
+Graph audit search, and the estimate is the Graph one. The plan shows the estimate beside
 the history question, and the installer says it again when the first load or a reload starts, with
 what happens when a run can't fetch it all. On Fabric, the audit load stops at its time budget
 without writing anything, and the pipeline's retries carry on. It stops the same way at the search
@@ -128,7 +133,10 @@ has been fetched from the audit log and what's in the reports, and, within a day
 search limit, when a run can search again. It reads the Fabric notebook's window
 manifest in the Lakehouse, or the Azure run job's state in its storage, with the access the
 installer already has. When it can't, for example on a private Azure install, it says why and lists
-the runs instead. A first load or reload that couldn't start, because admin consent or the Key
+the runs instead. On Fabric with the Management Activity API or Sentinel, once the first load has
+finished, `status` shows the days fetched and says the older days are left out, rather than to carry
+the load on. It gives `run --backfill-days <n> --graph-history` to load them from the Graph audit
+search. A first load or reload that couldn't start, because admin consent or the Key
 Vault's private endpoint was waiting or a run was going, is kept in the install record without
 counting as loaded. `status` and the Done page show it, with its `run --backfill-days` command,
 until a run with it starts. Earlier installers ignore the new record field. On Azure, **Repair or

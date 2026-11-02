@@ -11,8 +11,14 @@
  * Fetched isn't published. On Fabric, the manifest records the windows the audit load has fetched, and a first
  * load or a reload writes them to the table once every window is fetched. On Azure, the state's high-water mark
  * is the newest activity a run has merged, so it's in the reports; fetched windows reach them when a run merges.
+ *
+ * A Fabric install that reads the Office 365 Management Activity API (feed, or auto after Microsoft Sentinel)
+ * loads only the days its source holds, unless the install reads the older days from Graph audit search (Graph
+ * history). Its history counts as loaded once those days are in, and `status` says the older days are left out.
  */
+import { auditSource, graphHistoryOn, readsFeed } from '../catalog.js';
 import { adminConsentUrl, apiPermissionsUrl } from '../clients/graph.js';
+import { FEED_DAYS } from '../estimate.js';
 import { HttpError } from '../http.js';
 import { commandLine } from '../launch.js';
 import { scaleProfile } from '../transform/pipeline.js';
@@ -202,17 +208,21 @@ export function newestEnd(entries) {
  * @property {boolean} allEmpty  Complete, and every window came back with no records.
  */
 
+/** A load's window, in milliseconds. @param {number | undefined} chunkHours */
+const chunkMs = (chunkHours) => Math.max(Number(chunkHours) || TEMPLATE_CHUNK_HOURS, 1) * HOUR;
+
+/** How much of each end of a range can go unfetched without counting as missing: a window's worth, at least 2 hours. @param {number} chunk */
+const slackMs = (chunk) => Math.max(chunk, 2 * HOUR);
+
 /**
- * How much of the history from `from` to `until` the fetched windows cover. A run's windows start on the hour at
- * or before its range and end at its start, so a window's worth at each end doesn't count as missing.
+ * The fetched windows from `from` to `until`, joined where they meet: the stretches of history with no gap, oldest
+ * first.
  * @param {FetchedWindow[]} windows  Oldest first.
- * @param {{ from: number, until: number, chunkHours?: number }} range
- * @returns {Coverage}
+ * @param {number} from
+ * @param {number} until
+ * @returns {[number, number][]}
  */
-export function coverage(windows, { from, until, chunkHours }) {
-  const chunk = Math.max(Number(chunkHours) || TEMPLATE_CHUNK_HOURS, 1) * HOUR;
-  const slack = Math.max(chunk, 2 * HOUR);
-  const span = Math.max(until - from, 0);
+function stretches(windows, from, until) {
   /** @type {[number, number][]} */
   const merged = [];
   for (const w of windows) {
@@ -223,6 +233,21 @@ export function coverage(windows, { from, until, chunkHours }) {
     if (last && s <= last[1] + MINUTE) last[1] = Math.max(last[1], e);
     else merged.push([s, e]);
   }
+  return merged;
+}
+
+/**
+ * How much of the history from `from` to `until` the fetched windows cover. A run's windows start on the hour at
+ * or before its range and end at its start, so a window's worth at each end doesn't count as missing.
+ * @param {FetchedWindow[]} windows  Oldest first.
+ * @param {{ from: number, until: number, chunkHours?: number }} range
+ * @returns {Coverage}
+ */
+export function coverage(windows, { from, until, chunkHours }) {
+  const chunk = chunkMs(chunkHours);
+  const slack = slackMs(chunk);
+  const span = Math.max(until - from, 0);
+  const merged = stretches(windows, from, until);
   const fetched = merged.reduce((sum, [s, e]) => sum + (e - s), 0);
   const startsAtFrom = merged.length > 0 && merged[0][0] - from <= slack;
   const endsAtUntil = merged.length > 0 && until - merged[merged.length - 1][1] <= slack;
@@ -251,6 +276,42 @@ function fetchedText(cov, days, from) {
   const whole = Math.min(Math.round(cov.fetchedHours / 24), days - 1);
   const got = whole < 1 ? `less than a day of ${n(days)}` : `about ${n(whole)} of ${n(days)} days${range}`;
   return `${got}; about ${n(cov.windowsLeft)} ${cov.windowsLeft === 1 ? 'window' : 'windows'} left`;
+}
+
+/**
+ * @typedef {object} Stretch  The newest history fetched with no gap.
+ * @property {number} since
+ * @property {number} end
+ * @property {boolean} only  Nothing older was fetched.
+ */
+
+/**
+ * The newest stretch of history fetched with no gap, when it runs to the end of the range, give or take a window:
+ * what a source that keeps only the newest days holds. undefined when the newest days aren't fetched.
+ * @param {FetchedWindow[]} windows  Oldest first.
+ * @param {{ from: number, until: number, chunkHours?: number }} range
+ * @returns {Stretch | undefined}
+ */
+export function newestStretch(windows, { from, until, chunkHours }) {
+  const merged = stretches(windows, from, until);
+  const newest = merged[merged.length - 1];
+  if (!newest || until - newest[1] > slackMs(chunkMs(chunkHours))) return undefined;
+  return { since: newest[0], end: newest[1], only: merged.length === 1 };
+}
+
+/**
+ * fetchedText for a source that holds only the newest days: "about 7 of 90 days, 2026-05-25 to 2026-06-01". It
+ * counts no windows left, because the older days aren't there to fetch.
+ * @param {Coverage} cov
+ * @param {number} days
+ * @param {number} from
+ * @param {Stretch | undefined} newest
+ */
+function heldText(cov, days, from, newest) {
+  if (cov.fetchedHours <= 0 || cov.complete) return fetchedText(cov, days, from);
+  const whole = Math.min(Math.round(cov.fetchedHours / 24), days - 1);
+  if (whole < 1) return `less than a day of ${n(days)}`;
+  return `about ${n(whole)} of ${n(days)} days${newest?.only ? `, ${day(newest.since)} to ${day(newest.end)}` : ''}`;
 }
 
 /**
@@ -375,8 +436,28 @@ export const fabricJobGoing = (job, now) => {
 };
 
 /**
+ * The note under a feed or auto install's history once its first load has finished: the days its source doesn't
+ * hold are left out, and Graph history loads them. Nothing when it has every day asked for.
+ * @param {Ctx} ctx
+ * @param {{ cov: Coverage | undefined, newest: Stretch | undefined, days: number, auto: boolean, running: boolean }} o
+ */
+function heldNote(ctx, { cov, newest, days, auto, running }) {
+  if (!cov || cov.complete) return;
+  const sooner = running ? 'A run is going now.' : `Start one sooner with "${commandLine('run')}".`;
+  if (cov.fetchedHours <= 0) {
+    ctx.ui.note('Nothing has been fetched yet. A new Management Activity API subscription can take up to 12 hours to show content, ' +
+      `and has nothing from before it started: the scheduled runs load the days from then on. ${sooner}`);
+  } else if (newest) {
+    ctx.ui.note(`The Office 365 Management Activity API keeps ${FEED_DAYS} days, and nothing from before its subscription started, so older days${auto ? " that Sentinel doesn't hold" : ''} are left out. ` +
+      `To load them from Microsoft Graph audit search, run "${commandLine(`run --backfill-days ${days} --graph-history`)}".`);
+  } else ctx.ui.note(`The newest days load with the next scheduled run. ${sooner}`);
+}
+
+/**
  * The audit history in `status` on Fabric: what was asked for, how much the audit load has fetched, and what the
  * reports have. The audit load writes a first load or a reload to the table only once every window is fetched.
+ * A feed or auto install's history is loaded once the days its source holds are in, unless the install reads the
+ * older days from Graph: what a plain reload reads, whatever an earlier load read.
  * @param {Ctx} ctx
  * @param {{ jobs?: any[], summary?: any, loaded?: boolean }} [opts]  jobs: the pipeline's runs. summary: the last
  *   data check's. loaded: whether the history has loaded, as `run` decides it; without it, from the install record
@@ -390,16 +471,23 @@ export async function fabricHistory(ctx, opts = {}) {
   const pending = pendingHistory(config);
   const running = jobs.some((j) => fabricJobGoing(j, now));
   const loaded = opts.loaded ?? (config.firstRun ? config.firstRun.status === 'Completed' : jobs.some((j) => j.status === 'Completed'));
+  const source = auditSource(config);
+  const held = readsFeed(source) && !graphHistoryOn(config);
   ui.heading('Audit history');
   ui.info(askedLine(days, pending));
   const progress = await readFabricProgress(ctx);
   /** @type {Coverage | undefined} */
   let cov;
-  if (progress.read && !(progress.missing && loaded)) {
+  /** @type {Stretch | undefined} */
+  let newest;
+  // A loaded install with no manifest has lost its staging area, unless its source has had nothing to fetch yet.
+  if (progress.read && (held || !(progress.missing && loaded))) {
     const until = latest([utcTime(config.firstRun?.startedAt), newestEnd(progress.entries)], now);
     const from = until - days * DAY;
-    cov = coverage(progress.windows, { from, until, chunkHours: scaleProfile(config.scale).audit.CHUNK_HOURS });
-    ui.info(`Fetched from the audit log: ${fetchedText(cov, days, from)}`);
+    const range = { from, until, chunkHours: scaleProfile(config.scale).audit.CHUNK_HOURS };
+    cov = coverage(progress.windows, range);
+    if (held) newest = newestStretch(progress.windows, range);
+    ui.info(`Fetched from the audit log: ${held ? heldText(cov, days, from, newest) : fetchedText(cov, days, from)}`);
   } else if (!progress.read) {
     ui.info(`How much has been fetched can't be read from this PC: ${UNREAD.fabric[progress.reason]}.`);
   }
@@ -410,6 +498,10 @@ export async function fabricHistory(ctx, opts = {}) {
   else ui.info(`In the reports: run "${commandLine('check')}" to see the dates.`);
   // A load waiting to start has its own step, with its command.
   if (pending) return;
+  if (held && loaded) {
+    heldNote(ctx, { cov, newest, days, auto: source === 'auto', running });
+    return;
+  }
   const incomplete = !loaded || (cov ? !cov.complete : false);
   if (!incomplete) return;
   if (running) {

@@ -51,16 +51,30 @@ sleeps, setup stops until it wakes. After that you can close the window: the fir
 in Fabric or Azure, and `status` shows how far it has got. In Azure Cloud Shell, keep the tab open
 until then.
 
-The first load takes longer with more days of history and more people. Count everyone with a
-Microsoft 365 licence and an enabled account, not only those with a Copilot seat. The installer
-counts them for you and asks you to check.
+How long the first load takes depends on where it reads the audit log. The plan shows the estimate
+for your install beside the history question, and the installer says it again when the load
+starts.
+
+- **The Office 365 Management Activity API**, which new installs on Fabric read. It keeps 7 days,
+  so the first load reads the last 7 days, in one run, whatever history you choose, and leaves the
+  older days out. It holds nothing from before its subscription started, and a new subscription
+  can take up to 12 hours to show content, so the first load may find nothing: the scheduled runs
+  pick up from then on. With **Microsoft Sentinel** as the audit source, the first load reads what
+  Sentinel holds, or the last 7 days. See
+  [Where the audit log comes from](../fabric/notebooks/README.md#where-the-audit-log-comes-from).
+- **Microsoft Graph audit search**, which Azure reads, as do Fabric installs from earlier versions
+  until you change their audit source. On Fabric, turn on Graph history under Advanced settings to
+  read the older days from it, or load them later with the `run` command that `status` gives. The
+  table below has its estimates.
+
+A load from Graph audit search takes longer with more days of history and more people. Count
+everyone with a Microsoft 365 licence and an enabled account, not only those with a Copilot seat.
+The installer counts them for you and asks you to check.
 
 These are estimates. They count the tenant's audit search limit, below, and the time each search
-takes, scaled from two measured loads until timed runs of the installer replace them. The plan
-shows the one for your install beside the history question, and the installer says it again when
-the load starts.
+takes, scaled from two measured loads until timed runs of the installer replace them.
 
-| History | Fabric, up to 10,000 people | Fabric, more than 10,000 | Azure, up to 10,000 | Azure, more than 10,000 |
+| History, from Graph audit search | Fabric, up to 10,000 people | Fabric, more than 10,000 | Azure, up to 10,000 | Azure, more than 10,000 |
 |---|---|---|---|---|
 | 30 days | 1 to 2 hours | 1 to 2 days, over two or three runs | 2 to 3 hours | 2 to 4 hours, in one or two runs |
 | 90 days | 2 to 3 hours | 5 to 6 days, over six or seven runs | 1 to 2 days, over two or three runs | 1 to 2 days, over two or three runs |

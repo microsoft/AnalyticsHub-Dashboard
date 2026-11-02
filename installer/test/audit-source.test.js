@@ -10,7 +10,7 @@ import { auditSource, AUDIT_SOURCES, graphHistoryOn, MANAGEMENT_API_APP_ID, MANA
 import { emptyConfig, loadConfig, saveConfig } from '../src/config.js';
 import { notebookSettings } from '../src/steps/fabric.js';
 import { adminPack, checkExistingApp, ensureApp, ensureConsent, managementRoles, reportAppCheck } from '../src/steps/identity.js';
-import { AUDIT_SOURCE_CHOICES, GRAPH_HISTORY_CHOICES, planAuditSource, planGraphHistory } from '../src/steps/plan.js';
+import { AUDIT_SOURCE_CHOICES, askMoreHistory, confirmPlan, GRAPH_HISTORY_CHOICES, planAuditSource, planGraphHistory } from '../src/steps/plan.js';
 import { runPipeline } from '../src/steps/run.js';
 import { runParameters } from '../src/steps/rerun.js';
 import { fakeCtx, fakeFabric, fakeUi } from './fakes.js';
@@ -445,4 +445,71 @@ test('graph history: backfill runs send AuditGraphHistory, usual runs and Graph 
   config.audit = { source: 'graph' };
   await runPipeline(ctx, { backfillDays: 30, wait: false, graphHistory: true });
   assert.doesNotMatch(fabric.calls.at(-1) ?? '', /AuditGraphHistory/);
+});
+
+test('graph history: the summary and reloads give a feed install the days its source holds, or the Graph figures once Graph history is on', async () => {
+  /** The summary's First load and History lines. @param {import('../src/config.js').InstallConfig['audit']} audit */
+  const summary = async (audit) => {
+    const ui = fakeUi({ answers: [true] });
+    const t = fakeCtx({ ui: ui.ui });
+    t.config.audit = audit;
+    t.config.history.days = 90;
+    t.config.scale = 'large';
+    t.ctx.runFirstLoad = true;
+    t.ctx.reloadHistoryDays = 180;
+    await confirmPlan(t.ctx);
+    return ui.text().split('\n').map((l) => l.trim()).filter((l) => /^(First load|History):/.test(l));
+  };
+  assert.deepEqual(await summary({ source: 'feed' }), [
+    'First load:  90 days of history, straight after setup (Estimate: the last 7 days, in one run. Older days are left out.)',
+    'History:     Reload 180 days of history after setup (Estimate: the last 7 days, in one run. Older days are left out. The scheduled runs carry on as usual after it.)',
+  ]);
+  assert.equal((await summary({ source: 'auto' }))[0],
+    "First load:  90 days of history, straight after setup (Estimate: what Sentinel holds, or the last 7 days, in one run. Older days Sentinel doesn't hold are left out.)");
+  const graph = await summary({ source: 'graph' });
+  assert.match(graph[0], /\(Estimate for more than 10,000 people: 5 to 6 days, over six or seven runs\./);
+  assert.deepEqual(await summary({ source: 'feed', graphHistory: true }), graph);
+
+  // A reload's choices come before the Graph history question, so they say both.
+  const s = fakeUi();
+  /** @type {any[]} */
+  const offered = [];
+  s.ui.select = /** @type {any} */ (async (/** @type {string} */ _m, /** @type {any[]} */ ch, /** @type {any} */ d) => (offered.push(...ch), d));
+  const more = fakeCtx({ ui: s.ui });
+  more.config.audit = { source: 'feed' };
+  more.config.history.days = 30;
+  more.config.scale = 'large';
+  await askMoreHistory(more.ctx);
+  assert.equal(offered[1].description,
+    'Runs the pipeline with 90 days of history. Estimate: the last 7 days, in one run. With the older days from Microsoft Graph audit search: ' +
+    '5 to 6 days, over six or seven runs. You start each run after the first by hand, a day apart. The scheduled runs carry on as usual after it.');
+});
+
+test('graph history: run says what a feed load reads, and how to load the older days from Graph', async () => {
+  /** What run says once it has started a load of 90 days. @param {import('../src/config.js').InstallConfig['audit']} audit @param {{ first?: boolean, graphHistory?: boolean }} o */
+  const started = async (audit, o) => {
+    const fabric = fakeFabric();
+    const ui = fakeUi();
+    const t = fakeCtx({ fabric: fabric.api, ui: ui.ui });
+    t.config.fabric.pipelineId = 'pipe-1';
+    t.config.audit = audit;
+    t.config.scale = 'large';
+    await runPipeline(t.ctx, { backfillDays: 90, wait: false, ...o });
+    return ui.text();
+  };
+  const feed = await started({ source: 'feed' }, { first: true });
+  assert.match(feed, /Estimate: the last 7 days, in one run\. The Office 365 Management Activity API keeps 7 days, so the older days of the 90 asked for are left out\./);
+  assert.match(feed, /so the first load may find nothing: the scheduled runs pick up from then on\./);
+  assert.match(feed, /load the older days from Microsoft Graph audit search with "valuelens-install run --backfill-days 90 --graph-history"\./);
+  assert.doesNotMatch(feed, /audit searches|by hand/);
+  const reload = await started({ source: 'feed' }, {});
+  assert.doesNotMatch(reload, /12 hours/, 'a reload has a subscription already');
+  assert.match(reload, /--backfill-days 90 --graph-history/);
+  // Graph history, saved or for this run, reads Graph audit search, so it has the Graph estimate.
+  const graph = await started({ source: 'graph' }, { first: true });
+  assert.match(graph, /Estimate for 90 days of history, for more than 10,000 people: 5 to 6 days/);
+  for (const gh of [await started({ source: 'feed' }, { first: true, graphHistory: true }), await started({ source: 'feed', graphHistory: true }, { first: true })]) {
+    assert.match(gh, /Estimate for 90 days of history, for more than 10,000 people: 5 to 6 days/);
+    assert.doesNotMatch(gh, /the last 7 days/);
+  }
 });

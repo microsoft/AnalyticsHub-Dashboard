@@ -69,11 +69,13 @@ flowchart LR
 - **Azure.** Only regions that pass the [region preflight](../installer/README.md#regions-and-images)
   are offered. For [private networking](../installer/README.md#networking), choose **Yes** for the
   advanced settings. More in [Azure target](../installer/README.md#azure-target).
-- **The first load.** The plan estimates it beside the history question. With 30 days of history
-  and up to 10,000 people, it takes 1 to 2 hours on Fabric and 2 to 3 hours on Azure; a
-  [large tenant](../installer/README.md#a-large-tenant) takes longer, and days on Fabric. On
-  Fabric, if you keep the installer open, it checks the data when the load finishes and lists
-  what's left.
+- **The first load.** The plan estimates it beside the history question. On Fabric, a new install
+  reads the last 7 days from the Office 365 Management Activity API, in one run, and loads older
+  days only if you turn on Graph history. Read from the Microsoft Graph audit search, as Azure
+  does, 30 days of history for up to 10,000 people take 1 to 2 hours on Fabric and 2 to 3 hours
+  on Azure; a [large tenant](../installer/README.md#a-large-tenant) takes longer, and days on
+  Fabric. On Fabric, if you keep the installer open, it checks the data when the load finishes
+  and lists what's left.
 - **Copilot Studio credits** arrive after the Studio flow's first run. See
   [Load the Studio credits now](../installer/README.md#power-automate-flows).
 - **A workspace that already has things in it.** The installer never changes anything it didn't

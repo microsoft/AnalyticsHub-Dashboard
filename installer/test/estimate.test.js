@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { test } from 'node:test';
 import {
-  BAND_LABELS, bandOf, ESTIMATE_DAYS, estimateFor, estimateShort, FIRST_LOAD_ESTIMATES, firstLoadEstimate, NEAR_ALLOWANCE,
+  BAND_LABELS, bandOf, ESTIMATE_DAYS, estimateFor, estimateShort, FEED_DAYS, FIRST_LOAD_ESTIMATES, firstLoadEstimate, NEAR_ALLOWANCE,
   runsPhrase, SEARCH_ALLOWANCE, searchesFor, WINDOW_HOURS,
 } from '../src/estimate.js';
 import { AZURE_CHUNK_HOURS } from '../src/steps/history-progress.js';
@@ -189,4 +189,74 @@ test('firstLoadEstimate: a load near the allowance can still wait for another ru
   assert.match(near, /It needs about 180 audit searches, and a tenant can start at least 200 in a rolling 24 hours, shared with other admins and tools: if others ran audit searches in the 24 hours before, some of it can wait for another run\. /);
   assert.match(near, /The scheduled runs don't carry it on, so if a run ends first, start another with "valuelens-install run", a day later if it stopped at the search limit/);
   assert.doesNotMatch(firstLoadEstimate(90, 'standard'), /It needs|a day later/);
+});
+
+/** The audit sources that read the Management Activity API. */
+const FEED = /** @type {const} */ ({ source: 'feed' });
+const AUTO = /** @type {const} */ ({ source: 'auto' });
+
+test('FEED_DAYS: the days the audit notebook reads from the Management Activity API', () => {
+  const notebook = JSON.parse(readFileSync(new URL('../../fabric/notebooks/Copilot_Audit_Log_Direct_Ingester.ipynb', import.meta.url), 'utf8'));
+  const source = notebook.cells.map((/** @type {any} */ c) => [].concat(c.source).join('')).join('\n');
+  assert.equal(FEED_DAYS, Number(/^FEED_RETENTION = timedelta\(days=(\d+)\)/m.exec(source)?.[1]));
+});
+
+test('estimateShort: a feed or auto load says the days its source holds, in one run', () => {
+  // Before the Graph history question, it says both: the days the source holds, and the figures for the rest from Graph.
+  assert.equal(estimateShort(90, 'large', 'fabric', { band: true, ...FEED }),
+    `Estimate: the last 7 days, in one run. With the older days from Microsoft Graph audit search, ${BAND_LABELS.large}: 5 to 6 days, over six or seven runs. ` +
+    'You start each run after the first by hand, a day apart.');
+  assert.equal(estimateShort(90, 'large', 'fabric', FEED), `Estimate: the last 7 days, in one run. With the older days from Microsoft Graph audit search: ${estimateShort(90, 'large').slice('Estimate: '.length)}`);
+  assert.equal(estimateShort(30, 'standard', 'fabric', { band: true, ...AUTO }),
+    `Estimate: what Sentinel holds, or the last 7 days, in one run. With the older days from Microsoft Graph audit search, ${BAND_LABELS.standard}: 1 to 2 hours.`);
+  // Without Graph history, the older days are left out.
+  assert.equal(estimateShort(90, 'large', 'fabric', { band: true, ...FEED, graphHistory: false }), 'Estimate: the last 7 days, in one run. Older days are left out.');
+  assert.equal(estimateShort(90, 'standard', 'fabric', { ...AUTO, graphHistory: false }), "Estimate: what Sentinel holds, or the last 7 days, in one run. Older days Sentinel doesn't hold are left out.");
+  // A week or less is all in the source.
+  assert.equal(estimateShort(7, 'large', 'fabric', FEED), 'Estimate: the last 7 days, in one run.');
+  assert.equal(estimateShort(1, 'large', 'fabric', { ...FEED, graphHistory: false }), 'Estimate: the last day, in one run.');
+  assert.equal(estimateShort(5, undefined, 'fabric', AUTO), 'Estimate: the last 5 days, in one run.');
+  assert.equal(estimateShort(0, 'large', 'fabric', FEED), '');
+});
+
+test('estimateShort and firstLoadEstimate: Graph, Graph history and Azure keep the Graph figures', () => {
+  for (const { target, band, days } of rows()) {
+    const scale = band === 'unsized' ? undefined : band;
+    const label = `${target} ${band} ${days}`;
+    for (const opts of [{ source: /** @type {const} */ ('graph') }, { ...FEED, graphHistory: true }, { ...AUTO, graphHistory: true }]) {
+      assert.equal(estimateShort(days, scale, target, { band: true, ...opts }), estimateShort(days, scale, target, { band: true }), label);
+      assert.equal(firstLoadEstimate(days, scale, target, opts), firstLoadEstimate(days, scale, target), label);
+    }
+    assert.equal(firstLoadEstimate(days, scale, target, { reload: true, source: 'graph' }), firstLoadEstimate(days, scale, target, { reload: true }), label);
+    if (target !== 'azure') continue;
+    // Azure runs its own collector, which reads Graph whatever the record says.
+    assert.equal(estimateShort(days, scale, target, { band: true, ...FEED, graphHistory: false }), estimateShort(days, scale, target, { band: true }), label);
+    assert.equal(firstLoadEstimate(days, scale, target, { reload: true, ...AUTO }), firstLoadEstimate(days, scale, target, { reload: true }), label);
+  }
+  // A reload that reads the older days from Graph carries on the same way.
+  assert.match(firstLoadEstimate(90, 'standard', 'fabric', { reload: true, ...FEED, graphHistory: true }),
+    /If the run ends first, start another with "valuelens-install run --backfill-days 90 --graph-history": it carries on from the windows already fetched\. $/);
+  assert.match(firstLoadEstimate(90, 'standard', 'fabric', { reload: true, source: 'graph', graphHistory: true }), /start another with "valuelens-install run --backfill-days 90": it carries on/);
+});
+
+test('firstLoadEstimate: a feed or auto load says the days it holds, and how to load the older ones from Graph', () => {
+  const wait = 'A new Management Activity API subscription can take up to 12 hours to show content, and has nothing from before it started, ';
+  const graph = 'Once this run has finished, you can load the older days from Microsoft Graph audit search with "valuelens-install run --backfill-days 90 --graph-history". ';
+  assert.equal(firstLoadEstimate(90, 'large', 'fabric', FEED),
+    'Estimate: the last 7 days, in one run. The Office 365 Management Activity API keeps 7 days, so the older days of the 90 asked for are left out. ' +
+    `${wait}so the first load may find nothing: the scheduled runs pick up from then on. ${graph}`);
+  // A reload's subscription is already going.
+  assert.equal(firstLoadEstimate(90, 'large', 'fabric', { reload: true, ...FEED, graphHistory: false }),
+    `Estimate: the last 7 days, in one run. The Office 365 Management Activity API keeps 7 days, so the older days of the 90 asked for are left out. ${graph}`);
+  const auto = firstLoadEstimate(180, 'standard', 'fabric', { ...AUTO, graphHistory: false });
+  assert.match(auto, /^Estimate: what Sentinel holds, or the last 7 days, in one run\. /);
+  assert.match(auto, /so the older days of the 180 asked for that Sentinel doesn't hold are left out\. /);
+  assert.match(auto, /so the first load may find only what Sentinel holds: the scheduled runs pick up from then on\. /);
+  assert.match(auto, /with "valuelens-install run --backfill-days 180 --graph-history"\. $/);
+  // A week or less has no older days to leave out.
+  assert.equal(firstLoadEstimate(7, 'standard', 'fabric', FEED), `Estimate: the last 7 days, in one run. ${wait}so the first load may find nothing: the scheduled runs pick up from then on. `);
+  assert.equal(firstLoadEstimate(7, 'standard', 'fabric', { reload: true, ...FEED }), 'Estimate: the last 7 days, in one run. ');
+  // Nothing about searches, runs by hand or time budgets: one run reads it all.
+  for (const text of [firstLoadEstimate(180, 'large', 'fabric', FEED), auto]) assert.doesNotMatch(text, /audit searches|by hand|time budget|capacity|hours, in|days, over/);
+  assert.equal(firstLoadEstimate(0, 'large', 'fabric', FEED), '');
 });

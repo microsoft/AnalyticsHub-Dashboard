@@ -26,9 +26,12 @@ and what to ask other admins for, by person, with the optional extras and the co
 - For Copilot Cowork credits, a **Viva Insights query** built first.
   [Send this to your Viva Insights analyst](../docs/PREREQUISITES.md#send-this-to-your-viva-insights-analyst-first).
 
-It takes about 5 minutes of questions and about 15 minutes of setup. Then the first load of history
-takes 1 to 2 hours with 30 days, or 3 to 5 hours with 180 days, for up to 10,000 people. A larger
-tenant takes days: see [How long it takes](../docs/PREREQUISITES.md#how-long-it-takes).
+It takes about 5 minutes of questions and about 15 minutes of setup. Then the first load reads the
+last 7 days of audit history from the Office 365 Management Activity API, in one run, though the
+first data can take up to 12 hours to appear. Older days load only with Graph history, from the
+Microsoft Graph audit search: 1 to 2 hours with 30 days, or 3 to 5 hours with 180 days, for up to
+10,000 people, and days for a larger tenant. See
+[How long it takes](../docs/PREREQUISITES.md#how-long-it-takes).
 Keep the PC awake and plugged in until the installer says setup is finished. After that you can
 close the window, and the load carries on in Fabric.
 

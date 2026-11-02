@@ -209,7 +209,7 @@ export async function runPipeline(ctx, opts) {
   else if (opts.first) ui.ok(`Started the first load: ${days} days of audit history`);
   else ui.ok(`Started the pipeline with ${days} days of audit history`);
   if (graphHistory) ui.note('Days older than the audit source holds are read from the Microsoft Graph audit search on this run.');
-  const estimate = days ? firstLoadEstimate(days, config.scale, 'fabric', { reload: !opts.first }) : '';
+  const estimate = days ? firstLoadEstimate(days, config.scale, 'fabric', { reload: !opts.first, source: auditSource(config), graphHistory }) : '';
   if (!opts.wait) {
     ui.note(`${estimate}It runs in Fabric. Check on it with "${commandLine('status')}".`);
     return { jobId, status: 'NotStarted', started: true };

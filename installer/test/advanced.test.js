@@ -187,6 +187,25 @@ test('advanced: a Fabric plan with Yes asks the settings behind it, currency las
   assert.deepEqual(config.reporting, { currency: 'USD' });
 });
 
+test('advanced: on the Management Activity API, the history question gives the days it holds, and the Graph figures for the older days', async () => {
+  const u = fakeUi({ yesTo: ['Change the advanced settings?'] });
+  /** @type {any[]} */
+  let choices = [];
+  const select = u.ui.select;
+  u.ui.select = /** @type {any} */ (async (/** @type {string} */ m, /** @type {any[]} */ ch, /** @type {any} */ d) => {
+    if (m === 'How much audit history should the first load pull?') choices = ch;
+    return select(m, ch, d);
+  });
+  const { ctx, config } = fakeCtx({ ui: u.ui, fabric: fakeFabric().api });
+  delete config.fabric.lakehouseId;
+  delete config.fabric.lakehouseName;
+  config.audit = { source: 'feed' };
+  await plan(ctx, PRE);
+  assert.equal(choices.length, 3);
+  // The Graph history question comes after it, so each choice says both.
+  for (const ch of choices) assert.match(ch.description, /^Estimate: the last 7 days, in one run\. With the older days from Microsoft Graph audit search, for .+: \d/);
+});
+
 test('advanced: Resource Graph reads the saved scope, or the whole tenant, without asking', async () => {
   const { ui, asked } = fakeUi();
   const { ctx, config } = fakeCtx({ ui });

@@ -491,16 +491,25 @@ export async function planAuditSource(ctx) {
  * The history question's choices, each with its estimate for the tenant size.
  * @param {'fabric' | 'azure'} target
  * @param {'standard' | 'large' | undefined} scale
+ * @param {import('../estimate.js').SourceOpts} [opts]  The audit source, so a feed or auto install says the days it holds.
  */
-export const historyChoices = (target, scale) =>
-  HISTORY_CHOICES.map((ch) => ({ ...ch, description: estimateShort(ch.value, scale, target, { band: true }) }));
+export const historyChoices = (target, scale, opts = {}) =>
+  HISTORY_CHOICES.map((ch) => ({ ...ch, description: estimateShort(ch.value, scale, target, { band: true, ...opts }) }));
+
+/**
+ * The audit source and the Graph history choice, for the estimates once both are known.
+ * @param {import('../config.js').InstallConfig} config
+ * @returns {import('../estimate.js').SourceOpts}
+ */
+export const sourceOpts = (config) => ({ source: auditSource(config), graphHistory: graphHistoryOn(config) });
 
 /**
  * What reloading `days` days of history runs, on Fabric: the pipeline.
  * @param {number} days
  * @param {'standard' | 'large' | undefined} scale
+ * @param {import('../estimate.js').SourceOpts} [opts]
  */
-const pipelineReloadChoice = (days, scale) => `Runs the pipeline with ${days} days of history. ${reloadDetail(days, scale)}`;
+const pipelineReloadChoice = (days, scale, opts = {}) => `Runs the pipeline with ${days} days of history. ${reloadDetail(days, scale, opts)}`;
 
 /**
  * What Repair or change says of the history, when the target knows more than the install record. Azure reads its
@@ -516,9 +525,10 @@ const pipelineReloadChoice = (days, scale) => `Runs the pipeline with ${days} da
  * keeps the old number until the reload has started.
  * @param {Ctx} ctx
  * @param {(days: number) => string} [describe]  Each reload choice's description. Azure, which has no pipeline, passes its own.
+ *   The default leaves the Graph history choice open: it's asked after this.
  * @param {HistorySaid} [said]
  */
-export async function askMoreHistory(ctx, describe = (days) => pipelineReloadChoice(days, ctx.config.scale), said = {}) {
+export async function askMoreHistory(ctx, describe = (days) => pipelineReloadChoice(days, ctx.config.scale, { source: auditSource(ctx.config) }), said = {}) {
   const { ui, config } = ctx;
   delete ctx.reloadHistoryDays;
   const current = config.history.days;
@@ -588,7 +598,8 @@ export async function plan(ctx, pre, section) {
       const scale = config.scale ?? (section ? undefined : defaultScale(pre?.capacities?.find((cap) => cap.id === config.fabric.capacityId), pre?.headcount));
       if (advanced()) {
         if (readsFeed(auditSource(config))) ui.note(AUTO_HISTORY_NOTE);
-        config.history.days = await ui.select('How much audit history should the first load pull?', historyChoices('fabric', scale), config.history.days);
+        // The Graph history question comes next, so each choice says both.
+        config.history.days = await ui.select('How much audit history should the first load pull?', historyChoices('fabric', scale, { source: auditSource(config) }), config.history.days);
         if (config.target !== 'azure') await planGraphHistory(ctx);
       }
     } else {
@@ -1389,9 +1400,9 @@ export function planReview(ctx, pre) {
     },
   ];
   if (ctx.runFirstLoad) {
-    runsOn.push({ what: 'First load', where: `${config.history.days} days of audit history, straight after setup`, detail: estimateShort(config.history.days, config.scale, 'fabric', { band: true }) });
+    runsOn.push({ what: 'First load', where: `${config.history.days} days of audit history, straight after setup`, detail: estimateShort(config.history.days, config.scale, 'fabric', { band: true, ...sourceOpts(config) }) });
   }
-  if (ctx.reloadHistoryDays) runsOn.push({ what: 'History reload', where: reloadLine(ctx.reloadHistoryDays), detail: reloadDetail(ctx.reloadHistoryDays, config.scale) });
+  if (ctx.reloadHistoryDays) runsOn.push({ what: 'History reload', where: reloadLine(ctx.reloadHistoryDays), detail: reloadDetail(ctx.reloadHistoryDays, config.scale, sourceOpts(config)) });
   return { creates, grants, runsOn, costs: planCosts(config), sizedFor: sizedFor(config.scale, pre) };
 }
 
@@ -1409,8 +1420,9 @@ export const reloadLine = (days) => `Reload ${days} days of history after setup`
  * How long a reload takes, on Fabric.
  * @param {number} days
  * @param {'standard' | 'large' | undefined} [scale]
+ * @param {import('../estimate.js').SourceOpts} [opts]
  */
-export const reloadDetail = (days, scale) => `${estimateShort(days, scale)} The scheduled runs carry on as usual after it.`;
+export const reloadDetail = (days, scale, opts = {}) => `${estimateShort(days, scale, 'fabric', opts)} The scheduled runs carry on as usual after it.`;
 
 /**
  * Prints the plan and asks to go ahead.
@@ -1464,9 +1476,9 @@ export async function confirmPlan(ctx, pre) {
   if (config.target !== 'azure') ui.info(`Audit:       ${AUDIT_SOURCE_LINES[auditSource(config)]}`);
   if (graphHistoryOn(config)) ui.info(`             ${c.dim('History loads read the days older than 7 from Microsoft Graph audit search')}`);
   if (ctx.runFirstLoad) {
-    ui.info(`First load:  ${config.history.days} days of history, straight after setup ${c.dim(`(${estimateShort(config.history.days, config.scale, 'fabric', { band: true })})`)}`);
+    ui.info(`First load:  ${config.history.days} days of history, straight after setup ${c.dim(`(${estimateShort(config.history.days, config.scale, 'fabric', { band: true, ...sourceOpts(config) })})`)}`);
   }
-  if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)} ${c.dim(`(${reloadDetail(ctx.reloadHistoryDays, config.scale)})`)}`);
+  if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)} ${c.dim(`(${reloadDetail(ctx.reloadHistoryDays, config.scale, sourceOpts(config))})`)}`);
   ui.review(planReview(ctx, pre));
   ui.note(keepAwake());
   return ui.confirm('Go ahead?', true);

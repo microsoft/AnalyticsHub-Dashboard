@@ -14,6 +14,7 @@ import {
   historyStep,
   keyRange,
   newestEnd,
+  newestStretch,
   pendingHistory,
   readAzureProgress,
   readFabricProgress,
@@ -300,15 +301,16 @@ test('readAzureProgress: reads the job state with the Data Lake client, and igno
 });
 
 /**
- * A Fabric install whose manifest `readJson` returns.
+ * A Fabric install whose manifest `readJson` returns. It reads Graph audit search unless `source` says otherwise.
  * @param {() => Promise<any>} readJson
- * @param {{ days?: number, scale?: 'standard' | 'large' }} [o]
+ * @param {{ days?: number, scale?: 'standard' | 'large', source?: import('../src/catalog.js').AuditSource, graphHistory?: boolean }} [o]
  */
 function fabricCtx(readJson, o = {}) {
   const ui = fakeUi();
   const config = emptyConfig();
   config.history.days = o.days ?? 30;
   if (o.scale) config.scale = o.scale;
+  config.audit = { source: o.source ?? 'graph', ...(o.graphHistory ? { graphHistory: true } : {}) };
   const { ctx } = fakeCtx({ ui: ui.ui, config, oneLake: { readJson } });
   return { ctx, config, ui };
 }
@@ -463,6 +465,115 @@ test('fabricHistory: a load stopped at the search limit says when a run can sear
   // While the pipeline runs, it says so.
   const going = await show(stoppedAtLimit(windows, 200, [stop], stop - 2 * H), { status: 'InProgress', start: '2026-06-01T11:00:00' });
   assert.match(last(going), /^The pipeline is running\./);
+});
+
+test('newestStretch: the newest history fetched with no gap, when it runs to the end of the range', () => {
+  const range = { from: t('2026-03-03T08:00:00'), until: t('2026-06-01T08:00:00'), chunkHours: 24 };
+  const week = list(t('2026-05-25T08:00:00'), 7);
+  assert.deepEqual(newestStretch(week, range), { since: t('2026-05-25T08:00:00'), end: t('2026-06-01T08:00:00'), only: true });
+  // An older stretch, from an earlier load, isn't part of it.
+  assert.deepEqual(newestStretch([...list(t('2026-03-03T08:00:00'), 10), ...week], range), { since: t('2026-05-25T08:00:00'), end: t('2026-06-01T08:00:00'), only: false });
+  // A window's worth short of the end still counts; more doesn't.
+  const short = list(t('2026-05-25T10:00:00'), 6);
+  assert.equal(newestStretch(short, range)?.end, t('2026-05-31T10:00:00'));
+  assert.equal(newestStretch(short, { ...range, chunkHours: 2 }), undefined);
+  assert.equal(newestStretch(list(t('2026-05-25T08:00:00'), 5), range), undefined);
+  assert.equal(newestStretch([], range), undefined);
+  // A window from before the range counts from the range's start.
+  assert.deepEqual(newestStretch(list(t('2026-03-01T08:00:00'), 92), range), { since: range.from, end: range.until, only: true });
+});
+
+/**
+ * A feed install whose first load, of 90 days, ran at 2026-06-01 08:00. Its manifest has the windows `fetched`
+ * says; without `fetched`, it has no manifest.
+ * @param {{ fetched?: (i: number) => string | undefined, source?: import('../src/catalog.js').AuditSource, graphHistory?: boolean, days?: number, jobs?: any[], firstRun?: Partial<NonNullable<import('../src/config.js').InstallConfig['firstRun']>> }} [o]
+ */
+async function feedStatus(o = {}) {
+  const windows = plan(t('2026-03-03T08:00:00'), t('2026-06-01T08:00:00'), 24);
+  const manifest = o.fetched ? entries(windows, o.fetched) : null;
+  const { ctx, config, ui } = fabricCtx(async () => manifest, { days: o.days ?? 90, scale: 'standard', source: o.source ?? 'feed', graphHistory: o.graphHistory });
+  config.firstRun = { jobId: 'job-1', status: 'Completed', startedAt: '2026-06-01T08:00:00.000Z', ...o.firstRun };
+  await fabricHistory(ctx, { jobs: o.jobs ?? [{ id: 'job-1', status: 'Completed', startTimeUtc: '2026-06-01T08:00:00' }] });
+  return lines(ui.text());
+}
+
+/** The windows of the last 7 days: what the Management Activity API held when the first load ran. @param {number} i */
+const lastWeek = (i) => (i >= 83 ? 'succeeded' : undefined);
+
+const OLDER_LEFT_OUT = 'The Office 365 Management Activity API keeps 7 days, and nothing from before its subscription started, so older days are left out. ' +
+  'To load them from Microsoft Graph audit search, run "valuelens-install run --backfill-days 90 --graph-history".';
+
+test('fabricHistory: a feed install has its history once the days its source holds are in', async () => {
+  assert.deepEqual(await feedStatus({ fetched: lastWeek }), [
+    'Audit history',
+    'Asked for: 90 days',
+    'Fetched from the audit log: about 7 of 90 days, 2026-05-25 to 2026-06-01',
+    'In the reports: run "valuelens-install check" to see the dates.',
+    OLDER_LEFT_OUT,
+  ]);
+  // Auto reads Sentinel first, so it leaves out only the days Sentinel doesn't hold.
+  assert.equal(last(await feedStatus({ fetched: lastWeek, source: 'auto' })), OLDER_LEFT_OUT.replace('so older days', "so older days that Sentinel doesn't hold"));
+  // A subscription started after the first load: the scheduled runs have loaded the days since.
+  assert.deepEqual((await feedStatus({ fetched: (i) => (i >= 87 ? 'succeeded' : undefined) })).slice(2), [
+    'Fetched from the audit log: about 3 of 90 days, 2026-05-29 to 2026-06-01',
+    'In the reports: run "valuelens-install check" to see the dates.',
+    OLDER_LEFT_OUT,
+  ]);
+  // A gap at the newest end loads with the next run, as on Graph.
+  assert.deepEqual((await feedStatus({ fetched: (i) => (i >= 83 && i < 89 ? 'succeeded' : i >= 89 ? 'failed' : undefined) })).slice(2), [
+    'Fetched from the audit log: about 6 of 90 days',
+    'In the reports: run "valuelens-install check" to see the dates.',
+    'The newest days load with the next scheduled run. Start one sooner with "valuelens-install run".',
+  ]);
+  // Every day asked for is in: nothing more to say.
+  assert.deepEqual(await feedStatus({ fetched: lastWeek, days: 7 }), [
+    'Audit history',
+    'Asked for: 7 days',
+    'Fetched from the audit log: all 7 days, 2026-05-25 to 2026-06-01',
+    'In the reports: run "valuelens-install check" to see the dates.',
+  ]);
+});
+
+test('fabricHistory: a feed install with nothing fetched yet waits for its subscription', async () => {
+  const wait = 'Nothing has been fetched yet. A new Management Activity API subscription can take up to 12 hours to show content, ' +
+    'and has nothing from before it started: the scheduled runs load the days from then on.';
+  assert.deepEqual(await feedStatus(), [
+    'Audit history',
+    'Asked for: 90 days',
+    'Fetched from the audit log: none yet',
+    'In the reports: run "valuelens-install check" to see the dates.',
+    `${wait} Start one sooner with "valuelens-install run".`,
+  ]);
+  const going = await feedStatus({ jobs: [{ id: 'job-2', status: 'InProgress', startTimeUtc: '2026-06-01T11:00:00' }, { id: 'job-1', status: 'Completed', startTimeUtc: '2026-06-01T08:00:00' }] });
+  assert.equal(last(going), `${wait} A run is going now.`);
+  // Before its first load, it's as on Graph.
+  const fresh = fabricCtx(async () => null, { source: 'feed' });
+  await fabricHistory(fresh.ctx, { jobs: [] });
+  assert.deepEqual(lines(fresh.ui.text()).slice(1), [
+    'Asked for: 30 days',
+    'Fetched from the audit log: none yet',
+    'In the reports: not the full history yet. The first load writes it once every window is fetched.',
+    'Start the first load with "valuelens-install run".',
+  ]);
+});
+
+test('fabricHistory: Graph history goes by the install, not by what its first load read', async () => {
+  const graph = await feedStatus({ fetched: lastWeek, source: 'graph' });
+  assert.deepEqual(graph.slice(2), [
+    'Fetched from the audit log: about 7 of 90 days; about 83 windows left',
+    'In the reports: run "valuelens-install check" to see the dates.',
+    'To carry on, run "valuelens-install run --backfill-days 90". It reuses the windows already fetched.',
+  ]);
+  // An install that reads the older days from Graph is told what's left to fetch, as on Graph.
+  assert.deepEqual(await feedStatus({ fetched: lastWeek, graphHistory: true }), graph);
+  assert.deepEqual(await feedStatus({ fetched: lastWeek, source: 'auto', graphHistory: true }), graph);
+  // A first load that read Graph once, then a reload of more days that read only the feed: its older days are left out.
+  const reload = await feedStatus({ fetched: () => 'succeeded', days: 180, firstRun: { graphHistory: true } });
+  assert.deepEqual(reload.slice(2), [
+    'Fetched from the audit log: about 90 of 180 days, 2026-03-03 to 2026-06-01',
+    'In the reports: run "valuelens-install check" to see the dates.',
+    OLDER_LEFT_OUT.replace('--backfill-days 90', '--backfill-days 180'),
+  ]);
 });
 
 /**

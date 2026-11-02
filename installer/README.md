@@ -563,14 +563,17 @@ With 30,000 or more people on a capacity smaller than F64, the plan warns and sa
 or larger capacity in **Fabric placement**. If your organisation's policy keeps you on the smaller
 capacity, setup still works, but the loads take longer and may hit their time limits.
 
-Expect the first load to take a day or more on Fabric, or a few hours on Azure with 30 days of
-history: see [How long the first load takes](#how-long-the-first-load-takes). Start with 30 days,
-use an F64 or larger capacity, and [load more history](#load-more-audit-history) later. Don't run
-audit searches in the Purview portal while it loads. To change the tenant size, run the installer
-again and answer the size question: in the browser, choose **Repair or change**, then **Fabric
-placement** or **Azure placement**. An install from an earlier version keeps its audit windows and
-time limits until you do. An install that has a tenant size gets the new time limits on its next
-**Update** or **Repair or change**, and keeps its data and settings.
+On Fabric, a new install reads the Management Activity API, so the first load reads the last 7
+days in one run, and older history is optional. From the Graph audit search, which Azure and
+Fabric installs from earlier versions read, expect the first load to take a day or more on
+Fabric, or a few hours on Azure, with 30 days of history: see
+[How long the first load takes](#how-long-the-first-load-takes). Start with 30 days, use an F64 or
+larger capacity, and [load more history](#load-more-audit-history) later. Don't run audit searches
+in the Purview portal while a load reads from the Graph audit search. To change the tenant size,
+run the installer again and answer the size question: in the browser, choose **Repair or change**,
+then **Fabric placement** or **Azure placement**. An install from an earlier version keeps its
+audit windows and time limits until you do. An install that has a tenant size gets the new time
+limits on its next **Update** or **Repair or change**, and keeps its data and settings.
 
 On the Azure target, the Power BI capacity, Azure SQL and web app sizing and the run job's time
 limit are under [A large tenant on Azure](#a-large-tenant-on-azure).
@@ -578,7 +581,18 @@ limit are under [A large tenant on Azure](#a-large-tenant-on-azure).
 ### How long the first load takes
 
 The plan shows an estimate beside the history question, and the installer says it again when the
-first load or a reload starts. The estimates for each target and tenant size are in
+first load or a reload starts.
+
+With the Management Activity API or Sentinel as the audit source, as on a new Fabric install, a
+load reads the last 7 days, or what Sentinel holds, in one run, and leaves the older days out. A
+new Management Activity API subscription can take up to 12 hours to show content, and holds
+nothing from before it started, so the first load may find nothing: the scheduled runs pick up
+from then on. Once the first load has finished, `status` says the older days are left out, and gives
+`run --backfill-days <n> --graph-history` to load them from the Graph audit search. The rest of
+this section is about loads from the Graph audit search: on Azure, on a Fabric install from an
+earlier version, and for the older days with [Graph history](#load-more-audit-history).
+
+The estimates for each target and tenant size are in
 [How long it takes](../docs/PREREQUISITES.md#how-long-it-takes). Two things set them:
 
 - **The audit search limit.** The load starts one audit search for each window of history it
