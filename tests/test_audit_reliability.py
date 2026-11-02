@@ -304,6 +304,7 @@ class AuditReliabilityTests(unittest.TestCase):
             "MANIFEST": str(SCRATCH / "_manifest.json"),
             "LOCAL_STAGE_TMP_DIR": str(SCRATCH),
             "MANIFEST_LOCK": threading.RLock(),
+            "MANIFEST_TOUCHED": set(),
             "manifest": {},
             "LOOKBACK_DAYS": 7,
             "end_date": datetime(2026, 9, 10, tzinfo=timezone.utc),
@@ -355,6 +356,8 @@ class AuditReliabilityTests(unittest.TestCase):
                 "window_stage_files_reusable",
                 "is_window_reusable",
                 "_read_manifest_entry",
+                "_manifest_entry_time",
+                "_merge_other_runs",
                 "_mark_window",
                 "_row",
                 "_is_graph_records_url",
@@ -415,6 +418,35 @@ class AuditReliabilityTests(unittest.TestCase):
         self.assertEqual(ns["_read_manifest_entry"]("completed-window")["status"], "succeeded")
         persisted = json.loads(Path(ns["MANIFEST"]).read_text(encoding="utf-8"))
         self.assertEqual(persisted["completed-window"]["status"], "succeeded")
+
+    def test_manifest_updates_keep_windows_another_run_saved(self):
+        # A history recovery beside the daily load: each saves the manifest it loaded at the start.
+        ns = self.checkpoint_helpers()
+        ns["manifest"]["old-window"] = {"status": "waiting", "refreshed_at": "2026-11-02T20:00:00+00:00"}
+        ns["manifest"]["mine"] = {"status": "succeeded", "completed_at": "2026-11-02T20:00:00+00:00"}
+        ns["_load_manifest"] = lambda: {
+            "feed-window": {"status": "succeeded", "source": "feed", "completed_at": "2026-11-02T22:30:00+00:00"},
+            "old-window": {"status": "succeeded", "completed_at": "2026-11-02T22:00:00+00:00"},
+            "mine": {"status": "failed", "refreshed_at": "2026-11-02T23:00:00+00:00"},
+        }
+        ns["_mark_window"]("mine", "succeeded", completed_at="2026-11-02T21:00:00+00:00")
+        ns["_mark_window"]("next-window", "waiting")
+        persisted = json.loads(Path(ns["MANIFEST"]).read_text(encoding="utf-8"))
+        self.assertEqual(persisted["feed-window"]["source"], "feed")
+        self.assertEqual(persisted["old-window"]["status"], "succeeded")
+        # A window this run wrote keeps this run's entry.
+        self.assertEqual(persisted["mine"]["status"], "succeeded")
+
+    def test_manifest_merge_ignores_an_unreadable_saved_manifest(self):
+        ns = self.checkpoint_helpers()
+        ns["manifest"]["kept"] = {"status": "succeeded"}
+
+        def broken():
+            raise RuntimeError("not valid JSON")
+
+        ns["_load_manifest"] = broken
+        ns["_mark_window"]("next-window", "waiting")
+        self.assertEqual(ns["_read_manifest_entry"]("kept")["status"], "succeeded")
 
     def test_synthetic_record_key_uses_canonical_json_and_ignores_array_order(self):
         ns = self.ingester_helpers()
