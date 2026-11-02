@@ -20,6 +20,41 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**Audit log: read from the Office 365 Management Activity API by default, with Microsoft Sentinel
+as an option, not just the Graph audit search (Fabric).** The Graph audit search runs each window
+as a background job: minutes to hours each, about 200 a day per tenant, and on a large tenant
+windows fail or time out. The audit ingester can now read the same Copilot interaction records
+from the Office 365 Management Activity API and from Microsoft Sentinel's `CopilotActivity` table
+(through Graph advanced hunting, or Log Analytics). Every source writes the same rows to
+`copilot_interactions_parsed`, keyed by record `Id`, so the processor, model and report don't
+change, and windows read by different sources never duplicate.
+
+- **New installs, and the notebook's default, read the Management Activity API** (`feed`): the
+  last 7 days. Older windows are left out, and an overwrite becomes a merge so the table keeps
+  its history.
+- **Optional Graph history.** History loads (the first load and reloads) can read the days older
+  than 7 from Graph audit search: choose it under Advanced settings, run `install --graph-history`,
+  or add `--graph-history` to `run --backfill-days <n>` for one reload (the home page's history
+  picker has *from Microsoft Graph audit search* choices too). The pipeline's new
+  `AuditGraphHistory` parameter sets the ingester's `GRAPH_FOR_HISTORY`; scheduled runs never
+  read Graph.
+- **Sentinel is an option** (`auto`): Sentinel for the hours it holds, otherwise the Management
+  Activity API. Choose it under Advanced settings, or run `install --audit-source auto`.
+- **Existing installs keep Graph** until you choose another source under Advanced settings, or run
+  `install --audit-source feed`. The Azure target always uses Graph.
+- **Permissions.** The Management Activity API adds `ActivityFeed.Read` (Office 365 Management
+  APIs), with admin consent; Sentinel also adds `ThreatHunting.Read.All` (Microsoft Graph).
+  `AuditLogsQuery.Read.All` stays, for a history load.
+- **The first Management Activity API content** after the subscription starts can take up to 12
+  hours. Government clouds set `FEED_HOST`. For Sentinel, its Microsoft Copilot connector must be
+  connected; until it is, `auto` reads the Management Activity API.
+- **Load status.** The ingester writes `audit_source_status`, one row per source it tried, so a
+  run that couldn't read a source, or found nothing, shows as a Warning with the reason.
+- **Checks and reliability.** `check-audit` tests the selected sources without Graph audit
+  search. Sentinel pages in stable timestamp/record-ID order; invalid results and expired feed
+  content fail explicitly instead of being accepted as empty successful loads.
+- See [Where the audit log comes from](fabric/notebooks/README.md#where-the-audit-log-comes-from).
+
 **Licensed users: no more unlicensed users shown as licensed.** Since 0.6.8, a user in the
 Microsoft 365 Copilot usage report counts as licensed. That report, like the active-user report,
 can run days behind licence changes, so users whose Copilot licence had been removed showed as

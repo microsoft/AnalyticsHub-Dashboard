@@ -1,12 +1,13 @@
 // @ts-check
 /**
  * Checks that the app registration can read the Copilot interactions in the audit log, the way the
- * audit notebook does: an app-only token with AuditLogsQuery.Read.All for this tenant, and, when
- * asked, a small live audit search. A load that reads nothing doesn't fail, so without this an
- * install with no consent, the wrong tenant or audit logging off looks the same as one with no
- * Copilot use.
+ * audit notebook does: Management Activity API access (and Sentinel under Auto), or an app-only
+ * Graph token and a small audit search under Graph. A load that reads nothing doesn't fail, so
+ * without this an install with no consent, the wrong tenant or audit logging off looks the same
+ * as one with no Copilot use.
  */
 import { decodeJwt } from '../auth.js';
+import { auditSource, readsFeed } from '../catalog.js';
 import { adminConsentUrl, apiPermissionsUrl } from '../clients/graph.js';
 import { secretMode } from '../config.js';
 import { HttpError } from '../http.js';
@@ -142,13 +143,14 @@ export async function checkAppToken(ctx, appId, secret, o = {}) {
  */
 export async function checkAuditAccess(ctx, o = {}) {
   const { config, ui } = ctx;
-  if (ctx.auditChecked || config.target === 'azure' || !ctx.api.appGraph) return undefined;
+  const direct = readsFeed(auditSource(config));
+  if (ctx.auditChecked || config.target === 'azure' || !(direct ? ctx.api.appAuditSources : ctx.api.appGraph)) return undefined;
   const appId = config.app.appId;
   if (!appId) return undefined;
   const secret = await appSecretFor(ctx);
   if (!secret) return undefined;
-  const r = await checkAppToken(ctx, appId, secret, { waitForRole: !!o.consented });
-  if (r.result !== 'ok' && o.provisional) {
+  const r = direct ? await checkAutoAudit(ctx, appId, secret) : await checkAppToken(ctx, appId, secret, { waitForRole: !!o.consented });
+  if (!['ok', 'records'].includes(r.result) && o.provisional) {
     ui.note(
       `The app's audit log access isn't confirmed yet (${AUDIT_CHECK_LABELS[r.result]}). Entra can take a few minutes to apply a new app, secret or consent, so it's checked again once the pipeline is deployed.`,
     );
@@ -158,6 +160,52 @@ export async function checkAuditAccess(ctx, o = {}) {
   reportAudit(ctx, r);
   saveAuditCheck(ctx, r);
   return r.result;
+}
+
+/**
+ * Test the Management Activity API, and Sentinel too under Auto, never Graph audit search. These
+ * checks do not start a subscription.
+ * @param {Ctx} ctx
+ * @param {string} appId
+ * @param {string} secret
+ * @param {boolean} [live]
+ * @returns {Promise<{ result: AuditResult, detail: string }>}
+ */
+export async function checkAutoAudit(ctx, appId, secret, live = false) {
+  if (!ctx.api.appAuditSources) return { result: 'error', detail: 'Audit source checks are unavailable in this sign-in.' };
+  const api = ctx.api.appAuditSources(appId, secret);
+  const end = ctx.now();
+  const start = new Date(end.getTime() - 86_400_000);
+  let sentinelReady = false, records = false, feedReady = false;
+  /** @type {string[]} */
+  const details = [];
+  /** @type {unknown[]} */
+  const errors = [];
+  if (auditSource(ctx.config) === 'auto') try {
+    const found = await api.sentinel(start, end);
+    sentinelReady = true;
+    records = found.records > 0;
+    details.push(records ? 'Sentinel found Copilot interactions in the last day.' : 'Sentinel is readable but has no Copilot interactions in the last day.');
+  } catch (err) {
+    errors.push(err);
+    details.push(`Sentinel could not be read: ${firstLine(String(err))}. Check the Microsoft Copilot connector and ThreatHunting.Read.All.`);
+  }
+  try {
+    const found = await api.feed(start, end, live);
+    feedReady = found.enabled;
+    details.push(found.enabled
+      ? `The Management Activity API is readable and Audit.General is enabled.${found.blobs === undefined ? '' : ` The content list contains ${found.blobs} blob(s); this does not prove they contain Copilot interactions.`}`
+      : 'Audit.General is not enabled. The first notebook run starts it; first content can take up to 12 hours.');
+  } catch (err) {
+    errors.push(err);
+    details.push(`The Management Activity API could not be read: ${firstLine(String(err))}. Check ActivityFeed.Read with admin consent.`);
+  }
+  const text = errors.map(String).join(' ');
+  const result = records ? 'records' : feedReady || sentinelReady ? 'ok'
+    : /AADSTS7000215|AADSTS7000222/.test(text) ? 'bad-secret'
+    : /AADSTS700016/.test(text) ? 'wrong-tenant'
+    : errors.some((e) => e instanceof HttpError && [401, 403].includes(e.status)) ? 'refused' : 'error';
+  return { result, detail: details.join(' ') };
 }
 
 /**
@@ -227,12 +275,19 @@ export async function checkAuditCommand(ctx) {
   if (config.target === 'azure') return checkAzureAudit(ctx);
   const appId = config.app.appId;
   if (!appId) throw new Error('This install record has no app registration yet. Run the install first.');
-  if (!ctx.api.appGraph) throw new Error('This sign-in can\'t check the app registration.');
+  const direct = readsFeed(auditSource(config));
+  if (!(direct ? ctx.api.appAuditSources : ctx.api.appGraph)) throw new Error('This sign-in can\'t check the app registration.');
   const secret = await appSecretFor(ctx, { ask: true });
   if (!secret) {
     throw new Error(
       `The app's client secret isn't readable from Key Vault here. Run ${commandLine('check-audit')} without --yes to paste a client secret of ${appId}, or run it where you can read the vault.`,
     );
+  }
+  if (direct) {
+    const checked = await checkAutoAudit(ctx, appId, secret, true);
+    reportAudit(ctx, checked);
+    saveAuditCheck(ctx, checked);
+    return checked.result;
   }
   const token = await checkAppToken(ctx, appId, secret);
   if (token.result !== 'ok') {
@@ -290,6 +345,10 @@ export const AUDIT_LOOKBACK_DAYS = 7;
  */
 export function auditReloadSteps(config) {
   if (config.target === 'azure') return [];
+  if (readsFeed(auditSource(config))) return [
+    `Once source access is fixed, rerun the audit load. The Management Activity API holds only the last 7 days; ${auditSource(config) === 'auto' ? 'it cannot recover earlier activity that Sentinel does not hold.' : 'set GRAPH_FOR_HISTORY in the notebook to load older days from Graph audit search.'}`,
+    `To force reachable windows to reload, rename ${AUDIT_MANIFEST} in the Lakehouse, then run ${commandLine('run --backfill-days <n>')}. Older output is preserved when a source cannot cover it.`,
+  ];
   return [
     `Once it's fixed, reload what the audit load already read as empty. Otherwise those windows are reused: recent ones for ${AUDIT_REUSE_HOURS} hours, and ones older than ${AUDIT_LOOKBACK_DAYS} days are never read again.`,
     `In the Lakehouse, rename ${AUDIT_MANIFEST} (for example to _manifest.old.json), then run ${commandLine('run --backfill-days <n>')}, with <n> covering the days to reload.`,
@@ -315,6 +374,18 @@ export function reportAudit(ctx, r) {
  */
 function reportAuditResult(ctx, r) {
   const { ui, config, user } = ctx;
+  const source = auditSource(config);
+  if (readsFeed(source) && !['bad-secret', 'wrong-tenant'].includes(r.result)) {
+    const auto = source === 'auto';
+    if (r.result === 'records') ui.ok('Sentinel returned Copilot interactions.');
+    else if (r.result === 'ok') ui.ok(auto ? 'At least one audit source is readable; this is not a completeness check.' : 'The Management Activity API is readable; this is not a completeness check.');
+    else ui.warn(auto ? 'Neither Sentinel nor the Management Activity API is ready.' : 'The Management Activity API is not ready.');
+    if (r.detail) ui.info(r.detail);
+    ui.note(auto
+      ? 'This install reads Sentinel, otherwise the Office 365 Management Activity API (7 days). Graph audit search is not used.'
+      : 'This install reads the Office 365 Management Activity API (7 days). Graph audit search is used only when GRAPH_FOR_HISTORY is set.');
+    return;
+  }
   const appId = config.app.appId ?? 'the app registration';
   const detail = r.detail ? ` ${r.detail}` : '';
   switch (r.result) {
@@ -370,8 +441,9 @@ function reportAuditResult(ctx, r) {
  */
 export function saveAuditCheck(ctx, r) {
   const prev = ctx.config.auditCheck;
-  if (r.result === 'ok' && prev && LIVE.has(prev.result)) return;
-  ctx.config.auditCheck = { at: ctx.now().toISOString(), result: r.result, ...(r.detail ? { detail: r.detail } : {}) };
+  const source = auditSource(ctx.config);
+  if (r.result === 'ok' && prev && (prev.source ?? 'graph') === source && LIVE.has(prev.result)) return;
+  ctx.config.auditCheck = { at: ctx.now().toISOString(), result: r.result, ...(r.detail ? { detail: r.detail } : {}), ...(source !== 'graph' ? { source } : {}) };
   ctx.save();
 }
 
@@ -392,6 +464,24 @@ export function emptyAuditHelp(config) {
  * @returns {{ lead: string, causes: string[] }}
  */
 function emptyAuditCauses(config) {
+  if (auditSource(config) === 'feed') return {
+    lead: 'The audit load found no Copilot interactions in the Office 365 Management Activity API.',
+    causes: [
+      'Check audit_source_status in the Lakehouse for whether the feed was empty or refused.',
+      'The app needs ActivityFeed.Read on Office 365 Management APIs, with admin consent, and audit logging on in Microsoft Purview.',
+      'A new Audit.General subscription can take up to 12 hours to publish its first content; the feed keeps only 7 days.',
+      `Run ${commandLine('check-audit')} to check the Management Activity API, without a Graph audit search.`,
+    ],
+  };
+  if (auditSource(config) === 'auto') return {
+    lead: 'The audit load found no Copilot interactions in Sentinel or the Management Activity API.',
+    causes: [
+      'Check audit_source_status in the Lakehouse for the source that was empty or refused.',
+      'Sentinel needs the Microsoft Copilot connector and ThreatHunting.Read.All; the fallback needs ActivityFeed.Read on Office 365 Management APIs.',
+      'A new Audit.General subscription can take up to 12 hours to publish its first content; the feed keeps only 7 days.',
+      `Run ${commandLine('check-audit')} to check Sentinel and the Management Activity API, without a Graph audit search.`,
+    ],
+  };
   const check = config.auditCheck?.result;
   const consent = `Admin consent for ${AUDIT_ROLE} is missing or not yet in effect. A Global Administrator or Privileged Role Administrator grants it on the app's API permissions page.`;
   const logging = 'Audit logging is off in Microsoft Purview. A Compliance Administrator turns it on in Purview > Audit; records then take 60 minutes to 24 hours to appear.';

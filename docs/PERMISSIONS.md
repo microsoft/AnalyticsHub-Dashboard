@@ -24,6 +24,20 @@ Pulled automatically by the 3 core notebooks via one **Entra app registration** 
 | Licensed users (`copilot_licensed_users`) | `Reports.Read.All` (+ `User.Read.All`, which org data needs anyway, to check flags against today's licences; skipped without it) | Global Reader or Reports Reader |
 | Org data (`copilot_org_data`) | `User.Read.All` | Global Reader or User Administrator |
 
+New Fabric installs read the audit log from the Office 365 Management Activity API rather than the
+Graph audit search, so the app also gets `ActivityFeed.Read`; with the **Sentinel** audit source
+it also gets `ThreatHunting.Read.All`:
+
+| API | Application permission | Used for |
+|---|---|---|
+| Office 365 Management APIs | `ActivityFeed.Read` | Reading the `Audit.General` content of the last 7 days (the default audit source, and Sentinel's fallback) |
+| Microsoft Graph | `ThreatHunting.Read.All` | Sentinel only: querying its `CopilotActivity` table through advanced hunting |
+
+`AuditLogsQuery.Read.All` stays, for history loads from Graph (Graph history in the installer, or `GRAPH_FOR_HISTORY`). With
+`SENTINEL_QUERY_VIA = 'loganalytics'`, give the app the **Log Analytics Reader** role on the
+Sentinel workspace instead of `ThreatHunting.Read.All`. See
+[Where the audit log comes from](../fabric/notebooks/README.md#where-the-audit-log-comes-from).
+
 One app registration covers all three on Fabric; on Azure, the jobs' managed identity gets them as
 app roles. On Fabric the app's secret goes in the notebooks by default, or in a Key Vault if you
 choose: see [Where the secret goes](../installer/README.md#where-the-secret-goes).

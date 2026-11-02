@@ -1346,6 +1346,8 @@ export function fakePowerBi() {
  */
 export function fakeCtx(o = {}) {
   const config = o.config ?? emptyConfig();
+  // A new install reads the audit log through Auto; the fakes keep Graph unless a test opts in, so its tests needn't fake the Management APIs.
+  if (!o.config) config.audit = { source: 'graph' };
   config.fabric.workspaceId ??= 'ws-1';
   config.fabric.lakehouseId ??= 'lh-1';
   config.fabric.lakehouseName ??= 'ValueLens';

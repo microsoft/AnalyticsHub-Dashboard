@@ -357,7 +357,9 @@ test('checkPrereqs: Power Automate Premium is optional, needed only for the flow
 });
 
 test('checkPrereqs: audit ingestion needs consent for AuditLogsQuery.Read.All, says who grants it and shows the last audit check', async () => {
-  const admin = await run({});
+  const config = emptyConfig();
+  config.audit = { source: 'graph' };
+  const admin = await run({}, config);
   assert.equal(admin['audit-ingestion'].status, 'met');
   assert.match(admin['audit-ingestion'].detail, /your Global Administrator role lets the installer grant it/);
   assert.match(admin['audit-ingestion'].howTo, /Global Administrator or Privileged Role Administrator grants admin consent for AuditLogsQuery\.Read\.All/);
@@ -376,7 +378,6 @@ test('checkPrereqs: audit ingestion needs consent for AuditLogsQuery.Read.All, s
     api.graph.appRoleAssignments = async () => assigned;
     return api;
   };
-  const config = emptyConfig();
   Object.assign(config.app, { appId: 'app-1', servicePrincipalId: 'sp-1' });
   /** @param {any[]} assigned */
   const audit = async (assigned) => (await checkPrereqs({ api: withApp(assigned), user: USER, config })).find((i) => i.id === 'audit-ingestion');
@@ -397,6 +398,45 @@ test('checkPrereqs: audit ingestion needs consent for AuditLogsQuery.Read.All, s
   assert.equal((await run({}, az))['audit-ingestion'].status, 'missing');
   az.azure = /** @type {any} */ ({ graphRoles: { assigned: ['AuditLogsQuery.Read.All'], pending: [] } });
   assert.match((await run({}, az))['audit-ingestion'].detail, /The jobs' managed identity has it/);
+});
+
+test('checkPrereqs: Auto accepts either source consent without requiring Graph audit search', async () => {
+  const config = emptyConfig();
+  config.audit = { source: 'auto' };
+  Object.assign(config.app, { appId: 'app-1', servicePrincipalId: 'sp-1' });
+  const api = fakeApis({ roles: [] });
+  api.graph.graphServicePrincipal = async () => ({
+    id: 'graph-sp', appRoles: [{ id: 'hunting-role', value: 'ThreatHunting.Read.All' }],
+  });
+  api.graph.findServicePrincipal = async () => ({
+    id: 'management-sp', appRoles: [{ id: 'feed-role', value: 'ActivityFeed.Read' }],
+  });
+  for (const [resourceId, appRoleId] of [['graph-sp', 'hunting-role'], ['management-sp', 'feed-role'], ['other-sp', 'feed-role']]) {
+    api.graph.appRoleAssignments = async () => [{ resourceId, appRoleId }];
+    const item = (await checkPrereqs({ api, user: USER, config })).find((i) => i.id === 'audit-ingestion');
+    assert.equal(item?.status, resourceId === 'other-sp' ? 'missing' : 'met');
+    assert.match(item?.howTo ?? '', /ThreatHunting.Read.All.*ActivityFeed.Read/);
+    assert.doesNotMatch(item?.label ?? '', /AuditLogsQuery/);
+  }
+});
+
+test('checkPrereqs: the Management Activity API (the default) needs ActivityFeed.Read consent, not Sentinel or Graph audit search', async () => {
+  const config = emptyConfig();
+  Object.assign(config.app, { appId: 'app-1', servicePrincipalId: 'sp-1' });
+  const api = fakeApis({ roles: [] });
+  api.graph.graphServicePrincipal = async () => ({
+    id: 'graph-sp', appRoles: [{ id: 'hunting-role', value: 'ThreatHunting.Read.All' }],
+  });
+  api.graph.findServicePrincipal = async () => ({
+    id: 'management-sp', appRoles: [{ id: 'feed-role', value: 'ActivityFeed.Read' }],
+  });
+  for (const [resourceId, appRoleId] of [['graph-sp', 'hunting-role'], ['management-sp', 'feed-role']]) {
+    api.graph.appRoleAssignments = async () => [{ resourceId, appRoleId }];
+    const item = (await checkPrereqs({ api, user: USER, config })).find((i) => i.id === 'audit-ingestion');
+    assert.equal(item?.status, resourceId === 'management-sp' ? 'met' : 'missing');
+    assert.match(item?.label ?? '', /\(ActivityFeed\.Read\)/);
+    assert.doesNotMatch(item?.howTo ?? '', /ThreatHunting|AuditLogsQuery/);
+  }
 });
 
 test('checkPrereqs: Viva Insights analyst can\'t be read, so it is optional and "couldn\'t check", and says it can wait', async () => {

@@ -120,6 +120,11 @@ Agent_BotId, Agent_EnvironmentId, Exclude_Reason
 > value means, and which values set a task, are classified by what they touched or are excluded, is in
 > [METHODOLOGY §3.5](METHODOLOGY.md#35-app-host-reference).
 
+On Fabric the audit ingester also writes **`audit_source_status`**: one row per audit source the run
+tried (`RunAt`, `Source` = Microsoft Sentinel, the Office 365 Management Activity API or the Graph
+audit search, `Status` = `ok`, `empty`, `skipped`, `forbidden` or `error`), replaced each run.
+`AnalyticsHub_Load_Status` reads it. The model doesn't.
+
 ### 1b. `copilot_interactions_curated` — the table the Fabric model actually reads
 `Copilot_Audit_Log_Processor` reads `copilot_interactions_parsed` (joining `copilot_licensed_users`
 and `agents_365`) and writes **`copilot_interactions_curated`**. This — not the `_parsed` table — is

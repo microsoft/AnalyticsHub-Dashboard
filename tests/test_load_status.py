@@ -153,7 +153,8 @@ class LoadStatusTests(unittest.TestCase):
     def test_status_tables_name_loads_that_write_them(self):
         tables = {t["activity"]: t["table"] for t in status(namespace())["statusTables"]}
         self.assertEqual(tables, {"Run_Resource_Graph_Ingester": "arg_status", "Run_Defender_Ingester": "defender_status",
-                                  "Run_Agent_Evaluator_Transcripts": "evaluator_status"})
+                                  "Run_Agent_Evaluator_Transcripts": "evaluator_status",
+                                  "Run_Audit_Log_Ingester": "audit_source_status"})
 
     def test_warning_rows_are_recorded_as_warning_not_succeeded(self):
         s = namespace()

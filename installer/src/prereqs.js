@@ -5,6 +5,7 @@
  * reports "unknown" rather than failing when it can't be read.
  */
 import { allowsAction, ROLES } from './clients/azure.js';
+import { auditSource, MANAGEMENT_API_APP_ID, MANAGEMENT_API_ROLE, readsFeed, SENTINEL_PERMISSION } from './catalog.js';
 import { APP_ROLES, CONSENT_ROLES, FABRIC_ADMIN_ROLE, POWER_PLATFORM_ADMIN_ROLE, TEAMS_PUBLISH_ROLES } from './clients/graph.js';
 import { secretMode } from './config.js';
 import { commandLine } from './launch.js';
@@ -53,6 +54,19 @@ export const PREMIUM_FLOW_PLANS = {
 export { COPILOT_PLAN } from './seats.js';
 
 const PIM_URL = 'https://entra.microsoft.com/#view/Microsoft_Azure_PIMCommon/ActivationMenuBlade/~/aadmigratedroles';
+
+/**
+ * The permissions an audit source reads with, for the audit prerequisite.
+ * @param {import('./catalog.js').AuditSource} source
+ * @param {string} join  Between Sentinel's and the Management API's permission.
+ * @param {boolean} [withApi]  Name the API each permission belongs to.
+ */
+function auditLabel(source, join, withApi = false) {
+  const feed = `${MANAGEMENT_API_ROLE}${withApi ? ' (Office 365 Management APIs)' : ''}`;
+  if (source === 'feed') return feed;
+  if (source === 'auto') return `${SENTINEL_PERMISSION}${withApi ? ' (Microsoft Graph)' : ''}${join}${feed}`;
+  return AUDIT_ROLE;
+}
 
 /**
  * Whether the signed-in user has Global Administrator or Privileged Role Administrator active, so they
@@ -328,22 +342,37 @@ export async function checkPrereqs(ctx, opts = {}) {
     guard(
       {
         id: 'audit-ingestion',
-        label: `Audit log access for Copilot interactions (${AUDIT_ROLE})`,
+        label: `Audit log access for Copilot interactions (${auditLabel(auditSource(config), ' or ')})`,
         neededFor: 'Loading Copilot interactions from the audit log, which most pages are built on. Without admin consent, or with audit logging off in Purview, the audit load finds 0 records.',
-        howTo: `A Global Administrator or Privileged Role Administrator grants admin consent for ${AUDIT_ROLE} (the installer gives you a link). A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: ${PURVIEW_AUDIT_URL} After install, run ${commandLine('check-audit')} to test it.`,
+        howTo: `A Global Administrator or Privileged Role Administrator grants admin consent for ${auditLabel(auditSource(config), ' and ', true)} (the installer gives you a link). A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: ${PURVIEW_AUDIT_URL} After install, run ${commandLine('check-audit')} to test it.`,
       },
       async () => {
-        const last = config.auditCheck ? ` Last audit check (${config.auditCheck.at.slice(0, 10)}): ${AUDIT_CHECK_LABELS[config.auditCheck.result] ?? config.auditCheck.result}.` : '';
+        const checked = (config.auditCheck?.source ?? 'graph') === auditSource(config) ? config.auditCheck : undefined;
+        const last = checked ? ` Last audit check (${checked.at.slice(0, 10)}): ${checked.source && checked.source !== 'graph' ? checked.detail ?? checked.result : AUDIT_CHECK_LABELS[checked.result] ?? checked.result}.` : '';
         if (azure) {
           const g = config.azure?.graphRoles;
           if (g?.assigned?.includes(AUDIT_ROLE)) return { status: 'met', detail: `The jobs' managed identity has it.${last}` };
           if (g?.pending?.includes(AUDIT_ROLE)) return { status: 'missing', detail: `The jobs' managed identity doesn't have it yet.${last}` };
         } else if (config.app.servicePrincipalId) {
           const graphSp = await api.graph.graphServicePrincipal();
-          const role = graphSp.appRoles?.find((/** @type {{ value: string }} */ r) => r.value === AUDIT_ROLE);
-          const assigned = await api.graph.appRoleAssignments(config.app.servicePrincipalId);
-          if (role && assigned.some((/** @type {{ resourceId: string, appRoleId: string }} */ a) => a.resourceId === graphSp.id && a.appRoleId === role.id)) {
-            return { status: AUDIT_CHECK_FAILS.includes(/** @type {any} */ (config.auditCheck?.result)) ? 'missing' : 'met', detail: `Admin consent is in place for the app ${config.app.appId}.${last}` };
+          if (readsFeed(auditSource(config))) {
+            const assigned = await api.graph.appRoleAssignments(config.app.servicePrincipalId);
+            const managementSp = await api.graph.findServicePrincipal(MANAGEMENT_API_APP_ID);
+            const wanted = auditSource(config) === 'auto' ? [[graphSp, SENTINEL_PERMISSION], [managementSp, MANAGEMENT_API_ROLE]] : [[managementSp, MANAGEMENT_API_ROLE]];
+            const consented = wanted.filter(
+              ([sp, name]) => sp?.appRoles?.some((/** @type {{ id: string, value: string }} */ role) =>
+                role.value === name && assigned.some((/** @type {{ resourceId: string, appRoleId: string }} */ a) => a.resourceId === sp.id && a.appRoleId === role.id)),
+            );
+            if (consented.length) return {
+              status: checked && AUDIT_CHECK_FAILS.includes(checked.result) ? 'missing' : 'met',
+              detail: `Admin consent is in place for ${consented.map(([, name]) => name).join(' and ')}. Run check-audit to verify source access.${last}`,
+            };
+          } else {
+            const role = graphSp.appRoles?.find((/** @type {{ value: string }} */ r) => r.value === AUDIT_ROLE);
+            const assigned = await api.graph.appRoleAssignments(config.app.servicePrincipalId);
+            if (role && assigned.some((/** @type {{ resourceId: string, appRoleId: string }} */ a) => a.resourceId === graphSp.id && a.appRoleId === role.id)) {
+              return { status: checked && AUDIT_CHECK_FAILS.includes(checked.result) ? 'missing' : 'met', detail: `Admin consent is in place for the app ${config.app.appId}.${last}` };
+            }
           }
         }
         const admin = (await roles).find((x) => CONSENT_ROLES[/** @type {keyof typeof CONSENT_ROLES} */ (x.roleTemplateId)]);
