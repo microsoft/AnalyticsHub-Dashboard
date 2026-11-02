@@ -137,7 +137,9 @@ can't run on a Fabric schedule. Instead, the installer creates a Power Automate 
 `Analytics Hub - Copilot Studio credits`, that calls the same Power Platform licensing API each day
 as an admin and saves `StudioApiAgentDaily_*.csv`, `StudioApiUserDaily_*.csv` and
 `StudioApiEntitlement_*.csv` for `Ingest_Studio`. It's the default source for Studio credits; the
-PPAC exports are optional and win for the months they cover. See the
+PPAC exports are optional and win for the months they cover. Each run replaces the API rows for
+the days and months the flow's files cover, in one Delta commit per table: a failed write leaves
+the table as it was, and days and months the files don't cover keep their rows. See the
 [installer's flows](../../installer/README.md#power-automate-flows).
 
 Copied from [microsoft/ConsumptionCentral-for-Microsoft-Copilot ↗](https://github.com/microsoft/ConsumptionCentral-for-Microsoft-Copilot)
