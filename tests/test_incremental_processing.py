@@ -488,6 +488,13 @@ def _ingester_writer_cell():
                 if c["cell_type"] == "code" and "def write_output(df):" in "".join(c["source"]))
 
 
+def _ingester_backfill_cell():
+    import json
+    nb = json.loads(INGESTER_NB.read_text(encoding="utf-8"))
+    return next("".join(c["source"]) for c in nb["cells"]
+                if c["cell_type"] == "code" and "def write_backfill(" in "".join(c["source"]))
+
+
 def test_ingester_merge_is_bounded_to_batch_months():
     import ast
     cell = _ingester_writer_cell()
@@ -502,7 +509,10 @@ def test_ingester_merge_is_bounded_to_batch_months():
     assert (cond([None, datetime.date(2026, 9, 1)])
             == "t.`Id` = s.`Id` AND (t.`MonthStart` IN (DATE'2026-09-01') OR t.`MonthStart` IS NULL)")
     assert cond([None]) == "t.`Id` = s.`Id` AND (t.`MonthStart` IS NULL)"
-    # Partitioned on overwrite, one-time migration of an unpartitioned table, bounded MERGE.
-    assert cell.count(".partitionBy(PARTITION_COLUMN)") == 2
-    assert "_table_partition_columns(OUTPUT_TABLE) != [PARTITION_COLUMN]" in cell
+    # The backfill helpers partition a new or rebuilt table and migrate an unpartitioned one, once,
+    # before a merge or a backfill replaces rows. The writer's MERGE is bounded to the batch's months.
+    helpers = _ingester_backfill_cell()
+    assert helpers.count(".partitionBy(partition_column)") == 2
+    assert "_table_partition_columns(table_name) != [partition_column]" in helpers
+    assert "ensure_month_partitions(OUTPUT_TABLE)" in cell
     assert "merge(df.alias('s'), cond)" in cell

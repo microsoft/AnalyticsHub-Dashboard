@@ -563,6 +563,10 @@ work:
   180 days.
 - In the terminal: `run --backfill-days <n>`, with `<n>` from 1 to 180.
 
+A reload keeps older history. On Fabric it replaces the parsed audit rows from the first record it
+reads onwards, then rebuilds the curated table. On the Azure target the run job merges what it reads
+into the day files it already has.
+
 The record keeps the most history loaded, once the reload has started. On Fabric, windows already
 read are reused, so a reload only queries what's missing. On a large tenant, 90 or 180 days can
 take many hours.

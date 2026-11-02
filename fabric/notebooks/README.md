@@ -30,8 +30,9 @@ The [installer](../../installer/) does all of this for you. Use these steps only
    CLIENT_SECRET = notebookutils.credentials.getSecret('https://<vault>.vault.azure.net/', '<secret-name>')
    ```
 4. **Run the 3 ingesters.** For the first run, set `MODE = 'backfill'` in the audit ingester. It
-   loads 30 days (`BACKFILL_DAYS`, up to 180). Afterwards, set it back to `'incremental'`. On a
-   large tenant, read [A large tenant](#a-large-tenant) first.
+   loads 30 days (`BACKFILL_DAYS`, up to 180). Afterwards, set it back to `'incremental'`. A later
+   backfill reloads its days and keeps older rows. On a large tenant, read
+   [A large tenant](#a-large-tenant) first.
 5. **Run `Copilot_Audit_Log_Processor`** once the ingesters finish.
 6. **Open the template** in Power BI Desktop, June 2024 or later, and publish it:
    - [`ValueLens - Fabric.pbit`](../ValueLens%20-%20Fabric.pbit): enter the Lakehouse's **SQL analytics endpoint** and its name.
@@ -109,7 +110,8 @@ a manual Purview search of the same 8h fails too. For more than about 10,000 peo
   carries on: finished windows are reused, and queries still running in the audit service are
   picked up rather than sent again. The budget also covers waits while Graph is throttling (HTTP 429), so a throttled
   run stops at the budget instead of running on to the activity's timeout.
-- Start with the default 30 days. Load more later with a backfill run.
+- Start with the default 30 days. Load more later with a backfill run, which keeps the rows older
+  than the days it reloads.
 - Use an F64 or larger capacity, and don't run audit searches in the Purview portal while it runs.
 
 A tenant can start at least 200 audit searches in a rolling 24 hours, shared with other admins and
