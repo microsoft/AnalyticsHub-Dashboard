@@ -1,10 +1,16 @@
 import { describe, expect, it } from "vitest";
+import { applyDaxFilters, dateBetween, treatAs } from "@/lib/dax-filters";
 import consumptionByProductQuery from "../queries/consumption/consumption-by-product.dax?raw";
 import executiveSummaryQuery from "../queries/executive/executive-summary.dax?raw";
 import { executiveSummary } from "../queries/executive/executive-summary";
+import { executiveDepartments } from "../queries/executive/executive-departments";
+import { executiveHoursRange } from "../queries/executive/executive-hours-range";
+import { executiveMonths } from "../queries/executive/executive-months";
 import habitLicenceQuery from "../queries/licensing/habit-licence-matrix.dax?raw";
 import { costValueAgents, costValueBySource } from "../queries/value/cost-vs-value";
 import { toValueTaskTree, valueByTask } from "../queries/value/value-by-task";
+import { organizationValue } from "../queries/value/organization-value";
+import { valueSummary } from "../queries/value/value-summary";
 import { taskBreakdown } from "../queries/work/task-breakdown";
 import { workSummary } from "../queries/work/work-summary";
 import { leaderboardPeople, toLeaderboardPeopleTree } from "../queries/work/leaderboard-people";
@@ -252,6 +258,62 @@ describe("synthetic demo model", () => {
         }
     });
 
+    it("keeps executive headline, range, organization, and monthly charts on one fixture", () => {
+        const summary = executiveSummary();
+        const range = executiveHoursRange();
+        const departments = executiveDepartments();
+        const months = executiveMonths();
+        const summaryResult = syntheticQueryResult(summary.query, summary.columnMetadata);
+        const rangeResult = syntheticQueryResult(range.query, range.columnMetadata);
+        const departmentResult = syntheticQueryResult(departments.query, departments.columnMetadata);
+        const monthResult = syntheticQueryResult(months.query, months.columnMetadata);
+
+        for (const result of [summaryResult, rangeResult, departmentResult, monthResult]) {
+            expect(result.status).toBe("success");
+            if (result.status === "success") expect(result.table.rows.length).toBeGreaterThan(0);
+        }
+        if (
+            summaryResult.status !== "success" ||
+            rangeResult.status !== "success" ||
+            departmentResult.status !== "success" ||
+            monthResult.status !== "success"
+        ) return;
+
+        const at = (result: { table: { columns: readonly { name: string }[] } }, name: string) =>
+            result.table.columns.findIndex((column) => column.name === name);
+        const summaryRow = summaryResult.table.rows[0];
+        const hours = Number(summaryRow[at(summaryResult, "[Hours]")]);
+        const seats = Number(summaryRow[at(summaryResult, "[Licensed Seats]")]);
+        const seatsInUse = Number(summaryRow[at(summaryResult, "[Seats In Use]")]);
+        expect(hours).toBe(165);
+        expect(summaryRow[at(summaryResult, "[Seats In Use Pct]")]).toBeCloseTo(seatsInUse / seats);
+        expect(Number(rangeResult.table.rows[0][at(rangeResult, "[Hours Conservative]")])).toBeLessThanOrEqual(hours);
+        expect(Number(rangeResult.table.rows[0][at(rangeResult, "[Hours Optimistic]")])).toBeGreaterThanOrEqual(hours);
+
+        const organizationColumn = at(departmentResult, "Chat + Agent Org Data[Organization]");
+        const departmentHoursColumn = at(departmentResult, "[Hours]");
+        const seatsColumn = at(departmentResult, "[Licensed Seats]");
+        const hoursPerSeatColumn = at(departmentResult, "[Hours Per Seat Month]");
+        expect(new Set(departmentResult.table.rows.map((row) => row[organizationColumn])).size).toBe(4);
+        expect(departmentResult.table.rows.reduce((sum, row) => sum + Number(row[departmentHoursColumn]), 0)).toBeCloseTo(hours);
+        expect(departmentResult.table.rows.every((row) =>
+            Number(row[hoursPerSeatColumn]) < Number(row[departmentHoursColumn]) / Number(row[seatsColumn]),
+        )).toBe(true);
+
+        const monthHoursColumn = at(monthResult, "[Hours]");
+        const monthTasksColumn = at(monthResult, "[Tasks]");
+        const copilotColumn = at(monthResult, "[Copilot Hours]");
+        const agentColumn = at(monthResult, "[Agent Hours]");
+        const coworkColumn = at(monthResult, "[Cowork Hours]");
+        expect(monthResult.table.rows.reduce((sum, row) => sum + Number(row[monthHoursColumn]), 0)).toBeCloseTo(hours);
+        expect(monthResult.table.rows.reduce((sum, row) => sum + Number(row[monthTasksColumn]), 0))
+            .toBe(Number(summaryRow[at(summaryResult, "[Tasks]")]));
+        expect(monthResult.table.rows.every((row) =>
+            Number(row[copilotColumn]) + Number(row[agentColumn]) + Number(row[coworkColumn])
+                === Number(row[monthHoursColumn]),
+        )).toBe(true);
+    });
+
     it("populates the value-by-task rollup at every level", () => {
         const query = valueByTask();
         const result = syntheticQueryResult(query.query, query.columnMetadata);
@@ -263,6 +325,79 @@ describe("synthetic demo model", () => {
         expect(tree.rows.every((row) => typeof row["Activity Share"] === "number" && typeof row["Expert Equivalent Hours Per Week"] === "number")).toBe(true);
         expect(tree.rows.every((row) => Array.isArray(row._children) && row._children.length === 2)).toBe(true);
         expect(tree.total?.rows[0].slice(1)).toEqual([1, 138, 6900]);
+    });
+
+    it("keeps the value headline, task breakdown, and organization rows on one fixture", () => {
+        const summary = valueSummary();
+        const tasks = valueByTask();
+        const organizations = organizationValue();
+        const summaryResult = syntheticQueryResult(summary.query, summary.columnMetadata);
+        const taskResult = syntheticQueryResult(tasks.query, tasks.columnMetadata);
+        const organizationResult = syntheticQueryResult(organizations.query, organizations.columnMetadata);
+
+        for (const result of [summaryResult, taskResult, organizationResult]) {
+            expect(result.status).toBe("success");
+            if (result.status === "success") expect(result.table.rows.length).toBeGreaterThan(0);
+        }
+        if (
+            summaryResult.status !== "success" ||
+            taskResult.status !== "success" ||
+            organizationResult.status !== "success"
+        ) return;
+
+        const summaryAt = (name: string) => summaryResult.table.columns.findIndex((column) => column.name === name);
+        expect(summaryResult.table.rows[0][summaryAt("[Expert Equivalent Hours Per Week]")]).toBe(138);
+        expect(summaryResult.table.rows[0][summaryAt("[AI Assisted Value Per Week]")]).toBe(6900);
+        expect(summaryResult.table.rows[0][summaryAt("[AI Assisted Value]")]).toBe(6900 * 26);
+        expect(summaryResult.table.rows[0][summaryAt("[Projected Annualised Value]")]).toBe(6900 * 52);
+
+        const tree = toValueTaskTree(toDataTable(taskResult.table, tasks.columnMetadata));
+        expect(tree.total?.rows[0].slice(1)).toEqual([1, 138, 6900]);
+        const orgAt = (name: string) => organizationResult.table.columns.findIndex((column) => column.name === name);
+        expect(new Set(organizationResult.table.rows.map((row) => row[orgAt("Chat + Agent Org Data[Organization]")])).size).toBe(4);
+        expect(organizationResult.table.rows.reduce((sum, row) => sum + Number(row[orgAt("[Expert Equivalent Hours Per Week]")]), 0))
+            .toBe(138);
+        expect(organizationResult.table.rows.reduce((sum, row) => sum + Number(row[orgAt("[AI Assisted Value]")]), 0))
+            .toBe(6900);
+    });
+
+    it("applies synthetic value assumptions and date filters consistently", () => {
+        const summary = valueSummary();
+        const tasks = valueByTask();
+        const filters = [
+            treatAs("'Hourly Value'[Hourly Value]", [75]),
+            treatAs("'Effort Scenario'[Scenario]", ["Conservative"]),
+            treatAs("'Chat + Agent Org Data'[Organization]", ["Engineering"]),
+        ];
+        const filteredSummary = syntheticQueryResult(applyDaxFilters(summary.query, filters), summary.columnMetadata);
+        const filteredTasks = syntheticQueryResult(applyDaxFilters(tasks.query, filters), tasks.columnMetadata);
+        const dateFilters = [dateBetween("'Calendar'[Date]", "2026-06-01", "2026-06-14")];
+        const dateSummary = syntheticQueryResult(applyDaxFilters(summary.query, dateFilters), summary.columnMetadata);
+        const dateMonths = executiveMonths();
+        const dateMonthResult = syntheticQueryResult(applyDaxFilters(dateMonths.query, dateFilters), dateMonths.columnMetadata);
+
+        expect(filteredSummary.status).toBe("success");
+        expect(filteredTasks.status).toBe("success");
+        expect(dateSummary.status).toBe("success");
+        expect(dateMonthResult.status).toBe("success");
+        if (
+            filteredSummary.status !== "success" ||
+            filteredTasks.status !== "success" ||
+            dateSummary.status !== "success" ||
+            dateMonthResult.status !== "success"
+        ) return;
+
+        const valueAt = (name: string) => filteredSummary.table.columns.findIndex((column) => column.name === name);
+        expect(filteredSummary.table.rows[0][valueAt("[Expert Equivalent Hours Per Week]")]).toBe(43 * 0.75);
+        expect(filteredSummary.table.rows[0][valueAt("[AI Assisted Value Per Week]")]).toBe(43 * 0.75 * 75);
+        const filteredTree = toValueTaskTree(toDataTable(filteredTasks.table, tasks.columnMetadata));
+        expect(filteredTree.total?.rows[0].slice(1)).toEqual([1, 43 * 0.75, 43 * 0.75 * 75]);
+
+        const dateValue = (name: string) => dateSummary.table.columns.findIndex((column) => column.name === name);
+        expect(dateSummary.table.rows[0][dateValue("[AI Assisted Value]")]).toBe(6900 * 2);
+        expect(dateMonthResult.table.rows).toHaveLength(1);
+        expect(dateMonthResult.table.rows[0][dateMonthResult.table.columns.findIndex((column) => column.name === "[Month Start]")])
+            .toBe("2026-06-01");
     });
 
     it("provides surface and model categories that match their chart filters", () => {

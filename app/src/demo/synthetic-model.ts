@@ -1,13 +1,27 @@
 import type { CachedQueryResult } from "@microsoft/fabric-app-data";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
+import { DEFAULT_HOURLY_RATE } from "@/hooks/value-assumptions.context";
 
 type DemoQueryTable = Extract<CachedQueryResult, { status: "success" }>["table"];
 
 const DATE_START = "2026-05-04";
 const DATE_END = "2026-11-02";
-const ORGANIZATIONS = ["Engineering", "Operations", "Research", "Customer Success"];
+const WINDOW_WEEKS = 26;
+const EXECUTIVE_ORGANIZATIONS = [
+    { name: "Engineering", seats: 88, seatsInUse: 64, people: 52, hours: 51, valueHours: 43, habitPct: 0.62 },
+    { name: "Operations", seats: 74, seatsInUse: 54, people: 48, hours: 44, valueHours: 37, habitPct: 0.56 },
+    { name: "Research", seats: 62, seatsInUse: 45, people: 45, hours: 38, valueHours: 32, habitPct: 0.58 },
+    { name: "Customer Success", seats: 54, seatsInUse: 35, people: 42, hours: 32, valueHours: 26, habitPct: 0.51 },
+] as const;
+const ORGANIZATIONS = EXECUTIVE_ORGANIZATIONS.map(({ name }) => name);
 const TASKS = ["Document summaries", "Meeting follow-ups", "Data analysis", "Drafting"];
 const VALUE_TASK_GROUPS = ["Drafting", "Data analysis", "Meeting follow-ups", "Document summaries"];
+const VALUE_TASK_FIXTURE = [
+    { group: "Drafting", hours: 42, tasks: ["Email drafts", "Document drafts"] },
+    { group: "Data analysis", hours: 36, tasks: ["Spreadsheet analysis", "Research synthesis"] },
+    { group: "Meeting follow-ups", hours: 32, tasks: ["Action items", "Follow-up messages"] },
+    { group: "Document summaries", hours: 28, tasks: ["Meeting notes", "Document summaries"] },
+] as const;
 const AGENTS = ["Knowledge Assistant", "Meeting Companion", "Research Helper"];
 const ACTIVITIES = ["Copilot", "Agents", "Cowork"];
 const PRODUCTS = ["Teams", "Outlook", "Word", "Excel"];
@@ -18,6 +32,17 @@ const SHADOW_PROBES = ["device_activity", "installed", "agents", "cloud_discover
 const EVALUATION_OUTCOMES = ["Resolved", "Escalated by design", "Escalated after an error", "Abandoned"] as const;
 const ROLLUP_FLAGS = ["[Is Grand Total]", "[Is Group Total]"];
 const DEMO_RESULT_COUNT = 8;
+const EXECUTIVE_HOURS = { Conservative: 156, Typical: 165, Optimistic: 176 } as const;
+const VALUE_SCENARIO_FACTORS = { Conservative: 0.75, Typical: 1, Optimistic: 1.25 } as const;
+const MONTHLY_EXECUTIVE_FIXTURE = [
+    { month: "2026-05-01", hours: 19, tasks: 700, feedback: 42 },
+    { month: "2026-06-01", hours: 26, tasks: 900, feedback: 48 },
+    { month: "2026-07-01", hours: 27, tasks: 930, feedback: 50 },
+    { month: "2026-08-01", hours: 25, tasks: 940, feedback: 51 },
+    { month: "2026-09-01", hours: 26, tasks: 980, feedback: 54 },
+    { month: "2026-10-01", hours: 24, tasks: 1020, feedback: 57 },
+    { month: "2026-11-01", hours: 18, tasks: 1082, feedback: 58 },
+] as const;
 
 /** Produces a deterministic, local-only query result from its output schema and current DAX filters. */
 export function syntheticQueryResult(query: string, metadata?: ColumnMetadataMap): CachedQueryResult {
@@ -28,10 +53,21 @@ export function syntheticQueryResult(query: string, metadata?: ColumnMetadataMap
     if (parts.length > 0 && !columns.includes("[Part]")) columns.push("[Part]");
     const rows = specialRows(query, columns) ?? genericRows(query, columns);
     const table: DemoQueryTable = {
-        columns: columns.map((name) => ({ name })),
+        columns: columns.map((name, columnIndex) => ({
+            name,
+            dataType: columnDataType(rows, columnIndex),
+        })),
         rows,
     };
-    return { status: "success", table, fromCache: false, cachedAt: undefined };
+    return { status: "success", table, requestId: `demo-${hash(query).toString(16)}`, fromCache: false };
+}
+
+function columnDataType(rows: readonly (readonly unknown[])[], index: number): string {
+    const value = rows.find((row) => row[index] !== null && row[index] !== undefined)?.[index];
+    if (typeof value === "number") return "Double";
+    if (typeof value === "boolean") return "Boolean";
+    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}(?:T.*)?$/.test(value)) return "DateTime";
+    return "String";
 }
 
 function queryColumns(query: string, metadata?: ColumnMetadataMap): string[] {
@@ -134,6 +170,31 @@ function specialRows(query: string, columns: readonly string[]): unknown[][] | u
             ),
         );
     }
+    if (["[Hours]", "[Tasks]", "[People]", "[Licensed Seats]", "[Seats In Use]", "[Seats In Use Pct]"]
+        .every((column) => columns.includes(column))) {
+        return executiveSummaryRows(query, columns);
+    }
+    if (["[Hours Conservative]", "[Hours Optimistic]"].every((column) => columns.includes(column))) {
+        return executiveHoursRangeRows(query, columns);
+    }
+    if (["[Month Start]", "[Copilot Hours]", "[Agent Hours]", "[Cowork Hours]"]
+        .every((column) => columns.includes(column))) {
+        return executiveMonthsRows(query, columns);
+    }
+    if (columns.some((column) => /organization/i.test(column)) &&
+        ["[Licensed Seats]", "[Seats In Use Pct]", "[Habit Pct]", "[Hours]", "[People]", "[Hours Per Seat Month]"]
+            .every((column) => columns.includes(column))) {
+        return executiveDepartmentRows(query, columns);
+    }
+    if (["[Expert Equivalent Hours Per Week]", "[AI Assisted Value]", "[Projected Annualised Value]", "[AI Assisted Value Per Week]"]
+        .every((column) => columns.includes(column))) {
+        return valueSummaryRows(query, columns);
+    }
+    if (columns.some((column) => /organization/i.test(column)) &&
+        ["[Active Users]", "[Expert Equivalent Hours Per Week]", "[AI Assisted Value]"]
+            .every((column) => columns.includes(column))) {
+        return organizationValueRows(query, columns);
+    }
     if (["[Month]", "[Cohort]", "[People]", "[Hours]", "[Count]", "[Cumulative]", "[Total]"]
         .every((column) => columns.includes(column))) {
         return valueByHabitRows(query, columns);
@@ -144,7 +205,7 @@ function specialRows(query: string, columns: readonly string[]): unknown[][] | u
     if (columns.includes("[Is Grand Total]") && columns.includes("[Is Group Total]")) {
         if (["[Activity Share]", "[Expert Equivalent Hours Per Week]", "[AI Assisted Value Per Week]"]
             .every((column) => columns.includes(column))) {
-            return valueTaskRows(columns);
+            return valueTaskRows(query, columns);
         }
         const rows = rollupRows(query, columns);
         if (rows) return rows;
@@ -278,6 +339,199 @@ function specialRows(query: string, columns: readonly string[]): unknown[][] | u
     return undefined;
 }
 
+interface DemoDateRange {
+    from: string;
+    to: string;
+}
+
+function queryDateRange(query: string): DemoDateRange | undefined {
+    const match = /'Calendar'\[Date\]\s*>=\s*DATE\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)\s*&&\s*'Calendar'\[Date\]\s*<=\s*DATE\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*\)/i.exec(query);
+    const requested = match
+        ? {
+              from: `${match[1]}-${String(match[2]).padStart(2, "0")}-${String(match[3]).padStart(2, "0")}`,
+              to: `${match[4]}-${String(match[5]).padStart(2, "0")}-${String(match[6]).padStart(2, "0")}`,
+          }
+        : { from: DATE_START, to: DATE_END };
+    const from = requested.from > DATE_START ? requested.from : DATE_START;
+    const to = requested.to < DATE_END ? requested.to : DATE_END;
+    return from <= to ? { from, to } : undefined;
+}
+
+function weeksInQuery(query: string): number {
+    const range = queryDateRange(query);
+    if (!range) return 0;
+    const days = Math.floor((Date.parse(`${range.to}T00:00:00Z`) - Date.parse(`${range.from}T00:00:00Z`)) / 86_400_000) + 1;
+    return Math.min(WINDOW_WEEKS, Math.max(1, Math.ceil(days / 7)));
+}
+
+type DemoOrganization = (typeof EXECUTIVE_ORGANIZATIONS)[number];
+
+function selectedOrganizations(query: string): DemoOrganization[] {
+    const filter = /TREATAS\s*\(\s*\{([^}]*)\}\s*,\s*'Chat \+ Agent Org Data'\[Organization\]\s*\)/i.exec(query);
+    if (!filter) return [...EXECUTIVE_ORGANIZATIONS];
+    const literals = new Set(
+        [...filter[1].matchAll(/"((?:[^"]|"")*)"/g)].map((match) => match[1].replace(/""/g, '"')),
+    );
+    return EXECUTIVE_ORGANIZATIONS.filter((organization) => literals.has(organization.name));
+}
+
+function scenarioInQuery(query: string): keyof typeof VALUE_SCENARIO_FACTORS {
+    const scenario = /TREATAS\s*\(\s*\{\s*"(Conservative|Typical|Optimistic)"\s*\}\s*,\s*'Effort Scenario'\[Scenario\]\s*\)/i.exec(query)?.[1];
+    return scenario === "Conservative" || scenario === "Optimistic" ? scenario : "Typical";
+}
+
+function hourlyRateInQuery(query: string): number {
+    const rate = /TREATAS\s*\(\s*\{\s*(-?\d+(?:\.\d+)?)\s*\}\s*,\s*'Hourly Value'\[Hourly Value\]\s*\)/i.exec(query)?.[1];
+    const value = rate === undefined ? DEFAULT_HOURLY_RATE : Number(rate);
+    return Number.isFinite(value) && value >= 0 ? value : DEFAULT_HOURLY_RATE;
+}
+
+function round2(value: number): number {
+    return Math.round(value * 100) / 100;
+}
+
+function executiveSummaryRows(query: string, columns: readonly string[]): unknown[][] {
+    const organizations = selectedOrganizations(query);
+    const seats = organizations.reduce<number>((sum, organization) => sum + organization.seats, 0);
+    const seatsInUse = organizations.reduce<number>((sum, organization) => sum + organization.seatsInUse, 0);
+    const people = organizations.reduce<number>((sum, organization) => sum + organization.people, 0);
+    const hours = organizations.reduce<number>((sum, organization) => sum + organization.hours, 0);
+    const weeks = weeksInQuery(query);
+    const values: Record<string, unknown> = {
+        "[Hours]": round2(hours * weeks / WINDOW_WEEKS),
+        "[Tasks]": Math.round(6552 * people / 187 * weeks / WINDOW_WEEKS),
+        "[People]": people,
+        "[Weeks]": weeks,
+        "[Skills Available]": 47,
+        "[Licensed Seats]": seats,
+        "[Seats In Use]": seatsInUse,
+        "[Seats In Use Pct]": seats > 0 ? seatsInUse / seats : 0,
+        "[Unlicensed Users]": 61,
+        "[Habit Month]": "2026-10-01",
+        "[Habitual Pct]": 0.42,
+        "[Power Pct]": 0.21,
+        "[Agent Users]": 42,
+        "[Agent Hours]": round2(54 * hours / 165 * weeks / WINDOW_WEEKS),
+        "[Agents In Use]": 9,
+        "[Satisfaction]": 0.84,
+        "[Feedback]": Math.round(360 * people / 187 * weeks / WINDOW_WEEKS),
+        "[People With Organization]": people,
+    };
+    return [columns.map((column) => values[column] ?? null)];
+}
+
+function executiveHoursRangeRows(query: string, columns: readonly string[]): unknown[][] {
+    const organizations = selectedOrganizations(query);
+    const selectedHours = organizations.reduce<number>((sum, organization) => sum + organization.hours, 0);
+    const weeks = weeksInQuery(query);
+    const share = selectedHours / EXECUTIVE_HOURS.Typical * weeks / WINDOW_WEEKS;
+    const values: Record<string, unknown> = {
+        "[Hours Conservative]": round2(EXECUTIVE_HOURS.Conservative * share),
+        "[Hours Optimistic]": round2(EXECUTIVE_HOURS.Optimistic * share),
+    };
+    return [columns.map((column) => values[column] ?? null)];
+}
+
+function executiveDepartmentRows(query: string, columns: readonly string[]): unknown[][] {
+    const organizations = selectedOrganizations(query);
+    const range = queryDateRange(query);
+    const weeks = weeksInQuery(query);
+    const days = range
+        ? Math.floor((Date.parse(`${range.to}T00:00:00Z`) - Date.parse(`${range.from}T00:00:00Z`)) / 86_400_000) + 1
+        : 0;
+    const months = days / (365.25 / 12);
+    const organizationColumn = columns.find((column) => /organization/i.test(column));
+    if (!organizationColumn || months <= 0) return [];
+    return organizations.map((organization) => {
+        const values: Record<string, unknown> = {
+            [organizationColumn]: organization.name,
+            "[Licensed Seats]": organization.seats,
+            "[Seats In Use Pct]": organization.seatsInUse / organization.seats,
+            "[Habit Pct]": organization.habitPct,
+            "[Hours]": round2(organization.hours * weeks / WINDOW_WEEKS),
+            "[People]": organization.people,
+            "[Hours Per Seat Month]": round2(organization.hours * weeks / WINDOW_WEEKS / organization.seats / months),
+        };
+        return columns.map((column) => values[column] ?? null);
+    });
+}
+
+function executiveMonthsRows(query: string, columns: readonly string[]): unknown[][] {
+    const organizations = selectedOrganizations(query);
+    const orgHours = organizations.reduce<number>((sum, organization) => sum + organization.hours, 0);
+    const orgPeople = organizations.reduce<number>((sum, organization) => sum + organization.people, 0);
+    const orgSeats = organizations.reduce<number>((sum, organization) => sum + organization.seats, 0);
+    const orgSeatsInUse = organizations.reduce<number>((sum, organization) => sum + organization.seatsInUse, 0);
+    const range = queryDateRange(query);
+    const weeks = weeksInQuery(query);
+    const months = range
+        ? MONTHLY_EXECUTIVE_FIXTURE.filter(({ month }) => {
+              const nextMonth = new Date(`${month}T00:00:00Z`);
+              nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+              const monthEnd = nextMonth.toISOString().slice(0, 10);
+              return month <= range.to && monthEnd > range.from;
+          })
+        : [];
+    const monthHours = months.reduce<number>((sum, month) => sum + month.hours, 0);
+    const monthTasks = months.reduce<number>((sum, month) => sum + month.tasks, 0);
+    const targetHours = orgHours * weeks / WINDOW_WEEKS;
+    const targetTasks = 6552 * orgPeople / 187 * weeks / WINDOW_WEEKS;
+    const scaleHours = monthHours > 0 ? targetHours / monthHours : 0;
+    const scaleTasks = monthTasks > 0 ? targetTasks / monthTasks : 0;
+    const monthCount = months.length;
+    return months.map((month, index) => {
+        const hours = round2(month.hours * scaleHours);
+        const tasks = Math.round(month.tasks * scaleTasks);
+        const values: Record<string, unknown> = {
+            "[Month Start]": month.month,
+            "[Copilot Hours]": round2(hours * 0.65),
+            "[Agent Hours]": round2(hours * 0.25),
+            "[Cowork Hours]": round2(hours - round2(hours * 0.65) - round2(hours * 0.25)),
+            "[Hours]": hours,
+            "[Tasks]": tasks,
+            "[Seats In Use Pct]": orgSeats > 0 ? orgSeatsInUse / orgSeats : 0,
+            "[Habit Pct]": 0.48 + index * 0.015,
+            "[Satisfaction]": 0.82 + index * 0.01,
+            "[Feedback]": monthCount > 0 ? Math.round(360 * orgPeople / 187 * weeks / WINDOW_WEEKS / monthCount) : 0,
+        };
+        return columns.map((column) => values[column] ?? null);
+    });
+}
+
+function organizationValueRows(query: string, columns: readonly string[]): unknown[][] {
+    const organizations = selectedOrganizations(query);
+    const scenarioFactor = VALUE_SCENARIO_FACTORS[scenarioInQuery(query)];
+    const hourlyRate = hourlyRateInQuery(query);
+    const organizationColumn = columns.find((column) => /organization/i.test(column));
+    if (!organizationColumn) return [];
+    return organizations.map((organization) => {
+        const hours = round2(organization.valueHours * scenarioFactor);
+        const values: Record<string, unknown> = {
+            [organizationColumn]: organization.name,
+            "[Active Users]": organization.people,
+            "[Expert Equivalent Hours Per Week]": hours,
+            "[AI Assisted Value]": round2(hours * hourlyRate),
+        };
+        return columns.map((column) => values[column] ?? null);
+    });
+}
+
+function valueSummaryRows(query: string, columns: readonly string[]): unknown[][] {
+    const organizations = selectedOrganizations(query);
+    const weeklyHours = organizations.reduce<number>((sum, organization) => sum + organization.valueHours, 0)
+        * VALUE_SCENARIO_FACTORS[scenarioInQuery(query)];
+    const hourlyRate = hourlyRateInQuery(query);
+    const weeklyValue = round2(weeklyHours * hourlyRate);
+    const values: Record<string, unknown> = {
+        "[Expert Equivalent Hours Per Week]": round2(weeklyHours),
+        "[AI Assisted Value]": round2(weeklyValue * weeksInQuery(query)),
+        "[Projected Annualised Value]": round2(weeklyValue * 52),
+        "[AI Assisted Value Per Week]": weeklyValue,
+        "[Currency Symbol]": "$",
+    };
+    return [columns.map((column) => values[column] ?? null)];
+}
+
 function valueByHabitRows(query: string, columns: readonly string[]): unknown[][] {
     const scale = 0.9 + (hash(query) % 21) / 100;
     const basePeople = [12, 18, 24, 30].map((value) => Math.max(3, Math.round(value * scale)));
@@ -340,8 +594,10 @@ function leaderboardConcentrationRows(columns: readonly string[]): unknown[][] {
     });
 }
 
-function leaderboardSummaryPrefix(columns: readonly string[]): string | undefined {
-    return ["All", "Licensed", "Unlicensed", "Agent", "Cowork"].find((prefix) =>
+type LeaderboardPrefix = "All" | "Licensed" | "Unlicensed" | "Agent" | "Cowork";
+
+function leaderboardSummaryPrefix(columns: readonly string[]): LeaderboardPrefix | undefined {
+    return (["All", "Licensed", "Unlicensed", "Agent", "Cowork"] as const).find((prefix) =>
         columns.includes(`[${prefix} Users]`) && columns.includes(`[${prefix} Sessions]`),
     );
 }
@@ -372,39 +628,36 @@ function leaderboardSummaryRows(query: string, columns: readonly string[]): unkn
     return [columns.map((column) => values[column] ?? null)];
 }
 
-function valueTaskRows(columns: readonly string[]): unknown[][] {
-    const shares = [0.32, 0.27, 0.23, 0.18];
-    const hours = [42, 36, 32, 28];
-    const values = [2100, 1800, 1600, 1400];
-    const breakdowns = [
-        ["Email drafts", "Document drafts"],
-        ["Spreadsheet analysis", "Research synthesis"],
-        ["Action items", "Follow-up messages"],
-        ["Meeting notes", "Document summaries"],
-    ];
+function valueTaskRows(query: string, columns: readonly string[]): unknown[][] {
+    const totalHours = VALUE_TASK_FIXTURE.reduce<number>((sum, group) => sum + group.hours, 0);
+    const selectedHours = selectedOrganizations(query).reduce<number>((sum, organization) => sum + organization.valueHours, 0);
+    const scale = VALUE_SCENARIO_FACTORS[scenarioInQuery(query)] * selectedHours / totalHours;
+    const hourlyRate = hourlyRateInQuery(query);
     const groupColumn = columns.find((column) => /task breakdown group/i.test(column));
     const leafColumn = columns.find((column) => /task breakdown category/i.test(column));
     if (!groupColumn || !leafColumn) return [];
-    const row = (group: unknown, leaf: unknown, grand: boolean, subtotal: boolean, share: number, weekHours: number, weekValue: number) => {
+    const row = (group: unknown, leaf: unknown, grand: boolean, subtotal: boolean, share: number, weekHours: number) => {
         const valuesByColumn: Record<string, unknown> = {
             [groupColumn]: group,
             [leafColumn]: leaf,
             "[Is Grand Total]": grand,
             "[Is Group Total]": subtotal,
             "[Activity Share]": share,
-            "[Expert Equivalent Hours Per Week]": weekHours,
-            "[AI Assisted Value Per Week]": weekValue,
+            "[Expert Equivalent Hours Per Week]": round2(weekHours),
+            "[AI Assisted Value Per Week]": round2(weekHours * hourlyRate),
         };
         return columns.map((column) => valuesByColumn[column] ?? null);
     };
-    const rows = VALUE_TASK_GROUPS.flatMap((group, index) => {
+    const rows = VALUE_TASK_FIXTURE.flatMap(({ group, hours, tasks }) => {
         const split = [0.56, 0.44];
-        const leaves = breakdowns[index].map((leaf, leafIndex) =>
-            row(group, leaf, false, false, shares[index] * split[leafIndex], hours[index] * split[leafIndex], values[index] * split[leafIndex]),
+        const groupShare = hours / totalHours;
+        const groupHours = hours * scale;
+        const leaves = tasks.map((leaf, leafIndex) =>
+            row(group, leaf, false, false, groupShare * split[leafIndex], groupHours * split[leafIndex]),
         );
-        return [...leaves, row(group, null, false, true, shares[index], hours[index], values[index])];
+        return [...leaves, row(group, null, false, true, groupShare, groupHours)];
     });
-    rows.push(row(null, null, true, false, 1, hours.reduce((sum, value) => sum + value, 0), values.reduce((sum, value) => sum + value, 0)));
+    rows.push(row(null, null, true, false, 1, totalHours * scale));
     return rows;
 }
 
