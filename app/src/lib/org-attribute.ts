@@ -188,7 +188,7 @@ export function rebindOrgAttributeReferences(query: string): string {
     // Expanded audit-table ALLEXCEPT also used to clear org grouping. The bridge
     // is on the many side, so its Value now needs clearing explicitly, while
     // Attribute stays selected. Skip literals/comments in the same pass.
-    const tokens = /REMOVEFILTERS\s*\(\s*'Chat \+ Agent Org Data'\s*\)|ALLEXCEPT\s*\(\s*'Chat \+ Agent Interactions \(Audit Logs\)'\s*,(?:\s*'Chat \+ Agent Interactions \(Audit Logs\)'\[(?:[^\]]|\]\])*\]\s*,?)+\s*\)|'Chat \+ Agent Org Data'\[Organization\]|"(?:[^"]|"")*"|'(?:[^']|'')*'|\[(?:[^\]]|\]\])*\]|\/\/[^\r\n]*|--[^\r\n]*|\/\*[\s\S]*?\*\//gi;
+    const tokens = /REMOVEFILTERS\s*\(\s*'Chat \+ Agent Org Data'\s*\)|ALLEXCEPT\s*\(\s*'Chat \+ Agent Interactions \(Audit Logs\)'(?:\s*,\s*'Chat \+ Agent Interactions \(Audit Logs\)'\[(?:[^\]]|\]\])*\])+\s*\)|'Chat \+ Agent Org Data'\[Organization\]|"(?:[^"]|"")*"|'(?:[^']|'')*'|\[(?:[^\]]|\]\])*\]|\/\/[^\r\n]*|--[^\r\n]*|\/\*[\s\S]*?\*\//gi;
     return query.replace(tokens, (token) => {
         if (token.toLowerCase() === AUTHORED_REFERENCE.toLowerCase()) return ORG_ATTRIBUTE_VALUE_REF;
         if (/^(REMOVEFILTERS|ALLEXCEPT)\s*\(/i.test(token)) {

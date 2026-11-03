@@ -216,6 +216,15 @@ CALCULATE([Days], REMOVEFILTERS('Chat + Agent Org Data')),
         expect(query).toContain(`'Org Attribute Source'[Attribute] = "officeLocation"`);
     });
 
+    it("requires commas between ALLEXCEPT columns without ambiguous whitespace repetition", () => {
+        const table = "'Chat + Agent Interactions (Audit Logs)'";
+        const valid = `ALLEXCEPT(${table}, ${table}[First], ${table}[Second])`;
+        const malformed = `ALLEXCEPT(${table},${(`${table}[Value] `).repeat(1000)}!)`;
+        const { query } = withOrgAttribute({ query: `EVALUATE ROW("Valid", CALCULATE([People], ${valid}), "Invalid", ${malformed})` }, location);
+        expect(query).toContain(`${valid}, REMOVEFILTERS('Org Attribute Source'[Value])`);
+        expect(query).toContain(malformed);
+    });
+
     it("does not rewrite expressions inside string literals or comments", () => {
         const source = `EVALUATE
 // REMOVEFILTERS('Chat + Agent Org Data')
