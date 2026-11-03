@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { CrossVendorScreen } from "./index";
 import { StageFilterContext, pageStages } from "@/hooks/stage-filter.context";
 import { availableDestinations, destinations, isPackable } from "@/components/destinations";
@@ -9,6 +9,7 @@ import { prefetchTargets } from "@/components/prefetch-targets";
 import portfolio from "./portfolio.json";
 import contract from "./contract.json";
 import { scopedMetrics, metricValue, periodLabel } from "./model";
+import { getScenarioInsights, latestMonth } from "./scenario";
 
 vi.mock("@/components/vega-visual", () => ({ VegaVisual: ({ header }: { header?: { title?: string } }) => <figure aria-label={header?.title} /> }));
 vi.mock("@/hooks/theme.context", () => ({ useThemeContext: () => ({ theme: {}, isDark: false, toggleTheme() {} }) }));
@@ -68,6 +69,18 @@ describe("cross-vendor extension", () => {
         expect(screen.getByText(/Source-native signals inside DataHub/)).toBeInTheDocument();
     });
 
+    it("populates the Microsoft snapshot from the same scenario as the charts", () => {
+        vi.stubEnv("VITE_CROSS_VENDOR_DEMO", "true");
+        render(<StageFilterContext.Provider value={pageStages("vendor-portfolio")}><CrossVendorScreen /></StageFilterContext.Provider>);
+        const card = within(screen.getByRole("article", { name: "Microsoft Copilot scenario snapshot" }));
+        const copilot = getScenarioInsights().copilotCredits.find(row => row.Month === latestMonth.label)!;
+        expect(card.getByText("278")).toBeInTheDocument();
+        expect(card.getByText(String(copilot.Active))).toBeInTheDocument();
+        expect(card.getByText(copilot.Credits.toLocaleString("en-US", { maximumFractionDigits: 1 }))).toBeInTheDocument();
+        expect(card.getByText(/Synthetic scenario, not a live source export/)).toBeInTheDocument();
+        expect(card.queryByText(/Not loaded/)).not.toBeInTheDocument();
+    });
+
     it("keeps one concise synthetic disclosure, in Methodology only", () => {
         vi.stubEnv("VITE_CROSS_VENDOR_DEMO", "true");
         const { unmount } = render(<StageFilterContext.Provider value={pageStages("vendor-methodology")}><CrossVendorScreen /></StageFilterContext.Provider>);
@@ -79,7 +92,7 @@ describe("cross-vendor extension", () => {
         for (const stage of ["vendor-portfolio", "vendor-adoption", "vendor-coding", "vendor-spend"] as const) {
             const view = render(<StageFilterContext.Provider value={pageStages(stage)}><CrossVendorScreen /></StageFilterContext.Provider>);
             expect(screen.queryByRole("note")).not.toBeInTheDocument();
-            expect(view.container.textContent).not.toMatch(/synthetic/i);
+            if (stage !== "vendor-portfolio") expect(view.container.textContent).not.toMatch(/synthetic/i);
             view.unmount();
         }
     });

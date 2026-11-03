@@ -11,7 +11,7 @@ import portfolio from "./portfolio.json";
 import contract from "./contract.json";
 import { metricValue, nativeLabel, periodLabel, providers, scopedMetrics, type DemoPortfolio, type NativeMetric } from "./model";
 import { ActiveTrendChart, AllToolsSummary, CodingOutput, CostPerActiveChart, CreditsVsSpend, DepartmentHeatmap, LeadersTable, MonthlyReachChart, MultiToolCharts, SpendShareChart, SpendTable, TaskMixHeatmap, TopModelsCharts } from "./insights";
-import { SCENARIO_RUN_ID, SCENARIO_SEED, latestMonth, scenarioRange, scenarioTools, taskMapping } from "./scenario";
+import { SCENARIO_RUN_ID, SCENARIO_SEED, getScenarioInsights, latestMonth, scenarioRange, scenarioTools, taskMapping } from "./scenario";
 import { DEMO_ORGANIZATIONS } from "@/demo/organizations";
 
 const data: DemoPortfolio = portfolio;
@@ -42,6 +42,7 @@ function MetricTable({ metrics }: { metrics: NativeMetric[] }) {
 }
 
 function Portfolio() {
+    const copilot = getScenarioInsights().copilotCredits.find(row => row.Month === latestMonth.label)!;
     const headlines: Record<string, [string, string][]> = {
         anthropic_enterprise: [["chat", "messages"], ["cowork", "messages"], ["claude_code", "sessions"]],
         openai_chatgpt: [["ChatGPT", "messages"], ["Codex", "messages"]],
@@ -57,6 +58,21 @@ function Portfolio() {
             <h3 className={cn(BODY, "font-semibold")}>Source snapshots</h3>
             <div className="grid gap-400 md:grid-cols-3">
                 {providers.map(p => {
+                    if (p.id === "microsoft") return (
+                        <article key={p.id} aria-label="Microsoft Copilot scenario snapshot" className={cn(panel, "flex flex-col gap-300")}>
+                            <div className="flex items-center gap-200"><Globe aria-hidden="true" className="icon-size-300 text-primary" /><h3 className={cn(BODY, "font-semibold")}>{p.name}</h3></div>
+                            <p className={cn(SMALL, "text-muted-foreground")}>Microsoft 365 Copilot — seeded scenario usage</p>
+                            <dl className="flex flex-col gap-200">
+                                {[
+                                    ["Licensed seats", DEMO_ORGANIZATIONS.reduce((sum, org) => sum + org.seats, 0)],
+                                    ["Active people", copilot.Active],
+                                    ["Copilot credits", copilot.Credits],
+                                ].map(([label, value]) => <div key={label} className="flex items-center justify-between gap-300 border-b border-border py-200"><dt className={SMALL}>{label}</dt><dd className="text-[length:var(--text-500)] font-semibold">{Number(value).toLocaleString("en-US", { maximumFractionDigits: 1 })}</dd></div>)}
+                            </dl>
+                            <p className={cn(SMALL, "text-muted-foreground")}>{latestMonth.label}; same period and data as the reach and credits charts.</p>
+                            <p className={cn(SMALL, "text-muted-foreground")}>Synthetic scenario, not a live source export. Credits are not USD spend. Native export fixtures below remain separate.</p>
+                        </article>
+                    );
                     const rows = scopedMetrics(data, p.id);
                     const headline = (headlines[p.id] ?? []).flatMap(([product, metric]) => rows.filter(m => m.product === product && m.metric === metric));
                     return (

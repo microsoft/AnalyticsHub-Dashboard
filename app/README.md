@@ -34,7 +34,9 @@ Its seeded 91-day comparison uses the same four organizations, 278 licensed-seat
 198 Copilot users as the other demo fixtures. Monthly active users cover their labelled month,
 not the app's all-date totals. Vendor counts can overlap; native units, credits and USD spend
 are not added together. The native-source evidence fixture is separately identified and is not
-a population total. The view's own vendor/product filters work locally; app-wide filters do
+a population total. The Microsoft Copilot snapshot uses the same seeded monthly active people
+and credits as the scenario charts, not a live export; GitHub usage remains deferred.
+The view's own vendor/product filters work locally; app-wide filters do
 not apply. `.env.demo` enables this view only for the static demo build; ordinary builds keep
 it disabled unless `VITE_CROSS_VENDOR_DEMO=true` is explicitly set.
 
