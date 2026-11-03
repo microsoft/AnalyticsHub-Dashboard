@@ -1,0 +1,10 @@
+{
+  "ValueLens - SharePoint.pbit": {
+    "repository": "microsoft/ValueLens-for-Microsoft-Copilot",
+    "path": "4. SharePoint/ValueLens - SharePoint.pbit",
+    "commit": "bf264fafa78d858ce3aea125925d4b9903c4d070",
+    "gitBlob": "f744f9dfb4baa7a5277063311438692469991bdb",
+    "sha256": "8e066caeb7339ac2c69eec653124090a2ad4ecfc168d390e910a8340cda9686e",
+    "bytes": 1241885
+  }
+}

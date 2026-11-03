@@ -18,7 +18,7 @@ CHECKED = sorted(
     [*(ROOT / "docs").glob("*.md"), *(ROOT / "docs" / "wiki").glob("*.md"), *(ROOT / "ideas").glob("**/*.md")]
     + [ROOT / p for p in ("README.md", "CONTRIBUTING.md", "1-fabric/README.md", "2-azure/README.md",
                           "fabric/README.md", "azure/README.md", "azure/AGENT-EVALUATOR-LIVE-TEST.md", "installer/README.md",
-                          "fabric/MANUAL-SETUP.md")]
+                          "fabric/MANUAL-SETUP.md", "sharepoint/README.md")]
 )
 
 LINK = re.compile(r'!?\[(?:[^\[\]]|\[[^\]]*\])*\]\(\s*<?([^)\s>]+)>?(?:\s+"[^"]*")?\s*\)')

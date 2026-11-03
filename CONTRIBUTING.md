@@ -110,9 +110,10 @@ against a workspace or a local SQL database.
 | [`app/`](app/) | The Analytics Hub app: a Fabric app item and the web app's front end on Azure | Fabric by hand, or developers |
 | [`azure/`](azure/) | Bicep, Container Apps jobs, SQL schema, web app and Teams package for Azure | Azure by hand, or developers |
 | [`core/`](core/) | `valuelens_core`, the Python shared by the Azure jobs and the Fabric Defender notebook | Developers |
+| [`sharepoint/`](sharepoint/) | Power BI templates for a SharePoint setup, copied unchanged from ValueLens and pinned to a commit. Not shipped yet | Contributors |
 | [`samples/`](samples/) | Synthetic sample data for demo mode | Demos |
 | [`media/`](media/) | Screenshots and the demo video | Docs |
-| [`scripts/`](scripts/) · [`tests/`](tests/) | Maintainer scripts that patch the templates, and the tests | Contributors |
+| [`scripts/`](scripts/) · [`tests/`](tests/) | Maintainer scripts that patch or check the templates, and the tests | Contributors |
 | [`ideas/`](ideas/) | Parked ideas. Not part of the product: not built, run, shipped or supported. Still in source downloads, and still scanned and checked | Contributors |
 
 ## Repository conventions
@@ -138,7 +139,9 @@ against a workspace or a local SQL database.
   shipped templates automatically: rebuild with the relevant repository generator
   or Power BI Desktop workflow. Describe the rebuild, preserve unrelated report /
   model content, and check refresh and visuals in Desktop with fabricated data.
-  Do not claim a binary diff alone proves report correctness.
+  Do not claim a binary diff alone proves report correctness. Templates in `sharepoint/` are
+  copies, never rebuilt here: fix them upstream, then re-pin them as
+  [sharepoint/README.md](sharepoint/README.md) says.
 - Keep pull requests scoped and check every Markdown link you change. Record the
   exact test command, results and any skipped live validation.
 
