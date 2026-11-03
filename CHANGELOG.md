@@ -186,8 +186,8 @@ asked for.
   reads CSVs from a SharePoint library, with no Fabric or Azure. `sharepoint/provenance.json` pins
   it to the ValueLens commit it came from, and a test checks the copy matches.
   `scripts/Check-SharePoint-Queries.py` reports which of the app's ValueLens queries the model
-  answers, 68 of 95 today, and where DataHub gets the rest. The installer, the app and the
-  releases don't use it yet.
+  answers, and where DataHub gets the rest. The installer, the app and the releases don't
+  use it yet.
 
 ### Fixed
 

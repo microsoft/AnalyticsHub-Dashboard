@@ -43,5 +43,6 @@ ID, SHA-256 and size in bytes.
 ## What the app can read from it
 
 [`scripts/Check-SharePoint-Queries.py`](../scripts/Check-SharePoint-Queries.py) reads every query
-the app sends to ValueLens. It lists the tables, columns and measures this model lacks, and where
-DataHub gets each one today. It only reports. Add `--json` for every query and name.
+the app sends to ValueLens, and the filter bar's columns, the org filter's bridge table among
+them. It lists the tables, columns and measures this model lacks, and where DataHub gets
+each one today. It only reports. Add `--json` for every query and name.
