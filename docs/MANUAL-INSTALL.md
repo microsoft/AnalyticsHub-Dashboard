@@ -66,11 +66,27 @@ Something wrong? See [Troubleshooting](TROUBLESHOOTING.md), including its [known
 
 There's no **Repair or change** by hand. For a new version on Fabric:
 
+- **Get the released files first:** running commands from an old checkout deploys that old
+  version again. Keep your existing model IDs, app deployment configuration, connection settings
+  and any customisations before replacing files.
 - **Notebooks:** import the new ones over the old, and fill in the first cell again.
 - **Pipeline:** paste the new JSON, fill in the IDs again, and re-add your refresh step. See
   [the pipeline](../fabric/pipelines/README.md#if-a-run-fails).
-- **App:** run `npx rayfin up` again from `app`.
+- **Models:** open the new `ValueLens - Fabric.pbit` (or your OneLake template) in Power BI
+  Desktop, enter the existing source parameters, and publish to the existing workspace. Review
+  and approve replacement of the intended report/model, not a second unrelated copy. Update the
+  Consumption Central and Agent Evaluator templates too if you use them. Back up report edits
+  first, then check connections, refresh, permissions and any configured org-scoped access.
+- **App:** after the source loads and model refreshes finish successfully, install the released
+  app dependencies and run `npx rayfin up` again from `app`, using the existing deployment and
+  model bindings. If a replacement changed a model ID, update `fabric.yaml` first.
 - **Secret:** replace it in Key Vault or the notebooks before it expires.
+
+For the expanded **Group by**, model replacement is required: the new templates create the
+`Org Attribute Source` membership table during refresh. An app-only redeploy or refresh of an
+old model cannot add it. Check an eligible custom attribute appears after the updated org source
+loads and models refresh. Subsequent new source columns need only ingestion and model refresh,
+not another model-column edit. See [the eligibility rules](../app/README.md#group-by).
 
 ## What you don't get by hand
 

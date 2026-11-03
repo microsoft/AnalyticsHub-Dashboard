@@ -80,7 +80,7 @@ PINNED = {
         (MONTHS,),
         "VAR LicensedUPNs = CALCULATETABLE( VALUES('Copilot Licensed'[UPN_Normalized]), "
         "UPPER(TRIM('Copilot Licensed'[Has license])) IN {\"YES\",\"TRUE\",\"Y\",\"1\"}, "
-        "REMOVEFILTERS('Chat + Agent Org Data') ) "
+        "REMOVEFILTERS('Chat + Agent Org Data'), REMOVEFILTERS('Org Attribute Source'[Value]) ) "
         "RETURN CALCULATE( DISTINCTCOUNT('Chat + Agent Org Data'[PersonId_Normalized]), "
         "TREATAS(LicensedUPNs, 'Chat + Agent Org Data'[PersonId_Normalized]) )",
     ),

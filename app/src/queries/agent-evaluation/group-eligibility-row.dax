@@ -1,0 +1,19 @@
+ROW(
+    "Kind", "Group by",
+    "Value", __ID__,
+    "Sort", COUNTROWS(
+        TOPN(
+            2,
+            FILTER(
+                CALCULATETABLE(
+                    SUMMARIZECOLUMNS(__COLUMN__, "@Conversations", [Total Conversations])
+                    __ATTRIBUTE_FILTER__
+                ),
+                NOT ISBLANK(__COLUMN__) &&
+                LEN(TRIM(CONVERT(__COLUMN__, STRING))) > 0 &&
+                [@Conversations] > 0
+            ),
+            __COLUMN__, ASC
+        )
+    )
+)

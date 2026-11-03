@@ -5,14 +5,17 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { describeOrgAttribute, DEFAULT_ORG_ATTRIBUTE, orgColumnRef, type OrgAttribute } from "@/lib/org-attribute";
+import { describeOrgAttribute, DEFAULT_ORG_ATTRIBUTE, orgColumnRef, withOrgAttribute, type OrgAttribute } from "@/lib/org-attribute";
 import { modelFitVerdictsFor } from "./model-fit-verdicts";
 
 /**
  * The organization table from Model Fit, bound straight to the org mapping
- * table so destination filters keep behaving like slicers. Pass another org
- * attribute to group by that column instead.
+ * table so destination filters keep behaving like slicers. Other attributes
+ * group by the row bridge under the selected attribute filter.
  */
 export function modelFitByOrganization(attribute: OrgAttribute = describeOrgAttribute(DEFAULT_ORG_ATTRIBUTE)) {
-    return modelFitVerdictsFor(orgColumnRef(attribute.column), `Unassigned ${attribute.noun}`);
+    return withOrgAttribute(
+        modelFitVerdictsFor(orgColumnRef(DEFAULT_ORG_ATTRIBUTE), `Unassigned ${attribute.noun}`),
+        attribute,
+    );
 }

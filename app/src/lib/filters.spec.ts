@@ -52,7 +52,7 @@ describe("filterExpressions", () => {
         };
         expect(filterExpressions(state, ALL_KEYS)).toEqual([
             "FILTER(ALL('Calendar'[Date]), 'Calendar'[Date] >= DATE(2026, 6, 9) && 'Calendar'[Date] <= DATE(2026, 7, 6))",
-            `TREATAS({"HR", "IT"}, 'Chat + Agent Org Data'[Organization])`,
+            `TREATAS(CALCULATETABLE(VALUES('Org Attribute Source'[PersonId_Normalized]), 'Org Attribute Source'[Attribute] = "Organization", 'Org Attribute Source'[Value] IN {"HR", "IT"}), 'Chat + Agent Org Data'[PersonId_Normalized])`,
             `TREATAS({"Unlicensed"}, 'Chat + Agent Interactions (Audit Logs)'[Environment])`,
             `TREATAS({"Agents"}, 'Chat + Agent Interactions (Audit Logs)'[Agent Filter (Normalized)])`,
             `TREATAS({"Microsoft"}, 'Agents 365'[Agent Type Label])`,
@@ -70,7 +70,7 @@ describe("filterExpressions", () => {
     it("filters the org column chosen in Group by", () => {
         const state: FilterState = { ...defaultFilters, orgAttribute: "officeLocation", organizations: ["Dublin"] };
         expect(filterExpressions(state, ["organizations"])).toEqual([
-            `TREATAS({"Dublin"}, 'Chat + Agent Org Data'[officeLocation])`,
+            `TREATAS(CALCULATETABLE(VALUES('Org Attribute Source'[PersonId_Normalized]), 'Org Attribute Source'[Attribute] = "officeLocation", 'Org Attribute Source'[Value] IN {"Dublin"}), 'Chat + Agent Org Data'[PersonId_Normalized])`,
         ]);
     });
 

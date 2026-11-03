@@ -14,6 +14,8 @@ import {
     conversationsSummary,
     evaluationFilters,
     evaluationOptions,
+    evaluationOrgAttributes,
+    evaluationOrgGroupOptions,
     feedbackComments,
     GROUP_BY_COLUMNS,
     groupByChoices,
@@ -28,6 +30,7 @@ import {
     readableErrors,
     readableGroups,
     readEvaluationOptions,
+    readEvaluationOrgAttributes,
     selectionRange,
     themeOutcomes,
     TOPIC_LABEL_COLUMN,
@@ -108,12 +111,108 @@ describe("agent evaluation query contract", () => {
         expect(wrapped).toContain("CALCULATETABLE(");
     });
 
-    it("counts the groups of every Group by column in the options query", () => {
+    it("bounds non-org group eligibility without eager per-org conversation scans", () => {
         const query = evaluationOptions().query;
         for (const { id, column } of GROUP_BY_COLUMNS) {
             expect(query).toContain(`"Value", "${id}"`);
             expect(query).toContain(`SUMMARIZECOLUMNS(${column},`);
         }
+        expect(query.match(/TOPN\(/g)).toHaveLength(3);
+        expect(query).not.toContain(`"Value", "job-title"`);
+        expect(query).not.toContain(`"Value", "department"`);
+    });
+
+    describe("Evaluator org grouping discovery", () => {
+        function inventory(rows: unknown[][]) {
+            return readEvaluationOrgAttributes(table(["[Column]"], rows));
+        }
+
+        it("discovers all types and cardinalities only from its own viewer-readable model", () => {
+            const source = evaluationOrgAttributes();
+            expect(source.connection).toBe("ae");
+            expect(source.query).toContain("VALUES('Org Attribute Source'[Attribute])");
+            expect(source.query).not.toMatch(/COLUMNSTATISTICS|INFO\.|TMSCHEMA|MAX.?LENGTH/i);
+            const columns = inventory([
+                ["Organization", 5], ["CostCenterId", 100000], ["accountEnabled", 2],
+                ["StartDate", 5000], ["Budget", 10000], ["PersonId", 100000],
+                ["displayName", 100000], ["Hierarchy Path", 100000],
+            ]);
+            expect(columns.map((column) => column.id)).toEqual([
+                "department", "org:accountEnabled", "org:Budget", "org:CostCenterId", "org:StartDate",
+            ]);
+        });
+
+        it("retains existing IDs and labels without assuming their columns are present", () => {
+            const columns = inventory([
+                ["Organization", 5], ["JobTitle", 4], ["officeLocation", 3], ["country", 2],
+                ["usageLocation", 2], ["companyName", 2], ["Function", 2], ["Location", 2],
+            ]);
+            expect(Object.fromEntries(columns.map(({ id, label }) => [id, label]))).toEqual({
+                department: "Department", "job-title": "Job title", office: "Office", country: "Country",
+                "usage-location": "Usage location", company: "Company", function: "Function", location: "Location",
+            });
+            expect(inventory([["Custom region"]]).map(({ column, attribute }) => ({ column, attribute }))).toEqual([
+                { column: "'Org Attribute Source'[Value]", attribute: "Custom region" },
+            ]);
+        });
+
+        it("escapes discovered identifiers and DAX strings and bounds conversation eligibility", () => {
+            const columns = inventory([['Cost ] "Band"', 10000], ["Zero or false", 3]]);
+            const source = evaluationOrgGroupOptions(columns);
+            expect(source.connection).toBe("ae");
+            expect(source.query).toContain("SUMMARIZECOLUMNS('Org Attribute Source'[Value],");
+            expect(source.query).toContain('TREATAS({"Cost ] ""Band"""}, \'Org Attribute Source\'[Attribute])');
+            expect(source.query).toContain('"org:Cost ] ""Band"""');
+            expect(source.query.match(/TOPN\(/g)).toHaveLength(2);
+            expect(source.query).toContain("[@Conversations] > 0");
+            expect(source.query).toContain("NOT ISBLANK(");
+            expect(source.query).toContain("LEN(TRIM(CONVERT(");
+            expect(source.query).not.toMatch(/__[A-Z_]+__/);
+            expect(evaluationOrgGroupOptions([]).query).toBe("");
+        });
+
+        it("preserves replacement sequences and literal template tokens in custom names", () => {
+            const name = "Cost $& $' $` __COLUMN__ __ID__ __GROUP__";
+            const [column] = inventory([[name, 2]]);
+            const reference = "'Org Attribute Source'[Value]";
+            const filter = `TREATAS({"${name}"}, 'Org Attribute Source'[Attribute])`;
+            expect(column.column).toBe(reference);
+            const eligibility = evaluationOrgGroupOptions([column]).query;
+            expect(eligibility).toContain(`"Value", "org:${name}"`);
+            expect(eligibility).toContain(filter);
+            expect(eligibility.split(reference)).toHaveLength(5);
+            const performance = performanceByGroup(column).query;
+            expect(performance.split(reference)).toHaveLength(3);
+            expect(performance).toContain(`"Group", ${reference}`);
+            expect(performance).toContain(filter);
+            expect(performance).not.toContain("'Chat + Agent Org Data'[Cost");
+        });
+
+        it("scopes every grouping measure to one bridge attribute without mixing equal values across attributes", () => {
+            const columns = inventory([["Region"], ["CostCenterId"]]);
+            for (const column of columns) {
+                const query = performanceByGroup(column).query;
+                expect(query).toContain("CALCULATETABLE(");
+                expect(query).toContain(`TREATAS({"${column.attribute}"}, 'Org Attribute Source'[Attribute])`);
+                expect(query).toContain('"@Conversations", [Total Conversations]');
+                expect(query).toContain('"@People", [Unique Users]');
+                expect(query).not.toContain("'Chat + Agent Org Data'[");
+            }
+        });
+
+        it("requires two populated groups with conversations rather than two inventory values", () => {
+            const columns = inventory([["Organization", 5], ["CostCenterId", 10000], ["Sparse", 2]]);
+            const counts = { agent: 2, theme: 2, topic: 2, department: 2, "org:CostCenterId": 2, "org:Sparse": 1 };
+            expect(groupByChoices(counts, columns).map(({ id }) => id)).toEqual([
+                "agent", "department", "theme", "topic", "org:CostCenterId",
+            ]);
+        });
+
+        it("does not mistake populated zero, false or dates for missing group labels", () => {
+            const [column] = inventory([["Budget", 3]]);
+            const result = readableGroups(table(["Group"], [[0], [false], ["2026-01-01"], [null], ["  "]]), column);
+            expect(result.rows.map((row) => row[0])).toEqual(["0", "false", "2026-01-01", "(Not recorded)", "(Not recorded)"]);
+        });
     });
 
     it("groups by the chosen column and nothing else", () => {

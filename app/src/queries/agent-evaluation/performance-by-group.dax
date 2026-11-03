@@ -1,5 +1,5 @@
 // Every headline rate for each group of the chosen Group by column, largest
-// first. The app fills in the column from a fixed list.
+// first. The app fills in a model-owned grouping or a discovered org column.
 EVALUATE
 VAR _groups =
     SUMMARIZECOLUMNS(

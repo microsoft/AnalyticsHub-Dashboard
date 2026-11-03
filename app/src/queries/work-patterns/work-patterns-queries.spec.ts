@@ -139,9 +139,11 @@ describe("work patterns query contract", () => {
 
     it("rebinds the organization breakdown to the chosen org column", () => {
         const rebound = withOrgAttribute(m365ByOrg(), describeOrgAttribute("Department"));
-        expect(rebound.query).toContain("'Chat + Agent Org Data'[Department]");
+        expect(rebound.query).toContain("'Org Attribute Source'[Value]");
+        expect(rebound.query).toContain(`'Org Attribute Source'[Attribute] = "Department"`);
         expect(rebound.query).not.toContain("'Chat + Agent Org Data'[Organization]");
         expect(rebound.query).toContain("REMOVEFILTERS('Chat + Agent Org Data')");
+        expect(rebound.query).toContain("REMOVEFILTERS('Chat + Agent Org Data'), REMOVEFILTERS('Org Attribute Source'[Value])");
         expect(rebound.columnMetadata["[Organization]"].displayName).toBe("Department");
     });
 

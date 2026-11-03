@@ -6,23 +6,25 @@
 //-----------------------------------------------------------------------
 
 import type { ColumnMetadataMap } from "./to-data-table";
+import { applyDaxFilters, daxString } from "./dax-filters";
 
 /**
- * The org mapping table keeps every column of the customer's org export, so
- * the app can group and filter by whichever of them a customer loaded:
- * department, function, location, cost centre and so on.
+ * The row bridge exposes loaded org attributes without requiring a declared
+ * model column for every source field.
  *
  * Every org-bound query is written against `Organization`, the column the
- * model always has, and {@link withOrgAttribute} swaps in the chosen column.
+ * model always has, and {@link withOrgAttribute} binds other attributes to the bridge.
  */
 export const ORG_TABLE = "Chat + Agent Org Data";
 export const DEFAULT_ORG_ATTRIBUTE = "Organization";
+export const ORG_ATTRIBUTE_TABLE = "Org Attribute Source";
+export const ORG_ATTRIBUTE_VALUE_REF = `'${ORG_ATTRIBUTE_TABLE}'[Value]`;
 
 const AUTHORED_REFERENCE = `'${ORG_TABLE}'[${DEFAULT_ORG_ATTRIBUTE}]`;
 const AUTHORED_RESULT_COLUMN = `${ORG_TABLE}[${DEFAULT_ORG_ATTRIBUTE}]`;
 
 export interface OrgAttribute {
-    /** The model column name, e.g. `officeLocation`. */
+    /** The raw source column name, e.g. `officeLocation`. */
     column: string;
     /** For headings and filters, e.g. `Office location`. */
     label: string;
@@ -95,29 +97,47 @@ export interface OrgColumnStatistic {
     maxLength: number | undefined;
 }
 
-// Identifiers and join keys: grouping by them gives one bar per person.
-// The suffix test is case-sensitive so "Paid" or "Grid" are not caught.
-const IDENTIFIER_SUFFIX = /(^|[_\s-])(id|Id|ID)$|[a-z0-9](Id|ID)$/;
-const IDENTIFIER_WORD = /upn|principal|e-?mail|^mail$|normali[sz]ed|^RowNumber-/i;
-// Anything past this is a list of people, not a way to slice them.
-const MAX_GROUPS = 500;
+const PERSON_OR_INTERNAL_COLUMNS = new Set([
+    "id", "userid", "userkey", "personid", "personkey", "employeeid", "employeekey",
+    "objectid", "aadid", "aadobjectid", "entraid", "entraobjectid",
+    "upn", "userprincipalname", "principalname", "email", "emailaddress", "mail",
+    "personidnormalized", "personidnormalised", "useridnormalized", "useridnormalised",
+    "userprincipalnamenormalized", "userprincipalnamenormalised",
+    "managerid", "manageruserid", "manageruserkey", "managerupn", "manageruserprincipalname",
+    "displayname", "fullname", "preferredname", "firstname", "lastname", "givenname", "surname", "name", "user",
+    "hierarchypath", "managementpath", "orgpath", "orgjoinkey", "totalemployees", "hierarchyerror", "orgdatasource",
+]);
+
+/** Business codes such as CostCenterId are attributes, not person identifiers. */
+export function isOrgAttribute(column: string): boolean {
+    const key = column.replace(/[^a-z0-9]/gi, "").toLowerCase();
+    return key.length > 0 &&
+        !PERSON_OR_INTERNAL_COLUMNS.has(key) &&
+        !/^(person|user|employee|manager)(id|key|upn|email|emailaddress|principalname)(normali[sz]ed)?$/.test(key) &&
+        !/^rownumber-/i.test(column) &&
+        key !== "level5userkey";
+}
 
 /**
- * The org columns worth grouping by: text columns with at least two values
- * and fewer distinct values than half the people in the table, excluding
- * identifiers. `Organization` leads when it qualifies; the rest are
- * alphabetical by label.
+ * Bridge values are invariant text serialized by the model. Project membership
+ * onto the org key explicitly; RLS must not depend on reverse bridge filtering.
+ * Evaluator models can supply their alternate org join key.
  */
-export function pickOrgAttributes(stats: readonly OrgColumnStatistic[], people: number): string[] {
-    const ceiling = Math.min(MAX_GROUPS, Math.max(50, Math.floor(people / 2)));
+export function orgValueFilter(column: string, values: readonly string[], keyColumn = "PersonId_Normalized"): string {
+    return `TREATAS(CALCULATETABLE(VALUES('${ORG_ATTRIBUTE_TABLE}'[PersonId_Normalized]), '${ORG_ATTRIBUTE_TABLE}'[Attribute] = ${daxString(column)}, ${ORG_ATTRIBUTE_VALUE_REF} IN {${values.map(daxString).join(", ")}}), ${orgColumnRef(keyColumn)})`;
+}
+
+/**
+ * Candidates from model statistics, regardless of type or cardinality.
+ * A bounded value check subsequently excludes blank-plus-single-value columns.
+ * `Organization` leads; the rest are alphabetical by label.
+ */
+export function pickOrgAttributes(stats: readonly OrgColumnStatistic[]): string[] {
     const picked = stats
         .filter(
             (stat) =>
-                stat.maxLength !== undefined &&
                 stat.cardinality >= 2 &&
-                stat.cardinality <= ceiling &&
-                !IDENTIFIER_SUFFIX.test(stat.column) &&
-                !IDENTIFIER_WORD.test(stat.column),
+                isOrgAttribute(stat.column),
         )
         .map((stat) => stat.column);
 
@@ -129,7 +149,7 @@ export function pickOrgAttributes(stats: readonly OrgColumnStatistic[], people: 
 }
 
 /**
- * Rebinds a query authored against `Organization` to another org column:
+ * Rebinds a query authored against `Organization` to a bridge attribute:
  * the DAX reference, the result-column key its metadata is looked up by, and
  * the "Organization" display names and chart titles. The cleaned field `name`
  * stays the same, so Vega specs and grid columns keep working unchanged.
@@ -141,7 +161,10 @@ export function withOrgAttribute<
 
     const next: T = {
         ...config,
-        query: config.query.replaceAll(AUTHORED_REFERENCE, orgColumnRef(attribute.column)),
+        query: applyDaxFilters(
+            rebindOrgAttributeReferences(config.query),
+            [`'${ORG_ATTRIBUTE_TABLE}'[Attribute] = ${daxString(attribute.column)}`],
+        ),
     };
 
     if (config.columnMetadata) {
@@ -149,7 +172,7 @@ export function withOrgAttribute<
         for (const [key, definition] of Object.entries(config.columnMetadata)) {
             const relabelled =
                 definition.displayName === DEFAULT_ORG_ATTRIBUTE ? { ...definition, displayName: attribute.label } : definition;
-            columnMetadata[key === AUTHORED_RESULT_COLUMN ? `${ORG_TABLE}[${attribute.column}]` : key] = relabelled;
+            columnMetadata[key === AUTHORED_RESULT_COLUMN ? `${ORG_ATTRIBUTE_TABLE}[Value]` : key] = relabelled;
         }
         next.columnMetadata = columnMetadata;
     }
@@ -158,6 +181,21 @@ export function withOrgAttribute<
         next.vegaLiteSpec = relabelTitles(config.vegaLiteSpec, attribute.label) as T["vegaLiteSpec"];
     }
     return next;
+}
+
+/** Rebinds query-scoped expressions too, including definitions added after the initial query binding. */
+export function rebindOrgAttributeReferences(query: string): string {
+    // Expanded audit-table ALLEXCEPT also used to clear org grouping. The bridge
+    // is on the many side, so its Value now needs clearing explicitly, while
+    // Attribute stays selected. Skip literals/comments in the same pass.
+    const tokens = /REMOVEFILTERS\s*\(\s*'Chat \+ Agent Org Data'\s*\)|ALLEXCEPT\s*\(\s*'Chat \+ Agent Interactions \(Audit Logs\)'(?:\s*,\s*'Chat \+ Agent Interactions \(Audit Logs\)'\[(?:[^\]]|\]\])*\])+\s*\)|'Chat \+ Agent Org Data'\[Organization\]|"(?:[^"]|"")*"|'(?:[^']|'')*'|\[(?:[^\]]|\]\])*\]|\/\/[^\r\n]*|--[^\r\n]*|\/\*[\s\S]*?\*\//gi;
+    return query.replace(tokens, (token) => {
+        if (token.toLowerCase() === AUTHORED_REFERENCE.toLowerCase()) return ORG_ATTRIBUTE_VALUE_REF;
+        if (/^(REMOVEFILTERS|ALLEXCEPT)\s*\(/i.test(token)) {
+            return `${token}, REMOVEFILTERS(${ORG_ATTRIBUTE_VALUE_REF})`;
+        }
+        return token;
+    });
 }
 
 /** Swaps every `title: "Organization"` in a spec — axes, legends, tooltips — for the attribute's label. */

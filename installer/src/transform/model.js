@@ -23,6 +23,29 @@ export const AGENT_EVALUATOR_TEMPLATE = `${SETUP_DIR}/Add Agent Evaluator/Agent 
 
 /** The table that has an incremental refresh policy. */
 export const AUDIT_TABLE = 'Chat + Agent Interactions (Audit Logs)';
+/** Fixed-schema membership bridge: new org source fields become rows on every refresh. */
+export const ORG_ATTRIBUTE_SOURCE = 'Org Attribute Source';
+
+/**
+ * Refuse a stale/custom template instead of silently deploying a fixed org-field inventory.
+ * The bridge filters org/facts; security only flows from the secured org to the bridge.
+ * @param {ModelBim['model']} model
+ */
+export function verifyOrgAttributeSource(model) {
+  if (!model.tables.some((t) => t.name === 'Chat + Agent Org Data')) return;
+  const table = model.tables.find((t) => t.name === ORG_ATTRIBUTE_SOURCE);
+  const required = ['PersonId_Normalized', 'Attribute', 'Value', 'ValueType'];
+  const relationship = model.relationships?.find((/** @type {any} */ r) =>
+    r.fromTable === ORG_ATTRIBUTE_SOURCE && r.fromColumn === 'PersonId_Normalized' &&
+    r.toTable === 'Chat + Agent Org Data' &&
+    ['PersonId_Normalized', 'Org Join Key'].includes(r.toColumn) &&
+    r.crossFilteringBehavior === 'bothDirections' && r.securityFilteringBehavior === 'oneDirection');
+  const links = model.relationships?.filter((/** @type {any} */ r) =>
+    r.fromTable === ORG_ATTRIBUTE_SOURCE || r.toTable === ORG_ATTRIBUTE_SOURCE) ?? [];
+  if (!required.every((name) => table?.columns?.some((/** @type {any} */ c) => c.name === name && c.dataType === 'string')) || !relationship || links.length !== 1) {
+    throw new Error('The model template lacks the secured Org Attribute Source bridge. Use the current shipped template (scripts/Update-Org-Attributes.py).');
+  }
+}
 
 /**
  * `definition.pbism` for a model defined by model.bim.
@@ -137,6 +160,7 @@ const SWITCHES = /** @type {const} */ ([
  */
 export function buildModel(template, settings) {
   const model = structuredClone(template.model);
+  verifyOrgAttributeSource(model);
   setMParameter(model, 'Fabric SQL Endpoint', settings.server);
   setMParameter(model, 'Lakehouse Name', settings.database);
   for (const [parameter, module] of SWITCHES) {
@@ -183,6 +207,7 @@ export const AGENT_EVALUATOR_DIAGNOSTIC_TABLE = 'Dataverse Diagnostic';
  */
 export function buildAgentEvaluatorModel(template, settings) {
   const model = structuredClone(template.model);
+  verifyOrgAttributeSource(model);
   setMParameter(model, 'Fabric SQL Endpoint', settings.server);
   setMParameter(model, 'Lakehouse Name', settings.database);
   setMParameter(model, 'Source Mode', 'Fabric');

@@ -43,7 +43,11 @@ From this folder (`app`):
    The installer creates the agent and adds this for you; see [Ask](../installer/README.md#ask).
    Without it the page lists suggested questions and how to turn Ask on.
 
-To update it, run `npx rayfin up` again.
+To update it, get the released app source and dependencies, keep the existing deployment and
+model bindings, then run `npx rayfin up` again. Changes that require new model definitions,
+including the expanded **Group by**, need the model update and successful refresh first; an
+app-only redeploy is not enough. For installer-managed deployments, use
+[Update](../docs/UPDATE.md#update-an-existing-installation-for-the-expanded-group-by) instead.
 
 ## Settings in the app
 
@@ -104,6 +108,33 @@ optional module choices. A deploy from this folder uses `fabric.yaml` instead. S
 
 ## How it works
 
+### Group by
+
+**Group by** offers the meaningful attributes in your org data, including custom columns,
+business codes, hierarchy levels, numbers, booleans and dates. It does not impose a maximum
+number of distinct groups. Person identifiers, individual names, full hierarchy paths and
+internal processing fields stay out, as do attributes with fewer than two populated values.
+A blank plus one real value is still a single-value attribute.
+
+The main app and Agent Evaluator discover their own model's attributes rather than sharing a
+fixed field list. The Evaluator keeps Agent and Topic choices and offers an org grouping only
+when at least two populated groups have conversations. Its grouping eligibility loads when
+you open **Group by**, not with the landing page. Cowork and Studio read their model's org
+attributes, including sparsely populated ones, while retaining their product-specific usage
+intensity choices and per-person exclusions.
+
+Attribute discovery does not fetch every attribute's value list. The main app reads the
+model's `Org Attribute Source` membership table, checking at most two populated distinct
+values per attribute in one query; only the selected attribute's values load when a filter
+menu opens. Numbers, booleans and dates are serialized by the model into invariant text for
+grouping and filtering, without changing source column types.
+
+The updated model templates build that membership table from all source org columns on
+each refresh. New columns therefore become available after the data loads and the model
+refreshes, without manually adding a model column for each attribute. An existing installation
+needs the updated model definition as well as the app; an app-only update cannot expose
+attributes an older model has not loaded.
+
 <details>
 <summary><strong>Pages that need optional data</strong></summary>
 
@@ -138,7 +169,8 @@ The app is built to stay quick for a large tenant (about 20,000 people):
 - **One tab at a time.** Each page shows one section at a time, as tabs, and opening a tab runs
   only that tab's queries. Downloads and report packs still include every section.
 - **The first page asks only what it shows.** The Executive summary opens with eight queries, or
-  nine with org-scoped access. Load status and the org columns load in the background. When a
+  nine with org-scoped access. Load status and org attribute discovery, including its bounded
+  eligibility check, load in the background. When a
   filter menu other than the dates first opens, the menus' choices load, so that first open can
   take about a second, or a few if the org columns haven't loaded yet. The org columns then move on
   screen, as they do when a breakdown by org shows. See [How the app opens](../docs/ARCHITECTURE.md#how-the-app-opens).

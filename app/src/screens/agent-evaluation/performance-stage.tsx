@@ -16,6 +16,7 @@ import { ChartPanel, KpiRowState, NoteCard, Panel } from "@/components/report-pa
 import { Section } from "@/components/section";
 import { useThemeContext } from "@/hooks/theme.context";
 import { useOutcomeColors } from "@/hooks/use-palette-theme";
+import { useSemanticModelQuery } from "@/hooks/use-semantic-model-query";
 import { useSummaryQuery, useTableQuery } from "@/hooks/use-table-query";
 import { gridHeight, rowChartHeight } from "@/lib/chart-height";
 import { outcomePalette, withColorScale } from "@/lib/color-scale";
@@ -25,6 +26,8 @@ import { readNumber, readText, type SummaryRow } from "@/lib/summary-row";
 import { formatCell, totalsRow, TREE_GRID } from "@/lib/tree-grid";
 import {
     GROUP_BY_COLUMNS,
+    evaluationOrgAttributes,
+    evaluationOrgGroupOptions,
     groupByChoices,
     OUTCOMES,
     performanceByGroup,
@@ -33,6 +36,8 @@ import {
     performanceWeekly,
     readableErrors,
     readableGroups,
+    readEvaluationOptions,
+    readEvaluationOrgAttributes,
     type EvaluationOptions,
 } from "@/queries/agent-evaluation";
 import { ModelRead } from "./model-read";
@@ -41,6 +46,7 @@ import { ERROR_HEADLINE, WEEKLY_OUTCOME_HEADLINE } from "./headlines";
 const SUMMARY = performanceSummary();
 const WEEKLY = performanceWeekly();
 const ERRORS = performanceErrors();
+const ORG_ATTRIBUTES = evaluationOrgAttributes();
 
 const KPI_GRID = "grid gap-300 md:grid-cols-2 xl:grid-cols-5";
 const NO_STACK_LABELS = { disableStackedDataLabels: true };
@@ -121,7 +127,24 @@ export function PerformanceStage({ options, extra }: PerformanceStageProps) {
     const outcomeColors = useOutcomeColors();
     const palette = useMemo(() => outcomePalette(outcomeColors, theme), [outcomeColors, theme]);
 
-    const choices = useMemo(() => groupByChoices(options?.groupCounts ?? {}), [options?.groupCounts]);
+    const [groupingRequested, setGroupingRequested] = useState(false);
+    const inventory = useSemanticModelQuery({
+        ...ORG_ATTRIBUTES,
+        query: groupingRequested ? ORG_ATTRIBUTES.query : "",
+    });
+    const orgColumns = useMemo(
+        () => inventory.data?.status === "success" ? readEvaluationOrgAttributes(inventory.data.table) : [],
+        [inventory.data],
+    );
+    const orgSource = useMemo(() => evaluationOrgGroupOptions(orgColumns), [orgColumns]);
+    const orgGroups = useTableQuery(orgSource);
+    const choices = useMemo(
+        () => groupByChoices({
+            ...options?.groupCounts,
+            ...(orgGroups.table ? readEvaluationOptions(orgGroups.table).groupCounts : {}),
+        }, orgColumns),
+        [options?.groupCounts, orgGroups.table, orgColumns],
+    );
     const [groupId, setGroupId] = useState<string>();
     const group = choices.find((choice) => choice.id === groupId) ?? choices[0] ?? GROUP_BY_COLUMNS[0];
     const byGroupSource = useMemo(() => performanceByGroup(group), [group]);
@@ -153,17 +176,25 @@ export function PerformanceStage({ options, extra }: PerformanceStageProps) {
             title="Performance"
             description="How many conversations agents had, how they ended, and what people thought of them."
             actions={
-                choices.length > 1 && (
-                    <ChoiceMenu
-                        label="Group by"
-                        allLabel={choices[0].label}
-                        choices={choices.slice(1).map((choice) => ({ value: choice.id, label: choice.label }))}
-                        value={group.id === choices[0].id ? undefined : group.id}
-                        onChange={setGroupId}
-                    />
-                )
+                <ChoiceMenu
+                    label="Group by"
+                    allLabel={choices[0]?.label ?? "No groups to compare"}
+                    choices={choices.slice(1).map((choice) => ({ value: choice.id, label: choice.label }))}
+                    value={choices.length === 0 || group.id === choices[0].id ? undefined : group.id}
+                    onChange={setGroupId}
+                    onOpen={() => {
+                        setGroupingRequested(true);
+                        if (inventory.error) void inventory.refetch();
+                        if (orgGroups.error) orgGroups.refetch();
+                    }}
+                />
             }
         >
+            {groupingRequested && inventory.isLoading && <p role="status">Loading org groupings…</p>}
+            {groupingRequested && orgSource.query && orgGroups.isLoading && <p role="status">Checking org groupings…</p>}
+            {groupingRequested && (inventory.error || orgGroups.error) && (
+                <p role="status">Org groupings could not be loaded. Open Group by to try again.</p>
+            )}
             <NotFilteredHint from={[summary.notFilteredBy]} />
             <KpiRowState
                 summary={summary}

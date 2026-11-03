@@ -22,7 +22,7 @@ import {
     toOrgAttributes,
     toOrgValues,
 } from "@/queries/filters";
-import { consumptionConnection } from "@/queries/shared";
+import { consumptionConnection, evaluatorConnection } from "@/queries/shared";
 
 const optionsConfig = filterOptions();
 const attributesConfig = orgAttributeOptions();
@@ -34,6 +34,7 @@ function consumptionConfigured(): boolean {
 }
 
 const consumptionAttributes = consumptionOrgAttributeOptions();
+const evaluatorAttributes = orgAttributeOptions(evaluatorConnection);
 const NO_QUERY = { connection: consumptionConnection, query: "" };
 
 /** Asks Consumption Central only when the app is connected to it. */
@@ -81,20 +82,23 @@ export function FilterProvider({
     const [orgColumnsWanted, setOrgColumnsWanted] = useState(false);
     const requestFilterChoices = useCallback(() => setMenuOpened(true), []);
     const requestOrgAttributes = useCallback(() => setOrgColumnsWanted(true), []);
-    const { data, error, refetch: retryOptions } = useSemanticModelQuery(optionsConfig);
+    const { data, error, refetch: retryFilterOptions } = useSemanticModelQuery(optionsConfig);
     const attributesResult = useSemanticModelQuery({ ...attributesConfig, background: !(menuOpened || orgColumnsWanted) });
-    // Loaded or failed: either way they've settled which column is in use.
-    const columnsSettled = attributesResult.data !== undefined || attributesResult.error !== undefined;
+    const candidates = useMemo(
+        () => attributesResult.data?.status === "success" ? toOrgAttributes(attributesResult.data.table) : NONE,
+        [attributesResult.data],
+    );
+    const columnsSettled = attributesResult.error !== undefined || attributesResult.data !== undefined;
 
     const options = useMemo(() => (data?.status === "success" ? toFilterOptions(data.table) : undefined), [data]);
 
     const orgAttributes = useMemo(() => {
-        const loaded =
-            attributesResult.data?.status === "success" ? toOrgAttributes(attributesResult.data.table) : [];
-        return loaded.length > 0 ? loaded : FALLBACK_ATTRIBUTES;
-    }, [attributesResult.data]);
+        if (attributesResult.data?.status === "success") return candidates;
+        if (attributesResult.error) return NONE;
+        return FALLBACK_ATTRIBUTES;
+    }, [attributesResult.data, attributesResult.error, candidates]);
 
-    const resolvedColumn = orgAttributes.includes(state.orgAttribute) ? state.orgAttribute : orgAttributes[0];
+    const resolvedColumn = orgAttributes.includes(state.orgAttribute) ? state.orgAttribute : orgAttributes[0] ?? DEFAULT_ORG_ATTRIBUTE;
     const orgAttribute = useMemo(() => describeOrgAttribute(resolvedColumn), [resolvedColumn]);
 
     const values = useMemo(() => orgValueOptions(orgAttribute), [orgAttribute]);
@@ -111,7 +115,7 @@ export function FilterProvider({
     );
 
     const filters = useMemo(
-        () => (state.orgAttribute === resolvedColumn ? state : { ...state, orgAttribute: resolvedColumn }),
+        () => (state.orgAttribute === resolvedColumn ? state : { ...state, orgAttribute: resolvedColumn, organizations: [] }),
         [state, resolvedColumn],
     );
 
@@ -123,31 +127,58 @@ export function FilterProvider({
         return consumptionResult.data?.status === "error" ? NONE : undefined;
     }, [consumptionResult.data]);
 
+    const evaluatorConfigured = isConnectionConfigured(runtimeConfig().semanticModels, evaluatorConnection);
+    const evaluatorResult = useSemanticModelQuery(
+        evaluatorConfigured && state.organizations.length > 0
+            ? evaluatorAttributes
+            : { ...evaluatorAttributes, query: "" },
+    );
+    const evaluatorOrgAttributes = useMemo(() => {
+        if (!evaluatorConfigured) return NONE;
+        if (evaluatorResult.data?.status === "success") return toOrgAttributes(evaluatorResult.data.table);
+        return evaluatorResult.error ? NONE : undefined;
+    }, [evaluatorConfigured, evaluatorResult.data, evaluatorResult.error]);
+    const optionsError = error ?? attributesResult.error ?? valuesResult.error ??
+        consumptionResult.error ?? evaluatorResult.error;
+    const retryAttributes = attributesResult.refetch;
+    const retryValues = valuesResult.refetch;
+    const retryConsumption = consumptionResult.refetch;
+    const retryEvaluator = evaluatorResult.refetch;
+    const retryOptions = useCallback(() => {
+        retryFilterOptions();
+        retryAttributes();
+        retryValues();
+        retryConsumption();
+        retryEvaluator();
+    }, [retryFilterOptions, retryAttributes, retryValues, retryConsumption, retryEvaluator]);
+
     const value = useMemo(
         () => ({
             filters,
             setFilters,
             options,
-            optionsError: error,
+            optionsError,
             retryOptions,
             applicable,
             orgAttribute,
             orgAttributes,
             orgValues,
             consumptionOrgAttributes,
+            evaluatorOrgAttributes,
             requestFilterChoices,
             requestOrgAttributes,
         }),
         [
             filters,
             options,
-            error,
+            optionsError,
             retryOptions,
             applicable,
             orgAttribute,
             orgAttributes,
             orgValues,
             consumptionOrgAttributes,
+            evaluatorOrgAttributes,
             requestFilterChoices,
             requestOrgAttributes,
         ],

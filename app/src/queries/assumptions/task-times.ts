@@ -7,6 +7,7 @@
 
 import type { QueryTable } from "@microsoft/fabric-app-data";
 import { addQueryDefinitions, daxString } from "@/lib/dax-filters";
+import { ORG_ATTRIBUTE_TABLE, rebindOrgAttributeReferences } from "@/lib/org-attribute";
 import { readNumber, readText, toRecords } from "@/lib/summary-row";
 import { daxNumber } from "../consumption/commercial-terms";
 import { connection } from "../shared";
@@ -125,9 +126,11 @@ export function withTaskTimes(query: string, overrides: readonly TaskTimeOverrid
     references(query).forEach(visit);
     if (wanted.size === 0) return query;
 
+    const bridgeBound = query.includes(`'${ORG_ATTRIBUTE_TABLE}'[Attribute]`);
     const definitions = HOURS_MEASURES.filter((measure) => wanted.has(measure.name)).map((measure) => {
         const expression = measure === ROOT ? rootWithMinutes(overrideMinutes(saved)) : measure.expression;
-        return `MEASURE ${quoteTable(measure.table)}[${measure.name}] =\n${expression.replace(/^\n|\s+$/g, "")}`;
+        const bound = bridgeBound ? rebindOrgAttributeReferences(expression) : expression;
+        return `MEASURE ${quoteTable(measure.table)}[${measure.name}] =\n${bound.replace(/^\n|\s+$/g, "")}`;
     });
     return addQueryDefinitions(query, definitions);
 }

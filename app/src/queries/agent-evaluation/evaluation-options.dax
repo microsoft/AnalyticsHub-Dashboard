@@ -1,6 +1,6 @@
 // The page's own slicer choices: the dates the model holds, the departments
-// and agents with conversations, and how many groups each Group by column
-// would show, so a column with one value is never offered.
+// and agents with conversations, and bounded non-org grouping eligibility.
+// Org grouping scans are deferred until the grouping menu is opened.
 EVALUATE
 VAR _first = MIN('Agent Performance'[InteractionDate])
 VAR _last = MAX('Agent Performance'[InteractionDate])

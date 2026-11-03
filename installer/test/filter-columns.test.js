@@ -76,14 +76,14 @@ test('filter profiles: this list follows the columns the app names', () => {
   }
 });
 
-test('filter profiles: the Agent Evaluator holds every org column the app filters it by', () => {
-  const list = /EVALUATOR_ORG_COLUMNS[^=]*=\s*\[([^\]]*)\]/.exec(readFileSync(PROFILES, 'utf8'));
-  assert.ok(list, 'EVALUATOR_ORG_COLUMNS');
-  const names = [...list[1].matchAll(/"([^"]+)"/g)].map((m) => m[1]);
-  assert.ok(names.length > 0);
-  const org = build.agentEvaluator().model.tables.find((/** @type {any} */ t) => t.name === 'Chat + Agent Org Data');
-  const held = new Set(org.columns.map((/** @type {any} */ c) => c.name));
-  assert.deepEqual(names.filter((name) => !held.has(name)), []);
+test('filter profiles: arbitrary Evaluator org attributes use a stable membership schema, not a fixed column list', () => {
+  const model = build.agentEvaluator().model;
+  const source = model.tables.find((/** @type {any} */ t) => t.name === 'Org Attribute Source');
+  assert.ok(source);
+  const held = new Set(source.columns.map((/** @type {any} */ c) => c.name));
+  assert.deepEqual(['PersonId_Normalized', 'Attribute', 'Value', 'ValueType'].filter((name) => !held.has(name)), []);
+  const org = model.tables.find((/** @type {any} */ t) => t.name === 'Chat + Agent Org Data');
+  assert.ok(org.columns.some((/** @type {any} */ c) => c.name === 'Org Join Key'));
 });
 
 test('filter profiles: each per-person Consumption table relates to Org', () => {

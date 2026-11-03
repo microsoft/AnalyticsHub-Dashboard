@@ -113,6 +113,13 @@ on its own, and the others still run.
 - **viva** (`collect/viva.py`) reads `viva/PersonServiceCreditsMetrics*.csv`, merging on person,
   service, policy and week. `viva/SpendingPolicyMetadata*.csv` replaces `viva_spending_policy`, but
   only when a file is present.
+  Custom org columns accompany the canonical aliases in `viva_credits_weekly` and survive Parquet
+  reloads and SQL publication. As with Fabric's org ingestion, their values are nullable strings
+  (including numeric, boolean and date attributes); facts retain their existing numeric/date types.
+  Blank or absent attributes do not erase populated values. Names keep ASCII letters, digits and
+  underscores, replace other characters with underscores and prefix leading digits with `attribute_`.
+  Colliding names and names longer than 128 characters fail before replacing stored data.
+  This does not add a separate Azure manual-org-folder ingestion path.
 - **azure_ai** (`collect/azure_ai.py`) runs only when `VALUELENS_AZURE_AI_SUBSCRIPTION` is set. It
   collects the last 90 complete UTC days, in two groups:
   - Strict:
@@ -246,6 +253,17 @@ the emailed export, `Copilot_ProductFeedback_Email_to_OneLake`, is Fabric only f
 
 `azure/sql/migrations/V010__product_feedback.sql` creates it up front, with the 23 columns,
 `SourceFile` and `LoadDate`. Publish adds any other column the exports have.
+
+## Graph org attributes
+
+The shared Python collector and Fabric Graph notebook use the same explicit org-field selection:
+the existing department, title, company, office, city, country and manager fields, plus usage
+location, state, employee type, employee hire date and user type. `employeeOrgData` supplies
+`costCenter` and `division`; `onPremisesExtensionAttributes` supplies `extensionAttribute1` through
+`extensionAttribute15`. Missing optional fields remain null in the existing string schema.
+Unselected Graph properties, contact details and credentials are not copied. Administrators
+should review extension-attribute contents before granting access to the resulting reports.
+Model schema reconciliation and refresh are still required to expose added columns in reports.
 
 ## Workday org data (data source `workday`)
 

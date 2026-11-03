@@ -1,0 +1,9 @@
+// Viewer-compatible attribute inventory from the Evaluator's row bridge.
+EVALUATE
+SELECTCOLUMNS(
+    FILTER(
+        VALUES('Org Attribute Source'[Attribute]),
+        LEN(TRIM('Org Attribute Source'[Attribute])) > 0
+    ),
+    "Column", 'Org Attribute Source'[Attribute]
+)

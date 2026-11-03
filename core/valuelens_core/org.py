@@ -9,17 +9,49 @@ import re
 
 TABLE = 'copilot_org_data'
 USERS_URL = ('https://graph.microsoft.com/v1.0/users?$select=userPrincipalName,displayName,department,'
-             'jobTitle,companyName,officeLocation,city,country,accountEnabled'
+             'jobTitle,companyName,officeLocation,city,country,accountEnabled,usageLocation,state,'
+             'employeeType,employeeHireDate,userType,employeeOrgData,onPremisesExtensionAttributes'
              '&$expand=manager($select=userPrincipalName)&$top=999')
 MAX_ORG_LEVELS = 14
 BASE_COLUMNS = ['PersonId', 'displayName', 'Organization', 'JobTitle', 'companyName', 'officeLocation',
-                'city', 'country', 'accountEnabled', 'managerUPN']
+                'city', 'country', 'accountEnabled', 'managerUPN', 'usageLocation', 'state',
+                'employeeType', 'employeeHireDate', 'userType', 'costCenter', 'division',
+                *[f'extensionAttribute{i}' for i in range(1, 16)]]
 HIER_FIXED = ['OrgLevel', 'HierarchyPath', 'TopOfChain_Name', 'IsManager', 'DirectReports', 'HierarchyError',
               'OrgPath']
 HIER_LEVELS = [f'Level{i}_Name' for i in range(MAX_ORG_LEVELS + 1)]
 HIER_COLUMNS = HIER_FIXED + HIER_LEVELS
 COLUMNS = BASE_COLUMNS + HIER_COLUMNS + ['PersonId_Normalized', 'TotalEmployees']
 _INVALID = re.compile(r'[ ,;{}()\n\t=]')
+
+
+def org_extra_columns(headers, aliases, excluded=()):
+    """Map custom org headers to portable SQL/Delta names; never merge distinct headers."""
+    def norm(name):
+        return re.sub(r'[ _\-]', '', name).lower()
+
+    known = {norm(a) for c, names in aliases.items() for a in [c] + names}
+    ignored = {norm(c) for c in excluded}
+    used = {c.casefold(): c for c in [*aliases, *excluded, '_loaded_at', '__source_file']}
+    result = {}
+    for header in sorted(set(headers)):
+        if norm(header) in known or norm(header) in ignored:
+            continue
+        safe = re.sub(r'[^A-Za-z0-9_]', '_', header)
+        if not safe or not safe.strip('_'):
+            raise ValueError('Org attribute has no usable column name.')
+        if safe[0].isdigit():
+            safe = 'attribute_' + safe
+        if len(safe) > 128:
+            raise ValueError('Org attribute name exceeds the 128-character SQL column limit.')
+        prior = used.get(safe.casefold())
+        if prior is not None and prior != header:
+            raise ValueError('Org attribute names collide after sanitisation; rename the source columns.')
+        if safe.casefold() in ('_loaded_at', '__source_file'):
+            raise ValueError('Org attribute name is reserved for ingestion.')
+        used[safe.casefold()] = header
+        result[header] = safe
+    return result
 
 
 def _validate_users_page(data, page_number):
@@ -47,6 +79,13 @@ def _normalise_identity(value):
 
 
 def _canonical_org_row(user):
+    def scalar(value):
+        if value is None:
+            return None
+        if isinstance(value, (dict, list)):
+            raise ValueError('Org attribute must be scalar.')
+        return str(value)
+
     if not isinstance(user, dict):
         raise ValueError('Org data item is not an object.')
     norm = _normalise_identity(user.get('userPrincipalName'))
@@ -58,7 +97,7 @@ def _canonical_org_row(user):
         if not isinstance(manager, dict):
             raise ValueError(f'Org data row {norm!r} has a non-object manager payload.')
         manager_upn = manager.get('userPrincipalName', '') or ''
-    return {
+    row = {
         'PersonId':         user.get('userPrincipalName'),
         'displayName':      user.get('displayName'),
         'Organization':     user.get('department'),
@@ -70,6 +109,20 @@ def _canonical_org_row(user):
         'accountEnabled':   str(user.get('accountEnabled', '')),
         'managerUPN':       manager_upn,
     }
+    for field in ('usageLocation', 'state', 'employeeType', 'employeeHireDate', 'userType'):
+        row[field] = scalar(user.get(field))
+    for parent, fields in (
+        ('employeeOrgData', ('costCenter', 'division')),
+        ('onPremisesExtensionAttributes', tuple(f'extensionAttribute{i}' for i in range(1, 16))),
+    ):
+        nested = user.get(parent)
+        if nested is None:
+            nested = {}
+        if not isinstance(nested, dict):
+            raise ValueError(f'Org data has a non-object {parent} payload.')
+        for field in fields:
+            row[field] = scalar(nested.get(field))
+    return row
 
 
 def _dedupe_org_rows(rows):

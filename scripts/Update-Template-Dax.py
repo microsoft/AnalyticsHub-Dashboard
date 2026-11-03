@@ -150,7 +150,7 @@ def _cowork_fit_eligible_users():
         "VAR _CoworkUsers =",
         "    CALCULATETABLE(",
         f"        VALUES({USER_ID}),",
-        f"        REMOVEFILTERS({A}),",
+        f"        REMOVEFILTERS({A}), REMOVEFILTERS('Org Attribute Source'[Value]),",
         f"        {COWORK}",
         "    )",
         "RETURN",

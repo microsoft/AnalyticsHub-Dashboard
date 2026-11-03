@@ -123,9 +123,10 @@ describe("efficiency query contract", () => {
             noun: "office location",
             plural: "office locations",
         });
-        expect(byOffice.query).toContain("'Chat + Agent Org Data'[officeLocation]");
+        expect(byOffice.query).toContain("'Org Attribute Source'[Value]");
+        expect(byOffice.query).toContain(`'Org Attribute Source'[Attribute] = "officeLocation"`);
         expect(byOffice.query).not.toContain("'Chat + Agent Org Data'[Organization]");
-        expect(byOffice.columnMetadata["Chat + Agent Org Data[officeLocation]"]).toBeDefined();
+        expect(byOffice.columnMetadata["Org Attribute Source[Value]"]).toBeDefined();
     });
 });
 
