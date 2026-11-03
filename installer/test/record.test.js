@@ -118,7 +118,7 @@ test('record: deploy-app saving while the install waits on its first load keeps 
     // The install: a new record, then an app step that fails part way, keeping the item rayfin started.
     const install = loadConfig(file).config;
     Object.assign(install, { tenantId: 'tenant-1' });
-    Object.assign(install.fabric, { workspaceId: 'ws-1', workspaceName: 'Analytics Hub', lakehouseId: 'lh-1' });
+    Object.assign(install.fabric, { workspaceId: 'ws-1', workspaceName: 'Copilot DataHub App', lakehouseId: 'lh-1' });
     install.fabricApp.enabled = true;
     saveConfig(file, install);
     const app = install.fabricApp;
@@ -149,7 +149,7 @@ test('record: deploy-app saving while the install waits on its first load keeps 
     };
     saveConfig(file, deployApp);
     Object.assign(deployApp.fabricApp, {
-      enabled: true, itemId: 'app-item-1', name: 'Analytics Hub', url: 'https://app.fabric.example.test/app-item-1', models: ['vl'], deployedAt,
+      enabled: true, itemId: 'app-item-1', name: 'Copilot DataHub App', url: 'https://app.fabric.example.test/app-item-1', models: ['vl'], deployedAt,
       reporting: { currency: 'USD' }, access: { groupId: 'group-1', groupName: 'Analytics Hub Viewers', contact: 'admin@contoso.com' },
     });
     saveConfig(file, deployApp);

@@ -7,7 +7,8 @@
  * build-exe.js fills in the template in launcher/install.ps1 for each release.
  */
 
-export const ZIP_NAME = 'AnalyticsHubInstaller.zip';
+export const ZIP_NAME = 'Copilot-DataHub-App-Installer.zip';
+export const LEGACY_ZIP_NAME = 'AnalyticsHubInstaller.zip';
 export const SCRIPT_NAME = 'install.ps1';
 
 /**

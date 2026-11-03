@@ -131,5 +131,5 @@ const sameKey = (a, b) => a.UserPrincipalName === b.UserPrincipalName && a.Scope
 
 function unavailable(error) {
   console.warn(`SQL connection failed: ${error?.message || error}`);
-  return httpError(503, 'DatabaseUnavailable', 'Couldn\'t reach the Analytics Hub database. Try again in a minute.');
+  return httpError(503, 'DatabaseUnavailable', 'Couldn\'t reach the Copilot DataHub App database. Try again in a minute.');
 }

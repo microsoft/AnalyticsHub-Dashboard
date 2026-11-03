@@ -1,6 +1,6 @@
 # Sample data
 
-Synthetic data for trying Analytics Hub with no tenant data. **None of it is real.** People,
+Synthetic data for trying Copilot DataHub App with no tenant data. **None of it is real.** People,
 organisations, agents, prompts and usage are all invented. Addresses use `contoso-demo.com` and
 `contoso-health.com`, and every ID is a placeholder.
 

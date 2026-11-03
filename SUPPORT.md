@@ -1,6 +1,6 @@
 # Support
 
-Analytics Hub for Microsoft Copilot is **experimental**.
+Copilot DataHub App for Microsoft Copilot is **experimental**.
 It is **not supported through Microsoft support channels**. Use this repository's
 [GitHub issues](https://github.com/microsoft/AnalyticsHub-Dashboard/issues)
 to ask for help, report bugs or suggest improvements. Assistance is best effort;

@@ -22,7 +22,7 @@ Options:
                      team approved, instead of the zip's. It needs x64 Node.js 22.13 or later on
                      22.x, or 24.x. The zip is still downloaded: it holds the installer and the app.
   -Uninstall         Remove the unpacked installer and its command. Your install record in
-                     Documents\Analytics Hub stays.
+                     Documents\Copilot DataHub App stays.
 Anything else goes to the installer, for example: status, or install --device-code.
 With irm | iex, set $env:ANALYTICS_HUB_ZIP, $env:ANALYTICS_HUB_PROXY or
 $env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1' instead.
@@ -272,7 +272,7 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
       Remove-Tree $AhHome $null
     }
     if (Test-Path -LiteralPath $AhHome) { throw "Couldn't remove all of $AhHome. Close the installer and try again." }
-    Write-Host "Removed $AhHome. Your install record in Documents\Analytics Hub is still there."
+    Write-Host "Removed $AhHome. Your install record in Documents\Copilot DataHub App is still there."
     return
   }
 
@@ -405,7 +405,7 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
     $Docs = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders' -ErrorAction SilentlyContinue).Personal
   }
   if (-not $Docs) { $Docs = Join-Path $env:USERPROFILE 'Documents' }
-  $Work = Join-Path $Docs 'Analytics Hub'
+  $Work = Join-Path $Docs 'Copilot DataHub App'
   New-Item -ItemType Directory -Path $Work -Force | Out-Null
 
   # A command for later, such as "analytics-hub.cmd status", that runs this version with the same Node.js.

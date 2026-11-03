@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
-import { checkForUpdate, LATEST_API, LATEST_PAGE, newerVersion, OPT_OUT } from '../src/update-check.js';
+import { checkForUpdate, LATEST_API, LATEST_PAGE, newerVersion, OPT_OUT, RELEASE_REPO_PREFIXES } from '../src/update-check.js';
 
 /** @param {any} body @param {{ ok?: boolean }} [o] */
 const fakeFetch = (body, o = {}) => {
@@ -33,6 +33,13 @@ test('update check: asks the new repo and links to its release', async () => {
   assert.deepEqual(calls, [LATEST_API]);
   assert.match(LATEST_API, /api\.github\.com\/repos\/microsoft\/AnalyticsHub-Dashboard\/releases\/latest$/);
   assert.deepEqual(u, { version: '0.6.0', url: 'https://github.com/microsoft/AnalyticsHub-Dashboard/releases/tag/installer-v0.6.0' });
+});
+
+test('update check: accepts the proposed post-rename repository URL before the rename', async () => {
+  const url = 'https://github.com/microsoft/Copilot-DataHub-App/releases/tag/installer-v0.7.0';
+  const { fetch } = fakeFetch({ tag_name: 'installer-v0.7.0', html_url: url });
+  assert.ok(RELEASE_REPO_PREFIXES.includes('https://github.com/microsoft/Copilot-DataHub-App/'));
+  assert.deepEqual(await checkForUpdate({ version: '0.6.8', fetch, env: {} }), { version: '0.7.0', url });
 });
 
 test('update check: a link elsewhere falls back to the releases page', async () => {

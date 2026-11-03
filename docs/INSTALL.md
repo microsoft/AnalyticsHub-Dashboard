@@ -1,6 +1,6 @@
 # Install
 
-The installer sets up Analytics Hub on Fabric or Azure. Check the [Prerequisites](PREREQUISITES.md)
+The installer sets up Copilot DataHub App on Fabric or Azure. Check the [Prerequisites](PREREQUISITES.md)
 first. To set it up by hand instead, see [Manual install](MANUAL-INSTALL.md).
 
 ```mermaid
@@ -20,7 +20,7 @@ flowchart LR
    and open it. Blocked? See [Other ways to start it](#other-ways-to-start-it).
 2. **Wait for your browser.** The first time, it takes about a minute to unpack. Keep its window
    open, and keep the PC awake and plugged in, until the installer says setup is finished.
-3. **Choose Set up Analytics Hub** and sign in.
+3. **Choose Set up Copilot DataHub App** and sign in.
 4. **Choose where it runs:** **Microsoft Fabric** or **Your Azure subscription** (`--target azure`).
 5. **Answer the questions** (about 5 minutes):
    - **Data sources.** Each has a card: **Connected (API)**, **Upload CSV** or **Skip**. A CSV card
@@ -59,8 +59,8 @@ flowchart LR
   credits**, **Copilot Cowork credits** and **Azure AI costs** cards make up
   [Credit consumption](../installer/README.md#credit-consumption). A source that needs more, such
   as a Power Platform environment for a flow, asks for it next.
-- **Names.** A new workspace is named `Analytics Hub` and its Lakehouse `Analytics_Hub`, or the
-  next free name. New items are named after Analytics Hub, such as `Analytics Hub Model`,
+- **Names.** A new workspace is named `Copilot DataHub App` and its Lakehouse `Analytics_Hub`, or the
+  next free name. New items are named after Copilot DataHub App, such as `Analytics Hub Model`,
   `AnalyticsHub_Pipeline`, the `Analytics Hub SQL …` connection and the `Analytics Hub Data Collector` app registration. An install from
   an earlier version keeps its names, such as `ValueLens Model`.
 - **Capacity.** F64 or larger is recommended for more than 10,000 people. On Azure, so is letting
@@ -80,10 +80,10 @@ flowchart LR
   [Load the Studio credits now](../installer/README.md#power-automate-flows).
 - **A workspace that already has things in it.** The installer never changes anything it didn't
   create. If a name is taken, its own item gets the next free name, such as
-  `AnalyticsHub_Pipeline_2` or `Analytics Hub 2`. The plan shows the names first.
+  `AnalyticsHub_Pipeline_2` or `Copilot DataHub App 2`. The plan shows the names first.
 - **The install record.** Your answers are kept in `Documents\Analytics Hub\valuelens-install.json`.
   Keep that folder. Start the installer again the same way to run the pipeline, check status,
-  update or repair. **Manage Analytics Hub** shows the record's path. If OneDrive syncs your
+  update or repair. **Manage Copilot DataHub App** shows the record's path. If OneDrive syncs your
   Documents folder, the record follows you to your other PCs.
 - **The workspace has gone.** After you sign in, the installer checks the record's workspace still
   exists. If Fabric says it doesn't, or the record is for another tenant, choose **Start fresh**
@@ -138,7 +138,7 @@ Something failed? Choose **Rerun failed loads** (`rerun-failed`), or see
     so the load shows it as waiting rather than failed.
   - **Ask a Viva Insights analyst for the Cowork credits query** (optional), when Cowork credits
     come from the CSV export.
-  - **Ask a Privileged Role Administrator for Global Reader** for **Analytics Hub Data
+  - **Ask a Privileged Role Administrator for Global Reader** for **Copilot DataHub App Data
     Collector**, when agent configuration comes from Azure Resource Graph. The message has the
     app's IDs, the link to Roles & admins, and a Cloud Shell command.
   - **Ask a Microsoft 365 admin to schedule the product feedback export**, when its flow is on.
@@ -149,14 +149,14 @@ Something failed? Choose **Rerun failed loads** (`rerun-failed`), or see
   1. **Once:** share the app with the group. Straight after the app is deployed, before the first
      load, the installer asks you to, with a link to the app item in Fabric: choose **Share**, add
      the group and choose **Grant**. (Or in the workspace, choose **…** next to the
-     **Analytics Hub** app, then **Share**.) Choose **I've shared it** and it isn't asked again.
+     **Copilot DataHub App** app, then **Share**.) Choose **I've shared it** and it isn't asked again.
      Choose **Later** and it's a card on the Done page, and Repair asks again. Do the same for the
      **ValueLens** report.
   2. **To give someone access:** add them to the group in
      [My Groups](https://myaccount.microsoft.com/groups). You can also run `access`
      (**Manage access** in the browser) or use **Share** in the app.
 
-  Keep viewers off workspace roles. See [Viewing Analytics Hub](PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
+  Keep viewers off workspace roles. See [Viewing Copilot DataHub App](PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
 - **Own reports.** Connect Power BI Desktop to `Analytics Hub Model`, or use **Save a copy** on a
   published report.
 - **Flows and the Cowork Dataflow.** If you chose them, the end of the install lists what to sign
@@ -226,7 +226,7 @@ again to pick up a new version; it removes the old one.
   may not be able to deploy the app: see [Known issues](TROUBLESHOOTING.md#installing).
 - **Remove it** with `.\install.ps1 -Uninstall` (from the download-and-run steps above), or by
   deleting `%LOCALAPPDATA%\AnalyticsHub`. That doesn't touch what's in your tenant, or your
-  install record in `Documents\Analytics Hub`. To remove what's in your tenant, use **Uninstall**
+  install record in `Documents\Copilot DataHub App`. To remove what's in your tenant, use **Uninstall**
   in the installer first.
 
 AppLocker or Windows Defender Application Control rules that block programs under your profile
@@ -303,7 +303,7 @@ minute or two.
   **Download** and enter `analytics-hub/valuelens-install.json`. The installer reminds you at the
   end of each run. In a new session, upload it with **Manage files** > **Upload** and run the
   installer again: it moves the uploaded record from your home folder to where it looks. To carry
-  on from a PC later, put the record in `Documents\Analytics Hub`.
+  on from a PC later, put the record in `Documents\Copilot DataHub App`.
 - **Idle timeout.** Cloud Shell ends a session after 20 minutes without input. If that stops the
   installer, run the same command again: it reuses what's in the install record, skips finished
   steps and doesn't create a second app. With `--no-wait` the installer doesn't wait for the

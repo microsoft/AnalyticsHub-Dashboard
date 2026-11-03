@@ -18,7 +18,7 @@ const PRE = /** @type {any} */ ({
 /** The questions behind Advanced settings, which a default install doesn't ask. */
 const ADVANCED_QUESTIONS = [
   'Deploy the semantic model?',
-  'Who can view Analytics Hub?',
+  'Who can view Copilot DataHub App?',
   'Who should people ask for access? (email)',
   'How much audit history should the first load pull?',
   'Lakehouse name',
@@ -104,7 +104,7 @@ test('plan: the size question is in the main flow, started from the people count
   }
 });
 
-test('plan: a new install suggests Analytics Hub names and says what capacity size suits', async () => {
+test('plan: a new install suggests Copilot DataHub App names and says what capacity size suits', async () => {
   const t = fakeUi();
   const fabric = fakeFabric().api;
   const { ctx, config } = fakeCtx({ ui: t.ui, fabric: { ...fabric, listWorkspaces: async () => [{ id: 'ws-x', type: 'Workspace', displayName: 'Other' }] } });
@@ -113,7 +113,7 @@ test('plan: a new install suggests Analytics Hub names and says what capacity si
   delete config.fabric.lakehouseId;
   delete config.fabric.lakehouseName;
   await plan(ctx, PRE);
-  assert.equal(config.fabric.workspaceName, 'Analytics Hub');
+  assert.equal(config.fabric.workspaceName, 'Copilot DataHub App');
   assert.equal(config.fabric.lakehouseName, 'Analytics_Hub');
   assert.match(t.text(), /F64 or larger is recommended for more than 10,000 people; small or trial capacities work but loads are slower\./);
 });
@@ -227,7 +227,7 @@ const AZURE_ADVANCED = [
   'Name prefix',
   'Extra tags (key=value, comma-separated)',
   'Networking',
-  'Who can view Analytics Hub?',
+  'Who can view Copilot DataHub App?',
   'How much audit history should the first load pull?',
   'How often should the job run?',
   'Run the first load as soon as setup finishes?',

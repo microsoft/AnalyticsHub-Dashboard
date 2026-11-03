@@ -1,6 +1,6 @@
 name: azure-images
 
-# Builds the two container images the Azure-hosted Analytics Hub runs: valuelens-jobs (collect,
+# Builds the two container images the Azure-hosted Copilot DataHub App runs: valuelens-jobs (collect,
 # process, publish, refresh) and valuelens-web (the app and its /api/query proxy). The installer
 # deploys ghcr.io/microsoft/<image>:<installer version>, so an installer-v* tag pushes both images
 # with that version. Pull requests only check that they build.

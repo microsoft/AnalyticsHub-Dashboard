@@ -436,7 +436,7 @@ test('app helpers: Node version, YAML values, deployment lookup', () => {
   assert.equal(nodeVersionOk('22.12.9'), false);
   assert.equal(nodeVersionOk('24.0.0'), true);
   assert.equal(nodeVersionOk('20.19.0'), false);
-  assert.equal(yamlValue('id: valuelens\nname: "Analytics Hub"\n', 'name'), 'Analytics Hub');
+  assert.equal(yamlValue('id: valuelens\nname: "Copilot DataHub App"\n', 'name'), 'Copilot DataHub App');
   assert.equal(yamlValue('activeProfile: msit\r\n', 'activeProfile'), 'msit');
   assert.equal(yamlValue(null, 'x'), undefined);
   const d = { active: 'a', deployments: { a: { fabricWorkspaceId: 'WS-OTHER' }, b: { fabricWorkspaceId: 'ws-1', fabricItemId: 'i' } } };
@@ -452,7 +452,7 @@ test('app helpers: Node version, YAML values, deployment lookup', () => {
 function appSetup(o = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'vl-app-'));
   mkdirSync(join(dir, 'rayfin'), { recursive: true });
-  writeFileSync(join(dir, 'rayfin', 'rayfin.yml'), 'id: valuelens\nname: Analytics Hub\n');
+  writeFileSync(join(dir, 'rayfin', 'rayfin.yml'), 'id: valuelens\nname: Copilot DataHub App\n');
   writeFileSync(join(dir, 'fabric.yaml'), 'activeProfile: msit\nprofiles: {}\n');
   const deploymentsFile = join(dir, 'rayfin', '.deployments.json');
   writeFileSync(deploymentsFile, JSON.stringify({ active: 'team', deployments: { team: { fabricWorkspaceId: 'ws-team', fabricItemId: 'team-app' } } }));
@@ -511,10 +511,10 @@ test('app: deployed to the customer workspace under the app name, and a develope
       `${data} use msit -o src/fabric.generated.ts`,
     ]);
     const fa = t.config.fabricApp;
-    assert.equal(fa.name, 'Analytics Hub');
+    assert.equal(fa.name, 'Copilot DataHub App');
     assert.match(String(fa.url), /appbackends\//);
     assert.equal(fa.profile, 'valuelens-ws-1');
-    assert.ok(t.fabric.calls.includes('createItem AppBackend Analytics Hub'));
+    assert.ok(t.fabric.calls.includes('createItem AppBackend Copilot DataHub App'));
     assert.ok(!t.fabric.calls.some((c) => c.startsWith('renameItem')));
     assert.deepEqual(t.fabric.items.filter((i) => i.type === 'AppBackend').map((i) => i.id), [fa.itemId]);
     assert.equal(JSON.parse(readFileSync(t.deploymentsFile, 'utf8')).active, 'team');
@@ -542,12 +542,12 @@ test('app: a failed deploy still restores the checkout; missing tools are instal
 test('app: an app already deployed is left alone unless asked; a deleted one is deployed again', async () => {
   const t = appSetup();
   try {
-    const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
+    const item = t.fabric.add('AppBackend', 'Copilot DataHub App', null);
     Object.assign(t.config.fabricApp, { itemId: item.id, installerVersion: installerVersion() });
     await ensureFabricApp(t.ctx);
     assert.deepEqual(t.runs, []);
     assert.ok(!t.fabric.calls.some((c) => c.startsWith('renameItem')));
-    assert.match(t.ui.text(), /App Analytics Hub is in place/);
+    assert.match(t.ui.text(), /App Copilot DataHub App is in place/);
 
     t.fabric.items.splice(t.fabric.items.indexOf(item), 1);
     await ensureFabricApp(t.ctx);
@@ -561,9 +561,9 @@ test('app: an app already deployed is left alone unless asked; a deleted one is 
 test('app: a deploy that finds its app by ID drops a create a stopped run left pending', async () => {
   const t = appSetup();
   try {
-    const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
+    const item = t.fabric.add('AppBackend', 'Copilot DataHub App', null);
     t.config.fabricApp.itemId = item.id;
-    t.config.fabric.pendingItems = { AppBackend: { name: 'Analytics Hub', ref: 'dd44' } };
+    t.config.fabric.pendingItems = { AppBackend: { name: 'Copilot DataHub App', ref: 'dd44' } };
     await deployApp(t.ctx);
     assert.equal(t.config.fabric.pendingItems, undefined);
     assert.ok(!t.fabric.calls.some((c) => c.startsWith('createItem')));
@@ -601,7 +601,7 @@ test('app: a source build carries fabric.config.json with the viewer access, the
 test('app: a deployed app is offered a rebuild when who can view it changed, such as the app being shared', async () => {
   const t = appSetup();
   try {
-    const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
+    const item = t.fabric.add('AppBackend', 'Copilot DataHub App', null);
     Object.assign(t.config.fabricApp, { itemId: item.id, installerVersion: installerVersion() });
     t.config.access = /** @type {import('../src/config.js').AccessConfig} */ ({ groupId: 'g-1', groupName: 'Analytics Hub Viewers' });
     await ensureFabricApp(t.ctx);
@@ -643,25 +643,25 @@ test('app: an app in the workspace that is not from this install is never taken 
       return { code: 0, output: '' };
     };
     await deployApp(t.ctx);
-    assert.ok(t.fabric.calls.includes('createItem AppBackend Analytics Hub'));
+    assert.ok(t.fabric.calls.includes('createItem AppBackend Copilot DataHub App'));
     assert.ok(!t.fabric.calls.some((c) => c.startsWith('renameItem')), 'their app keeps its name');
-    const ours = t.fabric.items.find((i) => i.type === 'AppBackend' && i.displayName === 'Analytics Hub');
+    const ours = t.fabric.items.find((i) => i.type === 'AppBackend' && i.displayName === 'Copilot DataHub App');
     assert.equal(seen.active, 'team-a-workspace');
     assert.equal(seen.deployments['team-a-workspace'].fabricItemId, ours?.id);
     assert.equal(seen.deployments['team-a-workspace'].fabricTenantId, 'tenant-1');
     assert.equal(seen.deployments.team.fabricItemId, 'team-app', 'other deployments are kept');
     assert.equal(t.config.fabricApp.itemId, ours?.id);
-    assert.equal(t.config.fabricApp.name, 'Analytics Hub');
+    assert.equal(t.config.fabricApp.name, 'Copilot DataHub App');
     assert.notEqual(t.config.fabricApp.itemId, theirs.id);
     assert.match(t.ui.text(), /"valuelens" is already in the workspace and isn't from this install/);
 
-    t.fabric.add('AppBackend', 'Analytics Hub', null);
+    t.fabric.add('AppBackend', 'Copilot DataHub App', null);
     t.fabric.calls.length = 0;
     t.config.fabricApp.itemId = undefined;
     writeFileSync(t.deploymentsFile, JSON.stringify({ deployments: {} }));
     await deployApp(t.ctx);
-    assert.ok(t.fabric.calls.includes('createItem AppBackend Analytics Hub 2'));
-    assert.equal(t.config.fabricApp.name, 'Analytics Hub 2');
+    assert.ok(t.fabric.calls.includes('createItem AppBackend Copilot DataHub App 2'));
+    assert.equal(t.config.fabricApp.name, 'Copilot DataHub App 2');
   } finally {
     t.cleanup();
   }
@@ -675,16 +675,16 @@ test('app: findDeployment prefers the active deployment for the workspace', () =
   assert.equal(deploymentKey("Keith's  Team_Space (Prod)"), 'keiths-team-space-prod');
 });
 
-test('app: one still called AI in One 2.0 takes the new name without a rebuild; a name the customer chose stays', async () => {
+test('app: a former product name takes the new name without a rebuild; a name the customer chose stays', async () => {
   const t = appSetup();
   try {
     const item = t.fabric.add('AppBackend', 'AI in One 2.0', null);
     Object.assign(t.config.fabricApp, { itemId: item.id, name: 'AI in One 2.0', installerVersion: installerVersion() });
     await ensureFabricApp(t.ctx);
     assert.deepEqual(t.runs, []);
-    assert.ok(t.fabric.calls.includes('renameItem AI in One 2.0 -> Analytics Hub'));
-    assert.equal(t.config.fabricApp.name, 'Analytics Hub');
-    assert.match(t.ui.text(), /Renamed the app "AI in One 2\.0" to "Analytics Hub"/);
+    assert.ok(t.fabric.calls.includes('renameItem AI in One 2.0 -> Copilot DataHub App'));
+    assert.equal(t.config.fabricApp.name, 'Copilot DataHub App');
+    assert.match(t.ui.text(), /Renamed the app "AI in One 2\.0" to "Copilot DataHub App"/);
 
     item.displayName = 'Contoso Copilot Insights';
     t.fabric.calls.length = 0;
@@ -694,7 +694,13 @@ test('app: one still called AI in One 2.0 takes the new name without a rebuild; 
 
     item.displayName = 'AI in One 2.0';
     await ensureAppName(t.ctx);
-    assert.ok(t.fabric.calls.includes('renameItem AI in One 2.0 -> Analytics Hub'), 'an update that skips the rebuild still renames');
+    assert.ok(t.fabric.calls.includes('renameItem AI in One 2.0 -> Copilot DataHub App'), 'an update that skips the rebuild still renames');
+    assert.deepEqual(t.runs, []);
+
+    item.displayName = 'Analytics Hub';
+    t.fabric.calls.length = 0;
+    await ensureAppName(t.ctx);
+    assert.ok(t.fabric.calls.includes('renameItem Analytics Hub -> Copilot DataHub App'), 'an older app name also renames on an update that skips the rebuild');
     assert.deepEqual(t.runs, []);
   } finally {
     t.cleanup();
@@ -704,7 +710,7 @@ test('app: one still called AI in One 2.0 takes the new name without a rebuild; 
 test('app: the credit consumption pages get the cc alias, and a deployed app is rebuilt to add them', async () => {
   const t = appSetup();
   try {
-    const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
+    const item = t.fabric.add('AppBackend', 'Copilot DataHub App', null);
     Object.assign(t.config.fabricApp, { itemId: item.id, models: ['vl'], installerVersion: installerVersion() });
     t.config.modules.consumption = true;
     Object.assign(t.config.consumption.model, { id: 'cc-1', bound: true });
@@ -784,7 +790,7 @@ test('app: the prebuilt app is deployed as it is, with its models in fabric.conf
       },
     });
     const fa = t.config.fabricApp;
-    assert.equal(fa.name, 'Analytics Hub');
+    assert.equal(fa.name, 'Copilot DataHub App');
     assert.equal(fa.profile, undefined);
     assert.deepEqual(fa.models, ['vl', 'cc']);
     assert.equal(findDeployment(fa.rayfin?.deployments, 'ws-1')?.fabricItemId, fa.itemId);
@@ -822,7 +828,7 @@ test('app: a first deploy that fails part way keeps the app item it made, so the
   try {
     await assert.rejects(deployApp(t.ctx), /deploy tool failed/);
     const made = t.fabric.items.filter((i) => i.type === 'AppBackend');
-    assert.deepEqual(made.map((i) => i.displayName), ['Analytics Hub']);
+    assert.deepEqual(made.map((i) => i.displayName), ['Copilot DataHub App']);
     assert.equal(findDeployment(t.config.fabricApp.rayfin?.deployments, 'ws-1')?.fabricItemId, made[0].id);
 
     o.upFails = false;
@@ -859,7 +865,7 @@ test('app: a prebuilt deploy that fails keeps what Rayfin recorded, and needs it
 test('app: a prebuilt app is offered a redeploy, not a rebuild, when its pages change', async () => {
   const t = prebuiltSetup();
   try {
-    const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
+    const item = t.fabric.add('AppBackend', 'Copilot DataHub App', null);
     Object.assign(t.config.fabricApp, { itemId: item.id, models: ['vl'], installerVersion: installerVersion() });
     t.config.modules.consumption = true;
     Object.assign(t.config.consumption.model, { id: 'cc-1', bound: true });
@@ -876,7 +882,7 @@ test('app: a prebuilt app is offered a redeploy, not a rebuild, when its pages c
 test('app: a prebuilt app is offered a redeploy when the Value page currency changes, and records it', async () => {
   const t = prebuiltSetup();
   try {
-    const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
+    const item = t.fabric.add('AppBackend', 'Copilot DataHub App', null);
     Object.assign(t.config.fabricApp, { itemId: item.id, models: ['vl'], reporting: { currency: 'USD' }, installerVersion: installerVersion() });
     t.config.reporting = { currency: 'EUR', exchangeRate: 0.92 };
     await ensureFabricApp(t.ctx);
@@ -901,7 +907,7 @@ test('app: an app an earlier installer deployed is redeployed by default, to upd
 
     t.runs.length = 0;
     await ensureFabricApp(t.ctx);
-    assert.equal(t.ui.asked.at(-1), 'The app "Analytics Hub" is deployed. Deploy it again?');
+    assert.equal(t.ui.asked.at(-1), 'The app "Copilot DataHub App" is deployed. Deploy it again?');
     assert.deepEqual(t.runs, [], 'this version deployed it and nothing else changed: left alone by default');
 
     // Installers up to 0.6.7 recorded no version; later ones record theirs.
@@ -910,7 +916,7 @@ test('app: an app an earlier installer deployed is redeployed by default, to upd
       else delete fa.installerVersion;
       t.runs.length = 0;
       await ensureFabricApp(t.ctx);
-      assert.equal(t.ui.asked.at(-1), 'The app "Analytics Hub" needs redeploying to update it to this version. Deploy it again?');
+      assert.equal(t.ui.asked.at(-1), 'The app "Copilot DataHub App" needs redeploying to update it to this version. Deploy it again?');
       assert.equal(t.runs.length, 1, 'it redeploys by default');
       assert.equal(fa.installerVersion, installerVersion());
     }
@@ -919,7 +925,7 @@ test('app: an app an earlier installer deployed is redeployed by default, to upd
     t.config.modules.consumption = true;
     Object.assign(t.config.consumption.model, { id: 'cc-1', bound: true });
     await ensureFabricApp(t.ctx);
-    assert.equal(t.ui.asked.at(-1), 'The app "Analytics Hub" needs redeploying to update it to this version and add the credit consumption pages. Deploy it again?');
+    assert.equal(t.ui.asked.at(-1), 'The app "Copilot DataHub App" needs redeploying to update it to this version and add the credit consumption pages. Deploy it again?');
   } finally {
     t.cleanup();
   }
@@ -932,7 +938,7 @@ test('app: an app a later installer deployed is redeployed by default, to take i
     t.config.fabricApp.installerVersion = '99.0.0';
     t.runs.length = 0;
     await ensureFabricApp(t.ctx);
-    assert.equal(t.ui.asked.at(-1), 'The app "Analytics Hub" needs redeploying to take it back from 99.0.0 to this version. Deploy it again?');
+    assert.equal(t.ui.asked.at(-1), 'The app "Copilot DataHub App" needs redeploying to take it back from 99.0.0 to this version. Deploy it again?');
     assert.equal(t.runs.length, 1, 'it redeploys by default');
     assert.equal(t.config.fabricApp.installerVersion, installerVersion());
   } finally {
@@ -943,13 +949,13 @@ test('app: an app a later installer deployed is redeployed by default, to take i
 test("app: answering no keeps the earlier version's record, so the next run offers the rebuild again", async () => {
   const t = appSetup({ answers: [false] });
   try {
-    const item = t.fabric.add('AppBackend', 'Analytics Hub', null);
+    const item = t.fabric.add('AppBackend', 'Copilot DataHub App', null);
     Object.assign(t.config.fabricApp, { itemId: item.id, installerVersion: '0.6.7' });
-    const question = 'The app "Analytics Hub" needs rebuilding to update it to this version. Build and deploy it again?';
+    const question = 'The app "Copilot DataHub App" needs rebuilding to update it to this version. Build and deploy it again?';
     await ensureFabricApp(t.ctx);
     assert.equal(t.ui.asked.at(-1), question);
     assert.deepEqual(t.runs, []);
-    assert.match(t.ui.text(), /App Analytics Hub is in place/);
+    assert.match(t.ui.text(), /App Copilot DataHub App is in place/);
     assert.equal(t.config.fabricApp.installerVersion, '0.6.7');
 
     await ensureFabricApp(t.ctx);

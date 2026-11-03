@@ -104,7 +104,7 @@ async function aeInstall(o = {}) {
       outputs: {},
       graphRoles: { assigned: [], pending: [] },
       publicNetworkAccess: !o.private,
-      workspaceName: 'Analytics Hub',
+      workspaceName: 'Copilot DataHub App',
       ...(o.private ? { powerBi: { capacityId: 'cap-f' } } : {}),
       ...o.az,
     },

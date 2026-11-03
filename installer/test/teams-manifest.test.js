@@ -7,7 +7,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { test } from 'node:test';
-import { writeTeamsPackage } from '../src/azure/teams.js';
+import { TEAMS_PACKAGE_NAME, writeTeamsPackage } from '../src/azure/teams.js';
 import { readManifest } from './fakes.js';
 
 const CLIENT_ID = '00000000-0000-4000-8000-000000000001';
@@ -18,7 +18,7 @@ const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.u
 async function builtManifest() {
   const dir = mkdtempSync(join(tmpdir(), 'teams-manifest-'));
   try {
-    const r = await writeTeamsPackage({ clientId: CLIENT_ID, fqdn: FQDN, appIdUri: `api://${FQDN}/${CLIENT_ID}`, version: VERSION, outFile: join(dir, 'AnalyticsHub-Teams.zip') });
+    const r = await writeTeamsPackage({ clientId: CLIENT_ID, fqdn: FQDN, appIdUri: `api://${FQDN}/${CLIENT_ID}`, version: VERSION, outFile: join(dir, TEAMS_PACKAGE_NAME) });
     if (r.skipped) throw new Error(r.reason);
     return readManifest(r.zip);
   } finally {

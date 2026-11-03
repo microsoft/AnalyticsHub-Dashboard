@@ -378,7 +378,7 @@ export async function install(ctx, opts) {
     ...(withUploads ? ['Data uploads'] : []),
     'Notebooks, pipeline and schedule',
     ...(withAccess ? ['Viewer access'] : []),
-    ...(withApp ? ['Analytics Hub app'] : []),
+    ...(withApp ? ['Copilot DataHub App'] : []),
     ...(withShare ? ['Share the app'] : []),
     ...(ctx.runFirstLoad ? ['First load'] : ctx.reloadHistoryDays ? ['Reload audit history'] : withModel ? ['Model refresh'] : []),
   ];
@@ -455,7 +455,7 @@ export async function install(ctx, opts) {
   /** @type {{ since: number, workspaceId?: string, deployedAt?: string } | undefined} */
   let appFailure;
   if (withApp) {
-    step('Analytics Hub app');
+    step('Copilot DataHub App');
     const since = ctx.now().getTime();
     appDeployed = await tryDeployApp(ctx);
     if (!appDeployed) appFailure = { since, workspaceId: config.fabric.workspaceId, deployedAt: config.fabricApp.deployedAt };
@@ -694,7 +694,7 @@ export async function update(ctx, opts = {}) {
   if (!config.fabric.workspaceId || !config.fabric.lakehouseId) throw new Error('Nothing is installed yet. Run the installer first.');
   await updatePrereqs(ctx);
   const sm = config.semanticModel;
-  ui.heading('Updating Analytics Hub');
+  ui.heading('Updating Copilot DataHub App');
   ui.note(`From ${ctx.sources.dir}`);
   await ensureKeyVault(ctx);
   await ensureApp(ctx);
@@ -725,7 +725,7 @@ export async function update(ctx, opts = {}) {
   if (ctx.checkAudit) await auditProbe(ctx, consented);
   if ((await ensureOrgAccess(ctx, { refresh: false })) === false) stepsOk = false;
   if (sm.enabled && config.fabricApp.enabled) {
-    if (await ui.confirm('Rebuild and redeploy the Analytics Hub app too?', true)) stepsOk = (await tryDeployApp(ctx, { force: true })) && stepsOk;
+    if (await ui.confirm('Rebuild and redeploy the Copilot DataHub App too?', true)) stepsOk = (await tryDeployApp(ctx, { force: true })) && stepsOk;
     else await ensureAppName(ctx);
   }
   return finishUpdate(ctx, { ...opts, failed: !stepsOk });
@@ -915,13 +915,13 @@ export async function runCommand(ctx, command, opts) {
 }
 
 /**
- * Builds and deploys the Analytics Hub app on its own.
+ * Builds and deploys the Copilot DataHub App on its own.
  * @param {Ctx} ctx
  */
 export async function deployAppNow(ctx) {
   const { config, ui } = ctx;
-  if (!modelDeployed(config)) throw new Error('The app needs the semantic model. Run the installer and choose "Semantic model and the Analytics Hub app".');
-  ui.heading('Deploying the Analytics Hub app');
+  if (!modelDeployed(config)) throw new Error('The app needs the semantic model. Run the installer and choose "Semantic model and the Copilot DataHub App".');
+  ui.heading('Deploying the Copilot DataHub App');
   await deployApp(ctx);
   if (config.fabricApp.url) ui.info(config.fabricApp.url);
 }
@@ -975,14 +975,14 @@ export async function summary(ctx, opts = {}) {
   const sql = lakehouse?.properties?.sqlEndpointProperties;
 
   if (opts.ok === false) {
-    ui.heading('Analytics Hub is partly set up');
+    ui.heading('Copilot DataHub App is partly set up');
     ui.warn('A step above didn\'t finish. Fix what it says, then run the installer again: it picks up where it stopped.');
     if (opts.pending?.length) ui.warn(reloadingNote(opts.pending));
   } else if (opts.pending?.length) {
-    ui.heading('Analytics Hub is set up, still reloading');
+    ui.heading('Copilot DataHub App is set up, still reloading');
     ui.warn(reloadingNote(opts.pending));
   } else {
-    ui.heading('Analytics Hub is set up');
+    ui.heading('Copilot DataHub App is set up');
   }
   if (opts.appLate) ui.ok(`The app step above failed, but the app was deployed afterwards (${new Date(opts.appLate).toISOString().slice(0, 16).replace('T', ' ')} UTC).`);
   const left = nextSteps(config, ctx.user, { appFailed: opts.appFailed });

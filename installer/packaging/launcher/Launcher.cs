@@ -24,7 +24,7 @@ using System.Threading;
 internal static class Launcher
 {
     private const string HomeFolder = "AnalyticsHub";
-    private const string WorkFolder = "Analytics Hub";
+    private const string WorkFolder = "Copilot DataHub App";
     private const string Marker = ".unpacked";
     private const string Partial = ".partial-";
     private const int Cancelled = 130;

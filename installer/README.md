@@ -1,6 +1,6 @@
-# Analytics Hub installer
+# Copilot DataHub App installer
 
-Sets up Analytics Hub in your tenant, on [Fabric](../fabric/README.md) or [Azure](../azure/README.md),
+Sets up Copilot DataHub App in your tenant, on [Fabric](../fabric/README.md) or [Azure](../azure/README.md),
 loads the first data and checks it. This page is the reference. To get going, follow the
 [Getting started](../README.md#getting-started) steps:
 [Prerequisites](../docs/PREREQUISITES.md) → [Install](../docs/INSTALL.md) → [Check it worked](../docs/INSTALL.md#check-it-worked).
@@ -129,7 +129,7 @@ permissions cover won't load until they're fixed.
 
 ## Azure target
 
-The installer can also set up Analytics Hub in **your Azure subscription**. Start it with
+The installer can also set up Copilot DataHub App in **your Azure subscription**. Start it with
 `--target azure`, or pick **Your Azure subscription** as the first wizard answer.
 
 You need:
@@ -156,7 +156,7 @@ You need:
 It creates or reuses a resource group and deploys a managed identity, Storage, Log Analytics,
 Azure SQL Database serverless, Container Apps jobs, and the web app from the ARM template in
 `src/azure/main.arm.json`. It also creates the Azure web app registration, an SQL reader app
-registration, a Power BI workspace and model, and an `AnalyticsHub-Teams.zip` package (the app as a
+registration, a Power BI workspace and model, and a `Copilot-DataHub-App-Teams.zip` package (the app as a
 Teams tab, built by `src/azure/teams/build-package.mjs`) next to the install record. It publishes the
 package to your org's Teams app catalog, and later runs update that app rather than add another. If
 it can't, if you say no when the plan asks, or if the sign-in isn't finished within 5 minutes, it
@@ -268,7 +268,7 @@ Under [Advanced settings](#advanced-settings), the wizard asks how the app, jobs
   - **Private DNS zones.** Landing zones often deny private DNS zones outside a hub subscription, or
     let a policy add the DNS records. The wizard then asks how to handle the `privatelink.*` zones:
     - **Create them in this resource group** (default). If the resource group already has one of
-      them that this install didn't create, yours or another Analytics Hub install's, the preflight
+      them that this install didn't create, yours or another Copilot DataHub App install's, the preflight
       names it and stops before deploying: the install would tag the zone as its own, so its
       uninstall would try to delete it. To use the zones there, choose **Use existing zones in
       another resource group** and give this resource group's ID, after creating any of the zones
@@ -428,7 +428,7 @@ connected to its semantic models, so nobody has to open Power BI Desktop:
 | `Agent Evaluator` | `Analytics Hub Agent Evaluator Model` | Agent Evaluator is on, with an environment |
 
 Pages for sources you skip stay empty rather than failing. To leave the reports out, choose
-**Semantic model and the Analytics Hub app** or **Semantic model only** for Power BI. An install
+**Semantic model and the Copilot DataHub App** or **Semantic model only** for Power BI. An install
 from an earlier version gets the reports offered the next time you choose **Repair or change**;
 **Update** on its own doesn't add them.
 
@@ -436,7 +436,7 @@ On the [Azure target](#azure-target) the installer publishes no reports: the web
 the models. It deploys the Agent Evaluator model when Agent Evaluator is on with an environment,
 outside [demo mode](#demo-mode).
 
-The Analytics Hub app reads a small `fabric.config.json` deployed beside it. It contains the
+The Copilot DataHub App reads a small `fabric.config.json` deployed beside it. It contains the
 semantic model IDs the app should query and, for newer installs, the optional modules the admin
 turned on:
 
@@ -827,7 +827,7 @@ vault to allow public network access, so use this only where it does. It needs t
 Vault, not in the notebooks.
 
 If a flow can't be created (no environment, or no maker rights), the installer writes it to a file
-beside your answers in `Documents\Analytics Hub`. Create a cloud flow and paste the file's
+beside your answers in `Documents\Copilot DataHub App`. Create a cloud flow and paste the file's
 `definition` in. The [Manual setup flows](../fabric/flows/README.md) describe the feedback
 flow by hand. **Repair or change** updates existing flows and keeps the connections you signed in
 to. If an update adds a connection, the installer turns the flow off and tells you which one to

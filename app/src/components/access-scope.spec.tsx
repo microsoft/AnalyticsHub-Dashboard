@@ -44,6 +44,6 @@ describe("NoScopeNotice", () => {
     it("falls back to an admin when no contact is set", () => {
         runtime.access = undefined;
         render(<NoScopeNotice />);
-        expect(screen.getByText("Ask an Analytics Hub admin to give you a scope.")).toBeInTheDocument();
+        expect(screen.getByText("Ask a Copilot DataHub App admin to give you a scope.")).toBeInTheDocument();
     });
 });

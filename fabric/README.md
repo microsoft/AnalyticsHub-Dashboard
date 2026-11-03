@@ -3,7 +3,7 @@
 **Path 1.** Just the steps: [1-fabric](../1-fabric/). This page has the details.
 
 The recommended path. One installer sets everything up in your tenant and gives you the dashboard
-as an app in Fabric, called **Analytics Hub**. You don't need a terminal or Power BI Desktop.
+as an app in Fabric, called **Copilot DataHub App**. You don't need a terminal or Power BI Desktop.
 
 For Windows 10 or 11. Check [what you need](#before-you-start) first. Then paste the
 [PowerShell command](#install), or
@@ -52,7 +52,7 @@ you're responsible for the data once it's in your workspace.
    them, use another route in [Install](../docs/INSTALL.md) or ask your IT team.
 2. The first time, it takes about a minute to unpack.
 3. Then it opens in your browser. Keep the installer window open until it says setup is finished.
-4. Choose **Set up Analytics Hub** and sign in with your work account.
+4. Choose **Set up Copilot DataHub App** and sign in with your work account.
 5. Answer the questions. Under **Data sources**, choose the data you want: each source has a
    card. Then **Change the advanced settings?** **No** keeps what you chose last time, or takes the
    defaults: see [Advanced settings](../installer/README.md#advanced-settings). **Back** takes
@@ -99,17 +99,17 @@ Two Fabric features could remove the trade-off. Neither is built yet:
 
 ## Use it
 
-- **Open the app:** in your Fabric workspace, open **Analytics Hub**.
+- **Open the app:** in your Fabric workspace, open **Copilot DataHub App**.
 - **Share it.** The installer creates the **Analytics Hub Viewers** group, with you as owner, and
   gives it access to the data. Then:
   1. **Once:** share the app with the group. In the workspace, choose **…** next to the
-     **Analytics Hub** app, then **Share**, add **Analytics Hub Viewers** and choose **Grant**. Do
+     **Copilot DataHub App** app, then **Share**, add **Analytics Hub Viewers** and choose **Grant**. Do
      the same for the **ValueLens** report if you use the Power BI reports.
   2. **To give someone access:** add them to the group in
      [My Groups](https://myaccount.microsoft.com/groups).
 
   People without access see who to ask. See
-  [Viewing Analytics Hub](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
+  [Viewing Copilot DataHub App](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
 - **Fresh data:** the pipeline runs on the schedule you chose.
 - **Status, updates or repairs:** open the exe again.
 - **Items you didn't expect.** If you chose Copilot Cowork credits, Fabric adds items such as

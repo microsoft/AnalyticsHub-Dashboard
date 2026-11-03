@@ -168,13 +168,13 @@ describe("ReportPackEditor", () => {
     });
 
     it("says why a save failed and keeps the dialog open", async () => {
-        renderEditor(vi.fn(async () => Promise.reject(new Error("Only Analytics Hub admins can change this"))));
+        renderEditor(vi.fn(async () => Promise.reject(new Error("Only Copilot DataHub App admins can change this"))));
         fireEvent.change(screen.getByLabelText("Name"), { target: { value: "Pack" } });
         fireEvent.click(screen.getByRole("checkbox", { name: stageLabel("the-bottom-line") }));
         await act(async () => {
             fireEvent.click(screen.getByRole("button", { name: "Save pack" }));
         });
-        expect(screen.getByRole("alert")).toHaveTextContent("Only Analytics Hub admins can change this");
+        expect(screen.getByRole("alert")).toHaveTextContent("Only Copilot DataHub App admins can change this");
         expect(screen.getByRole("dialog")).toBeInTheDocument();
     });
 

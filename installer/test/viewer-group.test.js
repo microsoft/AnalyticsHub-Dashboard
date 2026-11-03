@@ -21,7 +21,7 @@ const OWNER = `https://graph.microsoft.com/v1.0/users/${ME.id}`;
 /** The group the installer asks Graph for, without its owner. */
 const GROUP = {
   displayName: VIEWER_GROUP_NAME,
-  description: 'People who can view Analytics Hub. Add members to share it.',
+  description: 'People who can view Copilot DataHub App. Add members to share it.',
   mailEnabled: false,
   mailNickname: 'analytics-hub-viewers',
   securityEnabled: true,
@@ -177,7 +177,7 @@ async function azureSetup(o) {
   const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui });
   Object.assign(config, {
     target: 'azure',
-    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Copilot DataHub App' },
     access: { groupName: VIEWER_GROUP_NAME, contact: ME.upn },
   });
   ctx.runFirstLoad = false;
@@ -204,7 +204,7 @@ for (const admin of [true, false]) {
 
     await accessCommand(ctx, [], undefined);
 
-    assert.equal(asked[0], 'Who can view Analytics Hub?', 'kept the default, "A new group"');
+    assert.equal(asked[0], 'Who can view Copilot DataHub App?', 'kept the default, "A new group"');
     assert.equal(t.creates.length, admin ? 1 : 2);
     assert.deepEqual(t.groups.get('g-1')?.owners, [ME.id]);
     assert.equal(config.access?.groupId, 'g-1');

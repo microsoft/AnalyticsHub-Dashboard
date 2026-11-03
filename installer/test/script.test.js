@@ -66,7 +66,7 @@ test('script: commands and URLs agree between the launcher and the installer', (
   assert.equal(scriptCommand(REPO), SCRIPT_COMMAND);
   assert.equal(SCRIPT_URL, `https://github.com/${REPO}/releases/latest/download/install.ps1`);
   assert.equal(scriptCommand('octo/hub', '1.2.3'), 'irm https://github.com/octo/hub/releases/download/installer-v1.2.3/install.ps1 | iex');
-  assert.equal(zipUrl('octo/hub', '1.2.3'), 'https://github.com/octo/hub/releases/download/installer-v1.2.3/AnalyticsHubInstaller.zip');
+  assert.equal(zipUrl('octo/hub', '1.2.3'), `https://github.com/octo/hub/releases/download/installer-v1.2.3/${ZIP_NAME}`);
   assert.ok(TEMPLATE.includes("Join-Path $AhHome 'analytics-hub.cmd'"));
   assert.equal(SCRIPT_SHIM, '& $env:LOCALAPPDATA\\AnalyticsHub\\analytics-hub.cmd');
 });
@@ -96,7 +96,7 @@ test('script: -UseInstalledNode runs the installer with an installed Node.js and
   assert.match(win, /-p 'process\.arch'[\s\S]*\$arch -ne 'x64'/, 'the native packages in the zip are x64');
   // Same unpacked folder, install record and command, so either route finds the other's install.
   assert.equal(win.match(/\$Root = Join-Path \$AhHome \$Id/g)?.length, 1);
-  assert.equal(win.match(/\$Work = Join-Path \$Docs 'Analytics Hub'/g)?.length, 1);
+  assert.equal(win.match(/\$Work = Join-Path \$Docs 'Copilot DataHub App'/g)?.length, 1);
   assert.match(win, /\$node = \$Installed\r?\n\s*if \(-not \$node\) \{ \$node = Join-Path \$Root 'node\\node\.exe' \}/);
   assert.match(win, /& \$node \$script @Forward/);
   assert.match(win, /set `"AH_NODE=\$Installed`"/);

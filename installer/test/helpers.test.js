@@ -175,7 +175,7 @@ test('exitWhenDone: after a sign-in was given up on, it exits only once slow std
   const auth = new URL('../src/auth.js', import.meta.url).href;
   const size = 1024 * 1024;
   const streams = [
-    ['stdout', join(dir, 'slow-stdout.txt'), '\nUpload AnalyticsHub-Teams.zip to Teams by hand.\n'],
+    ['stdout', join(dir, 'slow-stdout.txt'), '\nUpload Copilot-DataHub-App-Teams.zip to Teams by hand.\n'],
     ['stderr', join(dir, 'slow-stderr.txt'), '\nThe last error.\n'],
   ];
   // Slow stdout and stderr, like pipes to a slow reader on Linux or macOS, where pipes write asynchronously.
@@ -417,12 +417,12 @@ test('messages name the exe when it started the installer', () => {
   assert.equal(fromExe({ [EXE_ENV]: '0' }), false);
   assert.equal(fromExe(exe), true);
   assert.equal(commandLine('status', {}), 'valuelens-install status');
-  assert.equal(commandLine('status', exe), 'AnalyticsHubInstaller.exe status');
-  assert.equal(commandLine('', exe), 'AnalyticsHubInstaller.exe');
+  assert.equal(commandLine('status', exe), 'Copilot-DataHub-App-Installer.exe status');
+  assert.equal(commandLine('', exe), 'Copilot-DataHub-App-Installer.exe');
   assert.equal(installerWindow({}), 'your terminal');
   assert.equal(installerWindow(exe), 'the installer window');
-  assert.match(help(), /Usage: (valuelens-install|AnalyticsHubInstaller\.exe) \[command\] \[options\]/);
-  assert.match(help(), /deploy-app\s+Deploy the Analytics Hub app again/);
+  assert.match(help(), /Usage: (valuelens-install|Copilot-DataHub-App-Installer\.exe) \[command\] \[options\]/);
+  assert.match(help(), /deploy-app\s+Deploy the Copilot DataHub App again/);
 });
 
 test('messages name the PowerShell command when install.ps1 started the installer', () => {
@@ -437,7 +437,7 @@ test('messages name the PowerShell command when install.ps1 started the installe
   assert.equal(commandLine('status', pwsh), '& $env:LOCALAPPDATA\\AnalyticsHub\\analytics-hub.cmd status');
   assert.equal(installerWindow(pwsh), 'the PowerShell window');
   assert.match(reopenHint(pwsh), /analytics-hub\.cmd in PowerShell/);
-  assert.match(reopenHint({ [EXE_ENV]: '1' }), /AnalyticsHubInstaller\.exe/);
+  assert.match(reopenHint({ [EXE_ENV]: '1' }), /Copilot-DataHub-App-Installer\.exe/);
   assert.match(reopenHint({}), /valuelens-install --ui/);
   assert.match(updateHint('https://example.test/r', pwsh), /irm https:\/\/github\.com\/microsoft\/AnalyticsHub-Dashboard\/releases\/latest\/download\/install\.ps1 \| iex/);
   assert.equal(updateHint('https://example.test/r', {}), 'Download it from https://example.test/r, then choose Repair or change.');

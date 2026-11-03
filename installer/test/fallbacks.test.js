@@ -528,7 +528,7 @@ test('a run stopped before Fabric created the item: the next run creates it unde
   const resumed = fakeFabric();
   const r = fakeCtx({ fabric: resumed.api, graph: fakeGraph().api, ui: fakeUi().ui });
   await ensureNotebooks(r.ctx);
-  const ours = resumed.add('DataPipeline', 'AnalyticsHub_Pipeline', 'half-made', 'Analytics Hub daily load. (ref aa11)');
+  const ours = resumed.add('DataPipeline', 'AnalyticsHub_Pipeline', 'half-made', 'Copilot DataHub App daily load. (ref aa11)');
   r.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'aa11' } };
   resumed.calls.length = 0;
   await ensurePipeline(r.ctx);
@@ -540,7 +540,7 @@ test('a run stopped before Fabric created the item: the next run creates it unde
   const taken = fakeFabric();
   const k = fakeCtx({ fabric: taken.api, graph: fakeGraph().api, ui: fakeUi().ui });
   await ensureNotebooks(k.ctx);
-  const theirs = taken.add('DataPipeline', 'AnalyticsHub_Pipeline', 'theirs', 'Analytics Hub daily load. (ref bb22)');
+  const theirs = taken.add('DataPipeline', 'AnalyticsHub_Pipeline', 'theirs', 'Copilot DataHub App daily load. (ref bb22)');
   k.config.fabric.pendingItems = { DataPipeline: { name: 'AnalyticsHub_Pipeline', ref: 'aa11', at: k.ctx.now().toISOString(), operation: failedOp } };
   taken.operations[failedOp] = 'Failed';
   taken.calls.length = 0;
@@ -595,7 +595,7 @@ test('a run stopped moments ago: waits for the item Fabric is still creating, ra
   /** @type {any} */
   let ours;
   fabric.api.listItems = async (/** @type {string} */ ws, /** @type {string} */ type) => {
-    if (type === 'DataPipeline' && ++lists === 3) ours = fabric.add('DataPipeline', 'AnalyticsHub_Pipeline', 'half-made', 'Analytics Hub daily load. (ref ee55)');
+    if (type === 'DataPipeline' && ++lists === 3) ours = fabric.add('DataPipeline', 'AnalyticsHub_Pipeline', 'half-made', 'Copilot DataHub App daily load. (ref ee55)');
     return list(ws, type);
   };
   fabric.calls.length = 0;
@@ -713,7 +713,7 @@ test("a stopped run's create that Fabric gave an operation for: asked about, not
   done.fabric.api.operationStatus = async (/** @type {string} */ url) => {
     if (++asks === 3) {
       done.fabric.operations[OP] = 'Succeeded';
-      done.fabric.add('DataPipeline', 'AnalyticsHub_Pipeline', 'half-made', 'Analytics Hub daily load. (ref ee55)');
+      done.fabric.add('DataPipeline', 'AnalyticsHub_Pipeline', 'half-made', 'Copilot DataHub App daily load. (ref ee55)');
     }
     return status(url);
   };
@@ -727,7 +727,7 @@ test("a stopped run's create that Fabric gave an operation for: asked about, not
   const lagList = lag.fabric.api.listItems;
   let lagLists = 0;
   lag.fabric.api.listItems = async (/** @type {string} */ ws, /** @type {string} */ type) => {
-    if (type === 'DataPipeline' && ++lagLists === 3) lag.fabric.add('DataPipeline', 'AnalyticsHub_Pipeline', 'half-made', 'Analytics Hub daily load. (ref ee55)');
+    if (type === 'DataPipeline' && ++lagLists === 3) lag.fabric.add('DataPipeline', 'AnalyticsHub_Pipeline', 'half-made', 'Copilot DataHub App daily load. (ref ee55)');
     return lagList(ws, type);
   };
   await ensurePipeline(lag.t.ctx);
@@ -1290,7 +1290,7 @@ test('app check: the user can check again once an admin has fixed it, or carry o
   assert.equal(t.config.app.appId, APP_GUID);
   assert.equal(t.config.app.displayName, 'Their app');
   assert.match(ui.text(), /Their app isn't ready yet/);
-  assert.match(ui.text(), /Their app has everything Analytics Hub needs/);
+  assert.match(ui.text(), /Their app has everything Copilot DataHub App needs/);
 
   const stuck = appGraph({ application: THEIR_APP, sp: { id: 'their-sp' } });
   const go = fakeUi({ answers: [APP_GUID, 'go'] });

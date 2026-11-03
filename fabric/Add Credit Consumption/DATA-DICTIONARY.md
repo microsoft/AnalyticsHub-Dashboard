@@ -354,7 +354,7 @@ a perfectly good use of this.
 policies charge Copilot Studio and Cowork credits beyond prepaid capacity to an Azure subscription;
 this is what Cost Management recorded there, a day at a time. The template doesn't read it. The
 [Fabric installer](../../installer/README.md#credit-consumption) adds it to `Analytics Hub Consumption Model`
-(`ValueLens Consumption Model` on earlier installs) as `CopilotPaygSpend`, and the Analytics Hub's
+(`ValueLens Consumption Model` on earlier installs) as `CopilotPaygSpend`, and the Copilot DataHub App's
 Consumption pages compare it with the exports.
 
 Grain: day × subscription × meter × `ServiceTag` × currency.

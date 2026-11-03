@@ -1,5 +1,5 @@
 id: valuelens
-name: Analytics Hub
+name: Copilot DataHub App
 version: 1.0.0
 services:
   auth:

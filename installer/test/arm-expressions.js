@@ -1,6 +1,6 @@
 // @ts-check
 // A small offline evaluator for ARM template language expressions ("[split(...)[2]]").
-// It covers the functions the Analytics Hub template uses outside runtime values, so tests
+// It covers the functions the Copilot DataHub App template uses outside runtime values, so tests
 // can catch expressions that ARM rejects at validation time (e.g. an out-of-bounds index),
 // which no amount of parameter-shape checking would find. Unknown functions throw.
 import { createHash } from 'node:crypto';

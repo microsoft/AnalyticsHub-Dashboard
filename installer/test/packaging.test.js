@@ -10,7 +10,7 @@ import {
 } from '../packaging/payload.js';
 
 const RAYFIN_YML = `id: valuelens
-name: Analytics Hub
+name: Copilot DataHub App
 services:
   auth:
     enabled: true

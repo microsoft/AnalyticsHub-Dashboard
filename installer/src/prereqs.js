@@ -314,7 +314,7 @@ export async function checkPrereqs(ctx, opts = {}) {
             {
               id: 'teams-admin',
               label: 'Teams Administrator or Global Administrator',
-              neededFor: 'Publishing the Teams app to your org\'s app catalog, so people find Analytics Hub in Teams, Outlook and the Microsoft 365 Copilot app.',
+              neededFor: 'Publishing the Teams app to your org\'s app catalog, so people find Copilot DataHub App in Teams, Outlook and the Microsoft 365 Copilot app.',
               howTo: 'If that isn\'t you, carry on: the installer prints the steps for a Teams Administrator to upload the Teams package.',
               optional: true,
             },
@@ -386,7 +386,7 @@ export async function checkPrereqs(ctx, opts = {}) {
         label: 'Power BI Pro or Premium Per User licence',
         neededFor: azure
           ? 'Publishing the semantic model and reports to the Power BI workspace.'
-          : 'Publishing and sharing the semantic model, reports and Analytics Hub app.',
+          : 'Publishing and sharing the semantic model, reports and Copilot DataHub App.',
         howTo: 'Ask your licence admin to assign you Power BI Pro (included in Microsoft 365 E5) or Premium Per User.',
       },
       async () => {
@@ -552,7 +552,7 @@ export async function checkPrereqs(ctx, opts = {}) {
         const off = blockedSettings(Object.fromEntries(list.map((s) => [s.settingName, s])), { app: !azure, reports: true });
         return off.length
           ? { status: 'missing', detail: `Off: ${off.map((s) => s.title).join('; ')}.` }
-          : { status: 'met', detail: 'The settings Analytics Hub needs are on.' };
+          : { status: 'met', detail: 'The settings Copilot DataHub App needs are on.' };
       },
     ),
     ...(config.dataSources?.resourceGraph === 'api' ? [resourceGraphPrereq(api, config, guard)] : []),

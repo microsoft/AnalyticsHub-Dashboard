@@ -82,7 +82,7 @@ export async function fabricUninstall(ctx) {
   const f = config.fabric;
   if (!f.workspaceId) throw new Error('Nothing is installed yet.');
   const name = f.workspaceName ?? f.workspaceId;
-  ui.heading('Uninstalling Analytics Hub on Fabric');
+  ui.heading('Uninstalling Copilot DataHub App on Fabric');
   const sure = await ui.confirm(
     f.createdWorkspace
       ? `Delete workspace "${name}" and everything in it, including the Lakehouse data?`

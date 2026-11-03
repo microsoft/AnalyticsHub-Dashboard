@@ -67,7 +67,7 @@ test('parseDropFolder: a folder address or its AllItems link gives the site, the
 function withAzureConsumption(config, az = {}) {
   config.target = 'azure';
   config.modules.consumption = true;
-  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub', ...az };
+  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Copilot DataHub App', ...az };
   Object.assign(config.dataSources, { studioCredits: 'api', coworkCredits: 'csv', azureAi: 'api' });
   Object.assign(config.consumption, { azureSubscriptionId: 'ai-sub', azureSubscriptionName: 'AI', paygSubscriptions: [{ subscriptionId: 'payg-1', access: true }, { subscriptionId: 'payg-2' }] });
   config.uploads = { flowEnvironment: { url: 'https://org1.crm.dynamics.com', id: 'env-1', name: 'Default' } };
@@ -445,7 +445,7 @@ function withAzureAgent365(config, az = {}) {
   config.target = 'azure';
   config.modules.agent365 = true;
   config.dataSources.agent365 = 'csv';
-  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub', ...az };
+  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Copilot DataHub App', ...az };
 }
 
 const DROP_FOLDER = 'https://contoso.sharepoint.com/sites/Analytics/Shared Documents/ValueLens';
@@ -666,7 +666,7 @@ function withAzureFeedback(config, az = {}) {
   config.target = 'azure';
   config.modules.productFeedback = true;
   config.dataSources.productFeedback = 'csv';
-  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub', ...az };
+  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Copilot DataHub App', ...az };
 }
 
 const FEEDBACK_FABRIC_ONLY = /On Azure product feedback comes from its CSV export: the emailed export flow is Fabric only for now\./;
@@ -905,7 +905,7 @@ test('Azure plan with product feedback: the review lists the access the exports 
 function withAzureWorkday(config, az = {}) {
   config.target = 'azure';
   config.dataSources.workday = 'csv';
-  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub', ...az };
+  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Copilot DataHub App', ...az };
 }
 
 const WORKDAY_NOTE = /In Workday, run a report of active workers that includes Primary Work Email and the fields you want \(cost centre, level, location\), then export it to CSV\. Drop the CSV in the storage account > landing\/workday\. Each run loads the newest one\. It adds the Workday columns Entra ID doesn't have to the org data, matched on Primary Work Email\. Where Entra ID already has a column, its values stay, even blank ones, and people only in Workday are left out\./;
@@ -1267,7 +1267,7 @@ test('Azure apply is idempotent enough against fakes and records key outputs', a
   const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fabric.api, powerBi: powerBi.api, ui: ui.ui });
   Object.assign(config, {
     target: 'azure',
-    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Copilot DataHub App' },
   });
   ctx.runFirstLoad = true;
 
@@ -1307,7 +1307,7 @@ async function azureModelChanged(o = {}) {
   const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fabric.api, powerBi: powerBi.api, ui: ui.ui });
   Object.assign(config, {
     target: 'azure',
-    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Copilot DataHub App' },
   });
   ctx.runFirstLoad = false;
   assert.equal(await installAzure(ctx, { wait: true }), true);
@@ -1370,7 +1370,7 @@ test("Azure: a history reload that doesn't start leaves setup not finished, and 
   assert.equal(await installAzure(failed.ctx, { wait: true }), false);
   assert.match(failed.ui.text(), /✗ The history reload didn't start: Job not found/);
   assert.match(failed.ui.text(), /Try again with ".*run --backfill-days 90"\./);
-  assert.match(failed.ui.text(), /Analytics Hub is set up, but not finished/);
+  assert.match(failed.ui.text(), /Copilot DataHub App is set up, but not finished/);
   assert.equal(failed.config.history.days, 30);
   // Kept in the record, so the command isn't lost when the window closes: the Done page and status show it.
   assert.deepEqual(failed.config.history.pending, { days: 90, reason: 'failed', at: '2026-06-01T12:00:00.000Z' });
@@ -1443,7 +1443,7 @@ test("Azure: org-scoped access that fails leaves setup not finished; a job it ca
   assert.equal(await installAzure(blocked.ctx, { wait: true }), false);
   assert.match(blocked.ui.text(), /✗ The Power BI workspace is on a Pro licence/);
   assert.match(blocked.ui.text(), /Fix that, or turn org-scoped access off from ".*access"\./);
-  assert.match(blocked.ui.text(), /Analytics Hub is set up, but not finished/);
+  assert.match(blocked.ui.text(), /Copilot DataHub App is set up, but not finished/);
 
   const unfollowed = await azureModelChanged();
   orgAccessOn(unfollowed);
@@ -1457,7 +1457,7 @@ test("Azure: org-scoped access that fails leaves setup not finished; a job it ca
   const text = unfollowed.ui.text();
   assert.match(text, /! Azure didn't say which run of the run job \(access,refresh\) this is/);
   assert.doesNotMatch(text, /✗/);
-  assert.match(text, /Analytics Hub is set up/);
+  assert.match(text, /Copilot DataHub App is set up/);
   assert.doesNotMatch(text, /not finished/);
 });
 
@@ -1544,7 +1544,7 @@ test('Azure with a first load, waiting: a replaced model is reloaded before the 
   const run = t.config.azure?.outputs?.runJobName;
   assert.ok(order.indexOf('refresh') >= 0 && order.indexOf('refresh') < order.indexOf(`start ${run}`), order.join(', '));
   assert.equal(t.config.semanticModel.reload, undefined);
-  assert.match(t.ui.text(), /Analytics Hub is set up/);
+  assert.match(t.ui.text(), /Copilot DataHub App is set up/);
 
   const failed = await azureModelChanged();
   failed.ctx.runFirstLoad = true;
@@ -1849,7 +1849,7 @@ test('Azure Repair or change during the first load: no second run, and it says w
   assert.match(text, /Check on it with "valuelens-install status"\. Once it has finished, run "valuelens-install run" to load your changes, or they load on the next scheduled run\./);
   assert.deepEqual(az.status.lastRun, firstLoad, 'the first load is still the last run');
   assert.equal(t.config.history.pending, undefined, 'the run going is the first load: nothing waits');
-  assert.match(text, /Analytics Hub is set up/);
+  assert.match(text, /Copilot DataHub App is set up/);
   assert.doesNotMatch(text, /not finished|steps? left/);
 });
 
@@ -1887,7 +1887,7 @@ test("Azure: org-scoped access waits for a run that's going, rather than startin
   assert.doesNotMatch(text, /Org-scoped access applied/);
   assert.equal(/** @type {any} */ (t.config.azure).status.lastAccess, undefined);
   assert.deepEqual(t.config.access?.rls?.applied, [], 'still owed, so the next update applies it again');
-  assert.match(text, /Analytics Hub is set up/);
+  assert.match(text, /Copilot DataHub App is set up/);
   assert.doesNotMatch(text, /not finished/);
 });
 
@@ -1937,7 +1937,7 @@ test('SQL reader secret: kept tracked while Power BI may hold it, found by its r
   const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui });
   Object.assign(config, {
     target: 'azure',
-    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Copilot DataHub App' },
   });
   ctx.runFirstLoad = false;
   await installAzure(ctx, { wait: true });
@@ -1976,7 +1976,7 @@ test('a failed migration stops the install before the first load', async () => {
   const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: fakeUi().ui });
   Object.assign(config, {
     target: 'azure',
-    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Copilot DataHub App' },
   });
   ctx.runFirstLoad = true;
   arm.executions.push({ properties: { status: 'Failed' } });
@@ -2011,7 +2011,7 @@ async function azureBindRecorder(o) {
     target: 'azure',
     azure: {
       subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: '12345678-aaaa', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] },
-      publicNetworkAccess: o.publicNetworkAccess, workspaceName: 'Analytics Hub', ...(o.publicNetworkAccess ? {} : { powerBi: { capacityId: 'cap-f' } }),
+      publicNetworkAccess: o.publicNetworkAccess, workspaceName: 'Copilot DataHub App', ...(o.publicNetworkAccess ? {} : { powerBi: { capacityId: 'cap-f' } }),
     },
   });
   ctx.runFirstLoad = false;
@@ -2218,7 +2218,7 @@ test('private networking deploys a VNet, binds the model through a VNet data gat
   const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fabric.api, powerBi: powerBi.api });
   Object.assign(config, {
     target: 'azure',
-    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: '12345678-aaaa', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: false, workspaceName: 'Analytics Hub', powerBi: { capacityId: 'cap-f' } },
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: '12345678-aaaa', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: false, workspaceName: 'Copilot DataHub App', powerBi: { capacityId: 'cap-f' } },
   });
   await azurePreflight(ctx);
   assert.ok(arm.calls.includes('ensureProvider Microsoft.PowerPlatform'));
@@ -2267,7 +2267,7 @@ test('private networking: a connection a throttled create made anyway is reused,
     const { ctx, config } = fakeCtx({ arm: fakeArm().api, graph: fakeAzureGraph().api, fabric: fabric.api, powerBi: powerBi.api });
     Object.assign(config, {
       target: 'azure',
-      azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: '12345678-aaaa', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: false, workspaceName: 'Analytics Hub', powerBi: { capacityId: 'cap-f' } },
+      azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: '12345678-aaaa', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: false, workspaceName: 'Copilot DataHub App', powerBi: { capacityId: 'cap-f' } },
     });
     before(fabric);
     await azurePreflight(ctx);
@@ -2355,7 +2355,7 @@ async function intoGroupWith(resources, az = {}) {
   const arm = fakeArm();
   const { ctx, config } = fakeCtx({ arm: arm.api, graph: fakeAzureGraph().api, fabric: fakeFabric().api, powerBi: fakePowerBi().api });
   config.target = 'azure';
-  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: false, workspaceName: 'Analytics Hub', powerBi: { capacityId: 'cap-f' }, ...az };
+  config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: false, workspaceName: 'Copilot DataHub App', powerBi: { capacityId: 'cap-f' }, ...az };
   await arm.api.ensureResourceGroup('sub-1', 'rg', 'uksouth');
   arm.resources.push(...resources);
   ctx.runFirstLoad = false;
@@ -2369,7 +2369,7 @@ test('Azure private networking stops before deploying when a private DNS zone it
   const err = await azureUpdate(ctx).then(() => assert.fail('it went ahead'), (/** @type {Error} */ e) => e);
   assert.equal(deployed(arm), false, 'nothing is deployed');
   assert.equal(err.message, [
-    "Private DNS zone collision: privatelink.blob.core.windows.net already exists in resource group rg without this install's tag. With private networking, this install would update it in place and tag it as its own, so its uninstall would try to delete it and every record in it. Analytics Hub will not modify resources it did not create. To go on, either:",
+    "Private DNS zone collision: privatelink.blob.core.windows.net already exists in resource group rg without this install's tag. With private networking, this install would update it in place and tag it as its own, so its uninstall would try to delete it and every record in it. Copilot DataHub App will not modify resources it did not create. To go on, either:",
     '  - Use the zones in this resource group: run the installer again, choose advanced options and Private networking, then "Use existing zones in another resource group", and give /subscriptions/sub-1/resourceGroups/rg as the resource group that holds them. On the setup page, that\'s Networking, then "Use existing zones" with the same resource group ID. Every zone the install uses must then be in it, so first create privatelink.database.windows.net, privatelink.dfs.core.windows.net and privatelink.table.core.windows.net there, for example with az network private-dns zone create -g rg -n <zone name>.',
     '  - Or install into another resource group.',
   ].join('\n'));
@@ -2381,15 +2381,15 @@ test('Azure private networking goes ahead over private DNS zones this install cr
   assert.equal(deployed(arm), true);
 });
 
-test('Azure private networking stops over private DNS zones another Analytics Hub install created', async () => {
+test('Azure private networking stops over private DNS zones another Copilot DataHub App install created', async () => {
   const theirs = { 'valuelens-install-id': 'install-0' };
   const all = await intoGroupWith(DATA_ZONES.map((z) => dnsZone(z, theirs)));
   const err = await azurePreflight(all.ctx).then(() => assert.fail('it went ahead'), (/** @type {Error} */ e) => e);
-  assert.match(err.message, /^Private DNS zone collision: privatelink\.database\.windows\.net, privatelink\.blob\.core\.windows\.net, privatelink\.dfs\.core\.windows\.net and privatelink\.table\.core\.windows\.net already exist in resource group rg without this install's tag\. With private networking, this install would update them in place and tag them as its own, so its uninstall would try to delete them and every record in them\. They belong to another Analytics Hub install, and its uninstall would try to delete them even while this install uses them\. /);
+  assert.match(err.message, /^Private DNS zone collision: privatelink\.database\.windows\.net, privatelink\.blob\.core\.windows\.net, privatelink\.dfs\.core\.windows\.net and privatelink\.table\.core\.windows\.net already exist in resource group rg without this install's tag\. With private networking, this install would update them in place and tag them as its own, so its uninstall would try to delete them and every record in them\. They belong to another Copilot DataHub App install, and its uninstall would try to delete them even while this install uses them\. /);
   assert.doesNotMatch(err.message, /first create/, 'every zone the install uses is there already');
 
   const some = await intoGroupWith([dnsZone('privatelink.database.windows.net', theirs), dnsZone('privatelink.blob.core.windows.net')]);
-  await assert.rejects(azurePreflight(some.ctx), /already exist in resource group rg without this install's tag\. .* privatelink\.database\.windows\.net belongs to another Analytics Hub install, and its uninstall would try to delete it even while this install uses it\. .*first create privatelink\.dfs\.core\.windows\.net and privatelink\.table\.core\.windows\.net there/s);
+  await assert.rejects(azurePreflight(some.ctx), /already exist in resource group rg without this install's tag\. .* privatelink\.database\.windows\.net belongs to another Copilot DataHub App install, and its uninstall would try to delete it even while this install uses it\. .*first create privatelink\.dfs\.core\.windows\.net and privatelink\.table\.core\.windows\.net there/s);
 });
 
 test('Azure private DNS zone check: zones the deployment does not create, public networking, and existing or no DNS zones go ahead', async () => {
@@ -2421,7 +2421,7 @@ async function createdAzureInstall(o = {}) {
   const graph = fakeAzureGraph();
   const fabric = fakeFabric();
   const powerBi = fakePowerBi();
-  powerBi.workspaces.push({ id: 'pbi-ws-1', name: 'Analytics Hub' });
+  powerBi.workspaces.push({ id: 'pbi-ws-1', name: 'Copilot DataHub App' });
   const ui = fakeUi({ answers: o.answers });
   const { ctx, config, sleeps } = fakeCtx({ ui: ui.ui, arm: arm.api, graph: graph.api, fabric: fabric.api, powerBi: powerBi.api });
   config.target = 'azure';
@@ -2432,7 +2432,7 @@ async function createdAzureInstall(o = {}) {
     location: 'uksouth',
     installId: 'install-1',
     createdResourceGroup: true,
-    workspaceName: 'Analytics Hub',
+    workspaceName: 'Copilot DataHub App',
     powerBi: { workspaceId: 'pbi-ws-1', createdWorkspace: true, datasetId: 'ds-1', consumptionDatasetId: 'cc-1', agentEvaluatorDatasetId: 'ae-1', connectionId: 'conn-1' },
     webApp: { clientId: 'web-client', objectId: 'web-obj', created: true },
     sqlReader: { clientId: 'sql-client', objectId: 'sql-obj', created: true },
@@ -2441,14 +2441,14 @@ async function createdAzureInstall(o = {}) {
   return { arm, graph, fabric, powerBi, ui, ctx, config, sleeps, az: /** @type {any} */ (config.azure) };
 }
 
-const DELETE_WORKSPACE = 'Delete Power BI workspace "Analytics Hub" and everything in it, including the semantic models?';
+const DELETE_WORKSPACE = 'Delete Power BI workspace "Copilot DataHub App" and everything in it, including the semantic models?';
 
 test('Azure uninstall deletes the Power BI workspace the install created, after asking, and forgets it', async () => {
   const t = await createdAzureInstall();
   assert.equal(await runCommand(t.ctx, 'uninstall', { wait: true }), true);
   assert.deepEqual(t.ui.asked, [DELETE_WORKSPACE], 'asked before anything is deleted, and defaults to Yes');
   assert.deepEqual(t.powerBi.calls, ['deleteGroup pbi-ws-1']);
-  assert.match(t.ui.text(), /Deleted Power BI workspace "Analytics Hub"/);
+  assert.match(t.ui.text(), /Deleted Power BI workspace "Copilot DataHub App"/);
   for (const key of ['workspaceId', 'createdWorkspace', 'datasetId', 'consumptionDatasetId', 'agentEvaluatorDatasetId']) assert.equal(t.az.powerBi[key], undefined, key);
   assert.equal(t.config.fabric.workspaceId, undefined);
   assert.ok(t.fabric.calls.includes('deleteConnection conn-1'));
@@ -2458,7 +2458,7 @@ test('Azure uninstall deletes the Power BI workspace the install created, after 
   const kept = await createdAzureInstall({ answers: [false] });
   assert.equal(await runCommand(kept.ctx, 'uninstall', { wait: true }), true);
   assert.deepEqual(kept.powerBi.calls, []);
-  assert.match(kept.ui.text(), /Left Power BI workspace "Analytics Hub" alone\./);
+  assert.match(kept.ui.text(), /Left Power BI workspace "Copilot DataHub App" alone\./);
   assert.equal(kept.az.powerBi.workspaceId, 'pbi-ws-1');
   assert.equal(kept.az.powerBi.createdWorkspace, true);
   assert.ok(kept.arm.calls.includes('deleteResourceGroup rg'), 'everything else still goes');
@@ -2474,14 +2474,14 @@ test('Azure uninstall deletes the Power BI workspace the install created, after 
   const gone = await createdAzureInstall();
   gone.powerBi.failures.deleteGroup = [httpError(404)];
   await runCommand(gone.ctx, 'uninstall', { wait: true });
-  assert.match(gone.ui.text(), /Power BI workspace "Analytics Hub" was already gone/);
+  assert.match(gone.ui.text(), /Power BI workspace "Copilot DataHub App" was already gone/);
   assert.equal(gone.az.powerBi.workspaceId, undefined);
   assert.equal(gone.config.fabric.workspaceId, undefined);
 
   const refused = await createdAzureInstall();
   refused.powerBi.failures.deleteGroup = [httpError(500, 'Server error')];
   assert.equal(await runCommand(refused.ctx, 'uninstall', { wait: true }), true);
-  assert.match(refused.ui.text(), /Couldn't delete Power BI workspace "Analytics Hub": Server error\. A workspace admin can delete it in Power BI under Workspaces\./);
+  assert.match(refused.ui.text(), /Couldn't delete Power BI workspace "Copilot DataHub App": Server error\. A workspace admin can delete it in Power BI under Workspaces\./);
   assert.equal(refused.az.powerBi.workspaceId, 'pbi-ws-1', 'the record still points at the workspace that is still there');
   assert.equal(refused.config.fabric.workspaceId, 'pbi-ws-1');
   assert.ok(refused.arm.calls.includes('deleteResourceGroup rg'), 'everything else still goes');
@@ -2496,7 +2496,7 @@ test('Azure uninstall deletes a workspace only while it has the name the install
   assert.equal(await runCommand(picked.ctx, 'uninstall', { wait: true }), true);
   assert.deepEqual(picked.ui.asked, [], 'never offers to delete it');
   assert.deepEqual(picked.powerBi.calls, []);
-  assert.match(picked.ui.text(), /Left Power BI workspace "Theirs" alone, because the installer created one named "Analytics Hub"\. If you renamed it, delete it in Power BI under Workspaces\./);
+  assert.match(picked.ui.text(), /Left Power BI workspace "Theirs" alone, because the installer created one named "Copilot DataHub App"\. If you renamed it, delete it in Power BI under Workspaces\./);
   assert.equal(picked.az.powerBi.workspaceId, 'theirs');
   assert.ok(picked.arm.calls.includes('deleteResourceGroup rg'), 'everything else still goes');
 
@@ -2505,7 +2505,7 @@ test('Azure uninstall deletes a workspace only while it has the name the install
   await runCommand(missing.ctx, 'uninstall', { wait: true });
   assert.deepEqual(missing.ui.asked, []);
   assert.deepEqual(missing.powerBi.calls, []);
-  assert.match(missing.ui.text(), /Didn't find Power BI workspace "Analytics Hub" among the workspaces you can see, so it's gone or you've lost access to it\./);
+  assert.match(missing.ui.text(), /Didn't find Power BI workspace "Copilot DataHub App" among the workspaces you can see, so it's gone or you've lost access to it\./);
   assert.equal(missing.az.powerBi.workspaceId, undefined, 'forgotten, so a new install creates another');
   assert.equal(missing.config.fabric.workspaceId, undefined);
 
@@ -2514,7 +2514,7 @@ test('Azure uninstall deletes a workspace only while it has the name the install
   await runCommand(unknown.ctx, 'uninstall', { wait: true });
   assert.deepEqual(unknown.ui.asked, []);
   assert.deepEqual(unknown.powerBi.calls, []);
-  assert.match(unknown.ui.text(), /Couldn't check Power BI workspace "Analytics Hub", so left it alone: Server error\. A workspace admin can delete it in Power BI under Workspaces\./);
+  assert.match(unknown.ui.text(), /Couldn't check Power BI workspace "Copilot DataHub App", so left it alone: Server error\. A workspace admin can delete it in Power BI under Workspaces\./);
   assert.equal(unknown.az.powerBi.workspaceId, 'pbi-ws-1', 'kept, as it may still be there');
 });
 
@@ -2522,10 +2522,10 @@ test('Azure setup only marks a Power BI workspace for uninstall when the install
   /** @param {any[]} answers  the capacity, then the workspace, then a new workspace's name */
   const plan = async (answers) => {
     const powerBi = fakePowerBi();
-    /** @type {any} */ (powerBi.api).groups = async () => [{ id: 'pbi-ws-1', name: 'Analytics Hub' }, { id: 'theirs', name: 'Theirs' }];
+    /** @type {any} */ (powerBi.api).groups = async () => [{ id: 'pbi-ws-1', name: 'Copilot DataHub App' }, { id: 'theirs', name: 'Theirs' }];
     const { ctx, config } = fakeCtx({ ui: fakeUi({ answers }).ui, arm: fakeArm().api, fabric: fakeFabric().api, powerBi: powerBi.api });
     config.target = 'azure';
-    config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', workspaceName: 'Analytics Hub', powerBi: { workspaceId: 'pbi-ws-1', createdWorkspace: true } };
+    config.azure = { subscriptionId: 'sub-1', resourceGroup: 'rg', workspaceName: 'Copilot DataHub App', powerBi: { workspaceId: 'pbi-ws-1', createdWorkspace: true } };
     await planAzure(ctx, { subscriptions: [{ subscriptionId: 'sub-1', displayName: 'Sub' }] }, 'powerbi');
     return /** @type {any} */ (config.azure).powerBi;
   };
@@ -2533,7 +2533,7 @@ test('Azure setup only marks a Power BI workspace for uninstall when the install
   const picked = await plan(['', 'theirs']);
   assert.equal(picked.workspaceId, 'theirs');
   assert.equal(picked.createdWorkspace, undefined, 'one picked from the list is never deleted');
-  const fresh = await plan(['', 'new', 'Analytics Hub 2']);
+  const fresh = await plan(['', 'new', 'Copilot DataHub App 2']);
   assert.equal(fresh.workspaceId, undefined);
   assert.equal(fresh.createdWorkspace, undefined, 'set again only once setup creates the new one');
 });
@@ -2626,7 +2626,7 @@ test('an app registration with no Graph roles is created without an empty permis
   /** @type {any[]} */ const posts = [];
   const g = graphApi(/** @type {any} */ ({ post: async (/** @type {string} */ _p, /** @type {any} */ body) => (posts.push(body), { id: 'a' }) }));
   await g.createApplication('Analytics Hub SQL reader', []);
-  await g.createApplication('Analytics Hub', [{ id: 'r1' }]);
+  await g.createApplication('Copilot DataHub App', [{ id: 'r1' }]);
   assert.deepEqual(posts[0].requiredResourceAccess, []);
   assert.equal(posts[1].requiredResourceAccess[0].resourceAccess[0].id, 'r1');
 });
@@ -2804,7 +2804,7 @@ async function webAppInstall(o) {
   const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui });
   Object.assign(config, {
     target: 'azure',
-    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Copilot DataHub App' },
   });
   if (o.viewers) {
     config.access = /** @type {any} */ ({ ...config.access, groupId: 'group-1', groupName: 'Analytics Hub Viewers' });
@@ -2882,7 +2882,7 @@ test('Azure SQL free offer turned down: the new database is created at the usual
   const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fabric.api, powerBi: powerBi.api, ui: ui.ui });
   Object.assign(config, {
     target: 'azure',
-    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Copilot DataHub App' },
   });
   ctx.runFirstLoad = false;
   const deploy = /** @type {(...a: any[]) => Promise<any>} */ (arm.api.deployTemplate);
@@ -2930,7 +2930,7 @@ test('Azure install publishes the Teams app to the org catalog once, Repair leav
   const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui, appCatalog: catalog.api });
   Object.assign(config, {
     target: 'azure',
-    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Copilot DataHub App' },
   });
   ctx.runFirstLoad = false;
 
@@ -2946,8 +2946,8 @@ test('Azure install publishes the Teams app to the org catalog once, Repair leav
   assert.ok(!(az.status?.pendingAdminActions ?? []).some((/** @type {string} */ a) => a.startsWith('Publish the Teams app')));
   const out = ui.text();
   assert.ok(out.indexOf('Signed in to publish the Teams app') < out.indexOf('Wrote Teams package'), 'the sign-in comes before the deployment, not at the end');
-  assert.match(out, /Teams app: published Analytics Hub \S+ to your org's app catalog/);
-  assert.match(out, /Teams: +Analytics Hub \S+ in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app\./);
+  assert.match(out, /Teams app: published Copilot DataHub App \S+ to your org's app catalog/);
+  assert.match(out, /Teams: +Copilot DataHub App \S+ in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app\./);
 
   // Repair or change, as a new run: the same package, so no sign-in and nothing uploaded.
   delete ctx.teamsCatalog;
@@ -2980,7 +2980,7 @@ function teamsCatalogInstall(o = {}) {
   const { ctx, config } = fakeCtx({ arm: arm.api, graph: graph.api, fabric: fakeFabric().api, powerBi: powerBi.api, ui: ui.ui, appCatalog: catalog.api });
   Object.assign(config, {
     target: 'azure',
-    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Analytics Hub' },
+    azure: { subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: 'install-1', tags: {}, deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Copilot DataHub App' },
   });
   ctx.runFirstLoad = false;
   return { ctx, arm, catalog, ui, az: () => /** @type {any} */ (config.azure) };
@@ -3066,7 +3066,7 @@ test("Azure install: a Teams app the installer can't publish only warns, so the 
     const out = s.ui.text();
     assert.match(out, reason, label);
     assert.doesNotMatch(out, /✗/, label);
-    assert.match(out, /Analytics Hub is set up/, label);
+    assert.match(out, /Copilot DataHub App is set up/, label);
     assert.doesNotMatch(out, /not finished/, label);
     assert.match(out, /Teams: +Not published yet\. A Teams Administrator needs to upload /, label);
   }

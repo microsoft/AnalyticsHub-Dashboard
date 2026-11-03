@@ -1,6 +1,6 @@
-# Analytics Hub methodology
+# Copilot DataHub App methodology
 
-How Analytics Hub turns Microsoft Purview audit records into the figures on each page. It covers
+How Copilot DataHub App turns Microsoft Purview audit records into the figures on each page. It covers
 what is counted, how each interaction is classified, how value is estimated, and the research
 behind the assumptions.
 
@@ -539,7 +539,7 @@ Task Breakdown only when none of those match ([§3.2](#step-1-base-behaviour)). 
 case and surrounding spaces.
 
 Microsoft doesn't publish a complete list of app host values, and new surfaces appear over time. The
-descriptions below say what Analytics Hub does with each value. Where a description says which product
+descriptions below say what Copilot DataHub App does with each value. Where a description says which product
 logs it, check it against your own data.
 
 #### Hosts that set a task

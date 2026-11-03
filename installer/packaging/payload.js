@@ -15,7 +15,8 @@ import { PREBUILT_STATIC } from '../src/steps/app.js';
 import { askFiles, loadAsk } from '../src/transform/data-agent.js';
 import { AGENT_EVALUATOR_TEMPLATE, CONSUMPTION_TEMPLATE, MODEL_TEMPLATE } from '../src/transform/model.js';
 
-export const EXE_NAME = 'AnalyticsHubInstaller.exe';
+export const EXE_NAME = 'Copilot-DataHub-App-Installer.exe';
+export const LEGACY_EXE_NAME = 'AnalyticsHubInstaller.exe';
 /** The source folder (the repo root) inside the payload. */
 export const SOURCE_ROOT = 'f';
 /** The app folder inside the payload. */

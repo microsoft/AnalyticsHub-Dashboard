@@ -1,6 +1,6 @@
 # Changelog
 
-Notable, reviewed changes to Analytics Hub: the installer, the app, the Fabric notebooks and
+Notable, reviewed changes to Copilot DataHub App: the installer, the app, the Fabric notebooks and
 pipeline, and the Azure target.
 
 Analytics Hub moved here from
@@ -19,6 +19,15 @@ Deployment instructions do **not** live here. They live in the READMEs:
 ---
 
 ## Unreleased
+
+### Copilot DataHub App naming
+
+- The product name changes to **Copilot DataHub App**. Existing Fabric app items named
+  **Analytics Hub** or **AI in One 2.0** are renamed on update; names chosen by workspace owners
+  stay unchanged.
+- The installer offers the new name for its app item and release assets while continuing to
+  accept the former installer asset names for existing downloads and update checks. Stable
+  install records, resource names and Teams identifiers remain unchanged.
 
 **Audit log: read from the Office 365 Management Activity API by default, with Microsoft Sentinel
 as an option, not just the Graph audit search (Fabric).** The Graph audit search runs each window

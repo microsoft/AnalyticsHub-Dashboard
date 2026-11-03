@@ -276,7 +276,7 @@ export function fabricApi(http) {
     /** @param {string} workspaceId @param {string} displayName @param {ItemRef} [ref] */
     createLakehouse: (workspaceId, displayName, ref) =>
       http.requestLro('POST', `/workspaces/${workspaceId}/lakehouses`, {
-        body: { displayName, description: withRef('Analytics Hub tables.', ref), creationPayload: { enableSchemas: true } },
+        body: { displayName, description: withRef('Copilot DataHub App tables.', ref), creationPayload: { enableSchemas: true } },
         onAccepted: accepted(ref), once: true,
         lroResult: true,
       }),
@@ -318,7 +318,7 @@ export function fabricApi(http) {
     /** @param {string} workspaceId @param {string} displayName @param {any} pipeline @param {ItemRef} [ref] */
     createPipeline: (workspaceId, displayName, pipeline, ref) =>
       http.requestLro('POST', `/workspaces/${workspaceId}/dataPipelines`, {
-        body: { displayName, description: withRef('Analytics Hub daily load.', ref), definition: pipelineDefinition(pipeline) },
+        body: { displayName, description: withRef('Copilot DataHub App daily load.', ref), definition: pipelineDefinition(pipeline) },
         onAccepted: accepted(ref), once: true,
         lroResult: true,
       }),
@@ -394,7 +394,7 @@ export function fabricApi(http) {
     /** @param {string} workspaceId @param {string} displayName @param {any} definition @param {ItemRef} [ref] */
     createDataAgent: (workspaceId, displayName, definition, ref) =>
       http.requestLro('POST', `/workspaces/${workspaceId}/dataAgents`, {
-        body: { displayName, description: withRef('Answers questions about Copilot and agents from the Analytics Hub models. Deployed by the Analytics Hub installer.', ref), definition },
+        body: { displayName, description: withRef('Answers questions about Copilot and agents from the Copilot DataHub App models. Deployed by the Analytics Hub installer.', ref), definition },
         onAccepted: accepted(ref), once: true,
         lroResult: true,
       }),

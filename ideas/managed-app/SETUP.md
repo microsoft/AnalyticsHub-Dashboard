@@ -5,7 +5,7 @@
 > from that commit's `app` folder. Not validated against current services, and the CLI may have changed.
 > See [Before trying it again](README.md#before-trying-it-again).
 
-Run the Analytics Hub app on the
+Run the Copilot DataHub App on the
 [Copilot Managed Runtime](https://learn.microsoft.com/microsoft-365/managed-apps/), where apps built
 in Copilot Cowork and Copilot Studio run too. Microsoft hosts it, and people open it from
 [managedapps.cloud.microsoft](https://managedapps.cloud.microsoft). It has the same pages as on
@@ -56,7 +56,7 @@ From the `app` folder:
    your Windows account. `ms auth status` shows who you are.
 4. **Make it a managed app.**
    ```powershell
-   ms app init --display-name "Analytics Hub" --repo none --build-command "npm run build:managed"
+   ms app init --display-name "Copilot DataHub App" --repo none --build-command "npm run build:managed"
    ```
    It uses your personal developer environment unless you add `--environment-id <id>`. It writes
    `ms.config.json`, which is gitignored, and adds the CLI to `package.json`. Don't commit that.

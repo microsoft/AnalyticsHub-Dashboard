@@ -171,7 +171,7 @@
       "type": "bool",
       "defaultValue": true,
       "metadata": {
-        "description": "Deploy the Analytics Hub web app (SPA + /api)."
+        "description": "Deploy the Copilot DataHub App web app (SPA + /api)."
       }
     },
     "webMinReplicas": {
@@ -182,7 +182,7 @@
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "App registration (client) id of the Analytics Hub web app; empty until the installer creates it."
+        "description": "App registration (client) id of the Copilot DataHub App web app; empty until the installer creates it."
       }
     },
     "webAppIdUri": {

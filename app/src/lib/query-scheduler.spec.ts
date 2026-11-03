@@ -381,14 +381,14 @@ describe("QueryScheduler", () => {
         expect(log.mock.calls).toEqual([
             [
                 "warn",
-                "Analytics Hub: Power BI throttled a query to model bde54d4a (HTTP 429, 3238002688), 1 in a row. Its queries wait 0.5 s, then try it one at a time.",
+                "Copilot DataHub App: Power BI throttled a query to model bde54d4a (HTTP 429, 3238002688), 1 in a row. Its queries wait 0.5 s, then try it one at a time.",
             ],
-            ["info", "Analytics Hub: background loading from model bde54d4a paused for at least 60 s, and until it answers a query on screen."],
-            ["info", "Analytics Hub: model bde54d4a is answering again."],
+            ["info", "Copilot DataHub App: background loading from model bde54d4a paused for at least 60 s, and until it answers a query on screen."],
+            ["info", "Copilot DataHub App: model bde54d4a is answering again."],
         ]);
 
         await vi.advanceTimersByTimeAsync(60_000);
-        expect(log).toHaveBeenLastCalledWith("info", "Analytics Hub: background loading from model bde54d4a resumed.");
+        expect(log).toHaveBeenLastCalledWith("info", "Copilot DataHub App: background loading from model bde54d4a resumed.");
     });
 
     it("says HTTP 200 for a throttle Power BI sent as an error table", async () => {
@@ -400,7 +400,7 @@ describe("QueryScheduler", () => {
         await expect(result).resolves.toBe("ok");
         expect(log.mock.calls[0]).toEqual([
             "warn",
-            "Analytics Hub: Power BI throttled a query to model bde54d4a (HTTP 200, 3238002688), 1 in a row. Its queries wait 0.5 s, then try it one at a time.",
+            "Copilot DataHub App: Power BI throttled a query to model bde54d4a (HTTP 200, 3238002688), 1 in a row. Its queries wait 0.5 s, then try it one at a time.",
         ]);
     });
 
@@ -425,7 +425,7 @@ describe("QueryScheduler", () => {
         await vi.advanceTimersByTimeAsync(15_000);
         await expect(scheduler.run("b", task, "normal", "ws/bde54d4a")).resolves.toBe("ok");
         expect(recovered.mock.calls).toEqual([["ws/bde54d4a"]]);
-        expect(log).toHaveBeenCalledWith("info", 'Analytics Hub: cards that showed "Power BI is busy" ask model bde54d4a again.');
+        expect(log).toHaveBeenCalledWith("info", 'Copilot DataHub App: cards that showed "Power BI is busy" ask model bde54d4a again.');
 
         await expect(scheduler.run("d", task, "normal", "ws/bde54d4a")).resolves.toBe("ok");
         expect(recovered).toHaveBeenCalledTimes(1);
@@ -841,10 +841,10 @@ describe("QueryScheduler background lane", () => {
         await expect(held).resolves.toBe("vl");
         expect(vl).toHaveBeenCalledTimes(2);
         expect(log.mock.calls).toEqual([
-            ["warn", "Analytics Hub: Power BI throttled a query to model vl (HTTP 429), 1 in a row. Its queries wait 0.5 s, then try it one at a time."],
-            ["info", "Analytics Hub: background loading from model vl paused for at least 60 s, and until it answers a query on screen."],
-            ["info", "Analytics Hub: background loading from model vl resumed 300 s after its last throttle, without an answer on screen."],
-            ["info", "Analytics Hub: model vl is answering again."],
+            ["warn", "Copilot DataHub App: Power BI throttled a query to model vl (HTTP 429), 1 in a row. Its queries wait 0.5 s, then try it one at a time."],
+            ["info", "Copilot DataHub App: background loading from model vl paused for at least 60 s, and until it answers a query on screen."],
+            ["info", "Copilot DataHub App: background loading from model vl resumed 300 s after its last throttle, without an answer on screen."],
+            ["info", "Copilot DataHub App: model vl is answering again."],
         ]);
     });
 

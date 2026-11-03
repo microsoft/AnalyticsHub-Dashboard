@@ -73,7 +73,7 @@ test('signing: release notes with a version lead with the pinned PowerShell comm
   const cmd = 'irm https://github.com/octo/hub/releases/download/installer-v1.2.3/install.ps1 | iex';
   assert.ok(notes.includes(cmd));
   assert.ok(notes.indexOf(cmd) < notes.indexOf(`Download **${EXE_NAME}**`), 'the one-liner comes first');
-  assert.ok(notes.includes('run `.\\install.ps1 -ZipPath .\\AnalyticsHubInstaller.zip`'));
+  assert.ok(notes.includes('run `.\\install.ps1 -ZipPath .\\Copilot-DataHub-App-Installer.zip`'));
   assert.match(notes, /-UseInstalledNode/);
   assert.match(notes, /octo\/hub\/blob\/main\/docs\/INSTALL\.md#from-powershell/);
   assert.match(notes, /octo\/hub\/blob\/main\/docs\/INSTALL\.md#it-approved-nodejs/);

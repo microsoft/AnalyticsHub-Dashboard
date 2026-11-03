@@ -1,6 +1,6 @@
 # Manual install
 
-Set Analytics Hub up by hand, step by step, without the installer. It uses the same files the
+Set Copilot DataHub App up by hand, step by step, without the installer. It uses the same files the
 installer does. Use it only if no [install route](INSTALL.md) works for you, or you want to see
 each piece.
 
@@ -252,17 +252,17 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
    echo "Users: https://portal.azure.com/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Users/objectId/$(az ad sp show --id $WEB --query id -o tsv)/appId/$WEB"
    echo "App: $(out webUrl)"
    ```
-   - Open the **Users** link and select **Add user/group**. Add yourself as **Analytics Hub
-     Admin**, and others as **Analytics Hub User**. Groups need Entra ID P1 or P2. If you can't
+   - Open the **Users** link and select **Add user/group**. Add yourself as **Copilot DataHub App
+     Admin**, and others as **Copilot DataHub App User**. Groups need Entra ID P1 or P2. If you can't
      add them, ask the Entra admin or a Cloud Application Administrator.
    - In Power BI, share **Analytics Hub Model** with the same people, with **Allow recipients to
      build content**. They need Power BI Pro.
    - Once the first load is done, open the **App** link.
 8. **Teams** *(optional)*.
    ```bash
-   node azure/teams/build-package.mjs --client-id $WEB --fqdn $(out webFqdn) --version $(node -p "require('./installer/package.json').version") --out ~/AnalyticsHub-Teams.zip
+   node azure/teams/build-package.mjs --client-id $WEB --fqdn $(out webFqdn) --version $(node -p "require('./installer/package.json').version") --out ~/Copilot-DataHub-App-Teams.zip
    ```
-   Download `AnalyticsHub-Teams.zip` as in step 4, and give it to a Teams admin to
+   Download `Copilot-DataHub-App-Teams.zip` as in step 4, and give it to a Teams admin to
    [upload](../azure/teams/README.md#if-the-installer-cant-publish-it).
 
 **Extras** *(optional)*. Run its line before step 5, or run step 5 again after it.

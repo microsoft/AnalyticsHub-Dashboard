@@ -31,10 +31,10 @@ import { parseArgs } from 'node:util';
 import { APP_DIR } from '../src/sources.js';
 import { FABRIC_CONFIG, PREBUILT_MARKER, PREBUILT_STATIC, nodeVersionOk } from '../src/steps/app.js';
 import {
-  EMPTY_GENERATED, EXE_NAME, SOURCE_ROOT, appFile, appPackageJson, fileVersion, installerFile, leakedIds, localIds, payloadId, prebuiltRayfinYml,
+  EMPTY_GENERATED, EXE_NAME, LEGACY_EXE_NAME, SOURCE_ROOT, appFile, appPackageJson, fileVersion, installerFile, leakedIds, localIds, payloadId, prebuiltRayfinYml,
   prunable, sourceFiles, tooLong,
 } from './payload.js';
-import { SCRIPT_NAME, ZIP_NAME, installScript } from './script.js';
+import { LEGACY_ZIP_NAME, SCRIPT_NAME, ZIP_NAME, installScript } from './script.js';
 import { sha256File, sha256Line } from './signing.js';
 import { REPO as GITHUB_REPO } from '../src/update-check.js';
 
@@ -250,9 +250,9 @@ try {
   for (const f of ['Launcher.cs', 'app.manifest']) copyFileSync(join(LAUNCHER, f), join(work, f));
   writeFileSync(join(work, 'AssemblyInfo.cs'), [
     'using System.Reflection;',
-    '[assembly: AssemblyTitle("Analytics Hub installer")]',
-    '[assembly: AssemblyDescription("Sets up Analytics Hub for Microsoft Copilot in Microsoft Fabric.")]',
-    '[assembly: AssemblyProduct("ValueLens Analytics Hub")]',
+    '[assembly: AssemblyTitle("Copilot DataHub App installer")]',
+    '[assembly: AssemblyDescription("Sets up Copilot DataHub App for Microsoft Copilot in Microsoft Fabric.")]',
+    '[assembly: AssemblyProduct("ValueLens Copilot DataHub App")]',
     '[assembly: AssemblyCompany("Microsoft Corporation")]',
     '[assembly: AssemblyCopyright("Copyright (c) Microsoft Corporation. MIT License.")]',
     `[assembly: AssemblyVersion("${fileVersion(version)}")]`,
@@ -270,6 +270,9 @@ try {
   ], { cwd: work });
   const hash = sha256File(exe);
   writeFileSync(`${exe}.sha256`, sha256Line(hash), 'utf8');
+  const legacyExe = join(outDir, LEGACY_EXE_NAME);
+  copyFileSync(exe, legacyExe);
+  writeFileSync(`${legacyExe}.sha256`, sha256Line(hash, LEGACY_EXE_NAME), 'utf8');
   const mb = (n) => `${(n / 1024 / 1024).toFixed(0)} MB`;
   process.stdout.write(`\n✓ ${exe}\n  ${mb(readFileSync(exe).length)}, payload ${id}\n  sha256 ${hash}\n`);
 
@@ -277,6 +280,9 @@ try {
   const zipOut = join(outDir, ZIP_NAME);
   copyFileSync(zip, zipOut);
   writeFileSync(`${zipOut}.sha256`, sha256Line(zipHash, ZIP_NAME), 'utf8');
+  const legacyZip = join(outDir, LEGACY_ZIP_NAME);
+  copyFileSync(zip, legacyZip);
+  writeFileSync(`${legacyZip}.sha256`, sha256Line(zipHash, LEGACY_ZIP_NAME), 'utf8');
   const zipSize = readFileSync(zip).length;
   // In Azure Cloud Shell, install.ps1 gets this commit's source from the repo instead, and Node.js this version if Cloud Shell's is too old.
   const script = installScript(readFileSync(join(LAUNCHER, SCRIPT_NAME), 'utf8'), {

@@ -4,6 +4,10 @@
  */
 
 export const REPO = 'microsoft/AnalyticsHub-Dashboard';
+export const RELEASE_REPO_PREFIXES = [
+  `https://github.com/${REPO}/`,
+  'https://github.com/microsoft/Copilot-DataHub-App/',
+];
 export const LATEST_API = `https://api.github.com/repos/${REPO}/releases/latest`;
 export const LATEST_PAGE = `https://github.com/${REPO}/releases/latest`;
 export const TAG_PREFIX = 'installer-v';
@@ -53,7 +57,7 @@ export async function checkForUpdate(o) {
     if (body?.draft || body?.prerelease) return null;
     const version = newerVersion(o.version, body?.tag_name);
     if (!version) return null;
-    const url = typeof body.html_url === 'string' && body.html_url.startsWith(`https://github.com/${REPO}/`) ? body.html_url : LATEST_PAGE;
+    const url = typeof body.html_url === 'string' && RELEASE_REPO_PREFIXES.some((prefix) => body.html_url.startsWith(prefix)) ? body.html_url : LATEST_PAGE;
     return { version, url };
   } catch {
     return null;

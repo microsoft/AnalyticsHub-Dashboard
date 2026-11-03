@@ -1,6 +1,6 @@
 # Reference
 
-Everything that isn't a setup step. To set Analytics Hub up, start at the
+Everything that isn't a setup step. To set Copilot DataHub App up, start at the
 [README](../README.md#getting-started).
 
 ## What you get
@@ -49,7 +49,7 @@ The pages in this folder are also on the [wiki](https://github.com/microsoft/Ana
 
 ## More
 
-- **Moved from ValueLens.** Analytics Hub used to be paths 1 and 2 of
+- **Moved from ValueLens.** Copilot DataHub App used to be paths 1 and 2 of
   [ValueLens for Microsoft Copilot](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot).
   Existing installs keep working: see [I used ValueLens](FAQ.md#i-used-valuelens-what-changes).
 - What each folder holds: [Repository layout](../CONTRIBUTING.md#repository-layout).

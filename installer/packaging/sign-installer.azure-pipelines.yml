@@ -12,11 +12,10 @@
 #   - Your organisation's required pipeline template (1ES or OneBranch) wrapped around the job,
 #     if it requires one.
 #
-# Run it with the tag once installer-exe has drafted the release. It signs the draft's exe, checks
-# the signature, then replaces the exe, its .sha256 and the notes. Review and publish by hand as
-# before. The repo variable REQUIRE_SIGNED_INSTALLER=true then stops an unsigned exe being published.
-# The draft's AnalyticsHubInstaller.zip, its .sha256 and install.ps1 stay as they are: signing the
-# exe doesn't change the zip, which holds the same payload.
+# Run it with the tag once installer-exe has drafted the release. It signs the new exe, checks
+# the signature, then replaces both named exe assets, their .sha256 files and the notes. Review and
+# publish by hand as before. REQUIRE_SIGNED_INSTALLER=true then stops an unsigned exe being published.
+# Both zip names and install.ps1 stay as they are: signing the exe doesn't change the zip payload.
 
 trigger: none
 pr: none
@@ -33,7 +32,7 @@ variables:
 
 jobs:
   - job: sign
-    displayName: Sign AnalyticsHubInstaller.exe
+    displayName: Sign Copilot-DataHub-App-Installer.exe
     pool:
       vmImage: windows-latest
     timeoutInMinutes: 60
@@ -47,7 +46,7 @@ jobs:
 
       - pwsh: |
           if ('${{ parameters.tag }}' -notmatch '^installer-v\d+\.\d+\.\d+') { throw "'${{ parameters.tag }}' isn't an installer tag." }
-          gh release download '${{ parameters.tag }}' --repo $env:BUILD_REPOSITORY_NAME --dir $env:TOSIGN --pattern AnalyticsHubInstaller.exe
+          gh release download '${{ parameters.tag }}' --repo $env:BUILD_REPOSITORY_NAME --dir $env:TOSIGN --pattern Copilot-DataHub-App-Installer.exe
           if ($LASTEXITCODE) { throw 'Download failed.' }
         displayName: Download the drafted exe
         env:
@@ -65,7 +64,7 @@ jobs:
           UseMSIAuthentication: true
           EsrpClientId: $(EsrpClientId)
           FolderPath: $(ToSign)
-          Pattern: AnalyticsHubInstaller.exe
+          Pattern: Copilot-DataHub-App-Installer.exe
           signConfigType: inlineSignParams
           SessionTimeout: 90
           MaxConcurrency: 1
@@ -76,7 +75,7 @@ jobs:
                 "KeyCode": "CP-230012",
                 "OperationCode": "SigntoolSign",
                 "Parameters": {
-                  "OpusName": "Analytics Hub installer",
+                  "OpusName": "Copilot DataHub App installer",
                   "OpusInfo": "https://github.com/$(Build.Repository.Name)",
                   "FileDigest": "/fd \"SHA256\"",
                   "PageHash": "/NPH",
@@ -97,16 +96,20 @@ jobs:
       # The same check the GitHub workflow runs when the release is published.
       - pwsh: |
           $version = '${{ parameters.tag }}' -replace '^installer-v', ''
-          node packaging/finish-exe.js "$env:TOSIGN\AnalyticsHubInstaller.exe" --require-signed --repo $env:BUILD_REPOSITORY_NAME --version $version --notes "$env:TOSIGN\release-notes.md"
+          node packaging/finish-exe.js "$env:TOSIGN\Copilot-DataHub-App-Installer.exe" --require-signed --repo $env:BUILD_REPOSITORY_NAME --version $version --notes "$env:TOSIGN\release-notes.md"
           if ($LASTEXITCODE) { throw 'The signed exe failed its checks.' }
+          Copy-Item "$env:TOSIGN\Copilot-DataHub-App-Installer.exe" "$env:TOSIGN\AnalyticsHubInstaller.exe" -Force
+          node packaging/finish-exe.js "$env:TOSIGN\AnalyticsHubInstaller.exe" --require-signed
+          if ($LASTEXITCODE) { throw 'The legacy installer alias failed its checks.' }
         displayName: Check the signature, write the hash and the release notes
         workingDirectory: installer
         env:
           TOSIGN: $(ToSign)
 
       - pwsh: |
-          $exe = Join-Path $env:TOSIGN 'AnalyticsHubInstaller.exe'
-          gh release upload '${{ parameters.tag }}' $exe "$exe.sha256" --repo $env:BUILD_REPOSITORY_NAME --clobber
+          $exe = Join-Path $env:TOSIGN 'Copilot-DataHub-App-Installer.exe'
+          $legacy = Join-Path $env:TOSIGN 'AnalyticsHubInstaller.exe'
+          gh release upload '${{ parameters.tag }}' $exe "$exe.sha256" $legacy "$legacy.sha256" --repo $env:BUILD_REPOSITORY_NAME --clobber
           if ($LASTEXITCODE) { throw 'Upload failed.' }
           gh release edit '${{ parameters.tag }}' --repo $env:BUILD_REPOSITORY_NAME --notes-file (Join-Path $env:TOSIGN 'release-notes.md')
           if ($LASTEXITCODE) { throw 'Updating the notes failed.' }
