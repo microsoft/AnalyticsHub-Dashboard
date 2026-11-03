@@ -23,6 +23,19 @@ const VALUE_TASK_FIXTURE = [
     { group: "Document summaries", hours: 28, tasks: ["Meeting notes", "Document summaries"] },
 ] as const;
 const AGENTS = ["Knowledge Assistant", "Meeting Companion", "Research Helper"];
+const VALUE_AGENT_FIXTURE = [
+    { name: AGENTS[0], share: 0.38, sessions: 920, users: 68 },
+    { name: AGENTS[1], share: 0.34, sessions: 810, users: 57 },
+    { name: AGENTS[2], share: 0.28, sessions: 670, users: 46 },
+] as const;
+const EXECUTIVE_WORK_KIND_FIXTURE = [
+    { name: "Excel Assistance", hours: 38, tasks: 1520, people: 144 },
+    { name: "Document Summarising", hours: 32, tasks: 960, people: 138 },
+    { name: "Email Drafting", hours: 28, tasks: 1120, people: 132 },
+    { name: "Meeting Follow-up", hours: 25, tasks: 1000, people: 126 },
+    { name: "Research", hours: 22, tasks: 880, people: 119 },
+    { name: "Presentation Creation", hours: 20, tasks: 800, people: 108 },
+] as const;
 const ACTIVITIES = ["Copilot", "Agents", "Cowork"];
 const PRODUCTS = ["Teams", "Outlook", "Word", "Excel"];
 const HABITS = ["Power", "Habitual", "Developing", "Beginner"] as const;
@@ -170,6 +183,12 @@ function specialRows(query: string, columns: readonly string[]): unknown[][] | u
             ),
         );
     }
+    if (
+        columns.some((column) => /Task Breakdown Category/i.test(column)) &&
+        ["[Hours]", "[Tasks]", "[People]"].every((column) => columns.includes(column))
+    ) {
+        return executiveWorkKindRows(query, columns);
+    }
     if (["[Hours]", "[Tasks]", "[People]", "[Licensed Seats]", "[Seats In Use]", "[Seats In Use Pct]"]
         .every((column) => columns.includes(column))) {
         return executiveSummaryRows(query, columns);
@@ -189,6 +208,13 @@ function specialRows(query: string, columns: readonly string[]): unknown[][] | u
     if (["[Expert Equivalent Hours Per Week]", "[AI Assisted Value]", "[Projected Annualised Value]", "[AI Assisted Value Per Week]"]
         .every((column) => columns.includes(column))) {
         return valueSummaryRows(query, columns);
+    }
+    if (
+        columns.some((column) => /AgentName/i.test(column)) &&
+        ["[Active Agent Users]", "[Observed Agent Sessions]", "[Expert Equivalent Hours]", "[AI Assisted Value]"]
+            .every((column) => columns.includes(column))
+    ) {
+        return valueAgentRows(query, columns);
     }
     if (columns.some((column) => /organization/i.test(column)) &&
         ["[Active Users]", "[Expert Equivalent Hours Per Week]", "[AI Assisted Value]"]
@@ -530,6 +556,45 @@ function valueSummaryRows(query: string, columns: readonly string[]): unknown[][
         "[Currency Symbol]": "$",
     };
     return [columns.map((column) => values[column] ?? null)];
+}
+
+function executiveWorkKindRows(query: string, columns: readonly string[]): unknown[][] {
+    const categoryColumn = columns.find((column) => /Task Breakdown Category/i.test(column));
+    if (!categoryColumn) return [];
+    const selectedHours = selectedOrganizations(query).reduce<number>((sum, organization) => sum + organization.hours, 0);
+    const selectedPeople = selectedOrganizations(query).reduce<number>((sum, organization) => sum + organization.people, 0);
+    const weeks = weeksInQuery(query);
+    const scale = selectedHours / EXECUTIVE_HOURS.Typical * weeks / WINDOW_WEEKS;
+    return EXECUTIVE_WORK_KIND_FIXTURE.map((kind) => {
+        const values: Record<string, unknown> = {
+            [categoryColumn]: kind.name,
+            "[Hours]": round2(kind.hours * scale),
+            "[Tasks]": Math.round(kind.tasks * selectedPeople / 187 * weeks / WINDOW_WEEKS),
+            "[People]": Math.min(selectedPeople, Math.round(kind.people * selectedPeople / 187)),
+        };
+        return columns.map((column) => values[column] ?? null);
+    });
+}
+
+function valueAgentRows(query: string, columns: readonly string[]): unknown[][] {
+    const agentColumn = columns.find((column) => /AgentName/i.test(column));
+    if (!agentColumn) return [];
+    const selectedOrganizationsList = selectedOrganizations(query);
+    const weeklyHours = selectedOrganizationsList.reduce<number>((sum, organization) => sum + organization.valueHours, 0)
+        * VALUE_SCENARIO_FACTORS[scenarioInQuery(query)];
+    const weeks = weeksInQuery(query);
+    const rate = hourlyRateInQuery(query);
+    return VALUE_AGENT_FIXTURE.map((agent) => {
+        const hours = round2(weeklyHours * agent.share * weeks);
+        const values: Record<string, unknown> = {
+            [agentColumn]: agent.name,
+            "[Active Agent Users]": Math.min(agent.users, selectedOrganizationsList.reduce<number>((sum, organization) => sum + organization.people, 0)),
+            "[Observed Agent Sessions]": Math.round(agent.sessions * weeks / WINDOW_WEEKS),
+            "[Expert Equivalent Hours]": hours,
+            "[AI Assisted Value]": round2(hours * rate),
+        };
+        return columns.map((column) => values[column] ?? null);
+    });
 }
 
 function valueByHabitRows(query: string, columns: readonly string[]): unknown[][] {

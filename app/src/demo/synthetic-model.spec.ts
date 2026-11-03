@@ -3,12 +3,14 @@ import { applyDaxFilters, dateBetween, treatAs } from "@/lib/dax-filters";
 import consumptionByProductQuery from "../queries/consumption/consumption-by-product.dax?raw";
 import executiveSummaryQuery from "../queries/executive/executive-summary.dax?raw";
 import { executiveSummary } from "../queries/executive/executive-summary";
-import { executiveDepartments } from "../queries/executive/executive-departments";
+import { departmentMapSpec, executiveDepartments } from "../queries/executive/executive-departments";
 import { executiveHoursRange } from "../queries/executive/executive-hours-range";
 import { executiveMonths } from "../queries/executive/executive-months";
+import { executiveWorkKinds } from "../queries/executive/executive-work-kinds";
 import habitLicenceQuery from "../queries/licensing/habit-licence-matrix.dax?raw";
 import { costValueAgents, costValueBySource } from "../queries/value/cost-vs-value";
 import { toValueTaskTree, valueByTask } from "../queries/value/value-by-task";
+import { agentValue } from "../queries/value/agent-value";
 import { organizationValue } from "../queries/value/organization-value";
 import { valueSummary } from "../queries/value/value-summary";
 import { taskBreakdown } from "../queries/work/task-breakdown";
@@ -299,6 +301,11 @@ describe("synthetic demo model", () => {
         expect(departmentResult.table.rows.every((row) =>
             Number(row[hoursPerSeatColumn]) < Number(row[departmentHoursColumn]) / Number(row[seatsColumn]),
         )).toBe(true);
+        const mapLayers = (departmentMapSpec("Department") as {
+            layer: { encoding: { y?: { axis?: { format?: string } } } }[];
+        }).layer;
+        const seatHoursAxis = mapLayers.find((layer) => layer.encoding.y?.axis !== undefined)?.encoding.y?.axis;
+        expect(seatHoursAxis?.format).toBe(",.2f");
 
         const monthHoursColumn = at(monthResult, "[Hours]");
         const monthTasksColumn = at(monthResult, "[Tasks]");
@@ -361,9 +368,54 @@ describe("synthetic demo model", () => {
             .toBe(6900);
     });
 
+    it("keeps the value agents unique and their hours and value aligned with the headline", () => {
+        const summary = valueSummary();
+        const agents = agentValue();
+        const summaryResult = syntheticQueryResult(summary.query, summary.columnMetadata);
+        const agentResult = syntheticQueryResult(agents.query, agents.columnMetadata);
+
+        expect(summaryResult.status).toBe("success");
+        expect(agentResult.status).toBe("success");
+        if (summaryResult.status !== "success" || agentResult.status !== "success") return;
+        const at = (name: string) => summaryResult.table.columns.findIndex((column) => column.name === name);
+        const name = agentResult.table.columns.findIndex((column) => column.name === "Chat + Agent Interactions (Audit Logs)[AgentName]");
+        const hours = agentResult.table.columns.findIndex((column) => column.name === "[Expert Equivalent Hours]");
+        const value = agentResult.table.columns.findIndex((column) => column.name === "[AI Assisted Value]");
+        const summaryHours = Number(summaryResult.table.rows[0][at("[Expert Equivalent Hours Per Week]")]) * 26;
+        const summaryValue = Number(summaryResult.table.rows[0][at("[AI Assisted Value]")]);
+
+        expect(agentResult.table.rows).toHaveLength(3);
+        expect(new Set(agentResult.table.rows.map((row) => row[name])).size).toBe(3);
+        expect(agentResult.table.rows.reduce((sum, row) => sum + Number(row[hours]), 0)).toBe(summaryHours);
+        expect(agentResult.table.rows.reduce((sum, row) => sum + Number(row[value]), 0)).toBe(summaryValue);
+        expect(agentResult.table.rows.every((row) => Number(row[value]) === Number(row[hours]) * 50)).toBe(true);
+    });
+
+    it("keeps the executive work-kind chart within the shared headline total", () => {
+        const summary = executiveSummary();
+        const kinds = executiveWorkKinds();
+        const summaryResult = syntheticQueryResult(summary.query, summary.columnMetadata);
+        const kindsResult = syntheticQueryResult(kinds.query, kinds.columnMetadata);
+
+        expect(summaryResult.status).toBe("success");
+        expect(kindsResult.status).toBe("success");
+        if (summaryResult.status !== "success" || kindsResult.status !== "success") return;
+        const summaryHoursColumn = summaryResult.table.columns.findIndex((column) => column.name === "[Hours]");
+        const hoursColumn = kindsResult.table.columns.findIndex((column) => column.name === "[Hours]");
+        const categoryColumn = kindsResult.table.columns.findIndex((column) =>
+            column.name === "Chat + Agent Interactions (Audit Logs)[Task Breakdown Category]",
+        );
+        expect(new Set(kindsResult.table.rows.map((row) => row[categoryColumn])).size).toBe(kindsResult.table.rows.length);
+        expect(kindsResult.table.rows.reduce((sum, row) => sum + Number(row[hoursColumn]), 0))
+            .toBe(Number(summaryResult.table.rows[0][summaryHoursColumn]));
+        expect(Math.max(...kindsResult.table.rows.map((row) => Number(row[hoursColumn]))))
+            .toBeLessThanOrEqual(Number(summaryResult.table.rows[0][summaryHoursColumn]));
+    });
+
     it("applies synthetic value assumptions and date filters consistently", () => {
         const summary = valueSummary();
         const tasks = valueByTask();
+        const agents = agentValue();
         const filters = [
             treatAs("'Hourly Value'[Hourly Value]", [75]),
             treatAs("'Effort Scenario'[Scenario]", ["Conservative"]),
@@ -371,6 +423,7 @@ describe("synthetic demo model", () => {
         ];
         const filteredSummary = syntheticQueryResult(applyDaxFilters(summary.query, filters), summary.columnMetadata);
         const filteredTasks = syntheticQueryResult(applyDaxFilters(tasks.query, filters), tasks.columnMetadata);
+        const filteredAgents = syntheticQueryResult(applyDaxFilters(agents.query, filters), agents.columnMetadata);
         const dateFilters = [dateBetween("'Calendar'[Date]", "2026-06-01", "2026-06-14")];
         const dateSummary = syntheticQueryResult(applyDaxFilters(summary.query, dateFilters), summary.columnMetadata);
         const dateMonths = executiveMonths();
@@ -378,11 +431,13 @@ describe("synthetic demo model", () => {
 
         expect(filteredSummary.status).toBe("success");
         expect(filteredTasks.status).toBe("success");
+        expect(filteredAgents.status).toBe("success");
         expect(dateSummary.status).toBe("success");
         expect(dateMonthResult.status).toBe("success");
         if (
             filteredSummary.status !== "success" ||
             filteredTasks.status !== "success" ||
+            filteredAgents.status !== "success" ||
             dateSummary.status !== "success" ||
             dateMonthResult.status !== "success"
         ) return;
@@ -392,6 +447,12 @@ describe("synthetic demo model", () => {
         expect(filteredSummary.table.rows[0][valueAt("[AI Assisted Value Per Week]")]).toBe(43 * 0.75 * 75);
         const filteredTree = toValueTaskTree(toDataTable(filteredTasks.table, tasks.columnMetadata));
         expect(filteredTree.total?.rows[0].slice(1)).toEqual([1, 43 * 0.75, 43 * 0.75 * 75]);
+        const filteredAgentHours = filteredAgents.table.columns.findIndex((column) => column.name === "[Expert Equivalent Hours]");
+        const filteredAgentValue = filteredAgents.table.columns.findIndex((column) => column.name === "[AI Assisted Value]");
+        expect(filteredAgents.table.rows.reduce((sum, row) => sum + Number(row[filteredAgentHours]), 0))
+            .toBe(43 * 0.75 * 26);
+        expect(filteredAgents.table.rows.reduce((sum, row) => sum + Number(row[filteredAgentValue]), 0))
+            .toBe(43 * 0.75 * 26 * 75);
 
         const dateValue = (name: string) => dateSummary.table.columns.findIndex((column) => column.name === name);
         expect(dateSummary.table.rows[0][dateValue("[AI Assisted Value]")]).toBe(6900 * 2);

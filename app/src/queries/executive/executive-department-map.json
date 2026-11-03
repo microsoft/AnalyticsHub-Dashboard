@@ -27,7 +27,7 @@
           "field": "Hours Per Seat Month",
           "type": "quantitative",
           "title": "Expert hours per seat a month",
-          "axis": { "format": ",.1f", "tickCount": 5 }
+          "axis": { "format": ",.2f", "tickCount": 5 }
         },
         "size": {
           "field": "Licensed Seats",
@@ -38,7 +38,7 @@
         "tooltip": [
           { "field": "Chat + Agent Org DataOrganization", "type": "nominal", "title": "Group" },
           { "field": "Seats In Use Pct", "type": "quantitative", "title": "Seats in use", "format": ".0%" },
-          { "field": "Hours Per Seat Month", "type": "quantitative", "title": "Hours per seat a month", "format": ",.1f" },
+          { "field": "Hours Per Seat Month", "type": "quantitative", "title": "Hours per seat a month", "format": ",.2f" },
           { "field": "Licensed Seats", "type": "quantitative", "title": "Licensed seats", "format": ",.0f" },
           { "field": "Habit Pct", "type": "quantitative", "title": "Habit rate", "format": ".0%" }
         ]
