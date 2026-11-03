@@ -27,7 +27,7 @@
           "field": "Hours Per Seat Month",
           "type": "quantitative",
           "title": "Expert hours per seat a month",
-          "axis": { "format": ",.2f", "tickCount": 5 }
+          "axis": { "format": ",.2f", "labelExpr": "format(datum.value, ',.2f')", "tickCount": 5 }
         },
         "size": {
           "field": "Licensed Seats",

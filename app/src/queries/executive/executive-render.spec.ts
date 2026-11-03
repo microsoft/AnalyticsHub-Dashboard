@@ -47,9 +47,11 @@ async function render(spec: unknown, rows: Row[], columnMetadata: ColumnMetadata
     const labels: Mark[] = [];
     const points: Mark[] = [];
     const rules: Mark[] = [];
+    const axisLabels: string[] = [];
     const walk = (node: Scene | SceneItem) => {
         const scene = node as Scene;
         const role = (scene as unknown as { role?: string }).role;
+        if (role === "axis-label") axisLabels.push(...(scene.items as unknown as { text: string }[]).map((item) => item.text));
         if (scene.marktype === "rect" && role === "mark") bars.push(...(scene.items as unknown as Mark[]));
         if (scene.marktype === "text" && role === "mark") labels.push(...(scene.items as unknown as Mark[]));
         if (scene.marktype === "symbol" && role === "mark") points.push(...(scene.items as unknown as Mark[]));
@@ -60,7 +62,7 @@ async function render(spec: unknown, rows: Row[], columnMetadata: ColumnMetadata
     };
     walk((view.scenegraph() as unknown as { root: Scene }).root);
     await view.finalize();
-    return { bars, labels, points, rules };
+    return { bars, labels, points, rules, axisLabels };
 }
 
 function expectDrawable(bars: Mark[]) {
@@ -152,6 +154,15 @@ describe("the departments map renders", () => {
         const bySeats = [...points].sort((a, b) => (a.datum["Licensed Seats"] as number) - (b.datum["Licensed Seats"] as number));
         const width = (mark: Mark) => mark.bounds.x2 - mark.bounds.x1;
         expect(width(bySeats[bySeats.length - 1])).toBeGreaterThan(width(bySeats[0]));
+    });
+
+    it("renders hours-per-seat ticks with two decimal places", async () => {
+        const { axisLabels } = await render(departmentMapSpec("Department"), rows, columnMetadata);
+        const preciseTicks = axisLabels.filter((text) => /^\d+\.\d{2}$/.test(text));
+
+        expect(preciseTicks.length).toBeGreaterThan(0);
+        expect(preciseTicks).not.toContain("0");
+        expect(preciseTicks).not.toContain("0.1");
     });
 
     it("labels only the six largest groups, beside their circles", async () => {
