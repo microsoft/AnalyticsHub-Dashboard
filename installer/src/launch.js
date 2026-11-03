@@ -5,9 +5,9 @@ import { homedir } from 'node:os';
 import { basename, dirname, isAbsolute, join, relative } from 'node:path';
 import { REPO } from './update-check.js';
 
-/** Set by AnalyticsHubInstaller.exe, which runs the installer with the Node.js it carries. */
+/** Set by DataHub-Installer.exe, which runs the installer with the Node.js it carries. */
 export const EXE_ENV = 'ANALYTICS_HUB_EXE';
-export const EXE_NAME = 'Copilot-DataHub-App-Installer.exe';
+export const EXE_NAME = 'DataHub-Installer.exe';
 /**
  * Set by install.ps1 and the command it leaves behind: `pwsh` on Windows, where they run the same
  * download as the exe, and `cloudshell` in Azure Cloud Shell, where they run the release's source.

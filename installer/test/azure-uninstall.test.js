@@ -346,7 +346,7 @@ test('an environment that stays in use is reported as left after IN_USE_WAIT_MS,
   const text = t.ui.text();
   assert.match(text, /Couldn't delete cae-vlens-abc \(Microsoft\.App\/managedEnvironments\): Conflict: Cannot delete cae-vlens-abc because it still contains ContainerApps or Jobs\./);
   assert.match(text, /Couldn't delete vnet-vlens-abc \(Microsoft\.Network\/virtualNetworks\): InUseSubnetCannotBeDeleted: /);
-  assert.match(text, /Copilot DataHub App isn't all gone from resource group rg-shared\. Still there: cae-vlens-abc \(Microsoft\.App\/managedEnvironments\), vnet-vlens-abc \(Microsoft\.Network\/virtualNetworks\), nsg-vlens-abc \(Microsoft\.Network\/networkSecurityGroups\)\./);
+  assert.match(text, /DataHub isn't all gone from resource group rg-shared\. Still there: cae-vlens-abc \(Microsoft\.App\/managedEnvironments\), vnet-vlens-abc \(Microsoft\.Network\/virtualNetworks\), nsg-vlens-abc \(Microsoft\.Network\/networkSecurityGroups\)\./);
   assert.deepEqual(appDeletes(t.graph), ['deleteApplication web-obj', 'deleteApplication sql-obj']);
 });
 
@@ -400,7 +400,7 @@ test('when the resource group cannot be listed, the app registrations still go a
   t.arm.failures.listResources = [httpError(403, 'AuthorizationFailed')];
   assert.equal(await azureUninstall(t.ctx), false);
   assert.match(t.ui.text(), /Couldn't list the resources in resource group rg-shared: /);
-  assert.match(t.ui.text(), /Couldn't see what's left of Copilot DataHub App in resource group rg-shared\./);
+  assert.match(t.ui.text(), /Couldn't see what's left of DataHub in resource group rg-shared\./);
   assert.deepEqual(appDeletes(t.graph), ['deleteApplication web-obj', 'deleteApplication sql-obj']);
   assert.deepEqual(deleted(t.arm), []);
 
@@ -459,7 +459,7 @@ test('uninstall reads an install record that the 0.6.8-rc.2 installer wrote for 
         tags: {},
         publicNetworkAccess: true,
         workspaceMode: 'new',
-        workspaceName: 'Copilot DataHub App',
+        workspaceName: 'DataHub',
         imageTag: '0.6.8-rc.2',
         deploymentConfig: { subscriptionId: 'sub-1', resourceGroup: 'rg-shared', namePrefix: 'vlens', location: 'uksouth', publicNetworkAccess: true },
         deployments: [{ at: '2026-10-20T15:00:00.000Z', name: 'valuelens', outputs }],
@@ -478,7 +478,7 @@ test('uninstall reads an install record that the 0.6.8-rc.2 installer wrote for 
 
     const t = existingGroupInstall();
     const powerBi = fakePowerBi();
-    powerBi.workspaces.push({ id: 'pbi-ws-1', name: 'Copilot DataHub App' });
+    powerBi.workspaces.push({ id: 'pbi-ws-1', name: 'DataHub' });
     const { ctx } = fakeCtx({ ui: t.ui.ui, arm: t.arm.api, graph: t.graph.api, fabric: t.fabric.api, powerBi: powerBi.api, config });
     assert.equal(await runCommand(ctx, 'uninstall', { wait: true }), true);
     assert.deepEqual(deleted(t.arm), PUBLIC_ORDER);

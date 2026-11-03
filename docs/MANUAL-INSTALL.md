@@ -1,6 +1,6 @@
 # Manual install
 
-Set Copilot DataHub App up by hand, step by step, without the installer. It uses the same files the
+Set DataHub up by hand, step by step, without the installer. It uses the same files the
 installer does. Use it only if no [install route](INSTALL.md) works for you, or you want to see
 each piece.
 
@@ -116,9 +116,9 @@ the next release. `my.bicepparam` is your install's record: the steps fill in it
 
 ```bash
 get_files() {
-  [ -d ~/AnalyticsHub-Dashboard ] || git clone -q https://github.com/microsoft/AnalyticsHub-Dashboard ~/AnalyticsHub-Dashboard || return
-  cd ~/AnalyticsHub-Dashboard && git fetch -q --tags || return
-  TAG=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest); TAG=${TAG##*/}
+  [ -d ~/DataHub ] || git clone -q https://github.com/microsoft/DataHub ~/DataHub || return
+  cd ~/DataHub && git fetch -q --tags || return
+  TAG=$(curl -fsSLI -o /dev/null -w '%{url_effective}' https://github.com/microsoft/DataHub/releases/latest); TAG=${TAG##*/}
   [[ $TAG == installer-v* ]] && git cat-file -e $TAG:azure/infra/web-app-registration.json 2>/dev/null || { echo "Not available yet: the latest release doesn't include it."; return 1; }
   V=$(git show $TAG:installer/package.json | jq -r .version)
   for i in valuelens-jobs valuelens-web; do
@@ -142,7 +142,7 @@ with a code, ask whoever manages it.
 another resource group name, change `analytics-hub` after `RG=`, every time.
 
 ```bash
-cd ~/AnalyticsHub-Dashboard
+cd ~/DataHub
 RG=analytics-hub; P=azure/infra/my.bicepparam
 PBI=https://analysis.windows.net/powerbi/api; API=https://api.powerbi.com/v1.0/myorg
 out() { az deployment group show -g $RG -n analytics-hub --query properties.outputs.$1.value -o tsv; }
@@ -252,17 +252,17 @@ WEB=$(get webClientId); READER=$(get sqlReaderClientId); WS=$(get workspace); MI
    echo "Users: https://portal.azure.com/#view/Microsoft_AAD_IAM/ManagedAppMenuBlade/~/Users/objectId/$(az ad sp show --id $WEB --query id -o tsv)/appId/$WEB"
    echo "App: $(out webUrl)"
    ```
-   - Open the **Users** link and select **Add user/group**. Add yourself as **Copilot DataHub App
-     Admin**, and others as **Copilot DataHub App User**. Groups need Entra ID P1 or P2. If you can't
+   - Open the **Users** link and select **Add user/group**. Add yourself as **DataHub
+     Admin**, and others as **DataHub User**. Groups need Entra ID P1 or P2. If you can't
      add them, ask the Entra admin or a Cloud Application Administrator.
    - In Power BI, share **Analytics Hub Model** with the same people, with **Allow recipients to
      build content**. They need Power BI Pro.
    - Once the first load is done, open the **App** link.
 8. **Teams** *(optional)*.
    ```bash
-   node azure/teams/build-package.mjs --client-id $WEB --fqdn $(out webFqdn) --version $(node -p "require('./installer/package.json').version") --out ~/Copilot-DataHub-App-Teams.zip
+   node azure/teams/build-package.mjs --client-id $WEB --fqdn $(out webFqdn) --version $(node -p "require('./installer/package.json').version") --out ~/DataHub-Teams.zip
    ```
-   Download `Copilot-DataHub-App-Teams.zip` as in step 4, and give it to a Teams admin to
+   Download `DataHub-Teams.zip` as in step 4, and give it to a Teams admin to
    [upload](../azure/teams/README.md#if-the-installer-cant-publish-it).
 
 **Extras** *(optional)*. Run its line before step 5, or run step 5 again after it.

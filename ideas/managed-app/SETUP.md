@@ -1,11 +1,11 @@
 # Copilot Managed App (preview)
 
 > **Parked. Historical reference, not working steps.** This is how it was set up at
-> [a49fbd2](https://github.com/microsoft/AnalyticsHub-Dashboard/blob/a49fbd2925e9bf2505a3047d94a1e462ec86a73e/docs/MANAGED-APP.md),
+> [a49fbd2](https://github.com/microsoft/DataHub/blob/a49fbd2925e9bf2505a3047d94a1e462ec86a73e/docs/MANAGED-APP.md),
 > from that commit's `app` folder. Not validated against current services, and the CLI may have changed.
 > See [Before trying it again](README.md#before-trying-it-again).
 
-Run the Copilot DataHub App on the
+Run the DataHub on the
 [Copilot Managed Runtime](https://learn.microsoft.com/microsoft-365/managed-apps/), where apps built
 in Copilot Cowork and Copilot Studio run too. Microsoft hosts it, and people open it from
 [managedapps.cloud.microsoft](https://managedapps.cloud.microsoft). It has the same pages as on
@@ -13,7 +13,7 @@ Fabric and Azure.
 
 > **Preview.** So far it has been deployed and published once, in a demo tenant. Nothing else has
 > been tested. Try it with a few people first, and
-> [open an issue](https://github.com/microsoft/AnalyticsHub-Dashboard/issues) with what you find.
+> [open an issue](https://github.com/microsoft/DataHub/issues) with what you find.
 
 ## How it works
 
@@ -56,7 +56,7 @@ From the `app` folder:
    your Windows account. `ms auth status` shows who you are.
 4. **Make it a managed app.**
    ```powershell
-   ms app init --display-name "Copilot DataHub App" --repo none --build-command "npm run build:managed"
+   ms app init --display-name "DataHub" --repo none --build-command "npm run build:managed"
    ```
    It uses your personal developer environment unless you add `--environment-id <id>`. It writes
    `ms.config.json`, which is gitignored, and adds the CLI to `package.json`. Don't commit that.

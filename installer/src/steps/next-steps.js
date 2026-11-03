@@ -98,7 +98,7 @@ function deployAppStep(config, opts) {
   const group = config.access?.groupName ?? VIEWER_GROUP_NAME;
   return {
     id: 'deploy-app',
-    title: fa.itemId ? 'Deploy the Copilot DataHub App again' : 'Deploy the Copilot DataHub App',
+    title: fa.itemId ? 'Deploy the DataHub again' : 'Deploy the DataHub',
     why: fa.itemId
       ? 'The app step above failed. Until the app is deployed again, viewers get it as it was last deployed.'
       : "There's no app for viewers to open until it's deployed. The data and the models don't need it.",
@@ -169,7 +169,7 @@ function flowsStep(config, user) {
     steps,
     message: letter(
       [
-        `Could you sign in to the connections of the Copilot DataHub App ${one ? 'flow' : 'flows'} in Power Automate and turn ${one ? 'it' : 'them'} on? ${one ? 'It is' : 'They are'} in ${where}: ${link}`,
+        `Could you sign in to the connections of the DataHub ${one ? 'flow' : 'flows'} in Power Automate and turn ${one ? 'it' : 'them'} on? ${one ? 'It is' : 'They are'} in ${where}: ${link}`,
         '',
         ...details,
         'Signing in with a dedicated admin account and adding a co-owner keeps the flows running if people move on.',
@@ -227,7 +227,7 @@ function vivaQueryStep(config, user) {
     optional: true,
     message: letter(
       [
-        'Could you set up a Viva Insights query for Copilot DataHub App? It reads Copilot Cowork credits from it every day.',
+        'Could you set up a Viva Insights query for DataHub? It reads Copilot Cowork credits from it every day.',
         '',
         ...numbered(steps),
         '',
@@ -272,7 +272,7 @@ function entraRoleStep(config, user) {
     steps,
     message: letter(
       [
-        `Could you give the app "${app}" the Global Reader role in Microsoft Entra? Copilot DataHub App uses it to read Copilot Studio agents from Azure Resource Graph, which returns none until the app has one of ${roles}. Global Reader is read-only.`,
+        `Could you give the app "${app}" the Global Reader role in Microsoft Entra? DataHub uses it to read Copilot Studio agents from Azure Resource Graph, which returns none until the app has one of ${roles}. Global Reader is read-only.`,
         '',
         `App: ${app}`,
         ...(appId ? [`Application (client) ID: ${appId}`] : []),
@@ -310,7 +310,7 @@ function m365ExportStep(config, user) {
     steps,
     message: letter(
       [
-        'Could you schedule the Microsoft 365 product feedback export for Copilot DataHub App? A flow saves it when it arrives by email.',
+        'Could you schedule the Microsoft 365 product feedback export for DataHub? A flow saves it when it arrives by email.',
         '',
         ...numbered(steps),
         `The subject must be exactly "${FEEDBACK_SUBJECT}", so the flow picks it up.`,

@@ -307,7 +307,7 @@ export function regionNotes(check, offered, o) {
 /** The stop message when no region passes. @param {RegionCheck} check @param {{ sql: boolean }} o */
 export function noRegionMessage(check, o) {
   return [
-    'No Azure region in this subscription passes Azure Policy and has everything Copilot DataHub App deploys, so the installer stopped before deploying anything.',
+    'No Azure region in this subscription passes Azure Policy and has everything DataHub deploys, so the installer stopped before deploying anything.',
     ...regionNotes(check, [], o),
     'Ask an Azure administrator to allow a region where these are offered (for example uksouth, swedencentral or eastus2), or run the installer again and pick another subscription.',
   ].join(' ');

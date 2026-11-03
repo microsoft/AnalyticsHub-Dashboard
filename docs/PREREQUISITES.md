@@ -132,7 +132,7 @@ What the scheduled jobs sign in as. Graph app roles, granted by an Entra admin.
 | Graph | `CloudApp-Discovery.Read.All` | *(Optional.)* Finding AI apps in use on the network. Turned on by the **Defender** card |
 | Graph | `Sites.Selected` | *(Optional.)* Reading the files dropped in the SharePoint folder you name: credit files, and the Agent 365, product feedback and Workday exports. Turned on with private networking. A SharePoint or Global admin who's a member of the site also gives it **Read** on it, by hand |
 
-### Copilot DataHub App web app (Azure)
+### DataHub web app (Azure)
 
 The app registration people sign in to. Delegated permissions: it acts as the person using it.
 
@@ -190,7 +190,7 @@ there. Otherwise it gives you the command for someone who can.
 Only if you want **Copilot Cowork credits** from Viva Insights. The installer asks for the query's
 IDs, and building the query can take a while, so ask for it now. Copy this:
 
-> Hi, I'm setting up Copilot DataHub App, which reports Copilot Cowork credits from Viva Insights.
+> Hi, I'm setting up DataHub, which reports Copilot Cowork credits from Viva Insights.
 > Could you build a query for it?
 >
 > 1. In [Viva Insights](https://analysis.insights.viva.office.com/), go to **Create analysis** >
@@ -201,7 +201,7 @@ IDs, and building the query can take a while, so ask for it now. Copy this:
 > 3. Send me both IDs. Later, I'll ask you to sign in to a Fabric Dataflow that reads the query.
 >
 > You need the Viva Insights **Insights Analyst** role. Step by step:
-> [Running the Viva Insights query](https://github.com/microsoft/AnalyticsHub-Dashboard/blob/main/docs/VIVA-QUERY.md).
+> [Running the Viva Insights query](https://github.com/microsoft/DataHub/blob/main/docs/VIVA-QUERY.md).
 > Microsoft's guide:
 > [Export query data to Microsoft Fabric](https://learn.microsoft.com/viva/insights/advanced/analyst/export-query-data-microsoft-fabric).
 
@@ -256,7 +256,7 @@ The detail behind [At a glance](#at-a-glance), with links to Microsoft Learn.
     Lets the app's pages query the model, as the person using them. Fabric and Azure. Needed by
     the people who use the app.
   - [*Fabric App items*](https://learn.microsoft.com/fabric/admin/tenant-settings-index#microsoft-fabric).
-    Lets the installer create the Copilot DataHub App in Fabric. Fabric only. Needed by whoever
+    Lets the installer create the DataHub in Fabric. Fabric only. Needed by whoever
     runs the installer.
   - *Allow visuals created using the Power BI SDK*, for the Power BI reports, or some visuals stay
     blank. Fabric and Azure. Needed by the people who open the reports.
@@ -367,7 +367,7 @@ after a [second sign-in](#the-installers-teams-sign-in-azure), and you can skip 
 - [ ] **Publish the Teams app**, if the installer couldn't. It prints the steps: in the
       [Teams admin center](https://admin.teams.microsoft.com/policies/manage-apps), go to
       **Teams apps** > **Manage apps**, select **Upload new app** > **Upload**, and choose
-      `Copilot-DataHub-App-Teams.zip`. See [Give it to everyone](../azure/teams/README.md#give-it-to-everyone).
+      `DataHub-Teams.zip`. See [Give it to everyone](../azure/teams/README.md#give-it-to-everyone).
 - [ ] **Allow it**, if your organisation limits custom apps: the custom app setting in
       [org-wide app settings](https://learn.microsoft.com/microsoftteams/manage-apps#manage-org-wide-app-settings),
       and the viewers' [app permission policy](https://learn.microsoft.com/microsoftteams/teams-app-permission-policies).
@@ -404,7 +404,7 @@ nothing fails.
 
 ## What it costs
 
-Copilot DataHub App itself is free. It runs on services your organisation pays for: a Fabric capacity,
+DataHub itself is free. It runs on services your organisation pays for: a Fabric capacity,
 or Azure resources at about $5–40 a month for a small tenant. Viewers need Power BI Pro below
 F64. See [Running costs](ARCHITECTURE.md#running-costs) for the full list and pricing links.
 

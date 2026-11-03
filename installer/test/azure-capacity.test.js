@@ -17,7 +17,7 @@ const SHARED_WARNING = /on shared capacity, where a semantic model is limited to
 /** An Azure install's record before Power BI is chosen. */
 const BASE = {
   subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'vlens', installId: '12345678-aaaa', tags: {},
-  deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'Copilot DataHub App',
+  deployments: [], outputs: {}, graphRoles: { assigned: [], pending: [] }, publicNetworkAccess: true, workspaceName: 'DataHub',
 };
 /** What 0.6.7 and 0.6.8-rc.2 recorded for an install on shared capacity: its workspace, and no capacity. */
 const LEGACY_SHARED = [
@@ -40,7 +40,7 @@ function planCtx(o = {}) {
   const graph = fakeAzureGraph();
   const fabric = fakeFabric();
   const powerBi = fakePowerBi();
-  powerBi.workspaces.push({ id: 'pbi-ws-1', name: 'Copilot DataHub App' });
+  powerBi.workspaces.push({ id: 'pbi-ws-1', name: 'DataHub' });
   powerBi.setDatasources([{ datasourceType: 'Sql', gatewayId: 'gw', datasourceId: 'ds', connectionDetails: { server: 'vlens-sql.database.windows.net', database: 'valuelens' } }]);
   if (o.capacities) fabric.api.listCapacities = async () => /** @type {any[]} */ (o.capacities);
   const u = fakeUi();

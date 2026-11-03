@@ -1,4 +1,4 @@
-# Copilot DataHub App for Microsoft Copilot
+# DataHub for Microsoft Copilot
 
 See how your organisation uses Microsoft 365 Copilot and agents, and the hours and value they
 deliver. Run it on Microsoft Fabric or in your own Azure subscription.

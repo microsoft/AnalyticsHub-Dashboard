@@ -1,13 +1,13 @@
 // @ts-check
 /**
- * The data sources Copilot DataHub App reads, how each one arrives (an API, a CSV the admin exports, or
+ * The data sources DataHub reads, how each one arrives (an API, a CSV the admin exports, or
  * not at all), and how an uploaded CSV is recognised from its headers. The upload router notebook
  * gets the same signatures, so the installer and the scheduled pipeline always agree.
  */
 
 /** The one drop folder. The installer, the email flow, OneLake File Explorer and Fabric uploads all write here. */
 export const UPLOAD_DIR = 'Files/analytics_hub_uploads';
-/** Where an optional OneLake shortcut to a SharePoint "Copilot DataHub App uploads" folder goes. Read-only: files there are never moved. */
+/** Where an optional OneLake shortcut to a SharePoint "DataHub uploads" folder goes. Read-only: files there are never moved. */
 export const SHAREPOINT_SUBDIR = `${UPLOAD_DIR}/sharepoint`;
 export const UPLOAD_LOG_TABLE = 'dbo.analytics_hub_upload_log';
 export const FEEDBACK_DIR = 'Files/product_feedback';
@@ -264,7 +264,7 @@ export const UPLOAD_KINDS = [
     name: 'EntitlementConsumptionTenantPerUserDetailsReport_MCSMessages_{stamp}.csv',
     policy: 'replaceKind',
   },
-  // Written each day by the Copilot DataHub App Copilot Studio credits flow from the licensing API. Each
+  // Written each day by the DataHub Copilot Studio credits flow from the licensing API. Each
   // file restates the last ten days, so only the newest is kept; the notebook merges by day.
   {
     kind: 'studioAgentDaily',
@@ -387,7 +387,7 @@ export function detectSource(headers, enabled) {
     .filter((k) => k.groups.every((g) => g.some((h) => have.has(h))))
     .map((k) => ({ k, score: k.groups.length }))
     .sort((a, b) => b.score - a.score);
-  if (!scored.length) return { ok: false, reason: `It doesn't look like any export Copilot DataHub App reads. ${expectedHint()}`, headers };
+  if (!scored.length) return { ok: false, reason: `It doesn't look like any export DataHub reads. ${expectedHint()}`, headers };
   if (scored.length > 1 && scored[0].score === scored[1].score) {
     return { ok: false, reason: `It matches more than one export (${scored.filter((s) => s.score === scored[0].score).map((s) => s.k.kind).join(', ')}).`, headers };
   }
@@ -400,7 +400,7 @@ export function detectSource(headers, enabled) {
 }
 
 function expectedHint() {
-  return 'Expected one of: product feedback, Agent 365 agents, Copilot Studio credits (including the Copilot DataHub App flow\'s files), Cowork credits or a Workday report.';
+  return 'Expected one of: product feedback, Agent 365 agents, Copilot Studio credits (including the DataHub flow\'s files), Cowork credits or a Workday report.';
 }
 
 /**

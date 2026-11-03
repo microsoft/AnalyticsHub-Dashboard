@@ -28,17 +28,17 @@ test('update check: only a newer installer-v release counts', () => {
 });
 
 test('update check: asks the new repo and links to its release', async () => {
-  const { fetch, calls } = fakeFetch({ tag_name: 'installer-v0.6.0', html_url: 'https://github.com/microsoft/AnalyticsHub-Dashboard/releases/tag/installer-v0.6.0' });
+  const { fetch, calls } = fakeFetch({ tag_name: 'installer-v0.6.0', html_url: 'https://github.com/microsoft/DataHub/releases/tag/installer-v0.6.0' });
   const u = await checkForUpdate({ version: '0.5.0', fetch, env: {} });
   assert.deepEqual(calls, [LATEST_API]);
-  assert.match(LATEST_API, /api\.github\.com\/repos\/microsoft\/AnalyticsHub-Dashboard\/releases\/latest$/);
-  assert.deepEqual(u, { version: '0.6.0', url: 'https://github.com/microsoft/AnalyticsHub-Dashboard/releases/tag/installer-v0.6.0' });
+  assert.match(LATEST_API, /api\.github\.com\/repos\/microsoft\/DataHub\/releases\/latest$/);
+  assert.deepEqual(u, { version: '0.6.0', url: 'https://github.com/microsoft/DataHub/releases/tag/installer-v0.6.0' });
 });
 
-test('update check: accepts the proposed post-rename repository URL before the rename', async () => {
-  const url = 'https://github.com/microsoft/Copilot-DataHub-App/releases/tag/installer-v0.7.0';
+test('update check: accepts the renamed repository URL', async () => {
+  const url = 'https://github.com/microsoft/DataHub/releases/tag/installer-v0.7.0';
   const { fetch } = fakeFetch({ tag_name: 'installer-v0.7.0', html_url: url });
-  assert.ok(RELEASE_REPO_PREFIXES.includes('https://github.com/microsoft/Copilot-DataHub-App/'));
+  assert.deepEqual(RELEASE_REPO_PREFIXES, ['https://github.com/microsoft/DataHub/']);
   assert.deepEqual(await checkForUpdate({ version: '0.6.8', fetch, env: {} }), { version: '0.7.0', url });
 });
 

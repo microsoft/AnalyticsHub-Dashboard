@@ -1,6 +1,6 @@
 # Install
 
-The installer sets up Copilot DataHub App on Fabric or Azure. Check the [Prerequisites](PREREQUISITES.md)
+The installer sets up DataHub on Fabric or Azure. Check the [Prerequisites](PREREQUISITES.md)
 first. To set it up by hand instead, see [Manual install](MANUAL-INSTALL.md).
 
 ```mermaid
@@ -13,14 +13,14 @@ flowchart LR
 1. **Start the installer.** Paste this into PowerShell:
 
    ```powershell
-   irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+   irm https://github.com/microsoft/DataHub/releases/latest/download/install.ps1 | iex
    ```
 
-   Or [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
+   Or [download the exe](https://github.com/microsoft/DataHub/releases/latest/download/DataHub-Installer.exe)
    and open it. Blocked? See [Other ways to start it](#other-ways-to-start-it).
 2. **Wait for your browser.** The first time, it takes about a minute to unpack. Keep its window
    open, and keep the PC awake and plugged in, until the installer says setup is finished.
-3. **Choose Set up Copilot DataHub App** and sign in.
+3. **Choose Set up DataHub** and sign in.
 4. **Choose where it runs:** **Microsoft Fabric** or **Your Azure subscription** (`--target azure`).
 5. **Answer the questions** (about 5 minutes):
    - **Data sources.** Each has a card: **Connected (API)**, **Upload CSV** or **Skip**. A CSV card
@@ -59,8 +59,8 @@ flowchart LR
   credits**, **Copilot Cowork credits** and **Azure AI costs** cards make up
   [Credit consumption](../installer/README.md#credit-consumption). A source that needs more, such
   as a Power Platform environment for a flow, asks for it next.
-- **Names.** A new workspace is named `Copilot DataHub App` and its Lakehouse `Analytics_Hub`, or the
-  next free name. New items are named after Copilot DataHub App, such as `Analytics Hub Model`,
+- **Names.** A new workspace is named `DataHub` and its Lakehouse `Analytics_Hub`, or the
+  next free name. New items are named after DataHub, such as `Analytics Hub Model`,
   `AnalyticsHub_Pipeline`, the `Analytics Hub SQL …` connection and the `Analytics Hub Data Collector` app registration. An install from
   an earlier version keeps its names, such as `ValueLens Model`.
 - **Capacity.** F64 or larger is recommended for more than 10,000 people. On Azure, so is letting
@@ -80,10 +80,10 @@ flowchart LR
   [Load the Studio credits now](../installer/README.md#power-automate-flows).
 - **A workspace that already has things in it.** The installer never changes anything it didn't
   create. If a name is taken, its own item gets the next free name, such as
-  `AnalyticsHub_Pipeline_2` or `Copilot DataHub App 2`. The plan shows the names first.
+  `AnalyticsHub_Pipeline_2` or `DataHub 2`. The plan shows the names first.
 - **The install record.** Your answers are kept in `Documents\Analytics Hub\valuelens-install.json`.
   Keep that folder. Start the installer again the same way to run the pipeline, check status,
-  update or repair. **Manage Copilot DataHub App** shows the record's path. If OneDrive syncs your
+  update or repair. **Manage DataHub** shows the record's path. If OneDrive syncs your
   Documents folder, the record follows you to your other PCs.
 - **The workspace has gone.** After you sign in, the installer checks the record's workspace still
   exists. If Fabric says it doesn't, or the record is for another tenant, choose **Start fresh**
@@ -138,7 +138,7 @@ Something failed? Choose **Rerun failed loads** (`rerun-failed`), or see
     so the load shows it as waiting rather than failed.
   - **Ask a Viva Insights analyst for the Cowork credits query** (optional), when Cowork credits
     come from the CSV export.
-  - **Ask a Privileged Role Administrator for Global Reader** for **Copilot DataHub App Data
+  - **Ask a Privileged Role Administrator for Global Reader** for **DataHub Data
     Collector**, when agent configuration comes from Azure Resource Graph. The message has the
     app's IDs, the link to Roles & admins, and a Cloud Shell command.
   - **Ask a Microsoft 365 admin to schedule the product feedback export**, when its flow is on.
@@ -149,14 +149,14 @@ Something failed? Choose **Rerun failed loads** (`rerun-failed`), or see
   1. **Once:** share the app with the group. Straight after the app is deployed, before the first
      load, the installer asks you to, with a link to the app item in Fabric: choose **Share**, add
      the group and choose **Grant**. (Or in the workspace, choose **…** next to the
-     **Copilot DataHub App** app, then **Share**.) Choose **I've shared it** and it isn't asked again.
+     **DataHub** app, then **Share**.) Choose **I've shared it** and it isn't asked again.
      Choose **Later** and it's a card on the Done page, and Repair asks again. Do the same for the
      **ValueLens** report.
   2. **To give someone access:** add them to the group in
      [My Groups](https://myaccount.microsoft.com/groups). You can also run `access`
      (**Manage access** in the browser) or use **Share** in the app.
 
-  Keep viewers off workspace roles. See [Viewing Copilot DataHub App](PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
+  Keep viewers off workspace roles. See [Viewing DataHub](PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
 - **Own reports.** Connect Power BI Desktop to `Analytics Hub Model`, or use **Save a copy** on a
   published report.
 - **Flows and the Cowork Dataflow.** If you chose them, the end of the install lists what to sign
@@ -169,12 +169,12 @@ Something failed? Choose **Rerun failed loads** (`rerun-failed`), or see
 
 ## Check the download
 
-Each [release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases) lists the
-exe's SHA-256, which is also in `AnalyticsHubInstaller.exe.sha256`. To check your copy, run this in
+Each [release](https://github.com/microsoft/DataHub/releases) lists the
+exe's SHA-256, which is also in `DataHub-Installer.exe.sha256`. To check your copy, run this in
 PowerShell, in the folder you downloaded it to:
 
 ```powershell
-(Get-FileHash .\AnalyticsHubInstaller.exe -Algorithm SHA256).Hash
+(Get-FileHash .\DataHub-Installer.exe -Algorithm SHA256).Hash
 ```
 
 It should match, ignoring capitals. If it doesn't, delete the file and download it again.
@@ -192,10 +192,10 @@ Paste this into PowerShell (Windows PowerShell 5.1 or PowerShell 7). It runs the
 as the exe, with the same browser steps:
 
 ```powershell
-irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+irm https://github.com/microsoft/DataHub/releases/latest/download/install.ps1 | iex
 ```
 
-It downloads `AnalyticsHubInstaller.zip` from the latest release (about 120 MB: Node.js, the
+It downloads `DataHub-Installer.zip` from the latest release (about 120 MB: Node.js, the
 installer and the app, already built), checks its SHA-256 against the one written into
 `install.ps1`, unpacks it under `%LOCALAPPDATA%\AnalyticsHub` and opens the installer in your
 browser. It needs no admin rights, installs nothing system-wide and changes no settings. Run it
@@ -205,15 +205,15 @@ again to pick up a new version; it removes the old one.
   `& $env:LOCALAPPDATA\AnalyticsHub\analytics-hub.cmd status`. With no arguments it opens the
   browser steps.
 - **A fixed version.** Each release's notes give a command pinned to that release, such as
-  `irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.6/install.ps1 | iex`.
+  `irm https://github.com/microsoft/DataHub/releases/download/installer-v0.6.6/install.ps1 | iex`.
   A pre-release is only reachable this way: `releases/latest` skips pre-releases. If that
   release's zip has since been removed, the command says so, prints the `releases/latest`
   command to run instead and stops. It doesn't switch versions on its own.
-- **Download and run.** To keep the files, download `install.ps1` and `AnalyticsHubInstaller.zip`
-  from the [release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest) and,
+- **Download and run.** To keep the files, download `install.ps1` and `DataHub-Installer.zip`
+  from the [release](https://github.com/microsoft/DataHub/releases/latest) and,
   where your execution policy allows scripts, run
-  `.\install.ps1 -ZipPath .\AnalyticsHubInstaller.zip`. Anything after the options goes to the
-  installer, for example `... -ZipPath .\AnalyticsHubInstaller.zip status`.
+  `.\install.ps1 -ZipPath .\DataHub-Installer.zip`. Anything after the options goes to the
+  installer, for example `... -ZipPath .\DataHub-Installer.zip status`.
 - **If policy blocks it.** If execution policy, endpoint protection or another control blocks
   `irm | iex` or the script, don't work around it. Use another route in [Other ways to start it](#other-ways-to-start-it), or
   ask your IT team.
@@ -226,7 +226,7 @@ again to pick up a new version; it removes the old one.
   may not be able to deploy the app: see [Known issues](TROUBLESHOOTING.md#installing).
 - **Remove it** with `.\install.ps1 -Uninstall` (from the download-and-run steps above), or by
   deleting `%LOCALAPPDATA%\AnalyticsHub`. That doesn't touch what's in your tenant, or your
-  install record in `Documents\Copilot DataHub App`. To remove what's in your tenant, use **Uninstall**
+  install record in `Documents\DataHub`. To remove what's in your tenant, use **Uninstall**
   in the installer first.
 
 AppLocker or Windows Defender Application Control rules that block programs under your profile
@@ -241,10 +241,10 @@ If your organisation has installed an approved Node.js (22.13 or later, or 24; x
 PowerShell launcher can run the installer with it instead of the `node.exe` in the zip:
 
 ```powershell
-$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1'; irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+$env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1'; irm https://github.com/microsoft/DataHub/releases/latest/download/install.ps1 | iex
 ```
 
-Or, from the [download-and-run](#from-powershell) files, `.\install.ps1 -ZipPath .\AnalyticsHubInstaller.zip -UseInstalledNode`.
+Or, from the [download-and-run](#from-powershell) files, `.\install.ps1 -ZipPath .\DataHub-Installer.zip -UseInstalledNode`.
 
 - **Which Node.js.** The `node` on your PATH. It stops if that's missing, too old or not x64.
 - **What's still downloaded.** The same zip, checked the same way and unpacked to
@@ -268,7 +268,7 @@ your PC: the installer runs in Cloud Shell and asks its questions in the termina
 **PowerShell** in Cloud Shell and paste the same command:
 
 ```powershell
-irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+irm https://github.com/microsoft/DataHub/releases/latest/download/install.ps1 | iex
 ```
 
 In Cloud Shell, `install.ps1` doesn't download the Windows zip. It fetches the release's source
@@ -279,8 +279,8 @@ against the list nodejs.org publishes. It all goes in `~/.analytics-hub`. The fi
 minute or two.
 
 - **Options.** To pass options or a command, run
-  `& ([scriptblock]::Create((irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1))) --use-az status`.
-  In Bash, run `pwsh -c "irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex"`.
+  `& ([scriptblock]::Create((irm https://github.com/microsoft/DataHub/releases/latest/download/install.ps1))) --use-az status`.
+  In Bash, run `pwsh -c "irm https://github.com/microsoft/DataHub/releases/latest/download/install.ps1 | iex"`.
 - **Later commands.** It leaves `~/.analytics-hub/analytics-hub` behind, which works from Bash or
   PowerShell, for example `~/.analytics-hub/analytics-hub status`. To update, run the `irm` command
   again.
@@ -303,7 +303,7 @@ minute or two.
   **Download** and enter `analytics-hub/valuelens-install.json`. The installer reminds you at the
   end of each run. In a new session, upload it with **Manage files** > **Upload** and run the
   installer again: it moves the uploaded record from your home folder to where it looks. To carry
-  on from a PC later, put the record in `Documents\Copilot DataHub App`.
+  on from a PC later, put the record in `Documents\DataHub`.
 - **Idle timeout.** Cloud Shell ends a session after 20 minutes without input. If that stops the
   installer, run the same command again: it reuses what's in the install record, skips finished
   steps and doesn't create a second app. With `--no-wait` the installer doesn't wait for the
@@ -314,7 +314,7 @@ minute or two.
   home folder (Cloud Shell gives you 5 GB). If deploying fails, copy the install record to a
   Windows PC and run `deploy-app` there.
 - **Remove it** with
-  `& ([scriptblock]::Create((irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1))) -Uninstall`,
+  `& ([scriptblock]::Create((irm https://github.com/microsoft/DataHub/releases/latest/download/install.ps1))) -Uninstall`,
   or by deleting `~/.analytics-hub`. Your install record stays.
 
 `install.ps1` spots Cloud Shell from the environment variables it sets. To force it either way,
@@ -333,7 +333,7 @@ npx valuelens-install --ui
 
 Leave out `--ui` to answer the questions in the terminal. Other commands: `run`, `check`,
 `refresh`, `status`, `update`, `deploy-app`, `rotate-secret`, `upload`, `prereqs` and `preview`. Add `--help` for
-options. The exe takes the same commands, for example `AnalyticsHubInstaller.exe status`.
+options. The exe takes the same commands, for example `DataHub-Installer.exe status`.
 `install --yes` keeps the secret in the notebooks for a new Fabric install; read
 [the trade-off](../installer/README.md#where-the-secret-goes) first, and add `--key-vault` to use Key Vault instead.
 `--secret-days <n>` sets how long the secret in the notebooks lasts.

@@ -1,7 +1,7 @@
 // @ts-check
 /** Teams package hook for the Azure target. teams/ is vendored from 'azure/teams' (drift-checked by tests/test_azure_scaffold.py). */
 
-export const TEAMS_PACKAGE_NAME = 'Copilot-DataHub-App-Teams.zip';
+export const TEAMS_PACKAGE_NAME = 'DataHub-Teams.zip';
 export const LEGACY_TEAMS_PACKAGE_NAME = 'AnalyticsHub-Teams.zip';
 
 /** The package's manifest version for an installer version: Teams takes x.y.z only. @param {string} version */

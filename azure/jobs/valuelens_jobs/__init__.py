@@ -1,2 +1,2 @@
-"""Copilot DataHub App on Azure: job entry point (the `valuelens-jobs` container image)."""
+"""DataHub on Azure: job entry point (the `valuelens-jobs` container image)."""
 __version__ = "0.1.0"

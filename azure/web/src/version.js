@@ -1,5 +1,5 @@
 const CACHE_TTL_MS = 6 * 60 * 60 * 1000;
-// installer-v: releases from AnalyticsHub-Dashboard. analytics-hub-azure-v: the one-off release that
+// installer-v: releases from DataHub. analytics-hub-azure-v: the one-off release that
 // tells installs up to 0.4.2, which read ValueLens's releases, about the move.
 const TAG_PREFIXES = ['installer-v', 'analytics-hub-azure-v', 'v'];
 

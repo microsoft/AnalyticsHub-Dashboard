@@ -1,13 +1,13 @@
-# Copilot DataHub App on Azure: a plan for running outside Fabric
+# DataHub on Azure: a plan for running outside Fabric
 
-> This plan was written in ValueLens, before Copilot DataHub App moved to its own repo. Its paths are the
+> This plan was written in ValueLens, before DataHub moved to its own repo. Its paths are the
 > old ones: `1. Fabric/Fabric App` is now `app/`, `1. Fabric/installer` is `installer/`,
 > `1. Fabric/Manual setup` is `fabric/`, `2. Azure` is `azure/`, and paths 3 to 5 are still in
 > [ValueLens](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot).
 
 ## 0. Summary
 
-This plan recreates Copilot DataHub App and its installer so they run in the **customer's own Azure
+This plan recreates DataHub and its installer so they run in the **customer's own Azure
 subscription** without Microsoft Fabric. The model is
 [pnp/Microsoft365-Analytics-Insights](https://github.com/pnp/Microsoft365-Analytics-Insights): an
 installer provisions PaaS, scheduled jobs collect data into SQL, and Power BI reports on it.
@@ -40,7 +40,7 @@ if the model is over 1 GB. Section 1.4 has the costs, and section 2 has the opti
 | Installer | A .NET 4.8 WinForms exe (`App.ControlPanel`) with an encrypted JSON config. It fetches the latest release from the GitHub Releases API | **Take:** one exe that downloads release artefacts and saves its config. **Keep ours:** the Node installer with a browser wizard and plan/approve, which is already better UX |
 | Provisioning | Azure SDK calls, one `InstallTask` per resource. Only Cognitive Services uses inline ARM. Repeat runs are safe, and **a SKU is set only when the resource is created** | **Change:** use declarative Bicep, so ARM **what-if** can power our plan screen and a *Deploy to Azure* or `azd` path comes for free. **Take:** preserve-on-update semantics for SKUs and scale settings |
 | Resources | Windows App Service (B1/B2, Always On) hosts two continuous WebJobs and an ASP.NET portal. Also Azure SQL (Basic, or S2 for production), Storage, Key Vault (access policies), App Insights and Log Analytics, plus optional Redis, Service Bus, Automation and Text Analytics | **Change:** use scale-to-zero compute (Container Apps), not an Always On plan. Use SQL **serverless**. Use Key Vault **RBAC**. Leave out Redis, Service Bus and Automation |
-| Identity | Two app registrations: the installer's SP (Owner on the resource group) and the runtime app (Graph application permissions, a secret or certificate in Key Vault, portal app roles `Portal.Administration` and `Portal.SeePII`) | **Change:** the runtime uses a **managed identity**, so there's no secret. **Take:** Entra app roles to gate the app (*Copilot DataHub App User*, *Copilot DataHub App Admin*), and nobody holds them by default |
+| Identity | Two app registrations: the installer's SP (Owner on the resource group) and the runtime app (Graph application permissions, a secret or certificate in Key Vault, portal app roles `Portal.Administration` and `Portal.SeePII`) | **Change:** the runtime uses a **managed identity**, so there's no secret. **Take:** Entra app roles to gate the app (*DataHub User*, *DataHub Admin*), and nobody holds them by default |
 | Collection | Continuous WebJob loops, a semicolon flag string `ImportJobSettings`, typed 429 `Retry-After` handling, and a bulk temp-staging table plus `MERGE` (`InsertBatch<T>`, 10k rows, capped concurrency) | **Take:** the staging-then-`MERGE` publish into SQL, the commit concurrency cap and the typed throttling. **Change:** triggered cron jobs, not continuous loops |
 | Schema | EF6 code migrations, run by the installer re-invoking the downloaded binary (`--initdb`). Some migrations are documented as needing a maintenance window | **Take:** migrations run by the **same build** being deployed, and maintenance-window notes. **Change:** plain versioned SQL scripts run by a `migrate` job |
 | Power BI | `.pbit` templates; the newer pattern publishes a model once and connects reports to it. Licences aren't included in their cost estimates | **Same as ours:** one model with measures, published to the service |
@@ -180,14 +180,14 @@ Variants: App Service B1 Linux for the web app (+$13), or B1 Windows as in PnP (
    `host === "fabric"`.
 4. **Settings store.** The Rayfin `CommercialTerms` and `TaskTime` (`rayfin/data/*.ts`) go behind a
    `SettingsStore` interface. On Fabric it's Rayfin; on Azure it's `/api/settings` (Table Storage,
-   with writes limited to the *Copilot DataHub App Admin* app role).
+   with writes limited to the *DataHub Admin* app role).
 5. **Links.** `fabric-item-url.ts` and the "open in Fabric" links become host-aware, so they go to the
    Power BI model on Azure.
 
 ### 3.2 The API (a small Node service in the same container as the SPA)
 
 - `POST /api/query`: validates the user's JWT (audience `api://<host>/<clientId>`, the
-  `Copilot DataHub App User` role). Then it gets a Power BI token **on behalf of the user** (delegated
+  `DataHub User` role). Then it gets a Power BI token **on behalf of the user** (delegated
   `Dataset.Read.All`) and calls `POST /v1.0/myorg/groups/{ws}/datasets/{id}/executeQueries`.
   - OBO means the user's own Power BI rights and any **RLS** apply. Arbitrary DAX from the client
     can't see more than the user can already see with Build.
@@ -227,7 +227,7 @@ Variants: App Service B1 Linux for the web app (+$13), or B1 Windows as in PnP (
 | Identity | Kind | Permissions | Secret? |
 |---|---|---|---|
 | `id-valuelens-collector` | User-assigned MI | Graph app roles assigned to the MI's SP: `AuditLogsQuery.Read.All`, `Reports.Read.All`, `User.Read.All`, plus module extras. Azure: Storage Blob/Table Data Contributor, SQL `db_owner` through Entra, Cost Management Reader and Monitoring Reader (consumption), Power BI workspace Member (refresh) | **No** |
-| `Copilot DataHub App` web app | App registration (SPA + API) | Exposes `access_as_user`; app roles *User* and *Admin*; delegated Power BI `Dataset.Read.All` and Graph `User.Read`, plus `GroupMember.ReadWrite.All` and `User.ReadBasic.All` for Share when there's a viewer group; Teams, Outlook and Microsoft 365 client IDs pre-authorised | No (federated credential) |
+| `DataHub` web app | App registration (SPA + API) | Exposes `access_as_user`; app roles *User* and *Admin*; delegated Power BI `Dataset.Read.All` and Graph `User.Read`, plus `GroupMember.ReadWrite.All` and `User.ReadBasic.All` for Share when there's a viewer group; Teams, Outlook and Microsoft 365 client IDs pre-authorised | No (federated credential) |
 | `Analytics Hub SQL Reader` | App registration (SP) | `db_datareader` in SQL; used as the Power BI data source credential for the scheduled refresh | **Yes** (certificate or secret in Key Vault). The installer rotates it, and `status` warns 30 days before expiry, as today |
 | Agent Evaluator | `id-valuelens-collector`, the same MI | A Dataverse application user in each chosen environment, read with a token for `<environment URL>/.default`. It holds *Bot Transcript Viewer*, whose transcript read is at Basic depth, and a role the installer creates for the install in the root business unit, with only `prvReadconversationtranscript` at Organization (Global) depth, so it reads every transcript, whoever owns it. No read on `bot`: nothing the MI runs reads that table. The installer adds both through the Dataverse Web API when the person installing is a System Administrator there, or prints the admin center steps, and removes only what it added, deleting the role only if it created it. The web app registration gets no Dataverse access | **No**. Microsoft documents a managed identity as an application user, found by its client ID; the [live test](AGENT-EVALUATOR-LIVE-TEST.md) checks it on a real install |
 
@@ -286,7 +286,7 @@ is readable for reviewers.
 
 ### 5.1 Flow (unchanged UX, new first question)
 
-0. **Where should Copilot DataHub App run?** *Microsoft Fabric* | *Your Azure subscription*.
+0. **Where should DataHub run?** *Microsoft Fabric* | *Your Azure subscription*.
 1. What to collect: the same `MODULES` in `catalog.js`. Each module also declares its Azure needs (MI app
    roles, storage containers, SQL tables, and a job step).
 2. Power BI: the model and the app (default), the model only, or neither. On Azure, also **workspace**:
@@ -383,7 +383,7 @@ Before showing the plan, the installer runs these checks and offers a fix for ea
 | Static Web Apps Standard + a linked backend (Container App or Functions) | A global CDN for the SPA | SWA managed functions can't use MI, so a linked backend is needed anyway; two resources; $9 a month | Optional |
 
 **Teams tab with SSO.** This is a capability the Fabric item can't offer, because it can't sign in inside Teams.
-- The installer generates `Copilot-DataHub-App-Teams.zip` (and the legacy `AnalyticsHub-Teams.zip` alias; manifest v1.17+, a static personal tab plus a configurable
+- The installer generates `DataHub-Teams.zip` (and the legacy `AnalyticsHub-Teams.zip` alias; manifest v1.17+, a static personal tab plus a configurable
   channel tab). `webApplicationInfo` holds the app ID and `api://<fqdn>/<clientId>`, and `validDomains` holds the
   Container Apps FQDN or a custom domain.
 - The installer then publishes the package to the org's app catalog through Graph (`POST /appCatalogs/teamsApps`),
@@ -415,7 +415,7 @@ Before showing the plan, the installer runs these checks and offers a fix for ea
   out its one-minute timeout.
 - The CSP `frame-ancestors` allows `teams.microsoft.com`, `*.teams.microsoft.com`, `*.cloud.microsoft`,
   `*.office.com`, `*.microsoft365.com`, `outlook.office.com` and `outlook.office365.com`.
-- Sharing works through the **Copilot DataHub App User** app role (assign a group), plus Build on the model.
+- Sharing works through the **DataHub User** app role (assign a group), plus Build on the model.
   The installer offers to grant both to one group.
 
 ---

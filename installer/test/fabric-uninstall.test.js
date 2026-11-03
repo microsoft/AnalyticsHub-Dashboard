@@ -49,12 +49,12 @@ test('uninstall on Fabric: the managed private endpoints are deleted and gone be
   const ui = fakeUi();
   const { ctx, config, sleeps } = fakeCtx({ fabric: fabric.api, ui: ui.ui });
   config.fabric.createdWorkspace = true;
-  config.fabric.workspaceName = 'Copilot DataHub App';
+  config.fabric.workspaceName = 'DataHub';
   assert.equal(await runCommand(ctx, 'uninstall', { wait: true }), true);
   assert.deepEqual(fabric.calls, ['list ws-1', 'deleteEndpoint ws-1 a', 'deleteEndpoint ws-1 b', 'list ws-1', 'list ws-1', 'list ws-1', 'deleteWorkspace ws-1']);
   assert.deepEqual(sleeps, [ENDPOINT_POLL_MS, ENDPOINT_POLL_MS]);
   assert.match(ui.text(), /Deleted 2 managed private endpoints \(mpe-a, mpe-b\)/);
-  assert.match(ui.text(), /Deleted workspace "Copilot DataHub App"/);
+  assert.match(ui.text(), /Deleted workspace "DataHub"/);
   assert.match(ui.text(), /Left alone: the app registration/);
 });
 

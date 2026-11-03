@@ -88,8 +88,8 @@ test('static files are served from the copies precompress writes, and never from
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'valuelens-public-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
   await fs.mkdir(path.join(dir, 'assets'));
-  const appJs = Array.from({ length: 600 }, (_, i) => `export const value${i} = () => "Copilot DataHub App ${i}";`).join('\n');
-  const indexHtml = `<!doctype html><html><head><title>Copilot DataHub App</title></head><body>${'<div class="tile"><span>Copilot</span></div>'.repeat(60)}<script type="module" src="/assets/app.js"></script></body></html>`;
+  const appJs = Array.from({ length: 600 }, (_, i) => `export const value${i} = () => "DataHub ${i}";`).join('\n');
+  const indexHtml = `<!doctype html><html><head><title>DataHub</title></head><body>${'<div class="tile"><span>Copilot</span></div>'.repeat(60)}<script type="module" src="/assets/app.js"></script></body></html>`;
   const png = randomBytes(4096);
   await fs.writeFile(path.join(dir, 'assets', 'app.js'), appJs);
   await fs.writeFile(path.join(dir, 'index.html'), indexHtml);
@@ -138,7 +138,7 @@ test('static files are served from the copies precompress writes, and never from
     assert.equal(stale.body.toString(), changed);
   } finally { server.close(); }
 
-  await fs.writeFile(path.join(dir, 'index.html'), '<!doctype html><title>Copilot DataHub App</title>');
+  await fs.writeFile(path.join(dir, 'index.html'), '<!doctype html><title>DataHub</title>');
   const rewritten = await precompress(dir);
   assert.deepEqual(rewritten.map((p) => path.basename(p)).sort(), ['app.js.br', 'app.js.gz']);
   for (const gone of ['index.html.br', 'index.html.gz']) await assert.rejects(fs.access(path.join(dir, gone)), gone);
@@ -179,7 +179,7 @@ test('a static file whose copy can\'t be read gets a plain 500, without the file
 test('precompress runs from the command line, as the image build runs it', async (t) => {
   const dir = await fs.mkdtemp(path.join(os.tmpdir(), 'valuelens-public-'));
   t.after(() => fs.rm(dir, { recursive: true, force: true }));
-  await fs.writeFile(path.join(dir, 'index.html'), `<html>${'<p>Copilot DataHub App</p>'.repeat(100)}</html>`);
+  await fs.writeFile(path.join(dir, 'index.html'), `<html>${'<p>DataHub</p>'.repeat(100)}</html>`);
   const script = fileURLToPath(new URL('../src/precompress.js', import.meta.url));
   const { stdout } = await promisify(execFile)(process.execPath, [script, dir]);
   assert.match(stdout, /wrote 2 compressed copies/);

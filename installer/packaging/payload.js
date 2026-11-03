@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * What goes into AnalyticsHubInstaller.exe, kept apart from the build so it can be tested.
+ * What goes into DataHub-Installer.exe, kept apart from the build so it can be tested.
  * The payload unpacks to:
  *   node/node.exe            Node.js, which runs everything below
  *   f/installer/             the installer, with its production dependencies
@@ -15,7 +15,7 @@ import { PREBUILT_STATIC } from '../src/steps/app.js';
 import { askFiles, loadAsk } from '../src/transform/data-agent.js';
 import { AGENT_EVALUATOR_TEMPLATE, CONSUMPTION_TEMPLATE, MODEL_TEMPLATE } from '../src/transform/model.js';
 
-export const EXE_NAME = 'Copilot-DataHub-App-Installer.exe';
+export const EXE_NAME = 'DataHub-Installer.exe';
 export const LEGACY_EXE_NAME = 'AnalyticsHubInstaller.exe';
 /** The source folder (the repo root) inside the payload. */
 export const SOURCE_ROOT = 'f';

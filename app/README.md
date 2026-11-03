@@ -1,4 +1,4 @@
-# Copilot DataHub App
+# DataHub
 
 The ValueLens dashboard as a web app in your Fabric workspace. The [installer](../installer/README.md)
 deploys it for you. Use this folder only to deploy it by hand or to change it.
@@ -28,7 +28,7 @@ From this folder (`app`):
    npx rayfin up --workspace-uri "https://app.fabric.microsoft.com/groups/<workspace-id>"
    ```
    Add `--tenant <tenant-id>` if your account spans tenants.
-4. Open the **Fabric portal** link it prints. To call the item **Copilot DataHub App**, rename it in its
+4. Open the **Fabric portal** link it prints. To call the item **DataHub**, rename it in its
    settings.
 5. Share it. Each person needs:
    - the app: *Run and interact* on the item (share it with a group once), not a workspace role
@@ -162,7 +162,7 @@ The app is built to stay quick for a large tenant (about 20,000 people):
   it on screen succeeds. Other query errors aren't retried or shown as busy, even one about a
   table called `Rate Limit` or `Power BI is busy`. A card you leave stops waiting; a query already
   sent still finishes. A card that switches query or model shows only its current query's result
-  and busy state, never its old one's. The browser console logs each step (`Copilot DataHub App: …`).
+  and busy state, never its old one's. The browser console logs each step (`DataHub: …`).
 - **Results last for the visit.** The app holds up to 1,000 results in memory, each for up to an
   hour, so a page you've seen opens again without asking the model. Nothing is kept between opens.
   A preview build stored results in IndexedDB (`analytics-hub-results`); the app deletes that

@@ -2,7 +2,7 @@
 // installer and everything it deploys as one zip; the first run unpacks it under
 // %LOCALAPPDATA%\AnalyticsHub\<version>-<hash>, later runs of the same download start at once.
 // With no arguments it opens the installer in the browser. Anything else goes to the installer
-// as typed, so "AnalyticsHubInstaller.exe status" works from a terminal too.
+// as typed, so "DataHub-Installer.exe status" works from a terminal too.
 //
 // Compiled by packaging/build-exe.js with the C# 5 compiler in the .NET Framework, which every
 // supported Windows has, so keep to C# 5.
@@ -24,7 +24,7 @@ using System.Threading;
 internal static class Launcher
 {
     private const string HomeFolder = "AnalyticsHub";
-    private const string WorkFolder = "Copilot DataHub App";
+    private const string WorkFolder = "DataHub";
     private const string Marker = ".unpacked";
     private const string Partial = ".partial-";
     private const int Cancelled = 130;
@@ -54,7 +54,7 @@ internal static class Launcher
         int code;
         try
         {
-            try { Console.Title = "Analytics Hub installer"; }
+            try { Console.Title = "DataHub installer"; }
             catch (IOException) { }
             code = Run(args);
         }
@@ -118,7 +118,7 @@ internal static class Launcher
         }
     }
 
-    private const string Docs = "https://github.com/microsoft/AnalyticsHub-Dashboard/blob/main/docs/INSTALL.md";
+    private const string Docs = "https://github.com/microsoft/DataHub/blob/main/docs/INSTALL.md";
 
     /// <summary>ERROR_ACCESS_DISABLED_BY_POLICY (AppLocker, software restriction) or ERROR_SYSTEM_INTEGRITY_POLICY_VIOLATION (App Control).</summary>
     internal static bool BlockedByPolicy(int code)

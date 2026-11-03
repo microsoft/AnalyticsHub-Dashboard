@@ -110,7 +110,7 @@ async function runInstall(t, o = {}) {
   const appDir = join(dir, 'app');
   mkdirSync(join(appDir, 'rayfin'), { recursive: true });
   writeFileSync(join(appDir, 'prebuilt.json'), '{}\n');
-  writeFileSync(join(appDir, 'rayfin', 'rayfin.yml'), 'name: Copilot DataHub App\n');
+  writeFileSync(join(appDir, 'rayfin', 'rayfin.yml'), 'name: DataHub\n');
 
   const fabric = fakeFabric();
   // An F capacity, so the Ask data agent is set up too.
@@ -132,7 +132,7 @@ async function runInstall(t, o = {}) {
       if (late && !deployed && item && item === pipelineId) {
         // deploy-app, in another window.
         const other = loadConfig(file).config;
-        Object.assign(other.fabricApp, { itemId: 'app-item-1', url: 'https://app.example.test/', name: 'Copilot DataHub App', deployedAt: '2026-06-01T13:00:00.000Z', models: ['vl'] });
+        Object.assign(other.fabricApp, { itemId: 'app-item-1', url: 'https://app.example.test/', name: 'DataHub', deployedAt: '2026-06-01T13:00:00.000Z', models: ['vl'] });
         saveConfig(file, other);
         deployed = true;
       }
@@ -153,7 +153,7 @@ async function runInstall(t, o = {}) {
     ...loads.flatMap(([activityName, attempts]) => attempts.map((a, i) => ({ activityName, activityRunStart: `2026-06-01T12:0${i + 2}:00Z`, ...a }))),
   ];
   const graph = fakeAzureGraph();
-  graph.applications.push({ id: 'obj-1', appId: 'app-1', displayName: 'Copilot DataHub App' });
+  graph.applications.push({ id: 'obj-1', appId: 'app-1', displayName: 'DataHub' });
   const powerBi = fakePowerBi();
   const ui = fakeUi();
   if (o.reload || o.noConsent) {
@@ -224,7 +224,7 @@ async function runInstall(t, o = {}) {
     assert.equal(deployed, true, 'deploy-app ran while the install waited on the pipeline');
     assert.equal(loadConfig(file).config.fabricApp.itemId, 'app-item-1', "the install's saves keep deploy-app's app");
     assert.match(text, /The app step above failed, but the app was deployed afterwards \(2026-06-01 13:00 UTC\)/);
-    assert.doesNotMatch(text, /Deploy the Copilot DataHub App app/, 'the app is deployed, so there is no card to deploy it');
+    assert.doesNotMatch(text, /Deploy the DataHub app/, 'the app is deployed, so there is no card to deploy it');
   }
   return { ok, text, ctx, ui, fabric, config, dv };
 }
@@ -232,16 +232,16 @@ async function runInstall(t, o = {}) {
 /** @param {{ ok: boolean, text: string }} run */
 function setUp({ ok, text }) {
   assert.equal(ok, true);
-  assert.match(text, /Copilot DataHub App is set up/);
+  assert.match(text, /DataHub is set up/);
   assert.doesNotMatch(text, /partly set up/);
 }
 
 /** @param {{ ok: boolean, text: string }} run */
 function partlySetUp({ ok, text }) {
   assert.equal(ok, false);
-  assert.match(text, /Copilot DataHub App is partly set up/);
+  assert.match(text, /DataHub is partly set up/);
   assert.match(text, /A step above didn't finish\. Fix what it says, then run the installer again/);
-  assert.doesNotMatch(text, /Copilot DataHub App is set up/);
+  assert.doesNotMatch(text, /DataHub is set up/);
 }
 
 test('install: an app deployed while the first load runs makes up for its failed step when nothing else failed', async (t) => {
@@ -414,8 +414,8 @@ function appFromEarlierInstaller(run) {
   mkdirSync(dirname(join(dir, RAYFIN_CLI)), { recursive: true });
   writeFileSync(join(dir, RAYFIN_CLI), '');
   mkdirSync(join(dir, PREBUILT_STATIC), { recursive: true });
-  const item = run.fabric.add('AppBackend', 'Copilot DataHub App', null);
-  const fa = { enabled: true, itemId: item.id, name: 'Copilot DataHub App', models: ['vl'], deployedAt: '2026-05-01T12:00:00.000Z', access: publicAccess(run.config) };
+  const item = run.fabric.add('AppBackend', 'DataHub', null);
+  const fa = { enabled: true, itemId: item.id, name: 'DataHub', models: ['vl'], deployedAt: '2026-05-01T12:00:00.000Z', access: publicAccess(run.config) };
   Object.assign(run.config.fabricApp, fa);
   run.ctx.save();
   /** @type {string[]} */
@@ -432,7 +432,7 @@ test('update: the app it redeploys records the installer version', async (t) => 
   setUp(run);
   const runs = appFromEarlierInstaller(run);
   assert.equal(await update(run.ctx, { wait: true }), true);
-  assert.ok(run.ui.asked.includes('Rebuild and redeploy the Copilot DataHub App too?'));
+  assert.ok(run.ui.asked.includes('Rebuild and redeploy the DataHub too?'));
   assert.deepEqual(runs, ['up'], 'it redeploys by default');
   assert.equal(loadConfig(run.ctx.file).config.fabricApp.installerVersion, installerVersion());
 });
@@ -442,11 +442,11 @@ test('Repair or change: an app an earlier installer deployed is redeployed by de
   setUp(run);
   const runs = appFromEarlierInstaller(run);
   assert.equal(await install(run.ctx, { wait: true }), true);
-  assert.equal(run.ui.asked.filter((q) => q.startsWith('The app ')).at(-1), 'The app "Copilot DataHub App" needs redeploying to update it to this version. Deploy it again?');
+  assert.equal(run.ui.asked.filter((q) => q.startsWith('The app ')).at(-1), 'The app "DataHub" needs redeploying to update it to this version. Deploy it again?');
   assert.deepEqual(runs, ['up'], 'it redeploys by default');
   assert.equal(loadConfig(run.ctx.file).config.fabricApp.installerVersion, installerVersion());
 
   assert.equal(await install(run.ctx, { wait: true }), true);
-  assert.equal(run.ui.asked.filter((q) => q.startsWith('The app ')).at(-1), 'The app "Copilot DataHub App" is deployed. Deploy it again?');
+  assert.equal(run.ui.asked.filter((q) => q.startsWith('The app ')).at(-1), 'The app "DataHub" is deployed. Deploy it again?');
   assert.deepEqual(runs, ['up'], 'this version deployed it: left alone by default');
 });

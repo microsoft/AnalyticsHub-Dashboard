@@ -167,7 +167,7 @@ describe("SharePanel", () => {
             runtime.host = "fabric";
             openPanel();
 
-            expect(screen.getByText("Only a Copilot DataHub App admin can choose what people see. Ask admin@example.com.")).toBeInTheDocument();
+            expect(screen.getByText("Only a DataHub admin can choose what people see. Ask admin@example.com.")).toBeInTheDocument();
             expect(api.loadDelegations).not.toHaveBeenCalled();
         });
 
@@ -175,7 +175,7 @@ describe("SharePanel", () => {
             api.loadDelegations.mockResolvedValue(state({ isAdmin: false, canDelegate: false }));
             openPanel();
 
-            expect(await screen.findByText("Only a Copilot DataHub App admin can choose what people see. Ask admin@example.com.")).toBeInTheDocument();
+            expect(await screen.findByText("Only a DataHub admin can choose what people see. Ask admin@example.com.")).toBeInTheDocument();
             expect(screen.queryByRole("button", { name: "Give access" })).not.toBeInTheDocument();
         });
 

@@ -53,7 +53,7 @@ const CRC_TABLE = (() => { const table = new Uint32Array(256); for (let i = 0; i
 function parseArgs(argv) { const args = {}; for (let i = 0; i < argv.length; i += 1) { const key = argv[i]; if (!key.startsWith('--')) throw new Error(`Unexpected argument ${key}`); args[key.slice(2).replace(/-([a-z])/g, (_, c) => c.toUpperCase())] = argv[++i]; } return args; }
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const args = parseArgs(process.argv.slice(2));
-  const out = args.out || 'Copilot-DataHub-App-Teams.zip';
+  const out = args.out || 'DataHub-Teams.zip';
   const buffer = await buildTeamsPackage({ clientId: args.clientId, fqdn: args.fqdn, appIdUri: args.appIdUri, version: args.version || '0.1.0' });
   await fs.writeFile(out, buffer);
   console.log(`Wrote ${out}`);

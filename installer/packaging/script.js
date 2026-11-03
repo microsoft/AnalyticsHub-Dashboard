@@ -1,13 +1,13 @@
 // @ts-check
 /**
- * install.ps1, the PowerShell launcher published next to AnalyticsHubInstaller.exe. It downloads
+ * install.ps1, the PowerShell launcher published next to DataHub-Installer.exe. It downloads
  * the exe's payload as a zip, checks its SHA-256 and runs the installer with the Node.js inside, for
  * organisations that block downloaded exes. In Azure Cloud Shell, for tenants where no PC can run
  * it, it gets the release's commit from GitHub instead and runs the installer in the terminal.
  * build-exe.js fills in the template in launcher/install.ps1 for each release.
  */
 
-export const ZIP_NAME = 'Copilot-DataHub-App-Installer.zip';
+export const ZIP_NAME = 'DataHub-Installer.zip';
 export const LEGACY_ZIP_NAME = 'AnalyticsHubInstaller.zip';
 export const SCRIPT_NAME = 'install.ps1';
 

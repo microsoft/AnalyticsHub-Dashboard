@@ -30,7 +30,7 @@ export class QueryService {
     const itemId = typeof body?.itemId === 'string' ? body.itemId : '';
     const query = typeof body?.query === 'string' ? body.query : '';
     if (!workspaceId || !itemId || !isAllowedSemanticModel(this.config.semanticModels, workspaceId, itemId)) {
-      return jsonError(400, 'SemanticModelNotAllowed', 'The requested semantic model is not configured for this Copilot DataHub App instance.');
+      return jsonError(400, 'SemanticModelNotAllowed', 'The requested semantic model is not configured for this DataHub instance.');
     }
     if (!query.trim() || Buffer.byteLength(query, 'utf8') > QUERY_MAX_BYTES) {
       return jsonError(400, 'InvalidQuery', 'query must be a non-empty string no larger than 100 KB.');
@@ -71,7 +71,7 @@ export class QueryService {
     if (upstream.status === 401 || upstream.status === 403) {
       // Don't reuse a token Power BI refused: the next query exchanges a fresh one.
       this.tokenAcquirer.forget?.(auth.token);
-      return jsonError(403, 'PowerBIAccessDenied', 'Power BI did not let you read this semantic model. Ask a Copilot DataHub App admin to add you to the viewer group, which has Build on it.');
+      return jsonError(403, 'PowerBIAccessDenied', 'Power BI did not let you read this semantic model. Ask a DataHub admin to add you to the viewer group, which has Build on it.');
     }
     const contentType = upstream.headers?.get?.('content-type') || 'application/json';
     const retryAfter = upstream.headers?.get?.('retry-after');

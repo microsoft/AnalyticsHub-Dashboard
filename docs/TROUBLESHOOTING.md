@@ -1,7 +1,7 @@
 # Troubleshooting
 
 Find the message or symptom, then do what it says. Still stuck? Check [Known issues](#known-issues),
-then [open an issue](https://github.com/microsoft/AnalyticsHub-Dashboard/issues) with the message and
+then [open an issue](https://github.com/microsoft/DataHub/issues) with the message and
 the installer's version.
 
 <sub>Stuck? Create a support file and email it to us: **Having trouble? Create a support file** at the foot of the installer, `valuelens-install --support-bundle`, or the `AnalyticsHub_Support_File` notebook if you set up by hand. It's redacted; open it to check before you send it.</sub>
@@ -95,8 +95,8 @@ the installer's version.
 | Problem | What to do |
 |---|---|
 | `Azure didn't delete resource group …: it's Succeeded` (Azure) | Azure deleted what it could, then stopped. The group's activity log in the Azure portal says why. With private networking it's usually `InUseSubnetCannotBeDeleted`: Power BI can keep the gateway's subnet for [up to 48–72 hours](https://learn.microsoft.com/data-integration/vnet/manage-data-gateways#remove-vnet-data-gateways) after the gateway has gone. Only the virtual network and network security group are left, and they cost nothing. Run **Uninstall** again later: it carries on from the install record. Or delete the group in the Azure portal once Azure lets you. If it still can't after 72 hours, open an Azure support request. |
-| `Copilot DataHub App isn't all gone from resource group …` (Azure, in a resource group you already had) | The warnings above it say why each resource is left. Run **Uninstall** again: it carries on from the install record. Remove a resource lock (`ScopeLocked`) first. A VNet stays in use while the Power BI VNet data gateway is there, and for a while after it and the Container Apps environment have gone. To finish by hand, delete the resources tagged `valuelens-install-id` with the ID it shows, in the Azure portal, in this order: the web app and jobs, the Container Apps environment, the private endpoints, the private DNS zones' virtual network links, the private DNS zones, the virtual network, the network security group, the SQL server, the storage account, the Azure AI services account, the Log Analytics workspace, and the managed identity last. Then delete the **Copilot DataHub App** and SQL reader app registrations in [Entra ID](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade), if they're still there. |
-| `Couldn't see what's left of Copilot DataHub App in resource group …` (Azure) | Uninstall couldn't list the resources in the group, so it deleted none of them. The warning above it says why: usually you've lost access to the group. Once you can read it again, and delete in it, run **Uninstall** again. |
+| `DataHub isn't all gone from resource group …` (Azure, in a resource group you already had) | The warnings above it say why each resource is left. Run **Uninstall** again: it carries on from the install record. Remove a resource lock (`ScopeLocked`) first. A VNet stays in use while the Power BI VNet data gateway is there, and for a while after it and the Container Apps environment have gone. To finish by hand, delete the resources tagged `valuelens-install-id` with the ID it shows, in the Azure portal, in this order: the web app and jobs, the Container Apps environment, the private endpoints, the private DNS zones' virtual network links, the private DNS zones, the virtual network, the network security group, the SQL server, the storage account, the Azure AI services account, the Log Analytics workspace, and the managed identity last. Then delete the **DataHub** and SQL reader app registrations in [Entra ID](https://entra.microsoft.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade), if they're still there. |
+| `Couldn't see what's left of DataHub in resource group …` (Azure) | Uninstall couldn't list the resources in the group, so it deleted none of them. The warning above it says why: usually you've lost access to the group. Once you can read it again, and delete in it, run **Uninstall** again. |
 
 ## Known issues
 
@@ -127,7 +127,7 @@ Limits we know about, and what to do.
 
 ### Unsigned files in the download
 
-`AnalyticsHubInstaller.zip` (which the exe and `install.ps1` unpack) holds a signed `node.exe` and
+`DataHub-Installer.zip` (which the exe and `install.ps1` unpack) holds a signed `node.exe` and
 these unsigned native files, all in Rayfin's packages under `f\app\node_modules`:
 
 | File | Why it's there | When it loads |
@@ -168,7 +168,7 @@ sign-in broker: nothing loads them when the installer runs.
   Product feedback loads from its CSV exports only: the emailed export flow is Fabric only for now.
 - **The browser setup doesn't offer Public endpoints when an Azure Policy keeps Azure SQL's public
   access off,** even in a resource group that's exempt from it. To use Public endpoints there, set
-  up from a terminal: run `AnalyticsHubInstaller.exe install --target azure`, answer yes to **Change
+  up from a terminal: run `DataHub-Installer.exe install --target azure`, answer yes to **Change
   the advanced settings?**, choose the exempt resource group, and under **Networking** choose
   **Public endpoints**. Setup warns that the policy keeps public access off and that the deployment
   would fail; with the exemption, it doesn't. If a first run stopped inside **Azure resources**, a
@@ -220,7 +220,7 @@ sign-in broker: nothing loads them when the installer runs.
 
 ### Data
 
-- **Figures may not match the official Copilot reports.** Copilot DataHub App reads the Purview audit
+- **Figures may not match the official Copilot reports.** DataHub reads the Purview audit
   log, which isn't the authoritative source. See the [disclaimer](../README.md#disclaimer).
 - **Only `CopilotInteraction` audit records are read**, so third-party AI logged as
   `AIAppInteraction` isn't included.

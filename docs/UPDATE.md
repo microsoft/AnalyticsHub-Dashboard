@@ -1,14 +1,14 @@
 # Update or remove
 
 <a id="update"></a>
-Keep Copilot DataHub App current, change what it collects, replace secrets before they expire, or
+Keep DataHub current, change what it collects, replace secrets before they expire, or
 [remove it](#uninstall). Set it up by hand? See [Manual install: Update](MANUAL-INSTALL.md#update)
 for Fabric, or [Azure](MANUAL-INSTALL.md#azure).
 
 ## Get a new version
 
 When it opens, the installer checks
-[the latest release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest). If
+[the latest release](https://github.com/microsoft/DataHub/releases/latest). If
 there's a newer one, its window and the page say so. Download it, open it, and choose **Repair or
 change** to update your install. The check sends nothing about you or your tenant, and it's
 skipped if GitHub can't be reached. To turn it off, set the environment variable
@@ -78,7 +78,7 @@ Open the installer and choose **Uninstall** (`uninstall`). It asks before it del
 | Where | What it deletes |
 |---|---|
 | Fabric | The workspace and everything in it, after its managed private endpoints. If the installer didn't create the workspace, the answer defaults to no. It waits up to ten minutes for the endpoints to go. Then, in each [Agent Evaluator](../fabric/Add%20Agent%20Evaluator/README.md) environment, the transcript reader role it gave the app: it takes it away, and deletes the role if it created it. |
-| Azure | The resource group the installer created. It waits up to 45 minutes for Azure to finish deleting it; add `--no-wait` to stop once Azure has accepted the delete. In a resource group you already had, only the resources tagged `valuelens-install-id`, each before what it depends on, waiting for each to go. If any are left, it lists them: run **Uninstall** again to finish, or see [Troubleshooting](TROUBLESHOOTING.md#uninstall). Also the Power BI workspace and its semantic models, if the installer created the workspace and you haven't renamed it: it asks, and the answer defaults to yes. And the Power BI VNet data gateway and connection, and the **Copilot DataHub App** and SQL reader app registrations, if it created them. And the Teams app it looks after in your org's app catalog: the one it published, or a hand upload of the same app that it found there and took on. That takes one more sign-in as a Teams Administrator or Global Administrator. Before the resources go, what it added in each [Agent Evaluator](../azure/README.md#agent-evaluator) environment: the transcript reader role it gave the jobs' managed identity, and the role itself if it created it, then the **Bot Transcript Viewer** role it gave, and the application user if it created it. |
+| Azure | The resource group the installer created. It waits up to 45 minutes for Azure to finish deleting it; add `--no-wait` to stop once Azure has accepted the delete. In a resource group you already had, only the resources tagged `valuelens-install-id`, each before what it depends on, waiting for each to go. If any are left, it lists them: run **Uninstall** again to finish, or see [Troubleshooting](TROUBLESHOOTING.md#uninstall). Also the Power BI workspace and its semantic models, if the installer created the workspace and you haven't renamed it: it asks, and the answer defaults to yes. And the Power BI VNet data gateway and connection, and the **DataHub** and SQL reader app registrations, if it created them. And the Teams app it looks after in your org's app catalog: the one it published, or a hand upload of the same app that it found there and took on. That takes one more sign-in as a Teams Administrator or Global Administrator. Before the resources go, what it added in each [Agent Evaluator](../azure/README.md#agent-evaluator) environment: the transcript reader role it gave the jobs' managed identity, and the role itself if it created it, then the **Bot Transcript Viewer** role it gave, and the application user if it created it. |
 
 ### What's left behind
 
@@ -112,7 +112,7 @@ Uninstall leaves these alone. Remove them yourself if you no longer need them:
 - On Azure, an Agent Evaluator application user an admin added for the jobs' managed identity, or
   one Dataverse wouldn't let the installer delete for good. The installer says which; a System
   Administrator removes it. See [Agent Evaluator](../azure/README.md#agent-evaluator).
-- Your install record in `Documents\Copilot DataHub App` (`~/analytics-hub` in Cloud Shell).
+- Your install record in `Documents\DataHub` (`~/analytics-hub` in Cloud Shell).
 
 ### Remove the roles the installer gave
 
@@ -161,7 +161,7 @@ The exe and the PowerShell one-liner unpack to `%LOCALAPPDATA%\AnalyticsHub`; Cl
 - **The exe:** delete it, and `%LOCALAPPDATA%\AnalyticsHub`.
 - **PowerShell:** run `.\install.ps1 -Uninstall`, or delete `%LOCALAPPDATA%\AnalyticsHub`.
 - **Cloud Shell:** run
-  `& ([scriptblock]::Create((irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1))) -Uninstall`,
+  `& ([scriptblock]::Create((irm https://github.com/microsoft/DataHub/releases/latest/download/install.ps1))) -Uninstall`,
   or delete `~/.analytics-hub`.
 
 Neither touches what's in your tenant. Uninstall that first.

@@ -27,7 +27,7 @@ export const GENERATED = 'src/fabric.generated.ts';
 /** Rayfin's minimum. */
 export const MIN_NODE = /** @type {const} */ ([22, 13]);
 /** Names the app shipped under before, so a redeploy renames an item that still carries one. */
-export const FORMER_APP_NAMES = ['AI in One 2.0', 'Analytics Hub'];
+export const FORMER_APP_NAMES = ['AI in One 2.0', 'Analytics Hub', 'Copilot DataHub App'];
 /** Marks an app folder the installer download ships already built. It deploys as it is. */
 export const PREBUILT_MARKER = 'prebuilt.json';
 /** A prebuilt app's static hosting folder, where `rayfin up` also writes `rayfin.config.json`. */
@@ -144,7 +144,7 @@ export const deploymentKey = (name) =>
  */
 export function appIdentity(dir) {
   const rayfinYml = dir ? readText(join(dir, 'rayfin', 'rayfin.yml')) : null;
-  return { id: yamlValue(rayfinYml, 'id') ?? 'valuelens', name: yamlValue(rayfinYml, 'name') ?? 'Copilot DataHub App' };
+  return { id: yamlValue(rayfinYml, 'id') ?? 'valuelens', name: yamlValue(rayfinYml, 'name') ?? 'DataHub' };
 }
 
 /**

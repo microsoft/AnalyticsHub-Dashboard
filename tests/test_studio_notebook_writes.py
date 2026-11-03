@@ -14,7 +14,7 @@ with SNAPSHOT_MONTH the run's month, to show what the change fixes. The failure 
 fails leaves its table as it was, and that the next run ends where it would have if nothing had failed.
 
 Ported from Consumption Central's tests of the same changes (microsoft/ConsumptionCentral-for-Microsoft-Copilot
-#67 and #74). Copilot DataHub App has no READ_API_FILES switch: the licensing API files are read whenever they're in
+#67 and #74). DataHub has no READ_API_FILES switch: the licensing API files are read whenever they're in
 the landing folder, and the per-user sum (cell 14) runs on every run. Where Consumption Central's tests turn
 the files off, these take them out of the landing folder.
 """

@@ -32,7 +32,7 @@ variables:
 
 jobs:
   - job: sign
-    displayName: Sign Copilot-DataHub-App-Installer.exe
+    displayName: Sign DataHub-Installer.exe
     pool:
       vmImage: windows-latest
     timeoutInMinutes: 60
@@ -46,7 +46,7 @@ jobs:
 
       - pwsh: |
           if ('${{ parameters.tag }}' -notmatch '^installer-v\d+\.\d+\.\d+') { throw "'${{ parameters.tag }}' isn't an installer tag." }
-          gh release download '${{ parameters.tag }}' --repo $env:BUILD_REPOSITORY_NAME --dir $env:TOSIGN --pattern Copilot-DataHub-App-Installer.exe
+          gh release download '${{ parameters.tag }}' --repo $env:BUILD_REPOSITORY_NAME --dir $env:TOSIGN --pattern DataHub-Installer.exe
           if ($LASTEXITCODE) { throw 'Download failed.' }
         displayName: Download the drafted exe
         env:
@@ -64,7 +64,7 @@ jobs:
           UseMSIAuthentication: true
           EsrpClientId: $(EsrpClientId)
           FolderPath: $(ToSign)
-          Pattern: Copilot-DataHub-App-Installer.exe
+          Pattern: DataHub-Installer.exe
           signConfigType: inlineSignParams
           SessionTimeout: 90
           MaxConcurrency: 1
@@ -75,7 +75,7 @@ jobs:
                 "KeyCode": "CP-230012",
                 "OperationCode": "SigntoolSign",
                 "Parameters": {
-                  "OpusName": "Copilot DataHub App installer",
+                  "OpusName": "DataHub installer",
                   "OpusInfo": "https://github.com/$(Build.Repository.Name)",
                   "FileDigest": "/fd \"SHA256\"",
                   "PageHash": "/NPH",
@@ -96,9 +96,9 @@ jobs:
       # The same check the GitHub workflow runs when the release is published.
       - pwsh: |
           $version = '${{ parameters.tag }}' -replace '^installer-v', ''
-          node packaging/finish-exe.js "$env:TOSIGN\Copilot-DataHub-App-Installer.exe" --require-signed --repo $env:BUILD_REPOSITORY_NAME --version $version --notes "$env:TOSIGN\release-notes.md"
+          node packaging/finish-exe.js "$env:TOSIGN\DataHub-Installer.exe" --require-signed --repo $env:BUILD_REPOSITORY_NAME --version $version --notes "$env:TOSIGN\release-notes.md"
           if ($LASTEXITCODE) { throw 'The signed exe failed its checks.' }
-          Copy-Item "$env:TOSIGN\Copilot-DataHub-App-Installer.exe" "$env:TOSIGN\AnalyticsHubInstaller.exe" -Force
+          Copy-Item "$env:TOSIGN\DataHub-Installer.exe" "$env:TOSIGN\AnalyticsHubInstaller.exe" -Force
           node packaging/finish-exe.js "$env:TOSIGN\AnalyticsHubInstaller.exe" --require-signed
           if ($LASTEXITCODE) { throw 'The legacy installer alias failed its checks.' }
         displayName: Check the signature, write the hash and the release notes
@@ -107,7 +107,7 @@ jobs:
           TOSIGN: $(ToSign)
 
       - pwsh: |
-          $exe = Join-Path $env:TOSIGN 'Copilot-DataHub-App-Installer.exe'
+          $exe = Join-Path $env:TOSIGN 'DataHub-Installer.exe'
           $legacy = Join-Path $env:TOSIGN 'AnalyticsHubInstaller.exe'
           gh release upload '${{ parameters.tag }}' $exe "$exe.sha256" $legacy "$legacy.sha256" --repo $env:BUILD_REPOSITORY_NAME --clobber
           if ($LASTEXITCODE) { throw 'Upload failed.' }

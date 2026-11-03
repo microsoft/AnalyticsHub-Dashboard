@@ -63,12 +63,12 @@ are in `ContainerAppConsoleLogs` (columns `ContainerGroupName` and `Log`), not
 Clone the branch under test into a new folder, and keep the install record outside the clone:
 
 ```powershell
-git clone --branch <pre-release tag or branch under test> https://github.com/microsoft/AnalyticsHub-Dashboard "$HOME\ae-live-test\src"
+git clone --branch <pre-release tag or branch under test> https://github.com/microsoft/DataHub "$HOME\ae-live-test\src"
 $rec = "$HOME\ae-live-test\valuelens-install.json"
 ```
 
 If the branch under test doesn't include
-[#144](https://github.com/microsoft/AnalyticsHub-Dashboard/pull/144), don't load a Workday
+[#144](https://github.com/microsoft/DataHub/pull/144), don't load a Workday
 org-data export that has a `Department` column on this install. Without #144, the models rename
 `Department` to `Organization` even though the org data already has `Organization`, so the refresh
 fails. On Azure, publish never drops a column, so the core and Agent Evaluator refreshes would both

@@ -1,8 +1,8 @@
 # Support
 
-Copilot DataHub App for Microsoft Copilot is **experimental**.
+DataHub for Microsoft Copilot is **experimental**.
 It is **not supported through Microsoft support channels**. Use this repository's
-[GitHub issues](https://github.com/microsoft/AnalyticsHub-Dashboard/issues)
+[GitHub issues](https://github.com/microsoft/DataHub/issues)
 to ask for help, report bugs or suggest improvements. Assistance is best effort;
 there is no guaranteed response time or support service-level agreement.
 

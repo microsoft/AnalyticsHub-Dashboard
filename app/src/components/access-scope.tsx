@@ -46,7 +46,7 @@ export function NoScopeNotice() {
                 You don't have a scope yet
             </h2>
             <p className={`${BODY} text-muted-foreground`}>
-                Copilot DataHub App only shows each person the orgs they've been given. Nobody has chosen what you can see yet, so
+                DataHub only shows each person the orgs they've been given. Nobody has chosen what you can see yet, so
                 every page would be empty.
             </p>
             <p className={BODY}>
@@ -63,7 +63,7 @@ export function NoScopeNotice() {
                         Ask for a scope
                     </a>
                 ) : (
-                    "Ask a Copilot DataHub App admin to give you a scope."
+                    "Ask a DataHub admin to give you a scope."
                 )}
             </p>
         </section>

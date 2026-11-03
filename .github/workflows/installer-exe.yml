@@ -1,7 +1,7 @@
 name: installer-exe
 
-# Builds Copilot-DataHub-App-Installer.exe, the download that runs the Fabric installer without a clone
-# of this repo or a terminal, and install.ps1 with Copilot-DataHub-App-Installer.zip, which run the same
+# Builds DataHub-Installer.exe, the download that runs the Fabric installer without a clone
+# of this repo or a terminal, and install.ps1 with DataHub-Installer.zip, which run the same
 # payload from PowerShell for organisations that block downloaded exes. A tag such as
 # installer-v0.1.0 also drafts a release with them, to publish by hand.
 #
@@ -75,7 +75,7 @@ jobs:
 
       - name: Smoke-test the exe
         run: |
-          $exe = Join-Path $env:RUNNER_TEMP 'exe\Copilot-DataHub-App-Installer.exe'
+          $exe = Join-Path $env:RUNNER_TEMP 'exe\DataHub-Installer.exe'
           & $exe --version
           if ($LASTEXITCODE) { throw "--version failed with exit code $LASTEXITCODE." }
           $preview = Join-Path $env:RUNNER_TEMP 'preview'
@@ -87,7 +87,7 @@ jobs:
       - name: Smoke-test install.ps1
         run: |
           $out = Join-Path $env:RUNNER_TEMP 'exe'
-          $zip = Join-Path $out 'Copilot-DataHub-App-Installer.zip'
+          $zip = Join-Path $out 'DataHub-Installer.zip'
           $script = Join-Path $out 'install.ps1'
           $env:LOCALAPPDATA = Join-Path $env:RUNNER_TEMP 'ps-local'
           & $script -ZipPath $zip --version
@@ -124,19 +124,19 @@ jobs:
       - name: Check the signature, write the hash and the release notes
         working-directory: 'installer'
         run: |
-          node packaging/finish-exe.js "${{ runner.temp }}\exe\Copilot-DataHub-App-Installer.exe" --notes "${{ runner.temp }}\release-notes.md"
+          node packaging/finish-exe.js "${{ runner.temp }}\exe\DataHub-Installer.exe" --notes "${{ runner.temp }}\release-notes.md"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           node packaging/finish-exe.js "${{ runner.temp }}\exe\AnalyticsHubInstaller.exe"
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: Copilot-DataHub-App-Installer
+          name: DataHub-Installer
           path: |
-            ${{ runner.temp }}\exe\Copilot-DataHub-App-Installer.exe
-            ${{ runner.temp }}\exe\Copilot-DataHub-App-Installer.exe.sha256
-            ${{ runner.temp }}\exe\Copilot-DataHub-App-Installer.zip
-            ${{ runner.temp }}\exe\Copilot-DataHub-App-Installer.zip.sha256
+            ${{ runner.temp }}\exe\DataHub-Installer.exe
+            ${{ runner.temp }}\exe\DataHub-Installer.exe.sha256
+            ${{ runner.temp }}\exe\DataHub-Installer.zip
+            ${{ runner.temp }}\exe\DataHub-Installer.zip.sha256
             ${{ runner.temp }}\exe\AnalyticsHubInstaller.exe
             ${{ runner.temp }}\exe\AnalyticsHubInstaller.exe.sha256
             ${{ runner.temp }}\exe\AnalyticsHubInstaller.zip
@@ -160,7 +160,7 @@ jobs:
     steps:
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
-          name: Copilot-DataHub-App-Installer
+          name: DataHub-Installer
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: release-notes
@@ -174,13 +174,13 @@ jobs:
           # releases/latest and the installer's update check skip.
           pre=()
           if [[ "$TAG" =~ -rc\.[0-9]+$ ]]; then pre=(--prerelease); fi
-          gh release create "$TAG" Copilot-DataHub-App-Installer.exe Copilot-DataHub-App-Installer.exe.sha256 \
-            Copilot-DataHub-App-Installer.zip Copilot-DataHub-App-Installer.zip.sha256 \
+          gh release create "$TAG" DataHub-Installer.exe DataHub-Installer.exe.sha256 \
+            DataHub-Installer.zip DataHub-Installer.zip.sha256 \
             AnalyticsHubInstaller.exe AnalyticsHubInstaller.exe.sha256 \
             AnalyticsHubInstaller.zip AnalyticsHubInstaller.zip.sha256 install.ps1 \
             --repo "$GITHUB_REPOSITORY" --draft "${pre[@]}" \
             --notes-file notes/release-notes.md \
-            --title "Copilot DataHub App installer ${TAG#installer-v}"
+            --title "DataHub installer ${TAG#installer-v}"
 
   check-published:
     name: Check the published exe
@@ -199,7 +199,7 @@ jobs:
           node-version: '24'
 
       - name: Download the published exes
-        run: gh release download $env:TAG --repo $env:GITHUB_REPOSITORY --dir "$env:RUNNER_TEMP\published" --pattern Copilot-DataHub-App-Installer.exe --pattern Copilot-DataHub-App-Installer.exe.sha256 --pattern AnalyticsHubInstaller.exe --pattern AnalyticsHubInstaller.exe.sha256
+        run: gh release download $env:TAG --repo $env:GITHUB_REPOSITORY --dir "$env:RUNNER_TEMP\published" --pattern DataHub-Installer.exe --pattern DataHub-Installer.exe.sha256 --pattern AnalyticsHubInstaller.exe --pattern AnalyticsHubInstaller.exe.sha256
 
       - name: Check its signature and hash
         working-directory: 'installer'
@@ -207,7 +207,7 @@ jobs:
           REQUIRE_SIGNED: ${{ vars.REQUIRE_SIGNED_INSTALLER }}
         run: |
           $require = if ($env:REQUIRE_SIGNED -eq 'true') { '--require-signed' } else { $null }
-          node packaging/finish-exe.js "$env:RUNNER_TEMP\published\Copilot-DataHub-App-Installer.exe" --check-hash $require
+          node packaging/finish-exe.js "$env:RUNNER_TEMP\published\DataHub-Installer.exe" --check-hash $require
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
           node packaging/finish-exe.js "$env:RUNNER_TEMP\published\AnalyticsHubInstaller.exe" --check-hash $require
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
@@ -215,15 +215,15 @@ jobs:
       - name: Check install.ps1 matches the published zip
         run: |
           $dir = Join-Path $env:RUNNER_TEMP 'published'
-          gh release download $env:TAG --repo $env:GITHUB_REPOSITORY --dir $dir --pattern Copilot-DataHub-App-Installer.zip --pattern Copilot-DataHub-App-Installer.zip.sha256 --pattern AnalyticsHubInstaller.zip --pattern AnalyticsHubInstaller.zip.sha256 --pattern install.ps1
+          gh release download $env:TAG --repo $env:GITHUB_REPOSITORY --dir $dir --pattern DataHub-Installer.zip --pattern DataHub-Installer.zip.sha256 --pattern AnalyticsHubInstaller.zip --pattern AnalyticsHubInstaller.zip.sha256 --pattern install.ps1
           if ($LASTEXITCODE) { throw 'The release needs AnalyticsHubInstaller.zip, its .sha256 and install.ps1.' }
-          foreach ($name in @('Copilot-DataHub-App-Installer.zip', 'AnalyticsHubInstaller.zip')) {
+          foreach ($name in @('DataHub-Installer.zip', 'AnalyticsHubInstaller.zip')) {
             $hash = (Get-FileHash (Join-Path $dir $name) -Algorithm SHA256).Hash.ToLowerInvariant()
             $listed = ((Get-Content -Raw (Join-Path $dir "$name.sha256")) -split '\s+')[0]
             if ($listed -ne $hash) { throw "$name.sha256 says $listed, but the zip's SHA-256 is $hash." }
             Write-Output "$name matches ($hash)"
           }
-          $canonicalHash = (Get-FileHash (Join-Path $dir 'Copilot-DataHub-App-Installer.zip') -Algorithm SHA256).Hash.ToLowerInvariant()
+          $canonicalHash = (Get-FileHash (Join-Path $dir 'DataHub-Installer.zip') -Algorithm SHA256).Hash.ToLowerInvariant()
           if ((Get-Content -Raw (Join-Path $dir 'install.ps1')) -notmatch "\`$Sha256 = '$canonicalHash'") { throw "install.ps1 doesn't check for the published zip's SHA-256 $canonicalHash." }
 
       - name: Turn the release back into a draft

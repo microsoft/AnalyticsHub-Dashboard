@@ -78,7 +78,7 @@ export class HttpFabricProxy implements IFabricApiProxy {
             throw new FabricNetworkProxyError({
                 requestId,
                 sessionId: this.sessionId,
-                message: error instanceof Error ? error.message : "The query couldn't reach the Copilot DataHub App API.",
+                message: error instanceof Error ? error.message : "The query couldn't reach the DataHub API.",
                 cause: error,
             });
         }

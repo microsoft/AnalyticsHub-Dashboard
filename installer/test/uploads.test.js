@@ -393,7 +393,7 @@ test('install: --csv on a new install stops as soon as Azure is chosen, before t
     /--csv is for the Fabric target only.*run it again and choose Microsoft Fabric.*without --csv, then put Copilot Studio credit exports in the storage account > landing\/studio and Cowork credit exports in the storage account > landing\/viva, or with private networking in the studio and viva folders of the SharePoint drop folder/,
   );
   assert.equal(config.target, 'azure');
-  assert.deepEqual(t.asked, ['Where should Copilot DataHub App run?']);
+  assert.deepEqual(t.asked, ['Where should DataHub run?']);
   assert.deepEqual(calls, [], 'preflight never ran');
   assert.doesNotMatch(t.text(), /Checking your tenant/);
 

@@ -146,8 +146,8 @@ test('version selects highest stable Azure or generic semver tag', async () => {
   assert.deepEqual(await service.getVersion(), { installed: '0.1.0', latest: '0.2.0', updateAvailable: true, releaseUrl: 'https://example.test/0.2.0' });
 });
 
-test('version reads installer-v releases from AnalyticsHub-Dashboard', async () => {
-  assert.match(loadConfig({}).releasesUrl, /^https:\/\/api\.github\.com\/repos\/microsoft\/AnalyticsHub-Dashboard\/releases\b/);
+test('version reads installer-v releases from DataHub', async () => {
+  assert.match(loadConfig({}).releasesUrl, /^https:\/\/api\.github\.com\/repos\/microsoft\/DataHub\/releases\b/);
   assert.equal(parseReleaseVersion('installer-v0.5.0'), '0.5.0');
   assert.equal(parseReleaseVersion('analytics-hub-azure-v0.5.0'), '0.5.0');
   assert.equal(parseReleaseVersion('other-v0.5.0'), null);

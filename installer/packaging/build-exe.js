@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 // @ts-check
 /**
- * Builds AnalyticsHubInstaller.exe: one file a customer downloads and double-clicks. It holds
+ * Builds DataHub-Installer.exe: one file a user downloads and double-clicks. It holds
  * Node.js, the installer, the templates it deploys and the app already built, and unpacks them
  * under %LOCALAPPDATA%\AnalyticsHub the first time it runs.
  *
- * Next to it go the same payload as AnalyticsHubInstaller.zip, and install.ps1, which downloads that
+ * Next to it go the same payload as DataHub-Installer.zip, and install.ps1, which downloads that
  * zip, checks it and runs it from PowerShell, for organisations that block downloaded exes.
  *
  * Usage: npm run build:exe -- [--out <dir>] [--keep] [--release] [--repo <owner/name>]
  *   --out <dir>   Where to write the exe (default ./dist-exe)
  *   --repo <name> The repo whose releases install.ps1 downloads from (default $GITHUB_REPOSITORY,
- *                 then microsoft/AnalyticsHub-Dashboard)
+ *                 then microsoft/DataHub)
  *   --keep        Keep the working folder, to look at what went into the payload
  *   --release     Fail rather than warn when something a published download needs is missing
  *
@@ -250,9 +250,9 @@ try {
   for (const f of ['Launcher.cs', 'app.manifest']) copyFileSync(join(LAUNCHER, f), join(work, f));
   writeFileSync(join(work, 'AssemblyInfo.cs'), [
     'using System.Reflection;',
-    '[assembly: AssemblyTitle("Copilot DataHub App installer")]',
-    '[assembly: AssemblyDescription("Sets up Copilot DataHub App for Microsoft Copilot in Microsoft Fabric.")]',
-    '[assembly: AssemblyProduct("ValueLens Copilot DataHub App")]',
+    '[assembly: AssemblyTitle("DataHub installer")]',
+    '[assembly: AssemblyDescription("Sets up DataHub for Microsoft Copilot in Microsoft Fabric.")]',
+    '[assembly: AssemblyProduct("ValueLens DataHub")]',
     '[assembly: AssemblyCompany("Microsoft Corporation")]',
     '[assembly: AssemblyCopyright("Copyright (c) Microsoft Corporation. MIT License.")]',
     `[assembly: AssemblyVersion("${fileVersion(version)}")]`,

@@ -57,7 +57,7 @@ test('redaction hashes emails, UPNs and names the same way everywhere', () => {
   const value = {
     user: { upn: 'Ada.Lovelace@Contoso.com', displayName: 'Ada Lovelace' },
     owner: 'grace@contoso.com',
-    app: { displayName: 'Copilot DataHub App' },
+    app: { displayName: 'DataHub' },
     note: 'Ada Lovelace (ada.lovelace@contoso.com) and guest_user_example.com#EXT#@contoso.onmicrosoft.com',
   };
   r.learn(value);
@@ -67,7 +67,7 @@ test('redaction hashes emails, UPNs and names the same way everywhere', () => {
   assert.equal(out.user.upn, ada, 'case and spaces don\'t change the token');
   assert.equal(out.user.displayName, r.hash('Ada Lovelace'));
   assert.equal(out.owner, r.hash('grace@contoso.com'));
-  assert.equal(out.app.displayName, 'Copilot DataHub App', 'an app name is not a person');
+  assert.equal(out.app.displayName, 'DataHub', 'an app name is not a person');
   assert.ok(out.note.includes(ada));
   assert.ok(out.note.includes(r.hash('Ada Lovelace')));
   const s = JSON.stringify(out);
@@ -162,7 +162,7 @@ function fabricRecord() {
   const config = emptyConfig();
   config.tenantId = '99999999-8888-7777-6666-555555555555';
   config.fabric.workspaceId = WS;
-  config.fabric.workspaceName = 'Copilot DataHub App';
+  config.fabric.workspaceName = 'DataHub';
   config.fabric.lakehouseId = '22222222-3333-4444-5555-666666666666';
   config.fabric.pipelineId = '33333333-4444-5555-6666-777777777777';
   config.fabric.notebooks = { ...config.fabric.notebooks, auditIngester: '44444444-5555-6666-7777-888888888888' };
@@ -244,7 +244,7 @@ test('the support file collects a 0-records case and shows it at once, with no d
     assert.ok(text.includes(WS), 'IDs stay');
     const manifest = JSON.parse(files[1].text);
     assert.deepEqual(Object.keys(manifest), ['product', 'installerVersion', 'madeBy', 'createdAt', 'route', 'signedIn', 'files', 'redaction']);
-    assert.equal(manifest.product, 'Copilot DataHub App');
+    assert.equal(manifest.product, 'DataHub');
     assert.equal(manifest.route, 'fabric');
     assert.equal(manifest.files.length, 7);
     assert.ok(manifest.redaction.counts.secrets > 0 && manifest.redaction.counts.emails > 0);

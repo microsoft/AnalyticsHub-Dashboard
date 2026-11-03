@@ -11,12 +11,12 @@
     "oauth2PermissionScopes": [
       {
         "id": "f187649e-3af7-463f-bd2d-f4d2c42583ad",
-        "adminConsentDescription": "Allow users to access Copilot DataHub App.",
-        "adminConsentDisplayName": "Access Copilot DataHub App",
+        "adminConsentDescription": "Allow users to access DataHub.",
+        "adminConsentDisplayName": "Access DataHub",
         "isEnabled": true,
         "type": "User",
-        "userConsentDescription": "Allow you to access Copilot DataHub App.",
-        "userConsentDisplayName": "Access Copilot DataHub App",
+        "userConsentDescription": "Allow you to access DataHub.",
+        "userConsentDisplayName": "Access DataHub",
         "value": "access_as_user"
       }
     ],
@@ -71,9 +71,9 @@
       "allowedMemberTypes": [
         "User"
       ],
-      "displayName": "Copilot DataHub App User",
+      "displayName": "DataHub User",
       "value": "AnalyticsHub.User",
-      "description": "Can use Copilot DataHub App.",
+      "description": "Can use DataHub.",
       "isEnabled": true
     },
     {
@@ -81,9 +81,9 @@
       "allowedMemberTypes": [
         "User"
       ],
-      "displayName": "Copilot DataHub App Admin",
+      "displayName": "DataHub Admin",
       "value": "AnalyticsHub.Admin",
-      "description": "Can administer Copilot DataHub App.",
+      "description": "Can administer DataHub.",
       "isEnabled": true
     }
   ],
@@ -107,5 +107,5 @@
       ]
     }
   ],
-  "notes": "Copilot DataHub App's Azure web app, set up by hand: docs/MANUAL-INSTALL.md#azure in the Copilot DataHub App repo."
+  "notes": "DataHub's Azure web app, set up by hand: docs/MANUAL-INSTALL.md#azure in the DataHub repo."
 }

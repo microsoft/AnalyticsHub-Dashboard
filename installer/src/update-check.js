@@ -3,11 +3,8 @@
  * proxy or when GitHub is slow, the check gives up quietly and the installer carries on.
  */
 
-export const REPO = 'microsoft/AnalyticsHub-Dashboard';
-export const RELEASE_REPO_PREFIXES = [
-  `https://github.com/${REPO}/`,
-  'https://github.com/microsoft/Copilot-DataHub-App/',
-];
+export const REPO = 'microsoft/DataHub';
+export const RELEASE_REPO_PREFIXES = [`https://github.com/${REPO}/`];
 export const LATEST_API = `https://api.github.com/repos/${REPO}/releases/latest`;
 export const LATEST_PAGE = `https://github.com/${REPO}/releases/latest`;
 export const TAG_PREFIX = 'installer-v';
@@ -49,7 +46,7 @@ export async function checkForUpdate(o) {
   if (typeof fetchFn !== 'function') return null;
   try {
     const res = await fetchFn(LATEST_API, {
-      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'AnalyticsHubInstaller' },
+      headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'DataHub-Installer' },
       signal: AbortSignal.timeout(o.timeoutMs ?? 5000),
     });
     if (!res.ok) return null;

@@ -1,6 +1,6 @@
 # valuelens-jobs
 
-The Azure-hosted Copilot DataHub App's data jobs: one container image, run on a schedule as an Azure
+The Azure-hosted DataHub's data jobs: one container image, run on a schedule as an Azure
 Container Apps job (`infra/modules/containerapps.bicep`). It replaces the Fabric notebooks and
 pipeline. The processing logic is the shared DuckDB core in `core/valuelens_core`, kept
 in step with the Fabric notebooks by the golden tests in `tests/`. No Spark or JVM is needed.

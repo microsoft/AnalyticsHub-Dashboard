@@ -25,11 +25,11 @@ links.
 
 ## History
 
-- Added in [#113](https://github.com/microsoft/AnalyticsHub-Dashboard/pull/113), and merged as
-  [a49fbd2](https://github.com/microsoft/AnalyticsHub-Dashboard/commit/a49fbd2925e9bf2505a3047d94a1e462ec86a73e).
+- Added in [#113](https://github.com/microsoft/DataHub/pull/113), and merged as
+  [a49fbd2](https://github.com/microsoft/DataHub/commit/a49fbd2925e9bf2505a3047d94a1e462ec86a73e).
   CI last built it there.
 - Where it plugged in: `git diff a49fbd2^ a49fbd2 -- app/src`.
-- The one-command setup is [#114](https://github.com/microsoft/AnalyticsHub-Dashboard/pull/114): a
+- The one-command setup is [#114](https://github.com/microsoft/DataHub/pull/114): a
   draft, parked, not merged.
 - History isn't proof that any of it works today.
 

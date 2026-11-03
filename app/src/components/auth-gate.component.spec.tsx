@@ -70,7 +70,7 @@ describe("AuthGate", () => {
         });
         renderAuthGate(authService, { embedded: false, fabricLink });
 
-        expect(screen.getByRole("heading", { name: "Open Copilot DataHub App in Fabric" })).toBeInTheDocument();
+        expect(screen.getByRole("heading", { name: "Open DataHub in Fabric" })).toBeInTheDocument();
         expect(screen.getByRole("link", { name: "Open in Fabric" })).toHaveAttribute("href", fabricLink);
         await waitFor(() => expect(authService.initEmbeddedAuth).toHaveBeenCalledOnce());
         expect(screen.queryByText("Authenticated app")).not.toBeInTheDocument();
@@ -174,7 +174,7 @@ describe("AuthGate", () => {
         });
         renderAuthGate(authService);
 
-        expect(await screen.findByRole("alert")).toHaveTextContent("Ask your admin to add you to Copilot DataHub App users");
+        expect(await screen.findByRole("alert")).toHaveTextContent("Ask your admin to add you to DataHub users");
     });
 
     it("offers request access and an email to the install's contact", async () => {
@@ -193,7 +193,7 @@ describe("AuthGate", () => {
         expect(await screen.findByRole("alert")).toHaveTextContent("Ask to join Analytics Hub Viewers");
         expect(screen.getByRole("link", { name: "Request access" })).toHaveAttribute("href", "https://example.com/request");
         const email = screen.getByRole("link", { name: "Email admin@example.com" });
-        expect(email.getAttribute("href")).toMatch(/^mailto:admin%40example\.com\?subject=Access%20to%20Copilot%20DataHub%20App/);
+        expect(email.getAttribute("href")).toMatch(/^mailto:admin%40example\.com\?subject=Access%20to%20DataHub/);
     });
 
 });

@@ -2,7 +2,7 @@
 
 **Path 2.** Just the steps: [2-azure](../2-azure/). This page has the details.
 
-Copilot DataHub App running in **your own Azure subscription**, without Microsoft Fabric. It has the
+DataHub running in **your own Azure subscription**, without Microsoft Fabric. It has the
 same data, the same ValueLens Model and measures, and the same app pages as [Fabric](../fabric/README.md).
 The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
 
@@ -16,7 +16,7 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
 ## Install it
 
 1. Start the installer with the [PowerShell one-liner](../docs/INSTALL.md#from-powershell), or
-   [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
+   [download the exe](https://github.com/microsoft/DataHub/releases/latest/download/DataHub-Installer.exe)
    (0.3.0 or later) and open it, or run `npx valuelens-install --ui` from `installer` after
    `npm install` (see [Without the exe](../docs/INSTALL.md#without-the-exe)). To check a
    download, see [Check the download](../docs/INSTALL.md#check-the-download).
@@ -26,7 +26,7 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
    choose which data the dashboard shows:
    - **Your tenant's data** (the default) collects from the audit log and Microsoft Graph.
    - **Demo mode (sample data)** publishes a synthetic sample instead, with its dates moved forward to end
-     last week. It's handy for a demo or to try Copilot DataHub App before the Graph permissions are granted. Run
+     last week. It's handy for a demo or to try DataHub before the Graph permissions are granted. Run
      the installer again, choose **Repair or change**, then **Yes** for the advanced settings, and pick
      your tenant's data to switch; the next run replaces the sample.
 3. Say about how many people work in your organisation: the installer fills it in from its count of
@@ -35,7 +35,7 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
    subscription, resource group, region and Power BI workspace. The installer only offers
    regions that your Azure Policy allowed locations permit and where everything it deploys is
    available. It says why the others were left out.
-4. Review the plan and approve it. The installer prints the web app's URL and writes `Copilot-DataHub-App-Teams.zip`
+4. Review the plan and approve it. The installer prints the web app's URL and writes `DataHub-Teams.zip`
    (and the legacy `AnalyticsHub-Teams.zip` alias),
    the tab for Teams, Outlook and the Microsoft 365 Copilot app. If you're a Teams Administrator or Global
    Administrator, it also publishes the tab to your org's app catalog, after one more sign-in
@@ -58,7 +58,7 @@ The `AnalyticsHub.User` app role still works too. People without access get a pa
 group and links to your contact or request link. In Teams, the installer publishes the tab to your
 org's app catalog. To pin it for the group, or to upload it by hand when the installer can't, see
 [teams](teams/README.md#give-it-to-everyone). Permissions are in
-[Viewing Copilot DataHub App](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
+[Viewing DataHub](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
 
 What you need, networking, regions and the commands are in the installer's
 [Azure target section](../installer/README.md#azure-target). The images come from

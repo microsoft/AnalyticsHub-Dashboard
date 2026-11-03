@@ -3,11 +3,11 @@
 **Path 1.** Just the steps: [1-fabric](../1-fabric/). This page has the details.
 
 The recommended path. One installer sets everything up in your tenant and gives you the dashboard
-as an app in Fabric, called **Copilot DataHub App**. You don't need a terminal or Power BI Desktop.
+as an app in Fabric, called **DataHub**. You don't need a terminal or Power BI Desktop.
 
 For Windows 10 or 11. Check [what you need](#before-you-start) first. Then paste the
 [PowerShell command](#install), or
-[download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
+[download the exe](https://github.com/microsoft/DataHub/releases/latest/download/DataHub-Installer.exe)
 and open it. If your PC can't run either, use
 [Azure Cloud Shell](../docs/INSTALL.md#locked-down-tenant--azure-cloud-shell).
 
@@ -43,16 +43,16 @@ you're responsible for the data once it's in your workspace.
 1. Start the installer. Paste this into PowerShell:
 
    ```powershell
-   irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+   irm https://github.com/microsoft/DataHub/releases/latest/download/install.ps1 | iex
    ```
 
-   Or [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
+   Or [download the exe](https://github.com/microsoft/DataHub/releases/latest/download/DataHub-Installer.exe)
    and open it. Neither is code-signed yet; to check a download, see
    [Check the download](../docs/INSTALL.md#check-the-download). If your organisation blocks
    them, use another route in [Install](../docs/INSTALL.md) or ask your IT team.
 2. The first time, it takes about a minute to unpack.
 3. Then it opens in your browser. Keep the installer window open until it says setup is finished.
-4. Choose **Set up Copilot DataHub App** and sign in with your work account.
+4. Choose **Set up DataHub** and sign in with your work account.
 5. Answer the questions. Under **Data sources**, choose the data you want: each source has a
    card. Then **Change the advanced settings?** **No** keeps what you chose last time, or takes the
    defaults: see [Advanced settings](../installer/README.md#advanced-settings). **Back** takes
@@ -99,17 +99,17 @@ Two Fabric features could remove the trade-off. Neither is built yet:
 
 ## Use it
 
-- **Open the app:** in your Fabric workspace, open **Copilot DataHub App**.
+- **Open the app:** in your Fabric workspace, open **DataHub**.
 - **Share it.** The installer creates the **Analytics Hub Viewers** group, with you as owner, and
   gives it access to the data. Then:
   1. **Once:** share the app with the group. In the workspace, choose **…** next to the
-     **Copilot DataHub App** app, then **Share**, add **Analytics Hub Viewers** and choose **Grant**. Do
+     **DataHub** app, then **Share**, add **Analytics Hub Viewers** and choose **Grant**. Do
      the same for the **ValueLens** report if you use the Power BI reports.
   2. **To give someone access:** add them to the group in
      [My Groups](https://myaccount.microsoft.com/groups).
 
   People without access see who to ask. See
-  [Viewing Copilot DataHub App](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
+  [Viewing DataHub](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
 - **Fresh data:** the pipeline runs on the schedule you chose.
 - **Status, updates or repairs:** open the exe again.
 - **Items you didn't expect.** If you chose Copilot Cowork credits, Fabric adds items such as

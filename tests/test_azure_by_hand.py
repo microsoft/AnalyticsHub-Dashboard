@@ -21,7 +21,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 DOC = (ROOT / "docs" / "MANUAL-INSTALL.md").read_text(encoding="utf-8")
 TEMPLATE = (ROOT / "azure" / "infra" / "main.bicepparam").read_text(encoding="utf-8")
-REPO = "https://github.com/microsoft/AnalyticsHub-Dashboard"
+REPO = "https://github.com/microsoft/DataHub"
 LATEST = REPO + "/releases/tag/installer-v"
 
 
@@ -89,7 +89,7 @@ group_at() {  # The resource group $2, as ARM sees it from subscription $1: 0 th
   [ "$1" = sub-1 ] && [ "$2" = "$(cat "$STATE/rg-name")" ] && [ -e "$STATE/rg" ] || return 3
 }
 recorded() {  # What the record says for $1.
-  command sed -n -E "s/^(param|var) $1 = '([^']*)'.*/\2/p" "$HOME/AnalyticsHub-Dashboard/azure/infra/my.bicepparam" 2>/dev/null
+  command sed -n -E "s/^(param|var) $1 = '([^']*)'.*/\2/p" "$HOME/DataHub/azure/infra/my.bicepparam" 2>/dev/null
 }
 scoped() {  # Before a deploy: has step 1 saved this tenant, subscription and resource group ($1, or any)?
   local g; g=$(recorded resourceGroup)
@@ -211,7 +211,7 @@ curl() {
   log "curl $*"
   local url=${@: -1}
   case "$url" in
-  https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest)
+  https://github.com/microsoft/DataHub/releases/latest)
     [ -s "$STATE/latest" ] || { err "Could not resolve host" 6; return; }
     printf '%s' "$(cat "$STATE/latest")" ;;
   "https://ghcr.io/token?scope=repository:microsoft/"*":pull")
@@ -300,7 +300,7 @@ def install(tmp_path):
     """A finished install in sub-1, in tenant-1: its record, and the workspace, two apps and
     resource group it names. Signed in to sub-1, and to sub-2 in tenant-2."""
     home, state = tmp_path / "home", tmp_path / "state"
-    clone = home / "AnalyticsHub-Dashboard"
+    clone = home / "DataHub"
     infra = clone / "azure" / "infra"
     infra.mkdir(parents=True)
     (clone / "fabric").mkdir()
@@ -598,7 +598,7 @@ sed() {
 # there is one, goes to $STATE/after-first.
 FIXED = (
     'rm -f "$STATE"/fail-*; log "-- fixed"\n'
-    'command cp ~/AnalyticsHub-Dashboard/azure/infra/my.bicepparam "$STATE/after-first" 2>/dev/null\n'
+    'command cp ~/DataHub/azure/infra/my.bicepparam "$STATE/after-first" 2>/dev/null\n'
 )
 
 
@@ -698,7 +698,7 @@ def test_step_1_deploys_nothing_without_the_record(install, missing):
     if missing == "record":
         install.record.unlink()
     else:
-        shutil.rmtree(install.home / "AnalyticsHub-Dashboard")
+        shutil.rmtree(install.home / "DataHub")
     r = run(install.home, install.state, SETUP, STEP_1)
     assert r.returncode != 0
     assert r.stdout.splitlines() == [NOT_SAVED + "tenant = 'tenant-1'"]
@@ -967,7 +967,7 @@ CLONE_FAILS = (
     ' { echo "warning: Clone succeeded, but checkout failed." >&2; return 128; }; }\n'
 )
 CD_FAILS = (
-    'cd() { [ "$1" != "$HOME/AnalyticsHub-Dashboard" ] ||'
+    'cd() { [ "$1" != "$HOME/DataHub" ] ||'
     ' { echo "cd: $1: Permission denied" >&2; return 1; }; builtin cd "$@"; }\n'
 )
 # Where the test says: fail-checkout, git checkout fails; fail-copy-empty and fail-copy-part, cp
@@ -1046,7 +1046,7 @@ def github(tmp_path):
             git(path, "status", "--porcelain", "--untracked-files=all", env=env),
         )
 
-    clone = home / "AnalyticsHub-Dashboard"
+    clone = home / "DataHub"
     return SimpleNamespace(
         home=home, state=state, clone=clone, record=clone / "azure" / "infra" / "my.bicepparam",
         env=env, release=release, publish=publish, own=own,

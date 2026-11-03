@@ -1,6 +1,6 @@
 # Path 2: Azure
 
-Copilot DataHub App in your own Azure subscription, without Fabric.
+DataHub in your own Azure subscription, without Fabric.
 
 ## Before you start
 
@@ -8,7 +8,7 @@ Copilot DataHub App in your own Azure subscription, without Fabric.
 - **Takes:** about 20 minutes to set up. The first data follows 2 to 3 hours later with 30 days of
   history, or longer on a large tenant: see
   [How long it takes](../docs/PREREQUISITES.md#how-long-it-takes).
-- **Costs:** about $5–40 a month for a small tenant. Copilot DataHub App itself is free. See
+- **Costs:** about $5–40 a month for a small tenant. DataHub itself is free. See
   [Architecture and costs](../docs/ARCHITECTURE.md). For more than 10,000 people, see
   [A large tenant on Azure](../installer/README.md#a-large-tenant-on-azure).
 
@@ -22,10 +22,10 @@ Copilot DataHub App in your own Azure subscription, without Fabric.
    rights:
 
    ```powershell
-   irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+   irm https://github.com/microsoft/DataHub/releases/latest/download/install.ps1 | iex
    ```
 
-   Or [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
+   Or [download the exe](https://github.com/microsoft/DataHub/releases/latest/download/DataHub-Installer.exe)
    and open it. Choose **Your Azure subscription**, say about how many people work in your
    organisation, then the subscription, resource group, region and Power BI workspace. Blocked? See
    the other ways to start it in [Install](../docs/INSTALL.md). Don't work around the policy.

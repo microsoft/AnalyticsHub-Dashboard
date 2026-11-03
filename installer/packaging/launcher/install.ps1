@@ -15,14 +15,14 @@ If your organisation's policy blocks this, don't work around it: use another rou
 https://github.com/{{REPO}}/blob/main/docs/INSTALL.md or ask your IT team.
 
 Options:
-  -ZipPath <file>    Use an AnalyticsHubInstaller.zip you downloaded yourself, for example when a
+  -ZipPath <file>    Use a DataHub-Installer.zip you downloaded yourself, for example when a
                      proxy blocks GitHub's download host. It must be the zip from the same release.
   -Proxy <url>       Download through this proxy, signed in as you.
   -UseInstalledNode  Run the installer with the Node.js already on this PC, such as one your IT
                      team approved, instead of the zip's. It needs x64 Node.js 22.13 or later on
                      22.x, or 24.x. The zip is still downloaded: it holds the installer and the app.
   -Uninstall         Remove the unpacked installer and its command. Your install record in
-                     Documents\Copilot DataHub App stays.
+                     Documents\DataHub stays.
 Anything else goes to the installer, for example: status, or install --device-code.
 With irm | iex, set $env:ANALYTICS_HUB_ZIP, $env:ANALYTICS_HUB_PROXY or
 $env:ANALYTICS_HUB_USE_INSTALLED_NODE = '1' instead.
@@ -272,7 +272,7 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
       Remove-Tree $AhHome $null
     }
     if (Test-Path -LiteralPath $AhHome) { throw "Couldn't remove all of $AhHome. Close the installer and try again." }
-    Write-Host "Removed $AhHome. Your install record in Documents\Copilot DataHub App is still there."
+    Write-Host "Removed $AhHome. Your install record in Documents\DataHub is still there."
     return
   }
 
@@ -405,7 +405,7 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
     $Docs = (Get-ItemProperty -LiteralPath 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Explorer\Shell Folders' -ErrorAction SilentlyContinue).Personal
   }
   if (-not $Docs) { $Docs = Join-Path $env:USERPROFILE 'Documents' }
-  $Work = Join-Path $Docs 'Copilot DataHub App'
+  $Work = Join-Path $Docs 'DataHub'
   New-Item -ItemType Directory -Path $Work -Force | Out-Null
 
   # A command for later, such as "analytics-hub.cmd status", that runs this version with the same Node.js.

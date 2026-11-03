@@ -96,7 +96,7 @@ test('script: -UseInstalledNode runs the installer with an installed Node.js and
   assert.match(win, /-p 'process\.arch'[\s\S]*\$arch -ne 'x64'/, 'the native packages in the zip are x64');
   // Same unpacked folder, install record and command, so either route finds the other's install.
   assert.equal(win.match(/\$Root = Join-Path \$AhHome \$Id/g)?.length, 1);
-  assert.equal(win.match(/\$Work = Join-Path \$Docs 'Copilot DataHub App'/g)?.length, 1);
+  assert.equal(win.match(/\$Work = Join-Path \$Docs 'DataHub'/g)?.length, 1);
   assert.match(win, /\$node = \$Installed\r?\n\s*if \(-not \$node\) \{ \$node = Join-Path \$Root 'node\\node\.exe' \}/);
   assert.match(win, /& \$node \$script @Forward/);
   assert.match(win, /set `"AH_NODE=\$Installed`"/);

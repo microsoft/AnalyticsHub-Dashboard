@@ -26,7 +26,7 @@ export const APP_DIR = 'app';
  */
 
 /**
- * @param {string} [dir]  The root of a Copilot DataHub App checkout.
+ * @param {string} [dir]  The root of a DataHub checkout.
  * @returns {Sources}
  */
 export function loadSources(dir = DEFAULT_SOURCE_DIR) {

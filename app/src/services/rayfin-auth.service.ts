@@ -26,7 +26,7 @@ export interface AnalyticsHubUser {
 }
 
 export class AnalyticsHubAccessDeniedError extends Error {
-    constructor(message = "You don't have access — ask your admin to add you to Copilot DataHub App users.") {
+    constructor(message = "You don't have access — ask your admin to add you to DataHub users.") {
         super(message);
         this.name = "AnalyticsHubAccessDeniedError";
     }
@@ -168,7 +168,7 @@ class AzureAuthService implements IAuthService {
         }
 
         const account = this.account();
-        if (!account) throw new Error("Sign in before calling the Copilot DataHub App API.");
+        if (!account) throw new Error("Sign in before calling the DataHub API.");
         let result: AuthenticationResult;
         try {
             // MSAL serves cached tokens until they near expiry; forceRefresh picks up newly granted roles.

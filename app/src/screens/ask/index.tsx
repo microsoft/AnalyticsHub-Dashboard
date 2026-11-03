@@ -65,10 +65,10 @@ function describe(ask: AskConfig | undefined, host: RuntimeHost): string {
     if (ask?.mode === "chat")
         return "Ask a question about the data. Answers come only from the queries behind this app's pages, run with your own access, and show the queries used.";
     if (ask?.mode === "fabric")
-        return "The Copilot DataHub App data agent in Fabric answers questions about the data from the same models as this app, with your own access.";
+        return "The DataHub data agent in Fabric answers questions about the data from the same models as this app, with your own access.";
     return host === "azure"
         ? "Ask isn't turned on for this install yet. These are the kinds of questions it answers."
-        : "There's no Copilot DataHub App data agent for this install yet. These are the kinds of questions it answers.";
+        : "There's no DataHub data agent for this install yet. These are the kinds of questions it answers.";
 }
 
 function GroupedQuestions({ pages, children }: { pages: SuggestedPage[]; children: (question: string) => ReactNode }) {
@@ -147,7 +147,7 @@ function FabricAsk({ agent, pages }: { agent: { workspaceId: string; itemId: str
             <div className="flex flex-col gap-300 rounded-md border border-border bg-card p-400">
                 <p className={BODY}>
                     Pick a question below to copy it, then paste it into the data agent. Every figure it gives comes
-                    from the Copilot DataHub App models, and it says when a source has no data.
+                    from the DataHub models, and it says when a source has no data.
                 </p>
                 {link && (
                     <a href={link} target="_blank" rel="noreferrer" className={cn(PRIMARY, "w-fit")}>
@@ -173,7 +173,7 @@ function AskSetup({ host, pages }: { host: RuntimeHost; pages: SuggestedPage[] }
                 <p className={cn(SMALL, "text-muted-foreground")}>
                     {host === "azure"
                         ? "An admin re-runs the installer and turns Ask on. It adds an Azure OpenAI model for the app, or uses one you already have, and answers with each viewer's own access to the data."
-                        : "An admin re-runs the installer, which sets up a Copilot DataHub App data agent in Fabric. Data agents need a paid Fabric capacity (F2 or larger, or Power BI Premium) and the tenant settings for Copilot and data agents turned on."}
+                        : "An admin re-runs the installer, which sets up a DataHub data agent in Fabric. Data agents need a paid Fabric capacity (F2 or larger, or Power BI Premium) and the tenant settings for Copilot and data agents turned on."}
                 </p>
             </div>
             <CopyQuestions pages={pages} />

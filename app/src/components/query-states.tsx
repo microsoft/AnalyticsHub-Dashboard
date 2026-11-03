@@ -249,7 +249,7 @@ export function ModelUpdateRequired({ missing, detail, onRetry, className }: Mod
                 <>
                     <p>
                         The semantic model is older than this app. Run{" "}
-                        <code className="font-mono">AnalyticsHubInstaller.exe update</code> (or{" "}
+                        <code className="font-mono">DataHub-Installer.exe update</code> (or{" "}
                         <code className="font-mono">npx valuelens-install update</code>
                         ), then run the loads or refresh again and reopen the app.
                     </p>
@@ -274,7 +274,7 @@ export function ModelNotLoaded({ detail, onRetry, className }: { detail?: string
             admin={
                 <p>
                     The semantic model hasn't been refreshed. If the first load has finished, run{" "}
-                    <code className="font-mono">AnalyticsHubInstaller.exe</code> and choose Repair or change, or refresh
+                    <code className="font-mono">DataHub-Installer.exe</code> and choose Repair or change, or refresh
                     the model in Fabric, then reopen the app.
                 </p>
             }

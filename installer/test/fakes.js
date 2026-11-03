@@ -974,7 +974,7 @@ export function fakeAppCatalog(o = {}) {
       const m = manifest(zip);
       calls.push(`publish ${m.id} ${m.version}`);
       fail('publish');
-      const app = { id: `catalog-app-${++n}`, externalId: m.id, displayName: 'Copilot DataHub App', distributionMethod: 'organization', appDefinitions: [{ version: m.version, publishingState: 'published' }] };
+      const app = { id: `catalog-app-${++n}`, externalId: m.id, displayName: 'DataHub', distributionMethod: 'organization', appDefinitions: [{ version: m.version, publishingState: 'published' }] };
       apps.push(app);
       return { id: app.id, externalId: app.externalId, displayName: app.displayName, distributionMethod: app.distributionMethod };
     },

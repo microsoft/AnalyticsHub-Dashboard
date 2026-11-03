@@ -1,6 +1,6 @@
-# Contributing to Copilot DataHub App
+# Contributing to DataHub
 
-Thanks for helping make Copilot DataHub App more useful and reliable.
+Thanks for helping make DataHub more useful and reliable.
 
 ## Propose a change
 
@@ -55,15 +55,15 @@ From `installer`:
 npm test                       # unit tests with fakes, no sign-in
 npm run typecheck              # TypeScript checks over the JSDoc types
 npx valuelens-install preview  # writes ./valuelens-preview (ignored by git)
-npm run build:exe              # builds dist-exe/AnalyticsHubInstaller.exe (Windows, about 10 minutes)
+npm run build:exe              # builds dist-exe/DataHub-Installer.exe (Windows, about 10 minutes)
 ```
 
-`npm run build:exe` builds the [Copilot DataHub App](app/) once, stages it
+`npm run build:exe` builds the [DataHub](app/) once, stages it
 with the installer and the notebooks, pipeline and templates it deploys, and zips them with a
 portable Node.js into a small C# launcher, compiled with the `csc` that comes with the .NET
 Framework. Run `npm ci` in the installer and in the app first. `--release` fails rather than warns
 when something a published download needs is missing; `--out <dir>` writes the exe somewhere else.
-Next to the exe it writes the same payload as `AnalyticsHubInstaller.zip` with its `.sha256`, and
+Next to the exe it writes the same payload as `DataHub-Installer.zip` with its `.sha256`, and
 `install.ps1`, the [PowerShell launcher](docs/INSTALL.md#from-powershell), filled in from
 [`packaging/launcher/install.ps1`](installer/packaging/launcher/install.ps1) with the zip's
 version, URL and SHA-256. Keep that template plain ASCII, and to commands allowed in Constrained
@@ -104,10 +104,10 @@ against a workspace or a local SQL database.
 | Folder | What it is | Who needs it |
 |---|---|---|
 | [`1-fabric/`](1-fabric/) · [`2-azure/`](2-azure/) | Path 1 (Fabric) and Path 2 (Azure): just the setup steps, by the installer or by hand | Everyone |
-| [`docs/`](docs/) | The user pages. Published to the [wiki](https://github.com/microsoft/AnalyticsHub-Dashboard/wiki) on every change | Everyone |
-| [`installer/`](installer/) | `AnalyticsHubInstaller.exe`: sets up, repairs and updates Fabric or Azure installs | Fabric and Azure |
+| [`docs/`](docs/) | The user pages. Published to the [wiki](https://github.com/microsoft/DataHub/wiki) on every change | Everyone |
+| [`installer/`](installer/) | `DataHub-Installer.exe`: sets up, repairs and updates Fabric or Azure installs | Fabric and Azure |
 | [`fabric/`](fabric/) | Notebooks, pipeline, flows and Power BI templates for Fabric. The installer deploys them | Fabric by hand, or to see what's deployed |
-| [`app/`](app/) | The Copilot DataHub App: a Fabric app item and the web app's front end on Azure | Fabric by hand, or developers |
+| [`app/`](app/) | The DataHub: a Fabric app item and the web app's front end on Azure | Fabric by hand, or developers |
 | [`azure/`](azure/) | Bicep, Container Apps jobs, SQL schema, web app and Teams package for Azure | Azure by hand, or developers |
 | [`core/`](core/) | `valuelens_core`, the Python shared by the Azure jobs and the Fabric Defender notebook | Developers |
 | [`samples/`](samples/) | Synthetic sample data for demo mode | Demos |

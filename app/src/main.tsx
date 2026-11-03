@@ -22,5 +22,5 @@ loadRuntimeConfig()
     .then(({ mountApp }) => mountApp(container))
     .catch((error: unknown) => {
         console.error(error);
-        container.textContent = "Copilot DataHub App couldn't start. Refresh the page to try again.";
+        container.textContent = "DataHub couldn't start. Refresh the page to try again.";
     });

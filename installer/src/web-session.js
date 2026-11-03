@@ -45,7 +45,7 @@ export function describeRecord(config) {
     schedule: f.scheduleId ? describeSchedule(config.schedule) : undefined,
     data: collectedLabels(config.modules),
     model: sm.id ? sm.name : undefined,
-    app: azure && az?.outputs?.webUrl ? { name: 'Copilot DataHub App', url: az.outputs.webUrl } : fa.itemId ? { name: fa.name ?? 'Copilot DataHub App', url: fa.url } : undefined,
+    app: azure && az?.outputs?.webUrl ? { name: 'DataHub', url: az.outputs.webUrl } : fa.itemId ? { name: fa.name ?? 'DataHub', url: fa.url } : undefined,
     secretExpires: (azure ? az?.sqlReader?.secretExpiry : config.app.secretExpires)?.slice(0, 10),
     firstRun: config.firstRun?.status,
     historyDays: config.history?.days,
@@ -191,7 +191,7 @@ export function createSession(o) {
       const { config, existed } = loadConfig(o.configFile);
       currentConfig = config;
       rec?.setRoute(config.target === 'azure' ? 'azure' : 'fabric');
-      if (!NO_RECORD.includes(command) && !existed) throw new Error(`No install record at ${o.configFile}. Set up Copilot DataHub App first.`);
+      if (!NO_RECORD.includes(command) && !existed) throw new Error(`No install record at ${o.configFile}. Set up DataHub first.`);
       const sources = loadSources(o.sourceDir);
       const tenant = (req.tenant ?? '').trim() || config.tenantId || '';
       const reuse = signedIn && signedIn.method === method && (!tenant || tenant === signedIn.tenant || tenant === signedIn.user.tenantId);

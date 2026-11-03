@@ -1,6 +1,6 @@
 # Changelog
 
-Notable, reviewed changes to Copilot DataHub App: the installer, the app, the Fabric notebooks and
+Notable, reviewed changes to DataHub: the installer, the app, the Fabric notebooks and
 pipeline, and the Azure target.
 
 Analytics Hub moved here from
@@ -20,9 +20,9 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
-### Copilot DataHub App naming
+### DataHub naming
 
-- The product name changes to **Copilot DataHub App**. Existing Fabric app items named
+- The product name changes to **DataHub**. Existing Fabric app items named
   **Analytics Hub** or **AI in One 2.0** are renamed on update; names chosen by workspace owners
   stay unchanged.
 - The installer offers the new name for its app item and release assets while continuing to
@@ -288,7 +288,7 @@ asked for.
 **Published as a pre-release first.** 0.6.8 becomes Latest once a fresh install from its published
 exe passes. Until then, the `releases/latest` links, including the PowerShell command, still serve
 0.6.7, and the installer doesn't offer 0.6.8 as an update. This command installs 0.6.8 either way:
-`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.8/install.ps1 | iex`.
+`irm https://github.com/microsoft/DataHub/releases/download/installer-v0.6.8/install.ps1 | iex`.
 
 **What changed since 0.6.7:** Every module now works on Azure: Agent Evaluator, the Agent 365
 registry, product feedback and Workday org data install there too, and credit consumption is checked
@@ -639,7 +639,7 @@ before you load the corrected file. See [Troubleshooting](docs/TROUBLESHOOTING.m
 
 **A pre-release, for testing.** 0.6.7 stays Latest, so the `releases/latest` links still serve it.
 To install 0.6.8-rc.2, use
-`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.8-rc.2/install.ps1 | iex`.
+`irm https://github.com/microsoft/DataHub/releases/download/installer-v0.6.8-rc.2/install.ps1 | iex`.
 
 **What changed since 0.6.8-rc.1:** Agent Evaluator works on Azure, so every module now does. The
 installer offers it and gives the jobs' managed identity access to the Copilot Studio transcripts,
@@ -883,7 +883,7 @@ figures don't change. The 0.6.8 plan estimates that the page is ready 1.4 to 1.7
 
 **A pre-release, for testing.** 0.6.7 stays Latest, so the `releases/latest` links still serve it.
 To install 0.6.8-rc.1, use
-`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.8-rc.1/install.ps1 | iex`.
+`irm https://github.com/microsoft/DataHub/releases/download/installer-v0.6.8-rc.1/install.ps1 | iex`.
 Agent Evaluator on Azure isn't in this candidate; it comes in 0.6.8-rc.2.
 
 **What changed:** on Azure, the Agent 365 registry, product feedback and Workday org data now
@@ -1123,7 +1123,7 @@ terms menu, the terms set in the others keep showing. Azure installs weren't aff
 
 **The current release.** 0.6.7 replaces 0.6.6 as Latest, so the `releases/latest` links, including
 the PowerShell command, now serve it. To pin this version, use
-`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.7/install.ps1 | iex`.
+`irm https://github.com/microsoft/DataHub/releases/download/installer-v0.6.7/install.ps1 | iex`.
 
 **What changed:** clean-PC installer fixes preserve concurrent app deployments and report failed
 steps accurately. Azure adds personal-tab support in Outlook and the Microsoft 365 Copilot app,
@@ -1241,7 +1241,7 @@ work.
 
 **A pre-release, for testing.** 0.6.5 stays Latest, so the `releases/latest` links still serve it.
 To install 0.6.6, use
-`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.6/install.ps1 | iex`.
+`irm https://github.com/microsoft/DataHub/releases/download/installer-v0.6.6/install.ps1 | iex`.
 
 **What changed:** the app shows less on each page and paces its queries so it stays quick for a
 large tenant, the install is sized by Copilot seats, daily processing handles only new days, and
@@ -1400,7 +1400,7 @@ opening the app took about 40 seconds.
   recorded the refusal in `evaluator_status`. It now stops only when every window pull fails.
 - There is no transcript collector on Azure, so nothing changes there.
 
-**Installer robustness ([#88](https://github.com/microsoft/AnalyticsHub-Dashboard/issues/88)).**
+**Installer robustness ([#88](https://github.com/microsoft/DataHub/issues/88)).**
 
 - **The first load is recorded as complete only once it's proven.** A first load whose pipeline
   run succeeded but whose audit load didn't is now recorded as `Incomplete`, not `Completed`, so
@@ -1553,11 +1553,11 @@ old/new DAX equality remain delivery gates; no latency improvement is claimed he
 the PowerShell command, now serve it:
 
 ```powershell
-irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+irm https://github.com/microsoft/DataHub/releases/latest/download/install.ps1 | iex
 ```
 
 To pin this version, use
-`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.5/install.ps1 | iex`.
+`irm https://github.com/microsoft/DataHub/releases/download/installer-v0.6.5/install.ps1 | iex`.
 
 **Coming from 0.6.2:** 0.6.5 includes everything in the 0.6.3 and 0.6.4 pre-releases below: the
 PowerShell route as the default in the docs, `install.ps1 -UseInstalledNode` for an IT-approved
@@ -1584,7 +1584,7 @@ publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.5`.
 
 **A pre-release, superseded by 0.6.5.** 0.6.4 stays a GitHub pre-release and was never Latest.
 Use 0.6.5, which includes all of it. To pin 0.6.4 anyway, use
-`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.4/install.ps1 | iex`.
+`irm https://github.com/microsoft/DataHub/releases/download/installer-v0.6.4/install.ps1 | iex`.
 
 **Update an existing install:** run the PowerShell command again, or open installer 0.6.4 and
 choose **Repair or change**. What the installer deploys is the same as 0.6.2. The tag also
@@ -1617,11 +1617,11 @@ publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.4`.
 
 **A pre-release, for testing.** 0.6.3 is a GitHub pre-release, so the `releases/latest` links still
 serve 0.6.2. To try it, download installer 0.6.3 from
-[its release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/tag/installer-v0.6.3),
+[its release](https://github.com/microsoft/DataHub/releases/tag/installer-v0.6.3),
 or run its pinned PowerShell command:
 
 ```powershell
-irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.3/install.ps1 | iex
+irm https://github.com/microsoft/DataHub/releases/download/installer-v0.6.3/install.ps1 | iex
 ```
 
 What the installer deploys is the same as 0.6.2. This release changes how you can run it, the
@@ -1639,7 +1639,7 @@ images as `0.6.3`.
   [Architecture and costs](docs/ARCHITECTURE.md) pages. The installer README keeps its old headings,
   so existing links still land.
 - **The wiki.** docs/ is published to the
-  [wiki](https://github.com/microsoft/AnalyticsHub-Dashboard/wiki) on every change to main.
+  [wiki](https://github.com/microsoft/DataHub/wiki) on every change to main.
 - **Install routes that don't rely on the exe** (part of #77). [Install](docs/INSTALL.md) leads
   with the PowerShell one-liner and keeps the exe as an option. It adds routes for an IT-approved
   Node.js, and for PCs that can't run anything locally: your IT team deploys it, or you run it
@@ -1676,11 +1676,11 @@ images as `0.6.3`.
 `releases/latest` links, including the PowerShell command, now serve it:
 
 ```powershell
-irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+irm https://github.com/microsoft/DataHub/releases/latest/download/install.ps1 | iex
 ```
 
 To pin this version, use
-`irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.2/install.ps1 | iex`.
+`irm https://github.com/microsoft/DataHub/releases/download/installer-v0.6.2/install.ps1 | iex`.
 
 **Coming from 0.5.1:** 0.6.2 includes everything in the 0.6.0 and 0.6.1 pre-releases below: the
 PowerShell command and Azure Cloud Shell, the no-Key-Vault default for new Fabric installs, region
@@ -1706,11 +1706,11 @@ The tag also publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.2
 **A pre-release, for testing.** 0.6.1 fixes problems found while testing 0.6.0. Like 0.6.0, it's a
 GitHub pre-release, so the `releases/latest` links still serve 0.5.1. To try it, download
 installer 0.6.1 from
-[its release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/tag/installer-v0.6.1),
+[its release](https://github.com/microsoft/DataHub/releases/tag/installer-v0.6.1),
 or run its pinned PowerShell command:
 
 ```powershell
-irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.1/install.ps1 | iex
+irm https://github.com/microsoft/DataHub/releases/download/installer-v0.6.1/install.ps1 | iex
 ```
 
 **Update an existing install:** open installer 0.6.1 and choose **Repair or change**. On Azure it
@@ -1754,11 +1754,11 @@ The tag also publishes the `valuelens-jobs` and `valuelens-web` images as `0.6.1
 
 **A pre-release, for testing.** 0.6.0 is published as a GitHub pre-release, so the
 `releases/latest` links still serve 0.5.1. To try it, download installer 0.6.0 from
-[its release](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/tag/installer-v0.6.0),
+[its release](https://github.com/microsoft/DataHub/releases/tag/installer-v0.6.0),
 or run its pinned PowerShell command:
 
 ```powershell
-irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/download/installer-v0.6.0/install.ps1 | iex
+irm https://github.com/microsoft/DataHub/releases/download/installer-v0.6.0/install.ps1 | iex
 ```
 
 **Update an existing install:** open installer 0.6.0 and choose **Repair or change**. It deploys
@@ -1847,7 +1847,7 @@ without cloning the repo and installing Node.js.
 same payload as the exe. In PowerShell, run:
 
 ```powershell
-irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+irm https://github.com/microsoft/DataHub/releases/latest/download/install.ps1 | iex
 ```
 
 It downloads the zip, checks its SHA-256 against the one written into `install.ps1`, unpacks it
@@ -2391,7 +2391,7 @@ Scheduled digests by email are not part of this change. The Power BI templates a
 
 **Updating is optional.** 0.5.1 changes how the exe is released and some wording. What the installer
 deploys is the same. To update, download installer 0.5.1
-[from this repo](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe),
+[from this repo](https://github.com/microsoft/DataHub/releases/latest/download/AnalyticsHubInstaller.exe),
 open it and choose **Repair or change**.
 
 The tag also publishes the `valuelens-jobs` and `valuelens-web` images as `0.5.1`, which the Azure
@@ -2435,7 +2435,7 @@ builds reputation by its hash, so each new version starts again from nothing.
 ## 2026-10-12 — Analytics Hub installer 0.5.0
 
 **Update an existing install:** download installer 0.5.0
-[from this repo](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe),
+[from this repo](https://github.com/microsoft/DataHub/releases/latest/download/AnalyticsHubInstaller.exe),
 open it and choose **Repair or change**. Nothing about your install changes: the install record,
 the Fabric items, the Azure resources and the `valuelens-jobs` and `valuelens-web` images keep
 their names.
@@ -2445,7 +2445,7 @@ which the Azure install pulls.
 
 ### Changed: Analytics Hub has its own repo
 
-- Analytics Hub moved from ValueLens to `microsoft/AnalyticsHub-Dashboard`. Downloads, issues and
+- Analytics Hub moved from ValueLens to `microsoft/DataHub`. Downloads, issues and
   releases are here from 0.5.0. The old ValueLens download link serves 0.5.0 too, through a
   one-off release there, so installs that bookmarked it still get the update.
 - The repo has a flat layout: `installer/`, `app/`, `fabric/`, `azure/`, `core/` and `samples/`.

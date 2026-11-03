@@ -116,7 +116,7 @@ def publish(out: Path, repo: str, ref: str) -> list[str]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--out", required=True, type=Path, help="The cloned wiki folder.")
-    parser.add_argument("--repo", default="microsoft/AnalyticsHub-Dashboard")
+    parser.add_argument("--repo", default="microsoft/DataHub")
     parser.add_argument("--ref", default="main")
     args = parser.parse_args()
     for name in publish(args.out, args.repo, args.ref):

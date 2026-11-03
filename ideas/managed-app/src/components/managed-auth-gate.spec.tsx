@@ -72,7 +72,7 @@ describe("ManagedAuthGate", () => {
         });
         renderGate(authService);
 
-        expect(screen.getByText("Connecting to Copilot DataHub App…")).toBeInTheDocument();
+        expect(screen.getByText("Connecting to DataHub…")).toBeInTheDocument();
         expect(screen.queryByRole("link", { name: "Open in Fabric" })).not.toBeInTheDocument();
         expect(screen.queryByRole("region", diagnostics)).not.toBeInTheDocument();
 
@@ -87,7 +87,7 @@ describe("ManagedAuthGate", () => {
         const authService = createAuthService();
         renderGate(authService);
 
-        expect(await screen.findByRole("heading", { name: "Copilot DataHub App couldn't connect" })).toBeInTheDocument();
+        expect(await screen.findByRole("heading", { name: "DataHub couldn't connect" })).toBeInTheDocument();
         expect(screen.getByRole("region", diagnostics)).toBeInTheDocument();
         expect(screen.queryByRole("button", { name: /Sign in/ })).not.toBeInTheDocument();
 
@@ -124,12 +124,12 @@ describe("ManagedAuthGate", () => {
         act(() => reportAccessDenied("PowerBIAccessDenied"));
 
         const alert = await screen.findByRole("alert");
-        expect(alert).toHaveTextContent("You're signed in, but Power BI won't let you read the Copilot DataHub App data.");
+        expect(alert).toHaveTextContent("You're signed in, but Power BI won't let you read the DataHub data.");
         expect(alert).toHaveTextContent("Ask to join Analytics Hub Viewers");
         expect(screen.getByRole("region", diagnostics)).toBeInTheDocument();
         expect(screen.queryByText("Authenticated app")).not.toBeInTheDocument();
         const href = screen.getByRole("link", { name: "Email admin@example.com" }).getAttribute("href") ?? "";
-        expect(decodeURIComponent(href)).toContain("so I can open Copilot DataHub App");
+        expect(decodeURIComponent(href)).toContain("so I can open DataHub");
         expect(href).not.toContain("fabric.microsoft.com");
     });
 });

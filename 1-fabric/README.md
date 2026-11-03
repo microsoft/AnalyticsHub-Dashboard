@@ -1,6 +1,6 @@
 # Path 1: Fabric
 
-Copilot DataHub App on your Fabric capacity. The recommended path.
+DataHub on your Fabric capacity. The recommended path.
 
 ## Before you start
 
@@ -10,7 +10,7 @@ Copilot DataHub App on your Fabric capacity. The recommended path.
   history, in one run, though the first data can take up to 12 hours to appear. Older history is
   optional, and can take days on a large tenant: see
   [How long it takes](../docs/PREREQUISITES.md#how-long-it-takes).
-- **Costs:** the Fabric capacity. Copilot DataHub App itself is free.
+- **Costs:** the Fabric capacity. DataHub itself is free.
 
 ## Installer
 
@@ -20,10 +20,10 @@ Copilot DataHub App on your Fabric capacity. The recommended path.
    rights:
 
    ```powershell
-   irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+   irm https://github.com/microsoft/DataHub/releases/latest/download/install.ps1 | iex
    ```
 
-   Or [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
+   Or [download the exe](https://github.com/microsoft/DataHub/releases/latest/download/DataHub-Installer.exe)
    and open it. Choose **Microsoft Fabric**. Blocked? See the other ways to start it in
    [Install](../docs/INSTALL.md). Don't work around the policy.
 3. **Check it worked.** The Done page lists anything left to do, and who does it. See
