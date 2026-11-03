@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.47.16.16243",
-      "templateHash": "13927340243959713994"
+      "templateHash": "13253713783223597618"
     }
   },
   "parameters": {
@@ -171,7 +171,7 @@
       "type": "bool",
       "defaultValue": true,
       "metadata": {
-        "description": "Deploy the Analytics Hub web app (SPA + /api)."
+        "description": "Deploy the DataHub web app (SPA + /api)."
       }
     },
     "webMinReplicas": {
@@ -182,7 +182,7 @@
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "App registration (client) id of the Analytics Hub web app; empty until the installer creates it."
+        "description": "App registration (client) id of the DataHub web app; empty until the installer creates it."
       }
     },
     "webAppIdUri": {

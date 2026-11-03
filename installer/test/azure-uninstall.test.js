@@ -346,7 +346,7 @@ test('an environment that stays in use is reported as left after IN_USE_WAIT_MS,
   const text = t.ui.text();
   assert.match(text, /Couldn't delete cae-vlens-abc \(Microsoft\.App\/managedEnvironments\): Conflict: Cannot delete cae-vlens-abc because it still contains ContainerApps or Jobs\./);
   assert.match(text, /Couldn't delete vnet-vlens-abc \(Microsoft\.Network\/virtualNetworks\): InUseSubnetCannotBeDeleted: /);
-  assert.match(text, /Analytics Hub isn't all gone from resource group rg-shared\. Still there: cae-vlens-abc \(Microsoft\.App\/managedEnvironments\), vnet-vlens-abc \(Microsoft\.Network\/virtualNetworks\), nsg-vlens-abc \(Microsoft\.Network\/networkSecurityGroups\)\./);
+  assert.match(text, /DataHub isn't all gone from resource group rg-shared\. Still there: cae-vlens-abc \(Microsoft\.App\/managedEnvironments\), vnet-vlens-abc \(Microsoft\.Network\/virtualNetworks\), nsg-vlens-abc \(Microsoft\.Network\/networkSecurityGroups\)\./);
   assert.deepEqual(appDeletes(t.graph), ['deleteApplication web-obj', 'deleteApplication sql-obj']);
 });
 
@@ -400,7 +400,7 @@ test('when the resource group cannot be listed, the app registrations still go a
   t.arm.failures.listResources = [httpError(403, 'AuthorizationFailed')];
   assert.equal(await azureUninstall(t.ctx), false);
   assert.match(t.ui.text(), /Couldn't list the resources in resource group rg-shared: /);
-  assert.match(t.ui.text(), /Couldn't see what's left of Analytics Hub in resource group rg-shared\./);
+  assert.match(t.ui.text(), /Couldn't see what's left of DataHub in resource group rg-shared\./);
   assert.deepEqual(appDeletes(t.graph), ['deleteApplication web-obj', 'deleteApplication sql-obj']);
   assert.deepEqual(deleted(t.arm), []);
 

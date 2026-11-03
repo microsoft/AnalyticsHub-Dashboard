@@ -1,4 +1,4 @@
-# Signs a drafted Analytics Hub installer release with ESRP, the Microsoft Corporation
+# Signs a drafted DataHub installer release with ESRP, the Microsoft Corporation
 # Authenticode certificate. Signed exes carry the publisher's SmartScreen reputation, so Edge and
 # Windows stop warning that the download "isn't commonly downloaded".
 #
@@ -76,7 +76,7 @@ jobs:
                 "KeyCode": "CP-230012",
                 "OperationCode": "SigntoolSign",
                 "Parameters": {
-                  "OpusName": "Analytics Hub installer",
+                  "OpusName": "DataHub installer",
                   "OpusInfo": "https://github.com/$(Build.Repository.Name)",
                   "FileDigest": "/fd \"SHA256\"",
                   "PageHash": "/NPH",

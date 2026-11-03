@@ -13,7 +13,7 @@ import { basename, join, resolve } from 'node:path';
 import { writeZip } from './transform/zip.js';
 import { emptyConfig, loadConfig } from './config.js';
 
-export const SUPPORT_PRODUCT = 'Analytics Hub';
+export const SUPPORT_PRODUCT = 'DataHub';
 const PREFIX = 'analyticshub-support';
 /** Runs kept in the run log beside the install record. */
 export const RUN_LOG_RUNS = 5;

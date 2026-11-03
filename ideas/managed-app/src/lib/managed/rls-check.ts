@@ -12,14 +12,14 @@ import { MANAGED_CONFIG_PATH, runtimeConfig } from "@/lib/runtime-config";
 import { errorMessage, setIdentityCheck, type IdentityCheck } from "./diagnostics";
 import { identityCheck } from "./identity-check";
 
-/** Asks the Analytics Hub model, fresh, who the viewer is, and records the answer. Costs one connector call. */
+/** Asks the DataHub model, fresh, who the viewer is, and records the answer. Costs one connector call. */
 export async function runIdentityCheck(): Promise<IdentityCheck> {
     const { connection, query } = identityCheck();
     if (!isConnectionConfigured(runtimeConfig().semanticModels, connection)) {
         const check: IdentityCheck = {
             status: "failed",
             model: connection,
-            error: `The Analytics Hub model isn't set up in ${MANAGED_CONFIG_PATH}, so there's no model to ask.`,
+            error: `The DataHub model isn't set up in ${MANAGED_CONFIG_PATH}, so there's no model to ask.`,
             checkedAt: Date.now(),
         };
         setIdentityCheck(check);

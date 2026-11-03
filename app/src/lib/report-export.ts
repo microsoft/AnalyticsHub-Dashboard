@@ -320,7 +320,7 @@ export function deckSlides(doc: ReportDocument): SlideSpec[] {
                 text: [
                     `Filters: ${doc.filters}`,
                     doc.freshness && `Data: ${doc.freshness}`,
-                    `Generated ${longDate.format(doc.generatedAt)} from Analytics Hub`,
+                    `Generated ${longDate.format(doc.generatedAt)} from DataHub`,
                     ...coverNotes(doc),
                 ]
                     .filter(Boolean)
@@ -363,7 +363,7 @@ export async function buildPptx(doc: ReportDocument): Promise<Blob> {
     const pptx = new PptxGenJS();
     pptx.layout = "LAYOUT_WIDE";
     pptx.title = doc.name;
-    pptx.author = "Analytics Hub";
+    pptx.author = "DataHub";
     for (const spec of deckSlides(doc)) {
         const slide = pptx.addSlide();
         for (const text of spec.texts) {
@@ -419,7 +419,7 @@ export function reportMarkup(doc: ReportDocument): string {
         doc.description && `<p class="muted">${escapeHtml(doc.description)}</p>`,
         `<p class="muted">Filters: ${escapeHtml(doc.filters)}</p>`,
         data && `<p class="muted">${escapeHtml(data)}</p>`,
-        `<p class="muted">Generated ${escapeHtml(longDate.format(doc.generatedAt))} from Analytics Hub</p>`,
+        `<p class="muted">Generated ${escapeHtml(longDate.format(doc.generatedAt))} from DataHub</p>`,
         ...coverNotes(doc).map((note) => `<p class="muted">${escapeHtml(note)}</p>`),
     ].filter(Boolean);
 

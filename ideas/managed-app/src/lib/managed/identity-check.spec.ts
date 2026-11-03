@@ -9,7 +9,7 @@ import { describe, expect, it } from "vitest";
 import { identityCheck } from "./identity-check";
 
 describe("identityCheck", () => {
-    it("asks the Analytics Hub model who the viewer is", () => {
+    it("asks the DataHub model who the viewer is", () => {
         const { connection, query } = identityCheck();
 
         expect(connection).toBe("vl");

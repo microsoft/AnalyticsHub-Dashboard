@@ -56,7 +56,7 @@ export const displayNames = (items) => items.map((i) => String(i.displayName));
  * @param {string} name
  */
 export function noteRenamed(ctx, wanted, name) {
-  if (name !== wanted) ctx.ui.note(`"${wanted}" is already in the workspace and isn't from this install, so it's left as it is. Analytics Hub's is called "${name}".`);
+  if (name !== wanted) ctx.ui.note(`"${wanted}" is already in the workspace and isn't from this install, so it's left as it is. DataHub's is called "${name}".`);
 }
 
 /**
@@ -352,7 +352,7 @@ export const endpointName = (vaultName) => `valuelens-${vaultName}`.slice(0, 64)
  * the installer can tell its own request from others.
  * @param {string} workspaceId
  */
-export const endpointRequest = (workspaceId) => `Analytics Hub: Fabric workspace ${workspaceId} reads the app secret.`;
+export const endpointRequest = (workspaceId) => `DataHub: Fabric workspace ${workspaceId} reads the app secret.`;
 
 /**
  * Whether a private endpoint connection on the vault comes from this workspace. Fabric names
@@ -403,7 +403,7 @@ async function approveOnVault(ctx) {
     const pending = mine.filter((conn) => conn.properties?.privateLinkServiceConnectionState?.status === 'Pending');
     if (pending.length) {
       try {
-        for (const conn of pending) await api.arm.approvePrivateEndpointConnection(conn.id, `Approved by the Analytics Hub installer for Fabric workspace ${ws}.`);
+        for (const conn of pending) await api.arm.approvePrivateEndpointConnection(conn.id, `Approved by the DataHub installer for Fabric workspace ${ws}.`);
       } catch (err) {
         if (err instanceof HttpError && err.status === 403) return false;
         throw err;

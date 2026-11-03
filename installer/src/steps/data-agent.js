@@ -75,7 +75,7 @@ export async function planDataAgent(ctx, pre, capacity, advanced) {
     return;
   }
   if (advanced) {
-    da.enabled = await ui.confirm('Create the Ask data agent, so people can ask Analytics Hub questions in plain language?', da.enabled !== false);
+    da.enabled = await ui.confirm('Create the Ask data agent, so people can ask DataHub questions in plain language?', da.enabled !== false);
   }
   if (da.enabled === false) return;
   for (const s of blockedDataAgentSettings(pre.tenantSettings)) {
@@ -156,7 +156,7 @@ export async function deployDataAgent(ctx) {
     ui.ok(`The ${da.name} data agent is in place`);
   }
   if (da.publishedSignature !== signature) {
-    await api.fabric.publishDataAgent(ws, da.id, 'Answers questions about Microsoft 365 Copilot and agents from Analytics Hub.');
+    await api.fabric.publishDataAgent(ws, da.id, 'Answers questions about Microsoft 365 Copilot and agents from DataHub.');
     da.publishedSignature = signature;
     ctx.save();
     ui.ok(`Published ${da.name}`);

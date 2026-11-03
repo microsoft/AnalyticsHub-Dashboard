@@ -307,7 +307,7 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                 <div className={cn("flex items-start", compact ? "justify-center" : "justify-between gap-200 px-200")}>
                     {!compact && (
                         <div className="flex flex-col gap-100">
-                            <span className="text-[length:var(--text-500)] leading-500 font-semibold">Analytics Hub</span>
+                            <span className="text-[length:var(--text-500)] leading-500 font-semibold">DataHub</span>
                             <span className="text-[length:var(--text-200)] leading-200 text-muted-foreground">for Microsoft Copilot</span>
                         </div>
                     )}
@@ -417,7 +417,7 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                     >
                         <Menu className="icon-size-300" aria-hidden="true" />
                     </button>
-                    <span className="text-[length:var(--text-400)] leading-400 font-semibold">Analytics Hub</span>
+                    <span className="text-[length:var(--text-400)] leading-400 font-semibold">DataHub</span>
                 </header>
             ) : (
                 <nav

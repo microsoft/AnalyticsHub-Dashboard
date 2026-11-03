@@ -1,13 +1,13 @@
-# Analytics Hub on Azure: a plan for running outside Fabric
+# DataHub on Azure: a plan for running outside Fabric
 
-> This plan was written in ValueLens, before Analytics Hub moved to its own repo. Its paths are the
+> This plan was written in ValueLens, before DataHub moved to its own repo. Its paths are the
 > old ones: `1. Fabric/Fabric App` is now `app/`, `1. Fabric/installer` is `installer/`,
 > `1. Fabric/Manual setup` is `fabric/`, `2. Azure` is `azure/`, and paths 3 to 5 are still in
 > [ValueLens](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot).
 
 ## 0. Summary
 
-This plan recreates Analytics Hub and its installer so they run in the **customer's own Azure
+This plan recreates DataHub and its installer so they run in the **customer's own Azure
 subscription** without Microsoft Fabric. The model is
 [pnp/Microsoft365-Analytics-Insights](https://github.com/pnp/Microsoft365-Analytics-Insights): an
 installer provisions PaaS, scheduled jobs collect data into SQL, and Power BI reports on it.
@@ -66,7 +66,7 @@ flowchart LR
     subgraph ACA["Container Apps environment"]
       J1[[job: collect]] --> J2[[job: process]] --> J3[[job: publish + refresh]]
       JM[[job: migrate]]
-      W[web: Analytics Hub\nSPA + /api]
+      W[web: DataHub\nSPA + /api]
     end
     ST[(ADLS Gen2:\nraw + Delta)]
     TS[(Table Storage:\napp settings)]
@@ -286,7 +286,7 @@ is readable for reviewers.
 
 ### 5.1 Flow (unchanged UX, new first question)
 
-0. **Where should Analytics Hub run?** *Microsoft Fabric* | *Your Azure subscription*.
+0. **Where should DataHub run?** *Microsoft Fabric* | *Your Azure subscription*.
 1. What to collect: the same `MODULES` in `catalog.js`. Each module also declares its Azure needs (MI app
    roles, storage containers, SQL tables, and a job step).
 2. Power BI: the model and the app (default), the model only, or neither. On Azure, also **workspace**:

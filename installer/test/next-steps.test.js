@@ -87,7 +87,7 @@ test('install: the share step comes straight after the app is deployed, before t
     assert.ok(i >= 0, `${s} is in install.js`);
     return i;
   };
-  assert.ok(at("step('Analytics Hub app')") < at("step('Share the app')"));
+  assert.ok(at("step('DataHub app')") < at("step('Share the app')"));
   assert.ok(at("step('Share the app')") < at("step('First load')"));
   assert.match(src, /withShare = .*appShared !== true/, 'not asked again once shared');
 });
@@ -183,11 +183,11 @@ test('summary: what is left comes first, as cards, before the next steps', async
 test("summary: after a failed step it says the setup is partly done, not set up", async () => {
   const t = installed();
   await summary(t.ctx);
-  assert.match(t.text(), /Analytics Hub is set up/);
+  assert.match(t.text(), /DataHub is set up/);
   const p = installed();
   await summary(p.ctx, { ok: false });
-  assert.match(p.text(), /Analytics Hub is partly set up/);
-  assert.doesNotMatch(p.text(), /Analytics Hub is set up/);
+  assert.match(p.text(), /DataHub is partly set up/);
+  assert.doesNotMatch(p.text(), /DataHub is set up/);
   assert.match(p.text(), /run the installer again/);
 });
 
@@ -204,7 +204,7 @@ test('next steps: after the app step failed, the first card says how to deploy t
   const steps = nextSteps(t.config, USER, { appFailed: true });
   assert.deepEqual(ids(steps), ['deploy-app'], 'no share card: there is no app item to share yet');
   const [deploy] = steps;
-  assert.equal(deploy.title, 'Deploy the Analytics Hub app');
+  assert.equal(deploy.title, 'Deploy the DataHub app');
   assert.equal(deploy.who, 'You');
   assert.ok(deploy.why);
   assert.doesNotMatch(JSON.stringify(deploy), /Rayfin/i);
@@ -226,7 +226,7 @@ test('next steps: an app from before is deployed again, and the share card still
   t.config.fabricApp.itemId = 'app-item';
   const steps = nextSteps(t.config, USER, { appFailed: true });
   assert.deepEqual(ids(steps), ['deploy-app', 'share-app']);
-  assert.equal(steps[0].title, 'Deploy the Analytics Hub app again');
+  assert.equal(steps[0].title, 'Deploy the DataHub app again');
   assert.match(steps[0].why, /as it was last deployed/);
   assert.equal(steps[0].steps?.length, 2);
   assert.deepEqual(ids(nextSteps(t.config, USER)), ['share-app'], 'no card once it deployed');
@@ -257,10 +257,10 @@ test('summary: after the app step failed, the partly set up summary says how to 
   const t = appFailed();
   await summary(t.ctx, { ok: false, appFailed: true });
   const text = t.text();
-  assert.match(text, /Analytics Hub is partly set up/);
+  assert.match(text, /DataHub is partly set up/);
   assert.ok(text.includes(`Run "${commandLine('deploy-app')}"`), text);
   assert.ok(text.includes('choose Share the app with the group'), text);
-  assert.ok(text.indexOf('Deploy the Analytics Hub app') < text.indexOf('Next steps'), 'the card leads');
+  assert.ok(text.indexOf('Deploy the DataHub app') < text.indexOf('Next steps'), 'the card leads');
 });
 
 test('summary: an app deployed after its step failed is said so, with no card to deploy it', async () => {
@@ -268,9 +268,9 @@ test('summary: an app deployed after its step failed is said so, with no card to
   Object.assign(t.config.fabricApp, { itemId: 'app-item', deployedAt: '2026-06-01T15:42:10.000Z' });
   await summary(t.ctx, { ok: true, appFailed: false, appLate: '2026-06-01T15:42:10.000Z' });
   const text = t.text();
-  assert.match(text, /Analytics Hub is set up/);
+  assert.match(text, /DataHub is set up/);
   assert.match(text, /The app step above failed, but the app was deployed afterwards \(2026-06-01 15:42 UTC\)\./);
-  assert.doesNotMatch(text, /Deploy the Analytics Hub app/);
+  assert.doesNotMatch(text, /Deploy the DataHub app/);
   assert.match(text, /App: +Analytics Hub/);
 });
 

@@ -2,16 +2,16 @@
 
 <br>
 
-# 📊 Analytics Hub for Microsoft Copilot
+# 📊 DataHub for Microsoft Copilot
 
 **See how your organisation uses Microsoft 365 Copilot and agents, and the hours and value they deliver.**
 
 <br>
 
-All reports and guides can be found on the [Analytics Hub site](https://microsoft.github.io/Analytics-Hub/).
+All reports and guides can be found on the [DataHub site](https://microsoft.github.io/Analytics-Hub/).
 
 **Want a more targeted report?** [ValueLens](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot)
-covers the adoption and value parts of Analytics Hub, and
+covers the adoption and value parts of DataHub, and
 [Consumption Central](https://github.com/microsoft/ConsumptionCentral-for-Microsoft-Copilot) covers
 credit consumption and cost.
 
@@ -29,12 +29,14 @@ credit consumption and cost.
 
 ## Videos
 
-[![Analytics Hub preview](media/AnalyticsHub-Preview.gif)](docs/APP-GUIDE.md)
+[![DataHub preview](media/AnalyticsHub-Preview.gif)](docs/APP-GUIDE.md)
 
 **The app, page by page** *(silent, about 2 minutes, sample data)*
 
 https://github.com/user-attachments/assets/b415625d-c2ae-467f-9a91-59ef9adca6c8
 
+The preview, video and screenshots were captured before the DataHub rename and still show
+the former branding. Replacement media is pending.
 
 <a id="what-you-get"></a>
 
@@ -42,7 +44,7 @@ https://github.com/user-attachments/assets/b415625d-c2ae-467f-9a91-59ef9adca6c8
 
 - An app and Power BI reports on Copilot and agent use, value and cost.
 - Fresh data every day, kept in your own tenant.
-- Analytics Hub is free. You pay for the Fabric capacity or Azure resources it runs on.
+- DataHub is free. You pay for the Fabric capacity or Azure resources it runs on.
 
 <a id="getting-started"></a>
 
@@ -79,13 +81,16 @@ flowchart LR
 
 ## Installer
 
+Some download and installed resource names still use Analytics Hub for compatibility.
+See [Names and compatibility](docs/INSTALL.md#names-and-compatibility).
+
 1. Paste this into PowerShell, or [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe):
 
    ```powershell
    irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
    ```
 
-2. In your browser, choose **Set up Analytics Hub** and sign in.
+2. In your browser, choose **Set up DataHub** and sign in.
 3. Choose **Microsoft Fabric** or **Your Azure subscription**.
 4. Answer the questions (about 5 minutes).
 5. Check the plan and choose **Go ahead**. Keep the PC awake.
@@ -125,9 +130,9 @@ Blocked by IT policy? Don't work around it. See [other ways to run it](docs/INST
 - **This isn't the official Copilot report.** The official sources are the
   [Microsoft 365 admin center Copilot usage reports](https://learn.microsoft.com/en-us/microsoft-365/admin/activity-reports/microsoft-365-copilot-usage)
   and the [Viva Insights Copilot Dashboard](https://learn.microsoft.com/en-us/viva/insights/org-team-insights/copilot-dashboard).
-  Analytics Hub takes its Copilot figures mainly from the Purview audit log, which isn't the
+  DataHub takes its Copilot figures mainly from the Purview audit log, which isn't the
   authoritative source, so its numbers may not always match those reports exactly.
-- **You're responsible for the data once it's extracted.** Analytics Hub copies data into your own
+- **You're responsible for the data once it's extracted.** DataHub copies data into your own
   Fabric workspace or Azure subscription. The retention, deletion and other policies you set in
   Purview, Microsoft 365, Entra ID and the other sources don't apply to those copies. Managing that
   data and meeting your organisation's requirements is up to you.

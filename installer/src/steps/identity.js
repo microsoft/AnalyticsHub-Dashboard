@@ -492,7 +492,7 @@ export async function ensureApp(ctx) {
     try {
       const added = await api.graph.ensureRequiredAccess(application, roles);
       const addedMgmt = mgmtRoles.length ? await api.graph.ensureRequiredAccess(application, mgmtRoles, MANAGEMENT_API_APP_ID) : false;
-      if (added || addedMgmt) ui.ok('Added the Analytics Hub permissions to its API permissions');
+      if (added || addedMgmt) ui.ok('Added the DataHub permissions to its API permissions');
     } catch (err) {
       if (!isStatus(err, 403)) throw err;
       ui.warn(`You can't edit ${application.displayName}'s API permissions. An admin must add these application permissions: ${describePermissions(roles, mgmtRoles)}.`);
@@ -936,7 +936,7 @@ export function reportAppCheck(ctx, check, who = {}) {
   // Someone who can grant consent gets it granted during the install.
   if (check.unconsented.length && !who.canConsent) missing.push(`Admin consent for: ${check.unconsented.join(', ')}`);
   if (!missing.length) {
-    ui.ok(`${check.displayName ?? appId} has everything Analytics Hub needs`);
+    ui.ok(`${check.displayName ?? appId} has everything DataHub needs`);
     return true;
   }
   ui.warn(`${check.displayName ?? appId} isn't ready yet. It still needs:`);
@@ -1030,9 +1030,9 @@ export function writeAdminPack(ctx) {
   const { script, checklist } = adminPack(ctx);
   const file = join(ctx.configFile ? dirname(ctx.configFile) : process.cwd(), ADMIN_PACK_FILE);
   const body = [
-    '# Analytics Hub: register the app',
+    '# DataHub: register the app',
     '',
-    'The person setting up Analytics Hub can\'t register apps or grant admin consent in this tenant.',
+    'The person setting up DataHub can\'t register apps or grant admin consent in this tenant.',
     'Run the script, or follow the portal steps, then send them the client ID.',
     '',
     '## Azure Cloud Shell (Bash)',

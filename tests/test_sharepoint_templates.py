@@ -37,7 +37,7 @@ CORE_TABLES = {"Chat + Agent Interactions (Audit Logs)", "Copilot Licensed", "Ch
 # Every parameter ships blank. True marks the ones the template can't open without.
 PARAMETERS = {"Copilot Interactions File": True, "Org Data File": True, "SharePoint Site URL": True,
               "Agent 365": False, "Feedback File": False}
-NEITHER = "in neither AH's Fabric template nor the installer"
+NEITHER = "in neither DataHub's Fabric template nor the installer"
 
 spec = importlib.util.spec_from_file_location("check_sharepoint_queries",
                                               ROOT / "scripts" / "Check-SharePoint-Queries.py")
@@ -179,7 +179,7 @@ def test_origin_prefers_the_file_that_defines_a_name():
 
     assert origin("Usage Daily") == "added by installer/src/transform/usage.js"
     assert origin("Load Log") == "named in installer/src/access.js"
-    assert origin("Load Log", fabric) == "in AH's Fabric template"
+    assert origin("Load Log", fabric) == "in DataHub's Fabric template"
     assert origin("Elsewhere") == NEITHER
 
 

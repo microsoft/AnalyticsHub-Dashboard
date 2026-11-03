@@ -44,7 +44,7 @@ export function SharePanel() {
                 Share
             </button>
             {open && (
-                <section id={panelId} aria-label="Share Analytics Hub" className="flex flex-col gap-300 rounded-md border border-border p-300">
+                <section id={panelId} aria-label="Share DataHub" className="flex flex-col gap-300 rounded-md border border-border p-300">
                     <CopyLink />
                     {config.host === "azure" ? <AzureAccess access={config.access} /> : <FabricAccess access={config.access} />}
                     {config.host === "azure" && config.access?.rlsOrgAttribute && <ScopedDelegation contact={config.access.contact} />}
@@ -147,7 +147,7 @@ function AzureAccess({ access }: { access?: AccessInfo }) {
     if (error) return <p role="alert" className={cn(TEXT, "text-destructive")}>{error}</p>;
     if (!state) return <p className={cn(TEXT, "text-muted-foreground")}>Loading who has access…</p>;
     if (!state.group)
-        return <p className={cn(TEXT, "text-muted-foreground")}>People with an Analytics Hub role in Microsoft Entra can open it.</p>;
+        return <p className={cn(TEXT, "text-muted-foreground")}>People with a DataHub role in Microsoft Entra can open it.</p>;
 
     const groupName = state.group.name || access?.groupName || "the viewer group";
     if (!state.canManage) {
@@ -155,7 +155,7 @@ function AzureAccess({ access }: { access?: AccessInfo }) {
             <div className="flex flex-col gap-100">
                 <p className={cn(TEXT, "text-muted-foreground")}>
                     Anyone in <span className="font-semibold text-foreground">{groupName}</span> can open it.
-                    {access?.contact ? ` Ask ${access.contact} to add people.` : " Ask an Analytics Hub admin to add people."}
+                    {access?.contact ? ` Ask ${access.contact} to add people.` : " Ask a DataHub admin to add people."}
                 </p>
                 <a href={myGroupsUrl(state.group.id)} target="_blank" rel="noreferrer" className={LINK}>
                     See the group in My Groups

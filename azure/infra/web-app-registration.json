@@ -11,12 +11,12 @@
     "oauth2PermissionScopes": [
       {
         "id": "f187649e-3af7-463f-bd2d-f4d2c42583ad",
-        "adminConsentDescription": "Allow users to access Analytics Hub.",
-        "adminConsentDisplayName": "Access Analytics Hub",
+        "adminConsentDescription": "Allow users to access DataHub.",
+        "adminConsentDisplayName": "Access DataHub",
         "isEnabled": true,
         "type": "User",
-        "userConsentDescription": "Allow you to access Analytics Hub.",
-        "userConsentDisplayName": "Access Analytics Hub",
+        "userConsentDescription": "Allow you to access DataHub.",
+        "userConsentDisplayName": "Access DataHub",
         "value": "access_as_user"
       }
     ],
@@ -73,7 +73,7 @@
       ],
       "displayName": "Analytics Hub User",
       "value": "AnalyticsHub.User",
-      "description": "Can use Analytics Hub.",
+      "description": "Can use DataHub.",
       "isEnabled": true
     },
     {
@@ -83,7 +83,7 @@
       ],
       "displayName": "Analytics Hub Admin",
       "value": "AnalyticsHub.Admin",
-      "description": "Can administer Analytics Hub.",
+      "description": "Can administer DataHub.",
       "isEnabled": true
     }
   ],
@@ -107,5 +107,5 @@
       ]
     }
   ],
-  "notes": "Analytics Hub's Azure web app, set up by hand: docs/MANUAL-INSTALL.md#azure in the Analytics Hub repo."
+  "notes": "DataHub's Azure web app, set up by hand: docs/MANUAL-INSTALL.md#azure in the DataHub repo."
 }

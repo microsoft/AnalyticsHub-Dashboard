@@ -1,6 +1,6 @@
 ---
 name: Feature request
-about: Propose an Analytics Hub improvement with a clear use case
+about: Propose a DataHub improvement with a clear use case
 title: "[Feature]: "
 labels: ""
 assignees: ""

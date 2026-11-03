@@ -243,7 +243,7 @@ def _habit_stage_users(low, high, last_month):
 CALENDAR = "\n".join((
     "",
     "// Spans every date the model can be sliced by - audit activity and product",
-    "// feedback, plus Microsoft 365 activity where the Analytics Hub installer adds",
+    "// feedback, plus Microsoft 365 activity where the DataHub installer adds",
     "// that table - so an empty or late-starting audit no longer collapses the",
     "// calendar to a single day and hides the M365 and feedback trends.",
     "// MINX / MAXX skip blank sources. With no dates anywhere (first refresh, or",

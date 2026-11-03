@@ -94,7 +94,7 @@ test('a first run publishes the Teams app to the org catalog and records it', as
   assert.deepEqual(t.az.status?.pendingAdminActions, []);
   assert.ok(t.saves() > 0);
   const out = t.ui.text();
-  assert.match(out, /Teams app: published Analytics Hub 0\.6\.7 to your org's app catalog/);
+  assert.match(out, /Teams app: published DataHub 0\.6\.7 to your org's app catalog/);
   assert.match(out, /people find it in Teams under Apps > Built for your org, and in the Outlook and Microsoft 365 Copilot app stores/);
   assert.match(out, /To pin it in Teams for Analytics Hub Viewers, a Teams Administrator adds it to an app setup policy and assigns that policy to the group\./);
   assert.doesNotMatch(out, /not published/);
@@ -122,7 +122,7 @@ test('an upgrade updates the app already in the catalog, never adding a second o
   assert.equal(t.catalog.apps.length, 1);
   assert.equal(t.catalog.apps[0].appDefinitions?.[0].version, '0.6.8');
   assert.deepEqual(t.az.teamsApp, { id: 'catalog-app-1', externalId: CLIENT_ID, version: '0.6.8', sha256: sha(next), publishedAt: NOW });
-  assert.match(t.ui.text(), /Teams app: updated Analytics Hub to 0\.6\.8 in your org's app catalog/);
+  assert.match(t.ui.text(), /Teams app: updated DataHub to 0\.6\.8 in your org's app catalog/);
 });
 
 test('an app uploaded by hand from an earlier version is updated, not duplicated', async () => {
@@ -138,7 +138,7 @@ test('this version, uploaded by hand, is adopted without uploading it again', as
   await publishTeamsApp(t.ctx, pkg('0.6.7'));
   assert.deepEqual(t.catalog.calls, ['signIn', `find ${CLIENT_ID}`]);
   assert.equal(t.az.teamsApp?.id, 'uploaded-by-hand');
-  assert.match(t.ui.text(), /Teams app: Analytics Hub 0\.6\.7 is already in your org's app catalog/);
+  assert.match(t.ui.text(), /Teams app: DataHub 0\.6\.7 is already in your org's app catalog/);
   t.rerun();
   await publishTeamsApp(t.ctx, pkg('0.6.7'));
   assert.deepEqual(t.catalog.calls, [], 'the next run has nothing to do');
@@ -155,8 +155,8 @@ test('a changed package at the same version is sent as an update', async () => {
 });
 
 for (const c of [
-  { status: 400, message: 'POST /v1.0/appCatalogs/teamsApps/catalog-app-1/appDefinitions returned 400 BadRequest: The version must be higher.', reason: /Teams app: not published to your org's app catalog\. Teams kept Analytics Hub 0\.6\.7 and didn't take this package as an update at the same version \(POST .* returned 400 BadRequest: The version must be higher\.\)\./ },
-  { status: 409, message: 'POST /v1.0/appCatalogs/teamsApps/catalog-app-1/appDefinitions returned 409 Conflict', reason: /Teams app: not published to your org's app catalog\. Teams kept Analytics Hub 0\.6\.7 and didn't take this package as an update at the same version \(POST .* returned 409 Conflict\)\./ },
+  { status: 400, message: 'POST /v1.0/appCatalogs/teamsApps/catalog-app-1/appDefinitions returned 400 BadRequest: The version must be higher.', reason: /Teams app: not published to your org's app catalog\. Teams kept DataHub 0\.6\.7 and didn't take this package as an update at the same version \(POST .* returned 400 BadRequest: The version must be higher\.\)\./ },
+  { status: 409, message: 'POST /v1.0/appCatalogs/teamsApps/catalog-app-1/appDefinitions returned 409 Conflict', reason: /Teams app: not published to your org's app catalog\. Teams kept DataHub 0\.6\.7 and didn't take this package as an update at the same version \(POST .* returned 409 Conflict\)\./ },
   { status: 403, message: 'POST /v1.0/appCatalogs/teamsApps/catalog-app-1/appDefinitions returned 403 Forbidden', reason: /Teams app: not published to your org's app catalog\. Microsoft Graph refused it \(403\)\./ },
 ]) {
   test(`when Teams turns down a same-version update (${c.status}), it keeps what Teams has, leaves the steps, and the next run tries again`, async () => {
@@ -170,7 +170,7 @@ for (const c of [
     assert.deepEqual(t.catalog.calls, ['signIn', `find ${CLIENT_ID}`, 'update catalog-app-1 0.6.7']);
     const out = t.ui.text();
     assert.match(out, c.reason);
-    assert.match(out, /2\. Selects Analytics Hub, then Upload file on its page, and chooses \/installs\/AnalyticsHub-Teams\.zip/);
+    assert.match(out, /2\. Selects DataHub, then Upload file on its page, and chooses \/installs\/AnalyticsHub-Teams\.zip/);
     assert.equal(t.az.teamsApp?.sha256, sha(first), 'the record keeps the package Teams took');
     assert.deepEqual(t.az.status?.pendingAdminActions, [UPLOAD_PENDING]);
 
@@ -190,7 +190,7 @@ test('a newer version in the catalog is left alone', async () => {
   assert.deepEqual(t.catalog.calls, ['signIn', `find ${CLIENT_ID}`], '0.6.10 is newer than 0.6.9');
   assert.equal(t.az.teamsApp, undefined);
   assert.deepEqual(t.az.status?.pendingAdminActions, []);
-  assert.match(t.ui.text(), /your org's app catalog has Analytics Hub 0\.6\.10, newer than this installer's 0\.6\.9, so the installer left it alone/);
+  assert.match(t.ui.text(), /your org's app catalog has DataHub 0\.6\.10, newer than this installer's 0\.6\.9, so the installer left it alone/);
 });
 
 test('an app waiting for approval gets the steps to approve it', async () => {
@@ -199,12 +199,12 @@ test('an app waiting for approval gets the steps to approve it', async () => {
   assert.deepEqual(t.catalog.calls, ['signIn', `find ${CLIENT_ID}`]);
   assert.equal(t.az.teamsApp, undefined);
   const out = t.ui.text();
-  assert.match(out, /Teams app: not published to your org's app catalog\. Analytics Hub is in the catalog waiting for approval, so the installer can't update it\./);
+  assert.match(out, /Teams app: not published to your org's app catalog\. DataHub is in the catalog waiting for approval, so the installer can't update it\./);
   assert.match(out, /To approve it, a Teams Administrator or Global Administrator:/);
   assert.match(out, /1\. Opens Teams admin center > Teams apps > Manage apps: https:\/\/admin\.teams\.microsoft\.com\/policies\/manage-apps/);
-  assert.match(out, /2\. Selects Analytics Hub, which is waiting for approval, then Publish in its Publishing status box\./);
+  assert.match(out, /2\. Selects DataHub, which is waiting for approval, then Publish in its Publishing status box\./);
   assert.match(out, /Then run the installer again and choose Repair or change, to bring it up to date\./);
-  assert.deepEqual(t.az.status?.pendingAdminActions, [`${TEAMS_APP_PENDING}: approve Analytics Hub in ${WHERE}, then run the installer again.`]);
+  assert.deepEqual(t.az.status?.pendingAdminActions, [`${TEAMS_APP_PENDING}: approve DataHub in ${WHERE}, then run the installer again.`]);
 });
 
 test('when Teams has the app but Graph does not list it, the steps update that app', async () => {
@@ -212,8 +212,8 @@ test('when Teams has the app but Graph does not list it, the steps update that a
   t.catalog.failures.publish = [graphError(409, 'POST /v1.0/appCatalogs/teamsApps returned 409 Conflict')];
   await publishTeamsApp(t.ctx, pkg('0.6.7'));
   const out = t.ui.text();
-  assert.match(out, /Teams says Analytics Hub is in the catalog already, but Microsoft Graph didn't list it\. It may be waiting for approval\./);
-  assert.match(out, /2\. Selects Analytics Hub, then Upload file on its page, and chooses \/installs\/AnalyticsHub-Teams\.zip/);
+  assert.match(out, /Teams says DataHub is in the catalog already, but Microsoft Graph didn't list it\. It may be waiting for approval\./);
+  assert.match(out, /2\. Selects DataHub, then Upload file on its page, and chooses \/installs\/AnalyticsHub-Teams\.zip/);
   assert.equal(t.az.teamsApp, undefined);
   assert.deepEqual(t.az.status?.pendingAdminActions, [UPLOAD_PENDING]);
 });
@@ -231,7 +231,7 @@ test('without a Teams or Global Administrator role, it prints the upload steps a
   assert.doesNotMatch(out, /Signing in once more/);
   assert.match(out, /Teams app: not published to your org's app catalog\. .* you have neither\. If you can activate one in Privileged Identity Management, do that, then run the installer again and choose Repair or change\./);
   assert.match(out, /To publish it, a Teams Administrator or Global Administrator:/);
-  assert.match(out, /2\. If Analytics Hub is listed, selects it, then Upload file on its page\. If not, selects Upload new app, then Upload\. Either way, chooses \/installs\/AnalyticsHub-Teams\.zip/);
+  assert.match(out, /2\. If DataHub is listed, selects it, then Upload file on its page\. If not, selects Upload new app, then Upload\. Either way, chooses \/installs\/AnalyticsHub-Teams\.zip/);
   assert.match(out, /To pin it in Teams for Analytics Hub Viewers/);
   assert.deepEqual(t.az.status?.pendingAdminActions, [UPLOAD_PENDING]);
 });
@@ -327,7 +327,7 @@ for (const c of unfinished) {
     assert.deepEqual(t.catalog.calls, ['signIn'], 'not asked again');
     out = t.ui.text();
     assert.match(out, /Teams app: not published to your org's app catalog\. The sign-in to Microsoft Graph Command Line Tools wasn't finished within 5 minutes\./);
-    assert.match(out, /2\. If Analytics Hub is listed, selects it, then Upload file on its page\. If not, selects Upload new app, then Upload\. Either way, chooses \/installs\/AnalyticsHub-Teams\.zip/);
+    assert.match(out, /2\. If DataHub is listed, selects it, then Upload file on its page\. If not, selects Upload new app, then Upload\. Either way, chooses \/installs\/AnalyticsHub-Teams\.zip/);
     assert.equal(t.az.teamsApp, undefined);
     assert.deepEqual(t.az.status?.pendingAdminActions, [UPLOAD_PENDING]);
   });
@@ -338,14 +338,14 @@ test('with the plan, the admin can choose to upload the Teams app by hand: no si
   await askToPublishTeamsApp(t.ctx, '0.6.7');
   assert.deepEqual(t.ui.asked, [PUBLISH_QUESTION]);
   assert.equal(t.ctx.teamsCatalog?.skip, true);
-  assert.deepEqual(teamsAppPlanRow(t.ctx, '0.6.7'), { kind: 'Teams app', name: 'Analytics Hub in your org\'s app catalog', isNew: false, detail: 'Not published by the installer. You chose to upload it by hand. The installer prints the steps for a Teams Administrator to upload it.' });
+  assert.deepEqual(teamsAppPlanRow(t.ctx, '0.6.7'), { kind: 'Teams app', name: 'DataHub in your org\'s app catalog', isNew: false, detail: 'Not published by the installer. You chose to upload it by hand. The installer prints the steps for a Teams Administrator to upload it.' });
   await signInForTeamsApp(t.ctx, '0.6.7');
   await publishTeamsApp(t.ctx, pkg('0.6.7'));
   assert.deepEqual(t.catalog.calls, [], 'no sign-in');
   const out = t.ui.text();
   assert.doesNotMatch(out, /Signing in once more/);
   assert.match(out, /Teams app: not published to your org's app catalog\. You chose to upload it by hand\. To have the installer publish it, run the installer again, choose Repair or change, and say yes to publishing it\./);
-  assert.match(out, /2\. If Analytics Hub is listed, selects it, then Upload file on its page\. If not, selects Upload new app, then Upload\. Either way, chooses \/installs\/AnalyticsHub-Teams\.zip/);
+  assert.match(out, /2\. If DataHub is listed, selects it, then Upload file on its page\. If not, selects Upload new app, then Upload\. Either way, chooses \/installs\/AnalyticsHub-Teams\.zip/);
   assert.equal(t.az.teamsApp, undefined);
   assert.deepEqual(t.az.status?.pendingAdminActions, [UPLOAD_PENDING]);
 });
@@ -381,7 +381,7 @@ for (const c of [
     const out = t.ui.text();
     assert.match(out, c.reason);
     assert.match(out, /1\. Opens Teams admin center > Teams apps > Manage apps/);
-    assert.match(out, /2\. If Analytics Hub is listed, selects it/);
+    assert.match(out, /2\. If DataHub is listed, selects it/);
     assert.equal(t.az.teamsApp, undefined);
     assert.deepEqual(t.az.status?.pendingAdminActions, [UPLOAD_PENDING]);
   });
@@ -392,7 +392,7 @@ test('publishing clears the Teams app\'s pending action and keeps the others', a
   const t = setup({ pending: [other, UPLOAD_PENDING] });
   await publishTeamsApp(t.ctx, pkg('0.6.7'));
   assert.deepEqual(t.az.status?.pendingAdminActions, [other]);
-  const failed = setup({ catalog: false, pending: [other, `${TEAMS_APP_PENDING}: approve Analytics Hub in ${WHERE}, then run the installer again.`] });
+  const failed = setup({ catalog: false, pending: [other, `${TEAMS_APP_PENDING}: approve DataHub in ${WHERE}, then run the installer again.`] });
   await publishTeamsApp(failed.ctx, pkg('0.6.7'));
   assert.deepEqual(failed.az.status?.pendingAdminActions, [other, UPLOAD_PENDING], 'a failed run replaces the Teams action rather than adding another');
 });
@@ -412,15 +412,15 @@ test('when the old app can\'t be removed, it says which one to delete', async ()
   t.catalog.failures.remove = [graphError(403)];
   await publishTeamsApp(t.ctx, pkg('0.6.7'));
   assert.equal(t.az.teamsApp?.externalId, CLIENT_ID);
-  assert.match(t.ui.text(), new RegExp(`couldn't remove the Analytics Hub published for an earlier app registration \\(App ID ${OLD_CLIENT_ID}\\)\\. Microsoft Graph refused it \\(403\\)\\..* Delete it in https://admin\\.teams\\.microsoft\\.com/policies/manage-apps`));
+  assert.match(t.ui.text(), new RegExp(`couldn't remove the DataHub published for an earlier app registration \\(App ID ${OLD_CLIENT_ID}\\)\\. Microsoft Graph refused it \\(403\\)\\..* Delete it in https://admin\\.teams\\.microsoft\\.com/policies/manage-apps`));
 });
 
 test('with an earlier registration\'s app in the catalog, the manual steps say which app is which', async () => {
   const t = setup({ catalog: false, teamsApp: record('old-app', '0.6.6', OLD_CLIENT_ID) });
   await publishTeamsApp(t.ctx, pkg('0.6.7'));
   const out = t.ui.text();
-  assert.match(out, new RegExp(`2\\. Deletes the Analytics Hub with App ID ${OLD_CLIENT_ID}, which was published for an earlier app registration\\.`));
-  assert.match(out, new RegExp(`3\\. If the Analytics Hub with App ID ${CLIENT_ID} is listed, selects it, then Upload file on its page\\. If not, selects Upload new app, then Upload\\.`));
+  assert.match(out, new RegExp(`2\\. Deletes the DataHub with App ID ${OLD_CLIENT_ID}, which was published for an earlier app registration\\.`));
+  assert.match(out, new RegExp(`3\\. If the DataHub with App ID ${CLIENT_ID} is listed, selects it, then Upload file on its page\\. If not, selects Upload new app, then Upload\\.`));
   assert.equal(t.az.teamsApp?.externalId, OLD_CLIENT_ID, 'kept, so a later run removes it');
 });
 
@@ -432,7 +432,7 @@ test('uninstall removes the app the installer published', async () => {
   assert.deepEqual(t.catalog.calls, ['signIn', 'remove catalog-app-1']);
   assert.equal(t.catalog.apps.length, 0);
   assert.equal(t.az.teamsApp, undefined);
-  assert.match(t.ui.text(), /Teams app: removed Analytics Hub from your org's app catalog/);
+  assert.match(t.ui.text(), /Teams app: removed DataHub from your org's app catalog/);
 });
 
 test('uninstall removes a hand upload the installer took on, too', async () => {
@@ -444,7 +444,7 @@ test('uninstall removes a hand upload the installer took on, too', async () => {
   assert.deepEqual(t.catalog.calls, ['signIn', 'remove uploaded-by-hand']);
   assert.equal(t.catalog.apps.length, 0);
   assert.equal(t.az.teamsApp, undefined);
-  assert.match(t.ui.text(), /Teams app: removed Analytics Hub from your org's app catalog/);
+  assert.match(t.ui.text(), /Teams app: removed DataHub from your org's app catalog/);
 });
 
 test('uninstall carries on when the app is gone already', async () => {
@@ -460,9 +460,9 @@ test('uninstall soon after publishing keeps the record when Microsoft Graph does
   assert.deepEqual(t.catalog.calls, ['signIn', 'remove just-published']);
   assert.equal(t.az.teamsApp?.id, 'just-published', 'kept, so the installer can still find the app');
   const out = t.ui.text();
-  assert.match(out, /Teams app: not removed from your org's app catalog\. Microsoft Graph didn't find Analytics Hub, which the installer published or updated 20 minutes ago\. Graph can take half an hour or more to find a new app, so it may still be there\./);
-  assert.match(out, /Delete it in Teams admin center > Teams apps > Manage apps \(https:\/\/admin\.teams\.microsoft\.com\/policies\/manage-apps\): select Analytics Hub, then Delete\./);
-  assert.doesNotMatch(out, /removed Analytics Hub/);
+  assert.match(out, /Teams app: not removed from your org's app catalog\. Microsoft Graph didn't find DataHub, which the installer published or updated 20 minutes ago\. Graph can take half an hour or more to find a new app, so it may still be there\./);
+  assert.match(out, /Delete it in Teams admin center > Teams apps > Manage apps \(https:\/\/admin\.teams\.microsoft\.com\/policies\/manage-apps\): select DataHub, then Delete\./);
+  assert.doesNotMatch(out, /removed DataHub/);
 
   const hours = setup({ teamsApp: { ...record('published-this-morning'), publishedAt: '2026-06-01T07:00:00.000Z' } });
   await removeTeamsApp(hours.ctx);
@@ -472,7 +472,7 @@ test('uninstall soon after publishing keeps the record when Microsoft Graph does
   const old = setup({ teamsApp: { ...record('published-two-days-ago'), publishedAt: '2026-05-30T12:00:00.000Z' } });
   await removeTeamsApp(old.ctx);
   assert.equal(old.az.teamsApp, undefined, 'after a day, not found means gone');
-  assert.match(old.ui.text(), /Teams app: removed Analytics Hub from your org's app catalog/);
+  assert.match(old.ui.text(), /Teams app: removed DataHub from your org's app catalog/);
 });
 
 test('when uninstall can\'t remove the app, it keeps the record and prints the steps', async () => {
@@ -482,7 +482,7 @@ test('when uninstall can\'t remove the app, it keeps the record and prints the s
   assert.equal(t.az.teamsApp?.id, 'app-1');
   const out = t.ui.text();
   assert.match(out, /Teams app: not removed from your org's app catalog\. Microsoft Graph refused it \(403\)/);
-  assert.match(out, /Delete it in Teams admin center > Teams apps > Manage apps \(https:\/\/admin\.teams\.microsoft\.com\/policies\/manage-apps\): select Analytics Hub, then Delete\./);
+  assert.match(out, /Delete it in Teams admin center > Teams apps > Manage apps \(https:\/\/admin\.teams\.microsoft\.com\/policies\/manage-apps\): select DataHub, then Delete\./);
 
   const cli = setup({ catalog: false, teamsApp: record('app-1') });
   await removeTeamsApp(cli.ctx);
@@ -496,7 +496,7 @@ test('uninstall leaves alone an app the installer never looked after, such as a 
   assert.deepEqual(t.catalog.calls, []);
   assert.deepEqual(t.graphCalls, []);
   assert.equal(t.catalog.apps.length, 1);
-  assert.match(t.ui.text(), /If Analytics Hub was uploaded to your org's Teams app catalog by hand, a Teams Administrator deletes it there\. Delete it in Teams admin center/);
+  assert.match(t.ui.text(), /If DataHub was uploaded to your org's Teams app catalog by hand, a Teams Administrator deletes it there\. Delete it in Teams admin center/);
 
   const none = setup();
   delete none.az.teamsPackage;
@@ -525,21 +525,21 @@ test('the plan says what this run does with the Teams app', () => {
   const t = setup();
   t.ctx.teamsCatalog = { canTry: true, role: 'Teams Administrator' };
   const signIn = 'You sign in once more for this, to Microsoft Graph Command Line Tools.';
-  assert.deepEqual(teamsAppPlanRow(t.ctx, '0.6.7'), { kind: 'Teams app', name: 'Analytics Hub in your org\'s app catalog', isNew: true, detail: `Publish version 0.6.7, or update the app if it's there already. ${signIn}` });
+  assert.deepEqual(teamsAppPlanRow(t.ctx, '0.6.7'), { kind: 'Teams app', name: 'DataHub in your org\'s app catalog', isNew: true, detail: `Publish version 0.6.7, or update the app if it's there already. ${signIn}` });
   t.az.teamsApp = record('app-1', '0.6.6');
-  assert.deepEqual(teamsAppPlanRow(t.ctx, '0.6.7'), { kind: 'Teams app', name: 'Analytics Hub in your org\'s app catalog', isNew: false, detail: `Update to version 0.6.7. ${signIn}` });
+  assert.deepEqual(teamsAppPlanRow(t.ctx, '0.6.7'), { kind: 'Teams app', name: 'DataHub in your org\'s app catalog', isNew: false, detail: `Update to version 0.6.7. ${signIn}` });
   t.az.teamsApp = record('app-1', '0.6.7');
   assert.equal(teamsAppPlanRow(t.ctx, '0.6.7').detail, 'Already published (version 0.6.7).');
   delete t.az.teamsApp;
   t.ctx.teamsCatalog = { canTry: false, reason: 'No role.' };
-  assert.deepEqual(teamsAppPlanRow(t.ctx, '0.6.7'), { kind: 'Teams app', name: 'Analytics Hub in your org\'s app catalog', isNew: false, detail: 'Not published by the installer. No role. The installer prints the steps for a Teams Administrator to upload it.' });
+  assert.deepEqual(teamsAppPlanRow(t.ctx, '0.6.7'), { kind: 'Teams app', name: 'DataHub in your org\'s app catalog', isNew: false, detail: 'Not published by the installer. No role. The installer prints the steps for a Teams Administrator to upload it.' });
 });
 
 test('the summary says where to find the Teams app, or what an admin still has to do', async () => {
   const published = setup();
   await publishTeamsApp(published.ctx, pkg('0.6.7'));
   await azureSummary(published.ctx);
-  assert.match(published.ui.text(), /Teams: +Analytics Hub 0\.6\.7 in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app\./);
+  assert.match(published.ui.text(), /Teams: +DataHub 0\.6\.7 in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app\./);
 
   const manual = setup({ catalog: false });
   await publishTeamsApp(manual.ctx, pkg('0.6.7'));
