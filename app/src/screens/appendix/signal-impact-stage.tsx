@@ -164,7 +164,11 @@ function withCategory(table: DataTable, category: string | undefined): DataTable
 export function SignalImpactStage() {
     const { theme } = useThemeContext();
     const config = signalImpact();
-    const result = useFilteredQuery({ connection: config.connection, query: config.query });
+    const result = useFilteredQuery({
+        connection: config.connection,
+        query: config.query,
+        columnMetadata: config.columnMetadata,
+    });
     const [category, setCategory] = useState<string>();
 
     const table = useMemo(

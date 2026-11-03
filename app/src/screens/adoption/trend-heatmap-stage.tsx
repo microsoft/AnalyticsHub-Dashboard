@@ -57,7 +57,11 @@ export function TrendHeatmapStage() {
         columnMetadata: heatmap.columnMetadata,
     });
     const headline = useMemo(() => trendHeatmapHeadline(), []);
-    const headlineResult = useFilteredQuery({ connection: headline.connection, query: headline.query });
+    const headlineResult = useFilteredQuery({
+        connection: headline.connection,
+        query: headline.query,
+        columnMetadata: headline.columnMetadata,
+    });
 
     // The fifteen organizations with the most people across the range. Every metric but the first is a
     // rate, so the rest are left out rather than averaged into an Other row. The answer is read by the

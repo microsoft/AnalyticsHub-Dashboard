@@ -154,13 +154,33 @@ function FeedbackContent() {
 
     const summary = useFilteredQuery(feedbackSummary(), ON_CALENDAR);
     const trend = feedbackTrend();
-    const trendResult = useFilteredQuery({ connection: trend.connection, query: trend.query, filters: trend.filters }, ON_CALENDAR);
+    const trendResult = useFilteredQuery({
+        connection: trend.connection,
+        query: trend.query,
+        filters: trend.filters,
+        columnMetadata: trend.columnMetadata,
+    }, ON_CALENDAR);
     const category = feedbackCategory();
-    const categoryResult = useFilteredQuery({ connection: category.connection, query: category.query, filters: category.filters }, ON_CALENDAR);
+    const categoryResult = useFilteredQuery({
+        connection: category.connection,
+        query: category.query,
+        filters: category.filters,
+        columnMetadata: category.columnMetadata,
+    }, ON_CALENDAR);
     const surface = feedbackSurface();
-    const surfaceResult = useFilteredQuery({ connection: surface.connection, query: surface.query, filters: surface.filters }, ON_CALENDAR);
+    const surfaceResult = useFilteredQuery({
+        connection: surface.connection,
+        query: surface.query,
+        filters: surface.filters,
+        columnMetadata: surface.columnMetadata,
+    }, ON_CALENDAR);
     const comments = feedbackComments();
-    const commentsResult = useFilteredQuery({ connection: comments.connection, query: comments.query, filters: comments.filters }, ON_CALENDAR);
+    const commentsResult = useFilteredQuery({
+        connection: comments.connection,
+        query: comments.query,
+        filters: comments.filters,
+        columnMetadata: comments.columnMetadata,
+    }, ON_CALENDAR);
 
     const summaryRow = useMemo(
         () => (summary.data?.status === "success" ? toSummaryRow(summary.data.table) : undefined),

@@ -61,7 +61,10 @@ const SHAPE_TOTAL_COLUMNS = [
 export function WorkShapeTable({ ignore }: CoworkTableProps) {
     const { theme } = useThemeContext();
     const source = coworkWorkShape();
-    const result = useFilteredQuery({ connection: source.connection, query: source.query }, { ignore });
+    const result = useFilteredQuery(
+        { connection: source.connection, query: source.query, columnMetadata: source.columnMetadata },
+        { ignore },
+    );
     const tree = useMemo(
         () =>
             result.data?.status === "success"
@@ -179,7 +182,10 @@ export function PeopleTable({ ignore }: CoworkTableProps) {
     const org = useOrgAttribute();
     const outcomeColors = useOutcomeColors();
     const source = useMemo(() => coworkFitPeople(org), [org]);
-    const result = useFilteredQuery({ connection: source.connection, query: source.query }, { ignore });
+    const result = useFilteredQuery(
+        { connection: source.connection, query: source.query, columnMetadata: source.columnMetadata },
+        { ignore },
+    );
     const blankLabel = `Unassigned ${org.noun}`;
     const table = useMemo(
         () => (result.data?.status === "success" ? toDataTable(result.data.table, source.columnMetadata) : undefined),

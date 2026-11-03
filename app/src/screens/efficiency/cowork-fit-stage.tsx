@@ -64,7 +64,10 @@ function FitByTaskChart() {
     const { theme } = useThemeContext();
     const outcomeColors = useOutcomeColors();
     const source = coworkFitByTask();
-    const result = useFilteredQuery({ connection: source.connection, query: source.query }, { ignore: COWORK_ONLY });
+    const result = useFilteredQuery(
+        { connection: source.connection, query: source.query, columnMetadata: source.columnMetadata },
+        { ignore: COWORK_ONLY },
+    );
     const table = useMemo(
         () =>
             result.data?.status === "success"

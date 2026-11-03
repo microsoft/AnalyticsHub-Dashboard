@@ -447,6 +447,14 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                 className="relative min-w-0 flex-1 overflow-y-auto outline-none [scrollbar-gutter:stable]"
             >
                 <div className="mx-auto flex max-w-[1400px] flex-col gap-600 px-400 pt-500 pb-800 md:px-600 lg:px-700 lg:pt-600" data-print="flow">
+                    {runtimeConfig().demo && (
+                        <div
+                            role="status"
+                            className="rounded-md border border-primary/30 bg-primary/5 px-300 py-200 text-[length:var(--text-200)] leading-200 text-muted-foreground"
+                        >
+                            Interactive demo · Synthetic sample data · Changes stay in this browser session
+                        </div>
+                    )}
                     {view.kind === "pack" ? (
                         <ReportHeader
                             key={viewKey}

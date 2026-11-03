@@ -10,6 +10,7 @@ import { type CachedQueryResult } from "@microsoft/fabric-app-data";
 import { getFabricClient, QUERY_CACHE_MAX_AGE_MS } from "@/lib/fabric-client";
 import { withPriority, type QueryCaller } from "@/lib/query-priority";
 import { isBusyMessage, onModelRecovered, recoveriesOf } from "@/lib/query-scheduler";
+import { runtimeConfig } from "@/lib/runtime-config";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { useIsPrefetch } from "./prefetch.context";
 
@@ -180,14 +181,20 @@ export function useSemanticModelQuery(
 
         let held = false;
         try {
-            const semanticModel = getFabricClient().semanticModel(connection);
-            let result = await withPriority(priority, () => semanticModel.query(query, { bypassCache: fresh || bypassCache }), caller);
-            if (!current()) return false;
-            const stale = result.fromCache && result.cachedAt && Date.now() - result.cachedAt.getTime() > QUERY_CACHE_MAX_AGE_MS;
-            if (stale || cachedBusy(result)) {
-                result = await withPriority(priority, () => semanticModel.query(query, { bypassCache: true }), caller);
-                if (!current()) return false;
+            let result: CachedQueryResult;
+            if (runtimeConfig().demo) {
+                const { syntheticQueryResult } = await import("@/demo/synthetic-model");
+                result = syntheticQueryResult(query, reading);
+            } else {
+                const semanticModel = getFabricClient().semanticModel(connection);
+                result = await withPriority(priority, () => semanticModel.query(query, { bypassCache: fresh || bypassCache }), caller);
+                const stale = result.fromCache && result.cachedAt && Date.now() - result.cachedAt.getTime() > QUERY_CACHE_MAX_AGE_MS;
+                if (stale || cachedBusy(result)) {
+                    result = await withPriority(priority, () => semanticModel.query(query, { bypassCache: true }), caller);
+                    if (!current()) return false;
+                }
             }
+            if (!current()) return false;
 
             latest.current = result;
             setShown({ data: result, connection, query, columnMetadata: reading });
@@ -281,6 +288,7 @@ export function useSpeculativeQuery(options: Omit<UseSemanticModelQueryOptions, 
 
     useLayoutEffect(() => {
         if (!connection || !query) return;
+        if (runtimeConfig().demo) return;
         const runs = ended.current;
         const run = new AbortController();
         // The answer is the card's to read, and a failure the card's to meet when it asks.
@@ -320,6 +328,7 @@ function callOff(runs: AbortController[]): void {
  * clearQueryCache("salesModel");  // clear a specific model
  */
 export function clearQueryCache(connection?: string): void {
+    if (runtimeConfig().demo) return;
     if (connection) {
         getFabricClient().semanticModel(connection).clearCache();
     } else {

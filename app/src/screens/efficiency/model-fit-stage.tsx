@@ -165,11 +165,22 @@ export function ModelFitStage() {
 
     const summary = useFilteredQuery(modelFitSummary());
     const usage = modelUsage();
-    const usageResult = useFilteredQuery({ connection: usage.connection, query: usage.query });
+    const usageResult = useFilteredQuery({
+        connection: usage.connection,
+        query: usage.query,
+        columnMetadata: usage.columnMetadata,
+    });
     const match = modelMatchByTool();
-    const matchResult = useFilteredQuery({ connection: match.connection, query: match.query }, { ignore: ACTIVITY_FILTER });
+    const matchResult = useFilteredQuery(
+        { connection: match.connection, query: match.query, columnMetadata: match.columnMetadata },
+        { ignore: ACTIVITY_FILTER },
+    );
     const verdicts = useMemo(() => verdictQuery(view, org), [view, org]);
-    const verdictResult = useFilteredQuery({ connection: verdicts.connection, query: verdicts.query });
+    const verdictResult = useFilteredQuery({
+        connection: verdicts.connection,
+        query: verdicts.query,
+        columnMetadata: verdicts.columnMetadata,
+    });
 
     const summaryRow = useMemo(
         () => (summary.data?.status === "success" ? toSummaryRow(summary.data.table) : undefined),

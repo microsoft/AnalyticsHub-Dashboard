@@ -5,6 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 import { getAccessToken } from "@/services/rayfin-auth.service";
+import { runtimeConfig } from "@/lib/runtime-config";
 
 export interface AskTurn {
     role: "user" | "assistant";
@@ -43,6 +44,13 @@ export const ASK_HISTORY_TURNS = 8;
 
 /** Asks the Azure host's `/api/ask`, which answers from the named queries alone, as the signed-in user. */
 export async function askQuestion(question: string, history: readonly AskTurn[] = []): Promise<AskReply> {
+    if (runtimeConfig().demo) {
+        const topic = question.trim().replace(/[.!?]+$/, "");
+        return {
+            answer: `Demo response for “${topic}”: this view uses synthetic sample data. Explore the related pages to see how the app presents adoption, value, and governance measures.`,
+            runs: [],
+        };
+    }
     const body = JSON.stringify({ question, history: history.slice(-ASK_HISTORY_TURNS) });
     const send = async (forceRefresh: boolean) => {
         const token = await getAccessToken(forceRefresh ? { forceRefresh } : undefined);

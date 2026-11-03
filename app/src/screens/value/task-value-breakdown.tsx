@@ -94,7 +94,10 @@ export function TaskValueBreakdown({ extra, prefix, assumption }: TaskValueBreak
     const { theme } = useThemeContext();
 
     const source = valueByTask();
-    const result = useFilteredQuery({ connection: source.connection, query: source.query }, { extra });
+    const result = useFilteredQuery(
+        { connection: source.connection, query: source.query, columnMetadata: source.columnMetadata },
+        { extra },
+    );
     const tree = useMemo(
         () =>
             result.data?.status === "success"

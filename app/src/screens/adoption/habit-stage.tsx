@@ -49,7 +49,10 @@ export function HabitStage() {
 
     const summary = useFilteredQuery(habitSummary(), { ignore: AGENT_FILTERS });
     const trend = useMemo(() => habitTrend({ scale, colors: ladderColors }), [scale, ladderColors]);
-    const trendResult = useFilteredQuery({ connection: trend.connection, query: trend.query }, { ignore: AGENT_FILTERS });
+    const trendResult = useFilteredQuery(
+        { connection: trend.connection, query: trend.query, columnMetadata: trend.columnMetadata },
+        { ignore: AGENT_FILTERS },
+    );
 
     const summaryRow = useMemo(
         () => (summary.data?.status === "success" ? toSummaryRow(summary.data.table) : undefined),

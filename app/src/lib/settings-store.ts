@@ -90,10 +90,64 @@ export interface SettingsStore {
 }
 
 let store: SettingsStore | undefined;
+let demoStore: SettingsStore | undefined;
 
 export function getSettingsStore(): SettingsStore {
+    if (runtimeConfig().demo) return demoStore ??= new DemoSettingsStore();
     store ??= runtimeConfig().host === "azure" ? new HttpSettingsStore() : new RayfinSettingsStore();
     return store;
+}
+
+/** Settings in the browser demo exist only in memory and never reach a backend. */
+class DemoSettingsStore implements SettingsStore {
+    private terms: SavedCommercialTerms | null = null;
+    private taskTimes: SavedTaskTime[] = [];
+    private reportPacks: ReportPack[] = [];
+
+    async loadCommercialTerms(): Promise<SavedCommercialTerms | null> {
+        return this.terms;
+    }
+
+    async saveCommercialTerms(patch: CommercialTermsValues, _updatedBy: string | undefined): Promise<SavedCommercialTerms> {
+        void _updatedBy;
+        this.terms = { ...this.terms, ...commercialTermsPatch(patch) } as SavedCommercialTerms;
+        return this.terms;
+    }
+
+    async loadTaskTimes(): Promise<SavedTaskTime[]> {
+        return [...this.taskTimes];
+    }
+
+    async saveTaskTimes(changes: readonly TaskTimeChange[], _updatedBy: string | undefined): Promise<SavedTaskTime[]> {
+        void _updatedBy;
+        const byTask = new Map(this.taskTimes.map((item) => [taskTimeKey(item.task), item]));
+        for (const change of changes) {
+            const key = taskTimeKey(change.task);
+            if (change.time === null) {
+                byTask.delete(key);
+            } else {
+                byTask.set(key, { task: change.task, low: change.time.low, typical: change.time.typical, high: change.time.high });
+            }
+        }
+        this.taskTimes = [...byTask.values()];
+        return [...this.taskTimes];
+    }
+
+    async loadReportPacks(): Promise<ReportPack[]> {
+        return [...this.reportPacks];
+    }
+
+    async saveReportPack(pack: ReportPack, _updatedBy: string | undefined): Promise<ReportPack> {
+        void _updatedBy;
+        const clean = parsePack(pack);
+        if (!clean) throw new Error("A report pack needs a name and at least one stage.");
+        this.reportPacks = [...this.reportPacks.filter((candidate) => candidate.id !== clean.id), clean];
+        return clean;
+    }
+
+    async deleteReportPack(id: string): Promise<void> {
+        this.reportPacks = this.reportPacks.filter((pack) => pack.id !== id);
+    }
 }
 
 /** The row id a task is saved under, worked out from its name. */

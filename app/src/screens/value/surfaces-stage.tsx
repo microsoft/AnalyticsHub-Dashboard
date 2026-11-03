@@ -50,7 +50,11 @@ const charts = [
 export function SurfacesStage() {
     const { theme } = useThemeContext();
 
-    const result = useFilteredQuery({ connection: surface.connection, query: surface.query });
+    const result = useFilteredQuery({
+        connection: surface.connection,
+        query: surface.query,
+        columnMetadata: surface.columnMetadata,
+    });
 
     const table = useMemo(
         () =>

@@ -487,7 +487,11 @@ export function AgentRegistryStage() {
     const activity = useFilteredQuery(agentActivitySummary());
 
     const usage = agentUsage();
-    const usageResult = useFilteredQuery({ connection: usage.connection, query: usage.query });
+    const usageResult = useFilteredQuery({
+        connection: usage.connection,
+        query: usage.query,
+        columnMetadata: usage.columnMetadata,
+    });
 
     const activityRow = useMemo(
         () => (activity.data?.status === "success" ? toSummaryRow(activity.data.table) : undefined),

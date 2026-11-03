@@ -200,7 +200,11 @@ function LeaderboardBreakdown({ cohort, view }: { cohort: LeaderboardCohort; vie
         };
     }, [cohort, view, org]);
 
-    const result = useFilteredQuery({ connection: source.connection, query: source.query });
+    const result = useFilteredQuery({
+        connection: source.connection,
+        query: source.query,
+        columnMetadata: source.columnMetadata,
+    });
     const table = useMemo(() => {
         if (result.data?.status !== "success" || !isShapedFor(result.data.table, source.columnMetadata)) return undefined;
         return toDataTable(result.data.table, source.columnMetadata);

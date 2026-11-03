@@ -7,6 +7,26 @@ The app keeps no copy of your data. Each page queries the semantic model live, a
 viewing it, so row-level security applies. How each figure is worked out is in the
 [methodology](../docs/METHODOLOGY.md).
 
+## Static browser demo
+
+The standalone browser demo at `demo.html` uses the real app screens with generated synthetic
+sample data. It does not read host configuration, ask you to sign in, or contact a model or app
+backend. Ask returns a local example answer; settings changes stay in memory for the current page
+session, and admin-only actions are disabled.
+
+From this folder, install the app dependencies and run:
+
+```powershell
+npm run build:demo
+```
+
+The self-contained static bundle is written to `dist-demo`. Serve that directory from any static
+file host; `index.html`, its local assets, the MIT `LICENSE.txt`, and the generated
+`THIRD_PARTY_NOTICES.txt` and `SHA256SUMS.txt` travel together. The checksum manifest lists every
+bundle file except itself. The build uses Vite's `demo` mode and relative asset paths so the bundle
+can live below a site subdirectory. Do not copy deployment settings or real identifiers into the
+demo bundle.
+
 ## Deploy it by hand
 
 You need:

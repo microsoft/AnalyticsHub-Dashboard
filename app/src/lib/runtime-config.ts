@@ -44,6 +44,8 @@ export interface RuntimeConfig {
     access?: AccessInfo;
     /** Where questions about the data go. Undefined when the install set up neither a data agent nor a model. */
     ask?: AskConfig;
+    /** The app is running as a static, synthetic-data-only browser demo. */
+    demo?: boolean;
 }
 
 /** A Fabric data agent the viewer opens in Fabric, or the Azure host's own `/api/ask` chat. */
@@ -85,6 +87,14 @@ let loaded: RuntimeConfig | undefined;
 
 /** The values baked in at build time. */
 export function buildTimeConfig(): RuntimeConfig {
+    if (import.meta.env.MODE === "demo") {
+        return {
+            host: "fabric",
+            rayfin: {},
+            semanticModels: {},
+            demo: true,
+        };
+    }
     return {
         host: "fabric",
         rayfin: {
@@ -102,6 +112,29 @@ export function buildTimeConfig(): RuntimeConfig {
 /** The config loadRuntimeConfig settled on, or the build-time values before it has run. */
 export function runtimeConfig(): RuntimeConfig {
     return loaded ?? buildTimeConfig();
+}
+
+/** Configures the standalone browser demo without reading any host config or connecting to a service. */
+export function setDemoRuntimeConfig(): void {
+    const syntheticWorkspaceId = "00000000-0000-4000-8000-000000000001";
+    const syntheticItemId = "00000000-0000-4000-8000-000000000002";
+    const model = { workspaceId: syntheticWorkspaceId, itemId: syntheticItemId };
+    loaded = {
+        host: "fabric",
+        rayfin: {},
+        semanticModels: { vl: model, cc: model, ae: model },
+        modules: {
+            m365Activity: true,
+            agent365: true,
+            productFeedback: true,
+            consumption: true,
+            agentEvaluator: true,
+            defender: true,
+            resourceGraph: true,
+        },
+        ask: { mode: "chat" },
+        demo: true,
+    };
 }
 
 /** Reads deployed host config over build-time defaults. */

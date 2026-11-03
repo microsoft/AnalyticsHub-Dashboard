@@ -133,7 +133,11 @@ function CopilotComparison() {
     const summary = useFilteredQuery(SUMMARY);
     const indexResult = useFilteredQuery(INDEX);
     const byOrg = useMemo(() => withOrgAttribute(m365ByOrg(), org), [org]);
-    const byOrgResult = useFilteredQuery({ connection: byOrg.connection, query: byOrg.query });
+    const byOrgResult = useFilteredQuery({
+        connection: byOrg.connection,
+        query: byOrg.query,
+        columnMetadata: byOrg.columnMetadata,
+    });
 
     const summaryRow = useMemo(
         () => (summary.data?.status === "success" ? toSummaryRow(summary.data.table) : undefined),

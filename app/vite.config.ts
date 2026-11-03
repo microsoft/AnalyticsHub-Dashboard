@@ -15,13 +15,7 @@ import { resolve } from 'path';
 
 const projectRoot = process.env.PROJECT_ROOT || import.meta.dirname
 
-// Dev-only middleware: makes the local Vite server compatible with browsers that
-// enforce Local Network Access (LNA) checks when a public origin (the Fabric portal)
-// embeds an iframe pointing at http://localhost. Sets the LNA opt-in response header
-// on every response and short-circuits the corresponding preflight OPTIONS request.
-// This is required for fetch/XHR subresources from the embedded app — top-level
-// iframe navigations additionally require launching Chromium with the
-// `--disable-features=...LocalNetworkAccessChecks` flag (see .playwright-config.json).
+// Dev-only middleware for local previews embedded by Fabric. The static demo does not need it.
 const localNetworkAccessPlugin: PluginOption = {
   name: 'local-network-access-headers',
   configureServer(server) {
@@ -43,7 +37,9 @@ const localNetworkAccessPlugin: PluginOption = {
 };
 
 // https://vite.dev/config/
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+    const demoBuild = mode === "demo";
+    return {
     plugins: [
         react(),
         tailwindcss(),
@@ -68,12 +64,13 @@ export default defineConfig({
             include: [/node_modules/],
         },
         rollupOptions: {
+            ...(demoBuild ? { input: resolve(projectRoot, "demo.html") } : {}),
             plugins: [
                 license({
                     thirdParty: {
                         multipleVersions: true,
                         output: {
-                            file: resolve(projectRoot, 'dist', 'THIRD_PARTY_NOTICES.txt'),
+                            file: resolve(projectRoot, demoBuild ? "dist-demo" : "dist", "THIRD_PARTY_NOTICES.txt"),
                             template(dependencies) {
                                 if (dependencies.length === 0) {
                                     return 'No third-party dependencies.';
@@ -106,4 +103,5 @@ export default defineConfig({
             ],
         },
     },
+    };
 });

@@ -82,9 +82,15 @@ export function EstimatedValueStage() {
     );
 
     const summary = valueSummary();
-    const summaryResult = useFilteredQuery({ connection: summary.connection, query: summary.query }, { extra });
+    const summaryResult = useFilteredQuery(
+        { connection: summary.connection, query: summary.query, columnMetadata: summary.columnMetadata },
+        { extra },
+    );
     const agents = agentValue();
-    const agentResult = useFilteredQuery({ connection: agents.connection, query: agents.query }, { extra });
+    const agentResult = useFilteredQuery(
+        { connection: agents.connection, query: agents.query, columnMetadata: agents.columnMetadata },
+        { extra },
+    );
 
     const summaryRow = useMemo(
         () => (summaryResult.data?.status === "success" ? toSummaryRow(summaryResult.data.table) : undefined),

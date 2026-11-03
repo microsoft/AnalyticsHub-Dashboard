@@ -12,6 +12,7 @@
     "dev": "vite",
     "build": "npx fabric-app-data generate -o src/fabric.generated.ts && tsc -b --noCheck && vite build",
     "build:fabric": "npx fabric-app-data generate -o src/fabric.generated.ts && tsc -b --noCheck && vite build",
+    "build:demo": "npx fabric-app-data generate -o src/fabric.generated.ts && tsc -b --noCheck && vite build --mode demo --base=./ --outDir dist-demo && node scripts/finalize-demo-bundle.mjs",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",

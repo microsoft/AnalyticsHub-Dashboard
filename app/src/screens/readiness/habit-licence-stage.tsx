@@ -103,9 +103,17 @@ export function HabitLicenceStage() {
     const org = useOrgAttribute();
 
     const matrixQuery = habitLicenceMatrix();
-    const matrixResult = useFilteredQuery({ connection: matrixQuery.connection, query: matrixQuery.query });
+    const matrixResult = useFilteredQuery({
+        connection: matrixQuery.connection,
+        query: matrixQuery.query,
+        columnMetadata: matrixQuery.columnMetadata,
+    });
     const list = useMemo(() => withOrgAttribute(unlicensedHeavyUsers(), org), [org]);
-    const listResult = useFilteredQuery({ connection: list.connection, query: list.query });
+    const listResult = useFilteredQuery({
+        connection: list.connection,
+        query: list.query,
+        columnMetadata: list.columnMetadata,
+    });
 
     const matrix = useMemo(
         () =>

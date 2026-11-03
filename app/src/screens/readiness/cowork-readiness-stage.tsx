@@ -143,7 +143,11 @@ function CoworkReadinessByOrg() {
     const { theme } = useThemeContext();
     const org = useOrgAttribute();
     const byOrg = useMemo(() => withOrgAttribute(coworkReadinessByOrg(), org), [org]);
-    const byOrgResult = useFilteredQuery({ connection: byOrg.connection, query: byOrg.query });
+    const byOrgResult = useFilteredQuery({
+        connection: byOrg.connection,
+        query: byOrg.query,
+        columnMetadata: byOrg.columnMetadata,
+    });
     const byOrgTable = useMemo(
         () =>
             byOrgResult.data?.status === "success"
@@ -194,7 +198,11 @@ function CoworkCandidates() {
     const { theme } = useThemeContext();
     const org = useOrgAttribute();
     const candidates = useMemo(() => withOrgAttribute(coworkCandidates(), org), [org]);
-    const candidatesResult = useFilteredQuery({ connection: candidates.connection, query: candidates.query });
+    const candidatesResult = useFilteredQuery({
+        connection: candidates.connection,
+        query: candidates.query,
+        columnMetadata: candidates.columnMetadata,
+    });
     const candidatesTable = useMemo(
         () =>
             candidatesResult.data?.status === "success"

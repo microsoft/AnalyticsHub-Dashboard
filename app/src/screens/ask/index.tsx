@@ -62,6 +62,8 @@ export function AskScreen() {
 }
 
 function describe(ask: AskConfig | undefined, host: RuntimeHost): string {
+    if (runtimeConfig().demo)
+        return "Ask is a local interactive example using synthetic sample data. It does not send questions to a live service.";
     if (ask?.mode === "chat")
         return "Ask a question about the data. Answers come only from the queries behind this app's pages, run with your own access, and show the queries used.";
     if (ask?.mode === "fabric")
@@ -356,4 +358,3 @@ function Run({ run }: { run: AskRun }) {
         </li>
     );
 }
-

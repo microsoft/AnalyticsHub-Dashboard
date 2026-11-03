@@ -7,6 +7,7 @@
 
 import { ExternalLink } from "lucide-react";
 import { PPAC_URL, UPLOAD_FOLDER } from "./studio-empty";
+import { runtimeConfig } from "@/lib/runtime-config";
 
 const LINK =
     "inline-flex items-center gap-100 text-primary underline underline-offset-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
@@ -16,6 +17,15 @@ const LINK =
  * per-agent detail only, so an empty chart always means none has loaded.
  */
 export function PpacExportHowTo({ what }: { what: "model" | "feature" }) {
+    if (runtimeConfig().demo) {
+        return (
+            <p>
+                This section describes an admin export used by connected installs. It is not available in the synthetic
+                browser demo.
+            </p>
+        );
+    }
+
     return (
         <>
             <p>

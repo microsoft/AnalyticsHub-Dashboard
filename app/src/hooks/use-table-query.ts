@@ -124,7 +124,14 @@ export function useTablePartsQuery<P extends string>(
 
 /** A one-row query, keyed by DAX column name. */
 export function useSummaryQuery(
-    source: { connection: string; query: string; filters?: FilterProfile; lead?: boolean; speculate?: boolean },
+    source: {
+        connection: string;
+        query: string;
+        filters?: FilterProfile;
+        lead?: boolean;
+        speculate?: boolean;
+        columnMetadata?: ColumnMetadataMap;
+    },
     extra: readonly string[] = [],
     ignore?: readonly FilterKey[],
 ): SummaryResult {
@@ -135,6 +142,7 @@ export function useSummaryQuery(
             filters: source.filters,
             lead: source.lead,
             speculate: source.speculate,
+            columnMetadata: source.columnMetadata,
         },
         { extra, ignore },
     );

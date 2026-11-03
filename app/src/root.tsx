@@ -14,6 +14,7 @@ import { ErrorFallback } from './ErrorFallback';
 import { useAppTheme } from './hooks/use-theme';
 import { ThemeContext } from './hooks/theme.context';
 import { AuthProvider } from './hooks/use-auth';
+import { AuthContext, type AuthContextValue } from './hooks/auth.context';
 import { bootstrapAuth, type IAuthService } from './services/rayfin-auth.service';
 import { AuthGate } from './components/auth-gate.component';
 
@@ -34,8 +35,40 @@ function Root({ rayfinAuthService }: { rayfinAuthService: IAuthService }) {
     );
 }
 
+const DEMO_AUTH: AuthContextValue = {
+    session: null,
+    user: null,
+    isAuthenticated: false,
+    isLoading: false,
+    error: null,
+    signIn: () => undefined,
+    isSigningIn: false,
+    signInError: null,
+    accessDenied: false,
+};
+
+function DemoRoot() {
+    const { isDark, toggleTheme } = useAppTheme();
+    const theme = useCssTheme();
+
+    return (
+        <ThemeContext.Provider value={{ isDark, toggleTheme, theme }}>
+            <ErrorBoundary FallbackComponent={ErrorFallback}>
+                <AuthContext.Provider value={DEMO_AUTH}>
+                    <App />
+                </AuthContext.Provider>
+            </ErrorBoundary>
+        </ThemeContext.Provider>
+    );
+}
+
 /** Renders the app. Only import this after `loadRuntimeConfig` has settled: modules below it read the config as they load. */
 export function mountApp(container: HTMLElement): void {
     const rayfinAuthService = bootstrapAuth();
     createRoot(container).render(<Root rayfinAuthService={rayfinAuthService} />);
+}
+
+/** Renders the static demo without bootstrapping authentication or a host connection. */
+export function mountDemoApp(container: HTMLElement): void {
+    createRoot(container).render(<DemoRoot />);
 }

@@ -88,7 +88,11 @@ export function LicenseReadinessStage() {
     const demand = useFilteredQuery(licenseDemandSummary());
     const estate = useFilteredQuery(licenseEstateSummary(), { ignore: LICENSE_ESTATE_IGNORES });
     const byOrg = useMemo(() => withOrgAttribute(licensePriorityByOrg(), org), [org]);
-    const byOrgResult = useFilteredQuery({ connection: byOrg.connection, query: byOrg.query });
+    const byOrgResult = useFilteredQuery({
+        connection: byOrg.connection,
+        query: byOrg.query,
+        columnMetadata: byOrg.columnMetadata,
+    });
     // With Microsoft 365 activity matched to people, the score also weighs how widely they work across it.
     const m365 = useM365Activity();
     const withBreadth = m365.state === "ready" && !m365.concealed;

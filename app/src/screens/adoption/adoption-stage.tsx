@@ -61,7 +61,10 @@ export function AdoptionStage() {
 
     const summary = useAdoptionSummary(SURFACE_FILTERS);
     const trend = useMemo(() => adoptionTrend({ measure }), [measure]);
-    const trendResult = useFilteredQuery({ connection: trend.connection, query: trend.query }, { ignore: SURFACE_FILTERS });
+    const trendResult = useFilteredQuery(
+        { connection: trend.connection, query: trend.query, columnMetadata: trend.columnMetadata },
+        { ignore: SURFACE_FILTERS },
+    );
 
     const summaryRow = summary.row;
 

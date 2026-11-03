@@ -106,7 +106,11 @@ function PageCard({ page, term }: { page: GlossaryPage; term: string }) {
  */
 export function GlossaryStage() {
     const config = glossary();
-    const result = useFilteredQuery({ connection: config.connection, query: config.query });
+    const result = useFilteredQuery({
+        connection: config.connection,
+        query: config.query,
+        columnMetadata: config.columnMetadata,
+    });
     const [term, setTerm] = useState("");
     const deferredTerm = useDeferredValue(term);
     const searchId = useId();
