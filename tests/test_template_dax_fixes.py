@@ -158,9 +158,10 @@ class ActiveUserFastPath(unittest.TestCase):
             _, measures, _ = objects(load(relative), AUDIT)
             expression = flat(text(measures["Cowork Fit: Eligible Users"]["expression"]))
             where = (relative, "Cowork Fit: Eligible Users")
-            # Cowork users are anyone with a Cowork row under any filter; the per-user form is unchanged.
+            # Cowork users ignore fact/expanded-org and bridge group filters; the per-user form is unchanged.
             self.assertIn(
                 f"VAR _CoworkUsers = CALCULATETABLE( VALUES({self.USER_ID}), REMOVEFILTERS('{AUDIT}'), "
+                "REMOVEFILTERS('Org Attribute Source'[Value]), "
                 f"'{AUDIT}'[Is_Cowork] = TRUE() ) RETURN IF( ISFILTERED({self.USER_ID}), "
                 f"VAR _ActiveUsers = FILTER(VALUES({self.USER_ID}), LEN(TRIM({self.USER_ID})) > 0 "
                 "&& CALCULATE([AI Tasks]) > 0) VAR _Eligible = EXCEPT(_ActiveUsers, _CoworkUsers) "

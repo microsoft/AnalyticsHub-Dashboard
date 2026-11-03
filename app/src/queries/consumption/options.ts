@@ -8,6 +8,7 @@
 import { CONSUMPTION_METADATA } from "@/lib/filter-profiles";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { dateBetween, treatAs } from "@/lib/dax-filters";
+import { isOrgAttribute } from "@/lib/org-attribute";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { consumptionConnection as connection, FORMAT_WHOLE } from "../shared";
 import query from "./consumption-options.dax?raw";
@@ -61,17 +62,6 @@ export const ALL_USERS = "All users";
  * take one to two and a half minutes. Each product only offers its own usage
  * intensity.
  */
-const HIDDEN_ATTRIBUTES = new Set([
-    "id",
-    "user id",
-    "manager_user id",
-    "user",
-    "user key",
-    "employee id",
-    "hierarchy path",
-    "level5_user key",
-]);
-
 const ATTRIBUTE_LABELS: Record<string, string> = {
     "Job Family": "Job family",
     "Usage Intensity (Cowork)": "Usage intensity",
@@ -85,7 +75,7 @@ export interface GroupByChoice {
 
 export function groupByChoices(attributes: readonly string[], product: "Cowork" | "Studio"): GroupByChoice[] {
     return attributes
-        .filter((attribute) => attribute !== ALL_USERS && !HIDDEN_ATTRIBUTES.has(attribute.toLowerCase()))
+        .filter((attribute) => attribute !== ALL_USERS && isOrgAttribute(attribute))
         .filter((attribute) => {
             const intensity = /^Usage Intensity \((.+)\)$/i.exec(attribute);
             return !intensity || intensity[1].toLowerCase() === product.toLowerCase();

@@ -17,7 +17,7 @@ import {
     type FilterKey,
     type FilterState,
 } from "./filters";
-import { describeOrgAttribute, orgColumnRef } from "./org-attribute";
+import { describeOrgAttribute, orgValueFilter } from "./org-attribute";
 
 /**
  * How one query takes the filter bar. For each filter it either gives the
@@ -47,6 +47,7 @@ export interface FilterEnvironment {
      * attribute is there until they have loaded.
      */
     consumptionOrgAttributes?: readonly string[];
+    evaluatorOrgAttributes?: readonly string[];
     /**
      * Whether the filter options say the tenant is large, `undefined` while
      * they load. The tenant's default date window narrows only on a large
@@ -201,29 +202,18 @@ function ownDates(model: string, rule: (range: DateRange) => string): FilterRule
 
 // ── Agent Evaluator ──────────────────────────────────────────────────────
 
-/** The org columns the Agent Evaluator's own copy of the org data holds. */
-export const EVALUATOR_ORG_COLUMNS: readonly string[] = [
-    "Organization",
-    "officeLocation",
-    "Function",
-    "Location",
-    "JobTitle",
-    "country",
-    "companyName",
-    "usageLocation",
-    "displayName",
-];
-
 /**
  * The Agent Evaluator model, which shares the Calendar and org table names
  * with ValueLens. Its own slicers are applied with these, so both narrow.
  */
 export const EVALUATOR: FilterProfile = {
     dateRange: ownDates("the Agent Evaluator", (range) => dateBetween(FILTER_COLUMNS.date, range.from, range.to)),
-    organizations: (state) =>
-        EVALUATOR_ORG_COLUMNS.includes(state.orgAttribute)
-            ? treatAs(orgColumnRef(state.orgAttribute), state.organizations)
-            : notApplied(`the Agent Evaluator model has no ${describeOrgAttribute(state.orgAttribute).noun} column.`),
+    organizations: (state, env) =>
+        env.evaluatorOrgAttributes === undefined
+            ? notApplied("the Agent Evaluator's org attributes are still being checked.")
+            : env.evaluatorOrgAttributes.includes(state.orgAttribute)
+                ? orgValueFilter(state.orgAttribute, state.organizations, "Org Join Key")
+                : notApplied(`the Agent Evaluator model has no ${describeOrgAttribute(state.orgAttribute).noun} column.`),
     licence: notApplied("the Agent Evaluator model doesn't record licenses."),
     audience: notApplied("the Agent Evaluator model holds agent conversations only."),
     agentTypes: notApplied("the Agent Evaluator model doesn't record agent types."),

@@ -7,43 +7,81 @@
 
 import { EVALUATOR_METADATA } from "@/lib/filter-profiles";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
-import { dateBetween, treatAs } from "@/lib/dax-filters";
+import type { QueryTable } from "@microsoft/fabric-app-data";
+import { daxString, dateBetween, treatAs } from "@/lib/dax-filters";
 import { availablePresets, presetRange, type DatePreset, type DateRange } from "@/lib/filters";
+import { describeOrgAttribute, pickOrgAttributes } from "@/lib/org-attribute";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { evaluatorConnection as connection, FORMAT_WHOLE } from "../shared";
 import query from "./evaluation-options.dax?raw";
+import orgAttributesQuery from "./org-attributes.dax?raw";
+import eligibilityRow from "./group-eligibility-row.dax?raw";
 
 export interface GroupByColumn {
     id: string;
     label: string;
     /** A fully qualified column reference, substituted into the by-group query. */
     column: string;
+    /** Raw attribute name in the row bridge, absent for Agent and Topic groupings. */
+    attribute?: string;
     /** Topic names are written as identifiers ("PolicyLookup") and read better as words. */
     humanize?: boolean;
 }
 
 /**
- * The columns the Performance table can be grouped by. A fixed list rather
- * than the report's Group By field parameter, which a query can't drive, and
- * the only columns ever substituted into a query.
+ * Model-owned non-org groupings. Org columns are discovered separately,
+ * only when the grouping menu is needed.
  */
 export const GROUP_BY_COLUMNS: readonly GroupByColumn[] = [
     { id: "agent", label: "Agent", column: "'Agent Performance'[BotFriendlyName]" },
-    { id: "department", label: "Department", column: "'Chat + Agent Org Data'[Organization]" },
     { id: "theme", label: "Topic theme", column: "'Agent Performance'[Topic Theme]" },
     { id: "topic", label: "Topic", column: "'Agent Performance'[Topic (resolved)]", humanize: true },
-    { id: "job-title", label: "Job title", column: "'Chat + Agent Org Data'[JobTitle]" },
-    { id: "office", label: "Office", column: "'Chat + Agent Org Data'[officeLocation]" },
-    { id: "country", label: "Country", column: "'Chat + Agent Org Data'[country]" },
-    { id: "usage-location", label: "Usage location", column: "'Chat + Agent Org Data'[usageLocation]" },
-    { id: "company", label: "Company", column: "'Chat + Agent Org Data'[companyName]" },
-    { id: "function", label: "Function", column: "'Chat + Agent Org Data'[Function]" },
-    { id: "location", label: "Location", column: "'Chat + Agent Org Data'[Location]" },
 ];
 
-/** How many groups a column would show, counting only groups with conversations. */
-function groupCount({ id, column }: GroupByColumn): string {
-    return `ROW("Kind", "Group by", "Value", "${id}", "Sort", COUNTROWS(FILTER(SUMMARIZECOLUMNS(${column}, "@Conversations", [Total Conversations]), ${column} <> "")))`;
+/** Keep saved IDs and labels without using these aliases as an allowlist. */
+const ORG_ALIASES: Record<string, { id: string; label: string }> = {
+    Organization: { id: "department", label: "Department" },
+    JobTitle: { id: "job-title", label: "Job title" },
+    officeLocation: { id: "office", label: "Office" },
+    country: { id: "country", label: "Country" },
+    usageLocation: { id: "usage-location", label: "Usage location" },
+    companyName: { id: "company", label: "Company" },
+    Function: { id: "function", label: "Function" },
+    Location: { id: "location", label: "Location" },
+};
+
+/** At most two populated groups with conversations; no returned value lists. */
+function groupCount(group: GroupByColumn): string {
+    const tokens: Record<string, string> = {
+        __ID__: daxString(group.id),
+        __COLUMN__: group.column,
+        __ATTRIBUTE_FILTER__: group.attribute === undefined ? "" : `, ${evaluationGroupFilter(group)}`,
+    };
+    return eligibilityRow.replace(/__ID__|__COLUMN__|__ATTRIBUTE_FILTER__/g, (token) => tokens[token]).trim();
+}
+
+/** Scope the shared bridge Value column to exactly the selected attribute. */
+export function evaluationGroupFilter(group: GroupByColumn): string {
+    return treatAs("'Org Attribute Source'[Attribute]", group.attribute === undefined ? [] : [group.attribute]);
+}
+
+export function evaluationOrgAttributes() {
+    return { connection, filters: EVALUATOR_METADATA, query: orgAttributesQuery };
+}
+
+/** Read actual Evaluator bridge attributes, not the main model's inventory. */
+export function readEvaluationOrgAttributes(table: QueryTable): GroupByColumn[] {
+    const at = (name: string) => table.columns.findIndex((column) => column.name === `[${name}]`);
+    const column = at("Column");
+    return pickOrgAttributes(table.rows.flatMap((row) =>
+        typeof row[column] === "string"
+            ? [{ column: row[column] as string, cardinality: 2, maxLength: undefined }]
+            : [],
+    )).map((name) => ({
+        ...(Object.hasOwn(ORG_ALIASES, name) ? ORG_ALIASES[name] : { id: `org:${name}`, label: describeOrgAttribute(name).label }),
+        column: "'Org Attribute Source'[Value]",
+        attribute: name,
+    }));
 }
 
 const columnMetadata: ColumnMetadataMap = {
@@ -52,12 +90,23 @@ const columnMetadata: ColumnMetadataMap = {
     "[Sort]": { name: "Sort", displayName: "Conversations", format: FORMAT_WHOLE },
 };
 
+/** Heavy per-column fact scans run only after the grouping menu opens. */
+export function evaluationOrgGroupOptions(columns: readonly GroupByColumn[]) {
+    const rows = columns.map(groupCount);
+    return {
+        connection,
+        filters: EVALUATOR_METADATA,
+        query: rows.length === 0 ? "" : `EVALUATE\n${rows.length === 1 ? rows[0] : `UNION(\n${rows.join(",\n")}\n)`}`,
+        columnMetadata,
+    };
+}
+
 /** The page's slicer choices and data window, read once and never filtered by the page itself. */
 export function evaluationOptions() {
     return {
         connection,
         filters: EVALUATOR_METADATA,
-        query: query.replace("__GROUP_COUNTS__", GROUP_BY_COLUMNS.map(groupCount).join(",\n    ")),
+        query: query.replace("__GROUP_COUNTS__", () => GROUP_BY_COLUMNS.map(groupCount).join(",\n    ")),
         columnMetadata,
     };
 }
@@ -73,7 +122,7 @@ export interface EvaluationOptions {
     lastDate: string | undefined;
     departments: EvaluationChoice[];
     agents: EvaluationChoice[];
-    /** Groups each Group by column would show, by column id. */
+    /** Eligibility counts (at most two populated conversation groups), by column id. */
     groupCounts: Record<string, number>;
 }
 
@@ -113,8 +162,14 @@ export function hasEvaluationData(options: EvaluationOptions): boolean {
 }
 
 /** Group by columns worth offering: one group would only repeat the total. */
-export function groupByChoices(groupCounts: Record<string, number>): GroupByColumn[] {
-    return GROUP_BY_COLUMNS.filter((column) => (groupCounts[column.id] ?? 0) >= 2);
+export function groupByChoices(
+    groupCounts: Record<string, number>,
+    orgColumns: readonly GroupByColumn[] = [],
+): GroupByColumn[] {
+    const department = orgColumns.filter((column) => column.id === "department");
+    const others = orgColumns.filter((column) => column.id !== "department");
+    return [GROUP_BY_COLUMNS[0], ...department, ...GROUP_BY_COLUMNS.slice(1), ...others]
+        .filter((column) => (groupCounts[column.id] ?? 0) >= 2);
 }
 
 export type EvaluationPreset = Exclude<DatePreset, "custom">;

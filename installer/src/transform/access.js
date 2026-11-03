@@ -49,7 +49,7 @@ export const ORG_ATTRIBUTES = /** @type {const} */ (['department', 'country']);
 export const ACCESS_INVENTORY = {
   valuelens: {
     org: { table: 'Chat + Agent Org Data', key: 'PersonId', attributes: { department: 'Organization', country: 'country' } },
-    viaOrg: ['Chat + Agent Interactions (Audit Logs)', 'M365 Activity'],
+    viaOrg: ['Chat + Agent Interactions (Audit Logs)', 'M365 Activity', 'Org Attribute Source'],
     direct: [{ table: 'Copilot Licensed', key: 'UPN_Normalized' }],
     allOnly: [
       'ProductFeedback',
@@ -91,6 +91,7 @@ export const ACCESS_INVENTORY = {
   agentEvaluator: {
     org: { table: 'Chat + Agent Org Data', key: 'PersonId_Normalized', attributes: { department: 'Organization', country: 'country' } },
     viaOrg: [
+      'Org Attribute Source',
       'Agent Sessions',
       'Agent Turns',
       'Agent Errors',

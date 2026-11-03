@@ -20,6 +20,19 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
+**Group by: all meaningful loaded org attributes.** The main app, Cowork/Studio and Agent
+Evaluator no longer hide useful business attributes because they are numeric, boolean or dates,
+have many distinct values, or are sparsely populated. Business IDs and custom fields are not
+mistaken for person identifiers. Person-level identifiers, names, internal fields and attributes
+with fewer than two populated values remain excluded; Agent Evaluator also requires two groups
+with conversations. Existing large-tenant query protections remain in place.
+
+Org ingestion preserves additional Graph and custom-upload fields. Updated semantic models
+expose new source attributes on normal refresh without a model-column edit for every field.
+Existing installations need the updated models **and** app, not an app-only redeploy. See
+[Update an existing installation](docs/UPDATE.md#update-an-existing-installation-for-the-expanded-group-by)
+for the installer and manual update paths, reset consent and completion checks.
+
 **Audit log: read from the Office 365 Management Activity API by default, with Microsoft Sentinel
 as an option, not just the Graph audit search (Fabric).** The Graph audit search runs each window
 as a background job: minutes to hours each, about 200 a day per tenant, and on a large tenant

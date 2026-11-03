@@ -16,18 +16,20 @@ interface ChoiceMenuProps {
     choices: readonly { value: string; label: string; count?: number }[];
     value: string | undefined;
     onChange: (value: string | undefined) => void;
+    /** Called each time the panel opens, for lazily loading choices. */
+    onOpen?: () => void;
 }
 
 /**
  * A single-choice dropdown in the filter bar's style, for narrowing a table
  * locally without touching the app-wide filters.
  */
-export function ChoiceMenu({ label, allLabel, choices, value, onChange }: ChoiceMenuProps) {
+export function ChoiceMenu({ label, allLabel, choices, value, onChange, onOpen }: ChoiceMenuProps) {
     const summary = choices.find((choice) => choice.value === value)?.label ?? allLabel;
     const options = [{ value: undefined, label: allLabel, count: undefined }, ...choices];
 
     return (
-        <FilterMenu label={label} summary={summary} active={value !== undefined} panelClassName="w-[300px]">
+        <FilterMenu label={label} summary={summary} active={value !== undefined} panelClassName="w-[300px]" onOpen={onOpen}>
             {(close) => (
                 <div className="flex flex-col gap-100">
                     {options.map((option) => {

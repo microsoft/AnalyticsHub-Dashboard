@@ -84,9 +84,15 @@ describe("profiles", () => {
     });
 
     it("filters the Agent Evaluator's org data only where it holds the column", () => {
-        expect(resolveFilters(EVALUATOR, ACTIVE, ["organizations"]).expressions).toHaveLength(1);
+        const held = { evaluatorOrgAttributes: ["Organization", "CustomBand"] };
+        expect(resolveFilters(EVALUATOR, ACTIVE, ["organizations"], held).expressions).toHaveLength(1);
+        const [custom] = resolveFilters(EVALUATOR, { ...ACTIVE, orgAttribute: "CustomBand" }, ["organizations"], held).expressions;
+        expect(custom).toContain(`[Attribute] = "CustomBand"`);
+        expect(custom).toContain("'Chat + Agent Org Data'[Org Join Key]");
+        expect(custom).not.toContain("[CustomBand]");
         const other = { ...ACTIVE, orgAttribute: "CostCenter" };
-        expect(resolveFilters(EVALUATOR, other, ["organizations"]).notFilteredBy).toHaveLength(1);
+        expect(resolveFilters(EVALUATOR, other, ["organizations"], held).notFilteredBy).toHaveLength(1);
+        expect(resolveFilters(EVALUATOR, ACTIVE, ["organizations"]).notFilteredBy[0].reason).toContain("still being checked");
     });
 
     it("leaves a model other than ValueLens unfiltered unless the query says how", () => {

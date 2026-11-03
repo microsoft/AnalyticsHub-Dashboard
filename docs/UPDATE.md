@@ -21,6 +21,45 @@ fetches the newest version.
 
 What changed in each version is in the [release notes](../CHANGELOG.md).
 
+### Update an existing installation for the expanded Group by
+
+This change needs the **new installer, updated semantic models and updated app** together.
+Running an older downloaded installer again, refreshing an older model, or choosing only
+**Redeploy the app** does not install the new model definition.
+
+1. **Get the new version** using the latest-release link above, or run the PowerShell one-liner
+   again. Check its release notes include the expanded org-attribute Group by change; until
+   that release is published, the current download does not contain it.
+2. **Keep your existing install record.** Use the same PC and saved
+   `Documents\Analytics Hub\valuelens-install.json`, or select the original record if you keep it
+   elsewhere. Do not start a fresh installation or delete the workspace.
+3. **Choose Update** to keep your saved settings, or **Repair or change** if you also want to
+   change them. On Fabric, accept the app redeployment as well as the model updates. On Azure,
+   approve the update plan to use the release's new jobs and web-app images.
+4. **Read any model-reset prompt.** The installer normally preserves model data. If Fabric
+   requires a reset, reports on that model temporarily show no data until its reload finishes;
+   the Lakehouse or Azure SQL source data is not deleted. Decline to leave that model unchanged.
+   See [Model updates and reloads](../installer/README.md#when-an-update-has-to-clear-a-models-data).
+5. **Wait for the model reloads and app deployment to finish.** Do not treat "refresh started" or
+   a failed reload as a completed update. If newly imported org fields are not yet in the source
+   tables, choose **Run now** and wait for ingestion and model refresh to finish.
+6. **Reopen the app and check Group by.** A custom attribute with at least two populated values
+   should appear. Person identifiers and internal fields stay hidden. Agent Evaluator also
+   needs two groups with conversations. An attribute missing from a separate model's org source
+   cannot appear in that model.
+
+For a source-checkout installation, get the released source and dependencies first, then run
+from its `installer` folder with your original record:
+
+```powershell
+node .\bin\valuelens-install.js update --config "C:\path\to\valuelens-install.json"
+```
+
+An installer update retains its managed resources and saved settings; it does not preserve
+hand-edited managed notebooks or reports when you approve their replacement. Back up those edits
+first. If the original setup was entirely manual, follow
+[Manual install: Update](MANUAL-INSTALL.md#update) instead.
+
 ## Repair or change, or Update
 
 Both keep your install record and skip what's already done.

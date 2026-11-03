@@ -1,10 +1,19 @@
 EVALUATE
-VAR People = COUNTROWS('Chat + Agent Org Data')
-RETURN
-    SELECTCOLUMNS(
-        FILTER(COLUMNSTATISTICS(), [Table Name] = "Chat + Agent Org Data"),
-        "Column", [Column Name],
-        "Cardinality", [Cardinality],
-        "Max Length", [Max Length],
-        "People", People
-    )
+SELECTCOLUMNS(
+    SUMMARIZECOLUMNS(
+        'Org Attribute Source'[Attribute],
+        "Groups", COUNTROWS(
+            TOPN(
+                2,
+                FILTER(
+                    VALUES('Org Attribute Source'[Value]),
+                    LEN(TRIM('Org Attribute Source'[Value])) > 0
+                ),
+                'Org Attribute Source'[Value], ASC
+            )
+        )
+    ),
+    "Column", 'Org Attribute Source'[Attribute],
+    "Cardinality", [Groups]
+)
+ORDER BY [Column]

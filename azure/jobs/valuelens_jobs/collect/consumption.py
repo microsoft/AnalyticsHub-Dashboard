@@ -20,10 +20,11 @@ log = logging.getLogger("valuelens_jobs.collect.consumption")
 class TableState:
     """The consumption tables in one DuckDB connection, loaded from and saved to the store."""
 
-    def __init__(self, con, store, schemas: dict, container: str = "curated"):
+    def __init__(self, con, store, schemas: dict, container: str = "curated", *, preserve_extra=()):
         self.con = con
         self.store = store
-        self.schemas = schemas  # {table: [(column, duckdb type), ...]}
+        self.schemas = {table: list(columns) for table, columns in schemas.items()}
+        self.preserve_extra = set(preserve_extra)
         self.container = container
         self.existed: set[str] = set()
         self.changed: set[str] = set()
@@ -44,6 +45,10 @@ class TableState:
             self.existed.add(table)
             src = f"read_parquet({q(self.store.path(self.prefix(table)) / '*.parquet')}, union_by_name=true)"
             have = {r[0] for r in self.con.execute(f"DESCRIBE SELECT * FROM {src}").fetchall()}
+            if table in self.preserve_extra:
+                for column in sorted(have - set(self.columns(table))):
+                    self.con.execute(f"ALTER TABLE {ident(table)} ADD COLUMN {ident(column)} VARCHAR")
+                    schema.append((column, "VARCHAR"))
             pick = [c for c, _ in schema if c in have]
             if pick:
                 names = ", ".join(ident(c) for c in pick)

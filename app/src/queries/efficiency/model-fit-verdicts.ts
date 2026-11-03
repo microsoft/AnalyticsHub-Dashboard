@@ -57,9 +57,10 @@ export function deriveModelFitVerdict({
 export function modelFitVerdictsFor(groupingColumn: string, blankLabel: string) {
     return {
         connection,
-        query: template
-            .replaceAll("__GROUPING_COLUMN__", groupingColumn)
-            .replaceAll("__BLANK_LABEL__", blankLabel.replaceAll('"', '""')),
+        query: template.replace(
+            /__GROUPING_COLUMN__|__BLANK_LABEL__/g,
+            (token) => token === "__GROUPING_COLUMN__" ? groupingColumn : blankLabel.replaceAll('"', '""'),
+        ),
         columnMetadata,
     };
 }

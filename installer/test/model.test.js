@@ -7,7 +7,7 @@ import { notebooksFor } from '../src/catalog.js';
 import { emptyConfig } from '../src/config.js';
 import { modelDeployed, notebookSettings, pipelineSignature } from '../src/steps/fabric.js';
 import { prepareNotebook } from '../src/transform/notebook.js';
-import { AUDIT_TABLE, buildAgentEvaluatorModel, buildModel, datasourcePath, decodeText, loadTemplateModel, mParameter, mString, readTemplateModel, setMParameter } from '../src/transform/model.js';
+import { AUDIT_TABLE, buildAgentEvaluatorModel, buildModel, datasourcePath, decodeText, loadTemplateModel, mParameter, mString, ORG_ATTRIBUTE_SOURCE, readTemplateModel, setMParameter, verifyOrgAttributeSource } from '../src/transform/model.js';
 import { buildPipeline, findActivity, REFRESH_ACTIVITY } from '../src/transform/pipeline.js';
 import { listZip, readZipEntry } from '../src/transform/zip.js';
 import { fakeCtx, realSources } from './fakes.js';
@@ -110,6 +110,109 @@ test('the Fabric, Azure and Agent Evaluator models rename Department to Organiza
     const query = [].concat(org?.partitions?.[0]?.source?.expression ?? []).join('\n');
     assert.ok(query.includes(guard), `${name}: the rename checks for an Organization column`);
     assert.doesNotMatch(query, /if colDepartment <> null then/, name);
+  }
+});
+
+test('Fabric and Azure retain the refresh-owned arbitrary org attribute bridge and its security relationship', () => {
+  const evaluator = loadTemplateModel(/** @type {string} */ (realSources().agentEvaluatorModelFile));
+  for (const server of ['endpoint.datawarehouse.fabric.microsoft.com', 'endpoint.database.windows.net']) {
+    for (const [bim, key] of [
+      [buildModel(template, { ...settings, server }), 'PersonId_Normalized'],
+      [buildAgentEvaluatorModel(evaluator, { server, database: 'data' }), 'Org Join Key'],
+    ]) {
+      const table = /** @type {any} */ (bim).model.tables.find((/** @type {any} */ t) => t.name === ORG_ATTRIBUTE_SOURCE);
+      assert.deepEqual(table.columns.map((/** @type {any} */ c) => c.name), ['PersonId_Normalized', 'Attribute', 'Value', 'ValueType']);
+      const source = table.partitions[0].source.expression.join('\n');
+      assert.ok(source.includes('FabricTable("copilot_org_data")'));
+      assert.ok(source.includes('Table.ColumnNames(Base)'));
+      assert.ok(source.includes('DistinctPopulated(_) >= 2'));
+      assert.ok(!source.includes('__lean'), 'extra source fields are not projected away');
+      const relation = /** @type {any} */ (bim).model.relationships.find((/** @type {any} */ r) => r.fromTable === ORG_ATTRIBUTE_SOURCE);
+      assert.equal(relation.toColumn, key);
+      assert.equal(relation.crossFilteringBehavior, 'bothDirections');
+      assert.equal(relation.securityFilteringBehavior, 'oneDirection');
+      assert.doesNotThrow(() => verifyOrgAttributeSource(/** @type {any} */ (bim).model));
+    }
+  }
+});
+
+test('a stale template or unsecured bridge is an explicit install error', () => {
+  const model = structuredClone(template.model);
+  model.tables = model.tables.filter((t) => t.name !== ORG_ATTRIBUTE_SOURCE);
+  assert.throws(() => buildModel({ ...template, model }, settings), /secured Org Attribute Source/);
+  const unsecured = structuredClone(template.model);
+  unsecured.relationships = unsecured.relationships.filter((/** @type {any} */ r) => r.fromTable !== ORG_ATTRIBUTE_SOURCE);
+  assert.throws(() => verifyOrgAttributeSource(unsecured), /secured Org Attribute Source/);
+  const ambiguous = structuredClone(template.model);
+  ambiguous.relationships.push({
+    name: 'another-path', fromTable: ORG_ATTRIBUTE_SOURCE, fromColumn: 'PersonId_Normalized',
+    toTable: AUDIT_TABLE, toColumn: 'Audit_UserId', crossFilteringBehavior: 'bothDirections',
+  });
+  assert.throws(() => verifyOrgAttributeSource(ambiguous), /secured Org Attribute Source/);
+  const oneWay = structuredClone(template.model);
+  oneWay.relationships.find((/** @type {any} */ r) => r.fromTable === ORG_ATTRIBUTE_SOURCE).crossFilteringBehavior = 'oneDirection';
+  assert.throws(() => verifyOrgAttributeSource(oneWay), /secured Org Attribute Source/);
+  const twoWaySecurity = structuredClone(template.model);
+  twoWaySecurity.relationships.find((/** @type {any} */ r) => r.fromTable === ORG_ATTRIBUTE_SOURCE).securityFilteringBehavior = 'bothDirections';
+  assert.throws(() => verifyOrgAttributeSource(twoWaySecurity), /secured Org Attribute Source/);
+});
+
+test('bridge query filters have one path to facts while security only flows org to bridge', () => {
+  const evaluator = loadTemplateModel(/** @type {string} */ (realSources().agentEvaluatorModelFile));
+  const org = 'Chat + Agent Org Data';
+  /** @param {any[]} relationships @param {string} start @param {string} end @param {boolean} security */
+  function paths(relationships, start, end, security) {
+    /** @type {Map<string, string[]>} */
+    const graph = new Map();
+    /** @param {string} a @param {string} b */
+    function edge(a, b) { graph.set(a, [...(graph.get(a) ?? []), b]); }
+    for (const r of relationships.filter((r) => r.isActive !== false)) {
+      edge(r.toTable, r.fromTable);
+      if ((security ? r.securityFilteringBehavior : r.crossFilteringBehavior) === 'bothDirections') {
+        edge(r.fromTable, r.toTable);
+      }
+    }
+    /** @param {string} node @param {Set<string>} visited @returns {number} */
+    function walk(node, visited) {
+      if (node === end) return 1;
+      return (graph.get(node) ?? []).filter((n) => !visited.has(n))
+        .reduce((count, n) => count + walk(n, new Set([...visited, n])), 0);
+    }
+    return walk(start, new Set([start]));
+  }
+  for (const access of [undefined, { orgAttribute: 'department' }]) {
+    const models = [
+      { bim: buildModel(template, { ...settings, modules: { ...settings.modules, m365Activity: true }, access }), targets: [AUDIT_TABLE, 'M365 Activity'] },
+      { bim: buildAgentEvaluatorModel(evaluator, { server: settings.server, database: settings.database, access }), targets: ['Agent Sessions', 'Agent Turns', 'Agent Performance', 'Credit Consumption (User)'] },
+    ];
+    for (const { bim, targets } of models) {
+      const relationships = bim.model.relationships;
+      const links = relationships.filter((/** @type {any} */ r) => [r.toTable, r.fromTable].includes(ORG_ATTRIBUTE_SOURCE));
+      assert.equal(links.length, 1, 'a degree-one leaf cannot add alternate routes between existing tables');
+      assert.equal(paths(relationships, ORG_ATTRIBUTE_SOURCE, org, false), 1);
+      assert.equal(paths(relationships, org, ORG_ATTRIBUTE_SOURCE, true), 1);
+      assert.equal(paths(relationships, ORG_ATTRIBUTE_SOURCE, org, true), 0);
+      for (const target of targets) {
+        assert.equal(paths(relationships, ORG_ATTRIBUTE_SOURCE, target, false), 1, `${target}: exactly one query-filter path`);
+        assert.equal(paths(relationships, ORG_ATTRIBUTE_SOURCE, target, true), 0, `${target}: no reverse security propagation`);
+      }
+    }
+  }
+});
+
+test('model-owned org filter resets clear bridge values but preserve the attribute selector', () => {
+  const evaluator = loadTemplateModel(/** @type {string} */ (realSources().agentEvaluatorModelFile));
+  const cases = [
+    { bim: buildModel(template, settings), name: 'Licensed Users (Filter-Aware)' },
+    { bim: buildAgentEvaluatorModel(evaluator, { server: settings.server, database: settings.database }), name: 'Org Credit Share %' },
+  ];
+  for (const { bim, name } of cases) {
+    const measure = bim.model.tables.flatMap((t) => t.measures ?? []).find((/** @type {any} */ m) => m.name === name);
+    assert.ok(measure, name);
+    const source = [].concat(measure.expression).join('\n');
+    assert.ok(source.includes("REMOVEFILTERS('Org Attribute Source'[Value])"), name);
+    assert.ok(!source.includes("REMOVEFILTERS('Org Attribute Source')"), 'Attribute selector remains');
+    assert.ok(!source.includes("REMOVEFILTERS('Org Attribute Source'[Attribute])"), 'Attribute selector remains');
   }
 });
 

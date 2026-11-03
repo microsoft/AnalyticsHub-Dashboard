@@ -338,7 +338,8 @@ def test_collect_enriches_the_org_data_in_place(tmp_path, caplog):
     base_columns, base = entra(store)
     put(tmp_path, "workday_org_sample.csv", SAMPLE.read_bytes())
     out = collector.collect_workday(None, store, IN_PLACE)
-    assert out == {"file": "workday_org_sample.csv", "table": "dbo.copilot_org_data", "columns": 45, "mode": "enrich",
+    assert out == {"file": "workday_org_sample.csv", "table": "dbo.copilot_org_data",
+                   "columns": len(base_columns) + len(SAMPLE_ADDS) + 1, "mode": "enrich",
                    "base_rows": 5, "workday_rows": 5, "exact_duplicates_collapsed": 0, "matched": 4,
                    "match_rate": 0.8, "workday_only_excluded": 1, "output_rows": 5, "added_workday_columns": 10,
                    "skipped_existing_columns": 1}
