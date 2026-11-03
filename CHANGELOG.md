@@ -105,6 +105,45 @@ offer is still a choice. With `--yes`, such an install stops before anything is 
 `--sql-scale-up` or `--sql-free-offer` says which. **Repair or change** and `--yes` keep an
 install's size and SQL choice, and the plan warns when the people counted have outgrown them.
 
+**An honest first-load estimate, and `status` shows how much history has loaded.** The docs said
+the first data arrived about 25 minutes after **Go ahead**, or about 2 hours with 180 days, and the
+installer said loading usually took under an hour. The docs also said to keep the installer window
+open, while the installer said you could close it. But a load from the Graph audit search starts
+one search for each window of history it reads, and a tenant can start at least 200 in a rolling
+24 hours, so a large tenant's first load takes days, over several runs. Now one table of estimates
+for loads from the Graph audit search, by target, tenant size and days of history, is in
+[How long it takes](docs/PREREQUISITES.md#how-long-it-takes). It counts the search limit, and the
+time each search takes, scaled from two measured loads. Its figures are labelled estimates until
+timed runs of the installer replace them. With 30 days and up to 10,000 people, such a first load
+takes 1 to 2 hours on Fabric and 2 to 3 hours on Azure; a large tenant's takes 1 to 2 days on
+Fabric and 2 to 4 hours on Azure. On Fabric with the Management Activity API or Sentinel as the
+audit source, as on a new install, the estimate says instead that the first load reads the last 7
+days, or what Sentinel holds, in one run, that a new subscription can take up to 12 hours to show
+content, and that the older days are left out. With Graph history on, the older days load from the
+Graph audit search, and the estimate is the Graph one. The plan shows the estimate beside
+the history question, and the installer says it again when the first load or a reload starts, with
+what happens when a run can't fetch it all. On Fabric, the audit load stops at its time budget
+without writing anything, and the pipeline's retries carry on. It stops the same way at the search
+limit, where the retries stop too, and the scheduled runs don't carry a first load or a reload on:
+the estimate says to start each run after the first by hand, a day apart. On Azure, a run cut off
+at 4 hours publishes nothing, a run stopped at the search limit publishes what it has fetched, and
+the next run carries on. One rule replaces the others: keep the PC awake until the installer says
+setup is finished, then you can close the window. `status` now shows the days asked for, how much
+has been fetched from the audit log and what's in the reports, and, within a day of a stop at the
+search limit, when a run can search again. It reads the Fabric notebook's window
+manifest in the Lakehouse, or the Azure run job's state in its storage, with the access the
+installer already has. When it can't, for example on a private Azure install, it says why and lists
+the runs instead. On Fabric with the Management Activity API or Sentinel, once the first load has
+finished, `status` shows the days fetched and says the older days are left out, rather than to carry
+the load on. It gives `run --backfill-days <n> --graph-history` to load them from the Graph audit
+search. A first load or reload that couldn't start, because admin consent or the Key
+Vault's private endpoint was waiting or a run was going, is kept in the install record without
+counting as loaded. `status` and the Done page show it, with its `run --backfill-days` command,
+until a run with it starts. Earlier installers ignore the new record field. On Azure, **Repair or
+change** no longer says history is loaded because a run has started, even one that published
+nothing: *Load more audit history?* reads the run job's state, and where it can't, it says what was
+asked for.
+
 ### Changed
 
 - **The app keeps your place.** Each page and tab has its own link, so Back, refresh, Copy app link
@@ -148,8 +187,6 @@ install's size and SQL choice, and the plan warns when the people counted have o
   fix when the app's token is for another tenant than `TENANT_ID` or lacks
   `AuditLogsQuery.Read.All` (the per-service `AuditLogsQuery-*` permissions don't cover Copilot).
   On Azure, the jobs log a warning instead, since a managed identity's token can lag a new grant.
-- **The installer's first-load estimate is now one to two hours**, longer on a trial or small
-  capacity or while Microsoft is throttling audit searches.
 - **Fabric: reloading audit history keeps older days.** A reload replaced the whole parsed audit
   table with only the days it reloaded: `run --backfill-days <n>`, **Repair or change**'s
   *Load more audit history?*, the home page's **Audit history** picker, or a backfill run of the

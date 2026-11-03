@@ -9,7 +9,8 @@ import { POWER_BI_APP_ID, adminConsentUrl, apiPermissionsUrl, resolveAppRoles } 
 import { apiVersionResolver, armErrors, resourceIdParts, ROLES } from '../../clients/azure.js';
 import { HttpError } from '../../http.js';
 import { commandLine } from '../../launch.js';
-import { formatDuration } from '../../ui.js';
+import { c, formatDuration } from '../../ui.js';
+import { estimateShort, firstLoadEstimate } from '../../estimate.js';
 import { rlsOn, rlsSettings } from '../../transform/access.js';
 import { buildAgentEvaluatorModel, buildConsumptionModel, buildModel, loadTemplateModel, PBISM } from '../../transform/model.js';
 import { connectionCreatedAnyway, deployModel, MODEL_UPDATE_NOTE, modelSignature, REFRESH_POLL_MS, settleReloads } from '../model.js';
@@ -21,7 +22,8 @@ import { APP_ALIAS, CONSUMPTION_ALIAS, EVALUATOR_ALIAS } from '../app.js';
 import { AZURE_AI_ROLES, ensureAzureAiAccess, planConsumption } from '../consumption.js';
 import { AZURE_LANDING_DIRS, azureDropLabel, azureDropsToSharePoint, ensureFlows, flowsSummary, flowsWanted, offerStudioRun, planFlows } from '../flows.js';
 import { DEFAULT_CURRENCY } from '../../currency.js';
-import { askMoreHistory, askReportingCurrency, askTenantSize, editSchedule, HISTORY_CHOICES, keepAwake, planCosts, PRICING, reloadLine, scaleLine, sizedFor } from '../plan.js';
+import { askMoreHistory, askReportingCurrency, askTenantSize, editSchedule, historyChoices, keepAwake, planCosts, PRICING, reloadLine, scaleLine, sizedFor } from '../plan.js';
+import { azureHistory, clearPendingHistory, day as isoDay, readAzureProgress, recordPendingHistory, showHistoryStep } from '../history-progress.js';
 import { ensureResourceGraphAccess, planResourceGraph, resourceGraphGrants, resourceGraphKinds, resourceGraphOn, scopeName } from '../resource-graph.js';
 import { DATA_SOURCES } from '../../uploads.js';
 import { normaliseResourceGraph } from '../../config.js';
@@ -508,10 +510,11 @@ export async function planAzure(ctx, pre, section) {
   }
 
   if (editing('schedule')) {
-    if (azureHistoryLoaded(az)) await askMoreHistory(ctx, azureReloadChoice);
+    const history = await azureHistoryLoaded(ctx);
+    if (history) await askMoreHistory(ctx, (days) => azureReloadChoice(days, config.scale), history);
     else {
       delete ctx.reloadHistoryDays;
-      if (advanced) config.history.days = await ui.select('How much audit history should the first load pull?', HISTORY_CHOICES, config.history.days);
+      if (advanced) config.history.days = await ui.select('How much audit history should the first load pull?', historyChoices('azure', config.scale ?? scaleFor(headcountOf(pre))), config.history.days);
     }
     config.schedule.timeZone = 'UTC';
     if (section && ui.web) await editSchedule(ctx);
@@ -539,10 +542,28 @@ export async function planAzure(ctx, pre, section) {
 }
 
 /**
- * The run job has run: its collector keeps a high-water mark, so more history needs a reload.
- * @param {import('../../config.js').AzureConfig} az
+ * What Repair or change asks about more history, from the run job's state, or undefined when no history has
+ * loaded and the first load's question applies. Once the collector has a high-water mark, more history needs a
+ * reload. The high-water mark is set when a run merges every window, so that history is in the reports. A run
+ * the installer started isn't history loaded: one that fails, or is cut off at 4 hours, may publish nothing.
+ * Where the state can't be read (a private install, or no access to the job's storage), it says what was asked
+ * for once the installer has started a run. A demo install publishes the sample, not the tenant's history.
+ * @param {Ctx} ctx
+ * @returns {Promise<import('../plan.js').HistorySaid | undefined>}
  */
-export const azureHistoryLoaded = (az) => !!(az.outputs?.runJobName && az.status?.lastRun);
+export async function azureHistoryLoaded(ctx) {
+  const az = ctx.config.azure;
+  if (!az?.outputs?.runJobName || az.sampleData) return undefined;
+  const days = ctx.config.history.days;
+  const progress = await readAzureProgress(ctx);
+  if (!progress.read) return az.status?.lastRun ? { question: `You asked for ${days} days of history. Load more?`, loaded: false } : undefined;
+  const { highWaterMark, backfillFrom } = progress;
+  if (highWaterMark === undefined) return undefined;
+  if (backfillFrom !== undefined) {
+    return { question: `You asked for ${days} days of history. The reload from ${isoDay(backfillFrom)} isn't all in the reports yet. Load more?`, loaded: false };
+  }
+  return { question: `Load more audit history? ${days} days are loaded now, up to ${isoDay(highWaterMark)}.`, loaded: true };
+}
 
 /** The setting the run job's collector reads to load more history once, despite its high-water mark. */
 export const BACKFILL_ENV = 'VALUELENS_AUDIT_BACKFILL_DAYS';
@@ -551,12 +572,25 @@ export const BACKFILL_ENV = 'VALUELENS_AUDIT_BACKFILL_DAYS';
  * How long a reload takes on Azure, which has no pipeline. A run stops at 4 hours, and the scheduled
  * runs after it carry on with whatever the reload hasn't loaded. Fabric's wording is `reloadDetail`'s.
  * @param {number} days
+ * @param {'standard' | 'large' | undefined} [scale]
  */
-const azureReloadDetail = (days) =>
-  days > 30 ? 'A run stops at 4 hours. On a large tenant, the scheduled runs after it carry on with the reload until it has all loaded.' : 'Usually one to two hours.';
+const azureReloadDetail = (days, scale) => {
+  const estimate = estimateShort(days, scale, 'azure');
+  return days > 30 ? `${estimate} A run stops at 4 hours, and the scheduled runs after it carry on with the reload until it has all loaded.` : estimate;
+};
 
-/** Repair or change's choice to reload `days` days of history, on Azure. @param {number} days */
-const azureReloadChoice = (days) => `Runs the job once with ${days} days of history. ${azureReloadDetail(days)}`;
+/**
+ * Repair or change's choice to reload `days` days of history, on Azure.
+ * @param {number} days
+ * @param {'standard' | 'large' | undefined} [scale]
+ */
+const azureReloadChoice = (days, scale) => `Runs the job once with ${days} days of history. ${azureReloadDetail(days, scale)}`;
+
+/**
+ * Whether the run job has never been started: its next run is the first load. A repair's run isn't one.
+ * @param {import('../../config.js').AzureConfig | undefined} az
+ */
+const neverRun = (az) => !az?.status?.lastRun && !az?.sampleData;
 
 /**
  * The job's containers, with extra settings, for one execution. Container Apps runs a start request's
@@ -1480,7 +1514,8 @@ export function azurePlanReview(ctx, pre) {
       { what: 'Azure resources', where: `${az.subscriptionName ?? az.subscriptionId} / ${az.resourceGroup} / ${az.location}`, detail: `Incremental ARM deployment. Deletes are not applied by the template.${az.sqlLocation ? ` Azure SQL goes in ${az.sqlLocation}.` : ''}` },
       { what: 'Scheduled jobs', where: `Container Apps job, ${ctx.config.schedule.frequency} at ${ctx.config.schedule.time} UTC`, ...(az.sampleData ? { detail: 'Demo mode: each run publishes the synthetic sample instead of tenant data.' } : {}) },
       { what: 'Cost', where: `Indicative Azure cost: about $5-40/month small tenants or $60-160/month large tenants, plus Power BI Pro/PPU licences.${isPrivate(az) ? ' Private networking adds about $30-40/month (4 private endpoints and DNS zones); the VNet data gateway uses capacity units on your Fabric/Premium capacity while refreshing.' : ''}${sizingCost(az)}` },
-      ...(ctx.reloadHistoryDays ? [{ what: 'History reload', where: reloadLine(ctx.reloadHistoryDays), detail: `The run job, once, with ${BACKFILL_ENV}=${ctx.reloadHistoryDays}. ${azureReloadDetail(ctx.reloadHistoryDays)}` }] : []),
+      ...(ctx.runFirstLoad && neverRun(az) ? [{ what: 'First load', where: `${ctx.config.history.days} days of audit history, straight after setup`, detail: estimateShort(ctx.config.history.days, ctx.config.scale ?? scaleFor(headcountOf(pre)), 'azure', { band: true }) }] : []),
+      ...(ctx.reloadHistoryDays ? [{ what: 'History reload', where: reloadLine(ctx.reloadHistoryDays), detail: `The run job, once, with ${BACKFILL_ENV}=${ctx.reloadHistoryDays}. ${azureReloadDetail(ctx.reloadHistoryDays, ctx.config.scale)}` }] : []),
     ],
     costs: planCosts(ctx.config),
     ...(az.sampleData ? {} : { sizedFor: sizedFor(ctx.config.scale ?? scaleFor(headcountOf(pre)), pre) }),
@@ -1587,7 +1622,10 @@ export async function confirmAzurePlan(ctx, pre) {
   if (azureResourceGraphOn(config)) ui.info(`Governance:  ${resourceGraphKinds(config)} from Azure Resource Graph, in ${scopeName(config)}`);
   azureAgentEvaluatorConfirmLine(ctx);
   ui.info(`Ask:         ${askLine(az)}`);
-  if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)}`);
+  if (ctx.runFirstLoad && neverRun(az)) {
+    ui.info(`First load:  ${config.history.days} days of history, straight after setup ${c.dim(`(${estimateShort(config.history.days, config.scale ?? scaleFor(headcount), 'azure', { band: true })})`)}`);
+  }
+  if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)} ${c.dim(`(${azureReloadDetail(ctx.reloadHistoryDays, config.scale)})`)}`);
   const sql = plannedSql(az, await liveSqlSettings(ctx).catch(() => ({})));
   if (az.sqlScaleUp === true) ui.info(`SQL compute: up to ${sql.maxCapacity} vCores${sql.useFreeLimit ? ', carrying on past the free offer' : ''} (about ${SQL_SCALE_UP_COST} a month)`);
   if (az.webAlwaysOn === true) ui.info(`Web app:     one replica always running (about ${WEB_ALWAYS_ON_COST} a month)`);
@@ -1765,6 +1803,8 @@ export async function installAzure(ctx, opts) {
   await writeAzureTeamsPackage(ctx);
 
   if (consumption && flows) await offerStudioRun(ctx, { pipelineNext: !!(ctx.reloadHistoryDays || ctx.runFirstLoad), quietWhenOff: true });
+  /** @type {string | undefined} What carries on in Azure after setup: said in the summary. */
+  let loading;
   if (ctx.reloadHistoryDays) {
     step('Reload audit history');
     const days = ctx.reloadHistoryDays;
@@ -1773,19 +1813,27 @@ export async function installAzure(ctx, opts) {
       if (reload.started) {
         config.history.days = days;
         ctx.save();
-      } else ui.note(onceRunFinished(`run "${commandLine(`run --backfill-days ${days}`)}" to reload ${days} days of audit history`));
+        loading = 'reload';
+      } else {
+        recordPendingHistory(ctx, { days, reason: 'running' });
+        ui.note(onceRunFinished(`run "${commandLine(`run --backfill-days ${days}`)}" to reload ${days} days of audit history`));
+      }
     } catch (err) {
       stepsOk = false;
+      recordPendingHistory(ctx, { days, reason: 'failed' });
       ui.fail(`The history reload didn't start: ${/** @type {Error} */ (err).message}`);
       ui.info(`Try again with "${commandLine(`run --backfill-days ${days}`)}".`);
     }
   } else if (ctx.runFirstLoad) {
     step('First load');
+    const first = neverRun(az);
+    // Not kept for later when a run is going: on Azure, the scheduled runs load the history the job is set up with.
     const load = await startAndWaitJob(ctx, 'run', { wait: false });
-    if (!load.started) ui.note(onceRunFinished(`run "${commandLine('run')}" to load your changes, or they load on the next scheduled run`));
+    if (load.started) loading = first ? 'first load' : 'run';
+    else ui.note(onceRunFinished(`run "${commandLine('run')}" to load your changes, or they load on the next scheduled run`));
   }
   const ok = reloads.ok && stepsOk;
-  await azureSummary(ctx, { ...reloads, ok });
+  await azureSummary(ctx, { ...reloads, ok, loading });
   return ok;
 }
 
@@ -2351,15 +2399,21 @@ export async function startAndWaitJob(ctx, kind, opts) {
   }
   const label = opts.steps ? `${kind} job (${opts.steps})` : `${kind} job`;
   const key = opts.steps ? 'lastAccess' : kind === 'run' ? 'lastRun' : 'lastMigrate';
+  // Before the start, which records the run.
+  const loadsHistory = kind === 'run' && !opts.steps;
+  const firstLoad = loadsHistory && !opts.backfillDays && neverRun(az);
   const started = await ctx.api.arm.startContainerAppJob(sub, rg, name, template);
   const executionName = started?.name ?? started?.properties?.name ?? started?.id?.split('/').pop();
   ctx.ui.ok(`Started ${label}${executionName ? ` (${executionName})` : ''}${opts.backfillDays ? ` with ${opts.backfillDays} days of audit history` : ''}`);
   if (opts.backfillDays) {
-    ctx.ui.note(`${azureReloadDetail(opts.backfillDays)} Job images older than this installer ignore ${BACKFILL_ENV} and run as usual: run "${commandLine('update')}" first if yours is.`);
+    ctx.ui.note(`${firstLoadEstimate(opts.backfillDays, ctx.config.scale, 'azure', { reload: true })}Job images older than this installer ignore ${BACKFILL_ENV} and run as usual: run "${commandLine('update')}" first if yours is.`);
+  } else if (firstLoad) {
+    ctx.ui.note(firstLoadEstimate(ctx.config.history.days, ctx.config.scale, 'azure').trim());
   }
   az.status ??= {};
   az.status[key] = { name: executionName, status: 'Running', startedAt: ctx.now().toISOString() };
   ctx.save();
+  if (loadsHistory) clearPendingHistory(ctx, { days: opts.backfillDays ?? ctx.config.history.days, first: !opts.backfillDays });
   if (!opts.wait) return { ok: true, status: 'Running', started: true };
   if (!executionName) {
     ctx.ui.warn(`Azure didn't say which run of the ${label} this is, so the installer can't follow it to the end. Check it in the portal, or with "${commandLine('status')}".`);
@@ -2416,6 +2470,8 @@ export async function azureRun(ctx, opts = {}) {
   const result = await startAndWaitJob(ctx, 'run', { wait: false, backfillDays: opts.backfillDays });
   if (!result.started) {
     const days = opts.backfillDays;
+    // Kept, so status and the next setup show the command until a run with it starts.
+    if (days) recordPendingHistory(ctx, { days, reason: 'running' });
     ctx.ui.note(onceRunFinished(days ? `run "${commandLine(`run --backfill-days ${days}`)}" to reload ${days} days of audit history` : `run "${commandLine('run')}" to start a new run`));
     return result;
   }
@@ -2463,12 +2519,17 @@ export async function azureStatus(ctx) {
   for (const p of az.graphRoles?.pending ?? []) ui.warn(`Pending admin action: grant ${p} to the managed identity.`);
   for (const action of az.status?.pendingAdminActions ?? []) ui.warn(`Pending admin action: ${action}`);
   await azureTranscriptStatus(ctx);
+  /** @type {any[]} */
+  let executions = [];
   for (const [label, name] of [['Run job', az.outputs?.runJobName], ['Migrate job', az.outputs?.migrateJobName]]) {
     if (!name) continue;
     ui.heading(label);
     const runs = await api.arm.listContainerAppJobExecutions(az.subscriptionId, az.resourceGroup, String(name)).catch(() => []);
+    if (label === 'Run job') executions = runs;
     for (const r of runs.slice(0, 5)) ui.info(`${r.name ?? last(r.id ?? '')}: ${r.properties?.status ?? r.status ?? 'Unknown'}`);
   }
+  await azureHistory(ctx, { executions });
+  showHistoryStep(ctx);
 }
 
 /** @param {Ctx} ctx */
@@ -2853,7 +2914,11 @@ export async function azureUninstall(ctx, opts = {}) {
   return true;
 }
 
-/** @param {Ctx} ctx @param {{ ok?: boolean, pending?: string[] }} [opts]  pending: models still reloading after their update. */
+/**
+ * @param {Ctx} ctx
+ * @param {{ ok?: boolean, pending?: string[], loading?: string }} [opts]  pending: models still reloading after their update.
+ *   loading: the load setup started, which carries on in Azure.
+ */
 export async function azureSummary(ctx, opts = {}) {
   const { ui, config } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
@@ -2879,6 +2944,11 @@ export async function azureSummary(ctx, opts = {}) {
   azureAgentEvaluatorSummary(ctx);
   if (flowsWanted(config).length) flowsSummary(ctx);
   ui.info('Record:     Keep valuelens-install.json. It holds no secrets.');
+  if (opts.loading) {
+    const check = `See how far it has got with "${commandLine('status')}".`;
+    ui.note(opts.ok === false ? `The ${opts.loading} carries on in Azure after this window closes. ${check}` : `Setup is finished. The ${opts.loading} carries on in Azure, so you can close this window. ${check}`);
+  }
+  showHistoryStep(ctx);
 }
 
 /** @param {Ctx} ctx @param {string} label @param {string | undefined} expires */

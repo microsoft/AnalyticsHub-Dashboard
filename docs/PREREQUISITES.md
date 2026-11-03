@@ -43,16 +43,59 @@ yourself, the installer does their part.
 |---|---|
 | Answering the questions | About 5 minutes |
 | Setting up, after you choose **Go ahead** | About 15 minutes |
-| First data in the app, with 30 days of history | About 25 minutes after **Go ahead** |
-| First data in the app, with 180 days of history | About 2 hours after **Go ahead** |
+| The first load of audit history, once setup is finished | See the estimates below |
 | Copilot Studio credits | After the Studio flow's first run. Run it straight away, or it runs the next day |
 
-A tenant with more than 10,000 people takes longer: see [A large tenant](../installer/README.md#a-large-tenant).
-Count everyone with a Microsoft 365 licence and an enabled account, not only those with a Copilot
-seat. The installer counts them for you and asks you to check.
+**Keep this PC awake and plugged in until the installer says setup is finished.** If the PC
+sleeps, setup stops until it wakes. After that you can close the window: the first load carries on
+in Fabric or Azure, and `status` shows how far it has got. In Azure Cloud Shell, keep the tab open
+until then.
 
-**Keep this PC awake and plugged in** until the installer says it's finished, and keep the
-installer window open. If the PC sleeps, setup stops until it wakes.
+How long the first load takes depends on where it reads the audit log. The plan shows the estimate
+for your install beside the history question, and the installer says it again when the load
+starts.
+
+- **The Office 365 Management Activity API**, which new installs on Fabric read. It keeps 7 days,
+  so the first load reads the last 7 days, in one run, whatever history you choose, and leaves the
+  older days out. It holds nothing from before its subscription started, and a new subscription
+  can take up to 12 hours to show content, so the first load may find nothing: the scheduled runs
+  pick up from then on. With **Microsoft Sentinel** as the audit source, the first load reads what
+  Sentinel holds, or the last 7 days. See
+  [Where the audit log comes from](../fabric/notebooks/README.md#where-the-audit-log-comes-from).
+- **Microsoft Graph audit search**, which Azure reads, as do Fabric installs from earlier versions
+  until you change their audit source. On Fabric, turn on Graph history under Advanced settings to
+  read the older days from it, or load them later with the `run` command that `status` gives. The
+  table below has its estimates.
+
+A load from Graph audit search takes longer with more days of history and more people. Count
+everyone with a Microsoft 365 licence and an enabled account, not only those with a Copilot seat.
+The installer counts them for you and asks you to check.
+
+These are estimates. They count the tenant's audit search limit, below, and the time each search
+takes, scaled from two measured loads until timed runs of the installer replace them.
+
+| History, from Graph audit search | Fabric, up to 10,000 people | Fabric, more than 10,000 | Azure, up to 10,000 | Azure, more than 10,000 |
+|---|---|---|---|---|
+| 30 days | 1 to 2 hours | 1 to 2 days, over two or three runs | 2 to 3 hours | 2 to 4 hours, in one or two runs |
+| 90 days | 2 to 3 hours | 5 to 6 days, over six or seven runs | 1 to 2 days, over two or three runs | 1 to 2 days, over two or three runs |
+| 180 days | 3 to 5 hours | 10 to 11 days, over 11 or 12 runs | 2 to 3 days, over three or four runs | 2 to 3 days, over three or four runs |
+
+Most of a long load is waiting for the tenant's audit search limit. The load starts one audit
+search for each window of history it reads: a day on Fabric, or 2 hours for more than 10,000
+people, and 8 hours on Azure. A tenant can start at least 200 audit searches in a rolling 24 hours,
+shared with other admins and tools, and a tenant with more licences can get more: see
+[Microsoft Graph throttling limits](https://learn.microsoft.com/graph/throttling-limits#security-audit-log-query-service-limits).
+A load that needs more stops when they're used up, and a run a day later carries on. The audit
+service's queue can add hours on a busy day.
+
+- **Fabric.** The scheduled runs load only the newest days, so they don't carry a first load on.
+  When a load needs more than one run, start each run after the first with `run`, a day apart.
+  `status` gives the command, and when a run can search again.
+- **Azure.** Each scheduled run carries the load on, and the run job runs daily unless you chose
+  weekly. On a weekly schedule, start the runs in between with `run`: otherwise each waits a week.
+
+What each target does when a run can't fetch it all is under
+[How long the first load takes](../installer/README.md#how-long-the-first-load-takes).
 
 ## Permissions
 
