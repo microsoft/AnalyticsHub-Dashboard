@@ -1,0 +1,2183 @@
+{
+  "contract_version": "1.0.0",
+  "identities": [
+    {
+      "account_id": "demo-team",
+      "candidate_email": null,
+      "identity_domain": "synthetic-portfolio",
+      "identity_key": "14c6ad0fe176a8de71f1d6843b11a9386cc36475000c830e66f39ee95b4a2f0d",
+      "kind": "unknown",
+      "provider": "cursor",
+      "resolution": "missing_source_id",
+      "source_user_id": null
+    },
+    {
+      "account_id": "demo-enterprise",
+      "candidate_email": null,
+      "identity_domain": "synthetic-portfolio",
+      "identity_key": "3161aec91de0c1a485fa6bd332a3494c1a7699b81bb904ae9e4d0e3fba9274a9",
+      "kind": "service",
+      "provider": "anthropic_enterprise",
+      "resolution": "unmatched",
+      "source_user_id": "demo-service-001"
+    },
+    {
+      "account_id": "demo-team",
+      "candidate_email": "demo-user-001@example.invalid",
+      "identity_domain": "synthetic-portfolio",
+      "identity_key": "4504d821f28654168271d69944ccee352045c80ce8819d33441593f568a5b60d",
+      "kind": "unknown",
+      "provider": "cursor",
+      "resolution": "unmatched",
+      "source_user_id": "demo-cursor-001"
+    },
+    {
+      "account_id": "demo-team",
+      "candidate_email": "demo-user-002@example.invalid",
+      "identity_domain": "synthetic-portfolio",
+      "identity_key": "65d710d9765669fc1e534a63ccdc94c85db7ef10fcb0aface043f8c51927957e",
+      "kind": "unknown",
+      "provider": "cursor",
+      "resolution": "unmatched",
+      "source_user_id": "demo-cursor-002b"
+    },
+    {
+      "account_id": "demo-enterprise",
+      "candidate_email": "demo-user-001@example.invalid",
+      "identity_domain": "synthetic-portfolio",
+      "identity_key": "a563832c6d1fdd0506da4b16dde7a2e45096f8c919ceec57d069925ea6924b7e",
+      "kind": "unknown",
+      "provider": "anthropic_enterprise",
+      "resolution": "unmatched",
+      "source_user_id": "demo-user-001"
+    },
+    {
+      "account_id": "demo-workspace",
+      "candidate_email": "demo-user-001@example.invalid",
+      "identity_domain": "synthetic-portfolio",
+      "identity_key": "bf2277a31d1fd7a232b97c49a21f8bdfe77db65cd397e90dbb12449d0e007d72",
+      "kind": "unknown",
+      "provider": "openai_chatgpt",
+      "resolution": "unmatched",
+      "source_user_id": "demo-chat-user-001"
+    },
+    {
+      "account_id": "demo-team",
+      "candidate_email": "demo-user-002@example.invalid",
+      "identity_domain": "synthetic-portfolio",
+      "identity_key": "f5d5fcd45adaf83dda51fba778ac48dd6fa08966a9eb5f1ff5f251c35bae302b",
+      "kind": "unknown",
+      "provider": "cursor",
+      "resolution": "unmatched",
+      "source_user_id": "demo-cursor-002a"
+    },
+    {
+      "account_id": "demo-workspace",
+      "candidate_email": "demo-user-002@example.invalid",
+      "identity_domain": "synthetic-portfolio",
+      "identity_key": "f6ee56663b44c3005b12e07798a5713ae07ea72b854f3c7a87e780da5bf9f5e3",
+      "kind": "unknown",
+      "provider": "openai_chatgpt",
+      "resolution": "unmatched",
+      "source_user_id": "demo-chat-user-002"
+    },
+    {
+      "account_id": "demo-workspace",
+      "candidate_email": null,
+      "identity_domain": "synthetic-portfolio",
+      "identity_key": "f93496a9a7486f9e19503a3dfb58725f68f48eb41fb810bdc57df8088fc7db3a",
+      "kind": "service",
+      "provider": "openai_chatgpt",
+      "resolution": "unmatched",
+      "source_user_id": "demo-automation-001"
+    }
+  ],
+  "identity_candidates": [
+    {
+      "candidate_email": "demo-user-001@example.invalid",
+      "identity_domain": "synthetic-portfolio",
+      "identity_keys": [
+        "4504d821f28654168271d69944ccee352045c80ce8819d33441593f568a5b60d",
+        "a563832c6d1fdd0506da4b16dde7a2e45096f8c919ceec57d069925ea6924b7e",
+        "bf2277a31d1fd7a232b97c49a21f8bdfe77db65cd397e90dbb12449d0e007d72"
+      ],
+      "status": "candidate_only"
+    },
+    {
+      "candidate_email": "demo-user-002@example.invalid",
+      "identity_domain": "synthetic-portfolio",
+      "identity_keys": [
+        "65d710d9765669fc1e534a63ccdc94c85db7ef10fcb0aface043f8c51927957e",
+        "f5d5fcd45adaf83dda51fba778ac48dd6fa08966a9eb5f1ff5f251c35bae302b",
+        "f6ee56663b44c3005b12e07798a5713ae07ea72b854f3c7a87e780da5bf9f5e3"
+      ],
+      "status": "ambiguous"
+    }
+  ],
+  "ingested_at": "2026-10-27T12:00:00Z",
+  "observations": [
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "a563832c6d1fdd0506da4b16dde7a2e45096f8c919ceec57d069925ea6924b7e",
+      "metric": "messages",
+      "native_unit": "messages",
+      "native_value": "8",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "chat",
+      "source_id": "demo-claude-engagement",
+      "source_row": 1,
+      "unit": "messages",
+      "value": "8"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "a563832c6d1fdd0506da4b16dde7a2e45096f8c919ceec57d069925ea6924b7e",
+      "metric": "messages",
+      "native_unit": "messages",
+      "native_value": "4",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "cowork",
+      "source_id": "demo-claude-engagement",
+      "source_row": 1,
+      "unit": "messages",
+      "value": "4"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "a563832c6d1fdd0506da4b16dde7a2e45096f8c919ceec57d069925ea6924b7e",
+      "metric": "sessions",
+      "native_unit": "sessions",
+      "native_value": "1",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "cowork",
+      "source_id": "demo-claude-engagement",
+      "source_row": 1,
+      "unit": "sessions",
+      "value": "1"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "a563832c6d1fdd0506da4b16dde7a2e45096f8c919ceec57d069925ea6924b7e",
+      "metric": "sessions",
+      "native_unit": "sessions",
+      "native_value": "2",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "claude_code",
+      "source_id": "demo-claude-engagement",
+      "source_row": 1,
+      "unit": "sessions",
+      "value": "2"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "a563832c6d1fdd0506da4b16dde7a2e45096f8c919ceec57d069925ea6924b7e",
+      "metric": "commits",
+      "native_unit": "commits",
+      "native_value": "1",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "claude_code",
+      "source_id": "demo-claude-engagement",
+      "source_row": 1,
+      "unit": "commits",
+      "value": "1"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "a563832c6d1fdd0506da4b16dde7a2e45096f8c919ceec57d069925ea6924b7e",
+      "metric": "pull_requests",
+      "native_unit": "pull_requests",
+      "native_value": "0",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "claude_code",
+      "source_id": "demo-claude-engagement",
+      "source_row": 1,
+      "unit": "pull_requests",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "a563832c6d1fdd0506da4b16dde7a2e45096f8c919ceec57d069925ea6924b7e",
+      "metric": "lines_added",
+      "native_unit": "lines",
+      "native_value": "24",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "claude_code",
+      "source_id": "demo-claude-engagement",
+      "source_row": 1,
+      "unit": "lines",
+      "value": "24"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "a563832c6d1fdd0506da4b16dde7a2e45096f8c919ceec57d069925ea6924b7e",
+      "metric": "lines_removed",
+      "native_unit": "lines",
+      "native_value": "3",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "claude_code",
+      "source_id": "demo-claude-engagement",
+      "source_row": 1,
+      "unit": "lines",
+      "value": "3"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "a563832c6d1fdd0506da4b16dde7a2e45096f8c919ceec57d069925ea6924b7e",
+      "metric": "messages",
+      "native_unit": "messages",
+      "native_value": "8",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "chat_cowork_unified_chat",
+      "source_id": "demo-claude-engagement",
+      "source_row": 1,
+      "unit": "messages",
+      "value": "8"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "a563832c6d1fdd0506da4b16dde7a2e45096f8c919ceec57d069925ea6924b7e",
+      "metric": "messages",
+      "native_unit": "messages",
+      "native_value": "4",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "chat_cowork_unified_sessions",
+      "source_id": "demo-claude-engagement",
+      "source_row": 1,
+      "unit": "messages",
+      "value": "4"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "a563832c6d1fdd0506da4b16dde7a2e45096f8c919ceec57d069925ea6924b7e",
+      "metric": "sessions",
+      "native_unit": "sessions",
+      "native_value": "1",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "chat_cowork_unified_sessions",
+      "source_id": "demo-claude-engagement",
+      "source_row": 1,
+      "unit": "sessions",
+      "value": "1"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "3161aec91de0c1a485fa6bd332a3494c1a7699b81bb904ae9e4d0e3fba9274a9",
+      "metric": "sessions",
+      "native_unit": "sessions",
+      "native_value": "1",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "claude_code",
+      "source_id": "demo-claude-engagement",
+      "source_row": 2,
+      "unit": "sessions",
+      "value": "1"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "3161aec91de0c1a485fa6bd332a3494c1a7699b81bb904ae9e4d0e3fba9274a9",
+      "metric": "commits",
+      "native_unit": "commits",
+      "native_value": "0",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "claude_code",
+      "source_id": "demo-claude-engagement",
+      "source_row": 2,
+      "unit": "commits",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "3161aec91de0c1a485fa6bd332a3494c1a7699b81bb904ae9e4d0e3fba9274a9",
+      "metric": "pull_requests",
+      "native_unit": "pull_requests",
+      "native_value": "0",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "claude_code",
+      "source_id": "demo-claude-engagement",
+      "source_row": 2,
+      "unit": "pull_requests",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "3161aec91de0c1a485fa6bd332a3494c1a7699b81bb904ae9e4d0e3fba9274a9",
+      "metric": "lines_added",
+      "native_unit": "lines",
+      "native_value": "6",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "claude_code",
+      "source_id": "demo-claude-engagement",
+      "source_row": 2,
+      "unit": "lines",
+      "value": "6"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "3161aec91de0c1a485fa6bd332a3494c1a7699b81bb904ae9e4d0e3fba9274a9",
+      "metric": "lines_removed",
+      "native_unit": "lines",
+      "native_value": "0",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "claude_code",
+      "source_id": "demo-claude-engagement",
+      "source_row": 2,
+      "unit": "lines",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": "reported_charge",
+      "currency": "USD",
+      "dimensions": {
+        "model": "demo-model"
+      },
+      "identity_key": "a563832c6d1fdd0506da4b16dde7a2e45096f8c919ceec57d069925ea6924b7e",
+      "metric": "reported_charge",
+      "native_unit": "cents",
+      "native_value": "125.125",
+      "period": {
+        "boundary": "exclusive_end",
+        "cadence": "source_range",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "product": "chat",
+      "source_id": "demo-claude-cost",
+      "source_row": 1,
+      "unit": "currency",
+      "value": "1.25125"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "bf2277a31d1fd7a232b97c49a21f8bdfe77db65cd397e90dbb12449d0e007d72",
+      "metric": "messages",
+      "native_unit": "messages",
+      "native_value": "12",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "ChatGPT",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 1,
+      "unit": "messages",
+      "value": "12"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "bf2277a31d1fd7a232b97c49a21f8bdfe77db65cd397e90dbb12449d0e007d72",
+      "metric": "gpt_messages",
+      "native_unit": "messages",
+      "native_value": "4",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "ChatGPT",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 1,
+      "unit": "messages",
+      "value": "4"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "bf2277a31d1fd7a232b97c49a21f8bdfe77db65cd397e90dbb12449d0e007d72",
+      "metric": "tool_messages",
+      "native_unit": "messages",
+      "native_value": "3",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "ChatGPT",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 1,
+      "unit": "messages",
+      "value": "3"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "bf2277a31d1fd7a232b97c49a21f8bdfe77db65cd397e90dbb12449d0e007d72",
+      "metric": "project_messages",
+      "native_unit": "messages",
+      "native_value": "2",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "ChatGPT",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 1,
+      "unit": "messages",
+      "value": "2"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "bf2277a31d1fd7a232b97c49a21f8bdfe77db65cd397e90dbb12449d0e007d72",
+      "metric": "is_active",
+      "native_unit": "boolean",
+      "native_value": true,
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "ChatGPT",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 1,
+      "unit": "boolean",
+      "value": true
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {
+        "category": "model_to_messages",
+        "key": "demo-model"
+      },
+      "identity_key": "bf2277a31d1fd7a232b97c49a21f8bdfe77db65cd397e90dbb12449d0e007d72",
+      "metric": "message_breakdown",
+      "native_unit": "messages",
+      "native_value": "12",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "ChatGPT",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 1,
+      "unit": "messages",
+      "value": "12"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {
+        "category": "tool_to_messages",
+        "key": "API Tool"
+      },
+      "identity_key": "bf2277a31d1fd7a232b97c49a21f8bdfe77db65cd397e90dbb12449d0e007d72",
+      "metric": "message_breakdown",
+      "native_unit": "messages",
+      "native_value": "3",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "ChatGPT",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 1,
+      "unit": "messages",
+      "value": "3"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f6ee56663b44c3005b12e07798a5713ae07ea72b854f3c7a87e780da5bf9f5e3",
+      "metric": "messages",
+      "native_unit": "messages",
+      "native_value": "0",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "Codex",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 2,
+      "unit": "messages",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f6ee56663b44c3005b12e07798a5713ae07ea72b854f3c7a87e780da5bf9f5e3",
+      "metric": "gpt_messages",
+      "native_unit": "messages",
+      "native_value": "0",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "Codex",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 2,
+      "unit": "messages",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f6ee56663b44c3005b12e07798a5713ae07ea72b854f3c7a87e780da5bf9f5e3",
+      "metric": "project_messages",
+      "native_unit": "messages",
+      "native_value": "0",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "Codex",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 2,
+      "unit": "messages",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f6ee56663b44c3005b12e07798a5713ae07ea72b854f3c7a87e780da5bf9f5e3",
+      "metric": "is_active",
+      "native_unit": "boolean",
+      "native_value": false,
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "Codex",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 2,
+      "unit": "boolean",
+      "value": false
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f93496a9a7486f9e19503a3dfb58725f68f48eb41fb810bdc57df8088fc7db3a",
+      "metric": "messages",
+      "native_unit": "messages",
+      "native_value": "2",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "Automation",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 3,
+      "unit": "messages",
+      "value": "2"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f93496a9a7486f9e19503a3dfb58725f68f48eb41fb810bdc57df8088fc7db3a",
+      "metric": "gpt_messages",
+      "native_unit": "messages",
+      "native_value": "0",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "Automation",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 3,
+      "unit": "messages",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f93496a9a7486f9e19503a3dfb58725f68f48eb41fb810bdc57df8088fc7db3a",
+      "metric": "tool_messages",
+      "native_unit": "messages",
+      "native_value": "0",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "Automation",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 3,
+      "unit": "messages",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f93496a9a7486f9e19503a3dfb58725f68f48eb41fb810bdc57df8088fc7db3a",
+      "metric": "project_messages",
+      "native_unit": "messages",
+      "native_value": "0",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "Automation",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 3,
+      "unit": "messages",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f93496a9a7486f9e19503a3dfb58725f68f48eb41fb810bdc57df8088fc7db3a",
+      "metric": "is_active",
+      "native_unit": "boolean",
+      "native_value": true,
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "Automation",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 3,
+      "unit": "boolean",
+      "value": true
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {
+        "category": "model_to_messages",
+        "key": "demo-model"
+      },
+      "identity_key": "f93496a9a7486f9e19503a3dfb58725f68f48eb41fb810bdc57df8088fc7db3a",
+      "metric": "message_breakdown",
+      "native_unit": "messages",
+      "native_value": "2",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "product": "Automation",
+      "source_id": "demo-chatgpt-users",
+      "source_row": 3,
+      "unit": "messages",
+      "value": "2"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "4504d821f28654168271d69944ccee352045c80ce8819d33441593f568a5b60d",
+      "metric": "is_active",
+      "native_unit": "boolean",
+      "native_value": true,
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 1,
+      "unit": "boolean",
+      "value": true
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "4504d821f28654168271d69944ccee352045c80ce8819d33441593f568a5b60d",
+      "metric": "lines_added",
+      "native_unit": "lines",
+      "native_value": "30",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 1,
+      "unit": "lines",
+      "value": "30"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "4504d821f28654168271d69944ccee352045c80ce8819d33441593f568a5b60d",
+      "metric": "lines_removed",
+      "native_unit": "lines",
+      "native_value": "4",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 1,
+      "unit": "lines",
+      "value": "4"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "4504d821f28654168271d69944ccee352045c80ce8819d33441593f568a5b60d",
+      "metric": "accepted_lines_added",
+      "native_unit": "lines",
+      "native_value": "20",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 1,
+      "unit": "lines",
+      "value": "20"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "4504d821f28654168271d69944ccee352045c80ce8819d33441593f568a5b60d",
+      "metric": "accepted_lines_removed",
+      "native_unit": "lines",
+      "native_value": "2",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 1,
+      "unit": "lines",
+      "value": "2"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "4504d821f28654168271d69944ccee352045c80ce8819d33441593f568a5b60d",
+      "metric": "tabs_shown",
+      "native_unit": "tabs",
+      "native_value": "8",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 1,
+      "unit": "tabs",
+      "value": "8"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "4504d821f28654168271d69944ccee352045c80ce8819d33441593f568a5b60d",
+      "metric": "tabs_accepted",
+      "native_unit": "tabs",
+      "native_value": "5",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 1,
+      "unit": "tabs",
+      "value": "5"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "4504d821f28654168271d69944ccee352045c80ce8819d33441593f568a5b60d",
+      "metric": "chat_requests",
+      "native_unit": "requests",
+      "native_value": "3",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 1,
+      "unit": "requests",
+      "value": "3"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "4504d821f28654168271d69944ccee352045c80ce8819d33441593f568a5b60d",
+      "metric": "agent_requests",
+      "native_unit": "requests",
+      "native_value": "2",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 1,
+      "unit": "requests",
+      "value": "2"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "4504d821f28654168271d69944ccee352045c80ce8819d33441593f568a5b60d",
+      "metric": "composer_requests",
+      "native_unit": "requests",
+      "native_value": "1",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 1,
+      "unit": "requests",
+      "value": "1"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f5d5fcd45adaf83dda51fba778ac48dd6fa08966a9eb5f1ff5f251c35bae302b",
+      "metric": "is_active",
+      "native_unit": "boolean",
+      "native_value": false,
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 2,
+      "unit": "boolean",
+      "value": false
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f5d5fcd45adaf83dda51fba778ac48dd6fa08966a9eb5f1ff5f251c35bae302b",
+      "metric": "lines_added",
+      "native_unit": "lines",
+      "native_value": "0",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 2,
+      "unit": "lines",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f5d5fcd45adaf83dda51fba778ac48dd6fa08966a9eb5f1ff5f251c35bae302b",
+      "metric": "lines_removed",
+      "native_unit": "lines",
+      "native_value": "0",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 2,
+      "unit": "lines",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f5d5fcd45adaf83dda51fba778ac48dd6fa08966a9eb5f1ff5f251c35bae302b",
+      "metric": "accepted_lines_added",
+      "native_unit": "lines",
+      "native_value": "0",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 2,
+      "unit": "lines",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f5d5fcd45adaf83dda51fba778ac48dd6fa08966a9eb5f1ff5f251c35bae302b",
+      "metric": "accepted_lines_removed",
+      "native_unit": "lines",
+      "native_value": "0",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 2,
+      "unit": "lines",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f5d5fcd45adaf83dda51fba778ac48dd6fa08966a9eb5f1ff5f251c35bae302b",
+      "metric": "tabs_shown",
+      "native_unit": "tabs",
+      "native_value": "0",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 2,
+      "unit": "tabs",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f5d5fcd45adaf83dda51fba778ac48dd6fa08966a9eb5f1ff5f251c35bae302b",
+      "metric": "tabs_accepted",
+      "native_unit": "tabs",
+      "native_value": "0",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 2,
+      "unit": "tabs",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f5d5fcd45adaf83dda51fba778ac48dd6fa08966a9eb5f1ff5f251c35bae302b",
+      "metric": "chat_requests",
+      "native_unit": "requests",
+      "native_value": "0",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 2,
+      "unit": "requests",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f5d5fcd45adaf83dda51fba778ac48dd6fa08966a9eb5f1ff5f251c35bae302b",
+      "metric": "agent_requests",
+      "native_unit": "requests",
+      "native_value": "0",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 2,
+      "unit": "requests",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "f5d5fcd45adaf83dda51fba778ac48dd6fa08966a9eb5f1ff5f251c35bae302b",
+      "metric": "composer_requests",
+      "native_unit": "requests",
+      "native_value": "0",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 2,
+      "unit": "requests",
+      "value": "0"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "65d710d9765669fc1e534a63ccdc94c85db7ef10fcb0aface043f8c51927957e",
+      "metric": "is_active",
+      "native_unit": "boolean",
+      "native_value": true,
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 3,
+      "unit": "boolean",
+      "value": true
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "65d710d9765669fc1e534a63ccdc94c85db7ef10fcb0aface043f8c51927957e",
+      "metric": "chat_requests",
+      "native_unit": "requests",
+      "native_value": "1",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 3,
+      "unit": "requests",
+      "value": "1"
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "14c6ad0fe176a8de71f1d6843b11a9386cc36475000c830e66f39ee95b4a2f0d",
+      "metric": "is_active",
+      "native_unit": "boolean",
+      "native_value": true,
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 4,
+      "unit": "boolean",
+      "value": true
+    },
+    {
+      "contract_version": "1.0.0",
+      "cost_basis": null,
+      "currency": null,
+      "dimensions": {},
+      "identity_key": "14c6ad0fe176a8de71f1d6843b11a9386cc36475000c830e66f39ee95b4a2f0d",
+      "metric": "agent_requests",
+      "native_unit": "requests",
+      "native_value": "1",
+      "period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "product": "cursor",
+      "source_id": "demo-cursor-usage",
+      "source_row": 4,
+      "unit": "requests",
+      "value": "1"
+    }
+  ],
+  "portfolio": {
+    "deferred_sources": {
+      "anthropic_usage": "Tokens/requests and Console channels deferred; no totals inferred from messages.",
+      "chatgpt_analytics_api": "Route, response schema and pagination unverified; no stub that implies readiness.",
+      "github_copilot": "Credits already covered by the existing optional Fabric feed. Usage-report adapter and identity mapping deferred.",
+      "microsoft": "Existing collectors remain unchanged. No safe exported fixture contract was identified for reuse in this increment.",
+      "openai_developer": "Optional separate provider; usage, tokens and dollars must never be treated as ChatGPT seats."
+    },
+    "metrics": [
+      {
+        "cost_basis": "reported_charge",
+        "currency": "USD",
+        "dimensions": {
+          "model": "demo-model"
+        },
+        "metric": "reported_charge",
+        "observations": 1,
+        "observed_value": "1.25125",
+        "period": {
+          "boundary": "exclusive_end",
+          "cadence": "source_range",
+          "end": "2026-10-26T00:00:00Z",
+          "start": "2026-10-25T00:00:00Z"
+        },
+        "product": "chat",
+        "source_id": "demo-claude-cost",
+        "unit": "currency"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {
+          "category": "model_to_messages",
+          "key": "demo-model"
+        },
+        "metric": "message_breakdown",
+        "observations": 1,
+        "observed_value": "2",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "Automation",
+        "source_id": "demo-chatgpt-users",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {
+          "category": "model_to_messages",
+          "key": "demo-model"
+        },
+        "metric": "message_breakdown",
+        "observations": 1,
+        "observed_value": "12",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "ChatGPT",
+        "source_id": "demo-chatgpt-users",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {
+          "category": "tool_to_messages",
+          "key": "API Tool"
+        },
+        "metric": "message_breakdown",
+        "observations": 1,
+        "observed_value": "3",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "ChatGPT",
+        "source_id": "demo-chatgpt-users",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "accepted_lines_added",
+        "observations": 2,
+        "observed_value": "20",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-25",
+          "start": "2026-10-25"
+        },
+        "product": "cursor",
+        "source_id": "demo-cursor-usage",
+        "unit": "lines"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "accepted_lines_removed",
+        "observations": 2,
+        "observed_value": "2",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-25",
+          "start": "2026-10-25"
+        },
+        "product": "cursor",
+        "source_id": "demo-cursor-usage",
+        "unit": "lines"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "agent_requests",
+        "observations": 3,
+        "observed_value": "3",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-25",
+          "start": "2026-10-25"
+        },
+        "product": "cursor",
+        "source_id": "demo-cursor-usage",
+        "unit": "requests"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "chat_requests",
+        "observations": 3,
+        "observed_value": "4",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-25",
+          "start": "2026-10-25"
+        },
+        "product": "cursor",
+        "source_id": "demo-cursor-usage",
+        "unit": "requests"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "commits",
+        "observations": 2,
+        "observed_value": "1",
+        "period": {
+          "boundary": "exclusive_end",
+          "cadence": "daily",
+          "end": "2026-10-26T00:00:00Z",
+          "start": "2026-10-25T00:00:00Z"
+        },
+        "product": "claude_code",
+        "source_id": "demo-claude-engagement",
+        "unit": "commits"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "composer_requests",
+        "observations": 2,
+        "observed_value": "1",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-25",
+          "start": "2026-10-25"
+        },
+        "product": "cursor",
+        "source_id": "demo-cursor-usage",
+        "unit": "requests"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "gpt_messages",
+        "observations": 1,
+        "observed_value": "0",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "Automation",
+        "source_id": "demo-chatgpt-users",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "gpt_messages",
+        "observations": 1,
+        "observed_value": "4",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "ChatGPT",
+        "source_id": "demo-chatgpt-users",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "gpt_messages",
+        "observations": 1,
+        "observed_value": "0",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "Codex",
+        "source_id": "demo-chatgpt-users",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "false_observations": 1,
+        "metric": "is_active",
+        "observations": 4,
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-25",
+          "start": "2026-10-25"
+        },
+        "product": "cursor",
+        "source_id": "demo-cursor-usage",
+        "true_observations": 3,
+        "unit": "boolean"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "false_observations": 0,
+        "metric": "is_active",
+        "observations": 1,
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "Automation",
+        "source_id": "demo-chatgpt-users",
+        "true_observations": 1,
+        "unit": "boolean"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "false_observations": 0,
+        "metric": "is_active",
+        "observations": 1,
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "ChatGPT",
+        "source_id": "demo-chatgpt-users",
+        "true_observations": 1,
+        "unit": "boolean"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "false_observations": 1,
+        "metric": "is_active",
+        "observations": 1,
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "Codex",
+        "source_id": "demo-chatgpt-users",
+        "true_observations": 0,
+        "unit": "boolean"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "lines_added",
+        "observations": 2,
+        "observed_value": "30",
+        "period": {
+          "boundary": "exclusive_end",
+          "cadence": "daily",
+          "end": "2026-10-26T00:00:00Z",
+          "start": "2026-10-25T00:00:00Z"
+        },
+        "product": "claude_code",
+        "source_id": "demo-claude-engagement",
+        "unit": "lines"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "lines_added",
+        "observations": 2,
+        "observed_value": "30",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-25",
+          "start": "2026-10-25"
+        },
+        "product": "cursor",
+        "source_id": "demo-cursor-usage",
+        "unit": "lines"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "lines_removed",
+        "observations": 2,
+        "observed_value": "3",
+        "period": {
+          "boundary": "exclusive_end",
+          "cadence": "daily",
+          "end": "2026-10-26T00:00:00Z",
+          "start": "2026-10-25T00:00:00Z"
+        },
+        "product": "claude_code",
+        "source_id": "demo-claude-engagement",
+        "unit": "lines"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "lines_removed",
+        "observations": 2,
+        "observed_value": "4",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-25",
+          "start": "2026-10-25"
+        },
+        "product": "cursor",
+        "source_id": "demo-cursor-usage",
+        "unit": "lines"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "messages",
+        "observations": 1,
+        "observed_value": "8",
+        "period": {
+          "boundary": "exclusive_end",
+          "cadence": "daily",
+          "end": "2026-10-26T00:00:00Z",
+          "start": "2026-10-25T00:00:00Z"
+        },
+        "product": "chat",
+        "source_id": "demo-claude-engagement",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "messages",
+        "observations": 1,
+        "observed_value": "8",
+        "period": {
+          "boundary": "exclusive_end",
+          "cadence": "daily",
+          "end": "2026-10-26T00:00:00Z",
+          "start": "2026-10-25T00:00:00Z"
+        },
+        "product": "chat_cowork_unified_chat",
+        "source_id": "demo-claude-engagement",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "messages",
+        "observations": 1,
+        "observed_value": "4",
+        "period": {
+          "boundary": "exclusive_end",
+          "cadence": "daily",
+          "end": "2026-10-26T00:00:00Z",
+          "start": "2026-10-25T00:00:00Z"
+        },
+        "product": "chat_cowork_unified_sessions",
+        "source_id": "demo-claude-engagement",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "messages",
+        "observations": 1,
+        "observed_value": "4",
+        "period": {
+          "boundary": "exclusive_end",
+          "cadence": "daily",
+          "end": "2026-10-26T00:00:00Z",
+          "start": "2026-10-25T00:00:00Z"
+        },
+        "product": "cowork",
+        "source_id": "demo-claude-engagement",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "messages",
+        "observations": 1,
+        "observed_value": "2",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "Automation",
+        "source_id": "demo-chatgpt-users",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "messages",
+        "observations": 1,
+        "observed_value": "12",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "ChatGPT",
+        "source_id": "demo-chatgpt-users",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "messages",
+        "observations": 1,
+        "observed_value": "0",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "Codex",
+        "source_id": "demo-chatgpt-users",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "project_messages",
+        "observations": 1,
+        "observed_value": "0",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "Automation",
+        "source_id": "demo-chatgpt-users",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "project_messages",
+        "observations": 1,
+        "observed_value": "2",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "ChatGPT",
+        "source_id": "demo-chatgpt-users",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "project_messages",
+        "observations": 1,
+        "observed_value": "0",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "Codex",
+        "source_id": "demo-chatgpt-users",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "pull_requests",
+        "observations": 2,
+        "observed_value": "0",
+        "period": {
+          "boundary": "exclusive_end",
+          "cadence": "daily",
+          "end": "2026-10-26T00:00:00Z",
+          "start": "2026-10-25T00:00:00Z"
+        },
+        "product": "claude_code",
+        "source_id": "demo-claude-engagement",
+        "unit": "pull_requests"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "sessions",
+        "observations": 1,
+        "observed_value": "1",
+        "period": {
+          "boundary": "exclusive_end",
+          "cadence": "daily",
+          "end": "2026-10-26T00:00:00Z",
+          "start": "2026-10-25T00:00:00Z"
+        },
+        "product": "chat_cowork_unified_sessions",
+        "source_id": "demo-claude-engagement",
+        "unit": "sessions"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "sessions",
+        "observations": 2,
+        "observed_value": "3",
+        "period": {
+          "boundary": "exclusive_end",
+          "cadence": "daily",
+          "end": "2026-10-26T00:00:00Z",
+          "start": "2026-10-25T00:00:00Z"
+        },
+        "product": "claude_code",
+        "source_id": "demo-claude-engagement",
+        "unit": "sessions"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "sessions",
+        "observations": 1,
+        "observed_value": "1",
+        "period": {
+          "boundary": "exclusive_end",
+          "cadence": "daily",
+          "end": "2026-10-26T00:00:00Z",
+          "start": "2026-10-25T00:00:00Z"
+        },
+        "product": "cowork",
+        "source_id": "demo-claude-engagement",
+        "unit": "sessions"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "tabs_accepted",
+        "observations": 2,
+        "observed_value": "5",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-25",
+          "start": "2026-10-25"
+        },
+        "product": "cursor",
+        "source_id": "demo-cursor-usage",
+        "unit": "tabs"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "tabs_shown",
+        "observations": 2,
+        "observed_value": "8",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-25",
+          "start": "2026-10-25"
+        },
+        "product": "cursor",
+        "source_id": "demo-cursor-usage",
+        "unit": "tabs"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "tool_messages",
+        "observations": 1,
+        "observed_value": "0",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "Automation",
+        "source_id": "demo-chatgpt-users",
+        "unit": "messages"
+      },
+      {
+        "cost_basis": null,
+        "currency": null,
+        "dimensions": {},
+        "metric": "tool_messages",
+        "observations": 1,
+        "observed_value": "3",
+        "period": {
+          "boundary": "inclusive_dates",
+          "cadence": "daily",
+          "end": "2026-10-26",
+          "start": "2026-10-01"
+        },
+        "product": "ChatGPT",
+        "source_id": "demo-chatgpt-users",
+        "unit": "messages"
+      }
+    ],
+    "scope": "Observed fixture values by source; never unique people or comparable activity."
+  },
+  "run_id": "synthetic-portfolio-2026-10-27",
+  "schema_version": "1.0.0",
+  "sources": [
+    {
+      "account_id": "demo-enterprise",
+      "adapter": "anthropic_enterprise_users",
+      "capability": "One-day per-user engagement, including unified Chat/Cowork kept as separate potentially overlapping channels.",
+      "classification": "synthetic",
+      "completeness": "complete",
+      "contract_version": "1.0.0",
+      "coverage_status": "partial",
+      "declared_period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "evidence_level": "fixture",
+      "evidence_reference": "Independently authored synthetic enterprise-user fixture; not live or verified.",
+      "freshness": {
+        "age_seconds": null,
+        "source_refreshed_at": null,
+        "status": "unknown"
+      },
+      "identity_domain": "synthetic-portfolio",
+      "ingested_at": "2026-10-27T12:00:00Z",
+      "input_rows": 2,
+      "limitations": "No org DAU/WAU/MAU, seats, feature endpoints, Console or Bedrock. User shape differs from brief actor shape. No live validation.",
+      "missing_metric_count": 6,
+      "observation_count": 16,
+      "provider": "anthropic_enterprise",
+      "run_id": "synthetic-portfolio-2026-10-27",
+      "schema_version": "fixture-users-v1",
+      "sha256": "1c0c97b326da1a1bc8cc492afd98957a13bcad8cb9999c894fd127e1c992c4b3",
+      "source_endpoint": "/v1/organizations/analytics/users",
+      "source_file": "anthropic-users.json",
+      "source_id": "demo-claude-engagement"
+    },
+    {
+      "account_id": "demo-enterprise",
+      "adapter": "anthropic_grouped_cost",
+      "capability": "Illustrative actor/model/product grouped costs. Decimal cents retained and converted exactly to native-currency major units.",
+      "classification": "synthetic",
+      "completeness": "complete",
+      "contract_version": "1.0.0",
+      "coverage_status": "observed",
+      "declared_period": {
+        "boundary": "exclusive_end",
+        "cadence": "daily",
+        "end": "2026-10-26T00:00:00Z",
+        "start": "2026-10-25T00:00:00Z"
+      },
+      "evidence_level": "fixture",
+      "evidence_reference": "Locally generated illustrative grouped cost; not live or verified billing.",
+      "freshness": {
+        "age_seconds": 43200,
+        "source_refreshed_at": "2026-10-27T00:00:00Z",
+        "status": "reported"
+      },
+      "identity_domain": "synthetic-portfolio",
+      "ingested_at": "2026-10-27T12:00:00Z",
+      "input_rows": 1,
+      "limitations": "Only actor/model/product grouping with other dimensions null. list_amount is unverified and deliberately not mapped. No invoice reconciliation or live validation.",
+      "missing_metric_count": 0,
+      "observation_count": 1,
+      "provider": "anthropic_enterprise",
+      "run_id": "synthetic-portfolio-2026-10-27",
+      "schema_version": "illustrative-grouped-cost-v1",
+      "sha256": "3d41ce107fd15c6260599d9ae0bc3144afda400b5e84c0da1d610017eb856dc0",
+      "source_endpoint": "/v1/organizations/analytics/cost",
+      "source_file": "anthropic-cost.json",
+      "source_id": "demo-claude-cost"
+    },
+    {
+      "account_id": "demo-workspace",
+      "adapter": "chatgpt_workspace_csv",
+      "capability": "Partial Users CSV, native period, seat_type, message counts and JSON-encoded message-map child facts.",
+      "classification": "synthetic",
+      "completeness": "complete",
+      "contract_version": "1.0.0",
+      "coverage_status": "partial",
+      "declared_period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-26",
+        "start": "2026-10-01"
+      },
+      "evidence_level": "fixture",
+      "evidence_reference": "Partial Users CSV fixture shape; independently authored monthly example.",
+      "freshness": {
+        "age_seconds": null,
+        "source_refreshed_at": null,
+        "status": "unknown"
+      },
+      "identity_domain": "synthetic-portfolio",
+      "ingested_at": "2026-10-27T12:00:00Z",
+      "input_rows": 3,
+      "limitations": "CSV is not an API schema. Cadence does not override period bounds. GPT/Project exports and surveys deferred; no invented Analytics API route. No seat price or developer API cost.",
+      "missing_metric_count": 7,
+      "observation_count": 17,
+      "provider": "openai_chatgpt",
+      "run_id": "synthetic-portfolio-2026-10-27",
+      "schema_version": "partial-workspace-users-csv-v1",
+      "sha256": "5ba7d91ac6b06d9613a0739e6882c732e237ba1d36ebeee7fb977bf1e9bf0688",
+      "source_endpoint": null,
+      "source_file": "chatgpt-users.csv",
+      "source_id": "demo-chatgpt-users"
+    },
+    {
+      "account_id": "demo-team",
+      "adapter": "cursor_daily_usage",
+      "capability": "Per-user native day, activity, coding counts, chat/agent/composer requests.",
+      "classification": "synthetic",
+      "completeness": "complete",
+      "contract_version": "1.0.0",
+      "coverage_status": "partial",
+      "declared_period": {
+        "boundary": "inclusive_dates",
+        "cadence": "daily",
+        "end": "2026-10-25",
+        "start": "2026-10-25"
+      },
+      "evidence_level": "documentation",
+      "evidence_reference": "Independently authored synthetic daily coding-usage fixture; not live or verified.",
+      "freshness": {
+        "age_seconds": null,
+        "source_refreshed_at": null,
+        "status": "unknown"
+      },
+      "identity_domain": "synthetic-portfolio",
+      "ingested_at": "2026-10-27T12:00:00Z",
+      "input_rows": 4,
+      "limitations": "Fixture only; docs-qualified shape, not live validation. No spend/events/agent-edits adapters. Pagination completeness must be declared.",
+      "missing_metric_count": 16,
+      "observation_count": 24,
+      "provider": "cursor",
+      "run_id": "synthetic-portfolio-2026-10-27",
+      "schema_version": "documentation-daily-usage-v1",
+      "sha256": "f3c1a2cd8fa528febb6981db93857d684ba390058959bd9371dc5a8aae145deb",
+      "source_endpoint": "/teams/daily-usage-data",
+      "source_file": "cursor-daily.json",
+      "source_id": "demo-cursor-usage"
+    }
+  ]
+}

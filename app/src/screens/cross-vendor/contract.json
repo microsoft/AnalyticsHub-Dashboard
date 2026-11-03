@@ -1,0 +1,77 @@
+{
+  "contract_version": "1.0.0",
+  "schema_version": "1.0.0",
+  "metric_definitions": {
+    "messages": {"unit": "messages", "meaning": "Source-reported messages; not prompts, requests or sessions."},
+    "gpt_messages": {"unit": "messages", "meaning": "GPT message subset; never add to messages."},
+    "tool_messages": {"unit": "messages", "meaning": "Tool message subset; API Tool is not OpenAI API consumption."},
+    "project_messages": {"unit": "messages", "meaning": "Project message subset; never add to messages."},
+    "message_breakdown": {"unit": "messages", "meaning": "Map entries by category and key; overlapping breakdowns, not additional messages."},
+    "sessions": {"unit": "sessions", "meaning": "Native distinct sessions within one user/product/period only."},
+    "commits": {"unit": "commits", "meaning": "Native coding commit count; not an activity or value equivalent."},
+    "pull_requests": {"unit": "pull_requests", "meaning": "Native pull request count."},
+    "lines_added": {"unit": "lines", "meaning": "Native lines added; not accepted lines or productivity."},
+    "lines_removed": {"unit": "lines", "meaning": "Native lines removed; not accepted lines or productivity."},
+    "accepted_lines_added": {"unit": "lines", "meaning": "Native accepted lines added; subset, not additive to lines added."},
+    "accepted_lines_removed": {"unit": "lines", "meaning": "Native accepted lines removed; subset, not additive to lines removed."},
+    "tabs_shown": {"unit": "tabs", "meaning": "Native tab suggestions shown."},
+    "tabs_accepted": {"unit": "tabs", "meaning": "Native accepted tab suggestions; subset of shown."},
+    "chat_requests": {"unit": "requests", "meaning": "Cursor native chat request count."},
+    "agent_requests": {"unit": "requests", "meaning": "Cursor native agent request count."},
+    "composer_requests": {"unit": "requests", "meaning": "Cursor native composer request count; no inferred overlap rules."},
+    "is_active": {"unit": "boolean", "meaning": "Native user-period activity flag; not a unique portfolio person."},
+    "reported_charge": {"unit": "currency", "meaning": "Fixture-reported amount, not list estimate, allocated seat cost or verified invoice."}
+  },
+  "sources": {
+    "anthropic_enterprise_users": {
+      "provider": "anthropic_enterprise",
+      "schema_version": "fixture-users-v1",
+      "endpoint": "/v1/organizations/analytics/users",
+      "evidence": "fixture",
+      "supported": "One-day per-user engagement, including unified Chat/Cowork kept as separate potentially overlapping channels.",
+      "limitations": "No org DAU/WAU/MAU, seats, feature endpoints, Console or Bedrock. User shape differs from brief actor shape. No live validation."
+    },
+    "anthropic_grouped_cost": {
+      "provider": "anthropic_enterprise",
+      "schema_version": "illustrative-grouped-cost-v1",
+      "endpoint": "/v1/organizations/analytics/cost",
+      "evidence": "fixture",
+      "supported": "Illustrative actor/model/product grouped costs. Decimal cents retained and converted exactly to native-currency major units.",
+      "limitations": "Only actor/model/product grouping with other dimensions null. list_amount is unverified and deliberately not mapped. No invoice reconciliation or live validation."
+    },
+    "chatgpt_workspace_csv": {
+      "provider": "openai_chatgpt",
+      "schema_version": "partial-workspace-users-csv-v1",
+      "endpoint": null,
+      "evidence": "fixture",
+      "supported": "Partial Users CSV, native period, seat_type, message counts and JSON-encoded message-map child facts.",
+      "limitations": "CSV is not an API schema. Cadence does not override period bounds. GPT/Project exports and surveys deferred; no invented Analytics API route. No seat price or developer API cost."
+    },
+    "cursor_daily_usage": {
+      "provider": "cursor",
+      "schema_version": "documentation-daily-usage-v1",
+      "endpoint": "/teams/daily-usage-data",
+      "evidence": "documentation",
+      "supported": "Per-user native day, activity, coding counts, chat/agent/composer requests.",
+      "limitations": "Fixture only; docs-qualified shape, not live validation. No spend/events/agent-edits adapters. Pagination completeness must be declared."
+    }
+  },
+  "deferred_sources": {
+    "microsoft": "Existing collectors remain unchanged. No safe exported fixture contract was identified for reuse in this increment.",
+    "github_copilot": "Credits already covered by the existing optional Fabric feed. Usage-report adapter and identity mapping deferred.",
+    "openai_developer": "Optional separate provider; usage, tokens and dollars must never be treated as ChatGPT seats.",
+    "anthropic_usage": "Tokens/requests and Console channels deferred; no totals inferred from messages.",
+    "chatgpt_analytics_api": "Route, response schema and pagination unverified; no stub that implies readiness."
+  },
+  "reserved_units": ["prompts", "tokens", "credits", "seats"],
+  "reserved_cost_bases": ["list_estimate", "allocated_seat_cost"],
+  "invariants": [
+    "No universal person key, automatic email joins, unique-person total or cross-provider activity score.",
+    "No cross-source, cross-period, cross-product or cross-currency totals.",
+    "Unknown metrics are absent facts with quality counters, never zero-filled.",
+    "All numeric fact values are decimal strings; native boolean values remain boolean.",
+    "Keep native period bounds, boundary convention, cadence, currency, unit and amount.",
+    "Evidence level qualifies schema, not data authenticity. All supported input is synthetic or licensed fixture data.",
+    "No network access, prompt/response content, credentials, compliance or eDiscovery records."
+  ]
+}

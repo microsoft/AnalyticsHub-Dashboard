@@ -27,6 +27,17 @@ bundle file except itself. The build uses Vite's `demo` mode and relative asset 
 can live below a site subdirectory. Do not copy deployment settings or real identifiers into the
 demo bundle.
 
+The demo includes the Cross-vendor view (Portfolio, Adoption trends, Coding output,
+Spend & credits, Native usage, Cost & evidence, Source coverage and Methodology), plus
+comparison panels on Executive summary, Adoption, Consumption, Efficiency and Leaderboards.
+Its seeded 91-day comparison uses the same four organizations, 278 licensed-seat cohort and
+198 Copilot users as the other demo fixtures. Monthly active users cover their labelled month,
+not the app's all-date totals. Vendor counts can overlap; native units, credits and USD spend
+are not added together. The native-source evidence fixture is separately identified and is not
+a population total. The view's own vendor/product filters work locally; app-wide filters do
+not apply. `.env.demo` enables this view only for the static demo build; ordinary builds keep
+it disabled unless `VITE_CROSS_VENDOR_DEMO=true` is explicitly set.
+
 ## Deploy it by hand
 
 You need:

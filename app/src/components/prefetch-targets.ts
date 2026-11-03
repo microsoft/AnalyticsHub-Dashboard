@@ -49,7 +49,7 @@ export function prefetchTargets(
         if (stage) targets.push({ id: destination.id, stage });
     }
     const page = at < 0 ? undefined : available[at];
-    for (const stage of page?.stages ?? [])
+    for (const stage of page && isPackable(page) ? page.stages : [])
         if (stage.ready && stage.id !== currentStage) targets.push({ id: page!.id, stage: stage.id });
     return targets.slice(0, Math.max(0, limit));
 }

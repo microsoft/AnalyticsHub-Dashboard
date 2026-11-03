@@ -1,18 +1,14 @@
 import type { CachedQueryResult } from "@microsoft/fabric-app-data";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { DEFAULT_HOURLY_RATE } from "@/hooks/value-assumptions.context";
+import { DEMO_ORGANIZATIONS } from "./organizations";
 
 type DemoQueryTable = Extract<CachedQueryResult, { status: "success" }>["table"];
 
 const DATE_START = "2026-05-04";
 const DATE_END = "2026-11-02";
 const WINDOW_WEEKS = 26;
-const EXECUTIVE_ORGANIZATIONS = [
-    { name: "Engineering", seats: 88, seatsInUse: 64, people: 52, hours: 51, valueHours: 43, habitPct: 0.62 },
-    { name: "Operations", seats: 74, seatsInUse: 54, people: 48, hours: 44, valueHours: 37, habitPct: 0.56 },
-    { name: "Research", seats: 62, seatsInUse: 45, people: 45, hours: 38, valueHours: 32, habitPct: 0.58 },
-    { name: "Customer Success", seats: 54, seatsInUse: 35, people: 42, hours: 32, valueHours: 26, habitPct: 0.51 },
-] as const;
+const EXECUTIVE_ORGANIZATIONS = DEMO_ORGANIZATIONS;
 const ORGANIZATIONS = EXECUTIVE_ORGANIZATIONS.map(({ name }) => name);
 const TASKS = ["Document summaries", "Meeting follow-ups", "Data analysis", "Drafting"];
 const VALUE_TASK_GROUPS = ["Drafting", "Data analysis", "Meeting follow-ups", "Document summaries"];

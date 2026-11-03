@@ -13,6 +13,7 @@ import {
     Briefcase,
     Coins,
     Gauge,
+    Globe,
     KeyRound,
     LayoutDashboard,
     MessageSquareQuote,
@@ -71,6 +72,25 @@ export const destinations = [
             { id: "is-it-growing", label: "Is it growing?", ready: true },
             { id: "where-it-is-landing", label: "Where it is landing", ready: true },
             { id: "what-needs-attention", label: "What needs attention", ready: true },
+        ],
+    },
+    {
+        id: "cross-vendor",
+        label: "Cross-vendor view",
+        blurb: "Native usage across Copilot, Claude, ChatGPT / Codex and Cursor",
+        icon: Globe as LucideIcon,
+        filters: [] as FilterKey[],
+        demo: true,
+        dataRange: "27 Jul – 25 Oct 2026",
+        stages: [
+            { id: "vendor-portfolio", label: "Portfolio", ready: true },
+            { id: "vendor-adoption", label: "Adoption trends", ready: true },
+            { id: "vendor-coding", label: "Coding output", ready: true },
+            { id: "vendor-spend", label: "Spend & credits", ready: true },
+            { id: "vendor-usage", label: "Native usage", ready: true },
+            { id: "vendor-cost", label: "Cost & evidence", ready: true },
+            { id: "vendor-coverage", label: "Source coverage", ready: true },
+            { id: "vendor-methodology", label: "Methodology", ready: true },
         ],
     },
     {
@@ -246,7 +266,8 @@ export function isReference(destination: Destination): boolean {
 
 /** Whether a destination's stages can go in a report pack: not a conversation like Ask. */
 export function isPackable(destination: Destination): boolean {
-    return !("conversational" in destination && destination.conversational);
+    return !("demo" in destination && destination.demo) &&
+        !("conversational" in destination && destination.conversational);
 }
 
 /**
@@ -256,6 +277,7 @@ export function isPackable(destination: Destination): boolean {
 export function availableDestinations(models: ModelReferences, sources?: SourceAvailability): Destination[] {
     return destinations.filter(
         (destination) =>
+            (!("demo" in destination) || import.meta.env.VITE_CROSS_VENDOR_DEMO === "true") &&
             (!("connection" in destination) || isConnectionConfigured(models, destination.connection)) &&
             (!sources || !("source" in destination) || !isAbsent(sources, destination.source)),
     );

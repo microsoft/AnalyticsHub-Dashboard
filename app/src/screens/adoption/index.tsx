@@ -10,6 +10,7 @@ import { ActivationStage } from "./activation-stage";
 import { AdoptionStage } from "./adoption-stage";
 import { HabitStage } from "./habit-stage";
 import { TrendHeatmapStage } from "./trend-heatmap-stage";
+import { CrossVendorPanel } from "@/screens/cross-vendor/page-panel-gate";
 
 /**
  * The adoption funnel: how many people use Copilot, did they start, do they
@@ -20,6 +21,7 @@ export function AdoptionScreen() {
     return (
         <div className="flex flex-col gap-800">
             {show("adoption") && <AdoptionStage />}
+            {show("adoption") && <CrossVendorPanel page="adoption" />}
             {show("activation") && <ActivationStage />}
             {show("habit-formation") && <HabitStage />}
             {show("trend-heatmap") && <TrendHeatmapStage />}

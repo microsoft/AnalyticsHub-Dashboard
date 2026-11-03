@@ -16,6 +16,7 @@ import { BottomLineStage } from "./bottom-line-stage";
 import { GrowingStage } from "./growing-stage";
 import { LandingStage } from "./landing-stage";
 import { useExecutiveData } from "./use-executive-data";
+import { CrossVendorPanel } from "@/screens/cross-vendor/page-panel-gate";
 
 function ExecutiveStages() {
     const data = useExecutiveData();
@@ -46,6 +47,7 @@ function ExecutiveStages() {
     return (
         <div className="flex flex-col gap-800">
             {show("the-bottom-line") && <BottomLineStage data={data} />}
+            {show("the-bottom-line") && <CrossVendorPanel page="executive" />}
             {show("is-it-growing") && <GrowingStage data={data} />}
             {show("where-it-is-landing") && <LandingStage data={data} />}
             {show("what-needs-attention") && <AttentionStage data={data} />}

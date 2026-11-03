@@ -1,6 +1,8 @@
 /// <reference types="vite/client" />
 
 interface ImportMetaEnv {
+  readonly VITE_CROSS_VENDOR_DEMO?: string;
+  readonly VITE_DATAHUB_PREVIEW?: string;
   /** Rayfin API base URL (e.g. http://localhost:5168). */
   readonly VITE_RAYFIN_API_URL?: string;
   /** Rayfin publishable key (pk-...). */

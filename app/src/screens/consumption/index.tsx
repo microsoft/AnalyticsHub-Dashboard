@@ -30,6 +30,7 @@ import { OverviewStage } from "./overview-stage";
 import { useConsumptionSummary, useConsumptionTable } from "./data";
 import { RatesBar } from "./rates-bar";
 import { StudioStage } from "./studio-stage";
+import { CrossVendorPanel } from "@/screens/cross-vendor/page-panel-gate";
 
 const SOURCE = { anchor: stageAnchor("consumption-overview"), page: "Consumption", model: "Consumption Central" };
 
@@ -90,6 +91,7 @@ function ConsumptionPage() {
             {optionsBusy && optionsResult.error && <QueryError message={optionsResult.error} onRetry={optionsResult.refetch} />}
             {!inPack && <RatesBar azureCurrency={azureCurrency} />}
             {show("consumption-overview") && <OverviewStage />}
+            {show("consumption-overview") && <CrossVendorPanel page="consumption" />}
             {show("budget-runway") && <BudgetRunwayStage options={options} azure={azure} sources={sources.row} />}
             {show("cowork-credits") && <CoworkStage options={options} rates={rates} />}
             {show("studio-credits") && <StudioStage options={options} rates={rates} />}

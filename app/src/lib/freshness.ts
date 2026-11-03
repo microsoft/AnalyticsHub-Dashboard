@@ -83,6 +83,7 @@ const WEEKLY: ReadonlySet<FreshnessSource> = new Set(["cowork"]);
 
 /** The sources each page draws on, in the order its label lists them. */
 export const PAGE_SOURCES: Readonly<Record<DestinationId, readonly FreshnessSource[]>> = {
+    "cross-vendor": [],
     executive: ["auditLog"],
     adoption: ["auditLog"],
     leaderboards: ["auditLog"],

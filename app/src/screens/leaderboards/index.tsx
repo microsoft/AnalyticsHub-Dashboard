@@ -8,6 +8,7 @@
 import { useStageFilter } from "@/hooks/stage-filter.context";
 import { AgentRegistryStage } from "./agent-registry-stage";
 import { LeaderboardStage } from "./leaderboard-stage";
+import { CrossVendorPanel } from "@/screens/cross-vendor/page-panel-gate";
 
 /**
  * Who is doing the most, read top to bottom: the people, then the agents.
@@ -19,6 +20,7 @@ export function LeaderboardsScreen() {
     return (
         <div className="flex flex-col gap-800">
             {show("leaderboard") && <LeaderboardStage />}
+            {show("leaderboard") && <CrossVendorPanel page="leaderboards" />}
             {show("agents") && <AgentRegistryStage />}
         </div>
     );
