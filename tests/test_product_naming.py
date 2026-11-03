@@ -93,6 +93,9 @@ def test_release_history_and_compatibility_are_explained():
     assert "validated template rebuild or upstream re-pin" in guide
     assert "**Analytics Hub** app, then **Share**" in guide
     assert not re.search(r"\bAH\b", text("scripts/Check-SharePoint-Queries.py"))
+    assert "// feedback, plus Microsoft 365 activity where the Analytics Hub installer adds" in text(
+        "scripts/Update-Template-Dax.py"
+    )
 
 
 def test_changed_notebook_cells_compile_without_running():
