@@ -14,14 +14,15 @@ import { coworkDataflowOn, describeSchedule, modelDeployed, recordWorkspaceGone,
 import { isResumeLater } from './steps/identity.js';
 import { routerWanted } from './uploads.js';
 import { SETUP_SECTIONS, setupRecovery } from './setup.js';
+import { buildSupportFiles, collectSupport, loadRecord, recordRun, supportFileName, supportZip } from './support.js';
 
-export const WEB_COMMANDS = ['install', 'update', 'run', 'rerun-failed', 'load-cowork', 'check', 'refresh', 'deploy-app', 'status', 'rotate-secret', 'access', 'upload', 'uninstall', 'prereqs'];
+export const WEB_COMMANDS = ['install', 'update', 'run', 'rerun-failed', 'load-cowork', 'check', 'check-audit', 'refresh', 'deploy-app', 'status', 'rotate-secret', 'access', 'upload', 'uninstall', 'prereqs'];
 /** Commands that work before anything is installed. */
 const NO_RECORD = ['install', 'prereqs'];
 const METHODS = ['browser', 'device-code', 'azure-cli'];
 
 /** @typedef {'browser' | 'device-code' | 'azure-cli'} Method */
-/** @typedef {{ command: string, method?: Method, tenant?: string, backfillDays?: number, wait?: boolean, section?: string, retry?: boolean }} StartRequest */
+/** @typedef {{ command: string, method?: Method, tenant?: string, backfillDays?: number, graphHistory?: boolean, wait?: boolean, section?: string, retry?: boolean }} StartRequest */
 
 /**
  * What the home page shows about an install record.
@@ -55,6 +56,7 @@ export function describeRecord(config) {
       'rerun-failed': !azure && installed && !!f.pipelineId,
       'load-cowork': !azure && installed && !!f.pipelineId && coworkDataflowOn(config),
       check: !azure && installed && !!f.notebooks.dataCheck,
+      'check-audit': installed && (azure || !!config.app.appId),
       refresh: azure ? !!az?.powerBi?.datasetId : !!sm.id,
       'deploy-app': !azure && modelDeployed(config),
       status: true,
@@ -183,10 +185,12 @@ export function createSession(o) {
     const command = req.command;
     /** @type {import('./config.js').InstallConfig | undefined} */
     let currentConfig;
+    const rec = command === 'status' ? null : recordRun(ui, { command, configFile: o.configFile, version: o.version });
     ui.emit({ type: 'command', command, state: 'running' });
     try {
       const { config, existed } = loadConfig(o.configFile);
       currentConfig = config;
+      rec?.setRoute(config.target === 'azure' ? 'azure' : 'fabric');
       if (!NO_RECORD.includes(command) && !existed) throw new Error(`No install record at ${o.configFile}. Set up Analytics Hub first.`);
       const sources = loadSources(o.sourceDir);
       const tenant = (req.tenant ?? '').trim() || config.tenantId || '';
@@ -200,8 +204,10 @@ export function createSession(o) {
         if (command !== 'prereqs') checkInBackground(config);
       }
       ui.emit({ type: 'signin', state: reuse ? 'reused' : 'done', user: { upn: signedIn.user.upn, displayName: signedIn.user.displayName, tenantId: signedIn.user.tenantId } });
+      rec?.setUser(signedIn.user);
       const gone = existed ? await checkRecord(config) : null;
       if (gone && command !== 'prereqs') {
+        rec?.finish(false, staleRecordMessage(gone));
         ui.emit({ type: 'command', command, state: 'failed', stale: true, error: `${staleRecordMessage(gone)} Go back to the home page to start fresh, or keep the record.` });
         return;
       }
@@ -212,9 +218,11 @@ export function createSession(o) {
       if (command === 'prereqs') {
         const items = await showPrereqs(ctx);
         prereqs = prereqsSnapshot(signedIn.user.upn, items);
-      } else ok = await runCommand(ctx, command, { wait: req.wait !== false, backfillDays: req.backfillDays });
+      } else ok = await runCommand(ctx, command, { wait: req.wait !== false, backfillDays: req.backfillDays, ...(req.graphHistory ? { graphHistory: true } : {}) });
+      rec?.finish(ok);
       ui.emit({ type: 'command', command, state: ok ? 'done' : 'failed', ...(ok ? {} : { error: 'It didn\'t finish successfully. The details are above.' }) });
     } catch (err) {
+      rec?.finish(false, /** @type {any} */ (err)?.name === 'ExitPromptError' ? 'Cancelled.' : describeError(err));
       if (/** @type {any} */ (err)?.name === 'ExitPromptError') ui.emit({ type: 'command', command, state: 'cancelled' });
       else if (isResumeLater(err)) {
         ui.warn(/** @type {Error} */ (err).message);
@@ -222,6 +230,7 @@ export function createSession(o) {
       } else ui.emit({ type: 'command', command, state: 'failed', error: describeError(err),
         ...(command === 'install' && currentConfig ? { recovery: setupRecovery(err, currentConfig) } : {}) });
     } finally {
+      rec?.finish(false);
       running = null;
     }
   }
@@ -265,6 +274,26 @@ export function createSession(o) {
       return { ok: true };
     },
     /**
+     * Makes the support file: collects with this sign-in if there is one, redacts, and returns
+     * each file's text for the page to show, with the zip to download.
+     * @param {{ now?: Date }} [x]
+     */
+    async supportFile(x = {}) {
+      const now = x.now ?? new Date();
+      const record = loadRecord(o.configFile);
+      const data = await collectSupport({
+        config: record.config, configFile: o.configFile, recordExists: record.existed, recordError: record.error, version: o.version, now,
+        api: signedIn?.api, user: signedIn?.user, offline: signedIn ? undefined : 'Not signed in on this page yet.',
+        prereqs: prereqs?.items, checkPrereqs: (c) => checkPrereqs(c),
+      });
+      const files = buildSupportFiles(data);
+      return {
+        name: supportFileName(now),
+        files: files.map((f) => ({ name: f.name, bytes: Buffer.byteLength(f.text, 'utf8'), text: f.text })),
+        zip: supportZip(files, now).toString('base64'),
+      };
+    },
+    /**
      * Starts a command and returns straight away; its progress arrives as events.
      * @param {StartRequest} req
      * @returns {{ ok: true } | { ok: false, status: number, error: string }}
@@ -281,6 +310,9 @@ export function createSession(o) {
       }
       if (req.backfillDays !== undefined && (!Number.isInteger(req.backfillDays) || req.backfillDays < 1 || req.backfillDays > 180)) {
         return { ok: false, status: 400, error: 'Reload from 1 to 180 days.' };
+      }
+      if (req.graphHistory !== undefined && (req.graphHistory !== true || req.command !== 'run' || req.backfillDays === undefined)) {
+        return { ok: false, status: 400, error: 'Graph history goes with a history reload on Run now.' };
       }
       running = req.command;
       current = execute(req, /** @type {Method} */ (method));

@@ -123,7 +123,6 @@ export const destinations = [
         stages: [
             { id: "cowork-fit", label: "Cowork fit", ready: true },
             { id: "model-fit", label: "Model fit", ready: true },
-            { id: "grading-method", label: "How grading works", ready: true },
         ],
     },
     {
@@ -225,6 +224,7 @@ export const destinations = [
         stages: [
             { id: "glossary", label: "Glossary", ready: true },
             { id: "signal-impact", label: "Signal → Impact", ready: true },
+            { id: "grading-method", label: "How grading works", ready: true },
         ],
     },
 ] as const;
@@ -278,3 +278,9 @@ export function openStage(
     const built = destination.stages.filter((stage) => stage.ready);
     return (built.find((stage) => stage.id === wanted) ?? built[0])?.id;
 }
+
+/** The tab panel that holds the open stage. */
+export const STAGE_PANEL_ID = "stage-panel";
+
+/** The id of a stage's tab, which names its panel. */
+export const stageTabId = (stage: StageId) => `stage-tab-${stage}`;

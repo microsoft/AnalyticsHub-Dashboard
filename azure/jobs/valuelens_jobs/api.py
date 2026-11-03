@@ -34,6 +34,14 @@ class TokenSource:
         return token.token
 
 
+def requested_wait(response):
+    """The Retry-After header in seconds, or None when there isn't a usable one."""
+    try:
+        return float(response.headers.get("Retry-After", ""))
+    except (AttributeError, TypeError, ValueError):
+        return None
+
+
 def retry_after(response, attempt: int) -> float:
     try:
         return max(1.0, min(120.0, float(response.headers.get("Retry-After", ""))))
@@ -58,7 +66,9 @@ class Api:
         self.attempts = attempts
         self.on_throttle = on_throttle  # called on every HTTP 429, e.g. to lower a caller's concurrency
 
-    def request(self, method: str, url: str, *, scope: str = GRAPH, headers=None, timeout=120, **kwargs):
+    def request(self, method: str, url: str, *, scope: str = GRAPH, headers=None, timeout=120, give_up_after=None,
+                **kwargs):
+        """give_up_after: return a 429 at once when its Retry-After asks for longer than this many seconds."""
         refreshed = False
         attempt = 0
         while True:
@@ -82,6 +92,9 @@ class Api:
                     self.on_throttle()
                 except Exception:  # a listener must never break the request
                     log.debug("on_throttle listener failed", exc_info=True)
+                asked = requested_wait(r)
+                if give_up_after is not None and asked is not None and asked > give_up_after:
+                    return r
             if r.status_code in TRANSIENT and attempt < self.attempts:
                 wait = retry_after(r, attempt)
                 log.warning("%s %s returned %s; retrying in %.0fs", method, _short(url), r.status_code, wait)

@@ -6,7 +6,7 @@
 //-----------------------------------------------------------------------
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { Check, Copy, Share2, X } from "lucide-react";
-import { adminOnlyCopy, appLink, myGroupsUrl } from "@/lib/access";
+import { adminOnlyCopy, myGroupsUrl, viewLink } from "@/lib/access";
 import { fabricItemUrl } from "@/lib/fabric-item-url";
 import { addViewer, loadAccess, removeViewer, type AccessPrincipal, type AccessState } from "@/lib/access-api";
 import { runtimeConfig, type AccessInfo } from "@/lib/runtime-config";
@@ -18,7 +18,8 @@ const LINK = cn(TEXT, "text-primary underline underline-offset-2 focus-visible:o
 const BUTTON = "flex items-center justify-center gap-200 rounded-md border border-border px-300 py-100 transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring disabled:cursor-not-allowed disabled:opacity-60";
 
 /**
- * Sharing from inside the app: copy its link, see who it is shared with, and on Azure let admins
+ * Sharing from inside the app: copy a link (on Azure, to the view on screen), see who it is shared
+ * with, and on Azure let admins
  * and owners of the viewer group add and remove people. Fabric has no API the app can call for
  * this, so there it points to the group in My Groups.
  *
@@ -55,11 +56,14 @@ export function SharePanel() {
 
 function CopyLink() {
     const [state, setState] = useState<"idle" | "copied" | "failed">("idle");
-    const link = appLink();
+    const [link, setLink] = useState(viewLink);
+    const ofView = runtimeConfig().host === "azure";
 
     const copy = async () => {
+        const current = viewLink();
+        setLink(current);
         try {
-            await navigator.clipboard.writeText(link);
+            await navigator.clipboard.writeText(current);
             setState("copied");
         } catch {
             setState("failed");
@@ -70,7 +74,7 @@ function CopyLink() {
         <div className="flex flex-col gap-100">
             <button type="button" onClick={copy} className={cn(BUTTON, TEXT)}>
                 {state === "copied" ? <Check className="icon-size-200" aria-hidden="true" /> : <Copy className="icon-size-200" aria-hidden="true" />}
-                {state === "copied" ? "Link copied" : "Copy app link"}
+                {state === "copied" ? "Link copied" : ofView ? "Copy link to this view" : "Copy app link"}
             </button>
             {state === "failed" && (
                 <input

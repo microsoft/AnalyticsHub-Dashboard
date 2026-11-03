@@ -66,7 +66,7 @@ export function AzureBilledPanel({ lens, extra }: AzureBilledPanelProps) {
                         },
                         {
                             term: "Currencies",
-                            text: billing.currency ? undefined : `Billed in ${billing.currencies}. The totals add them as billed, unconverted.`,
+                            text: billing.currency || !billing.currencies ? undefined : `Billed in ${billing.currencies}. The totals add them as billed, unconverted.`,
                         },
                         {
                             term: "Versus the export",

@@ -5,9 +5,13 @@
  * reports "unknown" rather than failing when it can't be read.
  */
 import { allowsAction, ROLES } from './clients/azure.js';
+import { auditSource, MANAGEMENT_API_APP_ID, MANAGEMENT_API_ROLE, readsFeed, SENTINEL_PERMISSION } from './catalog.js';
 import { APP_ROLES, CONSENT_ROLES, FABRIC_ADMIN_ROLE, POWER_PLATFORM_ADMIN_ROLE, TEAMS_PUBLISH_ROLES } from './clients/graph.js';
 import { secretMode } from './config.js';
+import { commandLine } from './launch.js';
 import { copilotLicences } from './seats.js';
+import { AUDIT_CHECK_FAILS, AUDIT_CHECK_LABELS, AUDIT_ROLE, PURVIEW_AUDIT_URL } from './steps/audit-check.js';
+import { flowsWanted } from './steps/flows.js';
 import { canWriteSecrets } from './steps/identity.js';
 import { blockedSettings, runsFabric } from './steps/plan.js';
 
@@ -50,6 +54,19 @@ export const PREMIUM_FLOW_PLANS = {
 export { COPILOT_PLAN } from './seats.js';
 
 const PIM_URL = 'https://entra.microsoft.com/#view/Microsoft_Azure_PIMCommon/ActivationMenuBlade/~/aadmigratedroles';
+
+/**
+ * The permissions an audit source reads with, for the audit prerequisite.
+ * @param {import('./catalog.js').AuditSource} source
+ * @param {string} join  Between Sentinel's and the Management API's permission.
+ * @param {boolean} [withApi]  Name the API each permission belongs to.
+ */
+function auditLabel(source, join, withApi = false) {
+  const feed = `${MANAGEMENT_API_ROLE}${withApi ? ' (Office 365 Management APIs)' : ''}`;
+  if (source === 'feed') return feed;
+  if (source === 'auto') return `${SENTINEL_PERMISSION}${withApi ? ' (Microsoft Graph)' : ''}${join}${feed}`;
+  return AUDIT_ROLE;
+}
 
 /**
  * Whether the signed-in user has Global Administrator or Privileged Role Administrator active, so they
@@ -123,12 +140,20 @@ async function resourceGroupAccess(api, subscriptionId, resourceGroup, ids) {
   }
 }
 
+/** How long one check may take in install and update preflight before it counts as "couldn't check". */
+export const PREFLIGHT_CHECK_TIMEOUT_MS = 15_000;
+
+/** @param {number} ms */
+const duration = (ms) => (ms < 1000 ? `${ms} ms` : `${Math.round(ms / 1000)} s`);
+
 /**
  * @param {{ api: import('./install.js').Apis, user: import('./install.js').User, config: import('./config.js').InstallConfig }} ctx
+ * @param {{ timeoutMs?: number }} [opts]  timeoutMs: a check still running after this shows as "couldn't check".
  * @returns {Promise<Prereq[]>}
  */
-export async function checkPrereqs(ctx) {
+export async function checkPrereqs(ctx, opts = {}) {
   const { api, user, config } = ctx;
+  const { timeoutMs } = opts;
   const azure = config.target === 'azure';
 
   const roles = api.graph.myDirectoryRoles();
@@ -152,10 +177,23 @@ export async function checkPrereqs(ctx) {
    * @returns {Promise<Prereq>}
    */
   const guard = async (base, fn) => {
+    /** @type {ReturnType<typeof setTimeout> | undefined} */
+    let timer;
     try {
-      return { ...base, ...(await fn()) };
+      const check = fn();
+      const result = timeoutMs
+        ? await Promise.race([
+            check,
+            /** @type {Promise<never>} */ (new Promise((_, reject) => {
+              timer = setTimeout(() => reject(new Error(`it took longer than ${duration(timeoutMs)}`)), timeoutMs);
+            })),
+          ])
+        : await check;
+      return { ...base, ...result };
     } catch (err) {
       return { ...base, status: 'unknown', detail: `Couldn't check: ${why(err)}` };
+    } finally {
+      clearTimeout(timer);
     }
   };
 
@@ -299,6 +337,47 @@ export async function checkPrereqs(ctx) {
         return (await api.graph.usersCanRegisterApps())
           ? { status: 'met', detail: 'Users in this tenant can register apps.' }
           : { status: 'missing', detail: 'Users in this tenant can\'t register apps, and you have no app admin role.' };
+      },
+    ),
+    guard(
+      {
+        id: 'audit-ingestion',
+        label: `Audit log access for Copilot interactions (${auditLabel(auditSource(config), ' or ')})`,
+        neededFor: 'Loading Copilot interactions from the audit log, which most pages are built on. Without admin consent, or with audit logging off in Purview, the audit load finds 0 records.',
+        howTo: `A Global Administrator or Privileged Role Administrator grants admin consent for ${auditLabel(auditSource(config), ' and ', true)} (the installer gives you a link). A Compliance Administrator checks audit logging is on in Microsoft Purview > Audit: ${PURVIEW_AUDIT_URL} After install, run ${commandLine('check-audit')} to test it.`,
+      },
+      async () => {
+        const checked = (config.auditCheck?.source ?? 'graph') === auditSource(config) ? config.auditCheck : undefined;
+        const last = checked ? ` Last audit check (${checked.at.slice(0, 10)}): ${checked.source && checked.source !== 'graph' ? checked.detail ?? checked.result : AUDIT_CHECK_LABELS[checked.result] ?? checked.result}.` : '';
+        if (azure) {
+          const g = config.azure?.graphRoles;
+          if (g?.assigned?.includes(AUDIT_ROLE)) return { status: 'met', detail: `The jobs' managed identity has it.${last}` };
+          if (g?.pending?.includes(AUDIT_ROLE)) return { status: 'missing', detail: `The jobs' managed identity doesn't have it yet.${last}` };
+        } else if (config.app.servicePrincipalId) {
+          const graphSp = await api.graph.graphServicePrincipal();
+          if (readsFeed(auditSource(config))) {
+            const assigned = await api.graph.appRoleAssignments(config.app.servicePrincipalId);
+            const managementSp = await api.graph.findServicePrincipal(MANAGEMENT_API_APP_ID);
+            const wanted = auditSource(config) === 'auto' ? [[graphSp, SENTINEL_PERMISSION], [managementSp, MANAGEMENT_API_ROLE]] : [[managementSp, MANAGEMENT_API_ROLE]];
+            const consented = wanted.filter(
+              ([sp, name]) => sp?.appRoles?.some((/** @type {{ id: string, value: string }} */ role) =>
+                role.value === name && assigned.some((/** @type {{ resourceId: string, appRoleId: string }} */ a) => a.resourceId === sp.id && a.appRoleId === role.id)),
+            );
+            if (consented.length) return {
+              status: checked && AUDIT_CHECK_FAILS.includes(checked.result) ? 'missing' : 'met',
+              detail: `Admin consent is in place for ${consented.map(([, name]) => name).join(' and ')}. Run check-audit to verify source access.${last}`,
+            };
+          } else {
+            const role = graphSp.appRoles?.find((/** @type {{ value: string }} */ r) => r.value === AUDIT_ROLE);
+            const assigned = await api.graph.appRoleAssignments(config.app.servicePrincipalId);
+            if (role && assigned.some((/** @type {{ resourceId: string, appRoleId: string }} */ a) => a.resourceId === graphSp.id && a.appRoleId === role.id)) {
+              return { status: checked && AUDIT_CHECK_FAILS.includes(checked.result) ? 'missing' : 'met', detail: `Admin consent is in place for the app ${config.app.appId}.${last}` };
+            }
+          }
+        }
+        const admin = (await roles).find((x) => CONSENT_ROLES[/** @type {keyof typeof CONSENT_ROLES} */ (x.roleTemplateId)]);
+        if (admin) return { status: 'met', detail: `Not granted yet, but your ${admin.displayName} role lets the installer grant it.${last}` };
+        return { status: 'missing', detail: `Not granted yet. A Global Administrator or Privileged Role Administrator needs to approve it.${last}` };
       },
     ),
     guard(
@@ -479,6 +558,107 @@ export async function checkPrereqs(ctx) {
     ...(config.dataSources?.resourceGraph === 'api' ? [resourceGraphPrereq(api, config, guard)] : []),
   ];
   return Promise.all(checks);
+}
+
+/**
+ * Rows install and update preflight leave out even when not met: the Fabric capacity, which preflight
+ * checks and stops on itself; the Fabric administrator role, which the tenant settings row covers; and
+ * the Viva Insights analyst role, which can never be read.
+ */
+const PREFLIGHT_HIDDEN = new Set(['fabric-capacity', 'fabric-admin', 'viva-analyst']);
+
+/**
+ * What install and update preflight make of the checks: what stops an install before anything is
+ * created, and what to show and carry on with. Met rows, rows for features not chosen, and optional
+ * rows that couldn't be checked are left out. A row that couldn't be checked, or took too long, never
+ * blocks. An update never blocks: it's already installed.
+ * @param {Prereq[]} items
+ * @param {{ config: import('./config.js').InstallConfig, yes?: boolean, update?: boolean }} opts
+ *   yes: --yes, so nobody is asked and a choice that can't work fails late.
+ * @returns {{ block: Prereq[], warn: Prereq[] }}
+ */
+export function preflightVerdict(items, { config, yes = false, update = false }) {
+  const azure = config.target === 'azure';
+  const status = (/** @type {string} */ id) => items.find((it) => it.id === id)?.status;
+  const flows = flowsWanted(config).length > 0;
+  const environments = !!config.modules?.agentEvaluator || flows;
+  /** Optional rows only matter for some choices. @type {Record<string, boolean>} */
+  const relevant = {
+    // Consent is still to grant: on a re-run that already has it, the role doesn't matter.
+    'consent-role': status('audit-ingestion') !== 'met',
+    'power-platform-admin': environments && status('environments') !== 'met',
+    environments,
+    'power-automate-premium': flows,
+    // On Fabric, Azure access is only for the Key Vault (its own row) and credit consumption.
+    'azure-rbac': azure || !!config.modules?.consumption,
+  };
+  /** @type {Prereq[]} */
+  const block = [];
+  /** @type {Prereq[]} */
+  const warn = [];
+  for (const it of items) {
+    if (it.status === 'met' || PREFLIGHT_HIDDEN.has(it.id) || relevant[it.id] === false) continue;
+    if (it.status === 'unknown' && it.optional) continue;
+    // Only a Fabric administrator can read them, so "couldn't check" is the usual answer: it only matters with a model.
+    if (it.id === 'tenant-settings' && it.status === 'unknown' && !azure && !config.semanticModel?.enabled) continue;
+    // Asked, the plan offers an app you already have or the admin pack. With --yes it would try to create one, and fail.
+    if (!update && yes && it.id === 'register-apps' && it.status === 'missing' && !config.app.appId && !config.app.adminPack) block.push(it);
+    else warn.push(it);
+  }
+  return { block, warn };
+}
+
+/**
+ * The prerequisite checks in install and update preflight, run in parallel, each with a timeout.
+ * Never rejects: when the checks can't run at all, there's nothing to show.
+ * @param {{ api: import('./install.js').Apis, user: import('./install.js').User, config: import('./config.js').InstallConfig }} ctx
+ * @param {{ timeoutMs?: number }} [opts]
+ * @returns {Promise<Prereq[] | null>}
+ */
+export async function preflightChecks(ctx, opts = {}) {
+  try {
+    return await checkPrereqs(ctx, { timeoutMs: opts.timeoutMs ?? PREFLIGHT_CHECK_TIMEOUT_MS });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Prints only what needs attention, before anything is created, and points to the full list.
+ * On install, stops when one is a true blocker.
+ * @param {{ ui: import('./ui.js').Ui, config: import('./config.js').InstallConfig }} ctx
+ * @param {Prereq[] | null} items  From preflightChecks.
+ * @param {{ update?: boolean }} [opts]
+ * @returns {{ block: Prereq[], warn: Prereq[] }}
+ */
+export function reportPreflight(ctx, items, opts = {}) {
+  const { ui, config } = ctx;
+  const full = `Run "${commandLine('prereqs')}" for the full list.`;
+  if (!items) {
+    ui.note(`Couldn't check the prerequisites. ${full}`);
+    return { block: [], warn: [] };
+  }
+  const verdict = preflightVerdict(items, { config, yes: ui.yes, update: opts.update });
+  const shown = [...verdict.block, ...verdict.warn];
+  if (!shown.length) {
+    ui.ok('Prerequisites: nothing missing for what you chose');
+    return verdict;
+  }
+  const n = shown.length === 1 ? '1 prerequisite needs' : `${shown.length} prerequisites need`;
+  const carry = verdict.block.length ? '' : ` The ${opts.update ? 'update' : 'install'} carries on.`;
+  ui.warn(`${n} attention.${carry}`);
+  ui.prereqs(shown);
+  ui.note(full);
+  if (verdict.block.length) {
+    ui.fail(`Stopped before creating anything: ${verdict.block.map((it) => it.label).join('; ')}.`);
+    throw new Error(
+      verdict.block.some((it) => it.id === 'register-apps')
+        ? 'You can\'t register apps in this tenant and have no app admin role, so with --yes the installer can\'t create its app registration. ' +
+            'Run it without --yes to choose an app registration you already have or get the admin pack for an admin, or ask for the Application Administrator or Cloud Application Administrator role.'
+        : verdict.block.map((it) => it.howTo).join(' '),
+    );
+  }
+  return verdict;
 }
 
 const ARG_PROBES = {

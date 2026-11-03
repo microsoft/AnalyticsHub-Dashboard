@@ -144,6 +144,7 @@ export function TrendHeatmapStage() {
                         )}
                         <div className="min-h-0 flex-1">
                             <VegaVisual
+                                label={`${selected.label} by ${org.noun} and week`}
                                 spec={themedSpec}
                                 data={heatmapTable}
                                 theme={theme}

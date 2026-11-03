@@ -289,6 +289,7 @@ function FeedbackContent() {
                     ) : (
                         <Headlined text={trendHeadline}>
                             <VegaVisual
+                                label="Weekly feedback sentiment"
                                 spec={trendSpec}
                                 data={trendTable}
                                 theme={theme}
@@ -320,6 +321,7 @@ function FeedbackContent() {
                     ) : (
                         <Headlined text={categoryHeadline}>
                             <VegaVisual
+                                label="What it's about"
                                 spec={categorySpec}
                                 data={categoryTable}
                                 theme={theme}
@@ -368,6 +370,7 @@ function FeedbackContent() {
                     ) : (
                         <Headlined text={surfaceHeadline}>
                             <VegaVisual
+                                label="Satisfaction by surface or agent"
                                 spec={surfaceSpec}
                                 data={surfaceTable}
                                 theme={theme}

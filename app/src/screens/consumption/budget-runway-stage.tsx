@@ -233,7 +233,7 @@ export function BudgetRunwayStage({ options, azure, sources }: BudgetRunwayStage
         <Section
             id={stageAnchor("budget-runway")}
             title="Budget runway"
-            description="This month's spend against the monthly budgets set under Monthly budgets, and where the month ends at the same daily pace. It reads the latest month in the data, whatever dates are chosen, in the currency each product is billed in."
+            description="This month's spend against its budget, and where the month ends at the same daily pace."
         >
             <NotFilteredHint ignored={RUNWAY_IGNORES} reason={RUNWAY_REASON} />
             <div className="grid gap-300 md:grid-cols-3">

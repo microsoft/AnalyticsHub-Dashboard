@@ -6,13 +6,18 @@ Port of the Fabric `Copilot_Audit_Log_Ingester` notebook:
 * windows within the trailing look-back are always re-queried (late-arriving records);
 * a failing window is re-queried with backoff, then split in halves down to `MIN_CHUNK_HOURS`;
   failures and 429s lower concurrency for the rest of the run (same helpers as the notebook);
+* a window whose query hit the audit service's record cap (isRecordCountLimitExceeded) is split at once;
+* when Graph refuses new audit searches (its per-tenant daily limit, HTTP 429), the run sends no more,
+  keeps each window's query id and merges what finished; the next run carries on and re-polls those queries;
 * records are canonicalised and flattened by `valuelens_core.audit` (golden-checked against Spark);
 * new rows replace existing rows with the same `Id` (the notebook's Delta MERGE), one file per day;
 * each page is staged gzip-compressed, and a long backfill merges in passes of whole days, so it fits the
   run job's memory and disk;
 * a reload (VALUELENS_AUDIT_BACKFILL_DAYS, set on one run) is remembered in the state until a run has merged
   it, so one that outlasts a run carries over to the next runs;
-* each window logs how long it waited for a query slot, for its query and to drain its pages.
+* each window logs how long it waited for a query slot, for its query and to drain its pages;
+* a window still empty when it leaves the look-back is queried once more (EMPTY_RECHECK_DAYS), since the audit
+  service can answer with no records and add them later, and a run where every window is empty logs what to check.
 """
 from __future__ import annotations
 
@@ -34,7 +39,7 @@ import duckdb
 
 from valuelens_core import audit
 
-from ..api import TRANSIENT, HttpError, _is_network_error, raise_for_status
+from ..api import GRAPH, TRANSIENT, HttpError, _is_network_error, raise_for_status
 from ..tables import ident, q
 
 log = logging.getLogger("valuelens_jobs.collect.audit")
@@ -46,7 +51,9 @@ STATE = "raw/_state/audit.json"
 # The state key holding where an unmerged reload starts.
 BACKFILL_FROM = "backfill_from"
 CHUNK_HOURS = 8
-MAX_CONCURRENT_QUERIES = 5  # Graph runs ~10 audit queries at once per tenant; leave room for other admins
+# Graph allows 50 audit searches queued or running per tenant and 200 new ones in a rolling 24 hours, shared
+# with other admins and tools; 5 at a time leaves room for them.
+MAX_CONCURRENT_QUERIES = 5
 MAX_WAIT_MIN_PER_QUERY = 240
 POLL_INTERVAL_SEC = 30
 WINDOW_RETRIES = 3
@@ -59,10 +66,45 @@ PAGE_RECORDS = 999
 # Staged records one merge pass flattens. More (a long backfill, or a large tenant's first run) merge in passes
 # of whole days, oldest first, so memory and spill follow the largest pass, not the whole history.
 MERGE_PASS_RECORDS = 250_000
+# A 429 asking to wait longer than this is the tenant's daily audit search limit, not a burst: stop asking.
+QUOTA_RETRY_AFTER_SEC = 300
+# A query an earlier run left running is re-polled, not re-sent, for this long after it was created.
+RESUME_QUERY_HOURS = 12
+# A window still empty when it leaves the look-back is queried once more if it ended in the last
+# EMPTY_RECHECK_DAYS, oldest first and at most EMPTY_RECHECK_MAX a run (each one is an audit search).
+EMPTY_RECHECK_DAYS = 30
+EMPTY_RECHECK_MAX = 24
 
 
 class AuditQueryFailed(RuntimeError):
     """The audit service ended a query as failed or cancelled; a new query for the window may succeed."""
+
+
+class QueryQuotaReached(RuntimeError):
+    """Graph refused audit searches for the tenant (HTTP 429): the window is left for the next run."""
+
+
+class RecordLimitExceeded(RuntimeError):
+    """The query hit the audit service's record cap (isRecordCountLimitExceeded): the window is split."""
+
+
+def _resumable_query_id(entry, now, max_hours):
+    """The query an earlier run left running for this window, if it is recent enough to re-poll."""
+    entry = entry or {}
+    qid = entry.get("query_id")
+    if entry.get("status") not in ("querying", "waiting", "draining") or not max_hours or max_hours <= 0:
+        return None
+    if not isinstance(qid, str) or not qid.strip():
+        return None
+    created = audit._as_utc_datetime(entry.get("query_created_at"))
+    if created is None or now - created > timedelta(hours=max_hours):
+        return None
+    return qid.strip()
+
+
+def _refuse_on_quota(r, what):
+    if r.status_code == 429:
+        raise QueryQuotaReached(f"Graph refused {what} for the tenant (HTTP 429)")
 
 
 def is_retryable(exc) -> bool:
@@ -96,8 +138,10 @@ class AuditCollector:
                  max_concurrent=MAX_CONCURRENT_QUERIES, window_retries=WINDOW_RETRIES,
                  min_chunk_hours=MIN_CHUNK_HOURS, split_on_timeout=SPLIT_ON_TIMEOUT,
                  retry_base_seconds=RETRY_BASE_SEC, retry_max_seconds=RETRY_MAX_SEC,
-                 min_concurrent=MIN_CONCURRENT_QUERIES, merge_pass_records=MERGE_PASS_RECORDS):
+                 min_concurrent=MIN_CONCURRENT_QUERIES, merge_pass_records=MERGE_PASS_RECORDS,
+                 empty_recheck_days=EMPTY_RECHECK_DAYS, empty_recheck_max=EMPTY_RECHECK_MAX):
         self.api, self.store, self.settings = api, store, settings
+        self.empty_recheck_days, self.empty_recheck_max = empty_recheck_days, empty_recheck_max
         self.merge_pass_records = max(int(merge_pass_records), 0)
         self.end = now or datetime.now(timezone.utc)
         self.sleep, self.clock = sleep, clock
@@ -107,6 +151,7 @@ class AuditCollector:
         self.split_on_timeout = split_on_timeout
         self.retry_base_seconds, self.retry_max_seconds = retry_base_seconds, retry_max_seconds
         self.limiter = audit.AdaptiveLimiter(max_concurrent, min_concurrent)
+        self._quota = threading.Event()
         self.lookback = max(int(settings.audit_lookback_days), 0)
         self._lock = threading.RLock()
         self.state = store.read_json(STATE, {}) or {}
@@ -153,6 +198,59 @@ class AuditCollector:
             start = min(audit._as_utc_datetime(start), pending)
         return audit.build_windows(start, self.end, self.chunk_hours)
 
+    def plan_rechecks(self, windows):
+        """Empty windows due one more query (`audit.empty_recheck_windows`), oldest first, at most
+        `empty_recheck_max` a run, plus every window still flagged `RECHECK_PENDING` from a run that failed.
+
+        Returns the plan with those windows before it added, the keys to query again even though they are
+        reusable, and every due or pending key, which `prune` keeps until its turn. A window that overlaps the
+        plan without being one of its windows is left. The keys to query again are flagged until a run merges.
+        """
+        with self._lock:
+            snapshot = dict(self.manifest)
+        pending = audit.pending_recheck_windows(snapshot)
+        due = [w for w in audit.empty_recheck_windows(snapshot, self.end, self.end - timedelta(days=self.lookback),
+                                                      self.empty_recheck_days, self.lookback) if w not in pending]
+        planned = {audit.stable_window_key(ws, we) for ws, we in self.leaves(windows)}
+        start = min((audit._as_utc_datetime(ws) for ws, _ in windows), default=None)
+
+        def fit(ws):
+            return [w for w in ws if audit.stable_window_key(*w) in planned or start is None or w[1] <= start]
+
+        kept, fits = fit(pending), fit(due)
+        picked = fits[:max(int(self.empty_recheck_max), 0)]
+        recheck = {audit.stable_window_key(*w) for w in picked}
+        if recheck:
+            with self._lock:
+                for key in recheck:
+                    self.manifest[key] = {**(self.manifest.get(key) or {}), audit.RECHECK_PENDING: True}
+                self._save()
+        extra = [w for w in sorted(kept + picked) if audit.stable_window_key(*w) not in planned]
+        return (extra + list(windows), recheck,
+                {audit.stable_window_key(*w) for w in kept + fits})
+
+    def clear_rechecks(self):
+        """Every window merged: drop the `RECHECK_PENDING` flags."""
+        with self._lock:
+            flagged = [k for k, e in self.manifest.items() if isinstance(e, dict) and e.get(audit.RECHECK_PENDING)]
+            for k in flagged:
+                self.manifest[k] = {f: v for f, v in self.manifest[k].items() if f != audit.RECHECK_PENDING}
+            if flagged:
+                self._save()
+
+    def check_token(self):
+        """Warn when the managed identity's Graph token can't read Copilot audit records."""
+        tokens = getattr(self.api, "tokens", None)
+        try:
+            token = tokens.get(GRAPH) if tokens is not None else None
+        except Exception as exc:
+            log.info("audit: could not read the Graph token to check its roles (%s)", type(exc).__name__)
+            return
+        problems = audit.audit_token_problems(token) if isinstance(token, str) else []
+        if problems:
+            log.warning("audit: %s. Searches may come back empty or be refused; re-run the installer to grant the "
+                        "jobs' managed identity %s.", "; ".join(problems), audit.AUDIT_ROLE)
+
     def _files(self, key):
         return sorted(rel for rel in self.store.list(STAGING) if rel.split("/")[-1].startswith(f"win_{key}_"))
 
@@ -188,7 +286,8 @@ class AuditCollector:
             "recordTypeFilters": ["copilotInteraction"],
             "operationFilters": [],
         }
-        r = self.api.post(QUERIES, json=body, timeout=60)
+        r = self.api.post(QUERIES, json=body, timeout=60, give_up_after=QUOTA_RETRY_AFTER_SEC)
+        _refuse_on_quota(r, "a new audit search")
         if r.status_code == 403:
             raise PermissionError("Graph returned 403 creating an audit log query. The jobs' managed identity "
                                   "needs AuditLogsQuery.Read.All; re-run the installer to grant it.")
@@ -197,11 +296,16 @@ class AuditCollector:
 
     def wait(self, qid: str) -> int:
         """Poll a query until it succeeds; returns the number of polls."""
+        return self._poll(qid)[0]
+
+    def _poll(self, qid: str):
+        """Poll a query until it succeeds; returns (polls, the query's last status payload)."""
         deadline = self.clock() + self.max_wait_minutes * 60
         polls = 0
         while True:
-            r = self.api.get(f"{QUERIES}/{qid}", timeout=60)
+            r = self.api.get(f"{QUERIES}/{qid}", timeout=60, give_up_after=QUOTA_RETRY_AFTER_SEC)
             polls += 1
+            _refuse_on_quota(r, f"status reads for audit query {qid}")
             raise_for_status(r, f"audit query {qid}")
             payload = r.json()
             status = payload.get("status") if isinstance(payload, dict) else None
@@ -209,7 +313,7 @@ class AuditCollector:
                 raise RuntimeError(f"Query {qid} returned missing/invalid status: {status!r}")
             status = status.strip().lower()
             if status == "succeeded":
-                return polls
+                return polls, payload
             if status in ("failed", "cancelled"):
                 raise AuditQueryFailed(f"Query {qid} ended with status: {status}")
             if status not in ("notstarted", "running"):
@@ -236,7 +340,8 @@ class AuditCollector:
             if url in seen:
                 raise RuntimeError(f"Query {qid} returned repeated pagination link cycle: {url}")
             seen.add(url)
-            r = self.api.get(url, timeout=120)
+            r = self.api.get(url, timeout=120, give_up_after=QUOTA_RETRY_AFTER_SEC)
+            _refuse_on_quota(r, f"record reads for audit query {qid}")
             raise_for_status(r, f"audit records {qid}")
             payload = r.json()
             if not isinstance(payload, dict) or not isinstance(payload.get("value"), list):
@@ -264,26 +369,63 @@ class AuditCollector:
 
     def _window(self, ws, we, attempt=1):
         key = audit.stable_window_key(ws, we)
+        with self._lock:
+            prior = dict(self.manifest.get(key) or {})
+        resume = (_resumable_query_id(prior, datetime.now(timezone.utc), RESUME_QUERY_HOURS)
+                  if attempt == 1 else None)
+        if self._quota.is_set() and not resume:
+            raise QueryQuotaReached("The audit search limit was reached earlier in this run")
         self._mark(key, "querying", window_start=_iso(ws), window_end=_iso(we),
                    refreshed_at=datetime.now(timezone.utc).isoformat(), completed_at=None, timing=None,
                    attempts=attempt, error=None, **({"attempt_errors": []} if attempt == 1 else {}))
-        qid = None
+        qid, payload = None, None
         try:
             queued = self.clock()
             # Only creating and waiting hold one of the tenant's concurrent query slots; draining doesn't.
-            with self.limiter:
-                created = self.clock()
-                qid = self.create_query(ws, we)
-                self._mark(key, "waiting", query_id=qid)
-                polls = self.wait(qid)
-                ready = self.clock()
+            if resume:
+                qid = resume
+                try:
+                    with self.limiter:
+                        created = self.clock()
+                        self._mark(key, "waiting", query_id=qid)
+                        polls, payload = self._poll(qid)
+                        ready = self.clock()
+                    log.info("audit: window %s picked up query %s from an earlier run", key, qid)
+                except (PermissionError, QueryQuotaReached):
+                    raise
+                except Exception as exc:
+                    log.warning("audit: window %s: query %s from an earlier run could not be used (%s: %s); "
+                                "sending a new one", key, qid, type(exc).__name__, exc)
+                    qid = None
+            if qid is None:
+                with self.limiter:
+                    if self._quota.is_set():
+                        raise QueryQuotaReached("The audit search limit was reached earlier in this run")
+                    created = self.clock()
+                    qid = self.create_query(ws, we)
+                    self._mark(key, "waiting", query_id=qid,
+                               query_created_at=datetime.now(timezone.utc).isoformat())
+                    polls, payload = self._poll(qid)
+                    ready = self.clock()
+            capped = isinstance(payload, dict) and payload.get("isRecordCountLimitExceeded") is True
+            if capped and audit.split_window(ws, we, self.min_chunk_hours):
+                raise RecordLimitExceeded(f"Query {qid} reached the audit service's record limit")
+            if capped:
+                log.warning("audit: window %s: query %s reached the audit service's record limit at the smallest "
+                            "window (%gh); some of its records are missing", key, qid, self.min_chunk_hours)
             self._mark(key, "draining", query_id=qid)
             rows, files = self.drain(qid, key)
             timing = {"slot_wait_s": round(created - queued, 1), "ready_s": round(ready - created, 1),
                       "polls": polls, "drain_s": round(self.clock() - ready, 1)}
             self._mark(key, "succeeded", query_id=qid, rows=rows, pages=len(files), files=files, timing=timing,
-                       completed_at=datetime.now(timezone.utc).isoformat())
+                       completed_at=datetime.now(timezone.utc).isoformat(),
+                       **({"record_limit_exceeded": True} if capped else {}))
             return key, rows, dict(timing, pages=len(files))
+        except QueryQuotaReached:
+            # Keep the query id, and any pages a finished window staged before: the next run re-polls the query.
+            stopped = datetime.now(timezone.utc).isoformat()
+            self._mark(key, "waiting", query_id=qid, paused_at=stopped, throttled_at=stopped)
+            raise
         except Exception as exc:
             self._mark(key, "failed", error=f"{type(exc).__name__}: {exc}", query_id=qid, completed_at=None)
             self.store.remove(self._files(key))
@@ -293,8 +435,8 @@ class AuditCollector:
         """Fetch one window: retry with a new query, then split it when the retries run out.
 
         Returns (key, rows, outcome, detail); outcome is 'done' (detail = the window's timing), 'split'
-        (detail = the halves) or 'failed' (detail = the last error). Only PermissionError (missing Graph
-        permission) propagates.
+        (detail = the halves), 'throttled' (Graph's audit search limit; the window is left for the next run)
+        or 'failed' (detail = the last error). Only PermissionError (missing Graph permission) propagates.
         """
         key = audit.stable_window_key(ws, we)
         errors, last = [], None
@@ -305,12 +447,18 @@ class AuditCollector:
                 return key, rows, "done", timing
             except PermissionError:
                 raise
+            except QueryQuotaReached:
+                self._quota.set()
+                return key, 0, "throttled", None
             except Exception as exc:
                 last = f"{type(exc).__name__}: {exc}"
                 errors.append(f"attempt {attempt}: {last}")
                 with self._lock:
                     self._failed_attempts += 1
                 self._mark(key, "failed", attempts=attempt, attempt_errors=errors[-5:])
+                if isinstance(exc, RecordLimitExceeded):
+                    log.warning("audit: window %s: %s; splitting it", key, last)
+                    break
                 retryable = is_retryable(exc)
                 split = retryable and isinstance(exc, TimeoutError) and self.split_on_timeout
                 delay = (audit.retry_delay(attempt, self.retry_base_seconds, self.retry_max_seconds)
@@ -361,12 +509,15 @@ class AuditCollector:
                         continue
                     outcomes[key] = how
                     if how == "split":
-                        log.warning("audit: window %s kept failing; split into %s parts", key, len(detail))
+                        log.warning("audit: window %s kept failing or reached the record limit; split into %s "
+                                    "parts", key, len(detail))
                         if fatal is None:
                             for half in detail:
                                 running[pool.submit(self._run_window, *half)] = half
                     elif how == "failed":
                         log.warning("audit: window %s failed: %s", key, detail)
+                    elif how == "throttled":
+                        log.warning("audit: window %s left for the next run (audit search limit reached)", key)
                     else:
                         with self._lock:
                             self._timings.append(detail)
@@ -393,15 +544,18 @@ class AuditCollector:
 
     # -------------------------------------------------------------- run
     def run(self) -> dict:
+        self.check_token()
         self.remember_backfill()
-        windows = self.plan()
+        windows, recheck, due = self.plan_rechecks(self.plan())
         self.store.pull(STAGING)
         leaves = self.leaves(windows)
         pending = [(ws, we) for ws, we in leaves
-                   if not self._reusable(audit.stable_window_key(ws, we), we,
+                   if audit.stable_window_key(ws, we) in recheck
+                   or not self._reusable(audit.stable_window_key(ws, we), we,
                                          self.manifest.get(audit.stable_window_key(ws, we)))]
-        log.info("audit: %s window(s) of %sh from %s; %s to query (<= %s at a time)", len(windows),
-                 self.chunk_hours, windows[0][0] if windows else "-", len(pending), self.limiter.limit)
+        log.info("audit: %s window(s) of %sh from %s; %s to query (<= %s at a time)%s", len(windows),
+                 self.chunk_hours, windows[0][0] if windows else "-", len(pending), self.limiter.limit,
+                 f"; {len(recheck)} came back empty before and are queried once more" if recheck else "")
         previous = getattr(self.api, "on_throttle", None)
         self.api.on_throttle = lambda: self.limiter.shrink("HTTP 429 (throttled) from Graph", halve=True)
         started = self.clock()
@@ -426,21 +580,35 @@ class AuditCollector:
         # leave the table empty. The high-water mark holds still until every window succeeds, so the
         # next run's plan still covers the failed ones.
         result = self.merge(keys, advance_high_water=not errors)
+        if self._quota.is_set():
+            raise RuntimeError(
+                f"Microsoft Graph refused new audit searches for this tenant (HTTP 429) with {len(errors)} audit "
+                f"window(s) still to fetch. The {result['rows']} row(s) from finished windows were merged. Graph "
+                f"allows at least 200 audit searches in a rolling 24 hours, shared with other admins and tools; "
+                f"the next run carries on from here and re-polls the searches already sent.")
         if errors:
             listed = "; ".join(errors[:10]) + (f"; ... and {len(errors) - 10} more" if len(errors) > 10 else "")
             raise RuntimeError(f"{len(errors)} audit window(s) failed; the {result['rows']} row(s) from finished "
                                f"windows were merged and the next run resumes the rest. Each failed window was "
                                f"retried {self.window_retries}x and split down to {self.min_chunk_hours:g}h. "
                                f"Failed: {listed}")
+        if keys and result["rows"] == 0:
+            log.warning("audit: every audit window succeeded, but none had Copilot interaction records (%s to %s). "
+                        "If people used Copilot then, check that the jobs' managed identity has %s (re-run the "
+                        "installer to grant it), that auditing is on in Microsoft Purview (Audit), and that a "
+                        "Purview audit search for the same hours, record type CopilotInteraction, finds records. "
+                        "Empty windows are queried once more after they leave the look-back.",
+                        min(ws for ws, _ in leaves), max(we for _, we in leaves), audit.AUDIT_ROLE)
         # Every window merged: a reload is done. Kept on a failed window, a failed merge or a run cut off, so
-        # the next run plans it again and `prune` keeps its windows.
+        # the next run plans it again and `prune` keeps its windows. The same goes for re-queried empty windows.
+        self.clear_rechecks()
         with self._lock:
             reload_from = self.state.pop(BACKFILL_FROM, None)
             if reload_from is not None:
                 self._save()
         if reload_from is not None:
             log.info("audit: the reload from %s is merged", reload_from)
-        self.prune({audit.stable_window_key(ws, we) for ws, we in self.leaves(windows, include_parents=True)})
+        self.prune({audit.stable_window_key(ws, we) for ws, we in self.leaves(windows, include_parents=True)} | due)
         return result
 
     def merge(self, keys, advance_high_water=True) -> dict:

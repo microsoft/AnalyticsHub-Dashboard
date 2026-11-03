@@ -331,6 +331,251 @@ def test_audit_throttling_halves_concurrency(tmp_path):
     assert api.on_throttle is None
 
 
+def _seed_empty_window(store, ws, we, completed=None):
+    key = audit_collect.audit.stable_window_key(ws, we)
+    state = store.read_json(audit_collect.STATE, {}) or {}
+    state.setdefault("windows", {})[key] = {
+        "status": "succeeded", "window_start": ws.isoformat(), "window_end": we.isoformat(), "rows": 0,
+        "pages": 0, "files": [], "completed_at": (completed or we + timedelta(hours=1)).isoformat()}
+    store.write_json(audit_collect.STATE, state)
+    return key
+
+
+def test_audit_empty_window_is_queried_once_more_after_it_leaves_the_look_back(tmp_path):
+    old = (NOW - timedelta(days=3), NOW - timedelta(days=3) + timedelta(hours=8))
+    fake = AuditGraph([_record(1, old[0] + timedelta(hours=1)), _record(2, NOW - timedelta(hours=3))])
+    api, _ = make_api(fake)
+    store = LocalStore(tmp_path)
+    key = _seed_empty_window(store, *old)
+    assert audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None)["rows"] == 2
+    assert fake.created.count(old) == 1
+    assert store.read_json(audit_collect.STATE)["windows"][key]["rows"] == 1
+    # It has records now, so it isn't queried again.
+    before = len(fake.created)
+    audit_collect.collect_audit(api, store, settings(), now=NOW + timedelta(minutes=5), sleep=lambda x: None)
+    assert old not in fake.created[before:]
+
+
+def test_audit_empty_rechecks_are_capped_and_the_rest_kept_for_later(tmp_path):
+    olds = [(NOW - timedelta(days=d), NOW - timedelta(days=d) + timedelta(hours=8)) for d in (4, 3)]
+    fake = AuditGraph([])
+    api, _ = make_api(fake)
+    store = LocalStore(tmp_path)
+    keys = [_seed_empty_window(store, *w) for w in olds]
+    audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None, empty_recheck_max=1)
+    assert fake.created.count(olds[0]) == 1 and olds[1] not in fake.created
+    windows = store.read_json(audit_collect.STATE)["windows"]
+    assert keys[1] in windows  # due later, so prune keeps it
+    before = len(fake.created)
+    audit_collect.collect_audit(api, store, settings(), now=NOW + timedelta(minutes=5), sleep=lambda x: None,
+                                empty_recheck_max=1)
+    assert fake.created[before:].count(olds[1]) == 1 and olds[0] not in fake.created[before:]
+
+
+def test_audit_recheck_that_is_not_merged_is_merged_by_the_next_run(tmp_path, monkeypatch):
+    old = (NOW - timedelta(days=3), NOW - timedelta(days=3) + timedelta(hours=8))
+    fake = AuditGraph([_record(1, old[0] + timedelta(hours=1))])
+    api, _ = make_api(fake)
+    store = LocalStore(tmp_path)
+    key = _seed_empty_window(store, *old)
+    real_merge = audit_collect.AuditCollector.merge
+
+    def broken_merge(self, keys, advance_high_water=True):
+        raise OSError("storage unavailable")
+
+    monkeypatch.setattr(audit_collect.AuditCollector, "merge", broken_merge)
+    with pytest.raises(OSError):
+        audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None)
+    assert store.read_json(audit_collect.STATE)["windows"][key][audit_collect.audit.RECHECK_PENDING] is True
+    monkeypatch.setattr(audit_collect.AuditCollector, "merge", real_merge)
+    before = len(fake.created)
+    result = audit_collect.collect_audit(api, store, settings(), now=NOW + timedelta(minutes=5), sleep=lambda x: None)
+    assert old not in fake.created[before:]  # reused, not queried again
+    assert result["rows"] == 1
+    entry = store.read_json(audit_collect.STATE)["windows"][key]
+    assert entry["rows"] == 1 and audit_collect.audit.RECHECK_PENDING not in entry
+
+
+def test_audit_settled_or_old_empty_windows_are_not_queried_again(tmp_path):
+    settled = (NOW - timedelta(days=5), NOW - timedelta(days=5) + timedelta(hours=8))
+    too_old = (NOW - timedelta(days=40), NOW - timedelta(days=40) + timedelta(hours=8))
+    fake = AuditGraph([])
+    api, _ = make_api(fake)
+    store = LocalStore(tmp_path)
+    _seed_empty_window(store, *settled, completed=settled[1] + timedelta(days=2))
+    _seed_empty_window(store, *too_old)
+    audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None)
+    assert settled not in fake.created and too_old not in fake.created
+
+
+def test_audit_run_with_every_window_empty_logs_what_to_check(tmp_path, caplog):
+    api, _ = make_api(AuditGraph([]))
+    with caplog.at_level("WARNING", logger="valuelens_jobs.collect.audit"):
+        assert audit_collect.collect_audit(api, LocalStore(tmp_path), settings(), now=NOW,
+                                           sleep=lambda x: None)["rows"] == 0
+    assert "none had Copilot interaction records" in caplog.text
+    assert "AuditLogsQuery.Read.All" in caplog.text and "Purview" in caplog.text
+
+
+def test_audit_run_with_records_logs_no_empty_warning(tmp_path, caplog):
+    api, _ = make_api(AuditGraph([_record(1, NOW - timedelta(hours=3))]))
+    with caplog.at_level("WARNING", logger="valuelens_jobs.collect.audit"):
+        audit_collect.collect_audit(api, LocalStore(tmp_path), settings(), now=NOW, sleep=lambda x: None)
+    assert "none had Copilot interaction records" not in caplog.text
+
+
+def _jwt(claims):
+    import base64
+
+    body = base64.urlsafe_b64encode(json.dumps(claims).encode()).decode().rstrip("=")
+    return f"eyJhbGciOiJub25lIn0.{body}.sig"
+
+
+def test_audit_warns_when_the_token_lacks_the_audit_role(tmp_path, caplog):
+    api, _ = make_api(AuditGraph([]))
+    api.tokens.get = lambda scope, force=False: _jwt({"tid": "t", "roles": ["AuditLogsQuery-Exchange.Read.All"]})
+    with caplog.at_level("WARNING", logger="valuelens_jobs.collect.audit"):
+        audit_collect.collect_audit(api, LocalStore(tmp_path), settings(), now=NOW, sleep=lambda x: None)
+    assert "AuditLogsQuery-Exchange.Read.All but not AuditLogsQuery.Read.All" in caplog.text
+    assert "re-run the installer" in caplog.text
+
+
+def test_audit_token_with_the_role_gives_no_warning(tmp_path, caplog):
+    api, _ = make_api(AuditGraph([_record(1, NOW - timedelta(hours=3))]))
+    api.tokens.get = lambda scope, force=False: _jwt({"tid": "t", "roles": ["AuditLogsQuery.Read.All"]})
+    with caplog.at_level("WARNING", logger="valuelens_jobs.collect.audit"):
+        audit_collect.collect_audit(api, LocalStore(tmp_path), settings(), now=NOW, sleep=lambda x: None)
+    assert "AuditLogsQuery" not in caplog.text
+
+
+def test_api_returns_a_429_at_once_when_its_retry_after_is_beyond_give_up_after():
+    seq = [Resp(429, {}, headers={"Retry-After": "3600"}), Resp(200, {"ok": 1})]
+    api, session = make_api(lambda m, u, kw: seq.pop(0))
+    throttles = []
+    api.on_throttle = lambda: throttles.append(1)
+    assert api.get("https://graph.microsoft.com/v1.0/x", give_up_after=300).status_code == 429
+    assert len(session.calls) == 1 and throttles == [1]
+    assert "give_up_after" not in session.calls[0][2]
+    # A short wait is still retried, and without give_up_after a long one is too (capped at 120 s).
+    for retry in ("30", "3600"):
+        seq[:] = [Resp(429, {}, headers={"Retry-After": retry}), Resp(200, {"ok": 1})]
+        assert api.get("https://graph.microsoft.com/v1.0/x", give_up_after=None if retry == "3600" else 300).json() \
+            == {"ok": 1}
+
+
+class QuotaGraph(AuditGraph):
+    """Accepts `allowed` new audit searches, then answers 429 with a day-long Retry-After."""
+
+    def __init__(self, records, allowed, **kw):
+        super().__init__(records, **kw)
+        self.allowed, self.refused = allowed, 0
+
+    def __call__(self, method, url, kw):
+        if method == "POST" and url == audit_collect.QUERIES and len(self.created) >= self.allowed:
+            self.refused += 1
+            return Resp(429, {}, headers={"Retry-After": "3600"})
+        return super().__call__(method, url, kw)
+
+
+def test_audit_daily_search_limit_merges_finished_windows_and_resumes(tmp_path):
+    records = [_record(i, NOW - timedelta(hours=27 - 8 * i)) for i in range(4)]  # one in each 8 h window
+    fake = QuotaGraph(records, allowed=2)
+    api, _ = make_api(fake)
+    store = LocalStore(tmp_path)
+    with pytest.raises(RuntimeError, match=r"refused new audit searches for this tenant \(HTTP 429\) with 2 audit "
+                                           r"window\(s\) still to fetch\. The 2 row\(s\)"):
+        audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None, max_concurrent=1)
+    # One refusal, returned at once: no more searches are sent, and no new query is tried for that window.
+    assert fake.refused == 1 and len(fake.created) == 2
+    rows, _ = _parsed(store)
+    assert len(rows) == 2
+    state = store.read_json(audit_collect.STATE)
+    assert "high_water_mark" not in state
+    throttled = [w for w in state["windows"].values() if w["status"] == "waiting"]
+    assert len(throttled) == 1 and throttled[0]["throttled_at"] and throttled[0]["query_id"] is None
+
+    rerun = AuditGraph(records)
+    api, _ = make_api(rerun)
+    assert audit_collect.collect_audit(api, store, settings(), now=NOW + timedelta(minutes=5),
+                                       sleep=lambda x: None)["rows"] >= 2
+    assert len(rerun.created) == 2
+    assert len(_parsed(store)[0]) == 4 and store.read_json(audit_collect.STATE)["high_water_mark"]
+
+
+def test_audit_query_throttled_while_waiting_is_re_polled_by_the_next_run(tmp_path):
+    records = [_record(1, NOW - timedelta(hours=3))]
+    fake = AuditGraph(records)
+    throttle_reads = [True]
+
+    def handler(m, u, kw):
+        if m == "GET" and "/records" not in u and throttle_reads[0]:
+            return Resp(429, {}, headers={"Retry-After": "3600"})
+        return fake(m, u, kw)
+
+    api, _ = make_api(handler)
+    store = LocalStore(tmp_path)
+    with pytest.raises(RuntimeError, match="refused new audit searches"):
+        audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None, max_concurrent=1)
+    assert len(fake.created) == 1
+    waiting = [w for w in store.read_json(audit_collect.STATE)["windows"].values() if w["status"] == "waiting"]
+    assert len(waiting) == 1 and waiting[0]["query_id"] and waiting[0]["query_created_at"]
+
+    throttle_reads[0] = False
+    before = len(fake.created)
+    assert audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None)["rows"] == 1
+    assert len(fake.created) - before == 3  # the other three windows; the waiting one re-polls its query
+    assert store.read_json(audit_collect.STATE)["windows"][
+        audit_collect.audit.stable_window_key(*fake.created[0])]["query_id"] == waiting[0]["query_id"]
+
+
+class CappedGraph(AuditGraph):
+    """Reports isRecordCountLimitExceeded for queries longer than `capped_hours`."""
+
+    def __init__(self, records, capped_hours, **kw):
+        super().__init__(records, **kw)
+        self.capped_hours, self.spans = capped_hours, {}
+
+    def __call__(self, method, url, kw):
+        r = super().__call__(method, url, kw)
+        if method == "POST":
+            self.spans[r._body["id"]] = self.created[-1][1] - self.created[-1][0]
+        elif "/records" not in url:
+            qid = url[len(audit_collect.QUERIES) + 1:]
+            r._body["isRecordCountLimitExceeded"] = self.spans[qid] > timedelta(hours=self.capped_hours)
+        return r
+
+
+def test_audit_record_limit_splits_the_window_at_once(tmp_path):
+    records = [_record(1, NOW - timedelta(hours=20)), _record(2, NOW - timedelta(hours=13))]
+    fake = CappedGraph(records, capped_hours=4)
+    api, _ = make_api(fake)
+    store = LocalStore(tmp_path)
+    collector = audit_collect.AuditCollector(api, store, settings(), now=NOW, sleep=lambda x: None)
+    assert collector.run()["rows"] == 2
+    eight = [w for w in fake.created if w[1] - w[0] == timedelta(hours=8)]
+    assert len(eight) == len(set(eight)) == 3  # each 8 h window queried once, not retried
+    # Their halves, plus the last window (08:00-12:00), which is 4 h already.
+    assert sum(1 for w in fake.created if w[1] - w[0] == timedelta(hours=4)) == 7
+    assert collector.limiter.history == []
+    windows = store.read_json(audit_collect.STATE)["windows"].values()
+    assert sum(1 for w in windows if w["status"] == "split") == 3
+    assert not any(w.get("record_limit_exceeded") for w in windows)
+
+
+def test_audit_record_limit_at_the_smallest_window_is_kept_and_flagged(tmp_path, caplog):
+    fake = CappedGraph([_record(1, NOW - timedelta(hours=3))], capped_hours=4)
+    api, _ = make_api(fake)
+    store = LocalStore(tmp_path)
+    with caplog.at_level("WARNING", logger="valuelens_jobs.collect.audit"):
+        assert audit_collect.collect_audit(api, store, settings(), now=NOW, sleep=lambda x: None,
+                                           min_chunk_hours=8)["rows"] == 1
+    assert len(fake.created) == 4
+    windows = store.read_json(audit_collect.STATE)["windows"].values()
+    assert all(w["status"] == "succeeded" for w in windows)
+    assert sum(1 for w in windows if w.get("record_limit_exceeded")) == 3  # not the 4 h window at the end
+    assert "some of its records are missing" in caplog.text
+
+
 def test_audit_retry_classification():
     assert audit_collect.is_retryable(audit_collect.AuditQueryFailed("failed"))
     assert audit_collect.is_retryable(TimeoutError("slow"))
@@ -570,6 +815,11 @@ LICENSED_CSV = ("\ufeffReport Refresh Date,User Principal Name,Display Name,Assi
 COPILOT_CSV = "\ufeffReport Refresh Date,User Principal Name,Display Name,Last Activity Date\n"
 
 
+def _live_user(upn, status="Enabled", plan=graph.licensed.COPILOT_PLAN_ID):
+    plans = [] if status is None else [{"servicePlanId": plan, "capabilityStatus": status}]
+    return {"userPrincipalName": upn, "assignedPlans": plans}
+
+
 def test_collect_licensed_and_org(tmp_path):
     users_page2 = graph.org.USERS_URL + "&$skiptoken=2"
 
@@ -578,6 +828,8 @@ def test_collect_licensed_and_org(tmp_path):
             return Resp(200, text=LICENSED_CSV, content=LICENSED_CSV.encode("utf-8-sig"))
         if url == graph.COPILOT_USAGE_URL:
             return Resp(200, text=COPILOT_CSV, content=COPILOT_CSV.encode())
+        if url == graph.licensed.LIVE_USERS_URL:
+            return Resp(200, {"value": [_live_user("ada@contoso.com"), _live_user("bob@contoso.com", None)]})
         if url == graph.org.USERS_URL:
             return Resp(200, {"value": [{"userPrincipalName": "ceo@contoso.com", "displayName": "Ceo"}],
                               "@odata.nextLink": users_page2})
@@ -644,14 +896,61 @@ def _licensed_flags(store):
     return duckdb.sql(f"SELECT UPN_Normalized, Has_license FROM '{path}' ORDER BY 1").fetchall()
 
 
-def _licensed_api(copilot):
+def _licensed_api(copilot, live=None, csv=LICENSED_CSV):
+    live = live if live is not None else [Resp(403, {})]
+
     def handler(m, url, kw):
         if "getOffice365ActiveUserDetail" in url:
-            return Resp(200, text=LICENSED_CSV, content=LICENSED_CSV.encode("utf-8-sig"))
+            return Resp(200, text=csv, content=csv.encode("utf-8-sig"))
         if url == graph.COPILOT_USAGE_URL:
             return copilot
+        if url == graph.licensed.LIVE_USERS_URL:
+            return live[0]
+        if url == graph.licensed.LIVE_USERS_URL + "&$skiptoken=2":
+            return live[1]
         raise AssertionError(url)
     return make_api(handler)[0]
+
+
+def test_collect_licensed_unticks_users_entra_shows_unlicensed(tmp_path, caplog):
+    text = COPILOT_CSV + "2026-09-09,bob@contoso.com,Bob,\n2026-09-09,ada@contoso.com,Ada,2026-09-08\n"
+    csv = LICENSED_CSV + "2026-09-09,cy@contoso.com,Cy,Microsoft 365 E3\n"
+    page2 = graph.licensed.LIVE_USERS_URL + "&$skiptoken=2"
+    live = [Resp(200, {"value": [_live_user("ada@contoso.com"), _live_user("bob@contoso.com", "Deleted")],
+                       "@odata.nextLink": page2}),
+            Resp(200, {"value": [_live_user("cy@contoso.com")]})]
+    store = LocalStore(tmp_path)
+    with caplog.at_level("INFO", logger="valuelens_jobs.collect"):
+        graph.collect_licensed(_licensed_api(Resp(200, text=text, content=text.encode()), live, csv), store,
+                               settings())
+    assert _licensed_flags(store) == [("ada@contoso.com", "TRUE"), ("bob@contoso.com", "FALSE"),
+                                      ("cy@contoso.com", "FALSE")]
+    assert "1 user(s) not counted because Entra shows no enabled Copilot plan" in caplog.text
+    assert "1 user(s) have an enabled Copilot plan in Entra but no matching" in caplog.text
+
+
+def test_collect_licensed_skips_entra_check_when_names_differ(tmp_path, caplog):
+    live = [Resp(200, {"value": [_live_user("someone@contoso.com")]})]
+    store = LocalStore(tmp_path)
+    with caplog.at_level("WARNING", logger="valuelens_jobs.collect"):
+        graph.collect_licensed(_licensed_api(Resp(404, {}), live), store, settings())
+    assert _licensed_flags(store) == [("ada@contoso.com", "TRUE"), ("bob@contoso.com", "FALSE")]
+    assert "none of the report users are in Microsoft Entra" in caplog.text
+
+
+def test_collect_licensed_rejects_foreign_users_link(tmp_path):
+    live = [Resp(200, {"value": [], "@odata.nextLink": "https://evil.example/u"})]
+    with pytest.raises(RuntimeError, match="non-Graph"):
+        graph.collect_licensed(_licensed_api(Resp(404, {}), live), LocalStore(tmp_path), settings())
+
+
+def test_collect_licensed_never_counts_deleted_users(tmp_path):
+    csv = ("Report Refresh Date,User Principal Name,Display Name,Is Deleted,Assigned Products\n"
+           "2026-09-09,ada@contoso.com,Ada,False,MICROSOFT 365 COPILOT\n"
+           "2026-09-09,gone@contoso.com,Gone,True,MICROSOFT 365 COPILOT\n")
+    store = LocalStore(tmp_path)
+    graph.collect_licensed(_licensed_api(Resp(404, {}), csv=csv), store, settings())
+    assert _licensed_flags(store) == [("ada@contoso.com", "TRUE"), ("gone@contoso.com", "FALSE")]
 
 
 def test_collect_licensed_counts_users_in_copilot_report(tmp_path, caplog):
@@ -1315,6 +1614,8 @@ def test_full_local_pipeline_collect_to_publish(tmp_path, monkeypatch):
             return Resp(200, text=LICENSED_CSV, content=LICENSED_CSV.encode())
         if url == graph.COPILOT_USAGE_URL:
             return Resp(200, text=COPILOT_CSV, content=COPILOT_CSV.encode())
+        if url == graph.licensed.LIVE_USERS_URL:
+            return Resp(403, {})
         return fake(m, url, kw)
 
     api, _ = make_api(handler)

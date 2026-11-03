@@ -303,3 +303,10 @@ test("install: a failed app deploy or unproven first load makes the install not 
   assert.match(src, /const appOk = appDeployed \|\| !!appLate;\r?\n\s*ok = reloads\.ok && ok && stepsOk && appOk;\r?\n\s*await summary\(ctx, \{ ok, pending: reloads\.pending, appFailed: !appDeployed && !appLate, appLate \}\)/);
   assert.match(src, /if \(opts\.wait && config\.firstRun\?\.status !== 'Completed'\) ok = false;/);
 });
+
+test('install and update: the audit check right after consent is provisional; the one after the pipeline decides', async () => {
+  const src = await readFile(new URL('../src/install.js', import.meta.url), 'utf8');
+  const calls = [...src.matchAll(/checkAuditAccess\(ctx, \{ consented(, provisional: true)? \}\)/g)].map((m) => !!m[1]);
+  // install, then update: each an early provisional check and a later final one.
+  assert.deepEqual(calls, [true, false, true, false]);
+});

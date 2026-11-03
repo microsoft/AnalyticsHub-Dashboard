@@ -84,17 +84,21 @@ Studio table with a real date**, and so the only one Consumption Central plots o
 | `payg_consumed` | double | Billed pay-as-you-go |
 | `usage_date` | date | Parsed from PPAC's `M/d/yyyy H:mm` |
 
-**Merge key:** `usage_date`, `environment_id`, `billing_plan_id`, `capacity_type`.
+**Key:** `usage_date`, `environment_id`, `billing_plan_id`, `capacity_type`. Each run writes the days
+its exports cover in one Delta commit: an export row replaces the stored row with its key, other rows
+on those days stay, and where two files share a key the newer file wins.
 
 Rows from the licensing API flow have `source_file = 'ppac-api'` and the all-zero
 `billing_plan_id`. They fill only the days and environments no export covers. They split each
 day's credits by the tenant-wide prepaid share from the latest entitlement snapshot (all prepaid
-without one), and `entitled_quantity` is the environment's allocation.
+without one), and `entitled_quantity` is the environment's allocation. Each run replaces them for
+the days its files cover, in one Delta commit, so a failed write leaves the table as it was.
 
 When the flow lands only the per-user file, rows with `source_file = 'ppac-api-users'` are summed from
 `studio_user_daily` for the days and environments that neither an export nor the per-agent file
 covers. Billed credits split by the same prepaid share, and non-billed credits count as prepaid.
-They're rebuilt on every run, so a later export or per-agent file replaces them. They are a floor:
+They're rebuilt on every run, in one Delta commit, so a failed write keeps the last run's rows,
+and a later export or per-agent file replaces them. They are a floor:
 the per-user route leaves out credits not tied to a user. No feature or model breakdown comes with
 them; that needs a Power Platform admin center export.
 
@@ -122,7 +126,8 @@ credits allocated appear. Per-user figures are in `studio_user_daily`.
 | `source_file` | string | Always `ppac-api` |
 
 **Merge key:** `usage_date`, `agent_id`, `billable_feature`, `channel`, `environment_id`. Each
-file restates the last ten days, so those days are replaced.
+file restates the last ten days, so those days are replaced, in one Delta commit: a failed write
+leaves the table as it was.
 
 For months no export covers, `studio_agent` also gets a `ppac-api` row per agent, summed from
 this table. An export for the month replaces them.
@@ -146,8 +151,9 @@ an undocumented licensing API route, so this is best effort: empty if the route 
 | `source_file` | string | Always `ppac-api` |
 | `_loaded_at` | timestamp | |
 
-**Merge key:** `usage_date`, `user_id`, `environment_id`, `agent_id`. Each file restates the last
-ten days, so those days are replaced.
+**Merge key:** `usage_date`, `user_id`, `environment_id`, `agent_id`. Each file restates
+the last ten days, so those days are replaced, in one Delta commit: a failed write leaves the
+table as it was.
 
 For months no export covers, `studio_user` also gets a `ppac-api` row per user and agent, summed
 from this table, with `user_email` set to `user_upn`. An export for the month replaces them.
@@ -157,11 +163,11 @@ from this table, with `user_email` set to `user_upn`. An export for the month re
 ## `studio_agent`
 
 Per-agent consumption. **The export carries no date** — it is a month-to-date aggregate — so the
-ingester stamps `snapshot_month` and merges on it.
+ingester labels each export with a `snapshot_month` and keys on it.
 
 | Column | Type | Notes |
 |---|---|---|
-| `snapshot_month` | date | Added by the ingester. First of the month the export represents. |
+| `snapshot_month` | date | Added by the ingester: the first of the month, in UTC, that the export's file arrived in `Files/landing/studio/`, or its `backfill/<YYYY-MM>/` folder's month. A file with no modification time counts as the month of the run. |
 | `agent_name` | string | |
 | `agent_id` | string | |
 | `product` | string | e.g. `Copilot Studio` |
@@ -177,7 +183,9 @@ ingester stamps `snapshot_month` and merges on it.
 | `environment_name` | string | |
 | `source_file` | string | Which export this came from — lineage, useful when several environments export separately |
 
-**Merge key:** `snapshot_month`, `agent_id`, `billable_feature`, `channel`, `environment_id`.
+**Key:** `snapshot_month`, `agent_id`, `billable_feature`, `channel`, `environment_id`. Written as the
+tenant table is, by month: an export row replaces the stored row with its key, and the licensing API
+rows for its months go.
 
 An agent appears once per feature per channel per environment, so all of those belong in the key.
 
@@ -191,8 +199,8 @@ An agent appears once per feature per channel per environment, so all of those b
 > time axis — which is also why the Studio forecast extends a daily run rate rather than fitting a
 > curve.
 >
-> **The template reads the LATEST `snapshot_month` only.** Once you have run the ingester twice, an
-> agent has a row per snapshot; summing them would multiply that agent's credits by the number of
+> **The template reads the LATEST `snapshot_month` only.** Once exports from two months are loaded, an
+> agent has a row for each month; summing them would multiply that agent's credits by the number of
 > months loaded, and each of those rows is already a month-to-date total. The history is kept
 > because it is worth having, not because the report adds it up.
 
@@ -204,7 +212,7 @@ Per-user consumption. Same no-date caveat as `studio_agent`.
 
 | Column | Type | Notes |
 |---|---|---|
-| `snapshot_month` | date | Added by the ingester |
+| `snapshot_month` | date | Added by the ingester, as for `studio_agent` |
 | `user_id` | string | |
 | `user_email` | string | Lowercased. **Joins to `org_attributes.user_principal_name`.** |
 | `agent_id` | string | |
@@ -214,7 +222,7 @@ Per-user consumption. Same no-date caveat as `studio_agent`.
 | `m365_copilot_licensed` | boolean | Parsed from the export's text |
 | `source_file` | string | Lineage |
 
-**Merge key:** `snapshot_month`, `user_id`, `agent_id`.
+**Key:** `snapshot_month`, `user_id`, `agent_id`, written as `studio_agent` is.
 
 > **This will not add up to the tenant total, and that is correct.** Agent and environment
 > consumption carries no user, so the per-user total is always smaller. Consumption Central computes the gap
@@ -373,9 +381,23 @@ Three more tables written by `Ingest_Azure_AI` for the **Azure: Capacity & Healt
 Reconciliation** and Foundry solution spend pages. They're **best-effort**: the notebook writes
 `azure_ai_spend`, `azure_ai_tokens` and `copilot_payg_spend` first, then these. An account,
 deployment or metric that fails is logged as a `WARNING` and skipped. If a table's source fails
-entirely, that table is left as it was. The app registration's Reader, Cost Management Reader and
-Monitoring Reader roles on the subscription are enough. The column names, order and types match
-the [sample data](../../samples/consumption/).
+entirely, or its write fails, that table is left as it was. The app registration's Reader, Cost
+Management Reader and Monitoring Reader roles on the subscription are enough. The column names,
+order and types match the [sample data](../../samples/consumption/).
+
+**Each run keeps older rows.** `Ingest_Azure_AI` reads the last `DAYS` days (90 by default) and, in
+each of its six tables, replaces only the rows from the window's first day onwards, so the tables
+grow past 90 days and a smaller `DAYS` never shortens them. Rows with no date are replaced by every
+run, and a source that returns no rows still replaces its days.
+
+- `azure_deployment_health` and `azure_billing_reconciliation` hold a row per month. When the window
+  starts after the 1st, that month's stored rows are kept only if all of them were written after the
+  month ended. Otherwise the run's rows replace the whole month, so a month still in progress never
+  freezes at its first values.
+- `azure_ai_spend`, `azure_ai_tokens` and `copilot_payg_spend` are all checked before any of them is
+  written. If one can't be read, or one of its columns has changed type, the run stops with none of
+  them changed. A best-effort table with the same problem is left as it was, with a `WARNING`.
+- To start a table over, drop it and run the notebook again. Its older rows are lost.
 
 ### `azure_deployment_health`
 

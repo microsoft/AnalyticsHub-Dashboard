@@ -155,7 +155,7 @@ export function GradingMethodStage() {
         <Section
             id={stageAnchor("grading-method")}
             title="How grading works"
-            description="The rules behind Cowork fit and Model fit, and the research that loosely informed them. The grade reads what a session touched, never the prompt or the answer, so a flag is a prompt to coach, not a verdict on anyone's work."
+            description="The rules behind Cowork fit and Model fit, which read what a session touched and never the prompt or the answer."
         >
             <div className="grid items-stretch gap-400 xl:grid-cols-2">
                 <RulePanel

@@ -191,7 +191,7 @@ export function SignalImpactStage() {
         <Section
             id={stageAnchor("signal-impact")}
             title="Signal → Impact"
-            description="What the audit log shows, the task ValueLens reads it as, and the human time that task would otherwise take. These are the assumptions behind every value estimate."
+            description="Each audit-log signal, the task it counts as, and the human time that task would otherwise take."
             actions={
                 categories.length > 1 ? (
                     <ChoiceMenu

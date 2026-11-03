@@ -22,6 +22,9 @@ export const ENVIRONMENTS_TABLE = 'Power Platform Environments';
 export const AGENT_FLOWS_TABLE = 'Agent Flows';
 export const FOUNDRY_TABLE = 'Foundry Resources';
 export const ARG_STATUS_TABLE = 'Resource Graph Status';
+export const AGENT_DETAIL_TABLE = 'Agent Detail';
+export const REGISTRY_TABLE = 'Agents 365';
+export const AUDIT_TABLE = 'Chat + Agent Interactions (Audit Logs)';
 
 /** Written by Copilot_Resource_Graph_Ingester, or by the Azure jobs. Each load replaces the last. */
 export const ARG_TABLES = /** @type {ArgTable[]} */ ([
@@ -54,6 +57,14 @@ export const ARG_TABLES = /** @type {ArgTable[]} */ ([
       PublicNetworkAccess PublicNetwork:flag DisableLocalAuth:flag IsProject:flag AccountId`),
   },
   {
+    name: AGENT_DETAIL_TABLE,
+    source: 'arg_agent_detail',
+    description: "One row per Copilot Studio agent: what it's built from, what knowledge it reads, and whether its owner's Entra account is still active.",
+    columns: cols(`SnapshotDate:date AgentResourceId CreatedBy QuarantinedAt TopicCount:count ToolCount:count KnowledgeCount:count
+      EditorUserCount:count EntraAgentBlueprintId Harness InstructionsCharCount:count KnowledgeTypes SharePointSiteCount:count
+      GraphConnectorCount:count PublicSiteCount:count FileKnowledgeCount:count DataverseSourceCount:count OwnerAccount OwnerUpn Source`),
+  },
+  {
     name: ARG_STATUS_TABLE,
     source: 'arg_status',
     description: 'What each Resource Graph probe returned on the last load, in plain words.',
@@ -63,9 +74,146 @@ export const ARG_TABLES = /** @type {ArgTable[]} */ ([
 
 /** Relationships from the agent configuration table. Ones to a table the template lacks are left out. */
 export const ARG_RELATIONSHIPS = [
-  { fromTable: AGENT_CONFIG_TABLE, fromColumn: 'TitleId', toTable: 'Agents 365', toColumn: 'Title ID' },
+  { fromTable: AGENT_CONFIG_TABLE, fromColumn: 'TitleId', toTable: REGISTRY_TABLE, toColumn: 'Title ID' },
   { fromTable: AGENT_CONFIG_TABLE, fromColumn: 'EnvironmentId', toTable: ENVIRONMENTS_TABLE, toColumn: 'EnvironmentId' },
 ];
+
+/**
+ * @typedef {{ table: string, name: string, dataType: 'string' | 'int64', description: string, needs?: string[], expression: string[] }} ArgCalculatedColumn
+ */
+
+const AC = `'${AGENT_CONFIG_TABLE}'`;
+const DETAIL = `'${AGENT_DETAIL_TABLE}'`;
+const AUDIT = `'${AUDIT_TABLE}'`;
+/** The agent's own row in Agent Detail: the same agent at the same load. */
+const DETAIL_ROWS = `FILTER(${DETAIL}, ${DETAIL}[AgentResourceId] = ${AC}[AgentResourceId] && ${DETAIL}[SnapshotDate] = ${AC}[SnapshotDate])`;
+
+/**
+ * Governance's registry fields, worked out from Resource Graph so the Governance tabs run without
+ * Agent 365. Each matches the registry column of the same name, in the same words. Only `Total
+ * Users` uses CALCULATE: two columns on one table that both do would depend on each other.
+ */
+export const ARG_CALCULATED_COLUMNS = /** @type {ArgCalculatedColumn[]} */ ([
+  {
+    table: AGENT_CONFIG_TABLE,
+    name: 'Owner account',
+    dataType: 'string',
+    description: "Whether the owner's Entra account is Active, Disabled or Not found, from Microsoft Graph. Blank when it wasn't checked.",
+    needs: [AGENT_DETAIL_TABLE],
+    expression: [`VAR _Account = MAXX(${DETAIL_ROWS}, ${DETAIL}[OwnerAccount])`, 'RETURN IF(_Account <> "", _Account)'],
+  },
+  {
+    table: AGENT_CONFIG_TABLE,
+    name: 'Owner UPN',
+    dataType: 'string',
+    description: "The owner's user principal name, from Microsoft Graph. Blank when it wasn't checked or the account is gone.",
+    needs: [AGENT_DETAIL_TABLE],
+    expression: [`VAR _Upn = MAXX(${DETAIL_ROWS}, ${DETAIL}[OwnerUpn])`, 'RETURN IF(_Upn <> "", _Upn)'],
+  },
+  {
+    table: AGENT_CONFIG_TABLE,
+    name: 'Sharing Scope',
+    dataType: 'string',
+    description: 'Who can use the agent: Whole organisation, Specific people or groups, or Not shared.',
+    expression: [
+      'SWITCH(TRUE(),',
+      `    ${AC}[SharedEntireTenant] = TRUE(), "Whole organisation",`,
+      `    COALESCE(${AC}[SharedUsers], 0) + COALESCE(${AC}[SharedGroups], 0) > 0, "Specific people or groups",`,
+      '    "Not shared")',
+    ],
+  },
+  {
+    table: AGENT_CONFIG_TABLE,
+    name: 'Data Access',
+    dataType: 'string',
+    description:
+      'What the agent can read: Organisation content (SharePoint, Graph connectors, Dataverse or knowledge connectors), Uploaded files only, None declared, or Not reported when Resource Graph gave no knowledge details.',
+    needs: [AGENT_DETAIL_TABLE],
+    expression: [
+      `VAR _Detail = ${DETAIL_ROWS}`,
+      `VAR _Org    = SUMX(_Detail, ${DETAIL}[SharePointSiteCount] + ${DETAIL}[GraphConnectorCount] + ${DETAIL}[DataverseSourceCount])`,
+      `VAR _Files  = SUMX(_Detail, ${DETAIL}[FileKnowledgeCount])`,
+      'RETURN SWITCH(TRUE(),',
+      `    _Org > 0 || COALESCE(${AC}[KnowledgeConnectorCount], 0) > 0, "Organisation content",`,
+      '    _Files > 0, "Uploaded files only",',
+      '    NOT ISEMPTY(_Detail), "None declared",',
+      '    "Not reported")',
+    ],
+  },
+  {
+    table: AGENT_CONFIG_TABLE,
+    name: 'Agent Type Label',
+    dataType: 'string',
+    description: 'Where the agent was built, in the registry\'s words: Maker: Copilot Studio, Agent Builder, SharePoint or Foundry, or Maker-built.',
+    expression: [
+      `VAR _C = LOWER(TRIM(COALESCE(${AC}[CreatedIn], "")))`,
+      'RETURN SWITCH(TRUE(),',
+      '    CONTAINSSTRING(_C, "agent builder"), "Maker: Agent Builder",',
+      '    CONTAINSSTRING(_C, "copilot studio"), "Maker: Copilot Studio",',
+      '    CONTAINSSTRING(_C, "sharepoint"), "Maker: SharePoint",',
+      '    CONTAINSSTRING(_C, "foundry"), "Maker: Foundry",',
+      '    "Maker-built")',
+    ],
+  },
+  {
+    table: AGENT_CONFIG_TABLE,
+    name: 'Total Users',
+    dataType: 'int64',
+    description: "Distinct people the audit log records using the agent, matched by name as the registry's Total Users is.",
+    needs: [AUDIT_TABLE],
+    // The audit table filters Agents 365 both ways, so the row's own filters would reach it through
+    // the Title ID relationship. Only the name should count.
+    expression: [
+      `VAR _Name = ${AC}[AgentName]`,
+      'RETURN',
+      '    IF(_Name <> "",',
+      `        CALCULATE(DISTINCTCOUNT(${AUDIT}[Audit_UserId]), ${AUDIT}[AgentName] = _Name, REMOVEFILTERS(${AC})))`,
+    ],
+  },
+  {
+    table: AGENT_CONFIG_TABLE,
+    name: 'Governance Flags',
+    dataType: 'string',
+    description:
+      "Why an agent that isn't quarantined needs review, separated by '; ': No sign-in required, Owner has left, No owner on record, Org-wide with org data, Shared, no recorded use. Blank when none apply.",
+    needs: [AGENT_DETAIL_TABLE, AUDIT_TABLE],
+    expression: [
+      `VAR _Live   = NOT (${AC}[IsQuarantined] = TRUE())`,
+      `VAR _Owner  = LOWER(TRIM(COALESCE(${AC}[Owner account], "")))`,
+      `VAR _Scope  = ${AC}[Sharing Scope]`,
+      `VAR _Unused = COALESCE(${AC}[Total Users], 0) = 0`,
+      'VAR _List =',
+      `    IF(${AC}[NoSignIn] = TRUE(), "; No sign-in required")`,
+      '    & IF(_Owner IN {"disabled", "not found"}, "; Owner has left")',
+      `    & IF(TRIM(COALESCE(${AC}[OwnerId], "")) = "", "; No owner on record")`,
+      `    & IF(_Scope = "Whole organisation" && ${AC}[Data Access] = "Organisation content", "; Org-wide with org data")`,
+      '    & IF(_Scope IN {"Whole organisation", "Specific people or groups"} && _Unused, "; Shared, no recorded use")',
+      'RETURN IF(_Live && _List <> "", MID(_List, 3, 500))',
+    ],
+  },
+  {
+    table: REGISTRY_TABLE,
+    name: 'Owner account (Resource Graph)',
+    dataType: 'string',
+    description:
+      "The owner check from Resource Graph for the same agent, matched on Title ID: Active, Disabled or Not found. Governance Flags falls back to it when the registry's own Owner account is blank.",
+    needs: [AGENT_DETAIL_TABLE],
+    expression: [
+      `VAR _Id   = '${REGISTRY_TABLE}'[Title ID]`,
+      `VAR _Date = MAX(${AC}[SnapshotDate])`,
+      'RETURN',
+      '    IF(_Id <> "",',
+      `        MAXX(FILTER(${AC}, ${AC}[TitleId] = _Id && ${AC}[SnapshotDate] = _Date), ${AC}[Owner account]))`,
+    ],
+  },
+]);
+
+/** The registry flags' owner line, as the template has it, and what it becomes with the Resource Graph fallback. */
+export const REGISTRY_OWNER_LINE = `VAR _Owner   = LOWER(TRIM(COALESCE('${REGISTRY_TABLE}'[Owner account], "")))`;
+export const REGISTRY_OWNER_FALLBACK = [
+  `VAR _Owner   = LOWER(TRIM(IF(TRIM(COALESCE('${REGISTRY_TABLE}'[Owner account], "")) = "",`,
+  `    COALESCE('${REGISTRY_TABLE}'[Owner account (Resource Graph)], ""), '${REGISTRY_TABLE}'[Owner account])))`,
+].join('\n');
 
 /**
  * A stable GUID for an object the installer adds, so redeploys don't churn lineage.
@@ -173,6 +321,64 @@ export function addResourceGraph(model, on) {
       toColumn: r.toColumn,
     });
   }
+  if (added.has(AGENT_CONFIG_TABLE)) addGovernanceColumns(model);
+}
+
+/**
+ * Adds the Resource Graph governance columns, then points the registry's `Governance Flags` at
+ * the Resource Graph owner check for agents the registry has none for. A column whose name is
+ * taken, or that needs a table the template lacks, is left out, with the columns built on it.
+ * The flags are only changed when their owner line is exactly the one this was written against.
+ * @param {import('./model.js').ModelBim['model']} model
+ * @returns {{ columns: string[], ownerFallback: boolean }}  What was added.
+ */
+export function addGovernanceColumns(model) {
+  const tables = new Map(model.tables.map((t) => [t.name, t]));
+  /** @type {string[]} */
+  const columns = [];
+  const skipped = new Set();
+  for (const c of ARG_CALCULATED_COLUMNS) {
+    const table = tables.get(c.table);
+    const uses = ARG_CALCULATED_COLUMNS.filter((u) => u !== c && c.expression.join('\n').includes(`'${u.table}'[${u.name}]`));
+    if (
+      !table ||
+      table.columns.some((/** @type {any} */ x) => x.name === c.name) ||
+      (c.needs ?? []).some((n) => !tables.has(n)) ||
+      uses.some((u) => skipped.has(u))
+    ) {
+      skipped.add(c);
+      continue;
+    }
+    table.columns.push({
+      type: 'calculated',
+      name: c.name,
+      dataType: c.dataType,
+      isDataTypeInferred: true,
+      expression: c.expression,
+      description: c.description,
+      summarizeBy: 'none',
+      ...(c.dataType === 'int64' ? { formatString: '#,0' } : {}),
+      lineageTag: stableGuid(`column:${c.table}:${c.name}`),
+      annotations: [{ name: 'SummarizationSetBy', value: 'Automatic' }],
+    });
+    columns.push(`${c.table}[${c.name}]`);
+  }
+  return { columns, ownerFallback: columns.includes(`${REGISTRY_TABLE}[Owner account (Resource Graph)]`) && useOwnerFallback(tables.get(REGISTRY_TABLE)) };
+}
+
+/**
+ * Swaps the registry flags' owner line for one that falls back to the Resource Graph check.
+ * @param {any} registry
+ */
+function useOwnerFallback(registry) {
+  const flags = registry?.columns.find((/** @type {any} */ c) => c.name === 'Governance Flags' && c.type === 'calculated');
+  if (!flags) return false;
+  const lines = Array.isArray(flags.expression) ? [...flags.expression] : String(flags.expression).split('\n');
+  const at = lines.findIndex((l) => l.trim() === REGISTRY_OWNER_LINE);
+  if (at < 0 || lines.filter((l) => l.trim() === REGISTRY_OWNER_LINE).length !== 1) return false;
+  lines.splice(at, 1, ...REGISTRY_OWNER_FALLBACK.split('\n'));
+  flags.expression = lines;
+  return true;
 }
 
 /**

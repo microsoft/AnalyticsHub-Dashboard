@@ -4,11 +4,14 @@ from __future__ import annotations
 import ast
 import csv
 import json
+import re
 from datetime import date
 
 import pytest
 
 import notebook_source
+from valuelens_jobs.collect import azure_ai as jobs_azure_ai
+from valuelens_jobs.sample import AZURE_SAMPLES
 
 ROOT = notebook_source.ROOT
 NOTEBOOK = "credit-consumption/Ingest_Azure_AI.ipynb"
@@ -62,7 +65,8 @@ def test_notebook_writes_every_new_table_with_matching_schema():
     for table, constant in (("azure_deployment_health", "HEALTH"), ("azure_solution_spend", "SOLUTION"),
                             ("azure_billing_reconciliation", "RECON")):
         assert f'LAKEHOUSE_{constant} = "{table}"' in " ".join(source.split())
-        assert f"saveAsTable(LAKEHOUSE_{constant})" in source
+        assert re.search(rf"write_windows\(\[\(spark\.createDataFrame\(\w+, schema={constant}_SCHEMA\), "
+                         rf"LAKEHOUSE_{constant},", source)
         schema = source.split(f'{constant}_SCHEMA = (', 1)[1].split(")\n", 1)[0]
         columns = [part.split()[0] for part in "".join(ast.literal_eval(f"({schema})")).split(", ")]
         assert columns == NOTEBOOK_NS[f"{constant}_HEADERS"]
@@ -245,3 +249,40 @@ def test_recon_rows_statuses_and_pools(impl):
     assert by[("2026-05", "Foundry Models", "Foundry PAYG Pool", "AzureActual")]["Amount"] == 1.0
     assert {(r["PeriodStart"], r["PeriodEnd"]) for r in rows if r["Period"] == "2026-05"} == {(date(2026, 5, 1), date(2026, 5, 9))}
     assert {r["Representation"] for r in rows} == {"UsageEstimate", "AzureActual"}
+
+
+# ---------------------------------------------------------------- reloads keep older rows
+JUNE_12, JUNE_END = date(2026, 6, 12), date(2026, 6, 30)
+
+
+@pytest.fixture(params=["notebook", "jobs"])
+def replace_from(request):
+    return {"notebook": NOTEBOOK_NS, "jobs": vars(jobs_azure_ai)}[request.param]["monthly_replace_from"]
+
+
+@pytest.mark.parametrize("start, stored, expected", [
+    (date(2026, 6, 1), [(JUNE_END, JUNE_END)], date(2026, 6, 1)),  # the window covers all of June
+    (JUNE_12, [], date(2026, 6, 1)),  # nothing stored for June
+    (JUNE_12, [(JUNE_END, JUNE_END), (JUNE_END, JUNE_END)], date(2026, 7, 1)),  # stored after June ended
+    (JUNE_12, [(JUNE_END, JUNE_END), (JUNE_END, date(2026, 6, 20))], date(2026, 6, 1)),  # one row mid-June
+    (JUNE_12, [(date(2026, 5, 31), date(2026, 5, 20)), (date(2026, 7, 31), date(2026, 7, 5)), (JUNE_END, JUNE_END)],
+     date(2026, 7, 1)),  # other months don't count
+    (JUNE_12, [(JUNE_12, JUNE_END)], date(2026, 7, 1)),  # reconciliation: (PeriodStart, PeriodEnd)
+    (JUNE_12, [(JUNE_12, date(2026, 6, 20))], date(2026, 6, 1)),
+    (JUNE_12, [("2026-06-30", "2026-06-30")], date(2026, 7, 1)),  # dates as text
+    (JUNE_12, [(JUNE_END, None)], date(2026, 6, 1)),  # no covered date: replace the month
+    (JUNE_12, [("2026-06-30", "")], date(2026, 6, 1)),
+    (JUNE_12, [(None, None), ("", ""), (JUNE_END, JUNE_END)], date(2026, 7, 1)),  # no month: not June's
+    (date(2026, 12, 5), [(date(2026, 12, 31), date(2026, 12, 31))], date(2027, 1, 1)),
+    (date(2026, 2, 3), [(date(2026, 2, 28), date(2026, 2, 28))], date(2026, 3, 1)),
+])
+def test_monthly_replace_from(replace_from, start, stored, expected):
+    assert replace_from(start, stored) == expected
+
+
+def test_jobs_reload_rules_match_the_schemas():
+    assert set(jobs_azure_ai.RELOAD) == set(jobs_azure_ai.SCHEMAS)
+    assert set(AZURE_SAMPLES.values()) <= set(jobs_azure_ai.RELOAD)
+    for table, (column, covered) in jobs_azure_ai.RELOAD.items():
+        names = [c for c, _ in jobs_azure_ai.SCHEMAS[table]]
+        assert column in names and covered in names + [None]

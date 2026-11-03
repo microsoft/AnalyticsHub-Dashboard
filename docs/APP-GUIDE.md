@@ -109,7 +109,6 @@ answer. **Filters:** all.
 |---|---|
 | Cowork fit | Whether the work people hand to Cowork suits it |
 | Model fit | Whether the model doing the work suits it |
-| How grading works | The rules behind both grades |
 
 ## Leaderboards
 
@@ -219,6 +218,7 @@ minutes.
 |---|---|
 | Glossary | Every metric, in the model's own words |
 | Signal → Impact | What the audit log shows, the task it is read as, and that task's human time |
+| How grading works | The rules behind the Efficiency grades |
 
 ## Power BI reports
 

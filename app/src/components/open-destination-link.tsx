@@ -7,7 +7,9 @@
 
 import type { ReactNode } from "react";
 import { ArrowRight } from "lucide-react";
+import { useFilterContext } from "@/hooks/filter.context";
 import { useOpenDestination } from "@/hooks/navigation.context";
+import { isPlainClick, routeHash } from "@/lib/route";
 import { SMALL } from "@/lib/type-scale";
 import { cn } from "@/lib/utils";
 import type { DestinationId, StageId } from "./destinations";
@@ -26,11 +28,16 @@ interface OpenDestinationLinkProps {
  */
 export function OpenDestinationLink({ destination, stage, children, className }: OpenDestinationLinkProps) {
     const open = useOpenDestination(destination);
+    const { filters } = useFilterContext();
     if (!open) return null;
     return (
-        <button
-            type="button"
-            onClick={() => open(stage)}
+        <a
+            href={routeHash({ kind: "destination", id: destination, stage }, filters)}
+            onClick={(event) => {
+                if (!isPlainClick(event)) return;
+                event.preventDefault();
+                open(stage);
+            }}
             className={cn(
                 "inline-flex w-fit items-center gap-100 font-semibold text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
                 SMALL,
@@ -39,7 +46,7 @@ export function OpenDestinationLink({ destination, stage, children, className }:
         >
             {children}
             <ArrowRight className="icon-size-100" aria-hidden="true" />
-        </button>
+        </a>
     );
 }
 

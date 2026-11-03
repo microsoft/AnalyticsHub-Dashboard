@@ -5,7 +5,7 @@
  */
 import { writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { GRAPH_APP_ID, permissionsFor } from '../catalog.js';
+import { GRAPH_APP_ID, MANAGEMENT_API_APP_ID, MANAGEMENT_API_ROLE, auditSource, permissionsFor, readsFeed } from '../catalog.js';
 import { allowsAction, isPrivateVault, networkBlocked, ROLES } from '../clients/azure.js';
 import { adminConsentUrl, apiPermissionsUrl, resolveAppRoles } from '../clients/graph.js';
 import { secretMode } from '../config.js';
@@ -50,7 +50,7 @@ export const isResumeLater = (err) => /** @type {Error | undefined} */ (err)?.na
 /** Permissions some tenants don't have yet, and what happens without them. Their module falls back gracefully. */
 export const OPTIONAL_PERMISSION_EFFECTS = {
   'CopilotPackages.Read.All': 'The Agent 365 registry will fall back to its CSV export.',
-  'ThreatHunting.Read.All': "Defender's device and agent probes will be skipped.",
+  'ThreatHunting.Read.All': "Defender's device and agent probes will be skipped, and the audit load can't read Microsoft Sentinel.",
   'CloudApp-Discovery.Read.All': "Defender's Cloud Discovery probe will be skipped.",
 };
 export const OPTIONAL_PERMISSIONS = Object.keys(OPTIONAL_PERMISSION_EFFECTS);
@@ -88,13 +88,41 @@ export function addDays(from, days) {
 export async function graphRoles(ctx) {
   if (!ctx.graphRoles) {
     const sp = await ctx.api.graph.graphServicePrincipal();
-    const { roles, missing } = resolveAppRoles(sp, permissionsFor(ctx.config.modules, ctx.config.dataSources), OPTIONAL_PERMISSIONS);
+    const { roles, missing } = resolveAppRoles(sp, permissionsFor(ctx.config.modules, ctx.config.dataSources, auditSource(ctx.config)), OPTIONAL_PERMISSIONS);
     for (const m of missing) {
       ctx.ui.warn(`Microsoft Graph in this tenant has no ${m} permission yet. ${OPTIONAL_PERMISSION_EFFECTS[/** @type {keyof typeof OPTIONAL_PERMISSION_EFFECTS} */ (m)] ?? ''}`.trim());
     }
     ctx.graphRoles = { sp, roles };
   }
   return ctx.graphRoles;
+}
+
+/**
+ * The Office 365 Management APIs' service principal and its ActivityFeed.Read role, looked up once per run.
+ * The `feed` and `auto` audit sources need it. Its roles are empty when the tenant has no such API or role:
+ * the audit load then can't read the API, and says so when it runs.
+ * @param {Ctx} ctx
+ * @returns {Promise<{ sp: any, roles: { id: string, value: string }[] } | null>}
+ */
+export async function managementRoles(ctx) {
+  if (!readsFeed(auditSource(ctx.config))) return null;
+  if (!ctx.managementRoles) {
+    const { api, ui } = ctx;
+    let sp = await api.graph.findServicePrincipal(MANAGEMENT_API_APP_ID).catch(() => null);
+    if (!sp) {
+      // Microsoft's own APIs get a service principal on first use; making it is allowed for most users.
+      sp = await api.graph.createServicePrincipal(MANAGEMENT_API_APP_ID).catch(() => null);
+    }
+    const role = /** @type {any[]} */ (sp?.appRoles ?? []).find((r) => r.value === MANAGEMENT_API_ROLE);
+    if (!role) {
+      ui.warn(
+        `Couldn't find the Office 365 Management APIs' ${MANAGEMENT_API_ROLE} permission in this tenant, so the audit load can't read the Management Activity API${auditSource(ctx.config) === 'auto' ? ' and can only read Microsoft Sentinel' : ''}. ` +
+          'An admin can add it on the app\'s API permissions page (APIs my organization uses > Office 365 Management APIs).',
+      );
+    }
+    ctx.managementRoles = { sp, roles: role ? [{ id: role.id, value: role.value }] : [] };
+  }
+  return ctx.managementRoles;
 }
 
 /**
@@ -414,31 +442,60 @@ async function addAdminOwner(ctx, email) {
   }
 }
 
+/** Entra can take a little while to show an app or service principal someone has just made. */
+export const APP_LOOKUP_ATTEMPTS = 3;
+export const APP_LOOKUP_RETRY_MS = 20_000;
+
+/**
+ * Looks something up, trying again a couple of times while Entra catches up.
+ * @template T
+ * @param {Ctx} ctx
+ * @param {() => Promise<T>} find
+ * @returns {Promise<T>}
+ */
+async function lookUp(ctx, find) {
+  for (let attempt = 1; ; attempt++) {
+    const found = await find();
+    if (found || attempt >= APP_LOOKUP_ATTEMPTS) return found;
+    await ctx.sleep(APP_LOOKUP_RETRY_MS);
+  }
+}
+
 /**
  * Creates or adopts the app registration and its service principal, and puts a client secret in Key Vault.
+ * An app the user brought must be registered in this tenant, as the loads sign in to it here.
  * @param {Ctx} ctx
  */
 export async function ensureApp(ctx) {
-  const { ui, config, api } = ctx;
+  const { ui, config, api, user } = ctx;
   const app = config.app;
   const { roles } = await graphRoles(ctx);
+  const mgmt = await managementRoles(ctx);
+  const mgmtRoles = mgmt?.roles ?? [];
 
   if (app.appId) {
-    const application = await api.graph.findApplication(app.appId);
+    const appId = app.appId;
+    const application = await lookUp(ctx, () => api.graph.findApplication(appId));
     if (!application) {
+      if (!app.existing) {
+        throw new Error(`The app registration ${appId} in the install record no longer exists. Delete the "app" section of the install record to create a new one.`);
+      }
+      const sp = await api.graph.findServicePrincipal(appId).catch(() => null);
       throw new Error(
-        app.existing
-          ? `No app registration with ID ${app.appId} in this tenant.`
-          : `The app registration ${app.appId} in the install record no longer exists. Delete the "app" section of the install record to create a new one.`,
+        sp
+          ? `No app registration with ID ${appId} in this tenant (${user.tenantId}): only its enterprise application is here, so it was registered in another tenant. The loads read this tenant's audit log, so use an app registration created in this tenant.`
+          : `No app registration with ID ${appId} in this tenant (${user.tenantId}), and no service principal for it. It was registered in another tenant, or the ID is wrong. Use an app registration created in this tenant.`,
       );
     }
     app.objectId = application.id;
     app.displayName = application.displayName;
     try {
-      if (await api.graph.ensureRequiredAccess(application, roles)) ui.ok('Added the Analytics Hub permissions to its API permissions');
+      const added = await api.graph.ensureRequiredAccess(application, roles);
+      const addedMgmt = mgmtRoles.length ? await api.graph.ensureRequiredAccess(application, mgmtRoles, MANAGEMENT_API_APP_ID) : false;
+      if (added || addedMgmt) ui.ok('Added the Analytics Hub permissions to its API permissions');
     } catch (err) {
       if (!isStatus(err, 403)) throw err;
-      ui.warn(`You can't edit ${application.displayName}'s API permissions. An admin must add these Graph application permissions: ${roles.map((r) => r.value).join(', ')}.`);
+      ui.warn(`You can't edit ${application.displayName}'s API permissions. An admin must add these application permissions: ${describePermissions(roles, mgmtRoles)}.`);
     }
     ui.ok(`Using app registration "${application.displayName}" (${app.appId})`);
   } else {
@@ -459,14 +516,33 @@ export async function ensureApp(ctx) {
     app.existing = false;
     ctx.save();
     ui.ok(`Created app registration "${APP_NAME}" (${app.appId})`);
+    // A failure here is picked up by the next run, which adds what's missing to the saved app.
+    if (mgmtRoles.length) {
+      await api.graph.ensureRequiredAccess(application, mgmtRoles, MANAGEMENT_API_APP_ID).catch((/** @type {Error} */ err) => {
+        ui.warn(`Couldn't add ${MANAGEMENT_API_ROLE} to its API permissions yet (${err.message}). Run the installer again to add it.`);
+      });
+    }
   }
 
   if (!app.servicePrincipalId) {
     const appId = /** @type {string} */ (app.appId);
     let sp = await api.graph.findServicePrincipal(appId);
     if (!sp) {
-      sp = await api.graph.createServicePrincipal(appId);
-      ui.ok('Created its service principal');
+      try {
+        sp = await api.graph.createServicePrincipal(appId);
+        ui.ok('Created its service principal');
+      } catch (err) {
+        if (!app.existing) throw err;
+        // Someone may have just made it, and Entra doesn't show it yet.
+        sp = await lookUp(ctx, () => api.graph.findServicePrincipal(appId));
+        if (!sp && isStatus(err, 403)) {
+          throw new Error(
+            `${app.displayName ?? appId} has no service principal (enterprise application) in this tenant, and you can't create one, so it can't sign in here. ` +
+              `Its owner or an Application Administrator creates it (az ad sp create --id ${appId}), or a Global Administrator opens the admin consent link, which creates it: ${adminConsentUrl(user.tenantId, appId)}. Then run the installer again.`,
+          );
+        }
+        if (!sp) throw err;
+      }
     }
     app.servicePrincipalId = sp.id;
   }
@@ -527,6 +603,7 @@ export async function ensureSecret(ctx) {
       await claimSecretName(ctx);
     }
     await writeSecret(ctx, ctx.pendingSecret, { contentType: `Client secret for ${app.appId}` });
+    ctx.appSecret = ctx.pendingSecret;
     delete ctx.pendingSecret;
     kv.secretSetAt = ctx.now().toISOString();
     ctx.save();
@@ -680,6 +757,7 @@ export async function newSecret(ctx) {
     );
   }
   app.secretExpires = credential.endDateTime;
+  ctx.appSecret = credential.secretText;
   kv.secretSetAt = ctx.now().toISOString();
   const unsure = (kv.pendingSecretKeyIds ?? []).filter((k) => k !== credential.keyId);
   // Earlier secrets stay on the app until they expire, as a run already going may still use one.
@@ -704,27 +782,39 @@ export async function ensureConsent(ctx, who) {
   const app = config.app;
   const spId = /** @type {string} */ (app.servicePrincipalId);
   const appId = /** @type {string} */ (app.appId);
-  const { sp: graphSp, roles } = await graphRoles(ctx);
+  const wanted = await wantedRoles(ctx);
+  const names = (/** @type {{ role: { value: string } }[]} */ list) => list.map((w) => w.role.value).join(', ');
 
   const missing = async () => {
     const assigned = await api.graph.appRoleAssignments(spId);
-    const have = new Set(assigned.filter((a) => a.resourceId === graphSp.id).map((a) => a.appRoleId));
-    return roles.filter((r) => !have.has(r.id));
+    const have = new Set(assigned.map((a) => `${a.resourceId}/${a.appRoleId}`));
+    return wanted.filter((w) => !have.has(`${w.resourceId}/${w.role.id}`));
   };
 
   let todo = await missing();
   if (!todo.length) {
-    ui.ok(`Admin consent is in place (${roles.map((r) => r.value).join(', ')})`);
+    ui.ok(`Admin consent is in place (${names(wanted)})`);
     return true;
   }
 
   if (who.canConsent) {
-    for (const role of todo) await api.graph.grantAppRole(graphSp.id, spId, role.id);
-    ui.ok(`Granted admin consent: ${todo.map((r) => r.value).join(', ')}`);
+    for (const w of todo) await api.graph.grantAppRole(w.resourceId, spId, w.role.id);
+    ui.ok(`Granted admin consent: ${names(todo)}`);
     return true;
   }
 
-  ui.warn(`A Global Administrator or Privileged Role Administrator needs to approve: ${todo.map((r) => r.value).join(', ')}`);
+  ui.warn(`A Global Administrator or Privileged Role Administrator needs to approve: ${names(todo)}`);
+  const source = auditSource(ctx.config);
+  if (todo.some((w) => w.role.value === 'AuditLogsQuery.Read.All')) {
+    ui.info(readsFeed(source)
+      ? 'Until they do, the audit load can\'t load older history from Graph audit search (AuditLogsQuery.Read.All).'
+      : 'Until they do, the audit load can\'t read Copilot interactions (AuditLogsQuery.Read.All), so most pages stay empty.');
+  }
+  if (todo.some((w) => w.role.value === MANAGEMENT_API_ROLE)) {
+    ui.info(source === 'auto'
+      ? `Until they do, the audit load can only read Microsoft Sentinel (${MANAGEMENT_API_ROLE} reads the Office 365 Management Activity API).`
+      : `Until they do, the audit load can't read Copilot interactions (${MANAGEMENT_API_ROLE} reads the Office 365 Management Activity API), so most pages stay empty.`);
+  }
   ui.info(`Send them this page and ask them to select "Grant admin consent":`);
   ui.info(apiPermissionsUrl(appId));
   ui.note(`Or the direct consent link: ${adminConsentUrl(ctx.user.tenantId, appId)}`);
@@ -747,8 +837,34 @@ export async function ensureConsent(ctx, who) {
       ui.ok('Admin consent is in place');
       return true;
     }
-    ui.warn(`Still waiting for: ${todo.map((r) => r.value).join(', ')}`);
+    ui.warn(`Still waiting for: ${names(todo)}`);
   }
+}
+
+/**
+ * Every app role the install's app needs, with the service principal that grants it: Graph's,
+ * and the Office 365 Management APIs' for the `auto` audit source.
+ * @param {Ctx} ctx
+ * @returns {Promise<{ resourceId: string, role: { id: string, value: string } }[]>}
+ */
+async function wantedRoles(ctx) {
+  const { sp: graphSp, roles } = await graphRoles(ctx);
+  const mgmt = await managementRoles(ctx);
+  return [
+    ...roles.map((role) => ({ resourceId: graphSp.id, role })),
+    ...(mgmt?.sp ? mgmt.roles.map((role) => ({ resourceId: mgmt.sp.id, role })) : []),
+  ];
+}
+
+/**
+ * "A, B" for Graph roles, with the Management API's role named separately.
+ * @param {{ value: string }[]} graph
+ * @param {{ value: string }[]} management
+ */
+function describePermissions(graph, management) {
+  const parts = [`Microsoft Graph: ${graph.map((r) => r.value).join(', ')}`];
+  if (management.length) parts.push(`Office 365 Management APIs: ${management.map((r) => r.value).join(', ')}`);
+  return parts.join('; ');
 }
 
 /**
@@ -757,14 +873,14 @@ export async function ensureConsent(ctx, who) {
  * @property {boolean} found  The app registration exists in this tenant.
  * @property {string} [displayName]
  * @property {boolean} servicePrincipal  It has a service principal (enterprise application).
- * @property {string[]} undeclared  Graph application permissions missing from its API permissions.
- * @property {string[]} unconsented  Graph application permissions without admin consent.
+ * @property {string[]} undeclared  Application permissions missing from its API permissions.
+ * @property {string[]} unconsented  Application permissions without admin consent.
  */
 
 /**
  * Checks an app registration the user brought, before anything is created: that it and its
- * service principal exist, and that every Graph application permission the chosen modules
- * need is on it with admin consent.
+ * service principal exist, and that every application permission the chosen modules and
+ * audit source need is on it with admin consent.
  * @param {Ctx} ctx
  * @param {import('../install.js').Apis} [api]  Uncached clients, so "Check again" sees changes.
  * @returns {Promise<AppCheck>}
@@ -772,25 +888,29 @@ export async function ensureConsent(ctx, who) {
 export async function checkExistingApp(ctx, api = ctx.api) {
   const appId = /** @type {string} */ (ctx.config.app.appId);
   const { sp: graphSp, roles } = await graphRoles(ctx);
+  const mgmt = await managementRoles(ctx);
+  /** @type {{ resourceAppId: string, resourceId: string, role: { id: string, value: string } }[]} */
+  const wanted = [
+    ...roles.map((role) => ({ resourceAppId: GRAPH_APP_ID, resourceId: graphSp.id, role })),
+    ...(mgmt?.sp ? mgmt.roles.map((role) => ({ resourceAppId: MANAGEMENT_API_APP_ID, resourceId: mgmt.sp.id, role })) : []),
+  ];
   const application = await api.graph.findApplication(appId);
   const sp = await api.graph.findServicePrincipal(appId);
-  if (!application && !sp) return { found: false, servicePrincipal: false, undeclared: [], unconsented: roles.map((r) => r.value) };
+  if (!application && !sp) return { found: false, servicePrincipal: false, undeclared: [], unconsented: wanted.map((w) => w.role.value) };
   const declared = new Set(
-    /** @type {any[]} */ (application?.requiredResourceAccess ?? [])
-      .filter((r) => r.resourceAppId === GRAPH_APP_ID)
-      .flatMap((r) => r.resourceAccess ?? [])
-      .filter((a) => a.type === 'Role')
-      .map((a) => a.id),
+    /** @type {any[]} */ (application?.requiredResourceAccess ?? []).flatMap((r) =>
+      (r.resourceAccess ?? []).filter((/** @type {any} */ a) => a.type === 'Role').map((/** @type {any} */ a) => `${r.resourceAppId}/${a.id}`),
+    ),
   );
   const assigned = sp ? await api.graph.appRoleAssignments(sp.id) : [];
-  const have = new Set(assigned.filter((a) => a.resourceId === graphSp.id).map((a) => a.appRoleId));
+  const have = new Set(assigned.map((a) => `${a.resourceId}/${a.appRoleId}`));
   return {
     found: true,
     displayName: application?.displayName ?? sp?.displayName,
     servicePrincipal: !!sp,
     // Only the app's owners can read its registration; without it, skip that check.
-    undeclared: application ? roles.filter((r) => !declared.has(r.id)).map((r) => r.value) : [],
-    unconsented: roles.filter((r) => !have.has(r.id)).map((r) => r.value),
+    undeclared: application ? wanted.filter((w) => !declared.has(`${w.resourceAppId}/${w.role.id}`)).map((w) => w.role.value) : [],
+    unconsented: wanted.filter((w) => !have.has(`${w.resourceId}/${w.role.id}`)).map((w) => w.role.value),
   };
 }
 
@@ -809,7 +929,10 @@ export function reportAppCheck(ctx, check, who = {}) {
   }
   const missing = [];
   if (!check.servicePrincipal) missing.push('Its service principal (enterprise application). If you own the app, choose "Carry on anyway" and the installer creates it.');
-  if (check.undeclared.length) missing.push(`These Graph application permissions on its API permissions page: ${check.undeclared.join(', ')}`);
+  if (check.undeclared.length) {
+    const apis = check.undeclared.includes(MANAGEMENT_API_ROLE) ? 'Graph and Office 365 Management APIs' : 'Graph';
+    missing.push(`These ${apis} application permissions on its API permissions page: ${check.undeclared.join(', ')}`);
+  }
   // Someone who can grant consent gets it granted during the install.
   if (check.unconsented.length && !who.canConsent) missing.push(`Admin consent for: ${check.unconsented.join(', ')}`);
   if (!missing.length) {
@@ -836,7 +959,8 @@ export const ADMIN_PACK_FILE = 'analytics-hub-admin-pack.md';
 export function adminPack(ctx) {
   const { config } = ctx;
   const kv = config.keyVault;
-  const perms = permissionsFor(config.modules, config.dataSources);
+  const source = auditSource(config);
+  const perms = permissionsFor(config.modules, config.dataSources, source);
   const mode = secretMode(config);
   const script = [
     '# Run in Azure Cloud Shell (Bash) as someone who can register apps and grant admin consent,',
@@ -848,6 +972,15 @@ export function adminPack(ctx) {
     '  ROLE=$(az ad sp show --id $GRAPH --query "appRoles[?value==\'$P\'].id | [0]" -o tsv)',
     '  if [ -n "$ROLE" ]; then az ad app permission add --id "$APP_ID" --api $GRAPH --api-permissions "$ROLE=Role" -o none; else echo "Skipped $P: not in this tenant yet"; fi',
     'done',
+    ...(readsFeed(source)
+      ? [
+          '# The audit load reads Copilot interactions from the Office 365 Management Activity API.',
+          `MGMT=${MANAGEMENT_API_APP_ID}`,
+          'az ad sp show --id $MGMT -o none 2>/dev/null || az ad sp create --id $MGMT -o none',
+          `ROLE=$(az ad sp show --id $MGMT --query "appRoles[?value=='${MANAGEMENT_API_ROLE}'].id | [0]" -o tsv)`,
+          `if [ -n "$ROLE" ]; then az ad app permission add --id "$APP_ID" --api $MGMT --api-permissions "$ROLE=Role" -o none; else echo "Skipped ${MANAGEMENT_API_ROLE}: not in this tenant"; fi`,
+        ]
+      : []),
     'sleep 30  # let Entra catch up before granting consent',
     'az ad app permission admin-consent --id "$APP_ID"',
     'echo "Client ID: $APP_ID"',
@@ -875,6 +1008,9 @@ export function adminPack(ctx) {
     `Entra admin center > App registrations > New registration. Name it "${APP_NAME}", single tenant, no redirect URI.`,
     'Copy the Application (client) ID from its Overview page.',
     `API permissions > Add a permission > Microsoft Graph > Application permissions. Add: ${perms.join(', ')}.`,
+    ...(readsFeed(source)
+      ? [`API permissions > Add a permission > Office 365 Management APIs > Application permissions. Add: ${MANAGEMENT_API_ROLE}.`]
+      : []),
     'Select "Grant admin consent" and confirm every permission shows "Granted".',
     mode === 'keyvault-admin' && kv.name
       ? `Certificates & secrets > New client secret (12 months). Copy its Value into Key Vault ${kv.name} > Secrets > Generate/Import, named ${kv.secretName}.`

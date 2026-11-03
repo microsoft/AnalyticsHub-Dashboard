@@ -306,6 +306,7 @@ export function ModelFitStage() {
                     ) : (
                         <Headlined text={usageHeadline}>
                             <VegaVisual
+                                label="Model usage"
                                 spec={usage.vegaLiteSpec}
                                 data={usageTable}
                                 theme={theme}
@@ -349,6 +350,7 @@ export function ModelFitStage() {
                         ) : (
                             <Headlined text={matchHeadline}>
                                 <VegaVisual
+                                    label="Match by tool"
                                     spec={matchSpec}
                                     data={matchTable}
                                     theme={theme}

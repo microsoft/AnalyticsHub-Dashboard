@@ -291,19 +291,22 @@ export function graphApi(http) {
       return scope.id;
     },
     /**
-     * Adds Graph app roles to the app's required permissions, keeping what is there.
+     * Adds app roles of one API (Graph unless given) to the app's required permissions, keeping what is there.
      * @param {any} application
      * @param {{ id: string }[]} appRoles
+     * @param {string} [resourceAppId]
      */
-    async ensureRequiredAccess(application, appRoles) {
+    async ensureRequiredAccess(application, appRoles, resourceAppId = GRAPH_APP_ID) {
       const current = /** @type {any[]} */ (application.requiredResourceAccess ?? []);
-      const graph = current.find((r) => r.resourceAppId === GRAPH_APP_ID) ?? { resourceAppId: GRAPH_APP_ID, resourceAccess: [] };
-      const have = new Set(graph.resourceAccess.map((/** @type {any} */ a) => a.id));
+      const api = current.find((r) => r.resourceAppId === resourceAppId) ?? { resourceAppId, resourceAccess: [] };
+      const have = new Set(api.resourceAccess.map((/** @type {any} */ a) => a.id));
       const add = appRoles.filter((r) => !have.has(r.id));
       if (!add.length) return false;
-      graph.resourceAccess = [...graph.resourceAccess, ...add.map((r) => ({ id: r.id, type: 'Role' }))];
-      const others = current.filter((r) => r.resourceAppId !== GRAPH_APP_ID);
-      await http.patch(`/applications/${application.id}`, { requiredResourceAccess: [...others, graph] });
+      api.resourceAccess = [...api.resourceAccess, ...add.map((r) => ({ id: r.id, type: 'Role' }))];
+      const others = current.filter((r) => r.resourceAppId !== resourceAppId);
+      const requiredResourceAccess = [...others, api];
+      await http.patch(`/applications/${application.id}`, { requiredResourceAccess });
+      application.requiredResourceAccess = requiredResourceAccess;
       return true;
     },
 
@@ -342,6 +345,19 @@ export function graphApi(http) {
 
     /** A user by UPN or email-style sign-in name. Null when there's no such user. @param {string} upn */
     getUser: (upn) => getOrNull(`/users/${encodeURIComponent(upn)}?$select=id,displayName,userPrincipalName`),
+    /**
+     * How many users match an OData filter. `$count` and filters such as `ne` are advanced queries, which need
+     * `ConsistencyLevel: eventual`; Graph answers with the number as plain text. Throws when Graph refuses the
+     * filter or doesn't answer with a number.
+     * @param {string} filter
+     * @returns {Promise<number>}
+     */
+    countUsers: async (filter) => {
+      const data = await http.get('/users/$count', { query: { $filter: filter }, headers: { ConsistencyLevel: 'eventual', Accept: 'text/plain' }, maxRetries: 2 });
+      const text = typeof data === 'number' ? String(data) : String(data ?? '').replace(/^\uFEFF/, '').trim();
+      if (!/^\d+$/.test(text)) throw new Error(`GET /users/$count returned "${text.slice(0, 80)}", not a count.`);
+      return Number(text);
+    },
 
     /** @param {string} id */
     getGroup: (id) => getOrNull(`/groups/${encodeURIComponent(id)}?$select=id,displayName,securityEnabled`),
@@ -498,3 +514,40 @@ export function appCatalogApi(http, signIn = async () => {}) {
 }
 
 /** @typedef {ReturnType<typeof appCatalogApi>} AppCatalogApi */
+
+/**
+ * Microsoft Purview audit log search, as the app registration (Graph beta). Needs the
+ * AuditLogsQuery.Read.All application permission, the same call the audit notebook and job make.
+ * https://learn.microsoft.com/graph/api/security-auditcoreroot-post-queries
+ * @param {import('../http.js').HttpClient} http  A client on https://graph.microsoft.com/beta.
+ */
+export function auditApi(http) {
+  return {
+    /**
+     * Starts a search. Not retried after a network error: a second post starts a second search.
+     * @param {{ displayName: string, start: Date, end: Date, recordTypes?: string[] }} q
+     * @returns {Promise<{ id: string, status?: string }>}
+     */
+    startQuery: (q) =>
+      http.post(
+        '/security/auditLog/queries',
+        {
+          displayName: q.displayName,
+          filterStartDateTime: q.start.toISOString(),
+          filterEndDateTime: q.end.toISOString(),
+          ...(q.recordTypes?.length ? { recordTypeFilters: q.recordTypes } : {}),
+        },
+        { once: true },
+      ),
+    /** @param {string} id @returns {Promise<{ id: string, status?: string }>} */
+    getQuery: (id) => http.get(`/security/auditLog/queries/${encodeURIComponent(id)}`),
+    /**
+     * The first few records a finished search found.
+     * @param {string} id @param {number} [top]
+     * @returns {Promise<any[]>}
+     */
+    firstRecords: async (id, top = 1) => (await http.get(`/security/auditLog/queries/${encodeURIComponent(id)}/records`, { query: { $top: top } }))?.value ?? [],
+  };
+}
+
+/** @typedef {ReturnType<typeof auditApi>} AuditApi */

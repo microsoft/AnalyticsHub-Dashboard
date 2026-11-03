@@ -5,14 +5,16 @@
  */
 import { randomBytes } from 'node:crypto';
 import { rlsOn } from '../transform/access.js';
-import { collectedLabels, ESSENTIAL_MODULES, MODULES, notebooksFor, OPTIONAL_MODULES, permissionsFor } from '../catalog.js';
+import { auditSource, collectedLabels, ESSENTIAL_MODULES, graphHistoryOn, MANAGEMENT_API_ROLE, MODULES, notebooksFor, OPTIONAL_MODULES, permissionsFor, readsFeed } from '../catalog.js';
 import { allowsAction, armLocation, validateVaultName } from '../clients/azure.js';
 import { TRANSCRIPT_ROLE } from '../clients/dataverse.js';
 import { APP_ROLES, CONSENT_ROLES } from '../clients/graph.js';
 import { HttpError } from '../http.js';
 import { commandLine, inCloudShell } from '../launch.js';
+import { preflightChecks, reportPreflight } from '../prereqs.js';
 import { c } from '../ui.js';
 import { CURRENCIES, DEFAULT_CURRENCY, describeReporting, parseRate } from '../currency.js';
+import { estimateShort } from '../estimate.js';
 import { AGENT_EVALUATOR_MODEL_NAME, CONSUMPTION_MODEL_NAME, DATA_AGENT_NAME, flowIdentity, MODEL_NAME, secretMode } from '../config.js';
 import { MIN_NODE, nodeVersionOk } from './app.js';
 import { agentEvaluatorModelWanted, fabricReadRoleReview, planAgentEvaluator } from './agent-evaluator.js';
@@ -28,7 +30,7 @@ import { DATA_AGENT_TYPE, dataAgentWanted, planDataAgent } from './data-agent.js
 import { planDataSources } from './data-sources.js';
 import { accessReview, planAccess } from './access.js';
 import { DATA_SOURCES, modulesFromSources, routerWanted, UPLOAD_DIR } from '../uploads.js';
-import { BIG_CAPACITY_SEATS, copilotSeats, LARGE_TENANT_SEATS, seatCount } from '../seats.js';
+import { BIG_CAPACITY_PEOPLE, copilotSeats, headcountPhrase, LARGE_TENANT_PEOPLE, scaleFor, seatCount, tenantHeadcount, tenantLine } from '../seats.js';
 
 /** @typedef {import('../install.js').Ctx} Ctx */
 
@@ -108,37 +110,97 @@ export function largeCapacity(capacity) {
  * @property {boolean | undefined} canCreateApps  undefined when the policy can't be read.
  * @property {Record<string, { enabled?: boolean, delegateToCapacity?: boolean }>} [tenantSettings]  Only for Fabric administrators.
  * @property {number} [seats]  Assigned Microsoft 365 Copilot seats; undefined when they can't be read.
+ * @property {import('../seats.js').Headcount} [headcount]  How many people the tenant has; undefined when neither people
+ *   nor seats can be counted.
  */
 
 /**
- * The tenant size a new install, or one with no size saved, starts at: large on F64 or larger, or
- * with more than 10,000 Copilot seats assigned.
+ * The tenant size a new install, or one with no size saved, starts at: large with more than 10,000 people. When only
+ * Copilot seats could be counted, which undercounts, an F64 or larger capacity suggests a large tenant too.
  * @param {{ sku?: string } | undefined} capacity
- * @param {number} [seats]
+ * @param {import('../seats.js').Headcount} [headcount]
  * @returns {'standard' | 'large'}
  */
-export const defaultScale = (capacity, seats) => ((capacity && largeCapacity(capacity)) || (seats ?? 0) > LARGE_TENANT_SEATS ? 'large' : 'standard');
+export const defaultScale = (capacity, headcount) =>
+  scaleFor(headcount) === 'large' || ((!headcount || headcount.source === 'seats') && !!capacity && largeCapacity(capacity)) ? 'large' : 'standard';
+
+/** The size question, asked in placement on both targets. */
+export const SIZE_QUESTION = 'About how many people work in your organisation?';
+
+/** The tenant size, as the plan shows it: "A large organisation (more than 10,000 people)". @param {'standard' | 'large' | undefined} scale */
+export const sizeLabel = (scale) => (scale === 'large' ? 'A large organisation (more than 10,000 people)' : 'Up to 10,000 people');
+
+/** The terminal plan's tenant size line. @param {'standard' | 'large' | undefined} scale */
+export const scaleLine = (scale) => `Tenant size: ${scale === 'large' ? 'large (more than 10,000 people)' : 'standard (up to 10,000 people)'}`;
 
 /**
- * What to tell someone whose tenant size or capacity looks too small for the seats assigned. Says
- * which step changes it, and how to carry on when policy rules the change out.
- * @param {{ seats?: number, capacity?: { sku?: string, displayName?: string }, scale?: 'standard' | 'large' }} opts
+ * What the size question starts from: the people counted, and the size this install is set up for when the count
+ * suggests the other.
+ * @param {import('../seats.js').Headcount | undefined} h
+ * @param {'standard' | 'large' | undefined} recorded  The size in the install record.
+ */
+export function headcountNote(h, recorded) {
+  const everyone = 'Count everyone who uses Microsoft 365, not only those with Copilot.';
+  const found = !h ? `We couldn't count the people in your organisation. ${everyone}`
+    : h.source === 'licensed' ? `We found ${seatCount(h.count)} ${h.count === 1 ? 'person' : 'people'} with a licence and an enabled account.`
+      : h.source === 'enabled' ? `We found ${seatCount(h.count)} enabled member ${h.count === 1 ? 'account' : 'accounts'} (licences couldn't be counted).`
+        : `We couldn't count the people in your organisation, so this starts from the ${seatCount(h.count)} Copilot ${h.count === 1 ? 'seat' : 'seats'} assigned. ${everyone}`;
+  const counted = h && h.source !== 'seats' ? scaleFor(h) : undefined;
+  const kept = recorded && counted && recorded !== counted
+    ? ` This install is set up for ${recorded === 'large' ? 'more than' : 'up to'} 10,000 people, and stays so unless you choose otherwise.`
+    : '';
+  return found + kept;
+}
+
+/**
+ * Asks the tenant size, starting from `def`. With --yes, `def` is the answer.
+ * @param {Ctx} ctx
+ * @param {import('../seats.js').Headcount | undefined} headcount
+ * @param {'standard' | 'large'} def
+ * @param {{ name: string, value: 'standard' | 'large', description?: string }[]} choices
+ * @returns {Promise<'standard' | 'large'>}
+ */
+export async function askTenantSize(ctx, headcount, def, choices) {
+  ctx.ui.note(headcountNote(headcount, ctx.config.scale));
+  return ctx.ui.select(SIZE_QUESTION, choices, def);
+}
+
+/** The size question's answers on Fabric. @type {{ name: string, value: 'standard' | 'large' }[]} */
+const FABRIC_SIZES = [
+  { name: 'Up to 10,000', value: 'standard' },
+  { name: 'More than 10,000 (smaller audit windows, longer time limits; best on F64 or larger)', value: 'large' },
+];
+
+/**
+ * What the review's "Sized for" line says: the size, and the people and seats counted.
+ * @param {'standard' | 'large' | undefined} scale
+ * @param {Partial<Pick<Preflight, 'headcount' | 'seats'>>} [pre]
+ */
+export function sizedFor(scale, pre) {
+  const line = tenantLine(pre?.headcount, pre?.seats);
+  return `${sizeLabel(scale)}${line ? `. Tenant: ${line}` : ''}`;
+}
+
+/**
+ * What to tell someone whose tenant size or capacity looks too small for the people counted. Says which step
+ * changes it, and how to carry on when policy rules the change out.
+ * @param {{ headcount?: import('../seats.js').Headcount, capacity?: { sku?: string, displayName?: string }, scale?: 'standard' | 'large' }} opts
  * @returns {string[]}
  */
-export function sizingWarnings({ seats, capacity, scale }) {
-  if (!seats) return [];
+export function sizingWarnings({ headcount, capacity, scale }) {
+  if (!headcount) return [];
   /** @type {string[]} */
   const out = [];
-  const n = seatCount(seats);
-  if (seats >= BIG_CAPACITY_SEATS && capacity && !largeCapacity(capacity)) {
+  const who = headcountPhrase(headcount);
+  if (headcount.count >= BIG_CAPACITY_PEOPLE && capacity && !largeCapacity(capacity)) {
     out.push(
-      `${n} Copilot seats are assigned and the capacity ${capacity.displayName ?? ''} is ${capacity.sku ?? 'an unknown size'}, below F64. ` +
+      `${who}, and the capacity ${capacity.displayName ?? ''} is ${capacity.sku ?? 'an unknown size'}, below F64. ` +
         'In Fabric placement, choose an F64 or larger capacity, or ask your capacity admin for one. If your organisation\'s policy keeps you on this capacity, setup still works, but loads take longer and may hit their time limits.',
     );
   }
-  if (seats > LARGE_TENANT_SEATS && scale === 'standard') {
+  if (headcount.count > LARGE_TENANT_PEOPLE && scale === 'standard') {
     out.push(
-      `${n} Copilot seats are assigned, but the tenant size is "Up to 10,000". In Fabric placement (in the terminal, under the advanced settings), choose "More than 10,000" so the pipeline reads the audit log in smaller windows and gives its slow steps longer.`,
+      `${who}, but the tenant size is "Up to 10,000". In Fabric placement, choose "More than 10,000" so the pipeline reads the audit log in smaller windows and gives its slow steps longer.`,
     );
   }
   return out.map((s) => s.replace(/ {2,}/g, ' '));
@@ -194,6 +256,20 @@ export async function preflight(ctx) {
   const { ui, api, user } = ctx;
   ui.heading('Checking your tenant');
   ui.ok(`Signed in as ${user.upn} (tenant ${user.tenantId})`);
+  // In parallel with the checks below; the ones that need attention print before any stop, and before anything is created.
+  const checks = preflightChecks(ctx);
+  let reported = false;
+  const report = async () => {
+    if (reported) return;
+    reported = true;
+    reportPreflight(ctx, await checks);
+  };
+  /** @param {string} line @param {string} message @returns {Promise<never>} */
+  const stop = async (line, message) => {
+    await report().catch(() => {});
+    if (line) ui.fail(line);
+    throw new Error(message);
+  };
 
   const roles = await api.graph.myDirectoryRoles().catch(() => []);
   const roleIds = new Set(roles.map((r) => r.roleTemplateId));
@@ -203,17 +279,13 @@ export async function preflight(ctx) {
   let canCreateApps = canConsent || appAdmin ? true : undefined;
   if (canCreateApps === undefined) canCreateApps = await api.graph.usersCanRegisterApps().catch(() => undefined);
 
+  // Without these roles, the prerequisites below say what to do.
   if (canConsent) ui.ok(`You can grant admin consent (${roles.filter((r) => CONSENT_ROLES[/** @type {keyof typeof CONSENT_ROLES} */ (r.roleTemplateId)]).map((r) => r.displayName).join(', ')})`);
-  else ui.warn('You can\'t grant admin consent for Microsoft Graph. The installer will give you a link for a Global Administrator or Privileged Role Administrator to approve.');
-  if (!ctx.config.app.appId && canCreateApps === false) {
-    ui.warn('Users in this tenant can\'t register apps and you have no app admin role. Choose "Use an app registration I already have", or get an admin pack for an admin to register it.');
-  }
 
   const capacities = ctx.config.target === 'azure' ? [] : (await api.fabric.listCapacities()).filter((cap) => cap.state === 'Active' && runsFabric(cap));
   if (ctx.config.target !== 'azure') {
     if (!capacities.length) {
-      ui.fail('No active Fabric capacity you can use.');
-      throw new Error('Start a Fabric trial, or ask a capacity admin to make you a contributor on an F2 or larger capacity, then run the installer again.');
+      await stop('No active Fabric capacity you can use.', 'Start a Fabric trial, or ask a capacity admin to make you a contributor on an F2 or larger capacity, then run the installer again.');
     }
     ui.ok(`${capacities.length} active Fabric ${capacities.length === 1 ? 'capacity' : 'capacities'}`);
   }
@@ -227,17 +299,16 @@ export async function preflight(ctx) {
   }
   if (!subscriptions.length && !ctx.config.keyVault.uri && secretMode(ctx.config) !== 'notebook') {
     if (ctx.config.target === 'azure') {
-      ui.fail('No Azure subscription you can use.');
-      throw new Error('Analytics Hub on Azure needs an Azure subscription in this tenant. Ask for Contributor on one, then run the installer again.');
+      await stop('No Azure subscription you can use.', 'Analytics Hub on Azure needs an Azure subscription in this tenant. Ask for Contributor on one, then run the installer again.');
     }
     if (ctx.useKeyVault) {
-      ui.fail('No Azure subscription you can use, so no Key Vault.');
-      throw new Error('--key-vault needs an Azure subscription in this tenant. Ask for Contributor on one, or leave out --key-vault to keep the client secret in the notebooks.');
+      await stop('No Azure subscription you can use, so no Key Vault.', '--key-vault needs an Azure subscription in this tenant. Ask for Contributor on one, or leave out --key-vault to keep the client secret in the notebooks.');
     }
     // A Fabric install doesn't need one: the client secret can go in the notebooks instead of Key Vault.
     ui.info('No Azure subscription you can use, so no Key Vault: the client secret goes in the notebooks.');
     if (ui.yes && !ctx.secretInNotebook && !defaultsToNoVault(ctx)) {
-      throw new Error(
+      await stop(
+        '',
         'With no Azure subscription there\'s no Key Vault for the app secret. Add --no-key-vault to keep it in the notebooks, where anyone with a role in the workspace can read it, or ask for Contributor on a subscription.',
       );
     }
@@ -245,6 +316,12 @@ export async function preflight(ctx) {
   if (subscriptions.length) ui.ok(`${subscriptions.length} Azure ${subscriptions.length === 1 ? 'subscription' : 'subscriptions'} for Key Vault`);
 
   const seats = await copilotSeats(api);
+  const headcount = await tenantHeadcount(api, { seats });
+  if (headcount && headcount.source !== 'seats') {
+    ui.ok(headcount.source === 'licensed'
+      ? `${seatCount(headcount.count)} ${headcount.count === 1 ? 'person' : 'people'} with a licence and an enabled account`
+      : `${seatCount(headcount.count)} enabled member ${headcount.count === 1 ? 'account' : 'accounts'}`);
+  }
   if (seats) ui.ok(`${seatCount(seats)} Microsoft 365 Copilot ${seats === 1 ? 'seat' : 'seats'} assigned`);
 
   /** @type {Preflight['tenantSettings']} */
@@ -255,7 +332,8 @@ export async function preflight(ctx) {
     // Only Fabric administrators can read them.
   }
 
-  return { capacities, subscriptions, roles: roles.map((r) => r.displayName), canConsent, canCreateApps, tenantSettings, seats };
+  await report();
+  return { capacities, subscriptions, roles: roles.map((r) => r.displayName), canConsent, canCreateApps, tenantSettings, seats, headcount };
 }
 
 /**
@@ -337,21 +415,109 @@ export function collectChoices(modules) {
   ];
 }
 
-/** The audit history the first load can pull, and how long each takes. */
+/** The audit history the first load can pull. How long each takes is in estimate.js: see historyChoices. */
 export const HISTORY_CHOICES = [
   { name: '30 days (quickest; you can load more later)', value: 30 },
-  { name: '90 days (a few hours; longer on a large tenant)', value: 90 },
-  { name: '180 days (the most the audit log keeps by default; many hours)', value: 180 },
+  { name: '90 days', value: 90 },
+  { name: '180 days (the most the audit log keeps by default)', value: 180 },
+];
+
+/** What the history choice means when the audit load reads Sentinel or the Management Activity API. */
+export const AUTO_HISTORY_NOTE =
+  'The audit load reads the Office 365 Management Activity API, which keeps 7 days (and Microsoft Sentinel first, for the days it holds, if you chose it). ' +
+  'Older days are left out unless history loads read them from the Microsoft Graph audit search, which you can choose next.';
+
+/** Whether history loads read the older days from Graph. */
+export const GRAPH_HISTORY_CHOICES = [
+  { name: 'No, load the last 7 days (recommended on a large tenant)', value: false, description: 'Fast. Scheduled runs keep up from there.' },
+  {
+    name: 'Yes, read the older days from Microsoft Graph audit search',
+    value: true,
+    description: 'Only history loads use Graph; scheduled runs keep reading the Management Activity API. Each Graph search can take hours on a large tenant.',
+  },
 ];
 
 /**
- * What reloading `days` days of history runs, on Fabric: the pipeline, once.
- * @param {number} days
+ * Asks whether history loads read the days the feed doesn't hold from Graph. Graph installs read it anyway.
+ * @param {Ctx} ctx
  */
-const pipelineReloadChoice = (days) =>
-  days > 30
-    ? `Runs the pipeline once with ${days} days of history: a few hours, and many hours on a large tenant. The scheduled runs carry on after it.`
-    : `Runs the pipeline once with ${days} days of history, usually in under an hour.`;
+export async function planGraphHistory(ctx) {
+  const { ui, config } = ctx;
+  if (!readsFeed(auditSource(config))) {
+    delete config.audit.graphHistory;
+    return;
+  }
+  const on = await ui.select('Should history loads read the days older than 7 from Microsoft Graph audit search?', GRAPH_HISTORY_CHOICES, graphHistoryOn(config));
+  if (on) config.audit.graphHistory = true;
+  else delete config.audit.graphHistory;
+}
+
+/** The audit source choices, the Management Activity API first. */
+export const AUDIT_SOURCE_CHOICES = [
+  {
+    name: 'Office 365 Management Activity API (recommended)',
+    value: /** @type {import('../catalog.js').AuditSource} */ ('feed'),
+    description: 'Fast and reliable on any tenant size. Loads the last 7 days, then keeps up. Adds the Management API\'s ActivityFeed.Read.',
+  },
+  {
+    name: 'Microsoft Sentinel, otherwise the Office 365 Management Activity API',
+    value: /** @type {import('../catalog.js').AuditSource} */ ('auto'),
+    description: 'For tenants with the Microsoft Copilot data connector in Sentinel. Loads what Sentinel holds, or the last 7 days. Adds ThreatHunting.Read.All and ActivityFeed.Read.',
+  },
+  {
+    name: 'Microsoft Graph audit search',
+    value: /** @type {import('../catalog.js').AuditSource} */ ('graph'),
+    description: 'Loads up to 180 days of history, but each search can take hours, or time out, on a large tenant.',
+  },
+];
+
+/**
+ * Asks where the audit load reads Copilot interactions.
+ * @param {Ctx} ctx
+ */
+export async function planAuditSource(ctx) {
+  const { ui, config } = ctx;
+  const before = auditSource(config);
+  const graphHistory = config.audit?.graphHistory;
+  config.audit = { source: await ui.select('Where should the audit load read Copilot interactions?', AUDIT_SOURCE_CHOICES, before), ...(graphHistory ? { graphHistory } : {}) };
+  // The app's permissions depend on the source, so look them up again.
+  if (config.audit.source !== before) {
+    delete ctx.graphRoles;
+    delete ctx.managementRoles;
+  }
+}
+
+/**
+ * The history question's choices, each with its estimate for the tenant size.
+ * @param {'fabric' | 'azure'} target
+ * @param {'standard' | 'large' | undefined} scale
+ * @param {import('../estimate.js').SourceOpts} [opts]  The audit source, so a feed or auto install says the days it holds.
+ */
+export const historyChoices = (target, scale, opts = {}) =>
+  HISTORY_CHOICES.map((ch) => ({ ...ch, description: estimateShort(ch.value, scale, target, { band: true, ...opts }) }));
+
+/**
+ * The audit source and the Graph history choice, for the estimates once both are known.
+ * @param {import('../config.js').InstallConfig} config
+ * @returns {import('../estimate.js').SourceOpts}
+ */
+export const sourceOpts = (config) => ({ source: auditSource(config), graphHistory: graphHistoryOn(config) });
+
+/**
+ * What reloading `days` days of history runs, on Fabric: the pipeline.
+ * @param {number} days
+ * @param {'standard' | 'large' | undefined} scale
+ * @param {import('../estimate.js').SourceOpts} [opts]
+ */
+const pipelineReloadChoice = (days, scale, opts = {}) => `Runs the pipeline with ${days} days of history. ${reloadDetail(days, scale, opts)}`;
+
+/**
+ * What Repair or change says of the history, when the target knows more than the install record. Azure reads its
+ * run job's state, since a run that started may have published nothing.
+ * @typedef {object} HistorySaid
+ * @property {string} [question]  In place of "Load more audit history? N days are loaded now."
+ * @property {boolean} [loaded]  false: the history asked for may not be in the reports yet, so nothing says it's loaded.
+ */
 
 /**
  * Repair or change, once the history has loaded: offers to reload more of it after setup. Only
@@ -359,18 +525,21 @@ const pipelineReloadChoice = (days) =>
  * keeps the old number until the reload has started.
  * @param {Ctx} ctx
  * @param {(days: number) => string} [describe]  Each reload choice's description. Azure, which has no pipeline, passes its own.
+ *   The default leaves the Graph history choice open: it's asked after this.
+ * @param {HistorySaid} [said]
  */
-export async function askMoreHistory(ctx, describe = pipelineReloadChoice) {
+export async function askMoreHistory(ctx, describe = (days) => pipelineReloadChoice(days, ctx.config.scale, { source: auditSource(ctx.config) }), said = {}) {
   const { ui, config } = ctx;
   delete ctx.reloadHistoryDays;
   const current = config.history.days;
   const more = HISTORY_CHOICES.filter((ch) => ch.value > current);
   if (!more.length) {
-    ui.ok(`Audit history: ${current} days loaded, the most the installer loads`);
+    if (said.loaded === false) ui.info(`Audit history: ${current} days asked for, the most the installer loads`);
+    else ui.ok(`Audit history: ${current} days loaded, the most the installer loads`);
     return;
   }
   const days = await ui.select(
-    `Load more audit history? ${current} days are loaded now.`,
+    said.question ?? `Load more audit history? ${current} days are loaded now.`,
     [
       { name: `Keep ${current} days (the usual runs carry on from here)`, value: 0 },
       ...more.map((ch) => ({
@@ -398,7 +567,7 @@ export async function plan(ctx, pre, section) {
     await planDataSources(ctx);
     if (!section) await askAdvanced(
       ctx,
-      'the model and app, who can view, audit history, tenant size, the Lakehouse name, the new Key Vault\'s details, the schedule, the first load, the Value page currency and where Resource Graph reads',
+      'the model and app, who can view, the audit source, audit history, the Lakehouse name, the new Key Vault\'s details, the schedule, the first load, the Value page currency and where Resource Graph reads',
     );
   }
   if (editing('governance')) {
@@ -422,11 +591,21 @@ export async function plan(ctx, pre, section) {
   }
 
   if (editing('schedule')) {
+    if (advanced() && config.target !== 'azure') await planAuditSource(ctx);
     if (config.firstRun?.status !== 'Completed') {
       delete ctx.reloadHistoryDays;
-      if (advanced()) config.history.days = await ui.select('How much audit history should the first load pull?', HISTORY_CHOICES, config.history.days);
+      // The size is asked in placement, after this, so a full plan's estimate goes by the size it starts at there.
+      const scale = config.scale ?? (section ? undefined : defaultScale(pre?.capacities?.find((cap) => cap.id === config.fabric.capacityId), pre?.headcount));
+      if (advanced()) {
+        if (readsFeed(auditSource(config))) ui.note(AUTO_HISTORY_NOTE);
+        // The Graph history question comes next, so each choice says both.
+        config.history.days = await ui.select('How much audit history should the first load pull?', historyChoices('fabric', scale, { source: auditSource(config) }), config.history.days);
+        if (config.target !== 'azure') await planGraphHistory(ctx);
+      }
     } else {
+      if (readsFeed(auditSource(config))) ui.note(AUTO_HISTORY_NOTE);
       await askMoreHistory(ctx);
+      if (ctx.reloadHistoryDays && config.target !== 'azure') await planGraphHistory(ctx);
     }
   }
 
@@ -442,18 +621,8 @@ export async function plan(ctx, pre, section) {
     );
     const capacity = pre.capacities.find((cap) => cap.id === config.fabric.capacityId);
     await planDataAgent(ctx, pre, capacity, advanced());
-    const scale = config.scale ?? defaultScale(capacity, pre.seats);
-    config.scale = !advanced()
-      ? scale
-      : await ui.select(
-        'How many people are in the tenant?',
-        [
-          { name: 'Up to 10,000', value: 'standard' },
-          { name: 'More than 10,000 (smaller audit windows, longer time limits; best on F64 or larger)', value: 'large' },
-        ],
-        scale,
-      );
-    for (const w of sizingWarnings({ seats: pre.seats, capacity, scale: config.scale })) ui.warn(w);
+    config.scale = await askTenantSize(ctx, pre.headcount, config.scale ?? defaultScale(capacity, pre.headcount), FABRIC_SIZES);
+    for (const w of sizingWarnings({ headcount: pre.headcount, capacity, scale: config.scale })) ui.warn(w);
     if (config.fabric.workspaceId) {
       ui.ok(`Workspace: ${config.fabric.workspaceName ?? config.fabric.workspaceId}`);
     } else {
@@ -1004,7 +1173,7 @@ export async function reserveNames(ctx) {
  * @typedef {{ who: string, what: string, where: string, detail?: string }} ReviewGrant
  * @typedef {{ what: string, where: string, detail?: string }} ReviewRun
  * @typedef {{ what: string, detail?: string, url: string }} ReviewCost
- * @typedef {{ creates: ReviewItem[], grants: ReviewGrant[], runsOn: ReviewRun[], costs?: ReviewCost[] }} PlanReview
+ * @typedef {{ creates: ReviewItem[], grants: ReviewGrant[], runsOn: ReviewRun[], costs?: ReviewCost[], sizedFor?: string }} PlanReview
  */
 
 export const PRICING = {
@@ -1035,7 +1204,7 @@ export function planCosts(config) {
  * What the plan creates, who it gives access to what, and where it runs: the record a
  * reviewer reads before saying go ahead.
  * @param {Ctx} ctx
- * @param {Pick<Preflight, 'capacities' | 'subscriptions' | 'canConsent'>} [pre]
+ * @param {Pick<Preflight, 'capacities' | 'subscriptions' | 'canConsent'> & Partial<Pick<Preflight, 'headcount' | 'seats'>>} [pre]
  * @returns {PlanReview}
  */
 export function planReview(ctx, pre) {
@@ -1151,15 +1320,24 @@ export function planReview(ctx, pre) {
   creates.push(...access.creates);
 
   const appWho = `${appName} (app)`;
+  const source = auditSource(config);
   /** @type {ReviewGrant[]} */
   const grants = [
     {
       who: appWho,
-      what: `Microsoft Graph application permissions: ${permissionsFor(config.modules, config.dataSources).join(', ')}`,
+      what: `Microsoft Graph application permissions: ${permissionsFor(config.modules, config.dataSources, source).join(', ')}`,
       where: 'Your tenant, through admin consent',
       detail: pre && !pre.canConsent ? 'You can\'t grant it yourself. You get a link for a Global Administrator or Privileged Role Administrator to approve.' : undefined,
     },
   ];
+  if (readsFeed(source)) {
+    grants.push({
+      who: appWho,
+      what: `Office 365 Management APIs application permission: ${MANAGEMENT_API_ROLE}`,
+      where: 'Your tenant, through admin consent',
+      detail: source === 'auto' ? 'Reads Copilot interactions from the Management Activity API when Microsoft Sentinel doesn\'t hold them.' : 'Reads Copilot interactions from the Management Activity API.',
+    });
+  }
   if (!kv.uri && mode === 'keyvault-admin') {
     grants.push({
       who: `${user.upn} (you)`,
@@ -1221,20 +1399,30 @@ export function planReview(ctx, pre) {
       detail: mode === 'notebook' ? 'The schedule\'s owner refreshes the models; the secret is in the notebooks.' : 'The schedule\'s owner reads the secret and refreshes the models.',
     },
   ];
-  if (ctx.runFirstLoad) runsOn.push({ what: 'First load', where: `${config.history.days} days of audit history, straight after setup` });
-  if (ctx.reloadHistoryDays) runsOn.push({ what: 'History reload', where: reloadLine(ctx.reloadHistoryDays), detail: reloadDetail(ctx.reloadHistoryDays) });
-  return { creates, grants, runsOn, costs: planCosts(config) };
+  if (ctx.runFirstLoad) {
+    runsOn.push({ what: 'First load', where: `${config.history.days} days of audit history, straight after setup`, detail: estimateShort(config.history.days, config.scale, 'fabric', { band: true, ...sourceOpts(config) }) });
+  }
+  if (ctx.reloadHistoryDays) runsOn.push({ what: 'History reload', where: reloadLine(ctx.reloadHistoryDays), detail: reloadDetail(ctx.reloadHistoryDays, config.scale, sourceOpts(config)) });
+  return { creates, grants, runsOn, costs: planCosts(config), sizedFor: sizedFor(config.scale, pre) };
 }
+
+/** The audit source in the summary before Go ahead. */
+export const AUDIT_SOURCE_LINES = {
+  feed: `Office 365 Management Activity API ${c.dim('(first load: the last 7 days; a new subscription can take up to 12 hours to show content)')}`,
+  auto: `Microsoft Sentinel, otherwise the Office 365 Management Activity API ${c.dim('(first load: what Sentinel holds, else 7 days; a new Management API subscription can take up to 12 hours to show content)')}`,
+  graph: `Microsoft Graph audit search ${c.dim('(any history; slow on a large tenant)')}`,
+};
 
 /** @param {number} days */
 export const reloadLine = (days) => `Reload ${days} days of history after setup`;
 
 /**
- * How long a reload takes.
+ * How long a reload takes, on Fabric.
  * @param {number} days
+ * @param {'standard' | 'large' | undefined} [scale]
+ * @param {import('../estimate.js').SourceOpts} [opts]
  */
-export const reloadDetail = (days) =>
-  days > 30 ? 'One pipeline run: a few hours, and many hours on a large tenant. The scheduled runs carry on after it.' : 'One pipeline run, usually under an hour.';
+export const reloadDetail = (days, scale, opts = {}) => `${estimateShort(days, scale, 'fabric', opts)} The scheduled runs carry on as usual after it.`;
 
 /**
  * Prints the plan and asks to go ahead.
@@ -1258,10 +1446,11 @@ export async function confirmPlan(ctx, pre) {
   else if (kvMode === 'keyvault-admin') ui.info(`Key Vault:   ${config.keyVault.name} ${c.dim('(a vault admin adds the secret)')}`);
   else ui.info(`Key Vault:   ${config.keyVault.name} ${config.keyVault.existing || config.keyVault.uri ? '' : c.dim(`(new, ${config.keyVault.rbac ? 'Azure RBAC' : 'access policies'})`)}`);
   ui.info(`Schedule:    ${config.schedule.frequency === 'weekly' ? `${config.schedule.weekday}s` : 'Daily'} at ${config.schedule.time} ${config.schedule.timeZone}`);
-  const seats = pre?.seats ? c.dim(` (${seatCount(pre.seats)} Copilot seats assigned)`) : '';
-  ui.info(`Tenant size: ${config.scale === 'large' ? 'large (more than 10,000 people)' : 'standard (up to 10,000 people)'}${seats}`);
+  const tenant = tenantLine(pre?.headcount, pre?.seats);
+  if (tenant) ui.info(`Tenant:      ${tenant}`);
+  ui.info(scaleLine(config.scale));
   const capacity = pre?.capacities.find((cap) => cap.id === config.fabric.capacityId);
-  for (const w of sizingWarnings({ seats: pre?.seats, capacity, scale: config.scale })) ui.warn(w);
+  for (const w of sizingWarnings({ headcount: pre?.headcount, capacity, scale: config.scale })) ui.warn(w);
   if (config.semanticModel.enabled) {
     const cm = config.consumption.model;
     const consumption = consumptionModelWanted(ctx) ? `, ${cm.name} ${cm.id ? '' : c.dim('(new)')}`.trimEnd() : '';
@@ -1284,16 +1473,23 @@ export async function confirmPlan(ctx, pre) {
     ui.info(`Agents:      ${envs.length ? `${names}${waiting}` : c.dim('no environments chosen')}`);
   }
   if (resourceGraphOn(config)) ui.info(`Governance:  ${resourceGraphKinds(config)} from Azure Resource Graph, in ${scopeName(config)}`);
-  if (ctx.runFirstLoad) ui.info(`First load:  ${config.history.days} days of history, straight after setup`);
-  if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)} ${c.dim(`(${reloadDetail(ctx.reloadHistoryDays)})`)}`);
+  if (config.target !== 'azure') ui.info(`Audit:       ${AUDIT_SOURCE_LINES[auditSource(config)]}`);
+  if (graphHistoryOn(config)) ui.info(`             ${c.dim('History loads read the days older than 7 from Microsoft Graph audit search')}`);
+  if (ctx.runFirstLoad) {
+    ui.info(`First load:  ${config.history.days} days of history, straight after setup ${c.dim(`(${estimateShort(config.history.days, config.scale, 'fabric', { band: true, ...sourceOpts(config) })})`)}`);
+  }
+  if (ctx.reloadHistoryDays) ui.info(`History:     ${reloadLine(ctx.reloadHistoryDays)} ${c.dim(`(${reloadDetail(ctx.reloadHistoryDays, config.scale, sourceOpts(config))})`)}`);
   ui.review(planReview(ctx, pre));
   ui.note(keepAwake());
   return ui.confirm('Go ahead?', true);
 }
 
-/** Said before Go ahead: a PC that sleeps stops the setup part way. */
-export const KEEP_AWAKE = 'Keep this PC plugged in and awake until setup finishes.';
+/**
+ * Said before Go ahead: a PC that sleeps stops the setup part way. The loads run in Fabric or Azure, so only the
+ * setup needs the PC: the one rule, also in docs/PREREQUISITES.md.
+ */
+export const KEEP_AWAKE = 'Keep this PC plugged in and awake until the installer says setup is finished. After that you can close the window, and any load it started carries on.';
 /** The same in Azure Cloud Shell, where closing the tab ends the session. */
-export const KEEP_CLOUD_SHELL_OPEN = 'Keep this Cloud Shell tab open until setup finishes.';
+export const KEEP_CLOUD_SHELL_OPEN = 'Keep this Cloud Shell tab open until the installer says setup is finished. After that you can close it, and any load it started carries on.';
 /** @param {NodeJS.ProcessEnv} [env] */
 export const keepAwake = (env = process.env) => (inCloudShell(env) ? KEEP_CLOUD_SHELL_OPEN : KEEP_AWAKE);

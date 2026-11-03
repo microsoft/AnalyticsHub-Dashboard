@@ -6,8 +6,11 @@
 //-----------------------------------------------------------------------
 
 import { useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { FileStack, Moon, Sun } from "lucide-react";
+import { FileStack, Menu, Moon, PanelLeftClose, PanelLeftOpen, Sun } from "lucide-react";
 import { DataToContext } from "@/hooks/data-to.context";
+import { useFilterContext } from "@/hooks/filter.context";
+import { useMediaQuery } from "@/hooks/use-media-query";
+import { isPlainClick, routeHash } from "@/lib/route";
 import { useReportPacks } from "@/hooks/report-packs.context";
 import { useSourceFreshness } from "@/hooks/use-source-freshness";
 import { paletteClass, usePaletteTheme } from "@/hooks/use-palette-theme";
@@ -28,14 +31,18 @@ import {
     isDestinationReady,
     isPackable,
     isReference,
+    STAGE_PANEL_ID,
+    stageTabId,
     type Destination,
     type DestinationId,
     type StageId,
 } from "./destinations";
 import { AccessScopeChip, NoScopeNotice } from "./access-scope";
 import { FilterBar } from "./filter-bar";
+import { NavDrawer } from "./nav-drawer";
 import { ReportHeader } from "./report-header";
 import { PackActions } from "./report-pack-actions";
+import { ErrorGroup } from "./query-states";
 import { ReportPackEditor } from "./report-pack-editor";
 import { ReportsNav } from "./reports-nav";
 import { SharePanel } from "./share-panel";
@@ -77,6 +84,28 @@ function UpdateNotice() {
     );
 }
 
+const NARROW = "(max-width: 767px)";
+const MEDIUM = "(max-width: 1023px)";
+export const RAIL_STORAGE_KEY = "analyticshub.compactRail";
+
+// Storage can be unavailable in a sandboxed embed; the rail then follows the window width.
+function readRailPreference(): boolean | undefined {
+    try {
+        const value = window.localStorage.getItem(RAIL_STORAGE_KEY);
+        return value === "true" ? true : value === "false" ? false : undefined;
+    } catch {
+        return undefined;
+    }
+}
+
+function saveRailPreference(compact: boolean) {
+    try {
+        window.localStorage.setItem(RAIL_STORAGE_KEY, String(compact));
+    } catch {
+        // Not remembered; the toggle still works for this visit.
+    }
+}
+
 const CREATOR_PROFILE_URL = "https://github.com/Keithland89";
 
 /** The sidebar's footer: who made the app, linked to their profile. */
@@ -110,10 +139,14 @@ interface AppShellProps {
 
 /**
  * Sidebar-and-canvas frame. The sidebar is the whole navigation model — the
- * destinations replacing the report's pages and bookmark bars, with the
- * active destination's stages listed beneath it as tabs, and the report's
- * appendix set apart below them as reference. A destination shows one stage
- * at a time, so a page only waits for, and queries, what is on screen.
+ * destinations replacing the report's pages and bookmark bars, and the
+ * report's appendix set apart below them as reference. A destination's
+ * stages are its tabs. A destination shows one stage at a time, so a page
+ * only waits for, and queries, what is on screen.
+ *
+ * The sidebar is a full rail from 1024px, an icon rail below that (either
+ * can be switched to the other, and the choice is remembered), and a menu
+ * behind a top bar below 768px.
  *
  * Each destination carries its own palette: the sidebar shows every hue at
  * once so they read as distinct places, and the canvas — chrome and charts
@@ -122,6 +155,15 @@ interface AppShellProps {
 export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellProps) {
     const themeContext = useThemeContext();
     const { isDark, toggleTheme } = themeContext;
+    const { filters } = useFilterContext();
+    const narrow = useMediaQuery(NARROW);
+    const medium = useMediaQuery(MEDIUM);
+    const [railPreference, setRailPreference] = useState(readRailPreference);
+    const compact = !narrow && (railPreference ?? medium);
+    const [menuOpen, setMenuOpen] = useState(false);
+    // Widening to the full rail closes the drawer, so it doesn't reopen on the next narrowing.
+    if (!narrow && menuOpen) setMenuOpen(false);
+    const menuButtonRef = useRef<HTMLButtonElement>(null);
     const active = view.kind === "destination" ? view.id : undefined;
     const activeStage = view.kind === "destination" ? view.stage : undefined;
     // A pack takes on the hue of the destination it opens with.
@@ -139,6 +181,19 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
         const saved = await save(pack);
         setEditing(undefined);
         onOpenPack(saved.id);
+    };
+    const toggleRail = () => {
+        const next = !compact;
+        saveRailPreference(next);
+        setRailPreference(next);
+    };
+    const go = (id: DestinationId, stage?: StageId) => {
+        setMenuOpen(false);
+        onNavigate(id, stage);
+    };
+    const openPack = (id: string) => {
+        setMenuOpen(false);
+        onOpenPack(id);
     };
     // A page's download holds every stage, so they all render while it is drawn.
     const [wholePage, setWholePage] = useState(false);
@@ -173,71 +228,72 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
         if (mainRef.current) mainRef.current.scrollTop = 0;
     }, [viewKey, activeStage]);
 
+    // On moving to another page, focus its heading so a screen reader announces it and the keyboard starts there.
+    // Not on the first page, and not on a stage change: the tabs keep focus while arrowing between them.
+    const shownKey = useRef(viewKey);
+    useEffect(() => {
+        if (shownKey.current === viewKey) return;
+        shownKey.current = viewKey;
+        mainRef.current?.querySelector<HTMLElement>("h1")?.focus({ preventScroll: true });
+    }, [viewKey]);
+
+    // Chart and table frames title themselves with an h4, but each sits straight under its section's h2.
+    // A screen reader's heading list would skip a level, so expose those titles as level 3.
+    useEffect(() => {
+        const main = mainRef.current;
+        if (!main || typeof MutationObserver === "undefined") return;
+        const relevel = () =>
+            main.querySelectorAll("h4[id$='-title']:not([aria-level])").forEach((title) => title.setAttribute("aria-level", "3"));
+        relevel();
+        const observer = new MutationObserver(relevel);
+        observer.observe(main, { childList: true, subtree: true });
+        return () => observer.disconnect();
+    }, []);
+
     const renderDestination = (destination: Destination) => {
         const Icon = destination.icon;
         const isActive = destination.id === active;
         const ready = isDestinationReady(destination);
+        const itemClass = cn(
+            "flex w-full items-center rounded-md py-200 text-left transition-colors",
+            compact ? "justify-center px-200" : "gap-300 px-300",
+            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+            isActive ? "bg-accent text-accent-foreground" : "text-muted-foreground hover:bg-secondary hover:text-foreground",
+        );
+        const label = (
+            <span
+                className={cn(
+                    "text-[length:var(--text-300)] leading-300",
+                    isActive && "font-semibold",
+                    compact && "sr-only",
+                )}
+            >
+                {destination.label}
+                {!ready && <span className="sr-only"> (coming next)</span>}
+            </span>
+        );
         return (
             <li key={destination.id} className={paletteClass(destination.id)}>
-                <button
-                    type="button"
-                    onClick={() => onNavigate(destination.id)}
-                    aria-current={isActive ? "page" : undefined}
-                    disabled={!ready}
-                    className={cn(
-                        "flex w-full items-center gap-300 rounded-md px-300 py-200 text-left transition-colors",
-                        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                        isActive
-                            ? "bg-accent text-accent-foreground"
-                            : "text-muted-foreground hover:bg-secondary hover:text-foreground",
-                        !ready && "cursor-not-allowed opacity-50 hover:bg-transparent",
-                    )}
-                >
-                    <Icon className="icon-size-200 shrink-0 text-primary" aria-hidden="true" />
-                    <span className="flex flex-col">
-                        <span className={cn("text-[length:var(--text-300)] leading-300", isActive && "font-semibold")}>
-                            {destination.label}
-                        </span>
-                        <span className="text-[length:var(--text-100)] leading-100 opacity-70">
-                            {ready ? destination.blurb : "Coming next"}
-                        </span>
-                    </span>
-                </button>
-
-                {isActive && destination.stages.length > 1 && (
-                    <ul
-                        aria-label={`${destination.label} stages`}
-                        className="mt-100 mb-200 ml-500 flex flex-col border-l border-border"
+                {ready ? (
+                    <a
+                        href={routeHash({ kind: "destination", id: destination.id }, filters)}
+                        onClick={(event) => {
+                            if (!isPlainClick(event)) return;
+                            event.preventDefault();
+                            go(destination.id);
+                        }}
+                        aria-current={isActive ? "page" : undefined}
+                        title={compact ? destination.label : undefined}
+                        className={itemClass}
                     >
-                        {destination.stages.map((stage) => {
-                            const isOpen = stage.id === activeStage;
-                            return (
-                                <li key={stage.id}>
-                                    {stage.ready ? (
-                                        <button
-                                            type="button"
-                                            onClick={() => onNavigate(destination.id, stage.id)}
-                                            aria-current={isOpen ? "location" : undefined}
-                                            className={cn(
-                                                "-ml-px flex w-full border-l-2 py-100 pr-200 pl-[18px] text-left text-[length:var(--text-200)] leading-200 transition-colors",
-                                                "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
-                                                isOpen
-                                                    ? "border-primary font-semibold text-foreground"
-                                                    : "border-transparent text-muted-foreground hover:text-foreground",
-                                            )}
-                                        >
-                                            {stage.label}
-                                        </button>
-                                    ) : (
-                                        <span className="-ml-px flex items-baseline justify-between gap-200 border-l-2 border-transparent py-100 pr-200 pl-[18px] text-[length:var(--text-200)] leading-200 text-muted-foreground opacity-60">
-                                            {stage.label}
-                                            <span className="text-[length:var(--text-100)] leading-100">Soon</span>
-                                        </span>
-                                    )}
-                                </li>
-                            );
-                        })}
-                    </ul>
+                        <Icon className="icon-size-200 shrink-0 text-primary" aria-hidden="true" />
+                        {label}
+                    </a>
+                ) : (
+                    <span aria-disabled="true" className={cn(itemClass, "cursor-not-allowed opacity-50 hover:bg-transparent")}>
+                        <Icon className="icon-size-200 shrink-0 text-primary" aria-hidden="true" />
+                        {label}
+                    </span>
                 )}
             </li>
         );
@@ -245,75 +301,152 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
 
     const reference = available.filter(isReference);
 
+    const sidebar = (inMenu: boolean) => (
+        <>
+            {!inMenu && (
+                <div className={cn("flex items-start", compact ? "justify-center" : "justify-between gap-200 px-200")}>
+                    {!compact && (
+                        <div className="flex flex-col gap-100">
+                            <span className="text-[length:var(--text-500)] leading-500 font-semibold">Analytics Hub</span>
+                            <span className="text-[length:var(--text-200)] leading-200 text-muted-foreground">for Microsoft Copilot</span>
+                        </div>
+                    )}
+                    <button
+                        type="button"
+                        onClick={toggleRail}
+                        aria-label={compact ? "Expand sidebar" : "Collapse sidebar"}
+                        title={compact ? "Expand sidebar" : "Collapse sidebar"}
+                        className="rounded-md p-200 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    >
+                        {compact ? (
+                            <PanelLeftOpen className="icon-size-200" aria-hidden="true" />
+                        ) : (
+                            <PanelLeftClose className="icon-size-200" aria-hidden="true" />
+                        )}
+                    </button>
+                </div>
+            )}
+
+            <ul className="flex flex-1 flex-col gap-100-nudge">
+                {available.filter((destination) => !isReference(destination)).map(renderDestination)}
+            </ul>
+
+            {reference.length > 0 && (
+                <div className={cn("flex flex-col gap-100 border-t border-border pt-400")}>
+                    <span
+                        id={inMenu ? "menu-reference" : "nav-reference"}
+                        className={cn("px-300 text-[length:var(--text-200)] leading-200 font-semibold text-muted-foreground", compact && "sr-only")}
+                    >
+                        Reference
+                    </span>
+                    <ul aria-labelledby={inMenu ? "menu-reference" : "nav-reference"} className="flex flex-col gap-100-nudge">
+                        {reference.map(renderDestination)}
+                    </ul>
+                </div>
+            )}
+
+            {!compact && (
+                <>
+                    <ReportsNav
+                        activePack={view.kind === "pack" ? view.pack.id : undefined}
+                        onOpen={openPack}
+                        onCreate={() => {
+                            setMenuOpen(false);
+                            setEditing({ pack: { id: newPackId(), name: "", stages: [] }, heading: "New report pack" });
+                        }}
+                    />
+
+                    <SharePanel />
+
+                    <UpdateNotice />
+                </>
+            )}
+
+            <button
+                type="button"
+                onClick={toggleTheme}
+                aria-pressed={isDark}
+                aria-label={compact ? "Dark mode" : undefined}
+                title={compact ? (isDark ? "Light mode" : "Dark mode") : undefined}
+                className={cn(
+                    "flex items-center rounded-md border border-border py-200 text-[length:var(--text-300)] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+                    compact ? "justify-center px-200" : "gap-300 px-300",
+                )}
+            >
+                {isDark ? <Sun className="icon-size-200" aria-hidden="true" /> : <Moon className="icon-size-200" aria-hidden="true" />}
+                {!compact && (isDark ? "Light mode" : "Dark mode")}
+            </button>
+
+            {!compact && <CreatorCredit />}
+        </>
+    );
+
     return (
         // The shell and both scroll areas are positioned so absolute descendants (sr-only text
         // especially) stay inside them; otherwise they extend the document and add a second scrollbar.
         <div
             className={cn(
-                "relative flex h-screen w-full overflow-hidden bg-background text-foreground",
+                "relative flex h-dvh w-full overflow-hidden bg-background text-foreground",
+                narrow && "flex-col",
                 paletteClass(palette),
             )}
             data-print="flow"
         >
-            <nav
-                aria-label="Sections"
+            <a
+                href="#main"
+                onClick={(event) => {
+                    event.preventDefault();
+                    mainRef.current?.focus();
+                }}
                 data-print="hide"
-                className="relative flex w-[248px] shrink-0 flex-col gap-500 overflow-y-auto border-r border-border bg-card px-400 py-500"
+                className="sr-only z-50 rounded-md bg-card px-300 py-200 text-[length:var(--text-300)] font-semibold text-foreground shadow-md focus:not-sr-only focus:absolute focus:top-200 focus:left-200 focus-visible:outline-2 focus-visible:outline-ring"
             >
-                <div className="flex flex-col gap-100 px-200">
-                    <span className="text-[length:var(--text-500)] leading-500 font-semibold">Analytics Hub</span>
-                    <span className="text-[length:var(--text-200)] leading-200 text-muted-foreground">
-                        for Microsoft Copilot
-                    </span>
-                </div>
+                Skip to content
+            </a>
 
-                <ul className="flex flex-1 flex-col gap-100-nudge">
-                    {available.filter((destination) => !isReference(destination)).map(renderDestination)}
-                </ul>
-
-                {reference.length > 0 && (
-                    <div className="flex flex-col gap-100 border-t border-border pt-400">
-                        <span
-                            id="nav-reference"
-                            className="px-300 text-[length:var(--text-200)] leading-200 font-semibold text-muted-foreground"
-                        >
-                            Reference
-                        </span>
-                        <ul aria-labelledby="nav-reference" className="flex flex-col gap-100-nudge">
-                            {reference.map(renderDestination)}
-                        </ul>
-                    </div>
-                )}
-
-                <ReportsNav
-                    activePack={view.kind === "pack" ? view.pack.id : undefined}
-                    onOpen={onOpenPack}
-                    onCreate={() => setEditing({ pack: { id: newPackId(), name: "", stages: [] }, heading: "New report pack" })}
-                />
-
-                <SharePanel />
-
-                <UpdateNotice />
-
-                <button
-                    type="button"
-                    onClick={toggleTheme}
-                    aria-pressed={isDark}
-                    className="flex items-center gap-300 rounded-md border border-border px-300 py-200 text-[length:var(--text-300)] text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                >
-                    {isDark ? (
-                        <Sun className="icon-size-200" aria-hidden="true" />
-                    ) : (
-                        <Moon className="icon-size-200" aria-hidden="true" />
+            {narrow ? (
+                <header data-print="hide" className="flex shrink-0 items-center gap-200 border-b border-border bg-card px-200 py-100">
+                    <button
+                        ref={menuButtonRef}
+                        type="button"
+                        onClick={() => setMenuOpen(true)}
+                        aria-label="Open menu"
+                        aria-expanded={menuOpen}
+                        aria-controls="sections-menu"
+                        className="flex size-[44px] items-center justify-center rounded-md text-foreground hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                    >
+                        <Menu className="icon-size-300" aria-hidden="true" />
+                    </button>
+                    <span className="text-[length:var(--text-400)] leading-400 font-semibold">Analytics Hub</span>
+                </header>
+            ) : (
+                <nav
+                    aria-label="Sections"
+                    data-print="hide"
+                    className={cn(
+                        "relative flex shrink-0 flex-col gap-500 overflow-y-auto border-r border-border bg-card py-500",
+                        compact ? "w-[64px] px-200" : "w-[248px] px-400",
                     )}
-                    {isDark ? "Light mode" : "Dark mode"}
-                </button>
+                >
+                    {sidebar(false)}
+                </nav>
+            )}
 
-                <CreatorCredit />
-            </nav>
+            {narrow && (
+                <NavDrawer open={menuOpen} onClose={() => setMenuOpen(false)} returnFocus={menuButtonRef}>
+                    {sidebar(true)}
+                </NavDrawer>
+            )}
 
-            <main ref={mainRef} data-print="flow" className="relative min-w-0 flex-1 overflow-y-auto [scrollbar-gutter:stable]">
-                <div className="mx-auto flex max-w-[1400px] flex-col gap-600 px-700 pt-600 pb-800" data-print="flow">
+            <main
+                ref={mainRef}
+                id="main"
+                tabIndex={-1}
+                inert={narrow && menuOpen ? true : undefined}
+                data-print="flow"
+                className="relative min-w-0 flex-1 overflow-y-auto outline-none [scrollbar-gutter:stable]"
+            >
+                <div className="mx-auto flex max-w-[1400px] flex-col gap-600 px-400 pt-500 pb-800 md:px-600 lg:px-700 lg:pt-600" data-print="flow">
                     {view.kind === "pack" ? (
                         <ReportHeader
                             key={viewKey}
@@ -369,15 +502,20 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                                 <DataToContext.Provider value={dataTo}>
                                     <div
                                         ref={contentRef}
+                                        {...(current && tabs.length > 1 && activeStage
+                                            ? { id: STAGE_PANEL_ID, role: "tabpanel", "aria-labelledby": stageTabId(activeStage) }
+                                            : {})}
                                         aria-busy={refreshing || undefined}
                                         data-refreshing={refreshing || undefined}
                                         className="flex flex-col gap-700 transition-opacity duration-200 data-[refreshing]:opacity-55 data-[refreshing]:delay-150"
                                     >
-                                        {view.kind === "destination" ? (
-                                            <StageFilterContext.Provider value={stageFilter}>{children}</StageFilterContext.Provider>
-                                        ) : (
-                                            children
-                                        )}
+                                        <ErrorGroup>
+                                            {view.kind === "destination" ? (
+                                                <StageFilterContext.Provider value={stageFilter}>{children}</StageFilterContext.Provider>
+                                            ) : (
+                                                children
+                                            )}
+                                        </ErrorGroup>
                                     </div>
                                 </DataToContext.Provider>
                             </ThemeContext.Provider>

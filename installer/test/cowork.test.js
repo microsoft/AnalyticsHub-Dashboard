@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { applyDataFlags, parseCli } from '../src/cli.js';
 import { emptyConfig } from '../src/config.js';
-import { COWORK_DATAFLOW_NAME, ensureCoworkDataflow, planCowork } from '../src/steps/consumption.js';
+import { connectCowork, COWORK_DATAFLOW_NAME, ensureCoworkDataflow, planCowork } from '../src/steps/consumption.js';
 import { coworkDataflowOn } from '../src/steps/fabric.js';
 import { COWORK_DATAFLOW_TABLE, coworkDataflowDefinition, coworkMashup, coworkQueryMetadata, isVivaId } from '../src/transform/dataflow.js';
 import { buildPipeline, COWORK_DATAFLOW_ACTIVITY, COWORK_WRAPPER_ACTIVITY, findActivity } from '../src/transform/pipeline.js';
@@ -114,7 +114,7 @@ test('ensureCoworkDataflow: created once, left alone on re-run, redefined when t
   assert.ok(t.config.consumption.dataflowId);
   assert.equal(t.config.consumption.dataflowName, COWORK_DATAFLOW_NAME);
   assert.ok(coworkDataflowOn(t.config));
-  assert.match(t.ui.text(), /1\. Open AnalyticsHub_Cowork_Credits in [^\n]*: https:\/\/app\.fabric\.microsoft\.com\/groups\/ws-1\/dataflows-gen2\/\S+\.\n[\s\S]*2\. It shows "Configure connection" twice[^\n]*Viva Insights source[^\n]*Lakehouse destination \(ValueLens\)[\s\S]*3\. On each one, choose Configure connection, sign in, then Connect[\s\S]*4\. Choose Save, then wait until the Dataflow shows it has finished publishing[\s\S]*5\. Then choose Load Cowork now, or run "[^"]*load-cowork"/);
+  assert.doesNotMatch(t.ui.text(), /Configure connection/, 'the sign-in steps come from connectCowork');
 
   t.fabric.calls.length = 0;
   await ensureCoworkDataflow(t.ctx);
@@ -210,4 +210,62 @@ test('flags: --studio-flow, --flow-environment and the Viva IDs go with install 
   config.uploads.flowEnvironment = { url: 'https://contoso.crm.dynamics.com', id: 'env-1' };
   applyDataFlags(config, { dataSources: {}, flowEnvironment: 'https://contoso.crm.dynamics.com' });
   assert.equal(config.uploads.flowEnvironment.id, 'env-1', 'the same environment keeps what was found for it');
+});
+
+const VIVA_CONN = { connectionId: 'c-viva', kind: 'VivaInsights' };
+const LAKEHOUSE_CONN = { connectionId: 'c-lh', kind: 'Lakehouse' };
+
+test('connectCowork: off unless Cowork credits come from the Dataflow', async () => {
+  const csv = setup();
+  csv.config.dataSources.coworkCredits = 'csv';
+  assert.equal(await connectCowork(csv.ctx), 'off');
+  assert.deepEqual(csv.fabric.calls, []);
+
+  const noIds = setup();
+  assert.equal(await connectCowork(noIds.ctx), 'off', 'no IDs falls back to the export');
+  assert.equal(noIds.config.dataSources.coworkCredits, 'csv');
+});
+
+test('connectCowork: a Dataflow already signed in carries straight on', async () => {
+  const t = setup();
+  Object.assign(t.config.consumption, { vivaPartition: PARTITION, vivaQuery: QUERY });
+  t.fabric.dataflowConnections.push([VIVA_CONN, LAKEHOUSE_CONN]);
+  assert.equal(await connectCowork(t.ctx), 'bound');
+  assert.match(t.ui.text(), /✓ AnalyticsHub_Cowork_Credits is signed in to Viva Insights and the Lakehouse/);
+  assert.deepEqual(t.ui.asked, []);
+});
+
+test('connectCowork: before the rest is deployed, it gives the sign-in steps and waits until the Dataflow is signed in', async () => {
+  const t = setup({ answers: ['check', 'check'] });
+  Object.assign(t.config.consumption, { vivaPartition: PARTITION, vivaQuery: QUERY });
+  t.fabric.dataflowConnections.push([], [], [VIVA_CONN, LAKEHOUSE_CONN]);
+  assert.equal(await connectCowork(t.ctx), 'bound');
+  const text = t.ui.text();
+  assert.match(text, /Sign AnalyticsHub_Cowork_Credits in to Viva Insights now/);
+  assert.match(text, /1\. Open AnalyticsHub_Cowork_Credits in [^\n]*: https:\/\/app\.fabric\.microsoft\.com\/groups\/ws-1\/dataflows-gen2\/\S+\.\n[\s\S]*2\. It shows "Configure connection" twice[^\n]*Viva Insights source[^\n]*Lakehouse destination \(ValueLens\)[\s\S]*3\. On each one, choose Configure connection, sign in, then Connect[\s\S]*4\. Choose Save, then wait until the Dataflow shows it has finished publishing/);
+  assert.doesNotMatch(text, /Load Cowork now/, 'loading comes after the install');
+  assert.match(text, /Insights Analyst/);
+  assert.match(text, /Not signed in yet: Fabric lists no connections/);
+  assert.equal(t.ui.asked.length, 2);
+  assert.match(text, /✓ AnalyticsHub_Cowork_Credits is signed in/);
+});
+
+test('connectCowork: skip, or --yes, carries on and leaves Cowork for after the install', async () => {
+  const skip = setup({ answers: ['skip'] });
+  Object.assign(skip.config.consumption, { vivaPartition: PARTITION, vivaQuery: QUERY });
+  assert.equal(await connectCowork(skip.ctx), 'unbound');
+  assert.match(skip.ui.text(), /The first load leaves Cowork credits out, and the summary shows how to finish it/);
+
+  const fabric = fakeFabric();
+  const ui = fakeUi({ yes: true });
+  const config = emptyConfig();
+  config.modules.consumption = true;
+  config.dataSources.coworkCredits = 'api';
+  Object.assign(config.consumption, { vivaPartition: PARTITION, vivaQuery: QUERY });
+  const { ctx } = fakeCtx({ ui: ui.ui, fabric: fabric.api, config });
+  fabric.failures.getDataflowDefinition = [httpError(500, 'busy')];
+  assert.equal(await connectCowork(ctx), 'unknown');
+  assert.match(ui.text(), /Couldn't tell whether AnalyticsHub_Cowork_Credits is signed in/);
+  assert.match(ui.text(), /Carrying on without it/);
+  assert.deepEqual(ui.asked, []);
 });

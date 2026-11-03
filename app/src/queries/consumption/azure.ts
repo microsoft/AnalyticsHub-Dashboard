@@ -14,7 +14,6 @@ import {
     FORMAT_HOURS,
     FORMAT_MONEY,
     FORMAT_PERCENT,
-    FORMAT_RATE,
     FORMAT_WHOLE,
 } from "../shared";
 import costByItemSpec from "./azure-cost-by-item.json";
@@ -80,7 +79,7 @@ const solutionSummaryColumns: ColumnMetadataMap = {
     "[Speech Hours]": { name: "Speech Hours", displayName: "Speech hours", format: FORMAT_HOURS },
     "[Document Pages]": { name: "Document Pages", displayName: "Document pages", format: FORMAT_WHOLE },
     "[Generated Images]": { name: "Generated Images", displayName: "Generated images", format: FORMAT_WHOLE },
-    "[Cost Per 1M Tokens]": { name: "Cost Per 1M Tokens", displayName: "Cost per 1M tokens", format: FORMAT_RATE },
+    "[Cost Per 1M Tokens]": { name: "Cost Per 1M Tokens", displayName: "Cost per 1M tokens", format: FORMAT_MONEY },
     "[Spend Context]": { name: "Spend Context", displayName: "Spend context" },
 };
 
@@ -129,7 +128,7 @@ const foundrySummaryColumns: ColumnMetadataMap = {
     "[Output Cost]": { name: "Output Cost", displayName: "Output tokens", format: FORMAT_MONEY },
     "[Output Share]": { name: "Output Share", displayName: "Output share", format: FORMAT_PERCENT },
     "[Tokens M]": { name: "Tokens M", displayName: "Tokens (M)", format: FORMAT_HOURS },
-    "[Cost Per 1M Tokens]": { name: "Cost Per 1M Tokens", displayName: "Cost per 1M tokens", format: FORMAT_RATE },
+    "[Cost Per 1M Tokens]": { name: "Cost Per 1M Tokens", displayName: "Cost per 1M tokens", format: FORMAT_MONEY },
     "[AI Requests]": { name: "AI Requests", displayName: "AI requests", format: FORMAT_WHOLE },
     "[Tokens Per Request]": { name: "Tokens Per Request", displayName: "Tokens per request", format: FORMAT_WHOLE },
     "[Daily Run Rate]": { name: "Daily Run Rate", displayName: "Daily run rate", format: FORMAT_MONEY },

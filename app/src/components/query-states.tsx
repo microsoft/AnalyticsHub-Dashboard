@@ -5,7 +5,15 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import type { ReactNode } from "react";
+import {
+    createContext,
+    useContext,
+    useId,
+    useLayoutEffect,
+    useMemo,
+    useSyncExternalStore,
+    type ReactNode,
+} from "react";
 import { cn } from "@/lib/utils";
 import { isMissingFromModelError, isModelNotRefreshedError, parseMissingModelObject } from "@/lib/model-errors";
 import { BUSY_MESSAGE, isBusyMessage } from "@/lib/query-scheduler";
@@ -64,6 +72,155 @@ interface QueryErrorProps extends QueryStateProps {
     onRetry?: () => void;
 }
 
+/**
+ * Every error card mounted in one view, so that when several parts of a page
+ * fail for the same reason the first says so in full and the rest say only
+ * that they didn't load either.
+ */
+class ErrorRegister {
+    private readonly owners = new Map<string, string[]>();
+    private readonly listeners = new Set<() => void>();
+
+    add(reason: string, id: string) {
+        this.owners.set(reason, [...(this.owners.get(reason) ?? []), id]);
+        this.notify();
+    }
+
+    remove(reason: string, id: string) {
+        const left = (this.owners.get(reason) ?? []).filter((owner) => owner !== id);
+        if (left.length > 0) this.owners.set(reason, left);
+        else this.owners.delete(reason);
+        this.notify();
+    }
+
+    isFirst(reason: string, id: string) {
+        const owners = this.owners.get(reason);
+        return !owners || owners[0] === id;
+    }
+
+    subscribe = (listener: () => void) => {
+        this.listeners.add(listener);
+        return () => this.listeners.delete(listener);
+    };
+
+    private notify() {
+        this.listeners.forEach((listener) => listener());
+    }
+}
+
+const ErrorRegisterContext = createContext<ErrorRegister | undefined>(undefined);
+
+/** Groups the error cards of one view; see `ErrorRegister`. Remount it (with a `key`) for each view. */
+export function ErrorGroup({ children }: { children: ReactNode }) {
+    const register = useMemo(() => new ErrorRegister(), []);
+    return <ErrorRegisterContext.Provider value={register}>{children}</ErrorRegisterContext.Provider>;
+}
+
+/** Whether this card is the first in its view to fail for `reason`; true outside an `ErrorGroup`. */
+function useFirstForReason(reason: string): boolean {
+    const register = useContext(ErrorRegisterContext);
+    const id = useId();
+    useLayoutEffect(() => {
+        if (!register) return;
+        register.add(reason, id);
+        return () => register.remove(reason, id);
+    }, [register, reason, id]);
+    return useSyncExternalStore(
+        register?.subscribe ?? noSubscribe,
+        () => register?.isFirst(reason, id) ?? true,
+        () => true,
+    );
+}
+
+const noSubscribe = () => () => {};
+
+const RETRY_BUTTON =
+    "self-start rounded-md border border-border px-300 py-200-nudge text-[length:var(--text-300)] font-semibold text-foreground transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
+const DISCLOSURE = "text-[length:var(--text-200)] leading-300 text-muted-foreground";
+const SUMMARY =
+    "cursor-pointer rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring";
+
+/** Setup or repair steps only an admin can take, closed by default so everyone else reads past them. */
+export function AdminSteps({ children }: { children: ReactNode }) {
+    return (
+        <details className={DISCLOSURE}>
+            <summary className={SUMMARY}>For your admin</summary>
+            <div className="mt-200 flex max-w-[68ch] flex-col gap-200 text-[length:var(--text-300)] leading-300">
+                {children}
+            </div>
+        </details>
+    );
+}
+
+interface ErrorCardProps extends QueryStateProps {
+    /** Cards failing for the same reason in one view collapse to one. */
+    reason: string;
+    title: string;
+    /** One plain sentence for whoever is reading the page. */
+    summary: string;
+    tone: "caution" | "destructive";
+    /** Steps only an admin can take, kept out of the way of everyone else. */
+    admin?: ReactNode;
+    /** The raw error, for whoever reports it. */
+    detail?: string;
+    onRetry?: () => void;
+}
+
+function ErrorCard({ reason, title, summary, tone, admin, detail, onRetry, className }: ErrorCardProps) {
+    const first = useFirstForReason(reason);
+    if (!first) {
+        return (
+            <div
+                className={cn(
+                    "flex flex-wrap items-center justify-between gap-300 rounded-xl border border-dashed border-border bg-card px-500 py-400",
+                    className,
+                )}
+            >
+                <span className="text-[length:var(--text-300)] leading-300 text-muted-foreground">
+                    This didn't load either, for the same reason.
+                </span>
+                {onRetry && (
+                    <button type="button" onClick={onRetry} className={RETRY_BUTTON}>
+                        Try again
+                    </button>
+                )}
+            </div>
+        );
+    }
+    return (
+        <div
+            role="alert"
+            className={cn(
+                "flex min-h-[160px] flex-col justify-center gap-300 rounded-xl border bg-card p-500",
+                tone === "caution" ? "border-caution/50" : "border-destructive/40",
+                className,
+            )}
+        >
+            <span
+                className={cn(
+                    "text-[length:var(--text-400)] leading-400 font-semibold",
+                    tone === "caution" ? "text-foreground" : "text-destructive",
+                )}
+            >
+                {title}
+            </span>
+            <p className="max-w-[60ch] text-[length:var(--text-300)] leading-300 text-muted-foreground">{summary}</p>
+            {admin && <AdminSteps>{admin}</AdminSteps>}
+            {detail && (
+                <details className={DISCLOSURE}>
+                    <summary className={SUMMARY}>Details</summary>
+                    <p className="mt-200 max-w-[68ch] font-monospace break-words">{detail}</p>
+                </details>
+            )}
+            {onRetry && (
+                <button type="button" onClick={onRetry} className={RETRY_BUTTON}>
+                    Try again
+                </button>
+            )}
+        </div>
+    );
+}
+
 interface ModelUpdateRequiredProps extends QueryStateProps {
     /** Missing columns, tables or measures the app needs. */
     missing: readonly string[];
@@ -83,114 +240,63 @@ function missingFromMessage(message: string): string[] {
 /** Shown when this app is newer than the semantic model it is reading. */
 export function ModelUpdateRequired({ missing, detail, onRetry, className }: ModelUpdateRequiredProps) {
     return (
-        <div
-            role="alert"
-            className={cn(
-                "flex min-h-[160px] flex-col justify-center gap-300 rounded-xl border border-caution/50 bg-card p-500",
-                className,
-            )}
-        >
-            <span className="text-[length:var(--text-400)] leading-400 font-semibold text-foreground">
-                Update your install
-            </span>
-            <p className="max-w-[68ch] text-[length:var(--text-300)] leading-300 text-muted-foreground">
-                The semantic model is older than this app. Run{" "}
-                <code className="font-mono">AnalyticsHubInstaller.exe update</code> (or{" "}
-                <code className="font-mono">npx valuelens-install update</code>), then run the loads or refresh again and
-                reopen the app.
-            </p>
-            {missing.length > 0 && (
-                <div className="text-[length:var(--text-300)] leading-300 text-muted-foreground">
-                    <span className="font-semibold text-foreground">Missing from the model:</span>{" "}
-                    <span>{missing.join(", ")}</span>
-                </div>
-            )}
-            {detail && (
-                <p className="max-w-[68ch] font-monospace text-[length:var(--text-200)] leading-300 text-muted-foreground">
-                    {detail}
-                </p>
-            )}
-            {onRetry && (
-                <button
-                    type="button"
-                    onClick={onRetry}
-                    className="self-start rounded-md border border-border px-300 py-200-nudge text-[length:var(--text-300)] font-semibold text-foreground transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                >
-                    Try again
-                </button>
-            )}
-        </div>
+        <ErrorCard
+            reason="model-update"
+            tone="caution"
+            title="Needs an update"
+            summary="This part of the app needs a newer version of the data model. Ask your admin to update it."
+            admin={
+                <>
+                    <p>
+                        The semantic model is older than this app. Run{" "}
+                        <code className="font-mono">AnalyticsHubInstaller.exe update</code> (or{" "}
+                        <code className="font-mono">npx valuelens-install update</code>
+                        ), then run the loads or refresh again and reopen the app.
+                    </p>
+                    {missing.length > 0 && <p>Missing from the model: {missing.join(", ")}</p>}
+                </>
+            }
+            detail={detail}
+            onRetry={onRetry}
+            className={className}
+        />
     );
 }
 
 /** Shown when the semantic model has never been refreshed, so it holds no data yet. */
 export function ModelNotLoaded({ detail, onRetry, className }: { detail?: string; onRetry?: () => void; className?: string }) {
     return (
-        <div
-            role="alert"
-            className={cn(
-                "flex min-h-[160px] flex-col justify-center gap-300 rounded-xl border border-caution/50 bg-card p-500",
-                className,
-            )}
-        >
-            <span className="text-[length:var(--text-400)] leading-400 font-semibold text-foreground">
-                Data not loaded yet
-            </span>
-            <p className="max-w-[68ch] text-[length:var(--text-300)] leading-300 text-muted-foreground">
-                The semantic model hasn't been refreshed with your data yet. If the first load is still running, wait for it
-                to finish and try again. Otherwise run <code className="font-mono">AnalyticsHubInstaller.exe</code> and choose
-                Repair or change, or refresh the model in Fabric, then reopen the app.
-            </p>
-            {detail && (
-                <details className="text-[length:var(--text-200)] leading-300 text-muted-foreground">
-                    <summary className="cursor-pointer">Details</summary>
-                    <p className="max-w-[68ch] font-monospace">{detail}</p>
-                </details>
-            )}
-            {onRetry && (
-                <button
-                    type="button"
-                    onClick={onRetry}
-                    className="self-start rounded-md border border-border px-300 py-200-nudge text-[length:var(--text-300)] font-semibold text-foreground transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                >
-                    Try again
-                </button>
-            )}
-        </div>
+        <ErrorCard
+            reason="model-not-loaded"
+            tone="caution"
+            title="Data not loaded yet"
+            summary="Your data hasn't arrived yet. If it's the first load, check back once it finishes."
+            admin={
+                <p>
+                    The semantic model hasn't been refreshed. If the first load has finished, run{" "}
+                    <code className="font-mono">AnalyticsHubInstaller.exe</code> and choose Repair or change, or refresh
+                    the model in Fabric, then reopen the app.
+                </p>
+            }
+            detail={detail}
+            onRetry={onRetry}
+            className={className}
+        />
     );
 }
 
 /** Shown when Power BI kept throttling a query: nothing is broken, it needs a minute. */
 export function PowerBiBusy({ detail, onRetry, className }: { detail?: string; onRetry?: () => void; className?: string }) {
     return (
-        <div
-            role="alert"
-            className={cn(
-                "flex min-h-[160px] flex-col justify-center gap-300 rounded-xl border border-caution/50 bg-card p-500",
-                className,
-            )}
-        >
-            <span className="text-[length:var(--text-400)] leading-400 font-semibold text-foreground">Power BI is busy</span>
-            <p className="max-w-[68ch] text-[length:var(--text-300)] leading-300 text-muted-foreground">
-                Too many queries reached Power BI at once, so it asked the app to slow down. Nothing is wrong with the
-                connection. Wait a minute, then try again.
-            </p>
-            {detail && detail !== BUSY_MESSAGE && (
-                <details className="text-[length:var(--text-200)] leading-300 text-muted-foreground">
-                    <summary className="cursor-pointer">Details</summary>
-                    <p className="max-w-[68ch] font-monospace">{detail}</p>
-                </details>
-            )}
-            {onRetry && (
-                <button
-                    type="button"
-                    onClick={onRetry}
-                    className="self-start rounded-md border border-border px-300 py-200-nudge text-[length:var(--text-300)] font-semibold text-foreground transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                >
-                    Try again
-                </button>
-            )}
-        </div>
+        <ErrorCard
+            reason="busy"
+            tone="caution"
+            title="Power BI is busy"
+            summary="Too many queries reached Power BI at once. Nothing is broken: wait a minute, then try again."
+            detail={detail && detail !== BUSY_MESSAGE ? detail : undefined}
+            onRetry={onRetry}
+            className={className}
+        />
     );
 }
 
@@ -207,28 +313,14 @@ export function QueryError({ message, onRetry, className }: QueryErrorProps) {
     }
 
     return (
-        <div
-            role="alert"
-            className={cn(
-                "flex min-h-[160px] flex-col justify-center gap-300 rounded-xl border border-destructive/40 bg-card p-500",
-                className,
-            )}
-        >
-            <span className="text-[length:var(--text-400)] leading-400 font-semibold text-destructive">
-                This didn't load
-            </span>
-            <p className="max-w-[60ch] font-monospace text-[length:var(--text-200)] leading-300 text-muted-foreground">
-                {message}
-            </p>
-            {onRetry && (
-                <button
-                    type="button"
-                    onClick={onRetry}
-                    className="self-start rounded-md border border-border px-300 py-200-nudge text-[length:var(--text-300)] font-semibold text-foreground transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
-                >
-                    Try again
-                </button>
-            )}
-        </div>
+        <ErrorCard
+            reason={`error:${message}`}
+            tone="destructive"
+            title="This didn't load"
+            summary="Something went wrong reading the data. Try again; if it keeps failing, share the details with your admin."
+            detail={message}
+            onRetry={onRetry}
+            className={className}
+        />
     );
 }

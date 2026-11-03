@@ -4,14 +4,16 @@
  */
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { APP_CATALOG_SCOPE, checkTokens, createCredential, createTokenProvider, decodeJwt, GRAPH_CLI_APP_ID } from './auth.js';
-import { notebooksFor, permissionsFor } from './catalog.js';
+import { ClientSecretCredential } from '@azure/identity';
+import { APP_CATALOG_SCOPE, APP_GRAPH_SCOPE, checkTokens, createCredential, createTokenProvider, decodeJwt, GRAPH_CLI_APP_ID } from './auth.js';
+import { MANAGEMENT_API_ROLE, auditSource, notebooksFor, permissionsFor, readsFeed } from './catalog.js';
 import { armApi, keyVaultApi } from './clients/azure.js';
+import { auditSourcesApi } from './clients/audit-sources.js';
 import { connectionsApi, POWERAPPS_URL } from './clients/connections.js';
 import { dataverseApi, dataverseScope, DISCOVERY_URL, discoveryApi, orgUrl } from './clients/dataverse.js';
 import { FLOW_URL, flowApi } from './clients/flow.js';
 import { fabricApi, scheduleBody } from './clients/fabric.js';
-import { appCatalogApi, CONSENT_ROLES, graphApi } from './clients/graph.js';
+import { appCatalogApi, auditApi, CONSENT_ROLES, graphApi } from './clients/graph.js';
 import { dataLakeApi, dataLakeUrl, ONELAKE_URL, oneLakeApi } from './clients/onelake.js';
 import { powerBiApi } from './clients/powerbi.js';
 import { POWER_PLATFORM_URL, powerPlatformApi } from './clients/powerplatform.js';
@@ -23,7 +25,8 @@ import {
   agentEvaluatorModelWanted, agentEvaluatorSummary, ensureAgentEvaluatorModel, ensureTranscriptAccess, fabricReadRoleWanted, removeFabricReadRoles,
 } from './steps/agent-evaluator.js';
 import { appDeployedSince, deployApp, ensureAppName, ensureFabricApp } from './steps/app.js';
-import { COWORK_DATAFLOW_NAME, consumptionModelWanted, consumptionSummary, ensureAzureAiAccess, ensureConsumptionModel, ensureCoworkDataflow, ensureLandingFolders } from './steps/consumption.js';
+import { COWORK_DATAFLOW_NAME, connectCowork, consumptionModelWanted, consumptionSummary, ensureAzureAiAccess, ensureConsumptionModel, ensureLandingFolders } from './steps/consumption.js';
+import { checkAuditAccess, checkAuditCommand } from './steps/audit-check.js';
 import { coworkDataflowDefinition, isVivaId } from './transform/dataflow.js';
 import {
   agentEvaluatorModelDeployed,
@@ -42,7 +45,7 @@ import {
 } from './steps/fabric.js';
 import { ensureModelConnection, ensureSemanticModel, modelUrl, pendingReloads, refreshModel, rotateModelSecret, settleReloads, verifyModel } from './steps/model.js';
 import { confirmPlan, plan, preflight } from './steps/plan.js';
-import { checkPrereqs } from './prereqs.js';
+import { checkPrereqs, preflightChecks, reportPreflight } from './prereqs.js';
 import { ensureReports, reportsOn, reportsSummary } from './steps/report.js';
 import { dataAgentSummary, dataAgentWanted, ensureDataAgent } from './steps/data-agent.js';
 import { azureUploadError, dataSourcesSummary, ensureUploads, uploadCommand } from './steps/data-sources.js';
@@ -50,6 +53,7 @@ import { ensureFlows, FLOW_FILES, flowDefinitions, flowsSummary, flowsWanted, of
 import { ensureAppResourceGraphAccess, resourceGraphOn } from './steps/resource-graph.js';
 import { routerWanted } from './uploads.js';
 import { checkData, chooseLoad, coworkSkipForFirstLoad, runDataCheck, runPipeline, status, TERMINAL } from './steps/run.js';
+import { recordPendingHistory } from './steps/history-progress.js';
 import { loadCoworkNow, rerunFailed } from './steps/rerun.js';
 import { prepareNotebook, serialiseNotebook } from './transform/notebook.js';
 import { rlsOn, rlsSettings } from './transform/access.js';
@@ -57,7 +61,7 @@ import { buildAgentEvaluatorModel, buildConsumptionModel, buildModel, loadTempla
 import { buildPipeline } from './transform/pipeline.js';
 import { c } from './ui.js';
 import { fabricUninstall } from './steps/fabric-uninstall.js';
-import { askTarget, azureRefresh, azureRotateSecret, azureRun, azureStatus, azureUninstall, azureUpdate, azureViewerModels, confirmAzurePlan, installAzure, planAzure } from './steps/azure/index.js';
+import { askTarget, azureRefresh, azureRotateSecret, azureRun, azureStatus, azureUninstall, azureUpdate, azureViewerModels, confirmAzurePlan, installAzure, planAzure, sqlFlagFabricError } from './steps/azure/index.js';
 import { accessCommand, ensureViewerGroup, grantModelAccess, myGroupsUrl, shareApp } from './steps/access.js';
 import { nextSteps, stepsLeftTitle } from './steps/next-steps.js';
 import { ensureOrgAccess, verifyOrgAccess } from './steps/org-access.js';
@@ -79,6 +83,8 @@ import { reviewSetup } from './setup.js';
  * @property {import('./clients/connections.js').ConnectionsApi} [connections]  Power Platform connections, for signing the flows in.
  * @property {(url: string) => import('./clients/dataverse.js').DataverseApi} dataverse  A Dataverse environment, by org URL.
  * @property {(account: string) => import('./clients/onelake.js').DataLakeApi} dataLake  An Azure storage account's files, by account name.
+ * @property {(appId: string, secret: string) => { token: () => Promise<string>, audit: import('./clients/graph.js').AuditApi }} [appGraph]  Graph as the app registration, signed in with its client secret, to check what the loads can read. Each call gets a fresh token.
+ * @property {(appId: string, secret: string) => import('./clients/audit-sources.js').AuditSourcesApi} [appAuditSources]  Read-only Auto source checks as the app.
  *
  * @typedef {{ id: string, upn: string, tenantId: string, displayName?: string }} User
  *
@@ -93,15 +99,20 @@ import { reviewSetup } from './setup.js';
  * @property {(ms: number) => Promise<void>} sleep
  * @property {() => Date} now
  * @property {string} [pendingSecret]  A secret the user pasted, held in memory until it is in Key Vault or the notebooks.
+ * @property {string} [appSecret]  The app's client secret this run made, was given or read, held in memory only, for the audit check.
+ * @property {boolean} [auditChecked]  The audit check has run this run.
+ * @property {boolean} [checkAudit]  --check-audit: also run a live audit search before the first load.
  * @property {boolean} [secretInNotebook]  --no-key-vault (or --secret-in-notebook): keep the secret in the notebooks instead of Key Vault.
  * @property {boolean} [useKeyVault]  --key-vault: keep the secret in Key Vault, not the notebooks (the default for a new Fabric install).
  * @property {boolean} [allowModelReset]  --allow-model-reset: when Fabric can't update a model and keep its data, clear it and reload it without asking. --yes alone never does.
+ * @property {boolean} [sqlChoice]  Azure: --sql-scale-up (true) carries on past the free Azure SQL allowance, up to 4 vCores; --sql-free-offer (false) keeps the free offer.
  * @property {Apis} [liveApi]  While the plan's answers can be rewound, the clients without the cache, for checks the user repeats.
  * @property {boolean} [runFirstLoad]
  * @property {boolean} [advanced]  The plan's "Change the advanced settings?" answer. With false, those settings keep their saved value or default.
  * @property {number} [reloadHistoryDays]  Repair or change: reload this many days of audit history after setup.
  * @property {import('./steps/azure/regions.js').RegionCheck} [azureRegions]  Azure: what the region preflight found, for placing the Ask model.
  * @property {{ sp: any, roles: { id: string, value: string }[] }} [graphRoles]
+ * @property {{ sp: any, roles: { id: string, value: string }[] }} [managementRoles]  The Office 365 Management APIs' ActivityFeed.Read, for the `auto` audit source.
  * @property {import('./steps/azure/teams-catalog.js').CatalogAccess} [teamsCatalog]  Azure: whether this run can publish the Teams app to the org's app catalog, and why not.
  * @property {import('./steps/app.js').Runner} [runner]  Runs the app's build tools; tests replace it.
  * @property {import('./staging.js').PendingUpload[]} [pendingUploads]  Exports to upload to the drop folder during the install.
@@ -145,6 +156,15 @@ export async function connect(opts) {
   };
   if (opts.checkTokens) await checkTokens(getToken);
   const claims = decodeJwt(await getToken('graph'));
+  api.appGraph = (appId, secret) => {
+    const appToken = createTokenProvider(new ClientSecretCredential(opts.tenantId || claims.tid, appId, secret), { debug: opts.debug });
+    const token = () => appToken(APP_GRAPH_SCOPE);
+    return { token, audit: auditApi(createClient({ baseUrl: 'https://graph.microsoft.com/beta', getToken: token, debug: opts.debug })) };
+  };
+  api.appAuditSources = (appId, secret) => {
+    const appToken = createTokenProvider(new ClientSecretCredential(opts.tenantId || claims.tid, appId, secret), { debug: opts.debug });
+    return auditSourcesApi(appToken, opts.tenantId || claims.tid);
+  };
   if (opts.method !== 'azure-cli') {
     // The app the installer signs in with can't ask for the app catalog scope, so publishing the
     // Teams app signs in once more with Microsoft Graph Command Line Tools, the first time it's used.
@@ -301,19 +321,25 @@ export async function install(ctx, opts) {
   if (ui.web) {
     go = await reviewSetup(ctx);
     if (go && config.target !== 'azure') pre = await preflight(ctx);
+    // An Azure install from the browser has its own preflight in the plan; this adds the prerequisites, as the terminal does.
+    else if (go) {
+      ui.heading('Checking prerequisites');
+      reportPreflight(ctx, await preflightChecks(ctx));
+    }
   }
   else {
     const wasAzure = config.target === 'azure';
     await askTarget(ctx);
     // The CLI stops --csv on an Azure install before signing in, but a new install only chooses its target here.
     if (config.target === 'azure' && ctx.csvFiles?.length) throw azureUploadError(config, '--csv', !wasAzure);
+    if (config.target !== 'azure' && ctx.sqlChoice !== undefined) throw new Error(sqlFlagFabricError(ctx.sqlChoice));
     pre = await preflight(ctx);
     const checked = pre;
     go = await rewindable(ctx, async () => {
       if (config.target === 'azure') await planAzure(ctx, checked);
       else await plan(ctx, checked);
       ctx.save();
-      return config.target === 'azure' ? confirmAzurePlan(ctx) : confirmPlan(ctx, checked);
+      return config.target === 'azure' ? confirmAzurePlan(ctx, checked) : confirmPlan(ctx, checked);
     });
   }
   if (!go) {
@@ -336,11 +362,13 @@ export async function install(ctx, opts) {
   const withAccess = withModel && !!config.access;
   // Once, straight after the app is deployed and before the long first load.
   const withShare = withApp && withAccess && config.access?.appShared !== true;
+  const withViva = withConsumption && config.dataSources.coworkCredits === 'api';
   const titles = [
     'Key Vault',
     'App registration',
     'Microsoft Graph permissions',
     'Workspace and Lakehouse',
+    ...(withViva ? ['Viva Insights connection'] : []),
     ...(withModel ? ['Semantic model'] : []),
     ...(withConsumption ? ['Credit consumption'] : []),
     ...(withAgentEvaluator ? ['Copilot Studio transcripts'] : []),
@@ -363,10 +391,18 @@ export async function install(ctx, opts) {
   await ensureApp(ctx);
   step('Microsoft Graph permissions');
   const consented = await ensureConsent(ctx, /** @type {import('./steps/plan.js').Preflight} */ (pre));
+  // With Key Vault, the secret is known by now: check the app's own token can read the audit log.
+  // A new app, secret or consent can take minutes to apply, so a problem here is confirmed later.
+  if (consented) await checkAuditAccess(ctx, { consented, provisional: true });
   step('Workspace and Lakehouse');
   await ensureWorkspace(ctx);
   await ensureLakehouse(ctx);
   const vaultReachable = await ensureVaultEndpoint(ctx);
+  // Before the long steps, so the user signs in once and doesn't come back to it after the install.
+  if (withViva) {
+    step('Viva Insights connection');
+    await connectCowork(ctx);
+  }
   if (withModel) {
     step('Semantic model');
     await ensureSemanticModel(ctx);
@@ -405,6 +441,10 @@ export async function install(ctx, opts) {
   await ensureSparkSettings(ctx);
   await ensurePipeline(ctx);
   await ensureSchedule(ctx);
+  // Without Key Vault, the secret is only known once the notebooks have it. Otherwise this
+  // confirms what the first check couldn't, now Entra has had time to catch up.
+  if (consented) await checkAuditAccess(ctx, { consented });
+  if (ctx.checkAudit) await auditProbe(ctx, consented);
   // Before the first load or refresh, so the models open to viewers as soon as they have data.
   if ((await ensureOrgAccess(ctx, { refresh: false })) === false) stepsOk = false;
   if (withAccess) {
@@ -436,12 +476,14 @@ export async function install(ctx, opts) {
     step('First load');
     if (!consented) {
       ui.warn(`Skipped until admin consent is granted. Then run: ${commandLine(`run --backfill-days ${config.history.days}`)}`);
+      recordPendingHistory(ctx, { days: config.history.days, reason: 'consent', first: true });
     } else if (!vaultReachable) {
       ui.warn(`Skipped until the private endpoint to ${config.keyVault.name} is approved. Then run: ${commandLine(`run --backfill-days ${config.history.days}`)}`);
+      recordPendingHistory(ctx, { days: config.history.days, reason: 'keyVault', first: true });
     } else {
       if (modelDeployed(config)) ui.note(`The pipeline refreshes ${joinNames(deployedModels(config).map((m) => m.name))} as its last step.`);
       const skipCowork = await coworkSkipForFirstLoad(ctx);
-      const result = await runPipeline(ctx, { backfillDays: config.history.days, wait: opts.wait, first: true, skipCowork });
+      const result = await runPipeline(ctx, { backfillDays: config.history.days, wait: opts.wait, first: true, skipCowork, setup: stepsOk && appDeployed });
       load = loadState(result);
       if (result.status === 'Completed') {
         // A run completes even when a load in it failed.
@@ -457,11 +499,13 @@ export async function install(ctx, opts) {
     const later = commandLine(`run --backfill-days ${days}`);
     if (!consented) {
       ui.warn(`Skipped until admin consent is granted. Then run: ${later}`);
+      recordPendingHistory(ctx, { days, reason: 'consent' });
     } else if (!vaultReachable) {
       ui.warn(`Skipped until the private endpoint to ${config.keyVault.name} is approved. Then run: ${later}`);
+      recordPendingHistory(ctx, { days, reason: 'keyVault' });
     } else {
       if (modelDeployed(config)) ui.note(`The pipeline refreshes ${joinNames(deployedModels(config).map((m) => m.name))} as its last step.`);
-      const result = await runPipeline(ctx, { backfillDays: days, wait: opts.wait });
+      const result = await runPipeline(ctx, { backfillDays: days, wait: opts.wait, setup: stepsOk && appDeployed });
       load = loadState(result);
       if (result.started) {
         config.history.days = days;
@@ -515,8 +559,24 @@ export function loadState(result) {
 async function consumptionSteps(ctx, opts = {}) {
   await ensureAzureAiAccess(ctx);
   await ensureLandingFolders(ctx);
-  await ensureCoworkDataflow(ctx);
   if (consumptionModelWanted(ctx)) await ensureConsumptionModel(ctx, opts);
+}
+
+/**
+ * --check-audit: the live audit search, which never stops the install or update.
+ * @param {Ctx} ctx
+ * @param {boolean} consented
+ */
+async function auditProbe(ctx, consented) {
+  if (!consented) {
+    ctx.ui.warn(`The audit check needs admin consent first. Once it's granted, run ${commandLine('check-audit')}.`);
+    return;
+  }
+  try {
+    await checkAuditCommand(ctx);
+  } catch (err) {
+    ctx.ui.warn(`Couldn't run the audit check: ${/** @type {Error} */ (err).message}`);
+  }
 }
 
 /**
@@ -627,17 +687,23 @@ async function tryDeployApp(ctx, opts = {}) {
  */
 export async function update(ctx, opts = {}) {
   const { ui, config } = ctx;
-  if (config.target === 'azure') return azureUpdate(ctx);
+  if (config.target === 'azure') {
+    await updatePrereqs(ctx);
+    return azureUpdate(ctx);
+  }
   if (!config.fabric.workspaceId || !config.fabric.lakehouseId) throw new Error('Nothing is installed yet. Run the installer first.');
+  await updatePrereqs(ctx);
   const sm = config.semanticModel;
   ui.heading('Updating Analytics Hub');
   ui.note(`From ${ctx.sources.dir}`);
   await ensureKeyVault(ctx);
   await ensureApp(ctx);
-  await ensureConsent(ctx, { canConsent: await canConsent(ctx) });
+  const consented = await ensureConsent(ctx, { canConsent: await canConsent(ctx) });
+  if (consented) await checkAuditAccess(ctx, { consented, provisional: true });
   await ensureWorkspace(ctx);
   await ensureLakehouse(ctx);
   await ensureVaultEndpoint(ctx);
+  await connectCowork(ctx);
   if (sm.enabled) {
     await ensureSemanticModel(ctx, { force: true });
     await ensureModelConnection(ctx);
@@ -655,6 +721,8 @@ export async function update(ctx, opts = {}) {
   await ensureSparkSettings(ctx);
   await ensurePipeline(ctx, { force: true });
   await ensureSchedule(ctx);
+  if (consented) await checkAuditAccess(ctx, { consented });
+  if (ctx.checkAudit) await auditProbe(ctx, consented);
   if ((await ensureOrgAccess(ctx, { refresh: false })) === false) stepsOk = false;
   if (sm.enabled && config.fabricApp.enabled) {
     if (await ui.confirm('Rebuild and redeploy the Analytics Hub app too?', true)) stepsOk = (await tryDeployApp(ctx, { force: true })) && stepsOk;
@@ -715,7 +783,7 @@ function notFinished(ctx, what) {
 /**
  * Starts the pipeline: the first load until one has loaded the history, then the usual run.
  * @param {Ctx} ctx
- * @param {{ backfillDays?: number, wait: boolean }} opts
+ * @param {{ backfillDays?: number, wait: boolean, graphHistory?: boolean }} opts
  */
 export async function run(ctx, opts) {
   if (ctx.config.target === 'azure') return azureRun(ctx, opts);
@@ -746,6 +814,15 @@ export async function refresh(ctx, opts) {
 }
 
 /**
+ * The prerequisites before an update changes anything: only what needs attention. It never stops an update.
+ * @param {Ctx} ctx
+ */
+async function updatePrereqs(ctx) {
+  ctx.ui.heading('Checking prerequisites');
+  reportPreflight(ctx, await preflightChecks(ctx), { update: true });
+}
+
+/**
  * Prints what the signed-in user has and lacks for an install. Changes nothing.
  * @param {Ctx} ctx
  */
@@ -761,7 +838,7 @@ export async function showPrereqs(ctx) {
  * Runs one command against a signed-in context.
  * @param {Ctx} ctx
  * @param {string} command
- * @param {{ wait: boolean, backfillDays?: number, files?: string[], run?: boolean }} opts
+ * @param {{ wait: boolean, backfillDays?: number, graphHistory?: boolean, files?: string[], run?: boolean }} opts
  * @returns {Promise<boolean>} false when a run, refresh or resource group delete it waited for didn't succeed.
  */
 export async function runCommand(ctx, command, opts) {
@@ -792,7 +869,12 @@ export async function runCommand(ctx, command, opts) {
       return true;
     case 'status':
       if (ctx.config.target === 'azure') await azureStatus(ctx);
-      else await status(ctx);
+      else {
+        await status(ctx);
+        // The same steps as at the end of setup, which a window closed during the first load never shows.
+        const left = ctx.config.fabric.pipelineId ? nextSteps(ctx.config, ctx.user) : [];
+        if (left.length) ctx.ui.nextSteps(stepsLeftTitle(left), left);
+      }
       return true;
     case 'rotate-secret':
       if (ctx.config.target === 'azure') await azureRotateSecret(ctx);
@@ -807,6 +889,8 @@ export async function runCommand(ctx, command, opts) {
     case 'prereqs':
       await showPrereqs(ctx);
       return true;
+    case 'check-audit':
+      return ['ok', 'records'].includes(await checkAuditCommand(ctx));
     case 'access': {
       const azure = ctx.config.target === 'azure';
       const before = ctx.config.access?.groupId;
@@ -1055,7 +1139,8 @@ export function preview(o) {
   writeFileSync(join(out, 'schedule.json'), `${JSON.stringify(scheduleBody(config.schedule, o.now), null, 2)}\n`, 'utf8');
   writeFileSync(
     join(out, 'graph-permissions.txt'),
-    `Microsoft Graph application permissions for the app registration:\n${permissionsFor(config.modules, config.dataSources).map((p) => `  ${p}\n`).join('')}`,
+    `Microsoft Graph application permissions for the app registration:\n${permissionsFor(config.modules, config.dataSources, auditSource(config)).map((p) => `  ${p}\n`).join('')}` +
+      (readsFeed(auditSource(config)) ? `\nOffice 365 Management APIs application permissions:\n  ${MANAGEMENT_API_ROLE}\n` : ''),
     'utf8',
   );
   if (withModel) {

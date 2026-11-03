@@ -241,7 +241,7 @@ export function CoworkStage({ options, rates }: CoworkStageProps) {
                 <OnDemand
                     id="cowork-by-group"
                     label={cost ? "Show cost by group" : "Show credits by group"}
-                    note="Each group, then its people. The slowest list on this page."
+                    note="Each group, then its people."
                 >
                     <CoworkByGroup extra={extra} cost={cost} lens={lens} groupLabel={groupLabel} />
                 </OnDemand>

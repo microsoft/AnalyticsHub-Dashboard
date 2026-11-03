@@ -42,7 +42,7 @@ parameter.
 | 4 | Agents 365 | `agents_365` | *Optional* | `Copilot_Agent365_Registry_Ingester` *(API, primary)* → `Copilot_Agent365_Lander` *(CSV fallback if the API step fails)*. Azure: the `agent365` jobs module *(CSV only)* | `Get-Agents365Registry.ps1` *(API)*, or an admin centre export via `-Agents365Csv` *(fallback)* → `Agent 365` CSV (also Local CSV and the Dataverse template) |
 | 5 | ProductFeedback | `user_feedback` | *Optional* | `Copilot_ProductFeedback_Ingester`. Azure: the `productFeedback` jobs module *(CSV)* | OCV feedback CSV (`Feedback File`) |
 | 6 | Defender AI Watchlist, Shadow AI Daily, Shadow AI Totals, Defender AI Installed, Defender Cloud Discovery, Defender AI Agents, Defender Status | `defender_*` (7 tables) | *Optional* (off by default) | `Copilot_Defender_Ingester` | None. Fabric and Azure only (Azure: the `defender` jobs module) |
-| 7 | Agent Configuration, Power Platform Environments, Agent Flows, Foundry Resources, Resource Graph Status | `arg_agent_config`, `arg_environments`, `arg_agent_flows`, `arg_foundry_resources`, `arg_status` | *Optional* | `Copilot_Resource_Graph_Ingester` *(Azure Resource Graph, with the Agent inventory flow's JSON as the fallback for agents)* | — *(Fabric and Azure only; the Azure jobs' module `resourceGraph`)* |
+| 7 | Agent Configuration, Agent Detail, Power Platform Environments, Agent Flows, Foundry Resources, Resource Graph Status | `arg_agent_config`, `arg_agent_detail`, `arg_environments`, `arg_agent_flows`, `arg_foundry_resources`, `arg_status` | *Optional* | `Copilot_Resource_Graph_Ingester` *(Azure Resource Graph, with the Agent inventory flow's JSON as the fallback for agents)* | — *(Fabric and Azure only; the Azure jobs' module `resourceGraph`)* |
 
 > **Delta table names are lower-case** throughout (`copilot_interactions_parsed`,
 > `copilot_interactions_curated`, …). The dashboard table names in column 2 are the *model* names and
@@ -119,6 +119,11 @@ Agent_BotId, Agent_EnvironmentId, Exclude_Reason
 > Microsoft365Chat or Cowork. It records where Copilot was used, not what the person did. What each
 > value means, and which values set a task, are classified by what they touched or are excluded, is in
 > [METHODOLOGY §3.5](METHODOLOGY.md#35-app-host-reference).
+
+On Fabric the audit ingester also writes **`audit_source_status`**: one row per audit source the run
+tried (`RunAt`, `Source` = Microsoft Sentinel, the Office 365 Management Activity API or the Graph
+audit search, `Status` = `ok`, `empty`, `skipped`, `forbidden` or `error`), replaced each run.
+`AnalyticsHub_Load_Status` reads it. The model doesn't.
 
 ### 1b. `copilot_interactions_curated` — the table the Fabric model actually reads
 `Copilot_Audit_Log_Processor` reads `copilot_interactions_parsed` (joining `copilot_licensed_users`
@@ -210,6 +215,14 @@ listed in the Microsoft 365 Copilot usage report
 which lists every Copilot-enabled user, active or not. It needs the same `Reports.Read.All`
 permission. If that report returns 400, 403 or 404, the flag comes from assigned products only for
 that run.
+
+Two checks can then turn the flag off, never on. A row the report marks `Is Deleted` is never
+counted. And, because both reports can lag licence changes by days, the ingest reads each user's
+`assignedPlans` from Microsoft Entra (`/v1.0/users`, with the `User.Read.All` permission org data
+already needs) and unticks anyone without an enabled `M365_COPILOT_APPS` service plan
+(`a62f8878-de10-42f3-b68f-6149a25ceb97`) today. That check is skipped, and the log says so, when
+`/users` returns 403 or when none of the report's users are found in Entra (concealed names). Turn
+it off in the Fabric notebook with `LIVE_LICENCE_CHECK = False`.
 
 ### 3. `copilot_org_data` — Entra org / people data
 Dashboard normalizes dynamically (UPN/PersonId variants, `Department`→`Organization` when there's
@@ -544,7 +557,11 @@ These back the Fabric App's Governance page ([Methodology](METHODOLOGY.md#govern
 | `Shared With Count` | Power Query: distinct people and groups across the share lists. The lists themselves are not loaded |
 | `Data Access` | DAX calculated column, from the SharePoint, OneDrive, Graph connector and uploaded-file capability flags |
 | `Sign-in Required` | Power Query: `Yes`, `No` or `Unknown`. It matches the agent on its Entra agent ID, bot ID, app ID or agent ID against an ordered list of sources, and the first source that knows the agent wins: Azure Resource Graph's agent configuration (`arg_agent_config`, `NoSignIn`), then the optional Defender agents table (`defender_ai_agents`). `Unknown` when no source does, or both are off |
-| `Governance Flags` | DAX calculated column: the review flags that apply, separated by `; `. Blank for catalogue and blocked agents. `Sign-in Required = No` adds *No sign-in required* |
+| `Governance Flags` | DAX calculated column: the review flags that apply, separated by `; `. Blank for catalogue and blocked agents. `Sign-in Required = No` adds *No sign-in required*. When `Owner account` is blank it uses `Owner account (Resource Graph)` |
+| `Owner account (Resource Graph)` | DAX calculated column, added when Azure Resource Graph is on: the [Resource Graph owner check](#7-azure-resource-graph--agent-configuration-and-the-foundry-estate) for the same agent, matched on `Title ID` at the latest load. It fills in owners for registries loaded from a CSV export |
+
+Without the registry, the Governance page reads columns of the same names and values on
+`Agent Configuration` instead (see [section 7](#7-azure-resource-graph--agent-configuration-and-the-foundry-estate)).
 
 Only the two Fabric templates carry these columns so far. The CSV, SharePoint and Dataverse
 templates will gain `Sharing Scope`, `Data Access` and `Governance Flags` later; they have no
@@ -652,6 +669,29 @@ file when Resource Graph refuses or returns nothing (`Source` says which).
 | `Orchestration`, `Model`, `Channels`, `OwnerId`, `CreatedIn`, `LastPublishedAt` | As reported. Many inventory fields are in preview, so any may be blank |
 | `Source` | `Resource Graph` or `Inventory API (flow)` |
 
+The installer adds Governance columns to `Agent Configuration`, so the Governance page works
+without Agent 365. They use the registry's column names and values:
+
+| Column | Rule |
+|---|---|
+| `Owner account`, `Owner UPN` | From `Agent Detail` for the same agent and load. Blank when not checked |
+| `Sharing Scope` | *Whole organisation* when `SharedEntireTenant`; *Specific people or groups* when shared with any users or groups; otherwise *Not shared* |
+| `Data Access` | *Organisation content* (SharePoint sites, Graph connectors, Dataverse or knowledge connectors), *Uploaded files only*, *None declared*, or *Not reported* when there's no `Agent Detail` row |
+| `Agent Type Label` | From `CreatedIn`: *Maker: Copilot Studio*, *Maker: Agent Builder*, *Maker: SharePoint*, *Maker: Foundry*, or *Maker-built* |
+| `Total Users` | Distinct people in the audit log using an agent of this name, as the registry's `Total Users` |
+| `Governance Flags` | The registry's five flags, by the same rules, for agents that aren't quarantined. *No owner on record* means a blank `OwnerId` |
+
+**`arg_agent_detail`** → `Agent Detail`. One row per agent in `arg_agent_config`, same load.
+
+| Column | Meaning |
+|---|---|
+| `SnapshotDate`, `AgentResourceId` | The agent and the load, as in `arg_agent_config` |
+| `CreatedBy`, `QuarantinedAt`, `Harness`, `EntraAgentBlueprintId` | As reported |
+| `TopicCount`, `ToolCount`, `KnowledgeCount`, `InstructionsCharCount`, `EditorUserCount` | Components, instruction length, and people who can edit it |
+| `KnowledgeTypes`, `SharePointSiteCount`, `GraphConnectorCount`, `PublicSiteCount`, `FileKnowledgeCount`, `DataverseSourceCount` | Knowledge sources by type |
+| `OwnerAccount`, `OwnerUpn` | The owner's Entra account (*Active*, *Disabled* or *Not found*) and UPN, looked up from `OwnerId` in Microsoft Graph (`User.Read.All`). Blank when the check is off, refused, or `OwnerId` isn't an Entra object ID. Turn it off with `CHECK_OWNER_ACCOUNT = False` (Fabric) |
+| `Source` | As in `arg_agent_config` |
+
 **`arg_environments`** → `Power Platform Environments`: `SnapshotDate`, `EnvironmentId`,
 `EnvironmentName`, `EnvironmentType`, `IsDefault`, `IsManaged`, `Region`, `Source`.
 
@@ -672,7 +712,8 @@ per-project agent sweep.
 | `IsProject`, `AccountId` | Whether it's a project, and its account's id (an account's own id) |
 
 **`arg_status`** → `Resource Graph Status`: one row per probe (`arg_agent_config`,
-`arg_environments`, `arg_agent_flows`, `arg_foundry_resources`) with `Status` *ok*, *empty*,
+`arg_environments`, `arg_agent_flows`, `arg_foundry_resources`, and `owner_accounts` for the owner
+check) with `Status` *ok*, *empty*,
 *forbidden*, *error* or *skipped* (turned off), `Rows`, `Source` and `Detail` (the error, or which
 inventory file was read). The dashboard uses it to say why a section is empty.
 

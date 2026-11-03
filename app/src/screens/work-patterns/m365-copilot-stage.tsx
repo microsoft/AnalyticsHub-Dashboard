@@ -241,6 +241,7 @@ function CopilotComparison() {
                     ) : (
                         <Headlined text={indexHeadline}>
                             <VegaVisual
+                                label="A Copilot user's week, against everyone else's"
                                 spec={INDEX.vegaLiteSpec}
                                 data={indexTable}
                                 theme={theme}

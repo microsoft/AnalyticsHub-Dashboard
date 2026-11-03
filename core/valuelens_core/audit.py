@@ -8,6 +8,7 @@ row for row against Spark goldens.
 """
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 import random
@@ -273,9 +274,12 @@ class AdaptiveLimiter:
 
     A burst of failures with one cause (several windows failing in the same second) counts once:
     the cap moves at most once per cooldown_seconds.
+
+    check, if given, is called while a caller waits for a free slot; raising from it ends the wait
+    (the run's time budget uses this, so a throttled run can't wait past it).
     """
 
-    def __init__(self, limit, minimum=1, cooldown_seconds=60, clock=time.monotonic):
+    def __init__(self, limit, minimum=1, cooldown_seconds=60, clock=time.monotonic, check=None):
         self.minimum = max(1, int(minimum))
         self.limit = max(self.minimum, int(limit))
         self.active = 0
@@ -283,12 +287,15 @@ class AdaptiveLimiter:
         self._cooldown = float(cooldown_seconds)
         self._clock = clock
         self._last_shrink = None
+        self._check = check
         self._cond = threading.Condition()
 
     def __enter__(self):
         with self._cond:
             while self.active >= self.limit:
-                self._cond.wait()
+                if self._check is not None:
+                    self._check()
+                self._cond.wait(None if self._check is None else 5)
             self.active += 1
         return self
 
@@ -322,12 +329,19 @@ def _manifest_range(entry):
     return (ws, we) if ws and we and ws < we else None
 
 
+RECHECK_PENDING = 'recheck_pending'
+
+
 def uncovered_failed_ranges(manifest, not_before, before):
-    """Time ranges in [not_before, before) of unfinished windows that no succeeded window covers."""
+    """Time ranges in [not_before, before) of unfinished windows that no succeeded window covers.
+
+    A window flagged RECHECK_PENDING counts as covered: every run plans it again until it is written.
+    """
     lo = _as_utc_datetime(not_before)
     hi = _as_utc_datetime(before)
     entries = [e for e in (manifest or {}).values() if isinstance(e, dict)]
-    covered = sorted(r for r in (_manifest_range(e) for e in entries if e.get('status') == 'succeeded') if r)
+    covered = sorted(r for r in (_manifest_range(e) for e in entries
+                                 if e.get('status') == 'succeeded' or e.get(RECHECK_PENDING)) if r)
     gaps = []
     for entry in entries:
         if entry.get('status') in ('succeeded', 'split'):
@@ -346,6 +360,90 @@ def uncovered_failed_ranges(manifest, not_before, before):
         else:
             merged.append((s, e))
     return merged
+
+
+AUDIT_ROLE = 'AuditLogsQuery.Read.All'
+
+
+def token_claims(token):
+    """The claims of a JWT access token (not verified), or {} when it can't be read."""
+    try:
+        part = str(token).split('.')[1]
+        claims = json.loads(base64.urlsafe_b64decode(part + '=' * (-len(part) % 4)).decode('utf-8'))
+    except Exception:
+        return {}
+    return claims if isinstance(claims, dict) else {}
+
+
+def audit_token_problems(token, tenant_id=None):
+    """Why a Graph token can't read Copilot audit records: another tenant, or no AuditLogsQuery.Read.All.
+
+    The per-service roles (AuditLogsQuery-Exchange.Read.All and the like) cover only their own
+    service's records, not Copilot interactions. A token that can't be read gives no problems.
+    """
+    claims = token_claims(token)
+    if not claims:
+        return []
+    problems = []
+    tid = str(claims.get('tid') or '').strip().lower()
+    want = str(tenant_id or '').strip().lower()
+    if tid and len(want) == 36 and want.count('-') == 4 and tid != want:
+        problems.append(f'the token is for tenant {tid}, not TENANT_ID {want}')
+    roles = [r for r in (claims.get('roles') or []) if isinstance(r, str)]
+    if AUDIT_ROLE not in roles:
+        scoped = sorted(r for r in roles if r.startswith('AuditLogsQuery-'))
+        if scoped:
+            problems.append(f"the token has {', '.join(scoped)} but not {AUDIT_ROLE}; those roles cover only "
+                            f'their own service, not Copilot interactions')
+        else:
+            problems.append(f'the token has no {AUDIT_ROLE} application permission')
+    return problems
+
+
+def empty_recheck_windows(manifest, now, trailing_cutoff, recheck_days, settle_days):
+    """Succeeded windows that came back empty and are due one more query, oldest first.
+
+    The audit service can answer a search with no records and fill the hours in later (a service
+    incident, a slow tenant). The trailing look-back re-queries recent windows; a window still empty
+    when it leaves the look-back, and last fetched within `settle_days` of its end, is due once more if
+    it ended in the last `recheck_days`. A later fetch of the same hours supersedes it.
+    """
+    if not recheck_days or recheck_days <= 0:
+        return []
+    oldest = _as_utc_datetime(now) - timedelta(days=recheck_days)
+    cutoff = _as_utc_datetime(trailing_cutoff)
+    settle = timedelta(days=max(int(settle_days or 0), 1))
+    done = []
+    for entry in (manifest or {}).values():
+        if not isinstance(entry, dict) or entry.get('status') != 'succeeded':
+            continue
+        rng = _manifest_range(entry)
+        completed = _as_utc_datetime(entry.get('completed_at'))
+        if rng and completed:
+            done.append((rng[0], rng[1], completed, entry))
+    due = set()
+    for ws, we, completed, entry in done:
+        if int(entry.get('rows', 0) or 0) or int(entry.get('pages', 0) or 0) or entry.get('files'):
+            continue
+        if not (oldest < we <= cutoff) or completed >= we + settle:
+            continue
+        pieces = [(ws, we)]
+        for cs, ce, later, _ in done:
+            if later > completed:
+                pieces = [p for s, e in pieces for p in ((s, min(e, cs)), (max(s, ce), e)) if p[0] < p[1]]
+        if pieces:
+            due.add((ws, we))
+    return sorted(due)
+
+
+def pending_recheck_windows(manifest):
+    """Windows flagged RECHECK_PENDING, oldest first: re-queried, but their rows not yet written.
+
+    A run that fails after a recheck keeps the flag, so the next run plans the window again (reusing what
+    was fetched) and writes it; the flag is cleared once the run's rows are written.
+    """
+    return sorted({rng for rng in (_manifest_range(e) for e in (manifest or {}).values()
+                                   if isinstance(e, dict) and e.get(RECHECK_PENDING)) if rng})
 
 
 # ------------------------------------------------------------------ cells 14-18 (DuckDB)

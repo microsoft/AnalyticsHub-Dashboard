@@ -417,19 +417,24 @@ test('wording: no user-facing text names Rayfin', () => {
   assert.match(app, /A browser window may open for sign-in\./);
 });
 
+/** A string as a regular expression that matches it exactly. @param {string} s */
+const literal = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 test('wording: the plan says to keep the PC awake, just before Go ahead', async () => {
   const ui = fakeUi({ answers: [true] });
   const t = fakeCtx({ ui: ui.ui });
   assert.equal(await confirmPlan(t.ctx), true);
-  assert.match(ui.text(), new RegExp(`${KEEP_AWAKE.replace('.', '\\.')}\\n$`));
+  assert.match(ui.text(), new RegExp(`${literal(KEEP_AWAKE)}\\n$`));
   assert.equal(ui.asked.at(-1), 'Go ahead?');
+  // One rule, on both targets: awake until setup is finished, and then the window can close.
+  assert.equal(KEEP_AWAKE, 'Keep this PC plugged in and awake until the installer says setup is finished. After that you can close the window, and any load it started carries on.');
 
   const az = fakeUi({ answers: [true] });
   const a = fakeCtx({ ui: az.ui });
   a.config.target = 'azure';
   a.config.azure = { ...a.config.azure, subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'ah' };
   assert.equal(await confirmAzurePlan(a.ctx), true);
-  assert.match(az.text(), /Keep this PC plugged in and awake until setup finishes\./);
+  assert.match(az.text(), new RegExp(literal(KEEP_AWAKE)));
 });
 
 test('wording: in Cloud Shell the plan says to keep the tab open, not the PC awake', async () => {
@@ -439,7 +444,7 @@ test('wording: in Cloud Shell the plan says to keep the tab open, not the PC awa
     const ui = fakeUi({ answers: [true] });
     const t = fakeCtx({ ui: ui.ui });
     assert.equal(await confirmPlan(t.ctx), true);
-    assert.match(ui.text(), new RegExp(`${KEEP_CLOUD_SHELL_OPEN.replace('.', '\\.')}\\n$`));
+    assert.match(ui.text(), new RegExp(`${literal(KEEP_CLOUD_SHELL_OPEN)}\\n$`));
     assert.doesNotMatch(ui.text(), /plugged in/);
 
     const az = fakeUi({ answers: [true] });
@@ -447,7 +452,7 @@ test('wording: in Cloud Shell the plan says to keep the tab open, not the PC awa
     a.config.target = 'azure';
     a.config.azure = { ...a.config.azure, subscriptionId: 'sub-1', resourceGroup: 'rg', location: 'uksouth', namePrefix: 'ah' };
     assert.equal(await confirmAzurePlan(a.ctx), true);
-    assert.match(az.text(), /Keep this Cloud Shell tab open until setup finishes\./);
+    assert.match(az.text(), /Keep this Cloud Shell tab open until the installer says setup is finished\. After that you can close it, and any load it started carries on\./);
     assert.doesNotMatch(az.text(), /plugged in/);
   } finally {
     if (before === undefined) delete process.env[CLOUD_SHELL_ENV];

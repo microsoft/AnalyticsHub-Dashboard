@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
 import { AZ_LOGIN } from './auth.js';
 import { orgUrl } from './clients/dataverse.js';
+import { AUDIT_SOURCES } from './catalog.js';
 import { archiveConfig, DEFAULT_CONFIG_FILE, loadConfig, normaliseResourceGraph } from './config.js';
 import { HttpError } from './http.js';
 import { connect, createCtx, preview, runCommand } from './install.js';
@@ -13,14 +14,18 @@ import { runWizard } from './server.js';
 import { loadSources } from './sources.js';
 import { azureUploadError } from './steps/data-sources.js';
 import { recordWorkspaceGone, staleRecordMessage } from './steps/fabric.js';
+import { SQL_SCALE_UP_COST, sqlFlagFabricError } from './steps/azure/index.js';
+import { AZURE_LARGE_TENANT_SQL_VCORES } from './seats.js';
 import { isResumeLater, MAX_SECRET_DAYS, NOTEBOOK_SECRET_DAYS } from './steps/identity.js';
 import { isManagementGroupId, managementGroupId } from './steps/resource-graph.js';
 import { isVivaId } from './transform/dataflow.js';
+import { buildSupportFiles, collectSupport, loadRecord, recordRun, writeSupportFile } from './support.js';
+import { checkPrereqs } from './prereqs.js';
 import { c, createUi } from './ui.js';
 import { CURRENCIES, DEFAULT_CURRENCY, parseRate, toCurrencyCode } from './currency.js';
 import { DATA_SOURCE_IDS, modulesFromSources, parseDataFlags } from './uploads.js';
 
-const COMMANDS = ['install', 'update', 'run', 'rerun-failed', 'load-cowork', 'check', 'refresh', 'deploy-app', 'status', 'rotate-secret', 'access', 'upload', 'uninstall', 'prereqs', 'preview'];
+const COMMANDS = ['install', 'update', 'run', 'rerun-failed', 'load-cowork', 'check', 'check-audit', 'refresh', 'deploy-app', 'status', 'rotate-secret', 'access', 'upload', 'uninstall', 'prereqs', 'preview'];
 
 /** The `--help` text, naming the command the way it was started. */
 export const help = () => `Sets up Analytics Hub in Microsoft Fabric: the data pipeline, the semantic model and the app.
@@ -36,6 +41,8 @@ Commands:
   load-cowork      Once the Cowork Dataflow is signed in: refresh it, load the Viva credits
                    and refresh the consumption model. Fabric only
   check            Run the data check again, without the pipeline
+  check-audit      Check the app registration can read Copilot interactions in the audit log:
+                   Auto checks Sentinel and the Management API; Graph runs a small audit search
   refresh          Refresh the semantic model now
   deploy-app       Deploy the Analytics Hub app again
   status           Show recent runs and refreshes, the last data check and when secrets expire
@@ -61,8 +68,13 @@ Options:
                        in Azure Cloud Shell
   --use-az             Use the account you are signed in to with the Azure CLI. In Azure Cloud
                        Shell, run ${AZ_LOGIN} first
-  --backfill-days <n>  With run: reload n days of audit history and rebuild the curated table
-  --out <dir>          With preview: where to write (default ./valuelens-preview)
+  --backfill-days <n>  With run: reload n days of audit history, keep older history and rebuild
+                       the curated table
+  --graph-history      With run --backfill-days: read the days the Management Activity API doesn't
+                       hold (older than 7) from Microsoft Graph audit search, this run only. With
+                       install: every history load does. Fabric only
+  --out <dir>          With preview: where to write (default ./valuelens-preview). With
+                       --support-bundle: the folder for the support file (default: this folder)
   --data <id=mode>     With install: how a source arrives, api, csv or skip. Repeat it or use
                        commas, e.g. --data productFeedback=flow,agent365=api. flow is the
                        Power Automate flow, the api mode of productFeedback and studioCredits.
@@ -94,12 +106,26 @@ Options:
                        ${CURRENCIES.map((cur) => cur.code).join(', ')}
   --exchange-rate <n>  With --currency: how many of it to 1 US dollar, e.g. 0.79. Without it,
                        set the rate under Prices in the app
+  --audit-source <s>   With install: where the audit load reads Copilot interactions. feed (default
+                       for a new install): the Office 365 Management Activity API, the last 7 days
+                       and then every new record; fast on a large tenant. auto: Microsoft Sentinel's
+                       CopilotActivity table, otherwise the Management Activity API.
+                       graph: Microsoft Graph audit search; any history, but slow on a large tenant.
+                       Fabric only: Azure reads Graph
   --run                 With upload: run the pipeline straight after, to load the files now
+  --check-audit        With install or update: also check the selected audit sources as the app,
+                       to check the audit log has Copilot interactions to load. It can take a
+                       few minutes. Fabric only
   --no-key-vault       With install: no Key Vault, the default for a new Fabric install. The client
                        secret goes in the notebooks, where anyone with a role in the workspace can
                        read it. Same as --secret-in-notebook.
   --key-vault          With install: keep the client secret in Azure Key Vault instead, so workspace
                        roles don't expose it. Needed with --yes to choose Key Vault for a new install.
+  --sql-scale-up       With install, Azure: let Azure SQL carry on past the free offer's monthly
+                       allowance and scale up to ${AZURE_LARGE_TENANT_SQL_VCORES} vCores (about ${SQL_SCALE_UP_COST} a month). Needed with
+                       --yes for a new install of a large organisation. Later runs keep the choice
+  --sql-free-offer     With install, Azure: keep the free Azure SQL offer. When the month's allowance
+                       runs out, the database pauses, and the jobs stop, until next month
   --secret-days <n>    With install or rotate-secret, and no Key Vault: how many days the secret in
                        the notebooks lasts, 1 to ${MAX_SECRET_DAYS} (default ${NOTEBOOK_SECRET_DAYS}). Each install, repair or update
                        replaces it.
@@ -111,6 +137,16 @@ Options:
   --no-wait            Don't wait for the first load or a refresh to finish, or for Azure to delete
                        the resource group on uninstall
   --verbose            Print each API call
+  --support-bundle     Make a support file to email to us when something goes wrong: one zip with
+                       the installer's version, the last runs' steps and errors, the prerequisites
+                       check, recent pipeline, notebook and job runs, row counts and the install
+                       record. Secrets are removed and people are hashed; open it to check before
+                       sending. It signs in to read runs and row counts; without a sign-in it says
+                       what it couldn't collect. Writes to --out (default: this folder)
+  --offline            With --support-bundle: don't sign in; use only the files on this computer
+  --log <file>         With --support-bundle: also summarise a collector or script log (counts of
+                       429, 401, 403, time-outs and windows, and the first error). Repeat for more.
+                       The log itself isn't included
   -h, --help           Show this help
   -v, --version        Show the version
 `;
@@ -131,6 +167,7 @@ export function parseCli(argv, env = process.env) {
       'device-code': { type: 'boolean' },
       'use-az': { type: 'boolean' },
       'backfill-days': { type: 'string' },
+      'graph-history': { type: 'boolean' },
       out: { type: 'string' },
       yes: { type: 'boolean', short: 'y' },
       'no-wait': { type: 'boolean' },
@@ -151,12 +188,19 @@ export function parseCli(argv, env = process.env) {
       'no-arg-foundry': { type: 'boolean' },
       currency: { type: 'string' },
       'exchange-rate': { type: 'string' },
+      'audit-source': { type: 'string' },
       run: { type: 'boolean' },
+      'check-audit': { type: 'boolean' },
       'secret-in-notebook': { type: 'boolean' },
       'no-key-vault': { type: 'boolean' },
       'key-vault': { type: 'boolean' },
+      'sql-scale-up': { type: 'boolean' },
+      'sql-free-offer': { type: 'boolean' },
       'secret-days': { type: 'string' },
       'allow-model-reset': { type: 'boolean' },
+      'support-bundle': { type: 'boolean' },
+      offline: { type: 'boolean' },
+      log: { type: 'string', multiple: true },
       help: { type: 'boolean', short: 'h' },
       version: { type: 'boolean', short: 'v' },
     },
@@ -165,13 +209,25 @@ export function parseCli(argv, env = process.env) {
   const files = command === 'upload' ? positionals.slice(1) : [];
   if (command !== 'upload' && positionals.length > 1) throw new Error(`Unexpected argument: ${positionals[1]}`);
   if (!COMMANDS.includes(command)) throw new Error(`Unknown command "${command}". Try --help.`);
+  const supportBundle = !!values['support-bundle'];
+  if (supportBundle && (positionals.length || values['dry-run'])) throw new Error('--support-bundle makes a support file on its own. Leave out the command.');
+  if (supportBundle && values.ui) throw new Error('Choose one of --ui and --support-bundle. On the page, use "Create a support file" at the bottom of the menu.');
+  if (values.offline && !supportBundle) throw new Error('--offline goes with --support-bundle.');
+  if (values.log?.length && !supportBundle) throw new Error('--log goes with --support-bundle.');
   if (values.run && command !== 'upload') throw new Error('--run goes with upload.');
+  if (values['check-audit'] && command !== 'install' && command !== 'update') throw new Error('--check-audit goes with install or update. On its own, run check-audit.');
+  if (values['check-audit'] && values.target === 'azure') throw new Error('--check-audit is for the Fabric target only. On Azure, run check-audit.');
   const noVaultFlag = values['no-key-vault'] ? '--no-key-vault' : values['secret-in-notebook'] ? '--secret-in-notebook' : undefined;
   if (noVaultFlag && command !== 'install') throw new Error(`${noVaultFlag} goes with install.`);
   if (noVaultFlag && values.target === 'azure') throw new Error(`${noVaultFlag} is for the Fabric target only.`);
   if (values['key-vault'] && command !== 'install') throw new Error('--key-vault goes with install.');
   if (values['key-vault'] && values.target === 'azure') throw new Error('--key-vault is for the Fabric target only.');
   if (values['key-vault'] && noVaultFlag) throw new Error(`--key-vault can't go with ${noVaultFlag}.`);
+  const sqlFlag = values['sql-scale-up'] ? '--sql-scale-up' : values['sql-free-offer'] ? '--sql-free-offer' : undefined;
+  if (values['sql-scale-up'] && values['sql-free-offer']) throw new Error('Choose one of --sql-scale-up and --sql-free-offer.');
+  if (sqlFlag && command !== 'install') throw new Error(`${sqlFlag} goes with install.`);
+  if (sqlFlag && values.target === 'fabric') throw new Error(`${sqlFlag} is for the Azure target only.`);
+  if (sqlFlag && values.ui) throw new Error(`With --ui, choose Azure SQL compute in Azure placement. Leave out ${sqlFlag}.`);
   /** @type {number | undefined} */
   let secretDays;
   if (values['secret-days'] !== undefined) {
@@ -180,7 +236,7 @@ export function parseCli(argv, env = process.env) {
     secretDays = Number(values['secret-days']);
     if (!Number.isInteger(secretDays) || secretDays < 1 || secretDays > MAX_SECRET_DAYS) throw new Error(`--secret-days must be a whole number from 1 to ${MAX_SECRET_DAYS}.`);
   }
-  const installOnly = ['feedback-flow', 'studio-flow', 'flow-environment', 'flow-identity', 'viva-partition', 'viva-query', 'arg-management-group', 'no-arg-agents', 'no-arg-foundry', 'currency', 'exchange-rate'].filter((k) => values[/** @type {'feedback-flow'} */ (k)] !== undefined);
+  const installOnly = ['feedback-flow', 'studio-flow', 'flow-environment', 'flow-identity', 'viva-partition', 'viva-query', 'arg-management-group', 'no-arg-agents', 'no-arg-foundry', 'currency', 'exchange-rate', 'audit-source'].filter((k) => values[/** @type {'feedback-flow'} */ (k)] !== undefined);
   if ((values.data?.length || values.csv?.length || installOnly.length) && !['install', 'preview'].includes(command)) {
     throw new Error(`--data, --csv${installOnly.map((k) => ` and --${k}`).join('')} go with install. To add exports later, use upload.`);
   }
@@ -195,6 +251,9 @@ export function parseCli(argv, env = process.env) {
   if (argManagementGroup && !isManagementGroupId(argManagementGroup)) throw new Error('--arg-management-group should be a management group ID, as the Azure portal shows it under Management groups.');
   if (values['no-arg-agents'] && values['no-arg-foundry']) throw new Error('--no-arg-agents and --no-arg-foundry together leave Resource Graph nothing to read. Use --data resourceGraph=skip.');
   const currency = values.currency === undefined ? undefined : toCurrencyCode(values.currency);
+  const auditSourceFlag = values['audit-source']?.trim().toLowerCase();
+  if (auditSourceFlag !== undefined && !AUDIT_SOURCES.includes(/** @type {any} */ (auditSourceFlag))) throw new Error(`--audit-source must be ${AUDIT_SOURCES.map((s) => `"${s}"`).join(' or ')}.`);
+  if (auditSourceFlag !== undefined && values.target === 'azure') throw new Error('--audit-source is for the Fabric target only. On Azure, the audit collector reads Microsoft Graph.');
   if (values.currency !== undefined && !currency) throw new Error(`--currency should be one of ${CURRENCIES.map((cur) => cur.code).join(', ')}.`);
   /** @type {number | undefined} */
   let exchangeRate;
@@ -221,6 +280,7 @@ export function parseCli(argv, env = process.env) {
   if (values.ui && (positionals.length || values['dry-run'])) throw new Error('--ui opens a home page where you choose what to do. Leave out the command.');
   if (values.ui && values.yes) throw new Error('Choose one of --ui and --yes.');
   if (values.ui && (values.currency !== undefined || values['exchange-rate'] !== undefined)) throw new Error('With --ui, choose the currency under Advanced settings.');
+  if (values.ui && auditSourceFlag !== undefined) throw new Error('With --ui, choose the audit source under Advanced settings.');
   if (values.ui && (values.data?.length || values.csv?.length || installOnly.length)) throw new Error('With --ui, choose data sources and exports on the Data sources page.');
   if (values['allow-model-reset'] && !['install', 'update', 'access'].includes(command)) throw new Error('--allow-model-reset goes with install, update or access.');
   if (values.ui && values['allow-model-reset']) throw new Error('With --ui, the page asks before a model\'s data is cleared. Leave out --allow-model-reset.');
@@ -229,6 +289,14 @@ export function parseCli(argv, env = process.env) {
   if (values['backfill-days'] !== undefined) {
     backfillDays = Number(values['backfill-days']);
     if (!Number.isInteger(backfillDays) || backfillDays < 1 || backfillDays > 180) throw new Error('--backfill-days must be a whole number from 1 to 180.');
+  }
+  const graphHistory = !!values['graph-history'];
+  if (graphHistory) {
+    if (values.ui) throw new Error('With --ui, choose Graph history under Advanced settings, or in the history choice on Run now.');
+    if (values.target === 'azure') throw new Error('--graph-history is for the Fabric target only. On Azure, the audit collector reads Microsoft Graph.');
+    if (auditSourceFlag === 'graph') throw new Error('--audit-source graph reads every day from Microsoft Graph already. Leave out --graph-history.');
+    if (command === 'run' && backfillDays === undefined) throw new Error('--graph-history goes with --backfill-days on run, e.g. run --backfill-days 90 --graph-history.');
+    if (!['install', 'preview', 'run'].includes(command)) throw new Error('--graph-history goes with install, or with run --backfill-days.');
   }
   return {
     command,
@@ -240,7 +308,11 @@ export function parseCli(argv, env = process.env) {
     method: /** @type {'browser' | 'device-code' | 'azure-cli'} */ (values['use-az'] ? 'azure-cli' : values['device-code'] || cloudShell ? 'device-code' : 'browser'),
     cloudShell,
     backfillDays,
-    outDir: values.out ?? 'valuelens-preview',
+    graphHistory,
+    outDir: values.out ?? (supportBundle ? '.' : 'valuelens-preview'),
+    supportBundle,
+    offline: !!values.offline,
+    logFiles: values.log ?? [],
     yes: !!values.yes,
     wait: !values['no-wait'],
     ui: !!values.ui,
@@ -259,10 +331,13 @@ export function parseCli(argv, env = process.env) {
     argFoundry: values['no-arg-foundry'] ? false : undefined,
     currency,
     exchangeRate,
+    auditSource: /** @type {import('./catalog.js').AuditSource | undefined} */ (auditSourceFlag),
     files,
     run: values.run,
+    checkAudit: !!values['check-audit'],
     secretInNotebook: !!noVaultFlag,
     useKeyVault: !!values['key-vault'],
+    sqlScaleUp: values['sql-scale-up'] ? true : values['sql-free-offer'] ? false : undefined,
     secretDays,
     allowModelReset: !!values['allow-model-reset'],
     help: !!values.help,
@@ -276,12 +351,14 @@ export function version() {
 }
 
 /**
- * Applies --data, the flow flags, the Viva IDs and the currency to the install record's answers. The
+ * Applies --data, the flow flags, the Viva IDs, the currency and the audit source to the install record's answers. The
  * Data sources screen then opens with them, and --yes takes them as they are.
  * @param {import('./config.js').InstallConfig} config
- * @param {{ dataSources: Partial<import('./uploads.js').DataSourceModes>, feedbackFlow?: boolean, studioFlow?: boolean, flowEnvironment?: string, flowIdentity?: import('./config.js').FlowIdentity, vivaPartition?: string, vivaQuery?: string, argManagementGroup?: string, argAgents?: boolean, argFoundry?: boolean, currency?: string, exchangeRate?: number }} args
+ * @param {{ dataSources: Partial<import('./uploads.js').DataSourceModes>, feedbackFlow?: boolean, studioFlow?: boolean, flowEnvironment?: string, flowIdentity?: import('./config.js').FlowIdentity, vivaPartition?: string, vivaQuery?: string, argManagementGroup?: string, argAgents?: boolean, argFoundry?: boolean, currency?: string, exchangeRate?: number, auditSource?: import('./catalog.js').AuditSource, graphHistory?: boolean, command?: string }} args
  */
 export function applyDataFlags(config, args) {
+  if (args.auditSource) config.audit = { source: args.auditSource, ...(config.audit?.graphHistory ? { graphHistory: true } : {}) };
+  if (args.graphHistory && args.command !== 'run') config.audit = { ...config.audit, graphHistory: true };
   // --studio-flow and --feedback-flow are from before each flow was its source's api mode: with csv (as the old docs had it) or alone, they mean api.
   const studio = args.studioFlow && args.dataSources.studioCredits !== 'skip' ? { studioCredits: /** @type {const} */ ('api') } : {};
   const feedback = args.feedbackFlow && args.dataSources.productFeedback !== 'skip' ? { productFeedback: /** @type {const} */ ('api') } : {};
@@ -330,11 +407,53 @@ export async function startFresh(o) {
 }
 
 /**
+ * --support-bundle: signs in if it can, collects, redacts and writes the support file.
+ * @param {ReturnType<typeof parseCli>} args
+ * @param {((m: string) => void) | undefined} debug
+ */
+export async function supportBundle(args, debug, o = { connect }) {
+  const ui = createUi();
+  ui.line(c.bold(`Analytics Hub installer ${version()}: support file`));
+  const record = loadRecord(args.configFile);
+  /** @type {any} */
+  let api;
+  /** @type {any} */
+  let user;
+  /** @type {string | undefined} */
+  let offline;
+  if (args.offline) offline = 'Made with --offline.';
+  else if (!record.existed) offline = 'There is no install record, so there was nothing to read online.';
+  else {
+    ui.note(args.method === 'azure-cli' ? 'Using your Azure CLI sign-in to read run statuses and row counts…' : 'Signing in to read run statuses and row counts. If sign-in is the problem, run again with --offline.');
+    try {
+      ({ api, user } = await o.connect({ tenantId: args.tenantId ?? record.config.tenantId, method: args.method, ui, debug }));
+    } catch (err) {
+      offline = `Sign-in failed: ${/** @type {any} */ (err)?.message ?? err}`;
+      ui.warn(`${offline} The support file has what's on this computer.`);
+    }
+  }
+  if (api) ui.note('Reading recent runs, the prerequisites and row counts…');
+  const data = await collectSupport({
+    config: record.config, configFile: args.configFile, recordExists: record.existed, recordError: record.error, version: version(),
+    api, user, offline, logFiles: args.logFiles, checkPrereqs: (ctx) => checkPrereqs(ctx),
+  });
+  const files = buildSupportFiles(data);
+  const path = writeSupportFile(files, args.outDir);
+  ui.ok(`Support file: ${path}`);
+  for (const f of files) ui.info(`${f.name.padEnd(20)} ${Buffer.byteLength(f.text, 'utf8').toLocaleString('en-GB')} bytes`);
+  ui.note('Secrets are removed and people\'s names and email addresses are hashed. Every file inside is plain text:');
+  ui.note('open the zip to check it, then email it to us.');
+  return path;
+}
+
+/**
  * @param {string[]} argv
  * @returns {Promise<number>} Exit code.
  */
 export async function main(argv) {
   let verbose = false;
+  /** @type {ReturnType<typeof recordRun> | null} */
+  let rec = null;
   try {
     const args = parseCli(argv);
     verbose = args.verbose;
@@ -347,17 +466,24 @@ export async function main(argv) {
       return 0;
     }
     const debug = verbose ? (/** @type {string} */ m) => process.stderr.write(`${c.dim(m)}\n`) : undefined;
+    if (args.supportBundle) {
+      await supportBundle(args, debug);
+      return 0;
+    }
     if (args.ui) {
       await runWizard({ configFile: args.configFile, sourceDir: args.sourceDir, tenantId: args.tenantId, method: args.method, open: args.open, version: version(), debug });
       return 0;
     }
     const ui = createUi({ yes: args.yes });
+    if (args.command !== 'preview' && args.command !== 'status') rec = recordRun(ui, { command: args.command, configFile: args.configFile, version: version() });
     const uploaded = args.cloudShell && args.command !== 'prereqs' ? adoptUploadedRecord(args.configFile) : undefined;
     const loaded = loadConfig(args.configFile);
     let config = loaded.config;
     const existed = loaded.existed;
     if (args.target) config.target = args.target;
+    rec?.setRoute(config.target === 'azure' ? 'azure' : 'fabric');
     if (args.csvFiles.length && config.target === 'azure') throw azureUploadError(config, '--csv');
+    if (args.sqlScaleUp !== undefined && config.target === 'fabric') throw new Error(sqlFlagFabricError(args.sqlScaleUp));
     const sources = loadSources(args.sourceDir);
     applyDataFlags(config, args);
 
@@ -381,6 +507,7 @@ export async function main(argv) {
       debug,
       checkTokens: args.cloudShell && args.method === 'azure-cli',
     });
+    rec?.setUser(user);
     if (existed && args.command !== 'prereqs' && (await startFresh({ ui, config, file: args.configFile, fabric: api.fabric, tenantId: user.tenantId, command: args.command }))) {
       config = loadConfig(args.configFile).config;
       if (args.target) config.target = args.target;
@@ -390,10 +517,13 @@ export async function main(argv) {
     ctx.csvFiles = args.csvFiles;
     if (args.secretInNotebook) ctx.secretInNotebook = true;
     if (args.useKeyVault) ctx.useKeyVault = true;
+    if (args.sqlScaleUp !== undefined) ctx.sqlChoice = args.sqlScaleUp;
     if (args.allowModelReset) ctx.allowModelReset = true;
+  if (args.checkAudit) ctx.checkAudit = true;
     if (args.secretDays) config.app.secretDays = args.secretDays;
     try {
-      const ok = await runCommand(ctx, args.command, { wait: args.wait, backfillDays: args.backfillDays, files: args.files, run: args.run });
+      const ok = await runCommand(ctx, args.command, { wait: args.wait, backfillDays: args.backfillDays, ...(args.graphHistory && args.command === 'run' ? { graphHistory: true } : {}), files: args.files, run: args.run });
+      rec?.finish(ok);
       return ok ? 0 : 1;
     } finally {
       // Also after a failure part way: the record is what lets the next run carry on.
@@ -401,6 +531,7 @@ export async function main(argv) {
     }
   } catch (err) {
     const e = /** @type {any} */ (err);
+    rec?.finish(false, e?.name === 'ExitPromptError' ? 'Cancelled.' : (e?.message ?? String(err)));
     if (e?.name === 'ExitPromptError') {
       process.stderr.write('\nCancelled.\n');
       return 130;

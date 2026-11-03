@@ -6,7 +6,7 @@
 //-----------------------------------------------------------------------
 
 import { useId, useMemo, useState } from "react";
-import { Check, Info, LoaderCircle, X } from "lucide-react";
+import { Check, ChevronDown, Info, LoaderCircle, SlidersHorizontal, X } from "lucide-react";
 import { useFilterContext } from "@/hooks/filter.context";
 import {
     availablePresets,
@@ -32,6 +32,9 @@ import { menuOptionClass as optionClass } from "@/lib/menu-option";
 import { useIsRefreshing } from "@/lib/refresh-tracker";
 import { FilterMenu } from "./filter-menu";
 import { SegmentedControl } from "./segmented-control";
+
+/** Filters that start folded under More filters, so the bar holds one row. */
+const MORE_FILTERS: readonly FilterKey[] = ["licence", "audience", "agentTypes", "agentNames"];
 
 const LICENCE_OPTIONS: { id: Licence; label: string }[] = [
     { id: "all", label: "All" },
@@ -337,15 +340,22 @@ function LabelledSegment<T extends string>({ label, options, value, onChange }: 
 
 /**
  * The slicers for the current destination, kept in reach at the top of the
- * canvas. Filters persist between destinations; one that is set but does not
- * apply here is called out rather than silently dropped.
+ * canvas: dates and org on show, the rest one click away under More filters,
+ * which counts the ones set. Filters persist between destinations; one that
+ * is set but does not apply here is called out rather than silently dropped.
  */
 export function FilterBar({ destinationLabel }: { destinationLabel: string }) {
     const { filters, setFilters, options, optionsError, applicable, orgAttribute, orgAttributes, orgValues } =
         useFilterContext();
     const refreshing = useIsRefreshing();
+    const [moreOpen, setMoreOpen] = useState(false);
+    const moreId = useId();
 
     const has = (key: FilterKey) => applicable.includes(key);
+    const more = MORE_FILTERS.filter(has);
+    // Fold them only beside dates or org; a page with nothing else shows them as they are.
+    const folded = more.length > 0 && (has("dateRange") || has("organizations"));
+    const moreSet = more.filter((key) => isFilterInEffect(filters, key, options)).length;
     // Reset filters returns to where the tenant starts: the last 12 weeks on a large tenant, every date on a small one.
     const changed = FILTER_KEYS.some((key) => differsFromTenantDefault(filters, key, options));
     // The tenant's default dates aren't the user's choice, so they go unmentioned where they don't apply.
@@ -372,26 +382,8 @@ export function FilterBar({ destinationLabel }: { destinationLabel: string }) {
         };
     });
 
-    return (
-        <div
-            role="group"
-            aria-label="Filters"
-            data-print="hide"
-            className="sticky top-0 z-10 -mx-700 flex flex-wrap items-center gap-x-400 gap-y-200 border-b border-border bg-background px-700 py-300"
-        >
-            {has("dateRange") && <DateFilter />}
-            {has("organizations") && orgAttributes.length > 1 && <GroupByFilter />}
-            {has("organizations") && (
-                // Not keyed by the column: once the org columns load, they may change it while its menu is open.
-                <MultiSelectFilter
-                    filterKey="organizations"
-                    label={orgAttribute.label}
-                    allLabel={`All ${orgAttribute.plural}`}
-                    noun={orgAttribute.plural}
-                    choices={orgValues}
-                    choicesOf={orgAttribute.column}
-                />
-            )}
+    const moreFilters = (
+        <>
             {has("licence") && (
                 <LabelledSegment
                     label={filterLabel("licence", "")}
@@ -426,6 +418,46 @@ export function FilterBar({ destinationLabel }: { destinationLabel: string }) {
                     choices={options?.agentNames}
                 />
             )}
+        </>
+    );
+
+    return (
+        <div
+            role="group"
+            aria-label="Filters"
+            data-print="hide"
+            className="z-10 md:sticky md:top-0 -mx-400 flex flex-wrap items-center gap-x-400 gap-y-200 border-b border-border bg-background px-400 py-300 md:-mx-600 md:px-600 lg:-mx-700 lg:px-700"
+        >
+            {has("dateRange") && <DateFilter />}
+            {has("organizations") && orgAttributes.length > 1 && <GroupByFilter />}
+            {has("organizations") && (
+                // Not keyed by the column: once the org columns load, they may change it while its menu is open.
+                <MultiSelectFilter
+                    filterKey="organizations"
+                    label={orgAttribute.label}
+                    allLabel={`All ${orgAttribute.plural}`}
+                    noun={orgAttribute.plural}
+                    choices={orgValues}
+                    choicesOf={orgAttribute.column}
+                />
+            )}
+            {!folded && moreFilters}
+            {folded && (
+                <button
+                    type="button"
+                    aria-expanded={moreOpen}
+                    aria-controls={moreId}
+                    onClick={() => setMoreOpen((open) => !open)}
+                    className="flex h-[32px] items-center gap-100 rounded-md border border-border px-300 text-[length:var(--text-200)] font-semibold text-foreground transition-colors hover:bg-secondary focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+                >
+                    <SlidersHorizontal className="icon-size-200" aria-hidden="true" />
+                    {moreSet > 0 ? `More filters (${moreSet})` : "More filters"}
+                    <ChevronDown
+                        className={`icon-size-200 transition-transform ${moreOpen ? "rotate-180" : ""}`}
+                        aria-hidden="true"
+                    />
+                </button>
+            )}
 
             <div className="ml-auto flex items-center gap-300">
                 {refreshing && (
@@ -445,6 +477,12 @@ export function FilterBar({ destinationLabel }: { destinationLabel: string }) {
                     </button>
                 )}
             </div>
+
+            {folded && (
+                <div id={moreId} hidden={!moreOpen} className="basis-full">
+                    <div className="flex flex-wrap items-center gap-x-400 gap-y-200">{moreFilters}</div>
+                </div>
+            )}
 
             {(notApplied.length > 0 || optionsError) && (
                 <p className="flex basis-full items-center gap-200 text-[length:var(--text-200)] leading-200 text-muted-foreground">

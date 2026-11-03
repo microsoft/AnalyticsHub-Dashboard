@@ -261,6 +261,7 @@ export function LicenseReadinessStage() {
                 ) : (
                     <Headlined text={byOrgHeadline}>
                         <VegaVisual
+                            label={`Priority by ${org.noun}`}
                             spec={byOrg.vegaLiteSpec}
                             data={byOrgTop.table}
                             theme={theme}
@@ -341,6 +342,7 @@ export function LicenseReadinessStage() {
                 ) : (
                     <Headlined text={dormancyHeadline}>
                         <VegaVisual
+                            label="Dormancy of the license estate"
                             spec={dormancy.vegaLiteSpec}
                             data={dormancyTable}
                             theme={theme}

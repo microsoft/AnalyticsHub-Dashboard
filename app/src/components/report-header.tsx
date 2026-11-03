@@ -83,7 +83,7 @@ export function ReportHeader({
                 <Icon className="icon-size-400" aria-hidden="true" />
             </span>
             <span className="flex min-w-0 flex-1 flex-col gap-100">
-                <h1 className="text-[length:var(--text-hero-700)] leading-hero-700 font-semibold">{title}</h1>
+                <h1 tabIndex={-1} className="text-[length:var(--text-hero-700)] leading-hero-700 font-semibold outline-none">{title}</h1>
                 {blurb && <span className="text-[length:var(--text-300)] leading-300 text-muted-foreground">{blurb}</span>}
                 <FreshnessLabel sources={sources} dates={dates} />
                 {meta}

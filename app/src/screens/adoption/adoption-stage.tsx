@@ -189,6 +189,7 @@ export function AdoptionStage() {
                 ) : (
                     <Headlined text={trendHeadline}>
                         <VegaVisual
+                            label="Weekly adoption trend"
                             spec={trend.vegaLiteSpec}
                             data={trendTable}
                             theme={theme}

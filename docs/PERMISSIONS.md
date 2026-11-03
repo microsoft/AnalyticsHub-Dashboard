@@ -21,8 +21,22 @@ Pulled automatically by the 3 core notebooks via one **Entra app registration** 
 | Source | Graph application permission | Manual-export role (if pulling by hand) |
 |---|---|---|
 | Audit logs (`copilot_interactions_parsed`) | `AuditLogsQuery.Read.All` | Audit Reader or Compliance Administrator |
-| Licensed users (`copilot_licensed_users`) | `Reports.Read.All` | Global Reader or Reports Reader |
+| Licensed users (`copilot_licensed_users`) | `Reports.Read.All` (+ `User.Read.All`, which org data needs anyway, to check flags against today's licences; skipped without it) | Global Reader or Reports Reader |
 | Org data (`copilot_org_data`) | `User.Read.All` | Global Reader or User Administrator |
+
+New Fabric installs read the audit log from the Office 365 Management Activity API rather than the
+Graph audit search, so the app also gets `ActivityFeed.Read`; with the **Sentinel** audit source
+it also gets `ThreatHunting.Read.All`:
+
+| API | Application permission | Used for |
+|---|---|---|
+| Office 365 Management APIs | `ActivityFeed.Read` | Reading the `Audit.General` content of the last 7 days (the default audit source, and Sentinel's fallback) |
+| Microsoft Graph | `ThreatHunting.Read.All` | Sentinel only: querying its `CopilotActivity` table through advanced hunting |
+
+`AuditLogsQuery.Read.All` stays, for history loads from Graph (Graph history in the installer, or `GRAPH_FOR_HISTORY`). With
+`SENTINEL_QUERY_VIA = 'loganalytics'`, give the app the **Log Analytics Reader** role on the
+Sentinel workspace instead of `ThreatHunting.Read.All`. See
+[Where the audit log comes from](../fabric/notebooks/README.md#where-the-audit-log-comes-from).
 
 One app registration covers all three on Fabric; on Azure, the jobs' managed identity gets them as
 app roles. On Fabric the app's secret goes in the notebooks by default, or in a Key Vault if you
@@ -62,6 +76,7 @@ projects. Used by `Copilot_Resource_Graph_Ingester` (Fabric, as the app registra
 | Foundry accounts and projects (`resources`) | Azure **Reader** at a management group, or the tenant root group to see every subscription | Resource Graph returns only what the identity can read. The installer assigns it when the person installing can assign roles there, or prints the `az role assignment create` command |
 | Copilot Studio agents, environments and agent flows (`PowerPlatformResources`) | An Entra role that can read the Power Platform inventory: **Global Reader**, **Power Platform Administrator** or **AI Administrator** | When the person installing is a **Global Administrator** or **Privileged Role Administrator**, the installer assigns **Global Reader** itself (see below). Otherwise it shows a message to pass on. Microsoft doesn't document app-only access to this table, so it may be refused or come back empty |
 | Fallback: the **Analytics Hub - Agent inventory** flow | The flow's Power Platform API connection (**HTTP with Microsoft Entra ID**, resource `https://api.powerplatform.com`) signed in as one of the roles above. Same flow licence and environment roles as the Copilot Studio credits flow | The Power Platform inventory API takes delegated sign-ins only. The flow writes the inventory as JSON to `arg_inventory/` in the drop folder each day, and the notebook or job reads the newest file when Resource Graph doesn't return agents |
+| Agent owners' accounts (`arg_agent_detail`) | Microsoft Graph **User.Read.All** (application), which the identity already has for org data | Lets the Governance page flag agents whose owner has left, with or without Agent 365. Without it, owners read *Not checked*. On Fabric, `CHECK_OWNER_ACCOUNT = False` in the notebook turns it off |
 
 No per-project agent sweep: Foundry is read at account and project level only.
 
@@ -126,7 +141,7 @@ covers the app on Fabric, and the jobs' managed identity on Azure.
 |---|---|
 | Copilot Studio flow (the default source) | As on Fabric: **Environment Maker** in the environment, a **Power Automate Premium** licence for the flow owner, and a Power Platform API connection signed in as a **Power Platform Administrator**, **Billing Administrator** or **Global Administrator**. The flow always signs in as the person installing; `--flow-identity app` is Fabric only |
 | The flow writes to the `landing` container (public endpoints) | Whoever signs the flow's storage connection in (resource `https://storage.azure.com`) needs **Storage Blob Data Contributor** on the storage account. The installer assigns it to the person installing if they can assign roles |
-| The flow writes to a SharePoint folder (private networking) | Whoever signs the flow's SharePoint connection in needs to add files to the folder. The jobs' managed identity needs the Graph app role **Sites.Selected** plus **Read** on that site, granted by a SharePoint or Global administrator (the installer does it, or prints the `Grant-PnPAzureADAppSitePermission` command) |
+| The flow writes to a SharePoint folder (private networking) | Whoever signs the flow's SharePoint connection in needs to add files to the folder. The jobs' managed identity needs the Graph app role **Sites.Selected** plus **Read** on that site, granted by a SharePoint or Global administrator (by hand: the installer prints the `Grant-PnPAzureADAppSitePermission` command; see [Known issues](TROUBLESHOOTING.md#azure)). The administrator must be a member of the site |
 | Azure AI and pay-as-you-go spend | The jobs' managed identity gets **Reader**, **Cost Management Reader** and **Monitoring Reader** on the Azure AI subscription, and **Cost Management Reader** on each pay-as-you-go subscription. The installer assigns them when the person installing can assign roles there |
 | Cowork credits | No automated pull on Azure yet. Drop the Consumption Dashboard's Viva Insights export (**Insights Analyst**) in the `viva` folder |
 | Agent 365 registry (module `agent365`) | No Graph permission: the Agent 365 API is Fabric only for now. Export the registry from the Microsoft 365 admin center (roles in [Optional sources](#optional-sources-opt-in)) and drop it in the `agent365` folder. Dropping it takes the same access as the flow rows above: **Storage Blob Data Contributor** on the storage account (the installer assigns it to the person installing), or with private networking adding files to the SharePoint folder, whose site the managed identity reads with **Sites.Selected** |

@@ -10,7 +10,7 @@ import { TriangleAlert } from "lucide-react";
 import { stageAnchor } from "@/components/destinations";
 import { KpiCard, KpiStat } from "@/components/kpi-card";
 import { NotFilteredHint } from "@/components/not-filtered-hint";
-import { QueryEmpty, QueryLoading } from "@/components/query-states";
+import { AdminSteps, QueryEmpty, QueryLoading } from "@/components/query-states";
 import { ChartPanel, KpiRowState, NoteCard } from "@/components/report-panels";
 import { Section } from "@/components/section";
 import { SegmentedControl } from "@/components/segmented-control";
@@ -71,11 +71,12 @@ const NOTES = [
     },
 ] as const;
 
-/** What to tell an admin when a probe was refused. */
+/** What to tell an admin when a probe was refused. A bare status code says nothing more than the status, so it is left out. */
 function failureHint(probe: ProbeStatus): string {
     const label = PROBE_LABELS[probe.probe as ShadowAiProbe] ?? probe.probe;
     const status = (probe.status === "unlicensed" && probeNeeds(probe.probe)) || describeProbeStatus(probe.status);
-    return probe.message ? `${label}: ${status} (${probe.message})` : `${label}: ${status}`;
+    const message = /^\W*\d{3}\W*(failed)?\W*$/i.test(probe.message ?? "") ? "" : probe.message;
+    return message ? `${label}: ${status} (${message})` : `${label}: ${status}`;
 }
 
 interface ShadowAiStageProps {
@@ -136,7 +137,19 @@ function ShadowAiFindings() {
             <Section id={stageAnchor("shadow-ai")} title={TITLE} description={DESCRIPTION}>
                 <QueryEmpty
                     title="Defender refused every probe"
-                    description={`Grant the app ThreatHunting.Read.All (and CloudApp-Discovery.Read.All for Cloud Discovery) with admin consent, check the tenant has Defender for Endpoint P2 or Defender for Cloud Apps, then let the next load run. ${state.failing.map(failureHint).join(". ")}.`}
+                    description={
+                        <>
+                            <p>Defender didn't share any data with the app, so there is nothing to show yet.</p>
+                            <AdminSteps>
+                                <p>
+                                    Grant the app ThreatHunting.Read.All (and CloudApp-Discovery.Read.All for Cloud
+                                    Discovery) with admin consent, check the tenant has Defender for Endpoint P2 or
+                                    Defender for Cloud Apps, then let the next load run.
+                                </p>
+                                <p>{`${state.failing.map(failureHint).join(". ")}.`}</p>
+                            </AdminSteps>
+                        </>
+                    }
                 />
             </Section>
         );
@@ -146,10 +159,15 @@ function ShadowAiFindings() {
         <Section id={stageAnchor("shadow-ai")} title={TITLE} description={DESCRIPTION}>
             <NotFilteredHint from={[summary.notFilteredBy]} />
             {state?.kind === "partial" && (
-                <p role="status" className={`flex max-w-[80ch] items-start gap-200 ${BODY} text-muted-foreground`}>
+                <div role="status" className={`flex max-w-[80ch] items-start gap-200 ${BODY} text-muted-foreground`}>
                     <TriangleAlert className="icon-size-200 mt-[2px] shrink-0 text-caution" aria-hidden="true" />
-                    {`Some of Defender didn't load, so these figures leave it out. ${state.failing.map(failureHint).join(". ")}.`}
-                </p>
+                    <div className="flex flex-col gap-100">
+                        <p>Some of Defender didn't load, so these figures leave it out.</p>
+                        <AdminSteps>
+                            <p>{`${state.failing.map(failureHint).join(". ")}.`}</p>
+                        </AdminSteps>
+                    </div>
+                </div>
             )}
 
             <KpiRowState
@@ -216,9 +234,16 @@ function ConnectDefender({ configured }: { configured: boolean }) {
             <QueryEmpty
                 title={configured ? "Connect Microsoft Defender" : "Defender isn't turned on"}
                 description={
-                    configured
-                        ? "Shadow AI reads Microsoft Defender advanced hunting, and the model has no Defender data yet. Run the Defender source (or the installer again with Defender ticked), let the next load finish, then reopen the app."
-                        : "Optional. Run the installer again and tick Defender (shadow AI and agent risk). It needs Defender for Endpoint P2 or Defender for Cloud Apps and the ThreatHunting.Read.All permission; Shadow AI fills in after the next load and model refresh."
+                    <>
+                        <p>Shadow AI comes from Microsoft Defender, which isn't connected yet.</p>
+                        <AdminSteps>
+                            <p>
+                                {configured
+                                    ? "Shadow AI reads Microsoft Defender advanced hunting, and the model has no Defender data yet. Run the Defender source (or the installer again with Defender ticked), let the next load finish, then reopen the app."
+                                    : "Optional. Run the installer again and tick Defender (shadow AI and agent risk). It needs Defender for Endpoint P2 or Defender for Cloud Apps and the ThreatHunting.Read.All permission; Shadow AI fills in after the next load and model refresh."}
+                            </p>
+                        </AdminSteps>
+                    </>
                 }
             />
         </Section>

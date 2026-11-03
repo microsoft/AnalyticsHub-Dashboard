@@ -42,7 +42,7 @@
           "sort": null,
           "scale": {
             "domain": ["Copilot Chat and apps", "Agents", "Cowork"],
-            "range": ["#4f73b8", "#f1963a", "#8783ff"]
+            "range": ["#4f73b8", "#c46a12", "#8783ff"]
           },
           "legend": { "orient": "top", "direction": "horizontal", "symbolType": "square", "symbolLimit": 10, "labelLimit": 240 }
         },

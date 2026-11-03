@@ -335,7 +335,7 @@ export function LeaderboardStage() {
         <Section
             id={stageAnchor("leaderboard")}
             title="Leaderboard"
-            description="Who uses Copilot most, and for what, ranked by sessions. Use License and Activity in the filter bar to rank one group, then break its sessions down by user or by task."
+            description="Who uses Copilot most, and for what, ranked by sessions."
         >
             {summary.data?.status === "error" ? (
                 <QueryError message={summary.data.error.message} onRetry={summary.refetch} />

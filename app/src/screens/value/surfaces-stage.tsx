@@ -68,7 +68,7 @@ export function SurfacesStage() {
     return (
         <Section
             title="Surfaces & models"
-            description="Where Copilot is being used from, and what is answering. Together these say whether adoption is concentrated in one app or spread across the suite."
+            description="Where Copilot is used from, and what is answering."
         >
             <div className="grid gap-300 lg:grid-cols-2">
                 {charts.map((chart) => (
@@ -93,6 +93,7 @@ export function SurfacesStage() {
                         ) : (
                             <Headlined text={headlines[chart.id]}>
                                 <VegaVisual
+                                    label={chart.title}
                                     spec={chart.spec}
                                     data={table}
                                     theme={theme}

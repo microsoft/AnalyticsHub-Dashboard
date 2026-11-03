@@ -782,13 +782,34 @@ The review queue puts the riskiest agents first. Each flag has a weight: *No sig
 Agents are sorted by the sum of their weights, then by number of flags, then by most users.
 
 - **The owner check needs the Fabric registry ingester** with `CHECK_OWNER_ACCOUNT` on, and
-  `User.Read.All`. A registry loaded from a CSV export leaves every owner *Not checked*.
+  `User.Read.All`. A registry loaded from a CSV export leaves owners *Not checked*, unless the
+  Azure Resource Graph source is on: its own owner check fills them in.
 - **Sharing and data access are what the registry declares**, not what the agent has actually
   surfaced. A CSV export may leave them *Not stated* or *Not reported*.
 - *Shared, no recorded use* inherits the usage matching above, so a renamed agent can be flagged.
 - *No sign-in required* needs the Azure Resource Graph source (agent configuration) or the
   Defender source with its agent probe; without either no agent gets the flag. It is what the
   agent's configuration, or Defender, records about its authentication, not a test of it.
+
+#### Without Agent 365
+
+Agent 365 is optional. Without the registry, the page reads the optional Azure Resource Graph
+source instead, which needs no Agent 365 licence. It covers the same tabs, flags and weights, using
+the Resource Graph columns of the same names
+([Data Dictionary](DATA-DICTIONARY.md#7-azure-resource-graph--agent-configuration-and-the-foundry-estate)).
+
+- **Copilot Studio agents only**, at the latest load. Microsoft and partner agents aren't listed,
+  nor are descriptions, publishers or sensitivity labels. Quarantined agents take the place of
+  blocked ones.
+- **Owner** is the agent's Resource Graph owner, checked in Microsoft Graph by the Resource Graph
+  load (`User.Read.All`). The check reads the owner ID as an Entra user, so an owner ID that isn't
+  a user's object ID reads *Not found*. *No owner on record* means Resource Graph lists no owner.
+- **Sharing and data access** come from the agent's sharing settings and knowledge sources.
+  Uploaded files count as *Uploaded files only*; any SharePoint, Graph connector, Dataverse or
+  knowledge connector source counts as *Organisation content*.
+- **Only the agent filter applies**, matched by name. Agent types come from the registry.
+- With both sources, the page reads the registry, and the Resource Graph owner check fills in
+  owners the registry didn't check.
 
 ### Shadow AI: what other AI tools are in use?
 
@@ -935,7 +956,7 @@ rebuilds its consumption and cost pages.
 | Section | Source | How cost is worked out |
 |---|---|---|
 | **Cowork / Work IQ** | Weekly credits per person from Viva Insights (`viva_credits_weekly`), read from a Viva Insights query by a Dataflow Gen2 (`viva_credits_dataflow`) or from the Consumption Dashboard's CSV export. Where both cover a week, the Dataflow's figures are used | Credits up to the Capacity Pack balance are priced at the **prepaid rate**; the rest at the **pay-as-you-go rate**. The pack applies to the credits in the selected period. Week by week it is used up in date order, so later weeks spill into pay-as-you-go first. Blended rate = cost ÷ credits |
-| **Copilot Studio** | By default, a daily flow reads the Power Platform licensing API for credits by agent and day (`studio_agent_daily`) and, best effort, by user and day (`studio_user_daily`). It fills the tenant, agent and user views for days and months no export covers. When only the per-user file lands, the tenant view by day is summed from it (`source_file = 'ppac-api-users'`) for the days and environments nothing else covers, so totals, the month to date and the budget runway aren't blank. This is a floor: credits not tied to a user are missing, and there's no breakdown by feature or model, which needs a Power Platform admin centre export. Power Platform admin centre exports (tenant by day, plus agent and user views) are optional and win for the months they cover. The API only sees environments with credits allocated. Without an entitlement snapshot, its credits count as prepaid | The tenant export already splits prepaid from pay-as-you-go credits, and each is priced at its rate. The licensing API gives one tenant-wide prepaid share, applied to every environment. Summed from users, billed credits are split by that share and non-billed credits count as prepaid. Effective rate = cost ÷ credits. Per-agent and per-user cost uses the pay-as-you-go rate |
+| **Copilot Studio** | By default, a daily flow reads the Power Platform licensing API for credits by agent and day (`studio_agent_daily`) and, best effort, by user and day (`studio_user_daily`). It fills the tenant, agent and user views for days and months no export covers. When only the per-user file lands, the tenant view by day is summed from it (`source_file = 'ppac-api-users'`) for the days and environments nothing else covers, so totals, the month to date and the budget runway aren't blank. This is a floor: credits not tied to a user are missing, and there's no breakdown by feature or model, which needs a Power Platform admin centre export. Power Platform admin centre exports (tenant by day, plus agent and user views) are optional and win for the months they cover. An agent or user export counts for the month, in UTC, that its file arrived in `Files/landing/studio/`, or its `backfill/<YYYY-MM>/` folder's month. The API only sees environments with credits allocated. Without an entitlement snapshot, its credits count as prepaid | The tenant export already splits prepaid from pay-as-you-go credits, and each is priced at its rate. The licensing API gives one tenant-wide prepaid share, applied to every environment. Summed from users, billed credits are split by that share and non-billed credits count as prepaid. Effective rate = cost ÷ credits. Per-agent and per-user cost uses the pay-as-you-go rate |
 | **Azure** | Azure Cost Management export for the whole solution, or Azure AI Foundry spend by model | Actual billed cost, in the export's own currency. The rates don't apply. If neither export is loaded, the section says which to load and the other sections still work |
 
 **Rates & packs.** By default the rates come from the model, through the `commercial_terms` table

@@ -1,106 +1,113 @@
 # Install
 
-The installer sets everything up, on Fabric or Azure, then you check it worked. To set it up by
-hand instead, see [Manual install](MANUAL-INSTALL.md).
+The installer sets up Analytics Hub on Fabric or Azure. Check the [Prerequisites](PREREQUISITES.md)
+first. To set it up by hand instead, see [Manual install](MANUAL-INSTALL.md).
 
-Check the [Prerequisites](PREREQUISITES.md) first. Then start the installer one of these ways.
-They all run the same installer and ask the same questions.
-
-| Your PC | Start with |
-|---|---|
-| Windows 10 or 11 | [The PowerShell one-liner](#from-powershell) |
-| Windows, and you'd rather download a program | [The exe](#run-it) |
-| Windows, with a Node.js your IT team has approved | [IT-approved Node.js](#it-approved-nodejs) |
-| Locked down, or not Windows | [Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell) |
-| Nothing can run locally, and no Cloud Shell | Your IT team deploys it, for example with Intune or Configuration Manager, or you run it from an approved admin workstation |
-| A clone of this repo, with Node.js | [Without the exe](#without-the-exe) |
-
-If your organisation's policy blocks a route, don't work around it. Use another route, or ask
-your IT team.
-
-**Fabric or Azure.** The first question is where it runs: **Microsoft Fabric** or **Your Azure
-subscription** (`--target azure`). The steps are the same. On Azure, you pick a subscription,
-resource group, region and Power BI workspace instead of a capacity, workspace and secret. Only
-regions that pass the [region preflight](../installer/README.md#regions-and-images) are offered.
-For [private networking](../installer/README.md#networking), choose **Yes** for the advanced
-settings. More in [Azure target](../installer/README.md#azure-target).
-
-When it finishes: [Check it worked](#check-it-worked).
+```mermaid
+flowchart LR
+    A[Start it] --> B[Sign in] --> C[Answer questions<br>5 min] --> D[Approve the plan] --> E[Wait<br>15 min] --> F[Check it worked]
+```
 
 ## Run it
 
-1. Start the installer. Paste this into PowerShell (see [From PowerShell](#from-powershell)):
+1. **Start the installer.** Paste this into PowerShell:
 
    ```powershell
    irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
    ```
 
    Or [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe)
-   and open it. Both links always get the newest version. To check the exe, see
-   [Check the download](#check-the-download). If your organisation blocks either, use another
-   route in the table above.
-2. The first time, it takes about a minute to unpack. Then it opens in your browser. Keep its
-   window open while you use the page, and keep the PC awake and plugged in until it finishes. If
-   you close the page, go back to that window and press **Enter** to open it again.
-3. Choose **Set up Analytics Hub** and sign in.
-4. Answer the questions. This takes about 5 minutes:
-   1. **Data sources.** Each source has a card: **Connected (API)**, **Upload CSV** or **Skip**.
-      Copilot usage, licences and org data are always connected. Microsoft 365 activity is
-      connected by default; the rest are skipped until you choose otherwise. The **Copilot Studio
-      credits**, **Copilot Cowork credits** and **Azure AI costs** cards make up
-      [Credit consumption](../installer/README.md#credit-consumption). A CSV card says
-      where to export the file, and you can pick the exports to upload now. A source that needs
-      more to work asks for it next, such as the Power Platform environment for a flow. See
-      [Data sources and exports](../installer/README.md#data-sources-and-exports).
-   2. **Change the advanced settings?** **No** (the default) takes the defaults that suit most
-      organisations. See [Advanced settings](../installer/README.md#advanced-settings).
-   3. **Capacity and workspace.** A new workspace is named `Analytics Hub` and its Lakehouse
-      `Analytics_Hub`, or the next free name. F64 or larger is recommended for more than 10,000
-      people. An existing install keeps its names. On Azure: the subscription, resource group,
-      region and Power BI workspace.
-   4. **App registration:** create one, use your own (it's checked first), or let an admin
-      register it. See [If you can't register apps](../installer/README.md#if-you-cant-register-apps).
-   5. **Where the secret goes** (Fabric only): in the notebooks by default, with nothing in Azure.
-      Or a Key Vault you create or pick; if you can't write to it, a vault admin can add the
-      secret. See [Where the secret goes](../installer/README.md#where-the-secret-goes).
-5. Check the plan and approve it. Nothing is created until you do. The plan shows every setting,
-   including the defaults, and a **Costs** list of what's billed (the Fabric capacity, Power
-   Automate Premium for the flows, the Azure resources), with links to the pricing pages. The
-   installer stops Windows going to sleep while it runs.
-6. Wait for it to finish. Setting up takes about 15 minutes. The first data reaches the app about
-   25 minutes after you choose **Go ahead** with 30 days of history, or about 2 hours with 180 days
-   ([a large tenant](../installer/README.md#a-large-tenant) takes longer). Copilot Studio credits arrive after the Studio
-   flow's first run: see [Load the Studio credits now](../installer/README.md#power-automate-flows).
-7. When it finishes, open the link to the app.
+   and open it. Blocked? See [Other ways to start it](#other-ways-to-start-it).
+2. **Wait for your browser.** The first time, it takes about a minute to unpack. Keep its window
+   open, and keep the PC awake and plugged in, until the installer says setup is finished.
+3. **Choose Set up Analytics Hub** and sign in.
+4. **Choose where it runs:** **Microsoft Fabric** or **Your Azure subscription** (`--target azure`).
+5. **Answer the questions** (about 5 minutes):
+   - **Data sources.** Each has a card: **Connected (API)**, **Upload CSV** or **Skip**. A CSV card
+     says where to export the file. See
+     [Data sources and exports](../installer/README.md#data-sources-and-exports).
+   - **Advanced settings.** **No** keeps what you chose last time, or the defaults. See
+     [Advanced settings](../installer/README.md#advanced-settings).
+   - **Capacity, size and workspace**, or on Azure the subscription, resource group, region and
+     Power BI workspace. Either way, **About how many people work in your organisation?** starts
+     from the installer's count of everyone with a licence and an enabled account, not only those
+     with Copilot.
+   - **App registration.** Create one, use your own (it's checked first), or
+     [let an admin register it](../installer/README.md#if-you-cant-register-apps).
+   - **Where the secret goes** (Fabric only). In the notebooks by default, or a Key Vault (a vault
+     admin can add the secret if you can't). See
+     [Where the secret goes](../installer/README.md#where-the-secret-goes).
+6. **Approve the plan.** Nothing is created until you choose **Go ahead**. The installer stops
+   Windows going to sleep while it runs.
+7. **Wait** until the installer says setup is finished: about 15 minutes. The first load of audit
+   history then carries on in Fabric or Azure, so you can close the window, and `status` shows how
+   far it has got. See [How long it takes](PREREQUISITES.md#how-long-it-takes).
+8. **Open the app** from the link once the first load has finished (`status` shows it too), then
+   [check it worked](#check-it-worked).
 
-**Want to change an answer?** Choose **Back**, on any question or on the plan. It opens the
-previous question with your answer filled in, and the questions after it are asked again. If you
-go back to the client secret, leave the box empty to keep the one you pasted. If you go back
-further, you'll be asked for it again.
+<details>
+<summary><strong>Good to know</strong></summary>
 
-It keeps your answers in `Documents\Analytics Hub`, in an install record named
-`valuelens-install.json`. Keep that folder. To run the pipeline, check status, update, or repair
-the set-up later, start the installer again the same way. **Manage Analytics Hub** shows the record's full path. If
-OneDrive syncs your Documents folder, the record follows you to your other PCs.
+- **Change an answer.** Choose **Back** on any question or on the plan. Your answers are kept, and
+  the questions after it are asked again. If you go back to the client secret, leave the box empty
+  to keep the one you pasted. Go back further and you're asked for it again.
+- **The plan** shows every setting, including the defaults, and a **Costs** list of what's billed
+  (the Fabric capacity, Power Automate Premium for the flows, the Azure resources), with links to
+  the pricing pages.
+- **Data sources.** Copilot usage, licences and org data are always connected. Microsoft 365
+  activity is on by default; the rest are skipped until you choose otherwise. The **Copilot Studio
+  credits**, **Copilot Cowork credits** and **Azure AI costs** cards make up
+  [Credit consumption](../installer/README.md#credit-consumption). A source that needs more, such
+  as a Power Platform environment for a flow, asks for it next.
+- **Names.** A new workspace is named `Analytics Hub` and its Lakehouse `Analytics_Hub`, or the
+  next free name. New items are named after Analytics Hub, such as `Analytics Hub Model`,
+  `AnalyticsHub_Pipeline`, the `Analytics Hub SQL …` connection and the `Analytics Hub Data Collector` app registration. An install from
+  an earlier version keeps its names, such as `ValueLens Model`.
+- **Capacity.** F64 or larger is recommended for more than 10,000 people. On Azure, so is letting
+  Azure SQL carry on past its free allowance, for about $30-80 a month. The plan shows the cost. A
+  [large tenant](../installer/README.md#a-large-tenant) takes longer to load.
+- **Azure.** Only regions that pass the [region preflight](../installer/README.md#regions-and-images)
+  are offered. For [private networking](../installer/README.md#networking), choose **Yes** for the
+  advanced settings. More in [Azure target](../installer/README.md#azure-target).
+- **The first load.** The plan estimates it beside the history question. On Fabric, a new install
+  reads the last 7 days from the Office 365 Management Activity API, in one run, and loads older
+  days only if you turn on Graph history. Read from the Microsoft Graph audit search, as Azure
+  does, 30 days of history for up to 10,000 people take 1 to 2 hours on Fabric and 2 to 3 hours
+  on Azure; a [large tenant](../installer/README.md#a-large-tenant) takes longer, and days on
+  Fabric. On Fabric, if you keep the installer open, it checks the data when the load finishes
+  and lists what's left.
+- **Copilot Studio credits** arrive after the Studio flow's first run. See
+  [Load the Studio credits now](../installer/README.md#power-automate-flows).
+- **A workspace that already has things in it.** The installer never changes anything it didn't
+  create. If a name is taken, its own item gets the next free name, such as
+  `AnalyticsHub_Pipeline_2` or `Analytics Hub 2`. The plan shows the names first.
+- **The install record.** Your answers are kept in `Documents\Analytics Hub\valuelens-install.json`.
+  Keep that folder. Start the installer again the same way to run the pipeline, check status,
+  update or repair. **Manage Analytics Hub** shows the record's path. If OneDrive syncs your
+  Documents folder, the record follows you to your other PCs.
+- **The workspace has gone.** After you sign in, the installer checks the record's workspace still
+  exists. If Fabric says it doesn't, or the record is for another tenant, choose **Start fresh**
+  (the old record is kept, renamed with the date and time, such as
+  `valuelens-install.20260507-090302.json`) or **Keep this record**. In the terminal, `install`
+  asks. If Fabric can't be reached, or you can't read the workspace, nothing changes.
+- **If you close the page,** go back to the installer's window and press **Enter**.
+- **Updates.** See [Update or remove](UPDATE.md).
 
-**The workspace has gone?** After you sign in, the installer checks that the record's workspace
-still exists. If Fabric says it doesn't, or the record is for another tenant, the home page says
-so. Choose **Start fresh** to set up again. The old record is kept beside the new one, renamed
-with the date and time, such as `valuelens-install.20260507-090302.json`. Or choose **Keep this
-record** to carry on with it. In the terminal, `install` asks whether to start fresh. If Fabric
-can't be reached, or you can't read the workspace, nothing changes.
+</details>
 
-**Updates.** See [Update or remove](UPDATE.md).
+## Other ways to start it
 
-**Using a workspace that already has things in it?** The installer never changes anything it
-didn't create. If one of its names is taken, its own item gets the next free name, such as
-`AnalyticsHub_Pipeline_2` or `Analytics Hub 2`. The plan shows the names before you approve it.
+They all run the same installer and ask the same questions. If your organisation's policy blocks
+a route, don't work around it. Use another route, or ask your IT team.
 
-**Item names.** A new install names its items after Analytics Hub: `Analytics Hub Model`,
-`AnalyticsHub_Pipeline`, the `Analytics Hub SQL …` connection and the `Analytics Hub Data Collector`
-app registration. An install from an earlier version keeps the names it already has, such as
-`ValueLens Model`.
-
+| Your PC | Start with |
+|---|---|
+| Windows 10 or 11 | [The PowerShell one-liner](#from-powershell) |
+| Windows, and you'd rather download a program | [The exe](#run-it). To check it, see [Check the download](#check-the-download) |
+| Windows, with a Node.js your IT team has approved | [IT-approved Node.js](#it-approved-nodejs) |
+| Locked down, or not Windows | [Azure Cloud Shell](#locked-down-tenant--azure-cloud-shell) |
+| Nothing can run locally, and no Cloud Shell | Your IT team deploys it, for example with Intune or Configuration Manager, or you run it from an approved admin workstation |
+| A clone of this repo, with Node.js | [Without the exe](#without-the-exe) |
 ## Check it worked
 
 1. **Read the Done page.** It lists what's left, as cards: who does each step and a message to
@@ -109,8 +116,9 @@ app registration. An install from an earlier version keeps the names it already 
    skipped or still running. A failed card says why and what to do. On Fabric, the same is in the
    Lakehouse table `dbo.load_log`. See [Load status and reruns](../installer/README.md#load-status-and-reruns).
 3. **Check status.** Open the installer again and choose **Check status** (`status`): recent runs,
-   model refreshes, secret expiry and the last data check. On Azure it also shows the job runs,
-   the web app's URL and pending admin actions. It changes nothing.
+   model refreshes, secret expiry and the last data check. It shows how much audit history has
+   loaded, and a load of history that couldn't start, with its command. On Azure it also shows the
+   job runs, the web app's URL and pending admin actions. It changes nothing.
 4. **Check the data** (Fabric). **Check the data** (`check`) reads the Lakehouse tables for row
    counts, date ranges and licence matches, without running the pipeline.
 5. **Open the app.** Open the link the installer gives you. Each page lists the latest date each
@@ -176,7 +184,7 @@ A matching hash confirms the file is the one in the release. It doesn't confirm 
 it: the exe and `install.ps1` aren't code-signed yet. On a PC your organisation doesn't manage,
 Edge may say the exe isn't commonly downloaded, and Windows SmartScreen may say it protected your
 PC. On a managed PC, if policy blocks the exe, use the [PowerShell one-liner](#from-powershell) or
-another route in the table at the top, or ask your IT team.
+another route in [Other ways to start it](#other-ways-to-start-it), or ask your IT team.
 
 ## From PowerShell
 
@@ -207,7 +215,7 @@ again to pick up a new version; it removes the old one.
   `.\install.ps1 -ZipPath .\AnalyticsHubInstaller.zip`. Anything after the options goes to the
   installer, for example `... -ZipPath .\AnalyticsHubInstaller.zip status`.
 - **If policy blocks it.** If execution policy, endpoint protection or another control blocks
-  `irm | iex` or the script, don't work around it. Use another route in the table at the top, or
+  `irm | iex` or the script, don't work around it. Use another route in [Other ways to start it](#other-ways-to-start-it), or
   ask your IT team.
 - **Behind a proxy.** It uses the system proxy. To name one, signed in as you, run
   `$env:ANALYTICS_HUB_PROXY = 'http://proxy:8080'` first. If the proxy blocks GitHub's download host,
@@ -298,7 +306,9 @@ minute or two.
   on from a PC later, put the record in `Documents\Analytics Hub`.
 - **Idle timeout.** Cloud Shell ends a session after 20 minutes without input. If that stops the
   installer, run the same command again: it reuses what's in the install record, skips finished
-  steps and doesn't create a second app. `--no-wait` saves waiting for the first load.
+  steps and doesn't create a second app. With `--no-wait` the installer doesn't wait for the
+  first load: it stops once setup is finished, and the load carries on in Fabric or Azure. Run
+  `status` later to see how far it has got.
 - **The app.** The installer builds the app from source in Cloud Shell and deploys it with your
   installer sign-in, so Rayfin doesn't open a browser. The build needs a few hundred MB in your
   home folder (Cloud Shell gives you 5 GB). If deploying fails, copy the install record to a
@@ -327,3 +337,8 @@ options. The exe takes the same commands, for example `AnalyticsHubInstaller.exe
 `install --yes` keeps the secret in the notebooks for a new Fabric install; read
 [the trade-off](../installer/README.md#where-the-secret-goes) first, and add `--key-vault` to use Key Vault instead.
 `--secret-days <n>` sets how long the secret in the notebooks lasts.
+On Azure, `install --target azure --yes` stops before anything is deployed for a new install of
+more than 10,000 people, until you choose what Azure SQL does when the free offer's monthly
+allowance runs out. Add `--sql-scale-up` to carry on past it (about $30-80 a month), or
+`--sql-free-offer` to keep the free offer, which pauses the database and the jobs until next month.
+See [A large tenant on Azure](../installer/README.md#a-large-tenant-on-azure).

@@ -61,6 +61,7 @@ export const ACCESS_INVENTORY = {
       'Defender AI Agents',
       'Defender Status',
       'Agent Configuration',
+      'Agent Detail',
       'Power Platform Environments',
       'Agent Flows',
       'Foundry Resources',

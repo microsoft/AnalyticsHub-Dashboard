@@ -26,6 +26,7 @@ export const RUN_PARAMETERS = {
   AuditMode: { type: 'String', defaultValue: 'incremental' },
   BackfillDays: { type: 'Int', defaultValue: 30 },
   ProcessorWriteMode: { type: 'String', defaultValue: 'merge' },
+  AuditGraphHistory: { type: 'Boolean', defaultValue: false },
 };
 
 /** Notebook parameters bound to the pipeline parameters above, per activity. */
@@ -33,6 +34,7 @@ const BINDINGS = {
   Run_Audit_Log_Ingester: {
     MODE: { parameter: 'AuditMode', type: 'string' },
     BACKFILL_DAYS: { parameter: 'BackfillDays', type: 'int' },
+    GRAPH_FOR_HISTORY: { parameter: 'AuditGraphHistory', type: 'bool' },
   },
   Run_Audit_Log_Processor: {
     WRITE_MODE: { parameter: 'ProcessorWriteMode', type: 'string' },
@@ -605,7 +607,7 @@ export function buildPipeline(template, settings) {
       notebookStep(settings, {
         key: 'resourceGraph',
         name: RESOURCE_GRAPH_ACTIVITY,
-        description: 'Reads Copilot Studio agent configuration, Power Platform environments, agent flows and Foundry resources from Azure Resource Graph, or the agent inventory flow\'s newest file in Files/arg_inventory. Writes arg_agent_config, arg_environments, arg_agent_flows, arg_foundry_resources and arg_status; what it can\'t read is recorded there, not failed.',
+        description: 'Reads Copilot Studio agent configuration, Power Platform environments, agent flows and Foundry resources from Azure Resource Graph, or the agent inventory flow\'s newest file in Files/arg_inventory. Writes arg_agent_config, arg_agent_detail (with each owner\'s account state from Microsoft Graph), arg_environments, arg_agent_flows, arg_foundry_resources and arg_status; what it can\'t read is recorded there, not failed.',
         timeout: '0.00:30:00',
       }),
     );
@@ -661,6 +663,7 @@ export function buildPipeline(template, settings) {
     `Each load retries up to 3 times, ${RETRY_INTERVAL_SECONDS / 60} minutes apart. ` +
     'Scheduled runs use the parameter defaults (incremental audit load, merge into the curated table). ' +
     'The first run overrides them with AuditMode=backfill and ProcessorWriteMode=overwrite. ' +
+    'AuditGraphHistory=true, set by the installer only on backfill runs when chosen, reads the days the audit source does not hold from the Graph audit search. ' +
     `${settings.modules.consumption && settings.coworkDataflowId ? `The installer's first load sets ${SKIP_COWORK_PARAMETER}=true only when the Cowork Dataflow isn't signed in yet; scheduled runs keep it false and refresh the Dataflow. ` : ''}` +
     'Re-run the installer with "update" to pick up new notebook and pipeline versions.';
   return filled;
@@ -720,7 +723,8 @@ function replacePlaceholders(value, ids) {
 /**
  * Parameters for the first run: a backfill that rebuilds the curated table.
  * @param {number} days
+ * @param {boolean} [graphHistory]  Read the days the audit source doesn't hold from the Graph audit search.
  */
-export function firstRunParameters(days) {
-  return { AuditMode: 'backfill', BackfillDays: days, ProcessorWriteMode: 'overwrite' };
+export function firstRunParameters(days, graphHistory = false) {
+  return { AuditMode: 'backfill', BackfillDays: days, ProcessorWriteMode: 'overwrite', ...(graphHistory ? { AuditGraphHistory: true } : {}) };
 }

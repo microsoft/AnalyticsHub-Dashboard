@@ -94,7 +94,7 @@ describe("packFilters and packSources", () => {
 
 describe("destinationPack", () => {
     it("holds every stage of the page", () => {
-        expect(destinationPack(stageDestination("glossary")).stages).toEqual(["glossary", "signal-impact"]);
+        expect(destinationPack(stageDestination("glossary")).stages).toEqual(["glossary", "signal-impact", "grading-method"]);
     });
 });
 

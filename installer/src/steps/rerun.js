@@ -250,7 +250,7 @@ export function runParameters(definition, config, jobId) {
   /** @type {Record<string, any>} */
   const out = {};
   for (const [k, p] of Object.entries(definition?.properties?.parameters ?? {})) out[k] = /** @type {any} */ (p)?.defaultValue;
-  return config.firstRun?.jobId === jobId ? { ...out, ...firstRunParameters(config.history.days) } : out;
+  return config.firstRun?.jobId === jobId ? { ...out, ...firstRunParameters(config.history.days, !!config.firstRun.graphHistory) } : out;
 }
 
 /**

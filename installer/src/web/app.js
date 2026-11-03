@@ -74,6 +74,12 @@ const COMMANDS = {
     desc: 'Read the Lakehouse tables again for row counts, date ranges and licence matches, without running the pipeline. Takes a few minutes.',
     off: 'The data check notebook isn\'t deployed.',
   },
+  'check-audit': {
+    title: 'Check audit ingestion', short: 'Check audit', icon: 'shield', section: 'Audit check',
+    row: 'Check audit ingestion', button: 'Check audit',
+    desc: 'Check the selected audit sources as the app. The Management Activity API (and Sentinel, if chosen) are read without starting anything; Graph runs a small audit search. Says who fixes what it finds. Changes nothing.',
+    off: 'There is no app registration yet.',
+  },
   update: {
     title: 'Update Analytics Hub', short: 'Update', icon: 'upload', section: 'Update', adopt: true,
     row: 'Update', button: 'Update',
@@ -116,7 +122,7 @@ const COMMANDS = {
     desc: 'See which roles, licences, capacities and Azure access you have and which are missing. Changes nothing.',
   },
 };
-const ROW_ORDER = ['run', 'rerun-failed', 'load-cowork', 'refresh', 'status', 'upload', 'check', 'update', 'deploy-app', 'access', 'rotate-secret', 'uninstall', 'install'];
+const ROW_ORDER = ['run', 'rerun-failed', 'load-cowork', 'refresh', 'status', 'upload', 'check', 'check-audit', 'update', 'deploy-app', 'access', 'rotate-secret', 'uninstall', 'install'];
 /** The id of the Cowork Dataflow card in steps/next-steps.js. */
 const COWORK_STEP_ID = 'cowork-dataflow';
 
@@ -1346,6 +1352,7 @@ function renderReview(plan) {
   const fresh = plan.creates.filter((c) => c.isNew).length;
   const kept = plan.creates.length - fresh;
   return h('div', { class: 'review' },
+    plan.sizedFor ? h('p', { class: 'rv-sized' }, h('strong', null, 'Sized for: '), plan.sizedFor) : null,
     h('section', { class: 'rv' },
       h('div', { class: 'rv-head' }, h('h2', null, 'What it creates'), h('span', { class: 'sec-n' }, `${fresh} new${kept ? `, ${kept} already there` : ''}`)),
       table(['Item', 'Name', ''], plan.creates.map((c) => h('tr', null,
@@ -1595,7 +1602,7 @@ function renderHome() {
         history),
       h('button', {
         type: 'button', class: cmd === primary ? 'btn primary' : 'btn', disabled: !can || busy,
-        onclick: () => start(cmd, cmd === 'run' && app.backfill ? { backfillDays: Number(app.backfill) } : {}),
+        onclick: () => start(cmd, cmd === 'run' && app.backfill ? backfillRequest(app.backfill) : {}),
       }, c.button));
   });
   kids.push(h('section', { class: 'panel' },
@@ -1611,16 +1618,25 @@ const BACKFILL = [
   { value: '30', name: 'Reload the last 30 days of audit history' },
   { value: '90', name: 'Reload the last 90 days of audit history' },
   { value: '180', name: 'Reload the last 180 days of audit history' },
+  { value: '90:graph', name: 'Reload 90 days, older than 7 from Microsoft Graph audit search' },
+  { value: '180:graph', name: 'Reload 180 days, older than 7 from Microsoft Graph audit search' },
 ];
+
+/** The run request for a history choice: "90:graph" also reads the older days from Graph, this run only. */
+function backfillRequest(value) {
+  const [days, graph] = String(value).split(':');
+  return { backfillDays: Number(days), ...(graph === 'graph' ? { graphHistory: true } : {}) };
+}
 
 /** Run now can reload older audit history, like run --backfill-days. */
 function historyPicker(busy) {
   const hint = h('span', { class: 'row-desc', id: 'backfill-hint' });
   const paint = () => {
-    const n = Number(app.backfill || 0);
+    const n = Number(String(app.backfill || '0').split(':')[0]);
+    const graph = String(app.backfill || '').endsWith(':graph');
     hint.textContent = n >= 90
-      ? `In a large tenant, ${n} days can take several hours to load. The usual schedule carries on afterwards.`
-      : n ? 'Reloads these days and rebuilds the curated table, then runs the data check.' : '';
+      ? `In a large tenant, ${n} days can take several hours to load${graph ? ', and longer from Graph audit search' : ''}. The usual schedule carries on afterwards.`
+      : n ? 'Reloads these days (older days are kept) and rebuilds the curated table, then runs the data check.' : '';
     hint.hidden = !n;
   };
   const sel = h('select', { id: 'backfill', class: 'field', disabled: busy, 'aria-describedby': 'backfill-hint' },
@@ -1729,11 +1745,50 @@ function renderRail() {
       icon(dark ? 'sun' : 'moon'), dark ? 'Light theme' : 'Dark theme'),
     h('button', {
       type: 'button', class: 'foot-btn', 'data-key': 'close', disabled: running, title: running ? 'Wait for the current command to finish' : null, onclick: quit,
-    }, icon('power'), 'Close installer'));
+    }, icon('power'), 'Close installer'),
+    h('button', { type: 'button', class: 'foot-link', 'data-key': 'support', onclick: supportFile }, 'Having trouble? Create a support file'));
 
   rail.classList.toggle('open', app.railOpen);
   rail.replaceChildren(top, dests, foot);
   if (focusKey) rail.querySelector(`[data-key="${focusKey}"]`)?.focus();
+}
+
+/* ---------- Support file ---------- */
+
+// Shows what's in the support file before the customer downloads and sends it.
+async function supportFile() {
+  if (app.supportBusy) return;
+  app.supportBusy = true;
+  announce('Making the support file…');
+  const r = await post('/api/support-file');
+  app.supportBusy = false;
+  if (!r.ok) {
+    announce(r.body?.error ?? 'The support file wasn\'t made. Try again.');
+    return;
+  }
+  const { name, files, zip } = r.body;
+  const save = () => {
+    const bytes = Uint8Array.from(atob(zip), (ch) => ch.charCodeAt(0));
+    const url = URL.createObjectURL(new Blob([bytes], { type: 'application/zip' }));
+    const a = h('a', { href: url, download: name, hidden: true });
+    document.body.append(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 2000);
+  };
+  const dlg = h('dialog', { class: 'support', 'aria-labelledby': 'support-title' },
+    h('h2', { id: 'support-title' }, 'Support file'),
+    h('p', { class: 'sub' }, 'Secrets are removed, and people\'s names and email addresses are hashed. There are no data rows, only row counts. Check what\'s inside, then download it and email it to us.'),
+    h('ul', { class: 'support-files' }, files.map((f) => h('li', null,
+      h('details', null,
+        h('summary', null, f.name, h('span', { class: 'support-size' }, `${f.bytes.toLocaleString()} bytes`)),
+        h('pre', null, f.text))))),
+    h('div', { class: 'support-actions' },
+      h('button', { type: 'button', class: 'btn', onclick: () => dlg.close() }, 'Close'),
+      h('button', { type: 'button', class: 'btn primary', onclick: save }, `Download ${name}`)));
+  dlg.addEventListener('close', () => dlg.remove());
+  document.body.append(dlg);
+  dlg.showModal();
 }
 
 /* ---------- Views, scrolling and following ---------- */
@@ -1867,6 +1922,7 @@ const cell = (s) => String(s ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ');
 
 function reviewMarkdown(plan) {
   const L = [];
+  if (plan.sizedFor) L.push(`**Sized for:** ${plan.sizedFor}`, '');
   L.push('### What it creates', '', '| Item | Name | | Details |', '|---|---|---|---|');
   for (const c of plan.creates) L.push(`| ${cell(c.kind)} | ${cell(c.name)} | ${c.isNew ? 'New' : 'Already there'} | ${cell(c.detail)} |`);
   L.push('', '### Access it grants', '', '| Who | Gets | On | Details |', '|---|---|---|---|');

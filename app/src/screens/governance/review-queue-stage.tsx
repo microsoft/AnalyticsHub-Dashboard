@@ -17,20 +17,28 @@ import { gridHeight } from "@/lib/chart-height";
 import { columnHeat, heatRenderer } from "@/lib/heat";
 import { listTotal } from "@/lib/list-total";
 import { formatCell, textCell } from "@/lib/tree-grid";
-import { governanceReviewQueue } from "@/queries/governance";
+import { governanceReviewQueue, type GovernanceMode } from "@/queries/governance";
+import { WithoutAgent365Note } from "./without-agent-365-note";
 
-const REVIEW_QUEUE = governanceReviewQueue();
+const REVIEW_QUEUE = {
+    registry: governanceReviewQueue("registry"),
+    registryOwnerFallback: governanceReviewQueue("registryOwnerFallback"),
+    resourceGraph: governanceReviewQueue("resourceGraph"),
+} satisfies Record<GovernanceMode, unknown>;
 
 const whole = formatCell("whole");
 
 /**
  * Every tenant-built agent with at least one governance flag, the weightiest
  * flags first, then the most flagged and most used, so the review starts
- * where it matters most.
+ * where it matters most. Without Agent 365 (`resourceGraph`), the Copilot
+ * Studio agents Azure Resource Graph loads, with their owner in place of
+ * the creator.
  */
-export function ReviewQueueStage() {
+export function ReviewQueueStage({ mode = "registry" }: { mode?: GovernanceMode }) {
     const { theme } = useThemeContext();
-    const queue = useTableQuery(REVIEW_QUEUE);
+    const standalone = mode === "resourceGraph";
+    const queue = useTableQuery(REVIEW_QUEUE[mode]);
     const rows = queue.table?.rows.length ?? 0;
     const total = listTotal(queue.table);
 
@@ -39,7 +47,7 @@ export function ReviewQueueStage() {
             { id: "Agent", header: "Agent", width: 240, cellRenderer: textCell },
             { id: "Flags", header: "Why it's here", width: 300, cellRenderer: textCell },
             { id: "Type", header: "Type", width: 140, cellRenderer: textCell },
-            { id: "Creator", header: "Creator", width: 200, cellRenderer: textCell },
+            { id: "Creator", header: standalone ? "Owner" : "Creator", width: 200, cellRenderer: textCell },
             { id: "Owner Account", header: "Owner account", width: 128, cellRenderer: textCell },
             { id: "Sharing Scope", header: "Shared with", width: 180, cellRenderer: textCell },
             { id: "Data Access", header: "Can read", width: 160, cellRenderer: textCell },
@@ -51,7 +59,7 @@ export function ReviewQueueStage() {
                 cellRenderer: heatRenderer({ domain: columnHeat(queue.table, "Users"), format: whole }),
             },
         ],
-        [queue.table],
+        [queue.table, standalone],
     );
 
     return (
@@ -60,11 +68,16 @@ export function ReviewQueueStage() {
             title="Review queue"
             description="Every agent built here that needs a look, the most serious flags first, then the most used."
         >
+            {standalone && <WithoutAgent365Note />}
             <Panel
                 result={queue}
                 height={gridHeight(rows)}
                 emptyTitle="Nothing needs a review"
-                emptyDescription="No agent built in this tenant carries a governance flag for these filters."
+                emptyDescription={
+                    standalone
+                        ? "No Copilot Studio agent carries a governance flag for these filters."
+                        : "No agent built in this tenant carries a governance flag for these filters."
+                }
             >
                 {(table) => (
                     <DataGrid

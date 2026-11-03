@@ -6,7 +6,7 @@
 //-----------------------------------------------------------------------
 
 import { describe, it, expect } from "vitest";
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { useCssTheme } from "@microsoft/fabric-visuals";
 import App from "@/App";
@@ -57,5 +57,34 @@ describe("App", () => {
         expect(link).toHaveAttribute("href", "https://github.com/Keithland89");
         expect(link).toHaveAttribute("target", "_blank");
         expect(link).toHaveAttribute("rel", "noreferrer");
+    });
+
+    it("opens the view a link names, and keeps it in the URL", () => {
+        window.history.replaceState(null, "", "/#/value");
+        render(
+            <Harness>
+                <App />
+            </Harness>,
+        );
+        const sidebar = screen.getByRole("navigation", { name: "Sections" });
+        expect(within(sidebar).getByRole("link", { name: "Value" })).toHaveAttribute("aria-current", "page");
+        expect(window.location.hash).toMatch(/^#\/value/);
+    });
+
+    it("puts each view in the history, so Back returns to the last one", async () => {
+        render(
+            <Harness>
+                <App />
+            </Harness>,
+        );
+        const sidebar = screen.getByRole("navigation", { name: "Sections" });
+        fireEvent.click(within(sidebar).getByRole("link", { name: "Adoption" }));
+        expect(window.location.hash).toMatch(/^#\/adoption/);
+        fireEvent.click(within(sidebar).getByRole("link", { name: "Value" }));
+        expect(window.location.hash).toMatch(/^#\/value/);
+
+        window.history.back();
+        await waitFor(() => expect(within(sidebar).getByRole("link", { name: "Adoption" })).toHaveAttribute("aria-current", "page"));
+        expect(window.location.hash).toMatch(/^#\/adoption/);
     });
 });

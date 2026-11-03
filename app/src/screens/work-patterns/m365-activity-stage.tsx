@@ -194,6 +194,7 @@ export function M365ActivityStage({ concealed }: M365ActivityStageProps) {
                 ) : (
                     <Headlined text={trendHeadline}>
                         <VegaVisual
+                            label="Which workloads people use, week by week"
                             spec={TREND.vegaLiteSpec}
                             data={trendTable}
                             theme={theme}
@@ -221,6 +222,7 @@ export function M365ActivityStage({ concealed }: M365ActivityStageProps) {
                     ) : (
                         <Headlined text={reachHeadline}>
                             <VegaVisual
+                                label="How far each workload reaches"
                                 spec={REACH.vegaLiteSpec}
                                 data={reachTable}
                                 theme={theme}

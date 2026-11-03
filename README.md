@@ -1,82 +1,126 @@
-# Analytics Hub for Microsoft Copilot
+<div align="center">
 
-See how your organisation uses Microsoft 365 Copilot and agents, and the hours and value they
-deliver.
+<br>
+
+# 📊 Analytics Hub for Microsoft Copilot
+
+**See how your organisation uses Microsoft 365 Copilot and agents, and the hours and value they deliver.**
+
+<br>
+
+All reports and guides can be found on the [Analytics Hub site](https://microsoft.github.io/Analytics-Hub/).
+
+**Want a more targeted report?** [ValueLens](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot)
+covers the adoption and value parts of Analytics Hub, and
+[Consumption Central](https://github.com/microsoft/ConsumptionCentral-for-Microsoft-Copilot) covers
+credit consumption and cost.
+
+<br>
+
+**Found this useful? ⭐ Star this repo to help others discover it!**
+
+<br>
+
+**[Before you start](#before-you-start)** &nbsp;·&nbsp; **[Installer](#installer)** &nbsp;·&nbsp; **[Manual](#manual)** &nbsp;·&nbsp; **[After setup](#after-setup)**
+
+<br>
+
+</div>
+
+## Videos
 
 [![Analytics Hub preview](media/AnalyticsHub-Preview.gif)](docs/APP-GUIDE.md)
 
-**Watch first: the app, page by page** *(silent, about 2 minutes, sample data)*
+**The app, page by page** *(silent, about 2 minutes, sample data)*
 
 https://github.com/user-attachments/assets/b415625d-c2ae-467f-9a91-59ef9adca6c8
 
-## Getting started
 
-Pick a path. Both load the data and publish the models.
+<a id="what-you-get"></a>
 
-| | [**1. Fabric**](1-fabric/) (recommended) | [**2. Azure**](2-azure/) |
-|---|---|---|
-| **You need** | A Fabric capacity, F2 or larger, or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager) | An Azure subscription or resource group, and a Power BI workspace |
-| **Set up with** | The installer, or by hand | The installer, or by hand |
-| **Takes** | About 20 minutes. The first data arrives about 25 minutes after **Go ahead** | The same as Fabric |
-| **Costs** | The Fabric capacity | About $5–40 a month for a small tenant |
+## What you get
 
-<a id="architecture-and-running-costs"></a>
-Analytics Hub itself is free. See [Architecture and costs](docs/ARCHITECTURE.md).
+- An app and Power BI reports on Copilot and agent use, value and cost.
+- Fresh data every day, kept in your own tenant.
+- Analytics Hub is free. You pay for the Fabric capacity or Azure resources it runs on.
 
-<a id="automatic-the-installer"></a><a id="fabric-or-azure"></a>
+<a id="getting-started"></a>
 
-## Path 1: Fabric
+## Before you start
 
-**Installer**
+- [ ] A Fabric capacity (F2+ or a [free trial](https://learn.microsoft.com/fabric/fundamentals/fabric-trial#method-1-start-a-new-trial-capacity-from-the-account-manager)), or Owner on an Azure subscription or resource group.
+- [ ] Power BI Pro.
+- [ ] Rights to register an app in Entra, or an admin who can.
+- [ ] A few minutes from your admins. Send each one [their row](docs/PREREQUISITES.md#at-a-glance).
+- [ ] A Windows 10 or 11 PC. No admin rights needed.
 
-1. Send each admin their row of the [prerequisites](docs/PREREQUISITES.md), Fabric column.
-2. [Run the installer](#run-the-installer). Choose **Microsoft Fabric**.
-3. [Check it worked](docs/INSTALL.md#check-it-worked). The Done page lists anything left to do, and
-   who does it.
+<a id="fabric-or-azure"></a><a id="architecture-and-running-costs"></a>
 
-<a id="manual-step-by-step"></a>
-**By hand** · [🎥 Watch it first](fabric/README.md#set-it-up-by-hand)
+Not sure? Pick [Fabric](1-fabric/). [Azure](2-azure/) costs about $5–40 a month for a small tenant
+([costs](docs/ARCHITECTURE.md)). Full list: [Prerequisites](docs/PREREQUISITES.md).
 
-1. [Prerequisites](docs/MANUAL-INSTALL.md#1-prerequisites): the Fabric ones, plus an app
-   registration, a Lakehouse and Power BI Desktop.
-2. [Install](docs/MANUAL-INSTALL.md#2-install): the notebooks, the report and the pipeline. The app
-   is optional.
-3. [Check it worked](docs/MANUAL-INSTALL.md#3-verify): the pipeline run, the data and the report.
+## Choose your path
 
-## Path 2: Azure
-
-**Installer**
-
-1. Send each admin their row of the [prerequisites](docs/PREREQUISITES.md), Azure column.
-2. [Run the installer](#run-the-installer). Choose **Your Azure subscription**.
-3. [Check it worked](docs/INSTALL.md#check-it-worked). The Done page lists anything left to do, and
-   who does it.
-
-**By hand:** [seven steps in Azure Cloud Shell](docs/MANUAL-INSTALL.md#azure), with no installer.
-They need a release that includes them: **Get the files** checks for one.
-
-## Run the installer
-
-On Windows 10 or 11, paste this into PowerShell. It needs no admin rights, and opens the steps in
-your browser:
-
-```powershell
-irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+```mermaid
+flowchart LR
+    A[Before you start] --> B{Can you run<br>the installer?}
+    B -- "Yes (recommended)" --> C[Installer<br>about 20 min]
+    B -- No --> D[Manual<br>step by step]
+    C --> E[Check it worked]
+    D --> E
 ```
 
-Or [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe) and open it.
+| Path | Suits |
+|---|---|
+| **[Installer](#installer)** (recommended, fastest) | Most people. It sets everything up and tells you what's left. |
+| **[Manual](#manual)** (step by step) | You can't run the installer, or want to see each piece. |
 
-Blocked? Use an [IT-approved Node.js](docs/INSTALL.md#it-approved-nodejs) or
-[Azure Cloud Shell](docs/INSTALL.md#locked-down-tenant--azure-cloud-shell), or ask your IT team.
-Don't work around the policy. To check a download, see
-[Check the download](docs/INSTALL.md#check-the-download). More in [Install](docs/INSTALL.md).
+<a id="automatic-the-installer"></a><a id="run-the-installer"></a>
+
+## Installer
+
+1. Paste this into PowerShell, or [download the exe](https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/AnalyticsHubInstaller.exe):
+
+   ```powershell
+   irm https://github.com/microsoft/AnalyticsHub-Dashboard/releases/latest/download/install.ps1 | iex
+   ```
+
+2. In your browser, choose **Set up Analytics Hub** and sign in.
+3. Choose **Microsoft Fabric** or **Your Azure subscription**.
+4. Answer the questions (about 5 minutes).
+5. Check the plan and choose **Go ahead**. Keep the PC awake.
+6. Do what the Done page lists, then [check it worked](docs/INSTALL.md#check-it-worked).
+
+Blocked by IT policy? Don't work around it. See [other ways to run it](docs/INSTALL.md).
+
+<a id="manual-step-by-step"></a>
+
+## Manual
+
+**Fabric** ([watch the video](fabric/README.md#set-it-up-by-hand) first):
+
+1. [Prerequisites](docs/MANUAL-INSTALL.md#1-prerequisites)
+2. [Load the data](fabric/notebooks/README.md)
+3. [Publish the report](fabric/notebooks/README.md#load-the-data)
+4. [Schedule the pipeline](fabric/pipelines/README.md)
+5. [Deploy the app](app/README.md#deploy-it-by-hand) (optional)
+6. [Check it worked](docs/MANUAL-INSTALL.md#3-verify)
+
+**Azure:** [seven steps in Azure Cloud Shell](docs/MANUAL-INSTALL.md#azure).
 
 ## After setup
 
-[Update or remove](docs/UPDATE.md) · [Troubleshooting](docs/TROUBLESHOOTING.md) ·
-[FAQ](docs/FAQ.md) · [Release notes](CHANGELOG.md)
+- **Refresh:** automatic, every day. To run it now, start the installer again.
+- **Update or remove:** [Update](docs/UPDATE.md).
+- **Help:** [Troubleshooting](docs/TROUBLESHOOTING.md) · [FAQ](docs/FAQ.md) ·
+  [open an issue](https://github.com/microsoft/AnalyticsHub-Dashboard/issues).
 
-## Disclaimer
+---
+
+<a id="disclaimer"></a>
+
+<details>
+<summary><strong>Disclaimer</strong></summary>
 
 - **This isn't the official Copilot report.** The official sources are the
   [Microsoft 365 admin center Copilot usage reports](https://learn.microsoft.com/en-us/microsoft-365/admin/activity-reports/microsoft-365-copilot-usage)
@@ -87,35 +131,29 @@ Don't work around the policy. To check a download, see
   Fabric workspace or Azure subscription. The retention, deletion and other policies you set in
   Purview, Microsoft 365, Entra ID and the other sources don't apply to those copies. Managing that
   data and meeting your organisation's requirements is up to you.
+- **Usage and compliance.** Microsoft has no visibility into the data you put in, nor control over
+  how the tool is used. You're responsible for making sure your use complies with all applicable
+  laws and regulations, including data privacy and security. Microsoft disclaims all liability
+  arising from use of this tool.
+- **Experimental.** It isn't supported through Microsoft support channels. Please open an issue in
+  this repo.
 
-<a id="what-you-get"></a><a id="why-its-more-than-the-built-in-reports"></a><a id="what-you-can-do-with-it"></a><a id="optional-add-ons"></a><a id="what-data-is-collected"></a><a id="power-bi-reports"></a><a id="documentation"></a><a id="whats-here"></a><a id="repository-layout"></a><a id="copilot-managed-app-preview"></a>
+</details>
 
-## Reference
-
-What you get, the data, costs, permissions and every other page: **[docs](docs/README.md)**.
-
-## Help
-
-[Open an issue](https://github.com/microsoft/AnalyticsHub-Dashboard/issues) ·
-[Support](SUPPORT.md) · [Report a vulnerability](SECURITY.md) · [Contributing](CONTRIBUTING.md) ·
-[MIT licence](LICENSE)
-
-Created by [Keith McGrane](https://github.com/Keithland89).
-
-To contribute, open a pull request against `main`. Keith reviews and approves every change, and
-only Keith creates release tags. See [Contributing](CONTRIBUTING.md#reviews-and-releases).
+<a id="reference"></a><a id="troubleshooting"></a><a id="why-its-more-than-the-built-in-reports"></a><a id="what-you-can-do-with-it"></a><a id="optional-add-ons"></a><a id="what-data-is-collected"></a><a id="power-bi-reports"></a><a id="documentation"></a><a id="whats-here"></a><a id="repository-layout"></a><a id="copilot-managed-app-preview"></a><a id="help"></a>
 
 <details>
-<summary>Usage and compliance disclaimer</summary>
+<summary><strong>Reference, archived options and contributing</strong></summary>
 
-While this tool helps customers understand the business value of their AI usage data, Microsoft has
-**no visibility** into the data customers input, nor control over how the tool is used. Customers
-are solely responsible for ensuring their use complies with all applicable laws and regulations
-(including data privacy and security). **Microsoft disclaims all liability** arising from use of this
-tool.
+- [All docs](docs/README.md): the data, permissions and costs.
+- [App guide](docs/APP-GUIDE.md) · [Installer reference](installer/README.md) ·
+  [Release notes](CHANGELOG.md)
+- Archived: parked ideas, like the Copilot Managed App, are in [ideas](ideas/README.md). Not
+  supported.
+- [Support](SUPPORT.md) · [Security](SECURITY.md) · [Contributing](CONTRIBUTING.md) ·
+  [MIT licence](LICENSE)
 
-This is an **experimental** tool with Purview audit logs as the primary source. Audit logs
-provide visibility into Copilot/agent interactions but are not intended as the sole source of truth
-for licensing or full‑fidelity reporting. Not supported through Microsoft support channels — please
-open an issue in this repo.
+Created by [Keith McGrane](https://github.com/Keithland89). Keith reviews every pull request
+against `main`, and only Keith creates release tags.
+
 </details>

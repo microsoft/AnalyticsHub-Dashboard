@@ -45,7 +45,7 @@ test('core + org data: archived and unused branches are pruned', () => {
     processor.dependsOn.map((/** @type {any} */ d) => d.activity),
     ['Run_Audit_Log_Ingester', 'Run_Licensed_Users_Ingester'],
   );
-  assert.deepEqual(Object.keys(doc.properties.parameters).sort(), ['AuditMode', 'BackfillDays', 'EnableOrgDataPull', 'ProcessorWriteMode']);
+  assert.deepEqual(Object.keys(doc.properties.parameters).sort(), ['AuditGraphHistory', 'AuditMode', 'BackfillDays', 'EnableOrgDataPull', 'ProcessorWriteMode']);
   assert.equal(doc.properties.parameters.EnableOrgDataPull.defaultValue, true);
 });
 
@@ -98,10 +98,13 @@ test('audit and processor notebooks take their mode from pipeline parameters', (
   assert.equal(doc.properties.parameters.AuditMode.defaultValue, 'incremental');
   assert.equal(doc.properties.parameters.ProcessorWriteMode.defaultValue, 'merge');
   assert.equal(doc.properties.parameters.BackfillDays.defaultValue, 90);
+  assert.deepEqual(audit.typeProperties.parameters.GRAPH_FOR_HISTORY, { value: { value: '@pipeline().parameters.AuditGraphHistory', type: 'Expression' }, type: 'bool' });
+  assert.deepEqual(doc.properties.parameters.AuditGraphHistory, { type: 'Boolean', defaultValue: false });
 });
 
 test('first run backfills and rebuilds', () => {
   assert.deepEqual(firstRunParameters(30), { AuditMode: 'backfill', BackfillDays: 30, ProcessorWriteMode: 'overwrite' });
+  assert.deepEqual(firstRunParameters(90, true), { AuditMode: 'backfill', BackfillDays: 90, ProcessorWriteMode: 'overwrite', AuditGraphHistory: true });
 });
 
 test('the first load defaults to 30 days of history', () => {

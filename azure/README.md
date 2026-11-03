@@ -21,7 +21,7 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
    `npm install` (see [Without the exe](../docs/INSTALL.md#without-the-exe)). To check a
    download, see [Check the download](../docs/INSTALL.md#check-the-download).
 2. Pick **Your Azure subscription** and tick the data to collect. **Change the advanced settings?**
-   **No** takes the defaults that suit most organisations: see
+   **No** keeps what you chose last time, or takes the defaults: see
    [Advanced settings](../installer/README.md#advanced-settings). With **Yes** you can also
    choose which data the dashboard shows:
    - **Your tenant's data** (the default) collects from the audit log and Microsoft Graph.
@@ -29,7 +29,10 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
      last week. It's handy for a demo or to try Analytics Hub before the Graph permissions are granted. Run
      the installer again, choose **Repair or change**, then **Yes** for the advanced settings, and pick
      your tenant's data to switch; the next run replaces the sample.
-3. Choose the subscription, resource group, region and Power BI workspace. The installer only offers
+3. Say about how many people work in your organisation: the installer fills it in from its count of
+   everyone with a licence and an enabled account. For more than 10,000, see
+   [A large tenant on Azure](../installer/README.md#a-large-tenant-on-azure). Then choose the
+   subscription, resource group, region and Power BI workspace. The installer only offers
    regions that your Azure Policy allowed locations permit and where everything it deploys is
    available. It says why the others were left out.
 4. Review the plan and approve it. The installer prints the web app's URL and writes `AnalyticsHub-Teams.zip`,
@@ -83,12 +86,52 @@ Where the files land depends on networking:
 | Networking | Credit files go to | Who needs what |
 |---|---|---|
 | Public endpoints | The storage account's `landing` container: `studio/`, `viva/` (the flow keeps its own state in `flows/`) | Whoever signs the flow's storage connection in needs **Storage Blob Data Contributor** on the account. The installer gives it to you |
-| Private networking | A SharePoint folder you choose, with `studio/` and `viva/` under it. Power Automate can't reach private storage | The jobs' managed identity needs **Sites.Selected** with read on that site. The installer grants it if you're a SharePoint or Global administrator; otherwise it prints the `Grant-PnPAzureADAppSitePermission` command for one |
+| Private networking | A SharePoint folder you choose, with `studio/` and `viva/` under it. Power Automate can't reach private storage | The jobs' managed identity needs **Sites.Selected** with read on that site. The installer prints the `Grant-PnPAzureADAppSitePermission` command for a SharePoint or Global administrator to run: it can't make the grant itself (see [Known issues](../docs/TROUBLESHOOTING.md#azure)) |
 
 The jobs read the files where they land and don't move them, the same as the Fabric notebooks. Put
 exports there yourself, in the Azure portal, Azure Storage Explorer or SharePoint, or with
 `az storage blob upload`: the installer's `upload` command and `--csv` are Fabric only for now, and on
 Azure they stop and name the folder.
+
+**Copilot Studio exports and their month.** A tenant export has its own dates. The per-agent and
+per-user exports carry none: they're month to date, so each counts as the month, in UTC, that it was
+uploaded to `studio/`. That's the time the service last recorded a change to the file: in Storage,
+the blob's last-modified time, which any change to the blob, its properties or its metadata moves;
+in SharePoint, the item's last-modified time, not the date a sync client keeps for the file. So an
+old export uploaded again, or changed, counts as the month of that upload or change. A file left in
+the folder keeps its month on later runs. A newer export of the same kind in the same month updates
+that month's rows, and one uploaded the next month adds a month. Where two exports overlap, the newer
+upload's rows win, so they aren't added together. A CSV whose name matches an export but lacks that
+export's key columns is skipped, and the run's log names it and the missing columns.
+
+**Loading an earlier month's export.** Create `studio/backfill/<YYYY-MM>/`, in the `landing`
+container or under your SharePoint folder, for the month the export covers, and upload the file
+there. Last month's export downloaded on the 1st goes in last month's folder, for example. It counts
+as that folder's month on every run, so there's nothing to move afterwards. A tenant export keeps its
+own dates wherever it sits. The jobs don't read other folders under `studio/`, the flow's files in
+`backfill/`, or a folder inside a month folder.
+
+**When the Studio load stops.** It stops before writing, and lists the paths, if `backfill/` holds a
+file outside a month folder, a folder whose name isn't `YYYY-MM`, or a month after the current one
+(UTC). The Studio tables keep their rows. The other loads still run, and what they collect is
+published and refreshed, but the run fails: **Check status** (`status`) shows it as `Failed`, and its
+log has the message, which starts `Nothing was written.` Read the log in the Log Analytics workspace,
+or with `az containerapp job logs show -g <resource group> -n <run job> --execution <run> --container run`.
+Move or remove what it lists, then run again (`run`) or wait for the next run.
+
+**Updating from an earlier version.** Earlier versions gave a per-agent or per-user export the month
+of each run that read it, so an export left in `studio/` was stored again as each later month's, in
+`studio_agent` and `studio_user`. Where two exports in the folder had a row with the same key, both
+rows were stored and added together, in those tables and in `studio_tenant_daily`. On the first run
+after updating, each tenant row that an export still in the folder has is rewritten from the newest
+export that has it; rows that only a removed export had stay as stored. Updating leaves the agent
+and user copies in place, and each month that holds one stays covered by an export: with the
+flow, the log says "an export covers this month, so the API figures aren't used" (for users, "…so the
+API user figures aren't used"), and the flow's figures aren't used for that month. That includes this
+month, if an earlier version has already run this month with an export in the folder; the flow's
+figures take over next month. A month's own export, uploaded that month or put in its backfill folder
+as above, replaces the copied rows it matches on the table's key, but a copied agent or user it
+doesn't list stays. Removing what stays is a separate decision, and isn't part of this update.
 
 ### Parity with Fabric
 
@@ -170,9 +213,9 @@ export. The Agent 365 API is Fabric only for now: `--data agent365=api` warns an
    - **Public endpoints:** `agent365/` in the storage account's `landing` container. The installer
      gives you **Storage Blob Data Contributor** on the account, so you can upload it.
    - **Private networking:** an `agent365` folder in the SharePoint folder you give the installer,
-     which the credit files use too. The jobs' managed identity needs **Sites.Selected** with read on
-     that site. The installer grants it if you're a SharePoint or Global administrator; otherwise it
-     prints the command for one.
+     which the credit files use too. The jobs' managed identity needs **Sites.Selected** with read
+     on that site. The installer prints the command for a SharePoint or Global administrator to run:
+     it can't make the grant itself (see [Known issues](../docs/TROUBLESHOOTING.md#azure)).
 3. Each run loads the newest CSV in that folder into `dbo.agents_365`, replacing the last export. The
    jobs don't move or delete the files, and with no CSV the table stays as it is.
 
@@ -199,8 +242,8 @@ saves the emailed export is Fabric only for now: `--data productFeedback=flow` (
      installer gives you **Storage Blob Data Contributor** on the account, so you can upload it.
    - **Private networking:** a `product_feedback` folder in the SharePoint folder you give the
      installer. The jobs' managed identity needs **Sites.Selected** with read on that site. The
-     installer grants it if you're a SharePoint or Global administrator; otherwise it prints the
-     command for one.
+     installer prints the command for a SharePoint or Global administrator to run: it can't make the
+     grant itself (see [Known issues](../docs/TROUBLESHOOTING.md#azure)).
 3. Each run reads every CSV in that folder into `dbo.user_feedback`, keeping each `Feedback Id` once
    (its latest submission), so add new exports next to the old ones. The jobs don't move or delete
    the files, and with no CSV the table stays as it is.
@@ -227,8 +270,9 @@ advanced settings, answer **Upload a CSV export** to **Workday org data?**, or u
    - **Public endpoints:** `workday/` in the storage account's `landing` container. The installer
      gives you **Storage Blob Data Contributor** on the account, so you can upload it.
    - **Private networking:** a `workday` folder in the SharePoint folder you give the installer. The
-     jobs' managed identity needs **Sites.Selected** with read on that site. The installer grants it
-     if you're a SharePoint or Global administrator; otherwise it prints the command for one.
+     jobs' managed identity needs **Sites.Selected** with read on that site. The installer prints
+     the command for a SharePoint or Global administrator to run: it can't make the grant itself
+     (see [Known issues](../docs/TROUBLESHOOTING.md#azure)).
 3. Each run loads the Entra ID org data, then adds the newest CSV in that folder to it in
    `dbo.copilot_org_data`. The jobs don't move or delete the files, and with no CSV the org data is
    what Entra ID gave.

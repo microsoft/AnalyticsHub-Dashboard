@@ -1,0 +1,32 @@
+EVALUATE
+VAR __Date = MAX('Agent Configuration'[SnapshotDate])
+VAR __Live =
+    FILTER(
+        'Agent Configuration',
+        'Agent Configuration'[SnapshotDate] = __Date
+            && NOT ('Agent Configuration'[IsQuarantined] = TRUE())
+            && 'Agent Configuration'[WebSearchEnabled] = TRUE()
+    )
+RETURN
+    SELECTCOLUMNS(
+        GROUPBY(
+            __Live,
+            'Agent Configuration'[Sharing Scope],
+            "@Agents", COUNTX(CURRENTGROUP(), 1),
+            "@Unused", SUMX(CURRENTGROUP(), IF(COALESCE('Agent Configuration'[Total Users], 0) = 0, 1, 0))
+        ),
+        "Scope Order",
+            SWITCH(
+                'Agent Configuration'[Sharing Scope],
+                "Whole organisation", 1,
+                "Specific people or groups", 2,
+                "Not shared", 3,
+                4
+            ),
+        "Sharing Scope", COALESCE('Agent Configuration'[Sharing Scope], "Not stated"),
+        "Access Order", 5,
+        "Data Access", "Public web",
+        "Agents", [@Agents],
+        "Unused Agents", [@Unused]
+    )
+ORDER BY [Scope Order]

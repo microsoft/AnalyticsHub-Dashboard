@@ -7,11 +7,12 @@
 
 import { useStageFilter } from "@/hooks/stage-filter.context";
 import { GlossaryStage } from "./glossary-stage";
+import { GradingMethodStage } from "./grading-method-stage";
 import { SignalImpactStage } from "./signal-impact-stage";
 
 /**
- * The report's two appendix pages as reference: the metric glossary, then the
- * signal-to-impact assumptions behind the value estimates. Neither reads
+ * Reference pages: the metric glossary, the signal-to-impact assumptions
+ * behind the value estimates, and the rules Efficiency grades by. None reads
  * activity, so no filter applies.
  */
 export function AppendixScreen() {
@@ -20,6 +21,7 @@ export function AppendixScreen() {
         <div className="flex flex-col gap-800">
             {show("glossary") && <GlossaryStage />}
             {show("signal-impact") && <SignalImpactStage />}
+            {show("grading-method") && <GradingMethodStage />}
         </div>
     );
 }

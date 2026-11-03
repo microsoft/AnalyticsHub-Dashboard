@@ -159,6 +159,7 @@ export function HabitStage() {
                 ) : (
                     <Headlined text={trendHeadline}>
                         <VegaVisual
+                            label="How the mix is moving"
                             spec={trend.vegaLiteSpec}
                             data={trendTable}
                             theme={theme}

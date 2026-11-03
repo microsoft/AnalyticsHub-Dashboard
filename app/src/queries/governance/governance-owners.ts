@@ -5,11 +5,12 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { REGISTRY } from "@/lib/filter-profiles";
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { connection, FORMAT_WHOLE } from "../shared";
+import { governanceFilters, registryQuery, type GovernanceMode } from "./governance-mode";
 import query from "./governance-owners.dax?raw";
+import resourceGraphQuery from "./governance-owners-resource-graph.dax?raw";
 import spec from "./governance-owners.json";
 
 const columnMetadata: ColumnMetadataMap = {
@@ -31,8 +32,15 @@ export const OWNER_STATUSES = [
  * Whether each tenant-built agent still has someone accountable for it: the
  * owner's Entra account is active, disabled or gone, or the registry names
  * no owner at all. `Not checked` covers registries loaded without the
- * ingester's owner-account check, such as a CSV export.
+ * ingester's owner-account check, such as a CSV export. Without Agent 365
+ * (`resourceGraph`), the owners Resource Graph records, as the load checked them.
  */
-export function governanceOwners() {
-    return { connection, query, columnMetadata, vegaLiteSpec: spec as VisualizationSpec, filters: REGISTRY };
+export function governanceOwners(mode: GovernanceMode = "registry") {
+    return {
+        connection,
+        query: mode === "resourceGraph" ? resourceGraphQuery : registryQuery(query, mode),
+        columnMetadata,
+        vegaLiteSpec: spec as VisualizationSpec,
+        filters: governanceFilters(mode),
+    };
 }

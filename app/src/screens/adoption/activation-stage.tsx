@@ -222,6 +222,7 @@ function ActivationByOrg({ cohort, label }: { cohort: ActivationCohort; label: s
                 />
             ) : (
                 <VegaVisual
+                    label={`${label} activation by ${org.noun}`}
                     spec={byOrg.vegaLiteSpec}
                     data={orgTable}
                     theme={theme}

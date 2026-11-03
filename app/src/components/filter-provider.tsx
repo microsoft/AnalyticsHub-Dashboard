@@ -65,9 +65,18 @@ function consumptionAttributesConfig() {
  * Until then the values of the column in use now load beside them: it seldom
  * changes, so a menu opened early waits for the slower of the two, not both.
  */
-export function FilterProvider({ applicable, children }: { applicable: readonly FilterKey[]; children: ReactNode }) {
+export function FilterProvider({
+    applicable,
+    initial,
+    children,
+}: {
+    applicable: readonly FilterKey[];
+    /** The filters to start with, such as those a link carried; the tenant's defaults otherwise. */
+    initial?: FilterState;
+    children: ReactNode;
+}) {
     // The tenant's default date window from the first query: each query decides in the model whether it narrows.
-    const [state, setFilters] = useState<FilterState>(tenantDefaultFilters);
+    const [state, setFilters] = useState<FilterState>(initial ?? tenantDefaultFilters);
     const [menuOpened, setMenuOpened] = useState(false);
     const [orgColumnsWanted, setOrgColumnsWanted] = useState(false);
     const requestFilterChoices = useCallback(() => setMenuOpened(true), []);

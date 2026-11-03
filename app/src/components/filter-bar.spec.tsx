@@ -5,7 +5,7 @@
 // </copyright>
 //-----------------------------------------------------------------------
 
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import { useState, type ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { FilterContext } from "@/hooks/filter.context";
@@ -105,6 +105,31 @@ describe("FilterBar", () => {
         expect(searchBox(panel).value).toBe("");
         expect(choices(panel)).toEqual(organizations);
     });
+
+    it("shows a page's agent filters as they are when it has no dates or org to sit beside", () => {
+        render(
+            <FilterContext.Provider
+                value={{
+                    filters: defaultFilters,
+                    setFilters: () => {},
+                    options: undefined,
+                    optionsError: undefined,
+                    applicable: ["agentTypes", "agentNames"],
+                    orgAttribute: describeOrgAttribute(DEFAULT_ORG_ATTRIBUTE),
+                    orgAttributes: [DEFAULT_ORG_ATTRIBUTE],
+                    orgValues: undefined,
+                    requestFilterChoices: () => {},
+                }}
+            >
+                <FilterBar destinationLabel="Governance" />
+            </FilterContext.Provider>,
+        );
+
+        expect(screen.queryByRole("button", { name: /More filters/ })).toBeNull();
+        for (const name of [filterLabel("agentTypes", ""), filterLabel("agentNames", "")]) {
+            expect(document.querySelector(`[role="dialog"][aria-label="${name}"]`)?.closest("[hidden]"), name).toBeNull();
+        }
+    });
 });
 
 describe("FilterBar's tenant default dates", () => {
@@ -199,5 +224,18 @@ describe("FilterBar's tenant default dates", () => {
         const seen = renderBar(options(true));
         expect(seen.filters.dateRange).toEqual(tenantDefaultFilters.dateRange);
         expect(screen.queryByText(/filter is set but doesn't/)).toBeNull();
+    });
+
+    it("folds License under More filters, and counts it once it's set", () => {
+        renderBar(options(false));
+        const more = screen.getByRole("button", { name: "More filters" });
+        expect(more.getAttribute("aria-expanded")).toBe("false");
+        expect(screen.queryByRole("group", { name: filterLabel("licence", "") })).toBeNull();
+
+        fireEvent.click(more);
+        expect(more.getAttribute("aria-expanded")).toBe("true");
+        const licence = screen.getByRole("group", { name: filterLabel("licence", "") });
+        fireEvent.click(within(licence).getByRole("button", { name: "Licensed" }));
+        expect(screen.getByRole("button", { name: "More filters (1)" })).toBeTruthy();
     });
 });

@@ -41,7 +41,8 @@ function shorten(value: number): string {
 const formatters: Record<KpiFormat, Intl.NumberFormat> = {
     whole: new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }),
     percent: new Intl.NumberFormat(undefined, { style: "percent", maximumFractionDigits: 1 }),
-    rate: new Intl.NumberFormat(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    // Up to two decimals, with no padding: a rate of 40 reads "40", beside a count of 40.
+    rate: new Intl.NumberFormat(undefined, { maximumFractionDigits: 2 }),
     hours: new Intl.NumberFormat(undefined, { maximumFractionDigits: 1 }),
     currency: new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }),
     // Billed amounts, where cents matter: small agents cost well under a unit.
@@ -73,7 +74,8 @@ export function formatKpi(value: number | undefined, format: KpiFormat, options:
     if (options.compact && !BOUNDED.has(format) && Math.abs(shown) >= COMPACT_FROM) {
         return `${prefix}${shorten(shown)}`;
     }
-    // A tenth of an hour, or a cent, is noise on a figure in the thousands.
-    const whole = (format === "hours" || (format === "money" && options.compact)) && Math.abs(shown) >= 1000;
+    // A tenth of an hour is noise on a figure in the hundreds, and a cent on one in the thousands;
+    // whole hours also match the bars, which label to the hour.
+    const whole = (format === "hours" && Math.abs(shown) >= 100) || (format === "money" && options.compact && Math.abs(shown) >= 1000);
     return `${prefix}${(whole ? formatters.whole : formatters[format]).format(shown)}${format === "multiple" ? "×" : ""}`;
 }

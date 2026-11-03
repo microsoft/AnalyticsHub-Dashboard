@@ -81,7 +81,7 @@ function BarChart({ query: { result, table }, spec, height, headline, title, sub
                 <QueryEmpty className="h-full" title={empty.title} description={empty.description} />
             ) : (
                 <Headlined text={headline}>
-                    <VegaVisual spec={spec} data={table} theme={theme} header={{ title, subtitle }} />
+                    <VegaVisual label={title} spec={spec} data={table} theme={theme} header={{ title, subtitle }} />
                 </Headlined>
             )}
         </div>

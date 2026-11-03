@@ -239,9 +239,11 @@
     --vl-blue: #4f73b8;        --vl-blue-text: #3a5c9e;      --vl-blue-tint: #edf2fa;
     --vl-amber: #f1963a;       --vl-amber-text: #8f5207;     --vl-amber-tint: #fdf1e3;
     --vl-amber-strong: #d97b1f;
+  --vl-amber-data: #c46a12;
     --vl-plum: #7f215d;        --vl-plum-text: #7f215d;      --vl-plum-tint: #f8ecf3;
     --vl-teal: #09b39d;        --vl-teal-text: #07766a;      --vl-teal-tint: #e4f6f2;
     --vl-teal-strong: #0a9c88;
+  --vl-teal-data: #0b8f7c;
     --vl-lavender: #8783ff;    --vl-lavender-text: #5650d9;  --vl-lavender-tint: #efeeff;
     --vl-coral: #f06549;       --vl-coral-text: #b23e25;     --vl-coral-tint: #fdeeea;
     --vl-navy: #0b2c57;        --vl-navy-text: #0b2c57;      --vl-navy-tint: #e9eef5;
@@ -258,6 +260,7 @@
        oversight, kept clear of the coral and amber its flags would compete with. */
     --vl-steel: #4a6b82;       --vl-steel-text: #36546a;     --vl-steel-tint: #eaf0f4;
     --vl-periwinkle: #95a9ce;  --vl-periwinkle-text: #4d5f8f; --vl-periwinkle-tint: #eef1f8;
+  --vl-periwinkle-data: #7088b8;
     --vl-slate: #8793a3;
     --vl-ink: #1c2632;
     /* The habit ladder, Power (4) down to Inactive (0): one blue ramp, with
@@ -273,9 +276,11 @@
     --vl-blue: #7e9cdb;        --vl-blue-text: #a3b9e6;      --vl-blue-tint: #1e2b42;
     --vl-amber: #f4a85e;       --vl-amber-text: #f6bc82;     --vl-amber-tint: #3a2a17;
     --vl-amber-strong: #f4a85e;
+  --vl-amber-data: #f4a85e;
     --vl-plum: #c8619f;        --vl-plum-text: #e3a1ca;      --vl-plum-tint: #3b1a2f;
     --vl-teal: #3cc9b4;        --vl-teal-text: #6fd9c8;      --vl-teal-tint: #15332e;
     --vl-teal-strong: #3cc9b4;
+  --vl-teal-data: #3cc9b4;
     --vl-lavender: #a3a0ff;    --vl-lavender-text: #bcbaff;  --vl-lavender-tint: #27264a;
     --vl-coral: #f4836c;       --vl-coral-text: #f7a392;     --vl-coral-tint: #3d1f19;
     --vl-navy: #5b7bb0;        --vl-navy-text: #a9bde0;      --vl-navy-tint: #1b2536;
@@ -284,6 +289,7 @@
     --vl-indigo: #7f85f5;      --vl-indigo-text: #aab1fa;    --vl-indigo-tint: #262848;
     --vl-steel: #86a7bf;       --vl-steel-text: #adc6d8;     --vl-steel-tint: #1a2731;
     --vl-periwinkle: #b3c2de;  --vl-periwinkle-text: #c9d4ea; --vl-periwinkle-tint: #232a3a;
+  --vl-periwinkle-data: #b3c2de;
     --vl-slate: #a3aebd;
     --vl-ink: #dbdfe4;
     /* On a dark ground engagement reads as brightness. */
@@ -306,13 +312,13 @@
     --color-accent: var(--vl-blue-tint);
     --color-accent-foreground: var(--vl-blue-text);
     --color-data-1: var(--vl-blue);
-    --color-data-2: var(--vl-teal);
-    --color-data-3: var(--vl-amber);
+    --color-data-2: var(--vl-teal-data);
+    --color-data-3: var(--vl-amber-data);
     --color-data-4: var(--vl-plum);
     --color-data-5: var(--vl-lavender);
     --color-data-6: var(--vl-coral);
     --color-data-7: var(--vl-navy);
-    --color-data-8: var(--vl-periwinkle);
+    --color-data-8: var(--vl-periwinkle-data);
     --color-data-9: var(--vl-slate);
     --color-data-10: var(--vl-ink);
   }
@@ -326,12 +332,12 @@
     --color-accent-foreground: var(--vl-amber-text);
     --color-data-1: var(--vl-amber-strong);
     --color-data-2: var(--vl-blue);
-    --color-data-3: var(--vl-teal);
+    --color-data-3: var(--vl-teal-data);
     --color-data-4: var(--vl-plum);
     --color-data-5: var(--vl-lavender);
     --color-data-6: var(--vl-coral);
     --color-data-7: var(--vl-navy);
-    --color-data-8: var(--vl-periwinkle);
+    --color-data-8: var(--vl-periwinkle-data);
     --color-data-9: var(--vl-slate);
     --color-data-10: var(--vl-ink);
   }
@@ -344,13 +350,13 @@
     --color-accent: var(--vl-plum-tint);
     --color-accent-foreground: var(--vl-plum-text);
     --color-data-1: var(--vl-plum);
-    --color-data-2: var(--vl-teal);
-    --color-data-3: var(--vl-amber);
+    --color-data-2: var(--vl-teal-data);
+    --color-data-3: var(--vl-amber-data);
     --color-data-4: var(--vl-blue);
     --color-data-5: var(--vl-lavender);
     --color-data-6: var(--vl-coral);
     --color-data-7: var(--vl-navy);
-    --color-data-8: var(--vl-periwinkle);
+    --color-data-8: var(--vl-periwinkle-data);
     --color-data-9: var(--vl-slate);
     --color-data-10: var(--vl-ink);
   }
@@ -364,12 +370,12 @@
     --color-accent-foreground: var(--vl-teal-text);
     --color-data-1: var(--vl-teal-strong);
     --color-data-2: var(--vl-plum);
-    --color-data-3: var(--vl-amber);
+    --color-data-3: var(--vl-amber-data);
     --color-data-4: var(--vl-blue);
     --color-data-5: var(--vl-lavender);
     --color-data-6: var(--vl-coral);
     --color-data-7: var(--vl-navy);
-    --color-data-8: var(--vl-periwinkle);
+    --color-data-8: var(--vl-periwinkle-data);
     --color-data-9: var(--vl-slate);
     --color-data-10: var(--vl-ink);
   }
@@ -382,13 +388,13 @@
     --color-accent: var(--vl-lavender-tint);
     --color-accent-foreground: var(--vl-lavender-text);
     --color-data-1: var(--vl-lavender);
-    --color-data-2: var(--vl-teal);
-    --color-data-3: var(--vl-amber);
+    --color-data-2: var(--vl-teal-data);
+    --color-data-3: var(--vl-amber-data);
     --color-data-4: var(--vl-plum);
     --color-data-5: var(--vl-blue);
     --color-data-6: var(--vl-coral);
     --color-data-7: var(--vl-navy);
-    --color-data-8: var(--vl-periwinkle);
+    --color-data-8: var(--vl-periwinkle-data);
     --color-data-9: var(--vl-slate);
     --color-data-10: var(--vl-ink);
   }
@@ -401,13 +407,13 @@
     --color-accent: var(--vl-coral-tint);
     --color-accent-foreground: var(--vl-coral-text);
     --color-data-1: var(--vl-coral);
-    --color-data-2: var(--vl-teal);
+    --color-data-2: var(--vl-teal-data);
     --color-data-3: var(--vl-blue);
-    --color-data-4: var(--vl-amber);
+    --color-data-4: var(--vl-amber-data);
     --color-data-5: var(--vl-plum);
     --color-data-6: var(--vl-lavender);
     --color-data-7: var(--vl-navy);
-    --color-data-8: var(--vl-periwinkle);
+    --color-data-8: var(--vl-periwinkle-data);
     --color-data-9: var(--vl-slate);
     --color-data-10: var(--vl-ink);
   }
@@ -422,13 +428,13 @@
     --color-accent: var(--vl-green-tint);
     --color-accent-foreground: var(--vl-green-text);
     --color-data-1: var(--vl-green);
-    --color-data-2: var(--vl-amber);
+    --color-data-2: var(--vl-amber-data);
     --color-data-3: var(--vl-blue);
     --color-data-4: var(--vl-plum);
     --color-data-5: var(--vl-lavender);
     --color-data-6: var(--vl-coral);
     --color-data-7: var(--vl-navy);
-    --color-data-8: var(--vl-periwinkle);
+    --color-data-8: var(--vl-periwinkle-data);
     --color-data-9: var(--vl-slate);
     --color-data-10: var(--vl-ink);
   }
@@ -446,10 +452,10 @@
     --color-data-2: var(--vl-blue);
     --color-data-3: var(--vl-plum);
     --color-data-4: var(--vl-lavender);
-    --color-data-5: var(--vl-teal);
-    --color-data-6: var(--vl-amber);
+    --color-data-5: var(--vl-teal-data);
+    --color-data-6: var(--vl-amber-data);
     --color-data-7: var(--vl-navy);
-    --color-data-8: var(--vl-periwinkle);
+    --color-data-8: var(--vl-periwinkle-data);
     --color-data-9: var(--vl-slate);
     --color-data-10: var(--vl-ink);
   }
@@ -464,13 +470,13 @@
     --color-accent: var(--vl-steel-tint);
     --color-accent-foreground: var(--vl-steel-text);
     --color-data-1: var(--vl-steel);
-    --color-data-2: var(--vl-teal);
-    --color-data-3: var(--vl-amber);
+    --color-data-2: var(--vl-teal-data);
+    --color-data-3: var(--vl-amber-data);
     --color-data-4: var(--vl-plum);
     --color-data-5: var(--vl-blue);
     --color-data-6: var(--vl-coral);
     --color-data-7: var(--vl-navy);
-    --color-data-8: var(--vl-periwinkle);
+    --color-data-8: var(--vl-periwinkle-data);
     --color-data-9: var(--vl-slate);
     --color-data-10: var(--vl-ink);
   }
@@ -485,13 +491,13 @@
     --color-accent: var(--vl-indigo-tint);
     --color-accent-foreground: var(--vl-indigo-text);
     --color-data-1: var(--vl-indigo);
-    --color-data-2: var(--vl-teal);
-    --color-data-3: var(--vl-amber);
+    --color-data-2: var(--vl-teal-data);
+    --color-data-3: var(--vl-amber-data);
     --color-data-4: var(--vl-blue);
     --color-data-5: var(--vl-plum);
     --color-data-6: var(--vl-coral);
     --color-data-7: var(--vl-navy);
-    --color-data-8: var(--vl-periwinkle);
+    --color-data-8: var(--vl-periwinkle-data);
     --color-data-9: var(--vl-slate);
     --color-data-10: var(--vl-ink);
   }
@@ -506,13 +512,13 @@
     --color-accent: var(--vl-navy-tint);
     --color-accent-foreground: var(--vl-navy-text);
     --color-data-1: var(--vl-blue);
-    --color-data-2: var(--vl-amber);
+    --color-data-2: var(--vl-amber-data);
     --color-data-3: var(--vl-lavender);
-    --color-data-4: var(--vl-teal);
+    --color-data-4: var(--vl-teal-data);
     --color-data-5: var(--vl-plum);
     --color-data-6: var(--vl-coral);
     --color-data-7: var(--vl-navy);
-    --color-data-8: var(--vl-periwinkle);
+    --color-data-8: var(--vl-periwinkle-data);
     --color-data-9: var(--vl-slate);
     --color-data-10: var(--vl-ink);
   }
@@ -525,10 +531,10 @@
     --color-ring: var(--vl-periwinkle-text);
     --color-accent: var(--vl-periwinkle-tint);
     --color-accent-foreground: var(--vl-periwinkle-text);
-    --color-data-1: var(--vl-periwinkle);
+    --color-data-1: var(--vl-periwinkle-data);
     --color-data-2: var(--vl-blue);
-    --color-data-3: var(--vl-teal);
-    --color-data-4: var(--vl-amber);
+    --color-data-3: var(--vl-teal-data);
+    --color-data-4: var(--vl-amber-data);
     --color-data-5: var(--vl-plum);
     --color-data-6: var(--vl-lavender);
     --color-data-7: var(--vl-coral);
@@ -548,12 +554,12 @@
     --color-accent-foreground: var(--vl-navy-text);
     --color-data-1: var(--vl-navy);
     --color-data-2: var(--vl-blue);
-    --color-data-3: var(--vl-teal);
-    --color-data-4: var(--vl-amber);
+    --color-data-3: var(--vl-teal-data);
+    --color-data-4: var(--vl-amber-data);
     --color-data-5: var(--vl-plum);
     --color-data-6: var(--vl-lavender);
     --color-data-7: var(--vl-coral);
-    --color-data-8: var(--vl-periwinkle);
+    --color-data-8: var(--vl-periwinkle-data);
     --color-data-9: var(--vl-slate);
     --color-data-10: var(--vl-ink);
   }
@@ -592,6 +598,18 @@ body,
   .vl-heat {
     background-color: transparent;
     box-shadow: none;
+  }
+}
+
+/* Honour a system request for less motion: transitions and animations end at once. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }
 

@@ -2,7 +2,11 @@
 
 What you need before you install, and who to ask. Send each admin their row before you start,
 so you don't stop halfway. Once you sign in, the installer's **Prerequisites** panel (`prereqs`)
-checks most of it for you, and changes nothing. Setting it up by hand? On Fabric, you also need
+checks most of it for you, and changes nothing. You don't have to run it first: install and update
+check the same things before they create or change anything, and list only what's missing for what
+you chose. Each check has 15 seconds; one that takes longer shows as "couldn't check" and never
+stops you. Only a true blocker stops an install: with `--yes`, no way to register the app (you
+can't, and there's no app registration or admin pack to use instead). Setting it up by hand? On Fabric, you also need
 [these](MANUAL-INSTALL.md#1-prerequisites); on Azure, see [its list](MANUAL-INSTALL.md#azure).
 
 ## At a glance
@@ -13,6 +17,7 @@ checks most of it for you, and changes nothing. Setting it up by hand? On Fabric
 | **Fabric admin** | Turns on four tenant settings, and lets you create Fabric items | Turns on three tenant settings | 5 min |
 | **Entra admin** (Global Administrator or Privileged Role Administrator) | Grants admin consent for read-only Graph permissions | The same, for the app and the managed identity. Plus one to manage viewers from the web app | 2 min |
 | **Microsoft 365 admin** | Turns off concealed names in usage reports | The same | 1 min |
+| **Compliance admin** | Makes sure audit logging is on in Microsoft Purview (it usually is) | The same | 1 min |
 | **Teams admin** | – | Publishes the Teams app to your org's app catalog | 2 min |
 | **Viewers** | In the Analytics Hub Viewers group. Power BI Pro below F64. | In the group. Power BI Pro. | – |
 
@@ -38,14 +43,59 @@ yourself, the installer does their part.
 |---|---|
 | Answering the questions | About 5 minutes |
 | Setting up, after you choose **Go ahead** | About 15 minutes |
-| First data in the app, with 30 days of history | About 25 minutes after **Go ahead** |
-| First data in the app, with 180 days of history | About 2 hours after **Go ahead** |
+| The first load of audit history, once setup is finished | See the estimates below |
 | Copilot Studio credits | After the Studio flow's first run. Run it straight away, or it runs the next day |
 
-A tenant with more than 10,000 people takes longer: see [A large tenant](../installer/README.md#a-large-tenant).
+**Keep this PC awake and plugged in until the installer says setup is finished.** If the PC
+sleeps, setup stops until it wakes. After that you can close the window: the first load carries on
+in Fabric or Azure, and `status` shows how far it has got. In Azure Cloud Shell, keep the tab open
+until then.
 
-**Keep this PC awake and plugged in** until the installer says it's finished, and keep the
-installer window open. If the PC sleeps, setup stops until it wakes.
+How long the first load takes depends on where it reads the audit log. The plan shows the estimate
+for your install beside the history question, and the installer says it again when the load
+starts.
+
+- **The Office 365 Management Activity API**, which new installs on Fabric read. It keeps 7 days,
+  so the first load reads the last 7 days, in one run, whatever history you choose, and leaves the
+  older days out. It holds nothing from before its subscription started, and a new subscription
+  can take up to 12 hours to show content, so the first load may find nothing: the scheduled runs
+  pick up from then on. With **Microsoft Sentinel** as the audit source, the first load reads what
+  Sentinel holds, or the last 7 days. See
+  [Where the audit log comes from](../fabric/notebooks/README.md#where-the-audit-log-comes-from).
+- **Microsoft Graph audit search**, which Azure reads, as do Fabric installs from earlier versions
+  until you change their audit source. On Fabric, turn on Graph history under Advanced settings to
+  read the older days from it, or load them later with the `run` command that `status` gives. The
+  table below has its estimates.
+
+A load from Graph audit search takes longer with more days of history and more people. Count
+everyone with a Microsoft 365 licence and an enabled account, not only those with a Copilot seat.
+The installer counts them for you and asks you to check.
+
+These are estimates. They count the tenant's audit search limit, below, and the time each search
+takes, scaled from two measured loads until timed runs of the installer replace them.
+
+| History, from Graph audit search | Fabric, up to 10,000 people | Fabric, more than 10,000 | Azure, up to 10,000 | Azure, more than 10,000 |
+|---|---|---|---|---|
+| 30 days | 1 to 2 hours | 1 to 2 days, over two or three runs | 2 to 3 hours | 2 to 4 hours, in one or two runs |
+| 90 days | 2 to 3 hours | 5 to 6 days, over six or seven runs | 1 to 2 days, over two or three runs | 1 to 2 days, over two or three runs |
+| 180 days | 3 to 5 hours | 10 to 11 days, over 11 or 12 runs | 2 to 3 days, over three or four runs | 2 to 3 days, over three or four runs |
+
+Most of a long load is waiting for the tenant's audit search limit. The load starts one audit
+search for each window of history it reads: a day on Fabric, or 2 hours for more than 10,000
+people, and 8 hours on Azure. A tenant can start at least 200 audit searches in a rolling 24 hours,
+shared with other admins and tools, and a tenant with more licences can get more: see
+[Microsoft Graph throttling limits](https://learn.microsoft.com/graph/throttling-limits#security-audit-log-query-service-limits).
+A load that needs more stops when they're used up, and a run a day later carries on. The audit
+service's queue can add hours on a busy day.
+
+- **Fabric.** The scheduled runs load only the newest days, so they don't carry a first load on.
+  When a load needs more than one run, start each run after the first with `run`, a day apart.
+  `status` gives the command, and when a run can search again.
+- **Azure.** Each scheduled run carries the load on, and the run job runs daily unless you chose
+  weekly. On a weekly schedule, start the runs in between with `run`: otherwise each waits a week.
+
+What each target does when a run can't fetch it all is under
+[How long the first load takes](../installer/README.md#how-long-the-first-load-takes).
 
 ## Permissions
 
@@ -80,7 +130,7 @@ What the scheduled jobs sign in as. Graph app roles, granted by an Entra admin.
 | Graph | `ReportSettings.Read.All` | *(Optional.)* Reading the usage reports' settings. Turned on by the **Microsoft 365 activity** card (on by default) |
 | Graph | `ThreatHunting.Read.All` | *(Optional.)* Finding AI tools on devices, and agent risk. Turned on by the **Defender** card |
 | Graph | `CloudApp-Discovery.Read.All` | *(Optional.)* Finding AI apps in use on the network. Turned on by the **Defender** card |
-| Graph | `Sites.Selected` | *(Optional.)* Reading the Copilot Studio credits files from the SharePoint folder you name. Turned on by **Copilot Studio credits** with private networking. A SharePoint admin also gives it **Read** on the site |
+| Graph | `Sites.Selected` | *(Optional.)* Reading the files dropped in the SharePoint folder you name: credit files, and the Agent 365, product feedback and Workday exports. Turned on with private networking. A SharePoint or Global admin who's a member of the site also gives it **Read** on it, by hand |
 
 ### Analytics Hub web app (Azure)
 
@@ -243,7 +293,9 @@ Only if you want **Copilot Cowork credits** from Viva Insights. Send them
       role.
 - [ ] Builds the query and sends you its partition ID and query ID, **before you start**. See
       [Running the Viva Insights query](VIVA-QUERY.md).
-- [ ] After the install, signs in to the `AnalyticsHub_Cowork_Credits` Dataflow once. See
+- [ ] Signs in to the `AnalyticsHub_Cowork_Credits` Dataflow once, when the installer asks. It
+      asks early in the install, before the notebooks and the first load, and checks the sign-in
+      worked. If it's you who has the role, sign in then. See
       [Credit consumption](../installer/README.md#credit-consumption).
 
 ### Entra admin: about 2 minutes
@@ -268,6 +320,31 @@ the installer does this itself, and you can skip this section.
 Some organisations make admins switch a role on before they use it (Privileged Identity
 Management). If yours does, switch the role on first, then sign in to the installer. A role that's
 not switched on shows as **can be activated** in the Prerequisites panel.
+
+Without consent for `AuditLogsQuery.Read.All`, the audit load reads nothing. The installer checks
+the app's token for it straight after consent, and the Prerequisites panel's **Audit log access
+for Copilot interactions** row shows whether it's in place. It must be an **Application**
+permission, not Delegated.
+
+### Compliance admin: audit logging
+
+A [Compliance Administrator](https://learn.microsoft.com/entra/identity/role-based-access-control/permissions-reference#compliance-administrator),
+or anyone with the Audit Logs role in Purview. Audit logging is on by default, so this is usually
+already done.
+
+- [ ] **Check audit logging is on.** Open [Microsoft Purview > Audit](https://purview.microsoft.com/audit/auditsearch).
+      If it offers **Start recording user and admin activity**, audit logging is off: select it.
+      New records then take from 60 minutes to 24 hours to appear.
+      [About audit logging](https://learn.microsoft.com/purview/audit-log-enable-disable).
+
+To test it end to end, run `check-audit` once the app has consent. It searches the audit log as the
+app, and says whether it found Copilot interactions, other records only, or nothing at all.
+
+If the audit load already ran before consent or audit logging was fixed, it has marked those days
+as read and empty: it reuses an empty window for 6 hours, and never reads one older than 7 days
+again. To reload them on Fabric, rename `Files/_audit_staging/_manifest.json` in the Lakehouse (for
+example to `_manifest.old.json`), then run `run --backfill-days <n>`, with `<n>` covering the days
+to reload. The Azure jobs keep no such manifest.
 
 ### Microsoft 365 admin
 
@@ -319,7 +396,7 @@ nothing fails.
 | ↳ **Copilot Studio credits** | The Power Platform admin items above: environment, data policies, Premium licence and the sign-in. Or upload the exports from the Power Platform admin center each month. |
 | ↳ **Copilot Cowork credits** | The Viva Insights query (Viva Insights analyst). The Dataflow that reads it is Fabric only. Or upload the Copilot Consumption Dashboard's export. |
 | ↳ **Azure AI costs** | [Owner](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#owner) or [User Access Administrator](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/privileged#user-access-administrator) on the subscription, so the installer can give the read-only cost roles. Otherwise someone with that role gives them. |
-| **Agent Evaluator** | [System Administrator](https://learn.microsoft.com/power-platform/admin/database-security) in each Power Platform environment you pick. The installer adds the app (Fabric) or the jobs' managed identity (Azure) as an application user with the [Bot Transcript Viewer](https://learn.microsoft.com/microsoft-copilot-studio/analytics-transcripts-powerapps) role, creates a security role there that reads every conversation transcript and nothing else, and gives it that role too. Creating the role, setting its privileges and deleting it on uninstall need the Create, Write and Delete privileges on security roles, which System Administrator has. Installs from before 0.6.8 get the role on **Update** or **Repair or change**, which needs the same. Otherwise a System Administrator does it: see [Agent Evaluator](../installer/README.md#agent-evaluator). |
+| **Agent Evaluator** | [System Administrator](https://learn.microsoft.com/power-platform/admin/database-security) in each Power Platform environment you pick. Pick environments that save transcripts: not developer or Dataverse for Teams ones. The installer adds the app (Fabric) or the jobs' managed identity (Azure) as an application user with the [Bot Transcript Viewer](https://learn.microsoft.com/microsoft-copilot-studio/analytics-transcripts-powerapps) role, creates a security role there that reads every conversation transcript and nothing else, and gives it that role too. Creating the role, setting its privileges and deleting it on uninstall need the Create, Write and Delete privileges on security roles, which System Administrator has. Installs from before 0.6.8 get the role on **Update** or **Repair or change**, which needs the same. Otherwise a System Administrator does it: see [Agent Evaluator](../installer/README.md#agent-evaluator). |
 | **Defender (shadow AI and agent risk)** | [Defender for Endpoint P2](https://learn.microsoft.com/defender-endpoint/minimum-requirements) or [Defender XDR](https://learn.microsoft.com/defender-xdr/prerequisites) for devices and agents, and [Defender for Cloud Apps](https://learn.microsoft.com/defender-cloud-apps/set-up-cloud-discovery) for Cloud Discovery. A part you aren't licensed for is skipped. |
 | **Agent configuration and Foundry (Azure Resource Graph)** | Azure [Reader](https://learn.microsoft.com/azure/role-based-access-control/built-in-roles/general#reader) on the [tenant root group](https://learn.microsoft.com/azure/governance/management-groups/overview) or a management group (someone who's an Owner there), and **Global Reader** (Entra admin). The agent inventory flow needs the Power Platform admin items above. |
 | **Ask data agent** (advanced settings) | Fabric: a paid F2 or larger capacity, not a trial, and the tenant settings for data agents and Copilot. Azure: an Azure OpenAI model, which the installer creates by default. See [Ask](../installer/README.md#ask). |

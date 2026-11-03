@@ -46,7 +46,8 @@ corresponding settings category directly.
 ## Before you start
 
 Moved to [Prerequisites](../docs/PREREQUISITES.md). Once you sign in, the **Prerequisites** panel
-(`prereqs` in the terminal) checks most of it, and changes nothing.
+(`prereqs` in the terminal) checks most of it, and changes nothing. `install` and `update` run the
+same checks first and list only what's missing for what you chose.
 
 ### Where the secret goes
 
@@ -167,8 +168,8 @@ gives the jobs' managed identity Cost Management and Azure AI roles, and creates
 signed in as you (`--flow-identity app` is Fabric only). With public endpoints the flow writes to the
 storage account's `landing` container and you get **Storage Blob Data Contributor** on it. With private
 networking it writes to a SharePoint folder you name, and the managed identity gets **Sites.Selected** read
-on that site (a SharePoint or Global administrator grants it). See
-[Azure](../azure/README.md#credit-consumption).
+on that site (a SharePoint or Global administrator grants it by hand, with the command the installer
+prints). See [Azure](../azure/README.md#credit-consumption).
 The Agent 365 registry comes from its CSV export, which you drop in the same place, under
 `agent365`; the Agent 365 API is Fabric only for now. See
 [Agent 365 registry](../azure/README.md#agent-365-registry).
@@ -190,39 +191,49 @@ names.
 
 ### A large tenant on Azure
 
-On a tenant with more than 10,000 Copilot seats, setup sizes Azure for the tenant and asks before
-anything costs more:
+**Azure placement** starts with **About how many people work in your organisation?**, filled in
+from the people the installer counted (see [A large tenant](#a-large-tenant)). With **More than
+10,000**, setup sizes Azure for the tenant and asks before anything costs more:
 
 - **Power BI capacity.** Setup recommends F64 or larger and suggests the first active capacity that
   size. It warns when the semantic model would sit on shared capacity, where a model is limited to
   1 GB.
-- **Azure SQL.** **Azure placement** offers to let the database scale up to 4 vCores and carry on
-  past the free offer's monthly allowance, for about $30-80 a month. Otherwise, when the allowance
-  runs out, Azure pauses the database until next month and the jobs stop until then.
+- **Azure SQL.** **Azure placement** recommends letting the database scale up to 4 vCores and carry
+  on past the free offer's monthly allowance, for about $30-80 a month, and a new install starts on
+  that answer. The plan shows what it costs before anything is deployed. Or keep the free offer:
+  when the allowance runs out, Azure pauses the database until next month and the jobs stop until
+  then.
 - **Web app.** **Azure placement** offers to keep one replica running, for about $10-20 a month, so
   the first visit after a quiet spell doesn't wait while the app starts.
 
 The prices are indicative: check the [Azure pricing calculator](https://azure.microsoft.com/pricing/calculator/).
-Neither paid option is on unless you choose it: `--yes` never turns one on, and **Repair or change**
-keeps what you chose. The plan also warns when the sizing looks small and says where to change it:
-the free offer, fewer than 4 max vCores from 30,000 seats, the run job's time limit, and shared
-capacity. If your organisation's policy rules a change out, setup still works and the loads are
-slower. Tenants with 10,000 seats or fewer aren't asked or warned, and deploy as before.
+`--yes` never adds spend nobody chose. A new install of more than 10,000 people with `--yes` stops
+before anything is deployed until you choose what Azure SQL does: add `--sql-scale-up` to carry on
+past the allowance, or `--sql-free-offer` to keep the free offer. The installer keeps the choice
+for later runs. **Repair or change**, and `--yes` on an install that has deployed, keep what the
+install chose, and the web app stays as it is unless you choose otherwise. The installer doesn't
+switch a database that carries on past the allowance back to pausing, so `--sql-free-offer` leaves
+one as it is and says so.
+
+The plan also warns when the sizing looks small and says where to change it: more than 10,000
+people counted for an install sized for up to 10,000, the free offer (an install that has deployed
+can run the installer again with `--sql-scale-up`), fewer than 4 max vCores from 30,000 people, the
+run job's time limit, and shared capacity. If your organisation's policy rules a change out, setup
+still works and the loads are slower. With up to 10,000 people, setup doesn't ask about Azure SQL
+or the web app, or warn, unless the install chose a paid option before, and deploys as before.
 
 Each run of the collector job has 4 vCPU, 8 GiB and up to 4 hours, which Azure enforces. The run
 loads the data and then refreshes the semantic models, waiting up to 2 hours for each refresh. On a
 large tenant the first load may not fit in one run. The audit collector records each time window as
 it finishes, so the next run (the next scheduled one, or **Run** on the home page) queries only the
-windows still to do, and then loads them all. The dashboard fills in once that's done. A reload of
-more history carries over the same way: when a run stops at 4 hours, the next runs carry on with it,
-and the dashboard gets the extra history once a run has loaded all of it. At 20,000
-seats, start with 30 days of history and [load more](#load-more-audit-history) once the first load
-has finished. In an offline test at 20,000 seats, with the audit service simulated, the run stayed
-within the job's memory and disk. Collecting the audit records took about 3 minutes for the first
-30 days and 18 minutes for 180 days, plus the time each audit query waits in Microsoft's queue,
-which the test couldn't measure. Processing them took about 3 minutes for the first 30 days, 5
-minutes for a nightly run and 25 to 35 minutes for 180 days. How long the refresh takes depends on
-the capacity and the history loaded.
+windows still to do, and then loads them all. A run cut off at 4 hours publishes nothing, so the
+dashboard fills in once one run has fetched everything left. A reload of more history carries over
+the same way. On a large tenant, start with 30 days of history and
+[load more](#load-more-audit-history) once the first load has finished. In an offline test at
+20,000 seats, with the audit service simulated, the run stayed within the job's memory and disk,
+and processing a nightly run took about 5 minutes. For how long the first load takes, see
+[How long the first load takes](#how-long-the-first-load-takes). How long the refresh takes
+depends on the capacity and the history loaded.
 
 ### Demo mode
 
@@ -319,6 +330,9 @@ Azure commands:
 - `run` starts the Container Apps run job, unless a run of it is already going. Then it says which
   one, and to run `run` again once it has finished.
 - `status` shows job executions, the web URL, pending admin actions, and SQL reader secret expiry.
+  It shows how much audit history is in the reports, read from the run job's state in its storage,
+  and a load of history that couldn't start, with its command. On a private install, or without
+  read access to the storage, it says it can't read the history and lists the runs instead.
   With Agent Evaluator it also shows which environments the jobs' managed identity can read, and
   what the jobs' last read found in each.
 - `refresh` starts a Power BI model refresh. It refreshes the Agent Evaluator model only once the
@@ -342,14 +356,15 @@ Moved to [Run it](../docs/INSTALL.md#run-it).
 After the data sources, the installer asks **Change the advanced settings?** With **No** (the
 default, and what `--yes` answers) it uses what you chose last time, or else the defaults below.
 With **Yes** it asks about each one as it comes. To change one later, choose **Repair or change**,
-then **Yes**.
+then **Yes**. The tenant size isn't one of them: placement asks it on both targets, so every
+install answers it. See [A large tenant](#a-large-tenant).
 
 | Setting | Default |
 |---|---|
 | [Power BI](#power-bi-reports) | The semantic model, the Power BI reports and the app. Or the model and reports, the model and app, the model only, or neither. |
 | Who can view | A new **Analytics Hub Viewers** group. You're who people ask for access. **Manage access** changes it later. |
 | [Audit history](#load-more-audit-history) for the first load | 30 days. Or 90 or 180. |
-| [How many people are in the tenant](#a-large-tenant) | More than 10,000 on an F64 or larger capacity or with more than 10,000 Copilot seats assigned, otherwise up to 10,000. An existing install keeps its size. |
+| Audit source | **Office 365 Management Activity API** (recommended, and new installs): the last 7 days, read from files the audit service has already written, so it isn't slowed or capped like a search. Or **Microsoft Sentinel**: its `CopilotActivity` table, otherwise the Management Activity API, so the first load covers what Sentinel holds, else 7 days. Or **Graph audit search**: any history, but slow and quota-limited on a large tenant. Installs from before this option keep Graph. Not on Azure, which always uses Graph. See [Where the audit log comes from](../fabric/notebooks/README.md#where-the-audit-log-comes-from). |
 | Lakehouse name | `Analytics_Hub`, or the next free name (`ValueLens` on earlier installs, which keep it). Spaces and hyphens become underscores. |
 | A new Key Vault's resource group, region and name, and the secret's name | `rg-valuelens`, the capacity's region, `valuelens-` and six random characters, and the default secret name. If you can't use `rg-valuelens`, it asks. |
 | Schedule | Daily, at the default time. Or weekly, and the time (UTC). |
@@ -502,15 +517,24 @@ Lakehouse SQL endpoints to sync. Otherwise a refresh straight after a load can f
 ## A large tenant
 
 Each audit query waits a few minutes in Microsoft's queue, however little it returns, so the first
-load's time grows with the days of history. With 30 days a tenant of up to 10,000 people usually
-loads in under an hour. Later runs load only what's new.
+load's time grows with the days of history, and with the people in the tenant. Later runs load only
+what's new. See [How long the first load takes](#how-long-the-first-load-takes).
 
-On a tenant with tens of thousands of people, choose **More than 10,000** when asked how many
-people are in the tenant, under [Advanced settings](#advanced-settings). A new install chooses it
-for you on an F64 or larger capacity (a trial counts as the F size it matches, so FTL64 does), or
-when more than 10,000 Microsoft 365 Copilot seats are assigned. The installer reads the assigned seats in the prerequisite checks and shows them in the
-plan. An install that already has a tenant size keeps it, but the plan warns when the seats have
-outgrown it. Then:
+On a tenant with tens of thousands of people, choose **More than 10,000** when placement asks
+**About how many people work in your organisation?** It's asked on both targets: in **Fabric
+placement** after the capacity, and first in **Azure placement**. Count everyone with a licence,
+not only those with Copilot: Copilot Chat comes with Microsoft 365, so their use reaches the audit
+log too.
+
+The installer counts them for you in the prerequisite checks, with your own sign-in and no admin
+role: Microsoft Graph counts the enabled member accounts that have a licence. If Graph won't count
+by licence, it counts the enabled member accounts. If it can't count accounts, for example because
+your tenant stops members reading other users, it uses the Microsoft 365 Copilot seats assigned,
+and if it can't read those either, it asks with nothing counted. A new install starts from the
+count, and `--yes` takes it. With only the seats to go on, an F64 or larger capacity also starts it
+on **More than 10,000** (a trial counts as the F size it matches, so FTL64 does). The plan shows the
+size and what was counted. An install that already has a tenant size keeps it on **Repair or
+change** and with `--yes`, and the plan warns when the people counted have outgrown it. Then:
 
 - The audit log is read in 2-hour windows instead of 24-hour ones. A long window can hold too many
   records, and the audit service fails it after an hour or more. A window that fails is split after
@@ -535,19 +559,91 @@ first. Within a time budget set below the time limit (2 hours, or 4.5 hours for 
 the registry leaves any refreshes still to do to the next run and writes what it has; nothing is
 older than 7 days for long.
 
-With 30,000 or more seats on a capacity smaller than F64, the plan warns and says to choose an F64
+With 30,000 or more people on a capacity smaller than F64, the plan warns and says to choose an F64
 or larger capacity in **Fabric placement**. If your organisation's policy keeps you on the smaller
 capacity, setup still works, but the loads take longer and may hit their time limits.
 
-Expect the first load to take several hours. Start with 30 days, use an F64 or larger capacity,
-and [load more history](#load-more-audit-history) later. Don't run audit searches in the
-Purview portal while it loads. To change the tenant size, choose **Repair or change**, then **Yes**
-for the advanced settings. An install from an earlier version keeps its audit windows and time
-limits until you do. An install that has a tenant size gets the new time limits on its next
-**Update** or **Repair or change**, and keeps its data and settings.
+On Fabric, a new install reads the Management Activity API, so the first load reads the last 7
+days in one run, and older history is optional. From the Graph audit search, which Azure and
+Fabric installs from earlier versions read, expect the first load to take a day or more on
+Fabric, or a few hours on Azure, with 30 days of history: see
+[How long the first load takes](#how-long-the-first-load-takes). Start with 30 days, use an F64 or
+larger capacity, and [load more history](#load-more-audit-history) later. Don't run audit searches
+in the Purview portal while a load reads from the Graph audit search. To change the tenant size,
+run the installer again and answer the size question: in the browser, choose **Repair or change**,
+then **Fabric placement** or **Azure placement**. An install from an earlier version keeps its
+audit windows and time limits until you do. An install that has a tenant size gets the new time
+limits on its next **Update** or **Repair or change**, and keeps its data and settings.
 
 On the Azure target, the Power BI capacity, Azure SQL and web app sizing and the run job's time
 limit are under [A large tenant on Azure](#a-large-tenant-on-azure).
+
+### How long the first load takes
+
+The plan shows an estimate beside the history question, and the installer says it again when the
+first load or a reload starts.
+
+With the Management Activity API or Sentinel as the audit source, as on a new Fabric install, a
+load reads the last 7 days, or what Sentinel holds, in one run, and leaves the older days out. A
+new Management Activity API subscription can take up to 12 hours to show content, and holds
+nothing from before it started, so the first load may find nothing: the scheduled runs pick up
+from then on. Once the first load has finished, `status` says the older days are left out, and gives
+`run --backfill-days <n> --graph-history` to load them from the Graph audit search. The rest of
+this section is about loads from the Graph audit search: on Azure, on a Fabric install from an
+earlier version, and for the older days with [Graph history](#load-more-audit-history).
+
+The estimates for each target and tenant size are in
+[How long it takes](../docs/PREREQUISITES.md#how-long-it-takes). Two things set them:
+
+- **The audit search limit.** The load starts one audit search for each window of history it
+  reads: a day on Fabric, or 2 hours for more than 10,000 people, and 8 hours on Azure. A tenant
+  can start at least 200 audit searches in a rolling 24 hours, shared with other admins and tools,
+  and a tenant with more licences can get more: see
+  [Microsoft Graph throttling limits](https://learn.microsoft.com/graph/throttling-limits#security-audit-log-query-service-limits).
+  A load that needs more stops when they're used up, and a run a day later carries on. So 30 days
+  of 2-hour windows, about 360 searches, take two or three runs. The estimates allow one run more
+  than the searches need, for searches others start and windows searched again, such as a window
+  split at the audit service's record cap.
+- **The time each search takes.** It's scaled from two measurements, until timed runs of the
+  installer replace them:
+  - By hand on Azure, 30 days of history took 58 minutes.
+  - In an offline test at 20,000 seats, with the audit service simulated, collecting the audit
+    records took about 3 minutes for 30 days and 18 minutes for 180, and processing them about 3
+    minutes and 25 to 35 minutes. The test couldn't measure the time each audit query waits in
+    Microsoft's queue.
+
+A Fabric install from an earlier version, with no tenant size set, reads 8-hour windows: allow
+2 to 3 hours for 30 days, 1 to 2 days over two or three runs for 90, and 2 to 3 days over three or
+four runs for 180. On a busy day the audit service's queue can add hours, and a trial or small
+capacity takes longer.
+
+A load can take more than one run:
+
+- **Fabric.** The audit load has a time budget of 90 minutes, or 5 hours for more than 10,000
+  people. If it reaches it, it stops without writing anything, and the pipeline's two retries carry
+  on from where it stopped: windows already fetched aren't read again. If it reaches the search
+  limit, it stops the same way, and the retries stop at it too. The reports show the new history
+  once every window is fetched. The scheduled runs load only the newest days, so they don't carry a
+  first load or a reload on. If a run ends before every window is fetched, start another with
+  `run`, or `run --backfill-days <n>` for a reload, a day later if it stopped at the search limit:
+  it carries on from the windows already fetched. `status` gives the command, and after a stop at
+  the search limit, the time a run can search again.
+- **Azure.** Each run of the run job gets up to 4 hours. A run cut off then publishes nothing, but
+  a run stopped at the search limit publishes what it has fetched. The next scheduled run, the next
+  day, carries on where it stopped, or start one sooner with `run`. The estimates count one run a
+  day, and no retry of a run that's cut off: on a weekly schedule, start the runs in between with
+  `run`.
+
+Keep the PC awake until the installer says setup is finished. After that you can close the window,
+and the load carries on. `status` shows how far it has got: the days asked for, how much has been
+fetched from the audit log, and what's in the reports. When the search limit stopped the load in
+the last day, it says when, and when a run can search again. What's been fetched isn't in the
+reports until it's written: on Fabric, a first load or a reload writes once every window is
+fetched, and on Azure, a run publishes what it fetched when it finishes. If `status` can't read the
+progress, for example on a private Azure install or without read access to the job's storage, it
+says so and lists the runs since. A load of history the installer couldn't start, such as a first
+load waiting for admin consent, stays in `status` and on the Done page, with its command, until it
+starts.
 
 ### Load more audit history
 
@@ -555,23 +651,46 @@ The first load reads the history you chose: 30, 90 or 180 days. To load more lat
 work:
 
 - **Repair or change** asks *Load more audit history?* once the first load has finished, offering
-  only more than you have. Keep is the default. The plan shows the reload, and it runs once,
+  only more than you have. On Azure, it reads the run job's state to tell, since a run that started
+  may have published nothing. Where it can't read the state, on a private install or without read
+  access to the job's storage, it asks *You asked for N days of history. Load more?* instead, once
+  the installer has started a run. Keep is the default. The plan shows the reload, and it runs once,
   straight after the repair. Later runs load only what's new. If a run is already going, the reload
-  doesn't start: use `run --backfill-days <n>` once that run has finished.
+  doesn't start: use `run --backfill-days <n>` once that run has finished. The installer keeps
+  the reload in the install record, and `status` and the Done page show it, with that command,
+  until a run with it starts.
 - On the home page, the **Run** row has an **Audit history** picker: the usual run, or 30, 90 or
-  180 days.
-- In the terminal: `run --backfill-days <n>`, with `<n>` from 1 to 180.
+  180 days. With the Management Activity API or Sentinel as the audit source, the 90 and 180 day
+  choices also come *from Microsoft Graph audit search*, which reads the days older than 7 from
+  Graph for that run.
+- In the terminal: `run --backfill-days <n>`, with `<n>` from 1 to 180. Add `--graph-history` to
+  read the days older than 7 from Graph audit search for that run.
+
+**Graph history (optional).** The Management Activity API keeps 7 days, so with it (or Sentinel)
+a history load covers 7 days (or what Sentinel holds) and leaves older days out. To load them,
+choose *Yes* for *Should history loads read the days older than 7 from Microsoft Graph audit
+search?* under Advanced settings, or run `install --graph-history`: the first load and later
+reloads then read those days from Graph. Scheduled runs keep reading the Management Activity
+API. It's slow on a large tenant (each Graph search can take hours) and needs
+`AuditLogsQuery.Read.All`, which the app already has. The plan shows *History loads read the days
+older than 7 from Microsoft Graph audit search* when it's on. Pipelines from before this version
+don't have the `AuditGraphHistory` parameter: run **Update** first.
+
+A reload keeps older history. On Fabric it replaces the parsed audit rows from the first record it
+reads onwards, then rebuilds the curated table. On the Azure target the run job merges what it reads
+into the day files it already has.
 
 The record keeps the most history loaded, once the reload has started. On Fabric, windows already
-read are reused, so a reload only queries what's missing. On a large tenant, 90 or 180 days can
-take many hours.
+read are reused, so a reload only queries what's missing. 90 or 180 days can take days, over
+several runs: see [How long the first load takes](#how-long-the-first-load-takes).
 
 On the [Azure target](#azure-target), the reload starts the run job once with
 `VALUELENS_AUDIT_BACKFILL_DAYS` set, and leaves its usual settings alone. Job images older than
 this installer ignore it and run as usual: run `update` first if yours is.
 
 The run records the reload before it reads anything. If it stops short, at the run job's 4-hour
-limit or on a query that fails, the next runs carry the reload on and query only what's missing.
+limit, at the tenant's audit search limit or on a query that fails, the next runs carry the reload
+on and query only what's missing.
 The audit history and Agent Evaluator both carry it over until they've finished it: the audit
 history until a run has loaded every window, and Agent Evaluator until it has read each environment.
 The dashboard gets the extra history once a run has loaded all of it.
@@ -733,7 +852,13 @@ addresses, the M365 Copilot licence flag and the exact prepaid split.
 | Read Cowork credits with a Dataflow | `install --data coworkCredits=api --viva-partition <id> --viva-query <id>` |
 | Read agent configuration and Foundry from Resource Graph | `install --data resourceGraph=api --arg-management-group <id>` |
 | Report the Value page in another currency | `install --currency GBP --exchange-rate 0.79` |
+| Read the audit log from the Management Activity API, from Sentinel then the Management Activity API, or from the Graph audit search | `install --audit-source feed`, `install --audit-source auto` or `install --audit-source graph` |
+| Read history loads' days older than 7 from the Graph audit search (Management Activity API and Sentinel sources) | `install --graph-history`, or for one reload `run --backfill-days <n> --graph-history` |
+| Install a large tenant on Azure without the questions, letting Azure SQL carry on past the free allowance | `install --target azure --yes --sql-scale-up` |
+| The same, keeping Azure SQL's free offer | `install --target azure --yes --sql-free-offer` |
 | Upload exports later, then load them now | `upload feedback.csv agents.csv --run` |
+| Check the app can read the audit log, and that it has Copilot records | `check-audit` |
+| Check the selected audit sources during the install too | `install --check-audit` |
 | Run only the loads that failed last time | `rerun-failed` |
 | Delete the Fabric workspace and everything in it | `uninstall` |
 | After signing in to the Cowork Dataflow, refresh it and load Cowork credits | `load-cowork` |
@@ -755,6 +880,40 @@ whole tenant, and `--no-arg-agents` or `--no-arg-foundry` leaves agents or Found
 `--currency <code>` sets the Value page currency (US dollars by default), and `--exchange-rate <n>`
 how many of it make $1. Without the rate, set it under **Prices** in the app. In the browser, choose
 the currency under [Advanced settings](#advanced-settings) instead.
+`--sql-scale-up` lets Azure SQL scale up to 4 vCores and carry on past the free offer's monthly
+allowance, for about $30-80 a month; `--sql-free-offer` keeps the free offer, which pauses the
+database, and the jobs, when the month's allowance runs out. Use one, not both. On Azure, a new
+install of more than 10,000 people with `--yes` needs one of them, and later runs keep the choice.
+They're for `install` on the Azure target, and not with `--ui`: in the browser, choose under
+**Azure placement**. See [A large tenant on Azure](#a-large-tenant-on-azure).
+
+With the Management Activity API (or Sentinel), `check-audit` checks that the Management Activity
+API's `Audit.General` subscription is enabled and reads one day's content listing; with Sentinel it
+also queries Sentinel for Copilot interactions from the last day. It uses separate app-only tokens
+for each API. It does not start a subscription, download
+blobs, or run Graph audit search. A readable content listing proves access, not that those blobs
+contain Copilot records; the notebook filters downloaded records to type 261. First content after
+subscription start can take up to 12 hours. With Sentinel, both sources are reported even when only one works.
+
+With Graph, `check-audit` gets the app's token for your tenant and checks it has `AuditLogsQuery.Read.All` as an
+Application permission with admin consent. It then runs a small audit search for Copilot
+interactions from the last 2 days (if there are none, for any record from the last day) and says
+which it found, with who fixes what: consent (a Global Administrator or Privileged Role
+Administrator), the secret (`rotate-secret`), or audit logging (a Compliance Administrator, in
+Purview > Audit). The search can take a few minutes. Installs and updates run the token check on
+their own when the secret is to hand (it's just been made, or Key Vault gives it): once after
+consent, where a problem is only noted as Entra may not have caught up, and again once the pipeline
+is deployed, which reports and keeps what it finds. Management Activity API and Sentinel installs check source access instead of
+the Graph token role; `--check-audit` also checks the feed content listing. On
+Azure, `check-audit` checks the jobs' managed identity has the role. `check-audit` reads the app's
+secret from Key Vault where it can, and otherwise asks you to paste one. Once a load has run, a
+problem it finds also says how to reload the days read as empty: rename
+`Files/_audit_staging/_manifest.json` in the Lakehouse, then run `run --backfill-days <n>`.
+
+An app registration you bring must be registered in your tenant, with a service principal there.
+The installer stops if it finds only another tenant's app, or if the app has no service principal
+and you can't create one; it says who can (the app's owner or an Application Administrator, or a
+Global Administrator through the admin consent link).
 
 On the Azure target, `upload`, `--csv`, `load-cowork`, `--flow-identity app` and
 `coworkCredits=api` are Fabric only for now. `upload`, `--csv` and `load-cowork` stop and name the
@@ -812,15 +971,22 @@ Studio credits**, **Copilot Cowork credits** and **Azure AI costs**. Choose any 
   export until then, and you add the IDs with **Repair or change**. With the IDs, the installer
   creates the Dataflow Gen2 `AnalyticsHub_Cowork_Credits`, which loads the query into
   `viva_credits_dataflow`, and the pipeline refreshes it before each Viva load. Its connections
-  need signing in once, and the installer can't do that for you:
-  1. Open the Dataflow from the link on the **Done** page or at the end of the install.
+  need signing in once, and the installer can't do that for you. It asks you to straight after it
+  creates the Dataflow, under **Viva Insights connection**, before it deploys the notebooks and the
+  pipeline, so you don't have to come back to it later:
+  1. Open the Dataflow from the link the installer shows.
   2. It shows **Configure connection** twice, once for each thing it connects to: the Viva Insights
      source (the VivaInsights query) and the Lakehouse destination.
   3. On each one, choose **Configure connection**, sign in, then **Connect**.
   4. Choose **Save**, then wait until the Dataflow shows it has finished publishing.
-  5. Choose **Load Cowork now**, or run `load-cowork`. It waits for publishing to finish, refreshes
-     the Dataflow (trying once more a minute later if the refresh fails straight after the save),
-     then runs the Viva load and the consumption model refresh and says how many rows it loaded.
+  5. Back in the installer, choose **I've signed in to both: check again**. It reads the Dataflow's
+     saved connections and says whether it's signed in. Choose **Skip for now** to carry on and
+     sign in later: the first load then leaves Cowork credits out. With `--yes` it warns and
+     carries on.
+
+  After the install, **Load Cowork now** (or `load-cowork`) waits for publishing to finish, refreshes
+  the Dataflow (trying once more a minute later if the refresh fails straight after the save),
+  then runs the Viva load and the consumption model refresh and says how many rows it loaded.
 
   If the Dataflow isn't signed in yet when the first load starts, the installer leaves it out of
   that run (the pipeline's `SkipCowork` parameter), so the other loads aren't marked as failed,
@@ -909,10 +1075,11 @@ Optional. It fills the app's Agent Evaluation pages from your Copilot Studio con
 [Agent Evaluator](../fabric/Add%20Agent%20Evaluator/).
 
 **Which environments.** When you have more than one, the installer always asks which to read.
-Read the environments that hold your Copilot Studio agents. It checks each environment for agents,
-four at a time, and ticks the ones that have some. If it can't tell, it ticks the default
-environment and says so. It lists only environments you're a member of, so ask for access to any
-that are missing.
+Read the environments that hold your Copilot Studio agents. Copilot Studio doesn't save transcripts
+in developer or Dataverse for Teams environments, so there's nothing to read in those. It checks
+each environment for agents, four at a time, and ticks the ones that have some. If it can't tell, it
+ticks the default environment and says so. It lists only environments you're a member of, so ask for
+access to any that are missing.
 
 **How far back.** An environment's first run reads up to 180 days of transcripts, including an
 environment you add later. After that, each run reads the last 14 days. Copilot Studio keeps

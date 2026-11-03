@@ -31,6 +31,7 @@ const READY = {
     "[No Sign In]": 2,
     "[No Sign In Configured]": 3,
     "[Web Search]": 4,
+    "[Web Search Configured]": 6,
     "[Foundry Resources]": 5,
     "[Foundry Public]": 3,
     "[Foundry Public Projects]": 1,
@@ -84,5 +85,16 @@ describe("ResourceGraphPanel", () => {
         expect(screen.getAllByText(NOT_COLLECTED)).toHaveLength(2);
         expect(screen.getByText("Foundry open to the public network")).toBeTruthy();
         expect(screen.getByText(AGENT_INVENTORY_FORBIDDEN)).toBeTruthy();
+    });
+
+    it("counts every agent Resource Graph loads, with no registry match, without Agent 365", () => {
+        const row = { ...READY, "[No Sign In]": 21, "[No Sign In Configured]": 37, "[Web Search]": 23, "[Web Search Configured]": 41 };
+        render(<ResourceGraphPanel summary={summaryOf({ row, loaded: true })} mode="resourceGraph" />);
+        expect(screen.getByText("37")).toBeTruthy();
+        expect(screen.getByText("41")).toBeTruthy();
+        expect(screen.queryByText("21")).toBeNull();
+        expect(screen.queryByText("23")).toBeNull();
+        expect(screen.queryByText("Matched to the registry")).toBeNull();
+        expect(screen.queryByText("Any agent, live or not")).toBeNull();
     });
 });

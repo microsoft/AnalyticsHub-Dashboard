@@ -13,12 +13,12 @@ import type { DataTable } from "@microsoft/fabric-visuals-core";
 const { mounts } = vi.hoisted(() => ({ mounts: { count: 0 } }));
 
 vi.mock("@microsoft/fabric-visuals", async () => {
-    const Stub = forwardRef<{ id: string }, { data: DataTable }>(function Stub({ data }, ref) {
+    const Stub = forwardRef<{ id: string }, { data: DataTable; spec: { description?: string } }>(function Stub({ data, spec }, ref) {
         useImperativeHandle(ref, () => ({ id: "handle" }));
         useEffect(() => {
             mounts.count += 1;
         }, []);
-        return <div data-testid="vega">{data.rows.map((row) => row[0]).join(",")}</div>;
+        return <div data-testid="vega" aria-description={spec.description}>{data.rows.map((row) => row[0]).join(",")}</div>;
     });
     return { VegaVisual: Stub };
 });
@@ -47,7 +47,7 @@ describe("rowCountKey", () => {
 });
 
 describe("VegaVisual", () => {
-    const props = { spec: {} as never, theme: {} as never };
+    const props = { label: "Weekly active users", spec: {} as never, theme: {} as never };
 
     it("redraws from scratch when the row count changes", () => {
         mounts.count = 0;
@@ -66,5 +66,10 @@ describe("VegaVisual", () => {
         const ref = createRef<{ id: string }>();
         render(<VegaVisual ref={ref as never} data={table(["a"])} {...props} />);
         expect(ref.current).toEqual({ id: "handle" });
+    });
+
+    it("names the chart from its label", () => {
+        const view = render(<VegaVisual data={table(["a"])} {...props} />);
+        expect(view.getByTestId("vega").getAttribute("aria-description")).toBe("Weekly active users");
     });
 });

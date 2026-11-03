@@ -7,13 +7,12 @@
 
 import { useStageFilter } from "@/hooks/stage-filter.context";
 import { CoworkFitStage } from "./cowork-fit-stage";
-import { GradingMethodStage } from "./grading-method-stage";
 import { ModelFitStage } from "./model-fit-stage";
 
 /**
  * Whether the right tool and model are doing the job: Cowork fit first, then
- * the Model Fit page rebuilt as model-choice coverage and verdicts, then the
- * rules and research both stages grade by.
+ * the Model Fit page rebuilt as model-choice coverage and verdicts. The rules
+ * and research both stages grade by sit in the Appendix.
  */
 export function EfficiencyScreen() {
     const { show } = useStageFilter();
@@ -21,7 +20,6 @@ export function EfficiencyScreen() {
         <div className="flex flex-col gap-800">
             {show("cowork-fit") && <CoworkFitStage />}
             {show("model-fit") && <ModelFitStage />}
-            {show("grading-method") && <GradingMethodStage />}
         </div>
     );
 }

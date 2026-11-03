@@ -79,13 +79,35 @@ Any failure is logged and the job exits with code 1, so Container Apps records t
 
 These collectors port the Fabric notebooks `Ingest_Studio`, `Ingest_Viva_Consumption` (its CSV path)
 and `Ingest_Azure_AI`. They write the same tables, with the same columns, so the Consumption Central
-model reads `dbo.<table>` in Azure SQL. Each collector fails on its own, and the others still run.
+model reads `dbo.<table>` in Azure SQL. `studio` also follows `Ingest_Studio`'s rules for which file
+is which export, an export's month, the backfill folders and the newest file. Each collector fails
+on its own, and the others still run.
 
-- **studio** (`collect/studio.py`) reads `studio/*.csv` from the drop folder. These are the Power
-  Platform admin center exports (`*Tenant*`, `*PerAgent*`/`*Agent*` and `*PerUser*`/`*User*`, where
-  the first pattern that matches wins) and the flow's licensing-API files (`StudioApiEntitlement*`,
-  `StudioApiAgentDaily*`, `StudioApiUserDaily*`). An export takes precedence over API rows for the
-  same month (agent and user) or the same day and environment (tenant).
+- **studio** (`collect/studio.py`) reads the drop folder's `studio/` folder: the Power Platform admin
+  center exports, and the flow's licensing-API files (`StudioApiEntitlement*`, `StudioApiAgentDaily*`,
+  `StudioApiUserDaily*`), which it reads only from the top of the folder. An export takes precedence
+  over API rows for the same month (agent and user) or the same day and environment (tenant).
+  - **Which file is which export.** Each kind tries the admin center's file name, then `*Tenant*`,
+    `*PerAgent*`/`*Agent*` or `*PerUser*`/`*User*`. The first pattern that matches a file with the
+    kind's key columns wins. A file without them is skipped, with a warning that names it and the
+    missing columns. So a per-agent or per-user export, whose name contains `Tenant`, isn't read as
+    the tenant export.
+  - **An export's month.** A tenant export has its own dates. A per-agent or per-user export counts
+    as the month, in UTC, that it was uploaded: its blob's last-modified time in `landing`, or its
+    SharePoint item's `lastModifiedDateTime`. A file with no upload time counts as the run's month,
+    with a warning. An export in `studio/backfill/<YYYY-MM>/` counts as that folder's month. Other
+    subfolders of `studio/` aren't read, nor is a folder inside a month folder (with a warning).
+  - **The newest file wins a key.** The exports of a kind are ordered by upload time, then name. A
+    row is dropped where a later file has a row with the same key (tenant: day, environment, billing
+    plan and capacity type; agents: month, agent, feature, channel and environment; users: month,
+    user and agent), so overlapping exports aren't added together. Rows that share a key in one
+    file all stay.
+  - **Stops.** A file directly in `backfill/`, a folder there not named `YYYY-MM`, or a folder for a
+    month after the run's (UTC) stops the collector before it writes any Studio table. The error starts
+    `Nothing was written.` and lists every path. The other collectors still run, and what they
+    collected is published and refreshed, then the job exits with code 1: the installer's
+    **Check status** (`status`) shows the execution as `Failed`, and the message is in its log (see
+    **Reading job logs** under [Pitfalls](#pitfalls)).
   - The per-user API rows get UPNs from Graph `$batch` on a best-effort basis: a failure is logged,
     and the user is kept without a UPN.
 - **viva** (`collect/viva.py`) reads `viva/PersonServiceCreditsMetrics*.csv`, merging on person,
@@ -102,6 +124,14 @@ model reads `dbo.<table>` in Azure SQL. Each collector fails on its own, and the
     - `azure_deployment_health`
     - `azure_solution_spend`
     - `azure_billing_reconciliation`
+  - Each run replaces those 90 days in every table and keeps the older rows, so the history grows
+    past 90 days. A result with no rows still replaces its days, and rows with no date are always
+    replaced. `azure_deployment_health` and `azure_billing_reconciliation` replace whole months: when
+    the window starts after the 1st, that month's stored rows are kept only if they were written
+    after the month ended.
+  - A stored table that can't be read (a failed download or a corrupt file) isn't counted as empty:
+    its write fails and the table is left as it was. For the strict tables, none of the three is
+    replaced.
   - Without that subscription, pay-as-you-go isn't read either, as in Fabric.
   - The managed identity needs Cost Management Reader and Monitoring Reader (or Reader) on each
     subscription.
@@ -112,7 +142,9 @@ model reads `dbo.<table>` in Azure SQL. Each collector fails on its own, and the
   `Copilot_Resource_Graph_Ingester`. It writes daily snapshots of `arg_agent_config`,
   `arg_environments` and `arg_agent_flows` (Copilot Studio agents, environments and agent flows, from
   `PowerPlatformResources`), `arg_foundry_resources` (Foundry accounts and projects, from `resources`,
-  with lower-case ids that join to Azure AI spend) and `arg_status` (one row per probe: `ok`, `empty`,
+  with lower-case ids that join to Azure AI spend), `arg_agent_detail` (each agent's knowledge sources
+  and components, and whether its owner's Entra account is still active, checked with `User.Read.All`)
+  and `arg_status` (one row per probe: `ok`, `empty`,
   `forbidden`, `error` or `skipped`).
   - Each probe is best effort. A refused probe leaves its table as it was, and the job doesn't fail.
   - The managed identity needs **Reader** at the management group (or the tenant root group) for
@@ -151,10 +183,10 @@ state is ignored. Where the folder lives depends on the networking mode:
 | `studio_agent`, `studio_user` | studio | snapshot |
 | `viva_credits_weekly` | viva | by `metric_date` |
 | `viva_spending_policy` | viva | snapshot |
-| `azure_ai_spend`, `azure_ai_tokens`, `copilot_payg_spend`, `azure_deployment_health`, `azure_solution_spend`, `azure_billing_reconciliation` | azure_ai | snapshot |
-| `arg_agent_config`, `arg_environments`, `arg_agent_flows`, `arg_foundry_resources`, `arg_status` | resource_graph | snapshot |
+| `azure_ai_spend`, `azure_ai_tokens`, `copilot_payg_spend`, `azure_deployment_health`, `azure_solution_spend`, `azure_billing_reconciliation` | azure_ai | snapshot of the lake table, which keeps older days |
+| `arg_agent_config`, `arg_agent_detail`, `arg_environments`, `arg_agent_flows`, `arg_foundry_resources`, `arg_status` | resource_graph | snapshot |
 
-`azure/sql/migrations/V002__consumption.sql` and `V004__resource_graph.sql` create every table up front, so a refresh before
+`azure/sql/migrations/V002__consumption.sql`, `V004__resource_graph.sql` and `V011__arg_agent_detail.sql` create every table up front, so a refresh before
 the first collection finds empty tables. A table whose source has never run is skipped at
 publish. The consumption tables never trigger the full refresh of the incremental Copilot model.
 
@@ -381,7 +413,7 @@ The job reads its settings from environment variables. Bicep sets them.
 | `curated/copilot_interactions_curated/month-YYYYMM.parquet` | The curated fact, one file per month (`month-none` for rows without a date). Each file is written atomically. |
 | `curated/_valuelens_process/` | process: the per-month source fingerprints (`state.json`) and the per-month context that incremental runs reuse |
 | `curated/studio_*/`, `curated/viva_*/` | consumption: the merged Studio and Viva tables, rewritten atomically each run |
-| `raw/azure_ai_*/`, `raw/copilot_payg_spend/`, `raw/azure_deployment_health/`, `raw/azure_solution_spend/`, `raw/azure_billing_reconciliation/` | consumption: Azure AI snapshots |
+| `raw/azure_ai_*/`, `raw/copilot_payg_spend/`, `raw/azure_deployment_health/`, `raw/azure_solution_spend/`, `raw/azure_billing_reconciliation/` | consumption: the Azure AI tables, one file each. Each run replaces its 90 days and keeps older rows. |
 | `landing/studio/`, `landing/viva/` | consumption: the drop folder in public networking. It is read only. |
 | `raw/agents_365/part-0.parquet` | agent365: the newest Agent 365 export, as landed |
 | `landing/agent365/` | agent365: the drop folder for the export in public networking. It is read only. |
