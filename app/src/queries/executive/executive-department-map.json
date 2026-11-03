@@ -11,7 +11,7 @@
     {
       "transform": [{ "aggregate": [{ "op": "median", "field": "Hours Per Seat Month", "as": "Hours Per Seat Month" }] }],
       "mark": { "type": "rule", "strokeDash": [4, 3], "color": "#8a8886" },
-      "encoding": { "y": { "field": "Hours Per Seat Month", "type": "quantitative", "title": "Expert hours per seat a month" } }
+      "encoding": { "y": { "field": "Hours Per Seat Month", "type": "quantitative", "title": "Expert hours per seat a month", "axis": { "format": ",.2f", "labelExpr": "format(datum.value, ',.2f')", "tickCount": 5 } } }
     },
     {
       "mark": { "type": "circle", "opacity": 0.75 },
@@ -52,7 +52,7 @@
       "mark": { "type": "text", "align": "left", "baseline": "middle", "dx": 16, "fontSize": 11, "limit": 140 },
       "encoding": {
         "x": { "field": "Seats In Use Pct", "type": "quantitative", "title": "Licensed seats in use" },
-        "y": { "field": "Hours Per Seat Month", "type": "quantitative", "title": "Expert hours per seat a month" },
+        "y": { "field": "Hours Per Seat Month", "type": "quantitative", "title": "Expert hours per seat a month", "axis": { "format": ",.2f", "labelExpr": "format(datum.value, ',.2f')", "tickCount": 5 } },
         "text": { "field": "Chat + Agent Org DataOrganization", "type": "nominal" }
       }
     }

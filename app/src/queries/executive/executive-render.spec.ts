@@ -157,12 +157,21 @@ describe("the departments map renders", () => {
     });
 
     it("renders hours-per-seat ticks with two decimal places", async () => {
-        const { axisLabels } = await render(departmentMapSpec("Department"), rows, columnMetadata);
-        const preciseTicks = axisLabels.filter((text) => /^\d+\.\d{2}$/.test(text));
-
-        expect(preciseTicks.length).toBeGreaterThan(0);
-        expect(preciseTicks).not.toContain("0");
-        expect(preciseTicks).not.toContain("0.1");
+        const spec = departmentMapSpec("Department") as {
+            layer: { encoding: { y?: { axis?: { labelExpr?: string } | null } } }[];
+        };
+        const yAxes = spec.layer.flatMap(layer => layer.encoding.y ? [layer.encoding.y.axis] : []);
+        expect(yAxes).toHaveLength(3);
+        expect(yAxes.every(axis => axis?.labelExpr === "format(datum.value, ',.2f')")).toBe(true);
+        const smallRows = rows.map(row => ({
+            ...row,
+            "[Hours Per Seat Month]": Number(row["[Hours Per Seat Month]"]) / 50,
+        }));
+        const { axisLabels } = await render(spec, smallRows, columnMetadata);
+        const numericTicks = axisLabels.filter(text => !text.endsWith("%"));
+        expect(numericTicks.length).toBeGreaterThan(0);
+        expect(numericTicks.every(text => /^\d+\.\d{2}$/.test(text))).toBe(true);
+        expect(new Set(numericTicks).size).toBe(numericTicks.length);
     });
 
     it("labels only the six largest groups, beside their circles", async () => {
