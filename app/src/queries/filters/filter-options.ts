@@ -73,12 +73,11 @@ export function toFilterOptions(table: QueryTable): FilterOptions {
 }
 
 /**
- * The columns of the org mapping table, with the statistics needed to tell a
- * grouping (department, location) from an identifier (email, id).
- * `COLUMNSTATISTICS` needs only read access, so it works for every viewer.
+ * Attributes loaded from the source, including columns not declared in the
+ * fixed org model table. Counts stop at two populated values per attribute.
  */
-export function orgAttributeOptions() {
-    return { connection, query: orgAttributesQuery };
+export function orgAttributeOptions(modelConnection = connection) {
+    return { connection: modelConnection, query: orgAttributesQuery };
 }
 
 /** The org columns worth grouping by, `Organization` first. */
@@ -86,7 +85,6 @@ export function toOrgAttributes(table: QueryTable): string[] {
     const column = columnIndex(table, "[Column]");
     const cardinality = columnIndex(table, "[Cardinality]");
     const maxLength = columnIndex(table, "[Max Length]");
-    const people = columnIndex(table, "[People]");
 
     const stats: OrgColumnStatistic[] = table.rows
         .filter((row) => typeof row[column] === "string")
@@ -95,9 +93,7 @@ export function toOrgAttributes(table: QueryTable): string[] {
             cardinality: Number(row[cardinality] ?? 0),
             maxLength: typeof row[maxLength] === "number" ? row[maxLength] : undefined,
         }));
-    const headcount = Number(table.rows[0]?.[people] ?? 0);
-
-    return pickOrgAttributes(stats, headcount);
+    return pickOrgAttributes(stats);
 }
 
 /** The distinct, non-blank values of one org attribute. */

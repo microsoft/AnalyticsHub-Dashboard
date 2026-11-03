@@ -6,7 +6,7 @@
 //-----------------------------------------------------------------------
 
 import { dateBetween, treatAs } from "./dax-filters";
-import { DEFAULT_ORG_ATTRIBUTE, orgColumnRef } from "./org-attribute";
+import { DEFAULT_ORG_ATTRIBUTE, orgValueFilter } from "./org-attribute";
 
 /**
  * The report's slicers, reduced to the handful that recur across its pages.
@@ -295,7 +295,7 @@ export function filterExpression(state: FilterState, key: FilterKey): string {
         case "dateRange":
             return dateFilter(state.dateRange!, FILTER_COLUMNS.date);
         case "organizations":
-            return treatAs(orgColumnRef(state.orgAttribute), state.organizations);
+            return orgValueFilter(state.orgAttribute, state.organizations);
         case "licence":
             return treatAs(FILTER_COLUMNS.licence, [state.licence === "licensed" ? "Licensed" : "Unlicensed"]);
         case "audience":

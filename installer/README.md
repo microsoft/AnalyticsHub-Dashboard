@@ -473,6 +473,56 @@ checks it.
 Without the reports, publish the templates yourself: open `ValueLens - Fabric.pbit` in Power BI
 Desktop (June 2024 or later) with the values the installer shows, and publish it to the workspace.
 
+### Org attributes after later loads
+
+The current ValueLens and Agent Evaluator templates include an **Org Attribute Source**
+membership table. It reads every scalar column from the full org source on each refresh,
+including custom uploaded fields, booleans, numbers, dates and hierarchy levels. An attribute
+needs two distinct populated values; blanks plus one value do not qualify. There is no
+population-coverage percentage or maximum number of groups. Consumption Central uses the
+same eligibility rule in its existing row-based org table and keeps people whose attribute is
+missing, so grouped totals retain them.
+
+Run **Update** once to install the new template and app. After that, new source attributes become
+rows during the normal Fabric pipeline or Azure jobs model refresh: viewers do not need model
+write permissions, a new deployment, or a recurring schema update. The existing org columns,
+calculated columns, relationships and security definitions stay intact. The membership table
+inherits org-scoped access through its relationship from the org table. Query filters flow both
+ways so grouping by the membership table's value also filters org and related fact tables;
+security filters flow only from org to membership. The bridge has exactly one relationship
+and cannot introduce an alternate path between existing tables.
+
+For app/model integrations, the main and Evaluator bridge exposes `Attribute` (the canonical
+source column name), `Value` (invariant text, null when missing), `ValueType`, and
+`PersonId_Normalized`. Apply membership keys to the existing org table, not text values to a
+possibly absent org column. The main model key is `PersonId_Normalized`; Evaluator's bridge
+uses the existing `Org Join Key` including its ID fallback. Types describe the source scalar;
+membership-key filtering avoids coercing booleans, numbers or dates into DAX string literals
+against typed source columns. Person-level and product-specific exclusions remain app-owned.
+The bridge omits the lean model's identity/internal fields (`TotalEmployees`, `displayName`,
+`managerUPN`, `id`, `UserId`, `Manager_UserId`) and join keys. It deliberately retains the raw
+`accountEnabled` attribute, even though the main org table's lean projection drops it.
+
+Group by `'Org Attribute Source'[Value]` while restricting `[Attribute]` to the selected source
+name; `[Value]` filters are strings for every source type. Missing values are DAX `BLANK()`.
+For a global org filter on a different attribute, first find that attribute's membership keys
+with bridge grouping filters removed, then apply those keys to the org key with `TREATAS`.
+Two different `[Attribute]` predicates on the same bridge rows would intersect to an empty set.
+Model-owned org-wide denominator calculations also remove the bridge `[Value]` filter while
+retaining the selected `[Attribute]`; null membership rows keep sparse attributes' denominators
+at the full scoped population. Existing measures explicitly describing Organization (such as
+`Agent Orgs` and `Stage Top Org`) continue to describe Organization, not an arbitrary grouping.
+Each eligible attribute also has a null-key/null-value membership for the org relationship's
+unknown member, so unscoped facts from people absent from the roster remain in the blank-value
+group. Org RLS still filters this membership through the secured org table; it does not grant
+scoped viewers access to unknown people. This relationship behavior needs native tenant QA.
+
+Maintainers can reproduce all four template changes with
+`python scripts\Update-Org-Attributes.py` and verify them with `--check`. Source read/type errors
+fail refresh rather than silently dropping attributes. Native Power Query refresh and RLS
+propagation still require tenant validation; local tests replay the row builder and verify
+model structure without making tenant changes.
+
 ## Load status and reruns
 
 **One Spark session.** The pipeline's notebooks share one Spark session, up to five at a time,

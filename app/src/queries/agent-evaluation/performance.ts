@@ -6,12 +6,13 @@
 //-----------------------------------------------------------------------
 
 import { EVALUATOR } from "@/lib/filter-profiles";
+import { applyDaxFilters } from "@/lib/dax-filters";
 import type { VisualizationSpec } from "@microsoft/fabric-visuals";
 import type { DataTable } from "@microsoft/fabric-visuals-core";
 import { humanizeIdentifier, relabelColumn, withoutEmoji } from "@/lib/model-text";
 import type { ColumnMetadataMap } from "@/lib/to-data-table";
 import { evaluatorConnection as connection, FORMAT_HOURS, FORMAT_PERCENT, FORMAT_RATE, FORMAT_WHOLE } from "../shared";
-import type { GroupByColumn } from "./options";
+import { evaluationGroupFilter, type GroupByColumn } from "./options";
 import byGroupQuery from "./performance-by-group.dax?raw";
 import errorsQuery from "./performance-errors.dax?raw";
 import errorsSpec from "./performance-errors.json";
@@ -91,7 +92,12 @@ const byGroupColumns: ColumnMetadataMap = {
 
 /** Every headline rate for each group of a Group by column, largest group first. */
 export function performanceByGroup(group: GroupByColumn) {
-    return { connection, filters: EVALUATOR, query: byGroupQuery.replaceAll("__GROUP__", group.column), columnMetadata: byGroupColumns };
+    const query = byGroupQuery.replaceAll("__GROUP__", () => group.column);
+    return {
+        connection, filters: EVALUATOR,
+        query: applyDaxFilters(query, group.attribute === undefined ? [] : [evaluationGroupFilter(group)]),
+        columnMetadata: byGroupColumns,
+    };
 }
 
 /** Group names as people read them: blanks named, and topic identifiers as words. */
@@ -101,7 +107,8 @@ export function readableGroups(table: DataTable, group: GroupByColumn): DataTabl
     return {
         columns: table.columns,
         rows: table.rows.map((row) => {
-            const value = typeof row[index] === "string" ? (row[index] as string).trim() : "";
+            const raw = row[index];
+            const value = raw === null || raw === undefined ? "" : String(raw).trim();
             const label = value === "" ? "(Not recorded)" : group.humanize ? humanizeIdentifier(value) : value;
             if (label === row[index]) return row;
             const next = [...row];

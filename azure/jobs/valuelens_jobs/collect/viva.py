@@ -19,8 +19,11 @@ from pathlib import Path
 
 import duckdb
 
+from valuelens_core.org import org_extra_columns
+
 from ..dropfolder import open_dropfolder
-from .consumption import TableState, read_csvs
+from ..tables import ident
+from .consumption import TableState, csv_header, read_csvs
 
 log = logging.getLogger("valuelens_jobs.collect.viva")
 
@@ -45,6 +48,10 @@ PERSON_ALIASES = {
     "business_unit": ["BusinessUnit", "Division", "Segment"],
 }
 ORG_COLUMNS = [c for c in PERSON_ALIASES if c not in ("person_id", "user_principal_name")]
+CONSUMPTION_FIELDS = ('entra_id', 'ObjectId', 'AadObjectId', 'people_historical_id',
+                      'service_id', 'service_name', 'spending_policy_id', 'metric_date',
+                      'session_count', 'spending_policy_limit', 'credits_used', 'user_limit',
+                      'Total Copilot Credits used', '_loaded_at', '__source_file')
 KEY = ["person_id", "service_id", "spending_policy_id", "metric_date"]
 SCHEMAS = {
     TBL_METRICS: [("person_id", "VARCHAR"), ("user_principal_name", "VARCHAR"), ("entra_id", "VARCHAR"),
@@ -101,7 +108,9 @@ class Picker:
 
 
 def _metrics(con, state: TableState, paths) -> dict:
-    cols = read_csvs(con, paths, "raw_viva", harmonise)
+    headers = [c for path in paths for c in (csv_header(con, path) or [])]
+    extras = org_extra_columns(headers, PERSON_ALIASES, CONSUMPTION_FIELDS)
+    cols = read_csvs(con, paths, "raw_viva", lambda c: extras.get(c, harmonise(c)))
     if cols is None:
         log.info("viva: no consumption rows in the drop folder, so nothing to load")
         return {"metric_rows": 0}
@@ -113,7 +122,15 @@ def _metrics(con, state: TableState, paths) -> dict:
              else "de-identified")
     entra = p.pick("EntraId", "ObjectId", "AadObjectId")
     phid = p.pick("PeopleHistoricalId")
-    org = ",\n".join(f"{p.person(c)} AS {c}" for c in ORG_COLUMNS)
+    t = TBL_METRICS
+    for column in sorted(set(extras.values()) - set(state.columns(t))):
+        con.execute(f"ALTER TABLE {ident(t)} ADD COLUMN {ident(column)} VARCHAR")
+        state.schemas[t].append((column, "VARCHAR"))
+    custom_columns = [c for c in state.columns(t) if c not in dict(SCHEMAS[t])]
+    org_columns = ORG_COLUMNS + custom_columns
+    org = ",\n".join([f"{p.person(c)} AS {ident(c)}" for c in ORG_COLUMNS] +
+                     [f"{_strip(ident(c)) if c in cols else 'CAST(NULL AS VARCHAR)'} AS {ident(c)}"
+                      for c in custom_columns])
     con.execute(f"""CREATE OR REPLACE TEMP TABLE viva_src AS
         SELECT DISTINCT coalesce(lower({p.person('user_principal_name')}), lower({p.person('person_id')})) AS person_id,
                lower({p.person('user_principal_name')}) AS user_principal_name,
@@ -137,7 +154,6 @@ def _metrics(con, state: TableState, paths) -> dict:
     rows, weeks = con.execute("SELECT count(*), count(DISTINCT metric_date) FROM viva_src").fetchone()
     log.info("viva: %s rows across %s weeks", rows, weeks)
 
-    t = TBL_METRICS
     old_key = f"coalesce({_identity(f'{t}.user_principal_name')}, {_identity(f'{t}.person_id')})"
     rest = KEY[1:]
     if con.execute(f"SELECT count(*) FROM (SELECT {old_key} AS k, {', '.join(rest)} FROM {t} "
@@ -145,7 +161,8 @@ def _metrics(con, state: TableState, paths) -> dict:
         raise ValueError("Existing consumption has colliding normalised keys; reconcile duplicates before merging.")
     cond = f"{old_key} = s.person_id AND " + " AND ".join(f"{t}.{k} IS NOT DISTINCT FROM s.{k}" for k in rest)
     columns = state.columns(t)
-    updated = ", ".join(f"coalesce(NULLIF(trim(s.{c}), ''), {t}.{c}) AS {c}" if c in ORG_COLUMNS else f"s.{c}"
+    updated = ", ".join(f"coalesce(NULLIF(trim(s.{ident(c)}), ''), {t}.{ident(c)}) AS {ident(c)}"
+                        if c in org_columns else f"s.{ident(c)}"
                         for c in columns)
     before = state.count(t)
     con.execute(f"CREATE OR REPLACE TEMP TABLE viva_upd AS SELECT {t}.rowid AS rid, {updated} "
@@ -153,7 +170,7 @@ def _metrics(con, state: TableState, paths) -> dict:
     con.execute(f"CREATE OR REPLACE TEMP TABLE viva_new AS SELECT s.* FROM viva_src s "
                 f"WHERE NOT EXISTS (SELECT 1 FROM {t} WHERE {cond})")
     con.execute(f"DELETE FROM {t} WHERE rowid IN (SELECT rid FROM viva_upd)")
-    names = ", ".join(columns)
+    names = ", ".join(ident(c) for c in columns)
     con.execute(f"INSERT INTO {t} ({names}) SELECT {names} FROM viva_upd")
     con.execute(f"INSERT INTO {t} ({names}) SELECT {names} FROM viva_new")
     state.changed.add(t)
@@ -189,7 +206,7 @@ def ingest(store, files: dict) -> dict:
     policies = [files[n] for n in sorted(files) if n.lower().startswith(POLICY_PREFIX) and n.lower().endswith(".csv")]
     con = duckdb.connect()
     try:
-        state = TableState(con, store, SCHEMAS)
+        state = TableState(con, store, SCHEMAS, preserve_extra={TBL_METRICS})
         state.load()
         out = {"files": len(metrics) + len(policies)}
         if metrics:

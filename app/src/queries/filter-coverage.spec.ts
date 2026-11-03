@@ -64,7 +64,7 @@ const factories = collectFactories();
 const byConnection = (id: string) => factories.filter((factory) => factory.connection === id);
 const profileOf = (factory: Factory) => factory.filters ?? defaultProfile(factory.connection, valueLens);
 const resolve = (factory: Factory, keys: readonly FilterKey[] = FILTER_KEYS) =>
-    resolveFilters(profileOf(factory), ACTIVE, keys);
+    resolveFilters(profileOf(factory), ACTIVE, keys, { evaluatorOrgAttributes: ["Organization"] });
 
 function applied(name: string): FilterKey[] {
     const factory = factories.find((candidate) => candidate.name === name);

@@ -39,6 +39,8 @@ interface FilterContextValue {
      * they load once a filter menu opens or an org filter is set.
      */
     consumptionOrgAttributes?: readonly string[];
+    /** The Evaluator's own eligible org columns, loaded only when an org filter is active. */
+    evaluatorOrgAttributes?: readonly string[];
     /**
      * Loads what only the filter menus show — the org values and Consumption
      * Central's org attributes — and the org columns on screen. A filter menu

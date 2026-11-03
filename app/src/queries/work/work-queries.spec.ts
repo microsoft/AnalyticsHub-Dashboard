@@ -236,7 +236,7 @@ describe("leaderboard queries", () => {
         expect(query).toContain(`"@Sessions", [${leaderboardMeasures(cohort).sessions}]`);
         expect(query).toContain(`'Chat + Agent Interactions (Audit Logs)'[Audit_UserId]`);
         expect(leaderboardConcentration(cohort, describeOrgAttribute("Department")).query).toContain(
-            "'Chat + Agent Org Data'[Department]",
+            "'Org Attribute Source'[Value]",
         );
     });
 
@@ -304,9 +304,10 @@ describe("leaderboard queries", () => {
 
     it("groups people by whichever org column is chosen", () => {
         const { query, columnMetadata } = leaderboardPeople("licensed", describeOrgAttribute("Department"));
-        expect(query).toContain("'Chat + Agent Org Data'[Department]");
+        expect(query).toContain("'Org Attribute Source'[Value]");
+        expect(query).toContain(`'Org Attribute Source'[Attribute] = "Department"`);
         expect(query).not.toContain("[Organization]");
-        expect(columnMetadata["Chat + Agent Org Data[Department]"]).toMatchObject({
+        expect(columnMetadata["Org Attribute Source[Value]"]).toMatchObject({
             name: "Chat + Agent Org DataOrganization",
             displayName: "Department",
         });

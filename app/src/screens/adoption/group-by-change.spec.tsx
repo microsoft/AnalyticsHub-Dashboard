@@ -98,7 +98,7 @@ const STAGES: { name: string; Stage: ComponentType; ranked: (column: string) => 
 /** One row per value of the org column, and per week where the query has weeks; every other column is a count. */
 function rowsFor({ columnMetadata }: Query, column: string): Record<string, unknown>[] {
     const keys = Object.keys(columnMetadata);
-    const org = `${ORG_TABLE}[${column}]`;
+    const org = column === DEFAULT_ORG_ATTRIBUTE ? `${ORG_TABLE}[${column}]` : "Org Attribute Source[Value]";
     if (!keys.includes(org)) throw new Error(`The query has no ${org} column.`);
     const week = keys.find((key) => key.endsWith("[WeekStart]"));
     const weeks = week ? ["2026-09-07T00:00:00", "2026-09-14T00:00:00"] : [undefined];

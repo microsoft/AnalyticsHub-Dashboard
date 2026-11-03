@@ -19,17 +19,18 @@ type Answer =
     | { status: "error"; error: { message: string } };
 
 const mocks = vi.hoisted(() => ({
-    asks: [] as { query: string; background?: boolean }[],
+    asks: [] as { connection: string; query: string; background?: boolean }[],
     /** What each render asks ahead of the menu, `""` for nothing. */
     speculated: [] as string[],
     answers: new Map<string, Answer>(),
+    evaluator: false,
     model: { workspaceId: "6f1c2b9a-0d4e-4f7a-9b3c-2e5d8a1f0c47", itemId: "a3e7d2c1-5b8f-4c6a-9e0d-7f2b4c1a8e39" },
 }));
 
 vi.mock("@/hooks/use-semantic-model-query", () => ({
-    useSemanticModelQuery: ({ query, background }: { query: string; background?: boolean }) => {
-        if (query) mocks.asks.push({ query, background });
-        const data = query ? mocks.answers.get(query) : undefined;
+    useSemanticModelQuery: ({ connection, query, background }: { connection: string; query: string; background?: boolean }) => {
+        if (query) mocks.asks.push({ connection, query, background });
+        const data = query ? mocks.answers.get(`${connection}\0${query}`) ?? mocks.answers.get(query) : undefined;
         const error = data?.status === "error" ? new Error(data.error.message) : undefined;
         return { data, isLoading: Boolean(query) && data === undefined, error, refetch: () => {} };
     },
@@ -40,7 +41,7 @@ vi.mock("@/hooks/use-semantic-model-query", () => ({
 
 vi.mock("@/lib/runtime-config", async (original) => ({
     ...(await original<typeof import("@/lib/runtime-config")>()),
-    runtimeConfig: () => ({ host: "fabric", rayfin: {}, semanticModels: { vl: mocks.model, cc: mocks.model } }),
+    runtimeConfig: () => ({ host: "fabric", rayfin: {}, semanticModels: { vl: mocks.model, cc: mocks.model, ...(mocks.evaluator ? { ae: mocks.model } : {}) } }),
 }));
 
 const OPTIONS = filterOptions().query;
@@ -101,6 +102,7 @@ beforeEach(() => {
     mocks.asks.length = 0;
     mocks.speculated.length = 0;
     mocks.answers.clear();
+    mocks.evaluator = false;
 });
 
 describe("FilterProvider", () => {
@@ -201,5 +203,57 @@ describe("FilterProvider", () => {
         );
 
         expect(orgColumnsInBackground()).toBe(true);
+    });
+
+    it("never offers a blank-plus-one grouping returned by discovery", () => {
+        const candidates = ["Organization", "Band"];
+        mocks.answers.set(ORG_COLUMNS, table({
+            "[Column]": candidates, "[Cardinality]": [1, 2],
+        }));
+        const { context } = renderProvider();
+        act(() => context.current.requestFilterChoices?.());
+        expect(context.current.orgValues).toBeUndefined();
+        expect(context.current.orgAttributes).toEqual(["Band"]);
+        expect(context.current.orgAttribute.column).toBe("Band");
+    });
+
+    it("does not reapply a stale column's selected values to its replacement", () => {
+        mocks.answers.set(ORG_COLUMNS, orgColumns(5));
+        const { context, rerender } = renderProvider();
+        act(() => context.current.setFilters((state) => ({ ...state, orgAttribute: "Removed", organizations: ["Old value"] })));
+        rerender();
+        expect(context.current.filters.orgAttribute).toBe("Organization");
+        expect(context.current.filters.organizations).toEqual([]);
+    });
+
+    it("offers no grouping when the loaded org columns are all constants", () => {
+        mocks.answers.set(ORG_COLUMNS, table({
+            "[Column]": ["Organization"], "[Cardinality]": [1], "[Max Length]": [10],
+        }));
+        const { context } = renderProvider();
+        expect(context.current.orgAttributes).toEqual([]);
+    });
+
+    it("discovers Evaluator compatibility against its own model only when a filter is active", () => {
+        mocks.evaluator = true;
+        const { context, rerender } = renderProvider();
+        expect(mocks.asks.some((ask) => ask.connection === "ae")).toBe(false);
+        act(() => context.current.setFilters((state) => ({ ...state, organizations: ["North"] })));
+        expect(mocks.asks.some((ask) => ask.connection === "ae" && ask.query === ORG_COLUMNS)).toBe(true);
+        expect(context.current.evaluatorOrgAttributes).toBeUndefined();
+        mocks.answers.set(`ae\0${ORG_COLUMNS}`, table({
+            "[Column]": ["CustomBand", "PersonId"], "[Cardinality]": [20000, 20000], "[Max Length]": [undefined, 30],
+        }));
+        rerender();
+        expect(context.current.evaluatorOrgAttributes).toEqual(["CustomBand"]);
+    });
+
+    it("surfaces discovery failures instead of offering unverified groupings", () => {
+        mocks.answers.set(ORG_COLUMNS, {
+            status: "error", error: { message: "Org discovery failed." },
+        });
+        const { context } = renderProvider();
+        expect(context.current.orgAttributes).toEqual([]);
+        expect(context.current.optionsError?.message).toBe("Org discovery failed.");
     });
 });
