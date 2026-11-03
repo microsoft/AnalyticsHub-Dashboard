@@ -1,4 +1,4 @@
-# Analytics Hub app
+# DataHub app
 
 The ValueLens dashboard as a web app in your Fabric workspace. The [installer](../installer/README.md)
 deploys it for you. Use this folder only to deploy it by hand or to change it.
@@ -9,7 +9,7 @@ viewing it, so row-level security applies. How each figure is worked out is in t
 
 ## Static browser demo
 
-The standalone browser demo at `demo.html` uses the real app screens with generated synthetic
+The standalone DataHub browser demo at `demo.html` uses the real app screens with generated synthetic
 sample data. It does not read host configuration, ask you to sign in, or contact a model or app
 backend. Ask returns a local example answer; settings changes stay in memory for the current page
 session, and admin-only actions are disabled.
@@ -37,6 +37,11 @@ are not added together. The native-source evidence fixture is separately identif
 a population total. The view's own vendor/product filters work locally; app-wide filters do
 not apply. `.env.demo` enables this view only for the static demo build; ordinary builds keep
 it disabled unless `VITE_CROSS_VENDOR_DEMO=true` is explicitly set.
+
+The demo build also sets `VITE_DATAHUB_PREVIEW=true` to use DataHub in desktop and mobile
+navigation, cross-vendor copy and report exports. Its HTML title, description and bundled
+README use DataHub too. Ordinary builds retain their existing branding unless explicitly
+opted in; deployment identifiers and access-group names are unchanged.
 
 ## Deploy it by hand
 

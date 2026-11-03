@@ -57,7 +57,20 @@ afterEach(() => {
     document.body.innerHTML = "";
     document.documentElement.classList.remove("vl-printing");
     vi.restoreAllMocks();
+    vi.unstubAllEnvs();
     downloadBlob.mockReset();
+});
+
+describe("report branding", () => {
+    it.each([
+        ["", "Analytics Hub"],
+        ["true", "DataHub"],
+    ])("uses the selected brand in pack exports with preview flag %s", (flag, brand) => {
+        vi.stubEnv("VITE_DATAHUB_PREVIEW", flag);
+        const doc = document_();
+        expect(reportMarkup(doc)).toContain(`from ${brand}`);
+        expect(JSON.stringify(deckSlides(doc))).toContain(`from ${brand}`);
+    });
 });
 
 describe("describeFilters", () => {

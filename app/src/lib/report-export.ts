@@ -8,6 +8,7 @@
 import { CAPTURE_EXCLUDE_ATTR, captureElementAsImage } from "@microsoft/fabric-visuals-extensibility";
 import type { StageId } from "@/components/destinations";
 import { downloadBlob } from "@/lib/download";
+import { appDisplayName } from "@/lib/app-brand";
 import {
     AUDIENCE_LABELS,
     DATE_PRESET_LABELS,
@@ -320,7 +321,7 @@ export function deckSlides(doc: ReportDocument): SlideSpec[] {
                 text: [
                     `Filters: ${doc.filters}`,
                     doc.freshness && `Data: ${doc.freshness}`,
-                    `Generated ${longDate.format(doc.generatedAt)} from Analytics Hub`,
+                    `Generated ${longDate.format(doc.generatedAt)} from ${appDisplayName()}`,
                     ...coverNotes(doc),
                 ]
                     .filter(Boolean)
@@ -363,7 +364,7 @@ export async function buildPptx(doc: ReportDocument): Promise<Blob> {
     const pptx = new PptxGenJS();
     pptx.layout = "LAYOUT_WIDE";
     pptx.title = doc.name;
-    pptx.author = "Analytics Hub";
+    pptx.author = appDisplayName();
     for (const spec of deckSlides(doc)) {
         const slide = pptx.addSlide();
         for (const text of spec.texts) {
@@ -419,7 +420,7 @@ export function reportMarkup(doc: ReportDocument): string {
         doc.description && `<p class="muted">${escapeHtml(doc.description)}</p>`,
         `<p class="muted">Filters: ${escapeHtml(doc.filters)}</p>`,
         data && `<p class="muted">${escapeHtml(data)}</p>`,
-        `<p class="muted">Generated ${escapeHtml(longDate.format(doc.generatedAt))} from Analytics Hub</p>`,
+        `<p class="muted">Generated ${escapeHtml(longDate.format(doc.generatedAt))} from ${appDisplayName()}</p>`,
         ...coverNotes(doc).map((note) => `<p class="muted">${escapeHtml(note)}</p>`),
     ].filter(Boolean);
 

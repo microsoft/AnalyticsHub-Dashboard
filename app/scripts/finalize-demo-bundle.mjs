@@ -8,7 +8,7 @@ await copyFile(resolve(import.meta.dirname, "..", "LICENSE"), resolve(output, "L
 await writeFile(
     resolve(output, "README.txt"),
     [
-        "Analytics Hub interactive browser demo",
+        "DataHub interactive browser demo",
         "",
         "Static, self-contained app bundle. Uses synthetic sample data only.",
         "No sign-in, model, tenant, or app backend is required.",
