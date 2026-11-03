@@ -1,6 +1,6 @@
 # Manual install
 
-Set Analytics Hub up by hand, step by step, without the installer. It uses the same files the
+Set DataHub up by hand, step by step, without the installer. It uses the same files the
 installer does. Use it only if no [install route](INSTALL.md) works for you, or you want to see
 each piece.
 

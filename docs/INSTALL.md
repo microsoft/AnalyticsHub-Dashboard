@@ -1,6 +1,6 @@
 # Install
 
-The installer sets up Analytics Hub on Fabric or Azure. Check the [Prerequisites](PREREQUISITES.md)
+The installer sets up DataHub on Fabric or Azure. Check the [Prerequisites](PREREQUISITES.md)
 first. To set it up by hand instead, see [Manual install](MANUAL-INSTALL.md).
 
 ```mermaid
@@ -20,7 +20,7 @@ flowchart LR
    and open it. Blocked? See [Other ways to start it](#other-ways-to-start-it).
 2. **Wait for your browser.** The first time, it takes about a minute to unpack. Keep its window
    open, and keep the PC awake and plugged in, until the installer says setup is finished.
-3. **Choose Set up Analytics Hub** and sign in.
+3. **Choose Set up DataHub** and sign in.
 4. **Choose where it runs:** **Microsoft Fabric** or **Your Azure subscription** (`--target azure`).
 5. **Answer the questions** (about 5 minutes):
    - **Data sources.** Each has a card: **Connected (API)**, **Upload CSV** or **Skip**. A CSV card
@@ -60,7 +60,7 @@ flowchart LR
   [Credit consumption](../installer/README.md#credit-consumption). A source that needs more, such
   as a Power Platform environment for a flow, asks for it next.
 - **Names.** A new workspace is named `Analytics Hub` and its Lakehouse `Analytics_Hub`, or the
-  next free name. New items are named after Analytics Hub, such as `Analytics Hub Model`,
+  next free name. Items retain legacy names for compatibility, such as `Analytics Hub Model`,
   `AnalyticsHub_Pipeline`, the `Analytics Hub SQL …` connection and the `Analytics Hub Data Collector` app registration. An install from
   an earlier version keeps its names, such as `ValueLens Model`.
 - **Capacity.** F64 or larger is recommended for more than 10,000 people. On Azure, so is letting
@@ -83,7 +83,7 @@ flowchart LR
   `AnalyticsHub_Pipeline_2` or `Analytics Hub 2`. The plan shows the names first.
 - **The install record.** Your answers are kept in `Documents\Analytics Hub\valuelens-install.json`.
   Keep that folder. Start the installer again the same way to run the pipeline, check status,
-  update or repair. **Manage Analytics Hub** shows the record's path. If OneDrive syncs your
+  update or repair. **Manage DataHub** shows the record's path. If OneDrive syncs your
   Documents folder, the record follows you to your other PCs.
 - **The workspace has gone.** After you sign in, the installer checks the record's workspace still
   exists. If Fabric says it doesn't, or the record is for another tenant, choose **Start fresh**
@@ -94,6 +94,38 @@ flowchart LR
 - **Updates.** See [Update or remove](UPDATE.md).
 
 </details>
+
+## Names and compatibility
+
+The product is **DataHub**. Installed resources and download paths still use some **Analytics Hub**
+names so existing setup, repair, update and uninstall operations keep working. In the Fabric
+workspace, open the **Analytics Hub** app item; its browser title and navigation show DataHub.
+Use the actual names shown in your install record if you chose custom names.
+
+These names deliberately stay unchanged:
+
+- The `Analytics Hub` workspace, `Analytics_Hub` Lakehouse, `Analytics Hub Model`,
+  `Analytics Hub Ask` data agent, `AnalyticsHub_Pipeline`, viewer group, SQL connections,
+  app registrations, named flows and notebook items.
+- `AnalyticsHub.User` and `AnalyticsHub.Admin` authorization values, schema/model identifiers,
+  storage keys and the ownership markers used to recognize resources from older installers.
+- `AnalyticsHubInstaller.exe`, `AnalyticsHubInstaller.zip`, `AnalyticsHub-Teams.zip`,
+  `Documents\Analytics Hub`, `%LOCALAPPDATA%\AnalyticsHub`, `valuelens-install.json`,
+  `VALUELENS_*` settings, resource tags and container image names.
+- Existing repository, download and wiki URLs, the
+  [DataHub site](https://microsoft.github.io/Analytics-Hub/) path and old documentation anchors.
+
+Resource-display-name and site-path migrations are separate work; this text change does not
+rename anything in your tenant. Teams package titles use DataHub, but an already published
+package keeps its existing title until an administrator updates it.
+
+Screenshots, `media/AnalyticsHub-Preview.gif`, `media/AnalyticsHub-Demo.mp4` and the hosted demo
+video still show the former branding and need replacement. Released changelog entries retain
+the name used at the time. The shipped Power BI templates also remain unchanged: the two core
+Fabric templates and the pinned SharePoint copy contain a legacy reference in model partition
+prose. Removing it requires a validated template rebuild or upstream re-pin, not a binary
+search-and-replace. ValueLens, Consumption Central and Agent Evaluator remain their own report
+names.
 
 ## Other ways to start it
 
@@ -156,7 +188,7 @@ Something failed? Choose **Rerun failed loads** (`rerun-failed`), or see
      [My Groups](https://myaccount.microsoft.com/groups). You can also run `access`
      (**Manage access** in the browser) or use **Share** in the app.
 
-  Keep viewers off workspace roles. See [Viewing Analytics Hub](PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
+  Keep viewers off workspace roles. See [Viewing DataHub](PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
 - **Own reports.** Connect Power BI Desktop to `Analytics Hub Model`, or use **Save a copy** on a
   published report.
 - **Flows and the Cowork Dataflow.** If you chose them, the end of the install lists what to sign

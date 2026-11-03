@@ -1,6 +1,6 @@
-# Contributing to Analytics Hub
+# Contributing to DataHub
 
-Thanks for helping make Analytics Hub more useful and reliable.
+Thanks for helping make DataHub more useful and reliable.
 
 ## Propose a change
 
@@ -58,7 +58,7 @@ npx valuelens-install preview  # writes ./valuelens-preview (ignored by git)
 npm run build:exe              # builds dist-exe/AnalyticsHubInstaller.exe (Windows, about 10 minutes)
 ```
 
-`npm run build:exe` builds the [Analytics Hub app](app/) once, stages it
+`npm run build:exe` builds the [DataHub app](app/) once, stages it
 with the installer and the notebooks, pipeline and templates it deploys, and zips them with a
 portable Node.js into a small C# launcher, compiled with the `csc` that comes with the .NET
 Framework. Run `npm ci` in the installer and in the app first. `--release` fails rather than warns
@@ -107,7 +107,7 @@ against a workspace or a local SQL database.
 | [`docs/`](docs/) | The user pages. Published to the [wiki](https://github.com/microsoft/AnalyticsHub-Dashboard/wiki) on every change | Everyone |
 | [`installer/`](installer/) | `AnalyticsHubInstaller.exe`: sets up, repairs and updates Fabric or Azure installs | Fabric and Azure |
 | [`fabric/`](fabric/) | Notebooks, pipeline, flows and Power BI templates for Fabric. The installer deploys them | Fabric by hand, or to see what's deployed |
-| [`app/`](app/) | The Analytics Hub app: a Fabric app item and the web app's front end on Azure | Fabric by hand, or developers |
+| [`app/`](app/) | The DataHub app: a Fabric app item and the web app's front end on Azure | Fabric by hand, or developers |
 | [`azure/`](azure/) | Bicep, Container Apps jobs, SQL schema, web app and Teams package for Azure | Azure by hand, or developers |
 | [`core/`](core/) | `valuelens_core`, the Python shared by the Azure jobs and the Fabric Defender notebook | Developers |
 | [`sharepoint/`](sharepoint/) | Power BI templates for a SharePoint setup, copied unchanged from ValueLens and pinned to a commit. Not shipped yet | Contributors |

@@ -28,13 +28,13 @@ import { DATA_SOURCE_IDS, modulesFromSources, parseDataFlags } from './uploads.j
 const COMMANDS = ['install', 'update', 'run', 'rerun-failed', 'load-cowork', 'check', 'check-audit', 'refresh', 'deploy-app', 'status', 'rotate-secret', 'access', 'upload', 'uninstall', 'prereqs', 'preview'];
 
 /** The `--help` text, naming the command the way it was started. */
-export const help = () => `Sets up Analytics Hub in Microsoft Fabric: the data pipeline, the semantic model and the app.
+export const help = () => `Sets up DataHub in Microsoft Fabric: the data pipeline, the semantic model and the app.
 
 Usage: ${commandLine('[command] [options]')}
        ${commandLine('--ui [options]')}
 
 Commands:
-  install          Set up Analytics Hub, or repair it from the install record (default)
+  install          Set up DataHub, or repair it from the install record (default)
   update           Push the notebooks, pipeline and semantic model from this checkout to Fabric
   run              Run the pipeline now, then the data check
   rerun-failed     Run again only the loads that failed in the latest pipeline run
@@ -44,7 +44,7 @@ Commands:
   check-audit      Check the app registration can read Copilot interactions in the audit log:
                    Auto checks Sentinel and the Management API; Graph runs a small audit search
   refresh          Refresh the semantic model now
-  deploy-app       Deploy the Analytics Hub app again
+  deploy-app       Deploy the DataHub app again
   status           Show recent runs and refreshes, the last data check and when secrets expire
   rotate-secret    Create new client secrets for Key Vault and the model's connection
   access           Who can view: the viewer group, its members and owners, and its Build on the models
@@ -63,7 +63,7 @@ Options:
   --config <file>      Install record (default ./${DEFAULT_CONFIG_FILE})
   --source <dir>       The repo folder to deploy from (default: this checkout)
   --tenant <id>        Tenant ID or domain to sign in to
-  --target <target>    Where Analytics Hub runs: fabric (default) or azure
+  --target <target>    Where DataHub runs: fabric (default) or azure
   --device-code        Sign in with a code on another device instead of a browser. The default
                        in Azure Cloud Shell
   --use-az             Use the account you are signed in to with the Azure CLI. In Azure Cloud
@@ -413,7 +413,7 @@ export async function startFresh(o) {
  */
 export async function supportBundle(args, debug, o = { connect }) {
   const ui = createUi();
-  ui.line(c.bold(`Analytics Hub installer ${version()}: support file`));
+  ui.line(c.bold(`DataHub installer ${version()}: support file`));
   const record = loadRecord(args.configFile);
   /** @type {any} */
   let api;
@@ -487,7 +487,7 @@ export async function main(argv) {
     const sources = loadSources(args.sourceDir);
     applyDataFlags(config, args);
 
-    ui.line(c.bold(`Analytics Hub installer ${version()}`));
+    ui.line(c.bold(`DataHub installer ${version()}`));
     if (args.command === 'preview') {
       preview({ ui, config, sources, outDir: args.outDir });
       return 0;

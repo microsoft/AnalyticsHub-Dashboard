@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * The data sources Analytics Hub reads, how each one arrives (an API, a CSV the admin exports, or
+ * The data sources DataHub reads, how each one arrives (an API, a CSV the admin exports, or
  * not at all), and how an uploaded CSV is recognised from its headers. The upload router notebook
  * gets the same signatures, so the installer and the scheduled pipeline always agree.
  */
@@ -387,7 +387,7 @@ export function detectSource(headers, enabled) {
     .filter((k) => k.groups.every((g) => g.some((h) => have.has(h))))
     .map((k) => ({ k, score: k.groups.length }))
     .sort((a, b) => b.score - a.score);
-  if (!scored.length) return { ok: false, reason: `It doesn't look like any export Analytics Hub reads. ${expectedHint()}`, headers };
+  if (!scored.length) return { ok: false, reason: `It doesn't look like any export DataHub reads. ${expectedHint()}`, headers };
   if (scored.length > 1 && scored[0].score === scored[1].score) {
     return { ok: false, reason: `It matches more than one export (${scored.filter((s) => s.score === scored[0].score).map((s) => s.k.kind).join(', ')}).`, headers };
   }
@@ -400,7 +400,7 @@ export function detectSource(headers, enabled) {
 }
 
 function expectedHint() {
-  return 'Expected one of: product feedback, Agent 365 agents, Copilot Studio credits (including the Analytics Hub flow\'s files), Cowork credits or a Workday report.';
+  return 'Expected one of: product feedback, Agent 365 agents, Copilot Studio credits (including the DataHub flow\'s files), Cowork credits or a Workday report.';
 }
 
 /**

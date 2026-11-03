@@ -28,4 +28,10 @@ describe("access request emails", () => {
         expect(accessRequestMailto({ groupId: "group-1" })).toBeNull();
         expect(scopeRequestMailto(undefined)).toBeNull();
     });
+
+    it("uses DataHub copy without changing the install's legacy group name", () => {
+        const email = new URL(accessRequestMailto(access) ?? "");
+        expect(email.searchParams.get("subject")).toBe("Access to DataHub");
+        expect(email.searchParams.get("body")).toContain("DataHub viewers (Analytics Hub viewers)");
+    });
 });

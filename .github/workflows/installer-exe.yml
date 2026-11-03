@@ -170,7 +170,7 @@ jobs:
             AnalyticsHubInstaller.zip AnalyticsHubInstaller.zip.sha256 install.ps1 \
             --repo "$GITHUB_REPOSITORY" --draft "${pre[@]}" \
             --notes-file notes/release-notes.md \
-            --title "Analytics Hub installer ${TAG#installer-v}"
+            --title "DataHub installer ${TAG#installer-v}"
 
   check-published:
     name: Check the published exe

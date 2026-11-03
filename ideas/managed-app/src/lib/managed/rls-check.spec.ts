@@ -37,7 +37,7 @@ beforeEach(() => {
 });
 
 describe("runIdentityCheck", () => {
-    it("asks the Analytics Hub model, past the cache, who the viewer is, and records it", async () => {
+    it("asks the DataHub model, past the cache, who the viewer is, and records it", async () => {
         fabric.query.mockResolvedValue({
             status: "success",
             table: table(["[UPN]", "[User]", "[ObjectId]"], [["avery@contoso.com", "avery@contoso.com", "viewer-object-id"]]),
@@ -90,13 +90,13 @@ describe("runIdentityCheck", () => {
         expect(getDiagnostics().identity?.status).toBe("failed");
     });
 
-    it("doesn't ask when the Analytics Hub model isn't set up", async () => {
+    it("doesn't ask when the DataHub model isn't set up", async () => {
         runtime.semanticModels = { vl: { workspaceId: "<workspace-id>", itemId: "<item-id>" } };
 
         await expect(runIdentityCheck()).resolves.toEqual({
             status: "failed",
             model: "vl",
-            error: "The Analytics Hub model isn't set up in managed-app.config.json, so there's no model to ask.",
+            error: "The DataHub model isn't set up in managed-app.config.json, so there's no model to ask.",
             checkedAt: expect.any(Number),
         });
         expect(fabric.semanticModel).not.toHaveBeenCalled();

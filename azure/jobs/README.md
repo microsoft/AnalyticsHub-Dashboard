@@ -1,6 +1,6 @@
 # valuelens-jobs
 
-The Azure-hosted Analytics Hub's data jobs: one container image, run on a schedule as an Azure
+The Azure-hosted DataHub's data jobs: one container image, run on a schedule as an Azure
 Container Apps job (`infra/modules/containerapps.bicep`). It replaces the Fabric notebooks and
 pipeline. The processing logic is the shared DuckDB core in `core/valuelens_core`, kept
 in step with the Fabric notebooks by the golden tests in `tests/`. No Spark or JVM is needed.
@@ -157,7 +157,7 @@ on its own, and the others still run.
   - The managed identity needs **Reader** at the management group (or the tenant root group) for
     Foundry, and an Entra role such as **Global Reader** for agents. App-only access to
     `PowerPlatformResources` isn't documented. When it's refused or empty, the newest
-    `arg_inventory/*.json` in the drop folder is read instead: the **Analytics Hub - Agent
+    `arg_inventory/*.json` in the drop folder is read instead: the **DataHub - Agent
     inventory** flow writes it each day from the Power Platform inventory API, signed in as an admin.
   - With the `agent365` module, `TitleId` comes from its export when that has a `Bot Id` or
     `Entra Agent ID` column. The admin center's export has neither, so `TitleId` stays blank.

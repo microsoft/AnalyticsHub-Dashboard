@@ -214,8 +214,8 @@ describe("ManagedDiagnosticsPanel", () => {
             expect(row("Signed in as")).toBe("Unknown");
             expect(screen.getByText("The app host didn't answer within 10 seconds.")).toHaveClass("text-destructive");
 
-            act(() => setIdentityCheck({ status: "failed", model: "vl", error: "You don't have access to the Analytics Hub model.", checkedAt: 1 }));
-            expect(screen.getByText("You don't have access to the Analytics Hub model.")).toHaveClass("text-destructive");
+            act(() => setIdentityCheck({ status: "failed", model: "vl", error: "You don't have access to the DataHub model.", checkedAt: 1 }));
+            expect(screen.getByText("You don't have access to the DataHub model.")).toHaveClass("text-destructive");
             expect(screen.queryByText("The model sees")).not.toBeInTheDocument();
             expect(screen.getByRole("button", { name: "Check again" })).toBeEnabled();
         });

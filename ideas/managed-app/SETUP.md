@@ -5,7 +5,7 @@
 > from that commit's `app` folder. Not validated against current services, and the CLI may have changed.
 > See [Before trying it again](README.md#before-trying-it-again).
 
-Run the Analytics Hub app on the
+Run the DataHub app on the
 [Copilot Managed Runtime](https://learn.microsoft.com/microsoft-365/managed-apps/), where apps built
 in Copilot Cowork and Copilot Studio run too. Microsoft hosts it, and people open it from
 [managedapps.cloud.microsoft](https://managedapps.cloud.microsoft). It has the same pages as on
