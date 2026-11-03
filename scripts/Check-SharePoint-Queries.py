@@ -3,15 +3,17 @@
 The app reads ValueLens from the model the installer builds from ValueLens - Fabric.pbit. A
 SharePoint setup would read it from the model in sharepoint/ instead, copied unchanged from the
 ValueLens repository. This reads every .dax query the app sends to the ValueLens connection
-("vl" in app/src/queries/shared.ts), and the filter bar's columns, and lists each table, column
-and measure that model lacks, with where AH gets it today: AH's Fabric template, the installer,
-or neither.
+("vl" in app/src/queries/shared.ts), and the filter bar's columns, the org filter's bridge table
+among them, and lists each table, column and measure that model lacks, with where AH gets it
+today: AH's Fabric template, the installer, or neither.
 
 It only reports. It changes nothing and always exits 0. It checks names, not DAX: a query
-"resolves" when every table, column and measure it names is in the model. In DAX written in .ts
-files only 'Table'[Column] names are checked, and names the app fills in at run time are listed,
-not checked. Consumption Central and Agent Evaluator queries aren't checked, because sharepoint/
-has no model for them.
+"resolves" when every table, column and measure it names is in the model. A query passed in a
+function's connection parameter counts as sent to the parameter's default. In DAX written in .ts
+files only 'Table'[Column] names are checked, with each ${NAME} filled in from the string
+constant the module defines or imports; other names the app fills in at run time are listed, not
+checked. Consumption Central and Agent Evaluator queries aren't checked, because sharepoint/ has
+no model for them.
 
     python scripts/Check-SharePoint-Queries.py          # a summary
     python scripts/Check-SharePoint-Queries.py --json   # every query and name, as JSON
@@ -27,10 +29,11 @@ ROOT = Path(__file__).resolve().parents[1]
 TEMPLATE = Path("sharepoint") / "ValueLens - SharePoint.pbit"
 PROVENANCE = Path("sharepoint") / "provenance.json"
 FABRIC = Path("fabric") / "ValueLens - Fabric.pbit"
-QUERIES = Path("app") / "src" / "queries"
+APP = Path("app") / "src"
+QUERIES = APP / "queries"
 SHARED = QUERIES / "shared.ts"
-FILTERS = Path("app") / "src" / "lib" / "filters.ts"
-ORG_ATTRIBUTE = Path("app") / "src" / "lib" / "org-attribute.ts"
+FILTERS = APP / "lib" / "filters.ts"
+ORG_ATTRIBUTE = APP / "lib" / "org-attribute.ts"
 INSTALLER = Path("installer") / "src"
 CHECKED = "vl"
 NOT_CHECKED = {
@@ -58,8 +61,9 @@ BUILT_IN = re.compile(r"value\d*|date")
 FUNCTION_COLUMNS = {
     "columnstatistics": {"table name", "column name", "min", "max", "cardinality", "max length"},
 }
-# Names the app replaces before it sends a query, such as [__USERS__].
-RUN_TIME = re.compile(r"__\w+__")
+# Names the app fills in before it sends a query: [__USERS__] in a .dax file, and in DAX written in
+# code a ${…} that isn't a string constant, such as '${table}'.
+RUN_TIME = re.compile(r"__\w+__|.*\$\{[^}]*\}.*")
 
 SHARED_IMPORT = re.compile(r"import\s*(?:type\s*)?\{([^}]*)\}\s*from\s*[\"'][^\"']*/shared[\"']")
 DAX_IMPORT = re.compile(r"import\s+([A-Za-z_$][\w$]*)\s+from\s+[\"']([^\"']+\.dax)\?raw[\"']")
@@ -69,6 +73,13 @@ EXPORTED_CONNECTION = re.compile(r"export\s+const\s+(\w*[cC]onnection)\s*=\s*\"(
 CONNECTION_PROPERTY = re.compile(r"(?<![\w$.])connection\b\s*(?::\s*([A-Za-z_$][\w$]*))?")
 DAX_IN_CODE = re.compile(r"'[^'\n]+'\[[^\]\n]+\]|\b(?:EVALUATE|SUMMARIZECOLUMNS|CALCULATETABLE)\b")
 CODE_REFERENCE = re.compile(r"'(?:[^'\n]|'')+'\[[^\]\n]+\]")
+NAMED_IMPORT = re.compile(r"\bimport\s*\{([^}]*)\}\s*from\b")
+# A module's string constant: const NAME = "…", '…' or `…`. Only a `…` one fills in ${OTHER}.
+STRING_CONSTANT = re.compile(r"(?m)^(export\s+)?const\s+([A-Za-z_$][\w$]*)\s*(?::\s*string\s*)?="
+                             r"\s*(\"[^\"\n]*\"|'[^'\n]*'|`[^`]*`)(?:\s+as\s+const)?\s*;")
+PLACEHOLDER = re.compile(r"\$\{\s*([A-Za-z_$][\w$]*)\s*\}")
+# The function that writes the org filter's DAX, up to its closing brace.
+ORG_FILTER = re.compile(r"\bfunction\s+orgValueFilter\s*\([^)]*\)[^{]*\{(.*?)^\}", re.S | re.M)
 
 
 def read_text(path):
@@ -241,18 +252,21 @@ def check(dax, model, fabric, installer):
     return [missing[k] for k in sorted(missing)], sorted(run_time)
 
 
+def import_items(block):
+    """{local name: imported name} for the values in one import { … }."""
+    names = {}
+    for item in block.split(","):
+        item = item.strip()
+        if item and not item.startswith("type "):
+            original, _, local = item.partition(" as ")
+            names[(local or original).strip()] = original.strip()
+    return names
+
+
 def connections_in(source, exported):
     """{local name: connection} for the connections a module imports from shared.ts."""
-    names = {}
-    for block in SHARED_IMPORT.findall(source):
-        for item in block.split(","):
-            item = item.strip()
-            if not item or item.startswith("type "):
-                continue
-            original, _, local = item.partition(" as ")
-            if original.strip() in exported:
-                names[(local or original).strip()] = exported[original.strip()]
-    return names
+    return {local: exported[original] for block in SHARED_IMPORT.findall(source)
+            for local, original in import_items(block).items() if original in exported}
 
 
 def enclosing_object(source, index):
@@ -279,7 +293,8 @@ def enclosing_object(source, index):
 
 
 def object_connection(source, index, local):
-    """The connection of the object literal a query is passed in, or None."""
+    """The connection of the object literal a query is passed in, or None. A connection passed in
+    a parameter, as in f(modelConnection = connection), is the parameter's default."""
     text = enclosing_object(source, index)
     if text is None:
         return None
@@ -287,7 +302,50 @@ def object_connection(source, index, local):
     while previous != text:
         previous, text = text, re.sub(r"\{[^{}]*\}", "", text)
     match = CONNECTION_PROPERTY.search(text)
-    return local.get(match.group(1) or "connection") if match else None
+    if not match:
+        return None
+    name = match.group(1) or "connection"
+    if name not in local:
+        default = rf"(?<![\w$.]){re.escape(name)}\s*(?::[^=,()]*)?=\s*([A-Za-z_$][\w$]*)\s*[,)]"
+        defaults = re.findall(default, source[:index])
+        name = defaults[-1] if defaults else name
+    return local.get(name)
+
+
+def constants(root):
+    """fill(module, text): text with each ${NAME} replaced by the string constant NAME, which the
+    module defines or imports from the one app module that exports it. Other ${…} stay as written."""
+    modules, owners = {}, {}
+    folder = root / APP
+    for path in sorted(folder.rglob("*.ts")) if folder.is_dir() else []:
+        if path.name.endswith(NOT_APP_CODE):
+            continue
+        source = strip_comments(read_text(path))
+        found = STRING_CONSTANT.findall(source)
+        imported = {}
+        for block in NAMED_IMPORT.findall(source):
+            imported.update(import_items(block))
+        modules[path.resolve()] = ({name: value for _, name, value in found}, imported)
+        for export, name, _ in found:
+            if export:
+                owners.setdefault(name, set()).add(path.resolve())
+
+    def value(module, name, depth):
+        own, imported = modules.get(module, ({}, {}))
+        if name in own:
+            text = own[name]
+            return fill(module, text[1:-1], depth + 1) if text[0] == "`" else text[1:-1]
+        owner = owners.get(imported.get(name), ())
+        return value(next(iter(owner)), imported[name], depth + 1) if len(owner) == 1 else None
+
+    def fill(module, text, depth=0):
+        def replace(match):
+            # The depth limit stops constants that refer to each other.
+            found = value(module, match.group(1), depth) if depth < 20 else None
+            return match.group(0) if found is None else found
+        return PLACEHOLDER.sub(replace, text)
+
+    return fill
 
 
 def local_imports(module, source):
@@ -302,8 +360,9 @@ def local_imports(module, source):
     return found
 
 
-def attribute(root):
+def attribute(root, fill=None):
     """{.dax path: set of connections the app sends it to} and the modules that write DAX in code."""
+    fill = fill or constants(root)
     folder = root / QUERIES
     shared = root / SHARED
     exported = dict(EXPORTED_CONNECTION.findall(read_text(shared))) if shared.is_file() else {}
@@ -327,8 +386,9 @@ def attribute(root):
     for key, (module, source, local) in modules.items():
         whole = connections(key)
         body = IMPORT_STATEMENT.sub("", source)
-        if DAX_IN_CODE.search(body):
-            in_code.append((module.relative_to(root).as_posix(), whole, CODE_REFERENCE.findall(body)))
+        code = fill(key, body)
+        if DAX_IN_CODE.search(code):
+            in_code.append((module.relative_to(root).as_posix(), whole, CODE_REFERENCE.findall(code)))
         for name, target in DAX_IMPORT.findall(source):
             path = (module.parent / target).resolve().relative_to(root.resolve()).as_posix()
             uses = [m.start() for m in re.finditer(rf"(?<![\w$.]){re.escape(name)}(?![\w$])(?!\s*:)", body)]
@@ -337,24 +397,30 @@ def attribute(root):
     return sent, in_code
 
 
-def filter_columns(root):
-    """[(filter, 'T'[X])] for the filter bar: FILTER_COLUMNS, and the org filter's default column."""
-    columns = []
+def filter_columns(root, fill=None):
+    """[(filter, 'T'[X])] for the filter bar, and what it couldn't read. That's FILTER_COLUMNS, and
+    for the org filter its default column and the bridge table names orgValueFilter writes."""
+    fill = fill or constants(root)
+    columns, problems = [], []
     path = root / FILTERS
     if path.is_file():
         text = read_text(path)
-        constants = dict(re.findall(r"(?m)^(?:export\s+)?const\s+(\w+)\s*=\s*\"([^\"]*)\"\s*;", text))
         block = re.search(r"FILTER_COLUMNS\s*=\s*\{(.*?)\}\s*as\s+const", text, re.S)
         for key, value in re.findall(r"(\w+)\s*:\s*(\"[^\"]*\"|`[^`]*`)", block.group(1) if block else ""):
-            columns.append((key, re.sub(r"\$\{(\w+)\}", lambda m: constants.get(m.group(1), m.group(0)), value[1:-1])))
+            columns.append((key, fill(path.resolve(), value[1:-1])))
     path = root / ORG_ATTRIBUTE
     if path.is_file():
-        text = read_text(path)
+        text = strip_comments(read_text(path))
         table = re.search(r"ORG_TABLE\s*=\s*\"([^\"]+)\"", text)
         column = re.search(r"DEFAULT_ORG_ATTRIBUTE\s*=\s*\"([^\"]+)\"", text)
         if table and column:
             columns.append(("organizations", written(table.group(1), column.group(1))))
-    return columns
+        body = ORG_FILTER.search(text)
+        bridge = dict.fromkeys(CODE_REFERENCE.findall(fill(path.resolve(), body.group(1)))) if body else {}
+        columns.extend(("organizations", name) for name in bridge)
+        if not bridge:
+            problems.append(f"Can't find the org filter's DAX, orgValueFilter, in {ORG_ATTRIBUTE.as_posix()}")
+    return columns, problems
 
 
 def check_filter(reference, model, fabric, installer):
@@ -394,12 +460,15 @@ def report(root=ROOT):
         fabric = None
         result["problems"].append(f"Can't read {FABRIC.as_posix()}, so origins name only the installer: {error}")
     installer = installer_sources(root)
+    fill = constants(root)
 
-    for name, reference in filter_columns(root):
+    columns, unread = filter_columns(root, fill)
+    result["problems"].extend(unread)
+    for name, reference in columns:
         found = check_filter(reference, model, fabric, installer)
         result["filterBar"].append({"filter": name, "column": reference, **(found or {"problem": None, "origin": None})})
 
-    sent, in_code = attribute(root)
+    sent, in_code = attribute(root, fill)
     on_disk = {p.relative_to(root).as_posix() for p in (root / QUERIES).rglob("*.dax")} if (root / QUERIES).is_dir() else set()
     for path in sorted(on_disk | set(sent)):
         targets = sent.get(path, set())

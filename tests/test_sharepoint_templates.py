@@ -222,6 +222,70 @@ def test_attribute_follows_connections_through_imports(tmp_path):
     assert in_code == []
 
 
+def test_a_connection_parameter_counts_as_its_default(tmp_path):
+    queries = "app/src/queries"
+    write(tmp_path, f"{queries}/shared.ts", 'export const vlConnection = "vl";\nexport const ccConnection = "cc";\n')
+    # The module imports two connections, so neither query can fall back to its only one.
+    write(tmp_path, f"{queries}/options/index.ts",
+          'import { vlConnection, ccConnection } from "../shared";\n'
+          'import names from "./names.dax?raw";\n'
+          'import credits from "./credits.dax?raw";\n'
+          'export function nameOptions(modelConnection = vlConnection) {\n'
+          '    return { connection: modelConnection, query: names };\n'
+          '}\n'
+          'export const creditOptions = (model: string = ccConnection) => ({ connection: model, query: credits });\n')
+    for name in ("names", "credits"):
+        write(tmp_path, f"{queries}/options/{name}.dax", 'EVALUATE ROW("x", 1)\n')
+
+    sent, _ = check_script.attribute(tmp_path)
+
+    assert sent == {f"{queries}/options/credits.dax": {"cc"}, f"{queries}/options/names.dax": {"vl"}}
+
+
+def test_dax_in_code_fills_in_string_constants(tmp_path):
+    write(tmp_path, "app/src/queries/shared.ts", 'export const vlConnection = "vl";\n')
+    # One constant imported through the @/ alias under another name, and one built from another.
+    write(tmp_path, "app/src/lib/names.ts",
+          'export const USAGE_TABLE = "Usage";\n'
+          "export const USER_REF = `'${USAGE_TABLE}'[User]`;\n")
+    write(tmp_path, "app/src/queries/usage/index.ts",
+          'import { vlConnection } from "../shared";\n'
+          'import { USAGE_TABLE as TABLE, USER_REF } from "@/lib/names";\n'
+          'const MONTH = "Month";\n'
+          "export function usersQuery(table: string) {\n"
+          "    const query = `EVALUATE SUMMARIZECOLUMNS('Calendar'[${MONTH}], ${USER_REF}, "
+          "'${TABLE}'[Total Users], '${table}'[Key])`;\n"
+          "    return { connection: vlConnection, query };\n"
+          "}\n")
+
+    _, in_code = check_script.attribute(tmp_path)
+
+    references = ["'Calendar'[Month]", "'Usage'[User]", "'Usage'[Total Users]", "'${table}'[Key]"]
+    assert in_code == [("app/src/queries/usage/index.ts", {"vl"}, references)]
+    # A ${…} that isn't a string constant is filled in at run time.
+    assert check_script.check(" ".join(references), MODEL, None, []) == ([], ["${table}"])
+
+
+def test_filter_bar_includes_the_org_filter_bridge(tmp_path):
+    org = "app/src/lib/org-attribute.ts"
+    write(tmp_path, org,
+          'export const ORG_TABLE = "People";\n'
+          'export const DEFAULT_ORG_ATTRIBUTE = "Team";\n'
+          'export const ORG_ATTRIBUTE_TABLE = "Bridge";\n'
+          "export const ORG_ATTRIBUTE_VALUE_REF = `'${ORG_ATTRIBUTE_TABLE}'[Value]`;\n"
+          "export function orgValueFilter(column: string, values: readonly string[]): string {\n"
+          "    return `TREATAS(CALCULATETABLE(VALUES('${ORG_ATTRIBUTE_TABLE}'[Key]), "
+          "${ORG_ATTRIBUTE_VALUE_REF} IN {${values}}), ${orgColumnRef(column)})`;\n"
+          "}\n")
+
+    assert check_script.filter_columns(tmp_path) == (
+        [("organizations", "'People'[Team]"), ("organizations", "'Bridge'[Key]"), ("organizations", "'Bridge'[Value]")],
+        [],
+    )
+    write(tmp_path, org, 'export const ORG_TABLE = "People";\n')
+    assert check_script.filter_columns(tmp_path) == ([], [f"Can't find the org filter's DAX, orgValueFilter, in {org}"])
+
+
 def test_report_on_this_repository(capsys):
     assert check_script.main(["--json"]) == 0
     result = json.loads(capsys.readouterr().out)
