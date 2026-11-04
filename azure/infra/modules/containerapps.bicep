@@ -1,5 +1,5 @@
 // Container Apps environment (consumption), the scheduled run job, the manual migrate
-// job and the DataHub web app. Images are public on GHCR unless registryServer names a
+// job and the Analytics Hub dashboard web app. Images are public on GHCR unless registryServer names a
 // private registry, which is then pulled from with the managed identity.
 param location string
 param tags object

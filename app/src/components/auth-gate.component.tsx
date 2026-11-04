@@ -45,7 +45,7 @@ export function AuthGate({
             <div className="flex min-h-screen items-center justify-center bg-background p-400">
                 <div className="w-full max-w-md rounded-xl border border-border bg-card p-800 text-center shadow-8">
                     <h1 className="mb-200 text-500 font-semibold leading-500 text-card-foreground">
-                        Open DataHub in Fabric
+                        Open Analytics Hub dashboard in Fabric
                     </h1>
                     <p className="mb-600 text-300 leading-300 text-muted-foreground">
                         This address only hosts the app. Its data loads through Fabric, so open it from its Fabric item.
@@ -68,7 +68,7 @@ export function AuthGate({
         return (
             <div className="flex min-h-screen items-center justify-center bg-background">
                 <div className="text-sm text-muted-foreground">
-                    Connecting to {host === "azure" ? "DataHub" : "Fabric"}…
+                    Connecting to {host === "azure" ? "Analytics Hub dashboard" : "Fabric"}…
                 </div>
             </div>
         );
@@ -77,7 +77,7 @@ export function AuthGate({
     if (accessDenied) {
         const access = runtimeConfig().access;
         const mailto = accessRequestMailto(access, host === "azure" ? undefined : fabricLink ?? undefined);
-        const group = access?.groupName ?? "DataHub users";
+        const group = access?.groupName ?? "Analytics Hub Viewers";
         return (
             <div className="flex min-h-screen items-center justify-center bg-background p-400">
                 <div role="alert" className="w-full max-w-md rounded-xl border border-border bg-card p-800 text-center shadow-8">
@@ -86,7 +86,7 @@ export function AuthGate({
                     </h1>
                     {accessDeniedReason === "PowerBIAccessDenied" && (
                         <p className="mb-200 text-300 leading-300 text-muted-foreground">
-                            You're signed in, but Power BI won't let you read the DataHub data.
+                            You're signed in, but Power BI won't let you read the Analytics Hub dashboard data.
                         </p>
                     )}
                     <p className="text-300 leading-300 text-muted-foreground">
@@ -123,7 +123,7 @@ export function AuthGate({
                     </h1>
                     <p className="mb-600 text-300 leading-300 text-muted-foreground">
                         {host === "azure"
-                            ? "Use your Microsoft account to access DataHub."
+                            ? "Use your Microsoft account to access Analytics Hub dashboard."
                             : "Use your Fabric account to access this app and its connected semantic models."}
                     </p>
                     <button

@@ -7,7 +7,7 @@
 import { fabricItemUrl } from "@/lib/fabric-item-url";
 import { runtimeConfig, type AccessInfo } from "@/lib/runtime-config";
 
-/** Raised on the window when an API call says the signed-in user can't use DataHub. */
+/** Raised on the window when an API call says the signed-in user can't use Analytics Hub dashboard. */
 export const ACCESS_DENIED_EVENT = "analytics-hub-access-denied";
 
 /** Why the API turned the user away: `NotAViewer`, `PowerBIAccessDenied`, or unknown. */
@@ -52,20 +52,20 @@ export function myGroupsUrl(groupId: string): string {
 export function accessRequestMailto(access: AccessInfo | undefined, link = appLink()): string | null {
     if (!access?.contact) return null;
     const group = access.groupName ? ` (${access.groupName})` : "";
-    const subject = "Access to DataHub";
-    const body = `Hi,\n\nPlease add me to the DataHub viewers${group} so I can open ${link}\n\nThanks`;
+    const subject = "Access to Analytics Hub dashboard";
+    const body = `Hi,\n\nPlease add me to the Analytics Hub Viewers group${group} so I can open ${link}\n\nThanks`;
     return `mailto:${encodeURIComponent(access.contact)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
 /** A prefilled email asking the install's contact to choose which orgs the person sees. */
 export function scopeRequestMailto(access: AccessInfo | undefined, link = appLink()): string | null {
     if (!access?.contact) return null;
-    const subject = "Which orgs I can see in DataHub";
+    const subject = "Which orgs I can see in Analytics Hub dashboard";
     const body = `Hi,\n\nI can open ${link} but haven't been given any orgs to see yet. Please give me a scope.\n\nThanks`;
     return `mailto:${encodeURIComponent(access.contact)}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
 }
 
 /** Who can choose what people see, for those who can't. */
 export function adminOnlyCopy(contact?: string): string {
-    return `Only a DataHub admin can choose what people see.${contact ? ` Ask ${contact}.` : ""}`;
+    return `Only an Analytics Hub dashboard admin can choose what people see.${contact ? ` Ask ${contact}.` : ""}`;
 }

@@ -1,4 +1,4 @@
-// Starts the DataHub installer from a single download. The exe carries Node.js, the
+// Starts the Analytics Hub dashboard installer from a single download. The exe carries Node.js, the
 // installer and everything it deploys as one zip; the first run unpacks it under
 // %LOCALAPPDATA%\AnalyticsHub\<version>-<hash>, later runs of the same download start at once.
 // With no arguments it opens the installer in the browser. Anything else goes to the installer
@@ -54,7 +54,7 @@ internal static class Launcher
         int code;
         try
         {
-            try { Console.Title = "DataHub installer"; }
+            try { Console.Title = "Analytics Hub dashboard installer"; }
             catch (IOException) { }
             code = Run(args);
         }
@@ -137,7 +137,7 @@ internal static class Launcher
 
     private static void Unpack(string root)
     {
-        Console.WriteLine("Unpacking the DataHub installer. This takes a minute the first time...");
+        Console.WriteLine("Unpacking the Analytics Hub dashboard installer. This takes a minute the first time...");
         string partial = root + Partial + Process.GetCurrentProcess().Id;
         if (Directory.Exists(partial)) Directory.Delete(Long(partial), true);
         using (Stream s = Resource("payload.zip"))

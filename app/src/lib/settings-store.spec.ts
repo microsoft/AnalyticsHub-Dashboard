@@ -136,6 +136,6 @@ describe("HttpSettingsStore", () => {
         const { getSettingsStore } = await import("@/lib/settings-store");
 
         await expect(getSettingsStore().saveCommercialTerms({ creditRate: 0.04 }, undefined))
-            .rejects.toThrow("Only DataHub admins can change this");
+            .rejects.toThrow("Only Analytics Hub dashboard admins can change this");
     });
 });

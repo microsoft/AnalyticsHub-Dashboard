@@ -2,7 +2,7 @@
 
 **Path 2.** Just the steps: [2-azure](../2-azure/). This page has the details.
 
-DataHub running in **your own Azure subscription**, without Microsoft Fabric. It has the
+Analytics Hub dashboard running in **your own Azure subscription**, without Microsoft Fabric. It has the
 same data, the same ValueLens Model and measures, and the same app pages as [Fabric](../fabric/README.md).
 The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
 
@@ -26,7 +26,7 @@ The design and the roadmap are in [`DESIGN.md`](DESIGN.md).
    choose which data the dashboard shows:
    - **Your tenant's data** (the default) collects from the audit log and Microsoft Graph.
    - **Demo mode (sample data)** publishes a synthetic sample instead, with its dates moved forward to end
-     last week. It's handy for a demo or to try DataHub before the Graph permissions are granted. Run
+     last week. It's handy for a demo or to try Analytics Hub dashboard before the Graph permissions are granted. Run
      the installer again, choose **Repair or change**, then **Yes** for the advanced settings, and pick
      your tenant's data to switch; the next run replaces the sample.
 3. Say about how many people work in your organisation: the installer fills it in from its count of
@@ -57,7 +57,7 @@ The `AnalyticsHub.User` app role still works too. People without access get a pa
 group and links to your contact or request link. In Teams, the installer publishes the tab to your
 org's app catalog. To pin it for the group, or to upload it by hand when the installer can't, see
 [teams](teams/README.md#give-it-to-everyone). Permissions are in
-[Viewing DataHub](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
+[Viewing Analytics Hub dashboard](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
 
 What you need, networking, regions and the commands are in the installer's
 [Azure target section](../installer/README.md#azure-target). The images come from

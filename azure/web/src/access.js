@@ -5,7 +5,7 @@ const MEMBERSHIP_TTL_MS = 10 * 60 * 1000;
 const PRINCIPAL_FIELDS = 'id,displayName,userPrincipalName,mail';
 
 /**
- * Who may open DataHub (an app role, or the viewer group), and managing that group as the signed-in user.
+ * Who may open Analytics Hub dashboard (an app role, or the viewer group), and managing that group as the signed-in user.
  * Graph itself only lets group owners and directory admins change members; the checks here keep the UI honest.
  */
 export class AccessService {
@@ -66,9 +66,9 @@ export class AccessService {
   }
 
   async requireManager(auth) {
-    if (!this.groupId) throw httpError(404, 'NoViewerGroup', 'This DataHub has no viewer group. Run the installer "access" command to set one up.');
+    if (!this.groupId) throw httpError(404, 'NoViewerGroup', 'This Analytics Hub dashboard has no viewer group. Run the installer "access" command to set one up.');
     if (hasAdminRole(auth.claims) || (await this.isOwner(auth))) return;
-    throw httpError(403, 'NotAccessManager', 'Only DataHub admins and owners of the viewer group can change who has access.');
+    throw httpError(403, 'NotAccessManager', 'Only Analytics Hub dashboard admins and owners of the viewer group can change who has access.');
   }
 
   async isOwner(auth, owners) {
@@ -80,7 +80,7 @@ export class AccessService {
   async resolve(auth, name) {
     if (!name) return null;
     const quoted = name.replace(/'/g, "''");
-    // A 403 here is about DataHub's own permission to look people and groups up, not about changing the group.
+    // A 403 here is about the Analytics Hub dashboard's own permission to look people and groups up, not about changing the group.
     const lookUp = (path) => this.graph(auth, 'GET', path).catch((e) => Promise.reject(e.statusCode === 403 ? lookupDenied(name) : e));
     if (name.includes('@')) {
       const user = await lookUp(`/users/${encodeURIComponent(name)}?$select=${PRINCIPAL_FIELDS}`).catch((e) => (e.statusCode === 404 ? null : Promise.reject(e)));
@@ -126,7 +126,7 @@ export class AccessService {
 /** Graph refused a lookup: the web app's delegated User.ReadBasic.All (people) or GroupMember.ReadWrite.All (groups) is missing. */
 function lookupDenied(name) {
   const what = name.includes('@') ? 'people by email' : 'groups by name';
-  return httpError(403, 'LookupDenied', `Microsoft Entra didn't let DataHub look up ${what}. To fix it, run the installer again and choose Repair or change, or ask an Entra admin to grant admin consent for the Analytics Hub (Azure) app.`);
+  return httpError(403, 'LookupDenied', `Microsoft Entra didn't let Analytics Hub dashboard look up ${what}. To fix it, run the installer again and choose Repair or change, or ask an Entra admin to grant admin consent for the Analytics Hub (Azure) app.`);
 }
 
 function principal(o) {

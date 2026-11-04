@@ -1,6 +1,6 @@
 # Copilot Managed App (parked)
 
-The Copilot Managed App is parked as an idea. It isn't a supported way to run DataHub.
+The Copilot Managed App is parked as an idea. It isn't a supported way to run Analytics Hub dashboard.
 Use [Fabric or Azure](../README.md#getting-started).
 
 Its notes and code are in [ideas/managed-app](../ideas/managed-app/README.md). They're history, not

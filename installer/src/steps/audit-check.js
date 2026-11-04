@@ -222,7 +222,7 @@ export async function probeAuditLog(ctx, appId, secret, o = {}) {
   const end = ctx.now();
   const search = async (/** @type {number} */ days, /** @type {string[] | undefined} */ recordTypes) => {
     const start = new Date(end.getTime() - days * 86_400_000);
-    const q = await audit.startQuery({ displayName: `DataHub installer check ${end.toISOString()}`, start, end, recordTypes });
+    const q = await audit.startQuery({ displayName: `Analytics Hub dashboard installer check ${end.toISOString()}`, start, end, recordTypes });
     const status = await waitForQuery(ctx, audit, q, o.maxWaitMs ?? PROBE_WAIT_MS);
     if (status !== 'succeeded') return status;
     return (await audit.firstRecords(q.id, 1)).length ? 'found' : 'none';

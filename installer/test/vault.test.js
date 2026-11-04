@@ -390,7 +390,7 @@ test('private vault: another workspace\'s approved endpoint with the same name i
   const { ctx } = endpointCtx(apis);
   assert.equal(await ensureVaultEndpoint(ctx), true);
   assert.deepEqual(apis.calls.filter((c) => c.startsWith('approve')), ['approve pec-1']);
-  assert.deepEqual(apis.state('pec-1'), { status: 'Approved', description: 'Approved by the DataHub installer for Fabric workspace ws-1.' });
+  assert.deepEqual(apis.state('pec-1'), { status: 'Approved', description: 'Approved by the Analytics Hub dashboard installer for Fabric workspace ws-1.' });
   assert.deepEqual(apis.state('ws-0.valuelens-kv-test-conn'), { status: 'Approved', description: 'Approved by the ValueLens installer.' }, 'the other workspace\'s is left alone');
 });
 

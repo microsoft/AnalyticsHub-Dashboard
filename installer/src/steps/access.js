@@ -1,6 +1,6 @@
 // @ts-check
 /**
- * Who can view DataHub: one Entra security group, on both targets. Its members get Build on the
+ * Who can view Analytics Hub dashboard: one Entra security group, on both targets. Its members get Build on the
  * semantic models the app queries; on Azure the web app also lets them in by that group. Sharing is
  * then adding people to the group, from the installer, the app's Share panel or My Groups.
  */
@@ -13,7 +13,7 @@ import { orgAccessCommand } from './org-access.js';
 /** @typedef {{ workspaceId: string, datasetId: string, name: string }} ModelRef */
 
 export const VIEWER_GROUP_NAME = 'Analytics Hub Viewers';
-const GROUP_DESCRIPTION = 'People who can view DataHub. Add members to share it.';
+const GROUP_DESCRIPTION = 'People who can view Analytics Hub dashboard. Add members to share it.';
 
 /** Where a group's owners add and remove members themselves. @param {string} groupId */
 export const myGroupsUrl = (groupId) => `https://myaccount.microsoft.com/groups/${groupId}`;
@@ -55,7 +55,7 @@ export async function planAccess(ctx) {
   }
   ui.heading('Who can view');
   const mode = await ui.select(
-    'Who can view DataHub?',
+    'Who can view Analytics Hub dashboard?',
     [
       { name: `A new group, "${VIEWER_GROUP_NAME}" (recommended)`, value: 'new', description: 'Created with you as owner. Share by adding people to it.' },
       { name: 'A group I already have', value: 'existing', description: 'A security group, by name or object ID. Its members can view.' },
@@ -99,7 +99,7 @@ export function accessReview(config, where) {
   // You may not own a group you picked. You own one the installer creates.
   const owners = a.groupId && !a.createdGroup ? 'Its owners share it by adding people to it.' : 'You are its owner; share by adding people to it.';
   return {
-    creates: [{ kind: 'Entra group', name, isNew: !a.groupId, detail: `Who can view DataHub. ${owners}` }],
+    creates: [{ kind: 'Entra group', name, isNew: !a.groupId, detail: `Who can view Analytics Hub dashboard. ${owners}` }],
     grants: [{ who: `${name} (group)`, what: 'Build (ReadExplore)', where, detail: 'So its members can view the app and reports.' }],
   };
 }

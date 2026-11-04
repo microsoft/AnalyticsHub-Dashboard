@@ -1,6 +1,6 @@
 # Path 1: Fabric
 
-DataHub on your Fabric capacity. The recommended path.
+Analytics Hub dashboard on your Fabric capacity. The recommended path.
 
 ## Before you start
 
@@ -10,7 +10,7 @@ DataHub on your Fabric capacity. The recommended path.
   history, in one run, though the first data can take up to 12 hours to appear. Older history is
   optional, and can take days on a large tenant: see
   [How long it takes](../docs/PREREQUISITES.md#how-long-it-takes).
-- **Costs:** the Fabric capacity. DataHub itself is free.
+- **Costs:** the Fabric capacity. The Analytics Hub dashboard itself is free.
 
 ## Installer
 

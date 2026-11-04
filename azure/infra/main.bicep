@@ -1,4 +1,4 @@
-// DataHub on Azure: resource-group scope deployment, run by the installer in
+// Analytics Hub dashboard on Azure: resource-group scope deployment, run by the installer in
 // incremental mode (with ARM what-if for the plan screen). Every resource carries the
 // `valuelens-install-id` tag; the installer never modifies resources without it.
 targetScope = 'resourceGroup'
@@ -63,10 +63,10 @@ param privateDnsZoneMode string = 'create'
 @description('Private networking, existing DNS zones: resource ID of the resource group holding the privatelink zones.')
 param privateDnsZonesResourceGroupId string = ''
 
-@description('Deploy the DataHub web app (SPA + /api).')
+@description('Deploy the Analytics Hub dashboard web app (SPA + /api).')
 param deployWeb bool = true
 param webMinReplicas int = 0
-@description('App registration (client) id of the DataHub web app; empty until the installer creates it.')
+@description('App registration (client) id of the Analytics Hub dashboard web app; empty until the installer creates it.')
 param webClientId string = ''
 @description('Identifier URI the web API exposes (api://<fqdn>/<clientId>); empty until the installer sets it.')
 param webAppIdUri string = ''

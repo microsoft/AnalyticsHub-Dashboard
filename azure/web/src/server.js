@@ -100,7 +100,7 @@ async function requireAuth(req, verifyToken, write, config, accessService) {
   try { claims = await verifyToken(token); } catch { const e = new Error('Invalid bearer token.'); e.statusCode = 401; throw e; }
   if (!hasAccessScope(claims)) { const e = new Error('Token is missing the access_as_user scope.'); e.statusCode = 401; throw e; }
   const caller = { token, claims };
-  if (!(await accessService.isViewer(caller))) throw httpError(403, 'NotAViewer', 'You are not in the DataHub viewer group and have no DataHub role.');
+  if (!(await accessService.isViewer(caller))) throw httpError(403, 'NotAViewer', 'You are not in the Analytics Hub dashboard viewer group and have no Analytics Hub dashboard role.');
   if (write && config.settingsWriters !== 'all' && !hasAdminRole(claims)) throw httpError(403, 'Forbidden', 'Settings writes require AnalyticsHub.Admin.');
   return caller;
 }

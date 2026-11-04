@@ -3,7 +3,7 @@
 **Path 1.** Just the steps: [1-fabric](../1-fabric/). This page has the details.
 
 The recommended path. One installer sets everything up in your tenant and gives you the dashboard
-as the DataHub app in Fabric. Its workspace item is still called **Analytics Hub** for
+as the Analytics Hub dashboard app in Fabric. Its workspace item is still called **Analytics Hub** for
 compatibility. You don't need a terminal or Power BI Desktop.
 
 For Windows 10 or 11. Check [what you need](#before-you-start) first. Then paste the
@@ -53,7 +53,7 @@ you're responsible for the data once it's in your workspace.
    them, use another route in [Install](../docs/INSTALL.md) or ask your IT team.
 2. The first time, it takes about a minute to unpack.
 3. Then it opens in your browser. Keep the installer window open until it says setup is finished.
-4. Choose **Set up DataHub** and sign in with your work account.
+4. Choose **Set up Analytics Hub dashboard** and sign in with your work account.
 5. Answer the questions. Under **Data sources**, choose the data you want: each source has a
    card. Then **Change the advanced settings?** **No** keeps what you chose last time, or takes the
    defaults: see [Advanced settings](../installer/README.md#advanced-settings). **Back** takes
@@ -101,7 +101,7 @@ Two Fabric features could remove the trade-off. Neither is built yet:
 ## Use it
 
 - **Open the app:** in your Fabric workspace, open the **Analytics Hub** item. The app itself
-  shows DataHub. See [Names and compatibility](../docs/INSTALL.md#names-and-compatibility).
+  shows Analytics Hub dashboard. See [Names and compatibility](../docs/INSTALL.md#names-and-compatibility).
 - **Share it.** The installer creates the **Analytics Hub Viewers** group, with you as owner, and
   gives it access to the data. Then:
   1. **Once:** share the app with the group. In the workspace, choose **…** next to the
@@ -111,7 +111,7 @@ Two Fabric features could remove the trade-off. Neither is built yet:
      [My Groups](https://myaccount.microsoft.com/groups).
 
   People without access see who to ask. See
-  [Viewing DataHub](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
+  [Viewing Analytics Hub dashboard](../docs/PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
 - **Fresh data:** the pipeline runs on the schedule you chose.
 - **Status, updates or repairs:** open the exe again.
 - **Items you didn't expect.** If you chose Copilot Cowork credits, Fabric adds items such as

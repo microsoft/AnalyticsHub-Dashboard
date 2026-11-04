@@ -9,16 +9,16 @@
     "privacyUrl": "https://privacy.microsoft.com/privacystatement",
     "termsOfUseUrl": "https://www.microsoft.com/legal/terms-of-use"
   },
-  "name": { "short": "DataHub", "full": "DataHub" },
+  "name": { "short": "Analytics Hub dashboard", "full": "Analytics Hub dashboard" },
   "description": {
-    "short": "DataHub for Microsoft Copilot adoption insights.",
-    "full": "DataHub surfaces ValueLens Microsoft Copilot analytics in Teams."
+    "short": "Analytics Hub dashboard for Microsoft Copilot adoption insights.",
+    "full": "Analytics Hub dashboard surfaces ValueLens Microsoft Copilot analytics in Teams."
   },
   "icons": { "color": "color.png", "outline": "outline.png" },
   "accentColor": "#6264A7",
   "staticTabs": [{
     "entityId": "analytics-hub",
-    "name": "DataHub",
+    "name": "Analytics Hub dashboard",
     "contentUrl": "https://{{fqdn}}/?host=teams",
     "websiteUrl": "https://{{fqdn}}/",
     "scopes": ["personal"]

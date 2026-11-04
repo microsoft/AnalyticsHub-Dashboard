@@ -48,7 +48,7 @@ export class DelegationService {
   async add(auth, body) {
     this.requireEnabled();
     const me = await this.whoAmI(auth);
-    if (!me.isAdmin && !me.canGiveMyOrg) throw httpError(403, 'CannotDelegate', 'Only DataHub admins, and leaders who were allowed to share, can choose what people see.');
+    if (!me.isAdmin && !me.canGiveMyOrg) throw httpError(403, 'CannotDelegate', 'Only Analytics Hub dashboard admins, and leaders who were allowed to share, can choose what people see.');
     const upn = String(body?.upn || '').trim().toLowerCase();
     if (!EMAIL.test(upn)) throw httpError(400, 'InvalidPerson', 'Enter the person\'s work email.');
     const type = String(body?.scope?.type || '').trim().toLowerCase();
@@ -58,7 +58,7 @@ export class DelegationService {
     if (type === 'all') throw httpError(400, 'InvalidScope', 'Everyone can only be given with the installer "access" command.');
     if (type !== 'hierarchy' && type !== 'org') throw httpError(400, 'InvalidScope', 'Choose the people below a person, or an org.');
     if (!me.isAdmin) {
-      if (body?.canDelegate) throw httpError(403, 'CannotDelegate', 'Only DataHub admins can let someone share.');
+      if (body?.canDelegate) throw httpError(403, 'CannotDelegate', 'Only Analytics Hub dashboard admins can let someone share.');
       if (upn === me.upn) throw httpError(400, 'InvalidPerson', 'You can\'t give yourself a scope.');
       if (type !== 'hierarchy' || (value && value.toLowerCase() !== me.upn)) throw httpError(403, 'CannotDelegate', 'You can share your own org: the people below you.');
       value = me.upn;
@@ -93,7 +93,7 @@ export class DelegationService {
 
   async approve(auth, id) {
     this.requireEnabled();
-    if (!hasAdminRole(auth.claims)) throw httpError(403, 'NotAdmin', 'Only DataHub admins can approve scopes.');
+    if (!hasAdminRole(auth.claims)) throw httpError(403, 'NotAdmin', 'Only Analytics Hub dashboard admins can approve scopes.');
     const row = await this.store.get(parseId(id));
     if (!row) throw httpError(404, 'ScopeNotFound', 'That scope has already gone.');
     if (row.Status === 'active') throw httpError(409, 'AlreadyActive', 'This scope is already active.');
@@ -105,7 +105,7 @@ export class DelegationService {
   }
 
   requireEnabled() {
-    if (!this.enabled) throw httpError(404, 'DelegationOff', 'Org-scoped access isn\'t turned on for this DataHub.');
+    if (!this.enabled) throw httpError(404, 'DelegationOff', 'Org-scoped access isn\'t turned on for this Analytics Hub dashboard.');
   }
 
   async whoAmI(auth) {

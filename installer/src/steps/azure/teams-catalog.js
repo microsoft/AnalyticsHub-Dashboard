@@ -170,7 +170,7 @@ export async function signInForTeamsApp(ctx, version) {
  */
 export function teamsAppPlanRow(ctx, version) {
   const az = /** @type {AzureConfig} */ (ctx.config.azure);
-  const row = { kind: 'Teams app', name: 'DataHub in your org\'s app catalog' };
+  const row = { kind: 'Teams app', name: 'Analytics Hub dashboard in your org\'s app catalog' };
   if (az.teamsApp && !catalogNeedsChange(az, version)) return { ...row, isNew: false, detail: `Already published (version ${version}).` };
   const access = ctx.teamsCatalog;
   const byHand = 'The installer prints the steps for a Teams Administrator to upload it.';
@@ -219,31 +219,31 @@ export async function publishTeamsApp(ctx, pkg) {
         app = await catalog.publish(pkg.zip);
       } catch (err) {
         // Graph doesn't list an app that's waiting for approval, but Teams still won't take a second one with its ID.
-        if (err instanceof HttpError && err.status === 409) return manual(ctx, pkg, 'Teams says DataHub is in the catalog already, but Microsoft Graph didn\'t list it. It may be waiting for approval.', { existing: true, stale });
+        if (err instanceof HttpError && err.status === 409) return manual(ctx, pkg, 'Teams says Analytics Hub dashboard is in the catalog already, but Microsoft Graph didn\'t list it. It may be waiting for approval.', { existing: true, stale });
         throw err;
       }
-      ui.ok(`Teams app: published DataHub ${pkg.version} to your org's app catalog`);
+      ui.ok(`Teams app: published Analytics Hub dashboard ${pkg.version} to your org's app catalog`);
       ui.info(whereToFind(ctx));
     } else {
       const current = publishedVersion(app);
-      if (!current) return manual(ctx, pkg, 'DataHub is in the catalog waiting for approval, so the installer can\'t update it.', { existing: true, stale, approve: true });
+      if (!current) return manual(ctx, pkg, 'Analytics Hub dashboard is in the catalog waiting for approval, so the installer can\'t update it.', { existing: true, stale, approve: true });
       const order = compareVersions(pkg.version, current);
       if (order < 0) {
         if (clearPending(az)) ctx.save();
-        ui.warn(`Teams app: your org's app catalog has DataHub ${current}, newer than this installer's ${pkg.version}, so the installer left it alone.`);
+        ui.warn(`Teams app: your org's app catalog has Analytics Hub dashboard ${current}, newer than this installer's ${pkg.version}, so the installer left it alone.`);
         return;
       }
       if (order === 0 && !(ours?.id === app.id && ours.version === pkg.version)) {
         // This version, uploaded by hand or by a run that didn't record it.
-        ui.ok(`Teams app: DataHub ${pkg.version} is already in your org's app catalog`);
+        ui.ok(`Teams app: Analytics Hub dashboard ${pkg.version} is already in your org's app catalog`);
       } else {
         try {
           await catalog.update(/** @type {string} */ (app.id), pkg.zip);
-          ui.ok(`Teams app: updated DataHub to ${pkg.version} in your org's app catalog`);
+          ui.ok(`Teams app: updated Analytics Hub dashboard to ${pkg.version} in your org's app catalog`);
         } catch (err) {
           if (!(order === 0 && err instanceof HttpError && (err.status === 400 || err.status === 409))) throw err;
           // The record keeps the package Teams has, so the next run tries again.
-          return manual(ctx, pkg, `Teams kept DataHub ${current} and didn't take this package as an update at the same version (${firstLine(err.message)}).`, { existing: true, stale });
+          return manual(ctx, pkg, `Teams kept Analytics Hub dashboard ${current} and didn't take this package as an update at the same version (${firstLine(err.message)}).`, { existing: true, stale });
         }
       }
     }
@@ -265,9 +265,9 @@ export async function removeTeamsApp(ctx) {
   const { ui } = ctx;
   const az = ctx.config.azure;
   const rec = az?.teamsApp;
-  const steps = `Delete it in Teams admin center > Teams apps > Manage apps (${MANAGE_APPS_URL}): select DataHub, then Delete.`;
+  const steps = `Delete it in Teams admin center > Teams apps > Manage apps (${MANAGE_APPS_URL}): select Analytics Hub dashboard, then Delete.`;
   if (!az || !rec) {
-    if (az?.teamsPackage) ui.note(`If DataHub was uploaded to your org's Teams app catalog by hand, a Teams Administrator deletes it there. ${steps}`);
+    if (az?.teamsPackage) ui.note(`If Analytics Hub dashboard was uploaded to your org's Teams app catalog by hand, a Teams Administrator deletes it there. ${steps}`);
     return;
   }
   const reason = await catalogSignIn(ctx);
@@ -278,11 +278,11 @@ export async function removeTeamsApp(ctx) {
       if (!(err instanceof HttpError && err.status === 404)) return notRemoved(ctx, catalogErrorReason(err), steps);
       const ms = ctx.now().getTime() - Date.parse(rec.publishedAt);
       // Kept, so the record still points the installer at the app.
-      if (ms < CATALOG_SETTLE_MS) return notRemoved(ctx, `Microsoft Graph didn't find DataHub, which the installer published or updated ${ago(ms)}. Graph can take half an hour or more to find a new app, so it may still be there.`, steps);
+      if (ms < CATALOG_SETTLE_MS) return notRemoved(ctx, `Microsoft Graph didn't find Analytics Hub dashboard, which the installer published or updated ${ago(ms)}. Graph can take half an hour or more to find a new app, so it may still be there.`, steps);
     }
     delete az.teamsApp;
     ctx.save();
-    ui.ok('Teams app: removed DataHub from your org\'s app catalog');
+    ui.ok('Teams app: removed Analytics Hub dashboard from your org\'s app catalog');
     return;
   }
   notRemoved(ctx, reason, steps);
@@ -356,12 +356,12 @@ const whereToFind = (ctx) =>
 function manual(ctx, pkg, reason, o = {}) {
   const { ui } = ctx;
   const az = /** @type {AzureConfig} */ (ctx.config.azure);
-  // With an earlier app registration's app in the catalog too, "DataHub" alone doesn't say which one.
-  const app = o.stale ? `the DataHub with App ID ${az.webApp?.clientId}` : 'DataHub';
+  // With an earlier app registration's app in the catalog too, "Analytics Hub dashboard" alone doesn't say which one.
+  const app = o.stale ? `the Analytics Hub dashboard with App ID ${az.webApp?.clientId}` : 'Analytics Hub dashboard';
   ui.warn(`Teams app: not published to your org's app catalog. ${reason}`);
   ui.info(`To ${o.approve ? 'approve' : 'publish'} it, a Teams Administrator or Global Administrator:`);
   const steps = [`Opens Teams admin center > Teams apps > Manage apps: ${MANAGE_APPS_URL}`];
-  if (o.stale) steps.push(`Deletes the DataHub with App ID ${o.stale.externalId}, which was published for an earlier app registration.`);
+  if (o.stale) steps.push(`Deletes the Analytics Hub dashboard with App ID ${o.stale.externalId}, which was published for an earlier app registration.`);
   if (o.approve) steps.push(`Selects ${app}, which is waiting for approval, then Publish in its Publishing status box.`);
   else if (o.existing === true) steps.push(`Selects ${app}, then Upload file on its page, and chooses ${pkg.path}`);
   else if (o.existing === false) steps.push(`Selects Upload new app, then Upload, and chooses ${pkg.path}`);
@@ -371,7 +371,7 @@ function manual(ctx, pkg, reason, o = {}) {
   ui.info(whereToFind(ctx));
   az.status ??= {};
   const where = `Teams admin center > Teams apps > Manage apps (${MANAGE_APPS_URL})`;
-  const action = o.approve ? `${TEAMS_APP_PENDING}: approve DataHub in ${where}, then run the installer again.` : `${TEAMS_APP_PENDING}: upload ${pkg.path} in ${where}.`;
+  const action = o.approve ? `${TEAMS_APP_PENDING}: approve Analytics Hub dashboard in ${where}, then run the installer again.` : `${TEAMS_APP_PENDING}: upload ${pkg.path} in ${where}.`;
   az.status.pendingAdminActions = [...(az.status.pendingAdminActions ?? []).filter((a) => !a.startsWith(TEAMS_APP_PENDING)), action];
   ctx.save();
 }
@@ -391,7 +391,7 @@ async function removeStale(ctx, stale) {
     ctx.ui.ok('Teams app: removed the one published for an earlier app registration');
   } catch (err) {
     if (err instanceof HttpError && err.status === 404) return;
-    ctx.ui.warn(`Teams app: couldn't remove the DataHub published for an earlier app registration (App ID ${stale.externalId}). ${catalogErrorReason(err)} Delete it in ${MANAGE_APPS_URL}`);
+    ctx.ui.warn(`Teams app: couldn't remove the Analytics Hub dashboard published for an earlier app registration (App ID ${stale.externalId}). ${catalogErrorReason(err)} Delete it in ${MANAGE_APPS_URL}`);
   }
 }
 

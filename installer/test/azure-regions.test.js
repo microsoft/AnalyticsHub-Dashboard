@@ -266,5 +266,5 @@ test('planAzure: Azure Policy that keeps SQL public access off switches to Priva
   const none = planCtx();
   none.a.regions.assignments = [assignment('Configure SQL private', SQL_MODIFY)];
   none.ctx.api.fabric.listCapacities = async () => [];
-  await assert.rejects(planAzure(none.ctx, PRE), /Azure Policy "Configure SQL private" keeps Azure SQL's public access off, so DataHub needs Private networking here\. Private networking needs an active Fabric/);
+  await assert.rejects(planAzure(none.ctx, PRE), /Azure Policy "Configure SQL private" keeps Azure SQL's public access off, so Analytics Hub dashboard needs Private networking here\. Private networking needs an active Fabric/);
 });

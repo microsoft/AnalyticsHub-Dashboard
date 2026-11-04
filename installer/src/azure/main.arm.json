@@ -171,7 +171,7 @@
       "type": "bool",
       "defaultValue": true,
       "metadata": {
-        "description": "Deploy the DataHub web app (SPA + /api)."
+        "description": "Deploy the Analytics Hub dashboard web app (SPA + /api)."
       }
     },
     "webMinReplicas": {
@@ -182,7 +182,7 @@
       "type": "string",
       "defaultValue": "",
       "metadata": {
-        "description": "App registration (client) id of the DataHub web app; empty until the installer creates it."
+        "description": "App registration (client) id of the Analytics Hub dashboard web app; empty until the installer creates it."
       }
     },
     "webAppIdUri": {

@@ -57,7 +57,7 @@ CONDITION="((!(ActionMatches{'Microsoft.Authorization/roleAssignments/write'})) 
 az role assignment create --assignee-object-id "$INSTALLER_ID" --assignee-principal-type User \
   --role "Role Based Access Control Administrator" --scope "$RG_ID" \
   --condition "$CONDITION" --condition-version "2.0" \
-  --description "DataHub installer: only the roles it gives"
+  --description "Analytics Hub dashboard installer: only the roles it gives"
 ```
 
 With private networking, an advanced setting, register these too. The feature can take a while, so
