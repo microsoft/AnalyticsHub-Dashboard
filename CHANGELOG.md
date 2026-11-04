@@ -75,7 +75,8 @@ change, and windows read by different sources never duplicate.
 - **Partial backfills preserve existing rows.** When a source cannot cover the whole requested
   history, the ingester now uses a merge rather than a replacement.
 - **Manifest recovery.** Each save keeps untouched windows that another run already saved, but
-  simultaneous writes can still race. Wait for one audit run to finish before starting another.
+  simultaneous writes can still race. A failed manifest read stops the run instead of overwriting
+  saved checkpoints. Wait for one audit run to finish before starting another.
 - See [Where the audit log comes from](fabric/notebooks/README.md#where-the-audit-log-comes-from).
 
 **Licensed users: no more unlicensed users shown as licensed.** Since 0.6.8, a user in the

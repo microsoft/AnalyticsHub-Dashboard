@@ -437,16 +437,21 @@ class AuditReliabilityTests(unittest.TestCase):
         # A window this run wrote keeps this run's entry.
         self.assertEqual(persisted["mine"]["status"], "succeeded")
 
-    def test_manifest_merge_ignores_an_unreadable_saved_manifest(self):
+    def test_manifest_merge_does_not_overwrite_an_unreadable_saved_manifest(self):
         ns = self.checkpoint_helpers()
+        saved = {"other-run": {"status": "succeeded", "source": "feed"}}
+        ns["_save_manifest"](saved)
         ns["manifest"]["kept"] = {"status": "succeeded"}
 
         def broken():
             raise RuntimeError("not valid JSON")
 
         ns["_load_manifest"] = broken
-        ns["_mark_window"]("next-window", "waiting")
+        with self.assertRaisesRegex(RuntimeError, "not valid JSON"):
+            ns["_mark_window"]("next-window", "waiting")
+        self.assertEqual(json.loads(Path(ns["MANIFEST"]).read_text(encoding="utf-8")), saved)
         self.assertEqual(ns["_read_manifest_entry"]("kept")["status"], "succeeded")
+        self.assertNotIn("next-window", ns["manifest"])
 
     def test_synthetic_record_key_uses_canonical_json_and_ignores_array_order(self):
         ns = self.ingester_helpers()
