@@ -611,12 +611,15 @@ class AuditReliabilityTests(unittest.TestCase):
 
     def test_legacy_incremental_table_without_new_keys_fails_clearly(self):
         ns = self.ingester_helpers()
-        with self.assertRaisesRegex(RuntimeError, "missing stable key columns"):
+        with self.assertRaisesRegex(RuntimeError, "missing stable key columns") as error:
             ns["validate_incremental_target_columns"](
                 ["CreationDate", "RecordId", "Message_Id"],
                 ns["KEY_COLUMNS"],
                 "dbo.Copilot_Interactions_Parsed",
             )
+        self.assertIn("GRAPH_FOR_HISTORY=True", str(error.exception))
+        self.assertIn("Back up", str(error.exception))
+        self.assertIn("outside", str(error.exception))
 
     def test_stage_scope_reuses_recent_windows_only_and_cleans_partial_files(self):
         helpers = self.stage_helpers()

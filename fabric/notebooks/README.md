@@ -178,6 +178,10 @@ Copilot connector.
 Run one audit ingester at a time. Wait for the scheduled audit load to finish before starting a
 history reload: simultaneous runs can race while writing checkpoints or staged files.
 
+An incomplete backfill needs stable keys to merge. If the parsed table predates them, the run
+stops. Back up the table before running a full-coverage backfill, such as with Graph history:
+upgrading the legacy table rebuilds it whole and drops rows outside the requested range.
+
 **Set up Sentinel's connector** (only for `'auto'`). In the Microsoft Defender portal (or the Azure portal, under
 Microsoft Sentinel), open **Content hub**, install **Microsoft Copilot**, then under **Data
 connectors** open **Microsoft Copilot** and choose **Connect**. A Security Administrator or Global
