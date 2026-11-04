@@ -454,6 +454,10 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                             className="rounded-md border border-primary/30 bg-primary/5 px-300 py-200 text-[length:var(--text-200)] leading-200 text-muted-foreground"
                         >
                             Interactive demo · Synthetic sample data · Changes stay in this browser session
+                            {active === "work-patterns" && <p className="mt-100">The published sample pack has no Microsoft 365 telemetry. The empty state below is intentional; this demo cannot collect live data.</p>}
+                            {active === "agent-evaluation" && <p className="mt-100">Evaluation conversations are not included in the published sample pack. No live agent or environment is connected.</p>}
+                            {active === "governance" && <p className="mt-100">Agent 365 registry data is included. Defender and Resource Graph exports are not included; their configuration checks are unavailable, not verified clear.</p>}
+                            {active === "cross-vendor" && <p className="mt-100">Separate seeded comparison scenario; not the published CSV cohort on the other pages.</p>}
                         </div>
                     )}
                     {view.kind === "pack" ? (

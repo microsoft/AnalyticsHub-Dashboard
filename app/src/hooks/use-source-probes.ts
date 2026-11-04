@@ -74,11 +74,11 @@ export function useSourceProbes(): SourceAvailability {
     return useMemo(() => {
         if (runtimeConfig().demo) {
             return {
-                m365Activity: "present",
+                m365Activity: "notConfigured",
                 productFeedback: "present",
                 agentRegistry: "present",
-                defender: "present",
-                resourceGraph: "present",
+                defender: "notConfigured",
+                resourceGraph: "notConfigured",
             } satisfies SourceAvailability;
         }
         const own: SourceAvailability = { m365Activity, productFeedback, agentRegistry, defender, resourceGraph };

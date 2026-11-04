@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { OpenDestinationLink } from "@/components/open-destination-link";
 import { Section } from "@/components/section";
 import type { StageId } from "@/components/destinations";
+import { runtimeConfig } from "@/lib/runtime-config";
 import { AllToolsSummary, CreditsVsSpend, LeadersTable, MultiToolCharts, TaskMixHeatmap } from "./insights";
 
 export type CrossVendorPage = "executive" | "adoption" | "consumption" | "efficiency" | "leaderboards";
@@ -18,7 +19,7 @@ export default function CrossVendorPagePanel({ page }: { page: CrossVendorPage }
     const panel = panels[page];
     return (
         <div data-provenance="synthetic" data-cross-vendor-panel={page} data-print="hide">
-            <Section title={panel.title} description={panel.description} actions={<OpenDestinationLink destination="cross-vendor" stage={panel.stage}>{panel.link}</OpenDestinationLink>}>
+            <Section title={panel.title} description={`${panel.description}${runtimeConfig().demo ? " Separate synthetic comparison scenario, not the published CSV cohort on this page." : ""}`} actions={<OpenDestinationLink destination="cross-vendor" stage={panel.stage}>{panel.link}</OpenDestinationLink>}>
                 {panel.body()}
             </Section>
         </div>

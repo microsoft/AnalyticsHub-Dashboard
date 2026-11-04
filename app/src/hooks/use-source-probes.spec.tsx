@@ -12,12 +12,13 @@ type Answer = { data?: unknown; error?: Error };
 
 const mocked = vi.hoisted(() => ({
     calls: [] as string[],
+    demo: false,
     modules: {} as Record<string, boolean | undefined>,
     answer: (() => ({})) as (query: string) => Answer,
 }));
 
 vi.mock("@/lib/runtime-config", () => ({
-    runtimeConfig: () => ({ modules: mocked.modules }),
+    runtimeConfig: () => ({ modules: mocked.modules, demo: mocked.demo }),
 }));
 
 vi.mock("./use-semantic-model-query", () => ({
@@ -102,8 +103,18 @@ function lastAsked(): string[] {
 describe("useSourceProbes", () => {
     beforeEach(() => {
         mocked.calls = [];
+        mocked.demo = false;
         mocked.modules = { ...EVERY_MODULE };
         mocked.answer = answers(FULL);
+    });
+
+    it("does not claim absent demo exports are connected", () => {
+        mocked.demo = true;
+        const { result } = renderHook(() => useSourceProbes());
+        expect(result.current).toEqual({
+            m365Activity: "notConfigured", productFeedback: "present", agentRegistry: "present",
+            defender: "notConfigured", resourceGraph: "notConfigured",
+        });
     });
 
     it("counts every source in one query", () => {

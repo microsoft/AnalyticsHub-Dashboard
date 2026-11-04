@@ -26,6 +26,7 @@ import {
 import { isConnectionConfigured, type ModelReferences } from "@/lib/connections";
 import type { FilterKey } from "@/lib/filters";
 import { isAbsent, type SourceAvailability } from "@/lib/optional-sources";
+import { runtimeConfig } from "@/lib/runtime-config";
 import { consumptionConnection, evaluatorConnection } from "@/queries/shared";
 
 /**
@@ -279,7 +280,7 @@ export function availableDestinations(models: ModelReferences, sources?: SourceA
         (destination) =>
             (!("demo" in destination) || import.meta.env.VITE_CROSS_VENDOR_DEMO === "true") &&
             (!("connection" in destination) || isConnectionConfigured(models, destination.connection)) &&
-            (!sources || !("source" in destination) || !isAbsent(sources, destination.source)),
+            (runtimeConfig().demo || !sources || !("source" in destination) || !isAbsent(sources, destination.source)),
     );
 }
 

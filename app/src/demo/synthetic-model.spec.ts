@@ -1,641 +1,194 @@
 import { describe, expect, it } from "vitest";
 import { applyDaxFilters, dateBetween, treatAs } from "@/lib/dax-filters";
-import consumptionByProductQuery from "../queries/consumption/consumption-by-product.dax?raw";
-import executiveSummaryQuery from "../queries/executive/executive-summary.dax?raw";
-import { executiveSummary } from "../queries/executive/executive-summary";
-import { departmentMapSpec, executiveDepartments } from "../queries/executive/executive-departments";
-import { executiveHoursRange } from "../queries/executive/executive-hours-range";
-import { executiveMonths } from "../queries/executive/executive-months";
-import { executiveWorkKinds } from "../queries/executive/executive-work-kinds";
-import habitLicenceQuery from "../queries/licensing/habit-licence-matrix.dax?raw";
-import { costValueAgents, costValueBySource } from "../queries/value/cost-vs-value";
-import { toValueTaskTree, valueByTask } from "../queries/value/value-by-task";
-import { agentValue } from "../queries/value/agent-value";
-import { organizationValue } from "../queries/value/organization-value";
-import { valueSummary } from "../queries/value/value-summary";
-import { taskBreakdown } from "../queries/work/task-breakdown";
-import { workSummary } from "../queries/work/work-summary";
-import { leaderboardPeople, toLeaderboardPeopleTree } from "../queries/work/leaderboard-people";
-import { surfaceUsage } from "../queries/work/surface-usage";
-import m365SummaryQuery from "../queries/work-patterns/m365-summary.dax?raw";
-import {
-    answerArchetypes,
-    conversationsSummary,
-    feedbackComments,
-    knowledgeSources,
-    themeOutcomes,
-    toTopicTree,
-    topicHealth,
-} from "../queries/agent-evaluation/conversations";
-import { toDataTable } from "../lib/to-data-table";
+import { executiveSummary } from "@/queries/executive/executive-summary";
+import { valueByTask, toValueTaskTree } from "@/queries/value/value-by-task";
+import { coworkCreditsSummary } from "@/queries/consumption/cowork";
+import { studioCreditsSummary, studioAgents, studioUsers } from "@/queries/consumption/studio";
+import { filterOptions, toFilterOptions } from "@/queries/filters/filter-options";
+import { coworkByGroup } from "@/queries/consumption/cowork";
+import { taskBreakdown } from "@/queries/work/task-breakdown";
+import type { ColumnMetadataMap } from "@/lib/to-data-table";
+import { toDataTable } from "@/lib/to-data-table";
 import { syntheticQueryResult } from "./synthetic-model";
+import { samples, selectedActivity, hours, sum, sessions, firstDate, lastDate } from "./sample-data";
+import { sampleConsumptionRows } from "./sample-consumption";
+import { withTaskTimes } from "@/queries/assumptions/task-times";
+import { describeOrgAttribute, orgValueFilter, withOrgAttribute } from "@/lib/org-attribute";
 
-describe("synthetic demo model", () => {
-    function metadata(...names: string[]) {
-        return Object.fromEntries(names.map((name) => [name, { name: name.slice(1, -1) }]));
+type Query = { query: string; columnMetadata?: ColumnMetadataMap };
+function answer(source: Query, filters: string[] = []) {
+    const result = syntheticQueryResult(applyDaxFilters(source.query, filters), source.columnMetadata);
+    expect(result.status, JSON.stringify(result)).toBe("success");
+    if (result.status !== "success") throw Error(result.error.message);
+    return result.table;
+}
+const objects = (source: Query, filters: string[] = []) => {
+    const table = answer(source, filters);
+    return table.rows.map(row => Object.fromEntries(table.columns.map((column, i) => [column.name.replace(/^.*\[/, "").replace(/\]$/, ""), row[i]])));
+};
+
+describe("published synthetic sample adapter", () => {
+    it("preserves the published row count, people and unshifted dates", () => {
+        expect(samples.activity).toHaveLength(13337);
+        expect(samples.people).toHaveLength(170);
+        expect(samples.provenance.inputActivityRows).toBe(samples.provenance.outputActivityRows);
+        expect([firstDate, lastDate]).toEqual(["2026-06-01", "2026-08-31"]);
+        expect(samples.provenance.files["samples/copilot_interactions_sample.csv"]).toMatch(/^[a-f0-9]{64}$/);
+        const summary = objects(executiveSummary())[0];
+        expect(summary.Tasks).toBe(13337);
+        expect(summary.People).toBe(new Set(samples.activity.map(row => row.user)).size);
+        expect(summary.Hours).toBeCloseTo(2476.65, 8);
+    });
+
+    it("filters actual rows instead of hashing query text", () => {
+        const source = executiveSummary();
+        const org = samples.people[0].org;
+        const filter = treatAs("'Chat + Agent Org Data'[Organization]", [org]);
+        const selected = selectedActivity(filter);
+        expect(objects(source, [filter])[0].Tasks).toBe(selected.length);
+        expect(selected.length).toBeLessThan(samples.activity.length);
+        const june = objects(source, [dateBetween("'Calendar'[Date]", "2026-06-01", "2026-06-30")])[0];
+        expect(june.Tasks).toBe(3414);
+        expect(objects(source, [treatAs("'Chat + Agent Interactions (Audit Logs)'[Environment]", ["Unlicensed"])])[0].Tasks)
+            .toBe(samples.activity.filter(row => !row.licensed).length);
+        expect(objects({ ...source, query: `${source.query}\n// a comment cannot change the data` })).toEqual(objects(source));
+        expect(objects(source, [treatAs("'Chat + Agent Org Data'[Organization]", ["not-a-source-group"])])[0].Tasks).toBe(0);
+    });
+    it("supplies the filter provider's real date and activity contracts", () => {
+        const options = toFilterOptions(answer(filterOptions()));
+        expect([options.firstDate, options.lastDate]).toEqual([firstDate, lastDate]);
+        expect(options.activities).toEqual(expect.arrayContaining(["Copilot", "Agents", "Cowork"]));
+        expect(options.agentNames.length).toBeGreaterThan(10);
+        expect(options.largeTenant).toBe(false);
+    });
+    it("applies the app's bridge-based organization and country filters", () => {
+        expect(objects(executiveSummary(), [orgValueFilter("Organization", ["Finance"])])[0].Tasks)
+            .toBe(selectedActivity(treatAs("'Chat + Agent Org Data'[Organization]", ["Finance"])).length);
+        const country = samples.people[0].country;
+        const source = withOrgAttribute(executiveSummary(), describeOrgAttribute("country"));
+        expect(objects(source, [orgValueFilter("country", [country])])[0].Tasks)
+            .toBe(samples.activity.filter(row => samples.people.some(person => person.user === row.user && person.country === country)).length);
+    });
+    it("supplies all task-breakdown tabs from source classifications", () => {
+        const rows = objects(taskBreakdown());
+        expect(new Set(rows.map(row => row.Dimension))).toEqual(new Set(["Behaviour", "Workflow action", "Value outcome"]));
+        for (const dimension of ["Behaviour", "Workflow action", "Value outcome"]) {
+            const values = rows.filter(row => row.Dimension === dimension);
+            expect(sum(values, row => Number(row.Tasks))).toBe(13337);
+            expect(sum(values, row => Number(row.Share))).toBeCloseTo(1);
+        }
+    });
+    it("keeps Cowork cards, table totals and allowance denominators coherent", () => {
+        const summary = objects(coworkCreditsSummary())[0];
+        const table = objects(coworkByGroup());
+        const grand = table.find(row => row["Is Grand Total"]);
+        expect(grand?.["Credits Used"]).toBeCloseTo(Number(summary["Credits Used"]), 8);
+        expect(grand?.["Allowance Used"]).toBeCloseTo(Number(summary["Allowance Used"]), 8);
+        expect(table.filter(row => !row["Is Group Total"]).length).toBe(summary["Consuming Users"]);
+    });
+
+    it("reconciles licensed and unlicensed task filters and distinct sessions", () => {
+        const all = samples.activity.length;
+        expect(selectedActivity(treatAs("'Chat + Agent Interactions (Audit Logs)'[Environment]", ["Licensed"])).length
+            + selectedActivity(treatAs("'Chat + Agent Interactions (Audit Logs)'[Environment]", ["Unlicensed"])).length).toBe(all);
+        expect(sessions(samples.activity).length).toBe(new Set(samples.activity.map(row => `${row.user}|${row.app}|${row.thread}`)).size);
+        expect(hours(samples.activity, "", "Conservative")).toBeLessThan(hours(samples.activity, "", "Typical"));
+        expect(hours(samples.activity, "", "Optimistic")).toBeGreaterThan(hours(samples.activity, "", "Typical"));
+    });
+
+    it("returns valid value rollups without counting the grand total as a person", () => {
+        const source = valueByTask();
+        const table = answer(source);
+        const tree = toValueTaskTree(toDataTable(table, source.columnMetadata));
+        expect(tree.rows.length).toBeGreaterThan(0);
+        const rows = objects(source);
+        const grand = rows.find(row => row["Is Grand Total"]);
+        expect(grand?.["Is Group Total"]).toBe(true);
+        expect(Number(grand?.["Expert Equivalent Hours Per Week"])).toBeGreaterThan(0);
+    });
+
+    it("uses the source totals, not the unreconciled live screenshot", () => {
+        expect(objects(coworkCreditsSummary(), [treatAs("'Cowork Period'[Period]", ["All history (9 weeks)"])])[0]["Credits Used"]).toBeCloseTo(44750.8531, 4);
+        expect(objects(studioCreditsSummary())[0]["Credits Consumed"]).toBe(117472);
+        const snapshot = sum(samples.consumption.StudioPerUser, row => Number(row["Credits used"]));
+        expect(snapshot).toBe(117475);
+        expect(snapshot).not.toBe(objects(studioCreditsSummary())[0]["Credits Consumed"]);
+        expect(objects(studioCreditsSummary())[0]["Snapshot Note"]).toMatch(/separate undated snapshots/);
+        const tenantCredits = 117472 + 44750.8531;
+        expect(tenantCredits).not.toBeCloseTo(153300, 0);
+    });
+
+    const modules = import.meta.glob<Record<string, unknown>>([
+        "../queries/{adoption,agents,efficiency,value,work,feedback,consumption,executive,appendix,filters}/*.ts",
+        "!../queries/**/*.spec.ts", "!../queries/**/*.fixture.ts",
+    ], { eager: true });
+    const queries: [string, Query][] = [];
+    for (const [path, module] of Object.entries(modules)) {
+        for (const [name, factory] of Object.entries(module)) {
+            if (typeof factory !== "function" || factory.length !== 0) continue;
+            const source: unknown = factory();
+            if (!source || typeof source !== "object" || !("query" in source) || typeof source.query !== "string") continue;
+            const query = source as Query;
+            if (!queries.some(([, previous]) => previous.query === query.query)) queries.push([`${path}: ${name}`, query]);
+        }
     }
 
-    it("returns deterministic results for the supplied output schema", () => {
-        const query = 'EVALUATE ROW("Hours", 100, "People", 20)';
-        const metadata = {
-            "[Hours]": { name: "Hours" },
-            "[People]": { name: "People" },
-        };
-        const first = syntheticQueryResult(query, metadata);
-        const second = syntheticQueryResult(query, metadata);
-
-        expect(first).toEqual(second);
-        expect(first.status).toBe("success");
-        if (first.status !== "success") return;
-        expect(first.table.columns.map(({ name }) => name)).toEqual(["[Hours]", "[People]"]);
-        expect(first.table.rows).toHaveLength(1);
-    });
-
-    it("changes sample metrics when the app adds different filters to a query", () => {
-        const metadata = { "[Hours]": { name: "Hours" } };
-        const allTeams = syntheticQueryResult('EVALUATE ROW("Hours", 100) // all teams', metadata);
-        const oneTeam = syntheticQueryResult('EVALUATE ROW("Hours", 100) // one team', metadata);
-
-        expect(allTeams.status).toBe("success");
-        expect(oneTeam.status).toBe("success");
-        if (allTeams.status !== "success" || oneTeam.status !== "success") return;
-        expect(allTeams.table.rows[0]).not.toEqual(oneTeam.table.rows[0]);
-    });
-
-    it("provides synthetic options and labels without personal or tenant identifiers", () => {
-        const options = syntheticQueryResult('EVALUATE UNION("Kind", "Value")');
-        const attributes = syntheticQueryResult('EVALUATE SELECTCOLUMNS("Column", "Cardinality", "Max Length")');
-        const serialized = JSON.stringify([options, attributes]);
-
-        expect(options.status).toBe("success");
-        expect(attributes.status).toBe("success");
-        expect(serialized).not.toMatch(/@|[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}/i);
-        if (options.status !== "success") return;
-        expect(options.table.rows).toContainEqual(["agentName", "Knowledge Assistant"]);
-    });
-
-    it("keeps metric values numeric and supplies a dated habit range", () => {
-        const result = syntheticQueryResult('EVALUATE ROW("Tasks", 0, "People", 0, "Weeks", 0, "Habit Month", BLANK())', {
-            "[Tasks]": { name: "Tasks" },
-            "[People]": { name: "People" },
-            "[Weeks]": { name: "Weeks" },
-            "[Habit Month]": { name: "Habit Month" },
-            "[Overall Top Outcome]": { name: "Overall Top Outcome" },
+    describe("native query contracts", () => {
+        it("covers the real app's source-backed factories", () => expect(queries.length).toBeGreaterThan(60));
+        it.each(queries)("handles %s without schema guessing", (_path, source) => {
+            const answer = syntheticQueryResult(source.query, source.columnMetadata);
+            expect(answer.status, JSON.stringify(answer)).toBe("success");
+            if (answer.status !== "success") return;
+            expect(answer.table.columns.length).toBeGreaterThan(0);
+            expect(answer.table.rows.every(row => row.length === answer.table.columns.length)).toBe(true);
+            expect(answer.table.rows.flat().every(value => typeof value !== "number" || Number.isFinite(value))).toBe(true);
         });
-
-        expect(result.status).toBe("success");
-        if (result.status !== "success") return;
-        const [tasks, people, weeks, month, outcome] = result.table.rows[0];
-        expect(tasks).toEqual(expect.any(Number));
-        expect(people).toEqual(expect.any(Number));
-        expect(weeks).toEqual(expect.any(Number));
-        expect(month).toMatch(/^2026-\d{2}-\d{2}$/);
-        expect(outcome).toEqual(expect.stringContaining(" "));
     });
 
-    it("infers grouped columns and aliased measures from a trend query without metadata", () => {
-        const query = `EVALUATE
-            SUMMARIZECOLUMNS(
-                'Synthetic Activity'[WeekStart],
-                "Licensed", [Licensed Sessions per User],
-                "All Sessions", [Observed Sessions]
-            )`;
-        const result = syntheticQueryResult(query);
-
-        expect(result.status).toBe("success");
-        if (result.status !== "success") return;
-        expect(result.table.columns.map(({ name }) => name)).toEqual([
-            "Synthetic Activity[WeekStart]",
-            "[Licensed]",
-            "[All Sessions]",
-        ]);
-        expect(result.table.rows).toHaveLength(8);
-        expect(result.table.rows[0][0]).toMatch(/^2026-\d{2}-\d{2}$/);
-        expect(result.table.rows[0][1]).toEqual(expect.any(Number));
-        expect(result.table.rows[0][1]).toBeLessThan(10);
+    it("reconciles Studio agent totals with the user snapshot and preserves list metadata", () => {
+        const agents = objects(studioAgents());
+        expect(sum(agents, row => Number(row["Credits Used"]))).toBe(117475);
+        expect(sum(agents, row => Number(row["Credit Share"]))).toBeCloseTo(1);
+        const users = objects(studioUsers());
+        const leaves = users.filter(row => !row["Is Group Total"]);
+        expect(leaves.length).toBeGreaterThan(5);
+        expect(leaves.every(row => row.Total === leaves.length)).toBe(true);
+        expect(users.find(row => row["Is Grand Total"])?.["Credits Used"]).toBe(117475);
     });
 
-    it("keeps split query parts available for synthetic monthly credit charts", () => {
-        const query = `EVALUATE
-            UNION(
-                ADDCOLUMNS(SUMMARIZECOLUMNS('Synthetic'[Month Start], "Studio Credits", [Credits]), "Part", "trend"),
-                ADDCOLUMNS(SUMMARIZECOLUMNS('Synthetic'[Month Start], "Studio Credits", [Credits]), "Part", "range")
-            )`;
-        const result = syntheticQueryResult(query, {
-            "[Month Start]": { name: "Month Start" },
-            "[Studio Credits]": { name: "Studio Credits" },
+    it("applies native consumption period and service selections", () => {
+        const source = coworkCreditsSummary();
+        const all = Number(objects(source, [treatAs("'Cowork Period'[Period]", ["All history (9 weeks)"])])[0]["Credits Used"]);
+        const narrow = Number(objects(source, [treatAs("'Cowork Period'[Period]", ["Current period (4 weeks)"])])[0]["Credits Used"]);
+        expect(narrow).toBeGreaterThan(0);
+        expect(narrow).toBeLessThan(all);
+        const studio = Number(objects(studioCreditsSummary(), [treatAs("'Studio Period'[Period]", ["Last 7 days"])])[0]["Credits Consumed"]);
+        expect(studio).toBeGreaterThan(0);
+        expect(studio).toBeLessThan(117472);
+        expect(sampleConsumptionRows("EVALUATE ROW()", ["[Credit Rate]", "[Prepaid Credit Balance]"])?.[0]).toEqual([0.0092, 250000]);
+    });
+    it("uses the selected Azure cost basis for every component of its summary", () => {
+        const rows = samples.consumption.AzureSolutionSpend;
+        const total = sum(rows, row => Number(row.AmortizedCost));
+        const model = sum(rows.filter(row => row.ServiceCategory === "Model"), row => Number(row.AmortizedCost));
+        const values = sampleConsumptionRows(treatAs("'Azure Cost Basis'[Cost Basis]", ["Amortized"]),
+            ["[Selected Cost]", "[Tagged Allocation]", "[Model Share]", "[Supporting Cost]"])![0];
+        expect(values[0]).toBe(total);
+        expect(values[2]).toBeCloseTo(model / total);
+        expect(Number(values[3]) + model).toBeCloseTo(total);
+    });
+
+    it("fails explicitly for unknown queries rather than fabricating numbers", () => {
+        expect(syntheticQueryResult('EVALUATE ROW("Unrecognized", BLANK())')).toMatchObject({
+            status: "error", error: { message: expect.stringContaining("not available in the published synthetic sample pack") },
         });
-
-        expect(result.status).toBe("success");
-        if (result.status !== "success") return;
-        const part = result.table.columns.findIndex(({ name }) => name === "[Part]");
-        expect(part).toBeGreaterThanOrEqual(0);
-        expect(new Set(result.table.rows.map((row) => row[part]))).toEqual(new Set(["trend", "range"]));
-        expect(result.table.rows).toHaveLength(12);
     });
 
-    it("returns all habit cohorts with a complete, monotonic concentration curve", () => {
-        const columns = ["[Month]", "[Cohort]", "[People]", "[Hours]", "[Count]", "[Cumulative]", "[Total]"];
-        const result = syntheticQueryResult("EVALUATE VALUE BY HABIT", metadata(...columns));
-
-        expect(result.status).toBe("success");
-        if (result.status !== "success") return;
-        const at = (name: string) => result.table.columns.findIndex((column) => column.name === name);
-        const cohorts = result.table.rows.filter((row) => row[at("[Cohort]")] != null);
-        const cuts = result.table.rows.filter((row) => row[at("[Count]")] != null);
-        expect(cohorts.map((row) => row[at("[Cohort]")])).toEqual(["Power", "Habitual", "Developing", "Beginner"]);
-        expect(cuts.length).toBeGreaterThan(20);
-        expect(cuts.at(-1)?.[at("[Cumulative]")]).toBe(cuts.at(-1)?.[at("[Total]")]);
-        expect(cuts.every((row, index) => index === 0 || Number(row[at("[Cumulative]")]) >= Number(cuts[index - 1][at("[Cumulative]")]))).toBe(true);
-    });
-
-    it("returns coherent leaderboard rollups and the concentration cuts they require", () => {
-        const rollupColumns = [
-            "Chat + Agent Org DataOrganization",
-            "Chat + Agent Interactions (Audit Logs)Audit_UserId",
-            "[Is Grand Total]",
-            "[Is Group Total]",
-            "[Active Users]",
-            "[Sessions]",
-            "[Sessions Per User Per Week]",
-        ];
-        const leaderboard = syntheticQueryResult("EVALUATE LEADERBOARD", metadata(...rollupColumns));
-        const concentration = syntheticQueryResult("EVALUATE CONCENTRATION", metadata("[Count]", "[Cumulative]", "[People]", "[Total]"));
-
-        expect(leaderboard.status).toBe("success");
-        expect(concentration.status).toBe("success");
-        if (leaderboard.status !== "success" || concentration.status !== "success") return;
-        expect(leaderboard.table.rows.some((row) => row[leaderboard.table.columns.findIndex((column) => column.name === "[Is Grand Total]")] === true)).toBe(true);
-        expect(leaderboard.table.rows.filter((row) => row[leaderboard.table.columns.findIndex((column) => column.name === "[Is Group Total]")] === true)).toHaveLength(4);
-        expect(concentration.table.rows.map((row) => row[0])).toEqual([2, 9, 45]);
-    });
-
-    it("keeps the leaderboard organization groups when adapting the real query", () => {
-        const query = leaderboardPeople();
-        const result = syntheticQueryResult(query.query, query.columnMetadata);
-
-        expect(result.status).toBe("success");
-        if (result.status !== "success") return;
-        const tree = toLeaderboardPeopleTree(toDataTable(result.table, query.columnMetadata!), "Unassigned organization");
-        expect(tree.rows.map((row) => row.Who)).toEqual([
-            "Engineering",
-            "Operations",
-            "Research",
-            "Customer Success",
-        ]);
-        expect(tree.rows.every((row) => Array.isArray(row._children) && row._children.length > 0)).toBe(true);
-    });
-
-    it("infers SELECTCOLUMNS schemas when no semantic metadata is supplied", () => {
-        const query = `EVALUATE
-            SELECTCOLUMNS(
-                FILTER('Synthetic People', [Active] = TRUE()),
-                "Month", DATE(2026, 10, 1),
-                "Cohort", "Power",
-                "Cohort Order", 1,
-                "Licensed", 18,
-                "Unlicensed", 2
-            )`;
-        const result = syntheticQueryResult(query);
-
-        expect(result.status).toBe("success");
-        if (result.status !== "success") return;
-        expect(result.table.columns.map((column) => column.name)).toEqual([
-            "[Month]", "[Cohort]", "[Cohort Order]", "[Licensed]", "[Unlicensed]",
-        ]);
-        expect(result.table.rows).toHaveLength(4);
-    });
-
-    it("builds the real habit-licence query as four populated cohort rows", () => {
-        const result = syntheticQueryResult(habitLicenceQuery);
-
-        expect(result.status).toBe("success");
-        if (result.status !== "success") return;
-        expect(result.table.columns.map((column) => column.name)).toEqual([
-            "[Month]", "[Cohort]", "[Cohort Order]", "[Licensed]", "[Unlicensed]",
-        ]);
-        expect(result.table.rows.map((row) => row[1])).toEqual(["Power", "Habitual", "Developing", "Beginner"]);
-    });
-
-    it("populates consumption product totals for every product card", () => {
-        const result = syntheticQueryResult(consumptionByProductQuery);
-
-        expect(result.status).toBe("success");
-        if (result.status !== "success") return;
-        const columns = result.table.columns.map((column) => column.name);
-        const product = columns.indexOf("[Product]");
-        const cost = columns.indexOf("[Cost]");
-        const coverage = columns.indexOf("[Coverage]");
-        expect(result.table.rows.map((row) => row[product])).toEqual(["Cowork / Work IQ", "Copilot Studio", "Azure AI Foundry"]);
-        expect(result.table.rows.every((row) => typeof row[cost] === "number" && String(row[coverage]).startsWith("Date span covered"))).toBe(true);
-    });
-
-    it("keeps M365 weekly summary metrics numeric and leaderboard ratios defined", () => {
-        const summary = syntheticQueryResult(m365SummaryQuery);
-        const leaderboard = syntheticQueryResult("EVALUATE LEADERBOARD SUMMARY", metadata(
-            "[All Users]", "[All Sessions]", "[All Per User]", "[All Per Week]",
-        ));
-
-        expect(summary.status).toBe("success");
-        expect(leaderboard.status).toBe("success");
-        if (summary.status !== "success" || leaderboard.status !== "success") return;
-        const m365Columns = summary.table.columns.map((column) => column.name);
-        for (const column of ["[Active Days Per Week]", "[Meetings Per Week]", "[Call Hours Per Week]", "[Emails Sent Per Week]", "[Chats Per Week]"]) {
-            expect(typeof summary.table.rows[0][m365Columns.indexOf(column)]).toBe("number");
-        }
-        const row = leaderboard.table.rows[0];
-        const sessions = Number(row[leaderboard.table.columns.findIndex((column) => column.name === "[All Sessions]")]);
-        const users = Number(row[leaderboard.table.columns.findIndex((column) => column.name === "[All Users]")]);
-        expect(row[leaderboard.table.columns.findIndex((column) => column.name === "[All Per Week]")]).toBeCloseTo(sessions / users / 26);
-    });
-
-    it("populates the executive summary measures", () => {
-        const result = syntheticQueryResult(executiveSummaryQuery, executiveSummary().columnMetadata);
-
-        expect(result.status).toBe("success");
-        if (result.status !== "success") return;
-        const columns = result.table.columns.map((column) => column.name);
-        for (const column of ["[Hours]", "[Tasks]", "[People]", "[Habitual Pct]", "[Satisfaction]"]) {
-            expect(result.table.rows[0][columns.indexOf(column)], column).toEqual(expect.any(Number));
-        }
-    });
-
-    it("keeps executive headline, range, organization, and monthly charts on one fixture", () => {
-        const summary = executiveSummary();
-        const range = executiveHoursRange();
-        const departments = executiveDepartments();
-        const months = executiveMonths();
-        const summaryResult = syntheticQueryResult(summary.query, summary.columnMetadata);
-        const rangeResult = syntheticQueryResult(range.query, range.columnMetadata);
-        const departmentResult = syntheticQueryResult(departments.query, departments.columnMetadata);
-        const monthResult = syntheticQueryResult(months.query, months.columnMetadata);
-
-        for (const result of [summaryResult, rangeResult, departmentResult, monthResult]) {
-            expect(result.status).toBe("success");
-            if (result.status === "success") expect(result.table.rows.length).toBeGreaterThan(0);
-        }
-        if (
-            summaryResult.status !== "success" ||
-            rangeResult.status !== "success" ||
-            departmentResult.status !== "success" ||
-            monthResult.status !== "success"
-        ) return;
-
-        const at = (result: { table: { columns: readonly { name: string }[] } }, name: string) =>
-            result.table.columns.findIndex((column) => column.name === name);
-        const summaryRow = summaryResult.table.rows[0];
-        const hours = Number(summaryRow[at(summaryResult, "[Hours]")]);
-        const seats = Number(summaryRow[at(summaryResult, "[Licensed Seats]")]);
-        const seatsInUse = Number(summaryRow[at(summaryResult, "[Seats In Use]")]);
-        expect(hours).toBe(165);
-        expect(summaryRow[at(summaryResult, "[Seats In Use Pct]")]).toBeCloseTo(seatsInUse / seats);
-        expect(Number(rangeResult.table.rows[0][at(rangeResult, "[Hours Conservative]")])).toBeLessThanOrEqual(hours);
-        expect(Number(rangeResult.table.rows[0][at(rangeResult, "[Hours Optimistic]")])).toBeGreaterThanOrEqual(hours);
-
-        const organizationColumn = at(departmentResult, "Chat + Agent Org Data[Organization]");
-        const departmentHoursColumn = at(departmentResult, "[Hours]");
-        const seatsColumn = at(departmentResult, "[Licensed Seats]");
-        const hoursPerSeatColumn = at(departmentResult, "[Hours Per Seat Month]");
-        expect(new Set(departmentResult.table.rows.map((row) => row[organizationColumn])).size).toBe(4);
-        expect(departmentResult.table.rows.reduce((sum, row) => sum + Number(row[departmentHoursColumn]), 0)).toBeCloseTo(hours);
-        expect(departmentResult.table.rows.every((row) =>
-            Number(row[hoursPerSeatColumn]) < Number(row[departmentHoursColumn]) / Number(row[seatsColumn]),
-        )).toBe(true);
-        const mapLayers = (departmentMapSpec("Department") as {
-            layer: { encoding: { y?: { axis?: { format?: string } } } }[];
-        }).layer;
-        const seatHoursAxis = mapLayers.find((layer) => layer.encoding.y?.axis !== undefined)?.encoding.y?.axis;
-        expect(seatHoursAxis?.format).toBe(",.2f");
-
-        const monthHoursColumn = at(monthResult, "[Hours]");
-        const monthTasksColumn = at(monthResult, "[Tasks]");
-        const copilotColumn = at(monthResult, "[Copilot Hours]");
-        const agentColumn = at(monthResult, "[Agent Hours]");
-        const coworkColumn = at(monthResult, "[Cowork Hours]");
-        expect(monthResult.table.rows.reduce((sum, row) => sum + Number(row[monthHoursColumn]), 0)).toBeCloseTo(hours);
-        expect(monthResult.table.rows.reduce((sum, row) => sum + Number(row[monthTasksColumn]), 0))
-            .toBe(Number(summaryRow[at(summaryResult, "[Tasks]")]));
-        expect(monthResult.table.rows.every((row) =>
-            Number(row[copilotColumn]) + Number(row[agentColumn]) + Number(row[coworkColumn])
-                === Number(row[monthHoursColumn]),
-        )).toBe(true);
-    });
-
-    it("populates the value-by-task rollup at every level", () => {
-        const query = valueByTask();
-        const result = syntheticQueryResult(query.query, query.columnMetadata);
-
-        expect(result.status).toBe("success");
-        if (result.status !== "success") return;
-        const tree = toValueTaskTree(toDataTable(result.table, query.columnMetadata));
-        expect(tree.rows).toHaveLength(4);
-        expect(tree.rows.every((row) => typeof row["Activity Share"] === "number" && typeof row["Expert Equivalent Hours Per Week"] === "number")).toBe(true);
-        expect(tree.rows.every((row) => Array.isArray(row._children) && row._children.length === 2)).toBe(true);
-        expect(tree.total?.rows[0].slice(1)).toEqual([1, 138, 6900]);
-    });
-
-    it("keeps the value headline, task breakdown, and organization rows on one fixture", () => {
-        const summary = valueSummary();
-        const tasks = valueByTask();
-        const organizations = organizationValue();
-        const summaryResult = syntheticQueryResult(summary.query, summary.columnMetadata);
-        const taskResult = syntheticQueryResult(tasks.query, tasks.columnMetadata);
-        const organizationResult = syntheticQueryResult(organizations.query, organizations.columnMetadata);
-
-        for (const result of [summaryResult, taskResult, organizationResult]) {
-            expect(result.status).toBe("success");
-            if (result.status === "success") expect(result.table.rows.length).toBeGreaterThan(0);
-        }
-        if (
-            summaryResult.status !== "success" ||
-            taskResult.status !== "success" ||
-            organizationResult.status !== "success"
-        ) return;
-
-        const summaryAt = (name: string) => summaryResult.table.columns.findIndex((column) => column.name === name);
-        expect(summaryResult.table.rows[0][summaryAt("[Expert Equivalent Hours Per Week]")]).toBe(138);
-        expect(summaryResult.table.rows[0][summaryAt("[AI Assisted Value Per Week]")]).toBe(6900);
-        expect(summaryResult.table.rows[0][summaryAt("[AI Assisted Value]")]).toBe(6900 * 26);
-        expect(summaryResult.table.rows[0][summaryAt("[Projected Annualised Value]")]).toBe(6900 * 52);
-
-        const tree = toValueTaskTree(toDataTable(taskResult.table, tasks.columnMetadata));
-        expect(tree.total?.rows[0].slice(1)).toEqual([1, 138, 6900]);
-        const orgAt = (name: string) => organizationResult.table.columns.findIndex((column) => column.name === name);
-        expect(new Set(organizationResult.table.rows.map((row) => row[orgAt("Chat + Agent Org Data[Organization]")])).size).toBe(4);
-        expect(organizationResult.table.rows.reduce((sum, row) => sum + Number(row[orgAt("[Expert Equivalent Hours Per Week]")]), 0))
-            .toBe(138);
-        expect(organizationResult.table.rows.reduce((sum, row) => sum + Number(row[orgAt("[AI Assisted Value]")]), 0))
-            .toBe(6900);
-    });
-
-    it("keeps the value agents unique and their hours and value aligned with the headline", () => {
-        const summary = valueSummary();
-        const agents = agentValue();
-        const summaryResult = syntheticQueryResult(summary.query, summary.columnMetadata);
-        const agentResult = syntheticQueryResult(agents.query, agents.columnMetadata);
-
-        expect(summaryResult.status).toBe("success");
-        expect(agentResult.status).toBe("success");
-        if (summaryResult.status !== "success" || agentResult.status !== "success") return;
-        const at = (name: string) => summaryResult.table.columns.findIndex((column) => column.name === name);
-        const name = agentResult.table.columns.findIndex((column) => column.name === "Chat + Agent Interactions (Audit Logs)[AgentName]");
-        const hours = agentResult.table.columns.findIndex((column) => column.name === "[Expert Equivalent Hours]");
-        const value = agentResult.table.columns.findIndex((column) => column.name === "[AI Assisted Value]");
-        const summaryHours = Number(summaryResult.table.rows[0][at("[Expert Equivalent Hours Per Week]")]) * 26;
-        const summaryValue = Number(summaryResult.table.rows[0][at("[AI Assisted Value]")]);
-
-        expect(agentResult.table.rows).toHaveLength(3);
-        expect(new Set(agentResult.table.rows.map((row) => row[name])).size).toBe(3);
-        expect(agentResult.table.rows.reduce((sum, row) => sum + Number(row[hours]), 0)).toBe(summaryHours);
-        expect(agentResult.table.rows.reduce((sum, row) => sum + Number(row[value]), 0)).toBe(summaryValue);
-        expect(agentResult.table.rows.every((row) => Number(row[value]) === Number(row[hours]) * 50)).toBe(true);
-    });
-
-    it("keeps the executive work-kind chart within the shared headline total", () => {
-        const summary = executiveSummary();
-        const kinds = executiveWorkKinds();
-        const summaryResult = syntheticQueryResult(summary.query, summary.columnMetadata);
-        const kindsResult = syntheticQueryResult(kinds.query, kinds.columnMetadata);
-
-        expect(summaryResult.status).toBe("success");
-        expect(kindsResult.status).toBe("success");
-        if (summaryResult.status !== "success" || kindsResult.status !== "success") return;
-        const summaryHoursColumn = summaryResult.table.columns.findIndex((column) => column.name === "[Hours]");
-        const hoursColumn = kindsResult.table.columns.findIndex((column) => column.name === "[Hours]");
-        const categoryColumn = kindsResult.table.columns.findIndex((column) =>
-            column.name === "Chat + Agent Interactions (Audit Logs)[Task Breakdown Category]",
-        );
-        expect(new Set(kindsResult.table.rows.map((row) => row[categoryColumn])).size).toBe(kindsResult.table.rows.length);
-        expect(kindsResult.table.rows.reduce((sum, row) => sum + Number(row[hoursColumn]), 0))
-            .toBe(Number(summaryResult.table.rows[0][summaryHoursColumn]));
-        expect(Math.max(...kindsResult.table.rows.map((row) => Number(row[hoursColumn]))))
-            .toBeLessThanOrEqual(Number(summaryResult.table.rows[0][summaryHoursColumn]));
-    });
-
-    it("applies synthetic value assumptions and date filters consistently", () => {
-        const summary = valueSummary();
-        const tasks = valueByTask();
-        const agents = agentValue();
-        const filters = [
-            treatAs("'Hourly Value'[Hourly Value]", [75]),
-            treatAs("'Effort Scenario'[Scenario]", ["Conservative"]),
-            treatAs("'Chat + Agent Org Data'[Organization]", ["Engineering"]),
-        ];
-        const filteredSummary = syntheticQueryResult(applyDaxFilters(summary.query, filters), summary.columnMetadata);
-        const filteredTasks = syntheticQueryResult(applyDaxFilters(tasks.query, filters), tasks.columnMetadata);
-        const filteredAgents = syntheticQueryResult(applyDaxFilters(agents.query, filters), agents.columnMetadata);
-        const dateFilters = [dateBetween("'Calendar'[Date]", "2026-06-01", "2026-06-14")];
-        const dateSummary = syntheticQueryResult(applyDaxFilters(summary.query, dateFilters), summary.columnMetadata);
-        const dateMonths = executiveMonths();
-        const dateMonthResult = syntheticQueryResult(applyDaxFilters(dateMonths.query, dateFilters), dateMonths.columnMetadata);
-
-        expect(filteredSummary.status).toBe("success");
-        expect(filteredTasks.status).toBe("success");
-        expect(filteredAgents.status).toBe("success");
-        expect(dateSummary.status).toBe("success");
-        expect(dateMonthResult.status).toBe("success");
-        if (
-            filteredSummary.status !== "success" ||
-            filteredTasks.status !== "success" ||
-            filteredAgents.status !== "success" ||
-            dateSummary.status !== "success" ||
-            dateMonthResult.status !== "success"
-        ) return;
-
-        const valueAt = (name: string) => filteredSummary.table.columns.findIndex((column) => column.name === name);
-        expect(filteredSummary.table.rows[0][valueAt("[Expert Equivalent Hours Per Week]")]).toBe(43 * 0.75);
-        expect(filteredSummary.table.rows[0][valueAt("[AI Assisted Value Per Week]")]).toBe(43 * 0.75 * 75);
-        const filteredTree = toValueTaskTree(toDataTable(filteredTasks.table, tasks.columnMetadata));
-        expect(filteredTree.total?.rows[0].slice(1)).toEqual([1, 43 * 0.75, 43 * 0.75 * 75]);
-        const filteredAgentHours = filteredAgents.table.columns.findIndex((column) => column.name === "[Expert Equivalent Hours]");
-        const filteredAgentValue = filteredAgents.table.columns.findIndex((column) => column.name === "[AI Assisted Value]");
-        expect(filteredAgents.table.rows.reduce((sum, row) => sum + Number(row[filteredAgentHours]), 0))
-            .toBe(43 * 0.75 * 26);
-        expect(filteredAgents.table.rows.reduce((sum, row) => sum + Number(row[filteredAgentValue]), 0))
-            .toBe(43 * 0.75 * 26 * 75);
-
-        const dateValue = (name: string) => dateSummary.table.columns.findIndex((column) => column.name === name);
-        expect(dateSummary.table.rows[0][dateValue("[AI Assisted Value]")]).toBe(6900 * 2);
-        expect(dateMonthResult.table.rows).toHaveLength(1);
-        expect(dateMonthResult.table.rows[0][dateMonthResult.table.columns.findIndex((column) => column.name === "[Month Start]")])
-            .toBe("2026-06-01");
-    });
-
-    it("provides surface and model categories that match their chart filters", () => {
-        const query = surfaceUsage({ lens: "surface" });
-        const result = syntheticQueryResult(query.query, query.columnMetadata);
-
-        expect(result.status).toBe("success");
-        if (result.status !== "success") return;
-        const lens = result.table.columns.findIndex((column) => column.name === "[Lens]");
-        const category = result.table.columns.findIndex((column) => column.name === "[Category]");
-        const tasks = result.table.columns.findIndex((column) => column.name === "[All Tasks]");
-        expect(new Set(result.table.rows.map((row) => row[lens]))).toEqual(new Set(["Surface", "Model"]));
-        expect(result.table.rows.every((row) => typeof row[tasks] === "number")).toBe(true);
-        expect(result.table.rows.some((row) => row[lens] === "Surface" && row[category] === "Teams")).toBe(true);
-    });
-
-    it("provides categories for each task-breakdown lens", () => {
-        const query = taskBreakdown();
-        const result = syntheticQueryResult(query.query, query.columnMetadata);
-
-        expect(result.status).toBe("success");
-        if (result.status !== "success") return;
-        const dimension = result.table.columns.findIndex((column) => column.name === "[Dimension]");
-        const share = result.table.columns.findIndex((column) => column.name === "[Share]");
-        expect(new Set(result.table.rows.map((row) => row[dimension]))).toEqual(new Set(["Behaviour", "Workflow action", "Value outcome"]));
-        expect(result.table.rows).toHaveLength(12);
-        expect(result.table.rows.every((row) => typeof row[share] === "number")).toBe(true);
-    });
-
-    it("keeps task and user cohort totals consistent", () => {
-        const query = workSummary();
-        const result = syntheticQueryResult(query.query, query.columnMetadata);
-
-        expect(result.status).toBe("success");
-        if (result.status !== "success") return;
-        const at = (name: string) => result.table.columns.findIndex((column) => column.name === name);
-        const row = result.table.rows[0];
-        expect(row[at("[All Tasks]")]).toBe(
-            Number(row[at("[Licensed Tasks]")]) + Number(row[at("[Unlicensed Tasks]")]) + Number(row[at("[Agent Tasks]")]),
-        );
-        expect(row[at("[All Users]")]).toBe(Number(row[at("[Licensed Users]")]) + Number(row[at("[Unlicensed Users]")]));
-        for (const [rate, tasks, users] of [
-            ["[All Rate]", "[All Tasks]", "[All Users]"],
-            ["[Licensed Rate]", "[Licensed Tasks]", "[Licensed Users]"],
-            ["[Unlicensed Rate]", "[Unlicensed Tasks]", "[Unlicensed Users]"],
-            ["[Agent Rate]", "[Agent Tasks]", "[Agent Users]"],
-        ]) {
-            expect(row[at(rate)]).toBeCloseTo(Number(row[at(tasks)]) / Number(row[at(users)]));
-        }
-    });
-
-    it("returns matching synthetic source and agent values for cost comparisons", () => {
-        const sources = costValueBySource();
-        const sourceResult = syntheticQueryResult(sources.query, sources.columnMetadata);
-        const agents = costValueAgents();
-        const agentResult = syntheticQueryResult(agents.query, agents.columnMetadata);
-
-        expect(sourceResult.status).toBe("success");
-        expect(agentResult.status).toBe("success");
-        if (sourceResult.status !== "success" || agentResult.status !== "success") return;
-        const sourceColumn = sourceResult.table.columns.findIndex((column) => column.name === "[Source]");
-        const scenarioColumn = sourceResult.table.columns.findIndex((column) => column.name === "[Scenario]");
-        const valueColumn = sourceResult.table.columns.findIndex((column) => column.name === "[Value]");
-        expect(new Set(sourceResult.table.rows.map((row) => row[sourceColumn]))).toEqual(new Set(["Copilot", "Agents", "Cowork"]));
-        expect(new Set(sourceResult.table.rows.map((row) => row[scenarioColumn]))).toEqual(new Set(["Conservative", "Typical", "Optimistic"]));
-        expect(sourceResult.table.rows.every((row) => typeof row[valueColumn] === "number")).toBe(true);
-        expect(agentResult.table.rows.map((row) => row[0])).toEqual(["Knowledge Assistant", "Meeting Companion", "Research Helper"]);
-    });
-
-    it("keeps evaluator headline rates within bounds and uses readable synthetic verdicts", () => {
-        const columns = [
-            "[Conversations]", "[People]", "[Conversations Per Person]", "[Resolution Rate]", "[Implied Success]",
-            "[True Failure Rate]", "[Failing Conversations]", "[Hours Lost]", "[Unintended Escalation Rate]",
-            "[Intended Share]", "[Abandonment Rate]", "[CSAT]", "[Thumbs Up]", "[Thumbs Down]", "[Error Rate]",
-            "[Median Response]", "[Slow Replies]", "[Reporting Window]", "[Verdict Performance]", "[Verdict Quality]",
-            "[Verdict Adoption]",
-        ];
-        const result = syntheticQueryResult("EVALUATE PERFORMANCE SUMMARY", metadata(...columns));
-
-        expect(result.status).toBe("success");
-        if (result.status !== "success") return;
-        const row = result.table.rows[0];
-        for (const column of ["[Resolution Rate]", "[Implied Success]", "[True Failure Rate]", "[CSAT]", "[Error Rate]"]) {
-            const value = row[result.table.columns.findIndex((entry) => entry.name === column)];
-            expect(value).toEqual(expect.any(Number));
-            expect(Number(value)).toBeGreaterThanOrEqual(0);
-            expect(Number(value)).toBeLessThanOrEqual(1);
-        }
-        expect(row[result.table.columns.findIndex((entry) => entry.name === "[Verdict Performance]")]).toBe("Improving");
-    });
-
-    it("populates evaluator conversation outcomes, topic rollups, comments, archetypes, and sources", () => {
-        const summary = conversationsSummary();
-        const summaryResult = syntheticQueryResult(summary.query, summary.columnMetadata);
-        const theme = themeOutcomes();
-        const themeResult = syntheticQueryResult(theme.query, theme.columnMetadata);
-        const topics = topicHealth();
-        const topicResult = syntheticQueryResult(topics.query, topics.columnMetadata);
-        const comments = feedbackComments();
-        const commentResult = syntheticQueryResult(comments.query, comments.columnMetadata);
-        const archetypes = answerArchetypes();
-        const archetypeResult = syntheticQueryResult(archetypes.query, archetypes.columnMetadata);
-        const sources = knowledgeSources();
-        const sourceResult = syntheticQueryResult(sources.query, sources.columnMetadata);
-
-        for (const result of [summaryResult, themeResult, topicResult, commentResult, archetypeResult, sourceResult]) {
-            expect(result.status).toBe("success");
-            if (result.status === "success") expect(result.table.rows.length).toBeGreaterThan(0);
-        }
-        if (summaryResult.status === "success") {
-            const at = (name: string) => summaryResult.table.columns.findIndex((column) => column.name === name);
-            expect(summaryResult.table.rows[0][at("[Grounded Rate]")]).toBeGreaterThan(0);
-            expect(summaryResult.table.rows[0][at("[Grounded Rate]")]).toBeLessThan(1);
-            expect(summaryResult.table.rows[0][at("[Knowledge Gap Rate]")]).toBeLessThan(0.25);
-            expect(summaryResult.table.rows[0][at("[Turns Per Conversation]")]).toBeLessThan(5);
-            expect(summaryResult.table.rows[0][at("[Friction Read]")]).toContain("Moderate");
-        }
-        if (themeResult.status === "success") {
-            const themes = themeResult.table.columns.findIndex((column) => column.name === "[Theme]");
-            const outcomes = themeResult.table.columns.findIndex((column) => column.name === "[Outcome]");
-            expect(new Set(themeResult.table.rows.map((row) => row[themes])).size).toBe(4);
-            expect(new Set(themeResult.table.rows.map((row) => row[outcomes]))).toEqual(new Set([
-                "Resolved", "Escalated by design", "Escalated after an error", "Abandoned",
-            ]));
-        }
-        if (topicResult.status === "success") {
-            const tree = toTopicTree(toDataTable(topicResult.table, topics.columnMetadata));
-            const grandTotal = topicResult.table.rows.find((row) =>
-                row[topicResult.table.columns.findIndex((column) => column.name === "[Is Grand Total]")] === true,
-            );
-            expect(tree.rows).toHaveLength(4);
-            expect(tree.rows.every((row) => Array.isArray(row._children) && row._children.length === 2)).toBe(true);
-            expect(grandTotal).toBeDefined();
-            expect(grandTotal?.every((value) => typeof value !== "number" || Number.isFinite(value))).toBe(true);
-        }
-        if (commentResult.status === "success") {
-            expect(commentResult.table.rows.some((row) => String(row[0]).includes("helpful answer"))).toBe(true);
-        }
-        if (archetypeResult.status === "success") {
-            expect(archetypeResult.table.rows.map((row) => row[0])).toContain("Knowledge-grounded answer");
-        }
-        if (sourceResult.status === "success") {
-            expect(sourceResult.table.rows.map((row) => row[0])).toContain("Product guide");
-        }
-    });
-
-    it("populates activation, habit, evaluation, and shadow AI result schemas", () => {
-        const activation = syntheticQueryResult(
-            "EVALUATE ACTIVATION",
-            metadata("[Licensed Active]", "[Licensed Inactive]", "[Licensed Total]", "[Licensed Active Pct]", "[All Active]", "[All Inactive]", "[All Total]", "[All Active Pct]", "[Agent Active]", "[Agent NotUsing]", "[Agent Active Pct]"),
-        );
-        const matrix = syntheticQueryResult(
-            "EVALUATE HABIT LICENCE",
-            metadata("[Month]", "[Cohort]", "[Cohort Order]", "[Licensed]", "[Unlicensed]"),
-        );
-        const evaluator = syntheticQueryResult(
-            "EVALUATE EVALUATION OPTIONS",
-            metadata("[Kind]", "[Value]", "[Sort]"),
-        );
-        const shadowStatus = syntheticQueryResult(
-            "EVALUATE SHADOW STATUS",
-            metadata("[Probe]", "[Status]", "[Source]", "[Rows]", "[Message]", "[Run At]"),
-        );
-        const shadowTools = syntheticQueryResult(
-            "EVALUATE SHADOW TOOLS",
-            metadata("[Tool]", "[Layer]", "[Posture]", "[Devices]", "[Users]"),
-        );
-
-        for (const result of [activation, matrix, evaluator, shadowStatus, shadowTools]) {
-            expect(result.status).toBe("success");
-            if (result.status === "success") expect(result.table.rows.length).toBeGreaterThan(0);
-        }
-        if (evaluator.status === "success") {
-            expect(evaluator.table.rows.some((row) => row[0] === "First date")).toBe(true);
-            expect(evaluator.table.rows.some((row) => row[0] === "Agent")).toBe(true);
-        }
-        if (shadowStatus.status === "success") expect(shadowStatus.table.rows.every((row) => row[1] === "ok")).toBe(true);
-        if (shadowTools.status === "success") expect(new Set(shadowTools.table.rows.map((row) => row[1]))).toEqual(new Set(["Ran", "Network", "Installed", "Cloud Discovery"]));
+    it("applies saved task-time overrides without changing source task counts", () => {
+        const source = executiveSummary();
+        const saved = samples.times.map(row => ({ task: row.Behavior, low: 0, typical: 0, high: 0 }));
+        const overridden = objects({ ...source, query: withTaskTimes(source.query, saved) })[0];
+        expect(overridden.Tasks).toBe(13337);
+        expect(Number(overridden.Hours)).toBeLessThan(Number(objects(source)[0].Hours));
     });
 });
