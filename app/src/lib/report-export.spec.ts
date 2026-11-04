@@ -64,7 +64,7 @@ afterEach(() => {
 describe("report branding", () => {
     it.each([
         ["", "Analytics Hub"],
-        ["true", "DataHub"],
+        ["true", "Analytics Hub dashboard"],
     ])("uses the selected brand in pack exports with preview flag %s", (flag, brand) => {
         vi.stubEnv("VITE_DATAHUB_PREVIEW", flag);
         const doc = document_();

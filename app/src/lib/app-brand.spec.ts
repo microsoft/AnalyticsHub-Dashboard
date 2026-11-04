@@ -17,9 +17,9 @@ describe("app branding", () => {
         expect(appDisplayNameWithArticle()).toBe("an Analytics Hub");
     });
 
-    it("uses DataHub only for an explicitly enabled preview", () => {
+    it("uses Analytics Hub dashboard for an explicitly enabled preview", () => {
         vi.stubEnv("VITE_DATAHUB_PREVIEW", "true");
-        expect(appDisplayName()).toBe("DataHub");
-        expect(appDisplayNameWithArticle()).toBe("a DataHub");
+        expect(appDisplayName()).toBe("Analytics Hub dashboard");
+        expect(appDisplayNameWithArticle()).toBe("an Analytics Hub dashboard");
     });
 });

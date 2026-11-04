@@ -66,7 +66,7 @@ describe("cross-vendor extension", () => {
         vi.stubEnv("VITE_CROSS_VENDOR_DEMO", "true");
         vi.stubEnv("VITE_DATAHUB_PREVIEW", "true");
         render(<StageFilterContext.Provider value={pageStages("vendor-portfolio")}><CrossVendorScreen /></StageFilterContext.Provider>);
-        expect(screen.getByText(/Source-native signals inside DataHub/)).toBeInTheDocument();
+        expect(screen.getByText(/Source-native signals inside Analytics Hub dashboard/)).toBeInTheDocument();
     });
 
     it("populates the Microsoft snapshot from the same scenario as the charts", () => {
