@@ -2221,6 +2221,19 @@ class AuditSourceTests(unittest.TestCase):
         helpers["AUDIT_SOURCE"] = "graph"
         self.assertEqual(drop([self.OLD, self.A], "overwrite"), ([self.OLD, self.A], [], "overwrite"))
 
+    def test_partial_backfill_merges_existing_rows(self):
+        helpers, _ = self.source_helpers("feed", WRITE_MODE="replace")
+        floor = self.NOW - timedelta(days=7) + timedelta(minutes=15)
+        straddles = (floor - timedelta(hours=4), floor + timedelta(hours=4))
+        helpers["SOURCE_PLAN"].update(feed_floor=floor)
+        drop = helpers["drop_out_of_reach"]
+
+        self.assertEqual(drop([self.OLD, self.A], "replace"), ([self.A], [self.OLD], "merge"))
+        self.assertEqual(drop([straddles, self.A], "replace"), ([straddles, self.A], [], "merge"))
+        self.assertEqual(drop([self.A, self.B], "replace"), ([self.A, self.B], [], "replace"))
+        helpers["GRAPH_FOR_HISTORY"] = True
+        self.assertEqual(drop([self.OLD, self.A], "replace"), ([self.OLD, self.A], [], "replace"))
+
     def test_auto_stops_when_the_management_api_cannot_be_read_without_graph(self):
         helpers, _ = self.source_helpers("auto")
         helpers["sentinel_first_record"] = lambda *_a, **_k: None
