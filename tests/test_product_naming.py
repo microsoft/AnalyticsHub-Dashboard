@@ -12,7 +12,7 @@ def text(path):
 
 def test_readme_branding_and_legacy_destinations():
     readme = text("README.md")
-    assert "# 📊 DataHub App for Microsoft Copilot" in readme
+    assert "# DataHub App - for Microsoft Copilot, Agents, Cowork and Autopilots" in readme
     assert "[DataHub App site](https://microsoft.github.io/Analytics-Hub/)" in readme
     assert "[![DataHub App preview](media/AnalyticsHub-Preview.gif)]" in readme
     assert "**Set up DataHub App**" in readme
