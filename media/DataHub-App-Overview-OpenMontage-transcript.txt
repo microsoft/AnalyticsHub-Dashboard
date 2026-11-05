@@ -1,0 +1,23 @@
+DataHub App — for Microsoft Copilot, Agents and Autopilots
+45-second overview. Synthetic demo data. AI-generated narration using previously approved Ollie audio.
+
+00:00:00.600  Where is Copilot making a difference? See the full picture with DataHub App.
+
+00:00:06.400  See adoption across teams, understand how people use agents, and spot what’s changing.
+
+00:00:13.000  Explore estimated hours and value, based on your own assumptions.
+
+00:00:18.400  Connect optional sources for credit consumption and agent governance.
+
+00:00:23.300  Choose DataHub App on Microsoft Fabric or Azure, in your own tenant.
+
+00:00:29.000  Prefer PAX and SharePoint? Explore ValueLens, a separate experience.
+
+00:00:37.400  Turn insight into action. Explore DataHub App on GitHub.
+
+Visual descriptions: The opening names DataHub App. Loaded Executive summary cards show tasks, estimated hours, credit consumption and usage. Adoption shows populated usage metrics and charts. Value shows estimates based on assumptions. Consumption and Governance are identified as optional sources. Two hosting cards show Microsoft Fabric and Azure. A separate card identifies ValueLens as the PAX + SharePoint experience, not a DataHub App hosting route. The closing invites viewers to explore the project on GitHub.
+
+DataHub App is experimental and is not the official Copilot usage report. Values shown are synthetic, not customer results.
+https://github.com/microsoft/DataHub-App-for-Microsoft-Copilot-Agents-and-Autopilots
+https://ai-datalab.github.io/demo/copilot-datahub/
+https://github.com/microsoft/ValueLens-for-Microsoft-Copilot
