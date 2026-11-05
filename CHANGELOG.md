@@ -72,10 +72,11 @@ change, and windows read by different sources never duplicate.
 - **Checks and reliability.** `check-audit` tests the selected sources without Graph audit
   search. Sentinel pages in stable timestamp/record-ID order; invalid results and expired feed
   content fail explicitly instead of being accepted as empty successful loads.
-- **A history load beside the daily load no longer drops its windows.** Each run used to save the
-  manifest it loaded at the start, so a Graph history recovery running beside the scheduled load
-  overwrote the windows that load had just read from the Management Activity API. Each save now
-  keeps what another run saved for windows this run hasn't written.
+- **Partial backfills preserve existing rows.** When a source cannot cover the whole requested
+  history, the ingester now uses a merge rather than a replacement.
+- **Manifest recovery.** Each save keeps untouched windows that another run already saved, but
+  simultaneous writes can still race. A failed manifest read stops the run instead of overwriting
+  saved checkpoints. Wait for one audit run to finish before starting another.
 - See [Where the audit log comes from](fabric/notebooks/README.md#where-the-audit-log-comes-from).
 
 **Licensed users: no more unlicensed users shown as licensed.** Since 0.6.8, a user in the
