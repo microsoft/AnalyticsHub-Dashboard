@@ -78,7 +78,7 @@ export class HttpFabricProxy implements IFabricApiProxy {
             throw new FabricNetworkProxyError({
                 requestId,
                 sessionId: this.sessionId,
-                message: error instanceof Error ? error.message : "The query couldn't reach the Analytics Hub dashboard API.",
+                message: error instanceof Error ? error.message : "The query couldn't reach the DataHub App API.",
                 cause: error,
             });
         }

@@ -169,7 +169,7 @@ test('dataAgentDefinition: the agent config, its instructions and one data sourc
   );
   assert.ok(def.parts.every((p) => p.payloadType === 'InlineBase64'));
   assert.equal(partJson(def, 'Files/Config/data_agent.json').$schema, '2.1.0');
-  assert.match(partJson(def, 'Files/Config/draft/stage_config.json').aiInstructions, /Analytics Hub dashboard Ask/);
+  assert.match(partJson(def, 'Files/Config/draft/stage_config.json').aiInstructions, /DataHub App Ask/);
   const ds = partJson(def, `Files/Config/draft/${sourceFolder('Analytics Hub Model')}/datasource.json`);
   assert.equal(ds.type, 'semantic_model');
   assert.equal(ds.artifactId, t.model.id);

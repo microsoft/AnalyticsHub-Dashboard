@@ -1,7 +1,7 @@
 # Update or remove
 
 <a id="update"></a>
-Keep the Analytics Hub dashboard current, change what it collects, replace secrets before they expire, or
+Keep the DataHub App current, change what it collects, replace secrets before they expire, or
 [remove it](#uninstall). Set it up by hand? See [Manual install: Update](MANUAL-INSTALL.md#update)
 for Fabric, or [Azure](MANUAL-INSTALL.md#azure).
 

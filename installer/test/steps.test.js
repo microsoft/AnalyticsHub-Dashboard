@@ -126,7 +126,7 @@ test('freeName: numbers a clash, with a space for names that have spaces', () =>
 
 test('plan: a new Lakehouse needs a name no Lakehouse in the workspace has', () => {
   const check = validateNewLakehouseName(['ValueLens']);
-  assert.match(String(check(' valuelens ')), /already a Lakehouse called valuelens here\. Analytics Hub dashboard only writes to a Lakehouse it creates/);
+  assert.match(String(check(' valuelens ')), /already a Lakehouse called valuelens here\. DataHub App only writes to a Lakehouse it creates/);
   assert.equal(check('ValueLens_2'), true);
   assert.match(String(check('2bad')), /Start with a letter/);
 });
@@ -218,7 +218,7 @@ test('pipeline: one with the same name that is not ours is left alone', async ()
   assert.equal(config.fabric.pipelineName, 'AnalyticsHub_Pipeline_2');
 });
 
-test('names: new installs use Analytics Hub dashboard names; an older install keeps the names its items have', async () => {
+test('names: new installs use DataHub App names; an older install keeps the names its items have', async () => {
   const config = emptyConfig();
   assert.equal(config.semanticModel.name, 'Analytics Hub Model');
   assert.equal(config.consumption.model.name, 'Analytics Hub Consumption Model');

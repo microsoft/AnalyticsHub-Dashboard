@@ -586,7 +586,7 @@ export class QueryScheduler {
         model.owed = true;
         this.log(
             "warn",
-            `Analytics Hub dashboard: model ${model.label} is still throttling after ${seconds(now - (wait.since ?? now))} s, so a card shows "Power BI is busy".`,
+            `DataHub App: model ${model.label} is still throttling after ${seconds(now - (wait.since ?? now))} s, so a card shows "Power BI is busy".`,
         );
         return busyError(failure, throttle, job.recoveries);
     }
@@ -604,7 +604,7 @@ export class QueryScheduler {
             const code = throttle.code ? `, ${throttle.code}` : "";
             this.log(
                 "warn",
-                `Analytics Hub dashboard: Power BI throttled a query to model ${model.label} (HTTP ${throttle.http ?? throttle.status}${code}), ${model.strikes} in a row. ` +
+                `DataHub App: Power BI throttled a query to model ${model.label} (HTTP ${throttle.http ?? throttle.status}${code}), ${model.strikes} in a row. ` +
                     `Its queries wait ${seconds(pause)} s, then try it one at a time.`,
             );
         } else if (throttle.retryAfterMs !== undefined) {
@@ -617,7 +617,7 @@ export class QueryScheduler {
             model.holding = true;
             this.log(
                 "info",
-                `Analytics Hub dashboard: background loading from model ${model.label} paused for at least ${seconds(this.backgroundHoldMs)} s, and until it answers a query on screen.`,
+                `DataHub App: background loading from model ${model.label} paused for at least ${seconds(this.backgroundHoldMs)} s, and until it answers a query on screen.`,
             );
         }
         clearTimeout(model.timer);
@@ -637,7 +637,7 @@ export class QueryScheduler {
         model.awaitingSuccess = false;
         this.resumeIfClear(
             model,
-            `Analytics Hub dashboard: background loading from model ${model.label} resumed ${seconds(this.maxBackgroundHoldMs)} s after its last throttle, without an answer on screen.`,
+            `DataHub App: background loading from model ${model.label} resumed ${seconds(this.maxBackgroundHoldMs)} s after its last throttle, without an answer on screen.`,
         );
     }
 
@@ -645,7 +645,7 @@ export class QueryScheduler {
         const model = job.model;
         if (model.strikes > 0) {
             model.strikes = 0;
-            this.log("info", `Analytics Hub dashboard: model ${model.label} is answering again.`);
+            this.log("info", `DataHub App: model ${model.label} is answering again.`);
         }
         if (job.lane !== "low") model.awaitingSuccess = false;
         if (model.owed) this.recovered(model);
@@ -663,11 +663,11 @@ export class QueryScheduler {
         }
         model.owed = false;
         recoveries.set(model.id, recoveriesOf(model.id) + 1);
-        this.log("info", `Analytics Hub dashboard: cards that showed "Power BI is busy" ask model ${model.label} again.`);
+        this.log("info", `DataHub App: cards that showed "Power BI is busy" ask model ${model.label} again.`);
         for (const listener of [...recoveryListeners]) listener(model.id);
     }
 
-    private resumeIfClear(model: ModelState, message = `Analytics Hub dashboard: background loading from model ${model.label} resumed.`): void {
+    private resumeIfClear(model: ModelState, message = `DataHub App: background loading from model ${model.label} resumed.`): void {
         if (!model.holding || this.held(model)) return;
         model.holding = false;
         clearTimeout(model.cap);

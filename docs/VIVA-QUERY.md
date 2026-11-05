@@ -71,7 +71,7 @@ Nothing can read it until it reaches **Success**.
 **Analysis results** → your query → the **link icon** → copy the **Partition identifier** and the
 **Query identifier**. The partition ID is usually your tenant ID.
 
-## 7. Give them to the Analytics Hub dashboard
+## 7. Give them to the DataHub App
 
 | How you install | Where the IDs go |
 |---|---|

@@ -221,20 +221,20 @@ export function graphApi(http) {
           oauth2PermissionScopes: [
             {
               id: scopeId,
-              adminConsentDescription: 'Allow users to access Analytics Hub dashboard.',
-              adminConsentDisplayName: 'Access Analytics Hub dashboard',
+              adminConsentDescription: 'Allow users to access DataHub App.',
+              adminConsentDisplayName: 'Access DataHub App',
               isEnabled: true,
               type: 'User',
-              userConsentDescription: 'Allow you to access Analytics Hub dashboard.',
-              userConsentDisplayName: 'Access Analytics Hub dashboard',
+              userConsentDescription: 'Allow you to access DataHub App.',
+              userConsentDisplayName: 'Access DataHub App',
               value: 'access_as_user',
             },
           ],
           preAuthorizedApplications: o.teamsClientIds.map((appId) => ({ appId, delegatedPermissionIds: [scopeId] })),
         },
         appRoles: [
-          { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub User', value: 'AnalyticsHub.User', description: 'Can use Analytics Hub dashboard.', isEnabled: true },
-          { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub Admin', value: 'AnalyticsHub.Admin', description: 'Can administer Analytics Hub dashboard.', isEnabled: true },
+          { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub User', value: 'AnalyticsHub.User', description: 'Can use DataHub App.', isEnabled: true },
+          { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub Admin', value: 'AnalyticsHub.Admin', description: 'Can administer DataHub App.', isEnabled: true },
         ],
         requiredResourceAccess: [
           { resourceAppId: POWER_BI_APP_ID, resourceAccess: [{ id: o.pbiScopeId, type: 'Scope' }] },
@@ -257,12 +257,12 @@ export function graphApi(http) {
       const scope = scopes.find((s) => s.value === 'access_as_user') ?? { id: crypto.randomUUID() };
       const accessAsUser = {
         ...scope,
-        adminConsentDescription: scope.adminConsentDescription ?? 'Allow users to access Analytics Hub dashboard.',
-        adminConsentDisplayName: scope.adminConsentDisplayName ?? 'Access Analytics Hub dashboard',
+        adminConsentDescription: scope.adminConsentDescription ?? 'Allow users to access DataHub App.',
+        adminConsentDisplayName: scope.adminConsentDisplayName ?? 'Access DataHub App',
         isEnabled: true,
         type: 'User',
-        userConsentDescription: scope.userConsentDescription ?? 'Allow you to access Analytics Hub dashboard.',
-        userConsentDisplayName: scope.userConsentDisplayName ?? 'Access Analytics Hub dashboard',
+        userConsentDescription: scope.userConsentDescription ?? 'Allow you to access DataHub App.',
+        userConsentDisplayName: scope.userConsentDisplayName ?? 'Access DataHub App',
         value: 'access_as_user',
       };
       // Graph won't drop an enabled scope, and another pre-authorised client may use one.
@@ -280,8 +280,8 @@ export function graphApi(http) {
         appRoles: application.appRoles?.length
           ? application.appRoles
           : [
-              { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub User', value: 'AnalyticsHub.User', description: 'Can use Analytics Hub dashboard.', isEnabled: true },
-              { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub Admin', value: 'AnalyticsHub.Admin', description: 'Can administer Analytics Hub dashboard.', isEnabled: true },
+              { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub User', value: 'AnalyticsHub.User', description: 'Can use DataHub App.', isEnabled: true },
+              { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub Admin', value: 'AnalyticsHub.Admin', description: 'Can administer DataHub App.', isEnabled: true },
             ],
         requiredResourceAccess: [
           { resourceAppId: POWER_BI_APP_ID, resourceAccess: [{ id: o.pbiScopeId, type: 'Scope' }] },

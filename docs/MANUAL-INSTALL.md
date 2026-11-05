@@ -1,6 +1,6 @@
 # Manual install
 
-Set up the Analytics Hub dashboard by hand, step by step, without the installer. It uses the same files the
+Set up the DataHub App by hand, step by step, without the installer. It uses the same files the
 installer does. Use it only if no [install route](INSTALL.md) works for you, or you want to see
 each piece.
 

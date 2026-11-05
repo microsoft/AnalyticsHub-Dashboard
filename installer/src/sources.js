@@ -26,7 +26,7 @@ export const APP_DIR = 'app';
  */
 
 /**
- * @param {string} [dir]  The root of the Analytics Hub dashboard checkout.
+ * @param {string} [dir]  The root of the DataHub App checkout.
  * @returns {Sources}
  */
 export function loadSources(dir = DEFAULT_SOURCE_DIR) {

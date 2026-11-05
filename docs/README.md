@@ -1,6 +1,6 @@
 # Reference
 
-Everything that isn't a setup step. To set up the Analytics Hub dashboard, start at the
+Everything that isn't a setup step. To set up the DataHub App, start at the
 [README](../README.md#getting-started).
 
 ## What you get

@@ -33,7 +33,7 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  * @property {SemanticModelConfig} semanticModel
  * @property {FabricAppConfig} fabricApp
  * @property {AzureConfig} [azure]
- * @property {AccessConfig} [access]  Who can view Analytics Hub dashboard. Absent until the installer has set it up.
+ * @property {AccessConfig} [access]  Who can view DataHub App. Absent until the installer has set it up.
  * @property {ConsumptionConfig} consumption
  * @property {AgentEvaluatorConfig} agentEvaluator
  * @property {ResourceGraphConfig} resourceGraph
@@ -71,7 +71,7 @@ export const DEFAULT_CONFIG_FILE = 'valuelens-install.json';
  */
 
 /**
- * The one Entra group whose members can view Analytics Hub dashboard, on either target.
+ * The one Entra group whose members can view DataHub App, on either target.
  * @typedef {object} AccessConfig
  * @property {string} [groupId]
  * @property {string} [groupName]

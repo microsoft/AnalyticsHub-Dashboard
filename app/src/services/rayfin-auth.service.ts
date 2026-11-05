@@ -168,7 +168,7 @@ class AzureAuthService implements IAuthService {
         }
 
         const account = this.account();
-        if (!account) throw new Error("Sign in before calling the Analytics Hub dashboard API.");
+        if (!account) throw new Error("Sign in before calling the DataHub App API.");
         let result: AuthenticationResult;
         try {
             // MSAL serves cached tokens until they near expiry; forceRefresh picks up newly granted roles.

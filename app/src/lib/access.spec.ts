@@ -29,9 +29,9 @@ describe("access request emails", () => {
         expect(scopeRequestMailto(undefined)).toBeNull();
     });
 
-    it("uses Analytics Hub dashboard copy without changing the install's legacy group name", () => {
+    it("uses DataHub App copy without changing the install's legacy group name", () => {
         const email = new URL(accessRequestMailto(access) ?? "");
-        expect(email.searchParams.get("subject")).toBe("Access to Analytics Hub dashboard");
+        expect(email.searchParams.get("subject")).toBe("Access to DataHub App");
         expect(email.searchParams.get("body")).toContain("Analytics Hub Viewers group");
     });
 });

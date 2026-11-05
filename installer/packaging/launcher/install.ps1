@@ -1,5 +1,5 @@
 <#
-Analytics Hub dashboard installer {{VERSION}}, started from PowerShell.
+DataHub App installer {{VERSION}}, started from PowerShell.
 
 Downloads the installer from GitHub (Node.js, the installer and everything it deploys, in one
 zip), checks its SHA-256, unpacks it under %LOCALAPPDATA%\AnalyticsHub and opens the installer in
@@ -144,7 +144,7 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
       if (Test-Path -LiteralPath $partial) { Remove-Item -LiteralPath $partial -Recurse -Force }
       $savedPath = $env:PATH
       try {
-        Write-Host "Getting the Analytics Hub dashboard installer $Version ($($Commit.Substring(0, 7))) from GitHub..."
+        Write-Host "Getting the DataHub App installer $Version ($($Commit.Substring(0, 7))) from GitHub..."
         Invoke-Checked 'git init' { git init --quiet $partial }
         Invoke-Checked 'git fetch' { git -C $partial fetch --quiet --depth 1 $RepoUrl $Commit }
         Invoke-Checked 'git checkout' { git -C $partial -c advice.detachedHead=false checkout --quiet FETCH_HEAD }
@@ -177,10 +177,10 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
     # A command for later, such as "~/.analytics-hub/analytics-hub status", that runs this version.
     $shell = @(
       '#!/bin/sh'
-      '# Runs the Analytics Hub dashboard installer that install.ps1 got. install.ps1 writes this file.'
+      '# Runs the DataHub App installer that install.ps1 got. install.ps1 writes this file.'
       "AH_ROOT='$Root'"
       'if [ ! -f "$AH_ROOT/.unpacked" ]; then'
-      "  echo 'This copy of the Analytics Hub dashboard installer has been removed or replaced. In PowerShell, run: $Again'"
+      "  echo 'This copy of the DataHub App installer has been removed or replaced. In PowerShell, run: $Again'"
       '  exit 1'
       'fi'
       'export ANALYTICS_HUB_LAUNCHER=cloudshell'
@@ -286,7 +286,7 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
     } else {
       $zip = Join-Path $AhHome "$Id.zip.partial-$PID"
       $downloaded = $true
-      Write-Host "Downloading the Analytics Hub dashboard installer $Version (about $SizeMb MB)..."
+      Write-Host "Downloading the DataHub App installer $Version (about $SizeMb MB)..."
       if ($FullLanguage) {
         # Windows PowerShell 5.1 may not offer TLS 1.2 by default, and doesn't sign in to the system proxy.
         try {
@@ -319,7 +319,7 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
     $actual = $actual.ToLowerInvariant()
     if ($actual -ne $Sha256) {
       if ($downloaded) { Remove-Item -LiteralPath $zip -Force -ErrorAction SilentlyContinue }
-      throw "$zip isn't the Analytics Hub dashboard installer $Version (its SHA-256 is $actual, not $Sha256). Download $ZipName from release installer-v$Version again."
+      throw "$zip isn't the DataHub App installer $Version (its SHA-256 is $actual, not $Sha256). Download $ZipName from release installer-v$Version again."
     }
 
     Write-Host 'Unpacking it. This takes a minute the first time...'
@@ -415,11 +415,11 @@ by installer/packaging/build-exe.js from installer/packaging/launcher/install.ps
   $AgainCmd = $Again -replace '\|', '^|'
   Set-Content -LiteralPath $Shim -Encoding Ascii -Value @(
     '@echo off'
-    'rem Runs the Analytics Hub dashboard installer that install.ps1 unpacked. install.ps1 writes this file.'
+    'rem Runs the DataHub App installer that install.ps1 unpacked. install.ps1 writes this file.'
     'setlocal'
     "set `"AH_ROOT=%~dp0$Id`""
     'if not exist "%AH_ROOT%\.unpacked" ('
-    "  echo This copy of the Analytics Hub dashboard installer has been removed or replaced. In PowerShell, run: $AgainCmd"
+    "  echo This copy of the DataHub App installer has been removed or replaced. In PowerShell, run: $AgainCmd"
     '  exit /b 1'
     ')'
     $shimNode

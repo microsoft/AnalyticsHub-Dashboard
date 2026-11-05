@@ -57,7 +57,7 @@ All other model tables (Calendar, legends, ranking/summary, glossary, value maps
 **calculated/DAX or static** — they have no external source and are version-independent.
 
 > **`Calendar`** runs from the earliest to the latest date across the audit (`InteractionDate`) and
-> product feedback (`FeedbackDate`). On Fabric installs made by the Analytics Hub dashboard installer it also
+> product feedback (`FeedbackDate`). On Fabric installs made by the DataHub App installer it also
 > covers `M365 Activity[ActivityDate]`. With no dates in any of them it holds the last 365 days up
 > to the refresh date, so date slicers still work before the first audit load.
 
@@ -719,7 +719,7 @@ inventory file was read). The dashboard uses it to say why a section is empty.
 
 ### Run status
 
-**`load_log`** → `Load Log` (Analytics Hub dashboard model): `AnalyticsHub_Load_Status` writes one row per
+**`load_log`** → `Load Log` (DataHub App model): `AnalyticsHub_Load_Status` writes one row per
 source per pipeline run. The columns are:
 
 - `run_id`, `activity`, `source` and `activity_type`.

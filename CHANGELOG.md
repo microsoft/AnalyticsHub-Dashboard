@@ -1,6 +1,6 @@
 # Changelog
 
-Notable, reviewed changes to the Analytics Hub dashboard: the installer, the app, the Fabric notebooks and
+Notable, reviewed changes to the DataHub App: the installer, the app, the Fabric notebooks and
 pipeline, and the Azure target.
 
 This project moved here from
@@ -20,8 +20,8 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
-**Analytics Hub dashboard naming.** Current documentation, app branding, installer wording, Teams
-titles and future release titles now use Analytics Hub dashboard. Existing resource names,
+**DataHub App naming.** Current documentation, app branding, installer wording, Teams
+titles and future release titles now use DataHub App. Existing resource names,
 authorization values, download names and links remain compatible; released entries below retain
 the name used at the time. Screenshots and videos still show earlier branding. See
 [Names and compatibility](docs/INSTALL.md#names-and-compatibility).

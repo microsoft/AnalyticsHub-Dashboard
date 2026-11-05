@@ -61,7 +61,7 @@ export const validateNewLakehouseName = (taken) => (/** @type {string} */ v) => 
   const ok = validateLakehouseName(name);
   if (ok !== true) return ok;
   return taken.some((t) => t.toLowerCase() === name.toLowerCase())
-    ? `There's already a Lakehouse called ${name} here. Analytics Hub dashboard only writes to a Lakehouse it creates, so choose another name.`
+    ? `There's already a Lakehouse called ${name} here. DataHub App only writes to a Lakehouse it creates, so choose another name.`
     : true;
 };
 
@@ -219,13 +219,13 @@ export const POWER_BI_SETTINGS = [
   {
     name: 'DatasetExecuteQueries',
     title: 'Semantic Model Execute Queries REST API',
-    effect: 'The Analytics Hub dashboard app queries the model through it.',
+    effect: 'The DataHub App queries the model through it.',
     app: true,
   },
   {
     name: 'AppBackendTenant',
     title: 'Fabric App items',
-    effect: 'The Analytics Hub dashboard app is a Fabric App item.',
+    effect: 'The DataHub App is a Fabric App item.',
     app: true,
   },
   {
@@ -299,7 +299,7 @@ export async function preflight(ctx) {
   }
   if (!subscriptions.length && !ctx.config.keyVault.uri && secretMode(ctx.config) !== 'notebook') {
     if (ctx.config.target === 'azure') {
-      await stop('No Azure subscription you can use.', 'Analytics Hub dashboard on Azure needs an Azure subscription in this tenant. Ask for Contributor on one, then run the installer again.');
+      await stop('No Azure subscription you can use.', 'DataHub App on Azure needs an Azure subscription in this tenant. Ask for Contributor on one, then run the installer again.');
     }
     if (ctx.useKeyVault) {
       await stop('No Azure subscription you can use, so no Key Vault.', '--key-vault needs an Azure subscription in this tenant. Ask for Contributor on one, or leave out --key-vault to keep the client secret in the notebooks.');
@@ -382,9 +382,9 @@ async function planPowerBi(ctx, pre) {
     : await ui.select(
     'Deploy the semantic model?',
     [
-      ...(canApp ? [{ name: 'Semantic model, Power BI reports and the Analytics Hub dashboard app (recommended)', value: 'all', description: 'The ValueLens reports and a web app in the workspace, built on the model.' }] : []),
+      ...(canApp ? [{ name: 'Semantic model, Power BI reports and the DataHub App (recommended)', value: 'all', description: 'The ValueLens reports and a web app in the workspace, built on the model.' }] : []),
       { name: `Semantic model and Power BI reports${canApp ? '' : ' (recommended)'}`, value: 'reports', description: 'The ValueLens reports, published to the workspace and ready to share.' },
-      ...(canApp ? [{ name: 'Semantic model and the Analytics Hub dashboard app', value: 'both', description: 'A web app in the workspace, built on the model, without the reports.' }] : []),
+      ...(canApp ? [{ name: 'Semantic model and the DataHub App', value: 'both', description: 'A web app in the workspace, built on the model, without the reports.' }] : []),
       { name: 'Semantic model only', value: 'model', description: 'Build your own reports on it in Power BI.' },
       { name: 'Neither', value: 'none', description: 'You publish "ValueLens - Fabric.pbit" yourself.' },
     ],
@@ -1163,7 +1163,7 @@ export async function reserveNames(ctx) {
 
   if (renamed.length) {
     ui.note(
-      `The workspace already has ${renamed.map((n) => `"${n}"`).join(', ')}, not from this install. They're left as they are; the Analytics Hub dashboard's own items get the names shown in the plan.`,
+      `The workspace already has ${renamed.map((n) => `"${n}"`).join(', ')}, not from this install. They're left as they are; the DataHub App's own items get the names shown in the plan.`,
     );
   }
 }
@@ -1456,7 +1456,7 @@ export async function confirmPlan(ctx, pre) {
     const consumption = consumptionModelWanted(ctx) ? `, ${cm.name} ${cm.id ? '' : c.dim('(new)')}`.trimEnd() : '';
     const am = config.agentEvaluator.model;
     const evaluator = agentEvaluatorModelWanted(ctx) ? `, ${am.name} ${am.id ? '' : c.dim('(new)')}`.trimEnd() : '';
-    const app = config.fabricApp.enabled ? `, and the Analytics Hub dashboard app ${config.fabricApp.itemId ? '' : c.dim('(new)')}` : '';
+    const app = config.fabricApp.enabled ? `, and the DataHub App ${config.fabricApp.itemId ? '' : c.dim('(new)')}` : '';
     ui.info(`Power BI:    ${config.semanticModel.name} ${config.semanticModel.id ? '' : c.dim('(new)')}`.trimEnd() + consumption + evaluator + app.trimEnd());
     const reports = reportsWanted(ctx).map((w) => `${w.model.report?.name ?? w.name} ${w.model.report?.id ? '' : c.dim('(new)')}`.trimEnd());
     if (reports.length) ui.info(`Reports:     ${reports.join(', ')}`);

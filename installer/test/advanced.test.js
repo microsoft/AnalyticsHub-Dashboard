@@ -18,7 +18,7 @@ const PRE = /** @type {any} */ ({
 /** The questions behind Advanced settings, which a default install doesn't ask. */
 const ADVANCED_QUESTIONS = [
   'Deploy the semantic model?',
-  'Who can view Analytics Hub dashboard?',
+  'Who can view DataHub App?',
   'Who should people ask for access? (email)',
   'How much audit history should the first load pull?',
   'Lakehouse name',
@@ -104,7 +104,7 @@ test('plan: the size question is in the main flow, started from the people count
   }
 });
 
-test('plan: a new install suggests Analytics Hub dashboard names and says what capacity size suits', async () => {
+test('plan: a new install suggests DataHub App names and says what capacity size suits', async () => {
   const t = fakeUi();
   const fabric = fakeFabric().api;
   const { ctx, config } = fakeCtx({ ui: t.ui, fabric: { ...fabric, listWorkspaces: async () => [{ id: 'ws-x', type: 'Workspace', displayName: 'Other' }] } });
@@ -227,7 +227,7 @@ const AZURE_ADVANCED = [
   'Name prefix',
   'Extra tags (key=value, comma-separated)',
   'Networking',
-  'Who can view Analytics Hub dashboard?',
+  'Who can view DataHub App?',
   'How much audit history should the first load pull?',
   'How often should the job run?',
   'Run the first load as soon as setup finishes?',

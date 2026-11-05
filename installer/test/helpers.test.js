@@ -422,7 +422,7 @@ test('messages name the exe when it started the installer', () => {
   assert.equal(installerWindow({}), 'your terminal');
   assert.equal(installerWindow(exe), 'the installer window');
   assert.match(help(), /Usage: (valuelens-install|AnalyticsHubInstaller\.exe) \[command\] \[options\]/);
-  assert.match(help(), /deploy-app\s+Deploy the Analytics Hub dashboard app again/);
+  assert.match(help(), /deploy-app\s+Deploy the DataHub App again/);
 });
 
 test('messages name the PowerShell command when install.ps1 started the installer', () => {

@@ -24,7 +24,7 @@ Every page: [App guide](APP-GUIDE.md).
 
 ## Why don't the numbers match the admin center?
 
-The Analytics Hub dashboard counts the Purview audit log, not the admin center's data. It also drops test and
+The DataHub App counts the Purview audit log, not the admin center's data. It also drops test and
 evaluation runs, and works in UTC. Hours and value are modelled, not measured. See
 [What the data can and can't tell you](METHODOLOGY.md#1-what-the-data-can-and-cant-tell-you) and
 [Known limits](METHODOLOGY.md#9-known-limits).
@@ -39,7 +39,7 @@ evaluation runs, and works in UTC. Hours and value are modelled, not measured. S
 - **Third-party AI** (ChatGPT Enterprise, Gemini, Claude): only with Purview pay-as-you-go, logged
   as `AIAppInteraction`.
 - **Consumer Copilot** (personal Microsoft accounts): not logged; outside the tenant.
-- **What the Analytics Hub dashboard reads:** `CopilotInteraction` records only, so `AIAppInteraction` activity
+- **What the DataHub App reads:** `CopilotInteraction` records only, so `AIAppInteraction` activity
   isn't included.
 
 Source: [Audit logs for Copilot and AI applications](https://learn.microsoft.com/en-us/purview/audit-copilot).
@@ -61,7 +61,7 @@ works for Fabric and Azure, but you update it yourself.
 
 ## What does it cost?
 
-The Analytics Hub dashboard is free. You pay for the Fabric capacity, or about $5–40 a month of Azure for a
+The DataHub App is free. You pay for the Fabric capacity, or about $5–40 a month of Azure for a
 small tenant. Viewers need Power BI Pro below F64. See
 [What it costs](PREREQUISITES.md#what-it-costs) and [Running costs](ARCHITECTURE.md#running-costs).
 
@@ -70,7 +70,7 @@ small tenant. Viewers need Power BI Pro below F64. See
 Into your own Fabric workspace or Azure subscription. Nothing leaves your tenant. Viewers see it
 through the **Analytics Hub Viewers** group, not workspace roles. Once it's copied, your Purview
 and Microsoft 365 retention policies don't apply to it: managing it is up to you. See
-[Viewing the Analytics Hub dashboard](PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
+[Viewing the DataHub App](PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
 
 ## I used ValueLens. What changes?
 

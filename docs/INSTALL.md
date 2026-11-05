@@ -1,6 +1,6 @@
 # Install
 
-The installer sets up the Analytics Hub dashboard on Fabric or Azure. Check the [Prerequisites](PREREQUISITES.md)
+The installer sets up the DataHub App on Fabric or Azure. Check the [Prerequisites](PREREQUISITES.md)
 first. To set it up by hand instead, see [Manual install](MANUAL-INSTALL.md).
 
 ```mermaid
@@ -20,7 +20,7 @@ flowchart LR
    and open it. Blocked? See [Other ways to start it](#other-ways-to-start-it).
 2. **Wait for your browser.** The first time, it takes about a minute to unpack. Keep its window
    open, and keep the PC awake and plugged in, until the installer says setup is finished.
-3. **Choose Set up Analytics Hub dashboard** and sign in.
+3. **Choose Set up DataHub App** and sign in.
 4. **Choose where it runs:** **Microsoft Fabric** or **Your Azure subscription** (`--target azure`).
 5. **Answer the questions** (about 5 minutes):
    - **Data sources.** Each has a card: **Connected (API)**, **Upload CSV** or **Skip**. A CSV card
@@ -83,7 +83,7 @@ flowchart LR
   `AnalyticsHub_Pipeline_2` or `Analytics Hub 2`. The plan shows the names first.
 - **The install record.** Your answers are kept in `Documents\Analytics Hub\valuelens-install.json`.
   Keep that folder. Start the installer again the same way to run the pipeline, check status,
-  update or repair. **Manage Analytics Hub dashboard** shows the record's path. If OneDrive syncs your
+  update or repair. **Manage DataHub App** shows the record's path. If OneDrive syncs your
   Documents folder, the record follows you to your other PCs.
 - **The workspace has gone.** After you sign in, the installer checks the record's workspace still
   exists. If Fabric says it doesn't, or the record is for another tenant, choose **Start fresh**
@@ -97,9 +97,9 @@ flowchart LR
 
 ## Names and compatibility
 
-The product is **Analytics Hub dashboard**. Installed resources and download paths still use some **Analytics Hub**
+The product is **DataHub App**. Installed resources and download paths still use some **Analytics Hub**
 names so existing setup, repair, update and uninstall operations keep working. In the Fabric
-workspace, open the **Analytics Hub** app item; its browser title and navigation show **Analytics Hub dashboard**.
+workspace, open the **Analytics Hub** app item; its browser title and navigation show **DataHub App**.
 Use the actual names shown in your install record if you chose custom names.
 
 These names deliberately stay unchanged:
@@ -113,10 +113,10 @@ These names deliberately stay unchanged:
   `Documents\Analytics Hub`, `%LOCALAPPDATA%\AnalyticsHub`, `valuelens-install.json`,
   `VALUELENS_*` settings, resource tags and container image names.
 - Existing repository, download and wiki URLs, the
-  [Analytics Hub dashboard site](https://microsoft.github.io/Analytics-Hub/) path and old documentation anchors.
+  [DataHub App site](https://microsoft.github.io/Analytics-Hub/) path and old documentation anchors.
 
 Resource-display-name and site-path migrations are separate work; this text change does not
-rename anything in your tenant. New Teams packages use **Analytics Hub dashboard**, but an already
+rename anything in your tenant. New Teams packages use **DataHub App**, but an already
 published package keeps its existing title until an administrator updates it.
 
 Screenshots, `media/AnalyticsHub-Preview.gif`, `media/AnalyticsHub-Demo.mp4` and the hosted demo
@@ -188,7 +188,7 @@ Something failed? Choose **Rerun failed loads** (`rerun-failed`), or see
      [My Groups](https://myaccount.microsoft.com/groups). You can also run `access`
      (**Manage access** in the browser) or use **Share** in the app.
 
-  Keep viewers off workspace roles. See [Viewing the Analytics Hub dashboard](PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
+  Keep viewers off workspace roles. See [Viewing the DataHub App](PERMISSIONS.md#viewing-analytics-hub-paths-1-and-2).
 - **Own reports.** Connect Power BI Desktop to `Analytics Hub Model`, or use **Save a copy** on a
   published report.
 - **Flows and the Cowork Dataflow.** If you chose them, the end of the install lists what to sign

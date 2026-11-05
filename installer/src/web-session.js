@@ -191,7 +191,7 @@ export function createSession(o) {
       const { config, existed } = loadConfig(o.configFile);
       currentConfig = config;
       rec?.setRoute(config.target === 'azure' ? 'azure' : 'fabric');
-      if (!NO_RECORD.includes(command) && !existed) throw new Error(`No install record at ${o.configFile}. Set up Analytics Hub dashboard first.`);
+      if (!NO_RECORD.includes(command) && !existed) throw new Error(`No install record at ${o.configFile}. Set up DataHub App first.`);
       const sources = loadSources(o.sourceDir);
       const tenant = (req.tenant ?? '').trim() || config.tenantId || '';
       const reuse = signedIn && signedIn.method === method && (!tenant || tenant === signedIn.tenant || tenant === signedIn.user.tenantId);

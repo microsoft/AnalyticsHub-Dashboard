@@ -3,7 +3,7 @@
 The screenshots below use earlier branding.
 See [Names and compatibility](INSTALL.md#names-and-compatibility).
 
-What each page of the Analytics Hub dashboard answers, what it reads, and how to read it. Each page is a
+What each page of the DataHub App answers, what it reads, and how to read it. Each page is a
 short run of sections, top to bottom. The sidebar jumps to any of them.
 
 Screenshots use synthetic data. Every name in them is invented.

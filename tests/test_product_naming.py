@@ -12,14 +12,14 @@ def text(path):
 
 def test_readme_branding_and_legacy_destinations():
     readme = text("README.md")
-    assert "# 📊 Analytics Hub dashboard for Microsoft Copilot" in readme
-    assert "[Analytics Hub dashboard site](https://microsoft.github.io/Analytics-Hub/)" in readme
-    assert "[![Analytics Hub dashboard preview](media/AnalyticsHub-Preview.gif)]" in readme
-    assert "**Set up Analytics Hub dashboard**" in readme
+    assert "# 📊 DataHub App for Microsoft Copilot" in readme
+    assert "[DataHub App site](https://microsoft.github.io/Analytics-Hub/)" in readme
+    assert "[![DataHub App preview](media/AnalyticsHub-Preview.gif)]" in readme
+    assert "**Set up DataHub App**" in readme
     assert "AnalyticsHubInstaller.exe" in readme
     assert "releases/latest/download/install.ps1" in readme
     assert "earlier branding" in readme and "Replacement media is pending." in readme
-    assert "DataHub" not in readme
+    assert "Analytics Hub dashboard" not in readme
 
 
 def test_app_source_uses_requested_brand_and_keeps_named_flow():
@@ -27,23 +27,24 @@ def test_app_source_uses_requested_brand_and_keeps_named_flow():
         if path.suffix not in {".ts", ".tsx"} or ".spec." in path.name:
             continue
         source = path.read_text(encoding="utf-8")
-        assert "DataHub" not in source, path.relative_to(ROOT)
+        assert "Analytics Hub dashboard" not in source, path.relative_to(ROOT)
+        assert not re.search(r"\bDataHub\b(?! App)", source), path.relative_to(ROOT)
     assert "Analytics Hub - Agent inventory" in text("app/src/queries/governance/governance-resource-graph.ts")
-    assert "<title>Analytics Hub dashboard</title>" in text("app/index.html")
-    assert 'pptx.author = "Analytics Hub dashboard"' in text("app/src/lib/report-export.ts")
+    assert "<title>DataHub App</title>" in text("app/index.html")
+    assert 'pptx.author = "DataHub App"' in text("app/src/lib/report-export.ts")
 
 
 def test_installer_branding_and_deployment_identity_are_separate():
-    assert "<title>Analytics Hub dashboard installer</title>" in text("installer/src/web/index.html")
+    assert "<title>DataHub App installer</title>" in text("installer/src/web/index.html")
     wizard = text("installer/src/web/app.js")
     for copy in (
-        "Set up Analytics Hub dashboard",
-        "Update Analytics Hub dashboard",
-        "Uninstall Analytics Hub dashboard",
-        "Manage Analytics Hub dashboard",
+        "Set up DataHub App",
+        "Update DataHub App",
+        "Uninstall DataHub App",
+        "Manage DataHub App",
     ):
         assert copy in wizard
-    assert "'Analytics Hub dashboard is set up'" in wizard
+    assert "'DataHub App is set up'" in wizard
     assert "name: Analytics Hub" in text("app/rayfin/rayfin.yml")
     assert "?? 'Analytics Hub'" in text("installer/src/steps/app.js")
     assert "DEFAULT_WORKSPACE_NAME = 'Analytics Hub'" in text("installer/src/steps/plan.js")
@@ -61,33 +62,33 @@ def test_teams_titles_change_but_identity_does_not():
     first = json.loads(text("azure/teams/manifest.template.json"))
     second = json.loads(text("installer/src/azure/teams/manifest.template.json"))
     assert first == second
-    assert first["name"] == {"short": "Analytics Hub dashboard", "full": "Analytics Hub dashboard"}
-    assert all(tab["name"] == "Analytics Hub dashboard" for tab in first["staticTabs"])
+    assert first["name"] == {"short": "DataHub App", "full": "DataHub App"}
+    assert all(tab["name"] == "DataHub App" for tab in first["staticTabs"])
     assert "AnalyticsHub-Dashboard" in first["developer"]["websiteUrl"]
     registration = json.loads(text("azure/infra/web-app-registration.json"))
     assert registration["displayName"] == "Analytics Hub (Azure)"
     assert {role["value"] for role in registration["appRoles"]} == {
         "AnalyticsHub.User", "AnalyticsHub.Admin"
     }
-    assert "Allow users to access Analytics Hub dashboard." in text("azure/infra/web-app-registration.json")
+    assert "Allow users to access DataHub App." in text("azure/infra/web-app-registration.json")
 
 
 def test_launcher_paths_and_future_release_titles():
     launcher = text("installer/packaging/launcher/Launcher.cs")
     assert 'WorkFolder = "Analytics Hub"' in launcher
     assert 'HomeFolder = "AnalyticsHub"' in launcher
-    assert 'Console.Title = "Analytics Hub dashboard installer"' in launcher
+    assert 'Console.Title = "DataHub App installer"' in launcher
     script = text("installer/packaging/launcher/install.ps1")
     assert script.isascii()
     assert "Join-Path $Docs 'Analytics Hub'" in script
     assert "Join-Path $env:LOCALAPPDATA 'AnalyticsHub'" in script
-    assert '--title "Analytics Hub dashboard installer ${TAG#installer-v}"' in text(".github/workflows/installer-exe.yml")
+    assert '--title "DataHub App installer ${TAG#installer-v}"' in text(".github/workflows/installer-exe.yml")
 
 
 def test_release_history_and_compatibility_are_explained():
     changelog = text("CHANGELOG.md")
     unreleased = changelog.split("\n## 2026-", 1)[0]
-    assert "**Analytics Hub dashboard naming.**" in unreleased
+    assert "**DataHub App naming.**" in unreleased
     assert "## Unreleased" in unreleased
     assert "## 2026-10-26 — Analytics Hub installer 0.6.8" in changelog
     guide = text("docs/INSTALL.md")
@@ -115,4 +116,4 @@ def test_changed_notebook_cells_compile_without_running():
                 # Spark's cell magic is not Python; the rest of a Python cell is.
                 if not re.match(r"\s*%%", source):
                     compile(source, f"{name}:cell{index}", "exec")
-    assert "SUPPORT_PRODUCT = 'Analytics Hub dashboard'" in text("fabric/notebooks/AnalyticsHub_Support_File.ipynb")
+    assert "SUPPORT_PRODUCT = 'DataHub App'" in text("fabric/notebooks/AnalyticsHub_Support_File.ipynb")

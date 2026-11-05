@@ -1,6 +1,6 @@
 ---
 name: Bug report
-about: Report a reproducible Analytics Hub dashboard installer, data or app defect
+about: Report a reproducible DataHub App installer, data or app defect
 title: "[Bug]: "
 labels: ""
 assignees: ""

@@ -131,5 +131,5 @@ const sameKey = (a, b) => a.UserPrincipalName === b.UserPrincipalName && a.Scope
 
 function unavailable(error) {
   console.warn(`SQL connection failed: ${error?.message || error}`);
-  return httpError(503, 'DatabaseUnavailable', 'Couldn\'t reach the Analytics Hub dashboard database. Try again in a minute.');
+  return httpError(503, 'DatabaseUnavailable', 'Couldn\'t reach the DataHub App database. Try again in a minute.');
 }
