@@ -8,8 +8,9 @@
 
 <br>
 
-All reports and guides can be found on the [DataHub App site](https://microsoft.github.io/Analytics-Hub/).
-Explore demos and related projects on [DataLab](https://ai-datalab.github.io/).
+Explore [Copilot-DataLab](https://ai-datalab.github.io/) for browser demos,
+setup guides and walkthroughs, data sources, related solutions, and insights
+on Copilot and agent analytics.
 
 **Want a more targeted report?** [ValueLens](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot)
 covers the adoption and value parts of the DataHub App, and
