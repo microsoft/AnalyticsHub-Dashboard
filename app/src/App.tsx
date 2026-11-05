@@ -155,6 +155,9 @@ function RouteSync({ route, settled, takePush, onPop }: RouteSyncProps) {
     useEffect(() => {
         const restore = () => {
             const parsed = parseHash(window.location.hash);
+            if (!parsed.route) {
+                window.history.replaceState(null, "", `${window.location.pathname}${window.location.search}${routeHash(HOME, parsed.filters)}`);
+            }
             onPop(parsed.route ?? HOME);
             setFilters((current) => (routeHash(HOME, current) === routeHash(HOME, parsed.filters) ? current : parsed.filters));
         };

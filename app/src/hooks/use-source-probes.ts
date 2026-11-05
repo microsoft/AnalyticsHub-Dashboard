@@ -72,7 +72,7 @@ export function useSourceProbes(): SourceAvailability {
     const resourceGraph = useProbe("resourceGraph", alone && !leftOff(modules, "resourceGraph"));
     const answer = merged.data;
     return useMemo(() => {
-        if (runtimeConfig().demo) {
+        if (runtimeConfig().demo && runtimeConfig().demoVariant !== "analytics") {
             return {
                 m365Activity: "notConfigured",
                 productFeedback: "present",

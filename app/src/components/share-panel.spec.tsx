@@ -12,7 +12,7 @@ import { SharePanel } from "@/components/share-panel";
 
 const runtime = vi.hoisted(() => ({
     host: "azure" as "fabric" | "azure",
-    access: { groupId: "group-1", groupName: "Analytics Hub Viewers", contact: "admin@example.com" } as
+    access: { groupId: "group-1", groupName: "DataHub App Viewers", contact: "admin@example.com" } as
         { groupId: string; groupName?: string; contact?: string; requestUrl?: string; rlsOrgAttribute?: string; appShared?: boolean } | undefined,
 }));
 
@@ -45,13 +45,13 @@ describe("SharePanel", () => {
     beforeEach(() => {
         vi.clearAllMocks();
         runtime.host = "azure";
-        runtime.access = { groupId: "group-1", groupName: "Analytics Hub Viewers", contact: "admin@example.com" };
+        runtime.access = { groupId: "group-1", groupName: "DataHub App Viewers", contact: "admin@example.com" };
     });
 
     it("on Azure, copies a link to the view on screen", async () => {
         const writeText = vi.fn().mockResolvedValue(undefined);
         Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true });
-        api.loadAccess.mockResolvedValue({ group: { id: "group-1", name: "Analytics Hub Viewers" }, canManage: false });
+        api.loadAccess.mockResolvedValue({ group: { id: "group-1", name: "DataHub App Viewers" }, canManage: false });
         window.history.replaceState(null, "", "/?host=teams#/value/estimated-value?licence=licensed");
         openPanel();
 
@@ -66,7 +66,7 @@ describe("SharePanel", () => {
         runtime.host = "fabric";
         openPanel();
 
-        expect(screen.getByText(/To give someone access, add them to/)).toHaveTextContent("To give someone access, add them to Analytics Hub Viewers.");
+        expect(screen.getByText(/To give someone access, add them to/)).toHaveTextContent("To give someone access, add them to DataHub App Viewers.");
         expect(screen.getByRole("link", { name: "Add members in My Groups" }))
             .toHaveAttribute("href", "https://myaccount.microsoft.com/groups/group-1");
         expect(screen.getByText("Access requests go to admin@example.com.")).toBeInTheDocument();
@@ -79,17 +79,17 @@ describe("SharePanel", () => {
         openPanel();
 
         expect(screen.queryByText(/can open it/)).not.toBeInTheDocument();
-        expect(screen.getByText(/has to be shared with Analytics Hub Viewers once/)).toBeInTheDocument();
+        expect(screen.getByText(/has to be shared with DataHub App Viewers once/)).toBeInTheDocument();
         expect(screen.getByRole("link", { name: "Open the app item in Fabric" }))
             .toHaveAttribute("href", "https://app.fabric.microsoft.com/groups/ws-1/appbackends/item-1");
     });
 
     it("on Fabric, says anyone in the group can open it once it's shared", () => {
         runtime.host = "fabric";
-        runtime.access = { groupId: "group-1", groupName: "Analytics Hub Viewers", requestUrl: "https://example.com/ask", appShared: true };
+        runtime.access = { groupId: "group-1", groupName: "DataHub App Viewers", requestUrl: "https://example.com/ask", appShared: true };
         openPanel();
 
-        expect(screen.getByText(/can open it/)).toHaveTextContent("Anyone in Analytics Hub Viewers can open it.");
+        expect(screen.getByText(/can open it/)).toHaveTextContent("Anyone in DataHub App Viewers can open it.");
         expect(screen.queryByText(/has to be shared/)).not.toBeInTheDocument();
         expect(screen.queryByRole("link", { name: "Open the app item in Fabric" })).not.toBeInTheDocument();
         expect(screen.getByRole("link", { name: "Where people ask for access" })).toHaveAttribute("href", "https://example.com/ask");
@@ -105,7 +105,7 @@ describe("SharePanel", () => {
     });
 
     it("tells viewers who can add people", async () => {
-        api.loadAccess.mockResolvedValue({ group: { id: "group-1", name: "Analytics Hub Viewers" }, canManage: false });
+        api.loadAccess.mockResolvedValue({ group: { id: "group-1", name: "DataHub App Viewers" }, canManage: false });
         openPanel();
 
         expect(await screen.findByText(/Ask admin@example.com to add people/)).toBeInTheDocument();
@@ -115,7 +115,7 @@ describe("SharePanel", () => {
 
     it("lets managers add and remove viewers", async () => {
         api.loadAccess.mockResolvedValue({
-            group: { id: "group-1", name: "Analytics Hub Viewers" },
+            group: { id: "group-1", name: "DataHub App Viewers" },
             canManage: true,
             members: [{ id: "u-1", name: "Avery", email: "avery@example.com", kind: "user" }],
         });
@@ -136,7 +136,7 @@ describe("SharePanel", () => {
     });
 
     it("shows why an add failed", async () => {
-        api.loadAccess.mockResolvedValue({ group: { id: "group-1", name: "Analytics Hub Viewers" }, canManage: true, members: [] });
+        api.loadAccess.mockResolvedValue({ group: { id: "group-1", name: "DataHub App Viewers" }, canManage: true, members: [] });
         api.addViewer.mockRejectedValue(new Error("No user or group named nobody@example.com was found."));
         openPanel();
 
@@ -147,7 +147,7 @@ describe("SharePanel", () => {
     });
 
     describe("with org-scoped access", () => {
-        const viewers = { group: { id: "group-1", name: "Analytics Hub Viewers" }, canManage: false };
+        const viewers = { group: { id: "group-1", name: "DataHub App Viewers" }, canManage: false };
         const pending = {
             id: "p-1", upn: "report@example.com", scope: { type: "hierarchy", value: "leader@example.com" }, canDelegate: false,
             grantedBy: "leader@example.com", status: "pending_group", note: "", createdAt: "2025-01-01T00:00:00",
@@ -159,7 +159,7 @@ describe("SharePanel", () => {
         });
 
         beforeEach(() => {
-            runtime.access = { groupId: "group-1", groupName: "Analytics Hub Viewers", contact: "admin@example.com", rlsOrgAttribute: "department" };
+            runtime.access = { groupId: "group-1", groupName: "DataHub App Viewers", contact: "admin@example.com", rlsOrgAttribute: "department" };
             api.loadAccess.mockResolvedValue(viewers);
         });
 
@@ -167,7 +167,7 @@ describe("SharePanel", () => {
             runtime.host = "fabric";
             openPanel();
 
-            expect(screen.getByText("Only an Analytics Hub admin can choose what people see. Ask admin@example.com.")).toBeInTheDocument();
+            expect(screen.getByText("Only a DataHub App admin can choose what people see. Ask admin@example.com.")).toBeInTheDocument();
             expect(api.loadDelegations).not.toHaveBeenCalled();
         });
 
@@ -175,7 +175,7 @@ describe("SharePanel", () => {
             api.loadDelegations.mockResolvedValue(state({ isAdmin: false, canDelegate: false }));
             openPanel();
 
-            expect(await screen.findByText("Only an Analytics Hub admin can choose what people see. Ask admin@example.com.")).toBeInTheDocument();
+            expect(await screen.findByText("Only a DataHub App admin can choose what people see. Ask admin@example.com.")).toBeInTheDocument();
             expect(screen.queryByRole("button", { name: "Give access" })).not.toBeInTheDocument();
         });
 

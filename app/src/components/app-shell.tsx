@@ -454,10 +454,16 @@ export function AppShell({ view, onNavigate, onOpenPack, children }: AppShellPro
                             className="rounded-md border border-primary/30 bg-primary/5 px-300 py-200 text-[length:var(--text-200)] leading-200 text-muted-foreground"
                         >
                             Interactive demo · Synthetic sample data · Changes stay in this browser session
-                            {active === "work-patterns" && <p className="mt-100">The published sample pack has no Microsoft 365 telemetry. The empty state below is intentional; this demo cannot collect live data.</p>}
-                            {active === "agent-evaluation" && <p className="mt-100">Evaluation conversations are not included in the published sample pack. No live agent or environment is connected.</p>}
-                            {active === "governance" && <p className="mt-100">Agent 365 registry data is included. Defender and Resource Graph exports are not included; their configuration checks are unavailable, not verified clear.</p>}
-                            {active === "cross-vendor" && <p className="mt-100">Separate seeded comparison scenario; not the published CSV cohort on the other pages.</p>}
+                            {runtimeConfig().demoVariant === "analytics" ? (
+                                <p className="mt-100">Microsoft 365 activity, agent evaluations, Defender findings and Resource Graph configuration are deterministic generated synthetic scenarios, not tenant observations. They use the published 170-person inventory and June-August 2026 dates. Azure-billed Copilot is a separate generated scenario, not a reconciliation to the published exports. Budget runway starts with editable demo-only budget assumptions.</p>
+                            ) : (
+                                <>
+                                    {active === "work-patterns" && <p className="mt-100">The published sample pack has no Microsoft 365 telemetry. The empty state below is intentional; this demo cannot collect live data.</p>}
+                                    {active === "agent-evaluation" && <p className="mt-100">Evaluation conversations are not included in the published sample pack. No live agent or environment is connected.</p>}
+                                    {active === "governance" && <p className="mt-100">Agent 365 registry data is included. Defender and Resource Graph exports are not included; their configuration checks are unavailable, not verified clear.</p>}
+                                    {import.meta.env.VITE_CROSS_VENDOR_DEMO === "true" && active === "cross-vendor" && <p className="mt-100">Separate seeded comparison scenario; not the published CSV cohort on the other pages.</p>}
+                                </>
+                            )}
                         </div>
                     )}
                     {view.kind === "pack" ? (

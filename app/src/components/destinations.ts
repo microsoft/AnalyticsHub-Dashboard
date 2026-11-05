@@ -75,7 +75,7 @@ export const destinations = [
             { id: "what-needs-attention", label: "What needs attention", ready: true },
         ],
     },
-    {
+    ...(import.meta.env.MODE === "demo-analytics" ? [] : [{
         id: "cross-vendor",
         label: "Cross-vendor view",
         blurb: "Native usage across Copilot, Claude, ChatGPT / Codex and Cursor",
@@ -93,7 +93,7 @@ export const destinations = [
             { id: "vendor-coverage", label: "Source coverage", ready: true },
             { id: "vendor-methodology", label: "Methodology", ready: true },
         ],
-    },
+    }] as const),
     {
         id: "adoption",
         label: "Adoption",

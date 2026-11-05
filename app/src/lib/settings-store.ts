@@ -18,7 +18,7 @@ import type { ValueLensSchema } from "../../rayfin/data/schema";
 export const COMMERCIAL_TERMS_ID = "00000000-0000-0000-0000-000000000001";
 const LOAD_TIMEOUT_MS = 8000;
 const MAX_ROWS = 1000;
-const ADMIN_WRITE_MESSAGE = "Only Analytics Hub admins can change this";
+const ADMIN_WRITE_MESSAGE = "Only DataHub App admins can change this";
 
 /**
  * Every column of an entity, for a Rayfin read to ask for: without a list, a
@@ -100,7 +100,9 @@ export function getSettingsStore(): SettingsStore {
 
 /** Settings in the browser demo exist only in memory and never reach a backend. */
 class DemoSettingsStore implements SettingsStore {
-    private terms: SavedCommercialTerms | null = null;
+    private terms: SavedCommercialTerms | null = runtimeConfig().demoVariant === "analytics"
+        ? { budgetCowork: 1000, budgetStudio: 2000, budgetAzure: 15000 }
+        : null;
     private taskTimes: SavedTaskTime[] = [];
     private reportPacks: ReportPack[] = [];
 
@@ -329,7 +331,7 @@ class HttpSettingsStore implements SettingsStore {
             const code = errorCode(await response.text());
             if (code === "NotAViewer") {
                 reportAccessDenied(code);
-                throw new Error("You don't have access to Analytics Hub.");
+                throw new Error("You don't have access to DataHub App.");
             }
             throw new Error(ADMIN_WRITE_MESSAGE);
         }

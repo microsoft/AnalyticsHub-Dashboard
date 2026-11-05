@@ -63,8 +63,8 @@ afterEach(() => {
 
 describe("report branding", () => {
     it.each([
-        ["", "Analytics Hub"],
-        ["true", "Analytics Hub dashboard"],
+        ["", "DataHub App"],
+        ["true", "DataHub App"],
     ])("uses the selected brand in pack exports with preview flag %s", (flag, brand) => {
         vi.stubEnv("VITE_DATAHUB_PREVIEW", flag);
         const doc = document_();
@@ -224,7 +224,7 @@ describe("print", () => {
     });
 
     it("prints the report in place of the app, then tidies up", async () => {
-        document.title = "Analytics Hub";
+        document.title = "DataHub App";
         let during: { shown: boolean; printing: boolean; title: string } | undefined;
         vi.spyOn(window, "print").mockImplementation(() => {
             window.dispatchEvent(new Event("beforeprint"));
@@ -240,7 +240,7 @@ describe("print", () => {
         expect(downloadBlob).not.toHaveBeenCalled();
         expect(document.getElementById(PRINT_ROOT_ID)).toBeNull();
         expect(document.documentElement.classList.contains("vl-printing")).toBe(false);
-        expect(document.title).toBe("Analytics Hub");
+        expect(document.title).toBe("DataHub App");
     });
 
     it("downloads the report as a page to print when the host blocks the print dialog", async () => {

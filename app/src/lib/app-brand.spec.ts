@@ -11,15 +11,15 @@ import { appDisplayName, appDisplayNameWithArticle } from "./app-brand";
 afterEach(() => vi.unstubAllEnvs());
 
 describe("app branding", () => {
-    it("keeps the existing name without the preview flag", () => {
+    it("uses DataHub App without the compatibility preview flag", () => {
         vi.stubEnv("VITE_DATAHUB_PREVIEW", "");
-        expect(appDisplayName()).toBe("Analytics Hub");
-        expect(appDisplayNameWithArticle()).toBe("an Analytics Hub");
+        expect(appDisplayName()).toBe("DataHub App");
+        expect(appDisplayNameWithArticle()).toBe("a DataHub App");
     });
 
-    it("uses Analytics Hub dashboard for an explicitly enabled preview", () => {
+    it("uses DataHub App with the compatibility preview flag", () => {
         vi.stubEnv("VITE_DATAHUB_PREVIEW", "true");
-        expect(appDisplayName()).toBe("Analytics Hub dashboard");
-        expect(appDisplayNameWithArticle()).toBe("an Analytics Hub dashboard");
+        expect(appDisplayName()).toBe("DataHub App");
+        expect(appDisplayNameWithArticle()).toBe("a DataHub App");
     });
 });

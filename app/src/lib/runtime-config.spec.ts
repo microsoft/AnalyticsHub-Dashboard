@@ -372,8 +372,8 @@ describe("loadSemanticModels", () => {
 describe("parseAccess", () => {
     it("keeps the viewer group, contact and an https request link", () => {
         expect(parseAccess({
-            access: { groupId: "g-1", groupName: "Analytics Hub Viewers", contact: "admin@example.com", requestUrl: "https://example.com/r" },
-        })).toEqual({ groupId: "g-1", groupName: "Analytics Hub Viewers", contact: "admin@example.com", requestUrl: "https://example.com/r" });
+            access: { groupId: "g-1", groupName: "DataHub App Viewers", contact: "admin@example.com", requestUrl: "https://example.com/r" },
+        })).toEqual({ groupId: "g-1", groupName: "DataHub App Viewers", contact: "admin@example.com", requestUrl: "https://example.com/r" });
     });
 
     it("keeps the org attribute when org-scoped access is on", () => {

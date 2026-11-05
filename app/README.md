@@ -1,4 +1,4 @@
-# Analytics Hub dashboard
+# DataHub App
 
 The ValueLens dashboard as a web app in your Fabric workspace. The [installer](../installer/README.md)
 deploys it for you. Use this folder only to deploy it by hand or to change it.
@@ -9,7 +9,7 @@ viewing it, so row-level security applies. How each figure is worked out is in t
 
 ## Static browser demo
 
-The standalone Analytics Hub dashboard browser demo at `demo.html` uses the real app screens with the published
+The standalone DataHub App browser demo at `demo.html` uses the real app screens with the published
 [synthetic sample CSVs](../samples/README.md). It does not read host configuration, ask you to sign in, or contact a model or app
 backend. Ask returns a local example answer; settings changes stay in memory for the current page
 session, and admin-only actions are disabled.
@@ -73,10 +73,52 @@ The view's own vendor/product filters work locally; app-wide filters do
 not apply. `.env.demo` enables this view only for the static demo build; ordinary builds keep
 it disabled unless `VITE_CROSS_VENDOR_DEMO=true` is explicitly set.
 
-The demo build retains the compatibility flag `VITE_DATAHUB_PREVIEW=true` to use Analytics Hub dashboard in desktop and mobile
-navigation, cross-vendor copy and report exports. Its HTML title, description and bundled
-README use Analytics Hub dashboard too. Existing demo links remain unchanged. Ordinary builds retain their existing branding unless explicitly
-opted in; deployment identifiers and access-group names are unchanged.
+All app builds use the product title **DataHub App**, including desktop and mobile navigation
+and report exports. The `VITE_DATAHUB_PREVIEW` flag remains accepted for compatibility; it does
+not select a different product title. Existing demo links and deployment identifiers are unchanged.
+Existing `Analytics Hub Viewers` groups and the `Analytics Hub - Agent inventory` fallback flow
+keep their operational names; the product title change does not rename deployed resources.
+
+### Separate DataHub App-only synthetic demo
+
+The additional `demo-analytics.html` target excludes the comparison destination, its eight stages,
+embedded comparison panels and scenario assets. It does not replace `demo.html`, `build:demo`,
+`dist-demo`, or an already-published site.
+
+```powershell
+npm run build:demo:analytics
+npm run preview:demo:analytics
+```
+
+Open the localhost URL printed by the preview command. This is a standalone offline demo, not
+the Fabric portal development flow. No installer, pipeline, tenant access, refresh or deployment
+is involved. Building does not publish anything.
+
+In addition to the unchanged published sample pack, this target generates deterministic synthetic
+Microsoft 365 activity, Agent Evaluator sessions/turns/topics/citations/feedback, Defender findings
+and Resource Graph configuration. The generators under `scripts/demo_sources` use the existing
+170-person synthetic inventory and original **1 June–31 August 2026** window. They do not read
+tenant data, private configuration, Confidential sources or chart-test snapshots. Related metrics,
+selectors, narratives, charts and grids are reduced from these generated records rather than
+independently seeded visual values. Generated configuration uses the published agent registry.
+Foundry inventory links to resource IDs in the published synthetic consumption sample.
+
+The Azure-billed Copilot panel uses a **separate generated synthetic billing scenario**, not an
+invoice or a reconciliation to the existing consumption exports. The existing consumption
+snapshots retain their native cohorts, dates and totals. Budget runway starts with explicitly
+labeled demo-only monthly assumptions of $1,000 for Cowork, $2,000 for Studio and $15,000 for Azure;
+these can be edited in memory. The original demo still starts without monthly budgets. Ask remains
+a clearly labeled local example, not a connected analytical service.
+Existing small-cohort privacy suppression and "too early" projection guards remain in place;
+populating the source records does not bypass those safeguards or invent a projection.
+
+`npm run demo:data:analytics` regenerates the core sample payload plus the ignored generated
+source payloads. `npm test` generates both packs before testing. The new bundle is isolated in
+`dist-demo-analytics`, with a `COVERAGE.json` map of every retained stage and query source.
+`SOURCE_PROVENANCE.json` records generator hashes, seeds, record counts and payload hashes separately
+from published sample provenance. All records and findings are synthetic, not observations about
+any real organization. Keep provenance, coverage, license notices and checksums with the bundle.
+Public-site publication requires separate approval.
 
 ## Deploy it by hand
 
@@ -99,13 +141,13 @@ From this folder (`app`):
    npx rayfin up --workspace-uri "https://app.fabric.microsoft.com/groups/<workspace-id>"
    ```
    Add `--tenant <tenant-id>` if your account spans tenants.
-4. Open the **Fabric portal** link it prints. To call the item **Analytics Hub**, rename it in its
+4. Open the **Fabric portal** link it prints. To call the item **DataHub App**, rename it in its
    settings.
 5. Share it. Each person needs:
    - the app: *Run and interact* on the item (share it with a group once), not a workspace role
    - the data: **Build** on each model the app reads
 
-   The installer does this with one group, **Analytics Hub Viewers**. By hand, add an `access`
+   The installer does this with one group, **Analytics Hub Viewers** (its existing operational name). By hand, add an `access`
    object to `fabric.config.json` so the app shows who to ask and links to the group:
    `{ "groupId": "<object id>", "groupName": "...", "contact": "you@example.com", "requestUrl": "https://..." }`
    (`requestUrl` is optional and must be https).
@@ -265,7 +307,7 @@ The app is built to stay quick for a large tenant (about 20,000 people):
   it on screen succeeds. Other query errors aren't retried or shown as busy, even one about a
   table called `Rate Limit` or `Power BI is busy`. A card you leave stops waiting; a query already
   sent still finishes. A card that switches query or model shows only its current query's result
-  and busy state, never its old one's. The browser console logs each step (`Analytics Hub: …`).
+  and busy state, never its old one's. The browser console logs each step (`DataHub App: …`).
 - **Results last for the visit.** The app holds up to 1,000 results in memory, each for up to an
   hour, so a page you've seen opens again without asking the model. Nothing is kept between opens.
   A preview build stored results in IndexedDB (`analytics-hub-results`); the app deletes that

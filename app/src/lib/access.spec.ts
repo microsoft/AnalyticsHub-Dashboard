@@ -12,7 +12,7 @@ vi.mock("@/lib/fabric-item-url", () => ({ fabricItemUrl: () => "https://app.fabr
 
 import { accessRequestMailto, scopeRequestMailto } from "@/lib/access";
 
-const access = { groupId: "group-1", groupName: "Analytics Hub viewers", contact: "admin@example.com" };
+const access = { groupId: "group-1", groupName: "DataHub App viewers", contact: "admin@example.com" };
 
 function body(mailto: string | null): string {
     return new URL(mailto ?? "").searchParams.get("body") ?? "";

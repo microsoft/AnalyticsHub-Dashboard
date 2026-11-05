@@ -111,6 +111,31 @@ def build():
     out = ROOT / "app" / "src" / "demo" / "sample-data.generated.json"
     out.write_text(json.dumps(payload, ensure_ascii=True, separators=(",", ":"), default=str) + "\n", encoding="utf-8")
     print(f"Built synthetic demo: {len(activity):,} activity rows, {len(people)} people; {out.stat().st_size:,} bytes")
+    if "--analytics" in sys.argv:
+        from demo_sources import evaluator, governance, m365
+        generated = {}
+        for name, generator in (("m365", m365), ("evaluator", evaluator), ("governance", governance)):
+            result = generator.build(people, payload["agents"], activity)
+            path = out.with_name(f"{name}-data.generated.json")
+            path.write_text(json.dumps(result, ensure_ascii=True, separators=(",", ":"), default=str) + "\n", encoding="utf-8")
+            source = Path(generator.__file__)
+            generated[name] = {
+                "source": str(source.relative_to(ROOT)).replace("\\", "/"),
+                "sourceSha256": hashlib.sha256(source.read_bytes()).hexdigest(),
+                "payloadSha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                "seed": result["seed"] if "seed" in result else result["provenance"]["seed"],
+                "generationRules": result.get("provenance", {}),
+                "records": {key: len(value) for key, value in result.items() if isinstance(value, list)},
+            }
+        metadata = {
+            "description": "Deterministic generated synthetic scenarios; no tenant data, private configuration or network reads.",
+            "people": len(people), "firstDate": "2026-06-01", "lastDate": "2026-08-31",
+            "sources": generated,
+            "demoBudgetAssumptions": {"budgetCowork": 1000, "budgetStudio": 2000, "budgetAzure": 15000},
+        }
+        out.with_name("analytics-meta-data.generated.json").write_text(
+            json.dumps(metadata, ensure_ascii=True, indent=2) + "\n", encoding="utf-8")
+        print("Built isolated DataHub App generated sources: " + ", ".join(generated))
     con.close()
 
 

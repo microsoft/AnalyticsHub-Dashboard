@@ -87,4 +87,14 @@ describe("App", () => {
         await waitFor(() => expect(within(sidebar).getByRole("link", { name: "Adoption" })).toHaveAttribute("aria-current", "page"));
         expect(window.location.hash).toMatch(/^#\/adoption/);
     });
+
+    it("replaces unknown routes even when the home view is already open", async () => {
+        window.history.replaceState(null, "", "/#/executive");
+        render(<Harness><App /></Harness>);
+        for (const stage of ["removed-one", "removed-two"]) {
+            window.history.replaceState(null, "", `/#/removed-destination/${stage}`);
+            fireEvent(window, new PopStateEvent("popstate"));
+            await waitFor(() => expect(window.location.hash).toMatch(/^#\/executive/));
+        }
+    });
 });

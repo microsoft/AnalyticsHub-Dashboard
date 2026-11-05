@@ -38,8 +38,12 @@ const localNetworkAccessPlugin: PluginOption = {
 
 // https://vite.dev/config/
 export default defineConfig(({ mode }) => {
-    const demoBuild = mode === "demo";
+    const analyticsDemo = mode === "demo-analytics";
+    const demoBuild = mode === "demo" || analyticsDemo;
+    const demoEntry = analyticsDemo ? "demo-analytics.html" : "demo.html";
+    const output = analyticsDemo ? "dist-demo-analytics" : demoBuild ? "dist-demo" : "dist";
     return {
+    ...(analyticsDemo ? { define: { "import.meta.env.VITE_CROSS_VENDOR_DEMO": JSON.stringify("false") } } : {}),
     plugins: [
         react(),
         tailwindcss(),
@@ -53,6 +57,7 @@ export default defineConfig(({ mode }) => {
     ],
     resolve: {
         alias: {
+            ...(analyticsDemo ? { "@/demo/synthetic-model": resolve(projectRoot, "src/demo/synthetic-model-analytics.ts") } : {}),
             '@': resolve(projectRoot, 'src'),
         }
     },
@@ -64,13 +69,13 @@ export default defineConfig(({ mode }) => {
             include: [/node_modules/],
         },
         rollupOptions: {
-            ...(demoBuild ? { input: resolve(projectRoot, "demo.html") } : {}),
+            ...(demoBuild ? { input: resolve(projectRoot, demoEntry) } : {}),
             plugins: [
                 license({
                     thirdParty: {
                         multipleVersions: true,
                         output: {
-                            file: resolve(projectRoot, demoBuild ? "dist-demo" : "dist", "THIRD_PARTY_NOTICES.txt"),
+                            file: resolve(projectRoot, output, "THIRD_PARTY_NOTICES.txt"),
                             template(dependencies) {
                                 if (dependencies.length === 0) {
                                     return 'No third-party dependencies.';

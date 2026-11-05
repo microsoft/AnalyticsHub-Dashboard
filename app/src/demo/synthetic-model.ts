@@ -6,10 +6,13 @@ import { sampleQueryRows } from "./sample-model";
 type DemoQueryTable = Extract<CachedQueryResult, { status: "success" }>["table"];
 
 /** Source-backed offline query adapter. Unknown queries fail visibly instead of inventing data. */
-export function syntheticQueryResult(query: string, metadata?: ColumnMetadataMap): CachedQueryResult {
+export function syntheticQueryResult(
+    query: string, metadata?: ColumnMetadataMap,
+    adapter?: (query: string, columns: readonly string[]) => unknown[][] | undefined,
+): CachedQueryResult {
     const columns = queryColumns(query, metadata);
     if (/"Part"\s*,\s*"[^"]+"/.test(query) && !columns.includes("[Part]")) columns.push("[Part]");
-    const rows = sampleConsumptionRows(query, columns) ?? sampleQueryRows(query, columns);
+    const rows = adapter?.(query, columns) ?? sampleConsumptionRows(query, columns) ?? sampleQueryRows(query, columns);
     if (rows === undefined) return {
         status: "error", error: { category: "query", message: `This view is not available in the published synthetic sample pack (${columns.join(", ")}).` },
         requestId: "offline-samples", fromCache: false,

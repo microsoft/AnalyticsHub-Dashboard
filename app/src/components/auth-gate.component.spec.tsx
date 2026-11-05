@@ -70,7 +70,7 @@ describe("AuthGate", () => {
         });
         renderAuthGate(authService, { embedded: false, fabricLink });
 
-        expect(screen.getByRole("heading", { name: "Open Analytics Hub in Fabric" })).toBeInTheDocument();
+        expect(screen.getByRole("heading", { name: "Open DataHub App in Fabric" })).toBeInTheDocument();
         expect(screen.getByRole("link", { name: "Open in Fabric" })).toHaveAttribute("href", fabricLink);
         await waitFor(() => expect(authService.initEmbeddedAuth).toHaveBeenCalledOnce());
         expect(screen.queryByText("Authenticated app")).not.toBeInTheDocument();
@@ -174,14 +174,14 @@ describe("AuthGate", () => {
         });
         renderAuthGate(authService);
 
-        expect(await screen.findByRole("alert")).toHaveTextContent("Ask your admin to add you to Analytics Hub users");
+        expect(await screen.findByRole("alert")).toHaveTextContent("Ask your admin to add you to Analytics Hub Viewers");
     });
 
     it("offers request access and an email to the install's contact", async () => {
         runtime.host = "azure";
         runtime.access = {
             groupId: "group-1",
-            groupName: "Analytics Hub Viewers",
+            groupName: "DataHub App Viewers",
             contact: "admin@example.com",
             requestUrl: "https://example.com/request",
         };
@@ -190,10 +190,10 @@ describe("AuthGate", () => {
         });
         renderAuthGate(authService);
 
-        expect(await screen.findByRole("alert")).toHaveTextContent("Ask to join Analytics Hub Viewers");
+        expect(await screen.findByRole("alert")).toHaveTextContent("Ask to join DataHub App Viewers");
         expect(screen.getByRole("link", { name: "Request access" })).toHaveAttribute("href", "https://example.com/request");
         const email = screen.getByRole("link", { name: "Email admin@example.com" });
-        expect(email.getAttribute("href")).toMatch(/^mailto:admin%40example\.com\?subject=Access%20to%20Analytics%20Hub/);
+        expect(email.getAttribute("href")).toMatch(/^mailto:admin%40example\.com\?subject=Access%20to%20DataHub%20App/);
     });
 
 });

@@ -46,6 +46,8 @@ export interface RuntimeConfig {
     ask?: AskConfig;
     /** The app is running as a static, synthetic-data-only browser demo. */
     demo?: boolean;
+    /** The isolated DataHub App-only demo with generated synthetic optional sources. */
+    demoVariant?: "analytics";
 }
 
 /** A Fabric data agent the viewer opens in Fabric, or the Azure host's own `/api/ask` chat. */
@@ -87,12 +89,13 @@ let loaded: RuntimeConfig | undefined;
 
 /** The values baked in at build time. */
 export function buildTimeConfig(): RuntimeConfig {
-    if (import.meta.env.MODE === "demo") {
+    if (import.meta.env.MODE === "demo" || import.meta.env.MODE === "demo-analytics") {
         return {
             host: "fabric",
             rayfin: {},
             semanticModels: {},
             demo: true,
+            ...(import.meta.env.MODE === "demo-analytics" ? { demoVariant: "analytics" as const } : {}),
         };
     }
     return {
@@ -134,6 +137,7 @@ export function setDemoRuntimeConfig(): void {
         },
         ask: { mode: "chat" },
         demo: true,
+        ...(import.meta.env.MODE === "demo-analytics" ? { demoVariant: "analytics" as const } : {}),
     };
 }
 
