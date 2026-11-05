@@ -5,6 +5,7 @@ first. To set it up by hand instead, see [Manual install](MANUAL-INSTALL.md).
 
 [Watch the DataHub App installer walkthrough](../media/datahub-app-installer-walkthrough-v3.mp4).
 The narration is AI-generated, and the walkthrough uses simulated services.
+For a quick introduction to the app, watch the [45-second overview](../media/datahub-app-overview-v2.mp4).
 
 ```mermaid
 flowchart LR
