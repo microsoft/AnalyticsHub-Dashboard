@@ -31,7 +31,6 @@ credit consumption and cost.
 
 | Video | What it covers |
 |---|---|
-| [DataHub App overview](media/datahub-app-overview-v2.mp4) | A 45-second introduction to the app |
 | [Installer walkthrough](media/datahub-app-installer-walkthrough-v3.mp4) | Narrated setup walkthrough; see [Install](docs/INSTALL.md) for Fabric and Azure instructions |
 
 The installer walkthrough has AI-generated narration and uses simulated services.

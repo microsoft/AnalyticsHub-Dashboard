@@ -12,8 +12,6 @@ History, your organisation, agents, value and cost, on top of the official Copil
 patterns · Readiness · Agent Evaluation · Governance · Feedback · Ask · Assumptions · Appendix.
 Screenshots and every section: **[App guide](APP-GUIDE.md)**.
 
-**[DataHub App overview](../media/datahub-app-overview-v2.mp4):** a 45-second introduction.
-
 **[Installer walkthrough](../media/datahub-app-installer-walkthrough-v3.mp4):** AI-generated
 narration and simulated services. For Fabric and Azure setup instructions, see [Install](INSTALL.md).
 
