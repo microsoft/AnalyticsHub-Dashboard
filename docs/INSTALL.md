@@ -3,7 +3,10 @@
 The installer sets up the DataHub App on Fabric or Azure. Check the [Prerequisites](PREREQUISITES.md)
 first. To set it up by hand instead, see [Manual install](MANUAL-INSTALL.md).
 
-[Watch the DataHub App installer walkthrough](../media/datahub-app-installer-walkthrough-v3.mp4).
+## Installer walkthrough
+
+https://github.com/user-attachments/assets/d00b4e05-bc97-4aee-9df3-7be16f9a309f
+
 The narration is AI-generated, and the walkthrough uses simulated services.
 
 ```mermaid
