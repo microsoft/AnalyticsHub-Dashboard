@@ -437,16 +437,21 @@ class AuditReliabilityTests(unittest.TestCase):
         # A window this run wrote keeps this run's entry.
         self.assertEqual(persisted["mine"]["status"], "succeeded")
 
-    def test_manifest_merge_ignores_an_unreadable_saved_manifest(self):
+    def test_manifest_merge_does_not_overwrite_an_unreadable_saved_manifest(self):
         ns = self.checkpoint_helpers()
+        saved = {"other-run": {"status": "succeeded", "source": "feed"}}
+        ns["_save_manifest"](saved)
         ns["manifest"]["kept"] = {"status": "succeeded"}
 
         def broken():
             raise RuntimeError("not valid JSON")
 
         ns["_load_manifest"] = broken
-        ns["_mark_window"]("next-window", "waiting")
+        with self.assertRaisesRegex(RuntimeError, "not valid JSON"):
+            ns["_mark_window"]("next-window", "waiting")
+        self.assertEqual(json.loads(Path(ns["MANIFEST"]).read_text(encoding="utf-8")), saved)
         self.assertEqual(ns["_read_manifest_entry"]("kept")["status"], "succeeded")
+        self.assertNotIn("next-window", ns["manifest"])
 
     def test_synthetic_record_key_uses_canonical_json_and_ignores_array_order(self):
         ns = self.ingester_helpers()
@@ -606,12 +611,15 @@ class AuditReliabilityTests(unittest.TestCase):
 
     def test_legacy_incremental_table_without_new_keys_fails_clearly(self):
         ns = self.ingester_helpers()
-        with self.assertRaisesRegex(RuntimeError, "missing stable key columns"):
+        with self.assertRaisesRegex(RuntimeError, "missing stable key columns") as error:
             ns["validate_incremental_target_columns"](
                 ["CreationDate", "RecordId", "Message_Id"],
                 ns["KEY_COLUMNS"],
                 "dbo.Copilot_Interactions_Parsed",
             )
+        self.assertIn("GRAPH_FOR_HISTORY=True", str(error.exception))
+        self.assertIn("Back up", str(error.exception))
+        self.assertIn("outside", str(error.exception))
 
     def test_stage_scope_reuses_recent_windows_only_and_cleans_partial_files(self):
         helpers = self.stage_helpers()
@@ -2220,6 +2228,19 @@ class AuditSourceTests(unittest.TestCase):
         helpers["GRAPH_FOR_HISTORY"] = False
         helpers["AUDIT_SOURCE"] = "graph"
         self.assertEqual(drop([self.OLD, self.A], "overwrite"), ([self.OLD, self.A], [], "overwrite"))
+
+    def test_partial_backfill_merges_existing_rows(self):
+        helpers, _ = self.source_helpers("feed", WRITE_MODE="replace")
+        floor = self.NOW - timedelta(days=7) + timedelta(minutes=15)
+        straddles = (floor - timedelta(hours=4), floor + timedelta(hours=4))
+        helpers["SOURCE_PLAN"].update(feed_floor=floor)
+        drop = helpers["drop_out_of_reach"]
+
+        self.assertEqual(drop([self.OLD, self.A], "replace"), ([self.A], [self.OLD], "merge"))
+        self.assertEqual(drop([straddles, self.A], "replace"), ([straddles, self.A], [], "merge"))
+        self.assertEqual(drop([self.A, self.B], "replace"), ([self.A, self.B], [], "replace"))
+        helpers["GRAPH_FOR_HISTORY"] = True
+        self.assertEqual(drop([self.OLD, self.A], "replace"), ([self.OLD, self.A], [], "replace"))
 
     def test_auto_stops_when_the_management_api_cannot_be_read_without_graph(self):
         helpers, _ = self.source_helpers("auto")
