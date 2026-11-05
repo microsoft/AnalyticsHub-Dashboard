@@ -29,11 +29,6 @@ credit consumption and cost.
 
 ## Videos
 
-| Video | What it covers |
-|---|---|
-| [Installer walkthrough](media/datahub-app-installer-walkthrough-v3.mp4) | Narrated setup walkthrough; see [Install](docs/INSTALL.md) for Fabric and Azure instructions |
-
-The installer walkthrough has AI-generated narration and uses simulated services.
 For the earlier page-by-page demo and screenshots, see the [app guide](docs/APP-GUIDE.md)
 and [video reference](docs/README.md#what-you-get); those still use earlier branding.
 
@@ -82,7 +77,8 @@ flowchart LR
 
 ## Installer
 
-[Watch the installer walkthrough](media/datahub-app-installer-walkthrough-v3.mp4).
+https://github.com/user-attachments/assets/d00b4e05-bc97-4aee-9df3-7be16f9a309f
+
 The narration is AI-generated, and the walkthrough uses simulated services.
 
 Some download and installed resource names still use Analytics Hub for compatibility.

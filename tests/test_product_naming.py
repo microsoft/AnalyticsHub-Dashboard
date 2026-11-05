@@ -19,8 +19,10 @@ def test_readme_branding_and_legacy_destinations():
     assert "AnalyticsHubInstaller.exe" in readme
     assert "releases/latest/download/install.ps1" in readme
     assert "earlier branding" in readme
-    assert "[Installer walkthrough](media/datahub-app-installer-walkthrough-v3.mp4)" in readme
-    assert "AI-generated narration and uses simulated services" in readme
+    asset = "https://github.com/user-attachments/assets/d00b4e05-bc97-4aee-9df3-7be16f9a309f"
+    for page in (readme, text("docs/INSTALL.md")):
+        assert f"\n\n{asset}\n\n" in page
+        assert "narration is AI-generated" in page and "uses simulated services" in page
     assert "Analytics Hub dashboard" not in readme
 
 
