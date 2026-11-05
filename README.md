@@ -80,6 +80,9 @@ flowchart LR
 
 ## Installer
 
+[Watch the installer walkthrough](media/datahub-app-installer-walkthrough-v3.mp4).
+The narration is AI-generated, and the walkthrough uses simulated services.
+
 Some download and installed resource names still use Analytics Hub for compatibility.
 See [Names and compatibility](docs/INSTALL.md#names-and-compatibility).
 
