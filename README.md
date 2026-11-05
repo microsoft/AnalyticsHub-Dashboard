@@ -2,7 +2,7 @@
 
 <br>
 
-# 📊 DataHub App for Microsoft Copilot
+# DataHub App - for Microsoft Copilot, Agents, Cowork and Autopilots
 
 **See how your organisation uses Microsoft 365 Copilot and agents, and the hours and value they deliver.**
 
