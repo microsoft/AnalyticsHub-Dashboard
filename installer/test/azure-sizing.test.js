@@ -598,7 +598,7 @@ test('install: a new install that chooses Fabric with --sql-scale-up or --sql-fr
     ctx.sqlChoice = choice;
     await assert.rejects(install(ctx, { wait: false }), { message: sqlFlagFabricError(choice) });
     assert.equal(sqlFlagFabricError(choice), `${choice ? '--sql-scale-up' : '--sql-free-offer'} is for the Azure target only.`);
-    assert.deepEqual(t.asked, ['Where should DataHub run?']);
+    assert.deepEqual(t.asked, ['Where should DataHub App run?']);
     assert.deepEqual(calls, [], 'preflight never ran');
   }
 });

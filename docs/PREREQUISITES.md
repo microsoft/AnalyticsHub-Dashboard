@@ -132,7 +132,7 @@ What the scheduled jobs sign in as. Graph app roles, granted by an Entra admin.
 | Graph | `CloudApp-Discovery.Read.All` | *(Optional.)* Finding AI apps in use on the network. Turned on by the **Defender** card |
 | Graph | `Sites.Selected` | *(Optional.)* Reading the files dropped in the SharePoint folder you name: credit files, and the Agent 365, product feedback and Workday exports. Turned on with private networking. A SharePoint or Global admin who's a member of the site also gives it **Read** on it, by hand |
 
-### DataHub web app (Azure)
+### DataHub App web app (Azure)
 
 The app registration people sign in to. Delegated permissions: it acts as the person using it.
 
@@ -190,7 +190,7 @@ there. Otherwise it gives you the command for someone who can.
 Only if you want **Copilot Cowork credits** from Viva Insights. The installer asks for the query's
 IDs, and building the query can take a while, so ask for it now. Copy this:
 
-> Hi, I'm setting up DataHub, which reports Copilot Cowork credits from Viva Insights.
+> Hi, I'm setting up DataHub App, which reports Copilot Cowork credits from Viva Insights.
 > Could you build a query for it?
 >
 > 1. In [Viva Insights](https://analysis.insights.viva.office.com/), go to **Create analysis** >
@@ -256,7 +256,7 @@ The detail behind [At a glance](#at-a-glance), with links to Microsoft Learn.
     Lets the app's pages query the model, as the person using them. Fabric and Azure. Needed by
     the people who use the app.
   - [*Fabric App items*](https://learn.microsoft.com/fabric/admin/tenant-settings-index#microsoft-fabric).
-    Lets the installer create the DataHub app in Fabric. Fabric only. Needed by whoever
+    Lets the installer create the DataHub App in Fabric. Fabric only. Needed by whoever
     runs the installer.
   - *Allow visuals created using the Power BI SDK*, for the Power BI reports, or some visuals stay
     blank. Fabric and Azure. Needed by the people who open the reports.
@@ -404,7 +404,7 @@ nothing fails.
 
 ## What it costs
 
-DataHub itself is free. It runs on services your organisation pays for: a Fabric capacity,
+The DataHub App itself is free. It runs on services your organisation pays for: a Fabric capacity,
 or Azure resources at about $5–40 a month for a small tenant. Viewers need Power BI Pro below
 F64. See [Running costs](ARCHITECTURE.md#running-costs) for the full list and pricing links.
 

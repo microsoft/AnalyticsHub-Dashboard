@@ -1,6 +1,6 @@
 # Architecture and costs
 
-DataHub runs entirely in your tenant. It reads Microsoft 365 data with read-only permissions,
+The DataHub App runs entirely in your tenant. It reads Microsoft 365 data with read-only permissions,
 keeps it in your Fabric workspace or Azure subscription, and shows it in an app and Power BI
 reports.
 
@@ -36,7 +36,7 @@ flowchart LR
     F[[Power Automate flows<br/>and the Cowork Dataflow]]
     L[(Lakehouse)]
     SM[(Semantic models)]
-    APP[DataHub app]
+    APP[DataHub App]
     R[Power BI reports]
   end
   G -- app registration --> P --> L
@@ -133,7 +133,7 @@ Once the page has loaded, the app fetches the first tab of the next two pages in
 
 ## Running costs
 
-DataHub itself is free. It runs on services your organisation pays for. Prices vary by
+The DataHub App is free. It runs on services your organisation pays for. Prices vary by
 region and agreement; the installer's plan lists what's billed, with links to the pricing pages.
 
 | | Fabric | Azure |
@@ -146,4 +146,4 @@ region and agreement; the installer's plan lists what's billed, with links to th
 | Key Vault | Only if you keep the secret there. [Billed per operation](https://azure.microsoft.com/pricing/details/key-vault/): small for a few reads a day. | Not used. |
 
 Estimate Azure costs with the [Azure pricing calculator](https://azure.microsoft.com/pricing/calculator/).
-Copilot credits aren't charged by DataHub: it reads what you've already used.
+The DataHub App doesn't charge for Copilot credits; it reads what you've already used.

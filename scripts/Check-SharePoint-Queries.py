@@ -4,8 +4,8 @@ The app reads ValueLens from the model the installer builds from ValueLens - Fab
 SharePoint setup would read it from the model in sharepoint/ instead, copied unchanged from the
 ValueLens repository. This reads every .dax query the app sends to the ValueLens connection
 ("vl" in app/src/queries/shared.ts), and the filter bar's columns, the org filter's bridge table
-among them, and lists each table, column and measure that model lacks, with where DataHub gets it
-today: DataHub's Fabric template, the installer, or neither.
+among them, and lists each table, column and measure that model lacks, with where DataHub App gets it
+today: DataHub App's Fabric template, the installer, or neither.
 
 It only reports. It changes nothing and always exits 0. It checks names, not DAX: a query
 "resolves" when every table, column and measure it names is in the model. A query passed in a
@@ -201,9 +201,9 @@ def installer_sources(root):
 
 
 def origin(table, column, why, query, fabric, installer):
-    """Where DataHub gets a name the SharePoint model lacks."""
+    """Where the DataHub App gets a name the SharePoint model lacks."""
     if fabric is not None and problem(table, column, fabric, query) is None:
-        return "in DataHub's Fabric template"
+        return "in the DataHub App's Fabric template"
     name = table if why == "no such table" else column
     # The file that defines it, as name: 'X' or X_TABLE = 'X', says more than one that only lists it.
     defines = re.compile(r"(?:\bname\s*:|(?<![=!<>])=)\s*(['\"`])" + re.escape(name) + r"\1")
@@ -214,7 +214,7 @@ def origin(table, column, why, query, fabric, installer):
     for path, text in installer:
         if any(q in text for q in quoted):
             return f"named in {path}"
-    return "in neither DataHub's Fabric template nor the installer"
+    return "in neither the DataHub App's Fabric template nor the installer"
 
 
 def written(table, column):
@@ -535,7 +535,7 @@ def summary(result):
                 pages = gaps.setdefault(name["name"].casefold(), (name, {}))[1]
                 pages[entry["page"]] = pages.get(entry["page"], 0) + 1
         lines.append("")
-        lines.append("Missing from the SharePoint model, with where DataHub gets it today and the queries that use it:")
+        lines.append("Missing from the SharePoint model, with where DataHub App gets it today and the queries that use it:")
         for key in sorted(gaps):
             name, pages = gaps[key]
             used = ", ".join(f"{page} {count}" for page, count in sorted(pages.items()))

@@ -1,6 +1,6 @@
 # Path 2: Azure
 
-DataHub in your own Azure subscription, without Fabric.
+DataHub App in your own Azure subscription, without Fabric.
 
 ## Before you start
 
@@ -8,7 +8,7 @@ DataHub in your own Azure subscription, without Fabric.
 - **Takes:** about 20 minutes to set up. The first data follows 2 to 3 hours later with 30 days of
   history, or longer on a large tenant: see
   [How long it takes](../docs/PREREQUISITES.md#how-long-it-takes).
-- **Costs:** about $5–40 a month for a small tenant. DataHub itself is free. See
+- **Costs:** about $5–40 a month for a small tenant. The DataHub App itself is free. See
   [Architecture and costs](../docs/ARCHITECTURE.md). For more than 10,000 people, see
   [A large tenant on Azure](../installer/README.md#a-large-tenant-on-azure).
 

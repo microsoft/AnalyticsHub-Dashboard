@@ -1,6 +1,6 @@
-# DataHub installer
+# DataHub App installer
 
-Sets up DataHub in your tenant, on [Fabric](../fabric/README.md) or [Azure](../azure/README.md),
+Sets up DataHub App in your tenant, on [Fabric](../fabric/README.md) or [Azure](../azure/README.md),
 loads the first data and checks it. This page is the reference. To get going, follow the
 [Getting started](../README.md#getting-started) steps:
 [Prerequisites](../docs/PREREQUISITES.md) → [Install](../docs/INSTALL.md) → [Check it worked](../docs/INSTALL.md#check-it-worked).
@@ -129,7 +129,7 @@ permissions cover won't load until they're fixed.
 
 ## Azure target
 
-The installer can also set up DataHub in **your Azure subscription**. Start it with
+The installer can also set up DataHub App in **your Azure subscription**. Start it with
 `--target azure`, or pick **Your Azure subscription** as the first wizard answer.
 
 You need:
@@ -268,7 +268,7 @@ Under [Advanced settings](#advanced-settings), the wizard asks how the app, jobs
   - **Private DNS zones.** Landing zones often deny private DNS zones outside a hub subscription, or
     let a policy add the DNS records. The wizard then asks how to handle the `privatelink.*` zones:
     - **Create them in this resource group** (default). If the resource group already has one of
-      them that this install didn't create, yours or another DataHub install's, the preflight
+      them that this install didn't create, yours or another DataHub App install's, the preflight
       names it and stops before deploying: the install would tag the zone as its own, so its
       uninstall would try to delete it. To use the zones there, choose **Use existing zones in
       another resource group** and give this resource group's ID, after creating any of the zones
@@ -428,7 +428,7 @@ connected to its semantic models, so nobody has to open Power BI Desktop:
 | `Agent Evaluator` | `Analytics Hub Agent Evaluator Model` | Agent Evaluator is on, with an environment |
 
 Pages for sources you skip stay empty rather than failing. To leave the reports out, choose
-**Semantic model and the DataHub app** or **Semantic model only** for Power BI. An install
+**Semantic model and the DataHub App** or **Semantic model only** for Power BI. An install
 from an earlier version gets the reports offered the next time you choose **Repair or change**;
 **Update** on its own doesn't add them.
 
@@ -436,7 +436,7 @@ On the [Azure target](#azure-target) the installer publishes no reports: the web
 the models. It deploys the Agent Evaluator model when Agent Evaluator is on with an environment,
 outside [demo mode](#demo-mode).
 
-The DataHub app reads a small `fabric.config.json` deployed beside it. It contains the
+The DataHub App reads a small `fabric.config.json` deployed beside it. It contains the
 semantic model IDs the app should query and, for newer installs, the optional modules the admin
 turned on:
 

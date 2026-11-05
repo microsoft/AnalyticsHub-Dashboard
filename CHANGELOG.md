@@ -1,9 +1,9 @@
 # Changelog
 
-Notable, reviewed changes to DataHub: the installer, the app, the Fabric notebooks and
+Notable, reviewed changes to the DataHub App: the installer, the app, the Fabric notebooks and
 pipeline, and the Azure target.
 
-DataHub moved here from
+This project moved here from
 [ValueLens for Microsoft Copilot](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot),
 where it was paths 1 (Fabric) and 2 (Azure), with its history. Entries up to 0.4.2 were written
 there and refer to its folder names: `1. Fabric/installer` is now `installer/`,
@@ -20,10 +20,10 @@ Deployment instructions do **not** live here. They live in the READMEs:
 
 ## Unreleased
 
-**DataHub naming.** Current documentation, app branding, installer wording, Teams titles and
-future release titles now use DataHub. Existing resource names, authorization values, download
-names and links remain compatible; released entries below retain the name used at the time.
-Screenshots and videos still show the former branding. See
+**DataHub App naming.** Current documentation, app branding, installer wording, Teams
+titles and future release titles now use DataHub App. Existing resource names,
+authorization values, download names and links remain compatible; released entries below retain
+the name used at the time. Screenshots and videos still show earlier branding. See
 [Names and compatibility](docs/INSTALL.md#names-and-compatibility).
 
 **Group by: all meaningful loaded org attributes.** The main app, Cowork/Studio and Agent
@@ -187,7 +187,7 @@ asked for.
   reads CSVs from a SharePoint library, with no Fabric or Azure. `sharepoint/provenance.json` pins
   it to the ValueLens commit it came from, and a test checks the copy matches.
   `scripts/Check-SharePoint-Queries.py` reports which of the app's ValueLens queries the model
-  answers, and where DataHub gets the rest. The installer, the app and the releases don't
+  answers, and where the dashboard gets the rest. The installer, the app and the releases don't
   use it yet.
 
 ### Fixed

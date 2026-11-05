@@ -260,8 +260,8 @@ export const AZURE_TARGET_DESCRIPTION =
 export async function askTarget(ctx) {
   ctx.config.target ??= 'fabric';
   if (ctx.config.target === 'azure' || ctx.config.fabric.workspaceId || ctx.config.azure?.subscriptionId) return;
-  ctx.ui.heading('Where should DataHub run?');
-  ctx.config.target = await ctx.ui.select('Where should DataHub run?', [
+  ctx.ui.heading('Where should DataHub App run?');
+  ctx.config.target = await ctx.ui.select('Where should DataHub App run?', [
     { name: 'Microsoft Fabric', value: 'fabric', description: 'Use Fabric workspaces, Lakehouse, notebooks and pipeline.' },
     { name: 'Your Azure subscription', value: 'azure', description: AZURE_TARGET_DESCRIPTION },
   ], ctx.config.target);
@@ -310,7 +310,7 @@ export async function planAzure(ctx, pre, section) {
       ? az.sampleData === true
       : await ui.select('Which data should the dashboard show?', [
         { name: "Your tenant's data", value: false, description: 'Collect from the audit log, Microsoft Graph and the modules you ticked.' },
-        { name: 'Demo mode (sample data)', value: true, description: 'Show a synthetic sample, moved forward to end last week, to try DataHub before connecting tenant data. Run the installer again and pick your tenant\'s data to switch.' },
+        { name: 'Demo mode (sample data)', value: true, description: 'Show a synthetic sample, moved forward to end last week, to try DataHub App before connecting tenant data. Run the installer again and pick your tenant\'s data to switch.' },
       ], az.sampleData === true);
   }
   const subs = pre.subscriptions.length ? pre.subscriptions : (await api.arm.listSubscriptions()).filter((s) => s.state === 'Enabled');
@@ -462,7 +462,7 @@ export async function planAzure(ctx, pre, section) {
     const sqlPrivate = ctx.azureRegions?.sqlPrivate ?? [];
     const sqlPolicy = sqlPrivate.map((n) => `"${n}"`).join(', ');
     const capacities = (await api.fabric.listCapacities().catch(() => [])).filter((cap) => cap.state === 'Active' && (!isPrivate(az) || supportsVnetGateway(cap)));
-    if (isPrivate(az) && !capacities.length) throw new Error(`${sqlPrivate.length ? `Azure Policy ${sqlPolicy} keeps Azure SQL's public access off, so DataHub needs Private networking here. ` : ''}Private networking needs an active Fabric (F or trial) or Power BI Premium (P, A4+) capacity you can assign workspaces to, to host the VNet data gateway. Start a Fabric trial or ask a capacity admin, then try again.`);
+    if (isPrivate(az) && !capacities.length) throw new Error(`${sqlPrivate.length ? `Azure Policy ${sqlPolicy} keeps Azure SQL's public access off, so DataHub App needs Private networking here. ` : ''}Private networking needs an active Fabric (F or trial) or Power BI Premium (P, A4+) capacity you can assign workspaces to, to host the VNet data gateway. Start a Fabric trial or ask a capacity admin, then try again.`);
     const large = largeAzureTenant(config, headcountOf(pre));
     const recommended = /** @type {number} */ (capacityUnits(AZURE_LARGE_TENANT_SKU));
     if (large) {
@@ -1126,8 +1126,8 @@ function dnsZoneCollision(az, declared, resources) {
   return [
     `Private DNS zone collision: ${joinList(taken)} already ${taken.length === 1 ? 'exists' : 'exist'} in resource group ${rg} without this install's tag. `
       + `With private networking, this install would update ${it} in place and tag ${it} as its own, so its uninstall would try to delete ${it} and every record in ${it}. `
-      + (others.length ? `${whose} to another DataHub install, and its uninstall would try to delete ${otherIt} even while this install uses ${otherIt}. ` : '')
-      + 'DataHub will not modify resources it did not create. To go on, either:',
+      + (others.length ? `${whose} to another DataHub App install, and its uninstall would try to delete ${otherIt} even while this install uses ${otherIt}. ` : '')
+      + 'DataHub App will not modify resources it did not create. To go on, either:',
     '  - Use the zones in this resource group: run the installer again, choose advanced options and Private networking, then "Use existing zones in another resource group", '
       + `and give /subscriptions/${az.subscriptionId}/resourceGroups/${rg} as the resource group that holds them. On the setup page, that's Networking, then "Use existing zones" with the same resource group ID.`
       + (missing.length ? ` Every zone the install uses must then be in it, so first create ${joinList(missing)} there, for example with az network private-dns zone create -g ${rg} -n <zone name>.` : ''),
@@ -1140,7 +1140,7 @@ async function stopOnUntaggedCollisions(ctx, deployment) {
   const az = /** @type {import('../../config.js').AzureConfig} */ (ctx.config.azure);
   const resources = await ctx.api.arm.listResources(/** @type {string} */ (az.subscriptionId), /** @type {string} */ (az.resourceGroup)).catch(() => []);
   const offenders = resources.filter((r) => String(r.name ?? '').toLowerCase().startsWith(String(az.namePrefix).toLowerCase()) && r.tags?.['valuelens-install-id'] !== az.installId);
-  if (offenders.length) throw new Error(`Resource name collision: ${offenders.map((r) => `${r.type}/${r.name}`).join(', ')} already exists without this install's tag. DataHub will not modify resources it did not create.`);
+  if (offenders.length) throw new Error(`Resource name collision: ${offenders.map((r) => `${r.type}/${r.name}`).join(', ')} already exists without this install's tag. DataHub App will not modify resources it did not create.`);
   const zones = dnsZoneCollision(az, declaredDnsZones(deployment.properties.parameters), resources);
   if (zones) throw new Error(zones);
 }
@@ -2504,7 +2504,7 @@ export async function azureStatus(ctx) {
   const { ui, config, api } = ctx;
   const az = config.azure;
   if (!az?.subscriptionId || !az.resourceGroup) return ui.warn('Nothing is installed yet.');
-  ui.heading('DataHub on Azure');
+  ui.heading('DataHub App on Azure');
   ui.info(`Resource group: ${az.resourceGroup} (${az.location})`);
   if (az.outputs?.webUrl) ui.info(`Web app:        ${az.outputs.webUrl}`);
   if (az.powerBi?.workspaceId) ui.info(`Power BI:       ${az.powerBi.workspaceId}${az.powerBi.datasetId ? ` / ${az.powerBi.datasetId}` : ''}`);
@@ -2514,7 +2514,7 @@ export async function azureStatus(ctx) {
   if (azureAgent365On(config)) ui.info(`Agent 365 CSV:  ${azureDropLabel(az, AZURE_LANDING_DIRS.agent365)}`);
   if (azureProductFeedbackOn(config)) ui.info(`Feedback CSV:   ${azureDropLabel(az, AZURE_LANDING_DIRS.productFeedback)}`);
   if (azureWorkdayOn(config)) ui.info(`Workday CSV:    ${azureDropLabel(az, AZURE_LANDING_DIRS.workday)}`);
-  if (az.teamsApp) ui.info(`Teams app:      DataHub ${az.teamsApp.version} in your org's app catalog`);
+  if (az.teamsApp) ui.info(`Teams app:      DataHub App ${az.teamsApp.version} in your org's app catalog`);
   expiry(ctx, 'SQL reader secret', az.sqlReader?.secretExpiry);
   for (const p of az.graphRoles?.pending ?? []) ui.warn(`Pending admin action: grant ${p} to the managed identity.`);
   for (const action of az.status?.pendingAdminActions ?? []) ui.warn(`Pending admin action: ${action}`);
@@ -2827,7 +2827,7 @@ export async function azureUninstall(ctx, opts = {}) {
   const az = config.azure;
   if (!az?.subscriptionId || !az.resourceGroup) throw new Error('Nothing is installed yet.');
   const { subscriptionId, resourceGroup: rg } = az;
-  ui.heading('Uninstalling DataHub on Azure');
+  ui.heading('Uninstalling DataHub App on Azure');
   const pbi = az.powerBi;
   const workspace = az.workspaceName ?? 'Analytics Hub';
   const check = pbi?.workspaceId && pbi.createdWorkspace ? await checkCreatedWorkspace(ctx, pbi.workspaceId, workspace) : undefined;
@@ -2838,7 +2838,7 @@ export async function azureUninstall(ctx, opts = {}) {
   await removeAzureTranscriptAccess(ctx);
   if (pbi?.workspaceId) {
     if (deleteWorkspace) await deletePowerBiWorkspace(ctx, pbi, workspace);
-    else if (!check) ui.note('Left the Power BI workspace you chose alone, because the installer didn\'t create it. Delete the DataHub semantic models in it if you no longer need them.');
+    else if (!check) ui.note('Left the Power BI workspace you chose alone, because the installer didn\'t create it. Delete the DataHub App semantic models in it if you no longer need them.');
     else if (check.state === 'created') ui.note(`Left Power BI workspace "${workspace}" alone.`);
     else if (check.state === 'renamed') ui.note(`Left Power BI workspace "${check.name}" alone, because the installer created one named "${workspace}". If you renamed it, delete it in Power BI under Workspaces.`);
     else if (check.state === 'unknown') ui.warn(`Couldn't check Power BI workspace "${workspace}", so left it alone: ${check.message}. A workspace admin can delete it in Power BI under Workspaces.`);
@@ -2891,11 +2891,11 @@ export async function azureUninstall(ctx, opts = {}) {
   }
   if (az.drop?.folderUrl) ui.note(`The SharePoint drop folder ${az.drop.folderUrl} and the files in it are left alone. Delete them yourself if you no longer need them.`);
   if (!left) {
-    ui.fail(`Couldn't see what's left of DataHub in resource group ${rg}. Fix that, then run "${commandLine('uninstall')}" again.`);
+    ui.fail(`Couldn't see what's left of DataHub App in resource group ${rg}. Fix that, then run "${commandLine('uninstall')}" again.`);
     return false;
   }
   if (left.length) {
-    ui.fail(`DataHub isn't all gone from resource group ${rg}. Still there: ${left.join(', ')}. Run "${commandLine('uninstall')}" again to finish, or delete them in the Azure portal in that order: they have the tag valuelens-install-id = ${az.installId}.`);
+    ui.fail(`DataHub App isn't all gone from resource group ${rg}. Still there: ${left.join(', ')}. Run "${commandLine('uninstall')}" again to finish, or delete them in the Azure portal in that order: they have the tag valuelens-install-id = ${az.installId}.`);
     return false;
   }
   if (!deleting) return true;
@@ -2923,7 +2923,7 @@ export async function azureSummary(ctx, opts = {}) {
   const { ui, config } = ctx;
   const az = /** @type {import('../../config.js').AzureConfig} */ (config.azure);
   const pending = opts.pending ?? [];
-  ui.heading(opts.ok === false ? 'DataHub is set up, but not finished' : pending.length ? 'DataHub is set up, still reloading' : 'DataHub is set up');
+  ui.heading(opts.ok === false ? 'DataHub App is set up, but not finished' : pending.length ? 'DataHub App is set up, still reloading' : 'DataHub App is set up');
   if (pending.length) {
     ui.warn(`${pending.join(' and ')} ${pending.length === 1 ? 'is' : 'are'} still reloading: reports on ${pending.length === 1 ? 'it' : 'them'} can show no data or miss new columns until that finishes.`);
   }
@@ -2937,7 +2937,7 @@ export async function azureSummary(ctx, opts = {}) {
   if (azureAgentEvaluatorModelDeployed(config)) ui.info(`Evaluator:  model ${az.powerBi?.agentEvaluatorDatasetId}`);
   const teamsPending = az.status?.pendingAdminActions?.find((a) => a.startsWith(`${TEAMS_APP_PENDING}: `));
   if (teamsPending) ui.info(`Teams:      Not published yet. A Teams Administrator needs to ${teamsPending.slice(TEAMS_APP_PENDING.length + 2)}`);
-  else if (az.teamsApp) ui.info(`Teams:      DataHub ${az.teamsApp.version} in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app.`);
+  else if (az.teamsApp) ui.info(`Teams:      DataHub App ${az.teamsApp.version} in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app.`);
   else if (az.teamsPackage) ui.info(`Teams:      ${az.teamsPackage}`);
   ui.info(`Ask:        ${askLine(az)}`);
   for (const line of accessSummaryLines(config)) ui.info(line);

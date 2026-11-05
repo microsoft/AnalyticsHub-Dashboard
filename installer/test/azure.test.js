@@ -1370,7 +1370,7 @@ test("Azure: a history reload that doesn't start leaves setup not finished, and 
   assert.equal(await installAzure(failed.ctx, { wait: true }), false);
   assert.match(failed.ui.text(), /✗ The history reload didn't start: Job not found/);
   assert.match(failed.ui.text(), /Try again with ".*run --backfill-days 90"\./);
-  assert.match(failed.ui.text(), /DataHub is set up, but not finished/);
+  assert.match(failed.ui.text(), /DataHub App is set up, but not finished/);
   assert.equal(failed.config.history.days, 30);
   // Kept in the record, so the command isn't lost when the window closes: the Done page and status show it.
   assert.deepEqual(failed.config.history.pending, { days: 90, reason: 'failed', at: '2026-06-01T12:00:00.000Z' });
@@ -1443,7 +1443,7 @@ test("Azure: org-scoped access that fails leaves setup not finished; a job it ca
   assert.equal(await installAzure(blocked.ctx, { wait: true }), false);
   assert.match(blocked.ui.text(), /✗ The Power BI workspace is on a Pro licence/);
   assert.match(blocked.ui.text(), /Fix that, or turn org-scoped access off from ".*access"\./);
-  assert.match(blocked.ui.text(), /DataHub is set up, but not finished/);
+  assert.match(blocked.ui.text(), /DataHub App is set up, but not finished/);
 
   const unfollowed = await azureModelChanged();
   orgAccessOn(unfollowed);
@@ -1457,7 +1457,7 @@ test("Azure: org-scoped access that fails leaves setup not finished; a job it ca
   const text = unfollowed.ui.text();
   assert.match(text, /! Azure didn't say which run of the run job \(access,refresh\) this is/);
   assert.doesNotMatch(text, /✗/);
-  assert.match(text, /DataHub is set up/);
+  assert.match(text, /DataHub App is set up/);
   assert.doesNotMatch(text, /not finished/);
 });
 
@@ -1544,7 +1544,7 @@ test('Azure with a first load, waiting: a replaced model is reloaded before the 
   const run = t.config.azure?.outputs?.runJobName;
   assert.ok(order.indexOf('refresh') >= 0 && order.indexOf('refresh') < order.indexOf(`start ${run}`), order.join(', '));
   assert.equal(t.config.semanticModel.reload, undefined);
-  assert.match(t.ui.text(), /DataHub is set up/);
+  assert.match(t.ui.text(), /DataHub App is set up/);
 
   const failed = await azureModelChanged();
   failed.ctx.runFirstLoad = true;
@@ -1849,7 +1849,7 @@ test('Azure Repair or change during the first load: no second run, and it says w
   assert.match(text, /Check on it with "valuelens-install status"\. Once it has finished, run "valuelens-install run" to load your changes, or they load on the next scheduled run\./);
   assert.deepEqual(az.status.lastRun, firstLoad, 'the first load is still the last run');
   assert.equal(t.config.history.pending, undefined, 'the run going is the first load: nothing waits');
-  assert.match(text, /DataHub is set up/);
+  assert.match(text, /DataHub App is set up/);
   assert.doesNotMatch(text, /not finished|steps? left/);
 });
 
@@ -1887,7 +1887,7 @@ test("Azure: org-scoped access waits for a run that's going, rather than startin
   assert.doesNotMatch(text, /Org-scoped access applied/);
   assert.equal(/** @type {any} */ (t.config.azure).status.lastAccess, undefined);
   assert.deepEqual(t.config.access?.rls?.applied, [], 'still owed, so the next update applies it again');
-  assert.match(text, /DataHub is set up/);
+  assert.match(text, /DataHub App is set up/);
   assert.doesNotMatch(text, /not finished/);
 });
 
@@ -2369,7 +2369,7 @@ test('Azure private networking stops before deploying when a private DNS zone it
   const err = await azureUpdate(ctx).then(() => assert.fail('it went ahead'), (/** @type {Error} */ e) => e);
   assert.equal(deployed(arm), false, 'nothing is deployed');
   assert.equal(err.message, [
-    "Private DNS zone collision: privatelink.blob.core.windows.net already exists in resource group rg without this install's tag. With private networking, this install would update it in place and tag it as its own, so its uninstall would try to delete it and every record in it. DataHub will not modify resources it did not create. To go on, either:",
+    "Private DNS zone collision: privatelink.blob.core.windows.net already exists in resource group rg without this install's tag. With private networking, this install would update it in place and tag it as its own, so its uninstall would try to delete it and every record in it. DataHub App will not modify resources it did not create. To go on, either:",
     '  - Use the zones in this resource group: run the installer again, choose advanced options and Private networking, then "Use existing zones in another resource group", and give /subscriptions/sub-1/resourceGroups/rg as the resource group that holds them. On the setup page, that\'s Networking, then "Use existing zones" with the same resource group ID. Every zone the install uses must then be in it, so first create privatelink.database.windows.net, privatelink.dfs.core.windows.net and privatelink.table.core.windows.net there, for example with az network private-dns zone create -g rg -n <zone name>.',
     '  - Or install into another resource group.',
   ].join('\n'));
@@ -2381,15 +2381,15 @@ test('Azure private networking goes ahead over private DNS zones this install cr
   assert.equal(deployed(arm), true);
 });
 
-test('Azure private networking stops over private DNS zones another DataHub install created', async () => {
+test('Azure private networking stops over private DNS zones another DataHub App install created', async () => {
   const theirs = { 'valuelens-install-id': 'install-0' };
   const all = await intoGroupWith(DATA_ZONES.map((z) => dnsZone(z, theirs)));
   const err = await azurePreflight(all.ctx).then(() => assert.fail('it went ahead'), (/** @type {Error} */ e) => e);
-  assert.match(err.message, /^Private DNS zone collision: privatelink\.database\.windows\.net, privatelink\.blob\.core\.windows\.net, privatelink\.dfs\.core\.windows\.net and privatelink\.table\.core\.windows\.net already exist in resource group rg without this install's tag\. With private networking, this install would update them in place and tag them as its own, so its uninstall would try to delete them and every record in them\. They belong to another DataHub install, and its uninstall would try to delete them even while this install uses them\. /);
+  assert.match(err.message, /^Private DNS zone collision: privatelink\.database\.windows\.net, privatelink\.blob\.core\.windows\.net, privatelink\.dfs\.core\.windows\.net and privatelink\.table\.core\.windows\.net already exist in resource group rg without this install's tag\. With private networking, this install would update them in place and tag them as its own, so its uninstall would try to delete them and every record in them\. They belong to another DataHub App install, and its uninstall would try to delete them even while this install uses them\. /);
   assert.doesNotMatch(err.message, /first create/, 'every zone the install uses is there already');
 
   const some = await intoGroupWith([dnsZone('privatelink.database.windows.net', theirs), dnsZone('privatelink.blob.core.windows.net')]);
-  await assert.rejects(azurePreflight(some.ctx), /already exist in resource group rg without this install's tag\. .* privatelink\.database\.windows\.net belongs to another DataHub install, and its uninstall would try to delete it even while this install uses it\. .*first create privatelink\.dfs\.core\.windows\.net and privatelink\.table\.core\.windows\.net there/s);
+  await assert.rejects(azurePreflight(some.ctx), /already exist in resource group rg without this install's tag\. .* privatelink\.database\.windows\.net belongs to another DataHub App install, and its uninstall would try to delete it even while this install uses it\. .*first create privatelink\.dfs\.core\.windows\.net and privatelink\.table\.core\.windows\.net there/s);
 });
 
 test('Azure private DNS zone check: zones the deployment does not create, public networking, and existing or no DNS zones go ahead', async () => {
@@ -2946,8 +2946,8 @@ test('Azure install publishes the Teams app to the org catalog once, Repair leav
   assert.ok(!(az.status?.pendingAdminActions ?? []).some((/** @type {string} */ a) => a.startsWith('Publish the Teams app')));
   const out = ui.text();
   assert.ok(out.indexOf('Signed in to publish the Teams app') < out.indexOf('Wrote Teams package'), 'the sign-in comes before the deployment, not at the end');
-  assert.match(out, /Teams app: published DataHub \S+ to your org's app catalog/);
-  assert.match(out, /Teams: +DataHub \S+ in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app\./);
+  assert.match(out, /Teams app: published DataHub App \S+ to your org's app catalog/);
+  assert.match(out, /Teams: +DataHub App \S+ in your org's app catalog, for Teams, Outlook and the Microsoft 365 Copilot app\./);
 
   // Repair or change, as a new run: the same package, so no sign-in and nothing uploaded.
   delete ctx.teamsCatalog;
@@ -3066,7 +3066,7 @@ test("Azure install: a Teams app the installer can't publish only warns, so the 
     const out = s.ui.text();
     assert.match(out, reason, label);
     assert.doesNotMatch(out, /✗/, label);
-    assert.match(out, /DataHub is set up/, label);
+    assert.match(out, /DataHub App is set up/, label);
     assert.doesNotMatch(out, /not finished/, label);
     assert.match(out, /Teams: +Not published yet\. A Teams Administrator needs to upload /, label);
   }

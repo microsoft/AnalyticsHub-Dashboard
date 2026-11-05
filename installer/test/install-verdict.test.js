@@ -110,7 +110,7 @@ async function runInstall(t, o = {}) {
   const appDir = join(dir, 'app');
   mkdirSync(join(appDir, 'rayfin'), { recursive: true });
   writeFileSync(join(appDir, 'prebuilt.json'), '{}\n');
-  writeFileSync(join(appDir, 'rayfin', 'rayfin.yml'), 'name: DataHub\n');
+  writeFileSync(join(appDir, 'rayfin', 'rayfin.yml'), 'name: DataHub App\n');
 
   const fabric = fakeFabric();
   // An F capacity, so the Ask data agent is set up too.
@@ -224,7 +224,7 @@ async function runInstall(t, o = {}) {
     assert.equal(deployed, true, 'deploy-app ran while the install waited on the pipeline');
     assert.equal(loadConfig(file).config.fabricApp.itemId, 'app-item-1', "the install's saves keep deploy-app's app");
     assert.match(text, /The app step above failed, but the app was deployed afterwards \(2026-06-01 13:00 UTC\)/);
-    assert.doesNotMatch(text, /Deploy the DataHub app/, 'the app is deployed, so there is no card to deploy it');
+    assert.doesNotMatch(text, /Deploy the DataHub App/, 'the app is deployed, so there is no card to deploy it');
   }
   return { ok, text, ctx, ui, fabric, config, dv };
 }
@@ -232,16 +232,16 @@ async function runInstall(t, o = {}) {
 /** @param {{ ok: boolean, text: string }} run */
 function setUp({ ok, text }) {
   assert.equal(ok, true);
-  assert.match(text, /DataHub is set up/);
+  assert.match(text, /DataHub App is set up/);
   assert.doesNotMatch(text, /partly set up/);
 }
 
 /** @param {{ ok: boolean, text: string }} run */
 function partlySetUp({ ok, text }) {
   assert.equal(ok, false);
-  assert.match(text, /DataHub is partly set up/);
+  assert.match(text, /DataHub App is partly set up/);
   assert.match(text, /A step above didn't finish\. Fix what it says, then run the installer again/);
-  assert.doesNotMatch(text, /DataHub is set up/);
+  assert.doesNotMatch(text, /DataHub App is set up/);
 }
 
 test('install: an app deployed while the first load runs makes up for its failed step when nothing else failed', async (t) => {
@@ -432,7 +432,7 @@ test('update: the app it redeploys records the installer version', async (t) => 
   setUp(run);
   const runs = appFromEarlierInstaller(run);
   assert.equal(await update(run.ctx, { wait: true }), true);
-  assert.ok(run.ui.asked.includes('Rebuild and redeploy the DataHub app too?'));
+  assert.ok(run.ui.asked.includes('Rebuild and redeploy the DataHub App too?'));
   assert.deepEqual(runs, ['up'], 'it redeploys by default');
   assert.equal(loadConfig(run.ctx.file).config.fabricApp.installerVersion, installerVersion());
 });

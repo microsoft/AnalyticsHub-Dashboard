@@ -82,7 +82,7 @@ def test_files_follow_the_installer_layout():
         assert leak not in text
     manifest = json.loads(files[1][1])
     assert list(manifest) == ["product", "installerVersion", "madeBy", "createdAt", "route", "signedIn", "files", "redaction"]
-    assert manifest["product"] == "DataHub"
+    assert manifest["product"] == "DataHub App"
     assert [f["name"] for f in manifest["files"]] == ["README.txt"] + [n for n, _ in files[2:]]
     logs = json.loads(files[7][1])["runErrors"]
     assert logs["http429"] == 1 and logs["timeouts"] == 1 and logs["windows"] == 1

@@ -244,7 +244,7 @@ test('the support file collects a 0-records case and shows it at once, with no d
     assert.ok(text.includes(WS), 'IDs stay');
     const manifest = JSON.parse(files[1].text);
     assert.deepEqual(Object.keys(manifest), ['product', 'installerVersion', 'madeBy', 'createdAt', 'route', 'signedIn', 'files', 'redaction']);
-    assert.equal(manifest.product, 'DataHub');
+    assert.equal(manifest.product, 'DataHub App');
     assert.equal(manifest.route, 'fabric');
     assert.equal(manifest.files.length, 7);
     assert.ok(manifest.redaction.counts.secrets > 0 && manifest.redaction.counts.emails > 0);

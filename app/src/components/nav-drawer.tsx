@@ -68,7 +68,7 @@ export function NavDrawer({ open, onClose, returnFocus, children }: NavDrawerPro
                 className="absolute inset-y-0 left-0 flex w-[min(300px,85vw)] flex-col gap-500 overflow-y-auto border-r border-border bg-card px-400 py-400 shadow-lg"
             >
                 <div className="flex items-center justify-between gap-200 px-200">
-                    <span className="text-[length:var(--text-500)] leading-500 font-semibold">DataHub</span>
+                    <span className="text-[length:var(--text-500)] leading-500 font-semibold">DataHub App</span>
                     <button
                         type="button"
                         onClick={onClose}

@@ -206,7 +206,7 @@ the sign-in; its token is held in memory and goes when the installer closes.
 
 <a id="viewing-analytics-hub-paths-1-and-2"></a>
 
-## Viewing DataHub
+## Viewing DataHub App
 
 The installer creates one Entra security group, **Analytics Hub Viewers**, with you as its owner (or uses a group you name). Sharing is adding people to it, from the installer's `access` command, **Share** in the app, or [My Groups](https://myaccount.microsoft.com/groups).
 
@@ -253,7 +253,7 @@ A model definition deploy drops role members, so after every deploy the installe
 | Azure | The Power BI workspace on a capacity, as above. The notebook runs in that workspace. Installs with private networking aren't supported yet, because the notebook can't reach the storage account |
 | "Below a person" scopes | Manager data in the org data. The installer warns when fewer than half the people have a manager |
 | Who skips it | Workspace **Admins, Members and Contributors** see every row whatever their scope. The installer lists them when you turn it on, and the app shows them "Showing: everyone (your workspace role)" |
-| Who can give scopes | DataHub admins, from the installer's `access` command. On Azure also from **Share** in the app: see below |
+| Who can give scopes | DataHub App admins, from the installer's `access` command. On Azure also from **Share** in the app: see below |
 
 **Upgrades and Repair.**
 
@@ -271,7 +271,7 @@ A model definition deploy drops role members, so after every deploy the installe
 |---|---|
 | **AnalyticsHub.Admin** | Give anyone **Below a person** or **An org**, optionally with **Can share their org**. See and take back every scope given here, and approve the ones waiting for an admin |
 | A leader: someone with a **can share** scope | Give someone **My org**: the people below themselves. Only when that sits inside a scope they were given with can share (an `all` scope, or a **Below a person** scope for themselves or someone above them). They can't pass on can share, and they take back only what they gave |
-| Everyone else | Sees "Only a DataHub admin can choose what people see", with who to ask |
+| Everyone else | Sees "Only a DataHub App admin can choose what people see", with who to ask |
 
 - Nobody gives **Everyone** (`all`) from the app. That changes the Everyone role's members, so it stays in the installer's `access` command.
 - A delegate also needs to be in the viewer group. The app adds them as the signed-in person, so it only works for owners of the group and directory admins. For anyone else the scope is saved as **Waiting for an admin** and has no effect until an admin approves it in the Share panel, which adds them to the group. No extra Graph permissions are needed.

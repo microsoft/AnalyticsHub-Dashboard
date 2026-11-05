@@ -337,7 +337,7 @@ test('server: only the printed link opens it, and every call needs its cookie', 
     assert.equal(state.status, 200);
     assert.deepEqual(JSON.parse(state.body), { installed: false });
     const html = await call(server.port, { path: '/', headers: { Cookie: cookie } });
-    assert.match(html.body, /<title>DataHub installer<\/title>/);
+    assert.match(html.body, /<title>DataHub App installer<\/title>/);
     assert.match(String(html.headers['content-security-policy']), /default-src 'none'/);
   } finally {
     server.close();
@@ -735,7 +735,7 @@ test('page: the stages and the finish it waits for are headings the installer pr
   // Done is last, so nothing ahead of it is skipped; each target-only stage is one of the stages.
   const stages = list('INSTALL_STAGES');
   assert.equal(stages.at(-1), 'Done');
-  assert.ok(!stages.includes('Where should DataHub run?'), 'the target question comes first, so it slots in');
+  assert.ok(!stages.includes('Where should DataHub App run?'), 'the target question comes first, so it slots in');
   const only = /const TARGET_STAGES = \{([\s\S]*?)\n\};/.exec(app)?.[1] ?? '';
   const tagged = [...only.matchAll(/'([^']+)'/g)].map((x) => x[1]);
   assert.ok(tagged.includes('Fabric') && tagged.includes('Checking Azure'));

@@ -157,7 +157,7 @@ export function schemaElements(modelName, schema) {
 
 /** What each model holds, for its data source description. */
 export const MODEL_DESCRIPTIONS = /** @type {Record<ModelAlias, string>} */ ({
-  vl: 'Microsoft 365 Copilot and agent usage, licences, readiness, value, efficiency, feedback and governance, from the DataHub Lakehouse.',
+  vl: 'Microsoft 365 Copilot and agent usage, licences, readiness, value, efficiency, feedback and governance, from the DataHub App Lakehouse.',
   cc: 'Copilot credit consumption: Copilot Studio, Cowork and pay-as-you-go credits, budgets and chargeback.',
   ae: 'Copilot Studio agent quality: conversation outcomes, topic health and evaluations from the agents\u2019 transcripts.',
 });
@@ -185,7 +185,7 @@ const PAGE_LABELS = /** @type {Record<string, string>} */ ({
  */
 export function agentInstructions(catalogue, modelNames) {
   const rules = [
-    'You are DataHub Ask. You answer business leaders\u2019 questions about Microsoft 365 Copilot and agents: adoption, licences, credit consumption, value, efficiency, governance and agent quality.',
+    'You are DataHub App Ask. You answer business leaders\u2019 questions about Microsoft 365 Copilot and agents: adoption, licences, credit consumption, value, efficiency, governance and agent quality.',
     `Answer only from these semantic models: ${modelNames.join(', ')}. Don\u2019t use general knowledge for any figure.`,
     '',
     'Rules:',
@@ -195,18 +195,18 @@ export function agentInstructions(catalogue, modelNames) {
     '- Describe differences as comparisons, never as causes. Don\u2019t say one thing caused, drove, led to or resulted in another.',
     '- Don\u2019t forecast. The only projection allowed is the budget runway the consumption model already calculates.',
     `- Never show a group of fewer than ${catalogue.minPeople} people. Leave out any organisation, department or other group whose people count is under ${catalogue.minPeople}, and say small groups are left out.`,
-    '- Use the measures each data source\u2019s instructions name, rather than writing your own calculation: they are the definitions the DataHub pages use, so your answer matches what people see there.',
+    '- Use the measures each data source\u2019s instructions name, rather than writing your own calculation: they are the definitions the DataHub App pages use, so your answer matches what people see there.',
     '- For what a metric means, read the Metric Glossary table.',
     '- Keep answers short: figures first, then one or two sentences. When asked, show the DAX you ran.',
     '',
-    'Questions people ask, by DataHub page:',
+    'Questions people ask, by DataHub App page:',
     ...catalogue.pages.map((p) => `- ${PAGE_LABELS[p.destination] ?? p.destination}: ${p.questions.join(' | ')}`),
   ];
   return fit(rules.join('\n'), INSTRUCTIONS_LIMIT);
 }
 
 /**
- * A data source's instructions: how each figure the DataHub pages show is worked out on it.
+ * A data source's instructions: how each figure the DataHub App pages show is worked out on it.
  * @param {Ask} ask
  * @param {ModelAlias} alias
  * @param {ReturnType<typeof visibleSchema>} schema
@@ -217,11 +217,11 @@ export function dataSourceInstructions(ask, alias, schema) {
   const lines = [MODEL_DESCRIPTIONS[alias], ''];
   if (alias === 'vl') {
     lines.push(
-      "Filter dates on 'Calendar'[Date] and organisations on 'Chat + Agent Org Data'[Organization], as the DataHub pages do.",
+      "Filter dates on 'Calendar'[Date] and organisations on 'Chat + Agent Org Data'[Organization], as the DataHub App pages do.",
       '',
     );
   }
-  lines.push('How the DataHub pages work out each figure. Use the same measures and columns:');
+  lines.push('How the DataHub App pages work out each figure. Use the same measures and columns:');
   for (const tool of ask.catalogue.tools.filter((t) => t.model === alias)) {
     // A query that works some figures out itself, for speed, lists the model's measures and
     // columns behind them as `references`, so the agent is pointed at those, not the query's own working.
