@@ -28,14 +28,14 @@ credit consumption and cost.
 
 </div>
 
-## DataHub App in 45 seconds
+## DataHub App in 42 seconds
 
-https://github.com/user-attachments/assets/c61c2a28-74bb-49ac-9456-67c09294c042
+https://github.com/user-attachments/assets/c62b1fb7-8cb4-46c3-8f0b-aec5cf591e5f
 
 Created with OpenMontage, using synthetic demo data and AI-generated narration.
 [Captions](media/DataHub-App-Overview-OpenMontage.en-GB.vtt) ·
 [Transcript](media/DataHub-App-Overview-OpenMontage-transcript.txt) ·
-[Download](media/DataHub-App-Overview-OpenMontage-45s.mp4)
+[Download](media/DataHub-App-Overview-OpenMontage-42s.mp4)
 
 ## Videos
 

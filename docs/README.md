@@ -12,7 +12,7 @@ History, your organisation, agents, value and cost, on top of the official Copil
 patterns · Readiness · Agent Evaluation · Governance · Feedback · Ask · Assumptions · Appendix.
 Screenshots and every section: **[App guide](APP-GUIDE.md)**.
 
-**[DataHub App overview](../README.md#datahub-app-in-45-seconds):** 45 seconds, created with
+**[DataHub App overview](../README.md#datahub-app-in-42-seconds):** 42 seconds, created with
 OpenMontage using synthetic demo data and AI-generated narration.
 [Captions](../media/DataHub-App-Overview-OpenMontage.en-GB.vtt) ·
 [Transcript](../media/DataHub-App-Overview-OpenMontage-transcript.txt).
