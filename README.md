@@ -9,6 +9,7 @@
 <br>
 
 All reports and guides can be found on the [DataHub App site](https://microsoft.github.io/Analytics-Hub/).
+Explore demos and related projects on [DataLab](https://ai-datalab.github.io/).
 
 **Want a more targeted report?** [ValueLens](https://github.com/microsoft/ValueLens-for-Microsoft-Copilot)
 covers the adoption and value parts of the DataHub App, and
@@ -26,6 +27,15 @@ credit consumption and cost.
 <br>
 
 </div>
+
+## DataHub App in 42 seconds
+
+https://github.com/user-attachments/assets/c62b1fb7-8cb4-46c3-8f0b-aec5cf591e5f
+
+Created with OpenMontage, using synthetic demo data and AI-generated narration.
+[Captions](media/DataHub-App-Overview-OpenMontage.en-GB.vtt) ·
+[Transcript](media/DataHub-App-Overview-OpenMontage-transcript.txt) ·
+[Download](media/DataHub-App-Overview-OpenMontage-42s.mp4)
 
 ## Videos
 

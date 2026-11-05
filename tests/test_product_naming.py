@@ -19,6 +19,17 @@ def test_readme_branding_and_legacy_destinations():
     assert "AnalyticsHubInstaller.exe" in readme
     assert "releases/latest/download/install.ps1" in readme
     assert "earlier branding" in readme
+    overview = "https://github.com/user-attachments/assets/c62b1fb7-8cb4-46c3-8f0b-aec5cf591e5f"
+    assert f"\n\n{overview}\n\n" in readme
+    assert readme.index(overview) < readme.index("## Installer")
+    assert "synthetic demo data and AI-generated narration" in readme
+    for companion in (
+        "DataHub-App-Overview-OpenMontage-42s.mp4",
+        "DataHub-App-Overview-OpenMontage.en-GB.vtt",
+        "DataHub-App-Overview-OpenMontage-transcript.txt",
+        "DataHub-App-Overview-OpenMontage-poster.jpg",
+    ):
+        assert (ROOT / "media" / companion).is_file()
     asset = "https://github.com/user-attachments/assets/d00b4e05-bc97-4aee-9df3-7be16f9a309f"
     for page in (readme, text("docs/INSTALL.md")):
         assert f"\n\n{asset}\n\n" in page
