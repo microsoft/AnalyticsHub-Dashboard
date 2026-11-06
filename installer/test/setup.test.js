@@ -473,6 +473,41 @@ test('a record whose deployment config outlived a missing resource group can sti
   assert.equal(config.azure.deploymentConfig?.resourceGroup, 'rg-other');
 });
 
+test('Fabric placement with no capacity to create a workspace on: a workspace already on one is chosen, and deploy gets past the capacity check', async (t) => {
+  const f = fixture(t);
+  f.config.target = 'fabric';
+  delete f.config.azure;
+  delete f.config.fabric.workspaceId;
+  delete f.config.fabric.lakehouseId;
+  f.config.setup = { completed: setupCategories(f.config).map((cat) => cat.id) };
+  f.ctx.save();
+  const onCapacity = { id: 'ws-a', displayName: 'Team analytics', type: 'Workspace', capacityId: 'cap-x', capacityRegion: 'North Europe' };
+  /** @type {(string[] | undefined)[]} */
+  const listed = [];
+  Object.assign(f.fabric.api, {
+    listCapacities: async () => [],
+    listWorkspaces: async (/** @type {string[] | undefined} */ roles) => (listed.push(roles), roles?.join(',') === 'Admin,Member' ? [onCapacity] : []),
+    getWorkspace: async (/** @type {string} */ id) => (id === onCapacity.id ? onCapacity : { id }),
+  });
+  f.ctx.setupSection = 'placement';
+  let planShown = false;
+  const asked = respond(f.ui, (e) => {
+    if (e.kind === 'settings') return planShown ? 'close' : 'deploy';
+    if (e.kind === 'confirm' && e.message === 'Go ahead?') {
+      planShown = true;
+      return false;
+    }
+    if (e.kind === 'select' || e.kind === 'input' || e.kind === 'confirm') return e.default;
+    throw new Error(`Unexpected question: ${e.message}`);
+  });
+  assert.equal(await reviewSetup(f.ctx), false);
+  assert.ok(planShown, 'deploy got past the capacity check to the plan');
+  assert.ok(!asked.includes('Which capacity should run it?'), 'no capacity to choose');
+  assert.deepEqual(listed, [['Admin', 'Member']], 'only workspaces you can put it in are offered');
+  assert.equal(f.config.fabric.workspaceId, 'ws-a');
+  assert.equal(f.config.fabric.capacityId, 'cap-x', 'the capacity is the workspace\'s');
+});
+
 /** A new session (fresh ctx) on the same install record, as the next repair would start. @param {ReturnType<typeof fixture>} f */
 function reopen(f) {
   const config = loadConfig(f.ctx.file).config;

@@ -760,6 +760,13 @@ test('page: every command has a row, or for prerequisites its own panel; Check t
   assert.match(app, /backfillDays/, 'the Run row can load more history');
 });
 
+test('page: the header and the rail call it the DataHub App installer, not the Fabric installer', async () => {
+  const app = await readFile(new URL('web/app.js', SRC), 'utf8');
+  assert.match(app, /head\('sliders', 'Set up DataHub App', `DataHub App installer \$\{st\.version\}`\)/);
+  assert.match(app, /h\('span', \{ class: 'brand-name' \}, 'DataHub App'\), h\('span', \{ class: 'brand-sub' \}, 'Installer'\)/);
+  assert.doesNotMatch(app, /Fabric installer/i, 'the installer sets up Azure too');
+});
+
 test('prereqsSnapshot: says whether the signer can assign directory roles, from an active Global or Privileged Role Administrator', () => {
   const row = (/** @type {string} */ status) => /** @type {any} */ ({ id: 'consent-role', label: 'x', neededFor: 'x', status });
   const yes = prereqsSnapshot('admin@contoso.com', [row('met')]);
@@ -767,5 +774,6 @@ test('prereqsSnapshot: says whether the signer can assign directory roles, from 
   assert.equal(yes.upn, 'admin@contoso.com');
   assert.equal(prereqsSnapshot('admin@contoso.com', [row('eligible')]).canAssignDirectoryRoles, false, 'eligible is not active');
   assert.equal(prereqsSnapshot('admin@contoso.com', [row('missing')]).canAssignDirectoryRoles, false);
+  assert.equal(prereqsSnapshot('admin@contoso.com', [row('handoff')]).canAssignDirectoryRoles, false, 'a hand-off means someone else has the role');
   assert.equal(prereqsSnapshot('admin@contoso.com', []).canAssignDirectoryRoles, false);
 });

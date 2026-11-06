@@ -339,8 +339,8 @@ app's ID and version in the org's app catalog.
 | Contributor **and** User Access Administrator (or Owner) on the subscription or resource group | To create resources and the MI's role assignments |
 | Register apps (the default user setting) or Application Administrator | For the web app and SQL reader registrations |
 | Privileged Role Administrator or Global Administrator (or send them a link) | To assign Graph app roles to the MI (equivalent to admin consent today) |
-| Power BI Pro (or PPU) licence, and the ability to create workspaces | For the model workspace |
-| Power BI tenant settings: *Dataset Execute Queries REST API*, and *Service principals can use Fabric/Power BI APIs* (for MI refresh) | The installer checks them if the user is a Fabric administrator |
+| Power BI Pro (or PPU) licence, and the tenant setting *Create workspaces* on for them | For the model workspace |
+| Fabric tenant settings: *Semantic Model Execute Queries REST API* (for the web app's queries), *Service principals can call Fabric public APIs* (for MI refresh) and *Allow visuals created using the Power BI SDK* (for the reports) | The installer checks them if the user is a Fabric administrator. Otherwise it lists them, with *Create workspaces*, for one to confirm |
 | Teams Administrator or Global Administrator, and consent to `AppCatalog.ReadWrite.All` for Microsoft Graph Command Line Tools (or a Teams admin uploads the package) | To publish the tab to the org's app catalog |
 
 ### 5.4 Quota and policy preflight (MSCAPS lessons)
