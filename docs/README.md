@@ -5,8 +5,10 @@ Everything that isn't a setup step. To set up the DataHub App, start at the
 
 ## What you get
 
-History, your organisation, agents, value and cost, on top of the official Copilot reports. See
-[What it adds](FAQ.md#what-does-it-add-to-the-official-reports).
+History, your organisation, agents, Cowork, estimated value and cost, on top of the official
+Copilot reports. See [What it adds](FAQ.md#what-does-it-add-to-the-official-reports).
+Cowork fit and readiness insights use audit data; Cowork credits and cost need optional
+credit consumption data.
 
 **Pages:** Executive summary · Adoption · Value · Consumption · Efficiency · Leaderboards · Work
 patterns · Readiness · Agent Evaluation · Governance · Feedback · Ask · Assumptions · Appendix.
