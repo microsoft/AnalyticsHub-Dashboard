@@ -11,8 +11,8 @@
   },
   "name": { "short": "DataHub App", "full": "DataHub App" },
   "description": {
-    "short": "DataHub App for Microsoft Copilot adoption insights.",
-    "full": "DataHub App surfaces ValueLens Microsoft Copilot analytics in Teams."
+    "short": "DataHub App insights for Microsoft Copilot, agents and Cowork.",
+    "full": "DataHub App surfaces Microsoft 365 Copilot, agent and Cowork analytics in Teams, including estimated value and Cowork fit and readiness. Cowork credits and cost need optional credit consumption data."
   },
   "icons": { "color": "color.png", "outline": "outline.png" },
   "accentColor": "#6264A7",

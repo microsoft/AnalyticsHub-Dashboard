@@ -1,7 +1,9 @@
 # DataHub App for Microsoft Copilot
 
-See how your organisation uses Microsoft 365 Copilot and agents, and the hours and value they
-deliver. Run it on Microsoft Fabric or in your own Azure subscription.
+See how your organisation uses Microsoft 365 Copilot, agents and Cowork, and their estimated
+hours saved and value. Run it on Microsoft Fabric or in your own Azure subscription.
+Cowork fit and readiness insights use audit data; Cowork credits and cost need optional
+credit consumption data.
 
 ## Which path?
 

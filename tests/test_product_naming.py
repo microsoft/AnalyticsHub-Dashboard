@@ -50,6 +50,37 @@ def test_app_source_uses_requested_brand_and_keeps_named_flow():
     assert 'pptx.author = "DataHub App"' in text("app/src/lib/report-export.ts")
 
 
+def test_public_descriptions_include_cowork_and_optional_credits():
+    for path, heading in (
+        ("README.md", "## What you get"),
+        ("docs/wiki/Home.md", "# DataHub App for Microsoft Copilot"),
+        ("docs/README.md", "## What you get"),
+        ("app/README.md", "# DataHub App"),
+    ):
+        section = text(path).split(heading, 1)[1].split("\n## ", 1)[0]
+        source = " ".join(section.split())
+        assert "Cowork" in source, path
+        assert "estimated" in source, path
+        assert "fit and readiness" in source, path
+        assert "optional credit consumption data" in source, path
+
+    manifests = [
+        json.loads(text(path))
+        for path in (
+            "azure/teams/manifest.template.json",
+            "installer/src/azure/teams/manifest.template.json",
+        )
+    ]
+    assert manifests[0]["description"] == manifests[1]["description"]
+    for manifest in manifests:
+        description = manifest["description"]
+        assert "Cowork" in description["short"]
+        assert len(description["short"]) <= 80
+        assert len(description["full"]) <= 4000
+        assert "Cowork fit and readiness" in description["full"]
+        assert "optional credit consumption data" in description["full"]
+
+
 def test_installer_branding_and_deployment_identity_are_separate():
     assert "<title>DataHub App installer</title>" in text("installer/src/web/index.html")
     wizard = text("installer/src/web/app.js")

@@ -4,6 +4,9 @@ The DataHub App is available as a web app in your Fabric workspace. The
 [installer](../installer/README.md) deploys it for you. Use this folder only to deploy it by hand
 or to change it.
 
+It covers Microsoft 365 Copilot, agents and Cowork, including estimated value, Cowork fit and
+readiness. Cowork credits and cost need optional credit consumption data.
+
 The app keeps no copy of your data. Each page queries the semantic model live, as the person
 viewing it, so row-level security applies. How each figure is worked out is in the
 [methodology](../docs/METHODOLOGY.md).

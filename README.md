@@ -4,7 +4,7 @@
 
 # DataHub App - for Microsoft Copilot, Agents, Cowork and Autopilots
 
-**See how your organisation uses Microsoft 365 Copilot and agents, and the hours and value they deliver.**
+**See how your organisation uses Microsoft 365 Copilot, agents and Cowork, and their estimated hours saved and value.**
 
 <br>
 
@@ -49,7 +49,8 @@ and [video reference](docs/README.md#what-you-get); those still use earlier bran
 
 ## What you get
 
-- An app and Power BI reports on Copilot and agent use, value and cost.
+- An app and Power BI reports on Copilot, agent and Cowork use, estimated value and cost.
+- Cowork fit and readiness insights from audit data; Cowork credits and cost with optional credit consumption data.
 - Fresh data every day, kept in your own tenant.
 - The DataHub App is free. You pay for the Fabric capacity or Azure resources it runs on.
 
