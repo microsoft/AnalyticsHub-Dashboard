@@ -119,7 +119,7 @@ a storage account, so your files are kept between sessions.
 | **Entra admin** (Global Administrator or Privileged Role Administrator) | Step 3, about 2 minutes |
 | **Fabric admin** | Turns on *Service principals can call Fabric public APIs*, *Semantic Model Execute Queries REST API* and *Allow visuals created using the Power BI SDK* ([where](PREREQUISITES.md#fabric-admin-about-5-minutes)). If one is only on for security groups, adds who needs it: the managed identity for the first, after step 1, and the people you let in for the other two |
 | **Microsoft 365 admin** | Turns off concealed names in usage reports ([how](PREREQUISITES.md#microsoft-365-admin)) |
-| **Teams admin** | Step 8, if you want Teams ([what](PREREQUISITES.md#teams-admin-for-the-teams-app-azure)) |
+| **Teams admin** | Step 8, if you want Teams ([guidance](../azure/teams/README.md#give-it-to-everyone)) |
 
 Paste each block whole. If a command fails, fix the cause and paste the block again: "already
 exists" errors are fine. If a block says **Not saved**, it stopped there: fix the cause and paste
