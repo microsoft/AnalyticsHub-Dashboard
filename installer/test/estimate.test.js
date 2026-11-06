@@ -154,7 +154,9 @@ test('firstLoadEstimate: the estimate, the queue, and what each target does with
 
   const azure = firstLoadEstimate(30, 'standard', 'azure');
   assert.match(azure, /^Estimate for 30 days of history, for up to 10,000 people: 2 to 3 hours, in one run\./);
-  assert.match(azure, /Each run gets up to 4 hours\. A run cut off then publishes nothing/);
+  assert.match(azure, /Each run fetches for up to about 3 hours, newest weeks first, then publishes what it has loaded, so the reports fill in after each run\./);
+  assert.doesNotMatch(azure, /publishes nothing|4 hours/, 'a run out of time publishes what it has loaded');
+  assert.match(firstLoadEstimate(180, 'large', 'azure'), /^Estimate for 180 days of history, for more than 10,000 people: 2 to 3 days, over three or four runs\./);
   assert.match(azure, /The next scheduled run carries on where it stopped, or start one sooner with "valuelens-install run"/);
   assert.doesNotMatch(azure, /time budget|retries|capacity/, 'Azure has no pipeline retries to count on, and no Fabric capacity');
   assert.doesNotMatch(azure, /It needs/, 'within the allowance, the searches go unsaid');
@@ -172,7 +174,7 @@ test('firstLoadEstimate: a load over the search allowance says what it needs and
   const azure = firstLoadEstimate(90, 'standard', 'azure');
   assert.match(azure, /^Estimate for 90 days of history, for up to 10,000 people: 1 to 2 days, over two or three runs\. /);
   assert.match(azure, /It needs about 270 audit searches\. A tenant can start at least 200/);
-  assert.match(azure, /Each run gets up to 4 hours, and one cut off then publishes nothing\. A run stopped at the search limit publishes what it has fetched\. /);
+  assert.match(azure, /Each run fetches for up to about 3 hours, newest weeks first, then publishes what it has loaded, so the reports fill in after each run\. A run stopped at the search limit does the same\. /);
   assert.match(azure, /The next scheduled run carries on where it stopped\. The estimate counts a run a day: on a weekly schedule, start the runs in between with "valuelens-install run"\. $/);
   assert.doesNotMatch(azure, /start one sooner|time budget|retries|capacity/);
   for (const { target, band, days } of rows()) {

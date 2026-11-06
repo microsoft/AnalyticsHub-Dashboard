@@ -22,7 +22,10 @@ Data layout (same under a local directory or the ADLS account; first segment = c
     raw/agent_<sessions|turns|errors|subagents|performance>/month-YYYYMM.parquet
                                                                (module agentEvaluator: Copilot Studio transcripts)
     raw/agent_catalogue/part-0.parquet, raw/evaluator_status/part-0.parquet  (module agentEvaluator)
-    raw/_state/audit.json, raw/_state/agent_evaluator.json     (what the incremental collectors last read)
+    raw/_state/audit.json, raw/_state/agent_evaluator.json     (what the incremental collectors last read; for audit
+                                                               also where the load had got to for the last process
+                                                               step and the last publish, for `status`)
+    raw/_state/refresh.json                                    (a full model refresh a later run still owes)
     curated/copilot_interactions_curated/month-YYYYMM.parquet  (one file per month; month-none = no date)
     curated/_valuelens_process/state.json, context/            (incremental process bookkeeping)
     curated/<studio_* | viva_*>/part-0.parquet                 (module consumption, merged state)
@@ -38,10 +41,14 @@ import argparse
 import hashlib
 import json
 import logging
+import math
 import os
 import re
 import sys
 import tempfile
+import time
+from dataclasses import dataclass
+from datetime import datetime, timezone
 from pathlib import Path
 
 import duckdb
@@ -69,6 +76,206 @@ PROCESS_INPUTS = ("raw/copilot_interactions_parsed", "raw/copilot_licensed_users
 # Source rows one processing pass curates. More (a long backfill, or a full rebuild of a large tenant) run as
 # passes of whole months, oldest first, so memory and spill follow the largest pass, not the whole history.
 DEFAULT_PROCESS_PASS_ROWS = 2_000_000
+# The run job's replica timeout when VALUELENS_JOB_TIMEOUT_SEC (set from the same Bicep variable) is missing.
+DEFAULT_JOB_TIMEOUT_SEC = 14_400
+# Kept back from the audit fetch for the merge, process, publish and refresh: this, or RESERVE_FACTOR times the
+# last run's merge-to-publish time when that's longer.
+MIN_RESERVE_SEC = 3_600
+RESERVE_FACTOR = 1.5
+# The refresh step stops waiting this long before the replica timeout, so the run ends before it's stopped.
+REFRESH_MARGIN_SEC = 600
+
+
+@dataclass
+class RunBudget:
+    """The run's time limits, as readings of `clock`, counted from the job's start."""
+    clock: object
+    start: float
+    timeout_s: float
+    reserve_s: float
+    fetch_deadline: float
+    override_min: float | None = None
+
+    @property
+    def hard_deadline(self) -> float:
+        return self.start + self.timeout_s
+
+    @property
+    def refresh_deadline(self) -> float:
+        return self.hard_deadline - REFRESH_MARGIN_SEC
+
+    def left(self) -> float:
+        return self.hard_deadline - self.clock()
+
+
+def _seconds(environ, name, default, scale=1.0, minimum=0.0):
+    raw = environ.get(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        value = float(raw) * scale
+        if not math.isfinite(value) or value < minimum:
+            raise ValueError(raw)
+        return value
+    except ValueError:
+        log.warning("%s=%r isn't a number we can use; %s", name, raw,
+                    "ignored" if default is None else f"using {default:.0f} seconds")
+        return default
+
+
+def run_budget(store, environ, *, start, clock=time.monotonic, settle=False) -> RunBudget:
+    """The run's time budget, counted from the job's start (`start`, a reading of `clock`).
+
+    The hard deadline is the run job's replica timeout, VALUELENS_JOB_TIMEOUT_SEC (14,400 seconds when it's
+    missing). The audit fetch stops a reserve before it: 60 minutes, or 1.5 times the last run's
+    merge-to-publish time when that's longer. VALUELENS_AUDIT_TIME_BUDGET_MIN replaces that with minutes counted
+    from the job's start, capped at the hard deadline.
+
+    A `merge_open` left in the audit state means the last run merged and was stopped before it published, so
+    its merge-to-publish time was at least the time it had left (`cutoff_s`). With `settle` (a run that collects)
+    that becomes the last run's time in the state, so the reserve grows to cover it.
+    """
+    timeout = _seconds(environ, "VALUELENS_JOB_TIMEOUT_SEC", float(DEFAULT_JOB_TIMEOUT_SEC), minimum=1.0)
+    last = 0.0
+    if store is not None:
+        from .collect.audit import STATE
+
+        try:
+            state = store.read_json(STATE, {}) or {}
+            last = float(state.get("last_merge_to_publish_s") or 0)
+            opened = state.get("merge_open")
+            if isinstance(opened, dict):
+                cutoff = float(opened.get("cutoff_s") or 0)
+                last = max(last, cutoff)
+                if settle:
+                    log.warning("run: the last run merged audit history at %s and was stopped before it published; "
+                                "it had %.0f min left, so this run keeps at least %.0f min back",
+                                opened.get("started_at"), cutoff / 60, RESERVE_FACTOR * last / 60)
+                    state.pop("merge_open", None)
+                    state["last_merge_to_publish_s"] = round(last, 1)
+                    store.write_json(STATE, state)
+        except Exception as exc:
+            log.warning("run: couldn't read the last run's merge-to-publish time from %s (%s); keeping %s min back",
+                        STATE, exc, MIN_RESERVE_SEC // 60)
+            last = 0.0
+    reserve = max(float(MIN_RESERVE_SEC), RESERVE_FACTOR * last)
+    override = _seconds(environ, "VALUELENS_AUDIT_TIME_BUDGET_MIN", None, scale=60.0)
+    fetch = start + (min(override, timeout) if override is not None else max(timeout - reserve, 0.0))
+    return RunBudget(clock, start, timeout, reserve, fetch,
+                     override / 60 if override is not None else None)
+
+
+def _start_owed_rebuild(store, budget, requested=False) -> bool:
+    """Whether this run's process rebuilds every month: requested, or owed since the history loaded.
+
+    Months merged newest first can curate differently from one pass over the history (an agent link found in an
+    older month), so once the history is loaded the tables are rebuilt once: in the run that finishes the load if
+    it has twice the reserve left, otherwise in the next run, whatever time that one has left.
+    """
+    from .collect.audit import STATE
+
+    try:
+        state = store.read_json(STATE, {}) or {}
+    except Exception as exc:
+        log.warning("process: couldn't read %s (%s); a rebuild owed once the history loaded waits for a later run",
+                    STATE, exc)
+        return requested
+    if not state.get("full_rebuild_owed"):
+        return requested
+    if not requested and budget is not None and not state.get("full_rebuild_deferred"):
+        need, left = 2 * budget.reserve_s, budget.left()
+        if left < need:
+            # Once only: a reserve over a quarter of the run's limit would otherwise put it off for good.
+            state["full_rebuild_deferred"] = True
+            store.write_json(STATE, state)
+            log.warning("process: the rebuild owed now the history is loaded waits for the next run: %.0f min left, "
+                        "%.0f min wanted", max(left, 0) / 60, need / 60)
+            return False
+    # Without the processing state, a run stopped before the first pass is saved still rebuilds every month next
+    # time. Each pass saves the state, so a run stopped later resumes with the months still to do.
+    store.remove([PROCESS_STATE])
+    state.pop("full_rebuild_owed", None)
+    state.pop("full_rebuild_deferred", None)
+    store.write_json(STATE, state)
+    log.info("process: rebuilding every month once, as the history was loaded newest first")
+    return True
+
+
+def _merge_open(store):
+    from .collect.audit import STATE
+
+    state = store.read_json(STATE, {}) or {}
+    return state, state.pop("merge_open", None)
+
+
+def _record_merge_to_publish(store, budget):
+    """Record how long this run took from the audit merge to the end of publish, for the next run's reserve."""
+    from .collect.audit import STATE
+
+    try:
+        state, opened = _merge_open(store)
+        if not isinstance(opened, dict):
+            return
+        began, now = opened.get("clock"), budget.clock()
+        if isinstance(began, (int, float)) and budget.start <= began <= now:
+            took = round(now - began, 1)
+            state["last_merge_to_publish_s"] = took
+            log.info("run: %.0f min from the audit merge to the end of publish; the next run keeps at least %.0f min "
+                     "back", took / 60, max(MIN_RESERVE_SEC, RESERVE_FACTOR * took) / 60)
+        store.write_json(STATE, state)
+    except Exception as exc:
+        log.warning("run: couldn't record the merge-to-publish time in %s (%s)", STATE, exc)
+
+
+def _close_merge(store):
+    """Drop this run's `merge_open` when it ended without publishing (an error, or no publish step)."""
+    try:
+        state, opened = _merge_open(store)
+        if opened is not None:
+            from .collect.audit import STATE
+
+            store.write_json(STATE, state)
+    except Exception as exc:
+        log.warning("run: couldn't tidy the audit state (%s)", exc)
+
+
+def _audit_seen(store):
+    """Where the audit load had got to as a process step starts. The step curates what was merged by then, so a
+    publish that carries its output puts that history in the reports. None when the state can't be read."""
+    from .collect.audit import SEEN, STATE
+
+    try:
+        state = store.read_json(STATE, {}) or {}
+    except Exception as exc:
+        log.warning("process: couldn't read the audit load's progress in %s (%s); status keeps what the last "
+                    "publish carried", STATE, exc)
+        return None
+    return dict({k: state[k] for k in SEEN if state.get(k) is not None},
+                process_started_at=datetime.now(timezone.utc).isoformat())
+
+
+def _audit_processed(store):
+    """What the last process step to finish had seen as it started (see `_audit_seen`), or None."""
+    from .collect.audit import STATE
+
+    try:
+        processed = (store.read_json(STATE, {}) or {}).get("processed")
+    except Exception as exc:
+        log.warning("publish: couldn't read %s (%s); status keeps what the last publish carried", STATE, exc)
+        return None
+    return processed if isinstance(processed, dict) else None
+
+
+def _record_audit(store, name, value):
+    """Set `name` in the audit state. Left unset, `status` reads less as in the reports, never more."""
+    from .collect.audit import STATE
+
+    try:
+        state = store.read_json(STATE, {}) or {}
+        state[name] = value
+        store.write_json(STATE, state)
+    except Exception as exc:
+        log.warning("run: couldn't record %s in %s (%s)", name, STATE, exc)
 
 
 def q_lit(value: str) -> str:
@@ -360,16 +567,28 @@ def _api(settings):
     return Api(TokenSource())
 
 
-def collect(store, settings, api=None) -> dict:
+def collect(store, settings, api=None, *, budget=None) -> dict:
     """Run every selected collector. One failing source doesn't stop the others (or the publish that
-    follows); failures are returned under ``errors`` and fail the job once the remaining steps finish."""
+    follows); failures are returned under ``errors`` and fail the job once the remaining steps finish.
+
+    The audit collector runs last, so a slow or throttled history fetch never keeps the other sources from
+    running. With `budget` it fetches until the run's time budget, counted from the job's start, so the time the
+    other collectors take shortens it; then it pauses, and the next run carries on.
+    """
     from .collect.audit import collect_audit
+    from .collect.audit import remember_backfill as remember_audit_backfill
     from .collect.graph import collect_licensed, collect_m365, collect_org
 
     api = api or _api(settings)
+    clock = budget.clock if budget is not None else time.monotonic
     jobs = []
     if settings.has("core"):
-        jobs += [("licensed", collect_licensed), ("audit", collect_audit)]
+        jobs.append(("licensed", collect_licensed))
+        try:
+            # Before any collector runs: a reload this run stops short of is then read by the next runs.
+            remember_audit_backfill(store, settings)
+        except Exception as exc:
+            log.warning("collect audit: couldn't remember the reload for later runs: %s", exc)
     if settings.has("orgData"):
         jobs.append(("org", collect_org))
         if settings.has("workday"):
@@ -421,13 +640,29 @@ def collect(store, settings, api=None) -> dict:
         else:
             # The installer lists the environments once the managed identity can read one of them.
             log.info("collect agent_evaluator: VALUELENS_DATAVERSE_ENVIRONMENTS lists no environment yet; skipped")
+    if settings.has("core"):
+        # Last, so a slow or throttled history fetch never keeps the other sources from running. No other
+        # collector reads what it writes; `process` does, after every collector.
+        jobs.append(("audit", collect_audit))
     out, errors = {}, {}
     for name, fn in jobs:
+        kwargs = {}
+        if name == "audit" and budget is not None:
+            kwargs = {"deadline": budget.fetch_deadline, "hard_deadline": budget.hard_deadline, "clock": clock}
+            log.info("collect audit: fetching for up to %.0f min, until %.0f min after the job's start (%s); the "
+                     "run's limit is %.0f min", max(budget.fetch_deadline - clock(), 0) / 60,
+                     (budget.fetch_deadline - budget.start) / 60,
+                     f"VALUELENS_AUDIT_TIME_BUDGET_MIN={budget.override_min:g}" if budget.override_min is not None
+                     else f"{budget.reserve_s / 60:.0f} min kept back for merge, process, publish and refresh",
+                     budget.timeout_s / 60)
+        began = clock()
         try:
-            out[name] = fn(api, store, settings)
+            out[name] = fn(api, store, settings, **kwargs)
         except Exception as exc:
             log.exception("collect %s failed: %s", name, exc)
             errors[name] = f"{type(exc).__name__}: {exc}"
+        finally:
+            log.info("collect %s: took %.1f min", name, (clock() - began) / 60)
     if errors:
         out["errors"] = errors
     return out
@@ -518,16 +753,21 @@ def migrate_step(settings, conn=None, folder=None):
         conn.close()
 
 
-def refresh_step(settings, api=None, publish_results=None, today=None):
+def refresh_step(settings, api=None, publish_results=None, today=None, store=None, deadline=None, clock=None):
+    """Refresh the models. `deadline` (a reading of `clock`) caps the waits; with `store`, a full refresh this run
+    can't finish stays owed to the next run that has the store (see refresh.refresh_models)."""
     from datetime import date
 
     from .refresh import needs_full_refresh, refresh_models
 
     all_partitions = needs_full_refresh(publish_results, today or date.today())
-    return refresh_models(api or _api(settings), settings, all_partitions=all_partitions)
+    extra = {k: v for k, v in (("store", store), ("deadline", deadline), ("clock", clock)) if v is not None}
+    return refresh_models(api or _api(settings), settings, all_partitions=all_partitions, **extra)
 
 
-def main(argv=None, env=None) -> int:
+def main(argv=None, env=None, clock=time.monotonic) -> int:
+    # The run's time budget counts from here (see run_budget).
+    started = clock()
     logging.basicConfig(level=os.environ.get("VALUELENS_LOG_LEVEL", "INFO"),
                         format="%(asctime)s %(levelname)s %(name)s %(message)s")
     # The Azure SDK logs every HTTP request and response at INFO, which buries the job's own lines.
@@ -575,27 +815,55 @@ def main(argv=None, env=None) -> int:
         log.warning("VALUELENS_SAMPLE_DATA is on: publishing the synthetic sample instead of tenant data")
     collect_errors = {}
     published = None
-    for step in STEPS:
-        if step not in steps:
-            continue
-        log.info("step %s: start", step)
-        if step == "collect":
-            if settings.sample_data:
-                from .sample import load
+    # The tenant's own data: not a sample run's throwaway store.
+    tenant = store is not None and not settings.sample_data
+    collects = "collect" in steps and tenant
+    budget = run_budget(store if tenant and {"collect", "process"} & set(steps) else None, environ, start=started,
+                        clock=clock, settle=collects)
+    recorded = False
+    try:
+        for step in STEPS:
+            if step not in steps:
+                continue
+            log.info("step %s: start", step)
+            if step == "collect":
+                if settings.sample_data:
+                    from .sample import load
 
-                load(store, consumption=settings.has("consumption"))
+                    load(store, consumption=settings.has("consumption"))
+                else:
+                    collect_errors = collect(store, settings, budget=budget).get("errors", {})
+            elif step == "process":
+                full = _start_owed_rebuild(store, budget, process_options["full_rebuild"]) if tenant \
+                    else process_options["full_rebuild"]
+                seen = _audit_seen(store) if tenant else None
+                process(store, **{**process_options, "full_rebuild": full})
+                if seen is not None:
+                    _record_audit(store, "processed", seen)
+            elif step == "publish":
+                # The last process step to finish had curated what was merged when it started, so this publish
+                # carries at least that, also in a run that publishes without processing.
+                carried = _audit_processed(store) if tenant else None
+                published = publish_step(store, settings)
+                if collects:
+                    _record_merge_to_publish(store, budget)
+                    recorded = True
+                if carried is not None:
+                    _record_audit(store, "published",
+                                  dict(carried, published_at=datetime.now(timezone.utc).isoformat()))
+            elif step == "access":
+                if "publish" not in steps:
+                    access_step(store, settings)
             else:
-                collect_errors = collect(store, settings).get("errors", {})
-        elif step == "process":
-            process(store, **process_options)
-        elif step == "publish":
-            published = publish_step(store, settings)
-        elif step == "access":
-            if "publish" not in steps:
-                access_step(store, settings)
-        else:
-            refresh_step(settings, publish_results=published)
-        log.info("step %s: done", step)
+                # Only a run that publishes carries an owed full refresh: an `access,refresh` run stays
+                # incremental, so it fits the installer's wait, and a refresh-only run has no store.
+                owed = {"store": store} if tenant and "publish" in steps else {}
+                refresh_step(settings, publish_results=published, deadline=budget.refresh_deadline,
+                             clock=budget.clock, **owed)
+            log.info("step %s: done", step)
+    finally:
+        if collects and not recorded:
+            _close_merge(store)
     if collect_errors:
         raise RuntimeError("the run published what it collected, but these sources failed and resume next run: "
                            + "; ".join(f"{k}: {v}" for k, v in collect_errors.items()))

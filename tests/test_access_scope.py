@@ -217,7 +217,7 @@ def test_access_step_runs_the_sync_alone(tmp_path, monkeypatch):
     calls = []
     monkeypatch.setattr(jobs_main, "access_step", lambda store, settings: calls.append("access") or {})
     monkeypatch.setattr(jobs_main, "publish_step", lambda store, settings: calls.append("publish") or [])
-    monkeypatch.setattr(jobs_main, "refresh_step", lambda settings, publish_results=None: calls.append("refresh"))
+    monkeypatch.setattr(jobs_main, "refresh_step", lambda settings, publish_results=None, **k: calls.append("refresh"))
     env = {"VALUELENS_MODULES": "core"}
     assert jobs_main.main(["run", "--data-dir", str(tmp_path), "--steps", "access,refresh"], env) == 0
     assert calls == ["access", "refresh"]

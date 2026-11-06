@@ -544,10 +544,14 @@ export async function planAzure(ctx, pre, section) {
 /**
  * What Repair or change asks about more history, from the run job's state, or undefined when no history has
  * loaded and the first load's question applies. Once the collector has a high-water mark, more history needs a
- * reload. The high-water mark is set when a run merges every window, so that history is in the reports. A run
- * the installer started isn't history loaded: one that fails, or is cut off at 4 hours, may publish nothing.
- * Where the state can't be read (a private install, or no access to the job's storage), it says what was asked
- * for once the installer has started a run. A demo install publishes the sample, not the tenant's history.
+ * reload. The high-water mark is set when a run merges every window. The question is about loading, and that
+ * history is loaded, though it reaches the reports only once a run publishes it (`status` says whether one has).
+ * A run the installer started isn't history loaded: one that fails, or stops at its time limit with windows left,
+ * hasn't loaded it all, though from 0.6.9 it merges the newest weeks it fetched. A first load part-way through
+ * has no high-water mark, so its question is still the first load's; a reload part-way through keeps
+ * `backfill_from`. Where the state can't be read (a private install, or no access to the job's storage), it says
+ * what was asked for once the installer has started a run. A demo install publishes the sample, not the tenant's
+ * history.
  * @param {Ctx} ctx
  * @returns {Promise<import('../plan.js').HistorySaid | undefined>}
  */
@@ -569,14 +573,17 @@ export async function azureHistoryLoaded(ctx) {
 export const BACKFILL_ENV = 'VALUELENS_AUDIT_BACKFILL_DAYS';
 
 /**
- * How long a reload takes on Azure, which has no pipeline. A run stops at 4 hours, and the scheduled
- * runs after it carry on with whatever the reload hasn't loaded. Fabric's wording is `reloadDetail`'s.
+ * How long a reload takes on Azure, which has no pipeline. A run fetches for about 3 hours, newest weeks first,
+ * and publishes what it has loaded; the scheduled runs after it carry on with whatever the reload hasn't loaded.
+ * Fabric's wording is `reloadDetail`'s.
  * @param {number} days
  * @param {'standard' | 'large' | undefined} [scale]
  */
 const azureReloadDetail = (days, scale) => {
   const estimate = estimateShort(days, scale, 'azure');
-  return days > 30 ? `${estimate} A run stops at 4 hours, and the scheduled runs after it carry on with the reload until it has all loaded.` : estimate;
+  return days > 30
+    ? `${estimate} A run fetches for about 3 hours and publishes what it has loaded, and the scheduled runs after it carry on with the reload until it has all loaded.`
+    : estimate;
 };
 
 /**
@@ -1566,7 +1573,7 @@ export function azureSizingWarnings({ headcount, scale, sampleData, sqlFreeLimit
   }
   if (count >= BIG_CAPACITY_PEOPLE) {
     out.push(
-      `${who}. Each run of the collector job has ${RUN_JOB_SIZE} and up to 4 hours, so a long first load may not fit in one run; the next run carries on reading the audit log from where it stopped. In Schedule and loading, start with 30 days of history and reload more once the first load finishes.`,
+      `${who}. Each run of the collector job has ${RUN_JOB_SIZE} and up to 4 hours, so a long first load takes more than one run: each run fetches the newest weeks it can in about 3 hours and publishes them, and the next run carries on reading the audit log from where it stopped. In Schedule and loading, start with 30 days of history and reload more once the first load finishes.`,
     );
   }
   if (sharedCapacity ?? !powerBiCapacityId) out.push(sharedCapacityWarning(counted));

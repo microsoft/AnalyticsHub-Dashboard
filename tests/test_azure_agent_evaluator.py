@@ -585,16 +585,18 @@ def test_a_reload_the_run_stops_short_of_is_read_by_the_next_runs(tmp_path, monk
     before = store.read_json(ae.STATE)
     assert len(rows(store, "agent_sessions")) == 2
 
-    # The reload's run: its audit fetch uses up the run job's 4 hours, so Agent Evaluator never starts.
+    # The reload's run is stopped at the run job's time limit before Agent Evaluator starts (the audit history
+    # runs last, so here a slow collector before it uses the time up).
     seen = []
 
     def stopped(*a, **k):
+        seen.append(store.read_json(ae.STATE))
         raise Stopped
 
     remember = ae.remember_backfill
     monkeypatch.setattr(ae, "remember_backfill", lambda st, se, now=None: remember(st, se, now or NOW))
-    monkeypatch.setattr(graph, "collect_licensed", lambda *a, **k: seen.append(store.read_json(ae.STATE)))
-    monkeypatch.setattr(audit, "collect_audit", stopped)
+    monkeypatch.setattr(graph, "collect_licensed", stopped)
+    monkeypatch.setattr(audit, "collect_audit", lambda *a, **k: pytest.fail("the run was stopped before audit"))
     reload = Settings(modules=frozenset({"core", "agentEvaluator"}), dataverse_environments=s.dataverse_environments,
                       audit_backfill_days=365, transcript_parse_workers=0)
     with pytest.raises(Stopped):
