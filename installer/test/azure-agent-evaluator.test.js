@@ -259,6 +259,30 @@ test('Azure install with Agent Evaluator: a third model, reading Azure SQL, boun
   assert.ok(t.ui.text().includes('The jobs\' managed identity can read every transcript in Example'));
 });
 
+test('Azure first run waits for Dataverse to copy the transcript reader role to the application user\'s business unit', async () => {
+  const env = fakeTranscriptEnvironment({
+    units: ['bu-child'],
+    users: [{ systemuserid: 'user-existing', applicationid: 'mi-client', _businessunitid_value: 'bu-child' }],
+    userRoles: { 'user-existing': ['role-btv'] },
+  });
+  const roleCopy = env.api.roleCopy;
+  let lookups = 0;
+  env.api.roleCopy = async (roleId, businessUnitId) => {
+    lookups++;
+    return lookups < 3 ? undefined : roleCopy(roleId, businessUnitId);
+  };
+
+  const t = await aeInstall({ dataverse: { [ENV]: env } });
+
+  assert.equal(lookups, 3, 'the first two reads precede Dataverse creating the copy');
+  assert.ok(env.calls.includes('assignRole user-existing read-1-bu-child'));
+  assert.deepEqual(t.config.agentEvaluator.environments[0], {
+    url: ENV, id: 'env-1', name: 'Example', access: true, readAll: true, accessAppId: 'mi-client',
+  });
+  assert.deepEqual(jobSettings(t.deployments).environments, [{ url: ENV, name: 'Example' }], 'the first run is configured only after the role is assigned');
+  assert.doesNotMatch(t.ui.text(), /has no copy of the .* role/);
+});
+
 test('Azure install with Agent Evaluator: no model in demo mode, without an environment or without its template', async () => {
   /** @type {[string, Parameters<typeof aeInstall>[0]][]} */
   const cases = [

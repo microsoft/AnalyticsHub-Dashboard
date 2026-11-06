@@ -155,6 +155,9 @@ const host = (url) => {
 /** Environments probed for agents at once, and how long each probe may take. */
 const PROBE_CONCURRENCY = 4;
 const PROBE_TIMEOUT_MS = 8000;
+/** Dataverse may take a few minutes to create child-business-unit copies of a new root role. */
+const ROLE_COPY_ATTEMPTS = 6;
+const ROLE_COPY_RETRY_MS = 30_000;
 
 /** Discovery doesn't flag the default environment; its name ends "(default)". */
 const isDefault = (/** @type {import('../clients/dataverse.js').DataverseInstance} */ i) => /\(default\)\s*$/i.test(i.FriendlyName ?? '');
@@ -326,9 +329,10 @@ export async function grantTranscriptAccess(dv, appId, role) {
  * @param {import('../clients/dataverse.js').DataverseApi} dv
  * @param {string} appId
  * @param {ReadRole} role
+ * @param {{ sleep?: (ms: number) => Promise<void> }} [opts]  Wait for Dataverse role copies when the reader is managed.
  * @returns {Promise<TranscriptGrant>}
  */
-export async function addTranscriptReader(dv, appId, role) {
+export async function addTranscriptReader(dv, appId, role, opts = {}) {
   /** @type {Omit<TranscriptGrant, 'result'>} */
   const made = {};
   /** @type {string | undefined} */
@@ -401,7 +405,11 @@ export async function addTranscriptReader(dv, appId, role) {
 
     // Dataverse copies a root business unit's roles into each child unit, and a user holds the copy in its own unit.
     // The copy is found by the role it was made from, so a role that only shares the name there is never given.
-    const copy = bu.toLowerCase() === top.toLowerCase() ? readRoleId : await dv.roleCopy(readRoleId, bu);
+    let copy = bu.toLowerCase() === top.toLowerCase() ? readRoleId : await dv.roleCopy(readRoleId, bu);
+    for (let attempt = 1; !copy && opts.sleep && attempt < ROLE_COPY_ATTEMPTS; attempt++) {
+      await opts.sleep(ROLE_COPY_RETRY_MS);
+      copy = await dv.roleCopy(readRoleId, bu);
+    }
     if (!copy) return { result: 'no-copy', ...made };
     if (!held.has(copy.toLowerCase())) {
       await dv.assignRole(userId, copy);
@@ -451,7 +459,7 @@ export async function ensureTranscriptAccess(ctx, reader = appReader(ctx)) {
     /** @type {TranscriptGrant} */
     let grant;
     try {
-      grant = await addTranscriptReader(api.dataverse(env.url), reader.appId, reader.readRole);
+      grant = await addTranscriptReader(api.dataverse(env.url), reader.appId, reader.readRole, reader.managed ? { sleep: (ms) => ctx.sleep(ms) } : {});
     } catch (err) {
       const made = /** @type {{ grant?: TranscriptGrant }} */ (err)?.grant;
       // With Bot Transcript Viewer it reads the transcripts shared with it, as before this role.

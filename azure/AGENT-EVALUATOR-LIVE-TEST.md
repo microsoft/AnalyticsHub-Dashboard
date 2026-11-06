@@ -1,8 +1,9 @@
 # Agent Evaluator on Azure: live test
 
-**Don't run any of this until it's approved.** It changes a tenant and costs money: see
-[What it changes](#what-it-changes). Run it on installer 0.6.8 or later, which gives the jobs'
-managed identity the transcript reader role. rc.2 was the first release candidate with Agent
+**Plan only: don't run any of this until the live test is separately approved.** It changes a
+tenant and costs money: see [What it changes](#what-it-changes). Run it only against the reviewed
+candidate commit and its matching job and web images, which must include the fixes under test.
+Record the commit and image tag in section 15. rc.2 was the first release candidate with Agent
 Evaluator on Azure, but it gave the managed identity only Bot Transcript Viewer, which reads only
 the transcripts the identity owns or that are shared with it. In a test environment, that was none.
 
@@ -19,7 +20,10 @@ what they should. `tests/test_azure_agent_evaluator.py` covers the collector aga
 Dataverse, and the installer's tests cover its Dataverse calls against a fake client. This covers
 what those tests can't.
 
-The commands are PowerShell. The steps use public endpoints. With private networking, the logs
+For the requested pass, execute steps 0–5, then uninstall and clean up using steps 13–14. Skip
+steps 6–12 and the optional Fabric comparison; they are outside this single-install validation.
+
+The commands are PowerShell. This requested pass uses public endpoints. With private networking, the logs
 are in `ContainerAppConsoleLogs` (columns `ContainerGroupName` and `Log`), not
 `ContainerAppConsoleLogs_CL`.
 
@@ -27,8 +31,8 @@ are in `ContainerAppConsoleLogs` (columns `ContainerGroupName` and `Log`), not
 
 | | |
 |---|---|
-| **Dataverse** | The jobs' managed identity becomes an application user with two roles in one or two environments: **Bot Transcript Viewer**, and a role the installer creates for the install, *Analytics Hub transcript reader* and the first 8 characters of the install's ID, which holds only ConversationTranscript read at Organization depth. The installer adds the user and both roles in A. In B you add the user and a role of your own by hand (step 7), and the installer then adds its role there too. Steps 9 to 11 and uninstall remove what the installer added, or print the steps. You remove B's user and your role yourself (step 14). |
-| **Data read** | Up to 180 days of Copilot Studio transcripts from those environments. The jobs keep only parsed rows: prompts, replies and error messages as 500-character previews; feedback comments as written, up to 4,000 characters; and each person's Entra object ID and UPN. They're kept in the test install's storage account and Azure SQL database, and are deleted with its resource group. |
+| **Dataverse** | For this pass, the jobs' managed identity becomes an application user in A with **Bot Transcript Viewer** and a role the installer creates, *Analytics Hub transcript reader* and the first 8 characters of the install's ID, which holds only ConversationTranscript read at Organization depth. The installer removes the role and user during uninstall, or prints the steps. |
+| **Data read** | Up to 180 days of Copilot Studio transcripts from A. The jobs keep only parsed rows: prompts, replies and error messages as 500-character previews; feedback comments as written, up to 4,000 characters; and each person's Entra object ID and UPN. They're kept in the test install's storage account and Azure SQL database, and are deleted with its resource group. |
 | **Spend** | One Azure install in a new resource group that holds nothing else. If you build the images (step 0), also an Azure Container Registry in its own resource group. Both are deleted the same day. See [What it costs](../docs/PREREQUISITES.md#what-it-costs). |
 | **Power BI** | A new workspace with the install's models. Uninstall asks whether to delete it, and you say yes (step 13). |
 | **Teams** (optional) | Publishing the Teams app to the org catalog, to check the pages in Teams, Outlook and the Microsoft 365 app. It's a Teams change, so it needs separate approval. |
@@ -37,18 +41,17 @@ are in `ContainerAppConsoleLogs` (columns `ContainerGroupName` and `Log`), not
 ## What you need
 
 - A test tenant that's approved for this, and a subscription where you can create resource groups.
-- Environment **A**, and optionally **B**: Power Platform environments with Copilot Studio agents
-  that people have chatted with in the last 30 days. B tests the manual path and a second
-  environment. Developer and Dataverse for Teams environments won't work: Copilot Studio doesn't
-  save their transcripts.
-- Transcripts saved in each environment. In the [Power Platform admin
+- Environment **A**: a Power Platform environment with Copilot Studio agents that people have
+  chatted with in the last 30 days. Developer and Dataverse for Teams environments won't work:
+  Copilot Studio doesn't save their transcripts.
+- Transcripts saved in A. In the [Power Platform admin
   center](https://admin.powerplatform.microsoft.com), go to **Manage** > **Environments** > the
   environment > **Settings** > **Product** > **Features**. Under **Copilot Studio agents**, turn on
   **Allow conversation transcripts and their associated metadata to be saved in Dataverse**. An
   environment group's rules can override this setting. Dataverse keeps transcripts for 30 days by
   default.
 - An account that:
-  - is a user and a **System Administrator** in each environment. The installer lists only the
+  - is a user and a **System Administrator** in A. The installer lists only the
     environments you're a user in.
   - has what the [Azure target](../installer/README.md#azure-target) needs:
     - Contributor and User Access Administrator, or Owner;
@@ -60,12 +63,17 @@ are in `ContainerAppConsoleLogs` (columns `ContainerGroupName` and `Log`), not
 
 ## 0. The code, the images and the install record
 
-Clone the branch under test into a new folder, and keep the install record outside the clone:
+Clone the reviewed candidate branch or tag into a new folder, and keep the install record outside
+the clone:
 
 ```powershell
-git clone --branch <pre-release tag or branch under test> https://github.com/microsoft/AnalyticsHub-Dashboard "$HOME\ae-live-test\src"
+git clone --branch <reviewed candidate tag or branch> https://github.com/microsoft/DataHub-App-for-Microsoft-Copilot-Agents-Cowork-and-Autopilots "$HOME\ae-live-test\src"
+$commit = git -C "$HOME\ae-live-test\src" rev-parse HEAD
 $rec = "$HOME\ae-live-test\valuelens-install.json"
 ```
+
+Use the same candidate commit for both images and installer. Do not use a previously released image
+that lacks the fixes under test.
 
 If the branch under test doesn't include
 [#144](https://github.com/microsoft/AnalyticsHub-Dashboard/pull/144), don't load a Workday
@@ -121,7 +129,7 @@ Then install the installer's dependencies in the clone:
 
 ```powershell
 cd "$HOME\ae-live-test\src\installer"
-npm install
+npm ci
 ```
 
 Run every installer command below from the clone's `installer` folder, with `--config $rec`. Run
@@ -138,7 +146,6 @@ define a helper that reads the Dataverse Web API as you:
 
 ```powershell
 $A = 'https://<environment A>.crm.dynamics.com'
-$B = 'https://<environment B>.crm.dynamics.com'
 function Get-Dv([string]$EnvUrl, [string]$Path) {
   $t = az account get-access-token --resource $EnvUrl --query accessToken -o tsv
   $h = @{ Authorization = "Bearer $t"; Accept = 'application/json'; Prefer = 'odata.maxpagesize=5000' }
@@ -167,6 +174,8 @@ npx valuelens-install install --target azure --config $rec
 - At **Read the environments that hold your Copilot Studio agents**, leave only **A** ticked. The
   list holds the environments you're a user in, and the first time, the installer ticks those
   with agents.
+- Choose a **Daily** schedule and record its UTC time. Let the initial first load finish before the
+  next scheduled start; if it is still running at that time, the run lock should prevent overlap.
 - When the plan asks whether to publish the Teams app, say no unless the Teams part was approved.
 
 The plan should list a **Dataverse application user**, **Jobs' managed identity in A**, and a
@@ -322,13 +331,15 @@ Get-Schedule
 - **Org-scoped access** (optional). Turn it on with `access`. A viewer who's given one org should
   see only that org's sessions on these pages.
 
-## 5. The next run
+## 5. The second scheduled run
 
-```powershell
-npx valuelens-install run --config $rec
-```
+Do not start this run with `valuelens-install run`. After the first load has succeeded, wait for the
+next daily schedule to start the same run job. Use the execution-list command from step 3 until a
+new execution appears, then wait for it to show `Succeeded`. If a scheduled execution starts while
+the first load is still running, confirm that it stops without overlapping, and wait for the next
+daily schedule after the first load succeeds.
 
-When it finishes, read its log as in step 3, and check:
+Read the scheduled run's log as in step 3, and check:
 - there's no `first complete read` line;
 - A's windows start about 14 days back: the days since its last complete read plus one, and at
   least 14;
@@ -566,24 +577,19 @@ npx valuelens-install uninstall --config $rec
 
 Expect:
 - first, a question whether to delete the Power BI workspace it created. Say yes;
-- then, before any deletes, A's role deleted and its user removed as in step 9, and B's role
-  deleted and its user left with the note as in step 10;
+- then, before any deletes, A's role deleted and its user removed as in step 9;
 - it deletes the workspace with its models, the resource group, and the app registrations it
   created.
 
-Check A and B with `Get-Dv` and in the admin center. Neither has an
+Check A with `Get-Dv` and in the admin center. It has no
 *Analytics Hub transcript reader <ID>* role.
 
 ## 14. Clean up
 
-- B's user: in the admin center, select it under **Application users**, **Deactivate** it, then
-  **Delete** it. Only a deactivated application user can be deleted.
-- The role you made in B: under **Security roles**, select it, then **Delete**.
 - A's user, the same way, if Dataverse wouldn't delete it in step 9 or 13. If it only
   soft-deleted it, use the steps the installer printed: **Users** > **Filter** >
   *Users not in Microsoft Entra ID and soft deleted in the environment* > the user > **Delete**.
-- Any *Analytics Hub transcript reader <ID>* role the installer couldn't delete, as for the role you
-  made.
+- The *Analytics Hub transcript reader <ID>* role if the installer couldn't delete it.
 - The Power BI workspace, if uninstall couldn't delete it in step 13.
 - The registry's resource group, if you built the images:
   `az group delete -n <registry resource group> --yes`.
@@ -593,26 +599,23 @@ Check A and B with `Get-Dv` and in the admin center. Neither has an
 
 ## 15. Results
 
+**Not run.** This section is a results sheet for the requested validation only: one fresh install
+of the reviewed candidate, using public endpoints, with the first load and the next daily scheduled
+run. No install, tenant change, deployment, or spend has been performed. Fill in the results only
+after separate approval; keep tenant, subscription, workspace, item and account identifiers out of
+the public repository.
+
 | Step | Check | Result |
 |---|---|---|
-| 1 | Transcripts in A and B in the last 180 days | |
-| 2 | The installer added A's application user with Bot Transcript Viewer and its transcript reader role, and recorded that it created both; the role holds exactly `prvReadconversationtranscript` at `Global`; the one-transcript check; the name the admin center shows | |
-| 3 | A's status `ok`, not `empty`; the `+N` total = the status count = the Dataverse count | |
-| 3 | V − C − F = `agent_sessions` rows; parse failures; 429 lines; bot lookup | |
-| 4 | The `status` lines; schedule on; refresh Completed; DAX counts = published rows; preview ≤ 500 and feedback ≤ 4,000 characters | |
-| 4 | `parity.mjs`: every query `match` or `both-empty` | |
-| 4 | Pages, slicers and the freshness line, in a browser (and in Teams, Outlook and Microsoft 365) | |
-| 5 | 14-day windows; most days unchanged | |
-| 6 | Paging: the same counts at 5 a page | |
-| 7 | The role made by hand, and what the admin center put in it; the admin center found the identity by client ID; `ReadAccess` on a transcript; no second user; the installer's role created and given in B, and B's user recorded as not created by the installer; B's first read | |
-| 7 | Optional: B `empty` with only Bot Transcript Viewer, `forbidden` with no role; C left out, `forbidden`, schedule still on | |
-| 8 | Read, parse tail, merge, publish, refresh and whole-run times; 429s; no OOMKilled | |
-| 9 | A's role deleted; whether the Web API deleted A's user, only soft-deleted it, or wouldn't delete it and the installer turned it back on without its roles; A's rows kept; A added again, with the role created again | |
-| 10 | No environment: pages kept; schedule off; `refresh: ae skipped`; the installer's role deleted in B and B's user left; both back | |
-| 11 | Module off: pages gone, schedule off, model and ID kept, the installer's roles deleted; back on: the same ID, the roles created again, schedule on | |
-| 12 | Optional demo mode: no Dataverse change; pages and schedule off, then back | |
-| 13 | Both installer roles deleted; A's user removed, or the steps printed; B's user left; the workspace and the resource group gone | |
-| 14 | Clean-up done | |
+| 0 | Reviewed source commit and matching job/web image tag recorded; dependencies installed from the lockfile | NOT RUN — planned after approval |
+| 1 | A has transcripts in the last 180 days; the transcript count is recorded | NOT RUN — planned after approval |
+| 2 | New resource group; public endpoints; current candidate image tag; Agent Evaluator enabled for A; daily UTC schedule recorded | NOT RUN — planned after approval |
+| 2 | The managed identity has Bot Transcript Viewer and its transcript-reader role; the role contains only `prvReadconversationtranscript` at `Global`; install record shows the role assignment | NOT RUN — planned after approval |
+| 3 | First load succeeds; A reports `ok`, not `empty`; the window `+N` total, job status and Dataverse count agree; transcript reader access is confirmed | NOT RUN — planned after approval |
+| 3–4 | Agent Evaluator rows publish and refresh; status and refresh schedule are correct; DAX row counts match published rows; app queries and pages work | NOT RUN — planned after approval |
+| 5 | The next run starts from the daily schedule, not a manual command; it succeeds without overlap, reads the expected 14-day window and leaves unchanged days untouched | NOT RUN — planned after approval |
+| 13 | Uninstall removes A's installer-created role and user, plus the test workspace, resource group and app registrations | NOT RUN — planned after approval |
+| 14 | Approved cleanup is complete and no test resources remain | NOT RUN — planned after approval |
 
 ## Optional: compare with Fabric
 
