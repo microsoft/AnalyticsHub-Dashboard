@@ -171,20 +171,20 @@ export function azureWebApplicationBody(o) {
       oauth2PermissionScopes: [
         {
           id: scopeId,
-          adminConsentDescription: 'Allow users to access Analytics Hub.',
-          adminConsentDisplayName: 'Access Analytics Hub',
+          adminConsentDescription: 'Allow users to access DataHub App.',
+          adminConsentDisplayName: 'Access DataHub App',
           isEnabled: true,
           type: 'User',
-          userConsentDescription: 'Allow you to access Analytics Hub.',
-          userConsentDisplayName: 'Access Analytics Hub',
+          userConsentDescription: 'Allow you to access DataHub App.',
+          userConsentDisplayName: 'Access DataHub App',
           value: 'access_as_user',
         },
       ],
       preAuthorizedApplications: o.teamsClientIds.map((appId) => ({ appId, delegatedPermissionIds: [scopeId] })),
     },
     appRoles: [
-      { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub User', value: 'AnalyticsHub.User', description: 'Can use Analytics Hub.', isEnabled: true },
-      { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub Admin', value: 'AnalyticsHub.Admin', description: 'Can administer Analytics Hub.', isEnabled: true },
+      { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub User', value: 'AnalyticsHub.User', description: 'Can use DataHub App.', isEnabled: true },
+      { id: crypto.randomUUID(), allowedMemberTypes: ['User'], displayName: 'Analytics Hub Admin', value: 'AnalyticsHub.Admin', description: 'Can administer DataHub App.', isEnabled: true },
     ],
     requiredResourceAccess: [
       { resourceAppId: POWER_BI_APP_ID, resourceAccess: [{ id: o.pbiScopeId, type: 'Scope' }] },
