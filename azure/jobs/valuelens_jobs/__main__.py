@@ -28,6 +28,8 @@ Data layout (same under a local directory or the ADLS account; first segment = c
     raw/_state/refresh.json                                    (a full model refresh a later run still owes)
     raw/_state/run.lock                                        (the run lock: leased by the run that's going, which
                                                                records which run it is; see runlock.py)
+    raw/_state/chain.json                                      (how many runs started the next one today, UTC; see
+                                                               continue_run.py)
     curated/copilot_interactions_curated/month-YYYYMM.parquet  (one file per month; month-none = no date)
     curated/_valuelens_process/state.json, context/            (incremental process bookkeeping)
     curated/<studio_* | viva_*>/part-0.parquet                 (module consumption, merged state)
@@ -61,7 +63,7 @@ from valuelens_core.incremental import (DEFAULT_INCREMENTAL_LOOKBACK_DAYS, NULL_
                                         processor_config_fingerprint)
 from valuelens_core.processor import conversation_predicate_sql, update_conversations
 
-from . import runlock
+from . import continue_run, runlock
 from .config import Settings
 from .storage import LeaseHeld, LocalStore, open_store
 from .tables import parquet_glob, q
@@ -830,8 +832,9 @@ def main(argv=None, env=None, clock=time.monotonic) -> int:
         except LeaseHeld as held:
             return runlock.stopped(held, steps, settings)
     collect_errors = {}
-    published = None
+    audit = published = next_run = None
     collects = recorded = False
+    released = True
     try:
         if store is not None and settings.sample_data:
             import tempfile
@@ -854,7 +857,8 @@ def main(argv=None, env=None, clock=time.monotonic) -> int:
 
                     load(store, consumption=settings.has("consumption"))
                 else:
-                    collect_errors = collect(store, settings, budget=budget).get("errors", {})
+                    out = collect(store, settings, budget=budget)
+                    collect_errors, audit = out.get("errors", {}), out.get("audit")
             elif step == "process":
                 full = _start_owed_rebuild(store, budget, process_options["full_rebuild"]) if tenant \
                     else process_options["full_rebuild"]
@@ -883,17 +887,23 @@ def main(argv=None, env=None, clock=time.monotonic) -> int:
                 refresh_step(settings, publish_results=published, deadline=budget.refresh_deadline,
                              clock=budget.clock, **owed)
             log.info("step %s: done", step)
+        if collects and not collect_errors:
+            # Counted while this run holds the run lock; started once it's released (see continue_run).
+            next_run = continue_run.decide(store, environ, audit)
     finally:
         try:
             if collects and not recorded:
                 _close_merge(store)
         finally:
             if lock is not None:
-                lock.release()
+                released = lock.release()
     # The run lock is released: what follows runs without it.
     if collect_errors:
         raise RuntimeError("the run published what it collected, but these sources failed and resume next run: "
                            + "; ".join(f"{k}: {v}" for k, v in collect_errors.items()))
+    if next_run:
+        # A lock that couldn't be released lapses within LEASE_SEC: the next run would stop behind it before then.
+        continue_run.start(next_run, wait=0 if released else runlock.LEASE_SEC)
     return 0
 
 

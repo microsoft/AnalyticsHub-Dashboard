@@ -570,7 +570,9 @@ export function fakeArm() {
   const failures = {};
   /** The signed-in user's ARM permissions by scope. Anything not listed allows everything. @type {Record<string, { actions?: string[], notActions?: string[] }[]>} */
   const perms = {};
-  const offered = (/** @type {string} */ name = 'gpt-5-mini', /** @type {string} */ version = '2025-08-07') => ({ kind: 'AIServices', model: { name, version, skus: [{ name: 'GlobalStandard' }, { name: 'DataZoneStandard' }] } });
+  /** Azure role assignments: those assignRole made, and any a test adds, as myRoleAssignments returns them. @type {{ properties: { roleDefinitionId: string, principalId: string, scope: string } }[]} */
+  const roleAssignments = [];
+  const offered =  (/** @type {string} */ name = 'gpt-5-mini', /** @type {string} */ version = '2025-08-07') => ({ kind: 'AIServices', model: { name, version, skus: [{ name: 'GlobalStandard' }, { name: 'DataZoneStandard' }] } });
   /** Azure AI: models and quota by region ('*' = any), accounts, and deployments by account ID. */
   const ai = {
     /** @type {Record<string, any[]>} */ models: { '*': [offered()] },
@@ -725,6 +727,7 @@ export function fakeArm() {
             sqlServerFqdn: { value: 'vlens-sql.database.windows.net' },
             sqlDatabaseName: { value: 'valuelens' },
             runJobName: { value: 'vlens-run' },
+            runJobPrincipalId: { value: 'run-sp' },
             migrateJobName: { value: 'vlens-migrate' },
             webFqdn: { value: 'vlens.example.com' },
             webUrl: { value: 'https://vlens.example.com' },
@@ -737,6 +740,12 @@ export function fakeArm() {
     assignRole: async (/** @type {string} */ scope, /** @type {string} */ role, /** @type {string} */ principal, /** @type {string} */ type) => {
       calls.push(`assignRole ${scope} ${role} ${principal} ${type}`);
       fail('assignRole');
+      roleAssignments.push({ properties: { roleDefinitionId: `/subscriptions/${scope.split('/')[2]}/providers/Microsoft.Authorization/roleDefinitions/${role}`, principalId: principal, scope } });
+    },
+    /** Assignments at or above `scope` for these principals, as Azure's assignedTo filter returns them. */
+    myRoleAssignments: async (/** @type {string} */ scope, /** @type {string[]} */ ids) => {
+      fail('myRoleAssignments');
+      return roleAssignments.filter((a) => ids.includes(a.properties.principalId) && scope.toLowerCase().startsWith(a.properties.scope.toLowerCase()));
     },
     listAiAccounts: async () => {
       fail('listAiAccounts');
@@ -813,7 +822,7 @@ export function fakeArm() {
       return { ...structuredClone(resources[at]), properties: { ...resources[at].properties, provisioningState: state } };
     },
   };
-  return { api, calls, resources, groups, executions, jobExecutions, jobTemplates, failures, restrictedSqlRegions, ai, regions, perms, deleteStates, inUse, locks };
+  return { api, calls, resources, groups, executions, jobExecutions, jobTemplates, failures, restrictedSqlRegions, ai, regions, perms, roleAssignments, deleteStates, inUse, locks };
 }
 
 /** Rich Graph fake for Azure app registration work. */

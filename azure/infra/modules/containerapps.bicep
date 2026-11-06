@@ -125,6 +125,8 @@ var runJobTimeoutSec = 14400
 var runJobEnv = concat(jobEnv, [
   { name: 'VALUELENS_DUCKDB_MEMORY_LIMIT', value: '5GiB' }
   { name: 'VALUELENS_JOB_TIMEOUT_SEC', value: string(runJobTimeoutSec) }
+  // A run that paused on its time budget starts the next run of this job (continue_run in the jobs).
+  { name: 'VALUELENS_RUN_JOB_ID', value: resourceId('Microsoft.App/jobs', runJobName) }
 ])
 var registries = empty(registryServer) ? [] : [{ server: registryServer, identity: identityId }]
 var identity = {
@@ -136,7 +138,12 @@ resource runJob 'Microsoft.App/jobs@2024-03-01' = {
   name: runJobName
   location: location
   tags: tags
-  identity: identity
+  // The shared identity, plus a system-assigned one that only the run job has. The installer gives that one
+  // Container Apps Jobs Operator on this job alone, so a run can start the next one (azure/DESIGN.md, identities).
+  identity: {
+    type: 'SystemAssigned,UserAssigned'
+    userAssignedIdentities: identity.userAssignedIdentities
+  }
   properties: {
     environmentId: env.id
     workloadProfileName: 'Consumption'
@@ -222,3 +229,5 @@ resource web 'Microsoft.App/containerApps@2024-03-01' = if (deployWeb) {
 output environmentId string = env.id
 output webUrl string = deployWeb ? 'https://${web!.properties.configuration.ingress.fqdn}' : ''
 output webFqdn string = deployWeb ? web!.properties.configuration.ingress.fqdn : ''
+// The run job's own identity: the installer lets it start the run job, and nothing else.
+output runJobPrincipalId string = runJob.identity.principalId
